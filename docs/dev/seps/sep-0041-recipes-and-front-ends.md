@@ -178,7 +178,7 @@ n_save = 201
   profile, and on the object routes `space`, `medium`, `initial`, `responses`, `settings`)
   are inline tables or arrays of tables with a `type` key naming a constructor from a fixed
   registry in `solprop.recipe`, and the constructor's keywords:
-  `pulses = [{type = "GaussianPulse", lambda0 = "800 nm", fwhm = "30 fs", energy = "1 mJ"}]`.
+  `pulses = [{type = "GaussianPulse", wavelength = "800 nm", fwhm = "30 fs", energy = "1 mJ"}]`.
   Only registered types load; a recipe never imports a module or evaluates code.
 - **Data files.** Arrays (a measured spectrum, an index table, a mode table) are referred to
   by a path relative to the recipe, with a SHA-256 recorded beside it and checked on load:
@@ -537,3 +537,295 @@ inside `plane()`.
 ## Part III — History
 
 - 2026-10-31: Drafted, from the requirements of a desktop front end under design.
+
+### AI review, 2026-10-31
+
+Reviewer: Opus 5.5 (AI). Read the whole of Part I at revision `02d09ab` against SEP 0's
+acceptance criteria and the code on that revision, with probes in the project
+environment (signatures, small builds, one 1 mm GNLSE run on `numpy_ref`, no test
+suite). **Recommendation: revise before acceptance.** The purpose and the split of work
+between solprop and a front end are sound, and the API changes are additive as claimed.
+Three findings are blockers: the default configuration cannot be resumed from a file
+(R3), the format's vocabulary is not one set of keywords (R4), and the phase plan
+contradicts SEP 0 (R10). Two findings concern the first public release (R1, R2).
+
+One trivial edit was made to Part I: in section 5.1 the inline `GaussianPulse` table
+used `lambda0`, which `GaussianPulse` does not accept; it now uses `wavelength`, its
+keyword. Nothing else in Part I, the header or the history list was changed.
+
+#### Findings
+
+1. **R1 — major: the schema bump ends resumability of every earlier file (sections 9,
+   11, 5.5, 5.6, 5.14).** The schema version is inside the resume key
+   (`src/solprop/output/schema.py:2896`), and the guide says so: "only a file written at
+   the current output schema … can be resumed" (`docs/guide/results/resuming.md:47`).
+   So phase 2's bump from 27 to 28 makes every file written by the first public release
+   unresumable by the version that adds S2, by any route. Section 9's "a file written
+   before has no recipe and is resumed from its script" is therefore false. The same
+   applies to S5, S6 and S14 if they add recorded fields: "a change that adds a field to
+   a recorded dataclass moves the configuration hash and bumps the output schema"
+   (`docs/guide/results/output.md:336`), and `SpatialPulse` is a recorded dataclass
+   (fields `temporal, waist, order, propz, jones`). **Recommendation:** the `recipe`
+   dataset is optional and outside the hash, and no reader check refusing a newer
+   schema was found, so store it without a bump and test for its presence. Alternatively, reserve it
+   before the release is tagged. Require S5, S6 and S14 to record new keywords only
+   when they differ from the default, as `configuration["transverse_measure"]` already
+   does, so that their phases do not move the hash. Correct section 9 either way.
+
+2. **R2 — major: the release, not recipe format 1, is the deadline for S14's open rows
+   (sections 5.14, 9, Q3).** Q3 recommends settling the `atol` defaults (1e-14 on
+   `prop_gnlse`, 1e-10 on the gas routes) and the GNLSE `raman` default "before
+   recipe format 1 is published". Once solprop is public, changing either is a change
+   of default for every script, which section 9 itself rules out. Section 9 calls
+   renaming "not recommended". The release also fixes the vocabulary splits that
+   recipes inherit at two levels: routes take `lambda0` and `pulseshape`, while pulse
+   objects and `solprop.tools` take `wavelength` and `shape` (`GaussianPulse(*,
+   wavelength, …)`, `soliton_params(…, wavelength, shape)`). **Recommendation:**
+   decide Q3, and whether these splits are ever to be unified, before the release is
+   tagged. If they are kept, list them in S14's table as deliberate. Nothing else in
+   this SEP needs to land first: every proposed name is new.
+
+3. **R3 — blocker: with default noise, a rebuilt simulation never matches its file
+   (sections 4, 5.1, 5.2, 7).** `noise="default"` with `seed=None` draws a fresh seed
+   at each build. Two `Simulation.from_capillary` calls with identical arguments
+   differ in `noise.seed` and the whole noise spectrum (`RunMetadata.differences`).
+   Running `prop_gnlse` for 1 mm and calling it again with `resume=True` is refused:
+   "these fields changed: noise.seed, noise.spectrum…". "Only what was set is written"
+   therefore makes `solprop resume run.h5` fail for any default run, and the recipe
+   equivalence test of section 7 fails unless a seed is pinned. `Recipe.scan()` has the
+   same issue: a scan builder must pass `point.seed`, or the point is rejected
+   (`docs/guide/workflows/scans.md:255`). **Recommendation:** record the resolved seed
+   with the stored recipe, or have resume take it from the file's noise record. If the
+   change that reuses a stored seed on resume lands first, cite it; on this revision it
+   has not. Define recipe equivalence with the seed fixed, and make `Recipe.scan()`'s
+   builder pass `point.seed`.
+
+4. **R4 — blocker: "the route's keywords" are three different sets (sections 5.1, 5.2,
+   5.14, 6).** `prop_*` takes `output`, `progress`, `progress_period`, `resume`,
+   `snapshots`, `boundary_check` and, on the capillary, `tdse_archive`. None of these is
+   a `Simulation.from_*` keyword; `boundary_check` is applied afterwards to
+   `Simulation.settings` (`src/solprop/driver/interface.py:387`), and the rest go to
+   `Simulation.run`. `from_waveguide` takes `memory_budget`, which no `prop_*` has.
+   Some settings a front end needs are on no keyword surface at all: `fields`,
+   `field_planes` and `resume_history`. The guide sets them by replacing
+   `simulation.settings` (`docs/guide/setup/running.md:445`). `Recipe.build()`
+   returns a `Simulation`, and `to_python()` writes a `prop_*` call, so the format must
+   say which set it uses. **Recommendation:** define the vocabulary as the `from_*`
+   keywords plus a named list of execution settings (`boundary_check`, `memory_budget`,
+   `fields`, `field_planes`, `backend`). Refuse `output`, `progress`, `resume` and
+   `snapshots` in a recipe, since the command line supplies them. Extend S9's sync
+   test to all three surfaces, and add the `memory_budget` asymmetry to S14.
+
+5. **R5 — major: the quantity rule is not exact, and one unit per keyword is not
+   enough (sections 4, 5.1, 5.9, 7).** Scaling by a factor table in binary floating
+   point changes values. `7.5 * 1e-15` is `7.500000000000001e-15`, `800 * 1e-9` is
+   `8.000000000000001e-07` and `275 * 1e-6` is `0.00027499999999999996`, each 1 ulp
+   from the literal a script writes. Records serialise floats exactly, so section 1's
+   round trips (equal `configuration_hash`) fail for the SEP's own example. Several
+   keywords also mix units inside one value: `phases` is `[rad, s, s², s³, …]`
+   (`src/solprop/driver/interface.py:531`), `betas` is in sⁿ/m by order, and the
+   `(z, p)` form of `pressure` pairs metres with bar (`interface.py:870`). **Recommendation:**
+   convert in decimal, by exponent shift of the parsed mantissa, then round once to
+   the nearest double; the three examples then give the literal. Check dimensions,
+   not only scale, so that `"125 um"` for `pressure` is refused. Let S9 give a unit per
+   element or per form for these keywords. Writing `8e-07` back as `"800 nm"` needs the
+   same decimal rule.
+
+6. **R6 — major: format 1 must say how to write `None`, and what `from_call` refuses
+   (section 5.1).** TOML has no null. Yet `None` is a deliberate non-default value for
+   several keywords: `noise=None` turns noise off against the default `"default"`
+   (`interface.py:131`), and `absorber=None` and `absorber=False` mean different things.
+   Callables are accepted by `beta`, `loss` and `MarcatiliMode(loss=…)`; the format
+   cannot hold them. Also, `ZProfile` values built by class methods
+   (`PressureGradient.two_point`) are not described by a constructor's keywords.
+   **Recommendation:** fix a spelling for `None` in format 1, for example the string
+   `"none"` where a keyword accepts `None`, and record it in the metadata. State that
+   `from_call` refuses callables and arbitrary arrays, naming the keyword. Test every
+   registered type in both directions (table → object → table), not only its
+   constructor.
+
+7. **R7 — major: the recorded recipe can disagree with the run it is stored beside
+   (section 5.2).** The recipe is outside the hash, so nothing checks it. A simulation
+   built from a recipe can still change before it runs: the `settings` setter
+   (`src/solprop/driver/simulation.py:1755`), `with_input` (which takes an array) and
+   `with_mixture`. The file would then hold a recipe that does not rebuild its run.
+   "Only what was set is written" also means a file reopened under a later solprop
+   shows that version's defaults, not the run's. **Recommendation:** store with the
+   recipe the `configuration_hash` it built. At run start, drop or refuse the recipe
+   when the simulation's hash differs, and on resume compare the two. Store a resolved
+   recipe (every keyword, the seed included) beside the as-written one, so that a front
+   end can show the setup that ran.
+
+8. **R8 — major: the plane observer's device and cost statements do not hold in
+   general (sections 5.3, 6).** "On device backends the plane has already been copied
+   to the host" is false for field-free planes. Under `fields="none"` or `"planes"`, "a
+   field-free plane asks the backend for no field at all … so nothing crosses to the
+   host" (`src/solprop/driver/run.py:739`), and `run_scan` defaults to `fields="none"`.
+   If `NullReporter` implements `observe`, every `progress="none"` run satisfies
+   `ObservingReporter`; the protocols are `runtime_checkable`, so the check is by name
+   (`src/solprop/log.py:340`). The driver could then build a `PlaneView` at every plane
+   of every quiet run. For the same reason, any existing reporter with an attribute
+   named `observe` would start receiving calls; `Backend.observe(*, field=…)` shows
+   the name is already in use. The time-domain and per-mode views need transforms that
+   someone pays for. **Recommendation:** say what `PlaneView` offers on a field-free
+   plane: no field, or a fetch whose transfer is stated. Make `PlaneView` lazy, and do
+   not give `NullReporter` the method. Choose a specific name, such as `observe_plane`.
+   Test neutrality on `numpy_ref`, `numba_cpu` and the native build, with field-free
+   planes included.
+
+9. **R9 — major: S10's premise and S8's completeness test do not match the code
+   (sections 3, 5.8, 5.10, 7).** Builders already raise `SolpropError` subclasses:
+   across the package there are 249 `raise DriverError`, 574 `TranslationError` and
+   409 `ModeError`, and only 17 bare `ValueError`/`TypeError`, none in the interface
+   builders. So the reclassification in section 5.10 is nearly empty. The real gap is
+   the other way: `DriverError` is a `RuntimeError` (`src/solprop/exceptions.py:106`),
+   so `except ValueError` does not catch a refused keyword. "Every refusal is listed"
+   cannot be tested as written. `driver/simulation.py` alone has 151 refusals, and
+   `translate/` has 533; most depend on values (grid coverage, node budgets, material
+   validity), not on keyword combinations. `check()` stops before translation, which
+   holds those 533 sites and costs 0.13 s warm against 0.02 s for the build in a probe
+   of section 5.1's capillary. **Recommendation:** give rule ids only to the
+   combination refusals of the interface layer (route × keyword × species). Enforce
+   them with a lint-style test that every `parameter=` refusal names a rule, and leave
+   value refusals to `check()`. Let `check()` translate, stopping before backend
+   construction. Collect every issue only at the metadata level (type, unit, range,
+   unknown key), then report the builder's first refusal.
+
+10. **R10 — blocker: the phase plan contradicts SEP 0 (section 11).** "Each phase
+    merges on its own with a green gate" and "a front end can start on phase 1 alone"
+    conflict with SEP 0 *Implementation*. Every phase is made on one branch, and the
+    SEP reaches `main` in one pull request when its last commit sets `Final`. Under that
+    rule the front end gets nothing until all six phases, including drawings and
+    retrieval formats, are done. **Recommendation:** either split the proposal, with
+    S1, S2, S9, S10 and S15 in this SEP and the front-end hooks (S3–S8, S11–S14) in a
+    second, or record a justified exception to SEP 0. Phase 1 also covers
+    `prop_waveguide`, whose `modes` and `provider` are objects. That brings mode and
+    guide types into phase 1's registry, not phase 4's.
+
+11. **R11 — minor: S5 overlaps keywords that exist and names modes in a form that does
+    not exist (section 5.5).** `prop_waveguide` already has `channel` ("by index or
+    display label", `interface.py:1376`) and `incident` with `coupling`. Mode labels are
+    `ChannelLabel`s that display as `HE1,1:even`, not `"HE11"`, and the parity matters
+    when both polarisations are present. No keyword of these routes takes a field
+    array; the array path is `Simulation.with_input`. A per-run `launch` cannot express
+    a two-colour input with the pump and seed in different modes. **Recommendation:**
+    resolve labels as `channel` does, state how `launch` relates to `channel`,
+    `incident` and `with_input`, and decide whether `launch` is per pulse.
+
+12. **R12 — minor: S6 introduces physics without theory, and a second name for an
+    existing quantity (sections 4, 5.6).** `coupling.Alignment` calls the offset
+    `displacement`. Its tilt is a phase screen with the medium's wave number, certified
+    against a required `model_error` (`src/solprop/coupling/elements.py:1612`). For a
+    broadband beam, a tilt defined with $k(\omega)$ is a pure angle, while one defined
+    with $k_0$ adds angular dispersion. Section 4's "no new physics" does not settle
+    which. **Recommendation:** define the tilt in section 4, reuse `displacement` (or
+    rename both consistently before either is published), and say whether the screen's
+    budget applies. See R1 for the record.
+
+13. **R13 — minor: the general design solver needs more than a mode builder (sections
+    3, 5.7, 7).** `pressure_rdw` already takes a `lattice` and builds a `VincettiMode`
+    (`src/solprop/tools.py:2661`), so section 3's "written for the Marcatili
+    capillary" is too narrow. The tools search rather than bracket once: the
+    zero-dispersion search samples $\beta_2$ and discards sign changes through a pole,
+    because a VUV resonance flips its sign twice, and the modes' own `zdw` misses such
+    pairs (`docs/guide/workflows/design-tools.md:98-111`); `pressure_rdw` samples 129
+    logarithmic and 129 linear pressures. A generic root finder over a bracket would
+    reintroduce the failure the tools avoid, and the parameter-to-target map need not be
+    monotonic. `solve_parameter` should reuse these searches and report every root it
+    finds. The `("rdw", (pump, rdw))` target omits `pressure_rdw`'s `peak_power` and
+    `nonlinear_phase`, so it can reproduce `pressure_rdw` only for linear phase
+    matching. A `mode` keyword beside the
+    required positional `radius` is awkward. **Recommendation:** carry the nonlinear
+    phase in the target, return all roots, and make the `mode` form a separate function
+    or make `radius` optional when `mode` is given.
+
+14. **R14 — minor: metadata needs effective defaults and constructor tables (section
+    5.9).** Many defaults are `None` resolved by rule: `rtol` (per route), `plasma` and
+    `thg` (`not envelope`), `step_planes` (0, or 1 with TDSE), `raman` (by species) and
+    `pressure` (one bar). A front end must show the value that will be used, which the
+    signature does not give. Object tables (`GaussianPulse`, modes, profiles) need
+    units for their own keywords, but S9 covers only interface functions.
+    **Recommendation:** add a "resolved by" rule or resolver per keyword, and extend
+    S9 to every registered type.
+
+15. **R15 — minor: section 3 is wrong about scan progress (sections 3, 5.4).**
+    `run_scan` already has `progress="auto"` with an outer bar or one log line per
+    finished point (`src/solprop/driver/_scan_run.py:760`); only the inner runs use
+    `progress="none"`. A pool knows when it dispatches a point, but per-point events
+    from a worker need new messages on the worker pipe. **Recommendation:** correct
+    section 3, state how a `ScanReporter` combines with the literal choices, and say
+    what the pool's forwarding sends.
+
+16. **R16 — minor: the cost estimate as described would include start-up and could
+    allocate what it is meant to admit (section 5.11).** Timing right-hand sides needs
+    a constructed backend, which allocates the persistent memory the estimate reports.
+    On a cold process, numba compilation and FFTW planning exceed "about a second".
+    Calls per step differ by integrator (one for the exponential multistep, six or
+    seven for Runge–Kutta). **Recommendation:** admit memory first, exclude warm-up from
+    the timing, and report cost per right-hand side with the integrator's calls per
+    step.
+
+17. **R17 — minor: loading other people's files needs stated limits (sections 5.1,
+    5.2, 7).** `solprop resume` on a received HDF5 file executes that file's recipe.
+    Embedded data files must be read into memory or written under generated names,
+    never at their stored names, which could hold `../` paths. The recipe's execution
+    keys must not choose output, archive or snapshot paths (R4). Node and memory
+    budgets bound a hostile grid. "Outside the recipe's directory" must resolve symbolic
+    links. Parsing an untrusted HDF5 file is itself an exposure of the HDF5 library.
+    **Recommendation:** add these to section 5.2 and to the safety tests, and say in
+    the guide that resuming a received file runs its setup.
+
+18. **R18 — minor: a front end needs a few hooks the SEP does not list (sections 2, 5).**
+    Exploring a guide before a run needs the modes a recipe would build, without
+    building the run (`Recipe.modes()` or similar). A preview of the input needs the
+    pulse and beam on the grid. Warnings should carry `parameter` as errors will
+    (`MaterialRangeWarning`, `BoundaryWarning`, the provisional-Raman warning). The
+    boundary monitor's verdict should reach a reporter, not only the log and the file.
+    Cross-field rules (energy or peak power; pulse inside the window) should be
+    machine-evaluable if S8 is to serve instant validation. **Recommendation:** add
+    these to S8–S10, or defer each explicitly to a named phase.
+
+19. **R19 — minor: verification tolerances and backends (section 7).** "Matches … to
+    rounding" should name the bound and where it is set (the reproducibility page).
+    The loaders need a stated tolerance on energy and centre wavelength. SEP 0
+    *Completion* requires the observer and the estimate to run on `numpy_ref`,
+    `numba_cpu` and the native build, with parity. Round-trip tests need a pinned seed
+    (R3) and exact quantity conversion (R5). **Recommendation:** add these to
+    section 7.
+
+20. **R20 — minor: other statements about current code (section 3).** `prop_planar`
+    takes no `medium`, and all three object routes take `grid` first and `frame`.
+    `SpatialPulse`'s signature starts with `temporal`. Not every error carries only a
+    message: `ResponseBudgetError` carries `z`, `field` and `calls`. S15's sidecar is
+    already documented, under snapshots (`docs/guide/results/output.md:475`), so S15
+    moves the text rather than writing it. The guide pages section 8 will edit state
+    stale schema numbers: 22 in `resuming.md:47` and 25 in `output.md:308`, against
+    `SCHEMA_VERSION = 27`. **Recommendation:** correct section 3. The stale numbers are
+    outside this SEP but are worth fixing before the release.
+
+#### Verdict on "every change is additive"
+
+For the Python API the claim holds. Every name is new, and new keywords default to
+today's behaviour. Exception reclassification by multiple inheritance keeps existing
+`except` clauses. `step_planes=None` on `prop_gnlse` widens an `int` annotation without
+changing behaviour. There are three qualifications. Files are not compatible across
+the change: the schema bump and any newly recorded fields end resume of earlier files
+(R1). `observe` on `NullReporter` changes what the driver does for existing reporters
+that already have such an attribute (R8). And the defaults and names S14 leaves open
+become fixed when solprop is first published, not when recipe format 1 is (R2).
+Nothing must land before the release for API reasons. Q3, the vocabulary splits and the
+schema policy for the `recipe` dataset should be decided before it.
+
+**Evidence and limits.** Probes on revision `02d09ab`:
+
+- `inspect.signature` of the six routes, the three `from_*`, `Simulation.run`,
+  `run_scan`, `SpatialPulse`, `DataPulse`, `GaussianPulse` and the design tools.
+- Repeated `from_capillary` builds compared with `RunMetadata.differences`.
+- A 1 mm `prop_gnlse` run on `numpy_ref` and its refused resume. The native backend was
+  not used: the shared environment's extension did not match this revision.
+- Build and translate timings of the section 5.1 capillary, warm.
+- Counts of `raise` sites by class.
+- The three float products in Python.
+
+No test suite, propagation qualification or GPU run was performed. Front-end needs were
+judged against the requirements stated in Part I, section 2.
