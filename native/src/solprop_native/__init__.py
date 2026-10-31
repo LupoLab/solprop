@@ -152,6 +152,8 @@ if not any(
     for name in ("OPENBLAS_NUM_THREADS", "GOTO_NUM_THREADS", "OMP_NUM_THREADS")
 ):
     _core.fit_blas_threads(min(_REQUESTED_THREADS, THREAD_BUDGET.threads))
+# A compact problem's products then run on one OpenBLAS thread (``CpuTeamScope``).
+_core.register_host_blas()
 
 DRIVER_SURFACE: tuple[str, ...] = (
     "_adams_adopt",

@@ -297,10 +297,20 @@ def test_response_column_boundary_preserves_full_and_tail_windows(chunk: int) ->
     try:
         sizing = cast(dict[str, dict[str, int]], backend.metadata()["execution_sizing"])
         columns = 2 * chunk
-        choice = sizing[f"kernels.response.{columns * grid.n_to}.samples.{grid.n_to}"]
+        key = f"kernels.response.{columns * grid.n_to}.samples.{grid.n_to}"
+        choice = sizing[key]
         assert choice["columns"] == columns
+        # A kernel pool that already holds a full-width instance keeps its team: a
+        # medium-width response takes the full pool too, except on macOS.
+        full_team = sys.platform != "darwin" and any(
+            entry["threads"] == INFO.thread_count
+            for name, entry in sizing.items()
+            if name.startswith("kernels.") and name != key
+        )
         assert choice["threads"] == (
-            min(INFO.thread_count, 4) if columns < 40 else INFO.thread_count
+            min(INFO.thread_count, 4)
+            if columns < 40 and not full_team
+            else INFO.thread_count
         )
         backend.set_initial(problem.initial.field0, None)
         backend.propagate_to(float(problem.stepper.save_planes[-1]))

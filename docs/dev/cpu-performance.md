@@ -99,6 +99,44 @@ time divided by the native backend's: above 1, the native backend is faster.
   - Two interactions were found and corrected during qualification:
     - a narrow response stage followed by a full-width FFT on the Cartesian filament;
     - a serialised coupled-flow matrix on the scalar wall.
+- **A stable kernel team** ([measurements](benchmarks.md#a-stable-kernel-team)). GNU OpenMP
+  ends surplus pool threads whenever a narrower region follows a wider one, so a
+  four-thread kernel between full-width ones re-created twelve threads each time (about
+  0.45 ms at 16 threads). A kernel pool with a full-width instance now gives it to its
+  medium-width kernels; FFT plans keep four threads, as FFTW's loops keep the whole team.
+  `h2_raman_averaged` became 1.9-2.1 times faster at 16 threads (faster than one thread
+  again) and `argon_blueshift` 1.2-1.4 times, on a Xeon Gold 6240 and an AMD EPYC 7763.
+  Not on macOS: on an Apple M5 Max (cores of two kinds) the promotion slowed
+  `argon_blueshift`; on Windows, also LLVM's libomp, it still gained.
+- **A compact team for one-column problems** ([measurements](benchmarks.md#compact-cpu-teams)).
+  A GNLSE or mode-averaged run woke all sixteen threads for its stage entry between
+  serial transforms; the main thread then ran at a lower clock and fetched its arrays
+  from other cores, so `gnlse_raman_shock` gained nothing over one thread. Such a
+  problem now runs every kernel on at most eight threads and its FFTs on the same team,
+  through FFTW's loop callback inside a per-call scope (FFTW's own loop takes the
+  runtime's whole team, which would end and restart threads beside a narrower kernel
+  team), its threaded transforms at the team's width. At 16 threads `gnlse_raman_shock`
+  takes 0.77 of its time on a Xeon Gold 6240 and 0.97 on an AMD EPYC 7763, and
+  `h2_raman_averaged` 0.90 and 0.97; one thread is unchanged.
+  Threading the Raman transforms from the modal FFT's start gained 2-6 % on a Xeon Gold 6240 but
+  lost 6-17 % on the EPYC, and was not kept. The scope also sets the OpenMP default
+  width to one for an OpenMP OpenBLAS, whose threaded GEMV between the team's kernels
+  re-created threads at every call on aarch64 (not `openblas_set_num_threads`, which
+  frees and reallocates its thread buffers each time).
+- **One-mode products on the response team** ([measurements](benchmarks.md#one-mode-products-on-the-response-team)).
+  One real mode at several nodes synthesised and projected through the vendor GEMM, which
+  threaded each 33 × 1 and 2 × 33 product over its own pool at 2.3 times its one-thread
+  cost; two small kernels now run them on the band column's response team. Plain
+  loops tried earlier ran on the product's serial instance and lost; on the team
+  `argon_blueshift` takes 0.68 of its time at 16 threads on a Xeon Gold 6240 and 0.60
+  on an AMD EPYC 7763, one thread unchanged. OpenBLAS builds only: with Apple's
+  Accelerate the GEMM was faster, and the kernels slowed `argon_blueshift` on macOS.
+- **NumPy's BLAS held to one thread while a native backend lives**
+  ([measurements](benchmarks.md#numpys-blas-beside-a-native-run)). Its pthreads
+  workers, woken by the small host-side products of each saved plane, spun on the native
+  pool's cores for the whole run: at 16 threads the four-mode capillary became 2.2 times faster on a Xeon Gold
+  6240 (1.3 times on an AMD EPYC 7763), the radial filament 1.4 (1.6) times and averaged
+  helium 1.4 (2.9) times; one thread is unchanged.
 - **Measured FFTW wisdom only for serial transforms by default**
   ([measurements](benchmarks.md#threaded-fft-plan-selection)). FFTW's construction-time
   trials sometimes chose a slower *threaded* plan: on a 32-core AVX-512 server at 32
@@ -110,6 +148,14 @@ time divided by the native backend's: above 1, the native backend is faster.
     opposite rule (measured only when threaded) and now follows the rows'. All seeding
     happens before the first plan is made; the plasma streams' plans were made earlier
     and stayed at estimate.
+
+- **Measured plans kept across processes** (`SOLPROP_FFTW_WISDOM`, opt-in;
+  [measurements](benchmarks.md#persistent-fftw-wisdom)). A scan of one-thread jobs
+  measured the same plans in every job: 0.5–4 s of construction against windows of 0.1–8
+  s on a Xeon Gold 6240. With the wisdom file in place a job constructs its backend in
+  tens of milliseconds and runs its window as fast. A shorter search instead
+  (`fftw_set_timelimit` of 0.01–0.2 s) gave plans 10–30 % slower to execute, and
+  estimate plans ran one-thread windows up to 1.6 times slower on an AMD EPYC 7763.
 
 **Tried and not adopted**
 - **`FFTW_PATIENT` planning.** It adds seconds of construction and gave no measured
@@ -140,12 +186,83 @@ time divided by the native backend's: above 1, the native backend is faster.
   values and peaks survive rejected trials, and existing scratch is reused without
   a new field allocation. The [lightweight measurements](benchmarks.md#native-cpu-fft-and-diagnostic-scheduling)
   record the affected windows and their limits.
+- **The exponential Adams passes as vector lanes on x86-64**
+  ([measurements](benchmarks.md#the-adams-passes-on-x86-64-lanes)). A host block of 32
+  elements is a structure of arrays and every step of the predict and correct passes a
+  loop over its lanes; the strict parts keep each element's operations and rounding.
+  The passes are 2–2.7 times faster on the AMD EPYC 7763 at one thread, single-mode
+  capillary windows 30–37 % faster. What kept GCC's loops scalar, worth knowing for any
+  lane kernel: a strict helper called from a contracting kernel is an out-of-line call
+  (GCC will not inline across `optimize` attributes); a selection whose kept value
+  depends on a lane flag becomes a conditional store, which GCC if-converts only with
+  masked stores (AVX-512, not AVX2 under its Zen tuning), so select by bits; an ordered
+  comparison taken on some lanes only "could trap" and blocks if-conversion, so use the
+  quiet `std::isless`-family; AVX2 has no int64-to-double conversion; and under LTO or
+  the `optimize` attribute `-fopt-info` reports nothing, so check a kernel with a copy
+  compiled without them.
 - **Resident Adams history: no dense-output volumes when planes are landed on**
   ([measurements](benchmarks.md#resident-adams-storage)). Storage
   went from 29 to 18 field volumes. The projected 384² Kerr-beam peak went from 62.7 to
   48.2 GiB, against `numba_cpu`'s 34.8 GiB.
 
+- **Radial route: square analytic maps synthesise the retained spectrum**
+  ([measurements](benchmarks.md#retained-radial-synthesis-and-raman-modal-products)).
+  The product covers the coarse bins rather than the padded analytic signal; the
+  radial filament took 0.93 of its time at one thread and 0.95 at 16 on an 18-core Xeon,
+  and 0.87 at one thread on an AMD EPYC 7763.
+- **Raman: convolve the modal products, not the node drives**, where they are fewer
+  ([measurements](benchmarks.md#retained-radial-synthesis-and-raman-modal-products)).
+  Three-mode CTC: 0.88 at 16 threads on a Xeon Gold 6240; 0.83 at one thread and 0.92 at 16 on
+  the EPYC.
+- **The modal stage entry's finish and combination as lanes**
+  ([measurements](benchmarks.md#host-stage-entry-free-space-crossings-and-statistics)),
+  and a block whose phases carry no loss skips its magnitudes' `exp` passes. A 16384-bin
+  GNLSE with Raman takes 0.84 of its time at one thread on a Xeon Gold 6240.
+- **Free space's low-storage fold in the transverse scratch's layout**
+  ([measurements](benchmarks.md#host-stage-entry-free-space-crossings-and-statistics)):
+  only the state crosses layouts, a tile of it at a time. Crossings find their scratch
+  cells without dividing by the polarisation count, the pack stores each row's run at
+  once, the boundary monitor sums runs of a row and a radial run's local statistics
+  synthesise through GEMMs. `kerr_beam_192` takes 0.64 of its time at one thread, the
+  384² beam 0.85 at 16, the radial filament 0.83 at one thread; fields are bitwise
+  equal. What made these kernels slow, worth checking in any other: a 64-bit division by
+  a run-time count in an element's index (GCC folds `n == 1 ? i : i / n` back into the
+  division, so the one-polarisation flag must be a value of its own), and a traversal
+  that reads four arrays 32 columns apart at every bin, which the prefetchers do not
+  follow.
+
+- **The band plasma column's host passes as block loops**
+  ([measurements](benchmarks.md#band-column-passes-and-the-general-routes-real-signal)).
+  A rate block that is mostly live takes every sample through the vector-maths passes
+  and selects the table's limits after, the fractions come from one strict block loop,
+  the loss guard's branch is a selection, a one-thread team scans in one pass (Kokkos'
+  host team scan runs each closure twice), and on x86-64 the nine-tap filter runs a
+  block of samples one tap pair at a time. The band statistics take the same blocks.
+  The resolved three-mode CTC takes 0.70 of its time at one thread on a Xeon Gold 6240, resolved
+  argon 0.64; only the filter's contraction moves values, by rounding. What kept these
+  loops scalar: an out-of-line strict helper per sample, a conditional division (an
+  ordered comparison guarding it), a short-circuit `||` in a classification loop, and a
+  loop that stores through a pointer while it gathers from a table view, which GCC
+  cannot prove apart once the function is compiled out of line (the rate table's cubic
+  now writes a local block).
+- **General route: a real-form cubic reads its field from a complex-to-real transform**
+  ([measurements](benchmarks.md#band-column-passes-and-the-general-routes-real-signal)).
+  The real part of the analytic signal is the c2r transform of the one-sided spectrum
+  with its doubled bins halved, exactly, so the inverse transform does half the work and
+  the response reads a real row; with the projection's block of bins widened to the
+  whole row at one thread and the synthesis summed in blocks of local bins, the
+  graded-index guide takes 0.70 of its time at one thread and 0.80 at 16 on a Xeon Gold 6240.
+
 **Tried and not adopted**
+- **Skinny products off the vendor BLAS** (the native-order kernel for small left
+  matrices; plain loops for one mode). Both lost to the vendor library's threaded GEMM
+  on argon and CTC ([measurements](benchmarks.md#retained-radial-synthesis-and-raman-modal-products)).
+- **The CPU experiment's split Cartesian FFT schedule.** The 384² Kerr beam's transverse
+  pair costs about 0.18 s an evaluation at 16 threads (roughly 50 GFLOP/s), a small
+  share of its step; the experiment's slow direct plans do not occur here.
+- **The CPU experiment's rate-interpolation blocks.** The band column already gathers
+  each block's live samples into one vector-maths pass, which subsumes its zero-block
+  exit and half-active scalar path.
 - **A pooled allocator.** Allocation service in the warmed propagation window is below
   0.25 % of the time, and the native backend makes fewer native requests than `numba_cpu`.
 - **Vector transcendental functions (Accelerate vForce) in the propagator.** They save
@@ -155,13 +272,34 @@ time divided by the native backend's: above 1, the native backend is faster.
   wrapper overhead.
 - **Complete vDSP removal.** Even with NEON codelets, short parallel FFTW plans
   regress former vDSP shapes. Keep the compact construction-time rule above.
-- **Tap-first CPU band filtering.** It preserves tap order and passed the boundary,
-  support-window and high-dynamic-range checks. It improved the x86 windows but
-  repeatedly slowed the Apple-silicon argon window by 6–9%; an architecture-specific
-  fork was not justified. The original traversal remains, with stronger tests.
+- **Tap-first CPU band filtering on every host.** It preserves tap order and passed the
+  boundary, support-window and high-dynamic-range checks. It improved the x86 windows but
+  repeatedly slowed the Apple-silicon argon window by 6–9%. Its block form is now kept
+  to x86-64 hosts, where the column gains more than it did then (the CTC column 0.69 →
+  0.54 s of a one-thread window); other hosts keep the per-sample traversal.
 - **An 8×32 Cartesian crossing tile and omitted unused register loads.** Three
   alternating rounds on the 192² Kerr window reduced the initial apparent gain to
   about 2%, below the complexity threshold. The 32×16 traversal remains.
+- **The Kerr-only free-space stage through one rank-3 FFTW transform**, as a device takes
+  it: no faster than the transform pair with the chunks' pack and crop at one thread,
+  after seconds of measured planning
+  ([measurements](benchmarks.md#host-stage-entry-free-space-crossings-and-statistics)).
+- **Vector maths for the band plasma statistics' rates alone.** Moving only the
+  statistics' rates to SLEEF blocks took the four-mode capillary's statistics pass from
+  8.1 to 7.9 ms a saved plane at one thread on a Xeon Gold 6240: the pass then cost its
+  whole-row band filter, two-pass prefix sum and reductions. With the column's block
+  filter, a one-pass prefix and block fractions as well, the three-mode CTC's pass falls
+  from 22.8 to 14.0 ms (adopted above).
+- **An errno-free square root for the free-space Kerr beam.** A build with
+  `-fno-math-errno` ran the 192² Kerr window 7 % faster on a Xeon Gold 6240 and no faster
+  on an AMD EPYC 7763. No element loop calls the library's `sqrt`: the separable
+  operator's real roots compile to the instruction already, and its complex root (lossy
+  media) is a cold call. The separable fold, where the time went, compiles to the same
+  instructions in both builds; front-end counters put the difference in the uop cache
+  (MITE uops 10.3 against 8.8 G, DSB misses 229 against 155 M, the same instruction
+  count), a layout effect of the whole binary. Declaring the complex root pure, which
+  lets the compiler treat the operator as side-effect free as the flag does, changed no
+  instruction of the fold and measured 1.00–1.01.
 - **A forced one-thread Accelerate BLAS limit.** An initial RDW gain disappeared
   over three alternating rounds on RDW, radial 256, two wall cases and general modal:
   the geometric mean ratio was 1.000. Existing process-start settings remain.

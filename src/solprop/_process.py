@@ -86,10 +86,11 @@ def allowed_cpus() -> tuple[int, ...]:
     """Return the CPUs this process may run on, undoing an OpenMP main-thread binding.
 
     The current affinity, unless ``OMP_PROC_BIND`` is set and the current answer is a
-    single CPU of the wider set the process had when ``solprop`` was imported: that is
-    the runtime's binding of the main thread and not the scheduler's grant, so the
-    import-time set is returned. A deliberate narrowing to several CPUs, or any
-    narrowing without ``OMP_PROC_BIND``, is believed.
+    single CPU, or the hardware threads of a single core, of the wider set the process
+    had when ``solprop`` was imported: that is the runtime's binding of the main thread
+    to its first place (``OMP_PLACES=threads`` or ``cores``) and not the scheduler's
+    grant, so the import-time set is returned. A deliberate narrowing to several cores,
+    or any narrowing without ``OMP_PROC_BIND``, is believed.
 
     Returns
     -------
@@ -106,9 +107,9 @@ def allowed_cpus() -> tuple[int, ...]:
     binding = os.environ.get("OMP_PROC_BIND", "").strip().lower()
     if (
         binding not in {"", "false"}
-        and len(current) == 1
-        and len(_AT_IMPORT) > 1
+        and len(_AT_IMPORT) > len(current)
         and set(current) <= set(_AT_IMPORT)
+        and (len(current) == 1 or physical_cores(current) == 1)
     ):
         return _AT_IMPORT
     return current

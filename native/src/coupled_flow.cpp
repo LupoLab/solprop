@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "solprop_native/coupled_flow.hpp"
+#include "solprop_native/launch.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -42,7 +43,7 @@ void upload(const ExecutionSpace& execution, const View& destination,
   auto* data = mirror.data();
   for (std::size_t index = 0; index < source.size(); ++index)
     data[index] = source[index];
-  Kokkos::deep_copy(execution, destination, mirror);
+  graph::deep_copy(execution, destination, mirror);
 }
 
 KOKKOS_INLINE_FUNCTION Complex flow_exponential(const Complex value) {
@@ -450,7 +451,7 @@ CoupledFlowAction::form_actions(const std::size_t section, const double dz,
   }
   // Forgotten first: a refusal of what this forms leaves no action set behind.
   ready_ = false;
-  Kokkos::deep_copy(kernels_, fractions_, host_fractions_);
+  graph::deep_copy(kernels_, fractions_, host_fractions_);
   const auto slots = n_stages_ + 1;
   const auto whole = n_stages_;
   const auto modes = n_modes_;
@@ -467,7 +468,7 @@ CoupledFlowAction::form_actions(const std::size_t section, const double dz,
   const auto inverse = inverse_;
   const auto gram = gram_;
   const auto measured = measured_;
-  Kokkos::parallel_for(
+  launch::parallel_for(
       "solprop_native.flow.form_actions",
       Kokkos::RangePolicy<ExecutionSpace>(kernels_, 0, active_),
       KOKKOS_LAMBDA(const std::size_t bin) {
@@ -506,7 +507,7 @@ CoupledFlowAction::form_actions(const std::size_t section, const double dz,
         measured(bin) = spectral_norm(forward, whole, bin, modes, gram) *
                         spectral_norm(inverse, whole, bin, modes, gram);
       });
-  Kokkos::deep_copy(kernels_, host_measured_, measured_);
+  graph::deep_copy(kernels_, host_measured_, measured_);
   kernels_.fence("solprop_native coupled flow formation");
   std::copy(host_measured_.data(), host_measured_.data() + active_,
             measured_host_.begin());
@@ -565,8 +566,8 @@ void CoupledFlowAction::set_trial(const std::size_t section,
     counts(stage) = count;
     listed_counts_.at(stage) = count;
   }
-  Kokkos::deep_copy(kernels_, active_terms_, listed);
-  Kokkos::deep_copy(kernels_, active_counts_, counts);
+  graph::deep_copy(kernels_, active_terms_, listed);
+  graph::deep_copy(kernels_, active_counts_, counts);
 }
 
 std::vector<Complex> CoupledFlowAction::actions_to_host(const bool inverse) const {
@@ -595,7 +596,7 @@ void CoupledFlowAction::carry_input(const std::size_t stage, const double dz,
   const auto n_stages = n_stages_;
   // The reference's `stage_input(U u, U k, ...)`: the state and the stage sum are
   // each carried and only then combined, in that order.
-  Kokkos::parallel_for(
+  launch::parallel_for(
       "solprop_native.flow.carry_input", Range2(kernels_, {0, 0}, {modes, n_omega_}),
       KOKKOS_LAMBDA(const std::size_t row, const std::size_t index) {
         const auto one = slot(index);
@@ -643,7 +644,7 @@ void CoupledFlowAction::add_residual(const std::size_t stage,
   // stage's non-zero weights in increasing term order: a zero weight adds an exact
   // zero to a running sum that starts at +0 and so is never -0, which leaves every
   // bit as the full sum has it.
-  Kokkos::parallel_for(
+  launch::parallel_for(
       "solprop_native.flow.add_residual", Range2(kernels_, {0, 0}, {modes, n_omega_}),
       KOKKOS_LAMBDA(const std::size_t row, const std::size_t index) {
         const auto one = slot(index);
@@ -675,7 +676,7 @@ void CoupledFlowAction::carry_back(const std::size_t stage,
   const auto drive = drive_;
   const auto modes = n_modes_;
   const bool identity = identity_.at(stage) != 0U;
-  Kokkos::parallel_for(
+  launch::parallel_for(
       "solprop_native.flow.carry_back", Range2(kernels_, {0, 0}, {modes, n_omega_}),
       KOKKOS_LAMBDA(const std::size_t row, const std::size_t index) {
         const auto one = slot(index);
@@ -708,7 +709,7 @@ void CoupledFlowAction::carry_step(const ComplexView2& current,
   const auto carried_error = error_;
   const auto modes = n_modes_;
   const auto whole = n_stages_;
-  Kokkos::parallel_for(
+  launch::parallel_for(
       "solprop_native.flow.carry_step", Range2(kernels_, {0, 0}, {modes, n_omega_}),
       KOKKOS_LAMBDA(const std::size_t row, const std::size_t index) {
         const auto one = slot(index);

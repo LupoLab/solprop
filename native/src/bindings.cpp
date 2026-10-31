@@ -5,6 +5,7 @@
 #include "helpers.hpp"
 #include "solprop_native/adams_march.hpp"
 #include "solprop_native/core.hpp"
+#include "solprop_native/fft_plan.hpp"
 #include "solprop_native/lagrange_basis.hpp"
 #include "solprop_native/stage_tables.hpp"
 #include "solprop_native/vmath.hpp"
@@ -45,6 +46,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -93,6 +95,16 @@ std::size_t element_count(const nb::ndarray<T, nb::c_contig, nb::device::cpu>& v
     count *= values.shape(axis);
   }
   return count;
+}
+
+// NumPy's complex128 and `native::Complex` are both two doubles, real part first.
+static_assert(sizeof(native::Complex) == sizeof(std::complex<double>));
+static_assert(__STDCPP_DEFAULT_NEW_ALIGNMENT__ >= alignof(native::Complex));
+
+/** A complex array's own memory as native values, read in place. */
+std::span<const native::Complex> complex_span(const ComplexInput values) {
+  return {reinterpret_cast<const native::Complex*>(values.data()),
+          element_count(values)};
 }
 
 std::vector<native::Complex> complex_vector(const ComplexInput values) {
@@ -799,6 +811,17 @@ ComplexOutput complex_output(const std::vector<native::Complex>& values,
   return ComplexOutput(pointer->data(), shape.size(), shape.data(), owner);
 }
 
+/** A complex array owning `storage`, uninitialised doubles a native copy filled. */
+ComplexOutput complex_buffer_output(std::unique_ptr<double[]> storage,
+                                    std::vector<std::size_t> shape) {
+  auto* pointer = storage.release();
+  nb::capsule owner(pointer, [](void* value) noexcept {
+    const std::unique_ptr<double[]> held(static_cast<double*>(value));
+  });
+  return ComplexOutput(reinterpret_cast<std::complex<double>*>(pointer), shape.size(),
+                       shape.data(), owner);
+}
+
 RealOutput real_output(std::vector<double> values, const std::size_t rows) {
   if (rows == 0 || values.size() % rows != 0)
     throw std::invalid_argument("native output has an invalid packed shape");
@@ -1233,8 +1256,9 @@ class BoundState {
 public:
   explicit BoundState(const nb::dict& problem) : BoundState(problem_from(problem)) {}
   explicit BoundState(native::Problem problem)
-      : columns_(problem.n_columns()), stages_(problem.n_stages),
-        raman_terms_(problem.n_raman_terms), raman_(problem.raman) {
+      : columns_(problem.n_columns()), elements_(problem.n_columns() * problem.n_omega),
+        stages_(problem.n_stages), raman_terms_(problem.n_raman_terms),
+        raman_(problem.raman) {
     if (problem.needs_general_engine())
       general_state_ = std::make_shared<native::GeneralState>(std::move(problem));
     else
@@ -1253,8 +1277,8 @@ public:
   BoundState(const BoundState&) = delete;
   BoundState& operator=(const BoundState&) = delete;
 
-  void set_initial(const std::vector<native::Complex>& field,
-                   const std::vector<native::Complex>& noise) {
+  void set_initial(const std::span<const native::Complex> field,
+                   const std::span<const native::Complex> noise) {
     require_open();
     if (general_state_)
       general_state_->set_initial(field, noise);
@@ -1344,10 +1368,15 @@ public:
     return general_state_->aperture_statistics(flags, apertures, profile_code, exponent,
                                                regions, intensity_factor);
   }
-  std::vector<native::Complex> field_to_host() {
+  void field_to_host(const std::span<native::Complex> destination) {
     require_open();
-    return general_state_ ? general_state_->field_to_host() : state_->field_to_host();
+    if (general_state_)
+      general_state_->field_to_host(destination);
+    else
+      state_->field_to_host(destination);
   }
+  /** The state's element count, `columns * n_omega`. */
+  std::size_t elements() const noexcept { return elements_; }
   std::vector<native::Complex> adams_source(const std::vector<native::Complex>& input,
                                             const native::TrialScalars& scalars) {
     require_open();
@@ -1645,6 +1674,7 @@ private:
       throw std::logic_error("native state is closed");
   }
   std::size_t columns_{};
+  std::size_t elements_{};
   std::size_t stages_{};
   std::size_t raman_terms_{};
   bool raman_{};
@@ -1860,6 +1890,16 @@ std::string fit_blas_threads(const int threads) {
   return runtime_state.blas_policy;
 }
 
+// Let a compact problem's scope hold an OpenMP OpenBLAS at one thread (`CpuTeamScope`),
+// whatever width the environment or `fit_blas_threads` gave it. A pthreads or serial
+// OpenBLAS keeps no team beside Kokkos's to resize.
+void register_host_blas() {
+  if (std::string(SOLPROP_NATIVE_BLAS_BACKEND) != "OpenBLAS")
+    return;
+  const auto parallel = library_integer(blas_symbol("openblas_get_parallel").c_str());
+  native::register_openmp_blas(parallel == 2);
+}
+
 nb::dict build_record() {
   const std::scoped_lock lock(runtime_state.mutex);
   nb::dict result;
@@ -2057,6 +2097,7 @@ NB_MODULE(_core, module_) {
               "fft"_a = 0, "raman_fft"_a = 0, "raman_tail_fft"_a = 0,
               "threaded_fft_min_samples"_a = 0, "band_tiles"_a = -1);
   module_.def("fit_blas_threads", &fit_blas_threads, "threads"_a);
+  module_.def("register_host_blas", &register_host_blas);
   module_.def("available_device_memory", []() -> nb::object {
 #if defined(KOKKOS_ENABLE_CUDA)
     std::size_t free_bytes = 0;
@@ -2089,6 +2130,28 @@ NB_MODULE(_core, module_) {
               "warm"_a, "repeats"_a);
   module_.def("shutdown_runtime", &shutdown_kokkos);
   module_.def("build_record", &build_record);
+  // FFTW's wisdom as text for solprop's SOLPROP_FFTW_WISDOM, whose file the adapter
+  // owns (solprop_native._wisdom). None where there is none to keep: a device build,
+  // which plans with the device FFT, or a provider without FFTW's wisdom.
+  module_.def("export_fftw_wisdom", []() -> nb::object {
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
+    return nb::none();
+#else
+    std::string text = native::export_fftw_wisdom();
+    return text.empty() ? nb::none() : nb::cast(std::move(text));
+#endif
+  });
+  module_.def(
+      "import_fftw_wisdom",
+      [](const std::string& text) -> bool {
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
+        static_cast<void>(text);
+        return false;
+#else
+        return native::import_fftw_wisdom(text);
+#endif
+      },
+      "text"_a);
   native::bindings::bind_helpers(module_);
   nb::class_<ScriptedMarch>(module_, "ScriptedMarch")
       .def(nb::init<nb::dict, RealInput, double, RealInput, RealInput>(), "policy"_a,
@@ -2101,10 +2164,9 @@ NB_MODULE(_core, module_) {
       .def(
           "set_initial",
           [](BoundState& self, const ComplexInput field, const ComplexInput noise) {
-            const auto held_field = complex_vector(field);
-            const auto held_noise = complex_vector(noise);
+            // Read in place: the arguments keep the arrays alive for the call.
             const nb::gil_scoped_release release;
-            self.set_initial(held_field, held_noise);
+            self.set_initial(complex_span(field), complex_span(noise));
           },
           "field"_a.noconvert(), "noise"_a.noconvert())
       .def(
@@ -2848,13 +2910,16 @@ NB_MODULE(_core, module_) {
            })
       .def("field_to_host",
            [](BoundState& self) {
-             std::vector<native::Complex> values;
+             // The state crosses once, straight into the returned array's memory.
+             const auto count = self.elements();
+             auto storage = std::make_unique_for_overwrite<double[]>(2 * count);
              {
                const nb::gil_scoped_release release;
-               values = self.field_to_host();
+               self.field_to_host(
+                   {reinterpret_cast<native::Complex*>(storage.get()), count});
              }
-             return complex_output(values,
-                                   {self.columns(), values.size() / self.columns()});
+             return complex_buffer_output(std::move(storage),
+                                          {self.columns(), count / self.columns()});
            })
       .def(
           "stage_to_host",

@@ -331,6 +331,10 @@ endif()
 option(SOLPROP_NATIVE_BAND_STAGING
        "Stage the band rule's filter rows in team scratch (solprop SEP 18 Q8)"
        ${SOLPROP_NATIVE_BAND_STAGING_DEFAULT})
+# A device build replays an Adams trial's source launches as a device graph
+# (graph.hpp, `graph::Region`); host builds have no graph.
+option(SOLPROP_NATIVE_DEVICE_GRAPH
+       "Replay an Adams trial's source launches as a CUDA or HIP graph" ON)
 
 foreach(SOLPROP_NATIVE_DEVICE_SIZE IN ITEMS
         SOLPROP_NATIVE_DEVICE_TEAM_SIZE SOLPROP_NATIVE_DEVICE_REDUCTION_SIZE)
@@ -403,6 +407,10 @@ endif()
 # The band rule's staging option changes the compiled column; the record says so.
 if(SOLPROP_NATIVE_BAND_STAGING)
   string(APPEND SOLPROP_NATIVE_COMPILER_FLAGS " -DSOLPROP_NATIVE_BAND_STAGING=1")
+endif()
+if(NOT SOLPROP_NATIVE_DEVICE_GRAPH AND
+   (SOLPROP_NATIVE_ENABLE_CUDA OR SOLPROP_NATIVE_ENABLE_HIP))
+  string(APPEND SOLPROP_NATIVE_COMPILER_FLAGS " -DSOLPROP_NATIVE_DEVICE_GRAPH=0")
 endif()
 if(SOLPROP_NATIVE_ENABLE_COVERAGE)
   list(JOIN SOLPROP_NATIVE_COVERAGE_FLAGS " " _coverage_flags_record)
@@ -860,10 +868,20 @@ target_compile_definitions(solprop_native_core PUBLIC
   SOLPROP_NATIVE_DEVICE_REDUCTION_SIZE=${SOLPROP_NATIVE_DEVICE_REDUCTION_SIZE}
   SOLPROP_NATIVE_BAND_STAGING=$<BOOL:${SOLPROP_NATIVE_BAND_STAGING}>
 )
+if(SOLPROP_NATIVE_ENABLE_CUDA OR SOLPROP_NATIVE_ENABLE_HIP)
+  target_compile_definitions(solprop_native_core PUBLIC
+    SOLPROP_NATIVE_DEVICE_GRAPH=$<BOOL:${SOLPROP_NATIVE_DEVICE_GRAPH}>
+  )
+endif()
 if(SOLPROP_NATIVE_BLAS_BACKEND STREQUAL "OpenBLAS")
   target_compile_definitions(solprop_native_core PUBLIC
     SOLPROP_NATIVE_TPL_BLAS_OPENBLAS=1
   )
+endif()
+# Compact problems' transforms take a scoped team through FFTW's loop callback
+# (core.cpp, `fftw_team_loops`), which only the OpenMP FFTW runs on the OpenMP team.
+if(SOLPROP_NATIVE_HOST_FFT_BACKEND STREQUAL "FFTW_OPENMP")
+  target_compile_definitions(solprop_native_core PUBLIC SOLPROP_NATIVE_FFTW_OPENMP=1)
 endif()
 if(SOLPROP_NATIVE_BLAS_BACKEND STREQUAL "cuBLAS")
   target_compile_definitions(solprop_native_core PUBLIC
@@ -953,6 +971,7 @@ if(BUILD_TESTING)
   add_executable(solprop_native_tests
     tests/native/main.cpp
     tests/native/test_adams_march.cpp
+    tests/native/test_adams_phi.cpp
     tests/native/test_core.cpp
     tests/native/test_envelope_plasma.cpp
     tests/native/test_fft.cpp

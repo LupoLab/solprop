@@ -171,7 +171,7 @@ build works offline and survives a flaky mirror; refresh the copies occasionally
   `SOLPROP_BLAS_THREADS`, `SOLPROP_TRANSVERSE_FFTW_THREADS` (the transverse FFTW pool of a
   Cartesian run), `SOLPROP_NUMBA_REGIME` (the threading regime), `SOLPROP_FFTW_PLAN`
   (`estimate` in CI and tests, `measure` by default) and `SOLPROP_FFTW_WISDOM` (a wisdom
-  file).
+  file, beside which the native backend keeps its own).
 - `SOLPROP_MEMORY_BUDGET`, the memory admission budget ([backends.md §8](backends.md)).
 - In the test suite: `SOLPROP_TEST_BACKEND` (the backend the driver tests select; by
   default what `backend="auto"` selects, `native` where it is installed),

@@ -1363,6 +1363,16 @@ threaded plans; free space's transverse planes are measured at any width. An exp
 planning, `measure` and experimental `patient` time it. Estimate can still consume
 matching wisdom already present in the process; the backend does not clear shared FFTW
 wisdom. Planning is destructive and precedes state initialization.
+Wisdom outlives the process only when `SOLPROP_FFTW_WISDOM` names a file: the adapter
+(`solprop_native._wisdom`) imports this build's file, `<name>.native-<key>`, before the
+state plans, and afterwards merges the file into the process's wisdom and replaces it
+whole when that adds a plan. The key digests FFTW's wisdom preamble (its version and
+planner signature, which FFTW checks again on import) and the processor model. Readers
+take no lock, since the file only ever changes by an atomic rename; writers serialise on
+`<file>.lock` (`flock` on POSIX). The C++ side only converts wisdom to and from text
+(`export_fftw_wisdom`, `import_fftw_wisdom` in `fft_plan.hpp`), registering FFTW's
+threaded solvers first, since they are part of the planner signature an import must
+match. Metadata records `wisdom_loaded` and `wisdom_digest`, as `numba_cpu` does.
 Contiguous Raman transforms use the same planning policy, including long doubled
 rows and partial chunks. On macOS, NEON FFTW handles serial and long Raman rows;
 short parallel power-of-two rows (at most 16384 samples) retain Accelerate. Selection
@@ -1421,6 +1431,32 @@ precision nor the discrete transform and adds no packing buffer. In particular,
 chunking must not send this field family through the scalar custom synthesis loop
 while reporting an interleaved provider. Device dispatch retains its own policy.
 
+On a square map (as many nodes as modes) that product moves to the retained spectrum
+(provider `<blas>-retained-interleaved-real`). A real static synthesis commutes with
+the temporal transform, so each evaluation gathers once the coarse bins the stage
+entry wrote, and each chunk multiplies them as `2 n_omega` interleaved real columns
+instead of the padded analytic signal's `2 n_to`, writes each node's retained bins into
+the free leading rows of the modal time buffer (whose other bins stay zero: an
+out-of-place complex transform leaves its input as it was) and transforms the nodes
+(persistent full- and tail-chunk plans). The node
+transforms replace the modal ones one for one; the held radial plasma already projects
+after cropping, so both products cover only retained frequencies. Runs with an
+in-stage absorber or a Raman drive (which read the modal time field), dispersive
+responses, non-square maps and devices keep the time-domain product. The two paths
+agree to rounding (a radial filament stage from the same state to about 1e-15 of its
+peak).
+
+**Raman on the node pipeline (host builds).** A scalar node field is
+`x_j = sum_m S_jm a_m` with a real static synthesis, so its Raman drive (`x_j^2`, or
+the cycle average `|x_j|^2 / 2`) is a quadratic form in the modal fields and the causal
+convolution is linear. When the `M (M + 1) / 2` unordered modal products are fewer than
+the nodes and fit the node drive's leading rows, each product (cross terms doubled) is
+convolved once on the doubled grid and every node's convolved drive is reconstructed
+from them with `S_jm S_jn`, in place of one drive transform pair per node
+(`raman_fft_tasks["products"]` is then nonzero). Three capillary modes at 33 nodes
+transform 6 rows instead of 33. Vector states, tensor drives, the general and
+dispersive routes and devices keep the node drives.
+
 **On a device.** Non-plasma responses distribute time samples within a node team; plasma
 uses the same team shape with a deterministic inclusive scan. Error, quadrature,
 weighted-control and statistics partials use persistent fixed-width device reductions. The
@@ -1430,6 +1466,57 @@ matrices let KokkosBlas dispatch exact node chunks through cuBLAS without trial-
 conversion or allocation. cuFFT plans are persistent and explicitly none-normalised. The
 response column's `if constexpr` blocks carry a capture anchor, because CUDA 13's extended
 lambdas otherwise refuse the capture.
+
+Every top-level kernel dispatches through `launch::parallel_for`, `parallel_reduce` and
+`parallel_scan` (`native/include/solprop_native/launch.hpp`). On a device they hint a
+functor of at most 3840 B light-weight, which Kokkos passes as the kernel's argument;
+Kokkos's HIP default copied any functor of 512 B or more into constant memory, a blit
+kernel behind a wait on the previous such launch, which kept the host from queuing a
+trial's kernels ahead. A plain range reduction on HIP takes launch bounds of 256
+threads with the hint, since Kokkos gives a light-weight HIP reduction its largest block.
+CUDA builds pass functors as grid constants and are unchanged; host builds dispatch as
+Kokkos does. The device Adams passes hold a trial's phi-functions and history in registers,
+dispatched on its order and width (one to eight samples): indexed per-thread arrays live
+in scratch memory. An accepted Adams step ends without a fence on a device, whose
+execution instances are its one stream. A device holds the two held plasma currents'
+fine and coarse rows in one buffer that one plan transforms.
+
+On a device an elementwise Adams trial's source evaluation runs in a graph region
+(`graph::Region`, `native/include/solprop_native/graph.hpp`). The region's launches, its
+device-to-device copies and its transforms go through `launch::parallel_for`,
+`graph::deep_copy` and `graph::execute`, which key each operation by its kind and the
+value bytes of its policy and functor, or of its views, plan and scalars. The first trial
+captures them into a CUDA or HIP graph; a trial whose keys all repeat in order issues
+nothing and launches the instantiated graph, which saves the device about a microsecond a
+kernel; a trial that departs re-captures from the first difference. A key leaves out a
+type's padding, which the region zeroes on the stack, and the host pointer that nvcc's
+wrapper of an extended `__host__ __device__` lambda appends to its captures. Reductions,
+scans, vendor GEMM, team launches with level-1 scratch, functors Kokkos would stage in
+constant or global memory, work on another stream, copies to or from the host and loaded
+Kokkos tools disable the region for the workspace's life, as does device work that
+bypassed the wrappers (found in the capture before the next operation is skipped). The
+header states why a matching key replays exactly what the trial's own launches would do.
+Host builds call Kokkos's and Kokkos-FFT's own functions through those names and compile
+none of it; `SOLPROP_NATIVE_DEVICE_GRAPH=OFF` does the same on a device.
+
+A trial's per-stage scalars (with a Raman run's stage rates and densities and a compensated
+Adams trial's rate weights) live in one packed buffer of two slots and cross in one copy a
+trial from a ring of eight pinned host buffers (`Kokkos::SharedHostPinnedSpace`), the ring's
+reuse waiting for the space to drain; an Adams trial's step scalars fill slot 0 and its
+sample's slot 1, and the stage views turn to slot 1 for the source
+([SEP 39](seps/archive/sep-0039-native-adams-march.md) §6.7). A radial analytic field's node
+chunks take the interleaved real GEMM on a device as on the host, and a square radial
+analytic map synthesises its retained spectrum there too (the gather and the pad a thread
+per element, the chunk's padded rows zeroed first): the product covers `n_omega` complex
+columns rather than `n_to`, which halves the binary64 work that bounds a radial trial. On free space the split-step collar acts on the stored
+transverse-spectrum columns (every build), and a device forms its factor once a step per
+sample. A free-space envelope whose material response is the Kerr term alone, with one
+polarisation, on a time grid the spectrum fills (`n_t = n_to = n_omega`, the crop the
+identity) takes its stage core on a device through one rank-3 transform of the scratch
+volume each way, forming the polarisation in place between them, instead of the chunks'
+transposing pack and crop and their temporal transforms. The state crosses the seam once
+at a load and once at an observation, straight between the memory space and the NumPy
+buffer.
 
 The singleton constructor requires a one-member problem; fixed-schedule fibre batches go
 through `select_batch` over independently loaded member workspaces (§1). The backend
@@ -1727,7 +1814,7 @@ Every backend reports `memory_ledger()`: buffer name → bytes, including transf
 A test asserts which entries are field-sized, that everything is named even when empty, and
 that the total is within the documented budget for the standard cases.
 
-**The native Adams march** (ADR-060, [SEP 39](seps/sep-0039-native-adams-march.md)).
+**The native Adams march** (ADR-060, [SEP 39](seps/archive/sep-0039-native-adams-march.md)).
 `native` steps `Multistep()` itself, in either formulation, the one-order-higher PEC
 comparisons and replayed schedules: `_NativeAdamsMarch` hands the native state
 solprop's `MarchPolicy` (and a replay's schedule) once, then each call runs attempts on

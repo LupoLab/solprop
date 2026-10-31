@@ -6,17 +6,17 @@
 | **Title** | A native Adams march: the Multistep step loop in the compiled backend |
 | **Author** | John Travers |
 | **Drafting agent** | Opus 5.5 (2026-10-28) |
-| **Status** | In progress |
+| **Status** | Final |
 | **Review status** | Reviewed |
 | **Reviewers** | John Travers (human); GPT-6 (AI) |
 | **Type** | Change |
 | **Created** | 2026-10-28 |
-| **Resolution** | Accepted 2026-10-28 by John Travers, after his human review, the GPT-6 AI review and the response to it, his decisions Q1–Q14, R9 and R12, and the refresh of Part I against LupoLab/solprop#56 (Part III). The proposal lands with its implementation's single pull request. |
-| **Requires** | [SEP 16](archive/sep-0016-unified-multistep.md) (the march, its engine, ADR-043); [SEP 25](archive/sep-0025-rounding-level-reproducibility.md) (agreement to the error bound); [SEP 29](archive/sep-0029-compiled-backend-distribution.md) (native z tables and the history export) |
+| **Resolution** | Accepted 2026-10-28 by John Travers, after his human review, the GPT-6 AI review and the response to it, his decisions Q1–Q14, R9 and R12, and the refresh of Part I against LupoLab/solprop#56 (Part III). The proposal lands with its implementation's single pull request. **Final** 2026-10-30 by John Travers, after phase 5's HIP qualification on an AMD Instinct MI325X, with the native performance work that followed ([LupoLab/solprop#59](https://github.com/LupoLab/solprop/pull/59)). |
+| **Requires** | [SEP 16](sep-0016-unified-multistep.md) (the march, its engine, ADR-043); [SEP 25](sep-0025-rounding-level-reproducibility.md) (agreement to the error bound); [SEP 29](sep-0029-compiled-backend-distribution.md) (native z tables and the history export) |
 | **Supersedes** | — |
 | **Superseded-by** | — |
-| **Implementation** | Opus 5.5 (AI) for John Travers, branch `feature/sep-0039-native-adams-march` (LupoLab/solprop#58), based on LupoLab/solprop#56 and on `main` once it merged: started 2026-10-28; phases 0–4 complete, phase 5 in progress (2026-10-29) |
-| **Manual pages** | [The Adams methods](../../guide/numerics/adams.md) |
+| **Implementation** | Opus 5.5 (AI) for John Travers, branch `feature/sep-0039-native-adams-march` (LupoLab/solprop#58), based on LupoLab/solprop#56 and on `main` once it merged: started 2026-10-28; phases 0–5 complete (2026-10-30; phase 5 on NVIDIA A40s, an AMD Instinct MI325X and an NVIDIA H200); HIP builds take the native march by default from LupoLab/solprop#59 |
+| **Manual pages** | [The Adams methods](../../../guide/numerics/adams.md) |
 
 ## Part I — Proposal
 
@@ -77,7 +77,7 @@ This SEP changes no default, and it does not decide the capillary default.
 ### 2. Motivation and scope
 
 **The use case** is the default integrator of `prop_capillary`, which is `Multistep()`
-at `rtol` 1e-6 (ADR-055). [SEP 37](archive/sep-0037-noise-and-stepper-defaults.md)'s
+at `rtol` 1e-6 (ADR-055). [SEP 37](sep-0037-noise-and-stepper-defaults.md)'s
 phase 0 found `RungeKutta()` faster on 8 of 14 capillary rows at one thread and on 11 of
 14 at sixteen. Multistep won the four-mode `rdw` and the noiseless comb-to-continuum.
 The maintainers kept the capillary default and asked where Multistep's per-step time
@@ -187,8 +187,8 @@ host-side lever, and §6.9 places it among the native levers.
 #### 3.1 The march today
 
 `solprop.backends.multistep.AdamsMarch` is the step loop of every backend
-([stepper.md](../stepper.md), "Low-call Adams methods"). ADR-043
-([decisions.md](../decisions.md)) split it from its arithmetic:
+([stepper.md](../../stepper.md), "Low-call Adams methods"). ADR-043
+([decisions.md](../../decisions.md)) split it from its arithmetic:
 
 > `AdamsMarch` keeps the controller -- the stencil, orders, rejection, restarts, the
 > call budget, the ledger, schedules and lockstep -- and hands every state-sized
@@ -240,24 +240,24 @@ when accepted, where $k$ is the number of scalar tables it reads. A compensated 
 adds one crossing for the rate.
 
 The low-storage march of
-[SEP 24](archive/sep-0024-low-storage-interaction-picture-runge-kutta.md) already makes
+[SEP 24](sep-0024-low-storage-interaction-picture-runge-kutta.md) already makes
 a step one native call (`_ResidentLowStorage.step`). It only replays a prescribed
 schedule and keeps no estimate (ADR-050), so it has no controller to move. It is the
 precedent for the commit pattern (§6.5.7), not for policy.
 
 #### 3.2 What the earlier proposals measured and left
 
-- **[SEP 14](archive/sep-0014-stepper-efficiency.md), phase 2.** A Kokkos Adams attempt
+- **[SEP 14](sep-0014-stepper-efficiency.md), phase 2.** A Kokkos Adams attempt
   on the canonical capillary took 0.67 ms, of which 0.29 ms (43 %) was the host march.
   The native step was "left for a later change".
-- **[SEP 16](archive/sep-0016-unified-multistep.md).**
+- **[SEP 16](sep-0016-unified-multistep.md).**
   - On a device, compiled Clenshaw and Lagrange helpers took the canonical trial's host
     work from 0.50 ms to 0.13 ms.
   - On the coupled wall, a quarter of a step (0.37 ms) was "the controller's and the
     tables' Python, which a device's faster kernels will not shrink".
 - **SEP 25 §6.3** notes that Kokkos "still pays host table evaluation, controller work
   and records" per trial.
-- **[backends.md](../backends.md) §3.5** rejected a compiled step driver because the
+- **[backends.md](../../backends.md) §3.5** rejected a compiled step driver because the
   per-call overhead was below the noise floor. That was measured on Runge–Kutta, where
   a step makes six calls and spreads the cost. An Adams step makes one call and pays
   all of it.
@@ -450,7 +450,7 @@ Notation follows SEP 13 and SEP 16:
 - $z$ is the position in m and $h$ a step in m.
 - $\theta = (z' - z)/h$ is a normalised position inside the step anchored at $z$.
 - $x = \Phi(z + h) - \Phi(z)$ is the step's exponent, in the internal convention
-  ([conventions.md](../conventions.md)).
+  ([conventions.md](../../conventions.md)).
 
 #### 4.1 Why the host matters: the cost of a run
 
@@ -505,7 +505,7 @@ Three conclusions follow, and they hold at the refresh.
 
 **The policy** $\mathcal{P}$ is everything the algorithm reads but never changes. solprop
 forms it once per run, from the method (`Multistep`), the run's stepper settings
-([kernel-contract.md](../kernel-contract.md) §7) and the march's module constants:
+([kernel-contract.md](../../kernel-contract.md) §7) and the march's module constants:
 
 | Symbol | Meaning | Source today |
 |---|---|---|
@@ -587,7 +587,7 @@ Given $\mathcal{S}$ and a march target $z_T$:
    - Form the coefficient tables of §4.7 from the nodes.
    - Evaluate the source once.
    - Reduce the scaled defect norms $\varepsilon_k$ for $k \in O$ (SEP 16 §4.2;
-     [stepper.md](../stepper.md)). The scale is $r_{\mathrm{tol}}\,w\,\lVert u_n \rVert
+     [stepper.md](../../stepper.md)). The scale is $r_{\mathrm{tol}}\,w\,\lVert u_n \rVert
      + a_{\mathrm{tol}}$, with $u_n$ the accepted state before the step, over the norm
      mask.
 7. **Decide** (§4.4), and record the attempt (§4.8).
@@ -723,7 +723,7 @@ decided by rounding. That is why §4.9 treats order changes as knife edges.
 #### 4.6 Landings, caps and equal approach
 
 The landing rule is `stepper.schedule.landing`
-([stepper.md](../stepper.md) §3). Its tolerance is
+([stepper.md](../../stepper.md) §3). Its tolerance is
 $\tau = u\,\mathrm{ulp}(\max(|z|, |z_{\mathrm{end},T}|))$, where:
 
 - $\mathrm{ulp}(y)$ is the spacing of binary64 at $y$ (`numpy.spacing`);
@@ -828,7 +828,7 @@ reported to the author as a question of numerical policy.
 #### 4.8 Stage scalars along z, and the host events
 
 **Stage scalars.** A trial evaluates its source at $z + h$ and reads the stage scalars
-there ([kernel-contract.md](../kernel-contract.md); `translate.stage`): the weights of
+there ([kernel-contract.md](../../kernel-contract.md); `translate.stage`): the weights of
 $\Phi$ and of the prefactor, the density, the taper scale, the Raman decay rates and
 densities, the Kerr density, the plasma channels' densities and pre-ionised fractions,
 and the dispersive Kerr densities. The flow section and weights, and a moving guide's
@@ -1547,7 +1547,7 @@ The trial's own work is two launches around the source, and the accept is one. T
 source's own launches remain; phase 5 counts them. Graph capture would address them
 later. A controller resident on the device is out of scope (§10).
 
-Device qualification follows the standing policy ([backends.md](../backends.md)): in one
+Device qualification follows the standing policy ([backends.md](../../backends.md)): in one
 pass, in a GPU segment with its own budget, as phase 5 and before `Final` (Q6). Until then
 a device build runs the host march, records it and warns (Q2).
 
@@ -1669,7 +1669,7 @@ What it shows:
 
 ### 7. Verification and validation
 
-Tolerances follow SEP 25 and [testing.md](../testing.md). Exact equality is used only
+Tolerances follow SEP 25 and [testing.md](../../testing.md). Exact equality is used only
 for structural contracts, and every rounding budget is fixed before the comparison. All
 runs are ten-step windows or short guides that finish in seconds, as `AGENTS.md`
 requires.
@@ -1854,7 +1854,7 @@ on the slower machine, and named in the ledger entry: short guides, as `AGENTS.m
 requires. Complete tracking runs stay with SEP 38's release procedure and are not part
 of this SEP's qualification.
 
-**Baseline.** Phase 0 records the baseline in [benchmarks.md](../benchmarks.md): the
+**Baseline.** Phase 0 records the baseline in [benchmarks.md](../../benchmarks.md): the
 invocation, the lengths, the counted attempts and calls per case, and the host cost by
 piece. The refresh's measurements of §3.3 are that baseline. The lean host timer they
 used is committed with it, so that the invocation can be repeated. The decision to go on
@@ -1870,23 +1870,23 @@ decide.
 
 ### 8. Documentation
 
-- **[stepper.md](../stepper.md), "Low-call Adams methods".** Where the march runs on each
+- **[stepper.md](../../stepper.md), "Low-call Adams methods".** Where the march runs on each
   backend, the policy record and the events.
-- **[kernel-contract.md](../kernel-contract.md).** A new section, "The Adams march":
+- **[kernel-contract.md](../../kernel-contract.md).** A new section, "The Adams march":
   §4's algorithm as the normative text, the policy record's fields, the events, the
   attempt rows, the scalar tables leaf. §7 links to it.
-- **[backends.md](../backends.md) §4.** The native march, its admission, and the GPU
+- **[backends.md](../../backends.md) §4.** The native march, its admission, and the GPU
   behaviour.
-- **[decisions.md](../decisions.md).** A new ADR amending ADR-043 (§6.3).
+- **[decisions.md](../../decisions.md).** A new ADR amending ADR-043 (§6.3).
 - **`native/AGENTS.md`.** The amended rule (§6.3).
-- **The manual page [the Adams integrator](../../guide/numerics/adams.md).** A short
+- **The manual page [the Adams integrator](../../../guide/numerics/adams.md).** A short
   paragraph under its limitations or costs. On native the march runs in the compiled
   backend and `adams_march` records it; the warning says when it does not; and results
   meet the same accuracy envelope as the host march's. Its resume paragraph, which says
   a resumed run agrees with the uninterrupted one "to rounding", is restated as SEP 25
   §4.4 rules: the transfer is exact, and the continuation meets the accuracy envelope
   (R10).
-- **The manual page [choosing a stepper](../../guide/numerics/choosing-a-stepper.md).**
+- **The manual page [choosing a stepper](../../../guide/numerics/choosing-a-stepper.md).**
   Re-measured rows once the phases land.
 - **`CHANGELOG.md`.** A line citing this SEP.
 
@@ -2182,9 +2182,9 @@ recorded beside its question, and the proposal above follows it.
     clearing it, and a restored flag deciding the re-entry cap.
   - `tests/backends/test_adams_table_oracle.py`, the exact rational oracle of §7.2.
 - **The baseline.** The measurements of §3.3 are recorded in
-  [benchmarks.md](../benchmarks.md), "Exponential Adams host cost: the SEP 39 baseline".
+  [benchmarks.md](../../benchmarks.md), "Exponential Adams host cost: the SEP 39 baseline".
   The lean host timer is `python -m benchmarks.adams_host`.
-- **The contract.** [kernel-contract.md](../kernel-contract.md) §11, "The Adams march",
+- **The contract.** [kernel-contract.md](../../kernel-contract.md) §11, "The Adams march",
   drafted: the policy record's fields, the state, an attempt, and what a native
   execution returns.
 
@@ -2617,6 +2617,86 @@ FP32's, so the host's share is small there; on the FP64 devices SEP 16 measured
 still uploads its scalars as before. HIP (AMD MI325X) and H100-class timings wait for a
 GPU budget.
 
+### Phase 5 — report, part 2 (HIP on an AMD Instinct MI325X; an NVIDIA H200)
+
+**Scope.** HIP builds, 2026-10-29: one AMD Instinct MI325X (`gfx942`, 304 compute units)
+with a ROCm 7 prerelease stack (HIP 7.14, AMD Clang 23), within the maintainer's GPU
+budget for the night. Opus 5.5 (AI) for John Travers.
+
+**Delivered.**
+
+- **HIP builds take the native march**, as CUDA builds do: the refusal that kept them on
+  solprop's Python march with a `HostMarchWarning` is gone. z tables and the carrier
+  frame stay refused on devices by name.
+- **A HIP compile fix.** Since the x86-64 Adams lanes, the device predict pass declared
+  a flag only the host lanes read; Clang (`-Werror`, `-Wunused-variable`) refused the HIP
+  build. GCC's host pass of nvcc does not warn on the constant, so CUDA builds were not
+  affected. The flag is marked `[[maybe_unused]]`.
+- **The pinned single upload a trial** (§6.7, item 2), which part 1 left undone, has
+  since been built: a trial's scalars cross in one copy from a ring of pinned buffers.
+
+**Verification** (AMD Instinct MI325X, HIP, `AMD_GFX942`, band staging on; one session):
+
+- The native package's device tests: 31 passed. solprop's device tests: 63 passed (one
+  skipped: `mlx`). The native march's modules on the device build (as in part 1): 203
+  passed, 7 skipped (the z-table and coupled-interaction refusals). The native radial and
+  backend modules: 103 passed.
+- On the same device the previous HIP default fails those lanes: 71 of the targeted
+  modules, 6 native device tests and 27 of solprop's, every one the `HostMarchWarning`
+  that the suites raise as an error.
+- The native and the Python march on the same build took the same steps and calls on
+  every case below, and their fields were bitwise equal.
+
+**Measured** (MI325X, `python -m benchmarks ab --device` and `benchmarks.adams_host`,
+interleaved fresh processes, medians of three; the same steps in both arms):
+
+| case | host µs/trial: Python march → native | wall, native vs Python march |
+|---|---|---:|
+| `he_rdw_averaged` (0.3) | 22 → 1.3 | −2.9 % |
+| `argon_blueshift_averaged` (0.1) | 17 → 0.8 | −3.4 % |
+| `rdw` (0.1) | 40 → 3.0 | −2.0 % |
+| `h2_raman_averaged` (0.4) | 15 → 0.5 | −3.0 % |
+| `radial_filament_256` (0.5) | 29 → 2.8 | −0.8 % |
+
+A trial there is 160 to 550 µs of device time in 25 to 70 kernels of a few microseconds,
+which the host launches one by one, so the Python march's 15 to 40 µs a trial was a
+smaller share than SEP 16's measurements suggested. The rest of a trial was launch and
+synchronisation overhead in the native backend's own device code, which the
+performance work that followed reduced (the benchmark ledger, "Device launches and the
+Adams passes on an AMD Instinct MI325X").
+
+**On an NVIDIA H200** (CUDA 13.1, GCC 14.3 host, `HOPPER90`; the same session's tree):
+the native package's device tests 31 passed, solprop's 63 (one skipped, `mlx`), the native
+march's modules 203 passed and 7 skipped, the native radial and backend modules 103. The
+native march against the Python march on the same build (three rounds, the same steps):
+
+| case | host µs/trial: Python march → native | wall |
+|---|---|---:|
+| `he_rdw_averaged` (0.3) | 49 → 2.2 | −15 % |
+| `argon_blueshift_averaged` (0.1) | 44 → 1.2 | −21 % |
+| `rdw` (0.1) | 70 → 5.2 | −4 % |
+| `h2_raman_averaged` (0.4) | 41 → 0.8 | −23 % |
+| `radial_filament_256` (0.1) | 65 → 4.7 | −3 % |
+
+The H200's host ran the Python march at about twice the MI325X host's cost a trial, which
+is most of the difference between the two devices' walls here.
+
+**Not done.** HIP's device sanitizer does not exist (ROCm ships none), so the CUDA
+sanitizers' role is not filled on HIP.
+
+**Handoff.** Phase 5 is complete on both vendors' devices (NVIDIA A40 and H200, AMD Instinct
+MI325X); the SEP is ready for `Final`.
+
+**Closing record.** Every phase is merged and reported, and the native march runs on
+the native CPU build, CUDA and HIP. Q9 records that `numba_cpu` has no march, so solprop's
+Python march is the reference there. The manual's [Adams methods](../../../guide/numerics/adams.md)
+page documents the native march and links this SEP. Every open question was decided
+before acceptance (§12). The one item left is a device sanitizer for HIP, which ROCm
+does not ship; until one exists, the CUDA sanitizers cover the shared device code.
+The roadmap keeps a device-resident controller, which the SEP left open, and the
+findings outside its scope that the phase reports named: the fixed host cost of a run
+and `-fno-math-errno`.
+
 ## Part III — History
 
 - 2026-10-28: Drafted by Opus 5.5 for John Travers, from a profiling study of the
@@ -2684,6 +2764,8 @@ GPU budget.
 - 2026-10-28: **In progress.** Implementation started by Opus 5.5 for John Travers on
   `feature/sep-0039-native-adams-march`, based on LupoLab/solprop#56, with one draft
   pull request opened early so that CI tests each push.
+- 2026-10-30: **Final**, set by John Travers in LupoLab/solprop#59, after phase 5's
+  report, part 2 (the HIP qualification), and the closing record. Archived.
 
 ### AI review — 2026-10-28
 

@@ -1261,7 +1261,7 @@ accuracy requirement for replay. Remaining engineering details have named phases
     reduced comb-to-continuum window runs 3.7 times faster on 18 cores than on one.
   - The baseline's numba rows at 18 threads measured the defect and are not recorded.
 - **Fixed costs the motivating split did not separate:**
-  - git provenance: four git processes, 65 ms a run on the Mac;
+  - git provenance: four git processes, 65 ms a run on an Apple M5 Max;
   - serialising the run record three times when the output opens;
   - a numba execution record that exported FFTW wisdom at every plane;
   - numba's plane statistics: 7–12 % of the resolved and modal runs.
@@ -1275,8 +1275,8 @@ accuracy requirement for replay. Remaining engineering details have named phases
 **Margins fixed (Q10):**
 - Work–precision: the factors of §7.3.
 - Benchmarks: the run-to-run spread over three repeats had a median of 0.6 % on Linux
-  (90th percentile 2.8 %) and 2.3 % on the Mac (5.8 %). Slowdowns beyond 3 % on Linux
-  and 6 % on the Mac count as regressions.
+  (90th percentile 2.8 %) and 2.3 % on an Apple M5 Max (5.8 %). Slowdowns beyond 3 % on Linux
+  and 6 % on an Apple M5 Max count as regressions.
 
 **Verification:**
 - Documentation checks.
@@ -1429,7 +1429,7 @@ affinity fix, Kokkos against the Phase 0 baseline with the same Kokkos build; da
   four-mode case translates in 0.17 s, against 1.06 s.
 - No case is slower beyond the Phase 0 noise. The averaged cases' kernel time at 18
   threads varies by ±15 % between rounds of one build; Phase 2 does not touch kernels.
-- Translation on the Mac (contended, warm): four modes 302 → 47 ms, averaged 45 →
+- Translation on an Apple M5 Max (contended, warm): four modes 302 → 47 ms, averaged 45 →
   31 ms.
 
 **Verification:**

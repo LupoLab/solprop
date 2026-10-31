@@ -1197,7 +1197,7 @@ at `rtol=1e-3`:
 At 50 planes, dense observation saves only 3–4 calls, because the Adams steps are
 already shorter than the plane spacing.
 
-**Wall time is not calls.** Timed interleaved on this Mac, with the load sampled (4.8–6.6
+**Wall time is not calls.** Timed interleaved on an Apple M5 Max, with the load sampled (4.8–6.6
 on 18 cores; spreads 2–9%):
 
 | Case | Backend | Source evaluation | Linear work per RK step |

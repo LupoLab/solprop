@@ -328,6 +328,14 @@ The first public release. It contains:
   - Threads: a process cap (`SOLPROP_NATIVE_THREADS`) and kernel, FFT and Raman pools,
     read once at import, with per-operation widths chosen by problem size; a host
     OpenBLAS is fitted to the same pool.
+  - Measured FFT plans kept across runs: `SOLPROP_FFTW_WISDOM`, the file `numba_cpu`
+    keeps its FFTW wisdom in, also keeps the native backend's, in a file of its own
+    beside it keyed by the FFTW library and the processor model. The processes of a scan
+    can share it: readers take no lock, and a writer merges under a lock and replaces
+    the file whole. A one-thread job then constructs its backend without measuring the
+    plans again (the averaged helium capillary on a Xeon Gold 6240: 1.40 s, then
+    0.03 s). Nothing is read or written unless the variable is set; the run's metadata
+    records `wisdom_loaded` and `wisdom_digest`, as on `numba_cpu`.
   - Introspection: `build_info()` and `python -m solprop_native` report provenance,
     providers, libraries and thread settings; `check_build()` checks the build against
     the installed solprop's kernel-contract schema and named members.
@@ -386,13 +394,16 @@ The first public release. It contains:
   `ctc_reduced_two_mode`), the mode-averaged cases ask for `mode_average=True`, and the
   declared array sizes and costs are those of the current grids.
 - **The Adams march runs natively**
-  ([SEP 39](https://solprop.readthedocs.io/en/latest/dev/seps/sep-0039-native-adams-march.html),
-  in progress). On the native CPU backend `Multistep()` (in either formulation, and the
+  ([SEP 39](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0039-native-adams-march.html),
+  final). On the native CPU backend `Multistep()` (in either formulation, and the
   one-order-higher PEC comparisons, adaptive or replayed) runs its stage scalars,
   coefficient tables and controller in compiled code, one native call for many
   steps, returning to Python only when a statistics row, a save plane, a monitor check,
   the budget, the floor or an error needs it; the native backend's Python time per step
-  falls from tens or hundreds of microseconds to about one. The algorithm is solprop's,
+  falls from tens or hundreds of microseconds to about one. CUDA and HIP builds take the
+  native march too (qualified on NVIDIA A40 and H200 GPUs and an AMD Instinct MI325X);
+  HIP builds no longer step it with solprop's Python march and its warning, which made
+  their own device test lanes fail. The algorithm is solprop's,
   specified in the kernel contract and handed over as a policy record
   (`MarchPolicy`); solprop's march stays the reference and steps the configurations
   the native one does not yet cover, with a `HostMarchWarning` naming the reason, and
@@ -457,6 +468,64 @@ The first public release. It contains:
   `GOMP_CPU_AFFINITY` or `KMP_AFFINITY`), the import sets `OMP_PROC_BIND=false`, which
   leaves them unbound as before; the run's metadata records what applied as
   `openmp_proc_bind`.
+- **NumPy's BLAS threads no longer spin beside a native run.** NumPy's OpenBLAS is a
+  separate pool, sized from `OPENBLAS_NUM_THREADS` or every CPU; the small host-side
+  products of each saved plane woke it often enough that its workers spun on the native
+  pool's cores throughout a run. While a native backend lives, every BLAS other than the
+  backend's own is now held to one thread (`SOLPROP_BLAS_THREADS` sets another), as
+  `numba_cpu` holds its own; the run's metadata records it as `host_blas`.
+- **Free-space Kerr beams, GNLSE fibres and radial filaments run faster on a CPU.** Free
+  space's low-storage fold held its registers in the state's column-major layout, so each
+  element crossed layouts four times over, and every crossing between the state and the
+  transverse scratch divided each column by its polarisation count; the registers now
+  sit in the scratch's layout, the state is folded a tile at a time and the crossings do
+  not divide. The modal stage entry's finish and combination run as vector lanes, the
+  boundary monitor's reading sums runs of a row, and a radial run's local flux
+  statistics synthesise through two GEMMs. On an Intel Xeon Gold 6240 `kerr_beam_192`
+  takes 0.64 of its time at one thread (fields bitwise equal), the 384² beam 0.85 at 16
+  threads, `radial_filament_256` 0.83 and `gnlse_raman_shock` 0.84 at one thread.
+- **One-column native CPU runs gain from many threads.** A GNLSE or mode-averaged run
+  woke every thread of the pool for a few short kernels between serial transforms, and
+  ran no faster at 16 threads than at one. A problem of one column on one node now runs
+  its kernels and its FFTs on at most eight threads (FFTW 3.3.9 or later; with an older
+  FFTW its transforms stay serial): at 16 threads `gnlse_raman_shock` takes 0.77 of its
+  time on an Intel Xeon Gold 6240 and 0.97 on an AMD EPYC 7763, `h2_raman_averaged` 0.90
+  and 0.97. Such a problem's small products run on one thread of an OpenMP OpenBLAS: on
+  aarch64 OpenBLAS threaded them at the full width between the team's kernels, and
+  `gnlse_raman_shock` was slower at 16 threads than before (on 16 Neoverse V2 cores it
+  now takes 0.70 of `main`'s time instead of 1.13).
+- **One-mode capillaries with a plasma column run faster on many CPU threads.** Their
+  node synthesis and projection, an outer product and a weighted sum over the radial
+  nodes, went to the vendor BLAS, which threaded each small call over its own pool; they
+  now run as two small kernels on the plasma column's thread team. On an Intel Xeon Gold
+  6240 at 16 threads `argon_blueshift` takes 0.68 of its time (0.60 on an AMD EPYC 7763);
+  one thread is unchanged. This applies with OpenBLAS; Apple's Accelerate runs the small
+  products well, and the kernels made `argon_blueshift` slower on macOS.
+- **Plasma capillaries and graded-index guides run faster on a CPU.** The band plasma
+  column's host passes ran sample by sample, with an out-of-line call and a division in
+  each sample's fraction and loss guard, a scan that Kokkos' host team runs twice, and a
+  filter that summed each sample's taps serially; they now run as block loops over the
+  vector-maths passes (on x86-64 the filter a tap pair at a time), and the band
+  statistics take the same blocks. A real-form general-route cubic now reads its field
+  from a complex-to-real transform, half the complex inverse's work, and the route's
+  projection and synthesis stream their maps in longer runs. On an Intel Xeon Gold 6240
+  at one thread the three-mode `ctc` takes 0.70 of its time, resolved argon 0.64 and the
+  graded-index guide 0.70 (0.85, 0.85 and 0.80 at 16 threads); on an AMD EPYC 7763 0.75,
+  0.72 and 0.75 at one thread. Fields move at most
+  by rounding; the band statistics' peak ionisation rate by 3.6e-14 relative.
+- **Native CPU runs no longer re-create OpenMP threads every step.** A four-thread
+  kernel between full-width ones made GNU OpenMP end and restart twelve of sixteen
+  threads each time; the hydrogen Raman case was slower at 16 threads than at one. A
+  kernel pool that runs a full-width kernel now runs its medium-size kernels at full width
+  too: that case is about twice as fast at 16 threads, resolved argon 1.2-1.4 times. On
+  macOS, where it made resolved argon slower on an 18-core Apple M5 Max, the medium
+  kernels keep their width.
+- **A main thread bound to one core's hardware threads is recognised.** With
+  `OMP_PLACES=cores` on a machine with two threads per core, the native backend's
+  OpenMP runtime binds the main thread to its first core, two CPUs, which solprop took
+  as the process's grant: its thread budget and the `Pool` executor's worker count fell
+  to one core. Such a binding now reads as the grant the process had at import, as a
+  single CPU already did.
 - **Native FFT plans made before their wisdom.** The plasma streams' plans were made
   before the measured wisdom was seeded and stayed at `FFTW_ESTIMATE`; every seed now
   comes first. One plan policy decides every seed by the transform's shape and width,
@@ -493,6 +562,17 @@ The first public release. It contains:
   default is `1e-5` and free space's `1e-5` under single precision.
 - **The release wheels' coexistence check** runs noiseless: under the default input noise
   its repeated run drew a second realisation and failed.
+- **Large states cross the seam once, and free-space Kerr beams on a GPU run faster.**
+  An observation copied the native state through three fresh host buffers and a load
+  uploaded it twice; each now crosses once, straight between the memory space and the
+  NumPy array. Free space's split-step collar acts on the stored transverse-spectrum
+  columns, with no transverse transform pair per step, and a device forms its factor once
+  per sample. On a device a Kerr-only free-space envelope on a filled time grid takes its
+  stage through one rank-3 transform each way, without the chunks' transposes; an Adams
+  trial's scalars cross in one copy from pinned memory. `kerr_beam_384` (half its length)
+  runs in 0.79 of the time on an NVIDIA A40, with fields equal to 1e-15, and
+  `kerr_beam_192` in 0.92 at one thread on an Intel Xeon Gold 6240; the radial filament is
+  unchanged there (its trial is bound by the A40's binary64 rate).
 - **A one-mode run on a GPU uses the whole device.** The accepted update, the error norms
   and the response used one team of threads per transverse node, so a fibre or a
   mode-averaged run kept one multiprocessor busy; they now spread over up to 256 teams,
@@ -502,6 +582,55 @@ The first public release. It contains:
   time per step at $2^{16}$ on an NVIDIA A40; runs with many nodes (radial, Cartesian)
   and short steps are unchanged. Device results move at rounding level, since the norms
   and the plasma's running sums are summed in tiles.
+- **Short device kernels launch without waiting, and the Adams passes run faster on a
+  GPU.** Kokkos's HIP backend copied every kernel argument of 512 B or more into constant
+  memory behind a wait on the previous such kernel, so the host could not queue work
+  ahead; the backend now passes arguments under 3840 B with the launch. On a device the
+  Adams predict pass holds its phi-functions in registers and the correct pass reads the
+  history once, an accepted step no longer waits for its kernels, and the two held
+  plasma currents are transformed together. On an AMD Instinct MI325X the
+  mode-averaged helium, argon and hydrogen Raman runs take 0.69 to 0.74 of the time of
+  the HIP build with the native march alone, the four-mode RDW 0.88 and the radial
+  filament 0.90, in the same steps, fields agreeing to 1.3e-11 or better; against the
+  previous HIP build, which stepped them with the Python march, the mode-averaged runs
+  take 0.46 to 0.63 of the time. On an NVIDIA H200 the mode-averaged and four-mode
+  Adams runs take 0.90 to 0.97 of the time of the build without these changes. HIP
+  builds also compile again (a flag that only the host reads, which Clang refused as
+  unused).
+- **A device Adams trial reads its norms from pinned memory, and a stage transforms its
+  forward rows together.** The absorber's, the projection's and the held currents' rows
+  of a modal stage now go through one batched transform, and the radial route's three
+  held streams through one plan. On an AMD Instinct MI325X the mode-averaged helium,
+  argon and hydrogen Raman runs take 0.86 to 0.90 of the time; on an NVIDIA A40 they
+  take 0.76 to 0.88. They take the same steps, and the fields are bitwise equal.
+- **A device replays a mode-averaged Adams trial's source as one graph.** On CUDA and HIP
+  builds the kernels, device copies and transforms of an elementwise Adams trial's source
+  evaluation are captured once into a device graph and replayed while they repeat from
+  trial to trial, which saves the device about a microsecond a kernel. The mode-averaged
+  helium, argon and hydrogen Raman runs take 0.92, 0.89 and 0.88 of the time on an AMD
+  Instinct MI325X, 0.99, 0.92 and 0.96 on an NVIDIA H200 and 0.97, 0.96 and 0.98 on an
+  NVIDIA A40, with fields equal bit for bit and the same steps; runs whose source needs a
+  vendor GEMM or a reduction (the four-mode RDW, the radial filament) keep their launches.
+  `SOLPROP_NATIVE_DEVICE_GRAPH=OFF` turns it off; host builds are unchanged.
+- **Faster device transforms for few-mode capillaries and radial filaments.** A device
+  stage's coarse projection rows now join its batched forward transform. Below eight modes a
+  device forms the synthesis and projection with its own kernels instead of the vendor
+  GEMM, which also lets a four-mode trial's source replay as a graph. CUDA builds reduce an
+  Adams trial in 128-thread blocks. Builds for compute capability 8.6 form their real GEMMs
+  with a device kernel, because cuBLAS gave those devices' DGEMM about half the FP64 peak.
+  On an NVIDIA A40 the four-mode RDW run takes 0.80 of the time, the radial filament 0.93
+  and the mode-averaged helium, argon and hydrogen Raman runs 0.93, 0.94 and 0.95. On an
+  AMD Instinct MI325X the four-mode RDW run takes 0.96 and the others are unchanged. Every
+  run takes the same steps. The fields agree to 6e-14, except the mode-averaged helium run
+  on CUDA, whose reductions' new order moves it by 1e-11. Host builds are unchanged.
+- **Faster real transforms on compute capability 8.6 devices.** cuFFT transforms a real
+  row of a few thousand samples in one thread block, which on a GA10x device's slow FP64
+  left most of the device idle when a stage had a few rows. Builds for compute capability
+  8.6 now split up to 64 such rows into two batched complex passes. On an NVIDIA A40 the
+  mode-averaged helium, argon and hydrogen Raman runs take 0.75, 0.76 and 0.77 of the
+  time and the four-mode RDW run 0.93; the radial filament is unchanged. Every run takes
+  the same steps. The fields agree to 1.2e-13, except the mode-averaged helium run, which
+  moves by 1.1e-11. Other devices and host builds are unchanged.
 - **`python -m benchmarks ab` between builds whose grids differ** recorded the field
   difference as infinite, which the summary's JSON refused, so the run ended without
   its summary; the difference is now recorded as not defined.
@@ -617,6 +746,17 @@ The first public release. It contains:
   change only by rounding. At one thread the tracking cases run 11 % faster on an AMD
   EPYC 7763 (geometric mean; 6 to 19 %, `gnlse_raman_shock` most) and 7 % on an AMD EPYC
   9B45, and 5 % at sixteen threads there; an Apple M5 Max is unchanged.
+- **Native CPU cost of the exponential Adams passes on x86-64.** The predict and correct
+  passes ran each element through scalar strict code: the phi-functions' series and
+  squarings, the compensation and the defects. A host block of 32 elements is now
+  processed as vector lanes, every element keeping its operations and rounding in the
+  protected parts, and the corrector's endpoint rate is formed in the same pass over
+  the operator's terms as the step's phase. Steps taken are the same; results move by
+  rounding only. At one thread on an AMD EPYC 7763 the passes are 2–2.7 times faster,
+  `he_rdw_averaged`, `argon_blueshift_averaged` and `h2_raman_averaged` run 30–37 %
+  faster and `rdw` and `radial_filament_256` 16 % faster; on an Intel Xeon Gold 6240
+  those windows run 21–30 % and 16–17 % faster at one thread and 3–12 % at sixteen. Arm
+  and device builds are unchanged.
 - **A single-precision step that overflows is rejected, not fatal.** An adaptive trial
   whose propagator passed binary32's `exp(88.72)` (a long step under a strong collar)
   scored a non-finite error norm, which the controller rejected and the step history

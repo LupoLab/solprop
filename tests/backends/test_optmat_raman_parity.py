@@ -123,4 +123,7 @@ def test_native_holds_every_row_of_the_composition_leaf():
         backend.close()
     rows = case.n_rows
     assert ledger["raman_undamped"] == rows * 2 * problem.grids.n_to * 8
-    assert ledger["stage_raman_rates"] == problem.stepper.tableau.n_stages * rows * 8
+    # Two slots, the step and the Adams sample, share one packed upload per trial.
+    assert (
+        ledger["stage_raman_rates"] == 2 * problem.stepper.tableau.n_stages * rows * 8
+    )

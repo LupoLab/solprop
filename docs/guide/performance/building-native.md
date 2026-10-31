@@ -346,6 +346,7 @@ The options are read by `native/CMakeLists.txt` and `native/cmake/HostLibraries.
 | `SOLPROP_NATIVE_DEVICE_TEAM_SIZE` | `256` | the maximum GPU response and scan team width: 64, 128, 256, 512 or 1024 (the `cuda` presets use 512) |
 | `SOLPROP_NATIVE_DEVICE_REDUCTION_SIZE` | `512` | the GPU deterministic-reduction block width: 64, 128, 256, 512 or 1024 |
 | `SOLPROP_NATIVE_BAND_STAGING` | `ON` for HIP, else `OFF` | how the field plasma column's band rule reads its halo: `ON` stages each band filter's input row in team scratch, a tile of 1,024 samples at a time, instead of reading it directly from the row. The arithmetic is the same; each default is the faster on its vendor's devices |
+| `SOLPROP_NATIVE_DEVICE_GRAPH` | `ON` | on a CUDA or HIP build, replay an Adams trial's source evaluation as a device graph while its launches repeat from trial to trial; `OFF` launches them one by one on the stream. Results are the same either way; host builds ignore it |
 
 **BLAS and dense transforms**
 

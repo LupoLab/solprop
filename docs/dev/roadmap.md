@@ -31,14 +31,6 @@ being implemented.
   identifies a new material contract. Ne/Xe, mixtures, mode-averaged and multimode
   routes, bound response and other geometries remain follow-up work; the first route is
   a single-mode capillary with node quadrature.
-- [SEP 39 — A native Adams march: the Multistep step loop in the compiled backend](seps/sep-0039-native-adams-march.md):
-  the exponential `Multistep()` controller, order choice, landings, coefficient tables
-  and stage scalars executed natively under a policy record solprop hands over, with the
-  Python march as the reference. It returns to the host only at planes, monitor checks
-  and statistics rows. It removes most of the 40–210 µs of Python left per trial: 2–11 %
-  of a single-mode CPU run beyond its native-tables phase, and most of a device trial's
-  host time. Configurations it does not cover run the Python march with a warning, and
-  it changes no default. A device-resident controller remains open.
 
 ## Draft enhancement proposals
 
@@ -94,6 +86,14 @@ The [SEP index](seps/index.md) lists every proposal and its current status.
   subtraction, a weak-response limit and local temporal integration. Its ensemble,
   data and integration questions must be settled before acceptance; shared-level
   ladders, vector saturation and repeated-window histories remain future work.
+- [SEP 40 — Transverse absorbing boundaries for free-space propagation](seps/sep-0040-transverse-absorbing-boundaries.md):
+  the radial, Cartesian, line and planar real-space collar placed outside the requested
+  aperture and sized by a declared protected band of transverse wavenumbers rather than
+  the run length, in-stage under a collar-crossing step limit (split optional for RK),
+  with the k⊥ ramp kept to a numerical safety band (now also radial and planar), a
+  monitor that judges returning light, and a signed removal ledger. Perfectly matched
+  layers, adaptive transverse windows, the escaped transverse field and a flux-weighted
+  spatial ledger remain open.
 
 The informal items below record work not fully covered by these proposals. When adding
 or revising a SEP, remove an informal item only if the proposal covers it in full;
@@ -432,6 +432,8 @@ field norm rather than [SEP 34](seps/archive/sep-0034-medium-flux.md)'s admittan
 flux (D16). For paraxial beams the two shares agree; a non-paraxial or strongly dispersive
 beam would weight its edges differently. A time-resolved flux needs the admittance applied
 per column and frequency before the inverse transform: another half of the state in memory.
+[SEP 40](seps/sep-0040-transverse-absorbing-boundaries.md) adds the transverse edge to the
+monitor, with the same choice of measure; the time-resolved flux stays open.
 
 **The boundary monitor's remaining SEP 21 items.** What
 [SEP 21](seps/archive/sep-0021-absorbing-boundaries.md) asked of the monitor and the
@@ -452,8 +454,13 @@ the temporal collar from the walk-off a run expects, `absorber(..., walkoff=...)
 refusing a conflicting `boundary_N`; a run cut into slices keeps its parent's strength
 through `boundary_length`, which the boundaries guide does not yet say.
 
-**The real-space collar's geometry.** SEP 21 (D9) left the radial and Cartesian
-real-space collar as it was, for a follow-up proposal with a radial witness.
+**A crossing limit for the split temporal collar.** [SEP 40](seps/sep-0040-transverse-absorbing-boundaries.md)
+(§4.7, Q4) found that a split absorber applied once per step cannot see content that
+crosses the collar and wraps within that step; the error controller, seeing no source
+defect, does not shorten it. The same argument applies in time to SEP 21's split temporal
+collar, the default on the spatial routes. There a step's group-delay walk-off is
+normally far below the collar's width, but no step limit enforces it. Check the bound
+on the suite's cases, and add the limit if any approaches it.
 
 **The collar's consumers converged.** The Raman response's tail taper and the held
 plasma current's gate are sized by the temporal collar's width. Their convergence in
@@ -715,7 +722,7 @@ GPUs with slow double precision.
   kernels only. The first was measured on the exponential Adams march on an AMD EPYC 7763
   under GCC 16.2: 1.9–2.7 % faster at one thread, and **not value-identical** — with the
   same steps the final field moved by up to 1.9e-10 relative, within SEP 25's rules but
-  to be stated when adopted ([SEP 39](seps/sep-0039-native-adams-march.md) §6.9). The
+  to be stated when adopted ([SEP 39](seps/archive/sep-0039-native-adams-march.md) §6.9). The
   second is not yet measured.
 - Subnormals: no build sets flush-to-zero. On x86-64 an operation on a subnormal can cost
   of the order of a hundred cycles (NVIDIA GPUs and Apple silicon take them at full
@@ -891,6 +898,14 @@ The frozen split is the default and the more accurate on every case measured, so
 `numba_cpu` and `native` is needed only if a use case favours it; its Gauss-node weights
 are evaluated inside the backend, not carried in the stage bundle.
 
+**A device-resident Adams controller.** On CUDA and HIP builds the native Adams march
+([SEP 39](seps/archive/sep-0039-native-adams-march.md), final) keeps its controller on
+the host. Each trial reads its error norms back once and launches its kernels from the
+host, with the trial's source replayed as one device graph where its operations repeat.
+A controller held on the device, choosing the step and the order there, would remove
+the read-back and the host's launches. It needs device forms of the landing search and
+the order choice, and it must take the same steps as the host controller.
+
 **The z table on GPU builds.** Every CPU backend runs the general z table, the native
 CPU build in its own kernels (SEP 29 section 6.6), but the native GPU builds refuse it,
 naming its size: the table is the state's size times the degree times the intervals,
@@ -1060,7 +1075,7 @@ and per-plane times, not allocations.
 90–190 ms outside its steps (122 ms on an AMD EPYC 7763) on metadata, provenance,
 output and plane observation, the same for either integrator: 0.12 s of a 0.7 s
 mode-averaged helium run once its steps are cheap
-([SEP 39](seps/sep-0039-native-adams-march.md) §6.9, which leaves it out of scope).
+([SEP 39](seps/archive/sep-0039-native-adams-march.md) §6.9, which leaves it out of scope).
 Profile it and remove what is not needed per run.
 
 **A copy-free Adams sample.** The Adams sample on `numba_cpu` makes 16

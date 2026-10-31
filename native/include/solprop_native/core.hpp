@@ -7,6 +7,8 @@
 #include <Kokkos_Complex.hpp>
 #include <Kokkos_Core.hpp>
 
+#include "solprop_native/launch.hpp"
+
 #include <algorithm>
 #include <array>
 #include <complex>
@@ -14,6 +16,7 @@
 #include <cstdint>
 #include <map>
 #include <memory>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -220,7 +223,32 @@ inline constexpr std::size_t response_full_thread_columns = 40;
 inline constexpr std::size_t dense_full_thread_elements = 1048576;
 inline constexpr std::size_t fft_full_thread_elements = 131072;
 inline constexpr std::size_t raman_full_thread_elements = 262144;
+// A kernel pool that holds a full-width instance gives it to medium-width kernels too
+// (CpuExecutionPool::get): GNU OpenMP ends surplus threads when a team narrows, and on
+// Windows, with LLVM's libomp, the wider team still ran h2_raman_averaged 1.1 times
+// faster at eight threads. Not on macOS: on an Apple M5 Max, whose 18 cores are of two
+// kinds, the promoted passes took argon_blueshift from 3.0 to 3.2 s at 18 threads.
+inline constexpr bool stable_kernel_team =
+#if defined(__APPLE__)
+    false;
+#else
+    true;
+#endif
 inline constexpr int cpu_medium_threads = 4;
+// A compact problem (`compact_problem`: one column on one node with fewer than
+// `compact_max_fine_samples` fine samples, the GNLSE and the mode-averaged capillary
+// among them) runs its kernels on a team of at most `cpu_compact_threads` threads and
+// its threaded transforms on that whole team. Its stage of a few thousand to 16384 bins
+// otherwise woke the whole pool for one short pass between serial transforms: on 16
+// cores of an Intel Xeon Gold 6240 the main thread then ran at about 2.7 instead of 3.5
+// GHz, its arrays came back from other cores' caches, and gnlse_raman_shock took as
+// long on 16 threads as on one. FFTW's threaded loops take the runtime's whole team, so
+// a threaded transform beside the narrower kernel team would make GNU OpenMP end and
+// restart threads at every pair: compact transforms run their loops on the team
+// through FFTW's callback (`CpuTeamScope`), or stay serial without it (solprop
+// docs/dev/benchmarks.md, "Compact CPU teams").
+inline constexpr int cpu_compact_threads = 8;
+inline constexpr std::size_t compact_max_fine_samples = 65536;
 /** Choose a width without changing the runtime or a vendor library's pool. */
 [[nodiscard]] int operation_threads(const ThreadPolicy& policy, CpuPool pool,
                                     CpuOperation operation, std::size_t elements,
@@ -240,13 +268,56 @@ public:
   explicit CpuExecutionPool(CpuPool pool) : pool_(pool) {}
   const ExecutionSpace& get(CpuOperation operation, std::size_t elements,
                             std::size_t fine_samples = 0);
+  /** Size a compact problem's instances (`cpu_compact_threads`), before any `get`;
+      explicit pool requests still apply as given. */
+  void compact() noexcept { compact_ = cpu_size_policy_enabled; }
+  /** The widest instance handed out so far; zero before any. */
+  [[nodiscard]] int widest() const noexcept {
+    return instances_.empty() ? 0 : instances_.rbegin()->first;
+  }
   void clear() { instances_.clear(); }
   [[nodiscard]] CpuSizing sizing() const { return sizing_; }
 
 private:
   CpuPool pool_;
+  bool compact_{};
   std::map<int, ExecutionSpace> instances_;
   CpuSizing sizing_;
+};
+
+/** Whether the host FFTW's threaded loops take a scoped team (`CpuTeamScope`): the
+    OpenMP FFTW with its loop callback (FFTW 3.3.9 and later). Without it a compact
+    problem's transforms stay serial. The first call installs the callback, whose
+    loops take the runtime's whole team, as FFTW's own do, outside a scope. */
+[[nodiscard]] bool fftw_team_loops() noexcept;
+
+/** Record that the build's BLAS is an OpenMP OpenBLAS, so that a compact problem's
+    scope holds it at one thread (`CpuTeamScope`). */
+void register_openmp_blas(bool registered) noexcept;
+
+/** While it lives, the calling thread's threaded FFTW loops run on a team of
+    `threads` (at least their own job count), so that a compact problem's transforms
+    keep its kernels' team instead of waking the whole runtime; zero restores the
+    runtime's team. A nonzero team also holds an OpenMP OpenBLAS at one thread, through
+    the calling thread's OpenMP default width: a compact problem's products are a row
+    or two deep, and an OpenBLAS region at the fitted width between the team's narrower
+    ones made GNU OpenMP end and restart the surplus threads at every pair (16 cores of
+    a Neoverse V2: about 100,000 thread creations in a short GNLSE window). Scopes
+    nest. */
+class CpuTeamScope {
+public:
+  explicit CpuTeamScope(int threads) noexcept;
+  ~CpuTeamScope();
+  CpuTeamScope(const CpuTeamScope&) = delete;
+  CpuTeamScope& operator=(const CpuTeamScope&) = delete;
+  CpuTeamScope(CpuTeamScope&&) = delete;
+  CpuTeamScope& operator=(CpuTeamScope&&) = delete;
+
+private:
+  // The enclosing scope's team; unread where FFTW has no loop callback.
+  [[maybe_unused]] int saved_;
+  // Whether this scope holds the registered OpenBLAS at one thread.
+  bool holds_blas_{};
 };
 
 /** solprop SEP 28 section 4.2's per-evaluation reference, independent of any
@@ -527,6 +598,9 @@ struct Problem {
 /** The most samples an Adams formula of solprop's shipped orders combines. */
 inline constexpr std::size_t adams_max_samples = 8;
 
+/** The most defect norms an Adams trial scores: its order's and its two neighbours'. */
+inline constexpr std::size_t adams_max_norms = 3;
+
 /**
  * The most channels a coupled block the resident Adams engine steps may have (solprop
  * SEP 16 phase 6): its per-bin passes hold a block's channel vectors in registers. A
@@ -544,7 +618,7 @@ struct AdamsWeights {
   std::size_t slot[adams_max_samples]{};
   double predictor[adams_max_samples]{};
   double corrector[adams_max_samples]{};
-  double rows[3][adams_max_samples]{};
+  double rows[adams_max_norms][adams_max_samples]{};
   std::size_t order{};
   std::size_t width{};
   std::size_t n_rows{};
@@ -561,7 +635,7 @@ struct ExponentialWeights {
   std::size_t slot[adams_max_samples]{};
   double predictor[adams_max_samples][adams_max_samples]{};
   double corrector[adams_max_samples][adams_max_samples]{};
-  double rows[3][2 * adams_max_samples]{};
+  double rows[adams_max_norms][2 * adams_max_samples]{};
   std::size_t order{};
   std::size_t width{};
   std::size_t count{};
@@ -615,6 +689,11 @@ struct TrialScalars {
 /** Which general z table a call names (solprop SEP 29 G1). */
 enum class TableKind { phi, prefactor, rate, flux };
 
+/** Whether `problem` runs on a compact CPU team (`cpu_compact_threads`): one column
+    on one node, fewer than `compact_max_fine_samples` fine samples, and neither the
+    general modal route, a coupled flow nor a separable geometry. */
+[[nodiscard]] bool compact_problem(const Problem& problem) noexcept;
+
 /** Execution-space views, FFT plans, and scratch owned by one State. */
 class Workspace;
 class GeneralWorkspace;
@@ -630,8 +709,8 @@ public:
   State(State&&) = delete;
   State& operator=(State&&) = delete;
 
-  void set_initial(const std::vector<Complex>& field,
-                   const std::vector<Complex>& noise);
+  /** Load the field and noise from host memory, one copy into the memory space. */
+  void set_initial(std::span<const Complex> field, std::span<const Complex> noise);
   [[nodiscard]] std::array<double, 3> trial_step(double dz,
                                                  const TrialScalars& scalars);
   void finish(double dz);
@@ -653,6 +732,8 @@ public:
    */
   [[nodiscard]] std::vector<double> monitor_reading();
   [[nodiscard]] std::vector<Complex> field_to_host() const;
+  /** The field into `destination`, of the field's size: one copy from the space. */
+  void field_to_host(std::span<Complex> destination) const;
   [[nodiscard]] std::map<std::string, std::size_t> memory_ledger() const;
   [[nodiscard]] CpuSizing execution_sizing() const;
   [[nodiscard]] double planning_seconds() const noexcept;
@@ -675,8 +756,8 @@ public:
   GeneralState(GeneralState&&) = delete;
   GeneralState& operator=(GeneralState&&) = delete;
 
-  void set_initial(const std::vector<Complex>& field,
-                   const std::vector<Complex>& noise);
+  /** Load the field and noise from host memory, one copy into the memory space. */
+  void set_initial(std::span<const Complex> field, std::span<const Complex> noise);
   [[nodiscard]] std::vector<double> trial_step(double dz, const TrialScalars& scalars);
   void prepare_trial(double dz, const TrialScalars& scalars);
   /** solprop's Adams source at an anchor-frame field (SEP 14 phase 2). */
@@ -810,6 +891,8 @@ public:
   [[nodiscard]] std::string gemm_shape_policy() const;
   [[nodiscard]] std::size_t response_team_size() const noexcept;
   [[nodiscard]] std::vector<Complex> field_to_host() const;
+  /** The field into `destination`, of the field's size: one copy from the space. */
+  void field_to_host(std::span<Complex> destination) const;
   [[nodiscard]] std::vector<Complex> stage_to_host(std::size_t stage) const;
   /**
    * The last evaluation's projected polarisation spectrum on the fine rule, or on the

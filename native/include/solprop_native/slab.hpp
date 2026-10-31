@@ -46,7 +46,7 @@ void slab_contract(const char* label, const ExecutionSpace& execution,
 #else
   const int lanes = static_cast<int>(general_vector_lanes);
 #endif
-  Kokkos::parallel_for(
+  launch::parallel_for(
       label, TeamPolicy(execution, static_cast<int>(units * out), 1, lanes),
       KOKKOS_LAMBDA(const TeamMember& team) {
         const auto row = static_cast<std::size_t>(team.league_rank());
