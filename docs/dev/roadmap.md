@@ -94,6 +94,12 @@ The [SEP index](seps/index.md) lists every proposal and its current status.
   monitor that judges returning light, and a signed removal ledger. Perfectly matched
   layers, adaptive transverse windows, the escaped transverse field and a flux-weighted
   spatial ledger remain open.
+- [SEP 41 — Recipes, and the hooks a front end needs](seps/sep-0041-recipes-and-front-ends.md):
+  a versioned TOML recipe that solprop loads, checks, builds, runs, exports as Python,
+  records in its output and resumes from (`solprop run`, `solprop resume`), with the
+  parameter metadata, structured errors, capability query, plane observer, scan progress,
+  cost estimate, mode launch, beam offset and tilt, design solvers, pulse loaders and
+  geometry drawings a front end needs. All additive.
 
 The informal items below record work not fully covered by these proposals. When adding
 or revising a SEP, remove an informal item only if the proposal covers it in full;
