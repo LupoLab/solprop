@@ -230,6 +230,15 @@ Every medium width serial instead lost 2.8 times on averaged helium (EPYC geomet
 1.08); every medium width full, the FFTs included, gained on resolved cases but lost on the
 averaged ones (EPYC 0.94, Xeon 0.90 with averaged helium 1.22).
 
+The promotion applies everywhere but macOS (`stable_kernel_team` in `core.hpp`). On an
+18-core Apple M5 Max, whose cores are of two kinds, the 11207-element Adams passes of
+`argon_blueshift` at 18 threads instead of four took the window from 3.0 to 3.2 s, and
+`h2_raman_averaged` at 18 threads ran 0.86 of `main`'s time without the promotion
+against 0.94 with it. The Windows wheel also runs on LLVM's libomp, which keeps a
+narrower region's threads, but there the promotion still gained: on eight cores of a
+Google Cloud C4D (AMD EPYC 9B45) `h2_raman_averaged` took 0.906 [0.899, 0.914] of its time
+with it at eight threads, every other modal case within 1 % (5 rounds, `--length 0.2`).
+
 (compact-cpu-teams)=
 ### Compact CPU teams
 
@@ -313,6 +322,23 @@ suite measures every plan) the Xeon rows were 0.780 and 0.905. On the EPYC the 1
 allocated cores lay in three CCXs; its 16-thread `gnlse_raman_shock` window ran 1.04
 times faster than one thread before and 1.08 times after (Xeon: 1.02 and 1.29).
 
+**The products of a compact problem run on one OpenBLAS thread.** On 16 cores of a Google
+Cloud C4A (Neoverse V2) the compact team made `gnlse_raman_shock` slower at 16 threads
+than `main` (1.13) and than itself at eight (29.6 against 19.5 s in a window, with the same
+sizing). Its 1 × 1 synthesis and projection reach an OpenMP OpenBLAS, which on aarch64
+sends them to its threaded GEMV at the process width; between the team's eight-thread
+regions, GNU OpenMP ended and re-created eight threads at every call: a short window made
+100,836 `clone3` calls, against 72 for `main` and 28 at eight threads. Every native call of
+a compact problem already opens a team scope (`CpuTeamScope`); for an OpenMP OpenBLAS the
+scope now also sets the calling thread's OpenMP default width to one, which OpenBLAS reads
+before it threads a call. `openblas_set_num_threads` is not used for this: it frees the
+per-thread buffers above the new count and allocates them again when the count returns,
+which cost `h2_raman_averaged` 3 % at 16 threads on an Intel Xeon Gold 6240. The library is recognised at
+import whatever width the environment gave it (the suite's workers set
+`OMP_NUM_THREADS`, which skips `fit_blas_threads`). On the C4A `gnlse_raman_shock` now
+takes 17.6 s at 16 threads, against 25.8 s for `main`; on an Intel Xeon Gold 6240 the change is within
+1 % of the A/A spread on every case.
+
 (one-mode-products)=
 ### One-mode products on the response team
 
@@ -347,6 +373,11 @@ serial ones: in two tracking-set runs the one-thread window was 1.8 % slower wit
 and without them it took 0.963 [0.948, 0.969] of the time with them (the four-mode `rdw`,
 whose code is unchanged, also moved by 0.964 in that A/B: code-layout noise of this size
 is present at one thread).
+
+The kernels apply with OpenBLAS only. Apple's Accelerate runs these small calls well, and
+on an 18-core Apple M5 Max the kernels on the 18-thread response team took the
+`argon_blueshift` window from 3.0 to 3.8 s (1.31 of `main` at 18 threads in the
+tracking-set A/B; a bisection of the push found this commit).
 
 (stacked-projection-splits)=
 ### Stacked projection splits
@@ -1568,6 +1599,39 @@ ratios are that job's direct medians of paired rounds.
 
 On the A40 the complete-run gains are larger than the short windows'. A window spends
 a larger share of its time in solprop's per-run host work, which both arms share.
+
+**The other wheel platforms** (`ab --length 0.2`, three interleaved rounds, each case at
+one thread and at the machine's physical cores; the same steps everywhere, fields within
+$2.1\times10^{-12}$). The push was tuned on Linux x86-64; a first pass on these platforms
+found two regressions at full width, both on one-column problems: `argon_blueshift` 1.31
+on macOS and `gnlse_raman_shock` 1.13 on Linux aarch64. Their causes and fixes are in
+[a stable kernel team](#stable-kernel-team), [compact CPU teams](#compact-cpu-teams) and
+[one-mode products](#one-mode-products). The table compares `main` with the branch with
+those fixes: the CI wheels of both on macOS and Windows; on aarch64 `main`'s CI wheel
+against a local DISTRIBUTION build of the same commit.
+
+| Case | macOS arm64, Apple M5 Max, 1 / 18 threads | Linux aarch64, Google Cloud C4A (Neoverse V2), 1 / 16 | Windows x86-64, Google Cloud C4D (AMD EPYC 9B45), 1 / 8 |
+|---|---|---|---|
+| `gnlse_raman_shock` | 0.969 / 0.769 | 0.982 / 0.704 | 0.773 / 0.941 |
+| `gnlse_soliton` | 0.983 / 0.979 | 0.978 / 0.982 | 0.889 / 0.893 |
+| `rdw` | 0.952 / 0.995 | 0.973 / 0.518 | 0.795 / 0.858 |
+| `he_rdw_averaged` | 0.989 / 1.010 | 1.005 / 0.569 | 0.774 / 0.877 |
+| `argon_blueshift` | 0.874 / 0.975 | 0.880 / 0.619 | 0.861 / 0.648 |
+| `argon_blueshift_averaged` | 0.954 / 0.974 | 0.968 / 0.953 | 0.714 / 0.826 |
+| `argon_blueshift_envelope` | 0.981 / 1.004 | 1.004 / 1.014 | 0.925 / 0.970 |
+| `h2_raman_averaged` | 1.010 / 0.858 | 0.991 / 0.593 | 0.686 / 0.770 |
+| `ctc` | – / 0.754 | – / 0.878 | – / 0.717 |
+| `radial_filament_256` | 0.715 / 0.846 | 0.722 / 0.586 | 0.564 / 0.764 |
+| `grin_nonlinear` | – / 0.872 | – / 0.896 | – / 0.764 |
+| `kerr_beam_384` | – / 0.954 | – / 0.726 | – / 0.827 |
+| `kerr_beam_192` | 0.902 / – | 0.820 / – | 0.725 / – |
+| geometric mean | 0.929 / 0.911 | 0.928 / 0.733 | 0.764 / 0.816 |
+
+The first-pass tables before the fixes, the bisection and the sizing
+records are kept with the project's development records. The M5 Max ran with about 1.5
+cores of background load (each round's ranges stay within a few per cent); on an Intel Xeon
+Gold 6240 the fixes leave every case within the A/A spread (geometric mean 0.999 against the
+unfixed branch; `main` against the fixed branch 0.646 over both widths).
 
 **Accuracy.** Every A/B took the same steps.
 - On the Xeon, complete runs of `he_rdw_averaged` and `ctc` moved the final field by

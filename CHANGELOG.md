@@ -490,13 +490,17 @@ The first public release. It contains:
   its kernels and its FFTs on at most eight threads (FFTW 3.3.9 or later; with an older
   FFTW its transforms stay serial): at 16 threads `gnlse_raman_shock` takes 0.77 of its
   time on an Intel Xeon Gold 6240 and 0.97 on an AMD EPYC 7763, `h2_raman_averaged` 0.90
-  and 0.97.
+  and 0.97. Such a problem's small products run on one thread of an OpenMP OpenBLAS: on
+  aarch64 OpenBLAS threaded them at the full width between the team's kernels, and
+  `gnlse_raman_shock` was slower at 16 threads than before (on 16 Neoverse V2 cores it
+  now takes 0.70 of `main`'s time instead of 1.13).
 - **One-mode capillaries with a plasma column run faster on many CPU threads.** Their
   node synthesis and projection, an outer product and a weighted sum over the radial
   nodes, went to the vendor BLAS, which threaded each small call over its own pool; they
   now run as two small kernels on the plasma column's thread team. On an Intel Xeon Gold
   6240 at 16 threads `argon_blueshift` takes 0.68 of its time (0.60 on an AMD EPYC 7763);
-  one thread is unchanged.
+  one thread is unchanged. This applies with OpenBLAS; Apple's Accelerate runs the small
+  products well, and the kernels made `argon_blueshift` slower on macOS.
 - **Plasma capillaries and graded-index guides run faster on a CPU.** The band plasma
   column's host passes ran sample by sample, with an out-of-line call and a division in
   each sample's fraction and loss guard, a scan that Kokkos' host team runs twice, and a
@@ -513,7 +517,9 @@ The first public release. It contains:
   kernel between full-width ones made GNU OpenMP end and restart twelve of sixteen
   threads each time; the hydrogen Raman case was slower at 16 threads than at one. A
   kernel pool that runs a full-width kernel now runs its medium-size kernels at full width
-  too: that case is about twice as fast at 16 threads, resolved argon 1.2-1.4 times.
+  too: that case is about twice as fast at 16 threads, resolved argon 1.2-1.4 times. On
+  macOS, where it made resolved argon slower on an 18-core Apple M5 Max, the medium
+  kernels keep their width.
 - **A main thread bound to one core's hardware threads is recognised.** With
   `OMP_PLACES=cores` on a machine with two threads per core, the native backend's
   OpenMP runtime binds the main thread to its first core, two CPUs, which solprop took
