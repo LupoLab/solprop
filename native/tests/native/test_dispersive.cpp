@@ -330,7 +330,7 @@ TEST(DispersiveResponse, AUnitFilterIsTheConstantCubicOfOneNode) {
 TEST(DispersiveResponse, ATrialNeedsEachStageSDensities) {
   auto problem = dispersive_problem();
   native::GeneralState state(problem);
-  state.set_initial({{0.0, 0.0}, {1.0, 0.0}, {0.0, 0.0}}, {});
+  state.set_initial(std::vector<Complex>{{0.0, 0.0}, {1.0, 0.0}, {0.0, 0.0}}, {});
   native::TrialScalars scalars;
   scalars.phi_delta = {0.0, 0.0};
   scalars.phi_at = {0.0};

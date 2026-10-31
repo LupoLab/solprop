@@ -830,7 +830,7 @@ not revalidated to additional precision by this draft.
   - Three-backend parity of every statistic on radial lossy, radial gradient,
     Cartesian, line and planar cases: worst 2.1e-15 against budgets of 6e-13 to
     6e-12. Native gate (`poe check-native`) passed on the compiled slice.
-- **Cost:** a quick A/B on the Mac (contended; same-process medians, 64×64 Cartesian,
+- **Cost:** a quick A/B on an Apple M5 Max (contended; same-process medians, 64×64 Cartesian,
   n_t 256): energy and spectra on native 0.7 → 1.4 ms, on numba 2.4 → 1.5 ms; local
   statistics about 1.8× on native and 2× on numba (the closure synthesis).
 - **Limitations:** the scalar forward model's scope (§2, §4.5); nonconstant absorbing

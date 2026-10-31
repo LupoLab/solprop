@@ -25,6 +25,10 @@
 #include <utility>
 #include <vector>
 
+#if defined(KOKKOS_ENABLE_OPENMP)
+#include <omp.h>
+#endif
+
 namespace {
 
 namespace native = solprop_native;
@@ -968,7 +972,7 @@ TEST(GeneralState, HeldCurrentMatchesTheDiscreteSinusoidalDrift) {
   native::GeneralState state(problem);
   auto scalars = trial(problem);
   scalars.preionisation = {population};
-  state.set_initial({{}, {1.0, 0.0}, {}}, {});
+  state.set_initial(std::vector<Complex>{{}, {1.0, 0.0}, {}}, {});
   static_cast<void>(state.trial_step(0.0, scalars));
   const auto actual = state.stage_to_host(0);
   EXPECT_EQ(actual[0], Complex{});
@@ -1065,7 +1069,7 @@ TEST(GeneralState, IndependentChannelStashesSurviveRejectedTrials) {
                                             static_cast<double>(problem.n_to - 1));
   };
   native::GeneralState state(problem);
-  state.set_initial({{2.0, 0.0}, {0.0, 0.0}, {0.0, 0.0}}, {});
+  state.set_initial(std::vector<Complex>{{2.0, 0.0}, {0.0, 0.0}, {0.0, 0.0}}, {});
   static_cast<void>(state.trial_step(0.0, accepted));
   state.finish(0.0);
   state.promote_fsal();
@@ -1166,8 +1170,9 @@ TEST(GeneralState, RamanMemoryLedgerMatchesTheConditionalViewFormulae) {
             problem.n_raman_terms * 2 * problem.n_to * real);
   EXPECT_EQ(ledger.at("raman_kernel_time"), 2 * problem.n_to * real);
   EXPECT_EQ(ledger.at("raman_kernel_spectrum"), (problem.n_to + 1) * complex);
+  // Two slots of the packed stage scalars, the trial's step and its sample.
   EXPECT_EQ(ledger.at("stage_raman_rates"),
-            problem.n_stages * problem.n_raman_terms * real);
+            2 * problem.n_stages * problem.n_raman_terms * real);
 
   native::GeneralState ordinary(multimode_problem());
   const auto absent = ordinary.memory_ledger();
@@ -1272,6 +1277,95 @@ TEST(Gemm, NativeOrderKernelIsKokkosBlasWithinTheGemmBound) {
                std::invalid_argument);
 }
 
+// The one-mode kernels sum each element over the nodes in order from zero, which a
+// GEMM may do in any order: both lie within gamma_{k+1} sum |a| |b| of the exact
+// product, so they differ by at most twice that. A synthesis element is one product.
+TEST(Gemm, OneModeKernelsAreKokkosBlasWithinTheGemmBound) {
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
+  GTEST_SKIP() << "the one-mode kernels are the host vendor-BLAS build's";
+#endif
+  using RealView2 = Kokkos::View<double**, native::Layout, native::MemorySpace>;
+  std::uint64_t state = 0x2545f4914f6cdd1dULL;
+  const auto uniform = [&state] {
+    state ^= state << 13U;
+    state ^= state >> 7U;
+    state ^= state << 17U;
+    return static_cast<double>(state >> 11U) * 0x1.0p-53 - 0.5;
+  };
+  const auto fill = [&uniform](const RealView2& view) {
+    const auto host = Kokkos::create_mirror_view(view);
+    for (std::size_t row = 0; row < view.extent(0); ++row)
+      for (std::size_t column = 0; column < view.extent(1); ++column)
+        host(row, column) = uniform();
+    Kokkos::deep_copy(view, host);
+  };
+  const auto host = [](const RealView2& view) {
+    return Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace{}, view);
+  };
+  for (const int threads : {1, 3, native::ExecutionSpace().concurrency()})
+    for (const auto& [rows, inner, columns] : std::array<std::array<std::size_t, 3>, 5>{
+             {{1, 33, 6400}, {2, 33, 6400}, {2, 33, 257}, {1, 2, 7}, {2, 5, 1}}}) {
+      SCOPED_TRACE(std::to_string(threads) + " threads, " + std::to_string(rows) + 'x' +
+                   std::to_string(inner) + 'x' + std::to_string(columns));
+      const auto execution = native::execution_instance(threads);
+      RealView2 weights("weights", rows, inner);
+      RealView2 nodes("nodes", inner, columns);
+      RealView2 expected("expected", rows, columns);
+      RealView2 fine("fine", 1, columns);
+      RealView2 coarse("coarse", 1, columns);
+      fill(weights);
+      fill(nodes);
+      native::kokkosblas_gemm(execution, weights, nodes, expected, 0.0);
+      native::one_mode_projection(execution, weights, nodes, fine, coarse);
+      execution.fence("one-mode projection test");
+      const auto a = host(weights);
+      const auto b = host(nodes);
+      const auto reference = host(expected);
+      const auto first = host(fine);
+      const auto second = host(coarse);
+      const double gamma = test::higham_gamma(inner + 1);
+      for (std::size_t row = 0; row < rows; ++row)
+        for (std::size_t column = 0; column < columns; ++column) {
+          double magnitude = 0.0;
+          for (std::size_t node = 0; node < inner; ++node)
+            magnitude += std::abs(a(row, node) * b(node, column));
+          const double actual = row == 0 ? first(0, column) : second(0, column);
+          ASSERT_LE(std::abs(actual - reference(row, column)), 2.0 * gamma * magnitude)
+              << row << ',' << column;
+        }
+      // The synthesis: `inner` node rows from one mode's row.
+      RealView2 column_weights("column_weights", inner, 1);
+      RealView2 mode("mode", 1, columns);
+      RealView2 synthesised("synthesised", inner, columns);
+      RealView2 direct("direct", inner, columns);
+      fill(column_weights);
+      fill(mode);
+      native::kokkosblas_gemm(execution, column_weights, mode, direct, 0.0);
+      native::one_mode_synthesis(execution, column_weights, mode, synthesised);
+      execution.fence("one-mode synthesis test");
+      const auto w = host(column_weights);
+      const auto m = host(mode);
+      const auto out = host(synthesised);
+      const auto blas = host(direct);
+      for (std::size_t node = 0; node < inner; ++node)
+        for (std::size_t column = 0; column < columns; ++column) {
+          ASSERT_EQ(out(node, column), w(node, 0) * m(0, column));
+          ASSERT_LE(std::abs(out(node, column) - blas(node, column)),
+                    2.0 * test::higham_gamma(2) * std::abs(out(node, column)));
+        }
+    }
+  const native::ExecutionSpace execution;
+  RealView2 three("three", 3, 4);
+  RealView2 nodes("nodes", 4, 8);
+  RealView2 row("row", 1, 8);
+  EXPECT_THROW(native::one_mode_projection(execution, three, nodes, row, row),
+               std::invalid_argument);
+  EXPECT_THROW(native::one_mode_projection(execution, nodes, three, row, row),
+               std::invalid_argument);
+  EXPECT_THROW(native::one_mode_synthesis(execution, three, nodes, row),
+               std::invalid_argument);
+}
+
 TEST(Gemm, EngineSelectsTheNativeOrderKernelWithoutAVendorBlas) {
   EXPECT_EQ(native::native_order_gemm_enabled,
             native::selected_blas_provider_name() == "kokkosblas-native-order");
@@ -1317,7 +1411,12 @@ struct SynthesisCapture {
   ~SynthesisCapture() { Kokkos::Tools::Experimental::set_callbacks(previous); }
 };
 
-TEST(GeneralState, RadialAnalyticChunksUseInterleavedGemmIncludingTheTail) {
+// Five nodes and modes in chunks of three, the tail two. The square map takes the
+// retained-spectrum synthesis; with an in-stage absorber, which reads the modal time
+// field, it keeps the interleaved real GEMM over the time samples. Both must reach
+// BLAS for the full chunk and the tail rather than the scalar custom loop, and agree
+// with the whole transform.
+void check_radial_analytic_chunks(const bool absorber, const char* expected_region) {
   auto problem = general_problem(native::FieldFamily::field_analytic);
   problem.n_modes = 5;
   problem.n_nodes = 5;
@@ -1326,6 +1425,12 @@ TEST(GeneralState, RadialAnalyticChunksUseInterleavedGemmIncludingTheTail) {
   problem.spatial_on_axis.assign(problem.n_modes, 1.0);
   problem.phi_terms.assign(problem.n_modes * problem.n_omega, Complex{});
   problem.prefactor_terms.assign(problem.n_modes * problem.n_omega, Complex(1.0, 0.0));
+  problem.in_stage_absorber = absorber;
+  if (absorber) {
+    problem.absorber_fine.resize(problem.n_to);
+    for (std::size_t time = 0; time < problem.n_to; ++time)
+      problem.absorber_fine[time] = 0.01 * static_cast<double>(time % 3);
+  }
   problem.synthesis_matrix.resize(problem.n_nodes * problem.n_modes);
   problem.projection_matrix.resize(problem.n_modes * problem.n_nodes);
   for (std::size_t row = 0; row < problem.n_nodes; ++row) {
@@ -1354,15 +1459,16 @@ TEST(GeneralState, RadialAnalyticChunksUseInterleavedGemmIncludingTheTail) {
     const SynthesisCapture capture;
     static_cast<void>(chunked.trial_step(0.01, trial(problem)));
   }
-  const auto interleaved =
-      std::count(synthesis_regions.begin(), synthesis_regions.end(),
-                 "solprop_native.transform.synthesis.kokkosblas_interleaved");
+  const auto selected =
+      std::count(synthesis_regions.begin(), synthesis_regions.end(), expected_region);
   const auto custom = std::count(synthesis_regions.begin(), synthesis_regions.end(),
                                  "solprop_native.transform.synthesis.custom");
   const bool uses_blas =
       native::compiled_gemm_provider() != native::GemmProvider::custom;
-  EXPECT_EQ(interleaved, uses_blas ? 2 : 0);
+  EXPECT_EQ(selected, uses_blas ? 2 : 0);
   EXPECT_EQ(custom, uses_blas ? 0 : 2);
+  // Only the absorber-free map keeps the retained spectra.
+  EXPECT_EQ(ledger.at("retained_synthesis") > 0, uses_blas && !absorber);
   chunked.finish(0.01);
   const auto actual = chunked.field_to_host();
   // Both computations have one inverse/forward FFT and two length-five products;
@@ -1376,6 +1482,15 @@ TEST(GeneralState, RadialAnalyticChunksUseInterleavedGemmIncludingTheTail) {
     expect_complex_near(actual[index], expected[index],
                         tolerance * std::max(1.0, Kokkos::abs(expected[index])));
   EXPECT_EQ(chunked.memory_ledger(), ledger);
+}
+
+TEST(GeneralState, RadialAnalyticChunksUseInterleavedGemmIncludingTheTail) {
+  check_radial_analytic_chunks(
+      true, "solprop_native.transform.synthesis.kokkosblas_interleaved");
+}
+
+TEST(GeneralState, SquareRadialAnalyticChunksSynthesiseRetainedSpectra) {
+  check_radial_analytic_chunks(false, "solprop_native.transform.synthesis.retained");
 }
 #endif
 
@@ -2800,6 +2915,132 @@ TEST(CpuThreadPolicy, MetadataNamesEveryOperationClass) {
     EXPECT_EQ(
         pool.sizing().at(std::string("kernels.") + names[i] + ".1").at("elements"), 1U);
   }
+}
+
+TEST(CpuThreadPolicy, ACompactTeamScopeHoldsAnOpenMpBlasAtOneThread) {
+#if !defined(KOKKOS_ENABLE_OPENMP)
+  GTEST_SKIP() << "the hold is an OpenMP build's";
+#else
+  const int before = omp_get_max_threads();
+  if (before == 1)
+    GTEST_SKIP() << "needs an OpenMP default width above one";
+  native::register_openmp_blas(true);
+  {
+    // A scope without a compact team leaves the default alone.
+    const native::CpuTeamScope none(0);
+    EXPECT_EQ(omp_get_max_threads(), before);
+  }
+  {
+    const native::CpuTeamScope outer(4);
+    EXPECT_EQ(omp_get_max_threads(), 1);
+    {
+      // Nested scopes hold it once and release it with the outermost.
+      const native::CpuTeamScope inner(4);
+      EXPECT_EQ(omp_get_max_threads(), 1);
+    }
+    EXPECT_EQ(omp_get_max_threads(), 1);
+  }
+  EXPECT_EQ(omp_get_max_threads(), before);
+  native::register_openmp_blas(false);
+  {
+    // Without an OpenMP OpenBLAS there is nothing to hold.
+    const native::CpuTeamScope unregistered(4);
+    EXPECT_EQ(omp_get_max_threads(), before);
+  }
+#endif
+}
+
+TEST(CpuThreadPolicy, AKernelPoolAtFullWidthKeepsItsTeam) {
+  // GNU OpenMP ends a pool's surplus threads when a narrower region follows a wider
+  // one, so a kernel pool that holds a full-width instance hands it to medium-width
+  // operations too; without one, they keep the medium width. On macOS medium
+  // operations keep the medium width beside one too (`stable_kernel_team`).
+  const int cap = native::thread_policy().kernels;
+  const int promoted = native::stable_kernel_team ? cap : native::cpu_medium_threads;
+  if (!native::cpu_size_policy_enabled || cap <= native::cpu_medium_threads)
+    GTEST_SKIP() << "needs per-operation sizing and more than the medium width";
+  const auto response = std::size_t{33} * 4096;
+  native::CpuExecutionPool alone(native::CpuPool::kernels);
+  EXPECT_EQ(alone.get(native::CpuOperation::response, response, 4096).concurrency(),
+            native::cpu_medium_threads);
+  EXPECT_EQ(alone.get(native::CpuOperation::stage, 1).concurrency(), 1);
+  native::CpuExecutionPool full(native::CpuPool::kernels);
+  EXPECT_EQ(full.get(native::CpuOperation::stage, 1U << 20).concurrency(), cap);
+  EXPECT_EQ(full.get(native::CpuOperation::response, response, 4096).concurrency(),
+            promoted);
+  EXPECT_EQ(full.get(native::CpuOperation::adams, 16384).concurrency(), promoted);
+  EXPECT_EQ(full.get(native::CpuOperation::stage, 1).concurrency(), 1);
+  const auto key = "kernels.response." + std::to_string(response) + ".samples.4096";
+  EXPECT_EQ(full.sizing().at(key).at("threads"), static_cast<std::size_t>(promoted));
+  // The FFT pools keep their medium widths: FFTW's threaded loops run on the
+  // runtime's whole team and only distribute fewer iterations.
+  native::CpuExecutionPool transforms(native::CpuPool::fft);
+  EXPECT_EQ(transforms.get(native::CpuOperation::fft, 1U << 20).concurrency(), cap);
+  EXPECT_EQ(transforms.get(native::CpuOperation::fft, 32768).concurrency(),
+            native::cpu_medium_threads);
+}
+
+TEST(CpuThreadPolicy, ACompactPoolKeepsAFewThreads) {
+  // A compact problem's kernels share a team of at most cpu_compact_threads, medium
+  // widths promoted to it except on macOS; its transforms take that team only where
+  // FFTW's loops follow a scope, and run serially otherwise.
+  const auto policy = native::thread_policy();
+  if (!native::cpu_size_policy_enabled || policy.explicit_pools != 0)
+    GTEST_SKIP() << "needs automatic per-operation sizing";
+  const int team = std::min(policy.kernels, native::cpu_compact_threads);
+  native::CpuExecutionPool kernels(native::CpuPool::kernels);
+  kernels.compact();
+  EXPECT_EQ(kernels.widest(), 0);
+  EXPECT_EQ(kernels.get(native::CpuOperation::stage, 1U << 20).concurrency(), team);
+  EXPECT_EQ(kernels.get(native::CpuOperation::response, std::size_t{33} * 4096, 4096)
+                .concurrency(),
+            native::stable_kernel_team ? team
+                                       : std::min(team, native::cpu_medium_threads));
+  EXPECT_EQ(kernels.get(native::CpuOperation::stage, 1).concurrency(), 1);
+  EXPECT_EQ(kernels.widest(), team);
+  native::CpuExecutionPool transforms(native::CpuPool::fft);
+  transforms.compact();
+  const int threaded = native::fftw_team_loops() ? team : 1;
+  EXPECT_EQ(transforms.get(native::CpuOperation::fft, 1U << 20).concurrency(),
+            threaded);
+  // A medium transform takes the whole team; a Raman one keeps its own start.
+  EXPECT_EQ(transforms.get(native::CpuOperation::fft, 32768).concurrency(), threaded);
+  EXPECT_EQ(transforms.get(native::CpuOperation::fft, 1000).concurrency(), 1);
+  native::CpuExecutionPool raman(native::CpuPool::raman_fft);
+  raman.compact();
+  EXPECT_EQ(raman.get(native::CpuOperation::raman, 32768).concurrency(), 1);
+  EXPECT_EQ(raman.get(native::CpuOperation::raman, native::raman_thread_min_elements)
+                .concurrency(),
+            threaded);
+  native::CpuExecutionPool full(native::CpuPool::kernels);
+  EXPECT_EQ(full.get(native::CpuOperation::stage, 1U << 20).concurrency(),
+            policy.kernels);
+}
+
+TEST(CpuThreadPolicy, CompactProblemsHaveOneColumnOnOneNode) {
+  const auto base = general_problem(native::FieldFamily::field_real);
+  EXPECT_TRUE(native::compact_problem(base));
+  auto nodes = base;
+  nodes.n_nodes = 2;
+  EXPECT_FALSE(native::compact_problem(nodes));
+  auto modes = base;
+  modes.n_modes = 2;
+  EXPECT_FALSE(native::compact_problem(modes));
+  auto pairs = base;
+  pairs.n_pol_transform = 2;
+  EXPECT_FALSE(native::compact_problem(pairs));
+  auto long_column = base;
+  long_column.n_to = native::compact_max_fine_samples;
+  EXPECT_FALSE(native::compact_problem(long_column));
+  auto modal = base;
+  modal.general_modal = true;
+  EXPECT_FALSE(native::compact_problem(modal));
+  auto flow = base;
+  flow.coupled_flow = true;
+  EXPECT_FALSE(native::compact_problem(flow));
+  auto free_space = base;
+  free_space.n_x = 2;
+  EXPECT_FALSE(native::compact_problem(free_space));
 }
 
 TEST(CpuThreadPolicy, MetadataDistinguishesEqualWorkWithDifferentResponseShapes) {

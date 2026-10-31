@@ -125,7 +125,7 @@ Each pool can be fixed from the environment:
 | `SOLPROP_TRANSVERSE_FFTW_THREADS` | FFTW threads for the transverse transforms of free-space runs | the same rule |
 | `SOLPROP_BLAS_THREADS` | BLAS threads | 2 above 262 144 elements, else 1 |
 | `SOLPROP_FFTW_PLAN` | FFTW planner effort: `estimate`, `measure` or `patient` | `measure` |
-| `SOLPROP_FFTW_WISDOM` | a file of FFTW wisdom to import before planning and export after | none |
+| `SOLPROP_FFTW_WISDOM` | a file of FFTW wisdom to import before planning and export after (the native backend keeps its own beside it) | none |
 
 **Free-space node groups.** A free-space, line or planar evaluation works through the
 plane's columns in node chunks, each paying a fixed cost for its launches, its temporal
@@ -191,7 +191,8 @@ otherwise idle machine, and planning a large multimode problem can take seconds.
 `SOLPROP_FFTW_PLAN=estimate` for short runs, tests and busy shared machines, and
 `SOLPROP_FFTW_WISDOM=~/.cache/solprop/wisdom` to plan once and reuse the plans across
 runs of the same shapes (the wisdom's digest is recorded in each run, since plans chosen
-from different wisdom are different executions).
+from different wisdom are different executions). The native backend keeps its plans
+under the same variable, in a file of its own (below).
 
 ## The native backend's pools
 
@@ -227,7 +228,12 @@ and FFT starts (8,192 and 32,768), where a short serial loop is still the faster
 `C` is the clamped capacity of the
 relevant pool, and sizes count work in the operation itself, not bytes. Between the two
 thresholds an operation uses `min(4, C)` threads; equal thresholds give only serial or
-full-width execution.
+full-width execution. A kernel operation (any row but the two FFT rows) of a backend that
+already runs a full-width kernel takes the full pool instead of four threads: GNU OpenMP
+ends the surplus threads of its team whenever a narrower parallel region follows a wider
+one and starts them again for the next wide one, which cost a four-thread kernel between
+full-width ones about half a millisecond each time. FFT plans keep their four threads,
+since FFTW's threaded loops run on the runtime's whole team.
 
 | operation | work used for sizing | threading starts | full pool starts |
 |---|---|---:|---:|
@@ -272,11 +278,42 @@ holds them to its rounding bounds, not to identical bits
 Contiguous modal and Raman FFTW plans default to measured planning at one thread and
 estimate planning at wider widths; the explicit effort overrides both, including
 long Raman rows and partial chunks. Measured planning can add substantial construction
-time even when the warmed propagation is faster. Use `SOLPROP_FFTW_PLAN=estimate`
-when construction dominates a short run. On macOS with NEON FFTW, serial and long
+time even when the warmed propagation is faster. When construction dominates a short
+run, keep the plans in a wisdom file (below) rather than give up measuring them;
+`SOLPROP_FFTW_PLAN=estimate` skips planning altogether, but its plans ran one-thread
+windows up to 1.6 times slower on an AMD EPYC 7763. On macOS with NEON FFTW, serial and long
 Raman rows use Kokkos-FFT, while parallel power-of-two rows of at most 16,384 samples
 retain vDSP. The [build guide](building-native.md) describes the coherent dependency
 recipe and the fallback for a library without NEON codelets.
+
+**Reusing the native backend's plans.** `SOLPROP_FFTW_WISDOM`, the variable `numba_cpu`
+reads, also keeps the native backend's measured plans: a backend imports them before it
+plans and adds the plans it measured after. Nothing is read or written unless the
+variable names a file. The native backend links its own FFTW, so its plans go to a file
+of their own beside the named one, `<name>.native-<key>`, whose key digests the FFTW
+library's version and configuration and the processor model: machines of different
+kinds that share a home directory keep separate plans, and FFTW refuses wisdom another
+build of it wrote. The processes of a scan can share one file. Readers take no lock,
+since the file is only ever replaced whole; a writer takes `<file>.lock`, merges what
+others stored, and writes only when that adds a plan. A file that cannot be read or
+written is reported in the log and costs only the measurement. Wisdom chooses among
+FFTW's exact algorithms, so it changes no result beyond the rounding a fresh
+measurement can change; the run's metadata records `wisdom_loaded` and the
+`wisdom_digest` of the plans in force. For a scan of one-thread jobs it removes most of
+each job's construction: on a Xeon Gold 6240, constructing the averaged helium
+capillary took 1.40 s cold and 0.03 s with the wisdom in place, beside a 0.27 s window
+(1.78 s and 0.05 s on an AMD EPYC 7763), and the comb-to-continuum capillary 5.0 s and
+0.06 s ([measurements](../../dev/benchmarks.md#persistent-fftw-wisdom)). For example:
+
+```sh
+export SOLPROP_FFTW_WISDOM=~/.cache/solprop/wisdom
+```
+
+The first job of each shape measures and stores its plans; every later one, in any
+process, finds them. Threaded row transforms are planned at estimate unless
+`SOLPROP_FFTW_PLAN` asks otherwise, so they have no measured plans to keep; but plans
+that a run under an explicit `measure` stored for a width are found by later runs at
+that width, whatever their effort.
 
 `OMP_NUM_THREADS` and `KOKKOS_NUM_THREADS` do **not** size the Kokkos pool — the backend
 initialises Kokkos with an explicit thread count, which takes precedence; set
@@ -320,11 +357,14 @@ The native CPU backend runs on OpenMP, whose standard variables apply:
   those spare threads; set it for a run on a machine it has to itself. LLVM's OpenMP runtime (used on macOS) also
   honours `KMP_BLOCKTIME`, the time a thread spins before sleeping; do not set it for
   GNU OpenMP.
-- On a machine your run has to itself, also pinning the threads helps: with idle
-  threads sleeping, `OMP_PROC_BIND=close OMP_PLACES=cores` made the capillary and
-  filament cases 6 to 30 % faster on the EPYC allocation above. Leave it unset where
-  several processes share a machine, since each would pin its threads to the same
-  first cores.
+- On cores your run has to itself, such as a batch job's allocation, also pinning the
+  threads helps: with idle threads sleeping, `OMP_PROC_BIND=close OMP_PLACES=cores` ran
+  the tracking cases 11 % faster (geometric mean) on 16 cores of a shared AMD EPYC 7763
+  node, the comb-to-continuum and graded-index cases 28 % and the radial filament 17 %,
+  while on a dedicated socket of a Xeon Gold 6240 it changed little (1 % slower overall).
+  Keep `close`: `spread` scatters a four-thread kernel over the EPYC's core complexes.
+  Leave it unset where several processes share a machine, since each would pin its
+  threads to the same first cores.
 
 ## BLAS and vendor libraries
 
@@ -336,7 +376,13 @@ native backend therefore carries an OpenBLAS built with OpenMP, which shares the
 backend's runtime. At start-up the backend fits a host OpenBLAS to its own pool unless
 `OPENBLAS_NUM_THREADS`, `GOTO_NUM_THREADS` or `OMP_NUM_THREADS` is set: a pthreads build
 is held to one thread, an OpenMP build capped at the Kokkos thread count. `numba_cpu`
-sizes its BLAS pool through threadpoolctl. Otherwise a BLAS's own variables apply:
+sizes its BLAS pool through threadpoolctl. NumPy's own BLAS, a separate library beside
+the native backend's, serves only small host-side products during a native run, yet its
+idle workers spin on the cores the native pool needs: while a native backend lives, every
+BLAS threadpoolctl finds other than the backend's own is held to one thread
+(`SOLPROP_BLAS_THREADS` sets another count), and the last backend to close gives the pools
+back. The run's metadata records what applied as `host_blas`. Otherwise a BLAS's own
+variables apply:
 
 | library | thread variable | notes |
 |---|---|---|

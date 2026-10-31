@@ -1873,7 +1873,7 @@ the reference band's peak spectral amplitude; band energies below $10^{-6}$
 of the parent pulse energy are flagged as weak. The 17-node radial screen
 requires both the projected remainder and complete source to agree with the
 33-node rule within 1%, with an absolute cancellation floor. New atomic
-calibration on the Mac is limited to two hours; longer targeted CPU work may
+calibration on an Apple M5 Max is limited to two hours; longer targeted CPU work may
 run on a workstation or a cluster with explicit allocations and limits. These report and
 screening thresholds do not establish scientific UV accuracy.
 
@@ -1920,7 +1920,7 @@ scientific calibration jobs remain individually budgeted evidence runs.
 The maintainer extended the US$100 ceiling to cover CPU and GPU cloud rentals
 together, retaining the stop-new-work threshold of US$90. Targeted long CPU
 qualifications may continue detached from the VPN session; each has an explicit
-question, CPU/memory allocation and process deadline. The Mac remains limited
+question, CPU/memory allocation and process deadline. The Apple M5 Max remains limited
 to two hours of new atomic calibration. No cloud resource has yet been rented.
 
 The new three-row weak-field witness reproduces the upstream higher-cut

@@ -17,6 +17,7 @@
 #include <limits>
 #include <memory>
 #include <numbers>
+#include <string>
 #include <string_view>
 #include <type_traits>
 #include <utility>
@@ -161,6 +162,52 @@ TEST(FftProvider, OnePlanPolicyDecidesEverySeedByShapeAndWidth) {
     }
 }
 
+// A compact problem's transforms run FFTW's threaded loop on a scoped team: a loop
+// with more jobs than the scope's threads takes one thread a job, and the transform
+// is the plan's own arithmetic, so every scope gives the runtime team's bits.
+TEST(FftProvider, ScopedTeamLoopsTransformAsTheRuntimeTeamDoes) {
+  if (!native::fftw_team_loops())
+    GTEST_SKIP() << "this FFTW runs its threaded loops without a callback";
+  using Plan =
+      std::unique_ptr<std::remove_pointer_t<fftw_plan>, decltype(&fftw_destroy_plan)>;
+  using Buffer = std::unique_ptr<fftw_complex[], decltype(&fftw_free)>;
+  constexpr int samples = 1 << 15;
+  constexpr auto count = static_cast<std::size_t>(samples);
+  const auto buffer = [] { return Buffer(fftw_alloc_complex(count), fftw_free); };
+  const Buffer input = buffer();
+  std::array<Buffer, 4> outputs{buffer(), buffer(), buffer(), buffer()};
+  for (std::size_t sample = 0; sample < count; ++sample) {
+    const auto position = static_cast<double>(sample);
+    input[sample][0] = std::sin(0.37 * position);
+    input[sample][1] = std::cos(1.3 * position * position / samples);
+  }
+  fftw_init_threads();
+  fftw_plan_with_nthreads(4);
+  const Plan plan(fftw_plan_dft_1d(samples, input.get(), outputs[0].get(), FFTW_FORWARD,
+                                   FFTW_ESTIMATE),
+                  fftw_destroy_plan);
+  fftw_plan_with_nthreads(1);
+  ASSERT_TRUE(plan);
+  fftw_execute_dft(plan.get(), input.get(), outputs[0].get());
+  {
+    const native::CpuTeamScope fewer(2);
+    fftw_execute_dft(plan.get(), input.get(), outputs[1].get());
+    {
+      const native::CpuTeamScope runtime(0);
+      fftw_execute_dft(plan.get(), input.get(), outputs[2].get());
+    }
+  }
+  {
+    const native::CpuTeamScope more(8);
+    fftw_execute_dft(plan.get(), input.get(), outputs[3].get());
+  }
+  for (std::size_t copy = 1; copy < outputs.size(); ++copy)
+    for (std::size_t sample = 0; sample < count; ++sample) {
+      ASSERT_EQ(outputs[copy][sample][0], outputs[0][sample][0]) << copy;
+      ASSERT_EQ(outputs[copy][sample][1], outputs[0][sample][1]) << copy;
+    }
+}
+
 TEST(FftProvider, RowWisdomUsesSerialDefaultAndHonorsExplicitEffort) {
   // Providers such as MKL expose the FFTW API without implementing its wisdom.
   using Wisdom = std::unique_ptr<char, decltype(&fftw_free)>;
@@ -231,6 +278,52 @@ TEST(RamanFftProvider, LongFallbackRowsHonorPlannerEffort) {
                               : std::string_view(requested) != "estimate";
     EXPECT_EQ(static_cast<bool>(witness), measured);
   }
+}
+
+TEST(FftProvider, WisdomTextRoundTripsAndForeignTextIsRefused) {
+  if (native::export_fftw_wisdom().empty())
+    GTEST_SKIP() << "The linked FFT provider does not export FFTW wisdom";
+  using Plan =
+      std::unique_ptr<std::remove_pointer_t<fftw_plan>, decltype(&fftw_destroy_plan)>;
+  constexpr int rows = 2;
+  const int samples = 48;
+  const ComplexRows input("fft_contract.text_input", rows, samples);
+  const ComplexRows output("fft_contract.text_output", rows, samples);
+  const auto witness = [&] {
+    fftw_plan_with_nthreads(1);
+    return Plan(fftw_plan_many_dft(
+                    1, &samples, rows, reinterpret_cast<fftw_complex*>(input.data()),
+                    &samples, 1, samples,
+                    reinterpret_cast<fftw_complex*>(output.data()), &samples, 1,
+                    samples, FFTW_FORWARD, FFTW_WISDOM_ONLY | FFTW_MEASURE),
+                fftw_destroy_plan);
+  };
+  // A fresh process's wisdom: the preamble alone, whose signature must already be
+  // that of the planner the seeds use, threaded solvers included.
+  fftw_forget_wisdom();
+  const std::string empty = native::export_fftw_wisdom();
+  fftw_plan_with_nthreads(1);
+  const Plan measured(
+      fftw_plan_many_dft(1, &samples, rows,
+                         reinterpret_cast<fftw_complex*>(input.data()), &samples, 1,
+                         samples, reinterpret_cast<fftw_complex*>(output.data()),
+                         &samples, 1, samples, FFTW_FORWARD, FFTW_MEASURE),
+      fftw_destroy_plan);
+  ASSERT_TRUE(measured);
+  const std::string text = native::export_fftw_wisdom();
+  EXPECT_EQ(text.substr(0, text.find('\n')), empty.substr(0, empty.find('\n')));
+  EXPECT_GT(text.size(), empty.size());
+  fftw_forget_wisdom();
+  EXPECT_FALSE(witness());
+  EXPECT_TRUE(native::import_fftw_wisdom(text));
+  EXPECT_TRUE(witness());
+  // FFTW keeps its wisdom when it refuses text: neither garbage nor another
+  // configuration's preamble is merged.
+  EXPECT_FALSE(native::import_fftw_wisdom("not wisdom"));
+  const std::string foreign = text.substr(0, text.find(" #x")) + " #x0 #x0 #x0 #x0\n)";
+  EXPECT_FALSE(native::import_fftw_wisdom(foreign));
+  EXPECT_TRUE(witness());
+  fftw_forget_wisdom();
 }
 #endif
 

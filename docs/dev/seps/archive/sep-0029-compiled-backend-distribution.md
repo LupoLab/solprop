@@ -54,7 +54,7 @@ consolidation"):
   36-core Xeon; on Apple silicon it is level or ahead in every core case at the default
   width (1.95 times on the 384² Kerr beam, 1.7–3.0 times on the radial filament), and at
   one thread within 15 % of `numba_cpu` on every core case, ahead on some. At one thread
-  on the Xeon, `numba_cpu` still leads on general modal (the native backend takes 1.27
+  on a Xeon Gold 6240, `numba_cpu` still leads on general modal (the native backend takes 1.27
   times its time, mostly the v2 floor) and on the reduced comb-to-continuum case (1.05–1.08
   times).
 - **Fragility of `numba_cpu` on Linux.** A `numba_cpu` run holds several independent
@@ -167,7 +167,7 @@ the coexistence tests of R14 and a minimum desktop Windows version (R6).
 Distribute one x86-64-v2 build (SSE4.2, no AVX2 requirement), with BLAS. Keep
 `SOLPROP_NATIVE_CPU_BASELINE=x86-64-v3` as a source-build option. On the core cases the
 v2 floor costs at most 2 % on Zen 5 and 4 % on a Xeon; on the general modal route it
-costs 23–24 % at one thread and 7–12 % at full width on the Xeon (7 % on Zen 5), a cost
+costs 23–24 % at one thread and 7–12 % at full width on a Xeon Gold 6240 (7 % on Zen 5), a cost
 the maintainer accepts for the floor. Bundled BLAS and FFTW select CPU-specific kernels
 at run time, provided their dispatch and fallback are safe on v2 (qualified under an
 instruction emulator in phase 0, and again for the OpenMP OpenBLAS).
@@ -832,7 +832,7 @@ were addressed as engineering work, without a SEP:
 |---|---|---|
 | Radial free-space route 2.5–6 times slower at one thread on every platform | partial node chunks reach the interleaved real GEMM instead of a scalar contraction | 0.91–0.95 times `numba_cpu`'s time at one thread (Apple silicon, Xeon); 0.10–0.39 times at the default width |
 | Multimode step 20–40 % slower at one thread on Apple silicon and Windows | shared cubic monomials; plans for active tail rows only; measured serial FFTW wisdom; FFTW for short serial Raman rows | 1.00–1.07 times `numba_cpu` at one thread on Apple silicon; 5–19 % faster at one thread on Zen 5. Measured *threaded* plans were sometimes slower and are no longer the default |
-| Small problems slower at the default width than on one thread | per-operation thread widths chosen from the operation's dimensions at construction | small cases 2.0 times faster than one thread (geometric mean) on Apple silicon and the Xeon |
+| Small problems slower at the default width than on one thread | per-operation thread widths chosen from the operation's dimensions at construction | small cases 2.0 times faster than one thread (geometric mean) on Apple silicon and a Xeon Gold 6240 |
 | Resident Adams history out of memory on the 384² Kerr beam at 64 GB | unused dense-output volumes omitted when planes are landed on | 29 → 18 field volumes; projected peak 62.7 → 48.2 GiB (`numba_cpu`: 34.8 GiB) |
 
 The system allocator and vector transcendental functions were measured and ruled out as
@@ -844,13 +844,13 @@ codelet widths, recorded above. The x86-64-v2 floor costs at most 2 % (Zen 5) to
 distribution build now defaults to x86-64-v2.
 
 The general modal route was not part of that comparison. With the same source and BLAS on
-the Xeon, v2 is 23–24 % slower than v3 on general modal at one thread, and 7–12 % slower
+a Xeon Gold 6240, v2 is 23–24 % slower than v3 on general modal at one thread, and 7–12 % slower
 at full width. At full width v2 is still 5.4 times faster than `numba_cpu` on general
 modal; at one thread it runs at 0.79 times `numba_cpu`'s speed. The core cases stay
 within 3 %. The maintainer accepted this cost for the conservative floor. The remedies are
 the v3 source build, and later selective dispatch of the general-modal kernels (§6.2).
 
-**The single-runtime BLAS on the Xeon.** The old distribution wheel (pthreads OpenBLAS)
+**The single-runtime BLAS on a Xeon Gold 6240.** The old distribution wheel (pthreads OpenBLAS)
 was compared with the new one (OpenMP OpenBLAS, plus the BLAS fit) at the default width
 (72 threads):
 
@@ -903,9 +903,9 @@ steps, source evaluations) in every row, and every adaptive accuracy check passe
 | Radial, RK | 0.97 | 1.70 | 1.12 | 3.92 | 1.09 | 3.13 | 0.90 | 3.16 | 1.62 | 5.15 |
 
 - At the production width the native backend leads on every machine and case except RDW
-  with adaptive RK on Zen 5 Linux (0.84), Graviton4 (0.90) and the Mac (0.98).
-- At one thread it is level or ahead on the Xeon, Zen 5 Linux and Graviton4. `numba_cpu`
-  keeps 3–16 % on CtC and the RK tracks on the Mac and Windows; the one-thread multimode
+  with adaptive RK on Zen 5 Linux (0.84), Graviton4 (0.90) and an Apple M5 Max (0.98).
+- At one thread it is level or ahead on a Xeon Gold 6240, Zen 5 Linux and Graviton4. `numba_cpu`
+  keeps 3–16 % on CtC and the RK tracks on an Apple M5 Max and Windows; the one-thread multimode
   step is the remaining per-core gap.
 - Limits:
   - The Zen 5 Linux pair ran on two instances of the same type a day apart.
@@ -929,7 +929,7 @@ steps, source evaluations) in every row, and every adaptive accuracy check passe
 - **Linux aarch64.** The first aarch64 build of the OpenMP OpenBLAS (`DYNAMIC_ARCH`)
   passes the solprop suite on the native backend on Graviton4 (16,891 passed). Against the
   previous pthreads-BLAS wheel it is 1.5–20 times faster at the default width on the
-  BLAS-bound cases and level at one thread, as on the Xeon and Zen 5.
+  BLAS-bound cases and level at one thread, as on a Xeon Gold 6240 and Zen 5.
 
 ### Phase 1: one repository — 2026-10-22
 
@@ -1000,7 +1000,7 @@ solprop-native's Python version was dropped.
     GCC's module-scanning flags; tidy now reads the compiling GCC's own installation, and
     module scanning is off.
 - One timing-sensitive test of the benchmark runner (a crashed worker classified as
-  timed out) failed once on the Mac under the load of two concurrent builds and passed
+  timed out) failed once on an Apple M5 Max under the load of two concurrent builds and passed
   when rerun alone.
 
 

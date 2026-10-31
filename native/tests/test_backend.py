@@ -698,6 +698,10 @@ def test_metadata_and_memory_ledger_are_self_consistent(
     assert metadata["schema_version"] == 39
     assert metadata["openmp_wait_policy"] == solprop_native.WAIT_POLICY
     assert metadata["openmp_proc_bind"] == solprop_native.PROC_BIND
+    # NumPy's own BLAS pool is held while the backend lives (solprop_native._host_blas).
+    assert metadata["host_blas"] in {"none", "unavailable"} or str(
+        metadata["host_blas"]
+    ).endswith(("thread", "threads"))
     assert cast(float, metadata["planning_seconds"]) >= 0.0
     # A one-mode envelope at one node. A host build folds its one-element transforms
     # into the response column (solprop SEP 25), whatever the GEMM policy. A device

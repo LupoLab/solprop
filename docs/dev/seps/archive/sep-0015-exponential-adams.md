@@ -1077,7 +1077,7 @@ current Multistep. The final Xeon campaign uses the two tolerances needed for
 this comparison; the earlier compiled-quadrature ablation has the full ladder.
 The core's simultaneous-multithreading sibling was idle during the recorded
 sample; other cores had unrelated work. Both hosts use SciPy 1.18.1 and Numba
-0.67.0, but NumPy is 2.5.2 on the Mac and 2.5.3 on the Xeon. These are within-host
+0.67.0, but NumPy is 2.5.2 on an Apple M5 Max and 2.5.3 on a Xeon Gold 6240. These are within-host
 comparisons, not a controlled comparison of processor architectures.
 
 #### Verification and handoff

@@ -133,7 +133,16 @@ from solprop.translate.stage import (
 )
 from solprop.translate.tdse import TDSEPurpose
 
-from . import PROC_BIND, THREAD_BUDGET, WAIT_POLICY, _core, build_info, check_build
+from . import (
+    PROC_BIND,
+    THREAD_BUDGET,
+    WAIT_POLICY,
+    _core,
+    _host_blas,
+    _wisdom,
+    build_info,
+    check_build,
+)
 from ._helpers import NATIVE
 
 type ComplexArray = npt.NDArray[np.complex128]
@@ -304,14 +313,23 @@ class NativeBackend(StepDriver[_core.State]):
         # solprop SEP 23: the far-field tables are formed once, which refuses a
         # geometry the far-field statistics do not admit before anything is built.
         self._far_field = FarFieldTables(problem)
+        # solprop's opt-in SOLPROP_FFTW_WISDOM: the plans a run of this build measured
+        # before are imported before planning, and new ones are kept after it.
+        wisdom = _wisdom.wisdom_file()
+        self._wisdom_loaded = _wisdom.load(wisdom)
         self._native_state = _core.State(
             _native_problem(problem, self._terms, self._flow, self._z_tables)
             | _low_storage_payload(problem, device=_on_device())
         )
+        _wisdom.store(wisdom)
+        self._wisdom_digest: str | None = None
         if self._z_tables is not None:
             self._z_tables.upload(self._native_state)
         _upload_flux_table(self._native_state, problem)
         self._last_loaded = np.empty(0, dtype=np.complex128)
+        # Set while `set_initial` runs the driver's load, whose mask step then leaves
+        # the upload to the one with the noise that follows: the state crosses once.
+        self._loading = False
         self._alarm = math.nan
         self._alarm_reported = False
         # solprop's Adams march (SEP 14 phase 2) steps on host arrays, with one native
@@ -330,11 +348,17 @@ class NativeBackend(StepDriver[_core.State]):
         # engine `_low_storage_engine` returns, built over the native state above.
         if isinstance(integrator, LowStorageRungeKutta):
             self._low_storage = LowStorageMarch(self, integrator)
+        # NumPy's own BLAS pool would spin beside the native one while this backend
+        # lives; it is held to one thread until the last native backend closes.
+        self._host_blas = _host_blas.hold(
+            build_info().blas_library, THREAD_BUDGET.threads
+        )
 
     def _apply_mask(self, state: ComplexArray) -> _core.State:
         self._last_loaded = np.ascontiguousarray(state.reshape(-1))
-        empty = np.empty(0, dtype=np.complex128)
-        self._native_state.set_initial(self._last_loaded, empty)
+        if not self._loading:
+            empty = np.empty(0, dtype=np.complex128)
+            self._native_state.set_initial(self._last_loaded, empty)
         return self._native_state
 
     def set_initial(
@@ -346,7 +370,11 @@ class NativeBackend(StepDriver[_core.State]):
     ) -> None:
         """Load an exact host `complex128` state and optional noise realization."""
         _require_initial_array(field, self._problem.shape)
-        super().set_initial(field, noise, z=z)
+        self._loading = True
+        try:
+            super().set_initial(field, noise, z=z)
+        finally:
+            self._loading = False
         native_noise = (
             np.empty(0, dtype=np.complex128)
             if self._noise is None
@@ -1578,6 +1606,8 @@ class NativeBackend(StepDriver[_core.State]):
         """
         facts = _build_facts()
         work = super().metadata()
+        if self._wisdom_digest is None:
+            self._wisdom_digest = _wisdom.digest()
         if self._adams is None and self._low_storage is None:
             work["source_evaluations"] = self._native_state.rk_source_evaluations
         march = self._adams
@@ -1593,7 +1623,10 @@ class NativeBackend(StepDriver[_core.State]):
             "thread_budget_source": THREAD_BUDGET.source,
             "openmp_wait_policy": WAIT_POLICY,
             "openmp_proc_bind": PROC_BIND,
+            "host_blas": self._host_blas,
             "planning_seconds": self._native_state.planning_seconds,
+            "wisdom_loaded": self._wisdom_loaded,
+            "wisdom_digest": self._wisdom_digest,
             "raman_fft_provider": self._native_state.raman_fft_provider,
             "raman_fft_tasks": self._native_state.raman_fft_tasks,
             "execution_sizing": self._native_state.execution_sizing,
@@ -1652,6 +1685,7 @@ class NativeBackend(StepDriver[_core.State]):
         """Release native plans and views; repeated calls have no effect."""
         if not self._closed:
             self._native_state.close()
+            _host_blas.release()
         self._state = None
         self._noise = None
         self._closed = True
@@ -2457,10 +2491,6 @@ class _NativeAdamsMarch(AdamsMarch):
                 "the host engine, which steps a coupled flow off the eigenbasis "
                 "route or wider than 16 channels"
             ), True
-        # Device builds are qualified one vendor at a time (SEP 39 section 6.7): CUDA
-        # on NVIDIA A40s; HIP waits for its own GPU segment.
-        if _build_facts().info["device_backend"] == "hip":
-            return "a HIP build, which the native march is not yet qualified on", True
         assert isinstance(engine, _ResidentAdams)
         chord = None if engine.carrier is None else engine.carrier.chord
         resident = (

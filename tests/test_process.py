@@ -53,8 +53,34 @@ def test_without_a_binding_the_current_affinity_is_believed(
 
 def test_a_deliberate_narrowing_to_several_cpus_is_believed(monkeypatch, granted):
     monkeypatch.setenv("OMP_PROC_BIND", "close")
+    monkeypatch.setattr(_process, "physical_cores", lambda cpus: 2)
     _affinity(monkeypatch, {2, 4})
     assert _process.allowed_cpus() == (2, 4)
+
+
+def test_a_main_thread_bound_to_one_core_place_still_sees_the_grant(
+    monkeypatch, granted
+):
+    # With OMP_PLACES=cores, libgomp binds the main thread to its first core's
+    # hardware threads: two CPUs on a machine with two threads per core.
+    monkeypatch.setenv("OMP_PROC_BIND", "close")
+    seen = []
+
+    def one_core(cpus):
+        seen.append(tuple(cpus))
+        return 1
+
+    monkeypatch.setattr(_process, "physical_cores", one_core)
+    _affinity(monkeypatch, {0, 9})
+    assert _process.allowed_cpus() == tuple(range(18))
+    assert seen == [(0, 9)]
+
+
+def test_a_core_place_outside_the_grant_is_believed(monkeypatch, granted):
+    monkeypatch.setenv("OMP_PROC_BIND", "close")
+    monkeypatch.setattr(_process, "physical_cores", lambda cpus: 1)
+    _affinity(monkeypatch, {17, 40})
+    assert _process.allowed_cpus() == (17, 40)
 
 
 def test_a_cpu_outside_the_grant_is_believed(monkeypatch, granted):

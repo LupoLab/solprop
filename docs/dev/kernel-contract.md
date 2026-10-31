@@ -1114,7 +1114,7 @@ the step history and over the same interval, and a row may not index past it.
 
 ## 11. The Adams march
 
-*Normative since kernel schema 39 ([SEP 39](seps/sep-0039-native-adams-march.md),
+*Normative since kernel schema 39 ([SEP 39](seps/archive/sep-0039-native-adams-march.md),
 ADR-060). The native backend executes it on its CPU build for `Multistep()` in either
 formulation and the one-order-higher PEC comparisons, adaptive or replayed; every other
 configuration and backend runs the reference.*
@@ -1123,7 +1123,7 @@ The step loop of `Multistep()` is one algorithm with one reference implementatio
 solprop's `AdamsMarch` and the controller core it calls (`solprop.backends.adams_core`).
 A backend may execute the same algorithm natively. It then receives every number the
 algorithm reads in one record, and holds no default and no constant of its own
-(`native/AGENTS.md`). [SEP 39](seps/sep-0039-native-adams-march.md) §4 is the algorithm
+(`native/AGENTS.md`). [SEP 39](seps/archive/sep-0039-native-adams-march.md) §4 is the algorithm
 in full; this section is its interface.
 
 **The policy record** (`solprop.stepper.multistep.MarchPolicy`, formed once per run by

@@ -4,9 +4,12 @@
 
 #pragma once
 
+#include "solprop_native/launch.hpp"
+
 #include <KokkosBlas3_gemm.hpp>
 #include <Kokkos_Core.hpp>
 
+#include <algorithm>
 #include <cstddef>
 #include <stdexcept>
 #include <string_view>
@@ -75,7 +78,7 @@ void custom_gemm(const ExecutionSpace& execution_space, const AView& a, const BV
     throw std::invalid_argument("GEMM view extents are inconsistent");
   }
   const std::size_t inner = a.extent(1);
-  Kokkos::parallel_for(
+  launch::parallel_for(
       "solprop_native.transform.custom_gemm",
       // The last index fastest, as the views store it (a device's default is the
       // first).
@@ -124,7 +127,7 @@ void native_order_gemm_tiles(const ExecutionSpace& execution_space, const AView&
   const std::size_t inner = a.extent(1);
   const std::size_t row_tiles = (rows + Rows - 1) / Rows;
   const std::size_t column_tiles = (columns + Columns - 1) / Columns;
-  Kokkos::parallel_for(
+  launch::parallel_for(
       "solprop_native.transform.native_order_gemm",
       Kokkos::RangePolicy<ExecutionSpace>(execution_space, 0, row_tiles * column_tiles),
       KOKKOS_LAMBDA(const std::size_t item) {
@@ -196,19 +199,158 @@ void native_order_gemm(const ExecutionSpace& execution_space, const AView& a,
     native_order_gemm_tiles<4, 128, 8>(execution_space, a, b, c, beta);
 }
 
+// An NVIDIA GA10x device (compute capability 8.6) runs FP64 at a sixty-fourth of its
+// FP32 rate, and cuBLAS gives its DGEMM the FP64 tensor-op kernels of compute
+// capability 8.0: on an NVIDIA A40 a radial filament's 128 x 256 x 866 synthesis ran
+// at 316 GFLOP/s, about 54 % of the FP64 peak, at any row pitch. Such a build forms
+// the engine's real GEMMs with `device_dense_gemm`.
+inline constexpr bool device_dense_gemm_enabled =
+#if defined(KOKKOS_ARCH_AMPERE86)
+    true;
+#else
+    false;
+#endif
+
+/** `c = a * b + beta * c`, real, on a device: a thread takes `Rows` rows of one column
+    of C, so that each element of B it reads serves all of them. Each element is the
+    custom kernel's sum (`custom_gemm`), its products added in order from zero. */
+template <class ExecutionSpace, class AView, class BView, class CView>
+void device_dense_gemm(const ExecutionSpace& execution_space, const AView& a,
+                       const BView& b, const CView& c, const double beta) {
+  if (a.extent(1) != b.extent(0) || a.extent(0) != c.extent(0) ||
+      b.extent(1) != c.extent(1)) {
+    throw std::invalid_argument("GEMM view extents are inconsistent");
+  }
+  constexpr std::size_t Rows = 4;
+  const std::size_t rows = c.extent(0);
+  const std::size_t columns = c.extent(1);
+  const std::size_t inner = a.extent(1);
+  const std::size_t blocks = (rows + Rows - 1) / Rows;
+  launch::parallel_for(
+      "solprop_native.transform.device_dense_gemm",
+      Kokkos::RangePolicy<ExecutionSpace>(execution_space, 0, blocks * columns),
+      KOKKOS_LAMBDA(const std::size_t item) {
+        const std::size_t column = item % columns;
+        const std::size_t first = (item / columns) * Rows;
+        std::size_t row_of[Rows];
+        for (std::size_t r = 0; r < Rows; ++r)
+          row_of[r] = Kokkos::min(first + r, rows - 1);
+        double value[Rows] = {};
+        for (std::size_t index = 0; index < inner; ++index) {
+          const double right = b(index, column);
+          for (std::size_t r = 0; r < Rows; ++r)
+            value[r] += a(row_of[r], index) * right;
+        }
+        for (std::size_t r = 0; r < Rows && first + r < rows; ++r)
+          c(first + r, column) =
+              beta == 0.0 ? value[r] : value[r] + beta * c(first + r, column);
+      });
+}
+
 // The engine's KokkosBlas call: vendor or device GEMM where the build has one, and
 // otherwise KokkosBlas's own native arithmetic through the faster host kernel above.
 template <class ExecutionSpace, class AView, class BView, class CView>
 void engine_gemm(const ExecutionSpace& execution_space, const AView& a, const BView& b,
                  const CView& c, const typename CView::non_const_value_type beta) {
-  if constexpr (native_order_gemm_enabled &&
+  if constexpr (device_dense_gemm_enabled &&
                 std::is_same_v<typename AView::non_const_value_type, double> &&
                 std::is_same_v<typename BView::non_const_value_type, double> &&
                 std::is_same_v<typename CView::non_const_value_type, double>) {
+    device_dense_gemm(execution_space, a, b, c, beta);
+  } else if constexpr (native_order_gemm_enabled &&
+                       std::is_same_v<typename AView::non_const_value_type, double> &&
+                       std::is_same_v<typename BView::non_const_value_type, double> &&
+                       std::is_same_v<typename CView::non_const_value_type, double>) {
     native_order_gemm(execution_space, a, b, c, beta);
   } else {
+    // The vendor library's calls are not a device graph's (`graph::Region`).
+    if constexpr (graph::available)
+      graph::unrecordable();
     kokkosblas_gemm(execution_space, a, b, c, beta);
   }
+}
+
+// One mode at several nodes on a host build with OpenBLAS: the synthesis is an outer
+// product (A's single column) and the projection one weighted sum of node rows, or two
+// when it stacks the embedded rule's. OpenBLAS threads such a call over its own pool,
+// and the product sizing keeps the engine's dense operations serial; these kernels run
+// on the caller's team instead, the response team that writes the node rows (solprop
+// docs/dev/benchmarks.md, "One-mode products on the response team"). Each element is
+// one product, or a sum over the nodes in order from zero, within the GEMM rounding
+// bound. Apple's Accelerate runs the small calls well: on an 18-core Apple M5 Max the
+// kernels on the 18-thread response team took argon_blueshift from 3.0 to 3.8 s.
+inline constexpr bool one_mode_products_enabled =
+#if defined(KOKKOSKERNELS_ENABLE_TPL_BLAS) &&                                          \
+    defined(SOLPROP_NATIVE_TPL_BLAS_OPENBLAS) && !defined(KOKKOS_ENABLE_CUDA) &&       \
+    !defined(KOKKOS_ENABLE_HIP)
+    true;
+#else
+    false;
+#endif
+
+/** `fine = a.row(0) * b` and, when `a` has a second row, `coarse = a.row(1) * b`, over
+    one contiguous share of b's columns per thread of `execution_space`. */
+template <class ExecutionSpace, class AView, class BView, class FineView,
+          class CoarseView>
+void one_mode_projection(const ExecutionSpace& execution_space, const AView& a,
+                         const BView& b, const FineView& fine,
+                         const CoarseView& coarse) {
+  const std::size_t inner = b.extent(0);
+  const std::size_t columns = b.extent(1);
+  const bool stacked = a.extent(0) == 2;
+  if (a.extent(1) != inner || (a.extent(0) != 1 && !stacked) ||
+      fine.extent(1) != columns || (stacked && coarse.extent(1) != columns))
+    throw std::invalid_argument("one-mode projection extents are inconsistent");
+  const auto parts =
+      static_cast<std::size_t>(std::max(1, execution_space.concurrency()));
+  const std::size_t share = (columns + parts - 1) / parts;
+  constexpr std::size_t chunk = 256;
+  launch::parallel_for(
+      "solprop_native.transform.one_mode_projection",
+      Kokkos::RangePolicy<ExecutionSpace>(execution_space, 0, parts),
+      KOKKOS_LAMBDA(const std::size_t part) {
+        const std::size_t end = Kokkos::min(columns, (part + 1) * share);
+        for (std::size_t first = part * share; first < end; first += chunk) {
+          const std::size_t count = Kokkos::min(chunk, end - first);
+          double fine_total[chunk];
+          double coarse_total[chunk];
+          for (std::size_t offset = 0; offset < count; ++offset)
+            fine_total[offset] = coarse_total[offset] = 0.0;
+          for (std::size_t node = 0; node < inner; ++node) {
+            const double weight = a(0, node);
+            for (std::size_t offset = 0; offset < count; ++offset)
+              fine_total[offset] += weight * b(node, first + offset);
+            if (stacked) {
+              const double coarse_weight = a(1, node);
+              for (std::size_t offset = 0; offset < count; ++offset)
+                coarse_total[offset] += coarse_weight * b(node, first + offset);
+            }
+          }
+          for (std::size_t offset = 0; offset < count; ++offset)
+            fine(0, first + offset) = fine_total[offset];
+          if (stacked)
+            for (std::size_t offset = 0; offset < count; ++offset)
+              coarse(0, first + offset) = coarse_total[offset];
+        }
+      });
+}
+
+/** `c = a * b` for `a` of one column: each node row the mode's row times its weight. */
+template <class ExecutionSpace, class AView, class BView, class CView>
+void one_mode_synthesis(const ExecutionSpace& execution_space, const AView& a,
+                        const BView& b, const CView& c) {
+  if (a.extent(1) != 1 || b.extent(0) != 1 || c.extent(0) != a.extent(0) ||
+      c.extent(1) != b.extent(1))
+    throw std::invalid_argument("one-mode synthesis extents are inconsistent");
+  const std::size_t columns = b.extent(1);
+  launch::parallel_for(
+      "solprop_native.transform.one_mode_synthesis",
+      Kokkos::RangePolicy<ExecutionSpace>(execution_space, 0, c.extent(0)),
+      KOKKOS_LAMBDA(const std::size_t node) {
+        const double weight = a(node, 0);
+        for (std::size_t column = 0; column < columns; ++column)
+          c(node, column) = weight * b(0, column);
+      });
 }
 
 template <class ExecutionSpace, class AView, class BView, class CView>

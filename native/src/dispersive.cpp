@@ -4,6 +4,7 @@
 
 #include "solprop_native/dispersive.hpp"
 #include "solprop_native/gemm.hpp"
+#include "solprop_native/launch.hpp"
 #include "solprop_native/slab.hpp"
 
 #include <algorithm>
@@ -43,7 +44,7 @@ void upload(const ExecutionSpace& space,
   const Kokkos::View<const Value*, Kokkos::HostSpace,
                      Kokkos::MemoryTraits<Kokkos::Unmanaged>>
       host(source.data(), source.size());
-  Kokkos::deep_copy(space, target, host);
+  graph::deep_copy(space, target, host);
 }
 
 template <class Value>
@@ -54,7 +55,7 @@ void upload(const ExecutionSpace& space,
   const Kokkos::View<const Value**, Layout, Kokkos::HostSpace,
                      Kokkos::MemoryTraits<Kokkos::Unmanaged>>
       host(source.data(), target.extent(0), target.extent(1));
-  Kokkos::deep_copy(space, target, host);
+  graph::deep_copy(space, target, host);
 }
 
 // One product of the field with itself twice at every node of a chunk: the symmetric
@@ -240,10 +241,10 @@ void over_nodes(const char* label, const ExecutionSpace& space,
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
   using Policy = Kokkos::MDRangePolicy<
       ExecutionSpace, Kokkos::Rank<2, Kokkos::Iterate::Right, Kokkos::Iterate::Right>>;
-  Kokkos::parallel_for(label, Policy(space, {0, 0}, {node_count, n_to}), functor);
+  launch::parallel_for(label, Policy(space, {0, 0}, {node_count, n_to}), functor);
 #else
   static_cast<void>(n_to);
-  Kokkos::parallel_for(label, Kokkos::RangePolicy<ExecutionSpace>(space, 0, node_count),
+  launch::parallel_for(label, Kokkos::RangePolicy<ExecutionSpace>(space, 0, node_count),
                        functor);
 #endif
 }
@@ -361,7 +362,7 @@ void filter_rows(const ExecutionSpace& space, const RealView2& inputs,
                  const std::size_t bins, const double scale, std::size_t active = 0) {
   if (active == 0)
     active = rows;
-  Kokkos::parallel_for(
+  launch::parallel_for(
       "solprop_native.dispersive.filter",
       Range2(space, {0, 0}, {fields * active, out.extent(1)}),
       KOKKOS_LAMBDA(const std::size_t row, const std::size_t k) {
@@ -376,7 +377,7 @@ void filter_rows(const ExecutionSpace& space, const RealView2& inputs,
 void filter_in_place(const ExecutionSpace& space, const RealView2& inputs,
                      const ComplexView2& spectrum, const std::size_t rows,
                      const std::size_t bins) {
-  Kokkos::parallel_for(
+  launch::parallel_for(
       "solprop_native.dispersive.filter_in_place", Range2(space, {0, 0}, {rows, bins}),
       KOKKOS_LAMBDA(const std::size_t row, const std::size_t k) {
         spectrum(row, k) = inputs(0, k) * spectrum(row, k);
@@ -392,7 +393,7 @@ void land_rows(const ExecutionSpace& space, const RealView2& weights,
                const std::size_t products, const bool assign, std::size_t active = 0) {
   if (active == 0)
     active = rows;
-  Kokkos::parallel_for(
+  launch::parallel_for(
       "solprop_native.dispersive.land", Range2(space, {0, 0}, {active, bins}),
       KOKKOS_LAMBDA(const std::size_t row, const std::size_t k) {
         Complex total = weights(0, k) * spectra(row, k);
@@ -409,7 +410,7 @@ void land_rows(const ExecutionSpace& space, const RealView2& weights,
 void weigh_rows(const ExecutionSpace& space, const RealView2& weights,
                 const ComplexView2& target, const std::size_t rows,
                 const std::size_t bins) {
-  Kokkos::parallel_for(
+  launch::parallel_for(
       "solprop_native.dispersive.weigh", Range2(space, {0, 0}, {rows, bins}),
       KOKKOS_LAMBDA(const std::size_t row, const std::size_t k) {
         target(row, k) = weights(0, k) * target(row, k);
@@ -668,7 +669,7 @@ void dispersive_mixture_rows(
     const Kokkos::View<double*, Layout, MemorySpace>& outputs) {
   const auto n_members = members.extent(0);
   const bool vacuum = !(total > 0.0);
-  Kokkos::parallel_for(
+  launch::parallel_for(
       "solprop_native.dispersive.mixture_rows",
       Kokkos::RangePolicy<ExecutionSpace>(space, 0, inputs.extent(0)),
       KOKKOS_LAMBDA(const std::size_t k) {
@@ -743,9 +744,9 @@ DispersiveWeights::DispersiveWeights(const Problem& problem,
   term_channels_ = IndexView("solprop_native.dispersive.term_channels", terms);
   members_ = IndexView("solprop_native.dispersive.members", channels_);
   upload(kernels_, static_inputs_, problem.dispersive_inputs);
-  Kokkos::deep_copy(kernels_, inputs_, static_inputs_);
+  graph::deep_copy(kernels_, inputs_, static_inputs_);
   upload(kernels_, term_multipliers_, problem.dispersive_term_multipliers);
-  Kokkos::deep_copy(kernels_, outputs_, term_multipliers_);
+  graph::deep_copy(kernels_, outputs_, term_multipliers_);
   if (mixtures_ != 0)
     upload(kernels_, quartics_, problem.dispersive_quartics);
   upload(kernels_, input_scale_, problem.dispersive_input_scale);
@@ -810,7 +811,7 @@ void DispersiveWeights::update(const std::size_t stage) {
       pairs_[2 * group] = c0;
       pairs_[2 * group + 1] = c1;
     }
-  Kokkos::deep_copy(kernels_, factors_, factors);
+  graph::deep_copy(kernels_, factors_, factors);
   for (std::size_t mixture = 0; mixture < mixtures_; ++mixture) {
     const auto group = mixture_groups_[mixture];
     const auto members = Kokkos::subview(
@@ -830,7 +831,7 @@ void DispersiveWeights::update(const std::size_t stage) {
   const auto device_factors = factors_;
   const auto products = products_;
   const auto terms = rows.extent(0);
-  Kokkos::parallel_for(
+  launch::parallel_for(
       "solprop_native.dispersive.weigh_terms",
       Kokkos::RangePolicy<ExecutionSpace>(kernels_, 0, bins_),
       KOKKOS_LAMBDA(const std::size_t k) {
@@ -1027,7 +1028,7 @@ void DispersiveResponse::prepare(const std::size_t stage) {
   const auto fine = stage_.fine_spectrum;
   if (shifted_) {
     const auto dc = dc_;
-    Kokkos::parallel_for(
+    launch::parallel_for(
         "solprop_native.dispersive.zero_frequency",
         Kokkos::RangePolicy<ExecutionSpace>(kernels_, 0, columns_),
         KOKKOS_LAMBDA(const std::size_t column) { dc(column) = fine(column, 0); });
@@ -1039,11 +1040,11 @@ void DispersiveResponse::prepare(const std::size_t stage) {
   filter_rows(kernels_, weights_.inputs(), fine, filtered_spectrum_, columns_,
               weights_.fields(), weights_.bins(), 1.0);
   if (inverse_real_)
-    KokkosFFT::execute(*inverse_real_, filtered_spectrum_, filtered_real_,
-                       KokkosFFT::Normalization::none);
+    graph::execute(*inverse_real_, filtered_spectrum_, filtered_real_,
+                   KokkosFFT::Normalization::none);
   else
-    KokkosFFT::execute(*inverse_complex_, filtered_spectrum_, filtered_complex_,
-                       KokkosFFT::Normalization::none);
+    graph::execute(*inverse_complex_, filtered_spectrum_, filtered_complex_,
+                   KokkosFFT::Normalization::none);
 }
 
 void DispersiveResponse::begin() {
@@ -1057,7 +1058,7 @@ void DispersiveResponse::begin() {
   const auto projection = stage_.scaled_projection;
   const auto projection_coarse = stage_.scaled_projection_coarse;
   const bool embedded = embedded_;
-  Kokkos::parallel_for(
+  launch::parallel_for(
       "solprop_native.dispersive.pack_projection",
       Kokkos::MDRangePolicy<ExecutionSpace, Kokkos::Rank<2, Kokkos::Iterate::Right,
                                                          Kokkos::Iterate::Right>>(
@@ -1130,7 +1131,7 @@ void DispersiveResponse::offsets(const std::size_t first_node,
   const auto modes = n_modes_;
   const auto n_pol_state = n_pol_state_;
   const auto first_row = first_node * n_pol_transform_;
-  Kokkos::parallel_for(
+  launch::parallel_for(
       "solprop_native.dispersive.offsets",
       Kokkos::RangePolicy<ExecutionSpace>(kernels_, 0, node_count * components_),
       KOKKOS_LAMBDA(const std::size_t row) {
@@ -1201,11 +1202,11 @@ void DispersiveResponse::finish() {
   if (borrowed_)
     return;
   if (forward_real_)
-    KokkosFFT::execute(*forward_real_, products_real_, spectra_,
-                       KokkosFFT::Normalization::none);
+    graph::execute(*forward_real_, products_real_, spectra_,
+                   KokkosFFT::Normalization::none);
   else
-    KokkosFFT::execute(*forward_complex_, products_complex_, spectra_,
-                       KokkosFFT::Normalization::none);
+    graph::execute(*forward_complex_, products_complex_, spectra_,
+                   KokkosFFT::Normalization::none);
   coarse_pending_ = embedded_;
 }
 
@@ -1229,11 +1230,11 @@ void DispersiveResponse::finish_coarse() {
     return;
   coarse_pending_ = false;
   if (coarse_real_plan_)
-    KokkosFFT::execute(*coarse_real_plan_, coarse_real_, spectra_,
-                       KokkosFFT::Normalization::none);
+    graph::execute(*coarse_real_plan_, coarse_real_, spectra_,
+                   KokkosFFT::Normalization::none);
   else
-    KokkosFFT::execute(*coarse_complex_plan_, coarse_complex_, spectra_,
-                       KokkosFFT::Normalization::none);
+    graph::execute(*coarse_complex_plan_, coarse_complex_, spectra_,
+                   KokkosFFT::Normalization::none);
   land_rows(kernels_, weights_.weights(), spectra_, stage_.projected_coarse_spectrum,
             columns_, weights_.bins(), weights_.products(), alone_);
 }
@@ -1446,7 +1447,7 @@ void SeparableDispersive::prepare(const std::size_t node_count) {
   const auto fine = stage_.fine_spectrum;
   if (shifted_) {
     const auto dc = dc_;
-    Kokkos::parallel_for(
+    launch::parallel_for(
         "solprop_native.dispersive.zero_frequency",
         Kokkos::RangePolicy<ExecutionSpace>(space, 0, active_rows_),
         KOKKOS_LAMBDA(const std::size_t row) { dc(row) = fine(row, 0); });
@@ -1465,11 +1466,11 @@ void SeparableDispersive::prepare(const std::size_t node_count) {
     return;
   }
   if (inverse_real_)
-    KokkosFFT::execute(*inverse_real_, filtered_spectrum_, filtered_real_,
-                       KokkosFFT::Normalization::none);
+    graph::execute(*inverse_real_, filtered_spectrum_, filtered_real_,
+                   KokkosFFT::Normalization::none);
   else
-    KokkosFFT::execute(*inverse_complex_, filtered_spectrum_, filtered_complex_,
-                       KokkosFFT::Normalization::none);
+    graph::execute(*inverse_complex_, filtered_spectrum_, filtered_complex_,
+                   KokkosFFT::Normalization::none);
 }
 
 void SeparableDispersive::slab_offsets(const std::size_t units) {
@@ -1611,11 +1612,11 @@ void SeparableDispersive::finish() {
     return;
   }
   if (forward_real_)
-    KokkosFFT::execute(*forward_real_, products_real_, spectra_,
-                       KokkosFFT::Normalization::none);
+    graph::execute(*forward_real_, products_real_, spectra_,
+                   KokkosFFT::Normalization::none);
   else
-    KokkosFFT::execute(*forward_complex_, products_complex_, spectra_,
-                       KokkosFFT::Normalization::none);
+    graph::execute(*forward_complex_, products_complex_, spectra_,
+                   KokkosFFT::Normalization::none);
 }
 
 void SeparableDispersive::combine() {
@@ -1778,7 +1779,7 @@ void GeneralDispersive::prepare(const std::size_t chunk) {
   const auto spectrum = stage_.spectrum;
   if (shifted_) {
     const auto dc = dc_;
-    Kokkos::parallel_for(
+    launch::parallel_for(
         "solprop_native.dispersive.zero_frequency",
         Kokkos::RangePolicy<ExecutionSpace>(space, 0, active_rows_),
         KOKKOS_LAMBDA(const std::size_t row) { dc(row) = inverse * spectrum(row, 0); });
@@ -1789,8 +1790,8 @@ void GeneralDispersive::prepare(const std::size_t chunk) {
     tail_inverse_.execute();
     return;
   }
-  KokkosFFT::execute(*inverse_, filtered_spectrum_, filtered_,
-                     KokkosFFT::Normalization::none);
+  graph::execute(*inverse_, filtered_spectrum_, filtered_,
+                 KokkosFFT::Normalization::none);
 }
 
 template <bool Real, std::size_t Components>
@@ -1847,8 +1848,8 @@ void GeneralDispersive::respond(const std::size_t chunk, const std::size_t first
       tail_forward_real_.execute();
       return;
     }
-    KokkosFFT::execute(*forward_real_, products_real_, spectra_,
-                       KokkosFFT::Normalization::none);
+    graph::execute(*forward_real_, products_real_, spectra_,
+                   KokkosFFT::Normalization::none);
     return;
   }
   if (components_ == 3)
@@ -1861,8 +1862,8 @@ void GeneralDispersive::respond(const std::size_t chunk, const std::size_t first
     tail_forward_complex_.execute();
     return;
   }
-  KokkosFFT::execute(*forward_complex_, products_complex_, spectra_,
-                     KokkosFFT::Normalization::none);
+  graph::execute(*forward_complex_, products_complex_, spectra_,
+                 KokkosFFT::Normalization::none);
 }
 
 void GeneralDispersive::combine(const bool overwrite) {

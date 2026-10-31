@@ -123,6 +123,18 @@ def test_radial_partial_chunks_preserve_the_reference_source(
     backend = NativeBackend(problem, grid=grid)
     try:
         ledger = backend.memory_ledger()
+        # An analytic field synthesises the retained spectrum, on a host and on a
+        # device; the others keep their time-domain products.
+        info = build_info()
+        retained = family == "analytic" and info.gemm_provider != "CUSTOM"
+        assert info.device_backend in {"none", "cuda", "hip"}
+        assert (
+            str(backend.metadata()["synthesis_provider"]).endswith(
+                "-retained-interleaved-real"
+            )
+            == retained
+        )
+        assert (ledger["retained_synthesis"] > 0) == retained
         backend.set_initial(problem.initial.field0, None)
         backend._trial_step(0.0, 0.0)  # pyright: ignore[reportPrivateUsage]
         state = backend._native_state  # pyright: ignore[reportPrivateUsage]

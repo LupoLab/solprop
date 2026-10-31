@@ -194,6 +194,237 @@ fast as one from 5,607 up. On a loaded Apple M5 Max (indicative) four gained 1.0
 at 4,487-8,967 and sixteen beat four only at 71,687 (4.7× against 2.8×). The class
 therefore threads at four from 8,192 and takes the pool from 65,536 on both platforms.
 
+(stable-kernel-team)=
+### A stable kernel team
+
+GNU OpenMP keeps one pool of threads for the main thread's parallel regions. When a region
+asks for fewer threads than the last, the surplus threads end; the next wider region
+starts them again. A four-thread kernel between full-width ones therefore costs a thread
+creation per surplus thread each time: alternating 16- and 4-thread regions took about
+490 us a pair, against 40 us for two 16-thread regions and 23 us for 16 and 1 (one socket
+of a Xeon Gold 6240, idle threads sleeping; twelve `clone3` calls a pair). FFTW's threaded
+loops run on the runtime's whole team and only hand out fewer iterations, so a
+four-thread FFT plan costs no resize. At 16 threads, `h2_raman_averaged` (an exponential
+Adams trial pass and a response at four threads beside a full-width stage) re-created
+twelve threads every source evaluation, and was slower than at one thread.
+
+A kernel pool that already holds a full-width instance now hands it to medium-width
+kernels too; a pool without one keeps four threads (averaged helium, whose other kernels
+are serial, took 14 % longer on a Xeon Gold 6240 with its Adams passes at full width). Workspaces ask for their stage
+instance first. Interleaved `benchmarks ab` at 16 threads against the parent, 3 rounds,
+`--length 0.1`, passive-bound placement, the same steps and fields to rounding (at most
+1e-13 relative):
+
+| case | Xeon Gold 6240 (socket 1) | AMD EPYC 7763 (16 cores) |
+|---|---:|---:|
+| `h2_raman_averaged` | 0.526 [0.521, 0.531] | 0.483 [0.483, 0.510] |
+| `argon_blueshift` | 0.717 [0.700, 1.070] | 0.806 [0.800, 0.850] |
+| `ctc` | 1.001 | 0.979 |
+| `gnlse_raman_shock`, `gnlse_soliton`, `rdw`, `he_rdw_averaged`, `argon_blueshift_averaged`, `argon_blueshift_envelope`, `radial_filament_256`, `grin_nonlinear`, `kerr_beam_384` | 0.984-1.036 | 0.983-1.106 (node noise) |
+| geometric mean (12 cases) | 0.924 | 0.938 |
+
+The unchanged cases have no medium-width kernel or none beside a full-width one; their
+spread is the A/A spread (about 2 % on a Xeon Gold 6240, up to 10 % on the shared EPYC nodes). On
+a Xeon Gold 6240 `h2_raman_averaged` now takes 0.79 s at 16 threads against 1.06-1.12 s at one.
+Every medium width serial instead lost 2.8 times on averaged helium (EPYC geometric mean
+1.08); every medium width full, the FFTs included, gained on resolved cases but lost on the
+averaged ones (EPYC 0.94, Xeon 0.90 with averaged helium 1.22).
+
+The promotion applies everywhere but macOS (`stable_kernel_team` in `core.hpp`). On an
+18-core Apple M5 Max, whose cores are of two kinds, the 11207-element Adams passes of
+`argon_blueshift` at 18 threads instead of four took the window from 3.0 to 3.2 s, and
+`h2_raman_averaged` at 18 threads ran 0.86 of `main`'s time without the promotion
+against 0.94 with it. The Windows wheel also runs on LLVM's libomp, which keeps a
+narrower region's threads, but there the promotion still gained: on eight cores of a
+Google Cloud C4D (AMD EPYC 9B45) `h2_raman_averaged` took 0.906 [0.899, 0.914] of its time
+with it at eight threads, every other modal case within 1 % (5 rounds, `--length 0.2`).
+
+(compact-cpu-teams)=
+### Compact CPU teams
+
+A problem of one column on one node (the GNLSE, the mode-averaged capillary) has few
+operations large enough to thread, and between them serial transforms and products. At
+16 threads `gnlse_raman_shock` (16384 bins, 6289 source evaluations a `--length 0.1`
+window) ran its stage entry on all sixteen threads and its responses on all of them too,
+its FFTs on four threads within the runtime's whole team, and gained nothing over one
+thread (5.86 against 6.02 s on one socket of a Xeon Gold 6240). Its serial kernels each
+ran 1.2-2.5 times slower than in a one-thread process; with every pool forced serial in
+the same 16-thread process they ran at their one-thread times, so the idle pool costs
+nothing and the wide regions do. A per-thread `perf stat` of the timed window shows both
+parts: the main thread ran at about 2.7 GHz instead of 3.5 (waking fifteen cores every
+0.9 ms evaluation holds the socket in its many-core turbo bin), and its loads found
+16 million lines modified in another core's cache, against 60 thousand.
+
+Such a problem (`compact_problem`: one column, one node, one transform polarisation, no
+general modal route, coupled flow or separable geometry, fewer than 65536 fine samples)
+now runs on a compact team: its kernels at most eight threads wide, medium widths
+promoted to that team as in [a stable kernel team](#stable-kernel-team), and its FFT and
+Raman plans at most eight (see the end of this section for their sizing). FFTW's threaded loop normally opens the runtime's whole team
+(sixteen threads for a four-thread plan); beside an eight-thread kernel team that made
+GNU OpenMP end and restart threads at every pair, and a whole run took 2.6 times as long.
+The native backend therefore installs FFTW's loop callback (FFTW 3.3.9 and later, the
+OpenMP FFTW only): outside a scope it runs the jobs on the runtime's team, as FFTW's own
+loop does, and inside the scope that every native call of a compact problem opens it runs
+them on the problem's team. A build without the callback keeps a compact problem's
+transforms serial. An observation now copies the field on the stage's instance rather
+than the default one, which would also widen the team.
+
+Sweeps of the whole native pool on the same 16-thread process (`SOLPROP_NATIVE_THREADS`,
+2 rounds, wall s) chose the team: `gnlse_raman_shock` 5.84 at 16, 4.72 at 4, 4.64 at 6,
+4.76 at 8, 5.42 at 12; `h2_raman_averaged` 0.71 at 16, 0.61 at 4 and at 8; the 33-node
+cases lose at 4 (`argon_blueshift` 1.77 against 1.48 s, `rdw` 0.90 against 0.75 s) and
+stay with their own sizing. Interleaved `benchmarks ab` against the parent on a Xeon Gold 6240,
+3 rounds, `--length 0.1`, passive-bound placement, the same steps and fields to the
+measured-plan floor (at most 6e-14 relative):
+
+| case | 1 thread | 16 threads |
+|---|---:|---:|
+| `gnlse_raman_shock` | 0.995 | 0.801 [0.794, 0.831] |
+| `h2_raman_averaged` | 0.992 | 0.888 [0.883, 0.891] |
+| `he_rdw_averaged` | 1.027 [0.971, 1.055] | 0.979 |
+| `gnlse_soliton`, `argon_blueshift_averaged` | 0.983-0.985 | 0.995-1.017 |
+| `argon_blueshift_envelope`, `rdw` (not compact) | 0.988-1.009 | 0.999-1.009 |
+
+`gnlse_raman_shock` now runs 1.25 times faster at 16 threads than at one (4.76 against
+5.94 s), where it ran at the same speed.
+
+On the compact team the transforms kept a 16-thread sizing: the four-thread plans of the
+16384-sample transform left half the team idle. A compact problem's threaded transform now
+takes its whole team. Three refinements were measured on both machines, interleaved
+`benchmarks ab` at 16 threads, 3 rounds, `--length 0.1`, the same steps (AMD EPYC 7763: 16
+cores of a quiet shared node):
+
+| change | Xeon Gold 6240 | AMD EPYC 7763 |
+|---|---:|---:|
+| threaded transforms at the team width: `gnlse_raman_shock` | 0.943 | 0.981 |
+| the same: `h2_raman_averaged` | 1.003 | 0.995 |
+| Raman transforms from the modal FFT's start (not kept): `gnlse_raman_shock` | 0.946 | 1.056 |
+| the same: `h2_raman_averaged` | 0.978 | 1.17 [1.08, 1.21] |
+| one-node products as the one-mode kernel on the team (not kept): `gnlse_raman_shock` | 0.973 | 1.045 |
+
+The Raman transforms therefore keep their own start (65536 samples), and the GNLSE's
+1 × 1 synthesis and projection stay with the vendor GEMM. Threading every compact kernel
+of at least 4096 elements at the team width gained nothing either (`h2_raman_averaged` 3 %
+slower on a Xeon Gold 6240), nor did threading compact transforms from 4096 or 8192 samples
+(averaged argon 1.6 times slower at 4096).
+
+The final rule against the parent of the compact-team commit, 3 rounds, `--length 0.1`,
+the same steps (fields within 9e-14), 16 threads; one thread moved by 0.98-1.02:
+
+| case | Xeon Gold 6240 | AMD EPYC 7763 (16 cores of a quiet shared node) |
+|---|---:|---:|
+| `gnlse_raman_shock` | 0.774 [0.763, 0.800] | 0.965 [0.960, 0.970] |
+| `h2_raman_averaged` | 0.895 [0.872, 0.905] | 0.965 [0.957, 0.980] |
+| `gnlse_soliton`, `he_rdw_averaged`, `argon_blueshift_averaged` | 0.98-1.05 | 0.97-1.04 |
+
+With the package's own plan mode (threaded rows planned at `FFTW_ESTIMATE`, where the
+suite measures every plan) the Intel Xeon Gold 6240 rows were 0.780 and 0.905. On the EPYC the 16
+allocated cores lay in three CCXs; its 16-thread `gnlse_raman_shock` window ran 1.04
+times faster than one thread before and 1.08 times after (Xeon: 1.02 and 1.29).
+
+**The products of a compact problem run on one OpenBLAS thread.** On 16 cores of a Google
+Cloud C4A (Neoverse V2) the compact team made `gnlse_raman_shock` slower at 16 threads
+than `main` (1.13) and than itself at eight (29.6 against 19.5 s in a window, with the same
+sizing). Its 1 × 1 synthesis and projection reach an OpenMP OpenBLAS, which on aarch64
+sends them to its threaded GEMV at the process width; between the team's eight-thread
+regions, GNU OpenMP ended and re-created eight threads at every call: a short window made
+100,836 `clone3` calls, against 72 for `main` and 28 at eight threads. Every native call of
+a compact problem already opens a team scope (`CpuTeamScope`); for an OpenMP OpenBLAS the
+scope now also sets the calling thread's OpenMP default width to one, which OpenBLAS reads
+before it threads a call. `openblas_set_num_threads` is not used for this: it frees the
+per-thread buffers above the new count and allocates them again when the count returns,
+which cost `h2_raman_averaged` 3 % at 16 threads on an Intel Xeon Gold 6240. The library is recognised at
+import whatever width the environment gave it (the suite's workers set
+`OMP_NUM_THREADS`, which skips `fit_blas_threads`). On the C4A `gnlse_raman_shock` now
+takes 17.6 s at 16 threads, against 25.8 s for `main`; on an Intel Xeon Gold 6240 the change is within
+1 % of the A/A spread on every case.
+
+(one-mode-products)=
+### One-mode products on the response team
+
+A one-mode capillary with a field plasma column (`argon_blueshift`: 33 radial nodes,
+6400 fine samples) synthesises its node fields as an outer product (33 × 1 by 1 × 6400)
+and projects three node drives a source evaluation as a stacked 2 × 33 by 33 × 6400
+product. The product sizing keeps them serial on the engine's side (211200 work, below
+the dense threshold), so the vendor GEMM threaded each call over its own pool: at 16
+threads on a Xeon Gold 6240 the 4212 calls of a `--length 0.1` window took 0.46 s, 108 us
+each, against 0.29 s at one thread; the band column, which writes the node rows, runs on
+the full-width response team. Plain loops tried earlier ran on the product's
+serial instance and lost to the threaded library. On a host build with a vendor BLAS,
+one real mode at several nodes in one chunk now synthesises and projects through two
+small kernels on the response team: the projection one contiguous share of the samples
+per thread, both stacked rows from one read of the node rows, written straight into the
+fine and coarse rows (no stacked copy); the synthesis one node row per item. Each element
+sums the nodes in order from zero (within the GEMM rounding bound; a native test holds
+both kernels to `KokkosBlas::gemm`). Label timer at 16 threads: projection 40 us a call
+instead of 112, synthesis 26 instead of about 100; the band column and the held products
+that read the synthesised rows also ran faster (0.35 to 0.29 s, 0.10 to 0.06 s).
+Interleaved `benchmarks ab` against the compact-team commit, Xeon, 3 rounds, `--length
+0.1`, the same steps, fields within 4.4e-15:
+
+| case | 1 thread | 16 threads |
+|---|---:|---:|
+| `argon_blueshift` | 0.999 [0.993, 1.000] | 0.679 [0.672, 0.688] |
+| `rdw` (four modes, unchanged path) | 1.000 | 1.000 |
+
+`argon_blueshift` now runs 4.1 times faster at 16 threads than at one (1.01 against
+4.13 s), where it was 2.8 times. On one thread the kernels are left to the vendor GEMM's
+serial ones: in two tracking-set runs the one-thread window was 1.8 % slower with them,
+and without them it took 0.963 [0.948, 0.969] of the time with them (the four-mode `rdw`,
+whose code is unchanged, also moved by 0.964 in that A/B: code-layout noise of this size
+is present at one thread).
+
+The kernels apply with OpenBLAS only. Apple's Accelerate runs these small calls well, and
+on an 18-core Apple M5 Max the kernels on the 18-thread response team took the
+`argon_blueshift` window from 3.0 to 3.8 s (1.31 of `main` at 18 threads in the
+tracking-set A/B; a bisection of the push found this commit).
+
+(stacked-projection-splits)=
+### Stacked projection splits
+
+A real projection that also forms the embedded rule's coarse rows projects both in one
+stacked product and then copies the halves into the fine and coarse rows. The copy ran
+on the temporal copy's instance, which the copy sizing keeps serial below 65536 samples:
+on the four-mode capillary (`rdw`, 4 × 10240 samples) each took about 90 us at 16 threads
+on a Xeon Gold 6240, 43 ms of a `--length 0.1` window, beside full-width kernels; on `ctc`
+159 us. It now runs on the stage's instance (full width there, serial where the stage
+is). Interleaved `benchmarks ab` against the one-mode commit, 3 rounds, `--length 0.05`,
+the same steps, fields within 6.1e-15:
+
+| case | 1 thread | 16 threads |
+|---|---:|---:|
+| `ctc` | 0.990 | 0.977 [0.976, 0.980] |
+| `rdw` | 0.987 | 0.992 [0.962, 0.994] |
+| `argon_blueshift_envelope` | 1.004 | 1.012 (no stacked real split) |
+
+(host-blas-pool)=
+### NumPy's BLAS beside a native run
+
+NumPy's OpenBLAS is a pthreads library with a pool of its own, sized from
+`OPENBLAS_NUM_THREADS` or every CPU (the benchmark suite sets the variable to the run's
+width). During a native run the host calls it only for small products: the power
+weights' expansion at each saved plane is a 3 × 2561 `dgemv` on averaged helium, 24 of
+them in a `--length 0.5` window. After each call OpenBLAS's workers spin before they
+sleep, and the planes come often enough that they never do: at 16 threads on a Xeon Gold 6240
+Gold 6240, its 15 workers took 1.09 s of CPU each in a 1.24 s window, and the
+four-thread Adams passes ran three times as slowly (0.74 s against 0.22 s, label timer).
+The native backend now holds every BLAS but its own to one thread while it lives, as
+`numba_cpu` holds its BLAS pool. Interleaved `benchmarks ab` against the parent, 3 rounds,
+`--length 0.1`, passive-bound placement, the same steps and fields to rounding:
+
+| case | Xeon Gold 6240, 1 thread | 16 threads | AMD EPYC 7763, 1 thread | 16 threads |
+|---|---:|---:|---:|---:|
+| `rdw` | 0.996 | 0.462 [0.456, 0.465] | 1.012 | 0.762 [0.749, 0.780] |
+| `he_rdw_averaged` | 1.011 | 0.693 [0.670, 0.773] | 0.997 | 0.343 [0.326, 0.816] |
+| `radial_filament_256` | 0.996 | 0.725 [0.718, 0.726] | 0.992 | 0.610 [0.603, 0.791] |
+| the other nine tracking cases | 0.984-1.019 | 0.979-1.010 | 0.988-1.020 | 0.972-1.017 |
+| geometric mean (12 cases) | 1.000 | 0.886 | 1.001 | 0.855 |
+
+The EPYC rows are 16 cores of a shared node (its averaged-helium spread is the node's).
+
+The four-mode capillary now runs 3.1 times faster at 16 threads than at one (0.77 s
+against 2.40 s), where it was 1.4 times.
+
 (smooth-size-cliffs)=
 ### Smooth grid sizes
 
@@ -546,7 +777,7 @@ functions forced on (`SOLPROP_NATIVE_VECTOR_MATH=SLEEF`) +11.6 %, `gnlse_raman_s
 ### Exponential Adams host cost: the SEP 39 baseline
 
 The host side of an exponential `Multistep()` trial on the native CPU backend, before
-[SEP 39](seps/sep-0039-native-adams-march.md)'s native march, at the head of the vector
+[SEP 39](seps/archive/sep-0039-native-adams-march.md)'s native march, at the head of the vector
 maths change (a500d2d). The SEP's §3.3 reads these figures.
 
 **Method.**
@@ -622,7 +853,7 @@ the source.
 
 ### The native Adams march
 
-[SEP 39](seps/sep-0039-native-adams-march.md)'s native march against solprop's Python
+[SEP 39](seps/archive/sep-0039-native-adams-march.md)'s native march against solprop's Python
 march on the same build (`benchmarks.adams_host --host-march`), and against the march
 with the host packing the stage rows, as before the SEP's phase 1 (`--host-stages`).
 Interleaved fresh processes, the arm order reversed every round, medians; every arm
@@ -671,6 +902,780 @@ steps in both arms): host time per trial 64 → 2.2 µs (`he_rdw_averaged`, 0.3)
 (`argon_blueshift_averaged`, 0.1) and 83 → 5.0 (`rdw`, 0.1), walls −6.7 %, −10.6 % and
 −1.8 %. A trial costs about a millisecond on this FP64-weak device.
 
+**On an AMD Instinct MI325X** (HIP 7.14 prerelease, `AMD_GFX942`; the same build,
+`--host-march` against the native march, five rounds, the same steps): host time per trial
+21.7 → 1.5 µs (`he_rdw_averaged`, 0.3), 17.3 → 0.8 (`argon_blueshift_averaged`, 0.1), 40.5 →
+3.0 (`rdw`, 0.1), 14.9 → 0.5 (`h2_raman_averaged`, 0.4) and 30.2 → 2.9
+(`radial_filament_256`, 0.1); walls (`ab --device`, three rounds) −2.9 %, −3.4 %, −2.0 %,
+−3.0 % and −0.8 %, fields bitwise equal. A trial there is 160 to 550 µs of device time in 25
+to 70 kernels, most of it launch-bound
+([device launches on an MI325X](#device-launches-and-the-adams-passes-on-an-amd-instinct-mi325x)).
+**On an NVIDIA H200** (CUDA 13.1, `HOPPER90`, three rounds, the same steps): 49 → 2.2 µs
+(`he_rdw_averaged`), 44 → 1.2 (`argon_blueshift_averaged`), 70 → 5.2 (`rdw`), 41 → 0.8
+(`h2_raman_averaged`) and 65 → 4.7 (`radial_filament_256`, 0.1); walls −15 %, −21 %, −4 %,
+−23 % and −3 %.
+
+### The Adams passes on x86-64 lanes
+
+The exponential Adams trial's predict and correct passes on a host block of 32 elements
+held as lanes (`include/solprop_native/adams_phi.hpp`, `adams_lanes_*` in
+`src/general.cpp`) against the element-by-element form, at 740b24d. Before the change
+the passes ran each element through latency-bound scalar strict code (the
+phi-functions' series, Horner pass and squarings, the compensation and the defects),
+GCC calling every strict helper out of line from the contracting kernels; per element
+they cost 2.9–3.8 times the Apple M5 Max's on the AMD EPYC 7763 (§ "Exponential Adams
+host cost" above). Now every lane loop vectorises on x86-64-v3, Zen 3 and Cascade Lake
+(checked with GCC 16.2's vectoriser report): the selections are bitwise, the
+comparisons quiet, and the corrector's endpoint rate is formed beside the step's
+phase, in one pass over the operator's terms. The strict parts keep each element's
+operations and their rounding (a native test holds the lanes' phi-functions to
+`adams_phi`'s bits); the predictor's and corrector's sums may contract differently, so
+the first step whose inputs differ differs by about 2e-16 in its norm. Every case
+below took the same steps and trials in both arms; final fields differ by 2e-15 to
+5e-12 relative (`he_rdw_averaged` at 0.3 of its length: 4.6e-12, the step sizes
+apart by up to 5e-5 relative after the pulse's compression amplifies the rounding).
+
+**AMD EPYC 7763** (16 cores of a shared node, GCC 16.2, SLEEF's AVX2 functions,
+OpenMP OpenBLAS), one thread, three interleaved rounds, medians; the passes in µs per
+call (host-only Kokkos label timer), the wall of the timed window:
+
+| case (fraction) | predict | correct | wall |
+|---|---:|---:|---:|
+| `he_rdw_averaged` (0.3) | 562 → 273 | 293 → 109 | −32 % |
+| `argon_blueshift_averaged` (0.1) | 190 → 82 | 112 → 45 | −30 % |
+| `h2_raman_averaged` (0.2) | 269 → 115 | 164 → 65 | −37 % |
+| `rdw` (0.1) | 2430 → 1373 | 1222 → 530 | −16 % |
+| `radial_filament_256` (0.05) | 13 470 → 7 050 | 9 890 → 4 430 | −16 % |
+| `argon_blueshift` (0.05) | 189 → 83 | 111 → 48 | −7 % |
+
+Per element the predict pass now costs about 1.6 times the M5 Max's figure of § 3.3
+of SEP 39, and the correct pass about 1.1 times. A stage clock (rdtsc around each lane
+step, a profiling build) puts the rest of `he_rdw_averaged`'s predict pass at about a
+third in SLEEF's six complex exponentials an element (the flow, the series argument and
+four spans), a sixth in the 18-term phase and rate sum, which is memory-bound, an eighth
+in the phi-functions and the rest in the history sums and stores. That node's
+sixteen-thread runs scattered by more than the effect and are not reported.
+
+**Intel Xeon Gold 6240** (18 physical cores of one socket, the other socket in use, GCC
+16.2 `-march=cascadelake`, SLEEF's AVX2 functions, OpenMP OpenBLAS), complete windows at
+0.1 of each case's length, `python -m benchmarks ab` with passive bound threads, three
+rounds, medians of the paired ratios (range over rounds); every pair did the same work,
+final fields within 6.2e-15:
+
+| case | one thread | sixteen threads |
+|---|---:|---:|
+| `he_rdw_averaged` | 0.786 (0.779–0.809) | 0.879 (0.775–0.885) |
+| `argon_blueshift_averaged` | 0.752 (0.747–0.759) | 0.946 (0.920–1.057) |
+| `h2_raman_averaged` | 0.697 (0.696–0.710) | 0.936 (0.921–0.952) |
+| `rdw` | 0.827 (0.816–0.829) | 0.974 (0.961–0.974) |
+| `radial_filament_256` | 0.839 (0.836–0.849) | 0.937 (0.932–0.945) |
+| `argon_blueshift` | 0.936 (0.934–0.963) | 0.953 (0.946–0.975) |
+
+The geometric mean of the twelve ratios is 0.867. At sixteen threads the single-column
+passes run on four threads (the size class above), so less of the gain shows.
+
+SLEEF's AVX-512F functions (`SOLPROP_NATIVE_VECTOR_MATH_AVX512`, opt-in) took a further
+5–8 % off these windows at one thread on a Xeon Gold 6240, and were 6 % slower on
+`he_rdw_averaged` at sixteen threads (one round); they stay opt-in.
+
+Tried and not adopted: blocks of 16 elements (5–15 % slower on the EPYC) and of 64
+(within 2 % of 32 on single columns, 5 % faster on `rdw`).
+
+### Device transfers and the free-space Kerr stage
+
+On an NVIDIA A40 (CUDA 12.8.1, `AMPERE86`, binary64 at about a sixty-fourth of the
+single-precision rate), `python -m benchmarks ab --device`, three rounds of interleaved
+fresh processes, half of `kerr_beam_384` (two fixed RK4IP steps, 384² × 750):
+
+| change | wall, s | ratio (range) | field difference |
+|---|---|---:|---:|
+| one copy at a load and an observation, the free-space split on the stored columns | 4.775 → 3.878 | 0.812 (0.812–0.815) | 1.0e-15 |
+| the split factor per sample, the pinned single upload | 4.686 → 3.892 (with the above) | 0.830 (0.829–0.832) | 1.0e-15 |
+| the rank-3 Kerr stage | 3.913 → 3.764 | 0.963 (0.957–0.964) | 1.3e-16 |
+| all, against the baseline | 4.732 → 3.747 | 0.792 (0.789–0.798) | 1.0e-15 |
+
+Kernel time fell from 827 to 651 ms a step: the split's transverse pair and transposes
+(about 100 ms) and the chunks' pack, crop and pointwise passes (about 75 ms). An
+observation of the 1.77 GB state took 0.85 s of host time through three fresh buffers.
+On an Intel Xeon Gold 6240 at one thread `kerr_beam_192` (half) took 0.920 of the time
+(0.917–0.922, fields to 6e-16). `radial_filament_256` is unchanged on the A40 (0.3 and 0.5
+of its length, within ±2 %): its trial, 3.3 ms of kernels, is bound by binary64
+arithmetic (the synthesis and projection GEMMs near the device's binary64 peak, the
+φ-functions), so neither the single upload, the GEMM for its node chunks nor one chunk
+in place of two (48 → 31 kernels a trial, not adopted) moved it. The retained-spectrum
+synthesis does, by halving the synthesis's product: on the A40, half the run, three
+rounds of three repeats, 0.569 → 0.512 s, ratio 0.902 (0.898–0.903), fields to 3.2e-15,
+kernel time 238 → 200 ms over a 71-trial window.
+The device prefactor with one reciprocal in place of two divisions took the separable
+fold from 29.5 to 21.6 ms (`kerr_beam_384`, kernels 651 → 620 ms a step, wall 0.981,
+0.936–0.984, fields to 2.4e-17).
+
+### Device launches and the Adams passes on an AMD Instinct MI325X
+
+On an AMD Instinct MI325X (HIP 7.14 prerelease, AMD Clang 23, `AMD_GFX942`, band staging
+on), `rocprofv3 --kernel-trace` over a timed window showed the device busy for a third of
+an Adams run. A single-mode trial was 30 to 70 kernels of 2 to 9 µs, launched one by one,
+and between them Kokkos's constant-memory launches: a functor of 512 B to 32 kB (most of
+a trial's) is copied by a blit kernel behind an event wait on the previous such launch,
+4 to 10 a trial, 13 to 18 % of the kernel time. Each change below, `ab --device`,
+interleaved fresh processes, three rounds, the same steps:
+
+| change | case | ratio (range) | field difference |
+|---|---|---:|---:|
+| functors under 3840 B passed as the launch argument (a light-weight hint) | `he_rdw_averaged` (0.3) | 0.900 (0.885–0.935) | 1.4e-11 |
+| | `argon_blueshift_averaged` (0.1) | 0.829 (0.823–0.849) | 3.7e-15 |
+| | `radial_filament_256` (0.5) | 0.938 (0.935–0.947) | 3.4e-15 |
+| HIP range reductions back to 256-thread blocks with the hint | `he_rdw_averaged` | 0.944 (0.931–0.953) | 0 (against no hint) |
+| predict pass's phi-functions in registers (order dispatched, one to eight) | `he_rdw_averaged` | 0.971 (0.949–0.984) | 1.0e-12 |
+| correct pass's history read once into registers | `he_rdw_averaged` | 0.979 (0.973–0.995) | 1.3e-11 |
+| | `radial_filament_256` | 1.000 (0.983–1.002) | 3.8e-15 |
+| no fence after an accepted step on a device | `he_rdw_averaged` | 0.959 (0.955–1.005) | 0 |
+| | `argon_blueshift_averaged` | 0.966 (0.900–0.971) | 0 |
+| the held currents' transforms in one plan | `he_rdw_averaged` | 0.964 (0.957–0.967) | 0 |
+| | `argon_blueshift` (0.1) | 0.903 (0.890–0.938) | 0 |
+
+The light-weight hint first took the range reductions to Kokkos's largest HIP block (1024
+threads), which put a single-mode trial's predict and correct passes on three compute
+units, 40 → 56 µs; their reduction order moved the norms, hence the 1.4e-11 over 411 steps.
+The predict pass held its phi-functions in scratch memory (560 B a thread) because their
+loops ran to a run-time order: 38.9 → 28.8 µs a trial on `he_rdw_averaged` and 64.6 → 32.7 µs
+on `radial_filament_256`. The correct pass's register copy is 31.9 → 27.5 µs on the former
+and 54.2 → 57.7 µs on the latter (its registers doubled); it is kept for the small runs.
+The unrolled device arithmetic contracts differently, so fields move at rounding level,
+which the adaptive steps carry to the 1e-12 and 1e-11 above with the same steps.
+
+All of them, against the HIP build with the native march alone (five rounds; radial three
+repeats):
+
+| case | wall, s | ratio (range) | field difference |
+|---|---|---:|---:|
+| `he_rdw_averaged` (0.3) | 0.196 → 0.145 | 0.744 (0.697–0.814) | 1.3e-11 |
+| `argon_blueshift_averaged` (0.1) | 0.346 → 0.237 | 0.686 (0.683–0.688) | 2.9e-15 |
+| `h2_raman_averaged` (0.4) | 1.344 → 0.994 | 0.740 (0.715–0.791) | 1.3e-13 |
+| `rdw` (0.1) | 0.196 → 0.171 | 0.875 (0.861–0.901) | 8.1e-15 |
+| `radial_filament_256` (0.5) | 0.182 → 0.165 | 0.901 (0.889–0.907) | 3.7e-15 |
+
+A trial's native time (`benchmarks.adams_host`, medians of five) went 323 → 206 µs, 279 →
+178, 224 → 160, 446 → 291 and 547 → 399 µs. Against the previous HIP build, which stepped
+the runs with the Python march: `he_rdw_averaged` 0.463 (0.405–0.666; that build's walls
+are bimodal on this device, 0.20 or 0.37 s), `argon_blueshift_averaged` 0.629, `h2_raman_averaged`
+0.624, `rdw` 0.605, `radial_filament_256` 0.843, `kerr_beam_384` (half) 0.650 and
+`kerr_beam_192` (half) 0.702 (both from the free-space work above), and at a tenth of their
+length (two rounds) `gnlse_raman_shock` 0.843, `argon_blueshift` 0.657, `ctc` 0.780.
+What remains is mostly the host's launch rate: a trial's kernels take 2 to 4 µs each, and
+rocFFT runs each of these transforms as four kernels.
+
+**On an NVIDIA H200** (CUDA 13.1, `HOPPER90`) the same changes, of which the light-weight
+hint is a no-op there (grid-constant arguments), against the build without them (three
+rounds, the same steps): `he_rdw_averaged` 0.920 (0.904–0.936, fields to 1.2e-11),
+`argon_blueshift_averaged` 0.902 (0.880–0.912), `h2_raman_averaged` 0.918 (0.916–0.920),
+`rdw` 0.969 (0.962–1.035), `radial_filament_256` 0.989 (0.962–1.134). Over a 411-trial window
+of the first the correct pass went 21.4 → 14.1 µs and the predict pass 24.7 → 22.2 µs, the
+transforms 4 → 3 a trial (cuFFT's one kernel each). Against the previous main build:
+`he_rdw_averaged` 0.790, `argon_blueshift_averaged` 0.882, `h2_raman_averaged` 0.788, `rdw`
+0.841, `radial_filament_256` 0.868, `kerr_beam_384` (half) 0.722, `kerr_beam_192` (half) 0.776.
+
+### Pinned trial norms and batched forward rows on a device
+
+On a device, an Adams trial's defect norms are reduced into pinned host memory. The
+reduction's last block writes them there directly, so the device-to-host copy is gone (on
+HIP it was a blit kernel: 2.16 → 1.16 copies a trial), and the trial keeps its one fence.
+A modal stage's in-stage absorber, projection and held-current rows are carved from one
+buffer and transformed with one batched plan after the absorber is formed. This does not
+apply to dispersive responses, the general route or coarse rows. The radial route's three
+held streams also take one plan.
+
+All A/Bs use `ab --device`, three rounds, against the tree before the change. Every case
+took the same steps, and the fields were bitwise equal.
+
+| device | case | ratio (range) |
+|---|---|---:|
+| AMD Instinct MI325X | `he_rdw_averaged` (0.3) | 0.903 (0.856–0.906) |
+| | `argon_blueshift_averaged` (0.1) | 0.858 (0.854–0.929) |
+| | `h2_raman_averaged` (0.4) | 0.888 (0.836–0.893) |
+| | `rdw` (0.1, coarse rows, not packed) | 0.994 (0.959–1.001) |
+| | `radial_filament_256` (0.5) | 0.969 (0.963–0.977) |
+| | `kerr_beam_192` (0.5, unaffected) | 1.004 (0.984–1.024) |
+| NVIDIA A40 (batched rows and pinned norms) | `he_rdw_averaged` | 0.784 |
+| | `argon_blueshift_averaged` | 0.755 |
+| | `h2_raman_averaged` | 0.878 |
+
+The pinned norms alone were within noise on the MI325X. When the pack is forced on a CPU
+build, the fields are bitwise equal.
+
+### Device graph replay of an Adams trial's source
+
+On a CUDA or HIP build, an elementwise Adams trial's source evaluation runs in a graph
+region (`graph::Region`). The first trial captures its kernels, device copies and
+transforms. Each later trial whose operations repeat, in order and with equal keys,
+launches the instantiated graph instead. In a microbenchmark, thirty dependent tiny
+kernels cost 3.36 µs each back to back and 2.18 µs as a replayed graph on an AMD Instinct
+MI325X, and 2.41 and 1.67 µs on an NVIDIA A40. Capturing every trial and updating the
+instantiated graph cost more than plain launches (4.04 µs on the MI325X).
+
+All A/Bs below use `ab --device`, three rounds, against the build without the region.
+Every case took the same steps, and the fields were bitwise equal.
+
+| case | MI325X | NVIDIA H200 | NVIDIA A40 |
+|---|---:|---:|---:|
+| `he_rdw_averaged` (0.3) | 0.915 (0.902–0.995) | 0.991 (0.937–1.003) | 0.972 (0.944–0.976) |
+| `argon_blueshift_averaged` (0.1) | 0.893 (0.880–0.897) | 0.918 (0.917–0.962) | 0.962 (0.959–0.965) |
+| `h2_raman_averaged` (0.4) | 0.885 (0.864–0.889) | 0.964 (0.948–0.976) | 0.978 (0.976–0.981) |
+| `rdw` (0.1) | 1.029 (0.978–1.031) | 0.987 (0.968–1.039) | 0.999 (0.997–1.000) |
+| `radial_filament_256` (0.5) | 0.990 (0.986–0.994) | 1.022 (0.992–1.114) | 0.999 (0.997–1.004) |
+| `kerr_beam_384` (0.5) | 1.001 (0.981–1.003) | 1.001 (0.993–1.023) | 0.987 (0.986–1.005) |
+
+The three mode-averaged runs replay all but their first trial: 410, 1048 and 5418 replays
+to one capture. The sources of `rdw` and `radial_filament_256` hold a vendor GEMM or a
+reduction. Their region stops at its second operation and the run continues with ordinary
+launches; its one capture is the 3 % on the MI325X's short `rdw` window. The Kerr cases do
+not use the region. A first version on the H200, whose trial is bound by the host, was
+slower (`he_rdw_averaged` 1.10, `argon_blueshift_averaged` 1.25). A verifying trial walks
+the whole source before its one launch, and that walk copied every operation it skipped.
+Comparing keys in place and copying an operation only when it is recorded removed that
+cost.
+
+### Device transforms of the four-mode capillary and the radial filament
+
+`rdw` and `radial_filament_256` gained least on devices from the batched rows and the graph
+replay. An NVIDIA A40 trace of one `rdw` trial (34 kernels, 1.30 ms of kernels, gaps of
+about 0.9 µs) showed why: the trial is bound by its transform shapes, not by its launches.
+
+- **Coarse rows in the forward pack.** Each of the stage's four real transforms (fine and
+  coarse projection, absorber, held currents) took about 96 µs on 16 of the A40's 84
+  multiprocessors, whatever its rows: the held pack's 16 rows cost the same as the
+  projection's 4. The coarse projection's rows now join the device forward pack, so the
+  stage's 28 rows are one transform (`packs_forward`). A device never defers the coarse
+  quadrature, so those rows are projected at every stage.
+- **Few-mode transforms through the custom kernels.** cuBLAS took 71 µs for the stacked
+  projection (8 rows, 36 nodes, 10240 samples; about 84 GFLOP/s) and 27 µs for the
+  synthesis. Below eight modes the device's hybrid guard now keeps the custom kernels,
+  which form the fine and coarse rows in one pass: 19 µs and 8 µs. With no vendor GEMM
+  left, the whole source replays as a graph (158 replays to one capture).
+- **CUDA trial reductions in blocks of 128.** Kokkos's CUDA range reduction gave the
+  prediction and correction 256-thread blocks of one element each: `rdw`'s 10496 elements
+  were 41 blocks. Blocks of 128 occupy every multiprocessor. On the A40 the prediction went
+  from 92.5 to 55.4 µs and the correction from 49.3 to 41.0 µs. The reductions' order
+  changes, so the trial norms move by rounding.
+- **An AMPERE86 build's real GEMMs.** cuBLAS runs a compute capability 8.6 device's DGEMM
+  with the FP64 tensor-op kernels of 8.0. A probe on the A40 measured 316 GFLOP/s for the
+  radial filament's 128 × 256 × 866 synthesis, about 54 % of the FP64 peak, at any row
+  pitch. `device_dense_gemm` gives a thread four rows of one column and takes 132 µs where
+  cuBLAS took 180. Eight rows a thread were 5 % slower. The radial source then replays as a
+  graph too (70 replays to one capture).
+
+All A/Bs use `ab --device`, three rounds, against the build before these changes.
+
+| case | NVIDIA A40 | AMD Instinct MI325X |
+|---|---:|---:|
+| `rdw` (0.1) | 0.799 (0.795–0.810) | 0.962 (0.912–0.974) |
+| `radial_filament_256` (0.5) | 0.930 (0.928–0.934) | 1.000 (0.995–1.005) |
+| `he_rdw_averaged` (0.3) | 0.934 (0.927–0.937) | 0.996 (0.990–1.004) |
+| `argon_blueshift_averaged` (0.1) | 0.940 (0.938–0.956) | 0.994 (0.990–1.007) |
+| `h2_raman_averaged` (0.4) | 0.952 (0.947–0.954) | 0.999 (0.989–1.025) |
+
+Every case took the same steps. Measured one change at a time on the A40, the coarse rows
+gave `rdw` 0.892 and the custom transforms 0.923, both bitwise. The CUDA reductions gave
+`rdw` 0.981 (0.968–1.008), and they are the whole of the single-mode runs' gain. The
+AMPERE86 GEMM gave `radial_filament_256` 0.933, bitwise. The reductions' order moves the
+norms by rounding, and through the step sizes it moves the final fields: by 2e-15 to
+6e-14, and by 1.0e-11 on `he_rdw_averaged` (410 steps). The HIP reduction's block did the
+same before (1.4e-11). On the MI325X only the first two changes apply. There, `rdw`'s
+field moves by 2.5e-15 (the custom transforms against rocBLAS) and the others are bitwise.
+The MI325X's `rdw` source replays as a graph after four captures, while its radial source
+still holds rocBLAS.
+
+Three leads were dropped. Eight rows a thread in the AMPERE86 GEMM ran at 1.054 against
+four. Padding the radial GEMM's row pitch changed nothing: cuBLAS ran at 316 GFLOP/s with
+866, 872, 896 and 1024 doubles. Recording vendor GEMMs in the graph was not tried. The
+trace puts its saving at about 1 % of a radial trial, and KokkosBlas sets cuBLAS's stream
+at every call, which resets cuBLAS's workspace to its default pool.
+
+What is left on the A40's `rdw` trial (0.77 ms of kernels): the inverse transform (96 µs
+on 4 multiprocessors, one block a row), the packed forward transform (96 µs), the band
+column's four kernels (235 µs), the three projections (57 µs), the prediction (55 µs),
+the correction (41 µs) and the quadrature partials (39 µs on 4 teams). A timed run is
+also one long host gap at the first saved plane, in solprop's output layer.
+
+### Split real-row transforms on compute capability 8.6
+
+After the device transforms of the four-mode capillary, an NVIDIA A40 trace of one `rdw`
+trial still spent a quarter of its 0.77 ms of kernels in two cuFFT kernels: the inverse
+transform of the fine spectrum (4 rows of 10240 samples, 96 µs) and the packed forward
+transform (28 rows, 96 µs). cuFFT gives a real row of a few thousand samples one thread
+block, and a GA10x device (compute capability 8.6) runs FP64 at a sixty-fourth of its
+FP32 rate, so each block is FP64-bound on its multiprocessor while the rest of the
+device waits. A single-mode run's one-row transforms used one multiprocessor of 84.
+
+An AMPERE86 build now transforms up to 64 contiguous real rows of n = 2m samples as
+m-point complex rows (sample pairs as one point, the standard half-length real
+transform) by the four-step method (`RealRowPlan`, `fft_plan.hpp`): m = n1 n2, with n2
+the largest power of two up to 512 that divides m. Our kernels pack the rows into n2 × n1
+columns, cuFFT transforms n1 points per column, a kernel applies the twiddle
+exp(∓2πi j2 k1 / m) and transposes, cuFFT transforms n2 points per row, and a last kernel
+forms the real spectrum (or unpacks the samples). The roots are rounded once from long
+double. The inverse drops the imaginary parts of the DC and Nyquist bins, as cuFFT's and
+FFTW's do. A probe on the A40 timed 4 × 10240 at 20 µs against cuFFT's 102, and 28 rows
+at 60 against 114, both agreeing with cuFFT to 2e-15 relative. Of the splits of 5120
+points, 10 × 512 and 40 × 128 were fastest; those with an 80-point pass took half as
+long again. In the engine the two transforms of an `rdw` trial take about 78 µs where
+they took 193.
+
+An NVIDIA H200 runs the same cuFFT kernels in 12 to 13 µs, faster than the split (12.5
+µs for 4 rows and 17.8 for 28), and on it the single-mode mode-averaged runs lost 4 to
+5 % with the split, so only AMPERE86 builds split their rows, as they form their own real
+GEMMs.
+
+| case | NVIDIA A40 |
+|---|---:|
+| `rdw` (0.1) | 0.932 (0.924–0.939) |
+| `he_rdw_averaged` (0.3) | 0.751 (0.750–0.752) |
+| `argon_blueshift_averaged` (0.1) | 0.757 (0.756–0.758) |
+| `h2_raman_averaged` (0.4) | 0.770 (0.768–0.771) |
+| `radial_filament_256` (0.5) | 0.996 (0.985–0.997) |
+
+`ab --device`, three rounds, against the build before the change. Every case took the
+same steps; the radial filament's rows are too many to split and its field is bitwise.
+The fields agree to 1.2e-13, except `he_rdw_averaged` (1.1e-11): the split moves each
+transform by rounding, the trial norms follow, and through the step sizes the final
+field, as the CUDA reductions' order did (1.0e-11). On the H200 the build with the split
+off agrees with the build before bit for bit and takes 0.99 to 1.01 of its time.
+
+Two other levers were measured and dropped. A team per 128-bin chunk of a column's
+quadrature partials took them from 39 to 7.8 µs, but the score's sum over the chunks took
+most of that back, by one thread (2.5 to 7.9 µs) or by a team: 0.989 on `rdw`, 0.994 and
+1.005 on the single-mode runs. The band column's four tiled kernels (235 µs of the `rdw`
+trial) moved neither with teams of half a tile (0.985 on `rdw`, 1.002 on
+`he_rdw_averaged`) nor with 512-sample tiles (1.010, 1.019). The A40 we measured on
+gave no access to its performance counters, so what bounds them is not known. A
+single-mode trial's prediction and correction (84 of its 205 µs of kernels) ran on 21
+blocks of 128 threads; blocks of 64 gave 0.985, 0.980 and 0.987 on the mode-averaged
+runs and 1.000 on `rdw`, and blocks of 32 regressed the radial filament (1.029).
+
+### Retained radial synthesis and Raman modal products
+
+Two work reductions from the CPU experiment's handoff, each measured with
+`python -m benchmarks ab` (fresh interleaved processes, passive-bound threads,
+`SOLPROP_FFTW_PLAN=measure`, three rounds, one repeat; medians of the per-round pairs,
+range over rounds). Each case exercises one of them: the radial filament has no Raman
+term, and the capillary is not a square radial map. Work counts are equal in every pair
+and the final fields agree to 4–10 × 10⁻¹⁵ relative.
+
+- **Retained-spectrum radial synthesis** (square radial analytic maps,
+  [backends.md](backends.md)): the synthesis product covers `2 n_omega` real columns
+  instead of `2 n_to`. `radial_filament_256`, complete guide: on an Intel Xeon Gold 6240
+  (one socket, 18 cores) 0.928 [0.925, 0.945] at one thread and 0.954 [0.936, 0.968] at
+  16; on 16 cores of an AMD EPYC 7763, 0.869 [0.868, 0.891] at one thread, and at
+  `--length 0.05` 0.866 [0.850, 0.868] at one thread and 0.825 [0.653, 0.894] at 16. The
+  EPYC's 16-thread ratios moved by about ±15 % between allocations on a shared node (a
+  complete-guide repeat gave 0.999 [0.735, 1.020]); the Intel Xeon Gold 6240's are the resolved ones.
+  A 16-thread label profile on the EPYC put the synthesis GEMMs at 0.20 s against
+  0.38 s, of which the gather and pad, as first written per chunk and over every fine
+  bin, took back 0.14 s; they now gather once per evaluation and write only the retained
+  bins.
+- **Raman modal products** (three-mode `ctc`, 6 product rows against 33 node drives):
+  `--length 0.05` at 16 threads 0.884 [0.881, 0.899] on a Xeon Gold 6240; on the EPYC 0.833
+  [0.823, 0.837] at one thread and 0.921 [0.861, 0.928] at 16 (`--length 0.02`: 0.850
+  and 0.884). The first reconstruction looped over the products per sample and cost ten
+  times the node path's finish (0.46 s against 0.046 s in a one-thread window); it now
+  accumulates each product over contiguous blocks of 512 samples.
+
+Both add FFT plans (the node transforms; the product rows), measured at construction:
+on a Xeon Gold 6240 a CTC worker's wall time, construction included, rose from 16.3 s to 17.7 s.
+
+Not adopted, on the same EPYC allocation:
+- Routing every real product with a left matrix of at most 256 entries through
+  `native_order_gemm` instead of the vendor BLAS: RDW 1.012 / 0.881, argon 1.057 /
+  1.099, CTC 1.070 / 1.377 at one / 16 threads (`--length 0.05`). The vendor library
+  wins on the serial transform spaces the operation-size policy gives these shapes.
+- Plain row-block loops for one-mode synthesis and projection: argon 0.996 at one
+  thread; at 16 the loops took 0.65–0.69 s of a short window where the vendor GEMMs took
+  0.55 s. The vendor pool still costs 0.55 s against 0.23 s at one thread there.
+- Planning the product rows at the full Raman chunk's width rather than their own:
+  CTC 1.001 / 0.980 [0.952, 1.012].
+
+### Host stage entry, free-space crossings and statistics
+
+Host-only changes found by profiling the tracking set at one and sixteen threads (Kokkos
+label timer and `perf`, Intel Xeon Gold 6240, GCC 16.2 `-march=cascadelake`, SLEEF's AVX2
+functions, OpenMP OpenBLAS). Each was measured with `python -m benchmarks ab` (fresh
+interleaved processes on 18 cores of one socket, passive bound threads,
+`SOLPROP_FFTW_PLAN=measure`, three rounds of one repeat at 0.1 of each case's length;
+medians of the per-round pairs, range over rounds). Every pair did the same work.
+
+- **The stage entry's finish and combination as lanes** (the modal routes' host entry
+  kernel). The deferred finish and the combination ran each bin through scalar
+  `Kokkos::complex` code: on `gnlse_raman_shock` (16384 bins, DOPRI5, noise, Raman, a
+  temporal collar) the entry took 2.8 s of a 7.1 s one-thread window, 21 % of it in the
+  lambda's own scalar code. A 64-bin block now runs as real and imaginary lanes, each bin
+  the same operations in the same order (only the crop's gathers stay per bin, and an
+  identity crop reads and writes contiguously), and a lossy problem's block whose phases
+  all have zero real parts takes both magnitudes as exactly one without the two `exp`
+  passes (only 42 of the 256 blocks of `gnlse_raman_shock` carry loss). One trial step
+  from identical input differs by at most 3.4e-18 of the field's peak.
+
+  | case | one thread | sixteen threads |
+  |---|---:|---:|
+  | `gnlse_raman_shock` | 0.836 (0.826–0.840) | 0.962 (0.960–0.987) |
+  | `gnlse_soliton` | 0.955 (0.937–1.042) | 0.939 (0.934–0.959) |
+  | `argon_blueshift_envelope` | 1.011 (0.968–1.019) | 0.984 (0.981–1.013) |
+  | `ctc` | 1.012 (0.982–1.012) | 1.022 (1.001–1.027) |
+
+  Both arms of these sixteen-thread runs predate the hold of
+  [NumPy's BLAS](#numpys-blas-beside-a-native-run).
+- **The separable low-storage fold in the scratch's layout.** The fold read the
+  column-major state, accumulator, stage register and flow table 32 columns apart at each
+  bin beside the transverse scratch, divided each column by the polarisation count and
+  called the element's full spatial value out of line: 63 ns an element at one thread,
+  27.7 s of `kerr_beam_384`'s 69.8 s window. The host's registers now sit at the scratch
+  cell's own position; a work item takes 32 adjacent columns over every bin, loads each
+  16-bin tile of their state a contiguous run at a time and folds it in the scratch's
+  order; a tabulated fold reads only the prefactor. The flow table is formed in the same
+  order. Fields are bitwise equal.
+
+  | case | one thread | sixteen threads |
+  |---|---:|---:|
+  | `kerr_beam_384` | 0.789 (0.788–0.790): 68.6 → 54.2 s | 0.899 (0.895–0.903) |
+  | `kerr_beam_192` | 0.742 (0.732–0.746) | 0.902 (0.900–0.918) |
+
+- **Crossings without divisions, the monitor's runs, the radial statistics' GEMMs.** Every
+  host crossing between state columns and the transverse scratch located its cell with a
+  run-time `% n_pol` and `/ n_pol`; in a microbenchmark of `kerr_beam_384`'s chunk (4468
+  rows of 750 bins) at one thread they doubled the crop's time (17 to 35 ms), and visiting
+  the pack's tile rows outermost took it from 36 to 22 ms. The boundary monitor's reading
+  divided each sample's flat index by the row length (1.76 s of `kerr_beam_384`'s
+  one-thread window); a host work item now sums a run of 512 samples of one row. A radial
+  run's local flux statistics synthesised each node's field and closure with a scalar
+  256-mode sum inside the pointwise kernel (0.57 s of `radial_filament_256`'s 3.65 s
+  window, five planes); they are now two GEMMs over the time fields' interleaved real
+  columns into buffers the statistics already hold, bitwise equal on the host. Against
+  the fold above:
+
+  | case | one thread | sixteen threads |
+  |---|---:|---:|
+  | `radial_filament_256` | 0.834 (0.827–0.840) | 0.945 (0.933–0.954) |
+  | `kerr_beam_384` | 0.830 (0.826–0.856): 53.7 → 44.9 s | 0.943 (0.943–1.190) |
+  | `kerr_beam_192` | 0.855 (0.849–0.861) | 0.951 (0.946–0.973) |
+
+  Together with the fold, `kerr_beam_192` takes 0.635 of its time at one thread (8.04 →
+  5.11 s) and `kerr_beam_384` 0.847 at sixteen (9.36 → 7.93 s); at sixteen threads the
+  384² fold is now bound by memory bandwidth (about 52 GB/s), and about 5 s of that
+  window is solprop's own host work at the saved plane.
+
+On 16 cores of an AMD EPYC 7763 (GCC 16.2 `-march=znver3`, the three changes together,
+same protocol), one / sixteen threads: `gnlse_raman_shock` 0.841 (0.836–0.842) / 0.972,
+`gnlse_soliton` 0.941 / 0.942, `radial_filament_256` 0.838 (0.837–0.850) / 0.938,
+`kerr_beam_384` 0.953 (0.947–0.958) / 1.003, `kerr_beam_192` 0.956 / 0.995, `ctc`
+0.994 / 0.977, `argon_blueshift_envelope` 0.981 / 1.001. The free-space gains are small
+there: Zen 3 ran the 384² window in 30 s at one thread where a Xeon Gold 6240 took 69 s, its
+64-bit divisions and strided streams far cheaper.
+
+Not adopted:
+- The Kerr-only free-space stage through one rank-3 FFTW transform, as a device takes it:
+  for 384 × 192² at one thread an estimated plan took 1.03 s a transform and a measured
+  one 0.31 s, the same as the batched planes and a strided temporal transform, after
+  17 s of planning; native's transform pair with the chunks' pack and crop is no slower.
+- The pack and crop through a 32 × 32 tile buffer (as the fold's state): 0.55 → 0.68 s
+  and 0.52 → 0.56 s on `kerr_beam_192` at one thread.
+- A one-element GEMM (one mode, one node) as an elementwise product: no faster than
+  OpenBLAS's small kernel; both are memory-bound.
+- Transparent huge pages through glibc's `glibc.malloc.hugetlb=1` (the workstation's
+  setting is `madvise`): within ±3 % on `kerr_beam_192` at one thread.
+
+(persistent-fftw-wisdom)=
+### Persistent FFTW wisdom
+
+At one thread, the default plans every row transform with FFTW's measured search, which
+is most of a short run's backend construction: about 1.3 s for averaged helium's
+6400-sample real pair alone. `SOLPROP_FFTW_WISDOM` now keeps those plans for the next
+process ([tuning](../guide/performance/tuning.md)). Fresh processes at one thread,
+`SOLPROP_FFTW_PLAN=measure`, passive-bound, through the benchmark worker's own
+`timed_run` (`--length 0.1`; `ctc`, `kerr_beam_192` and `grin_nonlinear` on the EPYC
+and `ctc` on a Xeon Gold 6240 `--length 0.05`). For each case one process stores the wisdom,
+then three rounds alternate a process without the variable (cold) and one with it
+(warm): medians of the backend's construction, cold → warm, and the warm/cold window
+ratio's median and range over the rounds. Step counts are equal in every pair. One core
+of an Intel Xeon Gold 6240 (an otherwise idle socket) and of a 16-core allocation of an
+AMD EPYC 7763:
+
+| case | Xeon construction | Xeon window | EPYC construction | EPYC window |
+|---|---:|---:|---:|---:|
+| `he_rdw_averaged` | 1.398 → 0.033 s | 0.985 [0.945, 0.988] | 1.777 → 0.049 s | 1.002 [0.973, 1.004] |
+| `argon_blueshift_averaged` | 1.330 → 0.032 s | 1.006 [0.987, 1.009] | 1.708 → 0.040 s | 0.987 [0.961, 1.001] |
+| `h2_raman_averaged` | 4.003 → 0.029 s | 1.003 [0.996, 1.025] | 5.224 → 0.040 s | 0.999 [0.987, 1.009] |
+| `gnlse_raman_shock` | 2.097 → 0.033 s | 1.002 [0.926, 1.010] | 2.801 → 0.048 s | 1.004 [0.987, 1.005] |
+| `gnlse_soliton` | 0.453 → 0.022 s | 0.999 [0.995, 1.005] | 0.636 → 0.035 s | 0.995 [0.990, 1.019] |
+| `rdw` | 1.405 → 0.051 s | 0.992 [0.985, 1.003] | 1.827 → 0.068 s | 0.993 [0.990, 1.005] |
+| `argon_blueshift` | 1.321 → 0.035 s | 0.995 [0.985, 0.999] | 1.735 → 0.048 s | 0.998 [0.996, 1.002] |
+| `argon_blueshift_envelope` | 0.473 → 0.024 s | 0.989 [0.976, 1.021] | 0.678 → 0.038 s | 1.007 [0.995, 1.016] |
+| `radial_filament_256` | 0.613 → 0.093 s | 0.994 [0.986, 1.022] | 0.820 → 0.107 s | 1.008 [1.004, 1.011] |
+| `ctc` | 5.033 → 0.056 s | 0.985 [0.983, 1.016] | 6.565 → 0.068 s | 1.002 [1.001, 1.004] |
+| `kerr_beam_192` | 1.248 → 0.657 s | 0.993 [0.972, 1.006] | 1.079 → 0.255 s | 0.995 [0.973, 1.126] |
+| `grin_nonlinear` | | | 1.984 → 0.309 s | 1.015 [1.000, 1.040] |
+
+Warm windows run as fast as cold ones: the plans are those a measurement chose, in this
+process or an earlier one. A warm process given the seeding process's wisdom reproduced
+its final field bit for bit (averaged helium), where two cold processes differ by
+measured plans (5.8 × 10⁻¹⁵ relative). What remains of a warm construction is allocation
+and setup: tens of milliseconds, a few tenths of a second for the free-space Kerr beam's
+1.4 GB of state. A job of a one-thread scan still pays solprop's own import, case
+construction and translation (0.7 s and 3.0 s for averaged helium on a Xeon Gold 6240), which
+the native backend does not own.
+
+### Band column passes and the general route's real signal
+
+Host-only changes found by profiling `ctc` and `grin_nonlinear` (Kokkos label timer and
+`perf`, Intel Xeon Gold 6240, GCC 16.2 `-march=cascadelake`, SLEEF's AVX2 functions).
+In a one-thread `ctc` window (0.01 of the guide) the band plasma column took 1.00 of
+1.99 s inside Kokkos, 25 ns a sample, and the band statistics another 0.29 s; in a
+`grin_nonlinear` window (0.05) the complex inverse transform took 2.53 of 8.02 s, the
+projection 1.81 s and the synthesis 1.57 s.
+
+- **The band column's passes as block loops.** In the column's own code a third of the
+  samples went to the integrand pass (an out-of-line strict call per sample for the
+  ionised fraction, a scalar division in the loss guard, a live-window note per
+  sample), two fifths to the scans (Kokkos' host team scan runs each closure twice, the
+  second time from the same zero), and a fifth to the rates' classification and
+  scatter. A rate block of 256 samples that is mostly live now takes every sample
+  through the vector-maths passes, a quiet one's magnitude replaced by the table's lower
+  limit, and selects the limits after; a mostly quiet block gathers as before. The
+  fractions come from one strict block loop, the guard's branch is a selection that
+  divides by one where it is not taken, the live window is searched from a block's
+  ends, and a one-thread team scans in one pass. Every value is unchanged to the bit.
+  Label timer, column: 1.00 → 0.69 s at one thread, 0.147 → 0.100 s at sixteen.
+- **The filter one tap pair at a time, on x86-64.** GCC had vectorised each sample's
+  nine-tap sum across the taps, a serial chain of additions per sample. A thread now
+  takes blocks of 512 samples and runs the interior as one loop per tap pair; each
+  sample keeps its order of terms, and only the contraction of its multiply-adds can
+  move it (one `ctc` step: 2.2 × 10⁻¹⁶ of the field's peak). Column: 0.69 → 0.54 s at
+  one thread, 0.100 → 0.082 s at sixteen. Other hosts keep the per-sample traversal: the
+  earlier tap-first filter slowed an Apple M-series argon window (see the rejected
+  leads below).
+- **The rate table's cubic vectorised out of line.** Called from the blocks, the table's
+  cubic ran scalar, a division per sample: the compiled-out-of-line loop stored through
+  the pointer it read while it gathered from the table, which GCC could not prove
+  apart. It now writes a local block. Bitwise; column 0.54 → 0.51 s.
+- **The quiet-block skip.** A rate block with no live sample takes only the table's
+  limits, without the gather, and the single gas's density is read once per node, not
+  after each store of the current (which the compiler had to assume might alias it).
+  Bitwise; `argon_blueshift` column 0.72 → 0.64 s of a 0.05 window at one thread, `ctc`
+  0.51 → 0.49 s.
+- **The band statistics in the same blocks.** The statistics scan took each sample's
+  rate and diagnostic fraction through the system libm and its whole-row prefix through
+  Kokkos' two-pass scan; it now uses the column's rate blocks, block fractions and the
+  one-pass scan. `ctc`: 22.8 → 14.0 ms a call at one thread. The statistics' rates now
+  carry the vector maths' rounding: the peak ionisation rate moves by 3.6 × 10⁻¹⁴
+  relative (a one-ulp change of `log |E|` through the cubic's slope), every other
+  statistic not at all.
+- **The real form's field through a complex-to-real transform.** A real-form cubic
+  reads only the real part of the analytic signal, which is the c2r transform of the
+  one-sided spectrum with its doubled bins halved (exactly) and the imaginary parts of
+  the zero and Nyquist bins dropped. The host now synthesises that half spectrum and
+  transforms it c2r; the buffers are the complex transform's, aliased, so the ledger
+  and solprop's memory estimate are unchanged. Not with SEP 6's dispersive response,
+  and not on devices. One `grin_nonlinear` step: 4.7 × 10⁻¹⁷ of the field's peak.
+  Inverse transform 2.53 → 1.21 s, respond 0.68 → 0.50 s at one thread.
+- **The projection's block of bins up to the whole row.** A host projection team walked
+  the chunk's rows over at most 64 bins, 1 KiB of each map row in turn; the block now
+  widens to 2048 bins and to the first power of two covering the bins, so at one thread
+  a team streams a mode's map rows contiguously. No bin's sum changes order. Project
+  1.81 → 1.17 s at one thread (2048 bins), 0.20 → 0.17 s at sixteen (512 bins).
+- **The synthesis summed in local blocks.** The host synthesis zeroed each row and
+  added every mode's products into it in memory; it now zeroes only the bins outside
+  the crop and sums blocks of 256 bins in two local arrays before one store, each bin's
+  sum in the same order. Synthesise 1.47 → 1.31 s at one thread. At one thread the
+  synthesis and the projection each stream a 122 MB map per evaluation at 8–9 GB/s,
+  about what one core of this socket draws from memory.
+
+Each case measured with `python -m benchmarks ab` against the parent of these changes
+(fresh interleaved processes on 18 cores of one socket of a Xeon Gold 6240, passive bound
+threads, `SOLPROP_FFTW_PLAN=measure`, `--length 0.05`, three rounds of one repeat;
+medians of the per-round pairs, range over rounds). Every pair did the same work, and
+the final fields agree within the measured-plan floor (2 × 10⁻¹⁵ to 3 × 10⁻¹⁴):
+
+| case | one thread | sixteen threads |
+|---|---:|---:|
+| `ctc` | 0.703 (0.694–0.705): 7.74 → 5.46 s | 0.846 (0.829–0.868) |
+| `argon_blueshift` | 0.641 (0.627–0.649) | 0.853 (0.844–0.868) |
+| `rdw` | 0.865 (0.859–0.886) | 0.982 (0.949–0.984) |
+| `grin_nonlinear` | 0.701 (0.687–0.705): 8.04 → 5.67 s | 0.802 (0.800–0.805) |
+| `argon_blueshift_averaged` | 0.913 (0.911–0.947) | 0.919 (0.901–0.922) |
+| `he_rdw_averaged` | 0.945 (0.773–0.951) | 0.958 (0.947–1.019) |
+
+The two averaged cases were measured without the quiet-block skip, which affects the
+resolved cases only (a separate run).
+
+On 16 cores of an AMD EPYC 7763 (GCC 16.2 `-march=znver3`, the same protocol on a
+fragmented allocation; all but the quiet-block skip), one / sixteen threads:
+
+| case | one thread | sixteen threads |
+|---|---:|---:|
+| `ctc` | 0.760 (0.754–0.770): 6.37 → 4.84 s | 0.927 (0.924–0.929) |
+| `argon_blueshift` | 0.755 (0.744–0.765) | 0.937 (0.904–0.940) |
+| `rdw` | 0.884 (0.874–0.885) | 0.975 (0.963–1.020) |
+| `grin_nonlinear` | 0.750 (0.750–0.766): 5.53 → 4.16 s | 0.872 (0.845–0.881) |
+| `argon_blueshift_averaged` | 0.918 (0.912–0.927) | 0.922 (0.906–0.929) |
+| `he_rdw_averaged` | 0.985 (0.943–1.056) | 0.967 (0.941–0.975) |
+
+With the quiet-block skip as well (another allocation, the same CPUs): `argon_blueshift`
+0.720 (0.715–0.724) / 0.937, `ctc` 0.754 (0.751–0.755) / 0.907, `rdw` 0.883 / 0.989,
+`grin_nonlinear` 0.749 / 0.918 (0.835–0.918).
+
+Not adopted: summing each block of eight scan increments locally before the running
+prefix, so that only block totals form a dependent chain (`ctc` column 0.538 → 0.534 s,
+within noise, for a change of association).
+
+### The native performance push: `main` at `740b24d` against its result
+
+The native performance push started from `main` at `740b24d`, the merge of SEP 39's
+native Adams march, and changed only the native backend and its build. It left the
+benchmark cases and stepper settings unchanged. The sections above record each adopted
+change with its own A/B. This section compares the two ends.
+
+**Complete runs** (`ab --length 1.0`, three interleaved rounds, fresh processes) on a
+dual Intel Xeon Gold 6240, timed on the 18 physical cores of one socket. Every case took the same steps.
+
+| Case | One thread (field difference) | Sixteen threads (field difference) |
+|---|---|---|
+| `gnlse_raman_shock` | 0.841 ($3.6\times10^{-13}$) | 0.765 ($1.0\times10^{-12}$) |
+| `gnlse_soliton` | 0.802 ($9.4\times10^{-14}$) | 0.796 ($7.9\times10^{-14}$) |
+| `rdw` | 0.659 ($7.9\times10^{-14}$) | 0.704 ($1.7\times10^{-13}$) |
+| `he_rdw_averaged` | 0.608 ($2.4\times10^{-10}$) | 0.505 ($2.1\times10^{-10}$) |
+| `argon_blueshift` | 0.563 ($5.4\times10^{-14}$) | 0.366 ($1.1\times10^{-13}$) |
+| `argon_blueshift_averaged` | 0.605 ($5.3\times10^{-14}$) | 0.697 ($1.3\times10^{-13}$) |
+| `argon_blueshift_envelope` | 0.724 ($2.0\times10^{-12}$) | 0.818 ($1.7\times10^{-12}$) |
+| `h2_raman_averaged` | 0.645 ($1.4\times10^{-13}$) | 0.387 ($9.5\times10^{-14}$) |
+| `radial_filament_256` | 0.623 ($4.7\times10^{-15}$) | 0.627 ($4.5\times10^{-15}$) |
+| `grin_nonlinear` | 0.684 ($1.7\times10^{-12}$) | 0.792 ($6.9\times10^{-13}$) |
+| `kerr_beam_384` | 0.559 ($1.1\times10^{-15}$) | 0.640 ($1.1\times10^{-15}$) |
+| `kerr_beam_192` | 0.545 ($9.4\times10^{-16}$) | 0.659 ($9.5\times10^{-16}$) |
+| `ctc` | not run (hours) | 0.679 ($2.0\times10^{-10}$) |
+| geometric mean | 0.649 | 0.627 (without `ctc`) |
+
+The geometric means are 0.649 at one thread and 0.627 at sixteen. Short windows
+(`--length 0.1`) gave 0.663 and 0.613, but individual cases differ. `rdw` at sixteen
+threads is 0.337 in a window and 0.704 over a complete run, because the window's
+baseline is dominated by per-run costs that the push removed (an idle NumPy BLAS pool
+spinning beside the native team).
+
+**Short windows on an exclusive AMD EPYC 7763 node** (`--length 0.1`, three rounds, 128
+cores, timing at one and sixteen threads). Every case took the same steps, with fields
+within $2\times10^{-13}$.
+
+| Case | One thread | Sixteen threads |
+|---|---|---|
+| `gnlse_raman_shock` | 0.839 | 0.784 |
+| `gnlse_soliton` | 0.886 | 0.882 |
+| `rdw` | 0.685 | 0.934 |
+| `he_rdw_averaged` | 0.663 | 0.785 |
+| `argon_blueshift` | 0.662 | 0.448 |
+| `argon_blueshift_averaged` | 0.595 | 0.718 |
+| `argon_blueshift_envelope` | 0.863 | 0.928 |
+| `h2_raman_averaged` | 0.618 | 0.351 |
+| `ctc` | 0.574 | 0.748 |
+| `radial_filament_256` | 0.528 | 0.751 |
+| `grin_nonlinear` | 0.763 | 0.811 |
+| `kerr_beam_384` | 0.817 | 0.858 |
+| `kerr_beam_192` | 0.824 | 0.875 |
+| geometric mean | 0.707 | 0.735 |
+
+**Complete runs on an NVIDIA A40** (`ab --device --length 1.0`, three rounds). Every case
+took the same steps.
+
+| Case | `main` s | branch s | Ratio | Field difference |
+|---|---|---|---|---|
+| `he_rdw_averaged` | 1.330 | 0.476 | 0.358 | $1.2\times10^{-10}$ |
+| `argon_blueshift_averaged` | 6.691 | 2.731 | 0.408 | $1.7\times10^{-13}$ |
+| `h2_raman_averaged` | 10.119 | 6.171 | 0.610 | $1.1\times10^{-13}$ |
+| `rdw` | 3.302 | 1.377 | 0.417 | $7.9\times10^{-14}$ |
+| `radial_filament_256` | 0.701 | 0.528 | 0.753 | $3.6\times10^{-15}$ |
+| `kerr_beam_384` | 6.455 | 5.036 | 0.791 | $1.7\times10^{-15}$ |
+
+On this card `main` runs some cases at one of two speeds from process to process. For
+`rdw` and `radial_filament_256`, the `main` column is therefore the faster of two
+complete-run jobs, and the ratio is the branch's median over it, which makes it
+conservative. The final tree's own job measured 0.403 and 0.392 directly. The other
+ratios are that job's direct medians of paired rounds.
+
+On the A40 the complete-run gains are larger than the short windows'. A window spends
+a larger share of its time in solprop's per-run host work, which both arms share.
+
+**The other wheel platforms** (`ab --length 0.2`, three interleaved rounds, each case at
+one thread and at the machine's physical cores; the same steps everywhere, fields within
+$2.1\times10^{-12}$). The push was tuned on Linux x86-64; a first pass on these platforms
+found two regressions at full width, both on one-column problems: `argon_blueshift` 1.31
+on macOS and `gnlse_raman_shock` 1.13 on Linux aarch64. Their causes and fixes are in
+[a stable kernel team](#stable-kernel-team), [compact CPU teams](#compact-cpu-teams) and
+[one-mode products](#one-mode-products). The table compares `main` with the branch with
+those fixes: the CI wheels of both on macOS and Windows; on aarch64 `main`'s CI wheel
+against a local DISTRIBUTION build of the same commit.
+
+| Case | macOS arm64, Apple M5 Max, 1 / 18 threads | Linux aarch64, Google Cloud C4A (Neoverse V2), 1 / 16 | Windows x86-64, Google Cloud C4D (AMD EPYC 9B45), 1 / 8 |
+|---|---|---|---|
+| `gnlse_raman_shock` | 0.969 / 0.769 | 0.982 / 0.704 | 0.773 / 0.941 |
+| `gnlse_soliton` | 0.983 / 0.979 | 0.978 / 0.982 | 0.889 / 0.893 |
+| `rdw` | 0.952 / 0.995 | 0.973 / 0.518 | 0.795 / 0.858 |
+| `he_rdw_averaged` | 0.989 / 1.010 | 1.005 / 0.569 | 0.774 / 0.877 |
+| `argon_blueshift` | 0.874 / 0.975 | 0.880 / 0.619 | 0.861 / 0.648 |
+| `argon_blueshift_averaged` | 0.954 / 0.974 | 0.968 / 0.953 | 0.714 / 0.826 |
+| `argon_blueshift_envelope` | 0.981 / 1.004 | 1.004 / 1.014 | 0.925 / 0.970 |
+| `h2_raman_averaged` | 1.010 / 0.858 | 0.991 / 0.593 | 0.686 / 0.770 |
+| `ctc` | – / 0.754 | – / 0.878 | – / 0.717 |
+| `radial_filament_256` | 0.715 / 0.846 | 0.722 / 0.586 | 0.564 / 0.764 |
+| `grin_nonlinear` | – / 0.872 | – / 0.896 | – / 0.764 |
+| `kerr_beam_384` | – / 0.954 | – / 0.726 | – / 0.827 |
+| `kerr_beam_192` | 0.902 / – | 0.820 / – | 0.725 / – |
+| geometric mean | 0.929 / 0.911 | 0.928 / 0.733 | 0.764 / 0.816 |
+
+The first-pass tables before the fixes, the bisection and the sizing
+records are kept with the project's development records. The M5 Max ran with about 1.5
+cores of background load (each round's ranges stay within a few per cent); on an Intel Xeon
+Gold 6240 the fixes leave every case within the A/A spread (geometric mean 0.999 against the
+unfixed branch; `main` against the fixed branch 0.646 over both widths).
+
+**Accuracy.** Every A/B took the same steps.
+- On a Xeon Gold 6240, complete runs of `he_rdw_averaged` and `ctc` moved the final field by
+  about $2\times10^{-10}$, against $10^{-13}$ in short windows. `main` against itself, over
+  the same complete runs, gives $6\times10^{-11}$ to $2\times10^{-10}$: measured FFTW plans
+  differ between processes at about $10^{-16}$, and the adaptive controller amplifies the
+  difference over a long run. The branch's differences are at that floor.
+- On the A40, fields are reproducible bitwise between processes. The device's contraction of the
+  Adams passes, its reduction order and the split transforms each change a step by
+  rounding. Together they move `he_rdw_averaged` by $10^{-11}$ in a window and by
+  $1.2\times10^{-10}$ over a complete run, with the same steps: the adaptive controller
+  amplifies the rounding, as on the CPU.
+- Every other case agrees to within about $2\times10^{-12}$.
+
+**Measured and not adopted.**
+- Compiler options: `-fno-math-errno -fno-trapping-math -fcx-fortran-rules`, `-O2`,
+  IPO off, 512-bit vectors, SLEEF's AVX-512 functions on a Xeon Gold 6240, branch padding.
+- Threading: spinning OpenMP waits, binding threads by default (on an exclusive EPYC
+  allocation, `OMP_PROC_BIND=close OMP_PLACES=cores` is worth about 11 % on average; it
+  was neutral on a Xeon Gold 6240), a BLAS width per product, serial or full-width medium
+  operations.
+- Sixteen-thread Raman and one-column team kernels: they gained on one CPU and lost on
+  the other.
+- Hand-written skinny products, Adams lane blocks of 16 and 64, band statistics through
+  vector maths.
+- On devices: a whole-transform node chunk, eight rows a thread in the compute
+  capability 8.6 GEMM, other device reduction block sizes, band column tilings, and
+  quadrature partials in chunks.
+
+**Outside the native backend.** On complete runs, solprop's host work outside the steps
+is a fixed cost per run, not per step: 0.1–0.3 s on the capillary and radial cases,
+about 6 s on `kerr_beam_384`. That is 2–9 % of a complete one-thread capillary run, and
+up to a third of the complete `radial_filament_256` (sixteen threads) and
+`kerr_beam_384` runs, which take one to twenty seconds. The configuration hash is
+computed once, at the first output write: 0.07–0.27 s, or 1.7 s for `kerr_beam_384`'s
+configuration. The cost that repeats is a saved field plane of a large Cartesian field.
+For `kerr_beam_384`'s 1.77 GB field that is about 3 s per plane:
+- the saved plane's copy, 1.1 s;
+- the conversion to the optics convention, 1.0 s;
+- the output store's copy, 0.6 s;
+- the native observation, 0.35 s.
+
+A capillary or radial plane costs 7–25 ms.
+
 ## Reference tables
 
 These tables back the indicative results above.
@@ -700,7 +1705,11 @@ partial chunk.
 | Raman FFT | 65,536 | 262,144 | up to four threads |
 
 A response column is one active node and one component. Every width is capped by the
-global thread setting. Explicit per-pool requests bypass this table, including the
+global thread setting. A kernel pool that already holds a full-width instance gives it to
+the medium-width kernels too ([a stable kernel team](#stable-kernel-team)); the FFT pools
+keep their medium widths. A problem of one column on one node takes at most eight
+threads in every pool, its transforms on its kernels' team
+([compact CPU teams](#compact-cpu-teams)). Explicit per-pool requests bypass this table, including the
 short-FFT rule. `build_info()` exposes the constants and override mask; backend metadata
 exposes effective widths and sizing inputs. Non-OpenMP host builds report that
 per-operation sizing is unsupported and keep their existing execution policy.
@@ -756,7 +1765,7 @@ threading libraries. The two-socket Xeon Gold 6240 uses exclusive 72-logical-CPU
 allocations and one hardware thread per selected physical core. Its independent
 bundles are GCC 16.2/OpenBLAS 0.3.34/FFTW 3.3.11 with GNU OpenMP, and IntelLLVM
 2026.1.1/MKL 2026.1 (including MKL FFT) with Intel OpenMP. Timed arms run sequentially,
-without concurrent builds. Python is 3.14.5 on the Mac and 3.14.7 on the Xeon;
+without concurrent builds. Python is 3.14.5 on an Apple M5 Max and 3.14.7 on a Xeon Gold 6240;
 NumPy is 2.5.2, Kokkos 5.2.1, Kokkos Kernels 5.2.0 and Kokkos-FFT 2.0.0.
 
 ### NEON codelets and Raman plans
@@ -857,7 +1866,7 @@ conservative spread criterion. Mac's isolated 18-thread ratio is 0.879, with a
 conservative aggregate of 0.950. Across both budgets, GCC is 0.940 and Intel 0.930.
 The matched fixed windows retain ten accepted steps, no rejections and 61 source evaluations; their
 field differences are at rounding level (at most 1.9e-16 in these confirmations).
-The Mac's first 18-thread screen and one A/A round showed large host timing
+The M5 Max's first 18-thread screen and one A/A round showed large host timing
 variation and remain inconclusive. The runner's busy-at-launch flag does not establish its cause; load averages also include prior
 owned work. A subsequent three-round A/A control gave RDW 1.010 [1.008, 1.054]
 and H₂ 1.015 [0.995, 1.040].
