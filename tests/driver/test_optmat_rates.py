@@ -71,7 +71,7 @@ def options(
         "length": LENGTH,
         "gas": "Ar",
         "pressure": 1.0,
-        "lambda0": WAVELENGTH,
+        "wavelength": WAVELENGTH,
         "grid": grid,
         "absorber": absorber(grid, boundary_length=1.0),
         "fwhm": 30e-15,
@@ -126,7 +126,7 @@ def input_peak(simulation) -> float:
 def test_responses_for_takes_optmats_rate_under_a_selection():
     mixture = Mixture.fill({"Ar": 0.5, "N2": 0.5}, 1.0, selection=SELECTION)
     responses: Any = responses_for(
-        mixture, kerr=False, plasma=True, lambda0=WAVELENGTH, selection=SELECTION
+        mixture, kerr=False, plasma=True, wavelength=WAVELENGTH, selection=SELECTION
     )
     rates = {response.species: response.rate for response in responses}
     assert {label: type(rate) for label, rate in rates.items()} == {
@@ -145,7 +145,7 @@ def test_a_custom_species_under_a_selection_needs_an_explicit_rate():
     custom = Mixture.of(dataclasses.replace(mixture.components[0], species=probe))
     with pytest.raises(MaterialError, match="custom species"):
         responses_for(
-            custom, kerr=False, plasma=True, lambda0=WAVELENGTH, selection=SELECTION
+            custom, kerr=False, plasma=True, wavelength=WAVELENGTH, selection=SELECTION
         )
     from optmat.gas.ionisation_rates import IonisationRateModel  # noqa: PLC0415
 
@@ -162,7 +162,7 @@ def test_a_custom_species_under_a_selection_needs_an_explicit_rate():
         custom,
         kerr=False,
         plasma={"Ar": OptmatRate(model)},
-        lambda0=WAVELENGTH,
+        wavelength=WAVELENGTH,
         selection=SELECTION,
     )
     assert response.potential == 2.5e-18
@@ -171,7 +171,7 @@ def test_a_custom_species_under_a_selection_needs_an_explicit_rate():
 def test_a_bare_optmat_rate_names_its_species():
     mixture = Mixture.fill({"Ar": 1.0}, 1.0, selection=SELECTION)
     (response,) = cast("Any", responses_for)(
-        mixture, kerr=False, plasma=OptmatRate("Ar", WAVELENGTH), lambda0=WAVELENGTH
+        mixture, kerr=False, plasma=OptmatRate("Ar", WAVELENGTH), wavelength=WAVELENGTH
     )
     assert isinstance(response.rate, OptmatRate)
     with pytest.raises(MaterialError, match="names 'N2'"):
@@ -179,7 +179,7 @@ def test_a_bare_optmat_rate_names_its_species():
             mixture,
             kerr=False,
             plasma=OptmatRate("N2", WAVELENGTH),
-            lambda0=WAVELENGTH,
+            wavelength=WAVELENGTH,
         )
 
 

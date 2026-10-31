@@ -45,7 +45,7 @@ pytestmark = [
 
 def settings(**changes):
     return {
-        "lambda0": 800e-9,
+        "wavelength": 800e-9,
         "wavelength_limits": (450e-9, 1200e-9),
         "trange": 100e-15,
         "fwhm": 30e-15,

@@ -82,7 +82,7 @@ def run(wall, radius=taper, taper_coupling=True):
             length,
             "He",
             1.0,
-            lambda0=800e-9,
+            wavelength=800e-9,
             grid=grid,
             absorber=absorber(grid, boundary_length=1e3),
             fwhm=30e-15,

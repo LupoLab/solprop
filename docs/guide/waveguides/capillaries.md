@@ -78,7 +78,7 @@ from solprop.stepper import FixedSchedule, RungeKutta
 length, steps = 2e-4, 10
 grid = FieldGrid.from_limits(length, 800e-9, (400e-9, 1.6e-6), 300e-15)
 common = dict(
-    lambda0=800e-9,
+    wavelength=800e-9,
     grid=grid,
     fwhm=30e-15,
     energy=1e-9,

@@ -195,7 +195,7 @@ def test_numba_sources_the_analytic_field_and_the_envelope_plasma(route):
         0.01,
         "He",
         1.0,
-        lambda0=800e-9,
+        wavelength=800e-9,
         fwhm=10e-15,
         energy=5e-5,
         grid=grid,

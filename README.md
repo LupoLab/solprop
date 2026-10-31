@@ -41,7 +41,7 @@ run = prop_capillary(
     1.5,  # length, m
     "He",
     (0.8, 0.0),  # pressure gradient, bar: entrance to exit
-    lambda0=800e-9,
+    wavelength=800e-9,
     fwhm=7.5e-15,
     energy=275e-6,
     modes=4,  # the first four HE_1m modes

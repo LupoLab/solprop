@@ -170,7 +170,7 @@ def test_the_gnlse_fraction_with_raman_on_is_the_bundles():
 
 def test_the_default_plasma_rate_is_optmats():
     fill = Mixture.fill({"N2": 1.0}, 1.0)
-    (kerr, plasma) = cast("Any", responses_for)(fill, plasma=True, lambda0=800e-9)
+    (kerr, plasma) = cast("Any", responses_for)(fill, plasma=True, wavelength=800e-9)
     assert isinstance(kerr, KerrResponse)
     assert isinstance(plasma.rate, OptmatRate)
 
@@ -288,7 +288,7 @@ def _n2o_capillary(selection):
         4e-4,
         "N2O",
         1.0,
-        lambda0=800e-9,
+        wavelength=800e-9,
         wavelength_limits=(400e-9, 2e-6),
         trange=200e-15,
         fwhm=30e-15,

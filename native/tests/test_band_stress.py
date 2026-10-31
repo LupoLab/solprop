@@ -126,7 +126,7 @@ def capillary(
             else rate,
             ionisation_field_range=(1e3, 1e11),
             preionisation=1e-2 if kind == "preionised_quiet" else None,
-            lambda0=800e-9,
+            wavelength=800e-9,
             grid=FieldGrid.from_limits(
                 LENGTH, 800e-9, (200e-9, 2e-6), TRANGE, **LEGACY_GRID
             ),

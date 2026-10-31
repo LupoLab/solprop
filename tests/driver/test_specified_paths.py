@@ -80,11 +80,11 @@ walk-off has to stand well above it for the test to be about the mechanism.
 """
 
 GRID = {
-    "lambda0": 835e-9,
+    "wavelength": 835e-9,
     "wavelength_limits": (600e-9, 1300e-9),
     "trange": 2e-12,
 }
-PULSE = {"fwhm": 200e-15, "energy": 1e-12, "pulseshape": "gauss"}
+PULSE = {"fwhm": 200e-15, "energy": 1e-12, "shape": "gauss"}
 
 LOSS_ENTRANCE = TaylorDispersion([1.0], 1.0)
 LOSS_EXIT = TaylorDispersion([5.0e3], 1.0)

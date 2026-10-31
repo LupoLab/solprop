@@ -58,7 +58,7 @@ PLASMA_BAND_TEN_STEP = Study(
     title="The band rule's held-current change over ten steps, against Richardson",
     case={
         "source": "SEP 27 held current: DFT[gJ]/(i omega) - DFT[g'J]/(i omega)**2",
-        "run": "prop_capillary(125e-6, L, gas, p, lambda0=800e-9, grid=..., "
+        "run": "prop_capillary(125e-6, L, gas, p, wavelength=800e-9, grid=..., "
         "pulses=..., modes=1, schedule=FixedSchedule.uniform(0, L, L/10), "
         "noise=None, absorber_scheme='split_step', backend='numpy_ref')",
         "helium": "0.8 bar over 5 mm, 150 uJ; grid 90 nm - 4 um; seeds 120, 100, 93 nm",
@@ -127,7 +127,7 @@ def _run(gas, ffac, *, plasma, integration=None):
             length,
             gas,
             pressure,
-            lambda0=800e-9,
+            wavelength=800e-9,
             grid=grid,
             pulses=pulses,
             modes=1,
@@ -274,7 +274,7 @@ def test_envelope_plasma_takes_no_running_integral_rule():
             plasma=True,
             envelope=True,
             thg=False,
-            lambda0=800e-9,
+            wavelength=800e-9,
             plasma_integration="band",
         )
 

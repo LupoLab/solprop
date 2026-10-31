@@ -338,9 +338,9 @@ def admit_memory(
     >>> from solprop.driver import Simulation
     >>> from solprop.driver.memory import admit_memory
     >>> simulation = Simulation.from_gnlse(
-    ...     0.11, 0.01, [0.0, 0.0, -1.183e-26], lambda0=835e-9,
+    ...     0.11, 0.01, [0.0, 0.0, -1.183e-26], wavelength=835e-9,
     ...     wavelength_limits=(500e-9, 2e-6), trange=1e-12,
-    ...     width=100e-15, peak_power=9.8, pulseshape="sech",
+    ...     width=100e-15, peak_power=9.8, shape="sech",
     ... )
     >>> admission = admit_memory(simulation.translate(), "numpy_ref", "1 GiB")
     >>> admission.estimate.total < admission.budget.limit
@@ -469,9 +469,9 @@ def plane_bytes(problem: KernelProblem) -> int:
     >>> from solprop.driver import Simulation
     >>> from solprop.driver.memory import plane_bytes
     >>> simulation = Simulation.from_gnlse(
-    ...     0.11, 0.01, [0.0, 0.0, -1.183e-26], lambda0=835e-9,
+    ...     0.11, 0.01, [0.0, 0.0, -1.183e-26], wavelength=835e-9,
     ...     wavelength_limits=(500e-9, 2e-6), trange=1e-12,
-    ...     width=100e-15, peak_power=9.8, pulseshape="sech",
+    ...     width=100e-15, peak_power=9.8, shape="sech",
     ... )
     >>> problem = simulation.translate()
     >>> plane_bytes(problem) >= 16 * problem.shape[-1]
@@ -517,9 +517,9 @@ def field_bytes(problem: KernelProblem) -> int:
     >>> from solprop.driver import Simulation
     >>> from solprop.driver.memory import field_bytes
     >>> simulation = Simulation.from_gnlse(
-    ...     0.11, 0.01, [0.0, 0.0, -1.183e-26], lambda0=835e-9,
+    ...     0.11, 0.01, [0.0, 0.0, -1.183e-26], wavelength=835e-9,
     ...     wavelength_limits=(500e-9, 2e-6), trange=1e-12,
-    ...     width=100e-15, peak_power=9.8, pulseshape="sech", noise=None,
+    ...     width=100e-15, peak_power=9.8, shape="sech", noise=None,
     ... )
     >>> field_bytes(simulation.translate()) == 16 * simulation.translate().shape[-1]
     True

@@ -125,7 +125,7 @@ def fwm_run(policy, pressure, n_save):
             LENGTH,
             "Ar",
             pressure,
-            lambda0=PUMP,
+            wavelength=PUMP,
             pulses=[
                 GaussianPulse(wavelength=PUMP, fwhm=30e-15, energy=10e-6),
                 GaussianPulse(wavelength=IDLER, fwhm=30e-15, energy=10e-6),

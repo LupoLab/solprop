@@ -118,12 +118,12 @@ def build_simulation(soliton):
 
     def build(*, order=3, length=SHORT_LENGTH, gamma=GAMMA, **keywords):
         settings = {
-            "lambda0": WAVELENGTH,
+            "wavelength": WAVELENGTH,
             "wavelength_limits": (500e-9, 2e-6),
             "trange": 1e-12,
             "width": TAU0,
             "peak_power": soliton.peak_power(order),
-            "pulseshape": "sech",
+            "shape": "sech",
             "shock": False,
             "rtol": 1e-8,
             "atol": 1e-18,

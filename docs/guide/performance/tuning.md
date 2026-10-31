@@ -500,7 +500,7 @@ run = prop_capillary(
     1e-3,
     "He",
     1.0,
-    lambda0=800e-9,
+    wavelength=800e-9,
     wavelength_limits=(200e-9, 2e-6),
     trange=100e-15,
     fwhm=10e-15,

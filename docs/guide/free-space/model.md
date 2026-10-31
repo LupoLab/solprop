@@ -71,7 +71,7 @@ and susceptibility use the same material functions as a capillary
 caller's own beside optmat's equation of state. A run resolves a named gas into its
 one-population mixture and binds an optmat rate's energy per event to the input's peak
 field; its declared responses are the caller's, so a Kerr response at optmat's
-coefficient is `KerrResponse(gamma3(gas, wavelength=lambda0))`
+coefficient is `KerrResponse(gamma3(gas, wavelength=wavelength))`
 ([materials](../media/material-selection.md#selecting-a-runs-materials)). A mixture carries its own
 temperature, so `temperature=` beside one is either the mixture's or refused. The
 medium's density is also the one its nonlinear responses take: an explicit response

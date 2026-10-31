@@ -93,7 +93,7 @@ def test_gnlse_kerr_coefficient_per_true_watt(fibre):
         None if fibre else gamma,
         grid.length,
         None if fibre else [0.0, 0.0],
-        lambda0=wavelength,
+        wavelength=wavelength,
         grid=grid,
         fwhm=30e-15,
         peak_power=1.0,

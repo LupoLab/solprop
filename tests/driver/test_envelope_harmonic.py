@@ -53,7 +53,7 @@ def harmonic_fraction(kind: str) -> float:
         "H2",
         PRESSURE,
         grid=grid,
-        lambda0=WAVELENGTH,
+        wavelength=WAVELENGTH,
         fwhm=FWHM,
         energy=ENERGY,
         loss=False,

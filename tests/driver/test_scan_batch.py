@@ -37,12 +37,12 @@ def build(point, backend="numpy_ref"):
         0.11 * (point.index + 1),
         0.001,
         [0.0, 0.0, -1.183e-26 * (point.index + 1)],
-        lambda0=835e-9,
+        wavelength=835e-9,
         grid=grid,
         absorber=bare_absorber(grid),
         width=100e-15,
         peak_power=float(point.index + 1),
-        pulseshape="sech",
+        shape="sech",
         save_planes=[0.0005, 0.001],
         schedule=FixedSchedule.uniform(
             0.0, 0.001, 0.00025, save_planes=[0.0005, 0.001]

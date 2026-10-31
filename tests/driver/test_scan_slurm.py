@@ -44,8 +44,8 @@ from solprop.driver.scan import Scan, run_scan
 
 def build(point):
     return Simulation.from_gnlse(0.11, 0.001, [0., 0., -1.183e-26],
-        lambda0=835e-9, wavelength_limits=(500e-9, 2e-6), trange=1e-12,
-        width=100e-15, pulseshape="sech", peak_power=point.values["power"],
+        wavelength=835e-9, wavelength_limits=(500e-9, 2e-6), trange=1e-12,
+        width=100e-15, shape="sech", peak_power=point.values["power"],
         n_save=2, backend="numpy_ref")
 
 if __name__ == "__main__":

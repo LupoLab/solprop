@@ -92,7 +92,7 @@ LENGTH = 1.0
 PRESSURE = 3.0
 """Helium pressure, bar."""
 
-PUMP = {"lambda0": 800e-9, "fwhm": 15e-15, "energy": 300e-6}
+PUMP = {"wavelength": 800e-9, "fwhm": 15e-15, "energy": 300e-6}
 """The pump: wavelength (m), duration (s) and energy (J)."""
 
 started = time.perf_counter()

@@ -45,7 +45,7 @@ EPS = np.finfo(float).eps
 
 def capillary(length=2e-3, n_save=3, **changes):
     arguments = {
-        "lambda0": 800e-9,
+        "wavelength": 800e-9,
         "wavelength_limits": (400e-9, 1.6e-6),
         "trange": 200e-15,
         "fwhm": 20e-15,
@@ -242,7 +242,7 @@ def general_run():
         length,
         provider=guide,
         grid=grid,
-        lambda0=wavelength,
+        wavelength=wavelength,
         fwhm=30e-15,
         energy=1e-12,
         dz_max=length / 2,

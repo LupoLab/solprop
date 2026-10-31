@@ -398,7 +398,7 @@ def test_the_coefficient_mapping_matches_luna_when_raman_is_on(index):
     problem = problem_from(
         PARAMETERS["gnlse"]["betas"], omega_ref=omega_ref, gamma=gamma, aeff=aeff
     )
-    # Luna forms k0 as 2 pi / lambda0 and solprop as omega_0 / c, which is the same
+    # Luna forms k0 as 2 pi / wavelength and solprop as omega_0 / c, which is the same
     # number reached by a different route.
     assert problem.n2 == pytest.approx(n2, rel=1e-15)
     # The split the Raman response applies is kerr_susceptibility's, compared here

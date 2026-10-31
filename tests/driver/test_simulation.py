@@ -38,9 +38,9 @@ ZERO_DISPERSION_WAVELENGTH = 1000e-9
 BETA_2 = 2.0e-26  # s^2/m, normal at the reference
 
 
-def dispersive_betas(lambda0):
+def dispersive_betas(wavelength):
     """Return Taylor coefficients whose beta2 vanishes at 1000 nm."""
-    omega_ref = 2.0 * math.pi * C / lambda0
+    omega_ref = 2.0 * math.pi * C / wavelength
     detuning = 2.0 * math.pi * C / ZERO_DISPERSION_WAVELENGTH - omega_ref
     return [0.0, 0.0, BETA_2, -BETA_2 / detuning]
 
@@ -146,15 +146,15 @@ def test_the_modes_and_the_profiles_reach_the_backend(narrow_grid, soliton):
     ``registry.select`` and the backend hands them to ``stats.collect``. Both statistics
     are checked against their own closed form.
     """
-    lambda0 = soliton.wavelength
+    wavelength = soliton.wavelength
     fibre = problem_from(
-        dispersive_betas(lambda0),
-        omega_ref=2.0 * math.pi * C / lambda0,
+        dispersive_betas(wavelength),
+        omega_ref=2.0 * math.pi * C / wavelength,
         gamma=soliton.gamma,
         shock=False,
     )
     pulse = SechPulse(
-        wavelength=lambda0, width=soliton.tau0, peak_power=soliton.peak_power(1)
+        wavelength=wavelength, width=soliton.tau0, peak_power=soliton.peak_power(1)
     )
     simulation = Simulation(
         narrow_grid,
@@ -242,14 +242,14 @@ def test_an_input_that_is_neither_a_pulse_nor_a_spectrum_is_refused(
 
 def test_from_capillary_needs_a_grid_or_the_keywords_to_build_one():
     with pytest.raises(DriverError, match="wavelength_limits and trange"):
-        Simulation.from_capillary(125e-6, 0.3, "He", 1.0, lambda0=800e-9, noise=None)
+        Simulation.from_capillary(125e-6, 0.3, "He", 1.0, wavelength=800e-9, noise=None)
 
 
 # ----------------------------------------------------- the capillary constructor
 
 
 CAPILLARY = {
-    "lambda0": 800e-9,
+    "wavelength": 800e-9,
     "wavelength_limits": (200e-9, 2e-6),
     "trange": 100e-15,
     "fwhm": 10e-15,

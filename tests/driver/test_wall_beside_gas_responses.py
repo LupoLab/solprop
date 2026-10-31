@@ -102,7 +102,7 @@ def arguments(name, **overrides):
     return {
         "radius": radius,
         "wall": wall,
-        "lambda0": 800e-9,
+        "wavelength": 800e-9,
         "grid": GRID,
         "absorber": WEAK_COLLAR,
         "fwhm": 30e-15,

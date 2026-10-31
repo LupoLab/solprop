@@ -1250,9 +1250,9 @@ class Killer(NullReporter):
             os.kill(os.getpid(), signal.SIGKILL)
 
 prop_gnlse(
-    gamma=0.11, length=1e-3, betas=[0.0, 0.0, -11.83e-27], lambda0=835e-9,
+    gamma=0.11, length=1e-3, betas=[0.0, 0.0, -11.83e-27], wavelength=835e-9,
     wavelength_limits=(500e-9, 2e-6), trange=1e-12, width=100e-15,
-    peak_power=9.8, pulseshape="sech", shock=False, n_save=7,
+    peak_power=9.8, shape="sech", shock=False, n_save=7,
     output={str(path)!r}, progress=Killer(),
 )
 """

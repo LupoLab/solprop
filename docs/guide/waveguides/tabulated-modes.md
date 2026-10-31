@@ -166,7 +166,7 @@ shape, not the loaded dispersion.
 
 Pass an `IndexTable` as `fibre=` to `prop_gnlse` or `Simulation.from_gnlse`:
 `prop_gnlse(None, length, fibre=table, n2=..., ...)`. The table area at
-`lambda0` resolves $\gamma=n_2\omega_0/(cA_{\rm eff})$; a table without area
+`wavelength` resolves $\gamma=n_2\omega_0/(cA_{\rm eff})$; a table without area
 requires `gamma` and uses the GNLSE convention 1 m². A supplied
 Mode is wrapped by
 {meth}`~solprop.nonlinear.gnlse.SpecifiedMode.from_mode`:

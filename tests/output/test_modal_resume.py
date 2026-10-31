@@ -75,7 +75,7 @@ MODAL_ROWS = {
 }
 """Every row `RunMetadata._describe` adds for a general modal identity."""
 
-PULSE = {"lambda0": 835e-9, "fwhm": 20e-15, "energy": 1e-12, "pulseshape": "gauss"}
+PULSE = {"wavelength": 835e-9, "fwhm": 20e-15, "energy": 1e-12, "shape": "gauss"}
 RUN = {
     # Two steps over a tenth of a millimetre. A resume is an identity statement
     # and needs no more; the route's arithmetic is qualified elsewhere.

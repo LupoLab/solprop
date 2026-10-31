@@ -44,7 +44,7 @@ def capillary(
     length, n_save, *, rtol=1e-8, backend="numpy_ref", radius=100e-6, **changes
 ):
     arguments = {
-        "lambda0": 800e-9,
+        "wavelength": 800e-9,
         "wavelength_limits": (400e-9, 1.6e-6),
         "trange": 200e-15,
         "fwhm": 20e-15,

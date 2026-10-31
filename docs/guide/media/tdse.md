@@ -224,7 +224,7 @@ resources as `tdse_execution=` (`TDSEExecution()` when omitted):
 
 ```text
 run = prop_capillary(
-    265e-6, 4.05, "He", fill, lambda0=800e-9, pulses=[pulse], modes=1,
+    265e-6, 4.05, "He", fill, wavelength=800e-9, pulses=[pulse], modes=1,
     trange=60e-15, wavelength_limits=(9e-8, 1.6e-6),
     tdse=response, tdse_execution=TDSEExecution(max_atomic_calls=400),
     radial_rule="field_scale", n_r=6, rtol=1e-2, output="run.h5",

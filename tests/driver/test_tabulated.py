@@ -47,7 +47,7 @@ def table_mode(
 def settings(**overrides) -> dict[str, Any]:
     length = 0.001
     return {
-        "lambda0": 650e-9,
+        "wavelength": 650e-9,
         "wavelength_limits": (450e-9, 700e-9),
         "trange": 100e-15,
         "fwhm": 20e-15,

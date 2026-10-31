@@ -74,7 +74,7 @@ retained in the gallery output.
             1.0,
             grid=grid,
             envelope=grid is envelope_grid,
-            lambda0=800e-9,
+            wavelength=800e-9,
             fwhm=60e-15,
             energy=1e-3,
             mode_average=True,

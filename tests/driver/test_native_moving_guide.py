@@ -147,10 +147,10 @@ def _step_guide(descriptors, *, basis_block=None, blocks=()) -> ModalGuide:
 
 
 STEP_PULSE = {
-    "lambda0": 835e-9,
+    "wavelength": 835e-9,
     "fwhm": 20e-15,
     "energy": STEP_ENERGY,
-    "pulseshape": "gauss",
+    "shape": "gauss",
 }
 
 

@@ -2027,9 +2027,9 @@ class Simulation(Displayed):
         --------
         >>> from solprop.driver import Simulation
         >>> simulation = Simulation.from_gnlse(
-        ...     0.11, 0.01, [0.0, 0.0, -1.183e-26], lambda0=835e-9,
+        ...     0.11, 0.01, [0.0, 0.0, -1.183e-26], wavelength=835e-9,
         ...     wavelength_limits=(500e-9, 2e-6), trange=1e-12,
-        ...     width=100e-15, peak_power=9.8, pulseshape="sech", n_save=3,
+        ...     width=100e-15, peak_power=9.8, shape="sech", n_save=3,
         ... )
         >>> problem = simulation.translate()
         >>> problem.shape, simulation.translate() is problem
@@ -2593,9 +2593,9 @@ class Simulation(Displayed):
         --------
         >>> from solprop.driver import Simulation
         >>> simulation = Simulation.from_gnlse(
-        ...     0.11, 0.01, [0.0, 0.0, -1.183e-26], lambda0=835e-9,
+        ...     0.11, 0.01, [0.0, 0.0, -1.183e-26], wavelength=835e-9,
         ...     wavelength_limits=(500e-9, 2e-6), trange=1e-12,
-        ...     width=100e-15, peak_power=9.8, pulseshape="sech", n_save=3,
+        ...     width=100e-15, peak_power=9.8, shape="sech", n_save=3,
         ... )
         >>> metadata = simulation.metadata()
         >>> metadata.simulation_kind, metadata.spectral_convention
@@ -2687,9 +2687,9 @@ class Simulation(Displayed):
         --------
         >>> from solprop.driver import Simulation
         >>> simulation = Simulation.from_gnlse(
-        ...     0.11, 0.01, [0.0, 0.0, -1.183e-26], lambda0=835e-9,
+        ...     0.11, 0.01, [0.0, 0.0, -1.183e-26], wavelength=835e-9,
         ...     wavelength_limits=(500e-9, 2e-6), trange=1e-12, raman=True,
-        ...     width=100e-15, peak_power=9.8, pulseshape="sech", n_save=3,
+        ...     width=100e-15, peak_power=9.8, shape="sech", n_save=3,
         ... )
         >>> [record.name for record in simulation.material_manifest().records]
         ['kerr/SiO2', 'silica_raman/hollenbeck_2002', 'silica_bundle/default']
@@ -2942,9 +2942,9 @@ class Simulation(Displayed):
         --------
         >>> from solprop.driver import Simulation
         >>> simulation = Simulation.from_gnlse(
-        ...     0.11, 0.01, [0.0, 0.0, -1.183e-26], lambda0=835e-9,
+        ...     0.11, 0.01, [0.0, 0.0, -1.183e-26], wavelength=835e-9,
         ...     wavelength_limits=(500e-9, 2e-6), trange=1.2e-12,
-        ...     width=100e-15, peak_power=9.8, pulseshape="sech", n_save=3, rtol=1e-6,
+        ...     width=100e-15, peak_power=9.8, shape="sech", n_save=3, rtol=1e-6,
         ... )
         >>> handler = simulation.run()
         >>> handler.n_saved, handler["z"].tolist()
@@ -3790,7 +3790,7 @@ class Simulation(Displayed):
         length: float,
         betas: Sequence[float] | np.ndarray | None = None,
         *,
-        lambda0: float,
+        wavelength: float,
         wavelength_limits: tuple[float, float] | None = None,
         trange: float | None = None,
         grid: TimeGrid | None = None,
@@ -3801,7 +3801,7 @@ class Simulation(Displayed):
         n2: float | str | None = None,
         fwhm: float | None = None,
         width: float | None = None,
-        pulseshape: str = "gauss",
+        shape: str = "gauss",
         energy: float | None = None,
         peak_power: float | None = None,
         phases: Sequence[float] | np.ndarray = (),
@@ -3847,9 +3847,9 @@ class Simulation(Displayed):
         length : float
             Fibre length, m, positive.
         betas : array_like, optional
-            Taylor coefficients of ``beta`` about `lambda0`, ``beta_0, beta_1, ...`` in
-            s^n/m. Give exactly one of this, `beta` or `fibre`.
-        lambda0 : float
+            Taylor coefficients of ``beta`` about `wavelength`, ``beta_0, beta_1, ...``
+            in s^n/m. Give exactly one of this, `beta` or `fibre`.
+        wavelength : float
             Reference wavelength, m: the ``gamma`` mapping's, the Taylor expansion's,
             the grid's and the pulse's centre.
         wavelength_limits : tuple of float, optional
@@ -3872,7 +3872,7 @@ class Simulation(Displayed):
             scaffold requires a z-constant fibre. Its fill is ignored as a
             nonlinear material: the GNLSE uses gamma or n2, retaining the mode only
             for dispersion, loss and area. A table's area is evaluated at
-            `lambda0`, and so is a provider channel's, by a fresh solve there (along
+            `wavelength`, and so is a provider channel's, by a fresh solve there (along
             the path of a moving guide); without an area column a table requires
             `gamma` and uses the 1 m^2 convention.
         n2 : float or str, optional
@@ -3880,27 +3880,27 @@ class Simulation(Displayed):
             Exactly one of `gamma` and `n2` is required. The mapping is
             ``gamma = n2 omega0 / (c A_eff)``, with unit prefactor index. Under
             `materials`, ``"recommended"`` takes optmat's silica bundle's total
-            ``n2`` at `lambda0`.
+            ``n2`` at `wavelength`.
         fwhm : float, optional
             Intensity full width at half maximum of the input, s.
         width : float, optional
             Natural width of a ``sech**2`` input, s. Give this or `fwhm`.
-        pulseshape : {'gauss', 'sech'}, optional
+        shape : {'gauss', 'sech'}, optional
             Shape of the input.
         energy : float, optional
             Pulse energy, J. Give this or `peak_power`.
         peak_power : float, optional
             Peak power, W.
         phases : array_like, optional
-            Optics-convention spectral phase about `lambda0`: CEP in rad, then group
+            Optics-convention spectral phase about `wavelength`: CEP in rad, then group
             delay, GDD, TOD, ... in s^n.
         pulses : sequence of solprop.pulses.Pulse or None, optional
             Several pulses launched together, for two-colour and multi-colour
             inputs: each a :mod:`solprop.pulses` object with its own wavelength,
             duration, energy or peak power, phase and delay; the input is the sum of
             their fields (:class:`~solprop.pulses.PulseSum`). Replaces the
-            single-pulse keywords `fwhm`, `width`, `pulseshape`, `energy`,
-            `peak_power` and `phases`, which must then be left unset; `lambda0` still
+            single-pulse keywords `fwhm`, `width`, `shape`, `energy`,
+            `peak_power` and `phases`, which must then be left unset; `wavelength` still
             sets the grid's reference wavelength.
         loss_db_per_m : float or None, optional
             Omitted means zero loss on the coefficient routes. Refused beside
@@ -4005,9 +4005,9 @@ class Simulation(Displayed):
         --------
         >>> from solprop.driver import Simulation
         >>> simulation = Simulation.from_gnlse(
-        ...     0.11, 0.01, [0.0, 0.0, -1.183e-26], lambda0=835e-9,
+        ...     0.11, 0.01, [0.0, 0.0, -1.183e-26], wavelength=835e-9,
         ...     wavelength_limits=(500e-9, 2e-6), trange=1e-12,
-        ...     width=100e-15, peak_power=9.8, pulseshape="sech", n_save=3,
+        ...     width=100e-15, peak_power=9.8, shape="sech", n_save=3,
         ... )
         >>> simulation.settings.save_planes.tolist()
         [0.005, 0.01]
@@ -4017,17 +4017,17 @@ class Simulation(Displayed):
         working = _gnlse_grid(
             grid,
             length,
-            lambda0,
+            wavelength,
             wavelength_limits,
             trange,
         )
-        _check_selection_carrier(materials, working.reference_wavelength, lambda0)
+        _check_selection_carrier(materials, working.reference_wavelength, wavelength)
         mapping = _gnlse_fibre(
             gamma,
             betas,
             beta,
             working,
-            lambda0=lambda0,
+            wavelength=wavelength,
             loss=loss_db_per_m,
             fibre=fibre,
             n2=n2,
@@ -4037,8 +4037,8 @@ class Simulation(Displayed):
             selection=materials,
         )
         pulse = _shaped_pulse(
-            pulseshape,
-            lambda0=lambda0,
+            shape,
+            wavelength=wavelength,
             fwhm=fwhm,
             width=width,
             energy=energy,
@@ -4102,14 +4102,14 @@ class Simulation(Displayed):
         *,
         pressure_floor: float | None = None,
         vacuum_end: VacuumEnd | None = None,
-        lambda0: float,
+        wavelength: float,
         wavelength_limits: tuple[float, float] | None = None,
         trange: float | None = None,
         grid: TimeGrid | None = None,
         envelope: bool = False,
         fwhm: float | None = None,
         width: float | None = None,
-        pulseshape: str = "gauss",
+        shape: str = "gauss",
         energy: float | None = None,
         peak_power: float | None = None,
         phases: Sequence[float] | np.ndarray = (),
@@ -4213,7 +4213,7 @@ class Simulation(Displayed):
             ``MarcatiliMode`` subclass, a ``TabulatedMode`` built from arrays
             included -- is taken as a circular bore of that radius; a rectangular
             guide keeps the uniform law.
-        lambda0 : float
+        wavelength : float
             Reference wavelength, m, and the pulse's centre wavelength.
         wavelength_limits : tuple of float or None, optional
             Shortest and longest wavelength of the frequency window, m. Required unless
@@ -4230,22 +4230,22 @@ class Simulation(Displayed):
             Pulse duration at half maximum, s.
         width : float or None, optional
             Natural width of a sech pulse, s; give this or `fwhm`.
-        pulseshape : {'gauss', 'sech'}, optional
+        shape : {'gauss', 'sech'}, optional
             Transform-limited shape of the input.
         energy : float or None, optional
             Pulse energy, J. Give this or `peak_power`.
         peak_power : float or None, optional
             Peak power, W, realised after the spectral phases.
         phases : sequence of float, optional
-            Taylor spectral phases about `lambda0`, optics convention: CEP in rad,
+            Taylor spectral phases about `wavelength`, optics convention: CEP in rad,
             group delay in s, GDD in s^2, and so on.
         pulses : sequence of solprop.pulses.Pulse or None, optional
             Several pulses launched together, for two-colour and multi-colour
             inputs: each a :mod:`solprop.pulses` object with its own wavelength,
             duration, energy or peak power, phase and delay; the input is the sum of
             their fields (:class:`~solprop.pulses.PulseSum`). Replaces the
-            single-pulse keywords `fwhm`, `width`, `pulseshape`, `energy`,
-            `peak_power` and `phases`, which must then be left unset; `lambda0` still
+            single-pulse keywords `fwhm`, `width`, `shape`, `energy`,
+            `peak_power` and `phases`, which must then be left unset; `wavelength` still
             sets the grid's reference wavelength.
         modes : int or sequence of Mode, optional
             How many HE_1m modes to propagate, or the mode set itself. A set is checked
@@ -4483,7 +4483,7 @@ class Simulation(Displayed):
         --------
         >>> from solprop.driver import Simulation
         >>> simulation = Simulation.from_capillary(
-        ...     125e-6, 0.1, "He", (0.8, 0.1), lambda0=800e-9,
+        ...     125e-6, 0.1, "He", (0.8, 0.1), wavelength=800e-9,
         ...     wavelength_limits=(150e-9, 2e-6), trange=200e-15,
         ...     fwhm=10e-15, energy=100e-6, modes=2, n_save=3,
         ... )
@@ -4499,14 +4499,14 @@ class Simulation(Displayed):
             pressure=pressure,
             pressure_floor=pressure_floor,
             vacuum_end=vacuum_end,
-            lambda0=lambda0,
+            wavelength=wavelength,
             wavelength_limits=wavelength_limits,
             trange=trange,
             grid=grid,
             envelope=envelope,
             fwhm=fwhm,
             width=width,
-            pulseshape=pulseshape,
+            shape=shape,
             energy=energy,
             peak_power=peak_power,
             phases=phases,
@@ -4574,14 +4574,14 @@ class Simulation(Displayed):
         observable_atol: float | None = None,
         pressure_floor: float | None = None,
         vacuum_end: VacuumEnd | None = None,
-        lambda0: float,
+        wavelength: float,
         wavelength_limits: tuple[float, float] | None = None,
         trange: float | None = None,
         grid: TimeGrid | None = None,
         envelope: bool = False,
         fwhm: float | None = None,
         width: float | None = None,
-        pulseshape: str = "gauss",
+        shape: str = "gauss",
         energy: float | None = None,
         peak_power: float | None = None,
         phases: Sequence[float] | np.ndarray = (),
@@ -4707,7 +4707,7 @@ class Simulation(Displayed):
             ``configuration["coupling"]``. The beam is launched at its waist
             (``propz=0``) and centred on the guide's axis. The pulse keywords
             (`fwhm`, `width`, `energy`, `peak_power`, `phases`, `pulses` and
-            `pulseshape`) are refused beside it, because the beam carries its own
+            `shape`) are refused beside it, because the beam carries its own
             pulse. Requires `provider` and `coupling`, and is refused beside
             `channel`.
         coupling : solprop.coupling.models.CouplingModel or None, optional
@@ -4755,7 +4755,7 @@ class Simulation(Displayed):
             ``MarcatiliMode`` subclass, a ``TabulatedMode`` built from arrays
             included -- is taken as a circular bore of that radius; a rectangular
             guide keeps the uniform law.
-        lambda0 : float
+        wavelength : float
             Reference wavelength, m, and the pulse's centre wavelength.
         wavelength_limits : tuple of float or None, optional
             Shortest and longest wavelength of the frequency window, m. Required unless
@@ -4772,22 +4772,22 @@ class Simulation(Displayed):
             Pulse duration at half maximum, s.
         width : float or None, optional
             Natural width of a sech pulse, s; give this or `fwhm`.
-        pulseshape : {'gauss', 'sech'}, optional
+        shape : {'gauss', 'sech'}, optional
             Transform-limited shape of the input.
         energy : float or None, optional
             Pulse energy, J. Give this or `peak_power`.
         peak_power : float or None, optional
             Peak power, W, realised after the spectral phases.
         phases : sequence of float, optional
-            Taylor spectral phases about `lambda0`, optics convention: CEP in rad,
+            Taylor spectral phases about `wavelength`, optics convention: CEP in rad,
             group delay in s, GDD in s^2, and so on.
         pulses : sequence of solprop.pulses.Pulse or None, optional
             Several pulses launched together, for two-colour and multi-colour
             inputs: each a :mod:`solprop.pulses` object with its own wavelength,
             duration, energy or peak power, phase and delay; the input is the sum of
             their fields (:class:`~solprop.pulses.PulseSum`). Replaces the
-            single-pulse keywords `fwhm`, `width`, `pulseshape`, `energy`,
-            `peak_power` and `phases`, which must then be left unset; `lambda0` still
+            single-pulse keywords `fwhm`, `width`, `shape`, `energy`,
+            `peak_power` and `phases`, which must then be left unset; `wavelength` still
             sets the grid's reference wavelength.
         susceptibility : GasSusceptibility or None, optional
             A gas susceptibility replacing the one `gas` selects, for a comparison
@@ -4983,14 +4983,14 @@ class Simulation(Displayed):
                 kerr_form=kerr_form,
                 observable_rtol=observable_rtol,
                 observable_atol=observable_atol,
-                lambda0=lambda0,
+                wavelength=wavelength,
                 wavelength_limits=wavelength_limits,
                 trange=trange,
                 grid=grid,
                 envelope=envelope,
                 fwhm=fwhm,
                 width=width,
-                pulseshape=pulseshape,
+                shape=shape,
                 energy=energy,
                 peak_power=peak_power,
                 phases=phases,
@@ -5063,14 +5063,14 @@ class Simulation(Displayed):
             pressure=pressure,
             pressure_floor=pressure_floor,
             vacuum_end=vacuum_end,
-            lambda0=lambda0,
+            wavelength=wavelength,
             wavelength_limits=wavelength_limits,
             trange=trange,
             grid=grid,
             envelope=envelope,
             fwhm=fwhm,
             width=width,
-            pulseshape=pulseshape,
+            shape=shape,
             energy=energy,
             peak_power=peak_power,
             phases=phases,
@@ -5123,13 +5123,13 @@ class Simulation(Displayed):
         kerr_form: KerrForm,
         observable_rtol: float | None,
         observable_atol: float | None,
-        lambda0: float,
+        wavelength: float,
         wavelength_limits: tuple[float, float] | None,
         trange: float | None,
         grid: TimeGrid | None,
         fwhm: float | None,
         width: float | None,
-        pulseshape: str,
+        shape: str,
         energy: float | None,
         peak_power: float | None,
         phases: Sequence[float] | np.ndarray,
@@ -5183,9 +5183,9 @@ class Simulation(Displayed):
             :meth:`from_waveguide` documents it.
         observable_rtol, observable_atol : float or None
             Accepted only as ``None``, which means the solver's own tolerances.
-        lambda0, wavelength_limits, trange, grid : object
+        wavelength, wavelength_limits, trange, grid : object
             The grid, as :func:`_capillary_grid` takes them; a **field** grid.
-        fwhm, width, pulseshape, energy, peak_power, phases, pulses : object
+        fwhm, width, shape, energy, peak_power, phases, pulses : object
             The input pulse, as :func:`_shaped_pulse` takes it.
         absorber : solprop.boundaries.Absorber, False or None
             The collar rates; ``None`` builds the grid's default collar, and ``False``
@@ -5256,7 +5256,7 @@ class Simulation(Displayed):
         working = _capillary_grid(
             grid,
             length,
-            lambda0,
+            wavelength,
             wavelength_limits,
             trange,
             envelope=False,
@@ -5284,8 +5284,8 @@ class Simulation(Displayed):
         pulse = _general_pulse(
             incident,
             channel,
-            pulseshape,
-            lambda0=lambda0,
+            shape,
+            wavelength=wavelength,
             fwhm=fwhm,
             width=width,
             energy=energy,
@@ -5407,14 +5407,14 @@ class Simulation(Displayed):
         waveguide: bool = False,
         pressure_floor: float | None = None,
         vacuum_end: VacuumEnd | None = None,
-        lambda0: float,
+        wavelength: float,
         wavelength_limits: tuple[float, float] | None = None,
         trange: float | None = None,
         grid: TimeGrid | None = None,
         envelope: bool = False,
         fwhm: float | None = None,
         width: float | None = None,
-        pulseshape: str = "gauss",
+        shape: str = "gauss",
         energy: float | None = None,
         peak_power: float | None = None,
         phases: Sequence[float] | np.ndarray = (),
@@ -5521,7 +5521,7 @@ class Simulation(Displayed):
             ``MarcatiliMode`` subclass, a ``TabulatedMode`` built from arrays
             included -- is taken as a circular bore of that radius; a rectangular
             guide keeps the uniform law.
-        lambda0 : float
+        wavelength : float
             Reference wavelength, m, and the pulse's centre wavelength.
         wavelength_limits : tuple of float or None, optional
             Shortest and longest wavelength of the frequency window, m. Required unless
@@ -5538,22 +5538,22 @@ class Simulation(Displayed):
             Pulse duration at half maximum, s.
         width : float or None, optional
             Natural width of a sech pulse, s; give this or `fwhm`.
-        pulseshape : {'gauss', 'sech'}, optional
+        shape : {'gauss', 'sech'}, optional
             Transform-limited shape of the input.
         energy : float or None, optional
             Pulse energy, J. Give this or `peak_power`.
         peak_power : float or None, optional
             Peak power, W, realised after the spectral phases.
         phases : sequence of float, optional
-            Taylor spectral phases about `lambda0`, optics convention: CEP in rad,
+            Taylor spectral phases about `wavelength`, optics convention: CEP in rad,
             group delay in s, GDD in s^2, and so on.
         pulses : sequence of solprop.pulses.Pulse or None, optional
             Several pulses launched together, for two-colour and multi-colour
             inputs: each a :mod:`solprop.pulses` object with its own wavelength,
             duration, energy or peak power, phase and delay; the input is the sum of
             their fields (:class:`~solprop.pulses.PulseSum`). Replaces the
-            single-pulse keywords `fwhm`, `width`, `pulseshape`, `energy`,
-            `peak_power` and `phases`, which must then be left unset; `lambda0` still
+            single-pulse keywords `fwhm`, `width`, `shape`, `energy`,
+            `peak_power` and `phases`, which must then be left unset; `wavelength` still
             sets the grid's reference wavelength.
         modes : int or sequence of Mode, optional
             How many HE_1m modes to propagate, or the mode set itself. A set is checked
@@ -5841,14 +5841,14 @@ class Simulation(Displayed):
         working = _capillary_grid(
             grid,
             length,
-            lambda0,
+            wavelength,
             wavelength_limits,
             trange,
             envelope=envelope,
             thg=thg,
         )
         materials = MaterialSelection() if materials is None else materials
-        _check_selection_carrier(materials, working.reference_wavelength, lambda0)
+        _check_selection_carrier(materials, working.reference_wavelength, wavelength)
         bore = (
             _flow_radius(modes, pressure)
             if waveguide
@@ -5928,14 +5928,14 @@ class Simulation(Displayed):
                 plasma=plasma,
                 preionisation=0.0 if preionisation is None else preionisation,
                 integration=plasma_integration,
-                lambda0=lambda0,
+                wavelength=wavelength,
                 envelope=envelope,
                 # The single gas's electronic response is optmat's, at the carrier
                 # or dispersive, as the selection's electronic policy says (SEP 6).
                 electronic=electronic_response(
                     mixture.components[0].species,
                     selection=materials,
-                    wavelength=lambda0,
+                    wavelength=wavelength,
                     thg=thg,
                 )
                 if kerr
@@ -5943,7 +5943,7 @@ class Simulation(Displayed):
                 selection=materials,
             )
             responses += (
-                _optmat_raman(gas, mixture, materials, thg, lambda0, length)
+                _optmat_raman(gas, mixture, materials, thg, wavelength, length)
                 if raman
                 else []
             )
@@ -5955,7 +5955,7 @@ class Simulation(Displayed):
                     thg=thg,
                     plasma=plasma,
                     raman=raman,
-                    lambda0=lambda0,
+                    wavelength=wavelength,
                     envelope=envelope,
                     length=length,
                     selection=materials,
@@ -5964,8 +5964,8 @@ class Simulation(Displayed):
             )
         _refuse_idle_preionisation(mixture, responses)
         pulse = _shaped_pulse(
-            pulseshape,
-            lambda0=lambda0,
+            shape,
+            wavelength=wavelength,
             fwhm=fwhm,
             width=width,
             energy=energy,
@@ -6095,7 +6095,7 @@ class Simulation(Displayed):
                 thg,
                 plasma,
                 raman,
-                lambda0,
+                wavelength,
                 envelope,
                 length,
                 selection=materials,
@@ -6150,9 +6150,9 @@ class SimulationRunner(Displayed):
     >>> from solprop.driver import Simulation
     >>> from solprop.pulses import SechPulse
     >>> simulation = Simulation.from_gnlse(
-    ...     0.11, 0.01, [0.0, 0.0, -1.183e-26], lambda0=835e-9,
+    ...     0.11, 0.01, [0.0, 0.0, -1.183e-26], wavelength=835e-9,
     ...     wavelength_limits=(500e-9, 2e-6), trange=1.2e-12,
-    ...     width=100e-15, peak_power=9.8, pulseshape="sech", n_save=3, rtol=1e-6,
+    ...     width=100e-15, peak_power=9.8, shape="sech", n_save=3, rtol=1e-6,
     ... )
     >>> def pulse(power):
     ...     return SechPulse(wavelength=835e-9, width=100e-15, peak_power=power)
@@ -6500,9 +6500,9 @@ def check_derived_problem(constructed: KernelProblem, derived: KernelProblem) ->
     >>> from solprop.driver import Simulation
     >>> from solprop.driver.simulation import check_derived_problem
     >>> simulation = Simulation.from_gnlse(
-    ...     0.11, 0.01, [0.0, 0.0, -1.183e-26], lambda0=835e-9,
+    ...     0.11, 0.01, [0.0, 0.0, -1.183e-26], wavelength=835e-9,
     ...     wavelength_limits=(500e-9, 2e-6), trange=1e-12,
-    ...     width=100e-15, peak_power=9.8, pulseshape="sech",
+    ...     width=100e-15, peak_power=9.8, shape="sech",
     ... )
     >>> problem = simulation.translate()
     >>> derived = simulation.with_input(problem.initial.field0[0]).translate()
@@ -7802,7 +7802,7 @@ def _open_output(
 def _gnlse_grid(
     grid: TimeGrid | None,
     length: float,
-    lambda0: float,
+    wavelength: float,
     wavelength_limits: tuple[float, float] | None,
     trange: float | None,
 ) -> TimeGrid:
@@ -7814,7 +7814,7 @@ def _gnlse_grid(
         A grid given by the caller, or ``None`` to build one.
     length : float
         Fibre length, m.
-    lambda0 : float
+    wavelength : float
         Reference wavelength, m.
     wavelength_limits : tuple of float or None
         Window limits, m.
@@ -7848,7 +7848,7 @@ def _gnlse_grid(
             "your own"
         )
         raise DriverError(msg)
-    return EnvelopeGrid.from_limits(length, lambda0, wavelength_limits, trange)
+    return EnvelopeGrid.from_limits(length, wavelength, wavelength_limits, trange)
 
 
 def _gnlse_fibre(  # noqa: PLR0913 - the coefficients of the mapping
@@ -7857,7 +7857,7 @@ def _gnlse_fibre(  # noqa: PLR0913 - the coefficients of the mapping
     beta: object,
     grid: TimeGrid,
     *,
-    lambda0: float,
+    wavelength: float,
     loss: float | None,
     shock: bool,
     fibre: Mode | IndexTable | None = None,
@@ -7878,7 +7878,7 @@ def _gnlse_fibre(  # noqa: PLR0913 - the coefficients of the mapping
         A pair of frequency and beta arrays, a callable, or None.
     grid : solprop.grid.TimeGrid
         Envelope grid whose active band samples a callable dispersion.
-    lambda0 : float
+    wavelength : float
         Positive reference wavelength, m.
     loss : float or None
         Power loss in dB/m; None means omitted. Refused beside `fibre`.
@@ -7915,11 +7915,11 @@ def _gnlse_fibre(  # noqa: PLR0913 - the coefficients of the mapping
         raise DriverError("n2 requires fibre with an effective area")
     if fibre is not None and loss is not None:
         raise DriverError("the fibre carries its loss; scale it on the mode")
-    omega_ref = 2.0 * np.pi * C / lambda0
+    omega_ref = 2.0 * np.pi * C / wavelength
     mode = (
         None
         if fibre is None
-        else _gnlse_mode(fibre, lambda0, needs_area=n2 is not None)
+        else _gnlse_mode(fibre, wavelength, needs_area=n2 is not None)
     )
     area = 1.0 if mode is None else mode.aeff()
     # The GNLSE mapping of ADR-026 (docs/dev/decisions.md) is unchanged. An externally
@@ -7953,14 +7953,16 @@ def _gnlse_fibre(  # noqa: PLR0913 - the coefficients of the mapping
     )
 
 
-def _gnlse_mode(fibre: Mode | IndexTable, lambda0: float, *, needs_area: bool) -> Mode:
+def _gnlse_mode(
+    fibre: Mode | IndexTable, wavelength: float, *, needs_area: bool
+) -> Mode:
     """Resolve a supplied table or mode with its propagation area at the pump.
 
     Parameters
     ----------
     fibre : Mode or IndexTable
         Whole linear response.
-    lambda0 : float
+    wavelength : float
         Positive reference wavelength, m: where a table's area column and a
         provider channel's surrogate area are evaluated.
     needs_area : bool
@@ -7983,7 +7985,9 @@ def _gnlse_mode(fibre: Mode | IndexTable, lambda0: float, *, needs_area: bool) -
         area = (
             1.0
             if fibre.area is None
-            else float(fibre.effective_area(np.array([2.0 * np.pi * C / lambda0]))[0])
+            else float(
+                fibre.effective_area(np.array([2.0 * np.pi * C / wavelength]))[0]
+            )
         )
         return SpecifiedMode.from_index_table(fibre, aeff=area)
     if not math.isfinite(fibre.aeff(0.0)) or fibre.aeff(0.0) <= 0:
@@ -7995,7 +7999,7 @@ def _gnlse_mode(fibre: Mode | IndexTable, lambda0: float, *, needs_area: bool) -
     # docs/dev/decisions.md). The wavelength is where a provider channel's area is
     # solved, as a table's is read at it above; every other mode's area is not a
     # function of frequency and ignores it.
-    return SpecifiedMode.from_mode(fibre, wavelength=lambda0)
+    return SpecifiedMode.from_mode(fibre, wavelength=wavelength)
 
 
 def _dispersion_table(
@@ -8042,9 +8046,9 @@ def _dispersion_table(
 
 
 def _shaped_pulse(  # noqa: PLR0913 - the pulse's keyword surface
-    pulseshape: str,
+    shape: str,
     *,
-    lambda0: float,
+    wavelength: float,
     fwhm: float | None,
     width: float | None,
     energy: float | None,
@@ -8056,9 +8060,9 @@ def _shaped_pulse(  # noqa: PLR0913 - the pulse's keyword surface
 
     Parameters
     ----------
-    pulseshape : {'gauss', 'sech'}
+    shape : {'gauss', 'sech'}
         Shape of the input.
-    lambda0 : float
+    wavelength : float
         Centre wavelength, m, and the reference of the spectral phase.
     fwhm : float or None
         Intensity full width at half maximum, s.
@@ -8098,8 +8102,8 @@ def _shaped_pulse(  # noqa: PLR0913 - the pulse's keyword surface
         ]
         if len(phases):
             given.append("phases")
-        if pulseshape != "gauss":
-            given.append("pulseshape")
+        if shape != "gauss":
+            given.append("shape")
         if given:
             msg = (
                 f"pulses= describes every input pulse itself, and this call also sets "
@@ -8108,17 +8112,17 @@ def _shaped_pulse(  # noqa: PLR0913 - the pulse's keyword surface
             )
             raise DriverError(msg)
         return PulseSum(tuple(pulses))
-    if pulseshape == "sech":
+    if shape == "sech":
         return SechPulse(
-            wavelength=lambda0,
+            wavelength=wavelength,
             fwhm=fwhm,
             width=width,
             energy=energy,
             peak_power=peak_power,
             phase=phases,
         )
-    if pulseshape != "gauss":
-        msg = f"pulseshape must be 'gauss' or 'sech', got {pulseshape!r}"
+    if shape != "gauss":
+        msg = f"shape must be 'gauss' or 'sech', got {shape!r}"
         raise DriverError(msg)
     if width is not None or fwhm is None:
         msg = (
@@ -8127,7 +8131,7 @@ def _shaped_pulse(  # noqa: PLR0913 - the pulse's keyword surface
         )
         raise DriverError(msg)
     return GaussianPulse(
-        wavelength=lambda0,
+        wavelength=wavelength,
         fwhm=fwhm,
         energy=energy,
         peak_power=peak_power,
@@ -8600,7 +8604,7 @@ def default_field_range(peak_field: float) -> tuple[float, float]:
 def _capillary_grid(  # noqa: PLR0913 - the three grid keywords and the two switches
     grid: TimeGrid | None,
     length: float,
-    lambda0: float,
+    wavelength: float,
     wavelength_limits: tuple[float, float] | None,
     trange: float | None,
     *,
@@ -8615,7 +8619,7 @@ def _capillary_grid(  # noqa: PLR0913 - the three grid keywords and the two swit
         A grid of one's own, which wins over the three keywords.
     length : float
         Capillary length, m.
-    lambda0 : float
+    wavelength : float
         Reference wavelength, m.
     wavelength_limits : tuple of float or None
         Window limits, m.
@@ -8653,9 +8657,9 @@ def _capillary_grid(  # noqa: PLR0913 - the three grid keywords and the two swit
         raise DriverError(msg)
     if envelope:
         return EnvelopeGrid.from_limits(
-            length, lambda0, wavelength_limits, trange, thg=thg
+            length, wavelength, wavelength_limits, trange, thg=thg
         )
-    return FieldGrid.from_limits(length, lambda0, wavelength_limits, trange)
+    return FieldGrid.from_limits(length, wavelength, wavelength_limits, trange)
 
 
 def _capillary_modes(  # noqa: PLR0913 - capillary geometry and material keywords
@@ -9110,7 +9114,7 @@ def _capillary_responses(  # noqa: PLR0913 - the switches of the responses, one 
     plasma: bool | IonisationRate,
     preionisation: float | ZProfile,
     integration: IntegrationPolicy | None,
-    lambda0: float,
+    wavelength: float,
     envelope: bool,
     electronic: KerrResponse | DispersiveKerrResponse | None,
     selection: MaterialSelection,
@@ -9136,7 +9140,7 @@ def _capillary_responses(  # noqa: PLR0913 - the switches of the responses, one 
     integration : {'band', 'trapezoid'} or None
         The field plasma column's running-integral rule; ``None`` takes the
         response's default.
-    lambda0 : float
+    wavelength : float
         Reference wavelength, m, the rate's carrier unless the selection names one.
     envelope : bool
         Select cycle-averaged envelope plasma instead of real-field plasma.
@@ -9165,7 +9169,7 @@ def _capillary_responses(  # noqa: PLR0913 - the switches of the responses, one 
         assert electronic is not None
         responses.append(electronic)
     if plasma is not False:
-        rate = _ionisation_rate(gas, plasma, lambda0, selection)
+        rate = _ionisation_rate(gas, plasma, wavelength, selection)
         if envelope:
             responses.append(
                 EnvelopePlasmaResponse(material, rate, preionisation=preionisation)
@@ -9241,7 +9245,7 @@ def _optmat_raman(
     mixture: Mixture,
     selection: MaterialSelection,
     thg: bool,
-    lambda0: float,
+    wavelength: float,
     length: float,
 ) -> list[object]:
     """Return a single-gas fill's Raman response from optmat (SEP 3).
@@ -9256,7 +9260,7 @@ def _optmat_raman(
         The run's selection.
     thg : bool
         Whether the field grid keeps the third harmonic.
-    lambda0 : float
+    wavelength : float
         The grid reference wavelength in m, the carrier unless the selection names one.
     length : float
         The run's length in m.
@@ -9278,7 +9282,7 @@ def _optmat_raman(
         True,
         selection=selection,
         thg=thg,
-        wavelength=lambda0,
+        wavelength=wavelength,
         length=length,
         explicit=True,
     )
@@ -9288,7 +9292,7 @@ def _optmat_raman(
 def _ionisation_rate(
     gas: Gas | str,
     plasma: bool | IonisationRate,
-    lambda0: float,
+    wavelength: float,
     selection: MaterialSelection,
 ) -> IonisationRate:
     """Return the ionisation rate a capillary run uses.
@@ -9304,7 +9308,7 @@ def _ionisation_rate(
         Filling species.
     plasma : bool or IonisationRate
         ``True`` for the default rate of the species, or the rate itself.
-    lambda0 : float
+    wavelength : float
         Reference wavelength, m, the rate's carrier unless the selection names one.
     selection : MaterialSelection
         The run's material selection.
@@ -9315,7 +9319,7 @@ def _ionisation_rate(
         The rate.
     """
     if isinstance(plasma, bool):
-        return selected_rate(species(gas, selection=selection), selection, lambda0)
+        return selected_rate(species(gas, selection=selection), selection, wavelength)
     return plasma
 
 
@@ -9830,9 +9834,9 @@ def _in_channel(
 def _general_pulse(  # noqa: PLR0913 - the pulse's keyword surface and the launch
     incident: SpatialPulse | None,
     channel: int | str | None,
-    pulseshape: str,
+    shape: str,
     *,
-    lambda0: float,
+    wavelength: float,
     fwhm: float | None,
     width: float | None,
     energy: float | None,
@@ -9849,7 +9853,7 @@ def _general_pulse(  # noqa: PLR0913 - the pulse's keyword surface and the launc
         pulse from the keywords.
     channel : int or str or None
         The named channel, refused beside `incident`.
-    pulseshape, lambda0, fwhm, width, energy, peak_power, phases, pulses : object
+    shape, wavelength, fwhm, width, energy, peak_power, phases, pulses : object
         The pulse keywords, as :func:`_shaped_pulse` takes them.
 
     Returns
@@ -9865,8 +9869,8 @@ def _general_pulse(  # noqa: PLR0913 - the pulse's keyword surface and the launc
     """
     if incident is None:
         return _shaped_pulse(
-            pulseshape,
-            lambda0=lambda0,
+            shape,
+            wavelength=wavelength,
             fwhm=fwhm,
             width=width,
             energy=energy,
@@ -9894,8 +9898,8 @@ def _general_pulse(  # noqa: PLR0913 - the pulse's keyword surface and the launc
     ]
     if len(phases):
         given.append("phases")
-    if pulseshape != "gauss":
-        given.append("pulseshape")
+    if shape != "gauss":
+        given.append("shape")
     if given:
         msg = (
             f"incident= carries its own temporal pulse, and this call also sets "
@@ -10696,7 +10700,7 @@ def _check_electronic_policy(
 def _check_selection_carrier(
     materials: MaterialSelection | None,
     reference: float,
-    lambda0: float | None = None,
+    wavelength: float | None = None,
 ) -> None:
     """Refuse a carrier that is not the run's: one carrier sets the Kerr coefficient.
 
@@ -10706,13 +10710,13 @@ def _check_selection_carrier(
         The run's material selection.
     reference : float
         The grid's reference wavelength in m, the run's carrier.
-    lambda0 : float or None, optional
-        The driver's `lambda0` in m, at which the responses are built.
+    wavelength : float or None, optional
+        The driver's `wavelength` in m, at which the responses are built.
 
     Raises
     ------
     DriverError
-        If the selection's ``carrier_wavelength`` or `lambda0` is not the grid's
+        If the selection's ``carrier_wavelength`` or `wavelength` is not the grid's
         reference wavelength: the electronic coefficient, the Raman response and the
         rate are all evaluated at the carrier.
     """
@@ -10720,7 +10724,7 @@ def _check_selection_carrier(
         return
     for name, value in (
         ("the selection's carrier_wavelength", materials.carrier_wavelength),
-        ("lambda0", lambda0),
+        ("wavelength", wavelength),
     ):
         if value is not None and not carriers_agree(float(value), reference):
             msg = (

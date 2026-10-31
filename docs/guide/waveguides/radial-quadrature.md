@@ -121,7 +121,7 @@ with warnings.catch_warnings():
         0.1,
         "Ar",
         1.0,
-        lambda0=800e-9,
+        wavelength=800e-9,
         fwhm=10e-15,
         energy=1e-4,
         plasma=True,

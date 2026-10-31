@@ -66,7 +66,7 @@ doubled = OptmatRate(ionisation_rate_model("Ar", 800e-9).with_parameters(electro
 `prop_capillary(...)` with `plasma=True` builds the first of these for each species; `MaterialSelection(ionisation="ppt_ilkov")` names a
 literature form instead, and `MaterialSelection(ionisation=model)` takes an optmat
 model object. The carrier is the selection's `carrier_wavelength`, or the run's
-`lambda0`. A **custom species** (a name solprop does not ship, or a built-in name with
+`wavelength`. A **custom species** (a name solprop does not ship, or a built-in name with
 its own ionisation data) has no default rate and is refused by name: its rate is given
 explicitly,
 `plasma={label: OptmatRate(IonisationRateModel.from_parameters(...))}` with optmat's
@@ -413,7 +413,7 @@ simulation = Simulation.from_capillary(
     0.3,  # length, m
     "Ar",
     1.0,  # pressure, bar
-    lambda0=800e-9,
+    wavelength=800e-9,
     wavelength_limits=(500e-9, 1.2e-6),
     trange=80e-15,
     fwhm=20e-15,

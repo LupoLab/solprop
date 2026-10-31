@@ -74,13 +74,13 @@ from solprop.driver import prop_gnlse
 output = prop_gnlse(
     0.11,                                   # gamma, 1/(W m)
     1.33,                                   # fibre length, m
-    [0.0, 0.0, -11.83e-27],                 # beta_0, beta_1, beta_2 about lambda0
-    lambda0=835e-9,
+    [0.0, 0.0, -11.83e-27],                 # beta_0, beta_1, beta_2 about wavelength
+    wavelength=835e-9,
     wavelength_limits=(500e-9, 2e-6),
     trange=4e-12,
     width=100e-15,                          # the natural width of a sech**2
     peak_power=96.8,
-    pulseshape="sech",
+    shape="sech",
     rtol=1e-9,
     n_save=201,
 )
@@ -139,7 +139,7 @@ Give exactly one of `betas`, `beta` and `fibre`, and one of `gamma` and `n2`.
 The first positional argument is still required, so pass `None` for it:
 `prop_gnlse(None, length, fibre=table, n2=..., ...)`, or the equivalent
 `Simulation.from_gnlse` call. `n2` requires a fibre with an effective area;
-a table's area is evaluated at `lambda0`. With `gamma`, a table without an
+a table's area is evaluated at `wavelength`. With `gamma`, a table without an
 area uses 1 m². The mapping is `gamma = n2 omega0 / (c A_eff)` and
 `chi3 = (4/3) (1 - f_R) n2 eps0 c`, with unit prefactor index, the usual shock
 term and the requested silica Raman fraction $f_R$; the
@@ -147,7 +147,7 @@ term and the requested silica Raman fraction $f_R$; the
 including why `raman=False` omits the factor unless a fraction is given.
 
 A supplied mode contributes dispersion, loss and `mode.aeff()` -- or, for a
-general modal guide's provider channel, its area solved again at `lambda0`
+general modal guide's provider channel, its area solved again at `wavelength`
 (the [GNLSE page](../waveguides/gnlse.md)). It is wrapped
 in `SpecifiedMode.from_mode`, whose frozen callables keep the original mode
 for reproducible records. Its fill is ignored as a nonlinear material:
@@ -186,7 +186,7 @@ output = prop_capillary(
     1.5,                                    # length, m
     "He",
     (0.8, 0.0),                             # bar, entrance to exit: a gradient to vacuum
-    lambda0=800e-9,
+    wavelength=800e-9,
     wavelength_limits=(90e-9, 4e-6),
     trange=400e-15,
     fwhm=7.5e-15,

@@ -132,9 +132,9 @@ def test_mlx_is_a_single_precision_backend_only():
     with pytest.raises(BackendError, match="binary32 only"):
         select("mlx", gnlse("double").translate())
     simulation = Simulation.from_gnlse(
-        0.11, 0.05, [0.0, 0.0, -1e-26], lambda0=835e-9, trange=1e-12,
+        0.11, 0.05, [0.0, 0.0, -1e-26], wavelength=835e-9, trange=1e-12,
         wavelength_limits=(500e-9, 2e-6), width=50e-15, peak_power=1.0,
-        pulseshape="sech", precision="single", noise=None,
+        shape="sech", precision="single", noise=None,
     )  # fmt: skip
     if mx.metal.is_available():
         assert simulation.settings.backend == "mlx"

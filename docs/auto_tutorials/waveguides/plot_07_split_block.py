@@ -126,10 +126,10 @@ for name, guide in (("provider's own", plain), ("rotated", rotated)):
 steps = 10
 pulse = {
     "noise": None,  # a 1 pJ linear launch: the lesson is noiseless
-    "lambda0": 835e-9,
+    "wavelength": 835e-9,
     "fwhm": 20e-15,
     "energy": 1e-12,
-    "pulseshape": "gauss",
+    "shape": "gauss",
     "backend": "numpy_ref",
     "n_save": 11,
     "dz_max": length / steps,
