@@ -1278,11 +1278,11 @@ class HDF5Output(PlaneStore):
         for key in ("z", "field", "noise_phase"):
             if key in file:
                 self._handles[key] = _dataset(file, key)
+        # A file of this schema holds all three groups from its first plane.
         for group in ("stats", "step_history", "step_stats"):
-            if group in file:
-                for name in _group(file, group):
-                    key = f"{group}/{name}"
-                    self._handles[key] = _dataset(file, key)
+            for name in _group(file, group):
+                key = f"{group}/{name}"
+                self._handles[key] = _dataset(file, key)
         self._plane_room = int(self._handles["z"].shape[0])
         self._history_room = int(self._handles["step_history/z"].shape[0])
         self._rows_room = (
