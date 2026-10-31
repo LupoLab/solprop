@@ -6,8 +6,8 @@
 
 Two records are built here. :func:`material_record` and :func:`processing_record`
 describe a run's mixture for the configuration and for processing after reload.
-:func:`material_manifest` collects a run's **material manifest** (SEP 3, output schema
-8): every optmat-backed object the run carries, wherever it sits -- the mixture, a
+:func:`material_manifest` collects a run's **material manifest** (SEP 3): every
+optmat-backed object the run carries, wherever it sits -- the mixture, a
 mode's fill, a wall, a cladding, a core, a general guide's material regions, a bulk
 medium -- found by walking the run's own objects, with the selection and the policies
 in force.

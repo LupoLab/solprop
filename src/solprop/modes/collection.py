@@ -450,7 +450,7 @@ class ModeCollection(Displayed, Sequence[Mode]):
         """Reject two members that name the same physical channel.
 
         Uniqueness is on the members' own :class:`ChannelLabel`, for every family:
-        the label is what the mode axis carries and what output schema 7 persists,
+        the label is what the mode axis carries and what the run record persists,
         so two members sharing one is two rows for one channel.
         """
         seen: set[ChannelLabel] = set()
@@ -475,7 +475,7 @@ class ModeCollection(Displayed, Sequence[Mode]):
             order. A label a family does not have is ``None``, never a string
             standing for one: an axially symmetric TE0m or TM0m channel has no
             parity partner, so its parity is ``None``, exactly as its handedness is.
-            Output schema 7 persists these labels.
+            The run record persists these labels.
 
         Examples
         --------

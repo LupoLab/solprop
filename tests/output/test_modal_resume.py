@@ -2,12 +2,11 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Output schema 7: what a general modal file records, and what it refuses to resume.
+"""What a general modal file records, and what it refuses to resume.
 
 The file is the subject here: the labels and identities it carries, the round trip
-through JSON and HDF5, the schema-5 and schema-6 fixtures that must keep reading, the
-four doors that reach a writer, and the resume refusals -- a changed guide, a changed
-table, a changed material, a reordered mode axis and an older file.
+through JSON and HDF5, the four doors that reach a writer, and the resume refusals --
+a changed guide, a changed table, a changed material and a reordered mode axis.
 
 **Nothing here propagates far.** A resume is an identity statement, so the runs are a
 tenth of a millimetre in two steps, and a replayed schedule at a fixed order, whose
@@ -16,7 +15,6 @@ resume continues the same march, is held to that march's rounding budget (SEP 25
 
 import dataclasses
 from hashlib import sha256
-from pathlib import Path
 from typing import Any, cast
 
 import numpy as np
@@ -43,7 +41,7 @@ from solprop.output.schema import (
     ModeRecord,
     RunMetadata,
     SavedPlane,
-    _hashed_modes,
+    _example_metadata,
 )
 from solprop.processing import scans
 from solprop.processing.modal import channel_labels, physical_energy
@@ -60,11 +58,6 @@ from solprop.translate.modal_tables import DEFAULT_GRAM_ATOL
 # hold more than a millionth of the energy in their guards or collar: the boundary
 # monitor warns (SEP 21), and the window's edge is not what this module tests.
 pytestmark = pytest.mark.filterwarnings("ignore::solprop.exceptions.BoundaryWarning")
-
-DATA = Path(__file__).resolve().parents[1] / "data"
-SCHEMA_FIVE = DATA / "power-convention-schema5.h5"
-SCHEMA_SIX = DATA / "general-modal-schema6.h5"
-SCHEMA_SIX_DIGEST = "59fdd964fbab158c109abba1198908037c0142e744ece7b39d6066f11f740770"
 
 MODAL_ROWS = {
     "basis",
@@ -148,7 +141,7 @@ def written(guide, grid, tmp_path_factory):
 def test_the_record_carries_every_modal_identity(written, guide):
     """Labels, tables, metric, responses, guide, frame, band, noise and accessors."""
     stored = resume(written).metadata
-    assert stored.schema_version == SCHEMA_VERSION == 28
+    assert stored.schema_version == SCHEMA_VERSION == 1
     modal = stored.modal
     assert modal is not None
     assert set(modal) == {
@@ -250,7 +243,7 @@ def test_the_whole_record_survives_json_and_hashes_the_same(written):
     assert again.configuration_hash() == stored.configuration_hash()
 
 
-def test_the_printed_block_prints_every_schema_seven_field_with_its_value(written):
+def test_the_printed_block_prints_every_modal_identity_field_with_its_value(written):
     """The printing rule, checked by **value** and not by row heading.
 
     Every one of the thirteen entries of `RunMetadata.modal` reaches a row, and
@@ -283,7 +276,7 @@ def test_the_printed_block_prints_every_schema_seven_field_with_its_value(writte
         assert value in block, (line, value)
     # The long `model_id` itself is on the record, and not in the printed row.
     assert str(at(modal, "tables", "model_id")) not in block
-    assert "schema 28" in block
+    assert "schema 1" in block
     # Twelve rows for thirteen fields: the basis row carries `n_components` too.
     printed = {key for key, _ in stored._describe()[1]}
     assert len(printed & MODAL_ROWS) == len(MODAL_ROWS)
@@ -322,13 +315,6 @@ def test_the_printed_block_survives_a_record_it_cannot_read(
     modal = dict(cast("dict[str, object]", stored.modal))
     modal[entry] = value
     assert expected in str(dataclasses.replace(stored, modal=modal))
-
-
-def test_a_record_carrying_a_modal_identity_below_schema_seven_is_refused(written):
-    """The identity would sit outside the resume key, so two guides would share one."""
-    stored = resume(written).metadata
-    with pytest.raises(OutputError, match="requires output schema 7"):
-        dataclasses.replace(stored, schema_version=6)
 
 
 # --------------------------------------------- the accessor list is not in the key
@@ -418,8 +404,7 @@ def test_an_older_accessor_list_resumes_and_a_lost_accessor_is_refused(
     )
     with pytest.raises(OutputError, match="an_accessor_this_build_lost"):
         check_cache(longer, metadata)
-    # And a record with **no** accessor entry at all -- which a schema-7 file
-    # written before the list existed would carry -- resumes: there is nothing to
+    # And a record with **no** accessor entry at all resumes: there is nothing to
     # compare, and the key never held it, so its digest is unchanged.
     assert metadata.modal is not None
     bare = dataclasses.replace(
@@ -432,97 +417,25 @@ def test_an_older_accessor_list_resumes_and_a_lost_accessor_is_refused(
     assert check_cache(_written_with(tmp_path / "none.h5", bare), metadata) is True
 
 
-# ----------------------------------------------------- the older files still read
+def test_the_resume_key_carries_each_mode_record_s_channel_label():
+    """A mode record built from a live mode carries its label, and the key carries it.
 
-
-def test_the_schema_five_fixture_keeps_its_digest_and_its_labels():
-    """A schema-5 fixture: an older file reads with its own convention labels."""
-    stored = resume(SCHEMA_FIVE).metadata
-    assert stored.schema_version == 5
-    assert stored.power_convention == "vacuum"
-    assert stored.modal is None
-    assert "modal" not in stored.hashed()
-    assert all(one.label is None for one in stored.modes)
-
-
-def test_the_schema_six_fixture_reads_and_hashes_as_it_did():
-    """The committed schema-6 file: two mode records, no labels, its own digest."""
-    stored = resume(SCHEMA_SIX).metadata
-    assert stored.schema_version == 6
-    assert stored.power_convention == "poynting"
-    assert stored.modal is None
-    assert "modal" not in stored.hashed()
-    assert [one.label for one in stored.modes] == [None, None]
-    assert all("label" not in one for one in at(stored.hashed(), "modes"))
-    assert stored.configuration_hash() == SCHEMA_SIX_DIGEST
-
-
-@pytest.mark.parametrize(
-    ("fixture", "reason"),
-    [
-        # A schema-5 file is refused one version earlier, by the schema-6 guard:
-        # its amplitudes are vacuum-normalised and cannot be concatenated at all.
-        (SCHEMA_FIVE, r"different run.*schema_version"),
-        (SCHEMA_SIX, r"different run.*schema_version"),
-    ],
-)
-def test_neither_older_fixture_resumes_a_general_run(
-    fixture, reason, guide, grid, tmp_path
-):
-    """An older file carries no identity to check a guide against."""
-    path = tmp_path / "older.h5"
-    path.write_bytes(fixture.read_bytes())
-    metadata = build(guide, grid).metadata()
-    with pytest.raises(OutputError, match=reason):
-        check_cache(path, metadata)
-
-
-def test_a_schema_six_file_cannot_resume_any_schema_seven_run(tmp_path):
-    """The 6 to 7 step is named, as the 5 to 6 one is.
-
-    Not only a general modal run: the channel labels and the modal identity entered
-    the resume key at schema 7, so an older file's digest and a new run's are not
-    comparable whatever the basis, and the generic difference would say only that
-    `schema_version` and `modal` moved. The file itself is unharmed, which the
-    refusal says and this test asserts.
-    """
-    path = tmp_path / "older.h5"
-    path.write_bytes(SCHEMA_SIX.read_bytes())
-    ordinary = Simulation.from_gnlse(
-        0.11,
-        1e-4,
-        [0.0, 0.0, -1.183e-26],
-        lambda0=835e-9,
-        wavelength_limits=(500e-9, 2e-6),
-        trange=1e-12,
-        width=100e-15,
-        peak_power=1.0,
-        pulseshape="sech",
-        n_save=2,
-        backend="numpy_ref",
-        noise=None,
-    ).metadata()
-    assert ordinary.modal is None
-    assert ordinary.schema_version == SCHEMA_VERSION == 28
-    with pytest.raises(OutputError, match=r"different run.*schema_version"):
-        check_cache(path, ordinary)
-    assert resume(path).metadata.configuration_hash() == SCHEMA_SIX_DIGEST
-
-
-def test_a_key_taken_below_schema_seven_drops_the_labels_a_mode_record_carries():
-    """The guard that keeps every older file readable, exercised directly.
-
-    A mode record built today carries a label, because every mode has one. Taken
-    at schema 6 the key **drops** it, which is why the committed fixtures still
-    hash to the digests they were stamped with; taken at 7 it is there.
+    So a run continued with its mode axis relabelled is refused, even when nothing
+    else about the modes moved.
     """
     from solprop.modes import MarcatiliMode  # noqa: PLC0415 - one construction
 
     record = ModeRecord.from_mode(MarcatiliMode(125e-6, "He", 1.0))
     assert record.label is not None
     assert record.label["family"] == "HE"
-    assert "label" not in at(_hashed_modes([record], 6), 0)
-    assert at(_hashed_modes([record], 7), 0)["label"] == record.label
+    metadata = dataclasses.replace(_example_metadata(), modes=(record,))
+    assert at(metadata.hashed(), "modes", 0, "label") == record.label
+    relabelled = dataclasses.replace(
+        record, label={**record.label, "display_label": "another"}
+    )
+    other = dataclasses.replace(metadata, modes=(relabelled,))
+    assert other.configuration_hash() != metadata.configuration_hash()
+    assert metadata.differences(other) == ("modes[0].label.display_label",)
 
 
 # ----------------------------------------------------------------- resume refusals
@@ -716,9 +629,8 @@ def test_a_scan_point_writes_its_spool_and_reads_the_identity_back(
 
     A point with a **custom** reduction is the case that reaches HDF5: the capture
     opens an `HDF5Output` spool before the run loop is entered, writes every plane
-    to it and reads it back to evaluate the reduction. At schema 6 that spool was
-    refused where the point is built, so nothing downstream ever ran; here the run
-    goes through it and the spooled file carries the schema-7 identity.
+    to it and reads it back to evaluate the reduction. The run goes through it and
+    the spooled file carries the general modal identity.
     """
     reduction = scans.custom("spooled_flux", _spooled_flux, (), "W")
     options = _Options(
@@ -731,7 +643,7 @@ def test_a_scan_point_writes_its_spool_and_reads_the_identity_back(
     results = capture.results()
     assert float(results["reduced/spooled_flux"]) > 0.0
     stored = resume(capture.custom_path).metadata
-    assert stored.schema_version == SCHEMA_VERSION == 28
+    assert stored.schema_version == SCHEMA_VERSION == 1
     assert stored.modal is not None
     assert at(stored.modal, "basis") == "general_modal"
     assert [one.label for one in stored.modes] != [None]
@@ -833,7 +745,7 @@ def test_a_run_in_the_provider_s_own_basis_keeps_the_key_it_had(grid, basis_pair
 def test_a_file_in_a_declared_basis_refuses_the_metric_weighted_accessor(
     grid, basis_pair, tmp_path
 ):
-    """Schema 7 stores the metric's identity, not its arrays, so the accessor stops.
+    """The record stores the metric's identity, not its arrays, so the accessor stops.
 
     The run's own recorded `physical_energy` statistic carries the weighted value;
     the file-time accessor would return the unweighted one, which is the answer

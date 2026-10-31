@@ -140,7 +140,7 @@ def test_the_resolution_survives_the_stored_record():
 
 def test_a_record_without_a_resolution_reads_as_not_recorded():
     document = json.loads(_gnlse(seed=7).metadata().to_json())
-    del document["noise_resolution"]
+    document["noise_resolution"] = None
     assert RunMetadata.from_json(json.dumps(document)).noise_resolution is None
 
 

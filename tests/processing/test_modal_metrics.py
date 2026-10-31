@@ -6,8 +6,8 @@
 
 What is tested here: the reconstruction round trip against the coefficient dual, the
 distinction between the physical energy, the cycle-averaged flux, the instantaneous flux
-and the per-coordinate intensity, the labels a schema-7 file carries, and the refusals
--- an old file asked for a general name, a general file asked for a legacy one, and a
+and the per-coordinate intensity, the labels a file carries, and the refusals -- an
+ordinary file asked for a general name, a general file asked for a legacy one, and a
 reconstruction offered the wrong guide's tables.
 
 **Every bound is written before the run.** The reconstruction is one matrix product per
@@ -23,7 +23,6 @@ refusal.
 """
 
 import dataclasses
-from pathlib import Path
 from typing import cast
 
 import numpy as np
@@ -43,7 +42,6 @@ from solprop.output.capability import (
     declared_capability,
     refusal_for,
 )
-from solprop.output.hdf5 import open_file
 from solprop.output.memory import MemoryOutput
 from solprop.processing import time as legacy
 from solprop.processing._examples import example_general_output, example_output
@@ -418,7 +416,7 @@ def test_the_two_statistics_are_call_throughs_to_their_legacy_arithmetic(run):
 # ------------------------------------------------------------ labels and refusals
 
 
-def test_a_schema_seven_file_names_its_channels(run):
+def test_a_file_names_its_channels(run):
     """The labels persisted on the mode axis come back as labels."""
     labels = channel_labels(run)
     assert [one.display_label for one in labels] == ["HE1,1:even"]
@@ -429,8 +427,8 @@ def test_a_schema_seven_file_names_its_channels(run):
     )
 
 
-def test_an_older_file_has_no_labels_and_says_so():
-    """A run whose records were built before schema 7 names no channel."""
+def test_a_record_built_without_labels_says_so():
+    """A run record whose mode records were built without labels names no channel."""
     with pytest.raises(OutputError, match="carries no channel labels"):
         channel_labels(example_output())
 
@@ -651,12 +649,12 @@ def test_the_whitelist_is_one_table_read_from_both_sides():
 def test_the_published_accessor_list_holds_what_the_same_record_admits(run):
     """`channel_labels` in, `quadrature_error` out, `channel_amplitudes` out.
 
-    The list is written into the schema-7 record, so a name the same record's run
+    The list is written into the run record, so a name the same record's run
     refuses must not appear in it: `quadrature_error` is refused on a general guide
     by the run loop, because a provider's node rule carries no embedded coarse rule
     to difference, and `channel_amplitudes` takes two arrays and a
     table rather than an opened handler, so no door ever asks the gate about it.
-    `channel_labels` is the accessor output schema 7 exists for and is in.
+    `channel_labels` is the accessor the record's labels exist for and is in.
     """
     assert "channel_labels" in GENERAL_MODAL_ACCESSORS
     # The reconstructed flux trace and the run's peak statistic are different
@@ -708,8 +706,8 @@ def test_the_legacy_processing_metrics_are_refused_on_a_general_file(run):
     for accessor in (legacy.energy, legacy.peak_power):
         with pytest.raises(OutputError, match="is unavailable for this nonorthogonal"):
             accessor(run, plane=-1)
-    # A schema-7 run on an ordinary basis is untouched, and so is every older file:
-    # the shape functionals of this module are admitted on every basis either way.
+    # A run on an ordinary basis is untouched: the shape functionals of this module
+    # are admitted on every basis either way.
     assert float(np.ravel(legacy.energy(example_output(), plane=0))[0]) > 0.0
     assert float(np.ravel(legacy.peak_power(example_output(), plane=0))[0]) > 0.0
     assert float(np.ravel(legacy.fwhm_t(run, plane=-1))[0]) > 0.0
@@ -719,15 +717,6 @@ def test_the_legacy_gate_says_nothing_about_a_handler_with_no_record():
     """There is no basis to read, so the gate defers to the accessor's own refusal."""
     with pytest.raises(OutputError, match="carries no metadata"):
         legacy.energy(MemoryOutput(), plane=0)
-
-
-def test_an_older_file_still_answers_the_legacy_metrics():
-    """The committed schema-6 fixture carries no identity and is the modal run it is."""
-    path = Path(__file__).resolve().parents[1] / "data" / "general-modal-schema6.h5"
-    with open_file(path) as stored:
-        assert stored.metadata is not None
-        assert stored.metadata.schema_version == 6
-        assert np.all(np.isfinite(legacy.energy(stored, plane=0)))
 
 
 @pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu"])

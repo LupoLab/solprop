@@ -32,18 +32,16 @@ written: each plane's data is written and flushed first and the count last, so a
 stop leaves the count at the last complete plane. The attempts and rows belonging to
 those planes are the sums of ``step_history/counts`` and ``step_stats/counts`` over
 them, so the count alone fixes every column's length. Every reader and :func:`resume`
-read only the first ``n_saved`` planes, and a file without the attribute -- one written
-before it existed -- is read by the extent of its ``z`` dataset. A clean close trims
-every dataset to its count, so a finished file holds no unused rows.
+read only the first ``n_saved`` planes. A clean close trims every dataset to its count,
+so a finished file holds no unused rows.
 
-**Field retention** (output schema 20, SEP 22). The root attribute ``fields`` says
+**Field retention** (SEP 22). The root attribute ``fields`` says
 which planes keep their field (:class:`~solprop.output.schema.FieldRetention`), and
 ``field_shape`` the shape of one plane's field whether or not it is stored. A run that
 keeps every field stores ``field`` and ``noise_phase`` as above. One that keeps the
 named planes stores exactly those, in plane order, with a ``field_planes`` dataset of
 their indices beside them; one that keeps none has no ``field`` and no ``noise_phase``
-dataset. A file without the attribute was written before field retention existed and
-keeps every field. :func:`resume` continues only from a plane that carries a field: a
+dataset. :func:`resume` continues only from a plane that carries a field: a
 terminal checkpoint always does, and a file whose last regular plane is field-free and
 which holds no checkpoint is refused by name when a run is continued from it.
 
@@ -51,10 +49,11 @@ which holds no checkpoint is refused by name when a run is continued from it.
 :meth:`~solprop.output.schema.RunMetadata.configuration_hash` and refuses a mismatch
 by naming the fields that changed; the digest covers the physics, not only the
 statistic names and the state shape, so resuming with different physics of the same
-shape is refused. From output schema 8 it covers the run's material manifest too:
-another optmat model, material policy or optmat version is refused by the manifest
-entry that changed, and a file written before schema 8 is not resumed into a newer
-run at all. :func:`resume` returns the metadata, the last plane -- converted back
+shape is refused. It covers the run's material manifest too: another optmat model,
+material policy or optmat version is refused by the manifest entry that changed. A
+file of another output schema is not read at all
+(:data:`~solprop.output.schema.SCHEMA_VERSION`). :func:`resume` returns the metadata,
+the last plane -- converted back
 to the internal convention -- and the step history. A handler built
 with ``append=True`` then carries on in the same file: it opens it read-write instead
 of replacing it, checks that the record offered describes the run the file holds, and
@@ -134,7 +133,7 @@ _MARCH_KEY = "march_snapshot"
 
 
 def _read_outcome(file: h5py.File) -> RunOutcome | None:
-    """Read the execution status without changing an older file's metadata.
+    """Read the execution status a file records, if it records one.
 
     Parameters
     ----------
@@ -144,14 +143,14 @@ def _read_outcome(file: h5py.File) -> RunOutcome | None:
     Returns
     -------
     RunOutcome or None
-        Validated execution status, absent in legacy files.
+        Validated execution status; ``None`` when the file records none.
     """
     if _OUTCOME_KEY not in file:
         return None
     stored = _dataset(file, _OUTCOME_KEY)[()]
     text = stored.decode("utf-8") if isinstance(stored, bytes) else str(stored)
     record = json.loads(text)
-    record["previous_executions"] = tuple(record.get("previous_executions", ()))
+    record["previous_executions"] = tuple(record["previous_executions"])
     return RunOutcome(**record)
 
 
@@ -462,11 +461,10 @@ def _kind_of(key: str, *, every_field: bool = True) -> str:
 def _stored_counts(file: h5py.File) -> tuple[int, int, int]:
     """Return how many planes, attempts and between-planes rows a file holds.
 
-    A file with an ``n_saved`` attribute holds that many planes, and the attempts and
-    rows belonging to them, the sums of ``step_history/counts`` and
+    A file holds as many planes as its ``n_saved`` attribute says, and the attempts
+    and rows belonging to them, the sums of ``step_history/counts`` and
     ``step_stats/counts`` over them; any rows past those were allocated ahead or cut
-    off by a hard stop, and are not part of the run. A file without the attribute was
-    written before it existed and holds exactly its datasets' extents.
+    off by a hard stop, and are not part of the run.
 
     Parameters
     ----------
@@ -479,23 +477,10 @@ def _stored_counts(file: h5py.File) -> tuple[int, int, int]:
         The planes, the step-history attempts and the between-planes rows.
     """
     history = _group(file, "step_history")
-    rows = _group(file, "step_stats") if "step_stats" in file else None
-    counted = file.attrs.get("n_saved")
-    if counted is None:
-        # A file from before the count existed holds every field, so its plane count
-        # was its field's extent; `z` has the same, and exists in a field-free file.
-        return (
-            int(_dataset(file, "z").shape[0]),
-            int(_dataset(history, "z").shape[0]),
-            0 if rows is None else int(_dataset(rows, "z").shape[0]),
-        )
-    n_saved = int(cast("int", counted))
+    rows = _group(file, "step_stats")
+    n_saved = int(cast("int", file.attrs["n_saved"]))
     attempts = int(np.sum(_dataset(history, "counts")[:n_saved], dtype=np.int64))
-    entries = (
-        0
-        if rows is None
-        else int(np.sum(_dataset(rows, "counts")[:n_saved], dtype=np.int64))
-    )
+    entries = int(np.sum(_dataset(rows, "counts")[:n_saved], dtype=np.int64))
     return n_saved, attempts, entries
 
 
@@ -510,12 +495,9 @@ def _stored_retention(file: h5py.File) -> FieldRetention:
     Returns
     -------
     solprop.output.schema.FieldRetention
-        The rule its ``fields`` attribute and ``field_planes`` dataset record; every
-        plane for a file written before output schema 20.
+        The rule its ``fields`` attribute and ``field_planes`` dataset record.
     """
-    fields = file.attrs.get("fields")
-    if fields is None:
-        return FieldRetention()
+    fields = file.attrs["fields"]
     planes = (
         tuple(int(index) for index in np.asarray(_dataset(file, "field_planes")[()]))
         if "field_planes" in file
@@ -535,12 +517,9 @@ def _stored_shape(file: h5py.File) -> tuple[int, ...]:
     Returns
     -------
     tuple of int
-        ``(n_modes, n_pol, n_omega)``, from the ``field_shape`` attribute or, for a
-        file written before it, the ``field`` dataset.
+        ``(n_modes, n_pol, n_omega)``, from the ``field_shape`` attribute.
     """
-    if "field_shape" in file.attrs:
-        return tuple(int(size) for size in np.asarray(file.attrs["field_shape"]))
-    return tuple(int(size) for size in _dataset(file, "field").shape[1:])
+    return tuple(int(size) for size in np.asarray(file.attrs["field_shape"]))
 
 
 def _write_json(file: h5py.File, text: str) -> None:
@@ -559,7 +538,7 @@ def _write_json(file: h5py.File, text: str) -> None:
 
 
 def _read_annotations(file: h5py.File) -> dict[str, JsonValue]:
-    """Return the post-run annotations an open file carries, none for an older file.
+    """Return the post-run annotations an open file carries.
 
     Parameters
     ----------
@@ -630,7 +609,8 @@ class ResumeState(Displayed):
     history : solprop.output.schema.StepHistory
         Every attempt of the whole run so far, concatenated.
     outcome : solprop.output.schema.RunOutcome or None
-        Completion status and cumulative call ledgers; absent from older files.
+        Completion status and cumulative call ledgers; ``None`` when the file
+        records none.
     checkpoint : solprop.output.schema.TerminalCheckpoint or None
         Separate accepted terminal state, preferred over the last regular save.
     march : solprop.output.schema.MarchSnapshot or None
@@ -1096,14 +1076,12 @@ class HDF5Output(PlaneStore):
         )
         self._retention = _stored_retention(file)
         self._field_shape = _stored_shape(file)
-        rows = _group(file, "step_stats") if "step_stats" in file else None
+        rows = _group(file, "step_stats")
         self._layout = PlaneLayout(
             field_shape=self._field_shape,
             stat_names=tuple(sorted(str(name) for name in _group(file, "stats"))),
             has_noise_phase="noise_phase" in file,
-            step_stat_names=()
-            if rows is None
-            else tuple(
+            step_stat_names=tuple(
                 sorted(
                     str(name)
                     for name in rows
@@ -1290,17 +1268,13 @@ class HDF5Output(PlaneStore):
         return dataset
 
     def _adopt_handles(self, file: h5py.File) -> None:
-        """Keep the datasets of a file being continued, and pin its plane count.
-
-        The count is written at once, so that a file from before the count existed is
-        never extended, by a plane cut off half-way, past what its readers can tell.
+        """Keep the datasets of a file being continued.
 
         Parameters
         ----------
         file : h5py.File
             The file, open for writing, holding at least one plane's datasets.
         """
-        file.attrs["n_saved"] = self._n_saved
         for key in ("z", "field", "noise_phase"):
             if key in file:
                 self._handles[key] = _dataset(file, key)
@@ -1594,9 +1568,9 @@ class HDF5Output(PlaneStore):
             group not in file
             or (name not in _group(file, group) and not self.step_stat_names)
         ):
-            # A file written before schema version 3, or a run that recorded no
-            # periodic subset, reads back as an empty channel rather than an error, so
-            # that a reader can ask for it unconditionally and fall back to the planes.
+            # A run that recorded no periodic subset, or a file with no plane yet,
+            # reads back as an empty channel rather than an error, so that a reader
+            # can ask for it unconditionally and fall back to the planes.
             return np.zeros(0, dtype=STEP_STATS_INDEX.get(name, np.float64))
         if group and group not in file:
             msg = f"the file holds no {group!r} group yet; save a plane first"
@@ -1790,9 +1764,8 @@ def check_cache(path: Path | str, metadata: RunMetadata) -> bool:
     Raises
     ------
     OutputError
-        If the file exists but describes a different run, which includes every file
-        written at another output schema, since the schema version is part of the
-        resume key; or if the file's general modal record names an accessor this
+        If the file exists but describes a different run, or was written at another
+        output schema; or if the file's general modal record names an accessor this
         build no longer admits (``_check_accessors``).
         A refusal for a changed material manifest names its entries: an optmat
         model's identity, a material policy or the optmat version.
@@ -1936,11 +1909,8 @@ def _last_step_stats(file: h5py.File, index: int) -> StepStats:
     Returns
     -------
     solprop.output.schema.StepStats
-        The rows of that plane, empty for a file that carries no channel -- one written
-        before schema version 3, or a run that recorded no periodic subset.
+        The rows of that plane, empty for a run that recorded no periodic subset.
     """
-    if "step_stats" not in file:
-        return StepStats.empty()
     group = _group(file, "step_stats")
     names = [
         str(name) for name in group if str(name) not in ("counts", *STEP_STATS_INDEX)

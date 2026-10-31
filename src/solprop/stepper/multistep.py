@@ -202,9 +202,7 @@ class Multistep:
         Safety factor on the step proposed from an error estimate, in ``(0, 1]``.
     formulation : {'interaction', 'exponential'}
         How the source history is integrated (:data:`Formulation`); exponential by
-        default. A run's record hashes the method's representation, which names it
-        (output schema 15); a record made before then that names none was stepped in
-        the interaction picture.
+        default. A run's record hashes the method's representation, which names it.
     carrier_frame : {'off', 'scalar'}
         The carrier phase the exponential formulation removes from its history inside
         each step (:data:`CarrierFrame`, ``docs/guide/numerics/adams.md``); ``"off"`` by

@@ -210,8 +210,7 @@ def energy(
     CPU backends and in :mod:`solprop.processing.modal`: a coordinate energy is not
     additive on a three-component basis, and
     :func:`solprop.processing.modal.physical_energy` is that basis's own energy
-    (:mod:`solprop.output.capability`). Every older file, and every schema-7 run on
-    an ordinary basis, is unaffected.
+    (:mod:`solprop.output.capability`). A run on an ordinary basis is unaffected.
 
     Parameters
     ----------
@@ -288,8 +287,7 @@ def peak_power(
     :func:`solprop.stats.peak_power_total`, which promises a sum of coordinate powers
     that a three-component basis does not make, and
     :func:`solprop.processing.modal.reconstructed_flux` is that basis's own flux
-    (:mod:`solprop.output.capability`). Every older file, and every schema-7 run on an
-    ordinary basis, is unaffected.
+    (:mod:`solprop.output.capability`). A run on an ordinary basis is unaffected.
 
     Parameters
     ----------
@@ -750,9 +748,7 @@ def _refuse_by_basis(output: Output, name: str) -> None:
     :mod:`solprop.processing.modal` all refuse on that basis. Without this check the
     same number came back through a different import.
 
-    A file written before output schema 7 carries no identity and is the ordinary
-    modal run it has always been, so nothing changes for it; nor for a schema-7 run
-    on an ordinary basis, which is every gas-filled run.
+    Nothing changes for a run on an ordinary basis, which is every gas-filled run.
 
     Parameters
     ----------

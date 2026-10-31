@@ -343,31 +343,6 @@ def test_a_hard_stop_part_way_through_a_plane_loses_only_that_plane(metadata, tm
     assert resume(path).plane.z == 0.2
 
 
-def test_a_file_without_the_count_reads_by_its_extents(grid, metadata, tmp_path):
-    planes = [make_plane(grid, index) for index in range(4)]
-    path = tmp_path / "older.h5"
-    write(HDF5Output(path), metadata, planes)
-    before = extents(path)
-    with h5py.File(path, "r+") as file:
-        del file.attrs["n_saved"]
-    expected = stored(write(MemoryOutput(), metadata, planes))
-    with open_file(path) as file:
-        assert file.n_saved == 4
-        assert_identical(stored(file), expected)
-    state = resume(path)
-    assert state.n_saved == 4
-    assert state.plane.z == planes[3].z
-    more = [make_plane(grid, index) for index in range(4, 6)]
-    write(HDF5Output(path, append=True), metadata, more, reserve=6)
-    with h5py.File(path, "r") as file:
-        assert file.attrs["n_saved"] == 6
-    assert extents(path)["field"][0] == before["field"][0] + 2
-    with open_file(path) as file:
-        assert_identical(
-            stored(file), stored(write(MemoryOutput(), metadata, planes + more))
-        )
-
-
 # ------------------------------------------------------------- memory admission
 
 

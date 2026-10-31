@@ -5,7 +5,6 @@
 """Check saved-plane material processing against physical sums and file round trips."""
 
 from dataclasses import replace
-from pathlib import Path
 
 import numpy as np
 import pytest
@@ -198,7 +197,7 @@ def test_saved_record_contains_ordered_species_and_complete_optics(case, outputs
     simulation, _ = case
     memory, reloaded = outputs
     for output in (memory, reloaded):
-        assert output.metadata.schema_version == 28
+        assert output.metadata.schema_version == 1
         material = output.metadata.configuration["medium"]
         assert material["labels"] == ["population-0", "population-1"]
         assert (
@@ -288,36 +287,18 @@ def test_unrecorded_material_positions_are_refused(case, factor):
 
 @pytest.mark.parametrize("case", ["radial"], indirect=True)
 def test_a_spatial_record_without_its_plane_measure_is_refused(case):
-    """A schema-22 spatial record predates the medium flux measure (SEP 34)."""
+    """A spatial record that names its model but carries no plan is not measured."""
     simulation, problem = case
     metadata = simulation.metadata()
     assert metadata.spatial is not None
     spatial = {
-        key: value
-        for key, value in metadata.spatial.items()
-        if key not in {"flux_model", "flux_plan"}
+        key: value for key, value in metadata.spatial.items() if key != "flux_plan"
     }
     output = MemoryOutput()
-    output.open(replace(metadata, schema_version=22, spatial=spatial))
+    output.open(replace(metadata, spatial=spatial))
     output.save(SavedPlane(z=simulation.grid.length, field=problem.initial.field0[0]))
-    with pytest.raises(ProcessingError, match="predates the medium axial-flux"):
+    with pytest.raises(ProcessingError, match="carries no plane measure"):
         processing.node_fluence(output)
-
-
-def test_a_schema4_mixture_file_is_still_readable():
-    path = Path(__file__).parents[1] / "data" / "mixture_schema4.h5"
-    with HDF5Output(path, readonly=True) as output:
-        assert output.metadata is not None
-        assert output.metadata.schema_version == 4
-        assert output.metadata.simulation_kind == "radial"
-        assert (
-            output.metadata.configuration["fixture_source_commit"]
-            == "1b804dca5745d9808f44ff2d92662f392d8996b4"
-        )
-        assert output.fields().shape == (1, 8, 1, 128)
-        assert np.all(np.isfinite(processing.get_field(output)[1]))
-        with pytest.raises(ProcessingError, match="reconstruction data"):
-            processing.node_fluence(output)
 
 
 def test_coarse_radial_fluence_matches_direct_bessel_synthesis():

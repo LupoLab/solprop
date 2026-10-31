@@ -114,8 +114,8 @@ def ledger_of(march):
 
 
 def test_the_record_names_the_formulation():
-    # repr(Multistep()) is hashed into every Adams run's record (output schema 9); since
-    # schema 15 it names the formulation, the default exponential one included.
+    # repr(Multistep()) is hashed into every Adams run's record, and it names the
+    # formulation, the default exponential one included.
     assert repr(Multistep()) == (
         "Multistep(order=5, variable_order=True, max_calls=None, interval_cap=False, "
         "equal_approach=True, max_growth=2.0, min_factor=0.2, safety=0.8, "

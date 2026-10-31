@@ -60,20 +60,6 @@ def test_benchmark_identity_and_both_resume_doors(
         _open_output(path, historical, resume=True)
 
 
-def test_previous_output_schema_cannot_continue(
-    ionising_capillary, field_grid, tmp_path
-):
-    problem, _, _ = ionising_capillary()
-    production = metadata_for(problem, field_grid)
-    previous = dataclasses.replace(production, schema_version=21)
-    path = tmp_path / "previous.h5"
-    with HDF5Output(path) as output:
-        output.open(previous)
-        output.save(SavedPlane(z=0.0, field=problem.initial.field0[0]))
-    with pytest.raises(OutputError, match="schema_version"):
-        check_cache(path, production)
-
-
 def test_gated_hook_refuses_compiled_execution_and_resets_after_exception(
     ionising_capillary,
 ):

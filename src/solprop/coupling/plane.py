@@ -616,7 +616,7 @@ def _chebyshev_at(table: Mapping[str, object], z: float) -> float:
 def reference_at(record: Mapping[str, object], z: float) -> PlaneReference:
     r"""Return the reference of a run's plane at ``z`` from its persisted record.
 
-    The record is the run's plane-reference record of output schema 24:
+    The record is the run's plane-reference record (SEP 31):
     ``origin``, the reference of the run's own path origin (its parent's, for a run
     launched from another), and ``frame``, the antiderivatives
     :math:`\Phi_0(z)=\int_0^z\beta_0` and :math:`T(z)=\int_0^z\beta_1` of the terms

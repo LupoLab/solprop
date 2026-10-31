@@ -14,7 +14,7 @@ cycle-averaged :func:`reconstructed_flux`, the real :func:`instantaneous_flux` w
 sum-frequency term, and the per-coordinate :func:`coordinate_intensity`, which is
 **not additive**.
 
-**What a file carries and what it does not.** Output schema 7 records the guide's
+**What a file carries and what it does not.** The run record holds the guide's
 *identity* -- the channel labels, the provider, the sampling, the table and metric
 identities -- and not the reference arrays themselves, which are tens of megabytes per
 run and are rebuilt from the guide in **tens of milliseconds** (28 ms on the slice's
@@ -207,7 +207,7 @@ def _identity_refusal(
     if not isinstance(stored, Mapping):
         return (
             f"this file records no {root} identity to check against: it carries "
-            f"{stored!r}. A schema-7 record written by "
+            f"{stored!r}. A record written by "
             "solprop.translate.general.modal_identity carries one"
         )
     live = {f"{root}.{path}": value for path, value in _identity_leaves(expected)}
@@ -614,10 +614,10 @@ def _spectra(
 def channel_labels(output: Output) -> tuple[ChannelLabel, ...]:
     """Return the ordered channel labels a file records for its mode axis.
 
-    Output schema 7 persists one :class:`solprop.modes.protocol.ChannelLabel` per row
-    of the mode axis, so a plot legend, a selection by name and a resume check all
-    read the same identity. A file written before schema 7 named its channels by
-    class and position and carries none.
+    The run record persists one :class:`solprop.modes.protocol.ChannelLabel` per
+    row of the mode axis, so a plot legend, a selection by name and a resume check
+    all read the same identity. A record whose mode records were built without
+    labels names its channels by class and position only, and is refused.
 
     Parameters
     ----------
@@ -648,10 +648,10 @@ def channel_labels(output: Output) -> tuple[ChannelLabel, ...]:
     missing = [one for one in metadata.modes if one.label is None]
     if missing or not metadata.modes:
         msg = (
-            f"this run's record carries no channel labels: it was written at "
-            f"output schema {metadata.schema_version}, which named a channel by "
-            "its class and its position on the mode axis. Labels are persisted "
-            "from schema 7 onward"
+            "this run's record carries no channel labels: its mode records were "
+            "built without them, and name a channel only by its class and its "
+            "position on the mode axis. A run's own record (ModeRecord.from_mode) "
+            "carries them"
         )
         raise OutputError(msg)
     return tuple(
@@ -1099,7 +1099,7 @@ def physical_energy(
     state with the basis's flux metric integrated over frequency, so a number read
     off a file and the number the run recorded agree to the bit. It is a scalar per
     plane because a coordinate energy is not additive on a basis that is not
-    orthonormal. Output schema 7 records the metric's **identity** and not its
+    orthonormal. The run record holds the metric's **identity** and not its
     arrays, so this accessor evaluates the unweighted form and
     **refuses by name** a record whose ``modal.metric.kind`` is not ``"identity"``
     -- the number it could form from the stored state alone is the answer for a
@@ -1150,7 +1150,7 @@ def _require_identity_metric(metadata: RunMetadata) -> None:
     """Refuse a metric-weighted accessor on a file whose metric is not in it.
 
     :data:`solprop.stats.METRIC_WEIGHTED_STATISTICS` are functionals of the physical
-    same-frequency flux ``a.H W a``. Output schema 7 records the **identity** of the
+    same-frequency flux ``a.H W a``. The run record holds the **identity** of the
     basis metric -- its kind, its gauge and its measured defect -- and not the
     metric's arrays, exactly as it records the identity of the reference tables and
     not the tables, so a file-time accessor that reduces the stored
@@ -1180,8 +1180,8 @@ def _require_identity_metric(metadata: RunMetadata) -> None:
     msg = (
         f"physical_energy is unavailable for this run: its basis metric is of kind "
         f"{kind!r} in the gauge {gauge!r}, and a metric-weighted energy is the "
-        "same-frequency product of the state with that metric, whose arrays output "
-        "schema 7 does not store -- only its identity. Read the "
+        "same-frequency product of the state with that metric, whose arrays the "
+        "run record does not store -- only its identity. Read the "
         "run's own recorded physical_energy statistic, or reconstructed_flux, which "
         "reconstructs the physical flux from the guide's stored reference and needs "
         "no metric at all"
