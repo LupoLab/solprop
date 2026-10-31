@@ -7,8 +7,8 @@
 | **Author** | John C. Travers |
 | **Drafting agent** | Claude Opus 5.5 (2026-10-31) |
 | **Status** | Draft |
-| **Review status** | Not reviewed |
-| **Reviewers** | — |
+| **Review status** | In review |
+| **Reviewers** | Opus 5.5 (AI) |
 | **Type** | Change |
 | **Created** | 2026-10-31 |
 | **Resolution** | — |
@@ -537,6 +537,12 @@ inside `plane()`.
 ## Part III — History
 
 - 2026-10-31: Drafted, from the requirements of a desktop front end under design.
+- 2026-10-31: Opus 5.5 completed the AI review (R1–R20, below). The review read a
+  revision 321 commits behind `main`; on `main` a resume takes the noise seed recorded
+  in the file when the call gives none, so R3's refused resume no longer occurs (its
+  points on equivalence tests and scan seeds stand), and the output schema is 28, not 27.
+  The draft was rebased onto `main`. Part I is not yet revised; the response follows the
+  maintainer's decisions on R2 and R10.
 
 ### AI review, 2026-10-31
 
