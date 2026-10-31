@@ -97,9 +97,11 @@ The [SEP index](seps/index.md) lists every proposal and its current status.
 - [SEP 41 — Recipes, and the hooks a front end needs](seps/sep-0041-recipes-and-front-ends.md):
   a versioned TOML recipe that solprop loads, checks, builds, runs, exports as Python,
   records in its output and resumes from (`solprop run`, `solprop resume`), with the
-  parameter metadata, structured errors, capability query, plane observer, scan progress,
-  cost estimate, mode launch, beam offset and tilt, design solvers, pulse loaders and
-  geometry drawings a front end needs. All additive.
+  parameter paths and pins, metadata, structured errors, capability queries for routes,
+  species and results, plane observer, scan progress, cost estimate, portable stop,
+  previews, mode launch, beam displacement and tilt, design solvers, pulse loaders and
+  geometry drawings a front end needs. The Python interface changes are additive; the
+  recipe needs no output-schema change.
 
 The informal items below record work not fully covered by these proposals. When adding
 or revising a SEP, remove an informal item only if the proposal covers it in full;
