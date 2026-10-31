@@ -361,7 +361,8 @@ too.
       field per plane: 4 x 1 x 2049 (modes x components x omega)
       statistics:      analytic_flux, fwhm_t, fwhm_t_outer, omega0, physical_energy
       between planes:  none
-      run:             RunMetadata(multimode, field grid of 4096, 4 modes, native, 2026-1...
+      run:             RunMetadata(multimode, field grid of 4096, 4 modes, native,
+                       2026-10-31T14:05:53.711615+00:00)
 
 
 
@@ -422,15 +423,24 @@ run's ``physical_energy`` reads at the entrance.
       launched share: 1.0000 of the incident energy
       uncaptured:     not defined
       budget:         2.207e-02 of model_error 0.13
-      angular:        1.625e-02 (field) incident field: cone-rule allocation (1 - cos the...
-      numerical:      0.000e+00 (field) source domain/resolution 0.0e+00, field beyond th...
+      angular:        1.625e-02 (field) incident field: cone-rule allocation (1 - cos
+                      theta*) = model_error/8 of the cone, not a measured defect, plus the
+                      tail
+      numerical:      0.000e+00 (field) source domain/resolution 0.0e+00, field beyond the
+                      window 0.0e+00
       source metric:  9.473e-05 (field) common measure M0 against the plane's native metric
       target metric:  2.517e-08 (map) F at the port's nodes against the native Q
       contrast:       9.500e-03 (model) weak-guidance screen Delta over the guide's regions
-      closure:        4.617e-03 (map) H_t = Y0 z x E_t against provider H, field error 2....
-      angular:        0.000e+00 (map) retained target subspace: cone-rule allocation (1 -...
-      envelope:       n/a (model) no recorded pair envelope for this provider (only a ste...
-      passivity:      1.107e-03 (field) apparent gain within the model's defects, reporte...
+      closure:        4.617e-03 (map) H_t = Y0 z x E_t against provider H, field error
+                      2.31e-03
+      angular:        0.000e+00 (map) retained target subspace: cone-rule allocation (1 -
+                      cos theta*) = model_error/8 of the cone, not a measured defect, plus
+                      the tail
+      envelope:       n/a (model) no recorded pair envelope for this provider (only a
+                      step-index guide has one): omitted facet reflection is bounded only by
+                      the contrast screen and the closure
+      passivity:      1.107e-03 (field) apparent gain within the model's defects, reported
+                      as a model defect
       exterior:       zero
     incident 159.67 nJ, launched 159.67 nJ (0.99998 of the incident energy), captured not defined (vector_paraxial recovers coordinates with the flux pairing F; F and the incident measure M0 are not one positive metric, so no orthogonal remainder is a physical loss (section 4.3))
     admission budget 2.207e-02 of model_error 0.13
@@ -736,7 +746,7 @@ A ten-centimetre and a 4.5 mm run of four channels on the general modal route.
 
  .. code-block:: none
 
-    2965 s; backend native, 16 threads
+    132 s; backend native, 18 threads
 
 
 
@@ -753,7 +763,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (49 minutes 25.456 seconds)
+   **Total running time of the script:** (2 minutes 11.884 seconds)
 
 
 .. _sphx_glr_download_auto_examples_waveguides_plot_04_graded_index_multimode.py:

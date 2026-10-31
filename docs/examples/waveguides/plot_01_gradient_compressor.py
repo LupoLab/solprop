@@ -74,10 +74,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from solprop.driver import prop_capillary
-from solprop.exceptions import (
-    GrazingIncidenceWarning,
-    SolpropWarning,
-)
+from solprop.exceptions import GrazingIncidenceWarning
 from solprop.modes import CoherentWall
 from solprop.plotting import prop_2d, time_1d
 from solprop.processing import bandpass, energy, fwhm_t, get_power, grid_of
@@ -138,12 +135,11 @@ print(design)
 def propagate(pressure):
     """Propagate the pump through the capillary at one fill."""
     with warnings.catch_warnings():
-        # Two notices every run repeats, each one of the approximations named at
-        # the top: the wall's quasi-static ratio comes within a factor ten of its
-        # limit at the band's longest wavelengths; and the wall's generator is
-        # resolved along z to the round-off floor of its samples, which it reports.
-        for category in (GrazingIncidenceWarning, SolpropWarning):
-            warnings.simplefilter("ignore", category)
+        # A notice every run repeats, one of the approximations named at the top:
+        # the wall's quasi-static ratio comes within a factor ten of its limit at
+        # the band's longest wavelengths. Every other warning, the boundary
+        # monitor's included, is shown.
+        warnings.simplefilter("ignore", GrazingIncidenceWarning)
         return prop_capillary(
             RADIUS,
             LENGTH,

@@ -926,7 +926,7 @@ Twelve guides, eight linear runs on the moving guide and four nonlinear runs.
 
  .. code-block:: none
 
-    232 s; backend native, 18 threads
+    247 s; backend native, 18 threads
 
 
 
@@ -943,7 +943,7 @@ For a paced introduction to propagation, start with the
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (3 minutes 52.235 seconds)
+   **Total running time of the script:** (4 minutes 6.956 seconds)
 
 
 .. _sphx_glr_download_auto_examples_waveguides_plot_05_moving_solid_guide.py:

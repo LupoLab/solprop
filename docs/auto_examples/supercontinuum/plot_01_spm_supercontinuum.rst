@@ -233,7 +233,7 @@ independent fields, 1 for identical ones).
 
  .. code-block:: none
 
-    20 shots; spectrally weighted RIN 9.803e-07, spectrally weighted coherence 0.999999999993
+    20 shots; spectrally weighted RIN 9.765e-07, spectrally weighted coherence 0.999999999993
 
 
 
@@ -261,7 +261,7 @@ Runtime and reproducibility
 
  .. code-block:: none
 
-    866 s for 20 shots; backend native
+    73 s for 20 shots; backend native
 
 
 
@@ -278,7 +278,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (14 minutes 25.803 seconds)
+   **Total running time of the script:** (1 minutes 12.860 seconds)
 
 
 .. _sphx_glr_download_auto_examples_supercontinuum_plot_01_spm_supercontinuum.py:

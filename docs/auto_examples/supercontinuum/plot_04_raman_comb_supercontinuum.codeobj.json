@@ -1,4 +1,27 @@
 {
+ "BoundaryCheck": [
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.monitor",
+   "module_short": "solprop.monitor",
+   "name": "BoundaryCheck"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "BoundaryCheck"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.monitor",
+   "module_short": "solprop.monitor",
+   "name": "BoundaryCheck"
+  }
+ ],
  "MaterialRangeWarning": [
   {
    "is_class": true,

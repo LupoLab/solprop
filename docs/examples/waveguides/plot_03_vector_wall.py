@@ -78,10 +78,7 @@ import numpy as np
 
 from solprop.constants import C
 from solprop.driver import prop_capillary
-from solprop.exceptions import (
-    GrazingIncidenceWarning,
-    SolpropWarning,
-)
+from solprop.exceptions import GrazingIncidenceWarning
 from solprop.modes import CoherentWall, MarcatiliMode, vector_wall_operator
 from solprop.processing import energy, fwhm_t, get_power
 from solprop.processing import peak_power as peak_power_of
@@ -169,17 +166,16 @@ def propagate(modes, wall):
     """Propagate the pump through the metre of helium-filled bore."""
     with warnings.catch_warnings():
         # The wall's quasi-static ratio is marginal at the band's longest
-        # wavelengths, and the wall's generator is resolved along z to its samples'
-        # round-off floor. Both are named above, and every run would repeat them.
-        for category in (GrazingIncidenceWarning, SolpropWarning):
-            warnings.simplefilter("ignore", category)
+        # wavelengths: named above, and every run would repeat it. Every other
+        # warning, the boundary monitor's included, is shown.
+        warnings.simplefilter("ignore", GrazingIncidenceWarning)
         return prop_capillary(
             RADIUS,
             LENGTH,
             "He",
             PRESSURE,
             wavelength_limits=(90e-9, 3e-6),
-            trange=250e-15,
+            trange=400e-15,
             modes=modes,
             wall=wall,
             dz_max=2e-3,
