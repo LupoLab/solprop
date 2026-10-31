@@ -15,7 +15,7 @@
 | **Requires** | [SEP 21](archive/sep-0021-absorbing-boundaries.md), [SEP 22](archive/sep-0022-memory-lean-spatial-execution.md), [SEP 34](archive/sep-0034-medium-flux.md) |
 | **Supersedes** | — |
 | **Superseded-by** | — |
-| **Implementation** | Opus 5.5 (AI) for John Travers, branch `feature/sep-0040-transverse-boundaries`: started 2026-10-31; phase 0 in progress (interim report 2026-10-31) |
+| **Implementation** | Opus 5.5 (AI) for John Travers, branch `feature/sep-0040-transverse-boundaries`: started 2026-10-31; phase 0 complete (final report 2026-10-31), awaiting the maintainer's decisions |
 | **Manual pages** | — |
 
 ## Part I — Proposal
@@ -1429,6 +1429,257 @@ launch, not with the request. Three ways forward:
 Phase 0 leans to the first, consistent with a robust default that refuses rather than
 degrades. The decision waits for the nonlinear witnesses.
 
+### Phase 0 — final report (2026-10-31)
+
+The remaining measurements have run:
+- the protected weak-signal witness (§7.5);
+- the nonlinear collar-occupying witness (§7.5), the suite's `spatial_absorber` case
+  against a converged reference;
+- the monitor's two-dimensional witnesses (§7.6);
+- the step cost of `cover="intermediate"`;
+- the split against in-stage at matched accuracy;
+- the cost of $f = 1$ radially on a quiet Linux machine (A11).
+
+Two of the interim report's recommendations change: P0-4 and P0-5. The other ten stand.
+P0-13 to P0-20 are new. Together with Q1, Q4 and A10, they are for the maintainer's
+decision before phase 1.
+
+Machines:
+- the nonlinear and cover sweeps ran under Slurm on shared AMD EPYC 7763 nodes, so their
+  wall times are same-job ratios;
+- the line-route and monitor runs ran on a shared Apple M5 Max (contended);
+- A11 ran on a dedicated Intel Xeon Gold 6240.
+
+As before, every number is reproducible from the campaign harness.
+
+**The nonlinear witness: distance beats absorption for a slow beam.**
+- *Set-up.* The suite's `spatial_absorber` case: radial, requested radius 300 µm, 8 cm, a
+  100 µm Kerr beam at $0.9P_\mathrm{cr}$, field grid 500 nm–1.6 µm.
+  - Every variant keeps the radial spacing fixed.
+  - The reference is collar-free at outer radii 1.2 to 9.6 mm. It is converged to about
+    $10^{-9}$, at the controller's own run-to-run noise.
+  - The beam does reach the collar: $1.1\times10^{-2}$ of its energy lies beyond 300 µm by
+    8 cm.
+- *Aperture errors at 8 cm*, launch-normalised; reference-normalised values are within 1 %:
+
+  | variant | error | Runge–Kutta steps | `Multistep` steps |
+  |---|---|---|---|
+  | the suite case as configured: wall at the requested radius, no collar | $1.0\times10^{-1}$ | 71 | 149 |
+  | today's collar inside the request | $9.9\times10^{-2}$ | 416 | 470 |
+  | bare wall at $2R$ | $3.9\times10^{-5}$ | 68 | 68 |
+  | design, $f = 1$, $c_b = 3$ (band closed) | $2.1\times10^{-3}$ | 71 | 174 |
+  | design, $f = 1$, $\kappa_p$ raised until the band opens | $4.4\times10^{-3}$ | 86 | 503 |
+  | design, $f = 2.6$, band just open | $2.9\times10^{-6}$ | 67 | 107 |
+  | bare wall at the same outer radius as $f = 2.6$ | $6.3\times10^{-9}$ | 67 | 68 |
+  | design, $f = 10$, $\kappa_{2\times10^{-4}} = \kappa_\mathrm{rms}$ | $9.8\times10^{-10}$ | 66 | 68 |
+
+  Steps are at $\mathrm{rtol} = 10^{-7}$; under `Multistep`, rejected steps are included.
+  Runge–Kutta and `Multistep` agree to every digit above their controller floors, so every
+  error is the boundary's.
+- *No designed collar beat a bare wall at the same outer radius*, across a scan of
+  fractions 0.5–10, $c_b$ 1–3 and strengths 0.01–1 times the design. The best was within
+  10 % of its wall. The §2 probes agree in all three geometries:
+  - radial: $2.8\times10^{-3}$ against a wall's $1.1\times10^{-3}$;
+  - Cartesian, $f = 0.5$: $3.6\times10^{-2}$ against a wrap's $2.9\times10^{-2}$;
+  - Cartesian, $f = 1.2$, band open: $6.4\times10^{-4}$ against $7.4\times10^{-5}$.
+- *What decides accuracy is $\kappa_{2\times10^{-4}}/\kappa_\mathrm{rms}$, not whether the
+  band opens.*
+  - The collar's excess error over its wall falls on one curve in this ratio, whatever the
+    fraction, $c_b$ or strength: 0 at 1.0, $10^{-5}$ at 3.2, $2\times10^{-4}$ at 4.7,
+    $2\times10^{-3}$ at 6.7 and $1.5\times10^{-2}$ at 12.
+  - At fixed width the excess grows in proportion to $\alpha_0$.
+  - A design that opens its band by raising $\kappa_p$ is the least accurate: the
+    strength rises while the beam's own content stays near $\kappa_\mathrm{rms}$.
+- *The monitor's witnesses reproduce this independently.*
+  - A Gaussian waist on a collar designed by P0-1, P0-2 and P0-4, with its band open,
+    diffracts into the collar within $L$. It returns $10^{-4}$ to $6\times10^{-3}$ of its
+    energy on both grids, because its bulk lies below $\kappa_{2\times10^{-4}}$.
+  - P0-4's "returned field $5.5\times10^{-6}$" counted attenuation only, not this
+    reflection.
+  - A one-dimensional width scan returns $3.4\times10^{-3}$, $1.3\times10^{-4}$,
+    $3.8\times10^{-9}$ and $3\times10^{-14}$ at $f = 0.6, 0.9, 2, 4$.
+
+**The weak-signal witness: the collar's value is in fast content.**
+- *Set-up.* A line-route sideband from four-wave mixing in fused silica, at
+  $1.5\times10^5$ rad/m and $10^{-6}$ of the pump's energy, leaving a 500 µm aperture
+  through a 350 µm collar.
+  - Fused silica's normal dispersion phase-matches the angle. In argon, the sideband at the
+    mirrored angle cannot be phase-matched.
+  - The pump never reaches the collar, so returned strong light in the sideband's band is
+    not tested here.
+- *Results:*
+  - *Protected design:* the sideband agrees with a 4× wider reference to $4\times10^{-6}$ of
+    its own field. That is the onset reflection, within 2× of the calibrated operator's.
+    Its far-field energy agrees to $10^{-6}$ while it crosses the aperture's edge.
+  - *The same box with the collar inert (the wrap):* 0.98.
+  - *Intermediate design (the sideband declared outside the band):* it returns
+    $1.03\times10^{-4}$ of the sideband's energy.
+- *The report a design should print.* The WKB attenuation with the exact symbol, at each
+  bin's $k_z$ and weighted by the signal's far-field spectrum, predicts the returned energy
+  to 1–4 % over four decades: $1.02\times10^{-4}$, $1.5\times10^{-8}$ and
+  $1.3\times10^{-10}$. §4.4's $\Gamma_\mathrm{min}\kappa_p/\kappa$ is a bound about 2× high
+  in energy, not a report.
+- *Launch-normalised error cannot see a weak signal.* The intermediate run corrupts the
+  sideband by 1 % of its own field, which is only $1.1\times10^{-4}$ of the launch norm.
+
+**The wavenumber extremes (§5.2) are taken over the wrong bins.**
+- Envelope and field grids carry active bins well outside the request. On the witnesses'
+  grids these reached 1818 nm, 1877 nm and 3.1 µm, where the spectral collar is already
+  removing content.
+- Taking $k_\mathrm{min}$ there doubles $\alpha_0$. That doubles the error on every
+  witness, halves the `Multistep` stability limit and the crossing clamps, and costs
+  15–28 % more Runge–Kutta steps.
+- It also closes a band that is open on the request, and makes the intermediate report
+  wrong by $10^4$ in returned energy: 4.4 Np printed against 9.3 Np real.
+
+**Q4: the default integrator.**
+- On the nonlinear witness, collar stability binds `Multistep` in proportion to
+  $\alpha_0$:
+  - fixed-order `Multistep` sits exactly on $2r/\alpha_\mathrm{eff}$, with 155–1350 steps
+    against 73 with no collar;
+  - the default variable-order `Multistep` partly escapes by lowering its order;
+  - Runge–Kutta, whose limit lies above its accuracy step, is not bound at all.
+- At the suite's tolerance:
+  - on the strong designs (the $f = 1$ rows), `Multistep` takes 1.2–1.5 times Runge–Kutta's
+    wall time;
+  - on the wide, weak designs that accuracy needs, it takes at most 1.2–2 times its
+    no-collar steps and runs in 0.34–0.37 of Runge–Kutta's wall time.
+- Per step, the collar adds about 57 % to Runge–Kutta's cost radially at $n_r = 128$, and
+  about 14 % to `Multistep`'s.
+
+**`cover="intermediate"` (A4).**
+- *The clamps:*
+  - the protected clamp ($\kappa_\times = \kappa_p$) never bound an adaptive step on the §2
+    probes;
+  - the intermediate clamp costs +1–3 % of steps at in-band designs, and +11 % at the most
+    at the over-strong ones.
+- *What it buys:* under adaptive in-stage Runge–Kutta and `Multistep` it bought nothing
+  measurable on the line route, including a $10^{-3}$-amplitude packet under a strong beam.
+  The controller's growth cap of 1.1 per step keeps it from crossing a collar unseen.
+- *Its cost floor:* $N \ge L\kappa_s/(c_\times w k_{z,\min})$, which grows on fine grids
+  and in long runs.
+
+**The split against in-stage (A10).**
+- *The split's error is invisible to the step controller.*
+  - At $c_\times = 0.5$ on a variable schedule it reached $4\times10^{-4}$, and
+    $3\times10^{-3}$ where the beam dwells in the collar.
+  - Holding $10^{-4}$ needed $c_\times$ of 0.25 to 0.06, depending on the launch.
+- *Its cost advantage at matched accuracy* is about 1.3–1.6 times on the Cartesian and line
+  routes under Runge–Kutta at $10^{-3}$, and about 1.0 at $10^{-4}$ with FSAL on. It is
+  none radially, and the split is refused under `Multistep`.
+- *Transform counting.* The in-stage pass on the free routes always performs a temporal
+  transform pair, even when no temporal rate is applied in-stage. A spatial-only pass needs
+  only the transverse pair, which is a safe saving.
+
+**The monitor in two dimensions (P0-11, P0-12).** One frequency, Cartesian and radial.
+- *What it catches:*
+  - clean escape, through a Cartesian corner included, reads at most $2.4\times10^{-8}$;
+  - every wall, wrap and collar at one sixteenth of the design strength stops;
+  - every quarter-strength collar whose true return exceeds $10^{-4}$ stops;
+  - the margin to the weakest stop-level failure is about $6\times10^3$;
+  - the launch baseline is necessary and sufficient for converging launches;
+  - the guard catches clipped launches at $z = 0$.
+- *What it does not:*
+  - the reflected spread of a slow launch (above) is under-read 7–100 times, so it warns
+    rather than stops;
+  - with explicit input noise on a Cartesian grid at 1 nJ, the strip's floor
+    ($1.5\times10^{-4}$) lies above the stop, and the rectified current gives a false
+    warning on every clean run;
+  - at the radial default noise the warning level is effectively 1–2 × 10⁻⁶ rather than
+    $10^{-6}$.
+
+**A11 on Linux.**
+- *Set-up:* Intel Xeon Gold 6240, an exclusive job, fixed schedules, the median of five.
+- *Results:* at fixed spacing, $f = 1$ costs 1.9–2.3 times per step for the grid alone,
+  and 2.5–2.9 times with the collar. That is below $(1+f)^2 = 4$, as on the Apple M5 Max.
+- *Threads:* the per-step times were the same at 1 and 18 threads at these sizes.
+
+**Recommendations.**
+
+- **P0-13. The wavenumber extremes.** Take $k_\mathrm{min}$ and $k_\mathrm{max}$ over the
+  requested band, `inband_mask & active_mask` (or a declared band), not over every active
+  bin. *Amends* §5.2.
+- **P0-14. The design check.** Replace "the band opens" by an estimate, at translation, of
+  the launch's own returned energy:
+  - Inputs: the launch's angular spectrum (taken from the noise-free launch, as §5.2
+    already does), the share of each $\kappa$ that reaches the collar within $L$, and the
+    calibrated reflection $r(\kappa)$ for the profile. Phase 1 tabulates $r(\kappa)$ from
+    the phase 0 calibration.
+  - Refuse above the reflection budget, naming the fraction that meets it.
+  - For a beam that fills its collar this reduces to
+    $\kappa_{2\times10^{-4}} \le \kappa_\mathrm{rms}$, which is
+    $w \gtrsim 20\,w_0$ for Planck with $c_b = 3$. On the nonlinear witness, where 1 % of
+    the energy reaches the collar, $\kappa_{2\times10^{-4}} \lesssim 3\text{–}4.7\,
+    \kappa_\mathrm{rms}$ suffices.
+  - This *replaces* P0-4's claim that $c_b = 3$ protects the launch. $c_b = 3$ stays as the
+    band's default upper edge.
+- **P0-15. Q1 and P0-5 return to the maintainer: no default fraction meets §7.1's budget
+  on a slow beam.**
+  - Q1 makes the default collar conditional on the witnesses meeting the budget. At Q2's
+    fractions they do not:
+    - radial $f = 1$: $1.1\text{–}4.4\times10^{-3}$, against a bare wall's
+      $3.9\times10^{-5}$;
+    - Cartesian $f = 0.5$: $3.6\times10^{-2}$.
+  - A collar wide enough to pass is no better than a wall at the same radius, at up to 30
+    times the per-step cost: $n_r = 704$ against 64.
+  - The P0-5 options:
+    1. *Default to no real-space collar (recommended).* `prop_radial`, `prop_free` and
+       `prop_planar` keep today's wall or wrap at the requested size, plus:
+       - the safety ramp (Q6);
+       - the returned-share monitor, on by default;
+       - a `SpatialAbsorber` collar on request, designed for fast content with a declared
+         `angle` and refused under P0-14 when it would reflect the launch.
+
+       The monitor stops the suite's case as configured (its return is $10^{-1}$ in
+       field); its message names the radius needed.
+    2. *Default to Q2's outside placement as distance only.* A bare wall at $(1+f)R$: 2.1
+       times the radial step cost by default. This is robust on the nonlinear witness, but
+       not within budget on the §2 radial probe ($1.1\times10^{-3}$).
+    3. *Default to a collar whose fraction follows P0-14*, resolved at translation: $f$ of
+       8–10 on the nonlinear witness.
+  - The interim report's option 2 (protect less) is withdrawn: the band opens only by
+    *raising* $\kappa_p$, and that measured worst.
+- **P0-16. The intermediate-band report.** Print the WKB attenuation with the exact symbol
+  per frequency, weighted by the launch's or the declared signal's far-field spectrum.
+  Keep $\Gamma_\mathrm{min}\kappa_p/\kappa$ only as a stated bound. *Amends* §4.4 and §5.2.
+- **P0-17. Weak signals.**
+  - Judge §7.5's weak-signal witness on the signal's own norm.
+  - Say in the guide that a weak generated or launched signal is protected only if its
+    angle is declared.
+  - The launch-derived band does not cover a weak tilted seed.
+- **P0-18. The monitor.** Adopt P0-11 in two dimensions, with these changes:
+  - subtract the inward current's noise expectation before judging it;
+  - accumulate the current at every accepted step, not at checks;
+  - record at translation when three times the strip's noise floor exceeds the warning,
+    and warn when it exceeds the stop;
+  - pad the strip transform twice, not eight times.
+
+  Q7's thresholds stand. The guide says that a slow reflected spread warns rather than
+  stops.
+- **P0-19. Q4.** Keep in-stage `Multistep` as the radial and planar default. The designs on
+  which it loses are the ones that fail accuracy. P0-14's designs are wide and weak, and
+  under them `Multistep` keeps about a threefold advantage.
+- **P0-20. `cover`.** Keep `"protected"` as the default (A4). Offer `"intermediate"` with
+  its minimum step count recorded in the design.
+- **P0-21. The split (A10).**
+  - Drop it from phases 1–3 and put it on the roadmap, with:
+    - its measured potential: about 2–2.7 times on Cartesian at a tight tolerance, mostly
+      the in-stage pass's own overhead;
+    - the accuracy cap it would need, which the controller cannot see.
+  - First skip the free routes' needless temporal pair (above).
+  - *Amends* §5.3; under the A10 ruling it would otherwise stay on `numpy_ref`.
+- **P0-22. Requalification.**
+  - The suite's `spatial_absorber` case is 10 % wrong at 8 cm as configured. Phase 3 resizes
+    it, or recasts it as the monitor's stop witness under P0-15 option 1.
+  - Short witnesses for phase 1 tests are recorded with the harness:
+    - the four-wave-mixing case at 256 samples (seconds);
+    - the nonlinear case scaled paraxially to 1 cm, which reproduces every 8 cm error to
+      two digits in 3–16 s;
+    - the monitor's two-dimensional set with expected readings.
+
+    A ten-step nonlinear witness is not possible: the error appears only once the beam
+    fills the collar.
+
 ## Part III — History
 
 - 2026-10-31: Drafted, from SEP 21's finding R4 and decision D9, and a linear probe of the
@@ -1454,6 +1705,10 @@ degrades. The decision waits for the nonlinear witnesses.
   against an analytic reference, the integrator and crossing measurements, and the monitor
   prototypes. Recommendations P0-1 to P0-12 await the maintainer's decision; Q4 returns
   (A1).
+- 2026-10-31: Phase 0 final report (Part II): the weak-signal and nonlinear witnesses, the
+  monitor's two-dimensional witnesses, the cover cost, the split against in-stage, and A11
+  on Linux. P0-13 to P0-22. Q1 and P0-5 return to the maintainer: no default fraction
+  meets the budget on a slow beam.
 
 ### AI review — 2026-10-31 (GPT-6)
 
