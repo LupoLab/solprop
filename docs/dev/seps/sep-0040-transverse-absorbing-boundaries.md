@@ -6,16 +6,16 @@
 | **Title** | Transverse absorbing boundaries for free-space propagation |
 | **Author** | John Travers |
 | **Drafting agent** | Opus 5.5 |
-| **Status** | Draft |
-| **Review status** | In review |
-| **Reviewers** | GPT-6 (AI) |
+| **Status** | In progress |
+| **Review status** | Reviewed |
+| **Reviewers** | John Travers (human); GPT-6 (AI) |
 | **Type** | Change |
 | **Created** | 2026-10-31 |
-| **Resolution** | — |
+| **Resolution** | Accepted 2026-10-31 by John Travers, after his human review, the GPT-6 AI review and the response to it, his decisions on R1–R14 and Q1–Q7, and the pre-acceptance check A1–A11 with the Part I amendments it led to (Part III). The proposal lands with its implementation's single pull request. |
 | **Requires** | [SEP 21](archive/sep-0021-absorbing-boundaries.md), [SEP 22](archive/sep-0022-memory-lean-spatial-execution.md), [SEP 34](archive/sep-0034-medium-flux.md) |
 | **Supersedes** | — |
 | **Superseded-by** | — |
-| **Implementation** | Not started |
+| **Implementation** | Opus 5.5 (AI) for John Travers, branch `feature/sep-0040-transverse-boundaries`: started 2026-10-31; phase 0 not started |
 | **Manual pages** | — |
 
 ## Part I — Proposal
@@ -183,12 +183,15 @@ The causes, set out in §3:
   the requested half-widths: the periodic half-width is `radius * (1 + window_factor)`,
   and `n_x`, `n_y` count every sample.
 - `LineGrid` uses the Cartesian construction along x.
-- The slab geometry applies a y collar, a function of y alone, row by row.
+- `PlanarGrid` (the slab × y geometry) builds its y axis the same way, as
+  `PlanarGrid.window_y`, and applies a y collar, a function of y alone, row by row.
 
 The rate is `12.6 * (1 - W) / ell_c` (`solprop.translate.radial`,
-`solprop.translate.free`), the bounded profile that SEP 21 inherited for the temporal
-collar. Here `ell_c` is `Absorber.in_stage_length`, which defaults to
-`length / boundary_N` with `boundary_N = 20`. The rate enters every stage as
+`solprop.translate.free`, `solprop.translate.planar`), the bounded profile that SEP 21
+inherited for the temporal collar. Here `ell_c` is `Absorber.in_stage_length`, which
+defaults to `length / boundary_N`, with `boundary_N = 20` a parameter of `absorber()`.
+The rate is carried as `SpatialGeometry.absorber_rate` on the problem's transform. It
+enters every stage as
 $F\,\mathrm{diag}(-\alpha_r/2)\,B\,E$, independently of the material prefactor:
 
 - on the radial route, $F$ and $B$ are the dense Hankel matrices, composed once at
@@ -196,17 +199,28 @@ $F\,\mathrm{diag}(-\alpha_r/2)\,B\,E$, independently of the material prefactor:
 - on the Cartesian route each stage pays a transverse FFT pair of its own.
 
 It is an explicit, conditionally stable term: `KernelProblem._check_spatial_collar_stability`
-refuses a fixed step beyond `2 * STABILITY_RADIUS / rate`. The temporal `split_step` scheme
-does not split it.
+refuses a fixed step beyond $2r/\alpha_\mathrm{eff}$. Here $r$ is the integrator's
+negative-real stability interval, `min(STABILITY_RADIUS, integrator.real_stability_interval)`:
+3.3 for Runge–Kutta, 0.0877 for the default Adams `Multistep` at order 5. The effective rate
+$\alpha_\mathrm{eff}$ is the collar's peak, times the radial transform's norm factor on the
+radial grid, plus the temporal collar's rate under the in-stage temporal scheme. The temporal
+`split_step` scheme (`ResponseSet.absorber_scheme`) does not split it.
 
 **Default off.** `prop_radial`, `prop_free` and `prop_planar` build the temporal and
 spectral collar with `Absorber.spatial=False`, so the real-space collar is inert
 ([which runs carry one](../../guide/numerics/boundaries.md#which-runs-carry-one-and-how-to-change-it)).
 An absorber given explicitly switches it on. Without it the radial field reflects off the
-Dirichlet wall and the Cartesian field wraps. At each saved plane the driver logs a warning
-when the field norm in the collar region (`W < 1`) exceeds the run's `rtol`
-(`solprop.backends.spatial.collar_field_fraction`). It does not stop the run, and a plane
-that keeps no field is not checked.
+Dirichlet wall and the Cartesian field wraps. At each saved plane the backend driver
+(`solprop.backends.driver`) logs a warning when the field norm in the collar region
+(`W < 1`, `solprop.backends.spatial.collar_field_fraction`) exceeds the run's `rtol`, floored
+at a rounding level. It does not stop the run, and a plane that keeps no field is not checked.
+The suite's `spatial_absorber` tracking case therefore runs with the real-space collar off:
+its boundary is the Dirichlet wall.
+
+**Other consumers of the window.** The coupling plane's radial resampling builds
+`RadialGrid(2R, 2n_r, window_factor)`, which assumes the collar lies inside $R$
+(`solprop.coupling.plane`). The coupling elements use `W < 1` as the boundary mask
+(`solprop.coupling.elements`). The run record stores the window and the rate.
 
 **The $k_\perp$ ramp.** `TransverseCollar(strength, fraction=0.1)`, passed as
 `SimulationSettings(transverse_absorber=...)` (SEP 22 §4.3), is a raised-cosine power rate
@@ -540,12 +554,18 @@ $$
 h \le c_\times\,\frac{w\,k_{\min}}{\kappa_\times},
 $$
 
-where $\kappa_\times$ is the largest wavenumber the collar is relied on to absorb: $\kappa_p$,
-or the top of the intermediate band when the user asks for it to be covered (§5.2).
+where $\kappa_\times$ is the largest wavenumber the collar is relied on to absorb. It is set by
+`SpatialAbsorber(cover=...)` (§5.2): $\kappa_p$ under `cover="protected"`, the default, or
+the safety ramp's midpoint $\kappa_{s,1/2}$ (or `discard_above`, if lower) under
+`cover="intermediate"`.
 
 - $c_\times \approx 0.5$ is calibrated in phase 0, for each scheme and integrator.
-- Content above $\kappa_\times$ crosses faster, but it is the intermediate or safety band's,
-  and the latter's ramp is exact at any step.
+- Content above $\kappa_\times$ crosses faster. In the safety band the ramp is exact at any
+  step. In the intermediate band it is not: under the default cover, content above about
+  $(0.75/c_\times)\,\kappa_\times$ may cross the collar within one step, so the attenuation
+  $\Gamma_\mathrm{tot}$ of §4.4 is not assured there. The resolved design records this
+  *unguarded* band beside the intermediate band, and the monitor's returned share (§5.4) is
+  the check on it. Phase 0 measures the step cost of `cover="intermediate"`.
 - The limit joins the existing stability limit: `dz_max` is clamped to it, a fixed schedule
   that exceeds it is refused at translation, and the monitor's check interval is held
   within it.
@@ -560,8 +580,13 @@ stage, as today.
   error estimate sees the collar's action, so the controller governs its error together
   with everything else.
 - It changes no integrator's history and needs no first-same-as-last exception.
-- Its stability limit, `2 * STABILITY_RADIUS / rate`, is long for a wide, weak collar: on
-  the §2 probe its peak rate of $1500$ m⁻¹ allows about 4 mm.
+- Its stability limit, $2r/\alpha_\mathrm{eff}$ (§3), depends on the integrator. On the §2
+  probe a peak rate of $1500$ m⁻¹ allows about 4 mm under Runge–Kutta ($r = 3.3$), but only
+  about 0.12 mm under the default Adams `Multistep` at order 5 ($r = 0.0877$), at least 170
+  steps over 2 cm. The radial and planar routes default to `Multistep`, and the §2 probe used
+  Runge–Kutta. Phase 0 therefore measures the in-stage cost under the default `Multistep` on
+  the radial and planar witnesses. If collar stability binds those runs, Q4 returns to the
+  maintainer.
 - It cannot carry a singular or very steep profile, whose peak rate would set the step.
 
 **The split scheme (optional).** The real-space factor $e^{-\alpha(x)h/2}$ is applied once
@@ -596,9 +621,13 @@ For the target of $10^{-3}$ in the aperture's field norm (§7.1), the design tak
 - $\Gamma_\mathrm{min} = \log(5\times10^3)$, a returned field below $2\times10^{-4}$ of the
   incident;
 - a reflection floor $|r| \le 2\times10^{-4}$, $4\times10^{-8}$ in power, over the
-  protected band.
+  protected band above its reflecting floor, $m\,\kappa_\mathrm{lo} \le \kappa \le \kappa_p$,
+  with the margin $m$ measured in phase 0.
 
-These are added in amplitude, because the two can arrive together.
+These are added in amplitude, because the two can arrive together. Below
+$m\,\kappa_\mathrm{lo}$ the collar reflects by design (§4.3). That content is covered by the
+travel argument of §4.4: it reaches the edge only if launched or generated near it, and the
+monitor's returned share (§5.4) is the check.
 
 #### 4.9 Removal, passivity and the ledger
 
@@ -618,10 +647,19 @@ so a negative determinant whenever $M_{ij}\ne0$. This is not a cutoff effect:
 So:
 
 - **Admission, not assertion.** A resolved design's worst generalised eigenvalue, relative
-  to its peak rate, is computed at translation on the grid's metric, for the generator and
-  for the one-step split map. A design is admitted when that eigenvalue is bounded below by
-  a tolerance $-\varepsilon_P$, which phase 0 sets from the measured values with a stated
-  margin and the maintainer approves.
+  to its peak rate, is computed at translation, for the generator and for the one-step split
+  map. A design is admitted when that eigenvalue is bounded below by a tolerance
+  $-\varepsilon_P$, which phase 0 sets from the measured values with a stated margin and the
+  maintainer approves.
+  - The full problem is not affordable at translation. On a $256^2$ Cartesian grid it is a
+    dense eigenproblem of order 65 536 at each frequency, and on the radial grid it costs
+    $n_r^3$ per frequency.
+  - The admission value is therefore computed on a reduced surrogate: one transverse axis at
+    a time, at the frequency with the smallest $k_z$, by a matrix-free Lanczos iteration
+    for the minimum eigenvalue, with the metric applied by the grid's own transform.
+  - Phase 0 validates the surrogate against the full computation on small grids of every
+    geometry. A surrogate that does not bound the full value from below, within its margin,
+    is not adopted.
 - **Removal is signed.** `spatial_removed` may go negative. It is called "removed field
   norm", never "absorbed physical energy". It may be read as energy only for a paraxial
   beam far from cutoff, where the field norm and the flux agree (SEP 21 D16).
@@ -647,7 +685,12 @@ commute.
   (SEP 21 D10).
 - A plane that keeps no field still accumulates, because the reduction runs on the backend.
 - `spatial_removed` is reported in J/m on the line route and in J elsewhere, in the units of
-  `absorbed_power`'s channels' integrals, and separately from them.
+  `absorbed_power`'s channels' integrals, and separately from them. It is reported signed,
+  never clipped at zero as the temporal monitor's removed fraction is today.
+- The safety ramp's removal is SEP 23's transverse channel of `absorbed_power`. That
+  channel exists today only where a separable operator does (Cartesian, line and planar).
+  It is extended to the radial ($k_r$) ramp, so that every removal of the field norm has a
+  named entry.
 
 ### 5. Proposed interface
 
@@ -673,6 +716,10 @@ definition the §2 radial AN 30 collar has `collar_fraction = 1.0`, and the Cart
 - `collar_fraction=0` leaves no room for a collar. The real-space part is then refused, and
   a ramp-only absorber is allowed.
 - The window `W` keeps its role as the monitor's region marker.
+- The other consumers of the window (§3) follow the placement. The coupling plane's radial
+  resampling keeps the requested radius and its own collar fraction, rather than doubling an
+  outer radius that now includes the collar. The coupling elements' boundary mask is the
+  region outside the requested size.
 
 #### 5.2 The absorber: a specification, resolved at translation
 
@@ -700,6 +747,8 @@ prop_free(..., spatial_absorber=False)             # wall or wrap, as today
 - `attenuation` $\Gamma_\mathrm{min}$ (field nepers, default $\log(5\times10^3)$).
 - `profile`.
 - `safety_fraction` $f_s$ (default 0.1).
+- `cover` (`"protected"`, the default, or `"intermediate"`): the band the crossing step limit
+  of §4.7 guards.
 - `scheme` (`"in_stage"` or `"split_step"`).
 - `real_space` and `safety` switches.
 
@@ -730,6 +779,7 @@ explicit `kappa`, then `angle`, then the launch.
   - the safety ramp's rate on the spectral columns;
   - $\kappa_\mathrm{lo}$, $\kappa_p$ and $\kappa_s$, with the intermediate band and its
     weakest $\Gamma_\mathrm{tot}$;
+  - the unguarded band of §4.7, which a packet may cross within one step;
   - any QDHT columns below the band;
   - the crossing step limit;
   - the passivity admission value of §4.9.
@@ -742,12 +792,23 @@ explicit `kappa`, then `angle`, then the launch.
   - A launch with $\kappa_\mathrm{rms} < \kappa_\mathrm{lo}$ is warned of, because the
     beam's own diffraction would then be reflected.
 - **When it is frozen and rebuilt.** The design is resolved once per translation and is
-  immutable.
-  - `with_input`, and a scan point that changes the launch, re-resolve a launch-derived
-    band; an explicit band is kept.
+  immutable. It is part of the translated problem, so it follows that problem's sharing.
+  - `with_input` keeps the design. A derived run shares its parent's linear operator,
+    transform and step limits, and that sharing is what lets derived runs and batches reuse
+    them. The precedent is the optmat rate bindings, which also stay bound to the original
+    input. When the new launch's $\kappa_\mathrm{rms}$ exceeds the band the design was
+    resolved for, the run warns.
+  - A scan point builds and translates its own simulation, so it resolves its own design.
+    Points that differ only in energy keep $\kappa_\mathrm{rms}$ and the same design, and so
+    still share leaves in a lockstep batch.
   - Coupling a field to another grid or medium (SEP 31) resolves the child's own
-    specification on its own grid.
-  - A resume reuses the recorded design, and refuses a resume whose grid differs from it.
+    specification on its own grid. A child whose band is launch-derived is translated
+    against its actual incident launch, not against the zero placeholder launch that sizes
+    its port.
+  - A launch that is zero everywhere, with no declared `kappa` or `angle`, is refused.
+  - A resume translates the simulation again and resolves the same design. The design is
+    recorded in the run's configuration and is part of its resume key, so any difference
+    refuses the resume.
 
 **Removed:**
 
@@ -766,7 +827,12 @@ limit of §4.7.
 
 - `"split_step"` is admitted only with `RungeKutta`, and is refused by name under
   `Multistep` and `LowStorageRungeKutta`, under interpolated planes, and on backends not
-  yet qualified.
+  yet qualified. The refusal keys on the spatial scheme alone: the temporal split stays
+  admitted under every integrator, as SEP 21 left it.
+- `"split_step"` is built first on `numpy_ref`, for phase 0 and the phase 1 qualification. It
+  is carried to the compiled backends only if phase 0 shows a cost advantage over in-stage
+  at matched accuracy (§6). Otherwise those backends refuse it by name, and the option stays
+  on `numpy_ref` with a roadmap item.
 - `"in_stage"` keeps today's stability check, and refuses the singular profile.
 
 #### 5.4 Monitoring: judge what returns, not what arrives
@@ -779,16 +845,27 @@ own measured quantity. Every share is normalised by the launch's field norm $U_\
 |---|---|---|
 | launch clipped by the aperture | the launch's share in the guard (the outer 5 % of the requested size) at $z=0$ | warn above budget, as for time |
 | intended outward flow | guard and collar shares along $z$; `spatial_removed` | recorded at INFO, never a stop |
-| inadequate absorption, or contamination returning | the **inward-travelling** share in the guard | warn above budget; stop above $10^{-2}$ of the launch until qualified (Q7) |
+| inadequate absorption, or contamination returning | the **inward-travelling** share in the return strip | warn above budget; stop above $10^{-2}$ of the launch until qualified (Q7) |
 | a design gap | the intermediate band's weakest $\Gamma_\mathrm{tot}$ and the crossing limit, both at translation | a warning |
 
-The returned share is the field in the guard that travels *towards* the aperture's
+The returned share is the field near the edge that travels *towards* the aperture's
 interior.
 
+- **Its strip is not the guard.** A direction can be resolved only for content whose
+  transverse wavelength fits in the strip. A 5 % guard of a 150 µm request is 7.5 µm wide, a
+  wavenumber resolution near $8\times10^5$ m⁻¹. The content that reflects lies below
+  $\kappa_\mathrm{lo}$, about $4\times10^4$ m⁻¹ on the §2 probe. The return strip, which
+  may extend into the collar, is therefore sized from the design, with a wavenumber
+  resolution well below $\kappa_\mathrm{lo}$. Its width and estimator are set in phase 0.
 - On a Cartesian face it is the energy, in a windowed transform along the face's normal over
-  the guard strip, at wavenumbers pointing inward.
-- On the radial grid it is the incoming cylindrical-wave part of the guard's field, from the
-  field and its radial derivative at each frequency.
+  the return strip, at wavenumbers pointing inward.
+- On the radial grid it is the incoming cylindrical-wave part of the strip's field. A
+  decomposition from the field and its radial derivative is defined only for one
+  wavenumber, so the radial estimator is chosen in phase 0 from candidates measured
+  against the radial witnesses.
+- **The noise floor.** The builders' default input noise fills every strip. As for the
+  temporal guards (SEP 21 D13), a share is judged only above the analytic expectation of
+  the input noise in that region.
 
 Light leaving cleanly gives a small returned share however much reaches the edge. A
 reflecting or under-strength collar gives a large one. Phase 0 qualifies the measure's own
@@ -798,7 +875,8 @@ on reflecting and wrapping runs that must be caught (§7.6). The end-of-plane lo
 
 #### 5.5 Composition
 
-- *Scans and coupling:* the specification is plain data, resolved per run (§5.2).
+- *Scans and coupling:* the specification is plain data, resolved per translation, with
+  the sharing and coupling rules of §5.2.
 - *Single precision:* the rate or the factor is applied in the state's precision.
 - *The low-storage march* (SEP 24) and *the Adams march* (SEP 16, SEP 39): in-stage only
   (§4.7).
@@ -828,7 +906,9 @@ The recommendation is in-stage because:
 - the controller sees it;
 - it disturbs no history;
 - the step limit of §4.7 binds either scheme anyway;
-- a wide, weak collar keeps its stability limit long.
+- a wide, weak collar keeps its stability limit long under Runge–Kutta. Under the default
+  Adams `Multistep` it is about 38 times shorter (§4.7), and phase 0 measures what that costs
+  before the recommendation is confirmed for the radial and planar routes.
 
 **Folding the rate into the linear operator** is exact but not affordable. In the radial
 basis, $F\,\mathrm{diag}(\alpha)\,B$ is dense and does not commute with the diagonal linear
@@ -953,7 +1033,9 @@ accurate, never silently wrong.
   protected band and stays inside the aperture is unchanged to rounding.
 - **The ledger closes.** With temporal and spatial collars both active, the ledger closes:
   $U(z)$ plus the ordered credits plus the mask entry equals $U_\mathrm{launch}$, within
-  the step's error. Checked across a checkpoint and resume, and with field-free planes.
+  the step's error. The test runs in a lossless, linear medium. Otherwise the safety ramp
+  (the transverse channel), the evanescent and material channels and any ionisation loss
+  enter the closure too. Checked across a checkpoint and resume, and with field-free planes.
 - **Passivity admission.** The admission values of §4.9, for generator and split map, on
   each geometry.
 - **Independence of $L$.** The resolved operator is the same for $L$ and $2L$; this is
@@ -1016,13 +1098,23 @@ Kernel `SCHEMA_VERSION` and output `SCHEMA_VERSION` are bumped in phase 1.
 
 Validated results to redo:
 
-- the suite's `spatial_absorber` case and its baselines;
-- the radial and Cartesian performance-tracking cases;
-- the free-space galleries (`plot_03_line`, `plot_05_low_storage`,
-  `plot_06_four_wave_mixing_scan`, `plot_07_far_field_statistics`) and the geometry figure.
+- the suite's `spatial_absorber` case and its baselines, whose boundary changes from a wall
+  to an absorber (§3);
+- the radial, Cartesian, line and planar performance-tracking cases;
+- the free-space galleries, all of them: those that set a collar or a ramp
+  (`plot_03_line`, `plot_04_planar_hybrid`, `plot_05_low_storage`,
+  `plot_06_four_wave_mixing_scan`, `plot_07_far_field_statistics`), and those whose radial
+  sampling or aperture changes with the placement (`plot_01_radial`, `plot_02_cartesian`,
+  `plot_08_radial_capillary_coupling`);
+- the introduction's filament and crossing-beam tutorials;
+- the geometry figure.
 
 Downstream Cartesian models that run with a $k_\perp$ ramp and no real-space collar take a
 specification with `real_space=False`, or the default, and re-qualify their numbers.
+
+The device backends (MLX and the native GPU builds) run today's in-stage collar now, with no
+refusal. Under the new design they either carry the new parts (the radial and planar
+safety ramps, the transverse monitor edges) or refuse those parts by name.
 
 ### 10. Alternatives considered
 
@@ -1060,8 +1152,16 @@ interface change.
 - Scheme accuracy (§7.4), including the crossing counterexample.
 - The protected-signal and collar-occupying witnesses.
 - A first returned-share measure, and its floor.
-- Passivity values.
-- Costs at matched accuracy.
+- Passivity values, and the reduced surrogate of §4.9 checked against the full
+  computation on small grids.
+- The in-stage cost under the default Adams `Multistep` on the radial and planar witnesses,
+  beside Runge–Kutta (§4.7).
+- The return strip's width and estimator, their resolution and floor, judged above the
+  input-noise floor (§5.4).
+- The step cost of `cover="intermediate"` (§4.7).
+- Costs at matched accuracy, including the dense radial work at the default
+  `collar_fraction` against a run of the same spacing without a collar, and the split
+  against in-stage, which decides whether the split reaches the compiled backends (§5.3).
 - A report that recommends answers to Q1–Q7, for the maintainer's decision before phase 1.
 
 **Phase 1 — `numpy_ref`, interface and documentation.**
@@ -1099,6 +1199,9 @@ or reports against it, and a departure returns the question to the maintainer.
    §2 probe's best radial collar was as wide as the aperture; the radial cost, $(1+f)^2$ in
    dense work, is small in absolute terms, while the Cartesian cost, $(1+f)^2$ in memory,
    is not. A run short of memory narrows the collar and declares its protected band.
+   *Pre-acceptance note:* the dense Hankel products dominate a radial stage, so $f=1$ is
+   four times that work at fixed spacing, plus the collar's own dense product. Phase 0
+   reports the measured factor before Q2 is confirmed.
 3. **Q3 — the profile.** *Decided:* the Planck taper's complement is the default. The
    polynomials are measured against it in phase 0. The singular profile is dropped unless
    phase 0 shows a large gain, because it would bring the split scheme and its history
@@ -1106,6 +1209,11 @@ or reports against it, and a departure returns the question to the maintainer.
 4. **Q4 — the default scheme.** *Decided:* in-stage by default; `"split_step"` optional for
    `RungeKutta` only, refused under `Multistep` and `LowStorageRungeKutta` (§4.7). Whether
    SEP 21's split temporal collar needs the analogous crossing limit goes to the roadmap.
+   *Pre-acceptance note:* the radial and planar routes default to `Multistep`, under which
+   the in-stage stability limit is about 38 times shorter than under Runge–Kutta (§4.7).
+   Q4 returns to the maintainer if phase 0 finds those runs bound by it. The split is built
+   on `numpy_ref` first, and reaches the compiled backends only on phase 0's evidence
+   (§5.3).
 5. **Q5 — the default protected band.** *Decided:* the launch times $c_b$, as a fallback
    that the resolved design records as protecting the launched spread only, with the
    monitor's returned share as the safety net. The guide tells users who expect generated
@@ -1113,7 +1221,7 @@ or reports against it, and a departure returns the question to the maintainer.
    phase 0.
 6. **Q6 — the safety band and passivity tolerance.** *Decided:* the safety band is the
    outer 10 % of each axis's wavenumbers, on by default on every geometry, radial and
-   planar included, with the strength rule of §4.4. $arepsilon_P$ is phase 0's worst
+   planar included, with the strength rule of §4.4. $\varepsilon_P$ is phase 0's worst
    measured admission value with a margin of ten.
 7. **Q7 — the monitor's policy.** *Decided:* a returned share above budget warns; the run
    stops only on gross return, above $10^{-2}$ of the launch's field norm, until phase 0
@@ -1168,6 +1276,11 @@ transcribed, is checked against the full text in phase 0 and recorded in its rep
 - 2026-10-31: Maintainer decisions (John Travers): R1–R14 accepted as revised; Q1–Q7
   decided as recommended (§12). The §2 probe was re-run on main at b09d43b with
   unchanged step counts and errors.
+- 2026-10-31: Opus 5.5 checked Part I against the code at 0fedea2 before acceptance
+  (*Pre-acceptance check* below). The maintainer accepted findings A1–A9 and ruled on
+  A10–A11, and Part I was amended accordingly. The amendments are listed below.
+- 2026-10-31: Human review and acceptance (John Travers). Review status `Reviewed`; status
+  `Accepted`, then `In progress` on `feature/sep-0040-transverse-boundaries`.
 
 ### AI review — 2026-10-31 (GPT-6)
 
@@ -1699,3 +1812,56 @@ The maintainer's decisions on the points remain to be recorded beside them.
 
 The probe's figures in §2 are unchanged, since they were measured; only their description
 is corrected. No new propagation measurements were made for this revision.
+
+### Pre-acceptance check — 2026-10-31 (Opus 5.5)
+
+Part I was read against the code at 0fedea2: the grids, the three translation sites, the
+problem's checks, the monitor, the steppers, the four backends, coupling, the tracking
+cases, the galleries and a downstream package. Its scalings were also rechecked: §4.2–4.4,
+the order-of-magnitude table and the probe geometry. Those hold. The maintainer's rulings
+(John Travers, 2026-10-31) follow each finding. Part I was amended before acceptance as
+noted.
+
+1. **A1 — in-stage stability under the default integrator.** §4.7 quoted the stability
+   limit for Runge–Kutta. The radial and planar routes default to the Adams `Multistep` at
+   order 5, whose negative-real interval is 0.0877 against 3.3. On the probe that is about
+   0.12 mm against 4 mm. *Ruling:* measure it in phase 0; Q4 returns if collar stability
+   binds. *Amended:* §3, §4.7, §6, §11, §12 Q4.
+2. **A2 — the launch-derived band's lifecycle.** `with_input` shares the parent's operator,
+   transform and step limits by identity, and SEP 31 children are translated against a
+   zero placeholder launch. Neither can re-resolve a band. *Ruling:* the design is frozen
+   at translation; a coupled child is translated against its actual launch. *Amended:* §5.2,
+   §5.5.
+3. **A3 — the returned-share strip.** A 5 % guard cannot resolve the direction of the
+   content that reflects, and the default input noise fills it. *Ruling:* accepted.
+   *Amended:* §5.4, §11.
+4. **A4 — the crossing limit and the intermediate band.** Above about
+   $(0.75/c_\times)\kappa_p$, intermediate-band content may cross within one step, and §4.7
+   referred to an option §5.2 did not define. *Ruling:* add `cover`, record the unguarded
+   band, and measure the cost. *Amended:* §4.7, §5.2, §11.
+5. **A5 — the cost of the passivity admission.** The full generalised eigenproblem is not
+   affordable at translation on Cartesian grids. *Ruling:* use a reduced surrogate,
+   validated in phase 0. *Amended:* §4.9, §11.
+6. **A6 — the ledger and its channels.** The closure test ignored the safety ramp and the
+   other channels. SEP 23's transverse channel exists only where an operator is separable.
+   The temporal monitor clips removal at zero. *Ruling:* accepted. *Amended:* §4.9, §7.7.
+7. **A7 — the reflection floor's range.** The floor was stated over a protected band that
+   includes content reflected by design. *Ruling:* accepted. *Amended:* §4.8.
+8. **A8 — other consumers of the window.** These are the coupling plane's radial
+   resampling, the coupling elements' boundary mask and the run record. *Ruling:* in scope.
+   *Amended:* §3, §5.1.
+9. **A9 — factual corrections.** The corrections covered:
+   - the planar rate site and `PlanarGrid.window_y`;
+   - where `boundary_N` and the temporal scheme live;
+   - the stability check's effective rate;
+   - where the collar warning is raised;
+   - the `spatial_absorber` tracking case, which today has no real-space collar;
+   - the complete list of galleries to redo;
+   - the device backends.
+
+   *Amended:* §3, §9.
+10. **A10 — the split's scope.** Its main reason, the singular profile, was dropped with Q3.
+    *Ruling:* build it on `numpy_ref`, and carry it further only on phase 0's evidence.
+    *Amended:* §5.3, §11, §12 Q4.
+11. **A11 — the radial cost of $f = 1$.** The dense Hankel products dominate a radial stage.
+    *Ruling:* phase 0 reports the factor before Q2 is confirmed. *Amended:* §11, §12 Q2.

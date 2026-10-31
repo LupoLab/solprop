@@ -31,6 +31,14 @@ being implemented.
   identifies a new material contract. Ne/Xe, mixtures, mode-averaged and multimode
   routes, bound response and other geometries remain follow-up work; the first route is
   a single-mode capillary with node quadrature.
+- [SEP 40 — Transverse absorbing boundaries for free-space propagation](seps/sep-0040-transverse-absorbing-boundaries.md):
+  in progress. The radial, Cartesian, line and planar real-space collar placed outside
+  the requested aperture and sized by a declared protected band of transverse
+  wavenumbers rather than the run length, in-stage under a collar-crossing step limit
+  (a split option for Runge–Kutta, on `numpy_ref` first), with the k⊥ ramp kept to a
+  numerical safety band (now also radial and planar), a monitor that judges returning
+  light, and a signed removal ledger. Perfectly matched layers, adaptive transverse
+  windows, the escaped transverse field and a flux-weighted spatial ledger remain open.
 
 ## Draft enhancement proposals
 
@@ -86,14 +94,6 @@ The [SEP index](seps/index.md) lists every proposal and its current status.
   subtraction, a weak-response limit and local temporal integration. Its ensemble,
   data and integration questions must be settled before acceptance; shared-level
   ladders, vector saturation and repeated-window histories remain future work.
-- [SEP 40 — Transverse absorbing boundaries for free-space propagation](seps/sep-0040-transverse-absorbing-boundaries.md):
-  the radial, Cartesian, line and planar real-space collar placed outside the requested
-  aperture and sized by a declared protected band of transverse wavenumbers rather than
-  the run length, in-stage under a collar-crossing step limit (split optional for RK),
-  with the k⊥ ramp kept to a numerical safety band (now also radial and planar), a
-  monitor that judges returning light, and a signed removal ledger. Perfectly matched
-  layers, adaptive transverse windows, the escaped transverse field and a flux-weighted
-  spatial ledger remain open.
 
 The informal items below record work not fully covered by these proposals. When adding
 or revising a SEP, remove an informal item only if the proposal covers it in full;
