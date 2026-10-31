@@ -37,7 +37,7 @@ from solprop.translate.masks import Grids
 from solprop.translate.modal import Transform
 from solprop.translate.problem import (
     DEFAULT_COMPONENTS,
-    SCHEMA_VERSION,
+    KERNEL_SCHEMA_VERSION,
     Flags,
     Initial,
     KernelProblem,
@@ -192,9 +192,9 @@ def test_the_contract_document_lists_every_flag(soliton):
 
 def test_the_document_is_the_version_the_module_writes():
     """A bump of one without the other is exactly what the contract test is for."""
-    assert SCHEMA_VERSION == 39
+    assert KERNEL_SCHEMA_VERSION == 39
     assert soliton_schema_version_row().startswith("incremented on every change")
-    assert f"current version is **{SCHEMA_VERSION}**" in CONTRACT.read_text(
+    assert f"current version is **{KERNEL_SCHEMA_VERSION}**" in CONTRACT.read_text(
         encoding="utf-8"
     )
 
@@ -211,7 +211,7 @@ def soliton_schema_version_row():
 
 
 def test_the_soliton_problem_assembles(soliton, envelope_grid):
-    assert soliton.schema_version == SCHEMA_VERSION
+    assert soliton.schema_version == KERNEL_SCHEMA_VERSION
     assert soliton.grid_kind == "envelope"
     assert soliton.shape == (1, 1, 1, envelope_grid.n_omega)
     assert soliton.flags == Flags(
@@ -398,7 +398,7 @@ def corrupt(problem, group, name, value):
 
 def test_validate_rejects_a_wrong_schema_version(soliton):
     stale = dataclasses.replace(soliton)
-    object.__setattr__(stale, "schema_version", SCHEMA_VERSION + 1)
+    object.__setattr__(stale, "schema_version", KERNEL_SCHEMA_VERSION + 1)
     with pytest.raises(TranslationError, match="schema_version"):
         stale.validate()
 

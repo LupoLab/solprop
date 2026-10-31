@@ -90,7 +90,7 @@ expansion. A
 total-degree expansion is not part of the contract: it failed the joint memory and
 build-cost criterion on the short fixture.
 
-The current version is **39** (`solprop.translate.problem.SCHEMA_VERSION`), and the
+The current version is **39** (`solprop.translate.problem.KERNEL_SCHEMA_VERSION`), and the
 tables of this document describe it. A version bump that adds an optional field
 leaves every problem that does not use it unchanged, `schema_version` itself being the
 one thing that moves. Removing an admitted value needs no bump, because no consumer can
@@ -195,8 +195,8 @@ refuses such a problem by name through the shared admission list.
 **The frozen literals and the contract tuples.** `tests/backends/test_driver.py` freezes
 `DRIVER_SURFACE`, `LINEAR_OPERATOR_FIELDS` (`dataclasses.fields(LinearOperator)`),
 `STAGE_TERMS_FIELDS`, `STAGE_SCALARS_FIELDS` and `SEPARABLE_OPERATOR_FIELDS` under
-`SCHEMA_VERSION`; a bump rewrites the literal it changes. `solprop-native` exports its own
-tuples of the names it relies on — `LINEAR_OPERATOR_FIELDS`, `TRANSFORM_FIELDS`,
+`KERNEL_SCHEMA_VERSION`; a bump rewrites the literal it changes. `solprop-native` exports
+its own tuples of the names it relies on — `LINEAR_OPERATOR_FIELDS`, `TRANSFORM_FIELDS`,
 `RESPONSE_FIELDS`, `STAGE_SCALARS_FIELDS`, and `MODAL_TABLES_FIELDS` (`electric`,
 `omega_fine`, `projection`, `region_index`, `source_frequency_factor`, `synthesis`),
 `REGIONAL_RESPONSE_FIELDS` (`n_terms`) and `COUPLED_FLOW_FIELDS` (`connection`,

@@ -29,7 +29,7 @@ from solprop.spatial import SpatialMedium
 from solprop.stepper import PIController
 from solprop.translate.modal import BUFFERS_PER_NODE
 from solprop.translate.problem import (
-    SCHEMA_VERSION,
+    KERNEL_SCHEMA_VERSION,
     _dispersive_chunk,
     assemble,
     dispersive_node_buffers,
@@ -226,7 +226,7 @@ def test_the_problem_carries_the_leaf_and_its_stage_row(field_grid, mode):
     problem = problem_for(
         field_grid, mode, [DispersiveKerrResponse(ARGON, "polynomial")]
     )
-    assert problem.schema_version == SCHEMA_VERSION == 39
+    assert problem.schema_version == KERNEL_SCHEMA_VERSION == 39
     assert problem.grids.carrier_2w0 is None
     bundle = scalars(problem, 0.0, 0.05)
     expected = float(mode.density(np.array([0.05]))[0])

@@ -124,8 +124,8 @@ A plain `uv sync` leaves it out, and removes a copy installed by hand. The edita
 install does not rebuild itself: run `uv sync --extra native --reinstall-package
 solprop-native` after a native change. `uv run poe check-native` runs the native gate
 and `uv run poe check-all` both gates. A build stays valid across solprop changes until
-solprop's kernel schema (`SCHEMA_VERSION`) changes or `check_build()` names a member the
-installed solprop lacks. Running solprop's test lanes against the build is described in
+solprop's kernel schema (`KERNEL_SCHEMA_VERSION`) changes or `check_build()` names a
+member the installed solprop lacks. Running solprop's test lanes against the build is described in
 the developer notes on [testing](../../dev/testing.md#tiers-and-backends).
 
 ## Running on a GPU

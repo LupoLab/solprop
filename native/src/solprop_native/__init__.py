@@ -240,7 +240,7 @@ backend's native Adams march runs many attempts per call and books them through 
 with the policy of :data:`MARCH_POLICY_FIELDS` and the march's members of
 :data:`ADAMS_MARCH_SURFACE`.
 
-solprop freezes this surface under its ``SCHEMA_VERSION`` (the test in its
+solprop freezes this surface under its ``KERNEL_SCHEMA_VERSION`` (the test in its
 ``tests/backends/test_driver.py``); :func:`check_build` looks each member up so a
 solprop that renamed one is refused by name rather than failing inside a step.
 """

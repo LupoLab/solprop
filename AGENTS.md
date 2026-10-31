@@ -326,7 +326,7 @@ The long form is [`backends.md`](docs/dev/backends.md).
 - **In-place and `out=`** only inside the backends, wrapped by the seam; every buffer is
   listed by `memory_ledger()`, which is tested.
 - Device arrays never cross the seam; backends take and return host arrays.
-- **`SCHEMA_VERSION` versions the whole seam** (the `KernelProblem` fields, the
+- **`KERNEL_SCHEMA_VERSION` versions the whole seam** (the `KernelProblem` fields, the
   protected `StepDriver` surface and the stage bundles of `translate/stage.py`, frozen in
   `tests/backends/test_driver.py`). Changing any of them bumps the version, rewrites the
   literal in the same commit and adds a changelog line.

@@ -49,7 +49,7 @@ from solprop.translate.modal import (
     multimode_transform,
 )
 from solprop.translate.problem import (
-    SCHEMA_VERSION,
+    KERNEL_SCHEMA_VERSION,
     Flags,
     Initial,
     KernelProblem,
@@ -94,8 +94,8 @@ __all__ = [
     "DEFAULT_NODE_BUDGET",
     "DEFAULT_SPATIAL_NODE_BUDGET",
     "DEFAULT_TOL",
+    "KERNEL_SCHEMA_VERSION",
     "MAX_DECAY_EXPONENT",
-    "SCHEMA_VERSION",
     "AbsorberScheme",
     "CompiledResponses",
     "Flags",

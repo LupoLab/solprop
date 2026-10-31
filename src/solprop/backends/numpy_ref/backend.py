@@ -108,8 +108,8 @@ from solprop.translate.linop import power_weight_at
 from solprop.translate.modal import DEFAULT_NODE_BUDGET
 from solprop.translate.plasma_source import _BENCHMARK_GATED
 from solprop.translate.problem import (
+    KERNEL_SCHEMA_VERSION,
     MAX_N_POL,
-    SCHEMA_VERSION,
     KernelProblem,
 )
 from solprop.translate.spatial import separable_values
@@ -2862,10 +2862,11 @@ def _refuse_unsupported(problem: KernelProblem) -> None:
     BackendError
         Naming what is unsupported.
     """
-    if problem.schema_version != SCHEMA_VERSION:
+    if problem.schema_version != KERNEL_SCHEMA_VERSION:
         msg = (
-            f"this backend implements kernel contract version {SCHEMA_VERSION} and "
-            f"the problem declares version {problem.schema_version}"
+            "this backend implements kernel contract version "
+            f"{KERNEL_SCHEMA_VERSION} and the problem declares version "
+            f"{problem.schema_version}"
         )
         raise BackendError(msg)
     refuse_general_leaves(problem, "numpy_ref", admits=_GENERAL_LEAVES)
