@@ -34,7 +34,7 @@ do not launch the full suite merely because a SEP is being committed or merged.
 | invariant | energy and photon number where conserved, Parseval, time reversal, symmetries, positivity, orthonormality of modes | grids, transforms, modes, responses |
 | convergence | halve the step or double the grid and the error scales at the expected order; three levels with an order gate that rejects `order > p + 3` | stepper, quadrature, tables, Chebyshev |
 | round trip | build → translate → run → process and recover a known input | pulses, output, processing |
-| parity | field vs envelope for narrowband pulses; mode-averaged vs one-mode multimode; batch vs sequential; backend vs reference | every nonlinear feature, every backend |
+| parity | field vs envelope for narrowband pulses; mode-averaged vs one-mode multimode; batch vs sequential; backend vs reference | every nonlinear feature, on each backend that runs it (on both Tier 1 backends always; ADR-061) |
 | property-based | `hypothesis` over grid sizes, pulse parameters, pressures | grids, pulses, materials, Chebyshev |
 | golden regression | `pytest-regressions` (`num_regression`) with tolerance, reference stored next to the test | materials tables, stored Luna results |
 | reference problem | the ladder in [stepper.md §11](stepper.md#11-verification-ladder-for-solprops-solver-tests): P0 linear, P1 N-soliton with phase, P2 analytic z-varying loss and dispersion, P3 cross-scheme Richardson | solver work |

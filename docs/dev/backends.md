@@ -3,10 +3,11 @@
 Everything that touches the propagated state during a run is reached through one seam, and
 only the backends know how the state is laid out, transformed and stepped. This document
 fixes the seam, the reference backend, the numba CPU backend, the native backend (built from `native/`), the
-threading model, the memory ledger and admission, and which backend runs what. Which
+threading model, the memory ledger and admission, which backend runs what, and the
+tiers that set where new features land (§10). Which
 backend to choose for a run is the user guide's
 [Choosing a backend](../guide/performance/backends.md). Decisions: ADR-002, ADR-003,
-ADR-013, ADR-020, ADR-023.
+ADR-013, ADR-020, ADR-023, ADR-061.
 
 ## 1. The seam
 
@@ -1981,7 +1982,24 @@ modal, radial, Cartesian, line and planar routes under both integration rules. U
 it is built but not executed in qualification, so the table's CUDA entries for field
 plasma do not cover it. The far-field statistics' device pass is not qualified (§3.13).
 
-## 10. What to use
+## 10. Tiers, and what to use
+
+The backends are ranked in three tiers (ADR-061). A tier sets where development goes,
+not what a backend may run: every backend keeps what it runs, correct and in parity
+with the reference, and refuses the rest by name.
+
+| tier | backends | role | new features |
+|---|---|---|---|
+| 1, the core | `numpy_ref`, `native` | the reference for correctness and for developing an algorithm; production at speed | every one, on both: the native CPU build first, device builds in one qualification pass later; first for testing and development |
+| 2, mature | `numba_cpu` | tested, kept correct and in parity for what it runs | only where a SEP says so |
+| 3, experimental | `mlx` | testing and development; kept runnable and correct | only by work proposed for it |
+
+A SEP is final when its feature runs on both Tier 1 backends with parity tests
+([SEP 0](seps/sep-0000-process.md)). A backend moves between tiers by a new decision
+record, and a new backend starts in Tier 3. `backend="auto"` is `numba_cpu` where the
+native backend is not installed or the processor is below its wheel's baseline (§1), and
+the documentation build installs no native backend, so a feature that `numba_cpu` does
+not run is refused there by name, and its lessons and tutorials name `numpy_ref`.
 
 Which backend and build to choose for a run is the user guide's
 [Choosing a backend](../guide/performance/backends.md#which-backend-to-use).

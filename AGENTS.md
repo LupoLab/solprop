@@ -28,7 +28,7 @@ rather than style, ask rather than guess.
 | Python | 3.14 — equal to `requires-python` in `pyproject.toml` |
 | Platforms | Linux, macOS and Windows for `numpy_ref` and `numba_cpu`; solprop-native as wheels for osx-arm64, linux-64, linux-aarch64 and win-64, from source on Linux and macOS (GPU builds on Linux); the Queue and Slurm scan executors POSIX-only |
 | Type checker | `basedpyright`, pinned exactly in the dev group |
-| Backends | NumPy reference (`numpy_ref`, the oracle), Numba CPU (`numba_cpu`, in-tree), and the native backend (`native`, the `solprop-native` distribution built from `native/`: preferred when installed, and the GPU path) |
+| Backends | In tiers (ADR-061). Tier 1, the core: the NumPy reference (`numpy_ref`, the oracle) and the native backend (`native`, the `solprop-native` distribution built from `native/`: preferred when installed, and the GPU path). Tier 2, mature: Numba CPU (`numba_cpu`, in-tree). Tier 3, experimental: `mlx` (single precision on Apple GPUs) |
 | Materials | [optmat](https://github.com/LupoLab/optmat), the curated optical-materials package |
 | Design docs | `docs/dev/` — architecture, conventions, stepper, algorithms, backends, kernel contract, decisions, roadmap, open questions, testing, accuracy, benchmarks, benchmarking, dependencies, tooling |
 | Enhancement proposals | `docs/dev/seps/` — SEPs for major changes; process in SEP 0 (`sep-0000-process.md`), form in `template.md` |
@@ -191,9 +191,10 @@ The long form is [SEP 0](docs/dev/seps/sep-0000-process.md); the index is
   reach `main` in one pull request, opened when the last commit sets `Final`; there are
   no per-phase pull requests. The branch may start on top of an open pull request's
   branch when pull requests are stacked behind CI. Within each phase: `numpy_ref` first
-  with its tests and manual page, then `numba_cpu`, then native CPU in `native/`. A backend without the feature refuses it by name, never falls back
-  silently; `Final` needs parity across all three, or an exception written into the
-  accepted SEP.
+  with its tests and manual page, then native CPU in `native/`; `numba_cpu` and `mlx`
+  only where the SEP says so (the tiers, below). A backend without the feature refuses
+  it by name, never falls back silently; `Final` needs parity on `numpy_ref` and native
+  CPU, or an exception written into the accepted SEP.
 - **Reporting.** Each phase appends its report to Part II of the SEP: delivered paths,
   deviations and why, decisions (an ADR for a lasting one), the verification actually
   run, sources checked and not checked, limitations, numbered open questions and a
@@ -288,6 +289,12 @@ no blanket `# noqa`). What is left to judgement:
 
 The long form is [`backends.md`](docs/dev/backends.md).
 
+- **Tiers** (ADR-061, `backends.md §10`) set where development goes. Tier 1,
+  `numpy_ref` and `native`: every new feature lands on both, and they come first for
+  testing and development. Tier 2, `numba_cpu`: mature; keep what it runs correct and
+  in parity, and add a feature only where its SEP says so. Tier 3, `mlx`: experimental;
+  keep it runnable and correct, add nothing as part of other work. A backend without a
+  feature refuses it by name.
 - The **NumPy reference backend is the oracle**. Every other backend is validated against
   it (one linear application, one nonlinear evaluation, one step, eight steps, each
   statistic, a full run) with tolerances derived from summation bounds and asserted `> 0`.

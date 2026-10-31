@@ -90,7 +90,9 @@ break the API, the output schema or the resume key, and lists every such break u
   refuses what it cannot certify.
 - **Backends.**
   - `numpy_ref`, the NumPy reference, against which every other backend is tested
-    within derived error bounds, and `numba_cpu`, compiled with Numba.
+    within derived error bounds, and `numba_cpu`, compiled with Numba. The backends come
+    in tiers: new features land on `numpy_ref` and `native`; `numba_cpu` is mature and
+    takes a new feature only where its design says so; `mlx` is experimental.
   - The optional [native backend](https://solprop.readthedocs.io/en/latest/guide/performance/native.html),
     the solprop-native distribution: C++20 kernels on Kokkos for multi-core CPUs
     (OpenMP) and for NVIDIA and AMD GPUs (CUDA, HIP). `pip install "solprop[native]"`

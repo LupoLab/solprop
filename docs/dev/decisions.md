@@ -1626,3 +1626,42 @@ Withdrawn (development-process record, not a design decision).
   - Within one build the two marches read the same tables and norms and take the same
     steps; across builds they differ by rounding, as any two builds do.
   - A native run's metadata records which march stepped it (`adams_march`).
+
+## ADR-061 — Backend tiers: where features land first
+
+- **Status:** accepted (maintainer, 2026-10-31); amends
+  [SEP 0](seps/sep-0000-process.md)'s completion rule, which asked for every feature on
+  `numpy_ref`, `numba_cpu` and the native CPU build
+- **Context:** solprop has four backends, and each new feature was implemented three
+  times before its SEP could be final: in the reference, in Numba and in C++. The native
+  backend is where production runs happen; `numba_cpu` runs the same CPU problems more
+  slowly, and `mlx` is experimental ([backends.md](backends.md) §4a). Every further
+  backend would multiply the cost of a feature.
+- **Decision:** the backends are ranked in three tiers, which set where development
+  goes, not what a backend may run.
+  - **Tier 1, the core: `numpy_ref` and `native`.** `numpy_ref` is the reference for
+    correctness and for developing an algorithm; `native` is the backend for production
+    at speed. Every new feature lands on both, the native CPU build first; device
+    builds follow in one qualification pass, as before. They come first for testing
+    and development, and a SEP is final when its feature runs on both with parity
+    tests.
+  - **Tier 2, mature: `numba_cpu`.** Tested, kept correct and in parity with the
+    reference for everything it runs. A SEP adds its feature here only when the SEP
+    says so; otherwise `numba_cpu` refuses the feature by name.
+  - **Tier 3, experimental: `mlx`.** For testing and development. Kept runnable and
+    correct for what it runs; it gains features only through work proposed for it, even
+    less often than Tier 2.
+  - A backend moves between tiers by a new record; a new backend starts in Tier 3.
+- **Why:** development time goes where the runs are and where correctness is decided;
+  the reference keeps every algorithm checkable, and the other backends keep what
+  they have without taxing every feature.
+- **Consequences:**
+  - A backend without a feature refuses it by name and names a backend that runs it;
+    nothing falls back silently (as before).
+  - `backend="auto"` is `numba_cpu` where the native backend is not installed or the
+    processor is below its wheel's baseline, so there a newer feature is refused, and
+    the refusal names `native` and `numpy_ref`.
+  - The documentation build installs no native backend: a lesson or tutorial of a
+    feature that `numba_cpu` does not run names `numpy_ref`, or is a worked example
+    with committed output.
+  - Features that `numba_cpu` and `mlx` run today stay, with their parity tests.

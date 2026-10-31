@@ -15,6 +15,13 @@ configuration; a faster backend does not select a different physical model.
 | `native` | the [native backend](native.md), the optional solprop-native distribution built from the repository's `native/` directory: OpenMP, FFTW and a vendor BLAS on a CPU, or CUDA/HIP on a GPU | the default when installed, and usually the fastest for large runs, the general modal route, moving solid guides and the coherent wall |
 | `mlx` | the Apple-silicon GPU through Apple's MLX, in **single precision only** ([single precision](single-precision.md)); the `mlx` extra, macOS on Apple silicon; **experimental** in this release | `precision="single"` capillary and fibre runs on a Mac, where it is the `"auto"` choice; it refuses `precision="double"` |
 
+**Tiers.** `numpy_ref` and `native` are the core backends: new features land on both,
+and they come first for testing and development (the few features one of them refuses
+are named below and in their chapters). `numba_cpu` is mature and tested, but a
+new feature reaches it only where its design says so; until then it refuses the run by
+name and names a backend that runs it. `mlx` is experimental
+([backends, §10](../../dev/backends.md); [ADR-061](../../dev/decisions.md)).
+
 `backend="auto"`, the default of every entry point, is `"native"` when `solprop_native`
 is installed and `"numba_cpu"` otherwise; under `precision="single"` it is `"mlx"` when
 MLX and a Metal GPU are present, and refused otherwise. It **never falls back** but in one case: if the
