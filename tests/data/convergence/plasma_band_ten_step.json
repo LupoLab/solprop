@@ -10,7 +10,7 @@
   "launch": "a 1.3 fs, 800 nm GaussianPulse and three 4 fs seeds of 2e-4 of its energy",
   "quantity": "the coarse exit spectrum with the plasma on minus the same off",
   "reference": "Richardson (4 X96 - X48)/3 of the plain trapezoid; its uncertainty from 24 and 48",
-  "run": "prop_capillary(125e-6, L, gas, p, lambda0=800e-9, grid=..., pulses=..., modes=1, schedule=FixedSchedule.uniform(0, L, L/10), noise=None, absorber_scheme='split_step', backend='numpy_ref')",
+  "run": "prop_capillary(125e-6, L, gas, p, wavelength=800e-9, grid=..., pulses=..., modes=1, schedule=FixedSchedule.uniform(0, L, L/10), noise=None, absorber_scheme='split_step', backend='numpy_ref')",
   "source": "SEP 27 held current: DFT[gJ]/(i omega) - DFT[g'J]/(i omega)**2"
  },
  "columns": [

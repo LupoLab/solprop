@@ -63,7 +63,7 @@ disabled here.
             125e-6,
             0.002,
             Mixture.fill({"He": 1.0}, 1.0),
-            lambda0=800e-9,
+            wavelength=800e-9,
             wavelength_limits=(200e-9, 1.5e-6),
             trange=200e-15,
             fwhm=7.5e-15,

@@ -364,7 +364,7 @@ the responding species' density, with the explicit total-density linewidth
 approximation described in [mixtures](mixtures.md). A one-component material uses
 exactly the arithmetic of a single-gas run.
 
-Use `responses_for(mixture, plasma=..., raman=..., thg=..., lambda0=...)` when
+Use `responses_for(mixture, plasma=..., raman=..., thg=..., wavelength=...)` when
 constructing physics objects directly, or the per-label `plasma`, `preionisation` and
 `raman` controls of `prop_capillary`, `prop_waveguide` and their `Simulation`
 constructors. An explicitly selected unavailable response fails with the component's

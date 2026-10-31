@@ -472,9 +472,9 @@ def field_plane(
     >>> from solprop.driver import Simulation
     >>> from solprop.processing import field_plane
     >>> simulation = Simulation.from_gnlse(
-    ...     0.11, 0.01, [0.0, 0.0, -1.183e-26], lambda0=835e-9,
+    ...     0.11, 0.01, [0.0, 0.0, -1.183e-26], wavelength=835e-9,
     ...     wavelength_limits=(500e-9, 2e-6), trange=1.2e-12,
-    ...     width=100e-15, peak_power=9.8, pulseshape="sech", n_save=3,
+    ...     width=100e-15, peak_power=9.8, shape="sech", n_save=3,
     ... )
     >>> plane = field_plane(simulation.run())
     >>> plane.kind, plane.geometry.z, plane.units

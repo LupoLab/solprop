@@ -594,7 +594,7 @@ simulation = Simulation.from_capillary(
     0.5,
     "Ar",
     0.2,
-    lambda0=400e-9,
+    wavelength=400e-9,
     wavelength_limits=(210e-9, 2e-6),
     trange=250e-15,
     fwhm=30e-15,

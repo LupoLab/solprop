@@ -791,9 +791,9 @@ def field_retention(
     >>> from solprop.driver import Simulation
     >>> from solprop.driver.run import field_retention
     >>> simulation = Simulation.from_gnlse(
-    ...     0.11, 0.01, [0.0, 0.0, -1.183e-26], lambda0=835e-9,
+    ...     0.11, 0.01, [0.0, 0.0, -1.183e-26], wavelength=835e-9,
     ...     wavelength_limits=(500e-9, 2e-6), trange=1e-12,
-    ...     width=100e-15, peak_power=9.8, pulseshape="sech", n_save=3,
+    ...     width=100e-15, peak_power=9.8, shape="sech", n_save=3,
     ... )
     >>> field_retention(simulation.translate(), "planes", [-1]).field_planes
     (2,)

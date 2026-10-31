@@ -191,7 +191,7 @@ def _gnlse_key(fibre):
             0.1,
             1e-3,
             fibre=fibre,
-            lambda0=835e-9,
+            wavelength=835e-9,
             wavelength_limits=(600e-9, 1300e-9),
             trange=2e-12,
             fwhm=200e-15,

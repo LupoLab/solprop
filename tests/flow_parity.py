@@ -172,7 +172,7 @@ QUIET = (MaterialRangeWarning, GrazingIncidenceWarning)
 def capillary_case(*, wall, radius=RADIUS, pressure=1.0, modes=3, **overrides):
     """Return one capillary case on the ten-step schedule."""
     arguments = {
-        "lambda0": 800e-9,
+        "wavelength": 800e-9,
         "grid": GRID,
         "absorber": WEAK_COLLAR,
         "fwhm": 30e-15,
@@ -230,10 +230,10 @@ def split_simulation(**overrides):
     length = 1e-3
     arguments = {
         "absorber": absorber(grid, boundary_length=1.0e3),
-        "lambda0": 835e-9,
+        "wavelength": 835e-9,
         "fwhm": 20e-15,
         "energy": 2e-9,
-        "pulseshape": "gauss",
+        "shape": "gauss",
         "backend": "numpy_ref",
         "save_planes": [length],
         "dz_max": length / STEPS,

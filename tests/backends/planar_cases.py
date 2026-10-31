@@ -74,7 +74,7 @@ def planar_case(name, *, steps=None, node_chunk=None):
         LENGTH,
         gas,
         1.0,
-        lambda0=800e-9,
+        wavelength=800e-9,
         grid=grid,
         absorber=absorber(grid, boundary_length=boundary or 1.0e3),
         fwhm=fwhm,

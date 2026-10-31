@@ -453,7 +453,7 @@ def test_a_coherent_wall_flow_beside_the_response_matches_the_reference(policy):
                     "He",
                     1.0,
                     wall=CoherentWall(),
-                    lambda0=800e-9,
+                    wavelength=800e-9,
                     grid=flow_parity.GRID,
                     absorber=flow_parity.WEAK_COLLAR,
                     fwhm=30e-15,

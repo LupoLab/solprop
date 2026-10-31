@@ -414,7 +414,7 @@ whole entrance plane in the coupling's common measure.
         LENGTH,
         "Ar",
         PRESSURE,
-        lambda0=WAVELENGTH,
+        wavelength=WAVELENGTH,
         grid=grid,
         envelope=True,
         fwhm=FWHM,

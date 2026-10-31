@@ -104,7 +104,7 @@ class ResponseSelection:
             thg=self.thg,
             plasma=self.plasma,
             raman=self.raman,
-            lambda0=self.wavelength,
+            wavelength=self.wavelength,
             envelope=self.envelope,
             length=self.length,
             selection=self.selection,

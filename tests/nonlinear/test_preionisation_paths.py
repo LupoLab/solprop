@@ -136,7 +136,7 @@ def test_a_mixture_carries_one_path_per_component_into_its_responses():
         mixture.shared,
         mixture.fractions,
     )
-    built = responses_for(paths, plasma=True, kerr=False, lambda0=800e-9)
+    built = responses_for(paths, plasma=True, kerr=False, wavelength=800e-9)
     by_label = {
         one.species: one.preionisation
         for one in built

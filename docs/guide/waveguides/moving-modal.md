@@ -163,7 +163,7 @@ run = Simulation.from_waveguide(
     1e-3,
     provider=guide,
     grid=grid,
-    lambda0=1.03e-6,
+    wavelength=1.03e-6,
     fwhm=60e-15,
     energy=1e-12,
     save_planes=[1e-3],

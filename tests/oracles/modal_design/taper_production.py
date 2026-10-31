@@ -261,7 +261,7 @@ def production(case, count, per_straight, validity=None, **settings):
             length,
             "He",
             0.0,
-            lambda0=case.wavelength,
+            wavelength=case.wavelength,
             grid=grid,
             absorber=absorber(grid, boundary_length=1e9),
             fwhm=30e-15,

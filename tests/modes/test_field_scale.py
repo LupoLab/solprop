@@ -374,7 +374,7 @@ def capillary_simulation(radial_rule, n_r):
             0.01,
             "He",
             1.0,
-            lambda0=800e-9,
+            wavelength=800e-9,
             fwhm=10e-15,
             energy=1e-6,
             modes=1,

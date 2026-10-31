@@ -1034,7 +1034,7 @@ def _warn_surrogate_area(label: str, omega: object) -> None:
     warnings.warn(
         f"{label}'s effective area is the surrogate at the "
         f"median knot of its guide's band, {where}, not at the pump: pass "
-        "wavelength=<the pump's> to solve it there (prop_gnlse passes lambda0), "
+        "wavelength=<the pump's> to solve it there (prop_gnlse passes wavelength), "
         "or aeff= to declare it",
         SurrogateAreaWarning,
         stacklevel=3,
@@ -1964,7 +1964,7 @@ class SpecifiedMode:
         a moving channel hands over an area path at the pump. With neither `aeff`
         nor `wavelength`, the median-knot surrogate is used and a
         :class:`~solprop.exceptions.SurrogateAreaWarning` says so.
-        :func:`solprop.driver.interface.prop_gnlse` passes its ``lambda0``.
+        :func:`solprop.driver.interface.prop_gnlse` passes its ``wavelength``.
 
         Parameters
         ----------
@@ -1984,7 +1984,7 @@ class SpecifiedMode:
             as :class:`~solprop.modes.tabulated.TabulatedMode`'s is at its own
             ``reference_wavelength`` -- so there it is accepted and **ignored**,
             which is what lets :func:`solprop.driver.interface.prop_gnlse` pass its
-            ``lambda0`` for any fibre.
+            ``wavelength`` for any fibre.
 
         Returns
         -------

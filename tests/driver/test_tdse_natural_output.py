@@ -55,7 +55,7 @@ def fake(monkeypatch):
 
 def _simulation(**changes):
     values = {
-        "lambda0": 800e-9,
+        "wavelength": 800e-9,
         "wavelength_limits": (400e-9, 1.6e-6),
         "trange": 40e-15,
         "fwhm": 6e-15,

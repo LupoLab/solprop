@@ -41,7 +41,7 @@ def capillary(policy: str = "gas-polynomial", gas: Any = "Ar", **overrides: Any)
     """Return a short capillary under an electronic policy, without propagating."""
     grid = FieldGrid.from_limits(LENGTH, 800e-9, (190e-9, 3e-6), 100e-15)
     arguments: dict[str, Any] = {
-        "lambda0": 800e-9,
+        "wavelength": 800e-9,
         "grid": grid,
         "fwhm": 30e-15,
         "energy": 1e-6,
@@ -107,12 +107,12 @@ def test_the_gnlse_refuses_a_dispersive_policy_by_name():
             0.11,
             0.01,
             [0.0, 0.0, -1.183e-26],
-            lambda0=835e-9,
+            wavelength=835e-9,
             wavelength_limits=(500e-9, 2e-6),
             trange=1e-12,
             width=100e-15,
             peak_power=9.8,
-            pulseshape="sech",
+            shape="sech",
             n_save=2,
             materials=MaterialSelection(electronic="gas-polynomial"),
             noise=None,

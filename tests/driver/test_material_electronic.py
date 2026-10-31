@@ -46,7 +46,7 @@ def capillary(
         LENGTH, CARRIER, (300e-9, 3e-6), 100e-15
     )
     options: dict[str, Any] = {
-        "lambda0": CARRIER,
+        "wavelength": CARRIER,
         "grid": grid,
         "absorber": absorber(grid, boundary_length=1.0),
         "fwhm": 30e-15,
@@ -102,7 +102,7 @@ def test_the_manifest_records_the_law_the_carrier_and_the_thg_discrepancy():
 
 def test_another_carrier_is_another_policy():
     grid = FieldGrid.from_limits(LENGTH, 1030e-9, (300e-9, 3e-6), 100e-15)
-    other = capillary(grid=grid, lambda0=1030e-9).material_manifest()
+    other = capillary(grid=grid, wavelength=1030e-9).material_manifest()
     first = capillary().material_manifest()
     assert other.policies["electronic_response"]["carrier_wavelength"] == 1030e-9
     assert first.hashed() != other.hashed()
@@ -113,8 +113,8 @@ def test_a_carrier_that_is_not_the_grids_is_refused():
         capillary(materials=MaterialSelection(carrier_wavelength=1030e-9))
     # The same carrier, given explicitly, is accepted.
     capillary(materials=MaterialSelection(carrier_wavelength=CARRIER))
-    with pytest.raises(DriverError, match=r"lambda0 is 1\.03e-06 m"):
-        capillary(lambda0=1030e-9)
+    with pytest.raises(DriverError, match=r"wavelength is 1\.03e-06 m"):
+        capillary(wavelength=1030e-9)
 
 
 def test_a_gnlse_lambda0_that_is_not_the_grids_carrier_is_refused():
@@ -125,21 +125,21 @@ def test_a_gnlse_lambda0_that_is_not_the_grids_carrier_is_refused():
         "trange": None,
         "materials": SELECTION,
     }
-    with pytest.raises(DriverError, match=r"lambda0 is 8e-07 m"):
-        gnlse(lambda0=800e-9, **common)
-    policy = gnlse(lambda0=1030e-9, **common).material_manifest().policies
+    with pytest.raises(DriverError, match=r"wavelength is 8e-07 m"):
+        gnlse(wavelength=800e-9, **common)
+    policy = gnlse(wavelength=1030e-9, **common).material_manifest().policies
     assert policy["gnlse_raman"]["carrier_wavelength"] == pytest.approx(
         1030e-9, rel=1e-12
     )
 
 
 GNLSE: dict[str, Any] = {
-    "lambda0": 835e-9,
+    "wavelength": 835e-9,
     "wavelength_limits": (500e-9, 2e-6),
     "trange": 1e-12,
     "width": 50e-15,
     "peak_power": 1e3,
-    "pulseshape": "sech",
+    "shape": "sech",
     "shock": False,
     "schedule": FixedSchedule(np.full(STEPS, 1e-3 / STEPS)),
     # No collar: ten fixed steps are refused beside the default one, and these tests
@@ -195,7 +195,7 @@ def test_n2_recommended_needs_a_fibre_area_and_records_its_origin():
         n2="recommended",
         fibre=fibre,
         grid=grid,
-        lambda0=1030e-9,
+        wavelength=1030e-9,
         wavelength_limits=None,
         trange=None,
         materials=SELECTION,

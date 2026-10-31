@@ -26,13 +26,13 @@ from solprop.driver import prop_gnlse
 output = prop_gnlse(
     0.11,  # gamma, 1/(W m)
     0.5,  # length, m
-    [0.0, 0.0, -11.83e-27],  # beta_0, beta_1, beta_2 (s^2/m) about lambda0
-    lambda0=835e-9,
+    [0.0, 0.0, -11.83e-27],  # beta_0, beta_1, beta_2 (s^2/m) about wavelength
+    wavelength=835e-9,
     wavelength_limits=(500e-9, 2e-6),
     trange=4e-12,
     fwhm=50e-15,
     peak_power=1e3,
-    pulseshape="sech",
+    shape="sech",
     raman=True,  # fused silica, raman_fraction=0.2188 (optmat's bundle) by default
 )
 ```
@@ -190,7 +190,7 @@ at that wavelength instead
 ({py:meth}`~solprop.modes.guide.ProviderChannelMode.area_at`): once for a guide that does
 not move, and at every sampled position of a moving guide's path, so that a moving
 channel hands over an area **path** at the pump beside its dispersion path. `prop_gnlse`
-and `Simulation.from_gnlse` pass their `lambda0`, as they already read a table's area
+and `Simulation.from_gnlse` pass their `wavelength`, as they already read a table's area
 column there. A channel converted with neither `aeff` nor `wavelength` keeps the
 median-knot surrogate and says so
 ({py:class}`~solprop.exceptions.SurrogateAreaWarning`). Every other mode's area is not a
@@ -361,7 +361,7 @@ above, with the bundle's numbers:
 
 The bundle's $f_R$ is the one optmat's Kerr fit found with Hollenbeck and Cantrell's
 shape, so the pair is consistent with the fit's **total** $n_2$, which
-`n2="recommended"` takes at the carrier `lambda0` (it needs a `fibre` with an area, as
+`n2="recommended"` takes at the carrier `wavelength` (it needs a `fibre` with an area, as
 any `n2` does); a given `gamma` or `n2` sets the total, and the bundle's fraction
 splits it unless one is given. `materials=MaterialSelection(raman="tensor")` takes Lin
 and Agrawal's bundle instead, with its own $f_R = 0.245$ and its copolarised

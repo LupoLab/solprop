@@ -49,7 +49,7 @@ simulation = Simulation.from_capillary(
     grid.length,
     mixture,
     grid=grid,
-    lambda0=800e-9,
+    wavelength=800e-9,
     fwhm=30e-15,
     energy=2.2e-6,
     mode_average=True,

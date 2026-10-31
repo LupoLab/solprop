@@ -118,7 +118,7 @@ to the fibre: it compresses once, strongly, and does not have room to fission.
     *total* power a sub-femtosecond fringe rather than the pulse. Durations and peak
     powers below are of the pump band alone, through a band-pass."""
 
-    PUMP = {"lambda0": 800e-9, "fwhm": 10e-15, "energy": 250e-6}
+    PUMP = {"wavelength": 800e-9, "fwhm": 10e-15, "energy": 250e-6}
     """The pump: wavelength (m), duration (s) and energy (J)."""
 
     UV = (100e-9, 250e-9)
@@ -132,7 +132,7 @@ to the fibre: it compresses once, strongly, and does not have room to fission.
         2.0 * ENTRANCE / 3.0,
         energy=PUMP["energy"],
         fwhm=PUMP["fwhm"],
-        wavelength=PUMP["lambda0"],
+        wavelength=PUMP["wavelength"],
         shape="gauss",
     )
     print(design)

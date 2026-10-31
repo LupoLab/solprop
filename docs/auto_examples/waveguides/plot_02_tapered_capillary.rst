@@ -119,7 +119,7 @@ the adaptive stepper lands on each of them.
     PRESSURE = 1.5
     """Helium pressure, bar."""
 
-    PUMP = {"lambda0": 800e-9, "fwhm": 10e-15, "energy": 150e-6}
+    PUMP = {"wavelength": 800e-9, "fwhm": 10e-15, "energy": 150e-6}
     """The pump: wavelength (m), duration (s) and energy (J)."""
 
     UV = (100e-9, 300e-9)
@@ -161,7 +161,7 @@ the adaptive stepper lands on each of them.
                 n_save=200,
                 progress="none",
                 backend=backend,
-                lambda0=PUMP["lambda0"],
+                wavelength=PUMP["wavelength"],
                 fwhm=PUMP["fwhm"],
                 energy=energy,
                 # The nanojoule runs compare linear transport, where a one-photon seed would

@@ -98,10 +98,10 @@ KINK = 4e-4
 """The kinked taper's corner, m: a multiple of ``LENGTH / STEPS``."""
 
 GRIN_PULSE = {
-    "lambda0": 1.03e-6,
+    "wavelength": 1.03e-6,
     "fwhm": 60e-15,
     "energy": 1e-12,
-    "pulseshape": "gauss",
+    "shape": "gauss",
 }
 
 
@@ -644,10 +644,10 @@ def _step_run(guide, steps, index, launch=None):
         LENGTH,
         provider=guide,
         grid=grid,
-        lambda0=835e-9,
+        wavelength=835e-9,
         fwhm=20e-15,
         energy=1e-12,
-        pulseshape="gauss",
+        shape="gauss",
         save_planes=[LENGTH],
         backend="numpy_ref",
         dz_max=LENGTH / steps,
@@ -958,10 +958,10 @@ def test_one_step_index_channel_agrees_with_the_specified_mode_path(record_prope
         "dz_max": LENGTH / STEPS,
         "dz_init": LENGTH / STEPS,
         "rtol": 1e-6,
-        "lambda0": 835e-9,
+        "wavelength": 835e-9,
         "fwhm": 150e-15,
         "energy": 4e-9,
-        "pulseshape": "gauss",
+        "shape": "gauss",
         "progress": "none",
     }
 
@@ -1387,7 +1387,7 @@ def test_from_mode_takes_the_area_at_the_wavelength_and_warns_without_one(kinked
     wins without a warning.
     """
     channel = kinked.mode_collection.modes[0]
-    wavelength = GRIN_PULSE["lambda0"]
+    wavelength = GRIN_PULSE["wavelength"]
     omega = 2 * np.pi * C / wavelength
     fibre = SpecifiedMode.from_mode(channel, wavelength=wavelength)
     assert not fibre.dispersion_is_constant
@@ -1421,11 +1421,11 @@ def test_prop_gnlse_assembles_its_gamma_from_the_pump_s_area(kinked):
     """`from_gnlse` with a provider channel and ``n2``: gamma is the pump's.
 
     The coefficient mapped at the entrance is ``n2 omega0 / (c A)`` with the area
-    solved at ``lambda0``, not the median knot's, and the fibre's area path is the
+    solved at ``wavelength``, not the median knot's, and the fibre's area path is the
     pump's along the taper, not the median-knot surrogate's.
     """
     channel = kinked.mode_collection.modes[0]
-    wavelength = GRIN_PULSE["lambda0"]
+    wavelength = GRIN_PULSE["wavelength"]
     omega = 2 * np.pi * C / wavelength
     n2 = 2.7e-20
     simulation = Simulation.from_gnlse(
@@ -1436,7 +1436,7 @@ def test_prop_gnlse_assembles_its_gamma_from_the_pump_s_area(kinked):
         grid=EnvelopeGrid.from_limits(LENGTH, wavelength, (1.0e-6, 1.06e-6), 100e-15),
         fwhm=GRIN_PULSE["fwhm"],
         energy=GRIN_PULSE["energy"],
-        lambda0=wavelength,
+        wavelength=wavelength,
         backend="numpy_ref",
         noise=None,
     )

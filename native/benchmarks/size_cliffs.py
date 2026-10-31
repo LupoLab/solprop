@@ -55,7 +55,7 @@ def simulation(factor: float, fft_size: str, backend: str, steps: int) -> Any:
         fwhm=7.5e-15,
         energy=275e-6,
         modes=4,
-        lambda0=800e-9,
+        wavelength=800e-9,
         rtol=1e-6,
         atol=1e-10,
         noise=None,

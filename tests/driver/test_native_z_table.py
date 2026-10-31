@@ -113,7 +113,7 @@ def test_a_multimode_taper_without_its_coupling(integrator):
         "He",
         1.5,
         taper_coupling=False,
-        lambda0=800e-9,
+        wavelength=800e-9,
         fwhm=10e-15,
         energy=1e-9,
         # The former grid, on which the operator's expansion does not resolve.

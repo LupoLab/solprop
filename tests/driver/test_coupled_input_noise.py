@@ -129,10 +129,10 @@ def _split(noise: str | None, energy: float, backend: str) -> Simulation:
         GENERAL_Z_END,
         provider=split_guide(grid),
         grid=grid,
-        lambda0=835e-9,
+        wavelength=835e-9,
         fwhm=20e-15,
         energy=energy,
-        pulseshape="gauss",
+        shape="gauss",
         noise=noise,  # pyright: ignore[reportArgumentType]
         seed=None if noise is None else 37,
         integrator=RungeKutta(),

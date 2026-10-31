@@ -89,7 +89,7 @@ def capillary(
     steps. Nitrogen's band starts at 180 nm, inside its index fit.
     """
     arguments: dict[str, Any] = {
-        "lambda0": 800e-9,
+        "wavelength": 800e-9,
         "wavelength_limits": (180e-9 if gas == "N2" else 150e-9, 4e-6),
         "trange": 150e-15,
         "fwhm": 10e-15,
@@ -526,7 +526,7 @@ def test_a_mixture_of_varying_composition_matches_the_reference(evaluator):
             LENGTH,
             fill,
             None,
-            lambda0=800e-9,
+            wavelength=800e-9,
             wavelength_limits=(150e-9, 4e-6),
             trange=150e-15,
             fwhm=10e-15,

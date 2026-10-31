@@ -85,7 +85,7 @@ range at the short end of the window, which it reports; that notice is silenced.
             0.02,
             "He",
             1.0,
-            lambda0=800e-9,
+            wavelength=800e-9,
             wavelength_limits=(200e-9, 2e-6),
             trange=150e-15,
             fwhm=10e-15,

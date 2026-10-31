@@ -16,7 +16,7 @@ type Value = float | int | str | bool | tuple[float, float]
 
 RDW: dict[str, Value] = {
     "gas": "He",
-    "lambda0": 800e-9,
+    "wavelength": 800e-9,
     "tau_fwhm": 7.5e-15,
     "energy": 275e-6,
     "loss": True,

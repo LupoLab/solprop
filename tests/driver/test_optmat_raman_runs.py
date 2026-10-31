@@ -57,7 +57,7 @@ def capillary(
     grid = FieldGrid.from_limits(LENGTH, 800e-9, (300e-9, 3e-6), 400e-15)
     options = {
         "pressure": 1.0,
-        "lambda0": 800e-9,
+        "wavelength": 800e-9,
         "grid": grid,
         "absorber": absorber(grid, boundary_length=1.0),
         "fwhm": 30e-15,

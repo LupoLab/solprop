@@ -34,7 +34,7 @@ def mixture_case() -> tuple[KernelProblem, FieldGrid]:
         mixture,
         thg=False,
         plasma={"N2": OptmatRate("N2", 800e-9), "O2": OptmatRate("O2", 800e-9)},
-        lambda0=800e-9,
+        wavelength=800e-9,
     )
     # optmat's N2, O2 and Ar indices hold from below 200 nm to the static limit,
     # past this grid's collar: SEP 3 qualifies no range warning here.

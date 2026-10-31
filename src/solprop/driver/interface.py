@@ -411,7 +411,7 @@ def prop_gnlse(  # noqa: PLR0913 - the interface's keyword surface
     length: float,
     betas: Sequence[float] | np.ndarray | None = None,
     *,
-    lambda0: float,
+    wavelength: float,
     wavelength_limits: tuple[float, float] | None = None,
     trange: float | None = None,
     grid: TimeGrid | None = None,
@@ -422,7 +422,7 @@ def prop_gnlse(  # noqa: PLR0913 - the interface's keyword surface
     n2: float | str | None = None,
     fwhm: float | None = None,
     width: float | None = None,
-    pulseshape: str = "gauss",
+    shape: str = "gauss",
     energy: float | None = None,
     peak_power: float | None = None,
     phases: Sequence[float] | np.ndarray = (),
@@ -460,8 +460,8 @@ def prop_gnlse(  # noqa: PLR0913 - the interface's keyword surface
     """Propagate a pulse through a GNLSE fibre and return the output it was written to.
 
     The fibre is its dispersion and its nonlinear coefficient: ``beta(omega)`` as Taylor
-    coefficients about `lambda0` or as data, ``gamma`` in 1/(W m), and a power loss in
-    dB/m. The mapping onto solprop's physics is
+    coefficients about `wavelength` or as data, ``gamma`` in 1/(W m), and a power loss
+    in dB/m. The mapping onto solprop's physics is
     :func:`solprop.nonlinear.gnlse.problem_from` -- ``n2 = gamma A_eff / k_0``,
     ``chi3 = (4/3) n2 eps_0 c``, an effective index of one in the normalisation
     prefactor and the shock term as that prefactor's ``omega`` dependence
@@ -479,10 +479,10 @@ def prop_gnlse(  # noqa: PLR0913 - the interface's keyword surface
     length : float
         Fibre length, m, positive.
     betas : array_like, optional
-        Taylor coefficients of ``beta`` about `lambda0`, ``beta_0, beta_1, ...``, in
+        Taylor coefficients of ``beta`` about `wavelength`, ``beta_0, beta_1, ...``, in
         s^n/m. ``beta_0`` and ``beta_1`` only fix the frame and change no physics. Give
         exactly one of this, `beta` or `fibre`.
-    lambda0 : float
+    wavelength : float
         Reference wavelength, m, positive: the ``gamma`` mapping's reference, the centre
         of the Taylor expansion, the grid's reference and the pulse's centre wavelength.
     wavelength_limits : tuple of float, optional
@@ -492,7 +492,7 @@ def prop_gnlse(  # noqa: PLR0913 - the interface's keyword surface
         Extent of the time window, s. Required unless `grid` is given.
     grid : solprop.grid.TimeGrid, optional
         An envelope grid to propagate on instead of building one from `length`,
-        `lambda0`, `wavelength_limits` and `trange`. This is the way to choose the
+        `wavelength`, `wavelength_limits` and `trange`. This is the way to choose the
         sample spacing, the oversampling factor or the transform size. A field grid is
         refused: the GNLSE mapping is the envelope Kerr response.
     beta : tuple or callable, optional
@@ -511,7 +511,7 @@ def prop_gnlse(  # noqa: PLR0913 - the interface's keyword surface
         a z-constant fibre. Its fill, if present, is ignored as a nonlinear
         material because the GNLSE uses gamma or n2. The mode supplies only
         dispersion, loss and area; use prop_capillary for its material responses.
-        A table's area is evaluated at `lambda0`, and so is a provider channel's,
+        A table's area is evaluated at `wavelength`, and so is a provider channel's,
         by a fresh solve there (along the path of a moving guide); without an area
         column a table requires `gamma` and uses the 1 m^2 convention.
     n2 : float or str, optional
@@ -519,29 +519,29 @@ def prop_gnlse(  # noqa: PLR0913 - the interface's keyword surface
         Exactly one of `gamma` and `n2` is required. The mapping is
         ``gamma = n2 omega0 / (c A_eff)``, with unit prefactor index. Under
         `materials`, ``"recommended"`` takes optmat's silica bundle's total ``n2``
-        (``kerr/SiO2``) at `lambda0`.
+        (``kerr/SiO2``) at `wavelength`.
     fwhm : float, optional
         Intensity full width at half maximum of the input pulse, s. Give this or, for a
         ``sech`` pulse, `width`.
     width : float, optional
         Natural width of a ``sech**2`` input, s, which is
-        ``fwhm / (2 ln(1 + sqrt(2)))``. Only for ``pulseshape="sech"``.
-    pulseshape : {'gauss', 'sech'}, optional
+        ``fwhm / (2 ln(1 + sqrt(2)))``. Only for ``shape="sech"``.
+    shape : {'gauss', 'sech'}, optional
         Shape of the input pulse.
     energy : float, optional
         Pulse energy, J. Give this or `peak_power`.
     peak_power : float, optional
         Peak power, W, realised after the spectral phase is applied.
     phases : array_like, optional
-        Optics-convention spectral phase as Taylor coefficients about `lambda0`:
+        Optics-convention spectral phase as Taylor coefficients about `wavelength`:
         ``[CEP (rad), group delay (s), GDD (s**2), TOD (s**3), ...]``.
     pulses : sequence of solprop.pulses.Pulse or None, optional
         Several pulses launched together, for two-colour and multi-colour
         inputs: each a :mod:`solprop.pulses` object with its own wavelength,
         duration, energy or peak power, phase and delay; the input is the sum of
         their fields (:class:`~solprop.pulses.PulseSum`). Replaces the
-        single-pulse keywords `fwhm`, `width`, `pulseshape`, `energy`,
-        `peak_power` and `phases`, which must then be left unset; `lambda0` still
+        single-pulse keywords `fwhm`, `width`, `shape`, `energy`,
+        `peak_power` and `phases`, which must then be left unset; `wavelength` still
         sets the grid's reference wavelength.
     loss_db_per_m : float or None, optional
         Omitted means zero loss on the coefficient routes. Refused beside
@@ -701,9 +701,9 @@ def prop_gnlse(  # noqa: PLR0913 - the interface's keyword surface
     >>> beta2, gamma, tau0 = -11.83e-27, 0.11, 100e-15
     >>> peak = 9 * abs(beta2) / (gamma * tau0**2)
     >>> handler = prop_gnlse(
-    ...     gamma, 1.57e-3, [0.0, 0.0, beta2], lambda0=835e-9,
+    ...     gamma, 1.57e-3, [0.0, 0.0, beta2], wavelength=835e-9,
     ...     wavelength_limits=(500e-9, 2e-6), trange=2e-12,
-    ...     width=tau0, peak_power=peak, pulseshape="sech", shock=False,
+    ...     width=tau0, peak_power=peak, shape="sech", shock=False,
     ...     n_save=3, rtol=1e-8, noise=None,
     ... )
     >>> handler.n_saved, handler["z"].tolist()
@@ -721,7 +721,7 @@ def prop_gnlse(  # noqa: PLR0913 - the interface's keyword surface
         gamma,
         length,
         betas,
-        lambda0=lambda0,
+        wavelength=wavelength,
         wavelength_limits=wavelength_limits,
         trange=trange,
         grid=grid,
@@ -730,7 +730,7 @@ def prop_gnlse(  # noqa: PLR0913 - the interface's keyword surface
         n2=n2,
         fwhm=fwhm,
         width=width,
-        pulseshape=pulseshape,
+        shape=shape,
         energy=energy,
         peak_power=peak_power,
         phases=phases,
@@ -784,14 +784,14 @@ def prop_capillary(  # noqa: PLR0913 - the interface's keyword surface
     *,
     pressure_floor: float | None = None,
     vacuum_end: VacuumEnd | None = None,
-    lambda0: float,
+    wavelength: float,
     wavelength_limits: tuple[float, float] | None = None,
     trange: float | None = None,
     grid: TimeGrid | None = None,
     envelope: bool = False,
     fwhm: float | None = None,
     width: float | None = None,
-    pulseshape: str = "gauss",
+    shape: str = "gauss",
     energy: float | None = None,
     peak_power: float | None = None,
     phases: Sequence[float] | np.ndarray = (),
@@ -897,7 +897,7 @@ def prop_capillary(  # noqa: PLR0913 - the interface's keyword surface
         ends only: it keeps the declared end pressures, for a comparison with a
         model that imposes them, while a taper's fill still follows the bore. See
         :meth:`~solprop.driver.simulation.Simulation.from_capillary`.
-    lambda0 : float
+    wavelength : float
         Reference wavelength, m, and the pulse's centre wavelength.
     wavelength_limits : tuple of float or None, optional
         Shortest and longest wavelength of the frequency window, m. Required unless
@@ -914,22 +914,22 @@ def prop_capillary(  # noqa: PLR0913 - the interface's keyword surface
         Pulse duration at half maximum, s.
     width : float or None, optional
         Natural width of a sech pulse, s; give this or `fwhm`.
-    pulseshape : {'gauss', 'sech'}, optional
+    shape : {'gauss', 'sech'}, optional
         Transform-limited shape of the input.
     energy : float or None, optional
         Pulse energy, J. Give this or `peak_power`.
     peak_power : float or None, optional
         Peak power, W, realised after the spectral phases.
     phases : sequence of float, optional
-        Taylor spectral phases about `lambda0`, optics convention: CEP in rad,
+        Taylor spectral phases about `wavelength`, optics convention: CEP in rad,
         group delay in s, GDD in s^2, and so on.
     pulses : sequence of solprop.pulses.Pulse or None, optional
         Several pulses launched together, for two-colour and multi-colour
         inputs: each a :mod:`solprop.pulses` object with its own wavelength,
         duration, energy or peak power, phase and delay; the input is the sum of
         their fields (:class:`~solprop.pulses.PulseSum`). Replaces the
-        single-pulse keywords `fwhm`, `width`, `pulseshape`, `energy`,
-        `peak_power` and `phases`, which must then be left unset; `lambda0` still
+        single-pulse keywords `fwhm`, `width`, `shape`, `energy`,
+        `peak_power` and `phases`, which must then be left unset; `wavelength` still
         sets the grid's reference wavelength.
     modes : int or sequence of Mode, optional
         How many HE_1m modes to propagate, or the mode set itself. A set is checked for
@@ -1187,7 +1187,7 @@ def prop_capillary(  # noqa: PLR0913 - the interface's keyword surface
     >>> with warnings.catch_warnings():
     ...     warnings.simplefilter("ignore", MaterialRangeWarning)
     ...     output = prop_capillary(
-    ...         125e-6, 0.02, "He", (2.0, 1.0), lambda0=800e-9,
+    ...         125e-6, 0.02, "He", (2.0, 1.0), wavelength=800e-9,
     ...         wavelength_limits=(300e-9, 3e-6), trange=100e-15,
     ...         fwhm=10e-15, energy=5e-6, modes=2, plasma=False,
     ...         n_r=16, n_save=2, rtol=1e-8,
@@ -1209,14 +1209,14 @@ def prop_capillary(  # noqa: PLR0913 - the interface's keyword surface
         pressure,
         pressure_floor=pressure_floor,
         vacuum_end=vacuum_end,
-        lambda0=lambda0,
+        wavelength=wavelength,
         wavelength_limits=wavelength_limits,
         trange=trange,
         grid=grid,
         envelope=envelope,
         fwhm=fwhm,
         width=width,
-        pulseshape=pulseshape,
+        shape=shape,
         energy=energy,
         peak_power=peak_power,
         phases=phases,
@@ -1302,14 +1302,14 @@ def prop_waveguide(  # noqa: PLR0913 - the interface's keyword surface
     observable_atol: float | None = None,
     pressure_floor: float | None = None,
     vacuum_end: VacuumEnd | None = None,
-    lambda0: float,
+    wavelength: float,
     wavelength_limits: tuple[float, float] | None = None,
     trange: float | None = None,
     grid: TimeGrid | None = None,
     envelope: bool = False,
     fwhm: float | None = None,
     width: float | None = None,
-    pulseshape: str = "gauss",
+    shape: str = "gauss",
     energy: float | None = None,
     peak_power: float | None = None,
     phases: Sequence[float] | np.ndarray = (),
@@ -1426,7 +1426,7 @@ def prop_waveguide(  # noqa: PLR0913 - the interface's keyword surface
         ends only: it keeps the declared end pressures, for a comparison with a
         model that imposes them, while a taper's fill still follows the bore. See
         :meth:`~solprop.driver.simulation.Simulation.from_capillary`.
-    lambda0 : float
+    wavelength : float
         Reference wavelength, m, and the pulse's centre wavelength.
     wavelength_limits : tuple of float or None, optional
         Shortest and longest wavelength of the frequency window, m. Required unless
@@ -1443,22 +1443,22 @@ def prop_waveguide(  # noqa: PLR0913 - the interface's keyword surface
         Pulse duration at half maximum, s.
     width : float or None, optional
         Natural width of a sech pulse, s; give this or `fwhm`.
-    pulseshape : {'gauss', 'sech'}, optional
+    shape : {'gauss', 'sech'}, optional
         Transform-limited shape of the input.
     energy : float or None, optional
         Pulse energy, J. Give this or `peak_power`.
     peak_power : float or None, optional
         Peak power, W, realised after the spectral phases.
     phases : sequence of float, optional
-        Taylor spectral phases about `lambda0`, optics convention: CEP in rad,
+        Taylor spectral phases about `wavelength`, optics convention: CEP in rad,
         group delay in s, GDD in s^2, and so on.
     pulses : sequence of solprop.pulses.Pulse or None, optional
         Several pulses launched together, for two-colour and multi-colour
         inputs: each a :mod:`solprop.pulses` object with its own wavelength,
         duration, energy or peak power, phase and delay; the input is the sum of
         their fields (:class:`~solprop.pulses.PulseSum`). Replaces the
-        single-pulse keywords `fwhm`, `width`, `pulseshape`, `energy`,
-        `peak_power` and `phases`, which must then be left unset; `lambda0` still
+        single-pulse keywords `fwhm`, `width`, `shape`, `energy`,
+        `peak_power` and `phases`, which must then be left unset; `wavelength` still
         sets the grid's reference wavelength.
     susceptibility : GasSusceptibility or None, optional
         A gas susceptibility replacing the one `gas` selects, for a comparison
@@ -1658,14 +1658,14 @@ def prop_waveguide(  # noqa: PLR0913 - the interface's keyword surface
         observable_atol=observable_atol,
         pressure_floor=pressure_floor,
         vacuum_end=vacuum_end,
-        lambda0=lambda0,
+        wavelength=wavelength,
         wavelength_limits=wavelength_limits,
         trange=trange,
         grid=grid,
         envelope=envelope,
         fwhm=fwhm,
         width=width,
-        pulseshape=pulseshape,
+        shape=shape,
         energy=energy,
         peak_power=peak_power,
         phases=phases,
