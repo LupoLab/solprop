@@ -86,6 +86,14 @@ The [SEP index](seps/index.md) lists every proposal and its current status.
   subtraction, a weak-response limit and local temporal integration. Its ensemble,
   data and integration questions must be settled before acceptance; shared-level
   ladders, vector saturation and repeated-window histories remain future work.
+- [SEP 40 — Transverse absorbing boundaries for free-space propagation](seps/sep-0040-transverse-absorbing-boundaries.md):
+  the radial, Cartesian, line and planar real-space collar placed outside the requested
+  aperture and sized by a declared protected band of transverse wavenumbers rather than
+  the run length, in-stage under a collar-crossing step limit (split optional for RK),
+  with the k⊥ ramp kept to a numerical safety band (now also radial and planar), a
+  monitor that judges returning light, and a signed removal ledger. Perfectly matched
+  layers, adaptive transverse windows, the escaped transverse field and a flux-weighted
+  spatial ledger remain open.
 
 The informal items below record work not fully covered by these proposals. When adding
 or revising a SEP, remove an informal item only if the proposal covers it in full;
@@ -424,6 +432,8 @@ field norm rather than [SEP 34](seps/archive/sep-0034-medium-flux.md)'s admittan
 flux (D16). For paraxial beams the two shares agree; a non-paraxial or strongly dispersive
 beam would weight its edges differently. A time-resolved flux needs the admittance applied
 per column and frequency before the inverse transform: another half of the state in memory.
+[SEP 40](seps/sep-0040-transverse-absorbing-boundaries.md) adds the transverse edge to the
+monitor, with the same choice of measure; the time-resolved flux stays open.
 
 **The boundary monitor's remaining SEP 21 items.** What
 [SEP 21](seps/archive/sep-0021-absorbing-boundaries.md) asked of the monitor and the
@@ -444,8 +454,13 @@ the temporal collar from the walk-off a run expects, `absorber(..., walkoff=...)
 refusing a conflicting `boundary_N`; a run cut into slices keeps its parent's strength
 through `boundary_length`, which the boundaries guide does not yet say.
 
-**The real-space collar's geometry.** SEP 21 (D9) left the radial and Cartesian
-real-space collar as it was, for a follow-up proposal with a radial witness.
+**A crossing limit for the split temporal collar.** [SEP 40](seps/sep-0040-transverse-absorbing-boundaries.md)
+(§4.7, Q4) found that a split absorber applied once per step cannot see content that
+crosses the collar and wraps within that step; the error controller, seeing no source
+defect, does not shorten it. The same argument applies in time to SEP 21's split temporal
+collar, the default on the spatial routes. There a step's group-delay walk-off is
+normally far below the collar's width, but no step limit enforces it. Check the bound
+on the suite's cases, and add the limit if any approaches it.
 
 **The collar's consumers converged.** The Raman response's tail taper and the held
 plasma current's gate are sized by the temporal collar's width. Their convergence in
