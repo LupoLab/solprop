@@ -307,6 +307,11 @@ fields = "planes"
   `{start, stop, num, spacing = "linear" | "log"}`). `Recipe.scan()` returns the `Scan`
   and a picklable builder that passes `point.seed` and re-solves the pins at each point,
   so pool and queue executors work without a module-level function.
+- **Examples.** The recipes of the guide's tutorials and gallery examples ship in the
+  package: `Recipe.examples()` lists them and `Recipe.example(name)` loads one. A front end
+  starts a new setup from one of them, so a starting point such as Kerr and plasma on in
+  free space (where the route's own default is linear) is solprop's named choice, not the
+  front end's. Each is tested as the gallery example it mirrors.
 - **Format versioning.** `format` is an integer. The loader upgrades older formats and
   refuses newer ones; unknown keys are refused, naming the key and the nearest valid one.
   Format 1 becomes public when this SEP is merged.
@@ -749,7 +754,7 @@ The tolerance classes are those of the [testing policy](../testing.md#3-toleranc
   writer-lock sidecar.
 - A table of route defaults (integrators, tolerances) with the reason for each difference.
 - Docstrings for every new name; a gallery example that loads a recipe, edits a value and
-  runs it.
+  runs it; the example recipes listed on the recipes page.
 
 ### 9. Compatibility and impact
 
@@ -807,7 +812,7 @@ against the branch; the order puts what it needs first.
 1. **Recipe core on `gnlse` and `capillary` (S1, S9, S10).** `solprop.recipe` with format
    1; quantity parser and TOML writer; paths and the `None` spelling; the registry for
    these routes' objects; metadata tables with resolvers and their sync tests;
-   `Recipe.load/save/get/set/check/build/to_python/from_call`; `parameter` on errors and
+   `Recipe.load/save/get/set/check/build/to_python/from_call/example`; `parameter` on errors and
    warnings; the `solprop` console script with `run`, `check` and `export`; the guide
    page. Verifies recipe equivalence, Python export and quantities on every
    keyword-route example of these routes.
@@ -1544,3 +1549,8 @@ The maintainer's decisions on the points remain to be recorded beside them.
         previews, and a reliable channel for terminal events.
       - Transport and disconnection are the front end's.
       - §7 tests a failing observer, and a stop raised from one.
+
+From the review of the front end's design (finding G9, not a point on this SEP): a
+front end with a default of its own breaks the principle of §2. §5.1 now ships the guide's
+example recipes in the package (`Recipe.example`), so a front end's starting points are
+solprop's.
