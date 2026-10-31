@@ -153,13 +153,16 @@ Nothing was released before 0.1.0. For scripts and files from a development chec
   temporal collar lies outside the requested window, which widens the grid
   (`collar_placement="inside"` rebuilds the former geometry); transform sizes are
   `fft_size="auto"`; and the boundary monitor is on.
-- **Renamed or removed.** The plots' `wavelength_range` is `spec_range`, in the units
-  of their axis, and `solprop.plotting.style.spectral_limits` is gone
+- **Renamed or removed.** `prop_gnlse`, `prop_capillary`, `prop_waveguide` and their
+  `Simulation.from_*` constructors take `wavelength` and `shape`, not `lambda0` and
+  `pulseshape`, and `responses_for` takes `wavelength`, as the pulses and the design
+  tools already did. The plots' `wavelength_range` is `spec_range`, in the units of
+  their axis, and `solprop.plotting.style.spectral_limits` is gone
   (`wavelength_to_axis` converts a wavelength range); `bandpass` takes `limits`, not
-  `wavelength_limits`; `poynting_spectrum` is gone (`beam_spectrum` is the
-  axial-flux spectrum); the `same_basis` function is gone (use `couple`); and
-  `solprop.driver` no longer exports `propagate_fixed_rk4`, the tests' fixed-step
-  oracle. `Multistep()` refuses the `PIController` settings it does not read.
+  `wavelength_limits`; `poynting_spectrum` is gone (`beam_spectrum` is the axial-flux
+  spectrum); the `same_basis` function is gone (use `couple`); and `solprop.driver` no
+  longer exports `propagate_fixed_rk4`, the tests' fixed-step oracle. `Multistep()`
+  refuses the `PIController` settings it does not read.
 
 ### Known limitations
 
