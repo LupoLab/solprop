@@ -1320,9 +1320,9 @@ backend runs on the CPU (OpenMP) or a device. How to build it is
 [Building the native backend](../guide/performance/building-native.md); the native rules are in
 `native/AGENTS.md`.
 
-The backend depends on solprop's versioned seam, `SCHEMA_VERSION` in
+The backend depends on solprop's versioned seam, `KERNEL_SCHEMA_VERSION` in
 `solprop.translate.problem`: the `KernelProblem`, the protected surface of `StepDriver` and the stage bundles, all frozen under
-`SCHEMA_VERSION` by `tests/backends/test_driver.py`. Its `check_build` refuses another
+`KERNEL_SCHEMA_VERSION` by `tests/backends/test_driver.py`. Its `check_build` refuses another
 schema and looks the driver members, bundle fields and contract tuples it relies on up by
 name. It records the repository version it was built at without comparing it, so an
 editable build stays valid across solprop commits until the schema bumps. Solprop knows only the registry

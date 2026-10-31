@@ -1,5 +1,0 @@
-Generated with the unchanged schema-5 output sources from solprop 5cac2385.
-Synthetic unit spectrum, no propagation or Luna data.
-Configuration SHA-256: f407d314cb897acfd2a82216626013672ffca1b11dc42de2e1c008deeedd5c4c
-Its configuration label was later shortened and the digest above recomputed with the
-same schema-5 sources.

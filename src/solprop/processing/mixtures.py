@@ -159,15 +159,14 @@ def get_power_weight(output: Output) -> Float[np.ndarray, "n_z n_modes n_pol n_o
     Raises
     ------
     ProcessingError
-        If the run recorded no power weight -- an output of schema 5 or older, or a
-        radial, Cartesian or free-space run, which propagates a physical field and
-        has no modal weight -- or if its saved planes are not recorded positions.
+        If the run recorded no power weight -- a radial, Cartesian or free-space
+        run, which propagates a physical field and has no modal weight -- or if its
+        saved planes are not recorded positions.
     """
     record = _record(output)
     if record.get("power_weight_terms") is None:
         raise ProcessingError(
-            "the run recorded no modal power weight: only a modal run saved by "
-            "schema 6 or later carries one"
+            "the run recorded no modal power weight: only a modal run carries one"
         )
     terms = _array(record, "power_weight_terms")
     basis = _array(record, "power_weight_basis")[_plane_indices(output, record)]
@@ -204,10 +203,7 @@ def node_fluence(output: Output) -> Float[np.ndarray, "n_z n_nodes"]:
     metadata = output.metadata
     assert metadata is not None
     grid = grid_of(output)
-    if metadata.schema_version >= 6 and metadata.simulation_kind in (
-        "multimode",
-        "mode_averaged",
-    ):
+    if metadata.simulation_kind in ("multimode", "mode_averaged"):
         return _modal_fluence(output, record, grid)
     return _spatial_fluence(output, record, grid)
 
@@ -224,7 +220,7 @@ def _spatial_fluence(
     Parameters
     ----------
     output : solprop.output.schema.Output
-        Saved spatial planes of output schema 23 or later.
+        Saved spatial planes, whose record carries the plane measure.
     record : collections.abc.Mapping
         Saved synthesis and taper.
     grid : solprop.grid.TimeGrid
@@ -238,15 +234,15 @@ def _spatial_fluence(
     Raises
     ------
     ProcessingError
-        If the output predates the medium flux measure.
+        If the record carries no plane measure.
     """
     metadata = output.metadata
     assert metadata is not None
     spatial = metadata.spatial
     if spatial is None or "flux_plan" not in spatial:
         msg = (
-            "this spatial output predates the medium axial-flux measure (output "
-            "schema 23, SEP 34) and cannot be measured as one"
+            "this spatial output carries no plane measure (flux_plan, SEP 34) and "
+            "cannot be measured as an axial flux"
         )
         raise ProcessingError(msg)
     plan = flux_from_record(cast("Mapping[str, object]", spatial["flux_plan"]))
@@ -358,7 +354,7 @@ def _statistic(output: Output, name: str) -> np.ndarray:
 
 
 def _record(output: Output) -> Mapping[str, object]:
-    """Require reconstruction data while keeping older outputs readable elsewhere.
+    """Return the run's mixture reconstruction data, refusing a run without it.
 
     Parameters
     ----------
@@ -368,7 +364,7 @@ def _record(output: Output) -> Mapping[str, object]:
     Returns
     -------
     Mapping
-        Material processing data in the units the recording schema declared.
+        Material processing data in the units the record declares.
     """
     metadata = output.metadata
     record = (

@@ -160,8 +160,8 @@ install does not rebuild itself: run `uv sync --extra native --reinstall-package
 solprop-native` after a native change, with any build options in `CMAKE_ARGS`
 ([below](#passing-cmake-options)); a device build is made the same way. `uv run poe
 check-native` runs the native gate and `uv run poe check-all` both gates. A build stays
-valid across solprop changes until solprop's kernel schema (`SCHEMA_VERSION`) changes or
-`check_build()` names a member the installed solprop lacks. Running solprop's test lanes
+valid across solprop changes until solprop's kernel schema (`KERNEL_SCHEMA_VERSION`)
+changes or `check_build()` names a member the installed solprop lacks. Running solprop's test lanes
 against the build is in the developer notes on
 [testing](../../dev/testing.md#tiers-and-backends), and the native package's own tests in
 `native/README.md`.

@@ -479,7 +479,7 @@ def _spatial_output():
         replace(
             metadata,
             simulation_kind="radial",
-            # A spatial record names its plane measure (output schema 23); these
+            # A spatial record names its plane measure (SEP 34); these
             # tests refuse the basis before any statistic reads it.
             spatial={"geometry": "radial", "flux_model": "scalar-axial-admittance"},
         )

@@ -114,9 +114,9 @@ def assert_record_numbers(numbers, floors, stored: Path) -> None:
 def without_sep21_absorber(
     record: dict, *, bare: bool = False, spatial: bool = False
 ) -> dict:
-    """Return a hashed record as it was before output schema 27 (SEP 21).
+    """Return a hashed record as it was before SEP 21 recorded its absorber.
 
-    Schema 26 records ``Absorber.spatial``; the projection drops it. A run that declared
+    SEP 21 records ``Absorber.spatial``; the projection drops it. A run that declared
     no absorber recorded ``None`` before and now records the bare boundaries that stand
     for it (``tests/legacy_geometry.py``); with `bare` the projection restores ``None``.
     A spatial run that named no collar scheme now records ``"split_step"``, its route's

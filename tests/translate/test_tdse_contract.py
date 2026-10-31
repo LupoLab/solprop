@@ -577,8 +577,9 @@ def test_descriptor_refuses_inconsistent_records(grid, response, mutation):
 
 
 # The identities and response-record digests of three native descriptors in the
-# version-5 layout, pinned when the source filter was removed (the record digests at
-# output schema 21), so that any later change to either layout is a deliberate one.
+# version-5 layout, pinned when the source filter was removed (the record digests once
+# every field was recorded at its default), so that any later change to either layout
+# is a deliberate one.
 _PINNED = {
     "sae_collar": (
         "3a269c90ad9e947093772b9a27d862edc2b5fed157e8d3597221bf6bafab3d39",

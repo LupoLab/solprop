@@ -218,8 +218,7 @@ For a modal run:
 **Field retention.** The root attribute `fields` is the run's rule and `field_shape`
 the shape of one plane's field, stored or not. A `"planes"` run's `field` and
 `noise_phase` hold exactly the kept planes, in order, one row each, and `field_planes`
-lists their saved-plane indices; a `"none"` run has neither dataset. A file without the
-attribute keeps every field.
+lists their saved-plane indices; a `"none"` run has neither dataset.
 
 **The saved-plane count.** The plane-indexed datasets (`z`, `field`, `noise_phase`,
 `stats/*` and the two `counts`) are created for every plane the run will save, and the
@@ -232,9 +231,8 @@ The attempts and rows belonging to the counted planes are the sums of
 `step_history/counts` and `step_stats/counts` over them, so the one count fixes every
 column. Every reader, {py:func}`~solprop.output.hdf5.resume` and a handler continuing
 the file use only what is counted, and a clean close trims every dataset to it, so a
-finished file holds no unused rows and its datasets' extents are exactly the counts. A
-file without the attribute, written before it existed, reads by the extent of its `z`
-dataset, which every file has, a field-free one included. Read a file through {py:func}`~solprop.output.hdf5.open_file`, not
+finished file holds no unused rows and its datasets' extents are exactly the counts.
+Read a file through {py:func}`~solprop.output.hdf5.open_file`, not
 `h5py` directly, if it may be one a hard stop left behind.
 
 The march snapshot is the Adams march's state at the last saved plane or terminal
@@ -308,20 +306,20 @@ it with `open_tdse_archive` ([the TDSE response](../media/tdse.md#the-raw-respon
 
 ## The schema version
 
-Every file records its `schema_version`; this release writes schema 25
-(`solprop.output.SCHEMA_VERSION`). Schema 25 records every run's `precision`
-(`"double"` or `"single"`, [single precision](../performance/single-precision.md)) in
-its configuration, so a run is never resumed in the other precision. Schema 24 added
-the plane-reference record
-(`RunMetadata.reference`, [provenance](provenance.md#the-metadata-schema)), from which a
-saved plane is read back as a coherent field plane
-([coupling simulations](../workflows/coupling.md)); planes of an earlier file are not
-exchanged. A file of an earlier schema is still read, with the
-layout of its own version, and verifies against the digest it was stamped with. The
-schema version is inside the resume key ([the resume key](resuming.md#the-resume-key)),
-so a run is only continued in a file of the current schema: for an older file the
-refusal lists the changed fields, `schema_version` among them, and the new run is
-written to a new file.
+Every file records its `schema_version`; this release writes and reads output
+schema **1** (`solprop.output.SCHEMA_VERSION`), the first released layout. A file of
+any other schema is refused by name wherever it is opened, read or resumed: files
+written by development versions of solprop, which declared output schemas up to 28,
+are not read, and nor is a file from a later release. Read such a file with the
+solprop version that wrote it. The schema version is inside the resume key too
+([the resume key](resuming.md#the-resume-key)).
+
+Every run records its `precision` (`"double"` or `"single"`,
+[single precision](../performance/single-precision.md)) in its configuration, so a run
+is never resumed in the other precision, and its plane-reference record
+(`RunMetadata.reference`, [provenance](provenance.md#the-metadata-schema)), from which
+a saved plane is read back as a coherent field plane
+([coupling simulations](../workflows/coupling.md)).
 
 How a run resumes from its last plane depends on what that plane is:
 

@@ -2,17 +2,17 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""What a stored basis admits: the accessor whitelist of output schema 7.
+"""What a stored basis admits: the accessor whitelist of the run record.
 
-A saved run is read through one protocol, and until output schema 7 every
-run's mode axis meant the same thing: an orthogonal one- or two-component basis whose
+A saved run is read through one protocol, and for every route but one a run's mode
+axis means the same thing: an orthogonal one- or two-component basis whose
 coordinate powers add up to the physical power. A **general modal guide** resolves
 three Cartesian components at its own quadrature nodes, and its coordinate quantities
 are not that: ``energy`` and ``peak_power`` are defined for it only because its metric
 happens to be the identity, and ``peak_intensity`` is not defined for it at all. Rather
-than redefine the old names on a basis they do not describe, schema 7 records which
-**capability** produced the file and refuses, by name, every accessor that capability
-does not admit.
+than redefine the old names on a basis they do not describe, the record names the
+**capability** that produced the file and refuses, by name, every accessor that
+capability does not admit.
 
 This module is the **gate**; the sets it reads are in :mod:`solprop.stats`, beside the
 catalogue of names they select from, so that a translation module can record the list a
@@ -22,8 +22,8 @@ The gate is applied at four doors: at :class:`solprop.stats.StatsSpec` admission
 the driver knows the problem; in each CPU backend's ``stats``, for a caller who builds
 one and asks it directly; in the accessors of :mod:`solprop.processing.modal`; and in
 the legacy processing accessors of :mod:`solprop.processing.time`, which see only the
-stored record. A file written before schema 7 carries no identity at all, and is read as
-the ordinary modal run it is: the general names are refused for it too, because the
+stored record. A modal run of any other route carries no general identity, and is read
+as the ordinary modal run it is: the general names are refused for it, because the
 certified metric and the stored E/H reference they promise are exactly what such a file
 does not have.
 
@@ -77,8 +77,8 @@ _GENERAL_ONLY: frozenset[str] = frozenset(
 )
 """Accessors that need a certified metric and a stored E/H reference.
 
-These ten are what an ordinary modal or spatial run is refused, including every file
-written before output schema 7. ``channel_amplitudes`` is among them although it takes
+These ten are what an ordinary modal or spatial run is refused.
+``channel_amplitudes`` is among them although it takes
 two arrays and a table rather than an opened handler, and so is never asked of a
 record: it is here so that the one direction a caller could reach -- inverting a nodal
 E/H pair a run of another basis produced -- is refused for the right reason.
@@ -145,7 +145,7 @@ def capability_of(metadata: RunMetadata) -> BasisCapability:
 
     A record whose modal identity declares the **general modal basis** is a general
     modal run; a radial or Cartesian run is spatial; everything else -- including
-    every file written before output schema 7, which carries no identity at all, and
+    a record that carries no modal identity at all, and
     a capillary carrying a coherent wall block, whose identity declares the same
     orthogonal ``HE_1m`` basis it always had -- is the ordinary modal basis. It is
     keyed on ``modal["basis"]`` rather than on the identity being present at all
@@ -245,7 +245,7 @@ def refusal_for(
             return (
                 f"{name} is unavailable for this {capability} run: it needs a "
                 "general modal guide's certified flux metric and the stored E/H "
-                "reference of output schema 7, and this record carries neither, so "
+                "reference of its run record, and this record carries neither, so "
                 "the number would be a promise the file cannot keep. Use the "
                 "existing energy, peak_power and peak_intensity accessors, which "
                 "are what this basis does define"

@@ -1137,9 +1137,8 @@ def _single_backend(backend: str) -> str:
 def _stepper_record(settings: StepperSettings) -> StepperRecord:
     """Return the run's stepper record, naming an Adams integrator where one steps it.
 
-    The method is recorded in full (output schema 9), and the interval cap and start-up
-    rule with the limits (schema 10), so that a run and its resume hash the stepping
-    they were taken with.
+    The method is recorded in full, and the interval cap and start-up rule with the
+    limits, so that a run and its resume hash the stepping they were taken with.
 
     Parameters
     ----------
@@ -1292,26 +1291,26 @@ def metadata_for(  # noqa: PLR0913 - the record's parts, each a distinct object
     noise : solprop.noise.NoiseRealisation or None, optional
         The realisation the run carries, recorded with its seed.
     modal : collections.abc.Mapping or None, optional
-        The general modal identity of output schema 7, as
+        The general modal identity, as
         :func:`solprop.translate.general.modal_identity` writes it: the channel
         labels, the table, metric, response and guide identities, the frame, the
         active band and the accessors the basis admits. ``None`` for every other
-        route. It is part of the schema-7 resume key.
+        route. It is part of the resume key.
     materials : solprop.physdata.selection.MaterialManifest or None, optional
-        The run's material manifest of output schema 8
+        The run's material manifest
         (:func:`solprop.driver.material_output.material_manifest`); ``None`` is the
         empty manifest of a run of solprop's own materials. Its identities and
-        policies are part of the schema-8 resume key.
+        policies are part of the resume key.
     quadrature : solprop.modes.quadrature.TransverseQuadrature or None, optional
         The transverse rule of a resolved modal run, recorded with its nodes and
-        physical weights on the first mode's cross-section and part of the schema-17
-        resume key (SEP 19). ``None`` for every other route.
+        physical weights on the first mode's cross-section and part of the resume
+        key (SEP 19). ``None`` for every other route.
     frame : solprop.linear.Frame or None, optional
         The run's frame, whose reference frequency is the origin of the linear frame
         term on an envelope grid; ``None`` is the grid's co-moving frame. It enters
-        the schema-24 plane-reference record, not the hash.
+        the plane-reference record (SEP 31), not the hash.
     noise_resolution : solprop.output.schema.NoiseResolution or None, optional
-        How the noise model was chosen (output schema 26, SEP 37). Outside the hash.
+        How the noise model was chosen (SEP 37). Outside the hash.
 
     Returns
     -------
@@ -1392,7 +1391,7 @@ def metadata_for(  # noqa: PLR0913 - the record's parts, each a distinct object
         record["medium"] = material_record(material)
         record["mixture_processing"] = processing_record(problem, grid, material, modes)
     if problem.linear.separable is not None:
-        # A schema-4 Cartesian checkpoint must not resume with changed cutoff bins.
+        # A Cartesian checkpoint must not resume with changed cutoff bins.
         record["spatial_arithmetic"] = "split-square-v1"
     geometry = problem.transform.geometry
     spatial_record: dict[str, object] | None = None
@@ -1469,7 +1468,7 @@ def _plane_reference_record(
     modes: Sequence[Mode],
     modal: Mapping[str, JsonValue] | None,
 ) -> dict[str, object]:
-    """Return the schema-24 plane-reference record of a run (SEP 31).
+    """Return the plane-reference record of a run (SEP 31).
 
     Parameters
     ----------
@@ -1744,7 +1743,7 @@ class Simulation(Displayed):
         `wall` is refused, because the wall carries its connection.
     materials : solprop.physdata.selection.MaterialSelection or None, optional
         The material selection the run was built with, recorded in its material
-        manifest (output schema 8) with every optmat-backed object the run carries.
+        manifest with every optmat-backed object the run carries.
         The objects themselves are taken as they are: the ``from_*`` constructors
         resolve the built-in materials under the selection. ``None`` records none.
 
@@ -2729,7 +2728,7 @@ class Simulation(Displayed):
             )
 
     def _modal_identity(self) -> Mapping[str, JsonValue] | None:
-        """Return the schema-7 modal identity of this run, or none at all.
+        """Return the modal identity of this run's record, or none at all.
 
         Three routes declare one: a general modal guide, whose identity names the
         provider, the tables and the basis; a capillary carrying a coherent wall block,
@@ -3410,7 +3409,7 @@ class Simulation(Displayed):
             field (SEP 3, Q14); every response, a
             :class:`~solprop.nonlinear.responses.KerrResponse` included, is the
             caller's (``gamma3("Ar", wavelength=...)`` is optmat's coefficient at a
-            carrier). The run records its material manifest (output schema 8).
+            carrier). The run records its material manifest.
             ``None`` (the default) is ``MaterialSelection()``.
         boundary_check : solprop.monitor.BoundaryCheck or None, optional
             How the run watches its time window's edges (SEP 21), when `settings`
@@ -3501,7 +3500,7 @@ class Simulation(Displayed):
             field (SEP 3, Q14); every response, a
             :class:`~solprop.nonlinear.responses.KerrResponse` included, is the
             caller's (``gamma3("Ar", wavelength=...)`` is optmat's coefficient at a
-            carrier). The run records its material manifest (output schema 8).
+            carrier). The run records its material manifest.
             ``None`` (the default) is ``MaterialSelection()``.
         boundary_check : solprop.monitor.BoundaryCheck or None, optional
             How the run watches its time window's edges (SEP 21), when `settings`
@@ -3591,7 +3590,7 @@ class Simulation(Displayed):
             the first mode at ``k_y = 0`` as the modal route does.
         materials : solprop.physdata.selection.MaterialSelection or None, optional
             Take the slab modes' built-in materials from optmat under this selection
-            and record it in the run's manifest (output schema 8): a fill of a
+            and record it in the run's manifest: a fill of a
             built-in gas with its default susceptibility takes the selection's
             single-species susceptibility (no mixture is needed), and a slab without
             a declared cladding takes optmat's recommended fused silica (SEP 3, Q5).
@@ -3988,7 +3987,7 @@ class Simulation(Displayed):
             omitted fraction is the bundle's ``f_R`` and the response its sampled
             shape; ``n2="recommended"`` is its total ``n2``. The fibre's dispersion,
             area and a given ``gamma`` or ``n2`` are the caller's. The run records
-            its manifest (output schema 8), the held-back fraction and its origin
+            its manifest, the held-back fraction and its origin
             included. ``None`` (the default) is ``MaterialSelection()``.
 
         Returns
@@ -4451,7 +4450,7 @@ class Simulation(Displayed):
             :meth:`solprop.physdata.mixtures.Mixture.air` with it, and the default
             cladding (``cladding=None`` with a numbered mode set) is optmat's
             recommended silica. A supplied mixture, mode set, cladding or susceptibility
-            is taken as it is. The run records its material manifest (output schema 8).
+            is taken as it is. The run records its material manifest.
             ``None`` (the default) is ``MaterialSelection()``.
 
         tdse : solprop.nonlinear.tdse.TDSEGasResponse or None, optional
@@ -4951,7 +4950,7 @@ class Simulation(Displayed):
             :meth:`solprop.physdata.mixtures.Mixture.air` with it. The supplied modes,
             their claddings, a supplied mixture or susceptibility, and a provider's
             material regions are taken as they are. The run records its material
-            manifest (output schema 8). ``None`` (the default) is
+            manifest. ``None`` (the default) is
             ``MaterialSelection()``.
 
         Returns
@@ -5755,7 +5754,7 @@ class Simulation(Displayed):
             :meth:`solprop.physdata.mixtures.Mixture.air` with it, and the default
             cladding (``cladding=None`` with a numbered mode set) is optmat's
             recommended silica. A supplied mixture, mode set, cladding or susceptibility
-            is taken as it is. The run records its material manifest (output schema 8).
+            is taken as it is. The run records its material manifest.
             ``None`` (the default) is ``MaterialSelection()``.
 
         tdse : solprop.nonlinear.tdse.TDSEGasResponse or None, optional

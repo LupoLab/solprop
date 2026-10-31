@@ -12,7 +12,6 @@ rule takes the step after the first from the first step's own estimate (ADR-038)
 import dataclasses
 import math
 from functools import partial
-from typing import cast
 
 import numpy as np
 import pytest
@@ -21,7 +20,7 @@ from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.driver import simulation as simulation_module
 from solprop.driver.simulation import Simulation
 from solprop.gasflow import steady_fill
-from solprop.output.schema import StepLimits, StepperRecord, _hashed_stepper
+from solprop.output.schema import StepLimits, StepperRecord, _example_metadata
 from solprop.stepper import DOPRI5, Multistep, PIController
 from solprop.stepper.controller import START_GROWTH
 from solprop.translate.chebyshev import build_from_paths
@@ -291,7 +290,7 @@ def test_the_start_factor_is_bounded():
     assert control.start_factor(1e6) == control.min_factor
 
 
-def test_the_limits_enter_the_resume_key_at_schema_ten():
+def test_the_limits_enter_the_resume_key():
     control = PIController(rtol=1e-6, atol=0.0)
     old = StepperRecord.from_settings(
         DOPRI5,
@@ -303,8 +302,10 @@ def test_the_limits_enter_the_resume_key_at_schema_ten():
         control,
         limits=StepLimits(interval_cap=False, auto_init=True),
     )
-    # Below schema 10 the two records are the same key: neither field is in it.
-    assert _hashed_stepper(old, 9) == _hashed_stepper(new, 9)
-    assert _hashed_stepper(old, 10) != _hashed_stepper(new, 10)
-    hashed = cast("dict[str, dict[str, object]]", _hashed_stepper(new, 9))
-    assert "interval_cap" not in hashed["limits"]
+    one = dataclasses.replace(_example_metadata(), stepper=old)
+    two = dataclasses.replace(one, stepper=new)
+    assert one.configuration_hash() != two.configuration_hash()
+    assert one.differences(two) == (
+        "stepper.limits.auto_init",
+        "stepper.limits.interval_cap",
+    )

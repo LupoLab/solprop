@@ -172,13 +172,13 @@ __all__ = [
     "DEFAULT_FLOW_CONDITION_LIMIT",
     "DEFAULT_STRETCH",
     "EXPONENT_BUDGET",
+    "KERNEL_SCHEMA_VERSION",
     "LOG_DBL_MAX",
     "LOG_FLT_MAX",
     "MAX_GENERAL_FLOW_EXPONENT",
     "MAX_N_COMPONENTS",
     "MAX_N_POL",
     "MOVING_FLOW_CERTIFICATE",
-    "SCHEMA_VERSION",
     "TAPER_FLOW_CERTIFICATE",
     "Flags",
     "Initial",
@@ -195,7 +195,7 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 39
+KERNEL_SCHEMA_VERSION = 39
 """Version of the kernel contract this module implements.
 
 Incremented on every change to the field list of ``docs/dev/kernel-contract.md``. A
@@ -1026,7 +1026,7 @@ class KernelProblem:
     Attributes
     ----------
     schema_version : int
-        The contract version, :data:`SCHEMA_VERSION`.
+        The contract version, :data:`KERNEL_SCHEMA_VERSION`.
     grid_kind : {'field', 'envelope'}
         Selects r2c/c2r against c2c transforms and the response formulas.
     shape : tuple of int
@@ -1185,10 +1185,10 @@ class KernelProblem:
         >>> problem.validate() is None
         True
         """
-        if self.schema_version != SCHEMA_VERSION:
+        if self.schema_version != KERNEL_SCHEMA_VERSION:
             msg = (
-                f"schema_version {self.schema_version} is not the {SCHEMA_VERSION} "
-                "this translation layer writes"
+                f"schema_version {self.schema_version} is not the kernel schema "
+                f"{KERNEL_SCHEMA_VERSION} this translation layer writes"
             )
             raise TranslationError(msg)
         if (self.tdse is None) != (self.current_numerator is None):
@@ -6323,7 +6323,7 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
         step_planes=step_planes,
     )
     problem = KernelProblem(
-        schema_version=SCHEMA_VERSION,
+        schema_version=KERNEL_SCHEMA_VERSION,
         grid_kind=grid.kind,
         shape=(n_batch, n_modes, n_pol, n_omega),
         flags=Flags.from_content(

@@ -613,8 +613,7 @@ class MemoryOutput(PlaneStore):
         Raises
         ------
         OutputError
-            If the handler was never opened, or the run was propagated on a
-            general modal guide, which output schema 6 cannot describe.
+            If the handler was never opened.
 
         Examples
         --------

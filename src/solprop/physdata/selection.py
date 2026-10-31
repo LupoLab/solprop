@@ -19,7 +19,7 @@ run's manifest. Every optmat-backed object solprop builds exposes its records as
 A :class:`MaterialManifest` is a run's whole material record: the optmat version, every
 resolved model's record, the species, compositions and solids with their axes, the
 policies in force and what was measured about them. Its identities and policies enter
-the run's resume key (output schema 8); see :doc:`/guide/results/output`.
+the run's resume key; see :doc:`/guide/results/output`.
 
 This module imports nothing from optmat, so building a selection costs nothing; see
 :doc:`/guide/media/materials` for the models, their statuses and the warnings they

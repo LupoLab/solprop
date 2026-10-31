@@ -152,7 +152,7 @@ def test_the_route_measures_its_departure_between_the_knots_and_gates_it(case):
     The **knot** Gram defect alone is not enough to declare ``W = I`` on the identity
     route: what the interpolated basis does at the run's own bins can be three orders
     further from orthonormal on a sparsely sampled guide. It is measured, carried on the
-    record and in the schema-7 identity, and gated against the same `gram_atol` the knot
+    record and in the modal identity, and gated against the same `gram_atol` the knot
     defect is, because to first order that departure is what declaring the identity
     costs the run's `physical_energy`.
     """
@@ -791,7 +791,7 @@ def test_the_debug_summary_carries_the_certificates_nothing_else_reads(case):
 def test_the_translation_layer_records_the_accessor_list_without_importing_output():
     """The accessor sets live in `solprop.stats`, beside the catalogue they select.
 
-    `modal_identity` publishes the list a schema-7 file carries, and the layers of
+    `modal_identity` publishes the list a general modal file carries, and the layers of
     `docs/dev/architecture.md` section 3 put translation below output: reading the
     list from `solprop.stats` is what lets it do that without a translation module
     importing an output one.

@@ -276,7 +276,7 @@ dilute-scaling warning is raised once per run, however many modes or stages eval
 the material. An adapter also evaluates each frequency array once: a translation
 reads a material at every sample of its tables along z, and a repeated array takes the
 stored index or polarisability, bitwise the same, with the same warnings and records.
-The run writes its **material manifest** into its output (output schema 8): every optmat model it resolved, its species, compositions and solids with their
+The run writes its **material manifest** into its output: every optmat model it resolved, its species, compositions and solids with their
 axes, the policies in force (the `carrier-kerr` law and its carrier, or a dispersive
 law with its regions; a GNLSE run's held-back Raman fraction and where it came from),
 the dilute-scaling error over its band, the bands outside a model's qualified
