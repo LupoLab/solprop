@@ -220,8 +220,8 @@ identical pulses in phase carry four times the energy of one.
 The keyword interfaces (`prop_gnlse`, `prop_capillary`, `prop_waveguide` and their
 `Simulation` constructors) take the members as `pulses=[...]`, in place of the
 single-pulse keywords
-(`fwhm`, `width`, `pulseshape`, `energy`, `peak_power`, `phases`, which must then be
-left unset); `lambda0` still sets the grid's reference wavelength, and the grid's
+(`fwhm`, `width`, `shape`, `energy`, `peak_power`, `phases`, which must then be
+left unset); `wavelength` still sets the grid's reference wavelength, and the grid's
 `wavelength_limits` must cover every member:
 
 ```{code-block} python
@@ -235,7 +235,7 @@ run = prop_capillary(
     1.5,
     "He",
     0.48,
-    lambda0=267e-9,
+    wavelength=267e-9,
     pulses=[pump, seed],
     wavelength_limits=(120e-9, 3e-6),
     trange=400e-15,

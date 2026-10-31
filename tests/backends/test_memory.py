@@ -254,10 +254,10 @@ def test_estimate_memory_counts_a_moving_guide_to_the_byte_on_native():
             dz_max=length / steps,
             dz_init=length / steps,
             schedule=FixedSchedule(np.full(steps, length / steps)),
-            lambda0=1.03e-6,
+            wavelength=1.03e-6,
             fwhm=60e-15,
             energy=1e-12,
-            pulseshape="gauss",
+            shape="gauss",
             noise=None,
         )
         simulation.settings = dataclasses.replace(simulation.settings, absorber=None)

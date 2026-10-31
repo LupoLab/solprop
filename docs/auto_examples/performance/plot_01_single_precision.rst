@@ -83,7 +83,7 @@ The capillary, in both precisions
             0.4,
             "Ar",
             1.7,
-            lambda0=800e-9,
+            wavelength=800e-9,
             fwhm=30e-15,
             energy=3e-6,
             loss=False,

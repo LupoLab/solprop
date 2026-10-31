@@ -1181,7 +1181,7 @@ def _carrier(
     if carrier is None:
         msg = (
             f"{where}: optmat disperses the vibrational Raman strengths to the pump "
-            "wavelength, so the response needs the carrier: pass the run's lambda0, "
+            "wavelength, so the response needs the carrier: pass the run's wavelength, "
             "or MaterialSelection(carrier_wavelength=...)"
         )
         raise MaterialError(msg)

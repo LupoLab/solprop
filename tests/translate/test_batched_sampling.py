@@ -308,7 +308,7 @@ def _capillary(**changes):
         "length": 0.02,
         "gas": "He",
         "pressure": (0.8, 0.3),
-        "lambda0": 800e-9,
+        "wavelength": 800e-9,
         "fwhm": 10e-15,
         "energy": 50e-6,
         "trange": 200e-15,

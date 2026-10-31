@@ -281,7 +281,7 @@ from solprop.physdata import Mixture
 
 fill = Mixture.air(6.0, temperature=300.0)
 responses = responses_for(
-    fill, plasma={"N2": True, "O2": True}, raman=True, lambda0=800e-9
+    fill, plasma={"N2": True, "O2": True}, raman=True, wavelength=800e-9
 )
 ```
 
@@ -387,7 +387,7 @@ simulation = Simulation.from_capillary(
     15e-6,
     0.225,
     material,
-    lambda0=800e-9,
+    wavelength=800e-9,
     wavelength_limits=(300e-9, 2e-6),
     trange=200e-15,
     fwhm=30e-15,

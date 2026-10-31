@@ -703,7 +703,7 @@ def test_prop_capillary_runs_a_wall_on_numba_as_the_reference_does():
                     "He",
                     1.0,
                     wall=CoherentWall(),
-                    lambda0=800e-9,
+                    wavelength=800e-9,
                     grid=GRID,
                     absorber=WEAK_COLLAR,
                     fwhm=30e-15,

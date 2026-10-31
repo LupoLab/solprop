@@ -86,7 +86,7 @@ output = prop_waveguide(
     length,
     provider=guide,
     grid=grid,
-    lambda0=835e-9,
+    wavelength=835e-9,
     fwhm=40e-15,
     energy=4e-11,
     n_save=2,
@@ -123,7 +123,7 @@ it, coupled under a declared model
 ```text
 beam = SpatialPulse(GaussianPulse(wavelength=835e-9, fwhm=20e-15, energy=1e-9), 3e-6)
 simulation = Simulation.from_waveguide(
-    (), length, provider=guide, lambda0=835e-9, grid=grid, incident=beam,
+    (), length, provider=guide, wavelength=835e-9, grid=grid, incident=beam,
     coupling=CouplingModel("vector_paraxial", model_error=0.2),
 )
 simulation.configuration["launch"]   # the CouplingReport: incident, launched, budget
@@ -181,7 +181,7 @@ capture: it is physics, not a defect.
 The beam is launched at its waist (`propz=0`; otherwise it is refused, because carrying a
 beam to the entrance is transport, which this launch does not model) and centred on the
 guide's axis; a one-component Jones vector is polarised along x. The beam carries its own
-pulse, so `fwhm`, `width`, `energy`, `peak_power`, `phases`, `pulses` and `pulseshape` are
+pulse, so `fwhm`, `width`, `energy`, `peak_power`, `phases`, `pulses` and `shape` are
 refused beside it, as is `channel=`. Direct amplitudes — a named channel, or a state
 passed to {meth}`~solprop.driver.simulation.Simulation.with_input` — already describe
 light inside the guide and are launched as they are.
@@ -236,7 +236,7 @@ import dataclasses
 from solprop.driver import Simulation
 
 simulation = Simulation.from_waveguide(
-    (), length, provider=guide, grid=grid, lambda0=835e-9, fwhm=40e-15, energy=4e-11
+    (), length, provider=guide, grid=grid, wavelength=835e-9, fwhm=40e-15, energy=4e-11
 )
 simulation.settings = dataclasses.replace(
     simulation.settings, absorber_scheme="split_step"

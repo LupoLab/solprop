@@ -101,7 +101,7 @@ The run
             1.5,
             "He",
             0.445,
-            lambda0=267e-9,
+            wavelength=267e-9,
             pulses=[pump, seed],
             trange=400e-15,
             wavelength_limits=(120e-9, 3e-6),

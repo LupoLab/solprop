@@ -53,7 +53,7 @@ output = prop_capillary(
     1e-5,  # a short configuration check, in metres
     "Ar",
     1.0,  # bar
-    lambda0=800e-9,
+    wavelength=800e-9,
     wavelength_limits=(500e-9, 1200e-9),
     trange=200e-15,
     fwhm=30e-15,

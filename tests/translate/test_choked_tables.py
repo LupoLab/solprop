@@ -67,7 +67,7 @@ def test_the_canonical_phi_table_is_unchanged_but_for_its_intervals():
         4.2,
         "He",
         steady_fill("He", [0.0, STAGE, EXIT], [0.0, 0.2, 0.0], radius=256e-6),
-        lambda0=800e-9,
+        wavelength=800e-9,
         fwhm=6e-15,
         energy=1e-3,
         modes=1,

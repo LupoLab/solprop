@@ -113,7 +113,7 @@ from solprop.translate.modal_tables import (
 # monitor warns (SEP 21), and the window's edge is not what this module tests.
 pytestmark = pytest.mark.filterwarnings("ignore::solprop.exceptions.BoundaryWarning")
 
-PULSE = {"lambda0": 835e-9, "fwhm": 20e-15, "energy": 1e-12, "pulseshape": "gauss"}
+PULSE = {"wavelength": 835e-9, "fwhm": 20e-15, "energy": 1e-12, "shape": "gauss"}
 RUN = {
     # A tenth of a millimetre in two steps: these tests are about construction,
     # the launch, the refusals and the identity of a repeated draw, and none of
@@ -270,14 +270,14 @@ def test_the_gas_route_still_needs_a_gas_and_refuses_the_guide_keywords():
     """Without a provider: a gas is required and the guide's keywords are not."""
     with pytest.raises(DriverError, match="needs a gas fill"):
         Simulation.from_waveguide(
-            (), GENERAL_Z_END, lambda0=835e-9, noise=None, integrator=Multistep()
+            (), GENERAL_Z_END, wavelength=835e-9, noise=None, integrator=Multistep()
         )
     with pytest.raises(DriverError, match="channel= belongs to the general"):
         Simulation.from_waveguide(
             (),
             GENERAL_Z_END,
             "He",
-            lambda0=835e-9,
+            wavelength=835e-9,
             channel=0,
             noise=None,
             integrator=Multistep(),
@@ -287,7 +287,7 @@ def test_the_gas_route_still_needs_a_gas_and_refuses_the_guide_keywords():
             (),
             GENERAL_Z_END,
             "He",
-            lambda0=835e-9,
+            wavelength=835e-9,
             observable_rtol=1e-6,
             noise=None,
             integrator=Multistep(),
@@ -297,7 +297,7 @@ def test_the_gas_route_still_needs_a_gas_and_refuses_the_guide_keywords():
             (),
             GENERAL_Z_END,
             "He",
-            lambda0=835e-9,
+            wavelength=835e-9,
             observable_atol=1e-16,
             noise=None,
             integrator=Multistep(),
@@ -307,7 +307,7 @@ def test_the_gas_route_still_needs_a_gas_and_refuses_the_guide_keywords():
             (),
             GENERAL_Z_END,
             "He",
-            lambda0=835e-9,
+            wavelength=835e-9,
             kerr_form="analytic",
             noise=None,
             integrator=Multistep(),
@@ -318,7 +318,7 @@ def test_the_gas_route_still_needs_a_gas_and_refuses_the_guide_keywords():
         Simulation.from_waveguide(
             (),
             GENERAL_Z_END,
-            lambda0=835e-9,
+            wavelength=835e-9,
             kerr_form="real",
             noise=None,
             integrator=Multistep(),
@@ -397,7 +397,7 @@ def test_the_launch_is_the_pulses_own_amplitude_bit_for_bit(guide, grid):
     """
     simulation = build(guide, grid)
     built = GaussianPulse(
-        wavelength=PULSE["lambda0"], fwhm=PULSE["fwhm"], energy=PULSE["energy"]
+        wavelength=PULSE["wavelength"], fwhm=PULSE["fwhm"], energy=PULSE["energy"]
     ).build(grid)
     problem = simulation.translate()
     assert np.array_equal(simulation._field0[0], built[0])
@@ -581,7 +581,7 @@ def incident_beam(waist, jones=(1.0,)):
     """Return an incident beam carrying the tests' pulse, launched at its waist."""
     return SpatialPulse(
         GaussianPulse(
-            wavelength=PULSE["lambda0"], fwhm=PULSE["fwhm"], energy=PULSE["energy"]
+            wavelength=PULSE["wavelength"], fwhm=PULSE["fwhm"], energy=PULSE["energy"]
         ),
         waist,
         jones=jones,
@@ -595,7 +595,7 @@ def launched(guide, grid, incident, **overrides):
         GENERAL_Z_END,
         provider=guide,
         grid=grid,
-        lambda0=PULSE["lambda0"],
+        wavelength=PULSE["wavelength"],
         incident=incident,
         coupling=overrides.pop("coupling", INCIDENT_MODEL),
         **({"integrator": Multistep(), **({"noise": None, **RUN | overrides})}),
@@ -741,7 +741,7 @@ def test_the_incident_launch_refuses_what_it_does_not_carry(
         ("peak_power", 1.0),
         ("phases", (0.0, 0.0, 1e-30)),
         ("pulses", (GaussianPulse(wavelength=835e-9, fwhm=2e-14, energy=1e-12),)),
-        ("pulseshape", "sech"),
+        ("shape", "sech"),
     ):
         with pytest.raises(DriverError, match=f"carries its own temporal.*{keyword}"):
             launched(incident_pair, grid, beam, **{keyword: value})
@@ -845,7 +845,7 @@ def test_a_poorly_captured_beam_launches_only_what_the_guide_takes(
             GENERAL_Z_END,
             provider=incident_guide,
             grid=grid,
-            lambda0=PULSE["lambda0"],
+            wavelength=PULSE["wavelength"],
             incident=beam,
             coupling=INCIDENT_MODEL,
             progress="none",
@@ -1099,12 +1099,12 @@ def ordinary_simulation(names):
         0.11,
         1e-4,
         [0.0, 0.0, -1.183e-26],
-        lambda0=835e-9,
+        wavelength=835e-9,
         wavelength_limits=(500e-9, 2e-6),
         trange=1e-12,
         width=100e-15,
         peak_power=1.0,
-        pulseshape="sech",
+        shape="sech",
         n_save=2,
         stats=StatsSpec(names=tuple(names)),
         backend="numpy_ref",
@@ -1215,9 +1215,9 @@ def batched_run(guide, grid, **overrides):
     """Return a general modal simulation on an explicit fixed schedule."""
     schedule = FixedSchedule.uniform(0.0, BATCH_Z, BATCH_Z / 4, save_planes=[BATCH_Z])
     settings = {
-        "lambda0": PULSE["lambda0"],
+        "wavelength": PULSE["wavelength"],
         "fwhm": PULSE["fwhm"],
-        "pulseshape": PULSE["pulseshape"],
+        "shape": PULSE["shape"],
         "energy": PULSE["energy"],
         "schedule": schedule,
         # No order choice on the prescribed schedule: a member and its solo run are
@@ -1503,10 +1503,10 @@ silenced here goes unchecked.
 """
 
 WEAK_COMMON = {
-    "lambda0": 835e-9,
+    "wavelength": 835e-9,
     "fwhm": WEAK_FWHM,
     "energy": WEAK_ENERGY,
-    "pulseshape": "gauss",
+    "shape": "gauss",
     "save_planes": [GENERAL_Z_END],
     "backend": "numpy_ref",
     "noise": None,
@@ -2623,7 +2623,7 @@ def test_fixed_steps_beyond_the_collar_are_refused_at_translation():
             length,
             provider=guide,
             grid=general_grid(),
-            lambda0=835e-9,
+            wavelength=835e-9,
             fwhm=30e-15,
             energy=1e-9,
             dz_max=length / steps,

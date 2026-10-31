@@ -143,10 +143,10 @@ linear_guide = ModalGuide.from_provider(
 )
 common = {
     "noise": None,  # a 40 pJ comparison of two routes: the lesson is noiseless
-    "lambda0": 835e-9,
+    "wavelength": 835e-9,
     "fwhm": 40e-15,
     "energy": 4e-11,
-    "pulseshape": "gauss",
+    "shape": "gauss",
     "n_save": 2,
     "backend": "numpy_ref",
     "progress": "none",

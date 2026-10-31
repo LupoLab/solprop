@@ -66,12 +66,12 @@ def build_point(point, noise=None):
         0.11,
         0.001,
         [0.0, 0.0, -1.183e-26],
-        lambda0=835e-9,
+        wavelength=835e-9,
         grid=grid,
         absorber=bare_absorber(grid),
         width=100e-15,
         peak_power=float(point.values["power"]),
-        pulseshape="sech",
+        shape="sech",
         n_save=3,
         schedule=FixedSchedule.uniform(
             0.0, 0.001, 0.00025, save_planes=[0.0005, 0.001]

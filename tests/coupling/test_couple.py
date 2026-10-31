@@ -54,7 +54,7 @@ from solprop.stepper import PIController
 RADIUS = 75e-6
 PRESSURE = 3.0
 GRID = {
-    "lambda0": 800e-9,
+    "wavelength": 800e-9,
     "wavelength_limits": (700e-9, 920e-9),
     "trange": 200e-15,
 }
@@ -708,7 +708,7 @@ def step_index(radius, contrast, wavelength=1064e-9, core=1.45, grid=None):
     )
     grid = (
         {
-            "lambda0": wavelength,
+            "wavelength": wavelength,
             "wavelength_limits": (900e-9, 1300e-9),
             "trange": 400e-15,
         }
@@ -956,7 +956,7 @@ def test_couple_refuses_unqualified_pairs_by_name(port):
         envelope=True,
         energy=1e-6,
         fwhm=30e-15,
-        lambda0=800e-9,
+        wavelength=800e-9,
         wavelength_limits=(700e-9, 920e-9),
         trange=400e-15,
     )

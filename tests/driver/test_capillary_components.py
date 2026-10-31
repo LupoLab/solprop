@@ -46,7 +46,7 @@ pytestmark = pytest.mark.filterwarnings(
 def _keywords(*, plasma=True, **overrides):
     """Return the cheap capillary's keywords on the ten-step schedule."""
     keywords = {
-        "lambda0": 800e-9,
+        "wavelength": 800e-9,
         "wavelength_limits": (200e-9, 2e-6),
         "trange": 100e-15,
         "fwhm": 10e-15,

@@ -102,7 +102,7 @@ def run(**choices):
             LENGTH,
             "Ar",
             1.0,
-            lambda0=800e-9,
+            wavelength=800e-9,
             grid=GRID,
             absorber=absorber(GRID, boundary_length=1.0),
             fwhm=30e-15,

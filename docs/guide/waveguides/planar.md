@@ -183,7 +183,7 @@ simulation = Simulation.from_waveguide(
     0.1,
     "Ar",
     1.0,
-    lambda0=800e-9,
+    wavelength=800e-9,
     wavelength_limits=(650e-9, 1000e-9),
     trange=1.2e-12,
     fwhm=100e-15,

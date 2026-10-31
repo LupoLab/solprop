@@ -839,7 +839,7 @@ def general_simulation(
         GENERAL_Z_END,
         provider=guide,
         grid=grid,
-        lambda0=835e-9,
+        wavelength=835e-9,
         fwhm=20e-15,
         energy=energy,
         materials=MaterialSelection(electronic=policy),

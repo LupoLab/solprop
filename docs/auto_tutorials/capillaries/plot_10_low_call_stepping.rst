@@ -60,7 +60,7 @@ explains both).
     fill = steady_fill("He", [0.0, 2.1, 4.2], [0.0, 0.2, 0.0], radius=256e-6)
     common = {
         "seed": 20261027,
-        "lambda0": 800e-9,
+        "wavelength": 800e-9,
         "fwhm": 6e-15,
         "energy": 1e-3,
         "trange": 60e-15,

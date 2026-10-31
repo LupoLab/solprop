@@ -539,7 +539,7 @@ def test_a_schedule_past_the_methods_collar_limit_is_refused(method):
             0.01,
             "He",
             1.0,
-            lambda0=800e-9,
+            wavelength=800e-9,
             fwhm=10e-15,
             energy=1e-9,
             trange=100e-15,

@@ -91,7 +91,7 @@ The run
         0.75,
         "Ar",
         5.0,
-        lambda0=800e-9,
+        wavelength=800e-9,
         fwhm=30e-15,
         energy=250e-6,
         plasma=False,

@@ -61,10 +61,10 @@ from solprop.translate.modal_tables import generator_is_coupled, sample_modal_ta
 pytestmark = pytest.mark.filterwarnings("ignore::solprop.exceptions.BoundaryWarning")
 
 PULSE = {
-    "lambda0": 835e-9,
+    "wavelength": 835e-9,
     "fwhm": 20e-15,
     "energy": 1e-12,
-    "pulseshape": "gauss",
+    "shape": "gauss",
     "backend": "numpy_ref",
 }
 

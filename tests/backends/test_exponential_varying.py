@@ -52,7 +52,7 @@ def gradient(
     estimate move the trajectory.
     """
     settings = {
-        "lambda0": 800e-9,
+        "wavelength": 800e-9,
         "fwhm": 10e-15,
         "energy": 20e-6 if nonlinear else 1e-9,
         "trange": 200e-15,

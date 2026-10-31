@@ -118,7 +118,7 @@ def build_simulation(case_name: str, backend_name: str) -> Any:
         case["length"],
         "H2",
         40.0,
-        lambda0=515e-9,
+        wavelength=515e-9,
         wavelength_limits=case["wavelength_limits"],
         trange=case["trange"],
         fwhm=400e-15,

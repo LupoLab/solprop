@@ -78,7 +78,7 @@ def build(*, backend="numpy_ref", waveguide=False, **overrides):
     if backend == "native":
         pytest.importorskip("solprop_native")
     options = {
-        "lambda0": 800e-9,
+        "wavelength": 800e-9,
         "wavelength_limits": (500e-9, 1.2e-6),
         "trange": 80e-15,
         "fwhm": 20e-15,
@@ -141,7 +141,7 @@ def test_gas_constructors_select_envelope_plasma(waveguide, rate):
 
 def test_envelope_mixture_builder_defaults_and_rate_conventions():
     mixture = Mixture.fill({"Ar": 0.5, "He": 0.5}, 1.0)
-    responses = responses_for(mixture, envelope=True, plasma=True, lambda0=800e-9)
+    responses = responses_for(mixture, envelope=True, plasma=True, wavelength=800e-9)
     assert sum(isinstance(one, EnvelopePlasmaResponse) for one in responses) == 2
     assert all(
         not one.thg
@@ -149,13 +149,13 @@ def test_envelope_mixture_builder_defaults_and_rate_conventions():
         if isinstance(one, KerrResponse | RamanResponse)
     )
     with pytest.raises(MaterialError, match="THG"):
-        responses_for(mixture, envelope=True, plasma=True, thg=True, lambda0=800e-9)
+        responses_for(mixture, envelope=True, plasma=True, thg=True, wavelength=800e-9)
     with pytest.raises(MaterialError, match="instantaneous"):
         responses_for(
             mixture,
             envelope=True,
             plasma={"Ar": adk_oracle("Ar", cycle_averaged=True)},
-            lambda0=800e-9,
+            wavelength=800e-9,
         )
 
 

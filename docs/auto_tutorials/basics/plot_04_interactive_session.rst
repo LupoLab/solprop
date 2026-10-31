@@ -220,7 +220,7 @@ One call. The pulse is a Gaussian, the default; the run takes a second or two.
         1.0,  # length, m
         gas,
         pressure,
-        lambda0=pulse["wavelength"],
+        wavelength=pulse["wavelength"],
         wavelength_limits=(400e-9, 1.6e-6),
         trange=600e-15,
         fwhm=pulse["fwhm"],

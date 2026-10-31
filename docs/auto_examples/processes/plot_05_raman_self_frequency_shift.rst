@@ -86,7 +86,7 @@ Molecular hydrogen carries its rotational and vibrational Raman response by defa
         2.0,
         "H2",
         5.0,
-        lambda0=1030e-9,
+        wavelength=1030e-9,
         fwhm=40e-15,
         energy=4e-6,
         loss=False,

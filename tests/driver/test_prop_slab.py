@@ -93,7 +93,7 @@ if importlib.util.find_spec("solprop_native") is not None:
 
 def options(**changes):
     return {
-        "lambda0": 800e-9,
+        "wavelength": 800e-9,
         "grid": GRID,
         "absorber": COLLAR,
         "fwhm": 100e-15,
@@ -382,7 +382,7 @@ def test_a_slab_set_is_refused_where_it_cannot_go():
             [slab],
             GENERAL_Z_END,
             provider=general_guide(grid=grid),
-            lambda0=835e-9,
+            wavelength=835e-9,
             grid=grid,
             noise=None,
         )
@@ -421,7 +421,7 @@ def test_a_slab_fibre_through_prop_gnlse_records_per_unit_width():
         LENGTH,
         fibre=SlabMode(HALF_GAP, "Ar", 1.0),
         n2=n2("Ar", pressure=1.0, wavelength=800e-9),
-        lambda0=800e-9,
+        wavelength=800e-9,
         grid=GRID,
         fwhm=100e-15,
         energy=0.5,

@@ -96,7 +96,7 @@ spectrum
                     5.0,
                     "He",
                     (0.2, 0.0),
-                    lambda0=800e-9,
+                    wavelength=800e-9,
                     fwhm=6e-15,
                     energy=1e-3,
                     trange=1e-12,

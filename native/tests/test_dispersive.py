@@ -61,7 +61,7 @@ def capillary(
             LENGTH,
             gas,
             2.0,
-            lambda0=800e-9,
+            wavelength=800e-9,
             wavelength_limits=(180e-9, 4e-6),
             trange=150e-15,
             fwhm=10e-15,

@@ -117,7 +117,7 @@ def _propagate(backend: str):
         0.01,  # length, m: a few adaptive steps
         "He",
         1.0,  # bar
-        lambda0=800e-9,
+        wavelength=800e-9,
         fwhm=30e-15,
         energy=5e-6,
         trange=400e-15,

@@ -49,18 +49,18 @@ LAMBDA0 = 835e-9
 """Reference and centre wavelength of both runs, m."""
 
 GRID = {
-    "lambda0": LAMBDA0,
+    "wavelength": LAMBDA0,
     "wavelength_limits": (500e-9, 2e-6),
     "trange": 1e-12,
 }
-PULSE = {"width": 100e-15, "energy": 1e-9, "pulseshape": "sech"}
+PULSE = {"width": 100e-15, "energy": 1e-9, "shape": "sech"}
 RUN = {"n_save": 3, "noise": "input", "seed": 11, "progress": "none"}
 
 GAMMA = 0.11
 """Nonlinear coefficient of the Taylor route, 1/(W m)."""
 
 BETAS = (0.0, 0.0, -1.183e-26)
-"""Taylor dispersion about ``lambda0``, s^n/m; Luna's soliton-fission case."""
+"""Taylor dispersion about ``wavelength``, s^n/m; Luna's soliton-fission case."""
 
 N2 = 2.6e-20
 """Nonlinear index of the mapped route, m^2/W; fused silica."""

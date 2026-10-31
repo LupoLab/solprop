@@ -62,7 +62,7 @@ run = prop_capillary(
     1.0,
     "Ne",
     1.5,
-    lambda0=800e-9,
+    wavelength=800e-9,
     pulses=[pump, seed],
     trange=800e-15,
     wavelength_limits=(200e-9, 3e-6),

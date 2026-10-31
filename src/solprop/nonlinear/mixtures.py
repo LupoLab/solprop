@@ -550,7 +550,7 @@ def responses_for(  # noqa: PLR0913 - independent public response selectors
     thg: bool | None = None,
     plasma: bool | IonisationRate | Mapping[str, bool | IonisationRate] = False,
     raman: bool | Sequence[str] | Mapping[str, bool | MolecularOptions] = False,
-    lambda0: float | None = None,
+    wavelength: float | None = None,
     envelope: bool = False,
     length: float | None = None,
     selection: MaterialSelection | None = None,
@@ -586,7 +586,7 @@ def responses_for(  # noqa: PLR0913 - independent public response selectors
         ``True`` includes every available term and logs omissions. A sequence selects
         labels; a mapping selects labels and optional molecular terms. Explicit
         unavailable selections raise an error. Default ``False``.
-    lambda0 : float or None, optional
+    wavelength : float or None, optional
         Reference wavelength in m, the carrier: required by the default rate and by
         a species whose Kerr coefficient is optmat's, which is evaluated there.
     envelope : bool, optional
@@ -606,7 +606,7 @@ def responses_for(  # noqa: PLR0913 - independent public response selectors
         populations are built-in gases (SEP 3): one response for the whole
         composition, driven and damped by its summed density
         (:func:`solprop.nonlinear.optmat_raman.mixture_raman`), with the carrier
-        `lambda0` unless the selection names one; a mixture of supplied species
+        `wavelength` unless the selection names one; a mixture of supplied species
         keeps their per-component responses.
     plasma_integration : {'band', 'trapezoid'} or None, optional
         The running-integral rule of every field plasma response (SEP 18); ``None``
@@ -657,7 +657,7 @@ def responses_for(  # noqa: PLR0913 - independent public response selectors
             raman,
             selection=selection,
             thg=harmonic,
-            wavelength=lambda0,
+            wavelength=wavelength,
             length=length,
             explicit=not isinstance(raman, bool),
         )
@@ -668,14 +668,14 @@ def responses_for(  # noqa: PLR0913 - independent public response selectors
         label = component.label
         material = component.species
         if kerr:
-            # A carrier policy evaluates optmat's Kerr model at `lambda0`; a dispersive
-            # one takes the whole model (SEP 6).
+            # A carrier policy evaluates optmat's Kerr model at `wavelength`; a
+            # dispersive one takes the whole model (SEP 6).
             try:
                 result.append(
                     electronic_response(
                         material,
                         selection=selection,
-                        wavelength=lambda0,
+                        wavelength=wavelength,
                         thg=harmonic,
                         species=label,
                     )
@@ -687,7 +687,7 @@ def responses_for(  # noqa: PLR0913 - independent public response selectors
             if envelope and harmonic:
                 raise MaterialError("envelope plasma cannot be combined with THG")
             rate = (
-                _default_rate(component, lambda0, selection)
+                _default_rate(component, wavelength, selection)
                 if selected is True
                 else selected
             )
