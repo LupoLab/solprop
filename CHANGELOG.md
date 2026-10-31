@@ -7,6 +7,8 @@ All notable changes to solprop are recorded here. The format follows
 
 ## Unreleased
 
+## [0.1.0] - 2026-10-31
+
 The first public release of `solprop` and of its compiled backend, `solprop-native`,
 which is released at the same version. Releases are 0.x for now: a minor release may
 break the API, the output schema or the resume key, and lists every such break under
