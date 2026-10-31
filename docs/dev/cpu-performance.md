@@ -118,7 +118,7 @@ time divided by the native backend's: above 1, the native backend is faster.
   team), its threaded transforms at the team's width. At 16 threads `gnlse_raman_shock`
   takes 0.77 of its time on a Xeon Gold 6240 and 0.97 on an AMD EPYC 7763, and
   `h2_raman_averaged` 0.90 and 0.97; one thread is unchanged.
-  Threading the Raman transforms from the modal FFT's start gained 2-6 % on the Xeon but
+  Threading the Raman transforms from the modal FFT's start gained 2-6 % on a Xeon Gold 6240 but
   lost 6-17 % on the EPYC, and was not kept. The scope also sets the OpenMP default
   width to one for an OpenMP OpenBLAS, whose threaded GEMV between the team's kernels
   re-created threads at every call on aarch64 (not `openblas_set_num_threads`, which
@@ -212,12 +212,12 @@ time divided by the native backend's: above 1, the native backend is faster.
   and 0.87 at one thread on an AMD EPYC 7763.
 - **Raman: convolve the modal products, not the node drives**, where they are fewer
   ([measurements](benchmarks.md#retained-radial-synthesis-and-raman-modal-products)).
-  Three-mode CTC: 0.88 at 16 threads on the Xeon; 0.83 at one thread and 0.92 at 16 on
+  Three-mode CTC: 0.88 at 16 threads on a Xeon Gold 6240; 0.83 at one thread and 0.92 at 16 on
   the EPYC.
 - **The modal stage entry's finish and combination as lanes**
   ([measurements](benchmarks.md#host-stage-entry-free-space-crossings-and-statistics)),
   and a block whose phases carry no loss skips its magnitudes' `exp` passes. A 16384-bin
-  GNLSE with Raman takes 0.84 of its time at one thread on the Xeon.
+  GNLSE with Raman takes 0.84 of its time at one thread on a Xeon Gold 6240.
 - **Free space's low-storage fold in the transverse scratch's layout**
   ([measurements](benchmarks.md#host-stage-entry-free-space-crossings-and-statistics)):
   only the state crosses layouts, a tile of it at a time. Crossings find their scratch
@@ -238,7 +238,7 @@ time divided by the native backend's: above 1, the native backend is faster.
   the loss guard's branch is a selection, a one-thread team scans in one pass (Kokkos'
   host team scan runs each closure twice), and on x86-64 the nine-tap filter runs a
   block of samples one tap pair at a time. The band statistics take the same blocks.
-  The resolved three-mode CTC takes 0.70 of its time at one thread on the Xeon, resolved
+  The resolved three-mode CTC takes 0.70 of its time at one thread on a Xeon Gold 6240, resolved
   argon 0.64; only the filter's contraction moves values, by rounding. What kept these
   loops scalar: an out-of-line strict helper per sample, a conditional division (an
   ordered comparison guarding it), a short-circuit `||` in a classification loop, and a
@@ -251,7 +251,7 @@ time divided by the native backend's: above 1, the native backend is faster.
   with its doubled bins halved, exactly, so the inverse transform does half the work and
   the response reads a real row; with the projection's block of bins widened to the
   whole row at one thread and the synthesis summed in blocks of local bins, the
-  graded-index guide takes 0.70 of its time at one thread and 0.80 at 16 on the Xeon.
+  graded-index guide takes 0.70 of its time at one thread and 0.80 at 16 on a Xeon Gold 6240.
 
 **Tried and not adopted**
 - **Skinny products off the vendor BLAS** (the native-order kernel for small left

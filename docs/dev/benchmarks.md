@@ -210,7 +210,7 @@ twelve threads every source evaluation, and was slower than at one thread.
 
 A kernel pool that already holds a full-width instance now hands it to medium-width
 kernels too; a pool without one keeps four threads (averaged helium, whose other kernels
-are serial, took 14 % longer on the Xeon with its Adams passes at full width). Workspaces ask for their stage
+are serial, took 14 % longer on a Xeon Gold 6240 with its Adams passes at full width). Workspaces ask for their stage
 instance first. Interleaved `benchmarks ab` at 16 threads against the parent, 3 rounds,
 `--length 0.1`, passive-bound placement, the same steps and fields to rounding (at most
 1e-13 relative):
@@ -224,8 +224,8 @@ instance first. Interleaved `benchmarks ab` at 16 threads against the parent, 3 
 | geometric mean (12 cases) | 0.924 | 0.938 |
 
 The unchanged cases have no medium-width kernel or none beside a full-width one; their
-spread is the A/A spread (about 2 % on the Xeon, up to 10 % on the shared EPYC nodes). On
-the Xeon `h2_raman_averaged` now takes 0.79 s at 16 threads against 1.06-1.12 s at one.
+spread is the A/A spread (about 2 % on a Xeon Gold 6240, up to 10 % on the shared EPYC nodes). On
+a Xeon Gold 6240 `h2_raman_averaged` now takes 0.79 s at 16 threads against 1.06-1.12 s at one.
 Every medium width serial instead lost 2.8 times on averaged helium (EPYC geometric mean
 1.08); every medium width full, the FFTs included, gained on resolved cases but lost on the
 averaged ones (EPYC 0.94, Xeon 0.90 with averaged helium 1.22).
@@ -273,7 +273,7 @@ Sweeps of the whole native pool on the same 16-thread process (`SOLPROP_NATIVE_T
 2 rounds, wall s) chose the team: `gnlse_raman_shock` 5.84 at 16, 4.72 at 4, 4.64 at 6,
 4.76 at 8, 5.42 at 12; `h2_raman_averaged` 0.71 at 16, 0.61 at 4 and at 8; the 33-node
 cases lose at 4 (`argon_blueshift` 1.77 against 1.48 s, `rdw` 0.90 against 0.75 s) and
-stay with their own sizing. Interleaved `benchmarks ab` against the parent on the Xeon,
+stay with their own sizing. Interleaved `benchmarks ab` against the parent on a Xeon Gold 6240,
 3 rounds, `--length 0.1`, passive-bound placement, the same steps and fields to the
 measured-plan floor (at most 6e-14 relative):
 
@@ -305,7 +305,7 @@ cores of a quiet shared node):
 The Raman transforms therefore keep their own start (65536 samples), and the GNLSE's
 1 × 1 synthesis and projection stay with the vendor GEMM. Threading every compact kernel
 of at least 4096 elements at the team width gained nothing either (`h2_raman_averaged` 3 %
-slower on the Xeon), nor did threading compact transforms from 4096 or 8192 samples
+slower on a Xeon Gold 6240), nor did threading compact transforms from 4096 or 8192 samples
 (averaged argon 1.6 times slower at 4096).
 
 The final rule against the parent of the compact-team commit, 3 rounds, `--length 0.1`,
@@ -318,7 +318,7 @@ the same steps (fields within 9e-14), 16 threads; one thread moved by 0.98-1.02:
 | `gnlse_soliton`, `he_rdw_averaged`, `argon_blueshift_averaged` | 0.98-1.05 | 0.97-1.04 |
 
 With the package's own plan mode (threaded rows planned at `FFTW_ESTIMATE`, where the
-suite measures every plan) the Xeon rows were 0.780 and 0.905. On the EPYC the 16
+suite measures every plan) the Intel Xeon Gold 6240 rows were 0.780 and 0.905. On the EPYC the 16
 allocated cores lay in three CCXs; its 16-thread `gnlse_raman_shock` window ran 1.04
 times faster than one thread before and 1.08 times after (Xeon: 1.02 and 1.29).
 
@@ -405,7 +405,7 @@ NumPy's OpenBLAS is a pthreads library with a pool of its own, sized from
 width). During a native run the host calls it only for small products: the power
 weights' expansion at each saved plane is a 3 × 2561 `dgemv` on averaged helium, 24 of
 them in a `--length 0.5` window. After each call OpenBLAS's workers spin before they
-sleep, and the planes come often enough that they never do: at 16 threads on the Xeon
+sleep, and the planes come often enough that they never do: at 16 threads on a Xeon Gold 6240
 Gold 6240, its 15 workers took 1.09 s of CPU each in a 1.24 s window, and the
 four-thread Adams passes ran three times as slowly (0.74 s against 0.22 s, label timer).
 The native backend now holds every BLAS but its own to one thread while it lives, as
@@ -975,7 +975,7 @@ The geometric mean of the twelve ratios is 0.867. At sixteen threads the single-
 passes run on four threads (the size class above), so less of the gain shows.
 
 SLEEF's AVX-512F functions (`SOLPROP_NATIVE_VECTOR_MATH_AVX512`, opt-in) took a further
-5–8 % off these windows at one thread on the Xeon, and were 6 % slower on
+5–8 % off these windows at one thread on a Xeon Gold 6240, and were 6 % slower on
 `he_rdw_averaged` at sixteen threads (one round); they stay opt-in.
 
 Tried and not adopted: blocks of 16 elements (5–15 % slower on the EPYC) and of 64
@@ -1268,20 +1268,20 @@ and the final fields agree to 4–10 × 10⁻¹⁵ relative.
   16; on 16 cores of an AMD EPYC 7763, 0.869 [0.868, 0.891] at one thread, and at
   `--length 0.05` 0.866 [0.850, 0.868] at one thread and 0.825 [0.653, 0.894] at 16. The
   EPYC's 16-thread ratios moved by about ±15 % between allocations on a shared node (a
-  complete-guide repeat gave 0.999 [0.735, 1.020]); the Xeon's are the resolved ones.
+  complete-guide repeat gave 0.999 [0.735, 1.020]); the Intel Xeon Gold 6240's are the resolved ones.
   A 16-thread label profile on the EPYC put the synthesis GEMMs at 0.20 s against
   0.38 s, of which the gather and pad, as first written per chunk and over every fine
   bin, took back 0.14 s; they now gather once per evaluation and write only the retained
   bins.
 - **Raman modal products** (three-mode `ctc`, 6 product rows against 33 node drives):
-  `--length 0.05` at 16 threads 0.884 [0.881, 0.899] on the Xeon; on the EPYC 0.833
+  `--length 0.05` at 16 threads 0.884 [0.881, 0.899] on a Xeon Gold 6240; on the EPYC 0.833
   [0.823, 0.837] at one thread and 0.921 [0.861, 0.928] at 16 (`--length 0.02`: 0.850
   and 0.884). The first reconstruction looped over the products per sample and cost ten
   times the node path's finish (0.46 s against 0.046 s in a one-thread window); it now
   accumulates each product over contiguous blocks of 512 samples.
 
 Both add FFT plans (the node transforms; the product rows), measured at construction:
-on the Xeon a CTC worker's wall time, construction included, rose from 16.3 s to 17.7 s.
+on a Xeon Gold 6240 a CTC worker's wall time, construction included, rose from 16.3 s to 17.7 s.
 
 Not adopted, on the same EPYC allocation:
 - Routing every real product with a left matrix of at most 256 entries through
@@ -1367,7 +1367,7 @@ same protocol), one / sixteen threads: `gnlse_raman_shock` 0.841 (0.836–0.842)
 `gnlse_soliton` 0.941 / 0.942, `radial_filament_256` 0.838 (0.837–0.850) / 0.938,
 `kerr_beam_384` 0.953 (0.947–0.958) / 1.003, `kerr_beam_192` 0.956 / 0.995, `ctc`
 0.994 / 0.977, `argon_blueshift_envelope` 0.981 / 1.001. The free-space gains are small
-there: Zen 3 ran the 384² window in 30 s at one thread where the Xeon took 69 s, its
+there: Zen 3 ran the 384² window in 30 s at one thread where a Xeon Gold 6240 took 69 s, its
 64-bit divisions and strided streams far cheaper.
 
 Not adopted:
@@ -1391,7 +1391,7 @@ is most of a short run's backend construction: about 1.3 s for averaged helium's
 process ([tuning](../guide/performance/tuning.md)). Fresh processes at one thread,
 `SOLPROP_FFTW_PLAN=measure`, passive-bound, through the benchmark worker's own
 `timed_run` (`--length 0.1`; `ctc`, `kerr_beam_192` and `grin_nonlinear` on the EPYC
-and `ctc` on the Xeon `--length 0.05`). For each case one process stores the wisdom,
+and `ctc` on a Xeon Gold 6240 `--length 0.05`). For each case one process stores the wisdom,
 then three rounds alternate a process without the variable (cold) and one with it
 (warm): medians of the backend's construction, cold → warm, and the warm/cold window
 ratio's median and range over the rounds. Step counts are equal in every pair. One core
@@ -1419,7 +1419,7 @@ its final field bit for bit (averaged helium), where two cold processes differ b
 measured plans (5.8 × 10⁻¹⁵ relative). What remains of a warm construction is allocation
 and setup: tens of milliseconds, a few tenths of a second for the free-space Kerr beam's
 1.4 GB of state. A job of a one-thread scan still pays solprop's own import, case
-construction and translation (0.7 s and 3.0 s for averaged helium on the Xeon), which
+construction and translation (0.7 s and 3.0 s for averaged helium on a Xeon Gold 6240), which
 the native backend does not own.
 
 ### Band column passes and the general route's real signal
@@ -1488,7 +1488,7 @@ projection 1.81 s and the synthesis 1.57 s.
   about what one core of this socket draws from memory.
 
 Each case measured with `python -m benchmarks ab` against the parent of these changes
-(fresh interleaved processes on 18 cores of one socket of the Xeon, passive bound
+(fresh interleaved processes on 18 cores of one socket of a Xeon Gold 6240, passive bound
 threads, `SOLPROP_FFTW_PLAN=measure`, `--length 0.05`, three rounds of one repeat;
 medians of the per-round pairs, range over rounds). Every pair did the same work, and
 the final fields agree within the measured-plan floor (2 × 10⁻¹⁵ to 3 × 10⁻¹⁴):
@@ -1634,7 +1634,7 @@ Gold 6240 the fixes leave every case within the A/A spread (geometric mean 0.999
 unfixed branch; `main` against the fixed branch 0.646 over both widths).
 
 **Accuracy.** Every A/B took the same steps.
-- On the Xeon, complete runs of `he_rdw_averaged` and `ctc` moved the final field by
+- On a Xeon Gold 6240, complete runs of `he_rdw_averaged` and `ctc` moved the final field by
   about $2\times10^{-10}$, against $10^{-13}$ in short windows. `main` against itself, over
   the same complete runs, gives $6\times10^{-11}$ to $2\times10^{-10}$: measured FFTW plans
   differ between processes at about $10^{-16}$, and the adaptive controller amplifies the
@@ -1648,10 +1648,10 @@ unfixed branch; `main` against the fixed branch 0.646 over both widths).
 
 **Measured and not adopted.**
 - Compiler options: `-fno-math-errno -fno-trapping-math -fcx-fortran-rules`, `-O2`,
-  IPO off, 512-bit vectors, SLEEF's AVX-512 functions on the Xeon, branch padding.
+  IPO off, 512-bit vectors, SLEEF's AVX-512 functions on a Xeon Gold 6240, branch padding.
 - Threading: spinning OpenMP waits, binding threads by default (on an exclusive EPYC
   allocation, `OMP_PROC_BIND=close OMP_PLACES=cores` is worth about 11 % on average; it
-  was neutral on the Xeon), a BLAS width per product, serial or full-width medium
+  was neutral on a Xeon Gold 6240), a BLAS width per product, serial or full-width medium
   operations.
 - Sixteen-thread Raman and one-column team kernels: they gained on one CPU and lost on
   the other.
@@ -1765,7 +1765,7 @@ threading libraries. The two-socket Xeon Gold 6240 uses exclusive 72-logical-CPU
 allocations and one hardware thread per selected physical core. Its independent
 bundles are GCC 16.2/OpenBLAS 0.3.34/FFTW 3.3.11 with GNU OpenMP, and IntelLLVM
 2026.1.1/MKL 2026.1 (including MKL FFT) with Intel OpenMP. Timed arms run sequentially,
-without concurrent builds. Python is 3.14.5 on the Mac and 3.14.7 on the Xeon;
+without concurrent builds. Python is 3.14.5 on an Apple M5 Max and 3.14.7 on a Xeon Gold 6240;
 NumPy is 2.5.2, Kokkos 5.2.1, Kokkos Kernels 5.2.0 and Kokkos-FFT 2.0.0.
 
 ### NEON codelets and Raman plans
@@ -1866,7 +1866,7 @@ conservative spread criterion. Mac's isolated 18-thread ratio is 0.879, with a
 conservative aggregate of 0.950. Across both budgets, GCC is 0.940 and Intel 0.930.
 The matched fixed windows retain ten accepted steps, no rejections and 61 source evaluations; their
 field differences are at rounding level (at most 1.9e-16 in these confirmations).
-The Mac's first 18-thread screen and one A/A round showed large host timing
+The M5 Max's first 18-thread screen and one A/A round showed large host timing
 variation and remain inconclusive. The runner's busy-at-launch flag does not establish its cause; load averages also include prior
 owned work. A subsequent three-round A/A control gave RDW 1.010 [1.008, 1.054]
 and H₂ 1.015 [0.995, 1.040].

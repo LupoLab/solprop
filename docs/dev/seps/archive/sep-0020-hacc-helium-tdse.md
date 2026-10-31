@@ -2956,7 +2956,7 @@ at the pin (HIP, Release, `PYRORAPTOR_THREADS=20`), created 15:40 and deleted
 skipped because a count was selected. After deletion no rented machine of the session remained. Free cluster CPU (GCC 16, x86-64-v3,
 OpenMP, 32 bound threads per job): build, the two witness references, the two κ₁
 references and the two cross-check ladders, about 140 core-hours (allocated CPUs × elapsed). The scripts were
-first run on this Mac (Apple Silicon, Homebrew LLVM 23.1.3, OpenMP) on the provider's
+first run on an Apple M5 Max (Homebrew LLVM 23.1.3, OpenMP) on the provider's
 tiny custom basis.
 
 **Deviations.**
@@ -2975,7 +2975,7 @@ tiny custom basis.
    different CPUs and a parity check needs identical inputs.
 6. Device memory was sampled with `rocm-smi` between steps only, so no device peak was
    measured; the plan ledgers are the memory record.
-7. The analysis repeated on this Mac reproduces the device-host analysis: identical
+7. The analysis repeated on an Apple M5 Max reproduces the device-host analysis: identical
    statuses and selection, relative differences equal to 2×10⁻¹⁶.
 
 **Checks run.** `ruff check`, `ruff format --check`, `basedpyright` (benchmarks/sep20
@@ -3219,7 +3219,7 @@ full-lattice SAE run and SAE-60 the 60 fs-window one.
    difference is 2.25×10⁻¹¹, over 314 numbers. The launch check now admits regenerated
    floating-point numbers within 1×10⁻⁸ relative and records the count and the largest.
    This is a provenance check, not a scientific tolerance; strings, integers, keys and
-   shapes stay exact. The Mac rebuild is exact.
+   shapes stay exact. The rebuild on an Apple M5 Max is exact.
 3. **GPU false start.** The first haCC(1) attempt failed at import, because
    `segment_session.sh` did not source the device runtime path. It was fixed in
    `94707de` and restarted at once; the GPU idled for about 1 minute.
