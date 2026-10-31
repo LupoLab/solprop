@@ -835,3 +835,104 @@ schema policy for the `recipe` dataset should be decided before it.
 
 No test suite, propagation qualification or GPU run was performed. Front-end needs were
 judged against the requirements stated in Part I, section 2.
+
+### Supplementary AI review, 2026-10-31
+
+Reviewer: Codex (AI). Reviewed Part I, the existing AI review and relevant source and
+documentation at revision `c4cb347`, considering the requirements of a desktop front
+end. **Recommendation: retain the architecture, but revise the outstanding contracts
+before acceptance.** This supplement adds findings or updates earlier ones; it does
+not repeat R1–R20 or change Part I, the proposal status or the earlier review.
+
+#### Additional findings
+
+1. **C1 — major: expose result capabilities as well as setup capabilities (sections
+   2, 5.3 and 5.8; additional to R18).** A front end needs to know which quantities
+   can be reconstructed from a particular file, not only which options a route
+   accepts. The [processing guide](../../guide/results/processing.md) warns that
+   `get_power` and `get_spectral_density` accept spatial files but do not return
+   physical powers or energies there. Compression refuses spatial and general modal
+   outputs. General modal reconstruction requires the matching guide and reference
+   tables, while the file may contain only their identities. Field retention and
+   recorded statistics further limit each plane's available views. **Recommendation:**
+   expose these requirements and refusals through a result-capability query, extending
+   the existing output capability machinery where appropriate. Distinguish physical
+   flux, coordinate quantities and their units. Do not promise that `PlaneView` alone
+   makes the same physical operations available on every basis.
+
+2. **C2 — major: define pins and nested parameter paths before format 1 is frozen
+   (sections 5.1, 5.7, 5.9 and 5.10; additional to R13 and R14).** A setup that pins
+   pressure to a target ZDW needs both the constraint and its resolved value. The
+   proposed keyword tables do not yet describe this intent, when to re-solve it, the
+   chosen root and search domain, or failure when a target becomes unreachable. A
+   scan of a second pulse's energy or a profile knot also needs an address within an
+   object, beyond a top-level route keyword. **Recommendation:** define canonical
+   nested parameter paths shared by editing, diagnostics, scans and constraints.
+   Specify constraint dependencies, cycle refusal, resolution order and whether each
+   scan point re-solves its pins. Retain the authored intent beside the resolved run
+   definition, and define equivalent headless and Python-export behaviour. If pins
+   are deferred, state that limitation explicitly rather than leaving scientific
+   setup state to individual front ends.
+
+3. **C3 — major: mode energy fractions are not generally additive (section 5.5;
+   additional to R11).** `prop_waveguide` also supports general modal bases whose
+   physical energy uses a flux metric with cross terms. A set of coordinate fractions
+   normalized to one does not establish the advertised physical energy allocation;
+   relative phases can affect the total. The existing
+   [general modal processing contract](../../guide/waveguides/general-modal.md)
+   distinguishes coordinate quantities from physical flux. **Recommendation:**
+   explicitly restrict `launch` fractions to bases where this interpretation holds,
+   or define a coordinate-amplitude specification normalized using the actual flux
+   metric. Resolve this physical meaning alongside the labels and per-pulse scope
+   already raised in R11.
+
+4. **C4 — major: front ends need a portable stop contract (sections 2, 5.2 and 5.3;
+   additional to R18).** Sending `os.kill(pid, signal.SIGINT)` does not gracefully
+   interrupt a Windows worker: Python documents unconditional termination for values
+   other than its special Windows console-control events
+   ([`os.kill`](https://docs.python.org/3.14/library/os.html#os.kill)). A front end
+   cannot infer resumability from a process exit or from `n_saved` alone. Some
+   failures have no checkpoint, and interpolated checkpoints need an explicit policy
+   ([resuming](../../guide/results/resuming.md)). **Recommendation:** specify either
+   a supported portable cancellation hook respecting commit boundaries or the tested
+   platform mechanisms a front end must use. Expose enough recovery information to
+   explain whether resume is available. Keep front-end execution states distinct
+   from `RunOutcome.status`, which has no `stopped` member. A changed grid, including
+   a wider time window, requires a new run rather than ordinary resume.
+
+5. **C5 — major: observer neutrality needs a failure and workload policy (section
+   5.3; additional to R8).** Read-only plane views prevent ordinary field mutation,
+   but do not prevent a slow observer from delaying the march or a failed transport
+   from raising through the run loop. The current `reporter.plane` call is inside
+   the driver's exception-recovery boundary. **Recommendation:** define the observer
+   exception policy and the handling of a disconnected client. Give front ends a
+   documented way to bound observation work and coalesce replaceable display updates
+   without blocking propagation on client rendering. Keep reliable terminal/error
+   events distinct from replaceable previews. These transport policies can belong to
+   the front end, but the solprop hook must state the guarantees it does and does not
+   provide. Test observer failures and disconnection as well as successful copies.
+
+#### Updates to earlier findings
+
+- **R3, unseeded resume: the resume blocker is addressed at this revision.**
+  `Simulation._adopt_recorded_seed` in `src/solprop/driver/simulation.py` reuses a file's
+  seed when the caller supplied none; the behaviour is now documented in
+  [resuming](../../guide/results/resuming.md#noise-drawn-without-a-seed). The earlier
+  probe remains evidence about the revision it tested. Independent builds used in
+  recipe-equivalence tests still need controlled seeds; this does not remove R7's
+  requirement for resolved provenance or settle every scan-builder detail.
+- **R19, comparison policy: change the comparison class, not just its tolerance.**
+  Section 7 asks for resumed versus uninterrupted agreement to rounding and bitwise
+  agreement between independent runs with and without an observer. The current
+  [testing policy](../testing.md#3-tolerance-policy) puts ordinary resumed versus
+  uninterrupted runs in class T, with an accuracy envelope against a tighter or
+  stored converged reference. A rounding comparison requires matched discrete
+  methods and histories; independent propagation runs do not require bitwise
+  agreement. Exact comparison remains appropriate for an observer's copy against
+  the same plane read from its file, and for configuration identity metadata.
+
+**Evidence and limits.** Read the designs, the cited manual pages, the driver and
+processing implementations, and the existing interruption/output tests. Checked
+Windows signal behaviour against Python's documentation. No simulations or test
+suite were run as part of this review; the findings about runtime behaviour are
+source-level assessments, not new qualification results.
