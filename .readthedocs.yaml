@@ -22,6 +22,18 @@ build:
       - asdf global uv latest
     install:
       - UV_PROJECT_ENVIRONMENT=$READTHEDOCS_VIRTUALENV_PATH uv sync --frozen
+    # Some builds stall in the tutorials and are killed at Read the Docs' time limit,
+    # which discards their output. A stalled attempt is stopped after 720 s with
+    # SIGABRT, so faulthandler writes every thread's stack to the log, and is run once
+    # more: sphinx-gallery keeps the tutorials that finished, so the second attempt
+    # executes only the rest. A failed build (warnings are errors) is not retried.
     build:
       html:
-        - UV_PROJECT_ENVIRONMENT=$READTHEDOCS_VIRTUALENV_PATH uv run --no-sync sphinx-build -b html -W -n --keep-going docs $READTHEDOCS_OUTPUT/html
+        - |
+          for attempt in 1 2; do
+            PYTHONFAULTHANDLER=1 timeout -s ABRT 720 "$READTHEDOCS_VIRTUALENV_PATH/bin/python" -m sphinx -b html -W -n --keep-going docs "$READTHEDOCS_OUTPUT/html" && exit 0
+            status=$?
+            [ "$status" -eq 124 ] || exit "$status"
+            echo "sphinx-build stalled past 720 s (attempt $attempt); the stacks above show where"
+          done
+          exit 124
