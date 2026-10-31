@@ -92,7 +92,7 @@ worked example belongs in a gallery.*
 
 ### 9. Compatibility and impact
 
-*Changed defaults, breaking changes, the output schema, SCHEMA_VERSION, the effect on
+*Changed defaults, breaking changes, the output schema, KERNEL_SCHEMA_VERSION, the effect on
 existing validated results, and any deliberate difference from Luna.jl to record on the
 differences page.*
 

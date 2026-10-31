@@ -427,7 +427,6 @@
   "tests/output/test_scan.py": 1.8,
   "tests/output/test_scan_artifacts.py": 0.3,
   "tests/output/test_schema.py": 24.8,
-  "tests/output/test_schema_lineages.py": 1.7,
   "tests/output/test_snapshot_failures.py": 2.7,
   "tests/output/test_snapshots.py": 4.0,
   "tests/output/test_tdse_archive.py": 8.2,

@@ -10,6 +10,7 @@ developer's guide under ``docs/dev/``. Warnings are errors and missing reference
 warnings (``-W -n``), so every page must build clean.
 """
 
+import faulthandler
 import importlib
 import importlib.util
 import os
@@ -21,6 +22,12 @@ from typing import Any
 from sphinx.errors import ConfigError
 from sphinx_gallery.sorting import ExplicitOrder
 from sphinx_gallery.utils import get_md5sum
+
+# Read the Docs discards the log of a build it stops at its time limit. There
+# `.readthedocs.yaml` sets SOLPROP_DOCS_WATCHDOG to a delay in seconds after which every
+# thread's stack is written to the log, before the build is stopped.
+if _watchdog := os.environ.get("SOLPROP_DOCS_WATCHDOG"):
+    faulthandler.dump_traceback_later(float(_watchdog), exit=False)
 
 # Gallery examples may select the native backend automatically. Load its OpenMP runtime
 # before autodoc or a tutorial imports pyFFTW, as the test configuration does.
