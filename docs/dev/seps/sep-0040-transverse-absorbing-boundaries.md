@@ -15,7 +15,7 @@
 | **Requires** | [SEP 21](archive/sep-0021-absorbing-boundaries.md), [SEP 22](archive/sep-0022-memory-lean-spatial-execution.md), [SEP 34](archive/sep-0034-medium-flux.md) |
 | **Supersedes** | — |
 | **Superseded-by** | — |
-| **Implementation** | Opus 5.5 (AI) for John Travers, branch `feature/sep-0040-transverse-boundaries`: started 2026-10-31; phase 0 not started |
+| **Implementation** | Opus 5.5 (AI) for John Travers, branch `feature/sep-0040-transverse-boundaries`: started 2026-10-31; phase 0 in progress (interim report 2026-10-31) |
 | **Manual pages** | — |
 
 ## Part I — Proposal
@@ -1260,6 +1260,175 @@ transcribed, is checked against the full text in phase 0 and recorded in its rep
 
 ## Part II — Implementation record
 
+### Phase 0 — interim report (2026-10-31)
+
+Phase 0 has run its operator calibration (§7.3), the linear probe against an analytic
+reference (§7.2.1, §7.4), the integrator and crossing measurements (A1, §4.7) and the
+monitor prototypes (§4.9, §5.4). Still to run:
+- the protected weak-signal witness and the nonlinear collar-occupying witness (§7.5);
+- the monitor's two-dimensional witnesses (§7.6);
+- the step cost of `cover="intermediate"`;
+- the split against in-stage at matched accuracy;
+- timings on a quiet Linux machine (A11).
+
+The campaign harness and its raw results are kept with the project's development records
+(SEP 30's rule). Every number below is reproducible from them. Conventions are §4's: α is a
+power rate, Γ is in field nepers, r is a field amplitude. P0-1 to P0-12 are the
+recommendations for the maintainer's decision; Part I is not edited.
+
+**Reference.**
+- The analytic angular-spectrum reference (§7.2.1) uses the code's own exact longitudinal
+  operator at continuous transverse wavenumbers and adaptive quadrature. It is accurate to
+  about $10^{-12}$, and large collar-free runs agree with it to $2\times10^{-12}$ (radial)
+  and $7\times10^{-12}$ (Cartesian, 600 µm).
+- §2's Cartesian reference, 300 µm wide, was itself wrong by $5.5\times10^{-4}$.
+- §2's aperture errors reproduce to two digits. Its small radial core errors were mostly the
+  default input noise, $1.3\times10^{-3}$ of the launch norm.
+- Runge–Kutta and `Multistep` give identical errors, so every error in the table is the
+  boundary's.
+
+**Calibration on the discrete operators.** Measured on the periodic Fourier operator (one
+face; direction-resolved packets, Richardson-converged), the code's QDHT (steady state,
+incoming and outgoing Hankel fit) and the slab-mode operator.
+
+- **The strength (§4.2).** The $1/\kappa$ law and $k\to k_z$ hold. The weak-loss formula
+  over-states the attenuation at practical widths: Γ(κp) is 7.3 and 8.1 at $\kappa_p w = 10$
+  and 20, against the 8.5 targeted. The local WKB integral with the exact symbol
+  $q^2 = \kappa^2 + i k_z\alpha + \alpha^2/4$ matches the measurement to between $-1.3\,\%$
+  and $+0.04\,\%$.
+  - **P0-1.** Resolve $\alpha_0$ by solving $\Gamma_\mathrm{wkb}(\kappa_p;\alpha_0) =
+    \Gamma_\mathrm{min}$ with the exact symbol, a monotone scalar root. It is 1.06 times the
+    formula's value for Planck at $\kappa_p w = 20$.
+- **The reflection threshold (§4.3).** The $1/3$ law fails.
+  - The $2\times10^{-4}$ threshold scales as $\alpha_0^{0.18}$ for the Planck complement, and
+    as $\alpha_0^{1/(n+2)}$ for $s^n$, which is the Born onset law.
+  - In §4.3's form, $C_P$ is 3.0 for Planck (2.9, 1.5 and 1.4 for $s^2$, $s^3$, $s^4$), not
+    about 1.
+  - Reflection at the band edge falls to $2\times10^{-4}$ only for $\kappa_p w \ge 22.3$
+    (Planck), 25.3, 14.5 and 16.2.
+  - **P0-2.** Replace the $\kappa_\mathrm{lo}$ estimate by the measured threshold law
+    $\kappa_{2\times10^{-4}} w = A(k_{\max}\alpha_0 w^2)^\gamma$, with $(A, \gamma) =
+    (7.36, 0.182)$ for Planck. Refuse a design whose band edge does not meet the floor
+    (Planck: $\kappa_p w \ge 22$). With $C_P = 1$, §5.2's refusal admits failing designs.
+- **The profile (Q3).**
+  - Planck has the lowest edge reflection for $\kappa_p w \ge 50$, the fastest tail (a
+    stretched exponential), and no floor.
+  - $s^3$ and $s^4$ open the band at narrower widths but reflect up to $2\times10^{-4}$ at
+    the periodic grid's wrap point, where they meet 1 with a finite slope.
+  - **P0-3.** Q3 is confirmed: Planck by default, with a polynomial only with a smooth top.
+    The singular profile was not measured.
+- **The launch band (Q5).** For a Gaussian launch $\kappa_\mathrm{rms} w_0 = \sqrt2$ on
+  $|\kappa_\perp|$, whatever the waist.
+  - **P0-4.** $c_b = 3$. The beam's own returned field is $5.5\times10^{-6}$, and
+    $1.2\times10^{-4}$ of its energy lies outside the band. With Planck, the band then opens
+    for $w \ge 5.3\,w_0$.
+- **The default fraction (Q2).** That condition is not met on the §2 probe:
+  - radially ($w = 150$ µm, $\kappa_p w = 21$) the edge reflection is $2.5\times10^{-4}$,
+    marginal;
+  - on the Cartesian grid at $f = 0.5$ ($w = 75$ µm, $\kappa_p w = 10.6$) it is
+    $2\times10^{-2}$.
+
+  The monitor's one-dimensional runs independently found the designed $f = 0.5$ Cartesian
+  collar returning $2\times10^{-4}$ to $5\times10^{-2}$ of the launch energy. On the radial
+  probe, a bare wall at twice the requested radius (1.1e-3) was as accurate as the AN 30
+  collar on the same grid (1.6e-3). See P0-5.
+- **The radial grid (§4.6).**
+  - Curvature corrections are below 1.2 % wherever the band is open, so the planar constants
+    apply.
+  - The lowest QDHT columns are *reflected* into modes trapped in the aperture. They decay
+    at 0.2–7 % of the overlap estimate, not at it.
+  - **P0-6.** The design reports these columns as reflected, not as attenuated by overlap.
+- **The safety band (§4.4).**
+  - The shortfall band is the whole intermediate band, with a weakest attenuation of
+    $\Gamma_\mathrm{min}\kappa_p/\kappa_s$, as low as 0.6 Np.
+  - Inside the ramp, the collar's own wavenumber broadening defeats additivity: up to 5.6
+    times the predicted return, or 1.7 Np.
+  - **P0-7.** Raise the ramp's strength by 2 Np over the §4.4 rule, and report the shortfall
+    band as measured.
+- **Content generated in the collar** sees at most half the round-trip attenuation, and under
+  7 % of it from the collar's inner half.
+- **Slab modes.** A slab mode is the Cartesian case with $k \to \beta_p$. Taking the extremes
+  over modes is right; a design on one mode alone leaves another at 0.9 of
+  $\Gamma_\mathrm{min}$.
+
+**Integrators and the crossing limit.**
+
+- **A1: collar stability binds `Multistep`.**
+  - On the §2 rows its steps rise from 16 to 87–145. The median step is 0.9–1.6 times the
+    order-5 limit $2r/\alpha_\mathrm{eff}$.
+  - It is still 2.4–6.6 times cheaper in wall time than Runge–Kutta there (contended A/B).
+  - On a strong collar at high angle (line route) it needs 830–3016 steps against Runge–Kutta's
+    106–303, and 4–8 times the wall time.
+  - **P0-8.** Q4 returns to the maintainer. Phase 0 recommends deciding after the nonlinear
+    witness. The options are to keep `Multistep` (in-stage) as the radial and planar
+    default, or to switch those routes to Runge–Kutta when a real-space collar is active.
+- **c× (§4.7), line route against the exact generator.**
+  - **Split.** Exact for a per-step displacement up to $0.5\,w$. It fails at $0.75\,w$
+    (1.3–3 times the generator's return) and lands near 1 at $1.0\,w$, so the response is
+    resonant.
+  - **In-stage Runge–Kutta, adaptive.** Exact at every tolerance, and the crossing limit
+    never binds.
+  - **In-stage Runge–Kutta, fixed steps.** Bound first by damping accuracy,
+    $\alpha_0 h/2 \lesssim 1.3$, which gives an effective $c_\times$ of 0.15–0.2.
+  - **In-stage `Multistep`, fixed steps.** Refused by stability up to 256–512 steps, and
+    inaccurate at its first admitted schedules.
+  - **P0-9.** $c_\times = 0.5$ for the split and for the adaptive `dz_max` clamp. A fixed
+    in-stage schedule is checked at 0.15.
+- **A11: cost of $f = 1$ radially.** 2.0–2.9 times per step on a shared Apple M5 Max (contended),
+  including the collar term, below the $(1+f)^2 = 4$ of the dense products alone. To be
+  re-measured on Linux.
+
+**Monitor.**
+
+- **Passivity admission (§4.9, A5).**
+  - The amended surrogate, one axis at the smallest $k_z$, does **not** bound the full
+    two-dimensional value: it is short by 1.5–9 times.
+  - Matrix-free Lanczos is unreliable: it fails to converge, or returns 2–5 times too small
+    a value.
+  - A *corner* surrogate does bound every grid tested, with a margin of 2–7: the axis
+    metric at $k\,\kappa_{\mathrm{axis},\max}/\kappa_\mathrm{corner}$, solved densely. It
+    costs 6–11 ms per axis at 256 nodes; the radial problem costs about 30 ms at
+    $n_r = 256$.
+  - The value is monotone in frequency, so only the smallest-$k$ bin is needed. The split
+    map's gain is the generator value times $\alpha_\mathrm{peak}h$.
+  - The worst realistic value is $-1.3\times10^{-5}$, near cutoff.
+  - **P0-10.** Use the dense corner surrogate at one frequency. Set
+    $\varepsilon_P = 1.3\times10^{-4}$ (Q6's rule). In practice it is a guard near cutoff.
+- **The returned share (§5.4, A3).**
+  - A strip of width $s$ resolves direction to $10^{-6}$ leakage only for wavenumbers
+    $q \ge 16/s$. This is an uncertainty limit, so "resolution well below
+    $\kappa_\mathrm{lo}$" cannot be met. The design-sized strip reaches about
+    $1.7\,\kappa_\mathrm{lo}$.
+  - The recommended estimator is the inward energy at $q \le -16/s$ of a Kaiser-windowed
+    transform along the face's normal (on $\sqrt r\,E$ radially). The strip runs over the
+    collar plus at most the request's outer quarter. Its maximum over checks is judged
+    above its launch-time value and above three times the exact noise expectation.
+  - It is supplemented by the cumulative inward current at the collar's onset, judged above
+    the launch's energy outside the request.
+  - Clean escape reads at most $2\times10^{-7}$ of the launch energy. Every wall, wrap and
+    under-strength run whose true return exceeds $10^{-4}$ reads above it.
+  - Slow content below the resolved band is under-read by 15–300 times: it warns, but does
+    not stop.
+  - **P0-11.** Adopt this estimator. Q7's thresholds as decided, a warning above $10^{-3}$
+    and a stop above $10^{-2}$ in field, are consistent with these measurements, pending
+    the two-dimensional witnesses.
+- **P0-12.** A converging launch with tails near the edge is added to §7.6's monitor tests:
+  without the launch baseline it would be stopped falsely.
+
+**P0-5, the decision this report most needs.** A fixed collar fraction cannot guarantee that
+the band opens, because the width the band needs, $w \gtrsim 22/\kappa_p$, scales with the
+launch, not with the request. Three ways forward:
+1. Keep Q2's fractions, and refuse a design whose band does not open, naming the fraction
+   needed. This is Part I's rule with the corrected test, and it refuses the §2 Cartesian
+   probe at $f = 0.5$.
+2. Keep the fractions and protect less: lower $\kappa_p$ to what the width supports, and
+   warn that the launch's own spread is then partly reflected.
+3. Let the default fraction follow the design ($w = 22/\kappa_p$ for Planck), resolved at
+   translation, so the outer size is no longer fixed by the grid alone.
+
+Phase 0 leans to the first, consistent with a robust default that refuses rather than
+degrades. The decision waits for the nonlinear witnesses.
+
 ## Part III — History
 
 - 2026-10-31: Drafted, from SEP 21's finding R4 and decision D9, and a linear probe of the
@@ -1281,6 +1450,10 @@ transcribed, is checked against the full text in phase 0 and recorded in its rep
   A10–A11, and Part I was amended accordingly. The amendments are listed below.
 - 2026-10-31: Human review and acceptance (John Travers). Review status `Reviewed`; status
   `Accepted`, then `In progress` on `feature/sep-0040-transverse-boundaries`.
+- 2026-10-31: Phase 0 interim report (Part II): operator calibration, the linear probe
+  against an analytic reference, the integrator and crossing measurements, and the monitor
+  prototypes. Recommendations P0-1 to P0-12 await the maintainer's decision; Q4 returns
+  (A1).
 
 ### AI review — 2026-10-31 (GPT-6)
 
