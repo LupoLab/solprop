@@ -1186,8 +1186,8 @@ Withdrawn (development-process record, not a design decision).
   no scientific use of it was found.
 - **Consequences:** an unwindowed native SAE run's lattice must pass the certificate. A
   change that moves an identity bumps the version it moves and adds no compatibility
-  layer; before the first public release a resume-compatibility policy is decided
-  (roadmap, *Release preparation*).
+  layer; a resume-compatibility policy is decided before 1.0 (ADR-058; roadmap,
+  *Release preparation*).
 
 ## ADR-052 — One thread budget per process, which every pool stays within
 
