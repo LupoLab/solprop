@@ -1680,6 +1680,24 @@ As before, every number is reproducible from the campaign harness.
     A ten-step nonlinear witness is not possible: the error appears only once the beam
     fills the collar.
 
+### Maintainer decisions on phase 0 (2026-10-31)
+
+**P0-15: option 1** (John Travers). This deviates from Q1 and Q2, and is recorded here as
+SEP 0 requires; Part I is not edited.
+- `prop_radial`, `prop_free` and `prop_planar` keep today's wall or wrap at the requested
+  size by default: no real-space collar unless one is asked for.
+- On by default:
+  - the safety ramp (Q6);
+  - the returned-share monitor, whose stop message names the size needed.
+- A `SpatialAbsorber` collar is placed outside the request on request, at `collar_fraction`.
+  Its design is checked at translation against the launch's predicted own return (P0-14),
+  and refused with the fraction that would meet the budget.
+- Q2's fractions become the defaults of a requested collar, not of every run.
+- The interim report's option 2 is withdrawn.
+
+The other recommendations, P0-1 to P0-22 together with Q4 (P0-19) and A10 (P0-21), await
+decision.
+
 ## Part III — History
 
 - 2026-10-31: Drafted, from SEP 21's finding R4 and decision D9, and a linear probe of the
@@ -1709,6 +1727,8 @@ As before, every number is reproducible from the campaign harness.
   monitor's two-dimensional witnesses, the cover cost, the split against in-stage, and A11
   on Linux. P0-13 to P0-22. Q1 and P0-5 return to the maintainer: no default fraction
   meets the budget on a slow beam.
+- 2026-10-31: Maintainer decision (John Travers): P0-15 option 1, no real-space collar
+  by default and the collar on request; a deviation from Q1 and Q2, recorded in Part II.
 
 ### AI review — 2026-10-31 (GPT-6)
 
