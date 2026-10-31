@@ -88,10 +88,12 @@ The [SEP index](seps/index.md) lists every proposal and its current status.
   ladders, vector saturation and repeated-window histories remain future work.
 - [SEP 40 — Transverse absorbing boundaries for free-space propagation](seps/sep-0040-transverse-absorbing-boundaries.md):
   the radial, Cartesian, line and planar real-space collar placed outside the requested
-  aperture, sized by the transverse wavenumbers it must absorb rather than the run
-  length, applied by an exact split factor, joined with the k⊥ ramp (now also radial)
-  in one spatial absorber, proposed on by default, and watched by the boundary monitor. Perfectly
-  matched layers, adaptive transverse windows and the escaped transverse field remain open.
+  aperture and sized by a declared protected band of transverse wavenumbers rather than
+  the run length, in-stage under a collar-crossing step limit (split optional for RK),
+  with the k⊥ ramp kept to a numerical safety band (now also radial and planar), a
+  monitor that judges returning light, and a signed removal ledger. Perfectly matched
+  layers, adaptive transverse windows, the escaped transverse field and a flux-weighted
+  spatial ledger remain open.
 
 The informal items below record work not fully covered by these proposals. When adding
 or revising a SEP, remove an informal item only if the proposal covers it in full;
