@@ -94,6 +94,14 @@ The [SEP index](seps/index.md) lists every proposal and its current status.
   monitor that judges returning light, and a signed removal ledger. Perfectly matched
   layers, adaptive transverse windows, the escaped transverse field and a flux-weighted
   spatial ledger remain open.
+- [SEP 42 — Resuming by what matters to the run](seps/sep-0042-tolerant-resume.md):
+  the resume gate compares the stored and requested records path by path instead of by
+  hash: numerics such as `rtol` and the integrator may change and are recorded,
+  provenance and the realised launch arrays are ignored, numbers agree to a
+  rounding-level tolerance, a path an older record lacks reads as its neutral value, and
+  optmat models compare by digest. The output schema is bumped only for layouts an older
+  reader would misread. A last phase, after SEP 41's recipes, continues a finished run
+  to a longer length. It answers the resume-compatibility policy ADR-058 left open.
 
 The informal items below record work not fully covered by these proposals. When adding
 or revising a SEP, remove an informal item only if the proposal covers it in full;
@@ -1236,14 +1244,6 @@ fields (the route's default integrator, a read file's stored field lists, a glas
 splines, a transform's component count), which appear in their constructors'
 signatures. The state must survive `dataclasses.replace`, which `field(init=False)`
 would reset, so keeping it out of the signature is a change of construction pattern.
-
-**A resume-compatibility policy before 1.0.** The output schema
-records every field of a recorded dataclass, at its default too
-(ADR-051 in [decisions](decisions.md)),
-so a release that adds a field moves every configuration hash, and a run written by the
-previous release can no longer be resumed. Before 1.0, decide between computing a
-resume hash with the stored file's own schema rules and reintroducing omit-at-default
-as a documented rule from 1.0 on.
 
 ## Known issues
 

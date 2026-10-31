@@ -37,6 +37,7 @@ Proposals that are active, in draft, accepted, in progress or deferred.
 | [21](archive/sep-0021-absorbing-boundaries.md) | Temporal boundaries: wider windows, absorption and the escaped field | Final | Change |
 | [32](sep-0032-raman-maxwell-bloch.md) | Raman Maxwell–Bloch dynamics | Draft | Feature |
 | [40](sep-0040-transverse-absorbing-boundaries.md) | Transverse absorbing boundaries for free-space propagation | Draft | Change |
+| [42](sep-0042-tolerant-resume.md) | Resuming by what matters to the run | Draft | Change |
 
 SEP 13, the standalone numerical prerequisite for SEP 12, SEP 14, which carried it to
 the compiled backends, and SEP 16, which unified the multistep family and made it the
@@ -95,6 +96,7 @@ sep-0011-finite-density-gas-index
 sep-0017-gas-two-photon-ionisation
 sep-0032-raman-maxwell-bloch
 sep-0040-transverse-absorbing-boundaries
+sep-0042-tolerant-resume
 template
 archive/index
 ```
