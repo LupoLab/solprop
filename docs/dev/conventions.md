@@ -384,9 +384,10 @@ letters spelled out (`omega`, `beta1`, `gamma3`, `chi3`, `alpha`); wavelengths a
 `dz` for a step; `phi` for the cumulative operator; established abbreviations (`fwhm`, `zdw`,
 `rdw`, `gnlse`, `uppe`, `ppt`, `adk`, `bsi`) are fine.
 
-Three public names break these rules on purpose. `wavelength`, the reference wavelength of
-every interface, and `tools.lambda_rdw` with `lambda_rdw_all` keep the names of Luna's
-`λ0` and `Tools.λRDW`, which a reader coming from Luna types first
+Two public names break these rules on purpose. `tools.lambda_rdw` with `lambda_rdw_all`
+keep the name of Luna's `Tools.λRDW`, which a reader coming from Luna types first
 ([coming from Luna](../guide/workflows/luna.md)). `boundary_N`, how many times the
 temporal collar's window is applied over the run ([ADR-007](decisions.md)), keeps the
-capital of the count it is written as.
+capital of the count it is written as. The reference wavelength of every interface is
+`wavelength`, the name the pulses and the design tools use, not Luna's `λ0`; the pulse
+shape of the keyword routes is `shape`.
