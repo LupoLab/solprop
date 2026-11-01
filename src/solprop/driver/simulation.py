@@ -91,6 +91,7 @@ from solprop.driver.run import (
 )
 from solprop.exceptions import (
     AdiabaticTaperWarning,
+    BoundaryWarning,
     CouplingError,
     DriverError,
     GasFlowWarning,
@@ -242,7 +243,8 @@ from solprop.pulses import (
     SechPulse,
     SpatialPulse,
 )
-from solprop.spatial import SpatialFlux, SpatialMedium, peak_field
+from solprop.spatial import SpatialDispersion, SpatialFlux, SpatialMedium, peak_field
+from solprop.spatial_absorber import SpatialAbsorberDesign
 from solprop.stats import (
     PLASMA_INTEGRATION_STATISTICS,
     StatsSpec,
@@ -300,6 +302,7 @@ from solprop.translate.problem import (
 from solprop.translate.responses import KerrForm
 from solprop.translate.tdse import AtomicCallLedger, TDSEBinding, refine_response_grid
 from solprop.translate.tdse_source import TDSE_UNAVAILABLE_STATISTICS
+from solprop.translate.transverse import checked_design, resolve_transverse
 
 __all__ = [
     "BACKEND_STATISTICS",
@@ -2357,6 +2360,10 @@ class Simulation(Displayed):
                 original.flags, has_noise=record.noise0 is not None
             ),
         )
+        updated._problem = dataclasses.replace(
+            updated._problem,
+            transverse=_rechecked(self, original, updated._problem),
+        )
         if initial_z is not None:
             # A new launch changes the save planes: the launch must precede them, and
             # a replayed schedule contain them (SEP 22 section 5.2).
@@ -2960,6 +2967,7 @@ class Simulation(Displayed):
             if resume:
                 self._adopt_recorded_seed(output)
             problem = self.translate()
+            _refuse_pending_check(problem)
             metadata = self.metadata()
             handler, state = _open_output(
                 output, metadata, resume=resume, dense=self._observes_densely()
@@ -8299,6 +8307,141 @@ def _watched(
         )
         raise DriverError(msg)
     return dataclasses.replace(settings, boundary_check=check)
+
+
+def _rechecked(
+    simulation: Simulation, original: KernelProblem, derived: KernelProblem
+) -> SpatialAbsorberDesign | None:
+    """Return a derived run's transverse design, its check rerun on the new launch.
+
+    SEP 40 section 5.2: a derived run keeps its parent's design, which its shared
+    operator and transform were built with, but not its verdict, which belongs to a
+    launch. Only a scalar multiple of the checked launch reuses it, because the check
+    is linear and normalised by the launch's energy. A new launch whose rms
+    wavenumber lies above the one the band was derived from warns as well.
+
+    Parameters
+    ----------
+    simulation : Simulation
+        The parent, for its grids and medium.
+    original : solprop.translate.problem.KernelProblem
+        The parent's translated problem.
+    derived : solprop.translate.problem.KernelProblem
+        The derived problem, with the new launch.
+
+    Returns
+    -------
+    solprop.spatial_absorber.SpatialAbsorberDesign or None
+        The design with the new launch's check.
+
+    Raises
+    ------
+    DriverError
+        If the check refuses the design for the new launch.
+    """
+    design = original.transverse
+    if design is None or not design.has_collar:
+        return design
+    space = simulation.spatial_grid
+    medium = simulation.medium
+    assert isinstance(space, RadialGrid | FreeGrid | PlanarGrid)
+    assert medium is not None
+    old = np.asarray(original.initial.field0[:1])
+    new = np.asarray(derived.initial.field0[:1])
+    reference = float(np.vdot(old, old).real)
+    if reference > 0.0:
+        scale = np.vdot(old, new) / reference
+        residual = float(np.linalg.norm(new - scale * old))
+        if residual <= 1e-12 * float(np.linalg.norm(new)):
+            return design
+    planes = derived.stepper.save_planes
+    length = float(np.max(planes)) - float(derived.initial.z)
+    dispersion = SpatialDispersion(
+        medium, simulation.grid, Frame.comoving(simulation.grid)
+    )
+    if design.specification.band_source == "launch":
+        before = resolve_transverse(
+            design.specification, space, dispersion, old, length
+        )
+        after_kappa = _launch_band(design.specification, space, dispersion, new, length)
+        if after_kappa is not None and after_kappa > max(before.kappa_p) * (1 + 1e-9):
+            warnings.warn(
+                "the new launch spreads beyond the band its run's collar was designed "
+                f"for ({after_kappa:.3g} > {max(before.kappa_p):.3g} rad/m): what it "
+                "carries above that band is absorbed only partly; translate afresh",
+                BoundaryWarning,
+                stacklevel=3,
+            )
+    try:
+        return checked_design(
+            dataclasses.replace(design, check={}), space, dispersion, new, length
+        )
+    except TranslationError as error:
+        msg = (
+            f"{error}. The grid is shared with the parent run, so translate a new "
+            "simulation with that collar_fraction for this launch"
+        )
+        raise DriverError(msg) from error
+
+
+def _launch_band(
+    specification: SpatialAbsorber,
+    space: RadialGrid | FreeGrid | PlanarGrid,
+    dispersion: SpatialDispersion,
+    launch: np.ndarray,
+    length: float,
+) -> float | None:
+    """Return the widest protected band a launch would derive, or ``None``.
+
+    Parameters
+    ----------
+    specification : solprop.boundaries.SpatialAbsorber
+        A launch-derived specification.
+    space : solprop.grid.RadialGrid, solprop.grid.FreeGrid or PlanarGrid
+        The grid.
+    dispersion : solprop.spatial.SpatialDispersion
+        The medium and the temporal grid.
+    launch : numpy.ndarray
+        The launch, canonical layout.
+    length : float
+        The run's length, m.
+
+    Returns
+    -------
+    float or None
+        The widest axis's band edge, rad/m; ``None`` when it cannot be resolved.
+    """
+    try:
+        return max(
+            resolve_transverse(specification, space, dispersion, launch, length).kappa_p
+        )
+    except TranslationError:
+        return None
+
+
+def _refuse_pending_check(problem: KernelProblem) -> None:
+    """Refuse to start a run whose collar's design check never saw a launch.
+
+    A coupled child is translated before its launch exists; its check runs when
+    :meth:`Simulation.with_input` gives it one (SEP 40 section 5.2).
+
+    Parameters
+    ----------
+    problem : solprop.translate.problem.KernelProblem
+        The run's problem.
+
+    Raises
+    ------
+    DriverError
+        If its transverse design's check is pending.
+    """
+    design = problem.transverse
+    if design is not None and design.check.get("status") == "pending":
+        msg = (
+            "this run's collar has not been checked against a launch: give it one "
+            "with with_input before running it (SEP 40 section 5.2)"
+        )
+        raise DriverError(msg)
 
 
 def _bounded(

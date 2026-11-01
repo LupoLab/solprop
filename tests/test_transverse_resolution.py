@@ -20,9 +20,11 @@ from solprop.boundaries import SpatialAbsorber
 from solprop.driver import Simulation, SimulationSettings
 from solprop.exceptions import DriverError, TranslationError
 from solprop.grid import FieldGrid, RadialGrid
+from solprop.linear import Frame
 from solprop.pulses import GaussianPulse, SpatialPulse
-from solprop.spatial import SpatialMedium
+from solprop.spatial import SpatialDispersion, SpatialMedium
 from solprop.stepper import PIController, RungeKutta
+from solprop.translate.transverse import resolve_transverse
 
 SPATIAL = ("radial", "cartesian", "line", "planar")
 LENGTH = 0.01
@@ -70,13 +72,17 @@ def test_the_default_is_the_safety_ramp_alone(route: str) -> None:
     design = problem.transverse
     assert design is not None
     assert not design.has_collar
-    assert not np.any(problem.transform.geometry.absorber_rate)
+    geometry = problem.transform.geometry
+    assert geometry is not None
+    assert not np.any(geometry.absorber_rate)
     assert design.ramp_strength > 0.0
     assert float(np.max(design.ramp_rate)) == pytest.approx(design.ramp_strength)
     if route == "radial":
         return
     assert problem.linear.separable is not None
-    assert np.array_equal(problem.linear.separable.kperp_rate, design.ramp_rate)
+    ramp = problem.linear.separable.kperp_rate
+    assert ramp is not None
+    assert np.array_equal(ramp, design.ramp_rate)
 
 
 def test_the_radial_ramp_rides_the_dense_operator_exactly() -> None:
@@ -104,7 +110,9 @@ def test_the_ramp_covers_the_outer_tenth_of_the_wavenumbers() -> None:
     problem = suite(0.0, None).translate()
     design = problem.transverse
     assert design is not None
-    k_r = problem.transform.geometry.spectral_axes[0]
+    geometry = problem.transform.geometry
+    assert geometry is not None
+    k_r = geometry.spectral_axes[0]
     (start,) = design.kappa_s
     assert start == pytest.approx(0.9 * float(k_r[-1]))
     assert np.all(design.ramp_rate[k_r <= start] == 0.0)
@@ -120,6 +128,7 @@ def test_the_scaled_suite_collar_is_the_full_case_s_design_scaled() -> None:
     assert design.alpha0 == pytest.approx(8 * 242, rel=0.01)
     assert design.kappa_p[0] == pytest.approx(3 * math.sqrt(2) / W0, rel=1e-3)
     geometry = problem.transform.geometry
+    assert geometry is not None
     outside = geometry.window < 1
     assert np.all(geometry.absorber_rate[~outside] == 0.0)
     assert float(np.max(geometry.absorber_rate)) == pytest.approx(
@@ -131,10 +140,24 @@ def test_the_scaled_suite_collar_is_the_full_case_s_design_scaled() -> None:
 
 
 def test_the_resolved_operator_does_not_depend_on_the_run_length() -> None:
-    # Section 7.7: the design is the same for L and 2L.
-    short = suite(2.6, SpatialAbsorber(), length=LENGTH).translate().transverse
-    long = suite(2.6, SpatialAbsorber(), length=2 * LENGTH).translate().transverse
-    assert short is not None and long is not None
+    # Section 7.7: the design is the same for L and 2L. Checked directly, before the
+    # design check, which does depend on L: it decides how much slow content reaches
+    # the edge, not the collar's strength.
+    designs = []
+    for length in (LENGTH, 2 * LENGTH):
+        simulation = suite(2.6, SpatialAbsorber(), length=length)
+        problem = suite(2.6, False, length=length).translate()
+        space = simulation.spatial_grid
+        assert isinstance(space, RadialGrid)
+        dispersion = SpatialDispersion(
+            SpatialMedium("Ar", 1.0), simulation.grid, Frame.comoving(simulation.grid)
+        )
+        designs.append(
+            resolve_transverse(
+                SpatialAbsorber(), space, dispersion, problem.initial.field0, length
+            )
+        )
+    short, long = designs
     assert long.alpha0 == short.alpha0
     assert long.ramp_strength == short.ramp_strength
     assert np.array_equal(long.ramp_rate, short.ramp_rate)

@@ -14,11 +14,13 @@ on the nodes, its band, its strength and its step limit. The formulas are
 
 from __future__ import annotations
 
+import dataclasses
 import math
 from dataclasses import dataclass
 
 import numpy as np
 from jaxtyping import Complex, Float
+from scipy.special import j0
 
 from solprop.constants import C
 from solprop.exceptions import GridError, TranslationError
@@ -39,8 +41,9 @@ from solprop.spatial_absorber import (
     rms_wavenumber,
     safety_ramp_strength,
 )
+from solprop.translate.collar_check import BUDGET, design_check
 
-__all__ = ["band_wavenumbers", "resolve_transverse"]
+__all__ = ["LADDER", "band_wavenumbers", "checked_design", "resolve_transverse"]
 
 
 @dataclass(frozen=True)
@@ -417,3 +420,197 @@ def resolve_transverse(  # noqa: PLR0912, PLR0915 - one resolution, in order
         unguarded_above=(0.75 / CROSSING_ADAPTIVE) * min(edges),
         notes=notes,
     )
+
+
+LADDER = (0.5, 1.0, 1.5, 2.0, 3.0)
+"""The collar fractions the design check tries, in order, to name one that passes."""
+
+
+def _trial_grid(
+    space: RadialGrid | FreeGrid | PlanarGrid, fraction: float
+) -> RadialGrid | FreeGrid | PlanarGrid:
+    """Return `space` with another collar fraction at the same spacing.
+
+    Parameters
+    ----------
+    space : solprop.grid.RadialGrid, solprop.grid.FreeGrid or PlanarGrid
+        The design's grid.
+    fraction : float
+        The trial fraction.
+
+    Returns
+    -------
+    solprop.grid.RadialGrid, solprop.grid.FreeGrid or PlanarGrid
+        The trial grid.
+    """
+    scale = (1.0 + fraction) / (1.0 + float(space.collar_fraction))
+    if isinstance(space, RadialGrid):
+        return RadialGrid(space.radius, max(2, round(space.n_r * scale)), fraction)
+    if isinstance(space, PlanarGrid):
+        return dataclasses.replace(
+            space, n_y=max(2, round(space.n_y * scale)), collar_fraction=fraction
+        )
+    if isinstance(space, LineGrid):
+        return LineGrid(space.radius_x, max(2, round(space.n_x * scale)), fraction)
+    return FreeGrid(
+        space.radius_x,
+        max(2, round(space.n_x * scale)),
+        space.radius_y,
+        max(2, round(space.n_y * scale)),
+        fraction,
+    )
+
+
+def _relaunched(
+    space: RadialGrid | FreeGrid | PlanarGrid,
+    trial: RadialGrid | FreeGrid | PlanarGrid,
+    field0: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
+) -> Complex[np.ndarray, "1 n_trial n_pol n_omega"]:
+    """Return the launch on a trial grid: its field, zero beyond the design's grid.
+
+    Parameters
+    ----------
+    space : solprop.grid.RadialGrid, solprop.grid.FreeGrid or PlanarGrid
+        The design's grid.
+    trial : solprop.grid.RadialGrid, solprop.grid.FreeGrid or PlanarGrid
+        The trial grid, the same spacing.
+    field0 : numpy.ndarray
+        The launch's spectral columns on `space`.
+
+    Returns
+    -------
+    numpy.ndarray
+        Its spectral columns on `trial`.
+    """
+    first = np.asarray(field0[:1], dtype=np.complex128)
+    _, n_cols, n_pol, n_omega = first.shape
+    flat = first[0].reshape(n_cols, n_pol * n_omega)
+    if isinstance(space, RadialGrid):
+        assert isinstance(trial, RadialGrid)
+        series = j0(np.outer(trial.r, space.k_r)) * (
+            space.spectral_weights / (2 * np.pi)
+        )
+        physical = series @ flat
+        physical[np.asarray(trial.r) > space.outer_radius] = 0.0
+        hankel = trial.hankel
+        forward = (
+            hankel.forward_scale
+            * (hankel.j1[:, None] / hankel.j1[None, :])
+            * hankel.matrix
+        )
+        columns = forward @ physical
+    else:
+        if isinstance(space, PlanarGrid):
+            assert isinstance(trial, PlanarGrid)
+            shape, new = (space.n_y, space.n_p), (trial.n_y, trial.n_p)
+            axes: tuple[int, ...] = (0,)
+        else:
+            assert isinstance(trial, FreeGrid)
+            shape, new = (space.n_y, space.n_x), (trial.n_y, trial.n_x)
+            axes = (0, 1)
+        cube = np.fft.ifftn(flat.reshape(*shape, -1), axes=axes)
+        bigger = np.zeros((*new, cube.shape[-1]), dtype=np.complex128)
+        index = tuple(
+            slice((b - s) // 2, (b - s) // 2 + s) if i in axes else slice(None)
+            for i, (b, s) in enumerate(zip(new, shape, strict=True))
+        )
+        centred = np.fft.fftshift(cube, axes=axes)
+        bigger[index] = centred
+        columns = np.fft.fftn(np.fft.ifftshift(bigger, axes=axes), axes=axes).reshape(
+            -1, n_pol * n_omega
+        )
+    return columns.reshape(1, -1, n_pol, n_omega)
+
+
+def checked_design(
+    design: SpatialAbsorberDesign,
+    space: RadialGrid | FreeGrid | PlanarGrid,
+    dispersion: SpatialDispersion,
+    field0: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
+    z_max: float,
+) -> SpatialAbsorberDesign:
+    """Run the design check on a collar's design and refuse a failing one by name.
+
+    SEP 40 section 4.4. Without a collar the check is neither built nor run. A launch
+    that is zero everywhere leaves it ``"pending"``, for the launch a coupled child is
+    given (:meth:`solprop.driver.Simulation.with_input`).
+
+    Parameters
+    ----------
+    design : solprop.spatial_absorber.SpatialAbsorberDesign
+        The resolved design.
+    space : solprop.grid.RadialGrid, solprop.grid.FreeGrid or PlanarGrid
+        Its grid.
+    dispersion : solprop.spatial.SpatialDispersion
+        The medium and the temporal grid.
+    field0 : numpy.ndarray
+        The noise-free launch, canonical layout.
+    z_max : float
+        The run's length, m.
+
+    Returns
+    -------
+    solprop.spatial_absorber.SpatialAbsorberDesign
+        The design, with its check's record.
+
+    Raises
+    ------
+    TranslationError
+        If the check refuses the design or cannot converge, naming the first trial
+        fraction that passes, if any, and whether a bare wall returns less.
+    """
+    if not design.has_collar:
+        return design
+    assert design.collar_rate is not None
+    result = design_check(
+        space, design.collar_rate, field0, dispersion, z_max, min(design.width)
+    )
+    checked = dataclasses.replace(design, check=result.record())
+    if result.status in ("passed", "pending"):
+        return checked
+    passing = None
+    for fraction in LADDER:
+        if fraction <= float(space.collar_fraction):
+            continue
+        trial = _trial_grid(space, fraction)
+        launch = _relaunched(space, trial, field0)
+        try:
+            candidate = resolve_transverse(
+                design.specification, trial, dispersion, launch, z_max
+            )
+        except TranslationError:
+            continue
+        assert candidate.collar_rate is not None
+        attempt = design_check(
+            trial,
+            candidate.collar_rate,
+            launch,
+            dispersion,
+            z_max,
+            min(candidate.width),
+        )
+        if attempt.status == "passed":
+            passing = fraction
+            break
+    what = (
+        f"is inconclusive ({result.reason})"
+        if result.status == "inconclusive"
+        else f"returns {result.returned:.2e} of the launch energy, above the "
+        f"{BUDGET:.0e} budget"
+    )
+    advice = (
+        f"collar_fraction={passing:g} at the same spacing passes"
+        if passing is not None
+        else f"none of the trial fractions {', '.join(f'{f:g}' for f in LADDER)} passes"
+    )
+    wall = (
+        f"; a bare wall at the same outer size returns {result.bare_wall:.2e}, "
+        "less: for a slow beam, room alone may be better than a collar"
+        if result.bare_wall < result.returned
+        else ""
+    )
+    msg = (
+        f"the requested collar's design check {what} (SEP 40 section 4.4): {advice}"
+        f"{wall}"
+    )
+    raise TranslationError(msg)

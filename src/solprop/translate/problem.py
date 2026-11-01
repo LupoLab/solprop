@@ -165,7 +165,7 @@ from solprop.translate.tdse_source import (
     current_numerator,
     steady_current_certificate,
 )
-from solprop.translate.transverse import resolve_transverse
+from solprop.translate.transverse import checked_design, resolve_transverse
 
 __all__ = [
     "DEFAULT_COMPONENTS",
@@ -2893,9 +2893,10 @@ def _transverse_design(
     if build.spatial_absorber is None:
         return None
     assert build.launch is not None
-    return resolve_transverse(
+    design = resolve_transverse(
         build.spatial_absorber, spatial_grid, dispersion, build.launch, build.z_max
     )
+    return checked_design(design, spatial_grid, dispersion, build.launch, build.z_max)
 
 
 def _general_assembly(
