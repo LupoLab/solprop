@@ -6,7 +6,7 @@
 | **Title** | Resuming by what matters to the run |
 | **Author** | John Travers |
 | **Drafting agent** | Opus 5.5 |
-| **Status** | Accepted |
+| **Status** | In progress |
 | **Review status** | Reviewed |
 | **Reviewers** | John Travers (human); Opus 5.5 (AI) |
 | **Type** | Change |
@@ -15,7 +15,7 @@
 | **Requires** | — |
 | **Supersedes** | — |
 | **Superseded-by** | — |
-| **Implementation** | Not started |
+| **Implementation** | In progress: John Travers, with Opus 5.5, on `feature/sep-0042-tolerant-resume`; phase 1 started 2026-11-01 |
 | **Manual pages** | — |
 
 ## Part I — Proposal
@@ -821,6 +821,7 @@ from that tree (§7, §9).
 - 2026-11-01: Tracking issue: [#142](https://github.com/LupoLab/solprop/issues/142). Brought to the standard of ADR-062 before the pull request
   merged: §3 lists the open issues, and the work this SEP gives back moved from the roadmap to
   [#141](https://github.com/LupoLab/solprop/issues/141).
+- 2026-11-01: In progress. Phase 1 started on `feature/sep-0042-tolerant-resume` (John Travers, with Opus 5.5).
 
 ### AI review — 2026-11-01 (Opus 5.5)
 
