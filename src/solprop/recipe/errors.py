@@ -28,7 +28,7 @@ class RecipeError(SolpropError, ValueError):
     message : str
         The message without the path.
     path : str or None
-        The parameter path given, or ``None``; the same as :attr:`parameter`, which
+        The parameter path given, or ``None``; the same as ``parameter``, which
         every :class:`~solprop.exceptions.SolpropError` carries (SEP 41, S10).
 
     Examples

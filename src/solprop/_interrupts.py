@@ -20,71 +20,16 @@ import threading
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from types import FrameType
-from typing import Protocol, runtime_checkable
 
-from solprop.exceptions import RunTerminated
+from solprop.exceptions import RunTerminated, StopRequested
+from solprop.log import StopFlag
 
 __all__ = [
-    "StopFlag",
-    "StopRequested",
     "committing",
     "deferred_handlers",
     "handled",
     "poll",
 ]
-
-
-@runtime_checkable
-class StopFlag(Protocol):
-    """A run's own stop flag: any object with an ``is_set()`` method (SEP 41, S17).
-
-    :class:`threading.Event` qualifies. A front end sets it from any thread, on any
-    platform, without signals.
-    """
-
-    def is_set(self) -> bool:
-        """Return whether the run is asked to stop.
-
-        Returns
-        -------
-        bool
-            True once the caller has set the flag.
-        """
-        ...
-
-
-class StopRequested(BaseException):
-    """Raised inside a run when its own stop flag is set (SEP 41, S17).
-
-    The run loop writes its state as for SIGTERM, and
-    :meth:`solprop.driver.simulation.Simulation.run` returns the output when the flag
-    that stopped it is its own: a requested stop is not an error. It derives from
-    :class:`BaseException`, as :class:`KeyboardInterrupt` does, so no ``except
-    Exception`` on the way swallows it.
-
-    Parameters
-    ----------
-    flag : StopFlag
-        The flag that was set.
-
-    Examples
-    --------
-    >>> import threading
-    >>> from solprop._interrupts import StopRequested, poll
-    >>> flag = threading.Event()
-    >>> poll(flag)
-    >>> flag.set()
-    >>> try:
-    ...     poll(flag)
-    ... except StopRequested as stop:
-    ...     print(stop, stop.flag is flag)
-    stopped by the caller's stop flag True
-    """
-
-    def __init__(self, flag: StopFlag) -> None:
-        """Hold the flag that was set."""
-        super().__init__("stopped by the caller's stop flag")
-        self.flag = flag
 
 
 def poll(flag: StopFlag | None) -> None:

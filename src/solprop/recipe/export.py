@@ -32,7 +32,13 @@ _INDENT: Final = "    "
 
 
 class _Writer:
-    """Render recipe values as Python expressions, and collect what they import."""
+    """Render recipe values as Python expressions, and collect what they import.
+
+    Parameters
+    ----------
+    recipe : Recipe
+        The recipe being written.
+    """
 
     def __init__(self, recipe: "Recipe") -> None:  # noqa: UP037 - run time
         """Start with no imports."""

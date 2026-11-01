@@ -3830,12 +3830,24 @@ class RecipeRecord:
 
     @property
     def authored_sha256(self) -> str:
-        """The SHA-256 of the authored text, in hexadecimal."""
+        """Return the SHA-256 of the authored text.
+
+        Returns
+        -------
+        str
+            The digest, in hexadecimal.
+        """
         return hashlib.sha256(self.authored.encode("utf-8")).hexdigest()
 
     @property
     def resolved_sha256(self) -> str:
-        """The SHA-256 of the resolved text, in hexadecimal."""
+        """Return the SHA-256 of the resolved text.
+
+        Returns
+        -------
+        str
+            The digest, in hexadecimal.
+        """
         return hashlib.sha256(self.resolved.encode("utf-8")).hexdigest()
 
 

@@ -21,10 +21,9 @@ from multiprocessing.process import BaseProcess
 from pathlib import Path
 from typing import Protocol, cast, runtime_checkable
 
-from solprop._interrupts import StopFlag, StopRequested
 from solprop._process import allowed_cpus, thread_budget
-from solprop.exceptions import DriverError
-from solprop.log import PlaneSummary, ProgressReporter
+from solprop.exceptions import DriverError, StopRequested
+from solprop.log import PlaneSummary, ProgressReporter, StopFlag
 
 __all__ = ["ControlledWork", "MemoryBudget", "PlaneScalars", "Pool", "peak_rss"]
 

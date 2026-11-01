@@ -18,14 +18,13 @@ from jaxtyping import TypeCheckError
 
 from legacy_geometry import LEGACY_GRID, bare_absorber
 from march_bounds import FIXED_ORDER
-from solprop._interrupts import StopRequested
 from solprop.driver import _scan_batch
 from solprop.driver._scan_run import _collect, _Job, _Options, _ScanEvents, _Work
 from solprop.driver.executors import Batch, Local, Queue, Slurm, pool
 from solprop.driver.executors.pool import PlaneScalars, Pool, _Channel, _WorkerReporter
 from solprop.driver.scan import Scan, run_scan
 from solprop.driver.simulation import Simulation
-from solprop.exceptions import DriverError
+from solprop.exceptions import DriverError, StopRequested
 from solprop.grid import EnvelopeGrid
 from solprop.log import NullReporter, NullScanReporter, PlaneSummary
 from solprop.stepper import FixedSchedule

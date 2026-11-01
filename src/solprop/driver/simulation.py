@@ -45,7 +45,6 @@ from scipy.special import j0, jn_zeros
 
 import solprop.driver.tdse as tdse_runtime
 from solprop._display import Displayed, engineering, line, summarise
-from solprop._interrupts import StopFlag, StopRequested
 from solprop.adiabatic import AdiabaticAccuracy
 from solprop.backends.multistep import CallLedger
 from solprop.backends.protocol import Backend
@@ -130,6 +129,7 @@ from solprop.exceptions import (
     SampledPeakWarning,
     SolpropError,
     SolpropWarning,
+    StopRequested,
     TDSEArchiveError,
     TDSECostWarning,
     TranslationError,
@@ -145,7 +145,12 @@ from solprop.grid import (
     TimeGrid,
 )
 from solprop.linear import Frame, frame_origin, frame_quantities
-from solprop.log import DEFAULT_PROGRESS_PERIOD, ProgressChoice, ProgressReporter
+from solprop.log import (
+    DEFAULT_PROGRESS_PERIOD,
+    ProgressChoice,
+    ProgressReporter,
+    StopFlag,
+)
 from solprop.modes.antiresonant import TubeLattice
 from solprop.modes.capillary import (
     CoherentWall,
@@ -356,6 +361,7 @@ __all__ = [
     "WAVEGUIDE_RTOL",
     "NoiseModel",
     "NoiseSetting",
+    "RecipeSource",
     "Simulation",
     "SimulationRunner",
     "SimulationSettings",
@@ -507,7 +513,7 @@ if TYPE_CHECKING:
 class RecipeSource(Protocol):
     """What built a simulation from a recipe: it writes the record its output keeps.
 
-    :class:`solprop.recipe.Recipe` is one (SEP 41, S2); the driver needs only this.
+    :class:`solprop.recipe.core.Recipe` is one (SEP 41, S2); the driver needs only this.
     """
 
     def record(self, simulation: "Simulation") -> RecipeRecord:  # noqa: UP037 - later
@@ -8374,8 +8380,6 @@ def _check_forced_shapes(
     """
     path = Path(cast("Path | str", output))
     stored = _stored_stat_shapes(path)
-    if not stored:
-        return
     requested = {
         name: tuple(np.shape(value)[1:]) for name, value in backend.stats(spec).items()
     }
@@ -8977,10 +8981,11 @@ def _spatial_settings(settings: SimulationSettings, route: str) -> SimulationSet
         planar runs, :data:`~solprop.driver.defaults.FREE_RTOL` for Cartesian and line
         ones, in the run's precision), the integrator (``RungeKutta()`` in free
         space, whose Adams history would be too large) and the collar scheme
-        (``"split_step"`` unless planes are interpolated). Settings already for this
-        route are returned as they are.
+        (``"split_step"`` unless planes are interpolated). Settings that already
+        belong to a route, this one or another (settings copied from a modal run, for
+        a comparison), keep what that route resolved and are returned as they are.
     """
-    if settings._route == route:
+    if settings._route is not None:
         return settings
     return dataclasses.replace(settings, _route=route)
 

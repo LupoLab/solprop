@@ -24,7 +24,7 @@ from solprop.output.hdf5 import (
     resume,
 )
 from solprop.output.memory import MemoryOutput
-from solprop.output.resumability import Resumability, resumability
+from solprop.output.resumable import Resumability, resumability
 from solprop.output.schema import (
     FIELD_LAYOUT,
     HISTORY_FIELDS,

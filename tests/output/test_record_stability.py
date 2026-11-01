@@ -35,7 +35,7 @@ import dataclasses
 import gzip
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import pytest
@@ -302,7 +302,9 @@ def digests(metadata: RunMetadata) -> set[str]:
         return set()
     records = materials.get("records")
     assert isinstance(records, dict)
-    return {str(record["digest"]) for record in records.values()}
+    return {
+        str(cast("dict[str, object]", record)["digest"]) for record in records.values()
+    }
 
 
 @pytest.mark.parametrize("kind", FROZEN_CASES)
@@ -376,12 +378,7 @@ def test_every_row_of_the_class_table_matches_a_recorded_path():
     stale = [
         row.pattern
         for row in compatibility.CLASS_TABLE
-        if not any(
-            compatibility._prefix_matches(row.components, path)
-            if row.subtree
-            else compatibility._full_matches(row.components, path)
-            for path in paths
-        )
+        if not any(row.covers(path) for path in paths)
     ]
     assert not stale, stale
 

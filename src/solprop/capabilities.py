@@ -27,10 +27,10 @@ from solprop.output.capability import (
     withheld_from,
 )
 from solprop.output.hdf5 import open_file
-from solprop.output.resumability import Resumability, resumability
+from solprop.output.resumable import Resumability, resumability
 from solprop.output.schema import Output
 
-__all__ = ["OPERATIONS", "OutputCapabilities", "Quantity", "output"]
+__all__ = ["OPERATIONS", "OutputCapabilities", "Quantity", "QuantityKind", "output"]
 
 QuantityKind = Literal["physical", "coordinate"]
 """Whether a derived quantity is a physical flux, or a quantity of the coordinates."""
@@ -90,7 +90,7 @@ class OutputCapabilities:
         reference tables, of which it holds the identities.
     recipe : bool
         Whether the file records the recipe it was built from.
-    resumability : solprop.output.resumability.Resumability or None
+    resumability : solprop.output.resumable.Resumability or None
         Whether it can continue, for a file given by its path.
     """
 

@@ -79,7 +79,13 @@ class Resumability:
 
     @property
     def rebuildable(self) -> bool:
-        """Whether the file records a recipe this solprop can rebuild it from."""
+        """Return whether the file can rebuild itself.
+
+        Returns
+        -------
+        bool
+            True when it records a recipe this solprop reads.
+        """
         return self.recipe == "stored"
 
 

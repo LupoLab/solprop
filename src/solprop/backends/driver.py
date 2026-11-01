@@ -34,7 +34,7 @@ import numpy as np
 from jaxtyping import Complex, Float
 
 from solprop._helpers import NUMBA, Helpers
-from solprop._interrupts import StopFlag, committing, poll
+from solprop._interrupts import committing, poll
 from solprop.backends.protocol import (
     Observation,
     StepHistory,
@@ -44,7 +44,7 @@ from solprop.backends.protocol import (
 from solprop.backends.spatial import collar_field_fraction
 from solprop.exceptions import BackendError, ConvergenceError
 from solprop.grid import TimeGrid
-from solprop.log import NOT_ESTIMATED, NullReporter, ProgressReporter
+from solprop.log import NOT_ESTIMATED, NullReporter, ProgressReporter, StopFlag
 from solprop.modes.protocol import Mode
 from solprop.modes.quadrature import mode_matrix, on_axis_rule
 from solprop.monitor import BoundaryEnergies, BoundaryMonitor
@@ -1283,7 +1283,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
 
         Parameters
         ----------
-        flag : solprop._interrupts.StopFlag or None
+        flag : solprop.log.StopFlag or None
             Any object with an ``is_set()`` method, such as a
             :class:`threading.Event`.
         """
@@ -1294,10 +1294,11 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
 
         Raises
         ------
-        solprop._interrupts.StopRequested
+        solprop.exceptions.StopRequested
             If the flag is set.
         """
-        poll(self._stop)
+        # A harness that builds a driver without __init__ has no flag.
+        poll(getattr(self, "_stop", None))
 
     def propagate_to(self, z: float) -> StepSummary:
         """Step the state to a position, landing on it exactly.

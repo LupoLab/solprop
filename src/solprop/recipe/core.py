@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The :class:`Recipe`: a versioned TOML description of a simulation (SEP 41, S1).
+"""Recipes: a simulation as versioned TOML, read, built, run and saved (SEP 41, S1).
 
 A recipe is read, checked against the parameter metadata, built into a
 :class:`~solprop.driver.simulation.Simulation`, run, written back and exported as a
@@ -45,14 +45,20 @@ from solprop.recipe.registry import REGISTRY, BuildContext, coerce, decode_keywo
 if TYPE_CHECKING:
     from numpy.typing import ArrayLike
 
-    from solprop._interrupts import StopFlag
     from solprop.driver.scan import Scan, ScanPoint
     from solprop.driver.simulation import Simulation
     from solprop.grid import TimeGrid
-    from solprop.log import ProgressChoice, ProgressReporter
+    from solprop.log import ProgressChoice, ProgressReporter, StopFlag
     from solprop.output.schema import Output
 
-__all__ = ["Recipe", "RecipeIssue", "RecipeScan", "resume_file"]
+__all__ = [
+    "ROUTES",
+    "Recipe",
+    "RecipeBuilder",
+    "RecipeIssue",
+    "RecipeScan",
+    "resume_file",
+]
 
 ROUTES: Final = ("gnlse", "capillary")
 """The routes a recipe of format 1 describes in this release (SEP 41, phase 1)."""
@@ -374,7 +380,13 @@ class Recipe:
 
     @property
     def title(self) -> str | None:
-        """The recipe's title, or ``None``."""
+        """Return the recipe's title.
+
+        Returns
+        -------
+        str or None
+            The ``[recipe]`` table's title, or ``None``.
+        """
         title = self._document["recipe"].get("title")
         return None if title is None else str(title)
 
@@ -761,7 +773,7 @@ class Recipe:
             for key, value in execution.items()
             if key in ("fields", "field_planes")
         }
-        builder = _PointBuilder(
+        builder = RecipeBuilder(
             dump_text(document),
             None if self._base is None else str(self._base),
             self._allow_outside,
@@ -1194,7 +1206,7 @@ def _number_in(value: object, unit: str | None, path: str) -> object:
 
 
 @dataclass(frozen=True)
-class _PointBuilder:
+class RecipeBuilder:
     """Build one scan point's simulation from a recipe; picklable for pool executors.
 
     Attributes
@@ -1258,5 +1270,5 @@ class RecipeScan:
     """
 
     scan: "Scan"  # noqa: UP037 - TYPE_CHECKING only
-    build: _PointBuilder
+    build: RecipeBuilder
     keywords: dict[str, object]

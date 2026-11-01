@@ -21,7 +21,7 @@ from solprop.exceptions import OutputError, ProcessingError, SolpropWarning
 from solprop.grid import FieldGrid
 from solprop.log import NullReporter
 from solprop.output import open_file
-from solprop.output.hdf5 import HDF5Output, resume
+from solprop.output.hdf5 import HDF5Output, _dataset, resume
 from solprop.processing import field_plane
 
 LENGTH = 4e-4  # m
@@ -86,7 +86,7 @@ def stopped(tmp_path):
 def snapshot(path):
     """Return what a refusal must leave unchanged: the planes and the outcome."""
     with h5py.File(path, "r") as file:
-        return int(file["z"].shape[0]), file["meta/outcome"][()]
+        return int(_dataset(file, "z").shape[0]), _dataset(file, "meta/outcome")[()]
 
 
 @pytest.mark.parametrize("change", ["pressure", "radius"])

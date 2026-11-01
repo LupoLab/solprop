@@ -20,7 +20,6 @@ from typing import cast
 
 import numpy as np
 
-from solprop._interrupts import StopFlag, StopRequested
 from solprop.backends import select
 from solprop.driver._scan_context import current_executor
 from solprop.driver._scan_model import Scan, ScanPoint, name_seed
@@ -31,7 +30,7 @@ from solprop.driver.executors.queue import Queue, collect
 from solprop.driver.executors.slurm import Slurm
 from solprop.driver.memory import admit_memory
 from solprop.driver.simulation import Simulation
-from solprop.exceptions import DriverError, OutputError
+from solprop.exceptions import DriverError, OutputError, StopRequested
 from solprop.fourier import spectrum_to_optics
 from solprop.log import (
     BarReporter,
@@ -40,6 +39,7 @@ from solprop.log import (
     ProgressChoice,
     ProgressReporter,
     ScanReporter,
+    StopFlag,
     SummarisingReporter,
     WatchingScanReporter,
     is_interactive,

@@ -49,6 +49,7 @@ __all__ = [
     "ProgressReporter",
     "ProgressStatus",
     "ScanReporter",
+    "StopFlag",
     "SummarisingReporter",
     "WatchingScanReporter",
     "configure_logging",
@@ -346,10 +347,10 @@ class ProgressReporter(Protocol):
     """Receive progress events from the propagation driver.
 
     Four calls, in this order: :meth:`started` once, :meth:`step` once per **attempted**
-    step including the rejected ones, :meth:`plane` once per save plane, and
-    :meth:`finished` once at the end. A reporter may also implement the fifth call
+    step including the rejected ones, ``plane()`` once per save plane, and
+    ``finished()`` once at the end. A reporter may also implement the fifth call
     of :class:`solprop.log.InterruptibleReporter`, which the driver makes instead
-    of :meth:`finished` when the loop raises, ``KeyboardInterrupt`` included, so
+    of ``finished()`` when the loop raises, ``KeyboardInterrupt`` included, so
     that a reporter holding a terminal can give it back; a reporter without it is
     still complete. The driver holds no state on a reporter's behalf and never
     inspects what it returns.
@@ -417,11 +418,30 @@ class ProgressReporter(Protocol):
 
 
 @runtime_checkable
+class StopFlag(Protocol):
+    """A run's own stop flag: any object with an ``is_set()`` method (SEP 41, S17).
+
+    :class:`threading.Event` qualifies. A front end sets it from any thread, on any
+    platform, without signals.
+    """
+
+    def is_set(self) -> bool:
+        """Return whether the run is asked to stop.
+
+        Returns
+        -------
+        bool
+            True once the caller has set the flag.
+        """
+        ...
+
+
+@runtime_checkable
 class PlaneObserver(ProgressReporter, Protocol):
     """A reporter that is shown each saved plane, for a front end to draw (SEP 41, S3).
 
     The driver calls :meth:`observe_plane` once per save plane, the entrance included,
-    after the plane is committed to the output and before :meth:`plane`; a resume
+    after the plane is committed to the output and before ``plane()``; a resume
     does not show the planes it continues after again. The view is lazy: the field
     and the spectral density are computed only when asked for, and on a device a plane
     whose field the output does not keep is fetched only then, a transfer the run's
@@ -432,7 +452,7 @@ class PlaneObserver(ProgressReporter, Protocol):
 
     An exception from the observer, other than a stop or an interrupt, does not fail
     the run: it is logged once with its traceback, warned on, and the observer is not
-    called again in that run; :meth:`plane`, :meth:`finished` and ``interrupted`` are
+    called again in that run; ``plane()``, ``finished()`` and ``interrupted`` are
     still delivered. Nothing an observer does may change the propagation.
     :class:`NullReporter` does not implement it, so a quiet run builds no view.
     """
@@ -772,7 +792,7 @@ class LogReporter:
     gradient fill changes the operator and the plasma cost along z, and a plane-dense
     run pays its planes unevenly. When a fixed schedule is replayed the total step count
     is known, so the estimate is the remaining steps at the recent cost per step. Both
-    estimates' median absolute relative errors are kept, and :meth:`finished` logs the
+    estimates' median absolute relative errors are kept, and ``finished()`` logs the
     reported one, so the estimator is measured on every run rather than assumed.
 
     Parameters
@@ -894,7 +914,7 @@ class LogReporter:
         -------
         float
             Median absolute relative error of the windowed estimate over every periodic
-            line that published one; NaN before :meth:`finished`, or when no line did.
+            line that published one; NaN before ``finished()``, or when no line did.
         """
         return self._median_error(0)
 

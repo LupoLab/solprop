@@ -260,17 +260,21 @@ HDF5 file at all exposes the HDF5 library to it.
 
 ### What a file allows
 
-{py:func}`solprop.output.resumability` answers three questions about a file without
+{py:func}`solprop.output.resumable.resumability` answers three questions about a file without
 resuming it:
 
-```python
+```{code-block} python
 from solprop.output import resumability
 
 answer = resumability("run.h5")
-answer.resumable, answer.z, answer.mode  # can it continue, from where, with which resume=
-answer.reason                            # why not: complete, no state, schema, live writer
-answer.recipe                            # "stored", "none" (from a script) or "newer"
-resumability("run.h5", gate=True).comparison  # what a resume would compare, at a rebuild
+# Can it continue, from where, and with which resume=?
+print(answer.resumable, answer.z, answer.mode)
+# Why not: complete, no state, another schema, a live writer.
+print(answer.reason)
+# "stored", "none" (a file from a script) or "newer".
+print(answer.recipe)
+# What a resume would compare, at the cost of a rebuild.
+print(resumability("run.h5", gate=True).comparison)
 ```
 
 `mode` is `"force"` for a file a forced session wrote and `"interpolated"` when its last

@@ -40,7 +40,7 @@ import dataclasses
 import math
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from enum import StrEnum
-from typing import Final
+from typing import Final, cast
 
 import numpy as np
 
@@ -248,15 +248,15 @@ def _full_matches(
     return _component_matches(head, path[0]) and _full_matches(rest, path[1:])
 
 
-def _lookup(record: JsonValue, path: Sequence[str | int]) -> tuple[bool, JsonValue]:
-    """Return whether a record holds a path, and the value there.
+def _lookup(record: JsonValue, path: Sequence[str]) -> tuple[bool, JsonValue]:
+    """Return whether a record holds a path of mapping keys, and the value there.
 
     Parameters
     ----------
     record : object
         A record, as JSON.
-    path : sequence
-        The path.
+    path : sequence of str
+        The keys.
 
     Returns
     -------
@@ -264,15 +264,10 @@ def _lookup(record: JsonValue, path: Sequence[str | int]) -> tuple[bool, JsonVal
         ``(True, value)``, or ``(False, None)`` when the record lacks the path.
     """
     value = record
-    for component in path:
-        if isinstance(component, int):
-            if not isinstance(value, list) or component >= len(value):
-                return False, None
-            value = value[component]
-        else:
-            if not isinstance(value, dict) or component not in value:
-                return False, None
-            value = value[component]
+    for key in path:
+        if not isinstance(value, dict) or key not in value:
+            return False, None
+        value = value[key]
     return True, value
 
 
@@ -342,16 +337,23 @@ class Row:
     subtree: bool = True
     when: Callable[[JsonValue], bool] | None = None
 
-    @property
-    def components(self) -> tuple[object, ...]:
-        """Return the parsed pattern.
+    def covers(self, path: RecordPath) -> bool:
+        """Say whether the row's pattern reaches a path, whatever its condition.
+
+        Parameters
+        ----------
+        path : tuple
+            The path.
 
         Returns
         -------
-        tuple
-            Its components.
+        bool
+            Whether the pattern matches the path or, for a subtree row, an ancestor.
         """
-        return _pattern(self.pattern)
+        components = _PARSED[self.pattern]
+        if self.subtree:
+            return _prefix_matches(components, path)
+        return _full_matches(components, path)
 
     def matches(
         self, path: RecordPath, stored: JsonValue, requested: JsonValue
@@ -371,13 +373,7 @@ class Row:
             Whether the row matches the path (or an ancestor, for a subtree row) and
             both records meet its condition.
         """
-        components = _PARSED[self.pattern]
-        hit = (
-            _prefix_matches(components, path)
-            if self.subtree
-            else _full_matches(components, path)
-        )
-        if not hit:
+        if not self.covers(path):
             return False
         return self.when is None or (self.when(stored) and self.when(requested))
 
@@ -488,6 +484,13 @@ CLASS_TABLE: Final[tuple[Row, ...]] = (
         tail=True,
     ),
     Row("spatial.absorber_rate", _COMPARED, "rates with rounding tails", tail=True),
+    Row(
+        "configuration.plasma_integration.certified_error",
+        _IGNORED,
+        "an error bound derived from the compared taps by a maximisation whose last "
+        "digits move across platforms: 4.5e-11 apart between macOS arm64 and Linux "
+        "x86-64",
+    ),
     Row("materials.optmat_version", _IGNORED, "provenance"),
     Row(
         "materials.records.*.{name,status,status_reason,sources,optmat_version}",
@@ -1450,7 +1453,7 @@ def _entry(change: PathChange) -> str:
 
 
 def compare_records(
-    stored: Mapping[str, JsonValue], requested: Mapping[str, JsonValue]
+    stored: Mapping[str, object], requested: Mapping[str, object]
 ) -> RecordComparison:
     """Compare the hashed parts of two run records, path by path (SEP 42).
 
@@ -1477,7 +1480,10 @@ def compare_records(
     >>> compare_records(one, three).continues
     True
     """
-    walk = _Walk(_normalised(stored), _normalised(requested))
+    walk = _Walk(
+        _normalised(cast("Mapping[str, JsonValue]", stored)),
+        _normalised(cast("Mapping[str, JsonValue]", requested)),
+    )
     walk.compare((), walk.stored, walk.requested)
     by_kind: dict[PathClass, list[PathChange]] = {kind: [] for kind in PathClass}
     for change in walk.changes:
@@ -1490,7 +1496,7 @@ def compare_records(
     )
 
 
-def record_paths(record: Mapping[str, JsonValue]) -> Iterator[RecordPath]:
+def record_paths(record: Mapping[str, object]) -> Iterator[RecordPath]:
     """Yield every leaf path of a record, as the comparison walks it.
 
     Parameters
@@ -1504,7 +1510,7 @@ def record_paths(record: Mapping[str, JsonValue]) -> Iterator[RecordPath]:
         Each leaf's path, after normalisation; an array or a list of numbers is one
         leaf.
     """
-    yield from _leaf_paths((), _normalised(record))
+    yield from _leaf_paths((), _normalised(cast("Mapping[str, JsonValue]", record)))
 
 
 def _leaf_paths(path: RecordPath, value: JsonValue) -> Iterator[RecordPath]:

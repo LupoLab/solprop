@@ -38,7 +38,7 @@ from typing import cast
 import numpy as np
 
 from solprop._host import RunClock, machine, usage
-from solprop._interrupts import StopFlag, StopRequested, committing, handled, poll
+from solprop._interrupts import committing, handled, poll
 from solprop.backends.populations import axis_refusal
 from solprop.backends.protocol import Backend, Observation
 from solprop.backends.protocol import StepHistory as BackendHistory
@@ -51,6 +51,7 @@ from solprop.exceptions import (
     OutputError,
     ResponseBudgetError,
     RunTerminated,
+    StopRequested,
 )
 from solprop.fourier import power_amplitude
 from solprop.log import (
@@ -59,6 +60,7 @@ from solprop.log import (
     LogReporter,
     ProgressChoice,
     ProgressReporter,
+    StopFlag,
     SummarisingReporter,
     resolve_reporter,
 )
@@ -375,12 +377,12 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
         from its record (SEP 42 section 5.3): every execution record this session
         writes carries it, from the first, written before any step, so a session
         that stops or fails still leaves it. ``None`` records none.
-    stop : solprop._interrupts.StopFlag or None, optional
+    stop : solprop.log.StopFlag or None, optional
         The run's own stop flag, any object with an ``is_set()`` method (SEP 41,
         S17). It is polled before the first step, before every trial step and between
         save planes; once it is set the run writes its state as for SIGTERM, tells the
         reporter through ``interrupted``, and raises
-        :class:`~solprop._interrupts.StopRequested`, which
+        :class:`~solprop.exceptions.StopRequested`, which
         :meth:`~solprop.driver.simulation.Simulation.run` turns into a return.
     recipe : solprop.output.schema.RecipeRecord or None, optional
         The recipe the run was built from (SEP 41, S2), recorded in a plane store at
@@ -468,9 +470,8 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
         memory,
     )
     if resume_record is not None:
-        if not isinstance(output, PlaneStore):
-            raise DriverError("a resume entry needs an output that records outcomes")
-        output.record_resume(resume_record)
+        # Only a file resume carries an entry, and its handler is an HDF5Output.
+        cast("PlaneStore", output).record_resume(resume_record)
     if recipe is not None and isinstance(output, PlaneStore):
         with committing():
             output.record_recipe(recipe)

@@ -60,7 +60,9 @@ from solprop.stepper.schedule import FixedSchedule
 __all__ = [
     "REGISTRY",
     "BuildContext",
+    "Context",
     "Factory",
+    "UnitSpec",
     "build_object",
     "coerce",
     "decode",

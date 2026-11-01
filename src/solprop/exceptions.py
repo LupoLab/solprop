@@ -46,6 +46,7 @@ __all__ = [
     "SolpropError",
     "SolpropWarning",
     "StepperError",
+    "StopRequested",
     "SurrogateAreaWarning",
     "TDSEArchiveError",
     "TDSEConsistencyError",
@@ -151,6 +152,41 @@ class RunTerminated(SystemExit):
             ``"terminated by <signal>"``.
         """
         return f"terminated by {self.signal_name}"
+
+
+class StopRequested(BaseException):
+    """Raised inside a run when its own stop flag is set (SEP 41, S17).
+
+    The run loop writes its state as for SIGTERM, and
+    :meth:`solprop.driver.simulation.Simulation.run` returns the output when the flag
+    that stopped it is its own: a requested stop is not an error. It derives from
+    :class:`BaseException`, as :class:`KeyboardInterrupt` does, so no ``except
+    Exception`` on the way swallows it.
+
+    Parameters
+    ----------
+    flag : solprop.log.StopFlag
+        The flag that was set: any object with an ``is_set()`` method.
+
+    Examples
+    --------
+    >>> import threading
+    >>> from solprop._interrupts import poll
+    >>> from solprop.exceptions import StopRequested
+    >>> flag = threading.Event()
+    >>> poll(flag)
+    >>> flag.set()
+    >>> try:
+    ...     poll(flag)
+    ... except StopRequested as stop:
+    ...     print(stop, stop.flag is flag)
+    stopped by the caller's stop flag True
+    """
+
+    def __init__(self, flag: object) -> None:
+        """Hold the flag that was set."""
+        super().__init__("stopped by the caller's stop flag")
+        self.flag = flag
 
 
 class DriverError(SolpropError, RuntimeError):

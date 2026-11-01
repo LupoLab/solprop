@@ -13,6 +13,7 @@ marked so that later sessions and readers respect it.
 import json
 import logging
 import warnings
+from typing import cast
 
 import h5py
 import pytest
@@ -21,7 +22,7 @@ from march_bounds import assert_in_envelope
 from solprop.driver.simulation import _check_resume_choice
 from solprop.exceptions import BoundaryWarning, OutputError, SolpropWarning
 from solprop.log import NullReporter
-from solprop.output.hdf5 import open_file, resume
+from solprop.output.hdf5 import _dataset, open_file, resume
 from solprop.stepper import RungeKutta
 from solprop.stepper.multistep import Multistep
 
@@ -172,7 +173,7 @@ def test_a_file_stopped_after_its_last_plane_has_no_work_left(
     fibre(build_simulation).run(path)
     # As if killed after its last plane: the status still reads running.
     with h5py.File(path, "r+") as file:
-        outcome = json.loads(file["meta/outcome"][()])
+        outcome = json.loads(_dataset(file, "meta/outcome")[()])
         outcome["status"] = "running"
         del file["meta/outcome"]
         file["meta/outcome"] = json.dumps(outcome)
@@ -226,7 +227,7 @@ def test_an_adams_run_continues_under_runge_kutta(build_simulation, tmp_path):
     assert not outcome.logical_calls
     assert outcome.previous_executions[-1]["logical_calls"] == charged.logical_calls
     [entry] = outcome.resumes
-    assert "stepper.method" in entry["numerics"]
+    assert "stepper.method" in cast("dict[str, object]", entry["numerics"])
 
 
 def test_a_raised_call_budget_keeps_the_adams_history(

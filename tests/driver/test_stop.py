@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 
 from legacy_geometry import LEGACY_GRID, bare_absorber
-from solprop._interrupts import StopRequested
+from solprop.exceptions import StopRequested
 from solprop.grid import EnvelopeGrid
 from solprop.log import NullReporter
 from solprop.output.hdf5 import open_file

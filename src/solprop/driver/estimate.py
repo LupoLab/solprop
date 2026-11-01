@@ -87,7 +87,13 @@ class RunEstimate:
 
     @property
     def step(self) -> float | None:
-        """Seconds per accepted step, the evaluations' share of it; ``None`` untimed."""
+        """Return the evaluations' share of an accepted step's time.
+
+        Returns
+        -------
+        float or None
+            Seconds per step, or ``None`` when the run was not timed.
+        """
         return None if self.rhs is None else self.rhs * self.calls_per_step
 
 

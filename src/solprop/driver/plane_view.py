@@ -85,12 +85,24 @@ class PlaneView:
 
     @property
     def basis(self) -> BasisCapability:
-        """The run's basis: ``modal``, ``general_modal`` or ``spatial``."""
+        """Return the run's basis.
+
+        Returns
+        -------
+        {'modal', 'general_modal', 'spatial'}
+            The basis capability its record declares.
+        """
         return capability_of(self._metadata)
 
     @property
     def quantities(self) -> dict[str, Quantity]:
-        """Whether the plane's power, energy, density and field are physical fluxes."""
+        """Return what the plane's derived quantities are.
+
+        Returns
+        -------
+        dict
+            Whether its power, energy, density and field are physical fluxes.
+        """
         return _quantities(self.basis)
 
     def _reader(self) -> MemoryOutput:
@@ -125,7 +137,9 @@ class PlaneView:
         return self._output
 
     def spectrum(self, **keywords: Any) -> tuple[np.ndarray, np.ndarray]:
-        """Return the plane's spectrum, as :func:`solprop.processing.get_spectrum`.
+        """Return the plane's spectrum, as the processing function returns it.
+
+        The function is :func:`solprop.processing.fields.get_spectrum`.
 
         Parameters
         ----------
@@ -140,7 +154,9 @@ class PlaneView:
         return fields.get_spectrum(self._reader(), plane=0, **keywords)
 
     def field(self, **keywords: Any) -> tuple[np.ndarray, np.ndarray]:
-        """Return the plane's field in time, as :func:`solprop.processing.get_field`.
+        """Return the plane's field in time, as the processing function returns it.
+
+        The function is :func:`solprop.processing.fields.get_field`.
 
         Parameters
         ----------
@@ -155,7 +171,9 @@ class PlaneView:
         return fields.get_field(self._reader(), plane=0, **keywords)
 
     def power(self, **keywords: Any) -> tuple[np.ndarray, np.ndarray]:
-        """Return the plane's power in time, as :func:`solprop.processing.get_power`.
+        """Return the plane's power in time, as the processing function returns it.
+
+        The function is :func:`solprop.processing.fields.get_power`.
 
         Parameters
         ----------
@@ -175,7 +193,7 @@ class PlaneView:
         Parameters
         ----------
         **keywords : Any
-            The keywords of :func:`solprop.processing.get_spectral_density`, the
+            The keywords of :func:`solprop.processing.fields.get_spectral_density`, the
             plane excepted.
 
         Returns

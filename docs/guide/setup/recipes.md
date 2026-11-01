@@ -93,7 +93,7 @@ supplies them. An unknown key is refused with the nearest valid one.
 **Parameter paths** name a value inside the recipe: the keyword, then `.name` for a
 keyword of an object, `[i]` for an element of a list and `["key"]` for a key of a mapping,
 as in `pressure`, `pulses[1].energy` or `betas[2]`. {py:meth}`Recipe.get
-<solprop.recipe.Recipe.get>` and {py:meth}`Recipe.set <solprop.recipe.Recipe.set>` take
+<solprop.recipe.core.Recipe.get>` and {py:meth}`Recipe.set <solprop.recipe.core.Recipe.set>` take
 them, and so does every error a recipe or a route raises about a value, in its
 `parameter` attribute.
 
@@ -103,10 +103,10 @@ them, and so does every error a recipe or a route raises about a value, in its
 from solprop.recipe import Recipe
 
 recipe = Recipe.example("rdw")
-recipe.set("energy", "250 uJ")       # checked against the keyword's unit and range
-print(recipe.check())                # problems, each at its parameter; [] here
+recipe.set("energy", "250 uJ")  # checked against the keyword's unit and range
+print(recipe.check())  # problems, each at its parameter; [] here
 script = recipe.to_python("rdw.h5")  # the plain script this recipe stands for
-simulation = recipe.build()          # a Simulation, not yet run
+simulation = recipe.build()  # a Simulation, not yet run
 ```
 
 `Recipe.load` reads a file and `Recipe.loads` text; `recipe.save` writes it. A recipe that
@@ -170,7 +170,7 @@ none: `with_input`, `with_mixture`, or a new value of a setting other than `fiel
 
 ## The parameter metadata
 
-{py:func}`solprop.recipe.parameters` returns, for each keyword of a route, the forms its
+{py:func}`solprop.recipe.metadata.parameters` returns, for each keyword of a route, the forms its
 value may take with their units and ranges, the unit a front end shows it in, its group
 (`geometry`, `medium`, `nonlinear`, `input`, `grid`, `numerics`, `output`), whether a
 newcomer sees it, a one-line summary and the manual section that documents it. Where a

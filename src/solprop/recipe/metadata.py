@@ -37,9 +37,14 @@ if TYPE_CHECKING:
 
 __all__ = [
     "REQUIRED",
+    "ElementUnits",
     "Form",
+    "FormKind",
+    "Group",
+    "Level",
     "Parameter",
     "Resolution",
+    "Resolver",
     "parameters",
     "surface",
 ]

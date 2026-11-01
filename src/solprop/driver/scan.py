@@ -8,12 +8,11 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Literal
 
-from solprop._interrupts import StopFlag
 from solprop.driver._scan_model import Scan, ScanPoint
 from solprop.driver._scan_run import execute_scan
 from solprop.driver.executors import Executor
 from solprop.driver.simulation import Simulation
-from solprop.log import ProgressChoice, ScanReporter
+from solprop.log import ProgressChoice, ScanReporter, StopFlag
 from solprop.output.schema import RecipeRecord
 from solprop.processing.scans import Reduction, ScanOutput
 
@@ -83,7 +82,7 @@ def run_scan(  # noqa: PLR0913 - the public scan controls
         told ``"stopped"`` for each stopped point. ``Queue`` and ``Slurm`` refuse it.
     recipe : solprop.output.schema.RecipeRecord or None, optional
         The recipe the scan was built from, which the scan file records once, so that
-        it reopens with its setup (SEP 41, S2); :meth:`solprop.recipe.Recipe.scan`
+        it reopens with its setup (SEP 41, S2); :meth:`solprop.recipe.core.Recipe.scan`
         passes it among its keywords. ``None`` records none.
 
     Returns

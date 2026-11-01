@@ -103,6 +103,10 @@ def test_exception_hierarchy_roots_at_solprop_error():
         if isinstance(cls, typing.TypeAliasType):
             # ParameterPath, the type of an error's parameter, is not an error.
             continue
+        if cls is exceptions.StopRequested:
+            # A stop the caller asked for, not an error, and no Exception either.
+            assert not issubclass(cls, Exception)
+            continue
         if cls is exceptions.RunTerminated:
             # A stop, not an error: an `except Exception` must not swallow it.
             assert issubclass(cls, SystemExit) and not issubclass(cls, Exception)

@@ -784,7 +784,7 @@ class ScanOutput(Displayed):
         Returns
         -------
         solprop.output.schema.RecipeRecord or None
-            The authored recipe a scan from :meth:`solprop.recipe.Recipe.scan`
+            The authored recipe a scan from :meth:`solprop.recipe.core.Recipe.scan`
             records (SEP 41, S2).
         """
         with read_scan(self.path) as file:

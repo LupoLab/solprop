@@ -697,24 +697,29 @@ def _gnlse_settings(**keywords):
     return Simulation.from_gnlse(*GNLSE_ARGS, **GNLSE, **keywords).settings
 
 
+def _control(settings):
+    """Return the settings' controller, which the keyword routes always give."""
+    assert settings.controller is not None
+    return settings.controller
+
+
 def test_a_default_tolerance_is_resolved_again_in_the_other_precision():
     double = _gnlse_settings(backend="numpy_ref")
     assert double.controller_defaulted
-    assert double.controller.rtol == DEFAULT_RTOL
+    assert _control(double).rtol == DEFAULT_RTOL
     single = dataclasses.replace(double, precision="single")
     # 1e-7 would be refused under single precision; the copy takes that default.
-    assert single.controller.rtol == SINGLE_RTOL_FLOOR
-    assert single.controller.atol == double.controller.atol
+    assert _control(single).rtol == SINGLE_RTOL_FLOOR
+    assert _control(single).atol == _control(double).atol
     assert single.controller_defaulted
-    assert dataclasses.replace(single, precision="double").controller.rtol == (
-        DEFAULT_RTOL
-    )
+    back = dataclasses.replace(single, precision="double")
+    assert _control(back).rtol == DEFAULT_RTOL
 
 
 def test_a_named_tolerance_is_kept_in_the_other_precision():
     named = _gnlse_settings(backend="numpy_ref", rtol=1e-5)
     assert not named.controller_defaulted
-    assert dataclasses.replace(named, precision="single").controller.rtol == 1e-5
+    assert _control(dataclasses.replace(named, precision="single")).rtol == 1e-5
     replaced = dataclasses.replace(
         named, controller=PIController(rtol=1e-4, atol=1e-14)
     )
