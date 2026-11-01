@@ -28,6 +28,7 @@ need no exception for them.
 | threadpoolctl ≥ 3.1 | inspect and control the backend-owned BLAS pool | pool provenance and limits are recorded per run |
 | jaxtyping ≥ 0.3.11 | array annotations, evaluated at import time in every module | pure Python; the checker (beartype) is dev-only; under earlier releases the test session's import hook wraps the compiled kernels, which numba then cannot compile or cache |
 | tqdm ≥ 4.67 | the progress bar (`solprop.log.BarReporter`) | pure Python; imported when the first bar is drawn, never at `import solprop`; `ipywidgets` is optional for the notebook widget and is not a dependency |
+| tomli-w ≥ 1.0 | writes recipes as TOML (`solprop.recipe`; [SEP 41](seps/sep-0041-recipes-and-front-ends.md), Q6) | pure Python, MIT-licensed, no dependencies of its own; `tomllib` (standard library) reads them; it writes no comments, so an edited recipe loses its own; 1.0 already writes every form a recipe uses |
 
 ## Optional atomic-response engine
 

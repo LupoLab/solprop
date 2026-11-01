@@ -54,6 +54,9 @@ dependencies = [
     # kernels, which numba then cannot compile or cache.
     "jaxtyping>=0.3.11",
     "tqdm>=4.67",
+    # Writes recipes (SEP 41); 1.0, the first release, already writes every form a recipe
+    # uses (nested tables, arrays of inline tables, quoted keys) back through tomllib.
+    "tomli-w>=1.0",
 ]
 
 [project.urls]

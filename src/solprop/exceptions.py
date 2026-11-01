@@ -35,6 +35,7 @@ __all__ = [
     "NoiseError",
     "OpticsGeometryError",
     "OutputError",
+    "ParameterPath",
     "PolarisationError",
     "ProcessingError",
     "PulseError",
@@ -57,8 +58,56 @@ __all__ = [
 ]
 
 
+type ParameterPath = str | tuple[str, ...]
+"""The parameter an error or warning concerns: a recipe path, or several for a conflict.
+
+A path names a keyword of a route, then ``.name`` for a keyword of an object, ``[i]``
+for an element of an array and ``["key"]`` for a key of a mapping, as in
+``"pressure"``, ``"pulses[1].energy"`` or ``'plasma["Ar"]'`` (SEP 41 section 5.1).
+"""
+
+
 class SolpropError(Exception):
-    """Base class for every error raised by solprop."""
+    """Base class for every error raised by solprop.
+
+    Parameters
+    ----------
+    *args : object
+        The message, as for :class:`Exception`.
+    parameter : str or tuple of str or None, optional
+        The parameter the error concerns, as a path (:data:`ParameterPath`), or a
+        tuple of paths when it is a conflict between them; ``None`` when it concerns
+        no single parameter. Set where the interface refuses a value, so a front end
+        can put the message next to its field (SEP 41, S10).
+    rule : str or None, optional
+        The identifier of the combination rule the refusal enforces, where it is one
+        (SEP 41, S8); ``None`` otherwise.
+
+    Attributes
+    ----------
+    parameter : str or tuple of str or None
+        As given.
+    rule : str or None
+        As given.
+
+    Examples
+    --------
+    >>> from solprop.exceptions import DriverError
+    >>> error = DriverError("pressure must be positive", parameter="pressure")
+    >>> str(error), error.parameter, error.rule
+    ('pressure must be positive', 'pressure', None)
+    """
+
+    def __init__(
+        self,
+        *args: object,
+        parameter: ParameterPath | None = None,
+        rule: str | None = None,
+    ) -> None:
+        """Hold the message, and the parameter and rule it concerns."""
+        super().__init__(*args)
+        self.parameter = parameter
+        self.rule = rule
 
 
 class RunTerminated(SystemExit):
@@ -239,7 +288,34 @@ class ToolsError(SolpropError, ValueError):
 
 
 class SolpropWarning(UserWarning):
-    """Base class for every warning raised by solprop."""
+    """Base class for every warning raised by solprop.
+
+    Parameters
+    ----------
+    *args : object
+        The message, as for :class:`Warning`.
+    parameter : str or tuple of str or None, optional
+        The parameter the warning concerns, as a path (:data:`ParameterPath`);
+        ``None`` when it concerns no single parameter (SEP 41, S10). A warning that
+        carries one is issued as an instance:
+        ``warnings.warn(MaterialRangeWarning(message, parameter="gas"))``.
+
+    Attributes
+    ----------
+    parameter : str or tuple of str or None
+        As given.
+
+    Examples
+    --------
+    >>> from solprop.exceptions import MaterialRangeWarning
+    >>> MaterialRangeWarning("outside the fit", parameter="gas").parameter
+    'gas'
+    """
+
+    def __init__(self, *args: object, parameter: ParameterPath | None = None) -> None:
+        """Hold the message and the parameter it concerns."""
+        super().__init__(*args)
+        self.parameter = parameter
 
 
 class MaterialRangeWarning(SolpropWarning):
