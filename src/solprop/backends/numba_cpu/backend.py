@@ -207,6 +207,9 @@ class NumbaCpuBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
     # `tabulate` does and the table buys residency alone: 561 us against 574 and
     # 128 KiB against 768 on the soliton case.
     propagator_default = "recompute"
+    reads_transverse_edge = True
+    """The transverse edge is read on the host from the state, which lives there (SEP 40
+    section 5.3)."""
     _wisdom_digest: str | None = None
 
     def __init__(  # noqa: PLR0913, PLR0915 - the seam's arguments, four pool overrides

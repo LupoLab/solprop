@@ -367,7 +367,7 @@ class TransverseEdge:
             warnings.warn(
                 "this backend does not read the transverse edge of a free-space run: "
                 "the run is unwatched there and cannot report a clean verdict; "
-                "backend='numpy_ref' and backend='native' read it (SEP 40 section 5.3)",
+                "the CPU backends (numpy_ref, numba_cpu, native) read it (SEP 40 section 5.3)",
                 BoundaryWarning,
                 stacklevel=4,
             )

@@ -150,8 +150,10 @@ accuracy record of [single precision](single-precision.md); it is validated agai
 reference backend's single-precision path. It runs the capillary and fibre routes
 (mode-averaged and multimode, field and envelope grids, Kerr, Raman, field-grid plasma,
 both absorber schemes, Runge–Kutta and the low-storage march, lockstep batches) and
-radial and Cartesian free space, including a line, with their transverse collars, and
-the envelope-grid plasma.
+radial and Cartesian free space, including a line, with the safety ramp, and the
+envelope-grid plasma. It does not read the transverse edge, so its free-space runs report
+`unwatched` and it refuses a requested real-space collar
+([transverse boundaries](../free-space/model.md#transverse-boundaries)).
 
 The backend is **experimental** in this release. Its Metal kernels are tested on a
 Metal device by hand rather than in continuous integration, and its speed has not been

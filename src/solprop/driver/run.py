@@ -937,9 +937,8 @@ def _refuse_unread_collar(problem: KernelProblem, backend: Backend) -> None:
     name = getattr(backend, "name", type(backend).__name__)
     msg = (
         f"the {name} backend does not carry a requested real-space collar "
-        "(SpatialAbsorber with real_space=True) yet: run it on backend='native' or "
-        "backend='numpy_ref', "
-        "or ask for the safety ramp alone"
+        "(SpatialAbsorber with real_space=True) yet: run it on a CPU backend "
+        "(native, numba_cpu or numpy_ref), or ask for the safety ramp alone"
     )
     raise BackendError(msg)
 

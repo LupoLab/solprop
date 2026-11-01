@@ -2,13 +2,13 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The transverse edge on native CPU, against ``numpy_ref`` (SEP 40 phase 2).
+"""The transverse edge on native CPU and ``numba_cpu``, against ``numpy_ref`` (SEP 40).
 
-The native backend reads the edge on the host from its state, as ``numpy_ref`` does,
-and its Adams march holds its steps to the edge's next read and hands the state back
-there (section 5.3). The same run on the two backends must then stop at the same read,
-read the same number of times and keep the same record; a requested collar must
-remove the same energy.
+Both backends read the edge on the host from their state, as ``numpy_ref`` does; the
+native Adams march holds its steps to the edge's next read and hands the state back
+there, and ``numba_cpu`` steps from the host under the driver's ceiling (section 5.3).
+The same run on two backends must then stop at the same read, read the same number of
+times and keep the same record; a requested collar must remove the same energy.
 """
 
 import dataclasses
@@ -40,9 +40,16 @@ from test_transverse_reads import (
     true_stop,
 )
 
-pytestmark = pytest.mark.skipif(
-    "native" not in available(), reason="native is not installed"
-)
+BACKENDS = [
+    pytest.param(
+        "native",
+        marks=pytest.mark.skipif(
+            "native" not in available(), reason="native is not installed"
+        ),
+    ),
+    "numba_cpu",
+]
+"""The backends compared with ``numpy_ref``."""
 
 RTOL = 1e-9
 """Two backends' readings of one run: rounding apart, as the matched cases are."""
@@ -56,32 +63,36 @@ def on(simulation: Simulation, backend: str) -> Simulation:
     return simulation
 
 
+@pytest.mark.parametrize("backend", BACKENDS)
 @pytest.mark.parametrize("integrator", [Multistep(), RungeKutta()], ids=["ms", "rk"])
-def test_native_stops_the_packet_where_numpy_ref_does(
-    integrator: Multistep | RungeKutta,
+def test_a_backend_stops_the_packet_where_numpy_ref_does(
+    integrator: Multistep | RungeKutta, backend: str
 ) -> None:
     packet = REREVIEW
     reference = stopped_at(packet_run(packet, integrator=integrator))
-    native = stopped_at(on(packet_run(packet, integrator=integrator), "native"))
+    native = stopped_at(on(packet_run(packet, integrator=integrator), backend))
     assert native == pytest.approx(reference, rel=RTOL, abs=0.0)
     assert native - packet.length / 16 * (1 + 1e-9) < true_stop(packet) <= native
 
 
-def test_the_native_march_is_held_to_the_reads() -> None:
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_the_march_is_held_to_the_reads(backend: str) -> None:
     # The scaled miss: unmonitored, the Multistep march never reads the packet on
-    # the wrap; under the ceiling the native march lands on each read and stops at
-    # the first past the exact flow's crossing.
+    # the wrap; under the ceiling the march lands on each read and stops at the
+    # first past the exact flow's crossing.
     packet = MISS
     reference = stopped_at(packet_run(packet, integrator=Multistep()))
-    native = stopped_at(on(packet_run(packet, integrator=Multistep()), "native"))
+    native = stopped_at(on(packet_run(packet, integrator=Multistep()), backend))
     assert native == pytest.approx(reference, rel=RTOL, abs=0.0)
     assert native - packet.length / 16 * (1 + 1e-9) < true_stop(packet) <= native
 
 
-def records(simulation: Simulation) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Run `simulation` on both backends; return the two edge records."""
+def records(
+    simulation: Simulation, backend: str
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Run `simulation` on ``numpy_ref`` and on `backend`; return the edge records."""
     reference = edge_record(finished(simulation))
-    native = edge_record(finished(on(simulation, "native")))
+    native = edge_record(finished(on(simulation, backend)))
     return reference, native
 
 
@@ -95,25 +106,27 @@ def assert_same(reference: dict[str, Any], native: dict[str, Any]) -> None:
         np.testing.assert_allclose(native[key], reference[key], rtol=1e-7, atol=FLOOR)
 
 
-def test_native_reads_the_miss_as_numpy_ref() -> None:
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_a_backend_reads_the_miss_as_numpy_ref(backend: str) -> None:
     # The budget relaxed, the run completes: sixteen reads at most L/16 apart.
     simulation = packet_run(
         MISS, integrator=Multistep(), check=BoundaryCheck(transverse_budget=10.0)
     )
-    reference, native = records(simulation)
+    reference, native = records(simulation, backend)
     assert native["reads"] >= 16
     assert native["largest_gap"] <= MISS.length / 16 * (1 + 1e-9)
     assert_same(reference, native)
 
 
-def test_a_native_replay_is_read_at_its_own_steps() -> None:
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_a_replay_is_read_at_its_own_steps(backend: str) -> None:
     # A fixed schedule is not held to the reads: a replay reads where its steps
     # land past each read, and reports coarse with the same largest gap.
     packet = MISS
     edges = np.r_[0.0, 1e-4 * (2.0 ** np.arange(1, 13) - 1), 0.70475, 1.0]
     schedule = FixedSchedule(np.diff(edges) * packet.length)
     reference, native = records(
-        packet_run(packet, integrator=Multistep(), schedule=schedule)
+        packet_run(packet, integrator=Multistep(), schedule=schedule), backend
     )
     assert native["transverse_status"] == "coarse"
     assert_same(reference, native)
@@ -146,15 +159,16 @@ def radial_collar(backend: str, integrator: Multistep | RungeKutta) -> Simulatio
     )
 
 
+@pytest.mark.parametrize("backend", BACKENDS)
 @pytest.mark.parametrize("integrator", [Multistep(), RungeKutta()], ids=["ms", "rk"])
-def test_a_requested_collar_runs_on_native_as_on_numpy_ref(
-    integrator: Multistep | RungeKutta,
+def test_a_requested_collar_runs_as_on_numpy_ref(
+    integrator: Multistep | RungeKutta, backend: str
 ) -> None:
     outputs: list[PlaneStore] = []
-    for backend in ("numpy_ref", "native"):
+    for name in ("numpy_ref", backend):
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", BoundaryWarning)
-            output = radial_collar(backend, integrator).run(progress="none")
+            output = radial_collar(name, integrator).run(progress="none")
         assert isinstance(output, PlaneStore)
         outputs.append(output)
     reference, native = outputs
@@ -174,3 +188,21 @@ def test_a_requested_collar_runs_on_native_as_on_numpy_ref(
     assert math.isclose(
         second["current"], first["current"], rel_tol=1e-8, abs_tol=FLOOR
     )
+
+
+def test_a_backend_that_does_not_read_the_edge_runs_unwatched(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Section 6: mlx does not read the edge; numba_cpu with its reading switched off
+    # stands in for it. The run warns before its first step, is not stopped by the
+    # packet on the wrap, and records that it was unwatched.
+    from solprop.backends.numba_cpu import NumbaCpuBackend  # noqa: PLC0415
+
+    monkeypatch.setattr(NumbaCpuBackend, "reads_transverse_edge", False)
+    simulation = on(packet_run(REREVIEW, integrator=Multistep()), "numba_cpu")
+    with pytest.warns(BoundaryWarning, match="does not read the transverse edge"):
+        output = simulation.run(progress="none")
+    assert isinstance(output, PlaneStore)
+    record = edge_record(output)
+    assert record["transverse_status"] == "unwatched"
+    assert record["reads"] == 0

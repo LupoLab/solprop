@@ -239,11 +239,16 @@ def test_the_record_holds_the_specification_and_the_design() -> None:
     assert default.transverse["collar"] is False
 
 
-def test_a_backend_that_does_not_read_the_edge_refuses_a_collar() -> None:
+def test_a_backend_that_does_not_read_the_edge_refuses_a_collar(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     # SEP 40 section 6: a requested collar is refused by name where its return
-    # monitor is not carried (numba_cpu until phase 3).
+    # monitor is not carried (the mlx backend, which no CI runner has); numba_cpu
+    # stands in for it with its reading switched off.
+    from solprop.backends.numba_cpu import NumbaCpuBackend  # noqa: PLC0415
     from solprop.exceptions import BackendError  # noqa: PLC0415
 
+    monkeypatch.setattr(NumbaCpuBackend, "reads_transverse_edge", False)
     simulation = suite(2.6, SpatialAbsorber())
     simulation.settings = dataclasses.replace(simulation.settings, backend="numba_cpu")
     with pytest.raises(BackendError, match="numba_cpu backend does not carry"):
