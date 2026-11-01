@@ -128,8 +128,7 @@ configuration. A scan's builder must be a module-level function for pool executo
   implements both. Membership is checked by name. `plane(z, summary)` receives the plane's
   cost, not its field. A reporter's exception propagates through the run loop, which
   records the run as failed.
-- **Output and resume.** The HDF5 output (output schema 1, the first released layout,
-  ADR-058) records the resolved configuration, metadata and `configuration_hash`. A file of
+- **Output and resume.** The HDF5 output (ADR-058) records the resolved configuration, metadata and `configuration_hash`. A file of
   any other output schema is refused wherever it is opened, and the schema version is
   inside the resume key; a 0.x minor release may change the schema, listing the break.
   Every field of a recorded dataclass is recorded, at its default too, so adding a field
@@ -578,14 +577,11 @@ convention, in which the same delay is $-\omega\tau$.
 
 The phase needs care when it is regridded:
 
-- **It is interpolated as given.** A cubic spline runs through the file's unwrapped phase,
-  not through a phase re-derived from the complex spectrum. Wrapping an unwrapped phase and
-  unwrapping it again cannot recover a change of more than $\pi$ between samples. Today
-  `DataPulse.from_spectral_density` does exactly that: for a Gaussian spectrum with
-  20 000 fs² of group-delay dispersion, sampled every 0.4 nm at 800 nm, the spectrum built
-  on the grid differs from one built from densely sampled data by 13.5 %, and by 100 % at
-  1.6 nm, against $3\times10^{-10}$ and $8\times10^{-8}$ for a spline through the given
-  phase. So S12 changes `DataPulse` to keep the given phase.
+- **It is interpolated as given.** A cubic spline runs through the file's unwrapped phase, as
+  `DataPulse.from_spectral_density` does once it keeps the phase it is given (a fix on its
+  own, listed in the changelog), not through a phase re-derived from the complex spectrum.
+  Wrapping an unwrapped phase and unwrapping it again cannot recover a change of more than
+  $\pi$ between samples.
 - **A wrapped column is recognised.** A column whose values all lie within a range of
   $2\pi$ is taken as wrapped and unwrapped; any other is taken as unwrapped and left alone.
 - **The noise floor does not steer the unwrapping.** A wrapped phase is unwrapped only over
@@ -617,9 +613,9 @@ nothing and changes no default.
 | `memory_budget` | `from_waveguide` and `Simulation.run` | a recipe carries it under `[execution]`, passed to `run`; documented as the same budget |
 | `step_planes` default `0` (gnlse) vs `None` (capillary) | | same behaviour on gnlse (no TDSE); write `None` on both for one signature |
 | integrator and `rtol` defaults by route | | deliberate (per-route qualification); exposed through S9's resolvers and documented in one table |
-| `atol` defaults (1e-14 gnlse, 1e-10 others) | | Q3 |
+| `atol` defaults (1e-14 gnlse, 1e-10 others) | | deliberate, kept (Q3): `atol` acts only when the field norm falls to about `atol/rtol` (1e-7 √W and 1e-4 √W), far below any real pulse; measured norms are 759 √W for 1 pJ in a capillary and 1.9e3 √W for a 10 W GNLSE pulse, and a capillary run takes the same steps at either value |
 | `loss` (capillary) vs `loss_db_per_m` (gnlse) | | different meanings (a switch or model vs a number); keep both, documented |
-| `raman` default `False` (gnlse) vs `None` (gas routes) | | Q3; documented either way |
+| `raman` default `False` (gnlse) vs `None` (gas routes) | | deliberate, kept (Q3): the GNLSE has no medium to read a response from, so `None` there would switch fused silica's Raman on for every fibre |
 
 New keywords record nothing new when left at their defaults: each maps onto a setting the
 run already records.
@@ -798,17 +794,18 @@ The tolerance classes are those of the [testing policy](../testing.md#3-toleranc
   S5 and S6 are designed to record their launches through records that exist (the input
   and `Alignment` records). If that proves impossible, the record changes are confined to
   phase 4 and made as one schema bump, listed under "Changed (breaking)" in the changelog
-  (Q8).
+  (Q8). The resume-compatibility proposal, SEP 42 (in draft), would remove the need: under
+  it, a new field in the record bumps neither.
 - **Recipe stability.** Recipe `format = 1` becomes a public format when this SEP merges.
   Renaming a keyword later then needs a format upgrade rule as well as a changelog entry.
-  The route vocabulary was aligned (`wavelength`, `shape`) before the first release; S14's
-  remaining rows are Q3.
+  The route vocabulary was aligned (`wavelength`, `shape`) before the first release, and
+  S14's `atol` and `raman` rows stay as they are (Q3).
 - **Two choices that would be breaking, and are not recommended:** renaming keywords to one
   vocabulary across routes where the meanings differ (`loss`/`loss_db_per_m`), and
   aligning integrator or tolerance defaults across routes (the per-route defaults were
   qualified separately).
 - **Validated results:** unchanged; no computed field changes.
-- **Dependencies:** none new (section 6).
+- **Dependencies:** `tomli-w`, to write TOML (section 6, Q6).
 
 ### 10. Alternatives considered
 
@@ -877,6 +874,8 @@ against the branch; the order puts what it needs first.
   document them as deliberate; if either is to change, change it in a minor release
   before this SEP merges, listed as a break (ADR-058), so that recipe format 1 is
   published with the final defaults.
+  **Decision (John Travers, 2026-11-01):** as recommended; both stay and are documented as
+  deliberate.
 - **Q4.** Should `solprop resume` also accept a recipe edited after the run (for example a
   longer `length`), refusing only when the hash differs in more than the run's end?
   Recommended: no in this SEP; extending a finished run is its own question. A changed
@@ -888,6 +887,7 @@ against the branch; the order puts what it needs first.
   **Decision (John Travers, 2026-11-01):** the usual three columns of frequency in Hz,
   spectral power density and spectral phase, as Luna.jl's `DataPulse` takes, with care over
   the phase when regridding. §5.12 now specifies this, through `load_spectrum` alone.
+  The phase is in the optics convention by default, with a keyword for the other sign.
 - **Q6.** Is `tomli-w` acceptable as a dependency instead of a subset writer?
   **Decision (John Travers, 2026-11-01):** yes, take the dependency; it is light, and
   there is no reason to rewrite it.
@@ -934,9 +934,11 @@ against the branch; the order puts what it needs first.
   without a schema change, parameter paths and pins in format 1, a lazy and
   failure-isolated plane observer, result capabilities (S16), a portable stop and
   resumability query (S17), previews (S18), and one branch and one pull request.
-- 2026-11-01: Maintainer decisions (John Travers) on Q1, Q2, Q4–Q8 (§12); Q3 is still
-  open. Part I revised for Q5 and Q6: one `load_spectrum` with the usual three-column
+- 2026-11-01: Maintainer decisions (John Travers) on Q1, Q2, Q4–Q8 (§12). Part I revised for Q5 and Q6: one `load_spectrum` with the usual three-column
   layout and the phase rules, and `tomli-w` to write TOML.
+- 2026-11-01: Maintainer decisions on Q3 (both defaults stay) and the phase sign (optics by
+  default). All of Q1–Q8 are decided. Rebased onto `main` after the 0.1.0 release; §3, §5.12,
+  §5.14 and §9 brought up to date.
 
 ### AI review, 2026-10-31
 
