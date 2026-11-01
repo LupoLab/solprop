@@ -31,20 +31,20 @@ being implemented.
   identifies a new material contract. Ne/Xe, mixtures, mode-averaged and multimode
   routes, bound response and other geometries remain follow-up work; the first route is
   a single-mode capillary with node quadrature.
-
-## Draft enhancement proposals
-
-SEPs under discussion; their scope may change and implementation has not been accepted.
-The [SEP index](seps/index.md) lists every proposal and its current status.
-
 - [SEP 40 — Transverse absorbing boundaries for free-space propagation](seps/sep-0040-transverse-absorbing-boundaries.md):
-  returned to Draft for re-acceptance after phase 0. By default a wall or wrap at the requested
+  accepted again after phase 0, with phase 1 not started. By default a wall or wrap at the requested
   size, a numerical safety ramp at the outer wavenumbers (now also radial and planar), and a
   monitor that stops a run whose light reaches the edge. A real-space collar outside the aperture
   on request, for declared fast content, sized by a protected band rather than the run length and
   checked at translation by propagating the launch through it, with a removal ledger. A split
   factor, polynomial profiles, perfectly matched layers, adaptive transverse windows, the escaped
   transverse field and a flux-weighted spatial ledger remain open.
+
+## Draft enhancement proposals
+
+SEPs under discussion; their scope may change and implementation has not been accepted.
+The [SEP index](seps/index.md) lists every proposal and its current status.
+
 - [SEP 1 — Efficient causal Raman evaluation](seps/sep-0001-raman-response.md):
   exact sampled recurrences, including the current lag taper and silica endpoints,
   beside default exact FFT evaluation. A common execution contract retains analytic

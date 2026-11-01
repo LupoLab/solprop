@@ -6,16 +6,16 @@
 | **Title** | Transverse absorbing boundaries for free-space propagation |
 | **Author** | John Travers |
 | **Drafting agent** | Opus 5.5 |
-| **Status** | Draft |
+| **Status** | Accepted |
 | **Review status** | Reviewed |
 | **Reviewers** | John Travers (human); GPT-6 (AI); Opus 5.5 (AI) |
 | **Type** | Change |
 | **Created** | 2026-10-31 |
-| **Resolution** | Accepted 2026-10-31 by John Travers; returned to Draft 2026-11-01 for re-acceptance, because phase 0 changed the design (Part II, Part III). |
+| **Resolution** | Accepted 2026-10-31 by John Travers; returned to Draft 2026-11-01, because phase 0 changed the design (Part II, Part III); accepted again 2026-11-01 by John Travers, in [pull request #71](https://github.com/LupoLab/solprop/pull/71). |
 | **Requires** | [SEP 21](archive/sep-0021-absorbing-boundaries.md), [SEP 22](archive/sep-0022-memory-lean-spatial-execution.md), [SEP 34](archive/sep-0034-medium-flux.md) |
 | **Supersedes** | — |
 | **Superseded-by** | — |
-| **Implementation** | Opus 5.5 (AI) for John Travers, branch `feature/sep-0040-transverse-boundaries`: phase 0 complete (Part II); Part I revised after two reviews; paused 2026-11-01, awaiting the maintainer's re-read and re-acceptance; no code changed yet; phase 1 not started |
+| **Implementation** | Opus 5.5 (AI) for John Travers, branch `feature/sep-0040-transverse-boundaries`: phase 0 complete (Part II); Part I revised after two reviews and accepted again 2026-11-01; no code changed yet; phase 1 not started |
 | **Manual pages** | — |
 
 ## Part I — Proposal
@@ -2206,6 +2206,9 @@ main beam with a share $s$ added at $0.97\,k_N$, over the same 0.2 mm, under the
 - 2026-11-01: Opus 5.5 (drafting agent) reproduced and checked R36–R42. Maintainer decision (John
   Travers): apply as recommended. Opus 5.5 revised Part I and added the measurements to Part II (*Response to
   the re-review* below). Status stays `Draft`; the maintainer's re-read and re-acceptance remain.
+- 2026-11-01: Accepted again (John Travers), as revised for R36–R42. Status `Accepted`; Part I is frozen
+  from here, and deviations go in Part II. Q8 stays deferred to phase 1 (§12). Next: merging main into this
+  branch, then phase 1 on `numpy_ref`, whose first commit sets `In progress`.
 
 ### AI review — 2026-10-31 (GPT-6)
 
