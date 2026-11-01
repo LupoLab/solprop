@@ -10,6 +10,7 @@ import numpy as np
 import pytest
 
 from solprop.driver.scan import Scan, run_scan
+from solprop.output.schema import RecipeRecord
 from solprop.recipe import Recipe, RecipeError
 from solprop.recipe.document import parse_text
 
@@ -52,7 +53,13 @@ def test_the_scan_reads_each_axis_in_its_keyword_s_unit():
     assert scan.scan.shape == (2, 2)
     assert scan.scan.variables["peak_power"].tolist() == [5.0, 10.0]
     assert scan.scan.variables["width"].tolist() == [50e-15, 100e-15]
-    assert scan.keywords == {"fields": "planes", "field_planes": (-1,)}
+    assert {key: scan.keywords[key] for key in ("fields", "field_planes")} == {
+        "fields": "planes",
+        "field_planes": (-1,),
+    }
+    record = scan.keywords["recipe"]
+    assert isinstance(record, RecipeRecord)
+    assert record.authored == recipe.to_text()
 
 
 @pytest.mark.parametrize(
@@ -115,3 +122,19 @@ def test_a_recipe_s_scan_runs(tmp_path):
         **scan.keywords,  # type: ignore[arg-type]
     )
     assert [str(status) for status in output.status] == ["done", "done"]
+
+
+def test_a_recipe_s_scan_file_reopens_with_its_recipe(tmp_path):
+    recipe = _with_scan({"name": "kept", "peak_power": ["5 W"]})
+    scan = recipe.scan()
+    path = tmp_path / "scan.h5"
+    run_scan(scan.scan, scan.build, output=path, progress="none", **scan.keywords)  # type: ignore[arg-type]
+    assert Recipe.from_output(path) == recipe
+
+
+def test_a_scan_from_a_script_records_no_recipe(tmp_path):
+    scan = _with_scan({"name": "script", "peak_power": ["5 W"]}).scan()
+    path = tmp_path / "scan.h5"
+    run_scan(scan.scan, scan.build, output=path, progress="none")
+    with pytest.raises(RecipeError, match="written from a script"):
+        Recipe.from_output(path)

@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Final, Literal, cast
 import numpy as np
 
 from solprop.exceptions import SolpropError, SolpropWarning
+from solprop.output.schema import RecipeRecord
 from solprop.recipe.document import (
     FORMAT,
     NONE,
@@ -49,7 +50,7 @@ if TYPE_CHECKING:
     from solprop.driver.simulation import Simulation
     from solprop.grid import TimeGrid
     from solprop.log import ProgressChoice, ProgressReporter
-    from solprop.output.schema import Output, RecipeRecord
+    from solprop.output.schema import Output
 
 __all__ = ["Recipe", "RecipeIssue", "RecipeScan", "resume_file"]
 
@@ -325,7 +326,8 @@ class Recipe:
         Parameters
         ----------
         path : str or pathlib.Path
-            The HDF5 output.
+            The HDF5 output of a run, or a scan's file, which records the authored
+            recipe only.
         resolved : bool, optional
             Read the resolved recipe, which rebuilds the run as it ran, rather than
             the authored one, for editing.
@@ -341,10 +343,19 @@ class Recipe:
             If the file records no recipe, being a file from a script, or its recipe
             is of a newer format.
         """
-        from solprop.output.hdf5 import open_file  # noqa: PLC0415 - layer above
+        import h5py  # noqa: PLC0415 - only to tell a scan file from a run's
 
-        with open_file(path) as handler:
-            record = handler.recipe
+        from solprop.output.hdf5 import open_file  # noqa: PLC0415 - layer above
+        from solprop.processing.scans import ScanOutput  # noqa: PLC0415 - layer above
+
+        with h5py.File(path, "r") as file:
+            scan = "scan_schema_version" in file.attrs
+        if scan:
+            # Through the scan reader's own check of the schema its records declare.
+            record = ScanOutput(path).recipe
+        else:
+            with open_file(path) as handler:
+                record = handler.recipe
         if record is None:
             msg = (
                 f"{path} records no recipe: it was written from a script, which is "
@@ -621,7 +632,7 @@ class Recipe:
     def record(
         self,
         simulation: "Simulation",  # noqa: UP037 - checked at run time
-    ) -> "RecipeRecord":  # noqa: UP037 - checked at run time
+    ) -> RecipeRecord:
         """Return the record a run built from this recipe keeps in its output.
 
         Called by :meth:`~solprop.driver.simulation.Simulation.run` at the run's
@@ -755,6 +766,9 @@ class Recipe:
             None if self._base is None else str(self._base),
             self._allow_outside,
         )
+        # The scan file keeps the authored recipe, so that it reopens with its setup.
+        text = self.to_text()
+        keywords["recipe"] = RecipeRecord(FORMAT, text, text, {})
         return RecipeScan(scan, builder, keywords)
 
     def _axis(self, path: str, values: object) -> list[object]:
@@ -1234,8 +1248,9 @@ class RecipeScan:
     build : callable
         The picklable builder of each point's simulation.
     keywords : dict
-        The ``run_scan`` keywords the recipe's ``[execution]`` gives: ``fields`` and
-        ``field_planes``, which ``run_scan`` takes itself.
+        The ``run_scan`` keywords: ``fields`` and ``field_planes`` from the recipe's
+        ``[execution]``, which ``run_scan`` takes itself, and ``recipe``, which the
+        scan file records.
 
     Examples
     --------

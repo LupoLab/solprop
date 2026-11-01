@@ -49,6 +49,7 @@ from solprop.output.memory import MemoryOutput
 from solprop.output.scan import PointResult, ScanWriter
 from solprop.output.schema import (
     FieldRetention,
+    RecipeRecord,
     RunMetadata,
     SavedPlane,
     field_retention_refusal,
@@ -1036,6 +1037,7 @@ def execute_scan(  # noqa: PLR0913 - delegated public controls
     stale_age: float,
     progress: ProgressChoice | ScanReporter,
     stop: StopFlag | None = None,
+    recipe: RecipeRecord | None = None,
 ) -> ScanOutput:
     """Validate, dispatch and commit a scan through one writer.
 
@@ -1065,6 +1067,8 @@ def execute_scan(  # noqa: PLR0913 - delegated public controls
         Outer progress display, or a reporter that replaces it.
     stop : StopFlag or None, optional
         The scan's stop flag; refused by Queue and Slurm.
+    recipe : solprop.output.schema.RecipeRecord or None, optional
+        The recipe the scan was built from, recorded once in its file.
 
     Returns
     -------
@@ -1120,6 +1124,7 @@ def execute_scan(  # noqa: PLR0913 - delegated public controls
         jobs = (_Job(point) for point in scan.points())
     else:
         writer = ScanWriter(output, scan, settings)
+        writer.record_recipe(recipe)
         jobs = _jobs(scan, writer, retry_failed, stale_age, stop, claims)
     counts = dict.fromkeys(("finished", "stopped"), 0)
     try:

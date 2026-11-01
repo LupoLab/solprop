@@ -571,8 +571,10 @@ def _text(stored: object) -> str:
     return stored.decode("utf-8") if isinstance(stored, bytes) else str(stored)
 
 
-def _read_recipe(file: h5py.File) -> RecipeRecord | None:
+def read_recipe(file: h5py.File) -> RecipeRecord | None:
     """Return the recipe an open file records, or ``None`` for a run from a script.
+
+    The ``recipe`` group of an optical file or a scan file (SEP 41, S2).
 
     Parameters
     ----------
@@ -608,7 +610,7 @@ def _read_recipe(file: h5py.File) -> RecipeRecord | None:
     )
 
 
-def _write_recipe(file: h5py.File, record: RecipeRecord) -> None:
+def write_recipe(file: h5py.File, record: RecipeRecord) -> None:
     """Write the recipe group of an open file.
 
     Parameters
@@ -1067,7 +1069,7 @@ class HDF5Output(PlaneStore):
         self._file = file
         self._adopt_state(file)
         self._annotations = _read_annotations(file)
-        self._recipe = _read_recipe(file)
+        self._recipe = read_recipe(file)
 
     def _open_file(self) -> h5py.File:
         """Open the file once: fresh, or read-write to continue what it holds.
@@ -1108,7 +1110,7 @@ class HDF5Output(PlaneStore):
             try:
                 self._adopt_state(file)
                 self._annotations = _read_annotations(file)
-                self._recipe = _read_recipe(file)
+                self._recipe = read_recipe(file)
                 if "z" in file:
                     self._adopt_handles(file)
             except BaseException as error:
@@ -1759,7 +1761,7 @@ class HDF5Output(PlaneStore):
             The recipe.
         """
         self._refuse_readonly()
-        _write_recipe(self._require_file(), record)
+        write_recipe(self._require_file(), record)
 
     def _write_annotation(self, name: str, text: str) -> None:
         """Write one post-run annotation into the file, replacing one of that name.

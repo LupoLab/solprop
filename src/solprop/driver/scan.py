@@ -14,6 +14,7 @@ from solprop.driver._scan_run import execute_scan
 from solprop.driver.executors import Executor
 from solprop.driver.simulation import Simulation
 from solprop.log import ProgressChoice, ScanReporter
+from solprop.output.schema import RecipeRecord
 from solprop.processing.scans import Reduction, ScanOutput
 
 __all__ = ["Scan", "ScanPoint", "run_scan"]
@@ -33,6 +34,7 @@ def run_scan(  # noqa: PLR0913 - the public scan controls
     stale_age: float = 600.0,
     progress: ProgressChoice | ScanReporter = "auto",
     stop: StopFlag | None = None,
+    recipe: RecipeRecord | None = None,
 ) -> ScanOutput:
     """Run selected points and return a reader for their collected file.
 
@@ -79,6 +81,10 @@ def run_scan(  # noqa: PLR0913 - the public scan controls
         again, and the scan returns normally, its file holding the points finished
         before the stop; it logs at ``INFO`` that it stopped, and a scan reporter is
         told ``"stopped"`` for each stopped point. ``Queue`` and ``Slurm`` refuse it.
+    recipe : solprop.output.schema.RecipeRecord or None, optional
+        The recipe the scan was built from, which the scan file records once, so that
+        it reopens with its setup (SEP 41, S2); :meth:`solprop.recipe.Recipe.scan`
+        passes it among its keywords. ``None`` records none.
 
     Returns
     -------
@@ -106,4 +112,5 @@ def run_scan(  # noqa: PLR0913 - the public scan controls
         stale_age=stale_age,
         progress=progress,
         stop=stop,
+        recipe=recipe,
     )
