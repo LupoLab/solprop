@@ -7,7 +7,8 @@ output cost. Choose an adequate model and resolution first, then select a
 
 ## Backend choice and scan workers
 
-`backend="auto"` resolves to the native backend when installed and to Numba otherwise. It does
+`backend="auto"` resolves to the native backend when installed and otherwise, with a
+warning, to the slower `numba_cpu`. It does
 not silently retry another backend if the chosen one refuses a representation.
 Use an explicit name for a scan spanning machines with different installations.
 The resolved backend and runtime settings are recorded with the output.

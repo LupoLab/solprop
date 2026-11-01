@@ -16,9 +16,11 @@ that runs them —
 - on an **NVIDIA GPU** with CUDA (cuFFT and cuBLAS), or an **AMD GPU** with HIP (rocFFT
   and rocBLAS).
 
-You never need it for correctness: without it solprop runs everything on `numpy_ref` and
-`numba_cpu`. With it installed, `backend="auto"` — the default of every entry point —
-selects it.
+It is the backend to use by default. With it installed, `backend="auto"` — the default of
+every entry point — selects it. You never need it for correctness: without it solprop runs
+everything on `numpy_ref` and `numba_cpu`, but `numba_cpu` is a slower fallback
+([measured](backends.md#which-backend-to-use)), and `backend="auto"` warns when it lands
+there.
 
 ## What it runs
 
@@ -60,9 +62,10 @@ Separately, the `cf4` section method of a coupled flow (`CoherentWall(method="cf
 runs on `numpy_ref` only, with the Runge–Kutta march; neither compiled backend runs it.
 The planar guide resolved in y is built into the GPU builds but has not been qualified
 on a device. solprop never falls back silently: an import failure, an incompatible build
-or a refused problem raises, naming the backend to use instead. The one fallback is
-announced: on a processor below the installed build's CPU baseline, `backend="auto"`
-uses `numba_cpu` with a warning ([choosing a backend](backends.md)).
+or a refused problem raises, naming the backend to use instead. The fallback is
+announced: when the native backend is not installed, or on a processor below the installed
+build's CPU baseline, `backend="auto"` uses `numba_cpu` with a warning
+([choosing a backend](backends.md)).
 
 ## Installing
 
