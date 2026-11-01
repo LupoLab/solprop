@@ -359,6 +359,8 @@ def free_energy_change(response: object, materials: MaterialSelection) -> float:
         schedule=FixedSchedule.uniform(0.0, length, length / 10),
         integrator=RungeKutta(),
         backend="numpy_ref",
+        # The coarse case launches into the safety ramp's band (SEP 40 section 5.3).
+        spatial_absorber=False,
         density=DENSITY,
         stats=default_spec("free"),
     )
@@ -427,6 +429,7 @@ def planar_simulation(
         stats=StatsSpec(names=("energy",)),
         integrator=RungeKutta(),
         absorber=bare_absorber(grid),
+        spatial_absorber=False,
     )
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", SolpropWarning)

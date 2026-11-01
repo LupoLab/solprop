@@ -16,6 +16,7 @@ import pytest
 from backends.planar_cases import planar_case
 from backends.test_dispersive_kerr_routes import ARGON, free_grid, free_problem
 from backends.test_envelope_plasma_geometries import envelope_mixture, geometry_case
+from legacy_geometry import with_collar_rate
 from solprop.backends.numba_cpu import NumbaCpuBackend
 from solprop.backends.numba_cpu.pass_timers import (
     ENVIRONMENT,
@@ -97,6 +98,10 @@ def cartesian(integrator, *, collar: bool):
         schedule=FixedSchedule.uniform(0.0, LENGTH, LENGTH / 2),
         integrator=integrator,
     )
+    if collar:
+        # A requested collar cannot be designed on this coarse box (SEP 40's floor);
+        # the subject is the stage's in-stage term, so its rate is put on directly.
+        problem = with_collar_rate(problem, 12.6 / (5 * LENGTH))
     return problem, grid
 
 

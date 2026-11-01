@@ -70,6 +70,8 @@ def spatial(space, pressure: float | PressureGradient = 1.0):
         dz_max=2e-4,
         dz_init=2e-4,
         backend="numpy_ref",
+        # The coarse box launches into the safety ramp's band (SEP 40 section 5.3).
+        spatial_absorber=False,
     )
     pulse = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=3e-9), 6e-5

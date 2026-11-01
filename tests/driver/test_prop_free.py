@@ -70,6 +70,8 @@ def free_case(request):
         dz_init=grid.length,
         backend="numpy_ref",
         absorber=bare_absorber(grid),
+        # The exact linear flow is the reference: no safety ramp (SEP 40).
+        spatial_absorber=False,
     )
     return grid, space, pulse, settings
 
@@ -375,6 +377,7 @@ def _line_settings(grid, length, planes, *, steps=None):
         # No collar: the closed forms are lossless flows, and these tests are about
         # the line, not boundaries.
         absorber=bare_absorber(grid),
+        spatial_absorber=False,
     )
 
 
@@ -499,8 +502,16 @@ def test_line_equals_a_plane_uniform_in_y():
     along_line = prop_free(
         grid, line, SpatialMedium(), responses, start, settings=settings, noise=None
     )
+    # A field uniform in y fills the plane's y edges: the transverse edge would warn
+    # that the aperture clips it, which is the point of the comparison, not a fault.
     on_plane = prop_free(
-        grid, plane, SpatialMedium(), responses, uniform, settings=settings, noise=None
+        grid,
+        plane,
+        SpatialMedium(),
+        responses,
+        uniform,
+        settings=dataclasses.replace(settings, boundary_check=None),
+        noise=None,
     )
     finish = along_line.fields("fft")[-1]
     assert np.max(np.abs(finish - start)) > 0.01 * np.max(np.abs(start))

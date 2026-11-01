@@ -62,10 +62,12 @@ _SUBMODULES: Final = (
     "scan",
     "sol",
     "spatial",
+    "spatial_absorber",
     "stats",
     "stepper",
     "tools",
     "translate",
+    "transverse_monitor",
 )
 """The submodules reachable as attributes; a test keeps it equal to what is on disk."""
 

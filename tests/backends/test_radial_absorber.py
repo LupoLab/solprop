@@ -337,7 +337,7 @@ def test_the_numba_term_is_the_references_on_its_own_samples_and_allocates_nothi
 
 @pytest.mark.parametrize("illumination", ["confined", "extended"])
 def test_spatial_collar_diagnostic_reports_the_measured_fraction(
-    absorber_case, spatial_backend_class, caplog, illumination
+    absorber_case, spatial_backend_class, illumination
 ):
     grid, space, _, _, _, _, _, _ = absorber_case
     problem = problem_for(absorber_case, 8)
@@ -360,17 +360,9 @@ def test_spatial_collar_diagnostic_reports_the_measured_fraction(
         assert expected > problem.stepper.controller.rtol
     else:
         assert expected < problem.stepper.controller.rtol
-    backend = spatial_backend_class(problem, grid=grid)
-    try:
-        backend.set_initial(field[np.newaxis], None)
-        backend.observe()
-        if illumination == "extended":
-            assert "spatial collar contains" in caplog.text
-            assert f"{measured:.6e}" in caplog.text
-        else:
-            assert "spatial collar contains" not in caplog.text
-    finally:
-        backend.close()
+    # The end-of-plane log of this share is retired (SEP 40 section 5.3): the
+    # monitor's transverse edge judges the boundary instead.
+    del spatial_backend_class
 
 
 def test_spatial_rate_stability_refusal_is_not_lifted_by_temporal_split(

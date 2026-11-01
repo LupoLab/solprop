@@ -1868,7 +1868,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             floor=self._input_floor,
         )
         self._set_collar_quiet(monitor.collar_quiet)
-        edge = monitor.transverse
+        edge = getattr(monitor, "transverse", None)
         if edge is not None:
             state = self._observed_field(self._require_state())
             floor = self._input_floor
@@ -1892,7 +1892,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         plane : bool
             Whether a saved plane has just been reached, which is always read.
         """
-        edge = monitor.transverse
+        edge = getattr(monitor, "transverse", None)
         if edge is None or not (plane or edge.every_step or edge.due(self._z)):
             return
         state = np.asarray(self._observed_field(self._require_state())[0])
@@ -1919,7 +1919,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             The proposal, or the distance to the next read, m.
         """
         monitor = self._monitor
-        edge = None if monitor is None else monitor.transverse
+        edge = None if monitor is None else getattr(monitor, "transverse", None)
         if edge is None:
             return proposal
         return min(proposal, edge.ceiling(self._z))

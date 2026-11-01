@@ -42,6 +42,7 @@ from bounds import (
     propagation_growth,
     step_budget,
 )
+from legacy_geometry import with_collar_rate
 from solprop.backends.driver import StepDriver
 from solprop.backends.low_storage import HostLowStorage, schedule_key, table_steps
 from solprop.backends.memory import estimate_memory, ledger_groups
@@ -893,7 +894,7 @@ def spatial_collar_problem(steps, integrator):
     )
     schedule = FixedSchedule.uniform(0.0, length, length / steps)
     arguments = {} if integrator is None else {"integrator": integrator}
-    return assemble(
+    problem = assemble(
         grid,
         None,
         [KerrResponse(1e-22, thg=False)],
@@ -908,7 +909,13 @@ def spatial_collar_problem(steps, integrator):
         absorber=absorber(grid),
         absorber_scheme="split_step",
         **arguments,
-    ), schedule
+    )
+    # A collar cannot be designed on this coarse box (SEP 40's floor); the subject is
+    # the stability check of an in-stage spatial rate, so the rate the old collar had,
+    # 12.6 (1 - W) / (L / 20), is put on directly and the problem validated again.
+    problem = with_collar_rate(problem, 12.6 / (length / 20))
+    problem.validate()
+    return problem, schedule
 
 
 def test_a_step_past_rk4_s_interval_beside_the_spatial_collar_is_refused():
@@ -1409,6 +1416,10 @@ def cartesian_march(mode, *, noise=None, collar=False):
     problem = dataclasses.replace(
         problem, transform=dataclasses.replace(problem.transform, node_chunk=7)
     )
+    if collar:
+        # A collar cannot be designed on this coarse box (SEP 40's floor); the subject
+        # is the march's ledger beside an in-stage term, so its rate is put on directly.
+        problem = with_collar_rate(problem, 12.6 / (length / 20))
     return problem, grid, space
 
 

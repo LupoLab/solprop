@@ -138,7 +138,7 @@ def test_a_set_the_hybrid_cannot_carry_is_refused_by_name(modes, match):
         ({"n_y": True}, "n_y must be an integer of at least 2"),
         ({"radius_y": 0.0}, "radius_y must be finite and positive"),
         ({"radius_y": math.inf}, "radius_y must be finite and positive"),
-        ({"collar_fraction": 1.0}, "collar_fraction must be finite"),
+        ({"collar_fraction": -1.0}, "collar_fraction must be finite"),
         ({"n_x": 1}, "n_x must be an integer of at least 2"),
         ({"n_x": True}, "n_x must be an integer of at least 2"),
     ],

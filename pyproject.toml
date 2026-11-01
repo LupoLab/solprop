@@ -274,6 +274,11 @@ filterwarnings = [
     # SEP 40 phase 1: only numpy_ref reads the edge yet; the native and numba_cpu
     # backends carry it in phases 2 and 3, which remove this entry.
     "ignore:this backend does not read the transverse edge:Warning",
+    # The safety ramp's warning levels on test grids sized before it existed; its stop
+    # and its launch refusal stay errors, and its own tests assert the warnings.
+    "ignore:the launch holds .* in the safety ramp's band, which the ramp removes:Warning",
+    "ignore:the safety ramp has removed .* above the input noise's share.*refine:Warning",
+    "ignore:the launch holds .* of the requested size on its .* the aperture clips it:Warning",
 ]
 # (The boundary monitor's warnings are ignored by tests/conftest.py, as a mark: a
 # filter here naming solprop's class would import solprop before coverage starts.)
