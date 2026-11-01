@@ -158,7 +158,7 @@ def test_cartesian_absorber_has_no_per_step_window_loss(
 
 
 def test_cartesian_collar_diagnostic_reports_illuminated_window(
-    free_absorber, spatial_backend_class, caplog, request
+    free_absorber, spatial_backend_class, request
 ):
     grid, space, _, start, _, _, _, _ = free_absorber
     problem = problem_for(free_absorber, 8)
@@ -176,15 +176,8 @@ def test_cartesian_collar_diagnostic_reports_illuminated_window(
         bound,
         spatial_backend_class.name,
     )
-
-    backend = spatial_backend_class(problem, grid=grid)
-    try:
-        backend.set_initial(problem.initial.field0, None)
-        backend.observe()
-        assert "spatial collar contains" in caplog.text
-        assert f"{measured:.6e}" in caplog.text
-    finally:
-        backend.close()
+    # The end-of-plane log of this share is retired (SEP 40 section 5.3): the
+    # monitor's transverse edge judges the boundary instead.
 
 
 def test_cartesian_split_step_temporal_absorber_reconstructs_physical_field(
