@@ -223,6 +223,13 @@ class TransverseEdge:
     _warned: bool = field(default=False, init=False)
     _ramp_warned: bool = field(default=False, init=False)
     _resumed: bool = field(default=False, init=False)
+    _strip_baseline: float = field(default=0.0, init=False)
+    _strip_floor: float = field(default=0.0, init=False)
+    _strip_peak: float = field(default=0.0, init=False)
+    _current: float = field(default=0.0, init=False)
+    _current_last: tuple[float, float] | None = field(default=None, init=False)
+    _current_baseline: float = field(default=0.0, init=False)
+    _returned_peak: float = field(default=0.0, init=False)
 
     def __post_init__(self) -> None:
         """Build the faces, the node weights and the column wavenumbers."""
@@ -296,7 +303,7 @@ class TransverseEdge:
         return self._columns * np.sum(np.abs(state) ** 2, axis=(1, 2))
 
     # ------------------------------------------------------------------ the record
-    def launch(
+    def launch(  # noqa: PLR0915 - the launch, its noise and its judgements, in order
         self,
         state: Complex[np.ndarray, "n_modes n_pol n_omega"],
         z: float,
@@ -420,6 +427,8 @@ class TransverseEdge:
             )
         self._last_columns = self._column_power(state)
         self._last_rate = (z, self._collar_rate(nodes))
+        if self.every_step:
+            self._launch_return(state, noise, weighted)
 
     def _judge_ramp_band(
         self,
@@ -601,6 +610,7 @@ class TransverseEdge:
             for index, face in enumerate(self._faces):
                 share = float(np.sum(weighted[face.edge])) / self._launch
                 self._peak_raw[index] = max(self._peak_raw[index], share)
+            self._judge_return(state, z)
             return
         warn, stop = self.budget**2, (self.stop_factor * self.budget) ** 2
         for index, face in enumerate(self._faces):
@@ -625,6 +635,277 @@ class TransverseEdge:
                     stacklevel=4,
                 )
         self._judge_ramp_removal()
+
+    # ------------------------------------------------------------------ a collar
+    def _strip_bounds(self) -> tuple[float, float]:
+        """Return a collar's return strip, ``(a, b)`` in the outward coordinate, m.
+
+        The collar plus ``min(w/2, R/4)`` of the request (section 5.3).
+
+        Returns
+        -------
+        tuple of float
+            The strip's inner and outer edges.
+        """
+        assert self.design is not None
+        width = min(self.design.width)
+        size = self._requested_size()
+        return size - min(0.5 * width, 0.25 * size), size + width
+
+    def _requested_size(self) -> float:
+        """Return the requested half-size on the narrowest axis, m.
+
+        Returns
+        -------
+        float
+            The size, m.
+        """
+        space = self.space
+        if isinstance(space, RadialGrid):
+            return space.radius
+        if isinstance(space, PlanarGrid):
+            return space.radius_y
+        if isinstance(space, LineGrid):
+            return space.radius_x
+        return min(space.radius_x, space.radius_y)
+
+    def _lines(
+        self, state: Complex[np.ndarray, "n_modes n_pol n_omega"]
+    ) -> list[tuple[np.ndarray, np.ndarray, float]]:
+        """Return the field along each face's outward normal, line by line.
+
+        Parameters
+        ----------
+        state : numpy.ndarray
+            One member's spectral columns.
+
+        Returns
+        -------
+        list of tuple
+            ``(s, values, measure)``: the outward coordinate of the line's nodes, m;
+            the field on them, ``(n_nodes, n_rows)`` with one row per frequency,
+            polarisation and transverse line (``sqrt(r) E`` radially); and the
+            measure each row's sum is multiplied by.
+        """
+        space = self.space
+        flat = state.reshape(state.shape[0], -1)
+        if isinstance(space, RadialGrid):
+            hankel = space.hankel
+            inverse = (
+                hankel.inverse_scale
+                * (hankel.j1[:, None] / hankel.j1[None, :])
+                * hankel.matrix
+            )
+            r = np.asarray(space.r)
+            return [(r, np.sqrt(r)[:, None] * (inverse @ flat), 2 * np.pi)]
+        if isinstance(space, PlanarGrid):
+            cube = np.fft.ifft(flat.reshape(space.n_y, space.n_p, -1), axis=0)
+            rows = cube.reshape(space.n_y, -1)
+            y = np.asarray(space.y)
+            return [(y, rows, 1.0), (-y, rows, 1.0)]
+        cube = np.fft.ifftn(flat.reshape(space.n_y, space.n_x, -1), axes=(0, 1))
+        x = np.asarray(space.x)
+        dy = 1.0 if isinstance(space, LineGrid) else float(space.y[1] - space.y[0])
+        along_x = np.moveaxis(cube, 1, 0).reshape(space.n_x, -1)
+        lines = [(x, along_x, dy), (-x, along_x, dy)]
+        if not isinstance(space, LineGrid):
+            y = np.asarray(space.y)
+            dx = float(space.x[1] - space.x[0])
+            along_y = cube.reshape(space.n_y, -1)
+            lines += [(y, along_y, dx), (-y, along_y, dx)]
+        return lines
+
+    def _strip_inward(
+        self, state: Complex[np.ndarray, "n_modes n_pol n_omega"]
+    ) -> tuple[float, float]:
+        """Return the strip's resolved inward energy and its windowed energy.
+
+        A Kaiser(8)-windowed transform along each face's normal, padded twice; the
+        inward energy is that at ``|q| >= 16 / s`` travelling inward, where the
+        window's leakage is about ``1e-6`` (section 5.3). The larger face's, as shares of the launch.
+
+        Parameters
+        ----------
+        state : numpy.ndarray
+            One member's spectral columns.
+
+        Returns
+        -------
+        tuple of float
+            The inward share and the windowed share.
+        """
+        a, b = self._strip_bounds()
+        resolved = 16.0 / (b - a)
+        best, windowed = 0.0, 0.0
+        for s, values, measure in self._lines(state):
+            select = (s >= a) & (s <= b)
+            if np.count_nonzero(select) < 4:
+                continue
+            order = np.argsort(s[select])
+            coordinate = s[select][order]
+            spacing = float(np.mean(np.diff(coordinate)))
+            u = 2 * (coordinate - a) / (b - a) - 1
+            window = np.i0(8.0 * np.sqrt(np.clip(1 - u * u, 0.0, 1.0))) / np.i0(8.0)
+            lines = window[:, None] * values[select][order]
+            count = 2 * coordinate.size
+            spectrum = np.abs(np.fft.fft(lines, count, axis=0)) ** 2 * spacing / count
+            q = 2 * np.pi * np.fft.fftfreq(count, d=spacing)
+            # solprop propagates as exp(-i k_z z) (the operator carries -i(k_z - k)), so
+            # a component exp(i q s) travels towards smaller s: inward is q > 0.
+            inward = float(np.sum(spectrum[q >= resolved])) * measure / self._launch
+            total = float(np.sum(spectrum)) * measure / self._launch
+            if inward > best:
+                best, windowed = inward, total
+        return best, windowed
+
+    def _onset_current(
+        self, state: Complex[np.ndarray, "n_modes n_pol n_omega"]
+    ) -> float:
+        """Return the inward energy current across the collar's onset, rectified.
+
+        ``J = Im(E* dE/dn) / k`` on the requested size's boundary, summed over its
+        frequencies and lines, per metre of propagation, as a share of the launch,
+        counting inward flow only (section 5.3).
+
+        Parameters
+        ----------
+        state : numpy.ndarray
+            One member's spectral columns.
+
+        Returns
+        -------
+        float
+            The current, 1/m.
+        """
+        size = self._requested_size()
+        total = 0.0
+        for s, values, measure in self._lines(state):
+            index = int(np.argmin(np.abs(s - size)))
+            if index == 0 or index == s.size - 1:
+                continue
+            order = np.argsort(s)
+            position = int(np.nonzero(order == index)[0][0])
+            if position == 0 or position == s.size - 1:
+                continue
+            before, after = order[position - 1], order[position + 1]
+            slope = (values[after] - values[before]) / float(s[after] - s[before])
+            # Under exp(-i k_z z), Im(E* dE/ds) / k is the flux towards smaller s.
+            flux = np.imag(np.conj(values[index]) * slope) / self.k_min
+            total += float(np.sum(np.maximum(flux, 0.0))) * measure
+        return total / self._launch
+
+    def step(
+        self, state: Complex[np.ndarray, "n_modes n_pol n_omega"], z: float
+    ) -> None:
+        """Accumulate a collar's inward current at a committed step (section 5.3).
+
+        Parameters
+        ----------
+        state : numpy.ndarray
+            One member's spectral columns.
+        z : float
+            Its position, m.
+        """
+        if (
+            self.design is None
+            or not self.design.has_collar
+            or not self._launch > 0.0
+            or self._status == "unwatched"
+        ):
+            return
+        current = self._onset_current(state)
+        if self._current_last is not None:
+            previous_z, previous = self._current_last
+            self._current += 0.5 * (z - previous_z) * (previous + current)
+        self._current_last = (z, current)
+
+    @property
+    def every_step(self) -> bool:
+        """Return whether the edge accumulates at every committed step (a collar).
+
+        Returns
+        -------
+        bool
+            True with a requested collar.
+        """
+        return self.design is not None and self.design.has_collar
+
+    def _launch_return(
+        self,
+        state: Complex[np.ndarray, "n_modes n_pol n_omega"],
+        noise: Complex[np.ndarray, "n_modes n_pol n_omega"] | None,
+        weighted: Float[np.ndarray, " n_nodes"],
+    ) -> None:
+        """Record a collar's launch baselines and floors (section 5.3).
+
+        Parameters
+        ----------
+        state : numpy.ndarray
+            The launched state.
+        noise : numpy.ndarray or None
+            Its input noise.
+        weighted : numpy.ndarray
+            Each node's weighted energy.
+        """
+        strip, _ = self._strip_inward(state)
+        self._strip_baseline = strip
+        if noise is not None:
+            self._strip_floor = 3.0 * self._strip_inward(noise)[0]
+        outside = np.ones(weighted.size, dtype=bool)
+        for face in self._faces:
+            outside &= ~face.clip
+        size = self._requested_size()
+        if isinstance(self.space, RadialGrid):
+            outside = np.asarray(self.space.r) > size
+        self._current_baseline = float(np.sum(weighted[outside])) / self._launch
+        self._current_last = None
+        self._current = 0.0
+
+    def _judge_return(
+        self, state: Complex[np.ndarray, "n_modes n_pol n_omega"], z: float
+    ) -> None:
+        """Judge what a collar returns: the strip and the current (section 5.3).
+
+        Parameters
+        ----------
+        state : numpy.ndarray
+            One member's spectral columns.
+        z : float
+            Its position, m.
+
+        Raises
+        ------
+        BoundaryError
+            When the returned share exceeds ``stop_factor`` budgets.
+        """
+        strip, windowed = self._strip_inward(state)
+        self._strip_peak = max(self._strip_peak, strip)
+        judged_strip = max(
+            strip - self._strip_baseline - self._strip_floor - 1e-6 * windowed, 0.0
+        )
+        judged_current = max(self._current - self._current_baseline, 0.0)
+        returned = max(judged_strip, judged_current)
+        self._returned_peak = max(self._returned_peak, returned)
+        warn, stop = self.budget**2, (self.stop_factor * self.budget) ** 2
+        if returned > stop:
+            self._status = "stopped"
+            msg = (
+                f"the requested collar returns {returned:.2e} of the launch energy at "
+                f"z = {z:.4e} m, past the stop of {stop:.0e} (SEP 40 section 5.3): "
+                "it is absorbing too little of what reaches it; widen it, or give the "
+                "run more room"
+            )
+            raise BoundaryError(msg)
+        if returned > warn and not self._warned:
+            self._warned = True
+            self._warned_at = z
+            self._status = "warned"
+            warnings.warn(
+                f"the requested collar returns {returned:.2e} of the launch energy at "
+                f"z = {z:.4e} m (SEP 40 section 5.3)",
+                BoundaryWarning,
+                stacklevel=5,
+            )
 
     def _judge_ramp_removal(self) -> None:
         """Warn once when the ramp has removed more than the budget (Q8 warns only)."""
@@ -806,6 +1087,11 @@ class TransverseEdge:
             "raw_ramp_removed": self._ramp_raw,
             "spatial_removed": self._spatial_removed,
             "reads": self._reads,
+            "returned_max": self._returned_peak,
+            "strip_max": self._strip_peak,
+            "strip_baseline": self._strip_baseline,
+            "current": self._current,
+            "current_baseline": self._current_baseline,
             "largest_gap": self._largest_gap,
             "warned_at": None if math.isnan(self._warned_at) else self._warned_at,
         }

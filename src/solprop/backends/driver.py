@@ -1893,10 +1893,14 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             Whether a saved plane has just been reached, which is always read.
         """
         edge = monitor.transverse
-        if edge is None or not (plane or edge.due(self._z)):
+        if edge is None or not (plane or edge.every_step or edge.due(self._z)):
             return
-        state = self._observed_field(self._require_state())
-        edge.read(np.asarray(state[0]), self._z)
+        state = np.asarray(self._observed_field(self._require_state())[0])
+        if edge.every_step and not plane:
+            # A collar's inward current accumulates at every committed step.
+            edge.step(state, self._z)
+        if plane or edge.due(self._z):
+            edge.read(state, self._z)
 
     def _transverse_capped(self, proposal: float) -> float:
         """Return the proposal, held to the transverse edge's next read (SEP 40 5.3).

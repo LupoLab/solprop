@@ -19,13 +19,15 @@ from typing import Any, cast
 import numpy as np
 import pytest
 
-from solprop.boundaries import SpatialAbsorber
+from solprop.boundaries import SpatialAbsorber, SpatialAbsorberDesign
 from solprop.driver import Simulation
 from solprop.exceptions import BoundaryError, BoundaryWarning
+from solprop.grid import LineGrid
 from solprop.log import NullReporter
 from solprop.monitor import BoundaryCheck
 from solprop.output.hdf5 import resume
 from solprop.output.schema import PlaneStore
+from solprop.transverse_monitor import TransverseEdge
 from test_transverse_resolution import LENGTH, suite
 
 
@@ -199,3 +201,59 @@ def test_the_start_of_run_summary_says_what_the_edge_can_report() -> None:
     assert "watched" in row("numpy_ref", BoundaryCheck())
     assert "unwatched on numba_cpu" in row("numba_cpu", BoundaryCheck())
     assert row("numpy_ref", None).endswith("off (boundary_check=None)")
+
+
+def _line_edge() -> tuple[TransverseEdge, LineGrid]:
+    """Return a line's edge: a collar of 100 um outside R = 200 um, 1 um spacing."""
+    space = LineGrid(200e-6, 600, collar_fraction=0.5)
+    design = SpatialAbsorberDesign(
+        SpatialAbsorber(kappa=3e5),
+        np.zeros(space.n_columns),
+        1.0,
+        (1e6,),
+        collar_rate=1e3 * (1 - np.asarray(space.window)),
+        alpha0=1e3,
+        width=(100e-6,),
+        kappa_p=(3e5,),
+    )
+    edge = TransverseEdge(
+        space, design, 1e-3, 10.0, 0.01, np.arange(1), 2 * math.pi / 800e-9
+    )
+    return edge, space
+
+
+def _packet(space: LineGrid, centre: float, kappa: float) -> np.ndarray:
+    """Return a Gaussian packet at `centre` with transverse wavenumber `kappa`."""
+    x = np.asarray(space.x)
+    field = np.exp(-(((x - centre) / 10e-6) ** 2) + 1j * kappa * x)
+    return np.fft.fft(field)[:, None, None]
+
+
+def test_the_strip_reads_inward_flow_and_not_outward() -> None:
+    # Section 5.3: the Kaiser(8)-windowed strip resolves direction above 16 / s; a
+    # packet in the strip moving outward reads below 1e-6 of itself, one moving
+    # inward reads most of itself.
+    edge, space = _line_edge()
+    launch = _packet(space, 0.0, 0.0)
+    edge.launch(launch, 0.0, noise=None, steps=None, reads=True, declared=False)
+    # solprop propagates as exp(-i k_z z): a packet exp(i kappa x) travels to -x.
+    outward, _ = edge._strip_inward(_packet(space, 230e-6, -1e6))  # pyright: ignore[reportPrivateUsage]
+    inward, _ = edge._strip_inward(_packet(space, 230e-6, 1e6))  # pyright: ignore[reportPrivateUsage]
+    assert outward < 1e-6
+    assert inward > 0.1
+
+
+def test_the_onset_current_counts_inward_flow_only() -> None:
+    edge, space = _line_edge()
+    edge.launch(
+        _packet(space, 0.0, 0.0),
+        0.0,
+        noise=None,
+        steps=None,
+        reads=True,
+        declared=False,
+    )
+    leaving = edge._onset_current(_packet(space, 200e-6, -1e6))  # pyright: ignore[reportPrivateUsage]
+    returning = edge._onset_current(_packet(space, 200e-6, 1e6))  # pyright: ignore[reportPrivateUsage]
+    assert leaving < 1e-20
+    assert returning > 1e3 * leaving
