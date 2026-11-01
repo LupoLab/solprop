@@ -17,6 +17,11 @@ All notable changes to solprop are recorded here. The format follows
   harness names an AMD GPU from its PCI IDs where ROCm reports only
   "AMD Radeon Graphics".
 
+- `Simulation.from_radial`, `from_free` and `from_planar` take `absorber` and
+  `absorber_scheme`, as `prop_radial`, `prop_free` and `prop_planar` and the modal
+  `from_*` do.
+- `solprop.sol` exports `wavelength_to_axis`, which the plots' documentation sends the
+  reader to.
 - `resume="force"` continues a file across changed physics, in the same file, while
   the stored arrays' layout agrees, the statistics fit and work is left: the Adams
   history restarts, the session's execution record marks the file, and later sessions
@@ -60,6 +65,25 @@ All notable changes to solprop are recorded here. The format follows
 
 ### Changed (breaking)
 
+- Names and keywords with two meanings or two spellings are settled, with no aliases;
+  `docs/dev/conventions.md` section 7 gives the rule for each:
+  - `prop_2d`, `time_1d` and `spectrogram` take `time_range`, not `trange`, which stays
+    the scalar window length on `prop_*`. `DEFAULT_TRANGE` is `DEFAULT_TIME_RANGE`.
+  - `stats.zdw` and `modes.base.zdw` take `wavelength_limits`, not `wavelength_range`,
+    as does `wavelength_to_axis`. `wavelength_range` is now only the attribute that says
+    where a data model is valid.
+  - `bandpass` and `Passband` take `spec_range`, not `limits`, as the plots and
+    accessors do; `Passband.limits` is `Passband.spec_range`. A call passing the pair
+    by position is unaffected.
+  - `band_coherence` takes `db_min`, not `floor_db`.
+  - `plotting.energy` and `plotting.stats` are `plot_energy` and `plot_stats`, the names
+    they already had in `solprop.sol`.
+  - `backends.protocol.StepHistory` is `BackendHistory`. Its `z` is each attempt's end
+    and `output.schema.StepHistory`'s is its start, so the two no longer share a name.
+  - `RUN_SUMMARY_ANNOTATION` moves from `driver.summary` to `output.schema`, beside the
+    other annotation names. The stored name is still `"run_summary"`.
+- `mode_average=True` beside `tdse=` is refused by name when the simulation is built. It
+  used to build, then fail at translation with a message that did not name it.
 - `resume` takes `False`, `True`, `"interpolated"` or `"force"`, and any other value is a
   `ValueError`: a mistyped word used to read as `True`. An appending `HDF5Output` holds
   the file's own record as its `metadata` after a resume, not the one offered, and
@@ -79,13 +103,8 @@ All notable changes to solprop are recorded here. The format follows
 
 ### Fixed
 
-- Guide and incident-plane construction, kernel translation and coupling now limit
-  NumPy's and SciPy's controllable BLAS pools to one thread, or `SOLPROP_BLAS_THREADS`
-  within the process budget, and restore their previous limits afterwards. This
-  prevents the thousands of small graded-index eigensolves from occupying every CPU
-  before a backend starts.
-  Vendor thread defaults are overridden only during construction; the native
-  backend's own BLAS keeps its fitted width.
+- A gallery page re-run on its own keeps its `MaterialRangeWarning`: the docs build's
+  import of `solprop.sol` silenced it for every script after.
 - A scan derived from one cached simulation, the scans guide's own recipe, now gives every
   point its own noise seed. `with_input(noise="keep")` and `with_mixture` keep the ability
   to draw unseeded noise again, and the draw replaces only the initial noise of the shared
@@ -123,6 +142,13 @@ All notable changes to solprop are recorded here. The format follows
   record's length from `t = 0` changed its phase by more than pi per bin, so it was moved
   by one record length with no warning: at 500 fs in a record from 0 to 800 fs it came out
   at −300 fs.
+- Guide and incident-plane construction, kernel translation and coupling now limit
+  NumPy's and SciPy's controllable BLAS pools to one thread, or `SOLPROP_BLAS_THREADS`
+  within the process budget, and restore their previous limits afterwards. This
+  prevents the thousands of small graded-index eigensolves from occupying every CPU
+  before a backend starts.
+  Vendor thread defaults are overridden only during construction; the native
+  backend's own BLAS keeps its fitted width.
 
 ## [0.1.0] - 2026-10-31
 
