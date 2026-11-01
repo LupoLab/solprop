@@ -6,7 +6,7 @@
 | **Title** | Resuming by what matters to the run |
 | **Author** | John Travers |
 | **Drafting agent** | Opus 5.5 |
-| **Status** | In progress |
+| **Status** | Final |
 | **Review status** | Reviewed |
 | **Reviewers** | John Travers (human); Opus 5.5 (AI) |
 | **Type** | Change |
@@ -15,8 +15,8 @@
 | **Requires** | — |
 | **Supersedes** | — |
 | **Superseded-by** | — |
-| **Implementation** | In progress: John Travers, with Opus 5.5, on `feature/sep-0042-tolerant-resume`; phase 1 complete 2026-11-01, phase 2 next |
-| **Manual pages** | — |
+| **Implementation** | Complete 2026-11-01: John Travers, with Opus 5.5, on `feature/sep-0042-tolerant-resume`; phases 1 and 2 (Part II) |
+| **Manual pages** | [Resuming a calculation and checking compatibility](../../../guide/results/resuming.md); [output: the schema version](../../../guide/results/output.md#the-schema-version); [scans](../../../guide/workflows/scans.md) |
 
 ## Part I — Proposal
 
@@ -115,7 +115,7 @@ convention; the configuration (medium, guide, pulse, launch field, responses, pr
 absorber, save planes, statistics, precision and derived tables); the noise; the stepper
 record; the material manifest's identities and policies; the launch position and the TDSE
 descriptor. Kept out are the wall-clock time, package versions, git provenance, backend
-record and boundary check ([resuming](../../guide/results/resuming.md#the-resume-key)).
+record and boundary check ([resuming](../../../guide/results/resuming.md#the-resume-key)).
 
 `check_cache` (`solprop/output/hdf5.py`) is the gate. These places test the hash too, and §5
 says what happens to each:
@@ -791,12 +791,12 @@ from that tree (§7, §9).
 ### 13. References
 
 1. solprop, [Resuming a calculation and checking
-   compatibility](../../guide/results/resuming.md).
-2. solprop, [Output: the schema version](../../guide/results/output.md#the-schema-version).
-3. solprop, [Starting from a saved interior field](../../guide/results/interior-launch.md).
-4. solprop, [Design decisions](../decisions.md): ADR-051 and ADR-058.
+   compatibility](../../../guide/results/resuming.md).
+2. solprop, [Output: the schema version](../../../guide/results/output.md#the-schema-version).
+3. solprop, [Starting from a saved interior field](../../../guide/results/interior-launch.md).
+4. solprop, [Design decisions](../../decisions.md): ADR-051 and ADR-058.
 5. solprop, [SEP 25 — Rounding-level
-   reproducibility](archive/sep-0025-rounding-level-reproducibility.md).
+   reproducibility](sep-0025-rounding-level-reproducibility.md).
 
 ## Part II — Implementation record
 
@@ -930,6 +930,60 @@ compares the stored record with the result's, numerics held to agreement
 stay as they are. The schema rule goes into `output.md` and `contributing.md`, and
 `docs/guide/workflows/scans.md` (lines on exact reuse, and Queue and Slurm) follows.
 
+### Phase 2 — report
+
+**Scope.**
+
+- Phase 2, scans and the schema rule, 2026-11-01.
+- Opus 5.5 (AI) for John Travers, on `feature/sep-0042-tolerant-resume`: 1f8c098, and the
+  commit setting `Final`.
+
+**Delivered.**
+
+- **The controller's comparison** (`src/solprop/output/scan.py`): `ScanWriter.commit`
+  compares a `conflict` result's record with the stored one (`_comparison`) and treats a
+  pass, `RecordComparison.identical`, as `skipped`; a refusal names what changed by class
+  (`_conflict`). The worker's digest check, `_Job` and `_scan_batch._prepare` are
+  unchanged, so `Local`, `Pool` and `Batch` all meet it; `Queue` and `Slurm` keep exact
+  identity.
+- **Tests**: `test_a_rerun_differing_only_in_rounding_skips_and_other_changes_conflict`
+  in `tests/driver/test_scans.py`, on `Local`, `Pool(2)` and `Batch(2)`: `gamma` moved by
+  one ulp skips and leaves the stored arrays and hashes as they were, a changed `rtol` and
+  a changed `gamma` are refused by class. A file with an unknown top-level group and
+  root attribute reads and resumes (`tests/driver/test_tolerant_resume.py`). The refusal
+  text of `test_material_manifest`'s scan case follows.
+- **Documentation**: the schema rule in `docs/guide/results/output.md`; how to add a
+  recorded field, a neutral value or a rename in `docs/dev/contributing.md`; how reruns
+  decide, and that queues keep exact identity, in `docs/guide/workflows/scans.md`; the
+  changelog.
+
+**Deviations from the proposal.** None.
+
+**Decisions.** `_scan_run` keeps reading a custom reduction's spool through the public
+`open_file`: a scan point is never forced, so it never warns, and a test patches that
+name.
+
+**Verification.** The scan, batch, queue, worker-validation, material-manifest and
+material-resume modules, 199 tests, and `tests/driver/test_tolerant_resume.py` passed
+on this branch, macOS arm64; ruff, basedpyright, the docstring lint and the docs build
+clean. The full gate, slow and coverage lanes run in CI on the pull request.
+
+**Sources checked.** None needed.
+
+**Limitations.** Queue and Slurm scans were not exercised against the comparison, by
+design: their identity is exact. Running `tests/test_seps.py` between two modules of
+`tests/driver` in one pytest call leaves the second without that folder's fixtures; this
+is pytest's collection, unrelated to this SEP, and every module passes when the call
+groups them.
+
+**Open questions.** None. The SEP closes with no open question: Q1–Q7 were decided
+before acceptance, and the implementation raised none.
+
+**Handoff.** The first frozen records are this tree's, in
+`tests/output/test_record_stability/frozen/0.2.0/`; refresh them on the tree tagged 0.2.0
+(after SEP 40 lands), as `docs/dev/releasing.md` says. A field SEP 40 adds to a record
+needs a neutral value or that refresh.
+
 ## Part III — History
 
 - 2026-10-31: Drafted.
@@ -953,6 +1007,7 @@ stay as they are. The schema rule goes into `output.md` and `contributing.md`, a
   [#141](https://github.com/LupoLab/solprop/issues/141).
 - 2026-11-01: In progress. Phase 1 started on `feature/sep-0042-tolerant-resume` (John Travers, with Opus 5.5).
 - 2026-11-01: Phase 1 complete (Part II); ADR-063 added.
+- 2026-11-01: Phase 2 complete (Part II). Final; archived.
 
 ### AI review — 2026-11-01 (Opus 5.5)
 

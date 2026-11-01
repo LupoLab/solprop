@@ -1523,7 +1523,7 @@ Withdrawn (development-process record, not a design decision).
   made now would freeze seams already known to need work.
 - **Consequences:** a released version cannot read a development output file; keep an
   older install for those. ADR-063 sets the resume-compatibility policy
-  ([SEP 42](seps/sep-0042-tolerant-resume.md)).
+  ([SEP 42](seps/archive/sep-0042-tolerant-resume.md)).
 
 ## ADR-059 — Host vector maths on SLEEF for the native CPU kernels on x86-64
 
@@ -1701,7 +1701,7 @@ Withdrawn (development-process record, not a design decision).
 ## ADR-063 — A resume compares records by what matters to the run
 
 - **Status:** accepted (maintainer, 2026-11-01, with
-  [SEP 42](seps/sep-0042-tolerant-resume.md)); narrows ADR-051 and sets the policy
+  [SEP 42](seps/archive/sep-0042-tolerant-resume.md)); narrows ADR-051 and sets the policy
   ADR-058 left open
 - **Context:** a file resumed only when the rebuilt run's configuration hash equalled
   the stored one. A release that added a field, an optmat release with the same numbers,

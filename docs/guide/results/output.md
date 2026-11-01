@@ -354,7 +354,7 @@ changes meaning; anything added inside `stats`, `step_history` or `step_stats`; 
 anything grown per plane. A new field of the JSON run record, a new root attribute or a
 new top-level group written once does not bump it: readers already tolerate them, and a
 resume decides by comparing the records (ADR-063,
-[SEP 42](../../dev/seps/sep-0042-tolerant-resume.md)).
+[SEP 42](../../dev/seps/archive/sep-0042-tolerant-resume.md)).
 
 ## A worked example
 

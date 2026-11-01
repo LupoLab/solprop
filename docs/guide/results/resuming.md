@@ -8,7 +8,7 @@ A resume asks whether continuing the stored state with the requested problem giv
 run the user asked for. Solprop answers it by comparing the file's run record with the
 record of the run about to start, path by path
 ({py:meth}`~solprop.output.schema.RunMetadata.compare`,
-[SEP 42](../../dev/seps/sep-0042-tolerant-resume.md)). Every recorded path belongs to
+[SEP 42](../../dev/seps/archive/sep-0042-tolerant-resume.md)). Every recorded path belongs to
 one of four classes:
 
 | Class | What it holds | A difference |
@@ -484,4 +484,4 @@ end is a `running` endpoint; the normal resume workflow establishes completion.
 Independent resumed computations meet the repository's accuracy-envelope policy;
 stored copies, history arrays and structural identifiers remain exact.
 
-The design is [SEP 42](../../dev/seps/sep-0042-tolerant-resume.md).
+The design is [SEP 42](../../dev/seps/archive/sep-0042-tolerant-resume.md).
