@@ -51,20 +51,28 @@ def _version(value: str) -> str:
 
 
 def _run(command: list[str], directory: Path, name: str) -> str:
-    result = subprocess.run(
-        command,
-        cwd=directory,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        check=False,
-    )
-    (directory / "evidence" / f"{name}.log").write_text(result.stdout, encoding="utf-8")
-    sys.stdout.write(result.stdout)
+    log = directory / "evidence" / f"{name}.log"
+    # Write directly to the artifact so a killed runner still leaves its last output.
+    with log.open("w", encoding="utf-8") as stream:
+        result = subprocess.run(
+            command,
+            cwd=directory,
+            stdout=stream,
+            stderr=subprocess.STDOUT,
+            check=False,
+        )
+    output = log.read_text(encoding="utf-8", errors="replace")
+    sys.stdout.write(output)
     result.check_returncode()
-    return result.stdout
+    return output
+
+
+def _write_record(record: dict[str, object], evidence: Path) -> str:
+    result = json.dumps(record, indent=2) + "\n"
+    (evidence / "result.json").write_text(result, encoding="utf-8")
+    summary = f"## Published install: {record['status']}\n\n```json\n{result}```\n"
+    (evidence / "summary.md").write_text(summary, encoding="utf-8")
+    return summary
 
 
 def _readme_example(version: str, directory: Path) -> Path:
@@ -95,8 +103,11 @@ def _check(version: str, directory: Path, *, readme_example: bool) -> None:
         "platform": platform.platform(),
         "machine": platform.machine(),
         "readme_example": readme_example,
-        "status": "failed",
+        "status": "running",
     }
+    _write_record(record, evidence)
+    # An abrupt termination keeps the running record; exceptions record failure.
+    record["status"] = "failed"
     try:
         if sys.version_info[:2] != (3, 14):
             raise RuntimeError("the published-install check requires CPython 3.14")
@@ -138,10 +149,7 @@ def _check(version: str, directory: Path, *, readme_example: bool) -> None:
         raise
     finally:
         record["elapsed_seconds"] = time.perf_counter() - started
-        result = json.dumps(record, indent=2) + "\n"
-        (evidence / "result.json").write_text(result, encoding="utf-8")
-        summary = f"## Published install: {record['status']}\n\n```json\n{result}```\n"
-        (evidence / "summary.md").write_text(summary, encoding="utf-8")
+        summary = _write_record(record, evidence)
         if summary_path := os.environ.get("GITHUB_STEP_SUMMARY"):
             with Path(summary_path).open("a", encoding="utf-8") as stream:
                 stream.write(summary)

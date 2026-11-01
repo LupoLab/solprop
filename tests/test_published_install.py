@@ -9,6 +9,8 @@ import json
 import runpy
 import subprocess
 import sys
+import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -57,6 +59,10 @@ def test_install_failure_records_platform_and_job_summary(
     check_script, monkeypatch, tmp_path
 ):
     def fail_environment(_builder, _path):
+        initial = json.loads(
+            (directory / "evidence/result.json").read_text(encoding="utf-8")
+        )
+        assert initial["status"] == "running"
         raise OSError("could not create the environment")
 
     monkeypatch.setattr(check_script["venv"].EnvBuilder, "create", fail_environment)
@@ -74,6 +80,36 @@ def test_install_failure_records_platform_and_job_summary(
     assert record["machine"]
     assert record["elapsed_seconds"] >= 0
     assert "could not create the environment" in summary.read_text(encoding="utf-8")
+
+
+def test_command_output_reaches_the_artifact_before_the_command_exits(
+    check_script, tmp_path
+):
+    (tmp_path / "evidence").mkdir()
+    stop = tmp_path / "stop"
+    command = [
+        sys.executable,
+        "-I",
+        "-c",
+        "import pathlib, sys, time\n"
+        "print('started', flush=True)\n"
+        "while not pathlib.Path(sys.argv[1]).exists(): time.sleep(0.01)\n",
+        str(stop),
+    ]
+    log = tmp_path / "evidence/waiting.log"
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        running = executor.submit(check_script["_run"], command, tmp_path, "waiting")
+        try:
+            deadline = time.monotonic() + 10
+            while time.monotonic() < deadline:
+                if log.exists() and "started" in log.read_text(encoding="utf-8"):
+                    break
+                time.sleep(0.01)
+            assert log.read_text(encoding="utf-8") == "started\n"
+            assert not running.done()
+        finally:
+            stop.touch()
+        assert running.result(timeout=10) == "started\n"
 
 
 def test_existing_environment_is_never_reused(check_script, tmp_path):

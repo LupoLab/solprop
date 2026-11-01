@@ -11,6 +11,10 @@ on:
         description: Published version to install (with or without a leading v)
         required: true
         type: string
+      readme_example:
+        description: Also run the release's full README example (manual qualification only)
+        default: false
+        type: boolean
   workflow_dispatch:
     inputs:
       version:
@@ -45,7 +49,7 @@ jobs:
       PYTHONUTF8: "1"
       MPLBACKEND: Agg
       VERSION: ${{ inputs.version }}
-      RUN_README: ${{ github.event_name == 'workflow_dispatch' && inputs.readme_example }}
+      RUN_README: ${{ inputs.readme_example }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

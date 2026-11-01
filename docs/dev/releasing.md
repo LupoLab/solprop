@@ -230,6 +230,20 @@ example is available to complete the first release's outstanding platform checks
 gh workflow run published-install.yml -f version=0.1.0 -f readme_example=true
 ```
 
+Before the new workflow is on `main`, GitHub cannot dispatch it by name. The existing
+**Wheels** workflow also accepts `published_version`: with that input it skips the
+wheel builds and their dependent checks and runs only the published-install check.
+The publishing jobs remain dependent on the skipped builds, so this mode cannot
+publish. It has a separate concurrency group and does not cancel a wheel build on the
+same branch. Select the branch whose workflow is being qualified:
+
+```sh
+gh workflow run wheels.yml --ref fix/published-install-checks \
+  -f published_version=0.1.0 -f readme_example=true
+```
+
+Leaving `published_version` empty keeps the ordinary Wheels workflow unchanged.
+
 The actions in the workflows are pinned by commit; when updating one, take the commit of
 its release tag and keep the version in the trailing comment.
 
