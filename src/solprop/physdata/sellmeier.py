@@ -89,7 +89,8 @@ class ReferenceState:
     pressure_bar : float
         Absolute pressure of the reported measurement, in bar.
     temperature : float
-        Temperature of the reported measurement, in K.
+        Temperature of the reported measurement, in K, or room temperature where the
+        source declares none.
     """
 
     pressure_bar: float

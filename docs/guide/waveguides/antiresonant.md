@@ -137,7 +137,7 @@ of them) in argon at 294 K, as solprop's form minus the earlier one.
 
 | term | solprop | earlier implementations | printed | reason | size |
 |---|---|---|---|---|---|
-| dispersion width $\gamma_d$ | 0.03 | 0.03 | 0.003 (2021 eq. 2) | best FEM fit: the near-resonance index is 3.2× (vacuum) and 2.3× (argon) worse with 0.003 | none |
+| dispersion width $\gamma_d$ | 0.03 | 0.03 | 0.003 (2021 eq. 2) | fits the FEM better than the printed value: the near-resonance index is 3.2× (vacuum) and 1.9× (argon) worse with 0.003 | none |
 | $R_{\rm eff}$ coefficient | $3+10\lambda/a$ | 20 | $3+2\cdot10\lambda/R_{co}$, that is 20 (2021 eq. 10, typeset); Melli et al. 2025 eq. 7 writes 20 | negligible (0.9 % of the decrement, a quarter of the fit's median residual); solprop's 10 came from a misreading of the printed bracket and is kept for now, with the vacuum index RMSE 13 % better than with 20 | $n_{\rm eff}$ $-1.7\times10^{-6}$ at 800 nm; $\beta_2$ $-7.7$ fs²/m (1.7 %) at 800 nm, $+2.2$ at 1030 nm; area $-1.0\,\%$ |
 | waveguide decrement | $D_0/n_g$ | $D_0/n_g^2$ | $D_0/n_g$ (2021 eqs. 21, 23) | physical: the expansion of $\beta$; the FEM's 10 bar index is predicted from its vacuum index to $2.2\times10^{-8}$ with one power and $6.7\times10^{-7}$ with two | 30 bar: $n_{\rm eff}$ $-1.3\times10^{-6}$ at 800 nm; $\beta_2$ $+0.1$ fs²/m at 800 nm, $+8.9$ (1.7 %) at 1030 nm |
 | area prefactor | $1/n_g$ | none | $1/n_g$ (2021 eq. 22) | physical: with the single-power decrement the area is fill independent, as the FEM's is to $10^{-4}$ | 30 bar: area $-0.8\,\%$ |

@@ -168,8 +168,9 @@ class LossPolicy:
 
     The default limit is ``2 * MAX_ATTENUATION_EXPONENT / length``: the loss at which
     the field has already underflowed over the *whole* fibre, so clamping there cannot
-    change a result. There is no lower limit, so a negative ``alpha`` — gain — passes
-    through rather than being clamped to zero.
+    change the field at the fibre's end. A clamped bin is less attenuated than its true
+    loss at a plane near the entrance. There is no lower limit, so a negative ``alpha``
+    — gain — passes through rather than being clamped to zero.
 
     Whatever the limit, it is applied to ``D`` before ``Phi`` is integrated, never to
     an accumulated exponent afterwards (``docs/guide/numerics/linear-operator.md``).

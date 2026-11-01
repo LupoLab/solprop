@@ -144,7 +144,7 @@ def test_a_te_slab_run_accumulates_the_closed_form_b_integral():
     agreement is limited by what the closed form leaves out: the index factors
     n0/n_eff of the true-power amplitude and the prefactor (argon's n - 1 ~ 3e-4),
     and dispersion over L/L_D ~ 1e-3; the ten DOPRI5 steps add far less. Measured
-    1.2e-4; the bound is 2e-3.
+    8.5e-5; the bound is 2e-3.
     """
     mode = SlabMode(HALF_GAP, cladding=1.45)
     output = prop_waveguide(

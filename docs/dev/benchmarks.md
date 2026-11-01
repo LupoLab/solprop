@@ -40,7 +40,7 @@ relying on any of them.
   `(candidate median + 2 MAD) / (before median − 2 MAD)` below one, a non-positive
   denominator counting as unresolved. Small regressions on individual cases, or at one
   thread, are accepted when the aggregate improves; they stay visible in the table and
-  do not veto the change. Numerical bounds are never relaxed to make a change pass.
+  do not automatically veto the change. Numerical bounds are never relaxed to make a change pass.
   The A/A spread of the same comparison says how large a difference has to be to count
   ([comparing two builds](benchmarking.md#comparing-two-builds-while-iterating)).
 

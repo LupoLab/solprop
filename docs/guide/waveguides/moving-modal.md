@@ -179,7 +179,9 @@ reproduces a **fresh** solve at the points the doubling adds to within `path_rto
 by default is the frequency interpolation's own measured profile error: sampling in z is
 then never the coarser of the two
 ({py:class}`~solprop.modes.guide.ModalPath`,
-{py:func}`~solprop.translate.modal_path.sample_modal_path`). On the graded-index taper
+{py:func}`~solprop.translate.modal_path.sample_modal_path`). A relative error $e$ in a
+propagation constant costs a phase of about $e|\beta|L$ over a length $L$, so a run that
+needs the phase along a long guide should tighten `path_rtol`. On the graded-index taper
 above the first degree, four, already reproduces the held-out solves to 7.6e-8 against a
 budget of 2.9e-6, and the whole sampling takes a few seconds; the doubling costs no repeated solve, because the Chebyshev-Lobatto points nest.
 

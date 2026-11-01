@@ -91,8 +91,8 @@ slightly noisy beam through a longer guide to show the break-up that sets the li
   excites. TE7 carries 0.1 % at launch and is damped fifty times more than TE1.
   Arnold used ten.
 * The Kerr effect is the only nonlinearity. Plasma is left out: optmat's argon rate at
-  the peak intensity leaves about 5e14 electrons per cubic centimetre (Arnold: "well
-  below 1e15"), whose index change is about 3 % of the Kerr one (printed below).
+  the peak intensity leaves about 3.5e14 electrons per cubic centimetre (Arnold: "well
+  below 1e15"), whose index change is about 2 % of the Kerr one (printed below).
   That estimate uses the incident peak intensity, so it does not justify the omission
   after strong spatial contraction: the late, under-resolved breakup is qualitative
   and cannot predict a filament peak intensity. Argon has no Raman response.
@@ -427,7 +427,7 @@ one is installed.
                        peak_intensity
       between planes:  energy, on_axis_intensity, peak_intensity
       run:             RunMetadata(slab, envelope grid of 576, 0 modes, native,
-                       2026-10-31T16:02:14.626704+00:00)
+                       2026-11-01T19:40:21.482339+00:00)
     peak intensity in the guide at the entrance 3.25e+13 W/cm^2
 
 
@@ -651,7 +651,7 @@ limit.
       duration:   44.84 fs before, 9.185 fs after, 8.577 fs at the transform limit
       peak power: 18.89 TW before, 77.23 TW after, 90.72 TW at the limit
       quality:    0.8514 of the transform-limited peak power
-      search:     converged: Solution found. (88 evaluations)
+      search:     converged: Solution found. (78 evaluations)
     GDD -76 fs^2 compresses the centre from 44.8 fs to 9.2 fs (transform limit 8.6 fs; Akturk measured 13.6 fs with mirrors of about -300 fs^2)
 
 
@@ -972,7 +972,7 @@ beam and 50 cm with a seeded one.
 
  .. code-block:: none
 
-    546 s; backend native, 18 threads
+    647 s; backend native, 18 threads
 
 
 
@@ -989,7 +989,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (9 minutes 5.933 seconds)
+   **Total running time of the script:** (10 minutes 47.427 seconds)
 
 
 .. _sphx_glr_download_auto_examples_waveguides_plot_06_planar_compressor.py:
