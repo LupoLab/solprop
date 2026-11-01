@@ -668,6 +668,7 @@ opened at Final (SEP 0).
   Q4 and Q5 ask again, because the review reopened them or the maintainer asked.
 - 2026-11-01: Maintainer decisions (John Travers) on Q1, Q2, Q4 and Q5, as now recommended
   (§12), `resume="force"` included.
+- 2026-11-01: Supplementary AI review of the layout class and force (Opus 5.5).
 
 ### AI review — 2026-11-01 (Opus 5.5)
 
@@ -1222,3 +1223,363 @@ has not itself been reviewed.
 
 **Still unmeasured,** as the review says: a real pair of files from two platforms; the TDSE,
 general modal and planar records; and queue and Slurm scans.
+
+### Supplementary AI review — 2026-11-01 (Opus 5.5): layout class and force
+
+This covers what the first review did not see: the `layout` rows of §5.2, `resume="force"`
+(§4's verdict table, §5.3, §5.5, §7), and how they meet §4's exact paths, §5.3's adoption
+and §5.6. Part I is not edited.
+
+**How it was measured.** macOS arm64, `numba_cpu` (`numpy_ref` on the general modal route
+and for single precision), very short runs. Force was emulated by patching
+`RunMetadata.configuration_hash` to a constant, so the gate and append mode pass as they
+would under force. No comparer exists yet: §5.2's verdict on a change was read off the
+leaves that moved between two real records. Unless a point says otherwise, the session
+held the requested record, not the adopted one. A point says when it rests on reading
+alone.
+
+**Summary.** The class is needed and most of its rows are right: no loader would refuse a
+moved time axis, and the checks that do exist fire only after a segment has been computed.
+Force is a reasonable answer to "it is sometimes useful to force things". But as written a
+forced run continues from the old physics' internal state (F1), and because the stored
+record never changes, the file then accepts the original script silently (F2). The class
+is also both too strict and too loose: on the free-space and general modal routes it
+refuses the very changes §5.5 names, and a capillary's radius (F3), and it misses species count and noise presence
+(F4). Most of the fixes make the design smaller (F17).
+
+#### Blockers
+
+**F1 (blocker; §5.5, §5.6, §7). A forced run installs the old march: its state, its history
+and its step.** `_continue_march` (`src/solprop/driver/simulation.py:3313`) restores any
+snapshot that passes `AdamsMarch._refusal` (`src/solprop/backends/multistep.py:3027`), and
+none of those checks concerns physics. §5.6 narrows the check further and says nothing
+about a forced change. So under a changed pressure or gas the log says, at INFO, "continuing
+the Adams history". `load` also replaces the field `_prime` has just loaded with the
+snapshot's own state (`src/solprop/backends/multistep.py:3012`). That state was divided by the old
+$\sqrt{\operatorname{Re} n_{\rm eff}}$, while the plane is divided by the new one.
+
+Measured against a restart from the stored plane at `rtol=1e-9`, with all runs at
+`rtol=1e-6`; "scale removed" takes out the best-fit complex factor:
+
+| Change at the stop | With the snapshot: raw / scale removed | Starting afresh: raw / scale removed |
+|---|---|---|
+| capillary, 1 to 2 bar, stopped at a plane | $1.29\times10^{-4}$ / $1.80\times10^{-6}$ | $4.9\times10^{-8}$ / $4.9\times10^{-8}$ |
+| capillary, 1 to 1.05 bar, budget stop | $6.48\times10^{-6}$ / $6.2\times10^{-7}$ | $8.9\times10^{-8}$ / $8.4\times10^{-8}$ |
+| capillary, Kerr off, budget stop | $1.09\times10^{-7}$ / the same | $6.7\times10^{-8}$ / the same |
+| GNLSE, $\gamma$ doubled | $5.69\times10^{-7}$ / the same | $5.66\times10^{-7}$ / the same |
+| GNLSE, $\beta_2$ doubled | $8.77\times10^{-7}$ / the same | $8.76\times10^{-7}$ / the same |
+| capillary, no change (control) | $7.3\times10^{-8}$ / $6.4\times10^{-8}$ | $7.5\times10^{-8}$ / $6.6\times10^{-8}$ |
+
+Three things follow:
+
+- **The state is the larger error.** At 2 bar the raw error is 100 times `rtol`, and
+  is half the change in the power weight, which was measured at $2.57\times10^{-4}$ (F6). The
+  record shows it: $E/E_0$ at the next plane is 0.998487
+  with the snapshot and 0.998230 without, so the forced session gains $2.6\times10^{-4}$ of
+  energy at the join.
+- **The stale history is mostly caught.** The first trial failed the error test up to three
+  times, and the controller shrank from there, so the GNLSE rows show no loss. This is less
+  reassuring than it looks: the stored order was 1 at a plane stop and at most 2 at a budget
+  stop, so a high-order history was never exercised, and a small change passes with no
+  rejection at all. The error control is the only protection, and it was not designed for a
+  discontinuous right-hand side.
+- **Nobody is told.** No warning, and no test in §7.
+
+*Recommendation:* in `_continue_march`, a session with a compared difference does not
+restore the snapshot, and warns "the Adams history starts afresh: the physics changed". This
+is one condition. The ledgers stay cumulative, and the state comes from the plane with the
+requested weight. Say so in §5.5 and §5.6, and add to §7 a forced pressure change that
+agrees with a restart. This also changes the case for force: §2 and §10 count against
+`with_input` that it "restarts the Adams history". A forced run should too, which leaves the
+same file, the cumulative ledgers, and modified noise and schedules as what force adds.
+
+**F2 (blocker; §1, §4, §5.3, §5.5). The stored record never changes, so the original script
+continues a forced file with no differences at all.** §5.3 keeps the first session's record
+for good, and `resume=True` compares against it. Measured on a capillary, with the density
+of each plane from `stats/density`:
+
+- **Force stopped, then the original script.** 1 bar to $z_1$, forced to 2 bar, interrupted
+  after one plane, then `resume=True` at 1 bar. It continues with nothing said, and the
+  density reads `[2.47, 2.47, 2.47, 4.95, 2.47]e25`. That is three segments of two physics
+  under a record claiming one.
+- **A forced run that fails.** Argon to an argon and helium mixture fails at the save (F4).
+  The file then holds a terminal checkpoint at the next plane's position, computed under the
+  mixture, at status `failed`, with no plane saved. `resume=True` with the original argon
+  script continues from that state to `complete`.
+- **A complete forced file.** The original script with `resume=True` has "nothing to do", as
+  §4's first row says, and returns it, so a mixed file is handed back as the run asked for.
+
+§1 promises that "a change of physics is never continued unasked". The first two are
+exactly that, and the warning on `open_file` comes too late or not at all (F7).
+
+*Recommendation:* a file with a forced session in its execution records is continued only by
+`resume="force"`. `resume=True` refuses and names the position; on a complete file it
+returns the file with a warning. That is one check and one row in §4's table. It covers a
+failed force too, because the first `_record_execution` is written before any step
+(`src/solprop/driver/run.py`, in `run_problem`). A force refused at `_prime` writes nothing, because the handler
+has not been opened (by reading; an envelope grid's refusal there left the file's counts and
+status as they were).
+
+#### Significant
+
+**F3 (significant; §1, §5.2, §5.5; partly a judgement). `spatial.**` and `modal.**` refuse
+what force exists for, on those routes.** §5.5 says a layout difference means "the stored
+state cannot be loaded and the file's arrays would not fit". Both rows hold physics:
+
+- **Radial.** Pressure 1 to 1.2 bar and argon to helium each move
+  `spatial.flux_plan.k_squared`, the only `spatial` leaf they move. So §5.5's lead uses, a
+  corrected optmat model or "a change of physics they mean", are refused with no override on
+  any material change that moves the index. `spatial.absorber_rate` and `spatial.window` are
+  in the same row. With the gate relaxed both runs load, continue and complete. The Cartesian
+  record has the same keys; it was not run.
+- **General modal.** `chi3` moves `modal.responses.chi3` and `modal.guide.regions`. A core
+  radius moves `modal.guide`, `modal.metric` and `modal.tables`, among others. With the gate
+  relaxed both complete on a step-index guide.
+- **Capillary.** Pressure and gas move no layout leaf, so force works there, but a radius moves
+  `quadrature.nodes` and `quadrature.weights`, which refuses. With the gate relaxed that run
+  completes too. What the per-plane statistics need is the node count, not the positions.
+
+So on the free-space and general routes force can change almost nothing, whereas on the
+capillary it can change the gas and the pressure but not the radius. That is not what the
+maintainer asked for, and it is a surprising difference between routes. Separately,
+`spatial.absorber_rate` has no **tail** treatment here although its `configuration.absorber`
+twin does, because the first row decides. Whether its
+tail exceeds $\varepsilon$ across platforms was not measured; a refusal there would have no
+override.
+
+*Recommendation:* name the structural leaves and let the rest fall through to compared:
+`spatial.{kind, shape, axes, axis_names, axis_units, spectral_axes, spectral_axis_names,
+spectral_axis_units, column_order, physical_field_units, stored_field_units, spatial_weights,
+spectral_weights, forward_scale, inverse_scale}` and `modal.{basis, n_channels, n_components,
+channels}`, and `quadrature`'s rule and counts without `nodes` and `weights`. The content of
+`modal.channels` should be checked for measured numbers first.
+`_check_accessors` stays as it is.
+
+**F4 (significant; §4, §5.2, §5.5, §7). With every layout row agreeing, a forced run can
+still fail, late and with a raw error.** The class is a proxy for "the arrays fit", and the
+proxy has holes:
+
+| Change, all layout rows equal | Result with the gate relaxed |
+|---|---|
+| argon to argon and helium | `TypeError: Can't broadcast (2, 33) -> (1, 33)` from h5py at the first save, after stepping to it |
+| `noise=None` to input, or back | `OutputError: plane 3 carries a noise phase, unlike those before it`, at the first save |
+| radial array launch, one to two components | `BackendError` on the state's shape at `_prime`, before the file is opened; `spatial.shape` omits it |
+
+The first two compute a whole segment, then leave status `failed` and a checkpoint from the
+other physics (F2). Input to modified noise goes through with no error (measured), and is worse: by reading
+`set_initial`, the stored state carries a realisation and the source adds another, or the reverse,
+while `noise.model` in the kept record tells processing the wrong story.
+
+The existing checks do not make the class redundant, because they run too late. Two modes
+over one *broadcast* at `_prime` and fail only at `_check_layout`
+(`src/solprop/output/schema.py:4254`), after a segment. A moved time axis of the same length
+would not fail at all, by reading: nothing behind the gate compares an axis.
+
+*Recommendation:* keep path rows for what is about meaning (`grid.**`, exact paths, mode
+identity, `simulation_kind`, `noise.model` including its absence). For "the arrays fit", test
+the arrays. After `_prime`, and only when there are compared differences, compare
+`backend.stats(spec)` with the file's `stats/*` shapes. A
+prototype in a wrapper around `_prime` reported the mixture, plasma off, `n_r` and two modes
+by name, and left an identical continuation unchanged to 0.0. That replaces the
+`configuration.statistics.**` row and leaves no special form for counting species. Applied to the real records, these changes move no layout leaf: the mixture, `noise=None`, and
+HE12 of F9. The check would have to skip a TDSE run, whose statistics may charge the provider (not checked). §7's force
+test should include a species-count change and a noise-presence change.
+
+**F5 (significant; §3, §5.3). "The driver uses it for the writer" cannot pass the file's
+record to `run_problem` as it stands.** `run_problem` has one `metadata` argument, and it
+feeds `_open_run`, `_refuse_unrunnable`, `_announce` and the snapshots' `provenance`.
+
+- **The printed summary breaks.** `run_summary` fed a record from `from_json` prints the
+  serialised form: measured `pressure: {'__class__': 'solprop.profiles.Constant', ...}` and
+  `responses: dict`, and the old values under force. It is also stored, because `_announce`
+  appends it to `RUN_SUMMARY_ANNOTATION` (`src/solprop/driver/run.py:685`). This meets every
+  tolerant resume, including §5.9's.
+- **Session facts come from the record.** `provenance=metadata` (`src/solprop/driver/run.py:578`) reads `versions`
+  and `git`, and the archive context reads `versions`
+  (`src/solprop/driver/simulation.py`, `_open_tdse_archive`). The file's values there would
+  be the first session's.
+- **The replace.** `_open_run` calls `dataclasses.replace(metadata, backend=...)`
+  (`src/solprop/driver/run.py:961`). Under §5.4 the raw hashed part must survive that, or the session's hash is
+  recomputed and the exact checks of §3 fail.
+- **The append check.** §3 makes append mode's test the comparison, so `output.open(requested)`
+  would refuse a forced run. `PlaneStore.open` already has a `force` keyword with another
+  meaning: replace the record.
+
+*Recommendation:* keep passing the requested record to `run_problem`, and have the handler
+adopt: in append mode `open` keeps the stored record as `self._metadata`
+(`src/solprop/output/schema.py:3852`) whatever it was offered, the gate having been passed in
+`_open_output`. A direct `HDF5Output(append=True).open(...)` compares, and refuses compared
+paths. Only the archive's `optical_configuration_hash` needs the stored record. The summary
+then shows what steps, which is what a reader of a forced session needs.
+
+**F6 (significant; §5.5; partly a judgement). A warning on `open_file` is not enough for what
+reads the record.** What each reader does with a file forced from 1 to 2 bar halfway:
+
+| Reader | Result |
+|---|---|
+| `stats/*` | correct: the requested problem wrote them (`stats/pressure` reads `[1, 1, 1, 2, 2]`) |
+| `get_power_weight` | $2.57\times10^{-4}$ wrong at the last plane, against a pure 2 bar run, silently |
+| `field_plane` | `reference.delay` from the old frame: 8.7 fs from a pure 2 bar run, so about 4 fs from the mixed truth (an inference). Provenance stamps the file's hash, which does not describe the plane |
+| `_peak_field_reports` | argon to helium: maximises the rate over every plane, then inverts it through the *new* model. Reported `He`, peak rate $1.1\times10^{-7}$ (an argon plane's), largest field $7.8\times10^{9}$ V/m; the helium planes' rate was $3\times10^{-26}$. Written to `material_peak_fields`, and able to raise `MaterialRangeWarning` |
+| `source=` | by reading: the simulation that stepped the later planes is refused, and the one that did not is accepted, and then applies its tables to all planes |
+| `metadata.reference` | outside `hashed()` (`src/solprop/output/schema.py:2716`), so no comparison or entry names it |
+
+`field_plane` matters most, because it exports: a coupled run downstream records a parent
+hash in its lineage (`src/solprop/processing/planes.py:521`) that does not describe the plane
+it started from, and nothing downstream warns.
+
+*Recommendation:* `field_plane` refuses a plane beyond a forced position, and `source=` is
+refused on those planes, whichever simulation is given. The peak-field report takes only the
+planes the session wrote. The `open_file` warning names the readers it does not protect. The
+manual says: `stats/*` hold, while anything rebuilt from the record does not. Storing the
+requested record beside the first would be bigger than the problem (records reach tens of MB)
+and I do not recommend it.
+
+**F7 (significant; §5.5; over-built). The annotation is written too late, and duplicates the
+execution record.** `resume="interpolated"` writes its annotation after `_close_run`, on the
+success path alone (`src/solprop/driver/simulation.py:3060`). `forced_resumes` is modelled on it,
+and §5.5 records an interpolated last plane under force in the same way. Measured: an interrupted `resume="interpolated"` leaves planes beyond the position and
+no `interpolated_resumes`. A stopped or failed forced session, which is where F2 bites, would
+leave no annotation, so `open_file` would not warn.
+
+The §5.3 entry goes through `_record_execution` before the first step, and survives into
+`previous_executions` (`src/solprop/output/schema.py:3554`). `_adopt_state` already reads the outcome
+(`src/solprop/output/hdf5.py:1066`).
+
+*Recommendation:* drop `forced_resumes` and `FORCED_RESUMES_ANNOTATION`, and derive "this file
+was forced, at these positions" from the execution records, in one helper used by `open_file`,
+F2's check and F6's. That is one concept fewer. If it stays, write it next to `_announce`. The
+existing `interpolated_resumes` has the same gap, independently of this SEP.
+
+**F8 (significant; §5.3, §5.5). "Every difference" in an entry rewritten at every plane grows
+the file.** `_record_execution` rewrites the outcome at each plane, and `src/solprop/driver/run.py:1291` already
+trims the monitor's rows from it for this reason. Measured on a capillary with values cut to 24
+characters: a pressure change is 520 leaves and 45 kB, and argon to helium is 2014 leaves and 255
+kB. A 115 kB entry on 42 planes added 4.9 MB to a 1.2 MB file, 1.02 times entry times planes. So
+at 255 kB and 500 planes it is over 100 MB, and `previous_executions` then keeps a copy per
+session.
+
+*Recommendation:* `numerics` in full, since it is short, and `compared` as `summary()`'s grouped
+text with its count. Either that, or the full list only in the closing record.
+
+**F9 (significant; §5.2; partly a judgement). `modes[*].kind` does not name the basis.** It reads
+correctly on the real record, as a class path: `solprop.modes.capillary.MarcatiliMode`. But that
+is the same for HE11, HE12 and HE13, and for a coherent wall; the general route's is always
+`solprop.modes.guide.ProviderChannelMode`; GNLSE's is `solprop.nonlinear.gnlse.SpecifiedMode`.
+Measured: HE11 to HE12 has equal length and equal `kind`, passes layout, and with the gate
+relaxed continues to `complete`, HE11's amplitudes now read as HE12's. Meanwhile a change of mode
+class with the same label refuses, and needs a rename entry if a class merely moves. The row's
+reason, "the state's basis", is the wrong way round on both counts.
+
+*Recommendation:* `modes`' length and `modes[*].label.{family, azimuthal_order, radial_order,
+parity, handedness}`, which is what identifies a row (on GNLSE it reads `specified`). Drop
+`kind`, leaving it compared, so a corrected mode model can be forced.
+
+#### Minor
+
+**F10 (minor; §5.2). The `tdse.**` reason is only partly right.** Reading only, since no provider
+was available. An archive is continued by its run UUID alone
+(`src/solprop/output/tdse_archive.py:944`). The ledgers are counts: `_validate_resume` compares
+totals and `AtomicCallLedger.from_record` takes no descriptor. The real binding is a snapshot's
+check of `descriptor_identity` and `optical_configuration_hash`
+(`src/solprop/output/snapshots.py:816`). The state itself would load. Keeping the row is still
+reasonable, as a safe refusal for a route CI cannot run, but it should say that. Note the cost:
+numbers inside `configuration_json` are exact, in the class with no override, so if R5's open
+question ever bites, a TDSE run could not be moved between platforms even by force.
+
+**F11 (minor; §1, §5.2, §5.5). Precision and statistics are not layout by the stated definition.**
+Measured on `numpy_ref` with `RungeKutta`: single to double and double to single both continue
+and complete, with `field` stored as `complex128` either way. Q7's decision stands, as a decision
+and not a fact about the file, so §5.5's "cannot be loaded" should read "or is not ours to change".
+Statistic names are true layout: plasma off fails at the first save (measured). Since names follow
+the responses, force cannot turn plasma on or off, and §5.5 should say so. `period` and
+`energy_windows` sit under the same row; neither was tested, and F4's check would settle them.
+
+**F12 (minor; §4, §5.5). The verdict table has gaps.**
+- "Complete" is undefined. `_completed` requires status `complete`. A file killed after its last
+  plane reads `running`, and measured under a forced pressure change it "continues", computes
+  nothing and becomes `complete`, flagged as forced with no plane after the position. §5.5 says
+  "something left to compute". Define it by `next_plane == len(save_planes)`, keeping the case of a
+  checkpoint owed its plane.
+- Row one's and row two's "as `resume=True`" contradict §5.5's "also accepts an interpolated last
+  plane", when there is nothing compared to force.
+- A field-free last plane without a checkpoint and a file with no plane are refused by name after
+  the comparison (`_validate_resume`, `resume`), by reading. One sentence says so.
+- `check_cache` keeps its signature, but "a complete file with numerics refuses" needs the file's
+  completion and the problem's planes, and it has only the metadata. §5.1 should say where it
+  happens.
+
+**F13 (minor; §5.5, §5.9; a judgement). Accidental force and proportion.** `"force"` is a word
+nobody types by accident, but it stays in a script, after which every later edit continues. That
+is acceptable only if each forced continuation warns then, listing `summary()`. §5.5 and §5.9
+specify that for numerics only. Two consequences the manual must state:
+- a changed launch under force has no effect at all, because `_prime` loads the stored field, so a
+  user who forces a new `energy` gets the old pulse and a flag;
+- `open_file` is also called inside a run (`src/solprop/driver/simulation.py:10315`, `src/solprop/output/snapshots.py:718`,
+  `src/solprop/driver/_scan_run.py:328`), and the package's tests run with warnings as errors, so the warning
+  belongs in the public reader's path and not on these.
+
+**F14 (minor; §5.5, §8). The doors.** `resume` is typed in `Simulation.run` and six `prop_*`
+routes (`src/solprop/driver/interface.py`), each with a docstring paragraph; §8 lists only the
+first. Its value is never validated: `if resume` and `resume != "interpolated"`, so
+`resume="forced"` acts as `True`. That fails safe, but a `ValueError` costs one line.
+`run_problem` takes `start_plane`, not `resume`, and the scan drivers have no `resume` at all, so
+"a scan never forces" holds by construction. Seven `_record_execution` calls must carry the entry;
+`run_problem` needs a parameter for it.
+
+**F15 (minor; §5.6). "Compares only the fields that define the history" needs a stored key.**
+`MarchSnapshot.method` is a `repr` string (`src/solprop/backends/multistep.py:2953`, `src/solprop/output/hdf5.py:205`), so the check must
+either parse a repr of ten fields or store something new. An attribute `history_key`, absent
+meaning "start afresh", is safe and needs no bump under §5.8. The idea itself holds: with the
+method check bypassed, raising `max_calls` continued the history on both routes, and the error
+was no worse than starting afresh ($5.4\times10^{-7}$ against $6.5\times10^{-7}$ on GNLSE,
+$9.6\times10^{-8}$ against $9.6\times10^{-8}$ on the capillary).
+
+**F16 (minor; §5.2; outside this SEP). The noise is not "used only at the launch" in one case.** A
+file holding only its entrance plane resumes at `initial_z`, and `set_initial` adds `noise0`
+(`src/solprop/backends/driver.py:1206`) to a stored field that already carries it. Measured with
+today's `resume=True`: state minus loaded field equals `noise0` to $7\times10^{-11}$ of a norm of
+17. This is not caused by this SEP, but §5.2's reason leans on the opposite, and a fix is one
+condition.
+
+**F17 (minor; a judgement). A simpler shape for the same result.** I would keep a class, because
+axes and plane positions have no other guard. With the fixes above it gets smaller: no annotation
+(F7), and a shape check on real arrays in place of the statistics rows (F4). `spatial` and `modal`
+become named leaves (F3), and `kind` goes (F9). The rest is the single condition of F1, and the
+check of F2. That serves both of the maintainer's aims better than the current table: more runs
+can be forced, and there are fewer special forms to keep.
+
+#### Checked and found correct
+
+- **Rows that earn their place.** `grid.**`: an envelope against a field grid fails only as a raw
+  `ValueError` at `_prime`. `modes`' length: see F4. `simulation_kind`: mode-averaged against
+  multimode. `quadrature`'s counts on the capillary: `n_r` and the rule change `species_ionisation`'s
+  shape, so that part of the row is right (F3 has the rest), though its reason is the per-node
+  statistic rather than the state's basis. A run without those statistics was not tried.
+- **Exact paths.** Processing locates planes by exact position (`_plane_indices`,
+  `src/solprop/processing/mixtures.py:414`), and `_recorded_basis` by the planned planes, so a
+  changed plane list really cannot use the kept record.
+- **Plasma and Raman state.** Argon to nitrogen with Raman, and Kerr off, continue and complete. By
+  reading `_write_march` and the checkpoint, nothing of a response is stored outside the march's
+  rows, so F1's fix covers it.
+- **File states.** Budget-exhausted and failed files with terminal checkpoints continue under the
+  relaxed gate, measured; the ledgers' checks in `_validate_resume` are not bypassed, by reading.
+- **§5.6's `dense and`.** `_interpolated` was false on ordinary stopped and complete files with
+  `Multistep`, `RungeKutta`, `step_planes=5` and a tighter `rtol`, with and without the checkpoint,
+  so dropping it trips nothing there.
+- **The session's outcome.** `RunOutcome.execution` takes an extra entry (measured through
+  `record_outcome`), and `previous_executions` keeps it on each new session. The annotation
+  mechanism is real, and the boundary monitor reads only its earlier execution record, never the
+  run record (`src/solprop/monitor.py:578`), so it behaves under force.
+- **`step_planes`.** `get_power_weight` refuses off-record planes by name both on a fresh
+  `step_planes` run and on one resumed with it, so adoption adds no new failure there.
+- **Combining force with an interpolated plane** is mechanically sound: an interpolated stop has no
+  snapshot, by reading `AdamsMarch.snapshot`. It bundles SEP 14's consent into a broader one, which
+  I think is acceptable provided F7 is fixed.
+
+**Not checked:** any TDSE run, since there was no provider (descriptor and archive read only); resumes
+on the Cartesian, line and planar routes, or a non-general waveguide; a snapshot of order above 2,
+so F1's history result is limited to orders 1 and 2; a real comparer or the full adoption of §5.3,
+except that `run_summary` was fed a stored record; `source=` in a run; queue and Slurm scans; a real
+pair of files from two platforms; and `src/solprop/driver/_scan_run.py`'s custom-path files with a forced file behind
+them.
