@@ -194,8 +194,8 @@ to, and which declares that light.
 **Out of scope.**
 
 - The temporal and spectral collars, settled by SEP 21.
-- A split real-space factor applied once per step: measured in phase 0, and left to the
-  roadmap (§10).
+- A split real-space factor applied once per step: measured in phase 0, and left to [#144](https://github.com/LupoLab/solprop/issues/144)
+  (§10).
 - Perfectly matched layers by complex coordinate stretching (§10).
 - Adaptive transverse windows: growing the radius during a run, remeshing, recentring.
 - The escaped field: a record of the light that leaves through the transverse boundary,
@@ -299,6 +299,42 @@ of a history-transported Strang experiment (its §4.5).
 **The roadmap item this answers.** *The real-space collar's geometry* (Numerics). It is
 covered in full and is removed from the informal list. *The boundary monitor's flux on
 spatial routes* stays, linked.
+
+**Open issues.** From a keyword search of this SEP's subjects against the open issues on 2026-11-01,
+reading those that matched. It fixes none in full.
+
+- **To resolve first, or with phase 1:**
+  - [#128](https://github.com/LupoLab/solprop/issues/128): what a monitor's resume restores. §5.3 adds launch baselines to that resume and §4.9 adds
+    totals, which a second hard kill or a clipped total would lose in the same way.
+  - [#132](https://github.com/LupoLab/solprop/issues/132): a scan point keeps no closing monitor record, so `transverse_status` (§5.3) would not
+    reach whoever reads a scan.
+  - [#94](https://github.com/LupoLab/solprop/issues/94): `quiet_collar` rests a real-space collar on the Cartesian, line and planar routes in its
+    record, while their stages keep it. A requested collar is in-stage on every route (§4.7), and must
+    stay in, so that rule has to exclude it on all of them.
+- **It changes, or meets the same code as:**
+  - [#83](https://github.com/LupoLab/solprop/issues/83): per-route verdict tests for the monitor, on routes whose grids and default change here.
+    §7.6's tests are the transverse edge's; the temporal guards' stay there.
+  - [#95](https://github.com/LupoLab/solprop/issues/95): the monitor's messages and coverage rules. It asks what coverage a fixed schedule needs
+    for the temporal guards; §5.3 answers for the transverse edge with `coarse`. Its removed fraction in
+    the run summary meets §5.3's status there.
+  - [#126](https://github.com/LupoLab/solprop/issues/126): a noise subtraction that hides a real removal, in the temporal monitor. §5.3's ramp judges
+    above the realised noise's own share, so that it does not repeat this.
+  - [#127](https://github.com/LupoLab/solprop/issues/127): the temporal guards under the split collar, the spatial routes' default. This SEP leaves that
+    scheme alone, so a pulse walking out of the time window on those routes still depends on it.
+  - [#133](https://github.com/LupoLab/solprop/issues/133): the monitor's records, in particular plane rows under interpolated planes, which §5.3's
+    reads at saved planes also meet.
+  - [#90](https://github.com/LupoLab/solprop/issues/90): the split collar on modal routes. The crossing limit of §4.7 bears on that evaluation.
+  - [#86](https://github.com/LupoLab/solprop/issues/86) and [#87](https://github.com/LupoLab/solprop/issues/87): the names to settle in 0.x, and one table for the route defaults. This SEP adds
+    `spatial_absorber` and `collar_fraction`, and changes the spatial routes' defaults.
+  - [#98](https://github.com/LupoLab/solprop/issues/98): public kernel helpers. `transverse_collar_rate`, on its list, goes with `TransverseCollar` here (§5.2).
+  - [#100](https://github.com/LupoLab/solprop/issues/100): tests on the default geometry, which changes here on every spatial route.
+  - [#84](https://github.com/LupoLab/solprop/issues/84) and [#89](https://github.com/LupoLab/solprop/issues/89): `mlx`'s monitor tests, and the monitor's memory, which the transverse reductions
+    add to (§6).
+  - [#125](https://github.com/LupoLab/solprop/issues/125) and [#141](https://github.com/LupoLab/solprop/issues/141): uses of `with_input`, which now reruns the design check under a collar (§5.2).
+- **Related SEPs and pull requests:** SEP 42 ([#142](https://github.com/LupoLab/solprop/issues/142)) replaces the resume comparison that §5.2's key
+  feeds, and holds its first frozen records and 0.2.0 for this SEP. SEP 41 ([#143](https://github.com/LupoLab/solprop/issues/143)) registers the
+  free-space types only after this SEP. [#140](https://github.com/LupoLab/solprop/pull/140) changes what
+  `backend="auto"` says on `numba_cpu`, which §6 relies on.
 
 ### 4. Theory
 
@@ -1025,7 +1061,9 @@ a launch with a share $s$ in the band could lose up to $s$ and read zero.
   recorded.
 
 **What a run reports.** A monitor that did not read the edge must not look like one that read it and found
-nothing. The monitor's record and its end-of-run log carry a `transverse_status`:
+nothing. The monitor's record and its end-of-run log carry a `transverse_status`, and the summary shown
+at the start of every run says what it will be able to report, so that `coarse`, `unwatched` and `off` are
+visible before the first step:
 
 | status | meaning | said at the start |
 |---|---|---|
@@ -1399,7 +1437,7 @@ also comes to refuse a requested collar, which it runs today.
   widths, with floors of $\kappa_p w \ge 14.5$ and 16.2 against Planck's 22.3, but reflect up to
   $2\times10^{-4}$ at the periodic grid's wrap point, where they meet 1 with a finite slope. They would
   need a smooth top, which was never calibrated, and the design check would have to be rerun on it.
-  They go to the roadmap at Final.
+  They are left to [#145](https://github.com/LupoLab/solprop/issues/145).
 - **Protecting less,** lowering the band to what the width supports. The band opens only by
   *raising* $\kappa_p$, and that measured worst.
 - **The direction-resolving monitor on the default.** It reads below its warning on the suite
@@ -1420,7 +1458,7 @@ also comes to refuse a requested collar, which it runs today.
   collar, and holding $10^{-4}$ needed $c_\times$ of 0.25 to 0.06, depending on the launch. It is
   incompatible with the Adams and low-storage histories. Most of its potential, about 2–2.7 times on
   Cartesian at a tight tolerance, is the in-stage pass's own overhead, of which this SEP removes
-  the needless temporal pair. It goes to the roadmap at Final, with the accuracy cap it would need.
+  the needless temporal pair. It is left to [#144](https://github.com/LupoLab/solprop/issues/144), with the accuracy cap it would need.
 - **A step limit covering the intermediate band** (`cover="intermediate"` in the first version).
   It costs +1–3 % of steps, +11 % at most, with a floor of $L\kappa_s/(c_\times w k_{z,\min})$ that
   grows on fine grids and long runs. Under adaptive stepping it bought nothing measurable,
@@ -1476,11 +1514,11 @@ pair. The native Adams march's inward current.
 
 - `numba_cpu`'s default parts, with parity.
 - The device backends' default path, compile-checked, with their qualification left to the standing
-  policy as a roadmap item.
+  policy in an issue.
 - The default's overhead against §7.7's limit, on both CPU backends, before it is enabled.
 - The suite's spatial cases, the galleries, the benchmark ledger, the changelog and the Luna page.
-- Roadmap items: the split scheme, with its measured potential and accuracy cap; the polynomial
-  profiles.
+- Issues for what is left at `Final` (SEP 0). The split scheme and the polynomial profiles are already
+  there, [#144](https://github.com/LupoLab/solprop/issues/144) and [#145](https://github.com/LupoLab/solprop/issues/145).
 
 ### 12. Open questions
 
@@ -1496,9 +1534,9 @@ Part II and Part III record what changed and why.
    collar. They are not applied implicitly, because a grid counts its samples and is built before
    the absorber (§5.1).
 3. **Q3 — the profile.** *Decided:* the Planck taper's complement, confirmed by phase 0, and the only
-   one offered. The polynomials go to the roadmap, and the singular profile is dropped.
+   one offered. The polynomials go to [#145](https://github.com/LupoLab/solprop/issues/145), and the singular profile is dropped.
 4. **Q4 — the scheme and the integrator.** *Decided:* in-stage only, keeping `Multistep` as the
-   radial and planar default under a collar. The split goes to the roadmap, and `cover` is dropped
+   radial and planar default under a collar. The split goes to [#144](https://github.com/LupoLab/solprop/issues/144), and `cover` is dropped
    (§10). Whether SEP 21's split temporal collar needs the analogous crossing limit is already on
    the roadmap.
 5. **Q5 — the default protected band.** *Decided:* the launch times $c_b = 3$, as the band's default
@@ -2209,6 +2247,11 @@ main beam with a share $s$ added at $0.97\,k_N$, over the same 0.2 mm, under the
 - 2026-11-01: Accepted again (John Travers), as revised for R36–R42. Status `Accepted`; Part I is frozen
   from here, and deviations go in Part II. Q8 stays deferred to phase 1 (§12). Next: merging main into this
   branch, then phase 1 on `numpy_ref`, whose first commit sets `In progress`.
+- 2026-11-01: Tracking issue: [#124](https://github.com/LupoLab/solprop/issues/124). Brought to the standard of ADR-062 at the maintainer's request,
+  before the acceptance merges, as SEP 41 and SEP 42 were: §3 lists the open issues, and the work this SEP
+  gives back goes to [#144](https://github.com/LupoLab/solprop/issues/144) and [#145](https://github.com/LupoLab/solprop/issues/145) in place of the roadmap (§2, §10, §11, §12). §5.3 also puts the
+  status in the summary at the start of a run, which R38 asked for and the revision had missed. Part I is
+  otherwise unchanged, and the design is the one accepted.
 
 ### AI review — 2026-10-31 (GPT-6)
 

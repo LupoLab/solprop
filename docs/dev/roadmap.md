@@ -37,8 +37,9 @@ being implemented.
   monitor that stops a run whose light reaches the edge. A real-space collar outside the aperture
   on request, for declared fast content, sized by a protected band rather than the run length and
   checked at translation by propagating the launch through it, with a removal ledger. A split
-  factor, polynomial profiles, perfectly matched layers, adaptive transverse windows, the escaped
-  transverse field and a flux-weighted spatial ledger remain open.
+  factor and polynomial profiles are left to issues [#144](https://github.com/LupoLab/solprop/issues/144) and [#145](https://github.com/LupoLab/solprop/issues/145). Perfectly matched layers,
+  adaptive transverse windows, the escaped transverse field and a flux-weighted spatial ledger remain
+  open. Tracking issue: [#124](https://github.com/LupoLab/solprop/issues/124).
 
 ## Draft enhancement proposals
 
