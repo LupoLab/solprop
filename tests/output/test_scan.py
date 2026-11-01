@@ -23,7 +23,7 @@ from solprop.exceptions import OutputError, ProcessingError
 from solprop.output._file_lock import lock, unlock
 from solprop.output._scan_lock import lock_path, read_scan
 from solprop.output.hdf5 import _dataset, _group
-from solprop.output.scan import PointResult, ScanWriter
+from solprop.output.scan import PointResult, ScanWriter, _hash, _json, read_point
 from solprop.output.schema import _example_metadata
 from solprop.processing.scans import ScanOutput
 from solprop.processing.scans import open as open_scan
@@ -260,6 +260,59 @@ def test_scan_recovers_after_layout_removal_and_preserves_embedded_metadata(tmp_
     assert cast(Mapping, ScanOutput(path).point(0)["metadata"])["extension"] == [1, 2]
     ScanWriter(path, scan, {}).close()
     assert ScanOutput(path).status.tolist() == ["done"]
+
+
+def _declare_schema(path, index, version):
+    """Point a staged record's schema_version at a common record of `version`."""
+    with h5py.File(path, "a") as file:
+        text = _json(version)
+        digest = _hash(text)
+        if f"common/{digest}" not in file:
+            _group(file, "common").create_dataset(
+                digest, data=text, dtype=h5py.string_dtype()
+            )
+        group = _group(file, f"staged/{index}")
+        references = json.loads(str(group.attrs["metadata_refs"]))
+        references["schema_version"] = {"ref": digest}
+        group.attrs["metadata_refs"] = json.dumps(references)
+
+
+def test_scan_of_another_output_schema_is_refused_by_every_route(tmp_path):
+    # A 0.1.0 scan: the same container, records declaring output schema 1.
+    path = tmp_path / "scan.h5"
+    scan = Scan("scan", x=[1, 2, 3])
+    writer = ScanWriter(path, scan, {})
+    writer.commit(result(0))
+    writer.commit(dataclasses.replace(result(1), status="failed", arrays={}))
+    writer.close()
+    _declare_schema(path, 1, 1)
+    refusal = "scan point 1: this record declares output schema_version 1, and this"
+    with pytest.raises(OutputError, match=refusal):
+        ScanOutput(path)
+    with pytest.raises(OutputError, match=refusal):
+        read_point(path, 1)
+    with pytest.raises(OutputError, match=refusal):
+        ScanWriter(path, scan, {})
+    # Refused before anything was dispatched or committed.
+    with h5py.File(path, "r") as file:
+        status = np.asarray(_dataset(file, "points/status").asstr()[...])
+    assert status.tolist() == ["done", "failed", "todo"]
+    # The point of this release's schema is still read alone.
+    assert cast(Mapping, read_point(path, 0)["metadata"])["schema_version"] == 2
+
+
+def test_scan_of_this_output_schema_reads_as_before(tmp_path):
+    path = tmp_path / "scan.h5"
+    scan = Scan("scan", x=[1, 2])
+    writer = ScanWriter(path, scan, {})
+    writer.commit(result(0))
+    writer.commit(result(1))
+    writer.close()
+    _declare_schema(path, 0, 2)
+    reader = ScanOutput(path)
+    assert reader.status.tolist() == ["done", "done"]
+    assert reader.as_grid("stats/energy").shape == (2, 3, 2)
+    ScanWriter(path, scan, {}).close()
 
 
 def test_scan_writer_refuses_to_demote_a_completed_point(tmp_path):

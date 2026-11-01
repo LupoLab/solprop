@@ -873,3 +873,4 @@ GPU experiments or prototype tuning study were performed for this proposal.
   §9's disclaimer of bitwise equality across FFT planners and BLAS libraries stays,
   naming the two kinds of bound. Configuration hashes, plan and report digests and
   witness digests remain exact identity checks.
+- 2026-11-01: Tracking issue [#115](https://github.com/LupoLab/solprop/issues/115).

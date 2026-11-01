@@ -838,3 +838,4 @@ No implementation phases have started.
   the planned manual location. Fixed-response evaluator work remains SEP 1; density
   compression remains SEP 10. Extraction does not constitute standalone acceptance
   or a completed standalone review.
+- 2026-11-01: Tracking issue [#123](https://github.com/LupoLab/solprop/issues/123).

@@ -19,6 +19,17 @@ All notable changes to solprop are recorded here. The format follows
 
 ### Changed
 
+- `backend="auto"` now warns, once per process, whenever it chooses `numba_cpu`: when
+  `solprop-native` is not installed as well as on a processor below its wheel's baseline.
+  The warning says how to install the native backend; an explicit `backend="numba_cpu"`
+  does not warn. The README and manual now recommend the native backend by default and
+  describe `numba_cpu` as its slower fallback, with the 0.1.0 measurements. They no longer
+  advise `numba_cpu` for scans of one-thread workers, which the history does not support,
+  and they now say that only GPU builds refuse z-tabulated problems.
+- Planned work is moving to [GitHub issues](https://github.com/LupoLab/solprop/issues),
+  labelled by type, priority and area: new work goes there and not on the roadmap, whose
+  entries move as issues take them over (ADR-062). Issue templates and `CONTRIBUTING.md`
+  say what an issue or a pull request should hold and what to check before opening one.
 - The README, `CITATION.cff` and the citing page name solprop's Zenodo DOI,
   [10.5281/zenodo.23854248](https://doi.org/10.5281/zenodo.23854248), which covers
   every release.
@@ -63,6 +74,11 @@ All notable changes to solprop are recorded here. The format follows
 
 ### Fixed
 
+- A scan file whose points' run records declare another output schema, a 0.1.0 scan
+  among them, is refused by name, in the words a run file is refused with, when it is
+  read (`ScanOutput`, `read_point`) or resumed or collected (`run_scan`, a queue's
+  collector). Before, only the scan container's own version was checked, and that
+  stayed 1, so such a scan was read as if its layout were this release's.
 - Under input noise, the boundary monitor subtracts at most one floor from the collar's
   removal: the floor is put in once at the launch and cannot lose more. It subtracted
   the floor's rate over the whole run, about 37 floors under the default collar, so a

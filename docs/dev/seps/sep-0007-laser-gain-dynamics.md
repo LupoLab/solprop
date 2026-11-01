@@ -1105,3 +1105,4 @@ is an algebraic consistency check, not experimental evidence.
   explicit acceptance questions.
 - 2026-10-26: Added a note to §4.6 that stochastic ASE needs the noise to see only the
   emission gain, through a separate injection path or a gain Langevin term (SEP 37).
+- 2026-11-01: Tracking issue [#117](https://github.com/LupoLab/solprop/issues/117).

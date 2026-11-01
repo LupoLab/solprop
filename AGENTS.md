@@ -6,7 +6,8 @@ Working instructions for coding agents (and people) in this repository.
 [`docs/dev/index.md`](docs/dev/index.md), then [`architecture.md`](docs/dev/architecture.md)
 and [`conventions.md`](docs/dev/conventions.md). This file is the short form: the rules,
 each with a pointer to the page that explains it. Those pages win on any detail.
-[`CONTRIBUTING.md`](CONTRIBUTING.md) is the short guide for a first contribution.
+[`CONTRIBUTING.md`](CONTRIBUTING.md) is the short guide for a first contribution, and holds
+the standard for issues and pull requests.
 
 **Rules marked ⚙ are enforced automatically** by the ruff, basedpyright, numpydoc,
 codespell, reuse and pytest configuration in `pyproject.toml`. The configuration is the
@@ -31,6 +32,7 @@ rather than style, ask rather than guess.
 | Backends | In tiers (ADR-061). Tier 1, the core: the NumPy reference (`numpy_ref`, the oracle) and the native backend (`native`, the `solprop-native` distribution built from `native/`: preferred when installed, and the GPU path). Tier 2, mature: Numba CPU (`numba_cpu`, in-tree). Tier 3, experimental: `mlx` (single precision on Apple GPUs) |
 | Materials | [optmat](https://github.com/LupoLab/optmat), the curated optical-materials package |
 | Design docs | `docs/dev/` — architecture, conventions, stepper, algorithms, backends, kernel contract, decisions, roadmap, open questions, testing, accuracy, benchmarks, benchmarking, dependencies, tooling |
+| Planned work | [GitHub issues](https://github.com/LupoLab/solprop/issues): new open work goes in an issue, not on the roadmap, which takes no new items and is being moved there (ADR-062). [`CONTRIBUTING.md`](CONTRIBUTING.md) says how to write an issue and how to label an issue or a pull request |
 | Enhancement proposals | `docs/dev/seps/` — SEPs for major changes; process in SEP 0 (`sep-0000-process.md`), form in `template.md` |
 
 ---
@@ -179,8 +181,9 @@ The long form is [SEP 0](docs/dev/seps/sep-0000-process.md); the index is
   kernel-contract changes; new backends; process changes. Not for fixes, documentation,
   tests, refactoring, tooling, or optimisations that leave results unchanged.
 - **Writing one.** Copy `template.md` to `sep-NNNN-short-slug.md` with the next free
-  number, add it to the index and the roadmap's draft section, and merge it early as
-  `Draft` from a `docs/sep-NNNN-…` branch. A SEP stands alone: it cites solprop's,
+  number, add it to the index and the roadmap's draft section, list in its *Context* the
+  open issues it will fix or that must be resolved first (search them), open its tracking
+  issue (SEP 0), and merge it early as `Draft` from a `docs/sep-NNNN-…` branch. A SEP stands alone: it cites solprop's,
   solprop-native's and optmat's own docs and code, the literature (with DOIs) and public
   reports — never another code's source, local paths, machines or private notes. Theory
   is re-derived in SI units and the conventions of `conventions.md`; it compares options
@@ -202,7 +205,8 @@ The long form is [SEP 0](docs/dev/seps/sep-0000-process.md); the index is
   run, sources checked and not checked, limitations, numbered open questions and a
   handoff.
 - **Finishing.** At `Final`, the manual pages the SEP produced link to it, its open
-  questions move to the roadmap or to issues, and the `CHANGELOG.md` line cites it.
+  questions move to issues, its tracking issue closes, and the `CHANGELOG.md` line cites
+  it.
 
 ---
 
@@ -449,6 +453,9 @@ The long form is [`testing.md`](docs/dev/testing.md).
   commits rather than one large one. Stage deliberately with `git add <paths>`.
 - Changes reach `main` as pull requests with green CI, or by a local merge when the
   maintainers ask for one.
+- **Before opening an issue or a pull request,** read [`CONTRIBUTING.md`](CONTRIBUTING.md):
+  search the issues, the pull requests and the SEPs, link what is related, and follow its
+  sections and labels.
 - **Coding agents:** merge, push, tag or release only when asked; never run a
   destructive or history-rewriting command (`git reset --hard`, `git checkout .`,
   `git restore` over uncommitted changes, `git clean`, `git commit --amend`,

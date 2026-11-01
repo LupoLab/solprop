@@ -13,8 +13,12 @@ ADR-013, ADR-020, ADR-023, ADR-061.
 
 Public simulation settings default to `backend="auto"`. `resolve_name` probes the
 native package without importing it, resolves to `"native"` if present and otherwise
-`"numba_cpu"`, and stores that name before execution or worker transfer. Explicit names
-are preserved. `select` also accepts `"auto"` and logs the actual backend at INFO after
+`"numba_cpu"`, and stores that name before execution or worker transfer. Choosing
+`"numba_cpu"` this way emits a `SolpropWarning` once per process, because a run on the
+Tier 2 fallback (§10) should be a choice: it says why and how to install the native
+backend. Explicit names are preserved and do not warn; the warning fires only on
+resolution, so workers holding a stored name stay quiet. `select` also accepts `"auto"` and
+logs the actual backend at INFO after
 successful construction. Import, schema, device and unsupported-problem errors never
 cause fallback. This selection policy changes no kernel-contract member (ADR-029).
 
@@ -1737,7 +1741,8 @@ can be slower than binary64 `native`, and the guide sends single-precision grids
 precision (or a per-backend transform cost), a macOS `mlx` CI job (coverage with a
 recorded floor, the runtime type checks, basedpyright on `mlx_gpu`), the default
 in-stage collar's tests restored on the default geometry, bounds against the oracle
-that can detect an `mlx` error, and a re-timing on an idle machine (roadmap).
+that can detect an `mlx` error, and a re-timing on an idle machine
+([#85](https://github.com/LupoLab/solprop/issues/85)).
 
 **The envelope-grid plasma** (`mlx_gpu/envelope.py`, SEP 33 §6.3) is one kernel thread
 per sample: native's closed-form ellipse (`envelope_axes`: the scaled Gram matrix's
@@ -2002,8 +2007,9 @@ with the reference, and refuses the rest by name.
 
 A SEP is final when its feature runs on both Tier 1 backends with parity tests
 ([SEP 0](seps/sep-0000-process.md)). A backend moves between tiers by a new decision
-record, and a new backend starts in Tier 3. `backend="auto"` is `numba_cpu` where the
-native backend is not installed or the processor is below its wheel's baseline (§1), and
+record, and a new backend starts in Tier 3. `backend="auto"` is `numba_cpu`, with a
+warning, where the native backend is not installed or the processor is below its wheel's
+baseline (§1), and
 the documentation build installs no native backend, so a feature that `numba_cpu` does
 not run is refused there by name, and its lessons and tutorials name `numpy_ref`.
 
