@@ -228,4 +228,7 @@ def test_tracked_definitions_change_only_with_a_new_revision():
         ("kerr_beam_384", 1, "88c44c3d288c"),
         ("kerr_beam_192", 1, "1c8baa576a04"),
     ]
-    assert {case.revision for case in CASES.values()} == {1}
+    # spatial_absorber is at revision 2: SEP 40 gave it a requested collar.
+    revisions = {case.name: case.revision for case in CASES.values()}
+    assert revisions.pop("spatial_absorber") == 2
+    assert set(revisions.values()) == {1}

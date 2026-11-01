@@ -429,13 +429,13 @@ _FREE = (
     ),
     Case(
         "spatial_absorber",
-        1,
+        2,
         ("free-space",),
         "prop_radial",
         "spatial",
         0.08,
-        (64, 576, 1152),
-        "radial Kerr beam meeting its absorbing boundary",
+        (230, 576, 1152),
+        "radial Kerr beam with a requested real-space collar (SEP 40), room 2.6 R",
     ),
 )
 
