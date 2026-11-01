@@ -11,7 +11,7 @@
 | **Reviewers** | John Travers (human); Opus 5.5 (AI) |
 | **Type** | Change |
 | **Created** | 2026-10-31 |
-| **Resolution** | — |
+| **Resolution** | Accepted 2026-11-01 by John Travers, after the maintainer's human review, two AI reviews and the responses to them, and decisions Q1–Q7 (Part III) ([LupoLab/solprop#73](https://github.com/LupoLab/solprop/pull/73)). |
 | **Requires** | — |
 | **Supersedes** | — |
 | **Superseded-by** | — |
