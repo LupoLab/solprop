@@ -176,3 +176,26 @@ def test_a_resume_judges_against_the_original_launch(tmp_path: Path) -> None:
     assert resumed["edge_baseline"] == expected["edge_baseline"]
     assert resumed["launch_energy"] == pytest.approx(expected["launch_energy"])
     assert max(resumed["edge_max"]) == pytest.approx(max(expected["edge_max"]), rel=0.1)
+
+
+def test_the_start_of_run_summary_says_what_the_edge_can_report() -> None:
+    from solprop.driver.summary import run_summary  # noqa: PLC0415
+    from solprop.output import MemoryOutput  # noqa: PLC0415
+
+    simulation = suite(1.5, None)
+    problem, metadata = simulation.translate(), simulation.metadata()
+
+    def row(backend: str, check: BoundaryCheck | None) -> str:
+        summary = run_summary(
+            problem,
+            metadata,
+            backend=backend,
+            execution={},
+            output=MemoryOutput(),
+            boundary_check=check,
+        )
+        return str(dict(summary.rows)["transverse edge"])
+
+    assert "watched" in row("numpy_ref", BoundaryCheck())
+    assert "unwatched on numba_cpu" in row("numba_cpu", BoundaryCheck())
+    assert row("numpy_ref", None).endswith("off (boundary_check=None)")
