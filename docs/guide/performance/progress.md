@@ -156,7 +156,8 @@ A run into a plane store (memory or HDF5) also keeps it, as the annotation
 (`handler.annotations["run_summary"]`): a list of `{"title", "rows"}`, to which a resume
 adds its own. It is a description for a person; a program should read the run's
 [metadata](../results/provenance.md), which holds all of it. The points of a
-[scan](../workflows/scans.md) run with `progress="none"` and show no summary.
+[scan](../workflows/scans.md) run with `progress="none"` and show no summary, unless a
+[scan reporter](#watching-a-scan) asks to watch them.
 
 ### The ETA, and why it says where it came from
 
@@ -225,3 +226,36 @@ anything it does must be cheap or be put on a clock of its own — the line repo
 own `step` costs about 100 ns, five times the bare cost of the call.
 Nothing a reporter does may change the run: the calls are observers made after each step
 is decided, and a run with a reporter is the same computation as a run without one.
+
+### Watching a scan
+
+A [scan](../workflows/scans.md) shows one outer bar, or one line per point, and its
+points run silently. A program that draws its own display passes `run_scan` a
+{py:class}`~solprop.log.ScanReporter` as `progress=` instead: `scan_started(n_points)`,
+`point_started(index, point)`, `point_finished(index, status, wall)` and
+`scan_finished()`, all made in the process and thread that called `run_scan`. A
+{py:class}`~solprop.log.WatchingScanReporter` also has `point_reporter(index)`, which
+returns the `ProgressReporter` that point's run reports to, or `None`.
+{py:class}`~solprop.log.NullScanReporter` supplies a no-op for each call.
+
+```{code-block} python
+from solprop.log import NullReporter, NullScanReporter
+
+class Points(NullScanReporter):
+    def point_finished(self, index, status, wall):
+        table.mark(index, status)
+
+    def point_reporter(self, index):
+        return Bar()  # the reporter above, one per point
+
+run_scan(scan, build_point, output="scan.h5", executor=Pool(4), progress=Points())
+```
+
+On `Local` the point's reporter gets every call, in this process. A `Pool` worker sends
+its run's `summary`, `started`, `plane`, `finished` and `interrupted` calls to the
+controller on its pipe, where they are made on the point's reporter as they arrive: a
+plane carries its position and the four scalars of its summary (steps, rejected steps,
+largest error norm, wall time), never a field, and `step` is not sent at all, since it is
+called thousands of times a second. `Batch`, `Queue` and `Slurm` report only the points'
+boundaries, as their results are collected. The table per executor, and the scan's
+`stop=` flag, are in [watching and stopping a scan](../workflows/scans.md#watching-and-stopping-a-scan).

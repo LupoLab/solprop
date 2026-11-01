@@ -407,6 +407,22 @@ def _run(group: Sequence[_Prepared], work: _Work) -> Iterator[PointResult]:
     yield from results
 
 
+def _stopping(work: _Work) -> bool:
+    """Return whether the scan's stop flag is set.
+
+    Parameters
+    ----------
+    work : _Work
+        The scan's work, which holds the caller's flag.
+
+    Returns
+    -------
+    bool
+        True once the flag is set.
+    """
+    return work.stop is not None and work.stop.is_set()
+
+
 def execute(
     jobs: Iterable[_Job], work: _Work, executor: Batch
 ) -> Iterator[PointResult]:
@@ -444,6 +460,14 @@ def execute(
         members = (BatchMember(index, one.simulation) for index, one in pending.items())
         for compatible in compatible_groups(members, executor.size):
             group = tuple(pending[member.index] for member in compatible)
+            if _stopping(work):
+                # Between groups (SEP 41, S17): a claimed group not yet run is given
+                # back, so a rerun computes it.
+                yield from (work.stopped(member.job) for member in group)
+                continue
             count = _admit(group, work, executor)
             for admitted in batched(group, count, strict=False):
+                if _stopping(work):
+                    yield from (work.stopped(member.job) for member in admitted)
+                    continue
                 yield from _run(admitted, work)

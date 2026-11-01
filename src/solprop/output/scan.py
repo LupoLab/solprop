@@ -100,7 +100,8 @@ class PointResult:
     index : int
         Global scan index.
     status : str
-        Done, failed, skipped or conflict.
+        Done, failed, skipped, conflict, or stopped: a point a stop flag stopped
+        (SEP 41, S17), which is never committed, so a rerun computes it.
     configuration_hash : str
         Single-run configuration digest, empty if construction failed.
     metadata_json : str

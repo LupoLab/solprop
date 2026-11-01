@@ -250,7 +250,85 @@ worker, so no translated native objects cross process boundaries.
 `python -m solprop.scan scan_script.py --local` sets the executor from the command line;
 an executor supplied explicitly by the script takes precedence. One outer progress bar is
 shown interactively (`progress=` of `run_scan`); otherwise progress is logged per point.
-Individual runs never draw their own bars.
+Individual runs never draw their own bars; a [scan reporter](#watching-and-stopping-a-scan)
+can watch them.
+
+## Watching and stopping a scan
+
+`progress=` of `run_scan` takes, beside `"auto"`, `"bar"`, `"log"` and `"none"`, a
+{py:class}`~solprop.log.ScanReporter`: an object with four methods, which replaces the
+bar and the per-point lines. `scan_started(n_points)` is called once with the number of
+selected points, `point_started(index, point)` and `point_finished(index, status, wall)`
+once for each point dispatched or collected, and `scan_finished()` once when the scan
+returns. The status is `"done"`, `"failed"`, `"skipped"` (complete in the file),
+`"conflict"` (complete, with a stored record that agrees but for rounding, and kept) or
+`"stopped"` (below); `wall` is the point's build and run time in seconds as its worker
+measured it. A reporter that also has `point_reporter(index)`
+({py:class}`~solprop.log.WatchingScanReporter`) is asked, before each point runs, for a
+{py:class}`~solprop.log.ProgressReporter` that receives that point's own run
+([writing your own](../performance/progress.md#writing-your-own)), or `None` for none.
+Subclass {py:class}`~solprop.log.NullScanReporter` and override what you need:
+
+```{code-block} python
+import threading
+
+from solprop.driver.executors import Pool
+from solprop.driver.scan import run_scan
+from solprop.log import NullReporter, NullScanReporter
+
+
+class Plane(NullReporter):
+    def __init__(self, index):
+        self.index = index
+
+    def plane(self, z, summary):
+        print(f"point {self.index}: z = {z:.4f} m, {summary.n_steps} steps")
+
+
+class Points(NullScanReporter):
+    def point_finished(self, index, status, wall):
+        print(f"point {index} {status} in {wall:.1f} s")
+
+    def point_reporter(self, index):
+        return Plane(index)
+
+
+stop = threading.Event()  # set from a button, another thread or a signal handler
+result = run_scan(
+    scan, build_point, output="scan.h5", executor=Pool(4), progress=Points(), stop=stop
+)
+```
+
+What an executor reports differs, because the points run in different places:
+
+| executor | `point_started` | the point's own run |
+|---|---|---|
+| `Local` | when the point is built, in this process | every call, `step` included, in this process |
+| `Pool` | when the point is sent to a worker | `summary`, `started`, `plane`, `finished` and `interrupted`, sent by the worker on its pipe and made in the controller as they arrive; each plane carries its position and the four scalars of its summary, never a field, and `step`, on the hot path, is not sent |
+| `Batch`, `Queue`, `Slurm` | when the point's result is collected, just before `point_finished` | none |
+
+All the calls are made in the process and thread that called `run_scan`.
+
+`stop=` takes the scan's stop flag: any object with an `is_set()` method, such as a
+{py:class}`threading.Event`, which a front end sets from any thread on any platform
+without signals. Once it is set no further point is dispatched, and a point already
+running stops as its executor allows:
+
+| executor | `stop=` |
+|---|---|
+| `Local` | the point in flight polls the flag before every trial step, as `Simulation.run(stop=...)` does, and stops within one step |
+| `Pool` | the controller sends each busy worker a stop message on its pipe, which that worker's run polls before every trial step; it then collects the workers' results and shuts them down. Terminating a worker that does not exit remains the last resort |
+| `Batch` | between groups: a group that has started runs to its end, and the claimed points of a group not yet run are given back |
+| `Queue`, `Slurm` | refused, with an error naming the queue's own tools: the points run in other processes or on other machines, which a flag in this process cannot reach. Use `scancel` for a Slurm job, or stop a queue's controllers with SIGTERM |
+
+A stopped point is not committed: the file holds the points finished before the stop,
+the stopped point and those never dispatched are left as they were (`todo`, or `failed`
+for one being retried), and a rerun of the same call computes them, skipping the
+complete ones as usual. `run_scan` returns normally after a stop, logs at `INFO` that the
+caller's flag stopped it with the counts of collected and stopped points, and tells a
+scan reporter `"stopped"` for each stopped point; a watched point's reporter is told
+through `interrupted`, with a `StopRequested` error that carries the caller's flag. The design is [SEP 41](../../dev/seps/sep-0041-recipes-and-front-ends.md),
+S4 and S17.
 
 ## Noise and repeatability
 
@@ -413,8 +491,9 @@ a live lock file would create a second lock inode and defeat mutual exclusion.
 ```{note}
 Recovery has known limits. A live but wedged owner on the same host holds its point
 indefinitely, because the lease age is not consulted while its process is alive: stop
-that process to release the point. An interrupted `Local` or `Pool` scan skips its
-`running` points for `stale_age` seconds on restart. Container memory limits are read
+that process to release the point. A `Local` or `Pool` scan interrupted by a signal or a
+crash, rather than stopped by its `stop=` flag, skips its `running` points for
+`stale_age` seconds on restart. Container memory limits are read
 from the root cgroup rather than the process's own cgroup, so on a shared node under a
 cgroup manager without Slurm variables the workers can be given too much memory; a failing
 platform probe raises outside the {py:class}`~solprop.exceptions.SolpropError`

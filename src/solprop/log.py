@@ -42,11 +42,14 @@ __all__ = [
     "InterruptibleReporter",
     "LogReporter",
     "NullReporter",
+    "NullScanReporter",
     "PlaneSummary",
     "ProgressChoice",
     "ProgressReporter",
     "ProgressStatus",
+    "ScanReporter",
     "SummarisingReporter",
+    "WatchingScanReporter",
     "configure_logging",
     "default_progress",
     "default_reporter",
@@ -464,6 +467,177 @@ class SummarisingReporter(ProgressReporter, Protocol):
         text : str
             The summary block, one line per row, without a trailing newline.
         """
+
+
+@runtime_checkable
+class ScanReporter(Protocol):
+    """Receive the progress of a parameter scan, point by point (SEP 41, S4).
+
+    :func:`solprop.driver.scan.run_scan` takes one as ``progress=`` in place of its
+    named choices and then draws no display of its own. Four calls:
+    :meth:`scan_started` once, :meth:`point_started` and :meth:`point_finished` once
+    for each point dispatched or collected, and :meth:`scan_finished` once when the
+    scan returns, stopped by its flag or not; an exception from the scan propagates
+    without it. The calls are made in the controlling process, in the thread that
+    called ``run_scan``. When a point starts depends on the executor: ``Local`` at its
+    build, ``Pool`` when the point is sent to a worker, and ``Batch``, ``Queue`` and
+    ``Slurm`` only when its result is collected, just before :meth:`point_finished`. A
+    reporter that also wants each point's own run implements
+    :class:`solprop.log.WatchingScanReporter`.
+
+    Subclass :class:`solprop.log.NullScanReporter` to implement only the calls you care
+    about.
+
+    Examples
+    --------
+    >>> isinstance(NullScanReporter(), ScanReporter)
+    True
+    """
+
+    def scan_started(self, n_points: int) -> None:
+        """Record that a scan has begun.
+
+        Parameters
+        ----------
+        n_points : int
+            The selected points, those a rerun skips as complete included.
+        """
+
+    def point_started(self, index: int, point: object) -> None:
+        """Record that a point has been dispatched.
+
+        Parameters
+        ----------
+        index : int
+            The point's global index.
+        point : solprop.driver.scan.ScanPoint
+            Its values and seed.
+        """
+
+    def point_finished(self, index: int, status: str, wall: float) -> None:
+        """Record that a point's result has been collected.
+
+        Parameters
+        ----------
+        index : int
+            The point's global index.
+        status : str
+            ``"done"``; ``"failed"``; ``"skipped"`` for a point complete in the file;
+            ``"conflict"`` for a complete point whose stored record agrees but for
+            rounding, neutral values or provenance, which is kept; or ``"stopped"``
+            for a point the stop flag stopped, which is not committed and a rerun
+            computes again.
+        wall : float
+            The point's build and run time as its worker measured it, s; for a batch
+            member, its group's.
+        """
+
+    def scan_finished(self) -> None:
+        """Record that the scan has returned."""
+
+
+@runtime_checkable
+class WatchingScanReporter(ScanReporter, Protocol):
+    """A scan reporter that also watches each point's own run (SEP 41, S4).
+
+    Before a point runs, the scan asks for a :class:`ProgressReporter` for it, which
+    then receives that run's calls. ``Local`` runs the point with it in this process.
+    A ``Pool`` worker sends the point's ``summary``, ``started``, ``plane``,
+    ``finished`` and ``interrupted`` calls to the controller, which makes them on the
+    reporter returned here as the messages arrive; each plane carries its position and
+    the four scalars of its :class:`PlaneSummary`, never a field, and ``step``, on the
+    hot path, is not sent. ``Batch``, ``Queue`` and ``Slurm`` ask for none.
+
+    Examples
+    --------
+    >>> isinstance(NullScanReporter(), WatchingScanReporter)
+    True
+    """
+
+    def point_reporter(self, index: int) -> ProgressReporter | None:
+        """Return the reporter for one point's run, or ``None`` for none.
+
+        Parameters
+        ----------
+        index : int
+            The point's global index.
+
+        Returns
+        -------
+        ProgressReporter or None
+            Where the point's run reports; ``None`` runs it silently.
+        """
+        ...
+
+
+class NullScanReporter:
+    """A scan reporter that does nothing, and the base for one that does something.
+
+    Every method is a no-op and :meth:`point_reporter` returns ``None``, so a subclass
+    overrides only what it wants:
+
+    Examples
+    --------
+    >>> class Count(NullScanReporter):
+    ...     def point_finished(self, index, status, wall):
+    ...         print(index, status)
+    >>> isinstance(Count(), ScanReporter)
+    True
+    >>> Count().point_reporter(0) is None
+    True
+    """
+
+    def scan_started(self, n_points: int) -> None:
+        """Ignore the event.
+
+        Parameters
+        ----------
+        n_points : int
+            See :meth:`ScanReporter.scan_started`.
+        """
+
+    def point_started(self, index: int, point: object) -> None:
+        """Ignore the event.
+
+        Parameters
+        ----------
+        index : int
+            See :meth:`ScanReporter.point_started`.
+        point : object
+            See :meth:`ScanReporter.point_started`.
+        """
+
+    def point_finished(self, index: int, status: str, wall: float) -> None:
+        """Ignore the event.
+
+        Parameters
+        ----------
+        index : int
+            See :meth:`ScanReporter.point_finished`.
+        status : str
+            See :meth:`ScanReporter.point_finished`.
+        wall : float
+            See :meth:`ScanReporter.point_finished`.
+        """
+
+    def scan_finished(self) -> None:
+        """Ignore the event."""
+
+    def point_reporter(self, index: int) -> ProgressReporter | None:
+        """Watch no point.
+
+        Parameters
+        ----------
+        index : int
+            See :meth:`WatchingScanReporter.point_reporter`.
+
+        Returns
+        -------
+        None
+            The point runs silently.
+        """
+        del index
+        return None
 
 
 class NullReporter:
