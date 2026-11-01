@@ -19,6 +19,13 @@ All notable changes to solprop are recorded here. The format follows
 
 ### Changed
 
+- `backend="auto"` now warns, once per process, whenever it chooses `numba_cpu`: when
+  `solprop-native` is not installed as well as on a processor below its wheel's baseline.
+  The warning says how to install the native backend; an explicit `backend="numba_cpu"`
+  does not warn. The README and manual now recommend the native backend by default and
+  describe `numba_cpu` as its slower fallback, with the 0.1.0 measurements. They no longer
+  advise `numba_cpu` for scans of one-thread workers, which the history does not support,
+  and they now say that only GPU builds refuse z-tabulated problems.
 - Planned work is moving to [GitHub issues](https://github.com/LupoLab/solprop/issues),
   labelled by type, priority and area: new work goes there and not on the roadmap, whose
   entries move as issues take them over (ADR-062). Issue templates and `CONTRIBUTING.md`

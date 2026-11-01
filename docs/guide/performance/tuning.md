@@ -38,8 +38,9 @@ The backend decides which pools exist at all (see [Choosing a backend](backends.
 | native GPU (`native`, CUDA or HIP build) | the device | CPU pools are irrelevant; one device per process |
 
 `backend="auto"` chooses the native backend when `solprop-native` is installed and
-`numba_cpu` otherwise. The largest single gain is usually installing a **locally built**
-native backend ([The native backend](native.md)), which links a vendor BLAS and compiles for the
+otherwise warns and uses `numba_cpu`. The largest single gain is installing the native
+backend at all; a **locally built** one ([The native backend](native.md)) goes a little
+further, since it links a vendor BLAS and compiles for the
 machine's own instruction set; [which backend to use](backends.md#which-backend-to-use)
 compares the backends by problem.
 
@@ -447,10 +448,10 @@ python -m solprop.scan my_scan.py --workers 8    # or let the launcher choose Po
 A problem too large to fit many copies in memory can use fewer, wider workers,
 `Pool(threads=4)` (or `--threads 4`). To run two scans side by side on one machine, give
 each its own CPUs with `SOLPROP_SCAN_CPU_OFFSET` and `SOLPROP_SCAN_CPU_COUNT`. See
-[scans and batches](../workflows/scans.md). At one thread per worker the choice of backend
-is less clear-cut than for a single large run: single-threaded `numba_cpu` can match or
-beat the single-threaded native backend on some problems and machines, so time one point of the scan
-on both (`backend="numba_cpu"` and `backend="native"`) before a large campaign.
+[scans and batches](../workflows/scans.md). Stay on the native backend at one thread per
+worker too: it [led `numba_cpu` at one thread](backends.md#which-backend-to-use) on every
+case recorded. Those timings are of a single process, so time one point of the scan with
+your real number of workers before a large campaign.
 
 If you manage the parallelism yourself — a job array, GNU `parallel`, several scripts
 started by hand — each process needs every pool held to one thread explicitly, and the
