@@ -23,6 +23,21 @@ All notable changes to solprop are recorded here. The format follows
   [10.5281/zenodo.23854248](https://doi.org/10.5281/zenodo.23854248), which covers
   every release.
 
+### Changed (breaking)
+
+- The output schema is 2: a `DataPulse` records its `spectral_phase` (below), and every
+  field of a recorded dataclass is recorded, at its default too. This release refuses
+  a file written by 0.1.0, and every configuration hash moves, so a 0.1.0 run cannot be
+  resumed; read such a file with 0.1.0.
+- `DataPulse.from_time` is replaced by the class `TimeDataPulse`: write
+  `TimeDataPulse(t=t, field=field, energy=energy)`. It holds the time record and has no
+  `omega`, `spectrum` or `spectral_phase`. The method kept the spectrum at the record's
+  own bin spacing and splined its magnitude and phase, which cannot follow the fringes
+  of pulses far apart: pulses at 100 and 600 fs in a record of 800 fs, of relative
+  amplitude −0.9, came out 85 % wrong with no warning. The class evaluates the record's
+  transform exactly at the grid's frequencies, 3e-12 from the direct sum on that case,
+  less its mean: a baseline is an offset of the instrument, not part of the field.
+
 ### Fixed
 
 - The native backend's HIP build compiles again under its default
@@ -32,7 +47,19 @@ All notable changes to solprop are recorded here. The format follows
   before its first saved plane, no longer adds the noise draw to the stored field a
   second time, which had doubled the noise amplitude for the rest of the run on every
   backend. `set_initial` takes `resume=True` for a stored field, which moves the kernel
-  schema to 40: rebuild solprop-native. Output files and their resume key are unchanged.
+  schema to 40: rebuild solprop-native. It moves neither the output schema nor the
+  resume key.
+- `DataPulse.from_spectral_density` interpolates the phase it is given. It used to wrap
+  the phase into the complex spectrum and unwrap it again, which cannot follow a change
+  of more than pi between samples, so a strongly chirped pulse was built wrongly with no
+  warning: 20 000 fs² of group-delay dispersion on a 0.4 nm axis at 800 nm came out 13.5 %
+  away from the converged spectrum, on a 1.6 nm axis 100 %. A `DataPulse` given a complex
+  `spectrum` still unwraps it, and its docstring states that limit.
+- A measured field in time puts a pulse where it sat in the record (`TimeDataPulse`,
+  above). `DataPulse.from_time` unwrapped the phase, and a pulse more than half the
+  record's length from `t = 0` changed its phase by more than pi per bin, so it was moved
+  by one record length with no warning: at 500 fs in a record from 0 to 800 fs it came out
+  at −300 fs.
 
 ## [0.1.0] - 2026-10-31
 
