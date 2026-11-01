@@ -121,7 +121,7 @@ the reference. The
 maintainer explicitly selected no noise and 50 save planes, also matching
 SEP 13's comparison settings. The rate-based run is cheap on CPU and supplies
 the saved fields for every TDSE check. A full-length TDSE version is outside
-this SEP (§7.3) and is listed on the [roadmap](../../roadmap.md#numerics); tests,
+this SEP (§7.3) and is listed on the [roadmap](https://github.com/LupoLab/solprop/blob/11cd808fe03db935457f432f790939d44a243c16/docs/dev/roadmap.md#numerics); tests,
 timings and the GPU test propagation use short segments of this physical case,
 started from those saved fields.
 
@@ -137,7 +137,7 @@ lifecycle, pressure gradients, targeted atomic and radial checks, provenance,
 diagnostics and qualification of the CPU/GPU atomic path actually used.
 SEP 13 is `Final`: this SEP consumes its implementation and tests the coupling's
 history, budgets and response identities. Its deferred multirate study moves to
-the [roadmap](../../roadmap.md#numerics); it does not delay integration
+the [roadmap](https://github.com/LupoLab/solprop/blob/11cd808fe03db935457f432f790939d44a243c16/docs/dev/roadmap.md#numerics); it does not delay integration
 or the test propagation.
 
 Not included are envelope grids, vector polarisation, tapers, coherent-wall
@@ -1088,7 +1088,7 @@ whole-batch latency before concluding that halving the row count halves cost.
 Keep the selected rule fixed through a run and record its nodes and weights.
 
 Adaptive panels, area-coordinate rules, amplitude interpolation and broad
-multimode convergence are later work on the [roadmap](../../roadmap.md#numerics).
+multimode convergence are later work on the [roadmap](https://github.com/LupoLab/solprop/blob/11cd808fe03db935457f432f790939d44a243c16/docs/dev/roadmap.md#numerics).
 The one-mode test propagation claims accuracy within its stated modal model. If a later
 claim needs negligible higher-mode feedback, establish that separately;
 small higher-mode energy alone is not a bound on fundamental-mode error.
@@ -1173,7 +1173,7 @@ is already available. No automatic PECE-like extra call is hidden in `stats()`.
 
 SEP 13 deferred its multirate Q5 to this proposal. The maintainer's review
 now defers it beyond SEP 12: the delivered Adams method is sufficient for
-integration and the test propagation. The [roadmap](../../roadmap.md#numerics)
+integration and the test propagation. The [roadmap](https://github.com/LupoLab/solprop/blob/11cd808fe03db935457f432f790939d44a243c16/docs/dev/roadmap.md#numerics)
 retains the actual-TDSE residual question and any future method comparison.
 No residual survey, correction prototype, RK run or additional stepper
 optimisation is a phase gate here. SEP 13's Q6 is addressed only by correct
@@ -1530,7 +1530,7 @@ recorded outcome for the segment; it does not trigger more spending.
 
 The full-length 4.2 m TDSE run is outside this SEP. Whether to run it is a
 later decision, informed by the measured per-call cost and the segment's
-call count. It is listed on the [roadmap](../../roadmap.md#numerics) with the
+call count. It is listed on the [roadmap](https://github.com/LupoLab/solprop/blob/11cd808fe03db935457f432f790939d44a243c16/docs/dev/roadmap.md#numerics) with the
 conditional cost of §6.7.
 
 The test propagation is not held behind exhaustive strongest-field
@@ -1734,7 +1734,7 @@ integration, and a short GPU test propagation within US$100.
     comparison; it does not remove the baseline calibration or require a
     native-model propagation in these phases.
 12. **Q12 — Multirate residual (outside this SEP; SEP 13 Q5).** Deferred by
-    the maintainer's review to the [roadmap](../../roadmap.md#numerics),
+    the maintainer's review to the [roadmap](https://github.com/LupoLab/solprop/blob/11cd808fe03db935457f432f790939d44a243c16/docs/dev/roadmap.md#numerics),
     along with new stepper optimisation. No investigation or prototype is
     required to complete SEP 12.
 
