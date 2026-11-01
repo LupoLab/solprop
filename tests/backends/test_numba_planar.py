@@ -353,7 +353,11 @@ def test_each_statistic_is_the_reference_s_on_the_same_state(cases, name):
         scale = np.max(np.abs(theirs[stat]))
         assert scale > 0, stat
         bound = seeds * response[stat] + scan
-        assert np.max(np.abs(ours[stat] - theirs[stat])) <= bound * scale, stat
+        # The ionised fraction is a share of one: its rounding is one unit roundoff
+        # absolute however small the share (Linux CI measured 2**-53 at a share of
+        # 1.7e-5 after SEP 40's ramp moved the final state).
+        floor = 2 * UNIT if stat == "species_ionisation" else 0.0
+        assert np.max(np.abs(ours[stat] - theirs[stat])) <= bound * scale + floor, stat
 
 
 @pytest.mark.medium
