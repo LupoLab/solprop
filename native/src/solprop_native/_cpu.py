@@ -31,6 +31,12 @@ record names a baseline this module does not know (a source build's own ``-march
 nothing is checked. A missing record is a local or editable build, compiled for the
 machine it runs on.
 
+A wheel may carry its extension compiled for more than one baseline: the x86-64 wheels
+hold an x86-64-v3 and an x86-64-v2 build. ``_cpu_baseline.txt`` then names the lowest,
+the wheel's floor, and ``_cpu_variants.txt`` lists each build, best first, as a baseline
+and a module stem. :func:`select_variant` takes the first the processor meets;
+``SOLPROP_NATIVE_CPU_VARIANT`` names a lower one, for tests and comparisons.
+
 The module is pure Python and imports nothing from the package, so solprop's
 automatic backend selection loads it by path and runs the same check without
 importing the package or starting its runtime (``solprop.backends.registry``).
@@ -38,6 +44,7 @@ importing the package or starting its runtime (``solprop.backends.registry``).
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -50,16 +57,21 @@ __all__ = [
     "BUILD_GUIDE",
     "CPUINFO",
     "REQUIRED_FEATURES",
+    "VARIANTS_RECORD",
+    "VARIANT_SETTING",
     "CpuBaselineError",
     "baseline_shortfall",
     "check_cpu_baseline",
     "cpuinfo_flags",
     "kernel32_feature_query",
     "missing_features",
+    "select_variant",
     "windows_features",
 ]
 
 BASELINE_RECORD = "_cpu_baseline.txt"
+VARIANTS_RECORD = "_cpu_variants.txt"
+VARIANT_SETTING = "SOLPROP_NATIVE_CPU_VARIANT"
 CPUINFO = Path("/proc/cpuinfo")
 BUILD_GUIDE = (
     "https://solprop.readthedocs.io/en/latest/guide/performance/building-native.html"
@@ -318,3 +330,90 @@ def check_cpu_baseline(package_dir: Path, cpuinfo: Path = CPUINFO) -> None:
     error = baseline_shortfall(package_dir, cpuinfo=cpuinfo)
     if error is not None:
         raise error
+
+
+def read_variants(package_dir: Path) -> tuple[tuple[str, str], ...]:
+    """Return a wheel's builds, best first, as ``(baseline, module stem)`` pairs.
+
+    Parameters
+    ----------
+    package_dir
+        The installed package directory.
+
+    Returns
+    -------
+    tuple[tuple[str, str], ...]
+        The builds; empty when the package holds only its one extension.
+    """
+    try:
+        text = (package_dir / VARIANTS_RECORD).read_text(encoding="utf-8")
+    except OSError:
+        return ()
+    pairs = (line.split() for line in text.splitlines() if line.strip())
+    return tuple((baseline, stem) for baseline, stem in pairs)
+
+
+def select_variant(
+    package_dir: Path,
+    *,
+    requested: str | None = None,
+    platform: str | None = None,
+    cpuinfo: Path = CPUINFO,
+    feature_query: Callable[[], Callable[[int], object]] = kernel32_feature_query,
+) -> str:
+    """Return the module stem of the build to load on this processor.
+
+    Parameters
+    ----------
+    package_dir
+        The installed package directory.
+    requested
+        A baseline to run instead, which must be listed and no better than the one
+        chosen; the default reads ``SOLPROP_NATIVE_CPU_VARIANT``.
+    platform
+        ``sys.platform`` (the default), or a stand-in for tests.
+    cpuinfo
+        The processor description read on Linux.
+    feature_query
+        Returns Windows's ``IsProcessorFeaturePresent``; a stand-in for tests.
+
+    Returns
+    -------
+    str
+        The stem; ``"_core"`` for a package with one extension.
+
+    Raises
+    ------
+    ValueError
+        If ``requested`` names no listed build, or one better than this processor runs.
+    """
+    variants = read_variants(package_dir)
+    request = os.environ.get(VARIANT_SETTING, "") if requested is None else requested
+    request = request.strip()
+    if not variants:
+        if request:
+            raise ValueError(
+                f"{VARIANT_SETTING}={request!r}: this build holds one extension"
+            )
+        return "_core"
+    names = [baseline for baseline, _ in variants]
+    if request and request not in names:
+        raise ValueError(
+            f"{VARIANT_SETTING}={request!r}: this wheel holds {', '.join(names)}"
+        )
+    system = sys.platform if platform is None else platform
+    best = len(variants) - 1
+    for index, (baseline, _) in enumerate(variants):
+        flags = _processor_features(baseline, system, cpuinfo, feature_query)
+        if flags is None or not missing_features(baseline, flags):
+            best = index
+            break
+    if not request:
+        return variants[best][1]
+    chosen = names.index(request)
+    if chosen < best:
+        raise ValueError(
+            f"{VARIANT_SETTING}={request!r}: this processor runs only "
+            f"{', '.join(names[best:])}"
+        )
+    return variants[chosen][1]

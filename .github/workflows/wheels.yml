@@ -16,6 +16,7 @@ on:
     - cron: "17 3 * * 1" # Mondays 03:17 UTC
   push:
     tags: ["v*"]
+    branches: ["spike/native-coverage"] # spike only
   pull_request:
     paths:
       - "native/ci/**"
@@ -49,7 +50,8 @@ jobs:
           - { id: linux-x86_64, os: ubuntu-24.04 }
           - { id: linux-aarch64, os: ubuntu-24.04-arm }
           - { id: macos-arm64, os: macos-15 }
-          - { id: windows-amd64, os: windows-2025 }
+          - { id: windows-amd64, os: windows-2025, vc: x64 }
+          - { id: windows-arm64, os: windows-11-arm, vc: arm64 }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -63,8 +65,9 @@ jobs:
       - if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
         with:
-          arch: x64
-      - if: runner.os == 'Windows'
+          arch: ${{ matrix.vc }}
+      # The Arm image carries Ninja; Chocolatey's is an x64 build.
+      - if: runner.os == 'Windows' && matrix.vc == 'x64'
         run: choco install ninja --yes --no-progress
       - uses: pypa/cibuildwheel@f9b966cfadf4109556cadc5bb39ddb72d0ce664e # v4.3.5
         with:
@@ -92,11 +95,16 @@ jobs:
           - { id: linux-aarch64, os: ubuntu-24.04-arm }
           - { id: macos-arm64, os: macos-15 }
           - { id: windows-amd64, os: windows-2025 }
+          - { id: windows-arm64, os: windows-11-arm }
+          # The x86-64 wheels' second build, forced, on the same runners.
+          - { id: linux-x86_64-v2, wheel: linux-x86_64, os: ubuntu-24.04, variant: x86-64-v2 }
+          - { id: windows-amd64-v2, wheel: windows-amd64, os: windows-2025, variant: x86-64-v2 }
     defaults:
       run:
         shell: bash
     env:
       PYTHONUTF8: "1"
+      SOLPROP_NATIVE_CPU_VARIANT: ${{ matrix.variant }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -106,7 +114,7 @@ jobs:
           enable-cache: true
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: wheel-${{ matrix.id }}
+          name: wheel-${{ matrix.wheel || matrix.id }}
           path: wheelhouse
       - run: uv python install 3.14
       # solprop and its test tools, without the native extra; then the wheel, which a
@@ -118,7 +126,17 @@ jobs:
           version=$(uv run --no-sync python -c "import importlib.metadata as m; print(m.version('solprop'))")
           uv run --no-sync python -I native/ci/smoke.py --version "$version"
       - run: uv run --no-sync python -I -m solprop_native
+      - name: The build the variant setting asked for
+        if: matrix.variant != ''
+        run: |
+          uv run --no-sync python -I -c "
+          import os, solprop_native
+          baseline = solprop_native.build_info().cpu_baseline
+          print(baseline)
+          assert baseline == os.environ['SOLPROP_NATIVE_CPU_VARIANT'], baseline
+          "
       - name: Coexistence with NumPy, SciPy, pyFFTW and Numba
+        if: matrix.id != 'windows-arm64'
         run: uv run --no-sync python -I native/ci/coexistence.py --bypass-guard
       # The default lane's peak memory with four test workers is at the edge of a 16 GB
       # runner (the aarch64 runner shut down mid-suite, as CI's did): swap on Linux and
@@ -131,6 +149,19 @@ jobs:
           sudo mkswap /swap.extra
           sudo swapon /swap.extra
           free -h
+      # Spike only: pyFFTW has no Windows on Arm wheel, so numba_cpu cannot import there.
+      - name: Leave out what imports numba_cpu
+        if: matrix.id == 'windows-arm64'
+        run: |
+          uv run --no-sync python - >> "$GITHUB_ENV" <<'E'
+          import pathlib, re
+          needs = re.compile(r"backends\.numba_cpu|import pyfftw|backends import numba_cpu")
+          kept = ["--ignore=src/solprop/backends/numba_cpu"]
+          for path in pathlib.Path("tests").rglob("*.py"):
+              if path.name != "conftest.py" and needs.search(path.read_text(encoding="utf-8")):
+                  kept.append(f"--ignore={path.as_posix()}")
+          print("PYTEST_ADDOPTS=" + " ".join(kept))
+          E
       - name: solprop's default lane on the native backend
         env:
           SOLPROP_TEST_BACKEND: native
@@ -140,10 +171,10 @@ jobs:
           SOLPROP_TEST_TYPECHECK: "0"
         run: uv run --no-sync poe test
 
-  # The x86-64 wheel's CPU floor under Intel's emulator: it works on a Haswell
-  # (x86-64-v3) and is refused, before any native code runs, on a Nehalem (x86-64-v2:
-  # no AVX) and a Sandy Bridge (AVX without AVX2, FMA or BMI), where solprop's
-  # automatic selection falls back to numba_cpu with a warning. Runs when the
+  # The x86-64 wheel's CPU floor under Intel's emulator: a Haswell (x86-64-v3) runs its
+  # best build, a Nehalem (x86-64-v2: no AVX) and a Sandy Bridge (AVX without AVX2, FMA
+  # or BMI) its x86-64-v2 build, and a Penryn (no SSE4.2) is refused before any native
+  # code runs. Runs when the
   # repository variables SDE_URL and SDE_SHA256 name an SDE release from Intel's
   # download page.
   cpu-floor:
@@ -171,7 +202,9 @@ jobs:
           echo "$SDE_SHA256  sde.tar.xz" | sha256sum --check
           mkdir sde && tar -xJf sde.tar.xz -C sde --strip-components=1
       - name: Runs on x86-64-v3 (Haswell)
-        run: sde/sde64 -hsw -chip_check_zcnt 1 -- .venv/bin/python -I native/ci/smoke.py
+        run: |
+          sde/sde64 -hsw -chip_check_zcnt 1 -- .venv/bin/python -I native/ci/smoke.py | tee smoke.json
+          grep -q '"cpu_baseline": "x86-64-v3"' smoke.json
       # SDE emulates CPUID but not the kernel's /proc/cpuinfo, which the processor check
       # reads on Linux, so each older chip's flags (as Linux reports them) are bind-mounted
       # over it for the steps below.
@@ -180,38 +213,122 @@ jobs:
           nhm="fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush mmx fxsr sse sse2 ht syscall nx rdtscp lm constant_tsc pni ssse3 cx16 sse4_1 sse4_2 popcnt lahf_lm"
           printf 'processor\t: 0\nflags\t\t: %s\n' "$nhm" > cpuinfo-nhm
           printf 'processor\t: 0\nflags\t\t: %s\n' "$nhm pclmulqdq aes xsave avx" > cpuinfo-snb
-      - name: Refused below x86-64-v3 (Nehalem, Sandy Bridge)
+      - name: Nehalem and Sandy Bridge run the x86-64-v2 build
         run: |
           for chip in nhm snb; do
             sudo mount --bind "cpuinfo-$chip" /proc/cpuinfo
-            set +e
-            sde/sde64 -$chip -chip_check_zcnt 1 -- .venv/bin/python -I -c "import solprop_native" > refusal.log 2>&1
-            status=$?
-            set -e
-            sudo umount /proc/cpuinfo
-            cat refusal.log
-            # The refusal is this package's processor check, a Python exception (exit
-            # status 1) naming the missing features; an instruction the emulated
-            # processor lacks is reported by SDE instead.
-            test "$status" -eq 1
-            ! grep -q "SDE-ERROR" refusal.log
-            grep -q "requires an x86-64-v3 processor, and this one lacks.*avx2" refusal.log
-          done
-      - name: Automatic selection falls back to numba_cpu below x86-64-v3
-        run: |
-          sudo mount --bind cpuinfo-snb /proc/cpuinfo
-          sde/sde64 -snb -chip_check_zcnt 1 -- .venv/bin/python -I -c "
+            sde/sde64 -$chip -chip_check_zcnt 1 -- .venv/bin/python -I -c "
+          import solprop_native
+          baseline = solprop_native.build_info().cpu_baseline
+          print(baseline)
+          assert baseline == 'x86-64-v2', baseline
+          "
+            sde/sde64 -$chip -chip_check_zcnt 1 -- .venv/bin/python -I -c "
           import warnings
           from solprop.backends import resolve_name
-          from solprop.exceptions import SolpropWarning
-          with warnings.catch_warnings(record=True) as caught:
-              warnings.simplefilter('always')
-              assert resolve_name() == 'numba_cpu'
-          assert [w.category for w in caught] == [SolpropWarning], caught
-          message = str(caught[0].message)
-          assert 'avx2' in message and 'github.com/LupoLab/solprop/issues' in message
-          print(message)
+          with warnings.catch_warnings():
+              warnings.simplefilter('error')
+              assert resolve_name() == 'native'
           "
+            sudo umount /proc/cpuinfo
+          done
+      - name: Refused below x86-64-v2 (Penryn)
+        run: |
+          printf 'processor\t: 0\nflags\t\t: fpu sse sse2 ssse3 cx16 sse4_1 lahf_lm\n' > cpuinfo-pnr
+          sudo mount --bind cpuinfo-pnr /proc/cpuinfo
+          set +e
+          sde/sde64 -pnr -chip_check_zcnt 1 -- .venv/bin/python -I -c "import solprop_native" > refusal.log 2>&1
+          status=$?
+          set -e
+          sudo umount /proc/cpuinfo
+          cat refusal.log
+          # NumPy's own baseline check or this package's: a Python exception either way,
+          # never an instruction the emulated processor lacks.
+          test "$status" -eq 1
+          ! grep -q "SDE-ERROR" refusal.log
+
+  # Spike only: the lanes that run on numba_cpu today, rehearsed on the native wheel.
+  rehearse-docs:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          enable-cache: true
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: wheel-linux-x86_64
+          path: wheelhouse
+      - run: uv python install 3.14
+      - run: uv sync --locked
+      - run: uv pip install --no-deps wheelhouse/*.whl
+      - run: uv run --no-sync python -c "from solprop.backends import resolve_name; assert resolve_name() == 'native'"
+      - run: /usr/bin/time -v uv run --no-sync poe docs
+        env:
+          SOLPROP_RUN_EXAMPLES: tutorials
+
+  rehearse-slow:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      SOLPROP_TEST_TYPECHECK: "0"
+      SOLPROP_TEST_BACKEND: native
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          enable-cache: true
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: wheel-linux-x86_64
+          path: wheelhouse
+      - run: uv python install 3.14
+      - run: uv sync --locked
+      - run: uv pip install --no-deps wheelhouse/*.whl
+      - run: uv run --no-sync poe test-slow
+
+  rehearse-oldest:
+    needs: build
+    name: rehearse-oldest (${{ matrix.shard }}/3)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    env:
+      SOLPROP_TEST_SHARD: ${{ matrix.shard }}/3
+      SOLPROP_TEST_TYPECHECK: "0"
+      SOLPROP_TEST_BACKEND: native
+      SOLPROP_THREADS: "1"
+      VECLIB_MAXIMUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: wheel-linux-x86_64
+          path: wheelhouse
+      - run: uv venv --python 3.14
+      - run: uv pip install --resolution lowest-direct -e .
+      - run: uv pip install --no-deps wheelhouse/*.whl
+      - run: >-
+          uv pip install "pytest<9.2" pytest-xdist pytest-randomly pytest-regressions
+          pytest-cov hypothesis beartype sympy psutil
+      - run: uv pip list
+      - run: .venv/bin/python -m pytest -n auto --dist loadgroup
 
   # solprop's own distributions (pure Python): sdist and wheel, each then installed from
   # the file in a fresh environment, outside the checkout, and given the installation

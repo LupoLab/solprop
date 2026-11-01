@@ -13,6 +13,7 @@ observations are owning host ``complex128`` arrays.
 from __future__ import annotations
 
 import functools
+import importlib.util
 import logging
 import os
 import platform
@@ -26,7 +27,7 @@ import numpy as np
 
 from ._bind import proc_bind
 from ._budget import native_threads, physical_cores, thread_budget
-from ._cpu import check_cpu_baseline
+from ._cpu import check_cpu_baseline, select_variant
 from ._wait import wait_policy
 
 if platform.system() == "Darwin" and "pyfftw" in sys.modules:
@@ -66,6 +67,17 @@ WAIT_POLICY = wait_policy()
 # Whether its threads are bound: not, unless the user placed them. Kokkos reads this
 # when the core starts it, just below, and otherwise prints a notice.
 PROC_BIND = proc_bind()
+
+# A wheel with more than one build registers the chosen one as ``._core``, so nothing else
+# knows which it is. The loader finds PyInit__core from the module's name, not the file's.
+_STEM = select_variant(Path(__file__).parent)
+if _STEM != "_core":
+    _file = next(Path(__file__).parent.glob(f"{_STEM}.*"))
+    _spec = importlib.util.spec_from_file_location(f"{__name__}._core", _file)
+    assert _spec is not None and _spec.loader is not None
+    _module = importlib.util.module_from_spec(_spec)
+    sys.modules[_spec.name] = _module
+    _spec.loader.exec_module(_module)
 
 from . import _core  # noqa: E402  (only after the processor check)
 

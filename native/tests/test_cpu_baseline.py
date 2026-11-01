@@ -245,3 +245,68 @@ def test_an_installed_record_matches_the_build() -> None:
     assert (
         record.read_text(encoding="utf-8").strip() == native.build_info().cpu_baseline
     )
+
+
+def variants_package(tmp_path: Path, floor: str = "x86-64-v2") -> Path:
+    (tmp_path / _cpu.BASELINE_RECORD).write_text(floor + "\n", encoding="utf-8")
+    (tmp_path / _cpu.VARIANTS_RECORD).write_text(
+        "x86-64-v3 _core\nx86-64-v2 _core_v2\n", encoding="utf-8"
+    )
+    return tmp_path
+
+
+@pytest.mark.parametrize(
+    ("flags", "stem"), [(V3_FLAGS, "_core"), (V2_FLAGS, "_core_v2")]
+)
+def test_a_processor_gets_the_best_build_it_runs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, flags: str, stem: str
+) -> None:
+    monkeypatch.delenv(_cpu.VARIANT_SETTING, raising=False)
+    info = tmp_path / "cpuinfo"
+    info.write_text(cpuinfo(flags), encoding="utf-8")
+    package = variants_package(tmp_path)
+    assert _cpu.select_variant(package, platform="linux", cpuinfo=info) == stem
+
+
+def test_windows_chooses_from_kernel32(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv(_cpu.VARIANT_SETTING, raising=False)
+    package = variants_package(tmp_path)
+    for present, stem in ((PF_HASWELL, "_core"), (PF_SANDY_BRIDGE, "_core_v2")):
+
+        def query(present: frozenset[int] = present) -> Callable[[int], object]:
+            return lambda constant: constant in present
+
+        assert _cpu.select_variant(package, platform="win32", feature_query=query) == stem
+
+
+def test_the_setting_may_only_ask_for_a_lower_build(tmp_path: Path) -> None:
+    info = tmp_path / "cpuinfo"
+    package = variants_package(tmp_path)
+    info.write_text(cpuinfo(V3_FLAGS), encoding="utf-8")
+    assert (
+        _cpu.select_variant(
+            package, requested="x86-64-v2", platform="linux", cpuinfo=info
+        )
+        == "_core_v2"
+    )
+    info.write_text(cpuinfo(V2_FLAGS), encoding="utf-8")
+    with pytest.raises(ValueError, match="runs only x86-64-v2"):
+        _cpu.select_variant(
+            package, requested="x86-64-v3", platform="linux", cpuinfo=info
+        )
+    with pytest.raises(ValueError, match="holds x86-64-v3, x86-64-v2"):
+        _cpu.select_variant(
+            package, requested="x86-64-v4", platform="linux", cpuinfo=info
+        )
+
+
+def test_a_package_with_one_extension_has_no_choice(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv(_cpu.VARIANT_SETTING, raising=False)
+    assert _cpu.select_variant(tmp_path) == "_core"
+    with pytest.raises(ValueError, match="holds one extension"):
+        _cpu.select_variant(tmp_path, requested="x86-64-v2")
+
