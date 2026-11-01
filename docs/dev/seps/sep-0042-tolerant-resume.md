@@ -29,8 +29,7 @@ library rounds differently in the last bit each refuses a resume of the same phy
 SEP replaces hash equality as the resume gate with a comparison of the two records path by
 path. A short table sorts every recorded path into one of four classes:
 
-- **layout:** the stored state and the file's arrays depend on it; it must agree, with no
-  override;
+- **layout:** what gives the stored arrays their meaning; it must agree, with no override;
 - **compared (the default):** physics and launch parameters; it must agree, unless the user
   forces the resume;
 - **numerics:** how accurately the run steps; it may change while there is something left to
@@ -40,8 +39,9 @@ path. A short table sorts every recorded path into one of four classes:
 Numbers agree per element within a rounding-level tolerance, and a path one record lacks is
 a difference unless a table declares its neutral value. optmat models are compared by the
 digest of their numbers. `resume="force"` continues in the same file whenever the layout
-agrees, and says so in the file. The output schema is bumped only for a change an older
-reader would misread.
+agrees and the arrays fit, restarts the Adams history, and leaves a mark that later sessions
+and readers respect. The output schema is bumped only for a change an older reader would
+misread.
 
 Success means:
 
@@ -80,8 +80,7 @@ present gate departs from that in four ways, each of which a user meets in ordin
 
 And there is no way to insist. A long run stranded by a corrected optmat model, or by a
 release that moved a derived table, can only continue in a new file through `with_input`,
-which restarts the Adams history and the call ledgers and refuses modified noise and fixed
-schedules.
+which restarts the call ledgers and refuses modified noise and fixed schedules.
 
 In scope:
 
@@ -123,7 +122,7 @@ says what happens to each:
 | Where | What it asks | Under this SEP |
 |---|---|---|
 | `check_cache` | may this file be continued? | the comparison |
-| `HDF5Output` opening in append mode | does the file hold this run? | the comparison, then adopts the file's record |
+| `HDF5Output` opening in append mode | does the file hold this run? | adopts the file's record once the driver's gate has passed; used directly, the comparison |
 | `_stored_metadata`, stamp against record | is the file intact? | exact, against the stored text |
 | `_validate_metadata` (`output/scan.py`) | is a scan row intact? | exact, against the stored text |
 | `resolve_metadata_write` | is a second write the same run? | exact |
@@ -241,19 +240,25 @@ numbers, and it leaves out status, status reason and the override fields, so `mo
 `base` stay compared. Two optmat versions that give a model the same digest give the run the
 same numbers.
 
+**Work left.** A file has work left when its next plane is not past the last save plane,
+counting a checkpoint that is still owed its plane. That is decided by position and not by
+status, so a file killed after its last plane has none, though its status reads `running`.
+
 **Verdict.** For stored record $S$ and requested record $R$, with equal digests a fast path
 meaning no differences:
 
-| Differences | `resume=True`, unfinished file | `resume=True`, complete file | `resume="force"` |
+| The file and the differences | `resume=True`, work left | `resume=True`, no work left | `resume="force"` |
 |---|---|---|---|
-| none, or only rounding and neutral | continues | nothing to do, as today | as `resume=True` |
-| numerics | continues, recorded | refused: nothing would be computed | as `resume=True` |
-| compared | refused | refused | continues, recorded, flagged; refused on a complete file |
-| layout | refused | refused | refused |
+| none, or only rounding and neutral | continues | nothing to do, as today | as `resume=True`, and accepts an interpolated last plane |
+| numerics | continues, recorded | refused: nothing would be computed | as `resume=True`, and accepts an interpolated last plane |
+| compared | refused | refused | continues if there is work left, marked and with the Adams history restarted; otherwise refused |
+| layout, or the arrays do not fit (§5.5) | refused | refused | refused |
+| the file already has a forced session | refused, naming the position | returned, with a warning | continues if there is work left |
 
 A complete file with changed numerics is refused rather than returned, because the user
 asked for something the file does not hold: a tightened `rtol` must not hand back the loose
-result. The remedy is a new file.
+result. The remedy is a new file. A last plane that kept no field without a checkpoint, and a
+file with no plane, are still refused by name after the comparison, as they are today.
 
 **Numerical changes on continuing.** With the controller held to $\text{rtol}_1$ on $[0,
 z_r]$ and $\text{rtol}_2$ on $[z_r, L]$, the continued run is a concatenation of two
@@ -286,9 +291,10 @@ for displays that want every difference.
 
 `check_cache(path, metadata)` keeps its signature and returns `True` or raises `OutputError`
 with `comparison.summary()`. It wraps an internal function that returns the comparison,
-which the driver uses for the record of §5.3. The refusal names the models whose digests
-changed, and for a callable says that its repr changes between processes and to pass an
-object that carries its data.
+which the driver's `_open_output` uses for the record of §5.3. `_open_output` also makes the
+checks that need the file's state: work left, and a forced session. The refusal names the
+models whose digests changed, and for a callable says that its repr changes between
+processes and to pass an object that carries its data.
 
 #### 5.2 The class table
 
@@ -299,16 +305,19 @@ In order; the first row that matches decides, and an unmatched path is compared.
 | `simulation_kind`, `power_convention` | layout | exact |
 | `initial_z`, `grid.length`, `configuration.save_planes` | layout | exact, §4 |
 | `grid.**` | layout | the stored arrays' axes |
-| `modes`' length, `modes[*].kind` | layout | the state's basis; a mode's data is compared |
-| `spatial.**`, `quadrature.**`, `modal.**` | layout | the state's basis and transforms |
-| `configuration.precision`, `configuration.statistics.**` | layout | the error floor and the per-plane datasets |
-| `tdse.**` | layout | the archive and call ledgers bind to it; compared as text, so numbers inside `configuration_json` are exact |
+| `modes`' length, `modes[*].label.{family, azimuthal_order, radial_order, parity, handedness}` | layout | which mode each row of the state is; a mode's model and data are compared |
+| `spatial.{kind, shape, axes, axis_names, axis_units, spectral_axes, spectral_axis_names, spectral_axis_units, column_order, physical_field_units, stored_field_units, spatial_weights, spectral_weights, forward_scale, inverse_scale}` | layout | the transverse axes and transforms; flux plans and absorber rates are compared |
+| `modal.{basis, n_channels, n_components, channels}` | layout | the basis's structure; the guide, tables and responses are compared |
+| `quadrature.{radial_rule, kind, full, requested_n_r, n_r, n_theta, n_nodes, embedded_rule}` | layout | the rule and its counts, which per-node statistics are shaped by; the nodes and weights are compared |
+| `noise.model`, and whether `noise` is present | layout | a stored state carries input noise; modified noise adds a source at every step, and noise phases are saved per plane |
+| `configuration.precision` | layout | a decision, not a fact about the file (Q7): a run is not resumed in the other precision |
+| `tdse.**` | layout | compared as text, so numbers inside `configuration_json` are exact. A safe refusal on a route CI cannot run: a snapshot binds to the descriptor |
 | `stepper.**`, `configuration.propagator_mode` | numerics | how accurately, not what |
 | `configuration.initial`, where `configuration.pulse` is present | ignored | realised from a compared pulse on a compared grid; the stored field supersedes it |
 | `configuration.initial` otherwise | compared, tail | an array launch: this is its only record |
-| `noise.spectrum`, where `noise.seed` is set and `noise.model` is `input` | ignored | drawn from a compared model and seed, used only at the launch |
+| `noise.spectrum`, where `noise.seed` is set and `noise.model` is `input` | ignored | drawn from a compared model and seed, and carried by the stored field |
 | `noise.spectrum` otherwise | compared, tail | a realisation passed in has no other record, and modified noise is injected at every step |
-| `configuration.absorber.{spectral_rate, temporal_rate, temporal_rate_fine}` | compared, tail | rates with rounding tails |
+| `configuration.absorber.{spectral_rate, temporal_rate, temporal_rate_fine}`, `spatial.absorber_rate` | compared, tail | rates with rounding tails |
 | `materials.optmat_version` | ignored | provenance |
 | `materials.records.*.{name, status, status_reason, sources, optmat_version}` | ignored | provenance; the digest identifies the numbers |
 | `materials.policies.ionisation[*].{model, status}`, `**.cladding.source` | ignored | a model's name and status, outside the manifest's records |
@@ -321,30 +330,40 @@ in its parameters is refused: the stored field does supersede it, but a script t
 its pulse and kept its output path is more likely a mistake than a wish to continue the old
 run.
 
-The table is data, reviewed like code. A test asserts that every row matches a path in at
-least one route's record, so a stale row is noticed.
+Phase 1 checks `modal.channels` for measured numbers before it stays a layout row. The table
+is data, reviewed like code. A test asserts that every row matches a path in at least one
+route's record, so a stale row is noticed.
 
 #### 5.3 What a session holds after continuing
 
-After a continuation **the session's identity is the file's record**. Append mode adopts it;
-the driver uses it for the writer, for the TDSE archive context and for `output.metadata`.
-So the exact checks of §3 compare a file with its own record and hold, and `suspend`,
-`reopen` and snapshots work after a tolerant resume. The requested problem is what steps.
-The file's stored record is never rewritten: it describes the run as first written, and the
-executions say how each session continued it.
+After a continuation **the output handler holds the file's record**. The driver still passes
+the requested record to `run_problem`, because the run summary, the versions and the git
+provenance are facts about this session. In append mode the handler keeps the stored record
+as its own, whatever it is offered, once `_open_output` has passed the gate. So
+`output.metadata` is the file's, and the exact checks of §3 compare a file with its own
+record and hold: `suspend`, `reopen` and snapshots work after a tolerant resume. The TDSE
+archive context takes the stored hash. `HDF5Output(append=True).open(...)` used directly has
+passed no gate, so it compares, and refuses compared paths.
+
+The requested problem is what steps. The file's stored record is never rewritten: it
+describes the run as first written, and the executions say how each session continued it.
 
 A continuation with differences gains a `resume` entry in that session's
-`RunOutcome.execution`:
+`RunOutcome.execution`, which `run_problem` takes as a parameter and writes with the first
+execution record, before any step:
 
 ```text
 {"from_z": 0.0412, "from_plane": 82, "forced": false,
  "numerics": {"stepper.controller.rtol": [1e-06, 1e-05]},
- "compared": {},
+ "compared": "",
  "neutral": ["stepper.controller.new_field"]}
 ```
 
-`previous_executions` keeps it with the session. A non-finite value, such as the default
-`dz_max`, is written as text, because `RunOutcome` refuses non-finite numbers.
+`compared` is `summary()`'s grouped text with its count, not every path. The outcome is
+rewritten at each plane, and a full list of an argon-to-helium change is 255 kB, which over
+500 planes would add 100 MB to the file. `previous_executions` keeps the entry with the
+session. A non-finite value, such as the default `dz_max`, is written as text, because
+`RunOutcome` refuses non-finite numbers.
 
 #### 5.4 Reading a stored record
 
@@ -364,23 +383,52 @@ comparison allows it.
 #### 5.5 Forcing a resume
 
 `resume="force"` on `Simulation.run` and the `prop_*` routes continues in the same file
-whenever the layout agrees and there is something left to compute, whatever the compared
+whenever the layout agrees, the arrays fit and there is work left, whatever the compared
 paths say. It is for a user who knows why the records differ: a corrected optmat model on a
-long run, a release that moved a derived table, a change of physics they mean.
+long run, a release that moved a derived table, a change of physics they mean. `resume` now
+checks its value, so a mistyped word is a `ValueError`. Scans have no `resume`, so a scan never
+forces.
 
-- **What it refuses:** any layout difference, because the stored state cannot be loaded and
-  the file's arrays would not fit; and a complete file, because nothing would be computed.
-- **What it also accepts:** an interpolated last plane, recorded as `resume="interpolated"`
-  records it.
-- **What it records:** every difference, in the §5.3 entry with `"forced": true`, and the
-  position in a new annotation `forced_resumes` (`FORCED_RESUMES_ANNOTATION`).
-- **What it warns about:** the file's stored record no longer describes the planes after
-  that position, and processing reads that record. `open_file` warns once for a file with
-  the annotation, naming the position, and `source=` is refused by the comparison unless the
-  simulation matches.
+- **The arrays must fit.** After `_prime`, when there are compared differences and it is not a
+  TDSE run, the driver compares `backend.stats(spec)` with the shapes of the file's `stats/*`,
+  before stepping and before anything is written. A statistic's names and shape follow the
+  responses and the species, so force cannot change the number of species or turn plasma on or
+  off. Without this check such a run computes a whole segment and then fails at its first save,
+  with a raw error, leaving a checkpoint from the other physics. A prototype of the check
+  reported a mixture, plasma off, `n_r` and two modes by name, and left an identical
+  continuation unchanged.
+- **The Adams history restarts.** A session with a compared difference does not restore the
+  snapshot, and warns that the physics changed. The state comes from the stored plane, reweighted
+  by the requested problem, and the ledgers stay cumulative. Restoring it would be wrong: a
+  capillary forced from 1 to 2 bar at `rtol=1e-6` reached an error of $1.3\times10^{-4}$ with
+  the snapshot, and $4.9\times10^{-8}$ starting afresh, because the snapshot's state was divided
+  by the old $\sqrt{\operatorname{Re} n_{\rm eff}}$ and its energy jumped at the join.
+- **It warns at once.** Each forced continuation warns, listing `summary()`, because the word stays
+  in a script after the reason for it has gone. A changed launch has no effect, because the stored
+  field is what continues, so the warning says so when a launch parameter differs.
+- **It marks the file.** The §5.3 entry carries `"forced": true`, and is written before any step, so
+  a stopped or failed force leaves its mark. One helper reads "this file was forced, at these
+  positions" from the execution records. No annotation is added.
+- **The mark is respected:**
+  - `resume=True` refuses a file with a forced session and names the position, and on a file with
+    no work left returns it with a warning. Otherwise the original script would continue the file
+    with nothing said, because the stored record still matches it: a stopped force then read
+    densities of `[2.47, 2.47, 2.47, 4.95, 2.47]e25` under a record claiming one physics.
+  - `field_plane` refuses a plane beyond the forced position, because it exports a reference frame
+    and a hash that do not describe that plane, and a downstream run would record them as its parent.
+  - `source=` is refused on those planes, whichever simulation is given.
+  - The peak-field report takes only the planes the session wrote.
+  - The public `open_file` warns once, naming the position. Internal callers do not.
 
-A scan never forces. `with_input` stays the way to record a changed physics properly in its
-own file, and the manual says which to use when.
+`stats/*` stay correct, because the requested problem wrote them. Anything rebuilt from the record
+does not, such as `get_power_weight`, which was $2.6\times10^{-4}$ off after that pressure change.
+The manual says so. Storing the requested record beside the first would be bigger than the problem,
+since records reach tens of MB.
+
+`with_input` stays the way to record a changed physics properly in its own file. What force adds is
+the same file, cumulative ledgers, and modified noise and fixed schedules; what it costs is a record
+that stops describing the later planes. The manual says which to use when: anything that will be
+coupled onward or processed from the record takes `with_input`.
 
 #### 5.6 The numerics behind the gate
 
@@ -393,8 +441,12 @@ The continuation meets these, which phase 1 changes:
   admits only `Multistep`, so it never meets this.
 - **Adams history.** `AdamsMarch._refusal` compares the snapshot's `repr` of the method, so
   raising `max_calls` or changing `safety` restarts at order one although the history is
-  still valid. The check compares only the fields that define the history. A change of those
-  restarts the march, with the warning it gives today.
+  still valid. A snapshot gains an attribute `history_key`, holding only the fields that define
+  the history, and the check compares that. An absent key means "start afresh", which is safe and
+  needs no schema bump (§5.8). A change of those fields restarts the march, with the warning it
+  gives today. With the check bypassed, raising `max_calls` continued the history with an error no
+  worse than starting afresh, on both a GNLSE and a capillary run. A forced session never restores
+  a snapshot (§5.5).
 - **Interpolated planes.** `_open_output` refuses an interpolated last plane only when the
   requested run is dense. With `interpolate_planes` now free to change, the test drops
   `dense and`, because `_interpolated` reads the file. Otherwise a run stored densely and
@@ -457,6 +509,12 @@ sim.run("run.h5", resume=True)
 #   profiles.pressure.value 1.0 -> 1.2, ... and 518 more
 #   To change the physics, launch a new segment from a saved plane; to
 #   continue in this file regardless, pass resume="force".
+
+sim.run("run.h5", resume="force")
+# WARNING forcing a resume of run.h5 at z = 0.0412 m; these compared values differ:
+#   configuration: medium.shared_pressure.values (201 elements, largest 0.2), ...
+#   The Adams history starts afresh. From here the file's record does not describe
+#   its planes: stats/* hold, and anything rebuilt from the record does not.
 ```
 
 ### 6. Implementation strategies
@@ -469,6 +527,11 @@ keeps every compatibility decision in one reviewable place.
 **Layer.** The work belongs to the output layer, with small edits in the driver and
 processing, and one in each of `backends/driver.py` and `backends/multistep.py` (§5.6). The
 kernel contract and `KERNEL_SCHEMA_VERSION` do not change.
+
+**Layout: paths or arrays.** Path rows state what the stored arrays mean, which nothing else
+guards: a moved time axis of the same length would fail nowhere. Whether the arrays fit is tested
+on the arrays (§5.5), because a proxy in the record has holes and leaves no special form for
+counting species.
 
 **Cost.** The walk is linear in the record's size: a prototype took 0.04 s on a 28.6 MB
 record, against 0.28 s for today's canonical JSON and SHA-256. The digest fast path keeps
@@ -527,17 +590,30 @@ test goes through a real file and `check_cache`, not a hand-built record.
   the provider is available.
 - **Interpolated planes.** A file stored with `interpolate_planes=True` that ends on an
   interpolated plane refuses under `False`. An ordinary non-dense run never trips the test.
-- **Force.** A changed pressure under `resume="force"` continues, records every difference,
-  writes the annotation, and warns on `open_file`. A layout change and a complete file
-  refuse under force.
+- **Force.**
+  - A changed pressure under `resume="force"` continues, warns, records the entry before any step,
+    and agrees with a restart from the stored plane, with the Adams history not restored.
+  - A layout change refuses, including HE11 to HE12 and a change of noise presence; so do a file
+    with no work left, a change of species count and plasma turned off, before anything is computed
+    or written.
+  - A radial pressure change and a capillary radius change continue under force.
+  - After a stopped or failed force, `resume=True` refuses, and names the position; `resume="force"`
+    continues. A complete forced file is returned with a warning.
+  - `field_plane` and `source=` refuse planes beyond the position, and the peak-field report leaves
+    out earlier planes. `open_file` warns once, and an internal call does not.
+  - A file killed after its last plane has no work left.
+  - An entry's size stays bounded over many planes.
+  - A mistyped `resume` value is a `ValueError`.
 - **Scans.** A rerun whose points differ only in rounding or a neutral value skips them, and
   one with changed numerics or physics is a conflict.
 - **Schema rule.** A file with an unknown top-level group and root attribute is read and
   resumed. Adding a dataset in `stats` is covered by the rule, not by tolerance.
 - **The table.** Every row matches a path in at least one route's record.
 
-Not exercised by CI: a real pair of files from two platforms beyond the frozen records, and
-the queue and Slurm executors, whose identity does not change.
+Not exercised by CI: a real pair of files from two platforms beyond the frozen records; the
+queue and Slurm executors, whose identity does not change; and a forced TDSE run, which `tdse.**`
+refuses when the descriptor differs. Phase 1 should also try force from an Adams snapshot above order
+2, and on the Cartesian, line, planar and non-general waveguide routes, which neither review ran.
 
 ### 8. Documentation
 
@@ -551,8 +627,8 @@ the queue and Slurm executors, whose identity does not change.
 - **`docs/dev/contributing.md`:** a new recorded field needs a decision, and how to add an
   $N$ entry and refresh frozen records at a release.
 - **Docstrings:** `RunMetadata.compare`, `RecordComparison`, `PathChange`, `check_cache`,
-  `Simulation.run`'s `resume`, and the resume-key paragraphs of `output/schema.py` and
-  `output/hdf5.py`.
+  `resume` on `Simulation.run` and the six `prop_*` routes in `driver/interface.py`, and the
+  resume-key paragraphs of `output/schema.py` and `output/hdf5.py`.
 - **ADR:** a new ADR for the policy, narrowing ADR-051 and answering ADR-058's open policy.
 - **Roadmap:** *A resume-compatibility policy before 1.0* goes; *Continuing a finished run
   to a longer length* comes in.
@@ -568,7 +644,7 @@ the queue and Slurm executors, whose identity does not change.
 - **Breaking changes:** none to the API; `resume` gains a value, and `check_cache`'s refusal
   text changes.
 - **Output schema:** unchanged by this SEP. The `resume` entry goes into the free-form
-  `RunOutcome.execution`, and `forced_resumes` is an annotation.
+  `RunOutcome.execution`, and `history_key` is an optional attribute of a snapshot.
 - **Files already written:** the `DataPulse` phase fix takes the output schema to 2 before
   this SEP lands, so 0.1.0 files stay refused by their schema. The rules here apply to files
   of the schema current when phase 1 lands, and later ones, and to earlier files of that
@@ -597,9 +673,15 @@ the queue and Slurm executors, whose identity does not change.
   would continue the wrong run silently. Only realisations whose parameters are compared are
   ignored.
 - **No override.** `with_input` covers a deliberate change of physics, but it splits the run
-  across files and restarts the history and ledgers. For a long run stranded by a change
-  that does not matter to the user, the same file is what is wanted, and the cost is one
-  class and one annotation.
+  across files, restarts the ledgers and refuses modified noise and fixed schedules. For a long
+  run stranded by a change that does not matter to the user, the same file is what is wanted. A
+  forced run restarts the history too, so this is a narrower gain than it first looks, at the cost
+  of one class, a shape check and one helper that readers consult.
+- **An annotation for forced resumes.** `interpolated_resumes` is written on the success path alone,
+  so a stopped force would leave no mark, and that is where the mark matters. The execution records
+  are written before any step, and already exist.
+- **Store the requested record beside the first after a force.** Readers could then be right, but
+  records reach tens of MB, and this is a rare path.
 - **Ask for numerics changes to be opted into.** A value for a choice users make on purpose.
   A warning and a record serve as well.
 - **Continue a finished run to a longer length here.** Moved to its own proposal (§2).
@@ -612,10 +694,10 @@ opened at Final (SEP 0).
 1. **Comparison and resume.**
    - **Deliverables:** `solprop.output.compatibility` with $T$, $N$, normalisation and
      `RunMetadata.compare`; `from_json` keeping the raw record and tolerating absent and
-     unknown fields; `check_cache`, append mode and `source=` on the comparison; the session
+     unknown fields; `check_cache`, append mode and `source=` on the comparison; the handler
      adopting the file's record; the `resume` entry; the ledger, history and
-     interpolated-plane edits; `resume="force"` with its annotation and warning; the frozen
-     records; the manual and the ADR.
+     interpolated-plane edits; `resume="force"` with its shape check, its restart, its warnings
+     and the readers that respect it; the frozen records; the manual and the ADR.
    - **Verifies:** §7 except scans and the schema rule.
 2. **Scans and the schema rule.**
    - **Deliverables:** the parent's comparison on a digest conflict in `Local`, `Pool` and
@@ -637,7 +719,8 @@ opened at Final (SEP 0).
   (recommended, §5.7); or it is reused and counted, as the first draft proposed, which hands
   back loose results after a tightened `rtol`. **Decision (John Travers, 2026-11-01):** as now recommended.
 - **Q5. A force override.** Add `resume="force"`, limited by the layout class and recorded
-  in the file (recommended, §5.5); or none, with `with_input` the only route. **Decision (John Travers, 2026-11-01):** as recommended; forcing is sometimes useful.
+  in the file (recommended, §5.5); or none, with `with_input` the only route. **Decision (John Travers, 2026-11-01):** as recommended; forcing is
+  sometimes useful. Its limits were then tightened by the supplementary review (§5.5).
 - **Q6. Opting into numerics changes.** Allow them on `resume=True` with a warning and the
   execution record (recommended), or require a new value of `resume`. **Decision (John
   Travers, 2026-11-01):** as recommended.
@@ -669,6 +752,10 @@ opened at Final (SEP 0).
 - 2026-11-01: Maintainer decisions (John Travers) on Q1, Q2, Q4 and Q5, as now recommended
   (§12), `resume="force"` included.
 - 2026-11-01: Supplementary AI review of the layout class and force (Opus 5.5).
+- 2026-11-01: Opus 5.5 (drafting agent) answered F1–F17 and revised Part I (response below):
+  a forced session restarts the Adams history and marks the file so that later sessions and
+  readers respect it, layout names structural values only, whether the arrays fit is tested on
+  the arrays, and the handler rather than the driver adopts the file's record.
 
 ### AI review — 2026-11-01 (Opus 5.5)
 
@@ -1583,3 +1670,53 @@ so F1's history result is limited to orders 1 and 2; a real comparer or the full
 except that `run_summary` was fed a stored record; `source=` in a run; queue and Slurm scans; a real
 pair of files from two platforms; and `src/solprop/driver/_scan_run.py`'s custom-path files with a forced file behind
 them.
+
+### Response to the supplementary review — 2026-11-01 (Opus 5.5, drafting agent)
+
+F1, F2, F9 and F16 were re-checked against the code before this response: F1 and F2 by reading
+`_prime`, `_continue_march` and `AdamsMarch.load`, F9 on a real record, F16 by reading
+`set_initial`. The measured figures quoted in Part I are the reviewer's, taken with force
+emulated by a constant hash, since no comparer exists. All 17 points are taken, except as stated
+in points 5 and 16.
+
+1. **F1 taken.** A session with a compared difference does not restore the snapshot, and warns
+   (§5.5, §4's table). §2 and §10 no longer count the history against `with_input`, and §10 says
+   the gain from force is narrower than the first revision claimed. It remains worth having for
+   the same file, cumulative ledgers, and modified noise and schedules, which the maintainer
+   asked for.
+2. **F2 taken.** A file with a forced session continues only under force (§4's table, §5.5). The
+   entry is written before any step, so a failed force counts.
+3. **F3 taken.** `spatial`, `modal` and `quadrature` now name their structural values (§5.2), so
+   force works on the radial and general routes and for a capillary radius. `spatial.absorber_rate`
+   joins the tail row. `modal.channels` is checked in phase 1, as the point asks.
+4. **F4 taken.** `noise.model` and its presence are layout, and §5.5's shape check replaces the
+   `configuration.statistics` row. The check runs only with compared differences, and skips TDSE.
+5. **F5 taken, by the point's own recommendation.** The driver passes the requested record and the
+   handler adopts (§5.3, §3). This corrects the first response's point 10, which had the driver pass
+   the file's record, and the summary now shows what steps. How `_open_output` tells the handler the
+   gate has passed, against a direct call that must still compare, is left to phase 1.
+6. **F6 taken.** `field_plane` and `source=` refuse planes beyond the position, the peak-field report
+   takes the session's planes, and the manual says what holds (§5.5).
+7. **F7 taken.** No annotation; one helper reads the execution records. The same gap in
+   `interpolated_resumes` is separate work, and I would not widen this SEP for it.
+8. **F8 taken.** `compared` is `summary()`'s text (§5.3).
+9. **F9 taken.** Modes are identified by their label fields, and `kind` is compared, so a corrected
+   mode model can be forced (§5.2).
+10. **F10 taken.** The `tdse.**` row gives the narrower reason, and its cost is stated.
+11. **F11 taken.** Precision's row says it is a decision, and §5.5 says force cannot change the species
+    count or turn plasma on or off.
+12. **F12 taken.** "Work left" is defined by position (§4), the table is corrected, the refusals after
+    the comparison are stated, and §5.1 says where the file's state is checked.
+13. **F13 taken.** Each forced continuation warns with the summary, a changed launch is said to have no
+    effect, and the warning belongs to the public `open_file` (§5.5).
+14. **F14 taken.** §8 names the routes, `resume` checks its value, and §5.3 says `run_problem` takes the
+    entry.
+15. **F15 taken.** A snapshot gains `history_key` (§5.6).
+16. **F16 not taken here.** It is a bug in released code, independent of this SEP, and is being fixed on
+    its own branch. §5.2's reason for ignoring `noise.spectrum` no longer says "used only at the launch",
+    which that case contradicts, but relies on the fix: a resumed field is never given the draw again.
+17. **F17 taken.** The result is the smaller shape it describes.
+
+**Still unmeasured:** a real comparer, since none exists; a snapshot above order 2 under force; force on
+the Cartesian, line, planar and non-general waveguide routes; any TDSE run. §7 assigns what can be tried
+to phase 1.
