@@ -323,6 +323,8 @@ reading those that matched. It fixes none in full.
     scheme alone, so a pulse walking out of the time window on those routes still depends on it.
   - [#133](https://github.com/LupoLab/solprop/issues/133): the monitor's records, in particular plane rows under interpolated planes, which §5.3's
     reads at saved planes also meet.
+  - [#134](https://github.com/LupoLab/solprop/issues/134): no test exercises the split's removal over unchecked steps. §4.9's
+    `ramp_removed` adds up over read intervals in the same way, and needs that test from the start.
   - [#90](https://github.com/LupoLab/solprop/issues/90): the split collar on modal routes. The crossing limit of §4.7 bears on that evaluation.
   - [#86](https://github.com/LupoLab/solprop/issues/86) and [#87](https://github.com/LupoLab/solprop/issues/87): the names to settle in 0.x, and one table for the route defaults. This SEP adds
     `spatial_absorber` and `collar_fraction`, and changes the spatial routes' defaults.
@@ -2193,6 +2195,44 @@ main beam with a share $s$ added at $0.97\,k_N$, over the same 0.2 mm, under the
 | ramp's band | R37: periodic, half-width 200 µm, 512 samples, 0.2 mm | removal; field error; launch status | 0.99984; 0.989; refused | ±1 %, the same operator; the status exact |
 | ramp's band | main beam plus $s = 10^{-5}$ in the band | launch status | warning | exact |
 
+### Handoff to phase 1 (2026-11-01)
+
+Read against `main` at `6c2b1e7`, and the accepted text of SEP 41 and SEP 42 on their branches. Nothing here
+was run. Part I is frozen, so what affects it is recorded here.
+
+- **The order (the maintainer, 2026-11-01).** SEP 42, then this SEP, then 0.2.0, then SEP 41. 0.2.0 waits for
+  this SEP so that one release carries all the breaks. If this SEP drags, 0.2.0 follows SEP 42 and this SEP
+  ships as 0.3.0. It may run alongside SEP 42.
+- **Merge `main` first.** The branch is 48 commits behind. `main` has output schema 2 and kernel schema 40.
+  [#72](https://github.com/LupoLab/solprop/pull/72) gave `set_initial` a `resume` keyword, so that a resumed state gets no second input noise.
+  §4.4's noise-free launch and §5.3's launch baselines must respect that, and test doubles take the keyword.
+- **If SEP 42 lands first,** which is expected, its resume compares records path by path and an unlisted path
+  is compared by default ([#142](https://github.com/LupoLab/solprop/issues/142), its §4, §5.2 and §5.8). Then:
+  - §5.2's resume key, which hashes the specification, is superseded by that comparison. This is a deviation
+    for phase 1's report.
+  - The design's derived values, the safety ramp's rate included, need a row in its class table as rates
+    with rounding tails. That keeps §5.2's aim of not refusing a resume across BLAS builds.
+  - The design check's wall time (§4.4) must be `ignored`, or it refuses every resume.
+  - Its table names `spatial.absorber_rate`, and a test holds every row to a path that some route records. A
+    rename here changes that row in the same commit.
+  - A new recorded field needs a neutral entry in its table, unless the schema is bumped.
+  - The output schema follows its §5.8. A new field in the JSON record needs no bump, and anything grown per
+    plane does. §5.3's shares along $z$ are per-plane rows if they are stored as the temporal guards' are. So
+    §6's and §11's bump may or may not be needed, and phase 1 decides by that rule, recording a deviation if
+    there is none. No release carries schema 2, so a bump costs nothing before 0.2.0. The kernel schema's bump
+    stands either way.
+  - Its frozen records stop changing at the 0.2.0 tag. This SEP changes the free-space records and defaults, so
+    it refreshes them before then.
+- **If this SEP lands first,** schema 3 costs nothing, and SEP 42 reconciles its table.
+- **SEP 41's phase 4** follows this SEP and registers the free-space types, whose keywords become the public
+  recipe format ([#143](https://github.com/LupoLab/solprop/issues/143), its §5.1 and §5.2). What it needs from here:
+  - `boundaries.absorber(grid)` keeps its signature under Part I, which has no spatial keyword, though
+    `Absorber.spatial` goes. Its `absorber = {type = "absorber"}` example stands.
+  - A requested collar has a different form: `SpatialAbsorber`, and `spatial_absorber=False`. §5.2 shows it on
+    `prop_*`. A recipe uses the `from_*` form, so phase 1 fixes the same keyword there, and says so on #143.
+  - `collar_fraction` replaces `window_factor` on the grids, `radius` changes meaning on `RadialGrid`, and
+    `BoundaryCheck` gains `transverse_budget`.
+
 ## Part III — History
 
 - 2026-10-31: Drafted, from SEP 21's finding R4 and decision D9, and a linear probe of the
@@ -2252,6 +2292,8 @@ main beam with a share $s$ added at $0.97\,k_N$, over the same 0.2 mm, under the
   gives back goes to [#144](https://github.com/LupoLab/solprop/issues/144) and [#145](https://github.com/LupoLab/solprop/issues/145) in place of the roadmap (§2, §10, §11, §12). §5.3 also puts the
   status in the summary at the start of a run, which R38 asked for and the revision had missed. Part I is
   otherwise unchanged, and the design is the one accepted.
+- 2026-11-01: Part II gains a handoff to phase 1: the order of SEP 42, this SEP, 0.2.0 and SEP 41, and how this
+  SEP meets SEP 42's class table and schema rule and SEP 41's recipe registry. §3 adds [#134](https://github.com/LupoLab/solprop/issues/134).
 
 ### AI review — 2026-10-31 (GPT-6)
 
