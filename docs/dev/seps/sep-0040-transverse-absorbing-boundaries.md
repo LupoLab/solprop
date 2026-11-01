@@ -2848,3 +2848,183 @@ choice taking the response's reading below.
 - **R35, taken.** Each stale reference is fixed. §4.9 now says that removal is non-negative in the
   field norm. `BoundaryCheck` gains `transverse_budget`. The maintainer's re-read of Part I remains
   owed before re-acceptance.
+
+### Re-review — 2026-11-01 (GPT-6)
+
+**Scope and recommendation.** Re-read all of Part I at commit `788a64e`, together with the
+phase 0 reports, R1–R35, their responses and the maintainer's decisions. The new default is
+the right direction: it avoids imposing a real-space collar and its stage cost on every
+run, keeps the spectral ramp at the grid's edge, and makes a collar an explicit choice.
+The withdrawal of the spatial split also removes the earlier history and splitting-error
+problem. Those decisions do not need to be reversed.
+
+**Revise before re-acceptance.** The claim that the default prevents unnoticed boundary
+errors is still stronger than the proposed monitor. R36 and R37 give two short linear
+counterexamples; neither needs nonlinear physics or an optional collar. Close those gaps
+and specify the performance acceptance criterion before calling the default qualified.
+The remaining points concern truthful monitoring status and the requested collar's
+validation/accounting. P1 means a correctness or acceptance blocker; P2 means a
+specification or qualification gap. All R36–R42 await the maintainer's decision and the
+drafting agent's response. This review changes no proposal text or implementation record.
+
+1. **R36 — P1: a fixed cadence can miss the complete boundary event (§§1, 5.3,
+   6, 7.4, 7.6–7.7).** Section 5.3 takes the no-collar edge out of the every-step
+   rule to contain its cost, but supplies no crossing-based bound on its check interval
+   or on overshoot by an accepted step. The collar's step limit in §4.7 does not cover
+   this default. Sampling more often on two slow witnesses does not establish coverage
+   for other sizes, angles or generated packets. In a linear problem the source defect
+   remains zero while the exact periodic flow wraps light; a controller tolerance
+   cannot detect that modelling error.
+
+   **Probe:** one frequency in vacuum at 800 nm, 256 periodic samples over
+   $[-100,100)$ µm, no collar, and the proposed 10 % safety ramp. Launch
+   $E(x)=\exp[-(x/(25\,\mu\mathrm m))^2+i\kappa x]$ with
+   $\kappa=k\,0.2/\sqrt{1+0.2^2}$, so its transverse group velocity is 0.2.
+   Evaluate the exact non-paraxial Fourier flow, including §4.4's ramp, over 1 mm.
+   The outer-5-% edge share is $2.95\times10^{-14}$ at launch and
+   $3.92\times10^{-12}$ at 1 mm; at 0.5 mm it is 0.309. The ramp removes only
+   $2.10\times10^{-18}$ of the launch norm. Against an eight-times-wider bare grid
+   at the same spacing, the final aperture field error is 1.00 of the launch norm.
+   Thus checks 1 mm apart miss essentially complete wraparound, with both proposed
+   default diagnostics below warning. These are evaluations of the proposed linear
+   operator, not runs of a SEP 40 implementation.
+
+   **Requested resolution:** define how check spacing and actual check positions
+   resolve a packet's passage through the guard, across all admitted routes and
+   schedules, including newly generated content. Add this counterexample and scaled
+   versions as regression witnesses. A cheaper check strategy is welcome, but a missed
+   event must not be reported as a watched, clean run. How will coverage be maintained
+   without imposing an unmeasured cost on ordinary runs? Reconcile that answer with
+   §7.7's unchanged-step claim and R42's performance measurements.
+
+2. **R37 — P1: subtracting all initial safety-band content hides removal of real
+   light (§§4.4, 5.3, 7.5–7.6, Q8).** The ramp is judged cumulatively “above the
+   launch's own share in the band.” This is not a subtraction of the known noise
+   expectation. If a noiseless physical launch lies entirely in that band, its
+   cumulative removal can never exceed its initial share, so the judged removal is
+   identically zero even when the ramp destroys the whole signal. No launch-time
+   spectral-content check is specified to cover this case. Deferring the stop policy
+   to Q8 does not fix a warning that also reads zero.
+
+   **Probe:** 512 periodic samples over $[-200,200)$ µm in vacuum at 800 nm, no
+   collar, waist 40 µm and tilt $0.97\,k_N$, with $k_N=\pi/\Delta x$. Start with
+   the Gaussian above and retain only Fourier coefficients with
+   $0.9k_N\le k_x\le0.999k_N$, so all the physical launch is in the safety band.
+   These columns are propagating. Apply the proposed raised-cosine ramp with
+   $\alpha_s=5.8548\times10^4$ m⁻¹ and exact diffraction over 0.2 mm.
+   It removes 0.9998435 of the launch norm. The field error against the same flow
+   without the ramp is 0.989, but the judged ramp removal is zero. At 17 equally
+   spaced checks, even the largest *raw* edge share is only
+   $7.41\times10^{-8}$, below warning. The default must identify this physical
+   content in its numerical safety band before filtering it.
+
+   **Requested resolution:** separate physical launch content from the expected
+   noise contribution, judge physical content in the safety band at launch, and judge
+   its subsequent removal. Preserve raw and noise-adjusted values. A declared
+   `discard_above` may have a different policy, but it must be explicit. Add this
+   noiseless witness beside the noise-only and plasma witnesses. What warning/refusal
+   and output status should identify this launch before the ramp erases it?
+
+3. **R38 — P1: “unwatched” must be visible before the run (§§1, 6, 9, 11).**
+   R17's accepted non-refusing device default permits a backend to record the
+   transverse edge as unwatched. A flag only in an output record does not satisfy
+   §1's promise to avoid unnoticed wrong results: a user can reasonably believe
+   the newly default-on monitor protected the run. The same issue applies to an
+   unqualified path during the implementation phases. This point does not ask to
+   reverse the decision that default runs keep working on those backends.
+
+   **Requested resolution:** require an explicit startup warning and a visible
+   run-summary status whenever the requested transverse check is unavailable or
+   unqualified, retaining the reason in the output. Distinguish watched-and-clear,
+   unchecked, and insensitive-below-a-floor states. Test that an unwatched run cannot
+   produce a clean-monitor verdict. If host checking is used instead, include its
+   transfers and scratch in R42's costs. Is the maintainer willing to accept an
+   unwatched default only with that visible limitation?
+
+4. **R39 — P1: a retained design is not a retained validation of a new launch
+   (§§4.4, 5.2, 7.5).** `with_input` keeps the design and does not rerun its direct
+   check; only an rms wavenumber exceeding the resolved band warns. Yet §4.4 says
+   the band does not decide accuracy and the check protects the launch. A translation of a
+   Cartesian/line launch multiplies its angular spectrum by a phase, preserving
+   its rms exactly, while moving it closer to the collar and changing its return.
+   Changes to spectral phase/focus likewise need not increase the rms. The new
+   launch can therefore inherit a passing check which never tested it. The coupled
+   child's alternative “or is recorded as not run” has the same limitation. The
+   slow-return monitor already has a recorded 7–100-fold shortfall, so it is not a
+   substitute for the check used to exclude these cases.
+
+   **Requested resolution:** keep the shared operator and transform if desired,
+   but make the validation status specific to the actual launch. Reuse a certificate
+   only for explicitly justified transformations; otherwise run the check on the
+   new launch or expose an unchecked override with a warning, rather than carrying
+   forward the parent's pass. Test equal-rms launches with different positions and
+   focus, a reused runner and a coupled child. Which changes can safely avoid a
+   new check, and what does the user see when it has not run?
+
+5. **R40 — P1: the ledger still combines different measures (§§4.9, 5.1, 5.3,
+   7.7).** Choosing a field-norm monitor and deferring the flux ledger is a valid
+   scope decision, but §4.9 then identifies its ramp removal with SEP 23's
+   `absorbed_power` transverse channel. That channel is admittance weighted:
+   `spatial._FarFieldSums.add` forms its credits from
+   `weights * real(admittance) * |spectrum|**2`. It is not the derivative of the
+   quadrature-weighted field norm. The distinction matters in a dielectric, across
+   frequencies and near large angles, and is present even with no real-space
+   collar. Matching the dimensions of J does not make the quantities additive.
+   Also, SEP 34's lossless varying-medium transport conserves the admittance-weighted
+   flux while changing the bare field norm; the listed loss channels cannot close
+   that field-norm balance without accounting for the transport term.
+
+   **Requested resolution:** write the exact definition and scale of $U$ and use it
+   consistently for every credit and threshold in this ledger. Preserve the existing
+   physical `absorbed_power` meaning, adding separate norm credits if needed. State
+   how normalization transport and requested-aperture statistics relate to the
+   whole-grid balance, or narrow the closure claim explicitly. Test at least a
+   non-vacuum medium, unequal admittances, and a permitted varying radial medium.
+   This does not require implementing the deferred flux ledger.
+
+6. **R41 — P2: the direct design check needs its own error and cost contract
+   (§§4.4, 5.2, 7.2–7.3).** It is now a production admission decision at
+   $4\times10^{-8}$ in energy. “Energy-bearing frequencies,” “planes up to $L$”
+   and a bare grid “large enough” do not define the quadrature, maximum sampling
+   or reference uncertainty. A 64-step Cartesian Strang calculation agreeing to
+   three digits on five probes is useful evidence, but does not certify an
+   arbitrary design at that threshold. The non-paraxial, narrow-packet event in
+   R36 also illustrates why sampled planes alone need a resolution rule.
+
+   **Requested resolution:** allocate an error bound to the check's frequency,
+   longitudinal, spatial and linear-solver approximations, and require refinement
+   when that uncertainty can change pass/fail. Bound the work of trying wider
+   fractions; failure to resolve the check should be reported as inconclusive,
+   never as a pass or an endlessly growing construction. Test cases on both sides
+   of the threshold and at least one multicolour/arbitrary launch. Confirm that
+   this propagation check is completely absent from the no-collar default path.
+
+7. **R42 — P2: make small default overhead an acceptance criterion (§§5.3, 6,
+   7.7, 11).** The added inverse transforms and ramp reductions have no measured
+   default-path budget yet; the cited +14 % and +22–27 % numbers concern the collar
+   path. “Should be small” does not settle the maintainer's performance concern.
+   R36's coverage rule and R38's host path can change the cost materially. The
+   safety ramp is cheap to multiply, but its exponent restrictions and any new
+   monitor landings can still change the march.
+
+   **Requested resolution:** before enabling the new default, record short-window
+   wall time, source calls, steps and peak memory for clean radial, Cartesian,
+   line and planar runs, with a pre-agreed acceptable overhead. Separate ramp-only,
+   monitor-only and combined costs, and report construction separately from the
+   march. Compare identical actual grids, spacing, inputs and output schedules;
+   the new Cartesian default removes today's 10 % margin, so comparing constructor
+   defaults would change the problem. Include a weak-source/linear case, where the
+   monitor may dominate, and the native march's host-return behavior. Keep the
+   optional collar's cost separate. If coverage requires more work than the agreed
+   budget, return that tradeoff to the maintainer rather than weakening the check
+   silently. What overhead is acceptable on the common clean runs?
+
+**Verification and limits.** The two probes above use NumPy's FFT and the exact
+non-paraxial multiplier $\exp\{[i(\sqrt{k^2-k_x^2}-k)-\alpha_s(k_x)/2]z\}$,
+with the proposed ramp formula, no noise and no nonlinear response. The wrap reference
+uses the same spacing on an eight-times-wider grid. They exercise the written rules,
+not an implemented monitor; phase 1 must reproduce them through the public interfaces.
+The other findings follow from the stated contracts and current monitor, input-sharing,
+statistics and medium-flux code. No new performance measurements or full nonlinear
+campaign were run, and this review does not independently validate the private phase 0
+data or its fitted constants. The earlier source-verification limitations remain.
