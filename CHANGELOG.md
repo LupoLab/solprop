@@ -32,7 +32,8 @@ All notable changes to solprop are recorded here. The format follows
   command (also `python -m solprop`) runs, checks and exports recipes, and forwards
   `solprop scan`. Example recipes ship with the package (`Recipe.examples()`). Errors
   and warnings that concern a value carry its `parameter`; writing TOML takes the
-  `tomli-w` dependency. See [recipes and the command line](https://solprop.readthedocs.io/en/latest/guide/setup/recipes.html).
+  `tomli-w` dependency. `solprop.grid.suggest` proposes `wavelength_limits` and
+  `trange` from the input pulses, as a starting point. See [recipes and the command line](https://solprop.readthedocs.io/en/latest/guide/setup/recipes.html).
 - `solprop.pulses.load_spectrum` reads a measured spectrum from a text file (frequency
   or wavelength, power density, and an optional phase) into a `DataPulse`. A wrapped
   phase column is unwrapped only where the power is above a noise floor, a phase in

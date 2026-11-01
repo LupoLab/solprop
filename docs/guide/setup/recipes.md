@@ -128,6 +128,13 @@ not registered (a mode or a tabulated index as the GNLSE `fibre`, `CustomPulse`,
 response), and an array given to `Simulation.with_input`. `to_python()` is the way out:
 export the recipe and edit the script.
 
+**A grid to start from.** {py:func}`solprop.grid.suggest` proposes `wavelength_limits`
+and `trange` from the input pulses: a band ten input bandwidths wide each side of the
+carrier, and at least half the carrier frequency on the `gnlse` route or all of it on the
+`capillary` route, and a window thirty input durations long beyond the pulses' delays. It
+knows nothing of the medium or the length, so it is a starting point: check the spectrum
+at the band's edges and the boundary monitor's verdict.
+
 ## The parameter metadata
 
 {py:func}`solprop.recipe.parameters` returns, for each keyword of a route, the forms its
