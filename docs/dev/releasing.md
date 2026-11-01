@@ -191,12 +191,44 @@ Then, for every release:
    upload fails partway, re-run the failed jobs: they upload the same files, and PyPI
    accepts a file identical to one it holds. It refuses different files under a name it
    has seen, so a release that needs a change takes a new version.
-3. Install the published release in a fresh environment, `pip install "solprop[native]"`
-   on each platform, and check that `backend="auto"` resolves to `native`.
+3. Wait for `published-install`, which starts after both publish jobs succeed. On
+   Linux x86-64, Linux aarch64, macOS arm64 and Windows x64 it creates a fresh CPython
+   3.14 environment outside the checkout and uses pip to resolve and install
+   `solprop[native]==X.Y.Z` from PyPI. It checks both distributions' versions,
+   `pip check` and that `backend="auto"` resolves to `native`. It uses no local
+   distribution, dependency lock or cached environment. Its per-platform artifacts
+   retain the install report, logs, resolved versions and platform information,
+   including on failure; each job also writes a summary. Check these before publishing
+   the GitHub release. A failed check does not undo the PyPI upload: record the failure
+   in an issue and repair it in a new version if the published files need changing.
+   If PyPI has not yet made the new files available, rerun the failed install jobs once
+   they appear; the check does not retry a failed resolution or hide its first result.
 4. Publish a GitHub release from the tag, with the version's changelog section as its
    notes: `gh release create vX.Y.Z --verify-tag --title "solprop X.Y.Z" --notes-file
    NOTES.md`. Zenodo archives it and gives it a DOI; on the first release, add the
    concept DOI, which names every version, to `CITATION.cff` and the README.
+
+### Rechecking a published release
+
+The **Published install** workflow can also be dispatched by hand with a required
+`version`, written as `X.Y.Z` or `vX.Y.Z`. It runs the same four-platform check without
+building or publishing anything:
+
+```sh
+gh workflow run published-install.yml -f version=0.1.0
+```
+
+Its optional `readme_example=true` input additionally runs the first Python block of
+that release's tagged README as a script, using Matplotlib's noninteractive `Agg`
+backend. The source and output join the evidence artifact. This full-length example
+is a manual release qualification, requested explicitly; the automatic post-publish
+check only installs and checks the backend. It does not propagate a pulse. The manual
+example is available to complete the first release's outstanding platform checks
+([issue 74](https://github.com/LupoLab/solprop/issues/74)).
+
+```sh
+gh workflow run published-install.yml -f version=0.1.0 -f readme_example=true
+```
 
 The actions in the workflows are pinned by commit; when updating one, take the commit of
 its release tag and keep the version in the trailing comment.
