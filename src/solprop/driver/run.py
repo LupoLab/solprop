@@ -46,6 +46,7 @@ from solprop.backends.registry import statistics_refusal
 from solprop.driver.memory import MemoryAdmission
 from solprop.driver.summary import RUN_SUMMARY_ANNOTATION, resources, run_summary
 from solprop.exceptions import (
+    BackendError,
     DriverError,
     OutputError,
     ResponseBudgetError,
@@ -452,6 +453,7 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
     _retain(output, retention, problem.shape[1:])
     reached, missing_current_save = _resume_position(output, checkpoint_output, problem)
     # Read before this execution's first record replaces the earlier one's.
+    _refuse_unread_collar(problem, backend)
     resumed, monitored, unwatched = _earlier_execution(output, checkpoint_output)
     _announce(
         problem,
@@ -896,6 +898,40 @@ def _resume_position(
         and (output.n_saved == 0 or float(output["z"][-1]) < reached)
     )
     return reached, missing_current_save
+
+
+def _refuse_unread_collar(problem: KernelProblem, backend: Backend) -> None:
+    """Refuse a requested collar on a backend that does not read its return (SEP 40).
+
+    A requested real-space collar is judged by what it returns, which the monitor's
+    transverse edge reads; a backend that does not read it refuses the collar by name
+    before the first step (SEP 40 section 6). Its in-stage rate is not the reason:
+    the backends compute it alike.
+
+    Parameters
+    ----------
+    problem : solprop.translate.problem.KernelProblem
+        The run's problem.
+    backend : solprop.backends.protocol.Backend
+        The selected backend.
+
+    Raises
+    ------
+    BackendError
+        If the problem has a requested collar and the backend does not read the edge.
+    """
+    design = problem.transverse
+    if design is None or not design.has_collar:
+        return
+    if getattr(backend, "reads_transverse_edge", False):
+        return
+    name = getattr(backend, "name", type(backend).__name__)
+    msg = (
+        f"the {name} backend does not carry a requested real-space collar "
+        "(SpatialAbsorber with real_space=True) yet: run it on backend='numpy_ref', "
+        "or ask for the safety ramp alone"
+    )
+    raise BackendError(msg)
 
 
 def _earlier_execution(
