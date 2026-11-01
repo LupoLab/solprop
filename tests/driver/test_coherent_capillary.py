@@ -1333,9 +1333,9 @@ def test_the_flow_record_survives_a_file_and_a_resume_checks_it(tmp_path):
         assert read_back.modal["flow"] == fresh.modal["flow"]
     finally:
         stored.close()
-    with pytest.raises(OutputError, match="different run"):
+    with pytest.raises(OutputError, match="cannot be resumed"):
         capillary(modes=1).run(path, resume=True)
-    with pytest.raises(OutputError, match="different run"):
+    with pytest.raises(OutputError, match="cannot be resumed"):
         Simulation.from_capillary(
             1.5 * RADIUS,
             LENGTH,
@@ -2433,11 +2433,11 @@ def test_the_flow_record_of_a_varying_guide_names_the_profile_it_was_built_from(
         assert record["radius"] == NARROW
     finally:
         stored.close()
-    with pytest.raises(OutputError, match="different run"):
+    with pytest.raises(OutputError, match="cannot be resumed"):
         varying(wall=CoherentWall(), radius=taper(ends=(RADIUS, 45e-6))).run(
             path, resume=True
         )
-    with pytest.raises(OutputError, match="different run"):
+    with pytest.raises(OutputError, match="cannot be resumed"):
         varying(wall=CoherentWall(), radius=smooth_taper()).run(path, resume=True)
 
 
@@ -3389,7 +3389,7 @@ def test_the_vector_flow_record_survives_a_file_and_a_resume_checks_it(tmp_path)
         assert read_back.modal["basis"] == "capillary azimuthal order"
     finally:
         stored.close()
-    with pytest.raises(OutputError, match="different run"):
+    with pytest.raises(OutputError, match="cannot be resumed"):
         capillary(wall=CoherentWall(), modes=1).run(path, resume=True)
 
 

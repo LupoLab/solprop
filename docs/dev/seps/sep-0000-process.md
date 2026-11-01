@@ -212,18 +212,22 @@ An implementer picks up an accepted SEP with a commit that sets the status to
 `In progress` and records, in the **Implementation** field, who is implementing it and the
 branch. Every phase is made on that one branch, `feature/sep-NNNN-short-slug`, which may
 start on top of an open pull request's branch when pull requests are stacked behind CI.
-Each phase is:
+Push that commit and open the SEP's one pull request from it, as a draft titled
+`WIP: SEP N …` and linked from the tracking issue, so that CI can run during development
+and the work can be followed. Each phase is:
 
 1. implemented under the rules of §7, native code in `native/` with the Python backends;
 2. checked with the fast checks and the directly affected tests of `AGENTS.md` only;
 3. reported: the phase report (§8) is appended to Part II, and the **Implementation**
    field and Part III updated, in commits on the branch.
 
-The SEP reaches `main` in one pull request, opened when its last commit sets `Final`
-(*Completion*). CI runs the full gate, slow and coverage lanes on it; failures are fixed
-by further commits on the branch. Reviewers review that pull request, and merging it is
-the maintainers' approval. Phases may be taken by different implementers, one after
-another on the branch.
+The SEP reaches `main` in that pull request, marked ready for review when its last commit
+sets `Final` (*Completion*). CI runs the full gate, slow and coverage lanes on every push
+to it. It need not be green while the pull request is a draft, and a push that needs no
+run has `[skip ci]` in its head commit's message; failures are fixed by further commits
+on the branch. Reviewers review the pull request once it is ready, and merging it is the
+maintainers' approval. Phases may be taken by different implementers, one after another
+on the branch.
 
 ### Completion
 
@@ -365,3 +369,7 @@ that edits this document and adds a line to its history.
   accepted and draft SEPs for now (maintainer's decision, ADR-062).
 - 2026-11-01: The roadmap's informal items moved to issues, so a new SEP no longer reviews
   them.
+- 2026-11-01: A SEP implementation's one pull request is opened as a draft when
+  implementation starts, not when the SEP is set `Final`, so that CI can run during
+  development and the work can be followed; it is marked ready at `Final` (maintainer's
+  decision, already the practice on SEP 40 and SEP 41).

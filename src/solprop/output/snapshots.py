@@ -29,7 +29,7 @@ import numpy as np
 from solprop._interrupts import deferred_handlers
 from solprop.exceptions import OutputError, TDSEArchiveError
 from solprop.output._writer_lock import WriterLock
-from solprop.output.hdf5 import HDF5Output, ResumeState, open_file, resume
+from solprop.output.hdf5 import HDF5Output, ResumeState, resume
 from solprop.output.schema import RunMetadata
 from solprop.output.tdse_archive import (
     ArchiveOutputs,
@@ -715,7 +715,7 @@ def _checkpoint(directory: Path, records: list[_FileRecord]) -> dict[str, object
         raise OutputError(
             "snapshot requires a running, finite accepted optical endpoint"
         )
-    with open_file(optical) as stored:
+    with HDF5Output(optical, readonly=True) as stored:
         marker = _object(stored.annotations.get(_ANNOTATION))
     next_index = marker.get("next_save_index")
     if (
