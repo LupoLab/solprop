@@ -174,6 +174,16 @@ costs a few hundred evaluations of one mode, about a second for a capillary. A d
 sets two values at once, such as {py:func}`~solprop.tools.capillary_design`, is not a pin:
 call it and write its values in `[build]`.
 
+## Previews
+
+Before a run, `recipe.modes()` returns the mode set a guided route builds (the
+`capillary` and `waveguide` routes), at the launch position or at `z`: each mode's label,
+its `beta`, `beta2` and loss over the grid's band, its effective area and its
+zero-dispersion wavelength in the band. Its cost is the mode solve. `recipe.preview_input()`
+returns the input pulse on the run's grid as the launch sets it, without noise, so a
+preview draws nothing: its power in time, its spectrum, its energy and its peak power,
+read through the processing functions that read a run's file. Both solve the pins first.
+
 ## Scans
 
 A `[scan]` table varies parameter paths over a grid of points. `name` is required: it

@@ -51,6 +51,7 @@ if TYPE_CHECKING:
     from solprop.log import ProgressChoice, ProgressReporter, StopFlag
     from solprop.output.schema import Output
     from solprop.recipe.pins import Pin
+    from solprop.recipe.preview import InputPreview, ModeSetPreview
     from solprop.tools import DesignRoots
 
 __all__ = [
@@ -755,6 +756,58 @@ class Recipe:
                         _pick(pin, working._solve(pin)),
                     )
         return working._solve(chosen)
+
+    # ------------------------------------------------------------------ previews
+
+    def modes(self, z: float | None = None) -> "ModeSetPreview":  # noqa: UP037 - TYPE_CHECKING
+        """Return the mode set a guided route would build, before the run (S18).
+
+        Labels, ``beta``, ``beta2``, loss and effective area over the grid's band,
+        and the zero-dispersion wavelength; pins are solved first. The cost is the
+        mode solve (:func:`solprop.recipe.preview.modes`).
+
+        Parameters
+        ----------
+        z : float or None, optional
+            The position, m; ``None`` for the launch position.
+
+        Returns
+        -------
+        solprop.recipe.preview.ModeSetPreview
+            The modes.
+
+        Examples
+        --------
+        >>> from solprop.recipe import Recipe
+        >>> preview = Recipe.example("rdw").modes()
+        >>> [mode.label for mode in preview.modes]
+        ['HE1,1:even', 'HE1,2:even']
+        """
+        from solprop.recipe.preview import modes  # noqa: PLC0415 - layer D
+
+        return modes(self, z)
+
+    def preview_input(self) -> "InputPreview":  # noqa: UP037 - TYPE_CHECKING
+        """Return the input pulse on the run's grid, as launched, without noise (S18).
+
+        Pins are solved first; the cost is a translation
+        (:func:`solprop.recipe.preview.preview_input`).
+
+        Returns
+        -------
+        solprop.recipe.preview.InputPreview
+            The pulse in time and frequency, its energy and its peak power.
+
+        Examples
+        --------
+        >>> from solprop.recipe import Recipe
+        >>> preview = Recipe.example("rdw").preview_input()
+        >>> f"{preview.energy * 1e6:.1f} uJ"
+        '275.0 uJ'
+        """
+        from solprop.recipe.preview import preview_input  # noqa: PLC0415 - layer D
+
+        return preview_input(self)
 
     def _copy(self, drop: tuple[str, ...]) -> "Recipe":  # noqa: UP037 - checked at run time
         """Return a copy without some top-level tables, its data files kept.
