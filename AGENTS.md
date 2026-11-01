@@ -6,7 +6,8 @@ Working instructions for coding agents (and people) in this repository.
 [`docs/dev/index.md`](docs/dev/index.md), then [`architecture.md`](docs/dev/architecture.md)
 and [`conventions.md`](docs/dev/conventions.md). This file is the short form: the rules,
 each with a pointer to the page that explains it. Those pages win on any detail.
-[`CONTRIBUTING.md`](CONTRIBUTING.md) is the short guide for a first contribution.
+[`CONTRIBUTING.md`](CONTRIBUTING.md) is the short guide for a first contribution, and holds
+the standard for issues and pull requests.
 
 **Rules marked ⚙ are enforced automatically** by the ruff, basedpyright, numpydoc,
 codespell, reuse and pytest configuration in `pyproject.toml`. The configuration is the
@@ -452,6 +453,9 @@ The long form is [`testing.md`](docs/dev/testing.md).
   commits rather than one large one. Stage deliberately with `git add <paths>`.
 - Changes reach `main` as pull requests with green CI, or by a local merge when the
   maintainers ask for one.
+- **Before opening an issue or a pull request,** read [`CONTRIBUTING.md`](CONTRIBUTING.md):
+  search the issues, the pull requests and the SEPs, link what is related, and follow its
+  sections and labels.
 - **Coding agents:** merge, push, tag or release only when asked; never run a
   destructive or history-rewriting command (`git reset --hard`, `git checkout .`,
   `git restore` over uncommitted changes, `git clean`, `git commit --amend`,
