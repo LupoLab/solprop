@@ -3562,6 +3562,8 @@ class Simulation(Displayed):
         noise: NoiseSetting = "default",
         seed: int | None = None,
         materials: MaterialSelection | None = None,
+        absorber: Absorber | Literal[False] | None = None,
+        absorber_scheme: AbsorberScheme | None = None,
         boundary_check: BoundaryCheck | None = DEFAULT_BOUNDARY_CHECK,
         spatial_absorber: SpatialAbsorber | Literal[False] | None = None,
     ) -> "Simulation":  # noqa: UP037 - runtime hook evaluates while class is defined
@@ -3603,6 +3605,12 @@ class Simulation(Displayed):
             caller's (``gamma3("Ar", wavelength=...)`` is optmat's coefficient at a
             carrier). The run records its material manifest.
             ``None`` (the default) is ``MaterialSelection()``.
+        absorber : solprop.boundaries.Absorber, False or None, optional
+            Overrides `settings`' absorber, which must then declare none. ``False``
+            switches the temporal and spectral collars off and keeps the hard band
+            mask; the transverse collars keep their own settings (SEP 21 section 5).
+        absorber_scheme : {'nonlinear', 'split_step'} or None, optional
+            Overrides `settings`' temporal scheme, which must then be the default.
         boundary_check : solprop.monitor.BoundaryCheck or None, optional
             How the run watches its time window's edges (SEP 21), when `settings`
             name the default check: the default warns, then stops, when light above
@@ -3632,7 +3640,13 @@ class Simulation(Displayed):
             _selected_medium(medium, materials),
             responses,
             initial,
-            settings=_bounded(_watched(settings, boundary_check), spatial_absorber),
+            settings=_bounded(
+                _watched(
+                    _with_boundary(settings, grid, absorber, absorber_scheme),
+                    boundary_check,
+                ),
+                spatial_absorber,
+            ),
             frame=frame,
             noise=noise,
             seed=seed,
@@ -3654,6 +3668,8 @@ class Simulation(Displayed):
         noise: NoiseSetting = "default",
         seed: int | None = None,
         materials: MaterialSelection | None = None,
+        absorber: Absorber | Literal[False] | None = None,
+        absorber_scheme: AbsorberScheme | None = None,
         boundary_check: BoundaryCheck | None = DEFAULT_BOUNDARY_CHECK,
         spatial_absorber: SpatialAbsorber | Literal[False] | None = None,
     ) -> "Simulation":  # noqa: UP037 - runtime hook evaluates while class is defined
@@ -3701,6 +3717,12 @@ class Simulation(Displayed):
             caller's (``gamma3("Ar", wavelength=...)`` is optmat's coefficient at a
             carrier). The run records its material manifest.
             ``None`` (the default) is ``MaterialSelection()``.
+        absorber : solprop.boundaries.Absorber, False or None, optional
+            Overrides `settings`' absorber, which must then declare none. ``False``
+            switches the temporal and spectral collars off and keeps the hard band
+            mask; the transverse collars keep their own settings (SEP 21 section 5).
+        absorber_scheme : {'nonlinear', 'split_step'} or None, optional
+            Overrides `settings`' temporal scheme, which must then be the default.
         boundary_check : solprop.monitor.BoundaryCheck or None, optional
             How the run watches its time window's edges (SEP 21), when `settings`
             name the default check: the default warns, then stops, when light above
@@ -3737,7 +3759,13 @@ class Simulation(Displayed):
             medium,
             responses,
             initial,
-            settings=_bounded(_watched(settings, boundary_check), spatial_absorber),
+            settings=_bounded(
+                _watched(
+                    _with_boundary(settings, grid, absorber, absorber_scheme),
+                    boundary_check,
+                ),
+                spatial_absorber,
+            ),
             frame=frame,
             noise=noise,
             seed=seed,
@@ -3761,6 +3789,8 @@ class Simulation(Displayed):
         settings: SimulationSettings,
         frame: Frame | None = None,
         materials: MaterialSelection | None = None,
+        absorber: Absorber | Literal[False] | None = None,
+        absorber_scheme: AbsorberScheme | None = None,
         boundary_check: BoundaryCheck | None = DEFAULT_BOUNDARY_CHECK,
         spatial_absorber: SpatialAbsorber | Literal[False] | None = None,
     ) -> "Simulation":  # noqa: UP037 - runtime hook evaluates while class is defined
@@ -3804,6 +3834,12 @@ class Simulation(Displayed):
             rate's energy per event is bound to the input's peak field (SEP 3, Q14),
             and the input is checked against each rate. ``None`` (the default) is
             ``MaterialSelection()``.
+        absorber : solprop.boundaries.Absorber, False or None, optional
+            Overrides `settings`' absorber, which must then declare none. ``False``
+            switches the temporal and spectral collars off and keeps the hard band
+            mask; the transverse collars keep their own settings (SEP 21 section 5).
+        absorber_scheme : {'nonlinear', 'split_step'} or None, optional
+            Overrides `settings`' temporal scheme, which must then be the default.
         boundary_check : solprop.monitor.BoundaryCheck or None, optional
             How the run watches its time window's edges (SEP 21), when `settings`
             name the default check: the default warns, then stops, when light above
@@ -3846,7 +3882,14 @@ class Simulation(Displayed):
                 ),
             )
         settings = _spatial_default(
-            _bounded(_watched(settings, boundary_check), spatial_absorber), grid
+            _bounded(
+                _watched(
+                    _with_boundary(settings, grid, absorber, absorber_scheme),
+                    boundary_check,
+                ),
+                spatial_absorber,
+            ),
+            grid,
         )
         simulation = cls(
             grid,
@@ -5990,6 +6033,7 @@ class Simulation(Displayed):
                 tdse_execution,
                 trange=trange,
                 kerr=kerr,
+                mode_average=mode_average,
                 unset={
                     "plasma": plasma,
                     "raman": raman,
@@ -8768,6 +8812,78 @@ def _spatial_settings(settings: SimulationSettings, route: str) -> SimulationSet
     return dataclasses.replace(settings, controller=controller)
 
 
+def _with_boundary(
+    settings: SimulationSettings,
+    grid: TimeGrid,
+    absorber: Absorber | Literal[False] | None,
+    scheme: AbsorberScheme | None,
+) -> SimulationSettings:
+    """Apply a spatial interface's absorber keywords to its settings (SEP 21 section 5).
+
+    Parameters
+    ----------
+    settings : SimulationSettings
+        The settings given.
+    grid : TimeGrid
+        The run's temporal grid.
+    absorber : Absorber, False or None
+        The collar given; ``False`` zeroes the temporal and spectral rates of the
+        settings' absorber and keeps its lengths (without one it builds the hard mask
+        alone); ``None`` leaves the settings' own. The transverse boundary is
+        ``spatial_absorber``'s (SEP 40).
+    scheme : {'nonlinear', 'split_step'} or None
+        The temporal scheme given; ``None`` leaves the settings' own.
+
+    Returns
+    -------
+    SimulationSettings
+        The settings with the keywords applied.
+
+    Raises
+    ------
+    DriverError
+        If a keyword conflicts with what the settings already declare, or a scheme is
+        given beside ``absorber=False``.
+    """
+    changes: dict[str, object] = {}
+    if absorber is False:
+        if scheme is not None:
+            msg = (
+                "absorber=False switches the temporal collar off, so there is nothing "
+                f"for absorber_scheme={scheme!r} to apply; give one or the other"
+            )
+            raise DriverError(msg)
+        current = settings.absorber
+        changes["absorber"] = (
+            no_absorber(grid)
+            if current is None
+            else dataclasses.replace(
+                current,
+                spectral_rate=np.zeros_like(current.spectral_rate),
+                temporal_rate=np.zeros(grid.n_t),
+                temporal_rate_fine=np.zeros(grid.n_to),
+                temporal=False,
+            )
+        )
+    elif absorber is not None:
+        if settings.absorber is not None:
+            msg = (
+                "the settings already declare an absorber; give it there or as the "
+                "absorber keyword, not both"
+            )
+            raise DriverError(msg)
+        changes["absorber"] = absorber
+    if scheme is not None:
+        if settings.absorber_scheme not in (None, scheme):
+            msg = (
+                f"the settings already declare absorber_scheme="
+                f"{settings.absorber_scheme!r}; give it there or as the keyword"
+            )
+            raise DriverError(msg)
+        changes["absorber_scheme"] = scheme
+    return dataclasses.replace(settings, **changes) if changes else settings
+
+
 def _watched(
     settings: SimulationSettings, check: BoundaryCheck | None
 ) -> SimulationSettings:
@@ -10156,6 +10272,7 @@ def _tdse_entry(  # noqa: PLR0913 - the entry point's TDSE keywords together
     *,
     trange: float | None,
     kerr: bool,
+    mode_average: bool,
     unset: Mapping[str, object],
     backend: str,
     step_planes: int | None,
@@ -10174,6 +10291,9 @@ def _tdse_entry(  # noqa: PLR0913 - the entry point's TDSE keywords together
         Requested time window in s, the default atomic-window duration.
     kerr : bool
         The Kerr switch, which must stay true beside a TDSE response.
+    mode_average : bool
+        The mode-averaged switch, which must stay false beside a TDSE response: its
+        translation needs the resolved radial quadrature.
     unset : mapping
         Electronic-response keywords that must be left unset beside it.
     backend : str
@@ -10193,7 +10313,8 @@ def _tdse_entry(  # noqa: PLR0913 - the entry point's TDSE keywords together
     Raises
     ------
     DriverError
-        For `tdse_execution` without `tdse`, an electronic keyword beside it, an
+        For `tdse_execution` without `tdse`, an electronic keyword or `mode_average`
+        beside it, an
         unresolvable window duration, or a non-TDSE record.
     """
     if tdse is None:
@@ -10205,6 +10326,8 @@ def _tdse_entry(  # noqa: PLR0913 - the entry point's TDSE keywords together
     given = [name for name, value in unset.items() if value is not None]
     if not kerr:
         given.append("kerr=False")
+    if mode_average:
+        given.append("mode_average=True")
     if given:
         raise DriverError(
             f"the TDSE response owns the electronic response; leave "

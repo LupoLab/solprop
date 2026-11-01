@@ -1597,7 +1597,7 @@ class NativeBackend(StepDriver[_core.State]):
                         zdw(
                             self._modes,
                             self._z,
-                            wavelength_range=inband_wavelengths(self._require_grid()),
+                            wavelength_limits=inband_wavelengths(self._require_grid()),
                         )
                     ]
                 )

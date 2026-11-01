@@ -24,7 +24,7 @@ from bounds import AccuracyEnvelope, assert_within, fft_bound, gamma
 from legacy_geometry import LEGACY_GRID, bare_absorber
 from solprop.backends.driver import StepDriver
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.backends.protocol import Observation, StepHistory
+from solprop.backends.protocol import BackendHistory, Observation
 from solprop.backends.registry import available, select
 from solprop.driver import Simulation, SimulationSettings
 from solprop.driver.memory import admit_memory, field_bytes, plane_bytes
@@ -535,7 +535,7 @@ def test_a_field_free_observation_relies_on_the_step_loop_for_finiteness():
 
 
 def test_an_observation_refuses_a_noise_phase_without_its_field():
-    history = StepHistory(
+    history = BackendHistory(
         np.zeros(0), np.zeros(0), np.zeros(0), np.zeros(0, bool), np.zeros(0)
     )
     with pytest.raises(BackendError, match="without a field"):
@@ -580,7 +580,7 @@ def test_the_low_storage_march_holds_its_field_free_plane_with_its_noise_phase()
 def test_a_lockstep_split_refuses_a_field_free_observation():
     from solprop.driver.batch import split_observation  # noqa: PLC0415
 
-    history = StepHistory(
+    history = BackendHistory(
         np.zeros(0), np.zeros(0), np.zeros(0), np.zeros(0, bool), np.zeros(0)
     )
     observation = Observation(0.0, None, None, history, 0, 0)

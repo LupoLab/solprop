@@ -262,7 +262,7 @@ def zdw(
     mode: Mode,
     z: float = 0.0,
     *,
-    wavelength_range: tuple[float, float] = (100e-9, 3e-6),
+    wavelength_limits: tuple[float, float] = (100e-9, 3e-6),
 ) -> float:
     """Return the zero-dispersion wavelength of a mode.
 
@@ -272,7 +272,7 @@ def zdw(
         The mode.
     z : float, optional
         Position along the waveguide, m.
-    wavelength_range : tuple of float, optional
+    wavelength_limits : tuple of float, optional
         Shortest and longest wavelength in m to bracket the root in. Defaults to
         100 nm to 3 um. A bracket wider than the validity range of a
         material model behind the mode makes that model warn, once per evaluation:
@@ -295,13 +295,13 @@ def zdw(
     >>> from solprop.modes import MarcatiliMode
     >>> from solprop.modes.base import zdw
     >>> mode = MarcatiliMode(125e-6, "He", 0.4, model="reduced", cladding=1.45)
-    >>> f"{zdw(mode, wavelength_range=(150e-9, 900e-9)) * 1e9:.1f}"
+    >>> f"{zdw(mode, wavelength_limits=(150e-9, 900e-9)) * 1e9:.1f}"
     '376.7'
     """
-    shortest, longest = wavelength_range
+    shortest, longest = wavelength_limits
     if not 0.0 < shortest < longest:
         raise ModeError(
-            f"the wavelength range must be positive and ordered, got {wavelength_range}"
+            f"wavelength_limits must be positive and ordered, got {wavelength_limits}"
         )
     lower = 2.0 * math.pi * C / longest
     upper = 2.0 * math.pi * C / shortest

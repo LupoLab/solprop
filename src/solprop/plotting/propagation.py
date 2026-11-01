@@ -52,11 +52,11 @@ from solprop.processing.time import energy as pulse_energy
 
 __all__ = [
     "DEFAULT_SLICE_WAVELENGTH_RANGE",
-    "DEFAULT_TRANGE",
+    "DEFAULT_TIME_RANGE",
     "DEFAULT_WAVELENGTH_RANGE",
     "SLICE_QUANTITIES",
     "SliceQuantity",
-    "energy",
+    "plot_energy",
     "prop_2d",
     "spec_1d",
     "time_1d",
@@ -68,7 +68,7 @@ DEFAULT_WAVELENGTH_RANGE = (150e-9, 2e-6)
 DEFAULT_SLICE_WAVELENGTH_RANGE = (150e-9, 1.2e-6)
 """Wavelength range of a spectral slice when no ``spec_range`` is given, m."""
 
-DEFAULT_TRANGE = (-50e-15, 50e-15)
+DEFAULT_TIME_RANGE = (-50e-15, 50e-15)
 """Time range of a propagation map, s."""
 
 SliceQuantity = Literal["power", "field", "field_squared"]
@@ -87,7 +87,7 @@ def prop_2d(  # noqa: PLR0913 - the two axes, the two ranges and the colour scal
     axis: SpectralAxis = "f",
     *,
     spec_range: tuple[float, float] | None = None,
-    trange: tuple[float, float] = DEFAULT_TRANGE,
+    time_range: tuple[float, float] = DEFAULT_TIME_RANGE,
     db_min: float = -60.0,
     resolution: float | None = None,
     modes: ModeSelection = None,
@@ -120,7 +120,7 @@ def prop_2d(  # noqa: PLR0913 - the two axes, the two ranges and the colour scal
         :data:`DEFAULT_WAVELENGTH_RANGE` on that axis;
         :func:`~solprop.plotting.style.wavelength_to_axis` converts a wavelength range.
         A range that selects no sample of the axis is refused.
-    trange : tuple of float
+    time_range : tuple of float
         Time limits, s.
     db_min : float
         Bottom of the colour scale, dB below the peak.
@@ -205,7 +205,7 @@ def prop_2d(  # noqa: PLR0913 - the two axes, the two ranges and the colour scal
             cmap=cmap,
             width=per_width(output),
         )
-        temporal.set_xlim(trange[0] * T_TO_FS, trange[1] * T_TO_FS)
+        temporal.set_xlim(time_range[0] * T_TO_FS, time_range[1] * T_TO_FS)
         figure.suptitle(f"Propagation ({name})")
         figure.tight_layout()
         figures.append(figure)
@@ -219,7 +219,7 @@ def time_1d(  # noqa: PLR0913 - the planes, the quantity, the window and the axi
     quantity: SliceQuantity = "power",
     modes: ModeSelection = None,
     oversampling: int = 4,
-    trange: tuple[float, float] = DEFAULT_TRANGE,
+    time_range: tuple[float, float] = DEFAULT_TIME_RANGE,
     bandpass: spectra.Bandpass | None = None,
     widths: bool = True,
     ax: Axes | None = None,
@@ -240,7 +240,7 @@ def time_1d(  # noqa: PLR0913 - the planes, the quantity, the window and the axi
         Which modes to draw; only a power may be summed over modes.
     oversampling : int
         Time-domain resampling factor.
-    trange : tuple of float
+    time_range : tuple of float
         Time limits, s.
     bandpass : tuple of float, Passband, numpy.ndarray or None
         Wavelength limits, m, or a :class:`~solprop.processing.spectra.Passband` on any
@@ -315,7 +315,7 @@ def time_1d(  # noqa: PLR0913 - the planes, the quantity, the window and the axi
             if widths:
                 entry += f" [{time.fwhm(t * T_TO_FS, np.abs(trace)):.2f} fs]"
             ax.plot(t * T_TO_FS, trace, color=colour, dashes=_dashes(mode), label=entry)
-    ax.set_xlim(trange[0] * T_TO_FS, trange[1] * T_TO_FS)
+    ax.set_xlim(time_range[0] * T_TO_FS, time_range[1] * T_TO_FS)
     ax.set_xlabel("Time (fs)")
     ax.set_ylabel(("Field" if quantity == "field" else "Power") + f" ({unit})")
     if quantity != "field":
@@ -427,7 +427,7 @@ def spec_1d(  # noqa: PLR0913 - the planes, the abscissa, the range and the scal
     return _figure_of(ax)
 
 
-def energy(
+def plot_energy(
     output: Output,
     *,
     modes: ModeSelection = None,
@@ -462,9 +462,9 @@ def energy(
     Examples
     --------
     >>> import matplotlib.pyplot as plt
-    >>> from solprop.plotting.propagation import energy
+    >>> from solprop.plotting.propagation import plot_energy
     >>> from solprop.processing._examples import example_output
-    >>> figure = energy(example_output())
+    >>> figure = plot_energy(example_output())
     >>> figure.axes[1].get_ylabel()
     'Conversion efficiency (%)'
     >>> plt.close(figure)

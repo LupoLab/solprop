@@ -18,7 +18,6 @@ from solprop.driver import Simulation, SimulationSettings
 from solprop.driver.run import run_problem
 from solprop.driver.simulation import metadata_for
 from solprop.driver.summary import (
-    RUN_SUMMARY_ANNOTATION,
     RunSummary,
     _code,
     _compiled,
@@ -47,7 +46,7 @@ from solprop.nonlinear.optmat_rates import OptmatRate
 from solprop.nonlinear.raman import SilicaTensorResponse
 from solprop.nonlinear.responses import KerrResponse, PlasmaResponse
 from solprop.output import HDF5Output, MemoryOutput, open_file
-from solprop.output.schema import GitProvenance
+from solprop.output.schema import RUN_SUMMARY_ANNOTATION, GitProvenance
 from solprop.physdata import Mixture
 from solprop.profiles import Linear
 from solprop.pulses import GaussianPulse, PlanarPulse, SpatialPulse

@@ -83,6 +83,7 @@ __all__ = [
     "INTERNAL_CONVENTION",
     "INTERPOLATED_RESUMES_ANNOTATION",
     "PEAK_FIELDS_ANNOTATION",
+    "RUN_SUMMARY_ANNOTATION",
     "SCHEMA_VERSION",
     "SPECTRAL_CONVENTION",
     "STEP_STATS_INDEX",
@@ -176,6 +177,14 @@ continued from with ``resume="interpolated"``: each continuation started afresh 
 field interpolated inside a step, not a state the march passed through (SEP 14).
 Written by :meth:`solprop.driver.simulation.Simulation.run`, outside the configuration
 hash.
+"""
+
+RUN_SUMMARY_ANNOTATION = "run_summary"
+"""Name of the annotation holding the start-of-run summaries of a plane store.
+
+A list with one mapping per start, ``{"title": str, "rows": [[key, value], ...]}``: a
+run that is resumed adds the summary of its continuation to the first one's. Written
+when a run starts, not when it closes, and outside the configuration hash.
 """
 
 INTERNAL_CONVENTION = "fft"
@@ -3977,8 +3986,8 @@ class PlaneStore(Displayed, ABC):
             )
             raise OutputError(msg)
         try:
-            text = json.dumps(value, sort_keys=True)
-        except TypeError as error:
+            text = json.dumps(value, sort_keys=True, allow_nan=False)
+        except (TypeError, ValueError) as error:
             msg = f"annotation {name!r} is not plain JSON: {error}"
             raise OutputError(msg) from error
         self._write_annotation(name, text)

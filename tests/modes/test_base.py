@@ -166,7 +166,7 @@ def test_the_beta2_step_is_documented_and_small():
 
 def test_zdw_finds_the_root_of_beta2():
     mode = MarcatiliMode(125e-6, "He", 0.4, model="reduced", cladding=1.45)
-    wavelength = zdw(mode, wavelength_range=(150e-9, 900e-9))
+    wavelength = zdw(mode, wavelength_limits=(150e-9, 900e-9))
     assert 150e-9 < wavelength < 900e-9
     residual = float(beta2(mode, omega_of(np.array([wavelength])))[0])
     scale = float(np.max(np.abs(beta2(mode, band()))))
@@ -178,11 +178,11 @@ def test_zdw_moves_the_right_way_with_pressure():
     """More gas pushes the balance point to longer wavelengths."""
     low = zdw(
         MarcatiliMode(125e-6, "He", 0.4, model="reduced", cladding=1.45),
-        wavelength_range=(150e-9, 900e-9),
+        wavelength_limits=(150e-9, 900e-9),
     )
     high = zdw(
         MarcatiliMode(125e-6, "He", 1.5, model="reduced", cladding=1.45),
-        wavelength_range=(150e-9, 900e-9),
+        wavelength_limits=(150e-9, 900e-9),
     )
     assert high > low
 
@@ -191,7 +191,7 @@ def test_zdw_raises_when_there_is_no_root_in_the_window():
     """Rather than return a missing value that propagates silently, this raises."""
     evacuated = MarcatiliMode(125e-6, cladding=1.45)
     with pytest.raises(ModeError, match="does not change sign"):
-        zdw(evacuated, wavelength_range=(200e-9, 900e-9))
+        zdw(evacuated, wavelength_limits=(200e-9, 900e-9))
 
 
 @pytest.mark.parametrize(
@@ -199,7 +199,7 @@ def test_zdw_raises_when_there_is_no_root_in_the_window():
 )
 def test_zdw_refuses_a_bad_window(mode, wavelength_range):
     with pytest.raises(ModeError, match="positive and ordered"):
-        zdw(mode, wavelength_range=wavelength_range)
+        zdw(mode, wavelength_limits=wavelength_range)
 
 
 def test_the_default_window_is_lunas():

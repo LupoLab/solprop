@@ -86,7 +86,7 @@ figures = prop_2d(
     run,
     "wavelength",
     spec_range=(400e-9, 3e-6),
-    trange=(-200e-15, 1.7e-12),
+    time_range=(-200e-15, 1.7e-12),
     db_min=-40,
 )
 figures[-1].set_size_inches(9.5, 3.6)
@@ -128,7 +128,7 @@ print(
 )
 
 fig, ax = plt.subplots(figsize=(6.0, 3.2))
-time_1d(run, z=2.0, trange=(-200e-15, 1.7e-12), ax=ax)
+time_1d(run, z=2.0, time_range=(-200e-15, 1.7e-12), ax=ax)
 fig.tight_layout()
 
 # %%

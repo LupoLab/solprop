@@ -15,6 +15,7 @@ import importlib
 import importlib.util
 import os
 import re
+import sys
 import warnings
 from importlib.metadata import version as _version
 from pathlib import Path
@@ -196,6 +197,7 @@ nitpick_ignore_regex = [
 # output would overwrite the committed page in the working tree. The refusal names the
 # command that refreshes it (`_check_committed_galleries` below).
 _DOCS = Path(__file__).parent
+sys.path.insert(0, str(_DOCS))  # gallery_session, named below
 _GALLERIES = (
     (_DOCS / "introduction" / "tutorials", _DOCS / "introduction" / "lessons"),
     (_DOCS / "tutorials", _DOCS / "auto_tutorials"),
@@ -267,6 +269,7 @@ sphinx_gallery_conf = {
     "download_all_examples": False,
     "remove_config_comments": True,
     "reference_url": {"solprop": None},
+    "reset_modules": ("matplotlib", "seaborn", "gallery_session.leave_session"),
     "show_signature": False,
 }
 

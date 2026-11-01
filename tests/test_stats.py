@@ -336,7 +336,7 @@ def test_inband_wavelengths_are_the_grid_limits(envelope_grid):
 
 
 def test_zdw_finds_the_zero_of_the_group_velocity_dispersion(capillary):
-    value = zdw([capillary], 0.0, wavelength_range=(150e-9, 900e-9))
+    value = zdw([capillary], 0.0, wavelength_limits=(150e-9, 900e-9))
     assert value.shape == (1,)
     # The same root the mode's own accessor reports; see tests/modes/test_base.py.
     # 376.4 nm on optmat's helium since SEP 3's Phase 4a (364.8 nm on the registry's),
@@ -346,7 +346,7 @@ def test_zdw_finds_the_zero_of_the_group_velocity_dispersion(capillary):
 
 def test_zdw_refuses_a_mode_with_no_zero_in_the_window(capillary):
     with pytest.raises(ModeError, match="does not change sign"):
-        zdw([capillary], 0.0, wavelength_range=(500e-9, 900e-9))
+        zdw([capillary], 0.0, wavelength_limits=(500e-9, 900e-9))
 
 
 # ------------------------------------------------------------------------- the spec

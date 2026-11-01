@@ -22,7 +22,7 @@ from solprop.constants import C
 from solprop.exceptions import ModeError
 from solprop.optics import TransferFunction
 from solprop.output.schema import Output
-from solprop.plotting.propagation import DEFAULT_TRANGE, DEFAULT_WAVELENGTH_RANGE
+from solprop.plotting.propagation import DEFAULT_TIME_RANGE, DEFAULT_WAVELENGTH_RANGE
 from solprop.plotting.style import (
     T_TO_FS,
     _display_limits,
@@ -54,7 +54,7 @@ def spectrogram(  # noqa: PLR0913 - a plane, a mode, two axes and the colour sca
     axis: SpectralAxis = "wavelength",
     *,
     modes: ModeSelection = None,
-    trange: tuple[float, float] = DEFAULT_TRANGE,
+    time_range: tuple[float, float] = DEFAULT_TIME_RANGE,
     gate_fwhm: float | None = None,
     positions: int = DEFAULT_GATE_POSITIONS,
     spec_range: tuple[float, float] | None = None,
@@ -82,7 +82,7 @@ def spectrogram(  # noqa: PLR0913 - a plane, a mode, two axes and the colour sca
     modes : int, sequence of int, 'sum' or None
         Which mode to draw. A multimode run must name one: a spectrogram is of a field,
         and modal fields do not add away from a point in space.
-    trange : tuple of float
+    time_range : tuple of float
         Time range to gate over, s.
     gate_fwhm : float or None
         Width of the gate, s; a twentieth of the time range by default.
@@ -134,7 +134,7 @@ def spectrogram(  # noqa: PLR0913 - a plane, a mode, two axes and the colour sca
             f"do not add away from a point in space (this run has {field.shape[0]})"
         )
         raise ModeError(msg)
-    span = abs(trange[1] - trange[0])
+    span = abs(time_range[1] - time_range[0])
     width = span / 20.0 if gate_fwhm is None else gate_fwhm
     dt = float(t[1] - t[0])
     transform = _transform(dt, width, span, positions)
@@ -155,7 +155,7 @@ def spectrogram(  # noqa: PLR0913 - a plane, a mode, two axes and the colour sca
     label = "Intensity (dB)" if log else "Intensity (arb.)"
     figure = _figure_of(ax)
     figure.colorbar(mesh, ax=ax).set_label(label)
-    ax.set_xlim(trange[0] * T_TO_FS, trange[1] * T_TO_FS)
+    ax.set_xlim(time_range[0] * T_TO_FS, time_range[1] * T_TO_FS)
     limits = _spec_range(axis, spec_range, DEFAULT_WAVELENGTH_RANGE)
     ax.set_ylim(*_display_limits(axis, limits))
     ax.set_xlabel("Time (fs)")

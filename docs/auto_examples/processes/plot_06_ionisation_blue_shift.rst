@@ -113,7 +113,7 @@ Spectral and temporal evolution
         run,
         "wavelength",
         spec_range=(300e-9, 1.6e-6),
-        trange=(-125e-15, 50e-15),
+        time_range=(-125e-15, 50e-15),
         db_min=-40,
     )
     figures[-1].set_size_inches(9.5, 3.6)
@@ -142,7 +142,7 @@ The output, and the plasma
 
 
     fig, (left, right) = plt.subplots(1, 2, figsize=(10.0, 3.6))
-    time_1d(run, z=[0.0, 0.4], trange=(-125e-15, 50e-15), ax=left)
+    time_1d(run, z=[0.0, 0.4], time_range=(-125e-15, 50e-15), ax=left)
     spec_1d(run, z=[0.0, 0.4], ax=right, spec_range=(300e-9, 1.6e-6))
     fig.tight_layout()
 
@@ -211,7 +211,7 @@ Runtime and reproducibility
 
  .. code-block:: none
 
-    10 s; backend native
+    16 s; backend native
 
 
 
@@ -219,7 +219,7 @@ Runtime and reproducibility
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 9.847 seconds)
+   **Total running time of the script:** (0 minutes 15.645 seconds)
 
 
 .. _sphx_glr_download_auto_examples_processes_plot_06_ionisation_blue_shift.py:

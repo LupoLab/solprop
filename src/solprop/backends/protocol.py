@@ -42,9 +42,9 @@ from solprop.stats import StatsSpec
 
 __all__ = [
     "Backend",
+    "BackendHistory",
     "BatchBackend",
     "Observation",
-    "StepHistory",
     "StepStats",
     "StepSummary",
 ]
@@ -53,7 +53,7 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, eq=False)
-class StepHistory:
+class BackendHistory:
     """What the stepper did between two observations.
 
     Recorded whether the run was adaptive or replayed a fixed schedule, because the
@@ -89,8 +89,8 @@ class StepHistory:
     Examples
     --------
     >>> import numpy as np
-    >>> from solprop.backends.protocol import StepHistory
-    >>> history = StepHistory(np.array([0.1, 0.2]), np.array([0.1, 0.1]),
+    >>> from solprop.backends.protocol import BackendHistory
+    >>> history = BackendHistory(np.array([0.1, 0.2]), np.array([0.1, 0.1]),
     ...                       np.array([0.4, 0.5]), np.array([True, True]),
     ...                       np.array([0.01, 0.02]))
     >>> history.n_steps, history.n_rejected
@@ -162,8 +162,8 @@ class StepHistory:
         Examples
         --------
         >>> import numpy as np
-        >>> from solprop.backends.protocol import StepHistory
-        >>> StepHistory(*(np.zeros(0) for _ in range(3)),
+        >>> from solprop.backends.protocol import BackendHistory
+        >>> BackendHistory(*(np.zeros(0) for _ in range(3)),
         ...             np.zeros(0, bool), np.zeros(0)).n_steps
         0
         """
@@ -181,8 +181,8 @@ class StepHistory:
         Examples
         --------
         >>> import numpy as np
-        >>> from solprop.backends.protocol import StepHistory
-        >>> StepHistory(np.array([0.1]), np.array([0.1]), np.array([2.0]),
+        >>> from solprop.backends.protocol import BackendHistory
+        >>> BackendHistory(np.array([0.1]), np.array([0.1]), np.array([2.0]),
         ...             np.array([False]), np.array([0.5])).n_rejected
         1
         """
@@ -208,7 +208,7 @@ class StepStats:
         Position of each row, m, float64, shape ``(n_rows,)``, increasing.
     step : numpy.ndarray
         Index of the accepted step each row was taken after, into the *same
-        observation's* :class:`StepHistory`, int64, shape ``(n_rows,)``, increasing.
+        observation's* :class:`BackendHistory`, int64, shape ``(n_rows,)``, increasing.
         The history counts rejected attempts too, so this is not ``row * period``.
     values : collections.abc.Mapping
         The statistics, keyed by catalogue name, each with a leading row axis and then
@@ -337,7 +337,7 @@ class Observation:
         ``Im Phi(omega, z)`` in radians, same shape, when a noise model is active and
         the field is observed, so that processing can restore the shot-noise
         background the propagating field never carried. ``None`` otherwise.
-    step_history : StepHistory
+    step_history : BackendHistory
         What the stepper did since the previous observation.
     n_steps : int
         Steps taken since the previous observation, accepted and rejected together.
@@ -359,8 +359,8 @@ class Observation:
     Examples
     --------
     >>> import numpy as np
-    >>> from solprop.backends.protocol import Observation, StepHistory
-    >>> history = StepHistory(np.array([1.0]), np.array([1.0]), np.array([0.3]),
+    >>> from solprop.backends.protocol import Observation, BackendHistory
+    >>> history = BackendHistory(np.array([1.0]), np.array([1.0]), np.array([0.3]),
     ...                       np.array([True]), np.array([0.02]))
     >>> plane = Observation(1.0, np.zeros((1, 1, 1, 8), complex), None, history, 1, 0)
     >>> plane.z, plane.field.flags.writeable
@@ -370,7 +370,7 @@ class Observation:
     z: float
     field: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"] | None
     noise_phase: Float[np.ndarray, "n_batch_p n_modes_p n_pol_p n_omega_p"] | None
-    step_history: StepHistory
+    step_history: BackendHistory
     n_steps: int
     n_rejected: int
     # `dataclasses.field` qualified, because this class has an attribute called
@@ -429,8 +429,8 @@ class Observation:
         Examples
         --------
         >>> import numpy as np
-        >>> from solprop.backends.protocol import Observation, StepHistory
-        >>> empty = StepHistory(np.empty(0), np.empty(0), np.empty(0),
+        >>> from solprop.backends.protocol import Observation, BackendHistory
+        >>> empty = BackendHistory(np.empty(0), np.empty(0), np.empty(0),
         ...                     np.empty(0, bool), np.empty(0))
         >>> Observation(0.0, np.ones((1, 1, 1, 2), complex), None, empty, 0, 0
         ...             ).require_field().shape

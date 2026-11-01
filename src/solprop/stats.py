@@ -1220,7 +1220,7 @@ def zdw(
     modes: Sequence[Mode],
     z: float,
     *,
-    wavelength_range: tuple[float, float] = DEFAULT_ZDW_RANGE,
+    wavelength_limits: tuple[float, float] = DEFAULT_ZDW_RANGE,
 ) -> Float[np.ndarray, " n_modes"]:
     """Return the zero-dispersion wavelength of each mode at one position.
 
@@ -1235,7 +1235,7 @@ def zdw(
         The propagated modes, in state order.
     z : float
         Position along the waveguide, m.
-    wavelength_range : tuple of float, optional
+    wavelength_limits : tuple of float, optional
         Shortest and longest wavelength in m to bracket the root in. Defaults to a
         100 nm to 3 um window; :func:`collect` narrows it to the grid's own band with
         :func:`inband_wavelengths`, which is where the answer means anything and where
@@ -1257,11 +1257,11 @@ def zdw(
     >>> from solprop.modes import MarcatiliMode
     >>> from solprop.stats import zdw
     >>> mode = MarcatiliMode(125e-6, "He", 0.4, model="reduced", cladding=1.45)
-    >>> f"{zdw([mode], 0.0, wavelength_range=(150e-9, 900e-9))[0] * 1e9:.1f}"
+    >>> f"{zdw([mode], 0.0, wavelength_limits=(150e-9, 900e-9))[0] * 1e9:.1f}"
     '376.7'
     """
     return np.asarray(
-        [modes_base.zdw(mode, z, wavelength_range=wavelength_range) for mode in modes]
+        [modes_base.zdw(mode, z, wavelength_limits=wavelength_limits) for mode in modes]
     )
 
 
@@ -2630,7 +2630,7 @@ def collect(  # noqa: PLR0913 - a spec, a grid, a plane and four optional source
                 msg = "the 'zdw' statistic needs the propagated modes"
                 raise OutputError(msg)
             values[name] = zdw(
-                modes, plane.z, wavelength_range=inband_wavelengths(grid)
+                modes, plane.z, wavelength_limits=inband_wavelengths(grid)
             )
     logger.debug("collected %d statistics at z = %.6e m", len(values), plane.z)
     return values

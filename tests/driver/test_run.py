@@ -20,7 +20,7 @@ from march_bounds import (
     simulation_bound,
 )
 from solprop import fourier
-from solprop.backends.protocol import Backend, Observation, StepHistory, StepSummary
+from solprop.backends.protocol import Backend, BackendHistory, Observation, StepSummary
 from solprop.backends.registry import select
 from solprop.driver import Simulation, SimulationSettings, metadata_for, run_problem
 from solprop.driver.run import plane_from_observation
@@ -143,7 +143,7 @@ class NullBackend:
         return StepSummary(z, 1, 0, 0.5, 0.5, 0.0, True)
 
     def observe(self, *, field=True):
-        history = StepHistory(
+        history = BackendHistory(
             np.zeros(0), np.zeros(0), np.zeros(0), np.zeros(0, bool), np.zeros(0)
         )
         state = np.zeros(self.shape, complex) if field else None
@@ -221,7 +221,7 @@ def test_the_stored_history_holds_start_positions_and_per_attempt_times():
     ``wall_time`` as the time one attempt took, and the driver converts on the way.
     Exactly representable numbers, so the check is bitwise.
     """
-    history = StepHistory(
+    history = BackendHistory(
         z=np.array([0.5, 1.0, 1.25]),
         dz=np.array([0.5, 0.5, 0.25]),
         error_norm=np.array([0.5, 2.0, 0.5]),
@@ -236,7 +236,7 @@ def test_the_stored_history_holds_start_positions_and_per_attempt_times():
     assert np.array_equal(stored.accepted, history.accepted)
     assert np.array_equal(stored.wall_time, [0.25, 0.5, 0.25])
     # An empty history, the entrance plane's, converts to an empty one.
-    empty = StepHistory(
+    empty = BackendHistory(
         np.zeros(0), np.zeros(0), np.zeros(0), np.zeros(0, dtype=bool), np.zeros(0)
     )
     assert plane_from_observation(
