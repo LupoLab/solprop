@@ -612,6 +612,24 @@ def test_metadata_hash_changes_with_the_grid(envelope_grid, field_grid, stepper)
     assert one.configuration_hash() != two.configuration_hash()
 
 
+def test_a_summary_of_changed_noise_names_the_stored_seed(envelope_grid, stepper):
+    # A display that lists every difference (summarise_differences, which SEP 42
+    # keeps beside the resume comparison) says which seed draws the stored noise again.
+    drawn = NoiseRecord.from_realisation(
+        input_noise(envelope_grid, np.random.default_rng(1))
+    )
+    one = make_metadata(
+        envelope_grid, stepper, noise=dataclasses.replace(drawn, seed=17)
+    )
+    two = make_metadata(
+        envelope_grid, stepper, noise=dataclasses.replace(drawn, seed=18)
+    )
+    assert one.summarise_differences(two).endswith(
+        "the stored run drew its input noise from seed 17: "
+        "pass seed=17 to draw it again"
+    )
+
+
 def test_metadata_hash_changes_with_the_noise_seed(envelope_grid, stepper):
     one = make_metadata(
         envelope_grid,
