@@ -1206,8 +1206,6 @@ planes, apertures and polarisation optics; its partial coverage is noted below.
   spectrum's rings. SEP 31 added radial offline transport and apertures;
   extensions to these in-run statistics remain open.
 
-## Release preparation
-
 ## Known issues
 
 **pytest capped below 9.2.** pytest 9.2 derives a node's id from a structured id, so
