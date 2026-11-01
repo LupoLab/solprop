@@ -9,8 +9,8 @@ problems of ultrafast nonlinear optics wherever they arise.
 - **Everything.** Guided and free-space propagation, the full field and the envelope,
   single-mode and multimode, gases and solids, in one code with one set of conventions,
   so that a new model extends every route at once rather than one script at a time.
-- **Fast.** The same problem runs on a NumPy reference, a Numba CPU backend and the
-  compiled native backend for CPUs and GPUs, and parameter scans spread over a process
+- **Fast.** The compiled native backend runs on CPUs and GPUs, the same problem also runs
+  on a NumPy reference and a Numba CPU fallback, and parameter scans spread over a process
   pool or a cluster.
 - **With rigour.** Every model is derived and cited, tested against analytic solutions
   and independent references, checked for convergence, and held to the NumPy reference
