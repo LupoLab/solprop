@@ -821,7 +821,7 @@ def _check_positive(name: str, value: float) -> None:
     """
     if not math.isfinite(value) or value <= 0.0:
         msg = f"{name} must be a finite positive number, got {value!r}"
-        raise PulseError(msg)
+        raise PulseError(msg, parameter=name)
 
 
 def _scaling(energy: float | None, peak_power: float | None) -> tuple[float, _Quantity]:
@@ -852,12 +852,12 @@ def _scaling(energy: float | None, peak_power: float | None) -> tuple[float, _Qu
                 "only one of energy or peak_power can be given, got "
                 f"energy={energy!r} and peak_power={peak_power!r}"
             )
-            raise PulseError(msg)
+            raise PulseError(msg, parameter=("energy", "peak_power"))
         _check_positive("energy", energy)
         return energy, "energy"
     if peak_power is None:
         msg = "one of energy or peak_power must be given, got neither"
-        raise PulseError(msg)
+        raise PulseError(msg, parameter=("energy", "peak_power"))
     _check_positive("peak_power", peak_power)
     return peak_power, "peak_power"
 
@@ -1079,7 +1079,7 @@ def _frozen_phase(phase: Sequence[float] | np.ndarray) -> Float[np.ndarray, " n_
     coefficients = np.array(phase, dtype=np.float64).reshape(-1)
     if not np.all(np.isfinite(coefficients)):
         msg = f"every spectral phase coefficient must be finite, got {phase!r}"
-        raise PulseError(msg)
+        raise PulseError(msg, parameter="phase")
     coefficients.setflags(write=False)
     return coefficients
 
@@ -1804,12 +1804,12 @@ def _sech_width(fwhm: float | None, width: float | None) -> float:
                 "only one of fwhm or width can be given, got "
                 f"fwhm={fwhm!r} and width={width!r}"
             )
-            raise PulseError(msg)
+            raise PulseError(msg, parameter=("fwhm", "width"))
         _check_positive("width", width)
         return width
     if fwhm is None:
         msg = "one of fwhm or width must be given, got neither"
-        raise PulseError(msg)
+        raise PulseError(msg, parameter=("fwhm", "width"))
     _check_positive("fwhm", fwhm)
     return fwhm * SECH_FWHM_TO_WIDTH
 

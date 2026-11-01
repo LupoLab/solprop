@@ -517,7 +517,7 @@ def resolve_noise(
     row = route_defaults(route)
     if row.noise == "unmeasured" and noise not in ("default", None):
         msg = f"noise={noise!r}: {row.noise_reason}; pass noise=None"
-        raise DriverError(msg)
+        raise DriverError(msg, parameter="noise")
     if noise == "default":
         fallback = SINGLE_PRECISION_NOISE if precision == "single" else row.noise_reason
         if fallback is not None:
@@ -526,18 +526,18 @@ def resolve_noise(
                     f"a noise seed was given, but this run takes no noise by default "
                     f"({fallback}): pass a noise model with the seed, or drop the seed"
                 )
-                raise DriverError(msg)
+                raise DriverError(msg, parameter=("seed", "noise"))
             return None, NoiseResolution("default", None, fallback)
         return "input", NoiseResolution("default", "input")
     if noise is None and seed is not None:
         msg = "a noise seed requires a noise model"
-        raise DriverError(msg)
+        raise DriverError(msg, parameter=("seed", "noise"))
     if route == "capillary tdse" and noise is not None:
         msg = (
             f"noise={noise!r} beside the TDSE response: the atomic source is expensive "
             "and a TDSE run is rarely repeated as a noise ensemble; pass noise=None "
             "unless the noise is what this run is about"
         )
-        warnings.warn(msg, SolpropWarning, stacklevel=4)
+        warnings.warn(SolpropWarning(msg, parameter="noise"), stacklevel=4)
     # An unknown model passes through to be refused where it is drawn.
     return cast("NoiseModel | None", noise), NoiseResolution(noise, noise)

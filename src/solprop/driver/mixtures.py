@@ -185,17 +185,28 @@ def capillary_fill(  # noqa: PLR0913 - the public constructor's material options
                 "the Mixture carries its own temperature "
                 f"({_temperature_text(material.temperature)}), and "
                 f"temperature={temperature!r} was given beside it: omit temperature=, "
-                "or build the Mixture at the temperature you mean"
+                "or build the Mixture at the temperature you mean",
+                parameter=("gas", "temperature"),
             )
         if pressure is not None or floor is not None or vacuum_end is not None:
+            given = {
+                "pressure": pressure,
+                "pressure_floor": floor,
+                "vacuum_end": vacuum_end,
+            }
             raise DriverError(
                 "Mixture carries its pressure paths; omit pressure, pressure_floor "
                 "and vacuum_end (a mixture of independent partial pressures is not "
-                "one flow, and a shared fill was built with its own ends)"
+                "one flow, and a shared fill was built with its own ends)",
+                parameter=(
+                    "gas",
+                    *(name for name, value in given.items() if value is not None),
+                ),
             )
         if susceptibility is not None:
             raise DriverError(
-                "Mixture carries species susceptibilities; omit susceptibility"
+                "Mixture carries species susceptibilities; omit susceptibility",
+                parameter=("gas", "susceptibility"),
             )
         mixture = material
     else:
@@ -205,12 +216,14 @@ def capillary_fill(  # noqa: PLR0913 - the public constructor's material options
         bore = radius if isinstance(pressure, Sequence) else None
         if isinstance(pressure, Sequence) and len(pressure) != 2:
             raise DriverError(
-                "pressure must be a number, profile, (p_in, p_out) or (z, p) pair"
+                "pressure must be a number, profile, (p_in, p_out) or (z, p) pair",
+                parameter="pressure",
             )
         if isinstance(material, Mapping):
             if susceptibility is not None:
                 raise DriverError(
-                    "fraction mappings carry species optics; omit susceptibility"
+                    "fraction mappings carry species optics; omit susceptibility",
+                    parameter=("gas", "susceptibility"),
                 )
             fractions = {
                 species(name, selection=selection): fraction
@@ -223,7 +236,8 @@ def capillary_fill(  # noqa: PLR0913 - the public constructor's material options
                 raise DriverError(
                     '"air" is a mixture of nitrogen and oxygen and carries their '
                     "susceptibilities; omit susceptibility, or build the Mixture "
-                    "yourself"
+                    "yourself",
+                    parameter=("gas", "susceptibility"),
                 )
             mixture = Mixture.air(
                 1.0 if pressure is None else pressure,
@@ -295,8 +309,10 @@ def _with_initial_populations(
     if isinstance(preionisation, Mapping):
         unknown = set(preionisation) - set(mixture.labels)
         if unknown:
+            paths = tuple(f'preionisation["{label}"]' for label in sorted(unknown))
             raise DriverError(
-                f"unknown preionisation component labels: {sorted(unknown)}"
+                f"unknown preionisation component labels: {sorted(unknown)}",
+                parameter=paths[0] if len(paths) == 1 else paths,
             )
         values = preionisation
     else:

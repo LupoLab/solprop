@@ -740,10 +740,12 @@ class BoundaryMonitor:
         if worst > check.budget and not self._warned:
             self._warned = True
             warnings.warn(
-                f"{where} the square root of the time window's guard occupancy is "
-                f"{worst:.2e}, above the {check.budget:.0e} budget: {cause}; widen "
-                "trange or move the launch",
-                BoundaryWarning,
+                BoundaryWarning(
+                    f"{where} the square root of the time window's guard occupancy "
+                    f"is {worst:.2e}, above the {check.budget:.0e} budget: {cause}; "
+                    "widen trange or move the launch",
+                    parameter="boundary_check",
+                ),
                 stacklevel=3,
             )
 
@@ -1010,9 +1012,11 @@ class BoundaryMonitor:
         )
         if removed > 0.0 and math.sqrt(removed) > self.check.budget:
             warnings.warn(
-                f"the temporal collar removed {removed:.2e} of the launch energy, "
-                f"whose square root is above the {self.check.budget:.0e} budget: what "
-                "left the window may have mattered; widen trange to keep it",
-                BoundaryWarning,
+                BoundaryWarning(
+                    f"the temporal collar removed {removed:.2e} of the launch energy, "
+                    f"whose square root is above the {self.check.budget:.0e} budget: "
+                    "what left the window may have mattered; widen trange to keep it",
+                    parameter="boundary_check",
+                ),
                 stacklevel=2,
             )

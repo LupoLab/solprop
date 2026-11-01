@@ -1816,14 +1816,14 @@ def _frequency_limits(wavelength_limits: Sequence[float]) -> tuple[float, float]
         msg = (
             f"wavelength_limits must hold exactly two values, got {wavelength_limits!r}"
         )
-        raise GridError(msg)
+        raise GridError(msg, parameter="wavelength_limits")
     low, high = (float(value) for value in wavelength_limits)
     if not 0.0 < low < high:
         msg = (
             "wavelength_limits must be a strictly increasing pair of positive "
             f"wavelengths in metres, got {wavelength_limits!r}"
         )
-        raise GridError(msg)
+        raise GridError(msg, parameter="wavelength_limits")
     return 2.0 * np.pi * C / high, 2.0 * np.pi * C / low
 
 
@@ -1859,31 +1859,31 @@ def _check_common(
     """
     if length < 0.0:
         msg = f"length must be a non-negative distance in metres, got {length!r}"
-        raise GridError(msg)
+        raise GridError(msg, parameter="length")
     if reference_wavelength <= 0.0:
         msg = (
             "reference_wavelength must be positive, in metres, got "
             f"{reference_wavelength!r}"
         )
-        raise GridError(msg)
+        raise GridError(msg, parameter="reference_wavelength")
     if trange <= 0.0:
         msg = f"trange must be a positive time window in seconds, got {trange!r}"
-        raise GridError(msg)
+        raise GridError(msg, parameter="trange")
     if dt is not None and dt <= 0.0:
         msg = f"dt must be a positive sample spacing in seconds, got {dt!r}"
-        raise GridError(msg)
+        raise GridError(msg, parameter="dt")
     if ffac < 2.0:
         msg = (
             "ffac must be at least 2 so that the fine grid resolves the frequency "
             f"window itself, got {ffac!r}"
         )
-        raise GridError(msg)
+        raise GridError(msg, parameter="ffac")
     if not 0.0 <= collar_fraction < 0.5:
         msg = (
             "collar_fraction must lie in [0, 0.5): zero leaves no temporal collar, and "
             f"half or more leaves no window, got {collar_fraction!r}"
         )
-        raise GridError(msg)
+        raise GridError(msg, parameter="collar_fraction")
 
 
 def _temporal_collar(
