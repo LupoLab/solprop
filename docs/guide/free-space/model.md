@@ -210,7 +210,7 @@ What the ramp removes later is reported as `ramp_removed` and warns above the bu
 **A collar on request.** A run whose fast light cannot be given room -- four-wave-mixing
 products at an angle, conical emission -- asks for a real-space collar in the grid's room:
 
-```python
+```{code-block} python
 from solprop.boundaries import SpatialAbsorber
 
 space = RadialGrid(300e-6, 230, collar_fraction=2.6)
