@@ -142,7 +142,7 @@ Spectral and temporal evolution
         run,
         "wavelength",
         spec_range=(200e-9, 2.6e-6),
-        trange=(-1e-12, 1e-12),
+        time_range=(-1e-12, 1e-12),
         db_min=-40,
     )
     figures[-1].set_size_inches(9.5, 3.6)
@@ -229,7 +229,7 @@ ensemble. For sampling and material checks see :doc:`/guide/setup/grids` and
 
  .. code-block:: none
 
-    54 s; backend native
+    84 s; backend native
 
 
 
@@ -237,7 +237,7 @@ ensemble. For sampling and material checks see :doc:`/guide/setup/grids` and
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 53.890 seconds)
+   **Total running time of the script:** (1 minutes 23.889 seconds)
 
 
 .. _sphx_glr_download_auto_examples_supercontinuum_plot_04_raman_comb_supercontinuum.py:

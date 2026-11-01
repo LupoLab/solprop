@@ -10,7 +10,8 @@ from the translated :class:`~solprop.translate.problem.KernelProblem`, the run's
 objects the problem was built from: the responses, the medium, the profiles), the
 backend's own execution record and the output. It hands the text to the progress
 reporter, so it follows the ``progress`` choice exactly as the progress lines do, and
-records it on a plane store as the :data:`RUN_SUMMARY_ANNOTATION`.
+records it on a plane store as the
+:data:`~solprop.output.schema.RUN_SUMMARY_ANNOTATION`.
 
 The rows are descriptions for a person, not a record: everything in them is also in the
 run's metadata, which is what a program should read. Nothing here evaluates physics.
@@ -34,19 +35,11 @@ from solprop.stepper.multistep import Multistep
 from solprop.translate.problem import KernelProblem
 
 __all__ = [
-    "RUN_SUMMARY_ANNOTATION",
     "RunSummary",
     "memory_size",
     "resources",
     "run_summary",
 ]
-
-RUN_SUMMARY_ANNOTATION = "run_summary"
-"""Name of the annotation holding the start-of-run summaries of a plane store.
-
-A list with one mapping per start, ``{"title": str, "rows": [[key, value], ...]}``: a
-run that is resumed adds the summary of its continuation to the first one's.
-"""
 
 
 @dataclass(frozen=True)

@@ -152,6 +152,7 @@ def test_lower_level_construction_refuses_an_unresolved_window_before_any_provid
         {"ionisation_field_range": (1.0, 2.0)},
         {"thg": True},
         {"kerr": False},
+        {"mode_average": True},
     ],
 )
 def test_electronic_keywords_beside_tdse_are_refused_by_name(keyword):
@@ -171,6 +172,7 @@ def test_tdse_execution_alone_and_a_foreign_record_are_refused():
             None,
             trange=None,
             kerr=True,
+            mode_average=False,
             unset={},
             backend="auto",
             step_planes=None,

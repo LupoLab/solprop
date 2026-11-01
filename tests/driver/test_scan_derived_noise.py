@@ -379,5 +379,5 @@ def test_an_explicit_realisation_is_still_refused_by_a_resume(tmp_path):
     field = parent.translate().initial.field0[0]
     parent.with_input(field).run(path, progress="none")
     other = parent.with_input(field, noise=fibre(noise="input", seed=5).noise)
-    with pytest.raises(OutputError, match=r"noise\.seed"):
+    with pytest.raises(OutputError, match=r"noise: seed"):
         other.run(path, resume=True, progress="none")

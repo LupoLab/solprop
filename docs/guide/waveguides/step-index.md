@@ -28,7 +28,7 @@ from solprop.modes.base import beta2, zdw
 
 fibre = StepIndexMode(1.25e-6, profile_wavelength=835e-9)
 dispersion = beta2(fibre, np.array([2 * np.pi * C / 835e-9]))
-zero = zdw(fibre, wavelength_range=(400e-9, 1400e-9))
+zero = zdw(fibre, wavelength_limits=(400e-9, 1400e-9))
 ```
 
 The default core is fused silica -- optmat's `fit/SiO2`, taken

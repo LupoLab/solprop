@@ -310,7 +310,7 @@ def spectral_display(axis: SpectralAxis) -> tuple[float, str]:
 
 
 def wavelength_to_axis(
-    axis: SpectralAxis, wavelength_range: tuple[float, float]
+    axis: SpectralAxis, wavelength_limits: tuple[float, float]
 ) -> tuple[float, float]:
     """Return a wavelength range on a spectral abscissa, in SI units.
 
@@ -321,7 +321,7 @@ def wavelength_to_axis(
     ----------
     axis : {'wavelength', 'f', 'omega'}
         The abscissa.
-    wavelength_range : tuple of float
+    wavelength_limits : tuple of float
         The range, m, in either order.
 
     Returns
@@ -337,7 +337,7 @@ def wavelength_to_axis(
     '1.499e+14 Hz, 7.495e+14 Hz'
     """
     _check_choice(axis, SPECTRAL_AXES, "axis")
-    low, high = min(wavelength_range), max(wavelength_range)
+    low, high = min(wavelength_limits), max(wavelength_limits)
     if axis == "wavelength":
         return low, high
     turn = 2.0 * np.pi * C if axis == "omega" else C
