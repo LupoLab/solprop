@@ -710,7 +710,7 @@ The phase needs care when it is regridded:
   $\pm\pi$ cannot be recovered, and is warned on.
 
 Tool-specific export formats are left until someone needs one; the `columns` keyword and
-`DataPulse.from_time` already cover most of them. There is no `load_retrieval`.
+`TimeDataPulse` already cover most of them. There is no `load_retrieval`.
 
 #### 5.13 S13 — geometry drawings in the library
 
@@ -1137,6 +1137,10 @@ this one. Phase 4 still follows SEP 40.
 route defaults) is phase 1's first slice, so that S9's resolvers read that table rather than
 copy the rules again. [#86](https://github.com/LupoLab/solprop/issues/86) is settled separately
 before this SEP is set `Final`.
+
+**Part I amended after acceptance.** §5.12 named `DataPulse.from_time`, which
+[#70](https://github.com/LupoLab/solprop/pull/70) replaced with the class `TimeDataPulse` before
+this SEP was accepted; the text now names the class.
 
 ## Part III — History
 

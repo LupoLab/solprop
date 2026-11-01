@@ -23,6 +23,12 @@ All notable changes to solprop are recorded here. The format follows
   display say which of the integrator, `rtol` and the collar scheme took the route's
   default, and the summary names a Multistep carrier frame
   ([#87](https://github.com/LupoLab/solprop/issues/87)).
+- `solprop.pulses.load_spectrum` reads a measured spectrum from a text file (frequency
+  or wavelength, power density, and an optional phase) into a `DataPulse`. A wrapped
+  phase column is unwrapped only where the power is above a noise floor, a phase in
+  the FFT sign convention of a Luna.jl file is read with `phase_convention="fft"`, and
+  a wrapped column sampled too coarsely to unwrap is warned on
+  ([SEP 41](https://solprop.readthedocs.io/en/latest/dev/seps/sep-0041-recipes-and-front-ends.html)).
 
 ### Changed
 

@@ -27,10 +27,14 @@ peak power the caller asked for.
 The manual page is ``docs/guide/setup/pulses.md``.
 """
 
+import io
 import logging
 import math
+import os
+import warnings
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Literal, Protocol, runtime_checkable
 
 import numpy as np
@@ -40,7 +44,7 @@ from scipy.interpolate import make_interp_spline
 from solprop import fourier
 from solprop._display import Displayed, engineering, line, phase_text, summarise
 from solprop.constants import EPS0, C
-from solprop.exceptions import PulseError
+from solprop.exceptions import PulseError, SolpropWarning
 from solprop.grid import FreeGrid, RadialGrid, TimeGrid
 from solprop.linear import Frame
 from solprop.modes.slab import PlanarGrid, gaussian_projection
@@ -67,6 +71,7 @@ __all__ = [
     "ShapedPulse",
     "SpatialPulse",
     "TimeDataPulse",
+    "load_spectrum",
 ]
 
 logger = logging.getLogger(__name__)
@@ -2613,6 +2618,574 @@ class TimeDataPulse(Displayed):
             grid, phase, self.t0, self._reference_frequency()
         )
         return _canonical(_rescale(spectrum, grid, self.energy, "energy"))
+
+
+# --- measured spectra from a file -----------------------------------------------------
+
+# The units an axis column may be in, with the factor that takes a value to angular
+# frequency in rad/s (frequency) or to metres (wavelength). Both spellings of micro are
+# accepted, the micro sign and the Greek letter, as well as the ASCII "um".
+_FREQUENCY_UNITS: dict[str, float] = {
+    "Hz": 2.0 * np.pi,
+    "GHz": 2.0 * np.pi * 1e9,
+    "THz": 2.0 * np.pi * 1e12,
+    "PHz": 2.0 * np.pi * 1e15,
+    "rad/s": 1.0,
+    "rad/fs": 1e15,
+}
+_WAVELENGTH_UNITS: dict[str, float] = {
+    "m": 1.0,
+    "um": 1e-6,
+    "\N{MICRO SIGN}m": 1e-6,
+    "\N{GREEK SMALL LETTER MU}m": 1e-6,
+    "nm": 1e-9,
+}
+
+# A wrapped phase lies within one turn; a file printed to a few decimal places can
+# overshoot 2 pi by a rounding of its last digit (3.1416 - (-3.1416) is 6.2832), so the
+# test allows a milliradian. An unwrapped column that happens to span less than this is
+# unwrapped too, which changes nothing unless it also steps by more than pi.
+_WRAPPED_RANGE = 2.0 * np.pi + 1e-3
+
+# A wrapped step within a tenth of pi of +-pi is where an undersampled phase shows: a
+# true step that grows through pi lands there for a tenth of its sweep in every turn,
+# and every sample beyond the first such step, outward from the peak, may carry a
+# wrong turn. The phase is warned on when those samples hold more than a thousandth of
+# the power, which is a field error of about 4 % in the norm: a chirped 800 nm
+# spectrum on 801 samples that crosses pi at 1.9 sigma holds 0.75 % there and builds
+# 13.5 % wrong, while the random phase of a noise floor at a ten-thousandth of the
+# peak, past three sigma of a Gaussian, holds 2e-5.
+_NEAR_PI = 0.9 * np.pi
+_UNDERSAMPLED_SHARE = 1e-3
+
+# A spectrum after background subtraction dips a little below zero where it has no
+# signal; that is clipped. A column more negative than a tenth of its peak is not such
+# noise but the wrong column or a corrupt file, and is refused.
+_NEGATIVE_POWER_LIMIT = 0.1
+
+
+def _is_number(text: str) -> bool:
+    """Return whether a field of a text table reads as a number.
+
+    Parameters
+    ----------
+    text : str
+        The field.
+
+    Returns
+    -------
+    bool
+        True if ``float(text)`` succeeds.
+    """
+    try:
+        float(text)
+    except ValueError:
+        return False
+    return True
+
+
+def _read_table(
+    path: str | os.PathLike[str] | io.TextIOBase,
+) -> Float[np.ndarray, "n_rows n_columns"]:
+    """Return the numbers of a whitespace- or comma-delimited text table.
+
+    Everything after a ``#`` on a line is a comment, and blank lines are skipped. A line
+    holding a comma is split on commas, any other on whitespace. The first line that is
+    not a comment may be a header, and is skipped when none of its fields is a number.
+
+    Parameters
+    ----------
+    path : str, os.PathLike or io.TextIOBase
+        The file, or an open text stream, which is read from where it stands.
+
+    Returns
+    -------
+    numpy.ndarray
+        The table, shape ``(n_rows, n_columns)``.
+
+    Raises
+    ------
+    PulseError
+        If there is no file at ``path``, a line after the header is not a row of
+        numbers, the rows differ in length, or there is no row at all.
+    """
+    if isinstance(path, io.TextIOBase):
+        text, name = path.read(), "the stream"
+    else:
+        file = Path(path)
+        if not file.is_file():
+            msg = f"there is no spectrum file at {file}"
+            raise PulseError(msg)
+        # utf-8-sig also reads the byte-order mark a spreadsheet writes into a CSV file.
+        text, name = file.read_text(encoding="utf-8-sig"), str(file)
+    rows: list[list[float]] = []
+    header_allowed = True
+    for number, raw in enumerate(text.splitlines(), start=1):
+        content = raw.split("#", 1)[0].strip()
+        if not content:
+            continue
+        fields = (
+            [entry.strip() for entry in content.split(",")]
+            if "," in content
+            else content.split()
+        )
+        numeric = [_is_number(entry) for entry in fields]
+        if header_allowed and not any(numeric):
+            header_allowed = False
+            continue
+        header_allowed = False
+        if not all(numeric):
+            msg = f"line {number} of {name} is not a row of numbers: {raw.strip()!r}"
+            raise PulseError(msg)
+        if rows and len(fields) != len(rows[0]):
+            msg = (
+                f"line {number} of {name} has {len(fields)} columns where the rows "
+                f"before it have {len(rows[0])}"
+            )
+            raise PulseError(msg)
+        rows.append([float(entry) for entry in fields])
+    if not rows:
+        msg = f"{name} holds no rows of numbers"
+        raise PulseError(msg)
+    return np.array(rows, dtype=np.float64)
+
+
+def _chosen_columns(
+    n_columns: int, columns: Sequence[object] | None
+) -> tuple[int, ...]:
+    """Return the zero-based indices of the axis, power and optional phase columns.
+
+    Parameters
+    ----------
+    n_columns : int
+        Number of columns in the file.
+    columns : sequence or None
+        The indices asked for, two or three integers; ``None`` takes the first three
+        columns, or the first two of a two-column file. Anything else is refused here,
+        because the public annotation is not enforced at runtime.
+
+    Returns
+    -------
+    tuple of int
+        Two or three distinct indices of columns the file has.
+
+    Raises
+    ------
+    PulseError
+        If the file has fewer than two columns, or ``columns`` is not two or three
+        distinct indices of columns the file has.
+    """
+    if columns is None:
+        if n_columns < 2:
+            msg = (
+                f"a spectrum file needs at least two columns, an axis and a power, "
+                f"but this one has {n_columns}"
+            )
+            raise PulseError(msg)
+        return (0, 1, 2) if n_columns > 2 else (0, 1)
+    chosen = tuple(
+        int(index)
+        for index in columns
+        if isinstance(index, int | np.integer)
+        and not isinstance(index, bool)
+        and index >= 0
+    )
+    if (
+        len(chosen) != len(columns)
+        or len(chosen) not in {2, 3}
+        or len(set(chosen)) != len(chosen)
+    ):
+        msg = (
+            "columns must be two or three distinct zero-based column indices "
+            f"(axis, power[, phase]), got {columns!r}"
+        )
+        raise PulseError(msg)
+    if max(chosen) >= n_columns:
+        msg = (
+            f"columns asks for column {max(chosen)} (counting from 0), but the file "
+            f"has {n_columns}"
+        )
+        raise PulseError(msg)
+    return chosen
+
+
+def _axis_factor(axis: str, axis_unit: str | None) -> float:
+    """Return the factor that takes the axis column to rad/s or to metres.
+
+    Parameters
+    ----------
+    axis : str
+        What the axis column holds, ``"frequency"`` or ``"wavelength"``; it is
+        checked here because the public annotation is not enforced at runtime.
+    axis_unit : str or None
+        Its unit; ``None`` is the axis's SI unit, Hz or m.
+
+    Returns
+    -------
+    float
+        The angular frequency in rad/s of one unit of a frequency column, or the
+        length in metres of one unit of a wavelength column.
+
+    Raises
+    ------
+    PulseError
+        If ``axis`` is not one of the two, or ``axis_unit`` is not one of its units.
+    """
+    _check_choice("axis", axis, ("frequency", "wavelength"))
+    units, default = (
+        (_FREQUENCY_UNITS, "Hz") if axis == "frequency" else (_WAVELENGTH_UNITS, "m")
+    )
+    unit = default if axis_unit is None else axis_unit
+    if unit not in units:
+        msg = (
+            f"axis_unit {unit!r} is not a unit of {axis}; use one of {', '.join(units)}"
+        )
+        raise PulseError(msg)
+    return units[unit]
+
+
+def _check_choice(name: str, value: str, choices: Sequence[str]) -> None:
+    """Reject a keyword that is not one of its documented values.
+
+    Parameters
+    ----------
+    name : str
+        Name of the keyword, used in the message.
+    value : str
+        Value given.
+    choices : sequence of str
+        The values it may take.
+
+    Raises
+    ------
+    PulseError
+        If ``value`` is not among ``choices``.
+    """
+    if value not in choices:
+        allowed = " or ".join(repr(choice) for choice in choices)
+        msg = f"{name} must be {allowed}, got {value!r}"
+        raise PulseError(msg)
+
+
+def _undersampled_share(
+    steps: Float[np.ndarray, " n_steps"], power: Float[np.ndarray, " n_significant"]
+) -> float:
+    """Return the share of the power beyond the innermost steps near ``+-pi``.
+
+    Unwrapping cannot tell a step near ``+pi`` from one near ``-pi``, so the first such
+    step on each side of the peak, counting outward, is where a wrong turn may start.
+
+    Parameters
+    ----------
+    steps : numpy.ndarray
+        Wrapped phase steps between neighbouring significant samples, rad, shape
+        ``(n_significant - 1,)``.
+    power : numpy.ndarray
+        Power of the significant samples, shape ``(n_significant,)``, positive.
+
+    Returns
+    -------
+    float
+        The power of the samples beyond the innermost near-pi step on either side of
+        the peak, as a share of the whole; zero if there is no such step.
+    """
+    peak = int(np.argmax(power))
+    near = np.abs(steps) > _NEAR_PI
+    # Step j joins samples j and j + 1: those below the peak lie at j < peak.
+    below = np.flatnonzero(near[:peak])
+    above = np.flatnonzero(near[peak:]) + peak
+    beyond = 0.0
+    if below.size:
+        beyond += float(np.sum(power[: below[-1] + 1]))
+    if above.size:
+        beyond += float(np.sum(power[above[0] + 1 :]))
+    return beyond / float(np.sum(power))
+
+
+def _unwrapped_above_floor(
+    omega: Float[np.ndarray, " n_data"],
+    phase: Float[np.ndarray, " n_data"],
+    significant: np.ndarray,
+    power: Float[np.ndarray, " n_data"],
+) -> Float[np.ndarray, " n_data"]:
+    """Unwrap a wrapped phase over the significant samples alone, and hold it beyond.
+
+    The phase where the power is below the floor is noise, and unwrapping through it
+    could add a turn anywhere after it; it is never consulted. Between significant
+    samples the phase is interpolated linearly across any gap, and beyond the first and
+    last it is held at their values.
+
+    Parameters
+    ----------
+    omega : numpy.ndarray
+        Angular frequency, rad/s, shape ``(n_data,)``, increasing.
+    phase : numpy.ndarray
+        The wrapped phase, rad, shape ``(n_data,)``.
+    significant : numpy.ndarray
+        Boolean mask of the samples above the floor, shape ``(n_data,)``, not all
+        false.
+    power : numpy.ndarray
+        The power column, shape ``(n_data,)``, positive where ``significant``.
+
+    Returns
+    -------
+    numpy.ndarray
+        The unwrapped phase, rad, shape ``(n_data,)``.
+
+    Warns
+    -----
+    SolpropWarning
+        If the phase looks undersampled: the samples beyond the innermost step within a
+        tenth of pi of ``+-pi``, on either side of the peak, hold more than a
+        thousandth of the power.
+    """
+    index = np.flatnonzero(significant)
+    unwrapped = np.unwrap(phase[index])
+    # np.unwrap leaves every step in [-pi, pi], so these are the wrapped steps.
+    share = _undersampled_share(np.diff(unwrapped), power[index])
+    if share > _UNDERSAMPLED_SHARE:
+        warnings.warn(
+            f"the wrapped spectral phase steps by close to pi between neighbouring "
+            f"samples, and the samples beyond hold {share:.2g} of the power: the "
+            f"phase is probably undersampled there, and an undersampled wrapped "
+            f"phase cannot be recovered. Give the phase unwrapped, or sample it more "
+            f"finely",
+            SolpropWarning,
+            stacklevel=4,
+        )
+    return np.interp(omega, omega[index], unwrapped)
+
+
+def _read_phase(
+    omega: Float[np.ndarray, " n_data"],
+    values: Float[np.ndarray, " n_data"],
+    power: Float[np.ndarray, " n_data"],
+    *,
+    wrapped: bool | None,
+    floor: float,
+    phase_convention: Literal["optics", "fft"],
+) -> Float[np.ndarray, " n_data"]:
+    """Return the optics-convention spectral phase of a phase column in radians.
+
+    Parameters
+    ----------
+    omega : numpy.ndarray
+        Angular frequency, rad/s, shape ``(n_data,)``, increasing.
+    values : numpy.ndarray
+        The phase column, rad, shape ``(n_data,)``.
+    power : numpy.ndarray
+        The power column, shape ``(n_data,)``, with a positive peak.
+    wrapped : bool or None
+        Whether the column is wrapped; ``None`` takes it as wrapped when it spans at
+        most ``2 pi``.
+    floor : float
+        Share of the peak power above which a sample is significant.
+    phase_convention : {"optics", "fft"}
+        The sign convention of the column.
+
+    Returns
+    -------
+    numpy.ndarray
+        The phase, rad, shape ``(n_data,)``.
+    """
+    is_wrapped = float(np.ptp(values)) <= _WRAPPED_RANGE if wrapped is None else wrapped
+    phase = (
+        _unwrapped_above_floor(
+            omega, values, power > floor * float(np.max(power)), power
+        )
+        if is_wrapped
+        else values
+    )
+    # The FFT convention's spectrum is the complex conjugate of the optics one
+    # (conventions.md section 2), so its phase is the negative: a delay tau is
+    # -omega tau there and +omega tau here.
+    return -phase if phase_convention == "fft" else phase
+
+
+def load_spectrum(  # noqa: PLR0913 - the keywords of a measured file's layout
+    path: str | os.PathLike[str] | io.TextIOBase,
+    *,
+    energy: float,
+    axis: Literal["frequency", "wavelength"] = "frequency",
+    axis_unit: str | None = None,
+    columns: Sequence[int] | None = None,
+    phase_unit: Literal["rad", "deg"] = "rad",
+    phase_convention: Literal["optics", "fft"] = "optics",
+    wrapped: bool | None = None,
+    floor: float = 1e-4,
+) -> DataPulse:
+    """Read a measured spectral power density and phase from a text file.
+
+    The default layout is the usual output of a spectrometer and a phase retrieval,
+    in three columns: frequency in Hz, spectral power density in arbitrary units
+    (``energy`` sets the scale) and spectral phase in radians. A file with two columns
+    has a flat phase, and further columns are ignored. The pulse is built through
+    :meth:`DataPulse.from_spectral_density`, so the phase is interpolated as read,
+    never re-derived from a complex spectrum.
+
+    **Format.** Columns are separated by commas on a line that holds one, otherwise by
+    whitespace. Everything after a ``#`` is a comment, blank lines are skipped, and the
+    first line that is not a comment may be a header of column names, which is skipped
+    when none of its fields is a number. The rows may come in either order along the
+    axis: they are sorted.
+
+    **Axis.** With ``axis="wavelength"`` the first column is a wavelength, and the power
+    density per unit wavelength is converted to one per unit angular frequency,
+    ``P_omega = P_lambda lambda**2 / (2 pi c)``, so that the energy in any band is the
+    same on either axis.
+
+    **Phase.** The phase is in the optics convention (``docs/dev/conventions.md``
+    section 2), so a delay ``tau`` is ``+omega tau`` and a positive group-delay
+    dispersion is a positive chirp. ``phase_convention="fft"`` reads the opposite sign,
+    which is that of a file written for Luna.jl. A column is taken as wrapped and
+    unwrapped when ``wrapped`` says so, or, by default, when all its values lie within
+    ``2 pi`` (with a milliradian for the rounding of the file's last digit); any other
+    column is taken as it stands, so a large chirp given unwrapped survives at any
+    sampling a spline resolves. A wrapped column is unwrapped only over the samples
+    whose power is above ``floor`` times the peak of the power column: between them the
+    phase is interpolated linearly across any gap, and beyond the first and last it is
+    held at their value, so the random phase of the noise floor cannot add a turn to
+    the band.
+
+    **Power.** Negative values, which a background subtraction leaves where there is no
+    signal, are clipped to zero; one more negative than a tenth of the peak is refused,
+    because that is not such noise.
+
+    Parameters
+    ----------
+    path : str, os.PathLike or io.TextIOBase
+        The file, UTF-8 text, or an open text stream such as an ``io.StringIO``, which
+        is read from where it stands.
+    energy : float
+        Pulse energy to scale to, J.
+    axis : {"frequency", "wavelength"}, optional
+        What the axis column holds.
+    axis_unit : str or None, optional
+        Unit of the axis column. ``None`` is the axis's SI unit: Hz for a frequency, m
+        for a wavelength. A frequency may be in ``"Hz"``, ``"GHz"``, ``"THz"``,
+        ``"PHz"`` or, as an angular frequency, ``"rad/s"`` or ``"rad/fs"``; a
+        wavelength in ``"m"``, ``"um"`` (or ``"µm"``) or ``"nm"``.
+    columns : sequence of int or None, optional
+        Zero-based indices of the axis, power and, optionally, phase columns, as
+        ``(axis, power)`` or ``(axis, power, phase)``; two indices give a flat phase.
+        ``None`` is ``(0, 1, 2)``, or ``(0, 1)`` for a two-column file.
+    phase_unit : {"rad", "deg"}, optional
+        Unit of the phase column. A wrapped phase in degrees spans 360 and would
+        otherwise be taken as unwrapped radians.
+    phase_convention : {"optics", "fft"}, optional
+        Sign convention of the phase column.
+    wrapped : bool or None, optional
+        Whether the phase column is wrapped; ``None`` decides from its range.
+    floor : float, optional
+        Share of the peak power, in ``[0, 1)``, below which a sample is noise for the
+        unwrapping of a wrapped phase.
+
+    Returns
+    -------
+    DataPulse
+        The pulse, holding the read phase as its ``spectral_phase``.
+
+    Raises
+    ------
+    PulseError
+        If there is no file at ``path``; a line after the header is not a row of
+        numbers, or the rows differ in length; the file has fewer than two columns or
+        ``columns`` asks for one it does not have; a value read is not finite; there are
+        fewer than four rows; an axis value is not positive or repeats; the power
+        column has no positive value or is more negative than a tenth of its peak; or a
+        keyword is not one of its documented values.
+
+    Warns
+    -----
+    SolpropWarning
+        If a wrapped phase looks undersampled: some step between neighbouring samples
+        above the floor lies within a tenth of pi of ``+-pi``, and the samples beyond
+        the innermost such step, outward from the peak, hold more than a thousandth of
+        the power. Such a phase cannot be recovered.
+
+    See Also
+    --------
+    DataPulse.from_spectral_density : The same pulse from arrays.
+
+    Examples
+    --------
+    A Gaussian spectrum written over wavelength in nanometres, with a header line:
+
+    >>> import io
+    >>> import numpy as np
+    >>> from solprop.pulses import load_spectrum
+    >>> wavelength = np.linspace(700.0, 900.0, 201)
+    >>> power = np.exp(-(((wavelength - 800.0) / 20.0) ** 2))
+    >>> file = io.StringIO()
+    >>> np.savetxt(file, np.column_stack([wavelength, power]), header="nm power")
+    >>> _ = file.seek(0)
+    >>> pulse = load_spectrum(file, energy=1e-6, axis="wavelength", axis_unit="nm")
+    >>> pulse.spectrum.shape
+    (201,)
+    >>> float(np.ptp(pulse.spectral_phase))
+    0.0
+    """
+    _check_positive("energy", energy)
+    _check_choice("phase_unit", phase_unit, ("rad", "deg"))
+    _check_choice("phase_convention", phase_convention, ("optics", "fft"))
+    if not (math.isfinite(floor) and 0.0 <= floor < 1.0):
+        msg = f"floor must be a share of the peak power in [0, 1), got {floor!r}"
+        raise PulseError(msg)
+    factor = _axis_factor(axis, axis_unit)
+    table = _read_table(path)
+    chosen = _chosen_columns(table.shape[1], columns)
+    data = table[:, chosen]
+    if not np.all(np.isfinite(data)):
+        msg = "the spectrum file holds a value that is not finite in a column it reads"
+        raise PulseError(msg)
+    if data.shape[0] < _MIN_DATA_POINTS:
+        msg = (
+            f"a spectrum file needs at least {_MIN_DATA_POINTS} rows for a cubic "
+            f"interpolation, got {data.shape[0]}"
+        )
+        raise PulseError(msg)
+    if np.any(data[:, 0] <= 0.0):
+        msg = f"the {axis} column must be positive everywhere"
+        raise PulseError(msg)
+    power = data[:, 1]
+    peak = float(np.max(power))
+    if peak <= 0.0:
+        msg = "the power column has no positive value"
+        raise PulseError(msg)
+    if float(np.min(power)) < -_NEGATIVE_POWER_LIMIT * peak:
+        msg = (
+            f"the power column falls to {float(np.min(power)):.4g}, more negative than "
+            f"a tenth of its peak {peak:.4g}: is it the right column?"
+        )
+        raise PulseError(msg)
+    if axis == "wavelength":
+        wavelength = data[:, 0] * factor
+        omega = 2.0 * np.pi * C / wavelength
+        # P_omega |d omega| = P_lambda |d lambda|, and |d lambda / d omega| is
+        # lambda**2 / (2 pi c); the constant is energy's to remove.
+        density = power * wavelength**2
+    else:
+        omega = data[:, 0] * factor
+        density = power
+    order = np.argsort(omega, kind="stable")
+    omega, density, power = omega[order], density[order], power[order]
+    if np.any(np.diff(omega) <= 0.0):
+        msg = f"the {axis} column repeats a value"
+        raise PulseError(msg)
+    if len(chosen) == 2:
+        spectral_phase = np.zeros_like(omega)
+    else:
+        spectral_phase = _read_phase(
+            omega,
+            np.deg2rad(data[order, 2]) if phase_unit == "deg" else data[order, 2],
+            power,
+            wrapped=wrapped,
+            floor=floor,
+            phase_convention=phase_convention,
+        )
+    return DataPulse.from_spectral_density(
+        omega, density, spectral_phase, energy=energy
+    )
 
 
 # --- continuous wave ------------------------------------------------------------------
