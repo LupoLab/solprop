@@ -6,6 +6,7 @@ import logging
 import pkgutil
 import subprocess
 import sys
+import typing
 
 import numpy as np
 import pytest
@@ -99,6 +100,9 @@ def test_every_submodule_is_an_attribute_loaded_on_first_use():
 def test_exception_hierarchy_roots_at_solprop_error():
     for name in exceptions.__all__:
         cls = getattr(exceptions, name)
+        if isinstance(cls, typing.TypeAliasType):
+            # ParameterPath, the type of an error's parameter, is not an error.
+            continue
         if cls is exceptions.RunTerminated:
             # A stop, not an error: an `except Exception` must not swallow it.
             assert issubclass(cls, SystemExit) and not issubclass(cls, Exception)

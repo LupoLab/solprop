@@ -295,6 +295,19 @@ know it ignores it, and a later session of the file, from a script or from an ed
 recipe, leaves it as it is and is recorded in its own execution record.
 `handler.recipe` reads it (`RecipeRecord`).
 
+### What a file can give
+
+{py:func}`solprop.capabilities.output` says, for a path or an opened handler, what a
+reader may offer: the file's basis (`modal`, `general_modal` or `spatial`); whether its
+power, energy, spectral density and field are **physical fluxes** (an orthogonal modal
+basis) or **coordinate quantities** (a general modal basis, whose physical energy is
+`physical_energy`, and a spatial grid, per transverse column); which saved planes keep
+their field and which only their statistics; which of the basis-dependent accessors and
+compression its readers refuse, with the refusal they give, read from the same gates;
+what a general modal reconstruction needs that the file only identifies (the guide and
+the reference tables); whether it records a recipe; and, for a path, its
+[resumability](resuming.md#what-a-file-allows).
+
 ### The writer-lock sidecar
 
 Each HDF5 output keeps a file beside it, `run.h5.writer.lock` for `run.h5`, and so does a

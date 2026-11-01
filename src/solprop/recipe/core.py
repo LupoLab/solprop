@@ -21,12 +21,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Final, Literal, cast
 
+import numpy as np
+
 from solprop.exceptions import SolpropError, SolpropWarning
 from solprop.recipe.document import (
     FORMAT,
     NONE,
     Document,
+    decode_integer,
     dump_text,
+    encode_integer,
     parse_text,
     unknown_key,
     validate_document,
@@ -38,13 +42,16 @@ from solprop.recipe.quantity import Unit, format_quantity, parse_quantity
 from solprop.recipe.registry import REGISTRY, BuildContext, coerce, decode_keyword
 
 if TYPE_CHECKING:
+    from numpy.typing import ArrayLike
+
     from solprop._interrupts import StopFlag
+    from solprop.driver.scan import Scan, ScanPoint
     from solprop.driver.simulation import Simulation
     from solprop.grid import TimeGrid
     from solprop.log import ProgressChoice, ProgressReporter
     from solprop.output.schema import Output, RecipeRecord
 
-__all__ = ["Recipe", "RecipeIssue", "resume_file"]
+__all__ = ["Recipe", "RecipeIssue", "RecipeScan", "resume_file"]
 
 ROUTES: Final = ("gnlse", "capillary")
 """The routes a recipe of format 1 describes in this release (SEP 41, phase 1)."""
@@ -684,6 +691,150 @@ class Recipe:
             run_keywords["memory_budget"] = execution["memory_budget"]
         return self.build().run(output, **run_keywords)  # type: ignore[arg-type]
 
+    # ------------------------------------------------------------------ scanning
+
+    def scan(self) -> "RecipeScan":  # noqa: UP037 - the class, checked at run time
+        """Return the scan the ``[scan]`` table declares, ready for ``run_scan``.
+
+        ``[scan]`` requires ``name``, which names the durable files and derives the
+        points' seeds, and may give ``base_seed``; its other keys are parameter paths,
+        each with a list of values or ``{start, stop, num, spacing}``, spacing
+        ``"linear"`` (the default) or ``"log"``. Values are read in the unit of the
+        keyword each path ends on.
+
+        Returns
+        -------
+        RecipeScan
+            The :class:`~solprop.driver.scan.Scan`, a picklable builder that sets each
+            point's values, passes ``point.seed`` and builds, and the keywords
+            :func:`~solprop.driver.scan.run_scan` takes from ``[execution]``.
+
+        Raises
+        ------
+        RecipeError
+            If the recipe has no ``[scan]`` table, its ``name`` is missing, or a path
+            or a value does not read.
+
+        Examples
+        --------
+        >>> from solprop.recipe import Recipe
+        >>> recipe = Recipe.example("soliton")
+        >>> document = recipe.to_dict()
+        >>> document["scan"] = {"name": "power", "peak_power": ["5 W", "10 W"]}
+        >>> scan = Recipe.from_dict(document).scan()
+        >>> scan.scan.shape, scan.scan.variables["peak_power"].tolist()
+        ((2,), [5.0, 10.0])
+        """
+        from solprop.driver.scan import Scan  # noqa: PLC0415 - layer D
+
+        table = dict(self._document.get("scan", {}))
+        if not table:
+            msg = "the recipe has no [scan] table"
+            raise RecipeError(msg)
+        name = table.pop("name", None)
+        if not isinstance(name, str):
+            msg = "[scan] needs a name, which names the scan's files and its seeds"
+            raise RecipeError(msg, path="name")
+        base_seed = table.pop("base_seed", None)
+        scan = Scan(
+            name,
+            base_seed=None if base_seed is None else decode_integer(base_seed),
+        )
+        for path, values in table.items():
+            scan.add(path, cast("ArrayLike", self._axis(path, values)))
+        document = self.to_dict()
+        execution = document.pop("execution", {})
+        document.pop("scan", None)
+        keywords: dict[str, object] = {
+            key: tuple(value) if isinstance(value, list) else value
+            for key, value in execution.items()
+            if key in ("fields", "field_planes")
+        }
+        builder = _PointBuilder(
+            dump_text(document),
+            None if self._base is None else str(self._base),
+            self._allow_outside,
+        )
+        return RecipeScan(scan, builder, keywords)
+
+    def _axis(self, path: str, values: object) -> list[object]:
+        """Return a scan axis's values, read in the unit of the path's keyword.
+
+        Parameters
+        ----------
+        path : str
+            The parameter path.
+        values : object
+            A list, or ``{start, stop, num, spacing}``.
+
+        Returns
+        -------
+        list
+            The values.
+
+        Raises
+        ------
+        RecipeError
+            If the path's keyword is not the route's, or the values do not read.
+        """
+        steps = parse_path(path)
+        keyword = format_path(steps[:1])
+        table = self._table()
+        if keyword not in table:
+            raise unknown_key(
+                keyword,
+                list(table),
+                where=f"the {self.route} route's keywords",
+                path=path,
+            )
+        unit = self._unit_at(path)
+        if isinstance(values, Mapping):
+            start = float(cast("float", _number_in(values.get("start"), unit, path)))
+            stop = float(cast("float", _number_in(values.get("stop"), unit, path)))
+            num = decode_integer(values.get("num"), path=path)
+            spacing = values.get("spacing", "linear")
+            if spacing not in ("linear", "log"):
+                msg = f"spacing is 'linear' or 'log', not {spacing!r}"
+                raise RecipeError(msg, path=path)
+            axis = (
+                np.geomspace(start, stop, num)
+                if spacing == "log"
+                else np.linspace(start, stop, num)
+            )
+            return list(axis.tolist())
+        if not isinstance(values, list):
+            msg = "a scan axis is a list of values or {start, stop, num, spacing}"
+            raise RecipeError(msg, path=path)
+        return [_number_in(value, unit, path) for value in values]
+
+    def _unit_at(self, path: str) -> str | None:
+        """Return the unit of the keyword a path ends on.
+
+        Parameters
+        ----------
+        path : str
+            The parameter path.
+
+        Returns
+        -------
+        str or None
+            The unit of a top-level keyword's number form, or of a registered type's
+            keyword; ``None`` for a value without one.
+        """
+        steps = parse_path(path)
+        if len(steps) == 1:
+            entry = self._table()[format_path(steps)]
+            return next(
+                (form.unit for form in entry.forms if form.kind == "number"), None
+            )
+        parent = get_path(self._document["build"], steps[:-1])
+        if isinstance(parent, Mapping) and str(parent.get("type")) in REGISTRY:
+            unit = REGISTRY[str(parent["type"])].units.get(
+                format_path(steps[-1:]).lstrip(".")
+            )
+            return unit if isinstance(unit, str) else None
+        return None
+
     # ------------------------------------------------------------------ writing
 
     def to_text(self) -> str:
@@ -1000,3 +1151,97 @@ def resume_file(
         progress=progress,
         stop=stop,
     )
+
+
+def _number_in(value: object, unit: str | None, path: str) -> object:
+    """Return one scan value as a number in its unit, or as it stands.
+
+    Parameters
+    ----------
+    value : object
+        The value as written.
+    unit : str or None
+        The keyword's unit.
+    path : str
+        Its path.
+
+    Returns
+    -------
+    object
+        A float in `unit` for a number or quantity string; anything else unchanged.
+    """
+    if (
+        unit is None
+        or isinstance(value, bool)
+        or not isinstance(value, int | float | str)
+    ):
+        return value
+    return parse_quantity(value, Unit(unit), path=path)
+
+
+@dataclass(frozen=True)
+class _PointBuilder:
+    """Build one scan point's simulation from a recipe; picklable for pool executors.
+
+    Attributes
+    ----------
+    text : str
+        The recipe, without its ``[scan]`` and ``[execution]`` tables.
+    base : str or None
+        Its directory, for data files.
+    allow_outside : bool
+        Whether a data file may lie outside it.
+    """
+
+    text: str
+    base: str | None
+    allow_outside: bool
+
+    def __call__(self, point: "ScanPoint") -> "Simulation":  # noqa: UP037
+        """Set the point's values, pass its seed, and build.
+
+        Parameters
+        ----------
+        point : solprop.driver.scan.ScanPoint
+            The point.
+
+        Returns
+        -------
+        solprop.driver.simulation.Simulation
+            Its simulation.
+        """
+        recipe = Recipe.loads(
+            self.text,
+            base=None if self.base is None else Path(self.base),
+            allow_outside=self.allow_outside,
+        )
+        for path, value in point.values.items():
+            if path != "seed":
+                recipe.set(path, value)
+        if point.seed is not None and "seed" not in recipe.to_dict()["build"]:
+            recipe.set("seed", encode_integer(point.seed))
+        return recipe.build()
+
+
+@dataclass(frozen=True)
+class RecipeScan:
+    """A recipe's scan, ready for :func:`~solprop.driver.scan.run_scan`.
+
+    Attributes
+    ----------
+    scan : solprop.driver.scan.Scan
+        The points.
+    build : callable
+        The picklable builder of each point's simulation.
+    keywords : dict
+        The ``run_scan`` keywords the recipe's ``[execution]`` gives: ``fields`` and
+        ``field_planes``, which ``run_scan`` takes itself.
+
+    Examples
+    --------
+    ``run_scan(scan.scan, scan.build, output="scan.h5", **scan.keywords)`` runs it.
+    """
+
+    scan: "Scan"  # noqa: UP037 - TYPE_CHECKING only
+    build: _PointBuilder
+    keywords: dict[str, object]

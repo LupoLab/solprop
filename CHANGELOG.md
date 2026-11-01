@@ -40,7 +40,16 @@ All notable changes to solprop are recorded here. The format follows
   and `solprop.recipe.resume_file` continue a run from its file alone, and
   `solprop.output.resumability` says whether a file can continue, from where and with
   which `resume=`, whether it can rebuild itself, and, on request, what the gate would
-  compare. See [recipes and the command line](https://solprop.readthedocs.io/en/latest/guide/setup/recipes.html).
+  compare. `run_scan(stop=)` takes the same flag: Local and Pool stop the point in
+  flight, Pool through a message on the worker pipe, Batch between groups; a stopped
+  point is not committed and a rerun computes it; Queue and Slurm refuse it.
+  `run_scan(progress=)` accepts a `solprop.log.ScanReporter` (and a
+  `WatchingScanReporter` for each point's run, relayed from Pool workers). A recipe's
+  `[scan]` table gives `Recipe.scan()`, ready for `run_scan`. `Simulation.estimate()`
+  reports a run's memory (admitted before anything is allocated), output size and the
+  cost of one right-hand-side evaluation; `solprop.capabilities.output` says what a
+  results file can give: its basis, which quantities are physical fluxes, which planes
+  keep fields, which operations its readers refuse and why. See [recipes and the command line](https://solprop.readthedocs.io/en/latest/guide/setup/recipes.html).
 - `solprop.pulses.load_spectrum` reads a measured spectrum from a text file (frequency
   or wavelength, power density, and an optional phase) into a `DataPulse`. A wrapped
   phase column is unwrapped only where the power is above a noise floor, a phase in

@@ -37,7 +37,7 @@ import warnings
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Final, Literal, Protocol, cast
+from typing import TYPE_CHECKING, Final, Literal, Protocol, cast
 
 import numpy as np
 from jaxtyping import Complex, Float
@@ -498,6 +498,10 @@ class _AutoBackend(str):
             The class and its arguments.
         """
         return (_AutoBackend, (str(self), self.precision))
+
+
+if TYPE_CHECKING:
+    from solprop.driver.estimate import RunEstimate
 
 
 class RecipeSource(Protocol):
@@ -3429,6 +3433,29 @@ class Simulation(Displayed):
                 [cast("JsonValue", report.to_dict()) for report in self._peak_fields],
             )
         return handler
+
+    def estimate(self, *, memory_budget: int | str | None = None) -> "RunEstimate":  # noqa: UP037 - checked at run time
+        """Estimate what the run would cost, without running it (SEP 41, S11).
+
+        The grid, the persistent memory admitted against the budget before anything
+        is allocated (a run that would be refused is reported, not attempted), the
+        output's size, the cost of one right-hand-side evaluation on the backend,
+        timed after an untimed warm-up that takes compilation and planning, and the
+        integrator's calls per step (:mod:`solprop.driver.estimate`).
+
+        Parameters
+        ----------
+        memory_budget : int or str or None, optional
+            The budget, as :meth:`run` takes it.
+
+        Returns
+        -------
+        solprop.driver.estimate.RunEstimate
+            The estimate.
+        """
+        from solprop.driver.estimate import estimate  # noqa: PLC0415 - imports this
+
+        return estimate(self, memory_budget=memory_budget)
 
     def _prepare_atomic(
         self,

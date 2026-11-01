@@ -135,6 +135,30 @@ carrier, and at least half the carrier frequency on the `gnlse` route or all of 
 knows nothing of the medium or the length, so it is a starting point: check the spectrum
 at the band's edges and the boundary monitor's verdict.
 
+## Scans
+
+A `[scan]` table varies parameter paths over a grid of points. `name` is required: it
+names the scan's files and derives each point's seed; `base_seed` may set the root of
+those seeds. Every other key is a path with a list of values, or a range
+`{start, stop, num, spacing = "linear" | "log"}`, read in the unit of the keyword the
+path ends on:
+
+```text
+[scan]
+name = "rdw-pressure"
+pressure = {start = "0.6 bar", stop = "1.4 bar", num = 9}
+energy = ["200 uJ", "275 uJ"]
+```
+
+`recipe.scan()` returns the {py:class}`~solprop.driver.scan.Scan`, a builder that sets each
+point's values, passes the point's seed and builds (a picklable one, for the `Pool`
+executor), and the keywords `run_scan` takes from `[execution]`:
+
+```{code-block} python
+scan = recipe.scan()
+run_scan(scan.scan, scan.build, output="scan.h5", **scan.keywords)
+```
+
 ## The recipe in the output
 
 A simulation built by `recipe.build()` carries its recipe, and its first run records it
