@@ -571,7 +571,9 @@ def test_ten_steps_write_the_manifest_and_a_changed_identity_is_refused(tmp_path
     assert check_cache(path, capillary().metadata())
     override = default_model("Ar").with_parameters(intervals=((120e-9, math.inf),))
     changed = capillary(materials=MaterialSelection(linear=override)).metadata()
-    with pytest.raises(OutputError, match=r"materials\.records") as refused:
+    with pytest.raises(
+        OutputError, match=r"materials: optmat model Ar gas_refractive"
+    ) as refused:
         check_cache(path, changed)
     assert "the material manifest differs" in str(refused.value)
 

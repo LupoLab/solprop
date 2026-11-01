@@ -5,7 +5,6 @@
 """Resume: continuing a file the same run wrote, and refusing one it did not."""
 
 import dataclasses
-import re
 from typing import Any
 
 import h5py
@@ -417,13 +416,13 @@ def test_a_recorded_seed_is_taken_only_for_the_model_the_file_drew(
     # resume is refused as a different run.
     modified = scheduled(build_simulation, noise="modified")
     drawn = modified.noise
-    with pytest.raises(OutputError, match=r"noise\.model"):
+    with pytest.raises(OutputError, match=r"the layout differs: noise: model"):
         modified.run(path, resume=True)
     assert modified.noise is drawn
     quiet = tmp_path / "quiet.h5"
     scheduled(build_simulation).run(quiet)
     noisy = scheduled(build_simulation, noise="input")
-    with pytest.raises(OutputError, match="these fields changed: noise"):
+    with pytest.raises(OutputError, match="the layout differs: noise"):
         noisy.run(quiet, resume=True)
 
 
@@ -436,11 +435,11 @@ def test_a_seeded_realisation_is_not_redrawn_and_the_refusal_names_the_seed(
     assert not other._reseed(17)
     with pytest.raises(OutputError, match="cannot be resumed") as refusal:
         other.run(path, resume=True)
-    # The spectrum's hundreds of changed bins are one entry, counted, not listed.
+    # The seed refuses; the spectrum it draws is compared through it (SEP 42).
     message = str(refusal.value)
-    assert re.search(r"noise\.seed, noise\.spectrum \(\d+ elements\)", message)
-    assert "[0][0]" not in message
-    assert message.endswith("pass seed=17 to draw it again")
+    assert "noise: seed 17 -> 18" in message
+    assert "spectrum" not in message
+    assert "pass seed=17 to draw it again" in message
 
 
 def test_a_resumed_run_continues_the_file_rather_than_replacing_it(

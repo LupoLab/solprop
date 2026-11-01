@@ -282,6 +282,7 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
     snapshots: SnapshotController | None = None,
     tdse_archive: TDSEArchiveWriter | None = None,
     boundary_monitor: BoundaryMonitor | None = None,
+    resume_record: Mapping[str, object] | None = None,
 ) -> None:
     """Run one translated problem to its save planes, writing each one out.
 
@@ -365,6 +366,11 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
         the execution record at every save plane without the per-plane rows, which
         the closing record (complete, failed or out of budget) carries, and its removed
         fraction is reported at the end. ``None`` watches nothing.
+    resume_record : collections.abc.Mapping or None, optional
+        The ``resume`` entry of a session that continues a file across differences
+        from its record (SEP 42 section 5.3): every execution record this session
+        writes carries it, from the first, written before any step, so a session
+        that stops or fails still leaves it. ``None`` records none.
 
     Raises
     ------
@@ -444,6 +450,10 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
         tdse_binding,
         memory,
     )
+    if resume_record is not None:
+        if not isinstance(output, PlaneStore):
+            raise DriverError("a resume entry needs an output that records outcomes")
+        output.record_resume(resume_record)
     # A store that preallocates (`PlaneStore.reserve`) sizes itself for the entrance
     # and every save plane; a resumed one keeps what it holds and grows to the rest.
     reserve = getattr(output, "reserve", None)

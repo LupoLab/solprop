@@ -1894,6 +1894,55 @@ class RunOutcome:
             tuple(_outcome_record(record) for record in self.previous_executions),
         )
 
+    @property
+    def resumes(self) -> tuple[Mapping[str, object], ...]:
+        """Return the ``resume`` entries of every session, oldest first (SEP 42).
+
+        A session that continued a file across differences from its record writes one
+        in its execution record before any step: where it continued from, whether it
+        was forced, which numerics it changed (path to stored and requested value),
+        the compared values it forced past, and the paths read as neutral.
+
+        Returns
+        -------
+        tuple of collections.abc.Mapping
+            The entries, from the earlier executions and then this one.
+
+        Examples
+        --------
+        >>> from solprop.output.schema import RunOutcome
+        >>> resume = {"from_z": 0.04, "forced": True, "numerics": {}}
+        >>> RunOutcome("running", 0.05, execution={"resume": resume}).forced_positions
+        (0.04,)
+        """
+        executions = [
+            record.get("execution") for record in self.previous_executions
+        ] + [self.execution]
+        return tuple(
+            cast("Mapping[str, object]", execution["resume"])
+            for execution in executions
+            if isinstance(execution, Mapping)
+            and isinstance(execution.get("resume"), Mapping)
+        )
+
+    @property
+    def forced_positions(self) -> tuple[float, ...]:
+        """Return where sessions forced a resume past a compared difference, m.
+
+        From such a position on, the file's record does not describe its planes
+        (SEP 42 section 5.5): what is rebuilt from the record is not what stepped.
+
+        Returns
+        -------
+        tuple of float
+            The positions, oldest first; empty for a file never forced.
+        """
+        return tuple(
+            float(cast("float", entry["from_z"]))
+            for entry in self.resumes
+            if entry.get("forced")
+        )
+
 
 def _outcome_record(record: Mapping[str, object]) -> dict[str, object]:
     """Own finite JSON values so later provider mutations cannot change a snapshot.
@@ -3662,6 +3711,7 @@ class PlaneStore(Displayed, ABC):
     def __init__(self) -> None:
         """Start with nothing stored and nothing opened."""
         self._metadata: RunMetadata | None = None
+        self._session_resume: dict[str, object] | None = None
         self._n_saved = 0
         self._planned = 0
         self._closed = False
@@ -3698,6 +3748,21 @@ class PlaneStore(Displayed, ABC):
         """
         return self._terminal_checkpoint
 
+    def record_resume(self, entry: Mapping[str, object]) -> None:
+        """Attach a ``resume`` entry to every execution record this session writes.
+
+        A session that continues a file across differences from its record says how
+        (SEP 42 section 5.3): every outcome it records from now on carries the entry
+        in its execution record, the first included, so a session that stops or fails
+        still leaves it, and :attr:`RunOutcome.resumes` reads it back.
+
+        Parameters
+        ----------
+        entry : collections.abc.Mapping
+            The entry: finite JSON values.
+        """
+        self._session_resume = dict(entry)
+
     def record_outcome(
         self, outcome: RunOutcome, checkpoint: TerminalCheckpoint | None = None
     ) -> None:
@@ -3718,6 +3783,10 @@ class PlaneStore(Displayed, ABC):
         """
         self._check_usable()
         self._require_metadata()
+        if self._session_resume is not None:
+            outcome = dataclasses.replace(
+                outcome, execution={**outcome.execution, "resume": self._session_resume}
+            )
         previous = self._outcome
         if previous is not None:
             history = previous.previous_executions

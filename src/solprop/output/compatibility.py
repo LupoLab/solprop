@@ -889,10 +889,13 @@ class PathChange:
         if self.absent:
             side = "the stored record" if self.absent == "stored" else "this run's"
             return f"{name} (absent from {side})"
-        if self.elements > 1 or isinstance(self.stored, tuple):
+        shapes = isinstance(self.stored, tuple) or isinstance(self.requested, tuple)
+        if shapes and self.stored != self.requested:
+            return f"{name} (shape {_short(self.stored)} -> {_short(self.requested)})"
+        if shapes or self.elements > 1:
             largest = "" if self.largest is None else f", largest {self.largest:.3g}"
-            count = f"{self.elements} elements" if self.elements > 1 else "shape"
-            return f"{name} ({count}{largest})"
+            plural = "" if self.elements == 1 else "s"
+            return f"{name} ({self.elements} element{plural}{largest})"
         return f"{name} {_short(self.stored)} -> {_short(self.requested)}"
 
 
@@ -1304,6 +1307,21 @@ class RecordComparison:
             ]
             for change in self.numerics
         }
+
+    def compared_summary(self, *, shown: int = _SHOWN) -> str:
+        """Say which compared values differ, grouped as :meth:`summary` groups them.
+
+        Parameters
+        ----------
+        shown : int, optional
+            How many entries to name in each part.
+
+        Returns
+        -------
+        str
+            The grouped compared differences; empty when none differ.
+        """
+        return _grouped(self.refused, shown) if self.refused else ""
 
     def summary(self, *, shown: int = _SHOWN) -> str:
         """Say how the records differ, briefly enough to read in a refusal or warning.
