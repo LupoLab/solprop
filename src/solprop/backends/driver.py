@@ -952,7 +952,10 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
 
         Non-TDSE backends inherit logical budget persistence while refusing atomic
         counts. The caller first loads the saved field, which resets Adams history;
-        the next source evaluation charges startup against these cumulative counts.
+        the next source evaluation charges startup against these cumulative counts. A
+        run continued under a Runge-Kutta or low-storage march keeps no logical
+        ledger: the counts stay in the earlier execution records as provenance and are
+        not installed (SEP 42 section 5.6).
 
         Parameters
         ----------
@@ -972,7 +975,11 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             )
         if logical:
             if self._adams is None:
-                raise BackendError("logical response calls require an Adams run")
+                self._logger.info(
+                    "the charged call ledger stays with the earlier executions: "
+                    "this march keeps none"
+                )
+                return
             # The march imports its driver, so the ledger type is loaded only when
             # a constructed backend restores a saved run.
             from solprop.backends.multistep import CallLedger  # noqa: PLC0415

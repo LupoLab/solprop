@@ -2,10 +2,26 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Run records stay what they were when they were pinned (SEP 22 section 7).
+"""Run records stay what they were when they were pinned (SEP 22 section 7, SEP 42).
 
 Every field of a recorded dataclass is recorded, at its default too, so a change that
-moves one of these records is deliberate and bumps the output schema. The records were
+moves one of these records is deliberate. Two pins hold them.
+
+**Frozen records** (SEP 42 section 7): each case's whole record, as a release wrote it,
+is stored beside this test and never regenerated after that release is tagged. Each must
+compare as continuing with the current build (:meth:`RunMetadata.compare`), on every CI
+platform, which is the cross-platform check of the resume comparison; and a recorded
+field a later change adds or removes fails until it has a neutral value
+(:data:`solprop.output.compatibility.NEUTRAL_VALUES`), which is what enforces that rule.
+An optmat data revision moves a model's digest and the arrays built from its data; a
+case whose digests moved is then compared by structure alone, and logs them. A case
+with no optmat data, such as the GNLSE one, is always compared in full. Each release's
+set is a folder of ``frozen/``. The first is 0.2.0's: until that release is tagged it
+is refreshed with :func:`write_frozen`, and afterwards each release adds its own folder
+from a checkout of its tag (``docs/dev/releasing.md``). A folder goes, with the neutral
+values that name its release, once the next minor release after it is out (ADR-063).
+
+**Pinned skeletons.** The records were
 first pinned before five later changes, which the projection in :func:`split` takes
 back out, so that the pins still hold everything else. Each is pinned as
 SEP 25 pins a record: its structure -- keys, strings, integers, flags and where every
@@ -16,6 +32,8 @@ release writes into a record is neutralised first, as for the printed run record
 """
 
 import dataclasses
+import gzip
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +41,7 @@ import numpy as np
 import pytest
 
 from legacy_geometry import LEGACY_GRID, bare_absorber
+from modal_provider_cases import general_grid, general_guide
 from record_numbers import (
     assert_record_numbers,
     record_skeleton,
@@ -31,9 +50,10 @@ from record_numbers import (
 )
 from solprop.boundaries import absorber, custom_absorber
 from solprop.driver import Simulation, SimulationSettings
-from solprop.grid import EnvelopeGrid, FreeGrid, RadialGrid
+from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid, RadialGrid
 from solprop.nonlinear.responses import KerrResponse
-from solprop.output.schema import SCHEMA_VERSION, serialise
+from solprop.output import compatibility
+from solprop.output.schema import SCHEMA_VERSION, RunMetadata, serialise
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stats import ApertureSet, StatsSpec
@@ -41,6 +61,21 @@ from solprop.stepper import Multistep, PIController
 from test_display import without_optmat_release
 
 STORED = Path(__file__).with_suffix("")
+FROZEN = STORED / "frozen"
+FROZEN_RELEASES = tuple(sorted(path.name for path in FROZEN.iterdir() if path.is_dir()))
+"""The releases whose records are frozen: one folder each."""
+
+FROZEN_CASES = (
+    "capillary",
+    "cartesian",
+    "cartesian_absorber",
+    "custom_absorber",
+    "modal",
+    "radial",
+)
+"""The cases whose whole records are frozen: the pinned ones and an optmat capillary."""
+
+logger = logging.getLogger(__name__)
 
 SKELETONS = {
     "modal": "77a845cabf424c75bce9080a2ce2464e2d399b8709502303d842733d411ee36a",
@@ -103,7 +138,31 @@ def spatial(kind: str) -> Simulation:
     )
 
 
+def capillary() -> Simulation:
+    """Return a short argon capillary with plasma: optmat models and a quadrature."""
+    grid = FieldGrid.from_limits(4e-4, 800e-9, (300e-9, 3e-6), 100e-15)
+    return Simulation.from_capillary(
+        50e-6,
+        4e-4,
+        "Ar",
+        1.0,
+        wavelength=800e-9,
+        grid=grid,
+        absorber=absorber(grid, boundary_length=1.0),
+        fwhm=30e-15,
+        energy=1e-6,
+        n_r=8,
+        n_save=3,
+        backend="numpy_ref",
+        plasma=True,
+        noise=None,
+        rtol=1e-6,
+    )
+
+
 def build(kind: str) -> Simulation:
+    if kind == "capillary":
+        return capillary()
     if kind == "modal":
         return Simulation.from_gnlse(
             0.11,
@@ -224,3 +283,117 @@ def write_stored() -> None:  # pragma: no cover - run by hand to set the records
         skeleton, numbers, _ = split(kind)
         np.savez(STORED / f"{kind}.npz", numbers=np.asarray(numbers, dtype=float))
         print(f'    "{kind}": "{skeleton_hash(skeleton)}",')  # noqa: T201
+
+
+# ------------------------------------------------------------------ frozen records
+
+
+def frozen(release: str, kind: str) -> RunMetadata:
+    """Return the frozen record of one case, as the release wrote it."""
+    path = FROZEN / release / f"{kind}.json.gz"
+    with gzip.open(path, "rt", encoding="utf-8") as stored:
+        return RunMetadata.from_json(stored.read())
+
+
+def digests(metadata: RunMetadata) -> set[str]:
+    """Return the digests of the optmat models a record names."""
+    materials = metadata.hashed()["materials"]
+    if not isinstance(materials, dict):
+        return set()
+    records = materials.get("records")
+    assert isinstance(records, dict)
+    return {str(record["digest"]) for record in records.values()}
+
+
+@pytest.mark.parametrize("kind", FROZEN_CASES)
+@pytest.mark.parametrize("release", FROZEN_RELEASES)
+def test_a_frozen_record_continues_with_this_build(release, kind):
+    stored = frozen(release, kind)
+    current = build(kind).metadata()
+    comparison = stored.compare(current)
+    changes = (*comparison.layout, *comparison.refused, *comparison.numerics)
+    absent = [compatibility.dotted(change.path) for change in changes if change.absent]
+    assert not absent, (
+        f"{kind}: these recorded paths are new or gone; each needs a neutral value in "
+        f"solprop.output.compatibility.NEUTRAL_VALUES, or a frozen record refreshed "
+        f"before the release is tagged: {absent}"
+    )
+    moved = digests(stored) ^ digests(current)
+    if moved:
+        # An optmat data revision moves the arrays built from its data too: the
+        # structure must still agree, and the numbers are optmat's business.
+        logger.warning("%s: optmat digests moved: %s", kind, sorted(moved))
+        assert not comparison.layout, comparison.summary()
+        assert all(
+            not isinstance(change.stored, tuple) or change.stored == change.requested
+            for change in changes
+        ), comparison.summary()
+        return
+    assert comparison.continues, f"{release} {kind}: {comparison.summary()}"
+
+
+def route_records() -> list[dict[str, Any]]:
+    """Return the hashed records of every route the table test reads."""
+    records = [build(kind).metadata().hashed() for kind in FROZEN_CASES]
+    gnlse = Simulation.from_gnlse(
+        0.11,
+        0.01,
+        [0.0, 0.0, -1.183e-26],
+        wavelength=835e-9,
+        wavelength_limits=(500e-9, 2e-6),
+        trange=1e-12,
+        width=100e-15,
+        peak_power=9.8,
+        shape="sech",
+        n_save=2,
+        backend="numpy_ref",
+    )
+    records.append(gnlse.metadata().hashed())
+    grid = general_grid()
+    general = Simulation.from_waveguide(
+        (),
+        1e-4,
+        provider=general_guide(grid=grid),
+        grid=grid,
+        fwhm=30e-15,
+        energy=1e-9,
+        wavelength=800e-9,
+        n_save=2,
+        backend="numpy_ref",
+        noise=None,
+    )
+    records.append(general.metadata().hashed())
+    return records
+
+
+def test_every_row_of_the_class_table_matches_a_recorded_path():
+    # The table is data, reviewed like code: a row no route records is stale.
+    paths = [
+        path
+        for record in route_records()
+        for path in compatibility.record_paths(record)
+    ]
+    stale = [
+        row.pattern
+        for row in compatibility.CLASS_TABLE
+        if not any(
+            compatibility._prefix_matches(row.components, path)
+            if row.subtree
+            else compatibility._full_matches(row.components, path)
+            for path in paths
+        )
+    ]
+    assert not stale, stale
+
+
+def write_frozen(release: str) -> None:  # pragma: no cover - run by hand at a release
+    """Write each case's whole record, as this build writes it, under `release`.
+
+    Run from a checkout of the release's tag (``docs/dev/releasing.md``); 0.2.0's set is
+    refreshed from the tree until that release is tagged.
+    """
+    folder = FROZEN / release
+    folder.mkdir(parents=True, exist_ok=True)
+    for kind in FROZEN_CASES:
+        with gzip.open(folder / f"{kind}.json.gz", "wt", encoding="utf-8") as out:
+            out.write(build(kind).metadata().to_json())

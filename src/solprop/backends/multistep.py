@@ -2959,6 +2959,7 @@ class AdamsMarch:
             slots=np.array([entry.slot for entry in self._history], dtype=np.int64),
             rows=export(),
             collar_was_quiet=self._collar_was_quiet,
+            history_key=self._method.history_key,
         )
 
     def export_refusal(self) -> str | None:
@@ -3043,8 +3044,15 @@ class AdamsMarch:
             return refusal
         checks = (
             (
-                snapshot.method != repr(self._method),
-                f"the snapshot was taken by {snapshot.method}",
+                # A snapshot naming no key was written before SEP 42: starting afresh
+                # is always safe.
+                snapshot.history_key is None,
+                "the snapshot names no history key",
+            ),
+            (
+                snapshot.history_key != self._method.history_key,
+                f"the snapshot's history was kept by {snapshot.history_key}, and "
+                f"this run steps with {self._method.history_key}",
             ),
             (
                 snapshot.z != backend._z,

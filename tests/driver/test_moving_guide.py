@@ -376,7 +376,7 @@ def test_a_resume_across_a_changed_path_is_refused_by_the_field_that_moved(
     changed = stored.differences(metadata)
     assert any(one.startswith("modal.guide") for one in changed), changed
     assert any(one.startswith("modal.tables") for one in changed), changed
-    with pytest.raises(OutputError, match="these fields changed"):
+    with pytest.raises(OutputError, match="cannot be resumed"):
         check_cache(written, metadata)
 
 

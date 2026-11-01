@@ -124,6 +124,7 @@ from solprop.exceptions import (
     MaterialStatusWarning,
     MemoryBudgetError,
     MemoryBudgetWarning,
+    OutputError,
     ParameterPath,
     SampledPeakWarning,
     SolpropError,
@@ -208,12 +209,14 @@ from solprop.nonlinear.responses import (
     PlasmaResponse,
 )
 from solprop.nonlinear.tdse import TDSEAtomicWindow, TDSEExecution, TDSEGasResponse
+from solprop.output.compatibility import RecordComparison, dotted
 from solprop.output.hdf5 import (
     HDF5Output,
     ResumeState,
+    _compare_cache,
+    _resume_refusal,
     _stored_metadata,
-    check_cache,
-    open_file,
+    _stored_stat_shapes,
 )
 from solprop.output.hdf5 import resume as resume_state
 from solprop.output.memory import MemoryOutput
@@ -362,6 +365,12 @@ __all__ = [
 ]
 
 logger = logging.getLogger(__name__)
+
+type _ResumeChoice = bool | Literal["interpolated", "force"]
+"""What ``resume`` takes: no, yes, from an interpolated plane, or across compared
+differences (SEP 42 section 5.5)."""
+
+_RESUME_CHOICES: Final = (False, True, "interpolated", "force")
 
 
 LOOSE_ADAMS_RTOL = 5e-2
@@ -3071,7 +3080,7 @@ class Simulation(Displayed):
         *,
         progress: ProgressReporter | ProgressChoice | None = None,
         progress_period: float = DEFAULT_PROGRESS_PERIOD,
-        resume: bool | Literal["interpolated"] = False,
+        resume: _ResumeChoice = False,
         memory_budget: int | str | None = None,
         tdse_archive: TDSEArchive | None = None,
         snapshots: SnapshotController | None = None,
@@ -3096,17 +3105,25 @@ class Simulation(Displayed):
             Seconds between the line reporter's periodic lines, s; ``0`` leaves only
             the plane and closing lines. A bar has its own redraw period and a given
             reporter its own business.
-        resume : bool or {'interpolated'}, optional
-            Continue the file at `output` if it holds this same run, instead of
-            replacing it. Only a path can be resumed: the driver has to open the file in
-            append mode itself. Noise a constructor drew without a seed is drawn
-            again from the seed the file recorded, so re-running the same call
-            continues its file (``docs/guide/results/resuming.md``). A run
-            interpolating its planes
-            (``interpolate_planes``) whose last plane was interpolated inside a step is
-            refused unless this is ``"interpolated"``: it then continues afresh from
-            the interpolated field, and the position is recorded in the annotation
+        resume : bool or {'interpolated', 'force'}, optional
+            Continue the file at `output` instead of replacing it, when its record
+            and this run's agree on what matters to the run
+            (``docs/guide/results/resuming.md``, SEP 42): the layout and the physics
+            must agree, numbers to a rounding-level tolerance; a changed tolerance or
+            integrator continues while there is work left, with a warning, and is
+            recorded in the session's execution record; provenance is ignored. A
+            finished file is returned only when every session ran under this run's
+            numerics. Only a path can be resumed: the driver has to open the file in
+            append mode itself. Noise a constructor drew without a seed is drawn again
+            from the seed the file recorded, so re-running the same call continues its
+            file. A file whose last plane was interpolated inside a step is refused
+            unless this is ``"interpolated"``: it then continues afresh from the
+            interpolated field, and the position is recorded in the annotation
             :data:`~solprop.output.schema.INTERPOLATED_RESUMES_ANNOTATION`.
+            ``"force"`` also continues across changed physics while the layout agrees,
+            the statistics fit and work is left, restarting the Adams history and
+            marking the file, past which its record no longer describes its planes; a
+            forced file then continues only under ``"force"``.
         memory_budget : int or str or None, optional
             The memory budget this run is admitted against before its backend
             allocates: bytes, or a string such as ``"16 GiB"`` or ``"warn:16 GiB"``,
@@ -3133,11 +3150,13 @@ class Simulation(Displayed):
 
         Raises
         ------
+        ValueError
+            If `resume` is not one of its four values.
         DriverError
-            If a resume is asked for and `output` is not a path, or the last plane
-            of a dense run was interpolated and `resume` is not ``"interpolated"``;
-            or `tdse_archive` is given without a TDSE response or at the path of
-            the optical file.
+            If a resume is asked for and `output` is not a path, or the file's last
+            plane was interpolated and `resume` is neither ``"interpolated"`` nor
+            ``"force"``; or `tdse_archive` is given without a TDSE response or at the
+            path of the optical file.
         TDSEArchiveError
             If the archive's path holds another file, or a write to it fails; the
             run then stops at its last optical checkpoint.
@@ -3145,8 +3164,16 @@ class Simulation(Displayed):
             If the run's estimated persistent memory exceeds its budget; nothing has
             been allocated or written.
         OutputError
-            If a file is there and was written for a different run; the message names
-            the fields that changed.
+            If a file is there and its layout or physics differ (unless forced), a
+            forced file is resumed without ``"force"``, a finished file was computed
+            under other numerics, or a forced run's statistics do not fit the file's;
+            the message names what changed.
+
+        Warns
+        -----
+        SolpropWarning
+            When a resume continues under changed numerics, is forced, or returns a
+            finished forced file.
 
         Examples
         --------
@@ -3160,19 +3187,27 @@ class Simulation(Displayed):
         >>> handler.n_saved, handler["z"].tolist()
         (3, [0.0, 0.005, 0.01])
         """
+        _check_resume_choice(resume)
         with _optmat.material_context(self._material_log):
             if resume:
                 self._adopt_recorded_seed(output)
             problem = self.translate()
             metadata = self.metadata()
-            handler, state = _open_output(
-                output, metadata, resume=resume, dense=self._observes_densely()
-            )
-            if state is not None:
+            handler, state, comparison = _open_output(output, metadata, resume=resume)
+            continuation: _Continuation | None = None
+            if state is not None and comparison is not None:
                 next_plane = _validate_resume(
                     problem, state, self.settings.tdse_execution
                 )
-                if _completed(problem, state, next_plane):
+                continuation = _resume_decision(
+                    Path(cast("Path | str", output)),
+                    problem,
+                    state,
+                    next_plane,
+                    comparison,
+                    resume,
+                )
+                if continuation is None:
                     handler.open(state.metadata)
                     handler.close()
                     return handler
@@ -3231,7 +3266,13 @@ class Simulation(Displayed):
                     profiles=self.profiles,
                     tdse_binding=binding,
                 )
-                start_plane = self._prime(backend, problem, state)
+                start_plane = self._prime(
+                    backend,
+                    problem,
+                    state,
+                    restart=continuation is not None and continuation.forced,
+                )
+                _confirm_continuation(continuation, backend, problem, output)
                 self._consistency_gate(
                     binding, problem, handler, metadata, backend, admission
                 )
@@ -3252,19 +3293,22 @@ class Simulation(Displayed):
                     snapshots=snapshots,
                     tdse_archive=archive,
                     boundary_monitor=self._boundary_monitor(),
+                    resume_record=None if continuation is None else continuation.entry,
                 )
             except BaseException as error:
                 failure = error
                 raise
             finally:
                 _close_run(backend, binding, archive, handler, failure)
-            self._peak_fields = _peak_field_reports(problem, handler, self.responses)
+            self._peak_fields = _peak_field_reports(
+                problem, handler, self.responses, _session_planes(state, continuation)
+            )
         if (
             state is not None
             and _interpolated(state)
             and isinstance(handler, PlaneStore)
         ):
-            # Allowed only by resume="interpolated"; the record says where.
+            # Allowed only by resume="interpolated" or "force"; the record says where.
             earlier = handler.annotations.get(INTERPOLATED_RESUMES_ANNOTATION, [])
             handler.annotate(
                 INTERPOLATED_RESUMES_ANNOTATION,
@@ -3405,16 +3449,6 @@ class Simulation(Displayed):
         if not binding.plans_built:
             binding.build_plans()
 
-    def _observes_densely(self) -> bool:
-        """Return whether the run observes save planes inside steps (SEP 14).
-
-        Returns
-        -------
-        bool
-            Whether save planes may interpolate between accepted step endpoints.
-        """
-        return self.settings.interpolate_planes
-
     def _reseed(self, seed: int) -> bool:
         """Draw a noise realisation that was drawn without a seed again, from `seed`.
 
@@ -3476,7 +3510,12 @@ class Simulation(Displayed):
             )
 
     def _prime(
-        self, backend: Backend, problem: KernelProblem, state: ResumeState | None
+        self,
+        backend: Backend,
+        problem: KernelProblem,
+        state: ResumeState | None,
+        *,
+        restart: bool = False,
     ) -> int:
         """Load the backend with the state the run starts from, and say where that is.
 
@@ -3489,6 +3528,10 @@ class Simulation(Displayed):
         state : solprop.output.hdf5.ResumeState or None
             What a file the run is continuing holds, or ``None`` to start at the
             entrance.
+        restart : bool, optional
+            Whether to start the Adams history afresh: a forced resume across
+            compared differences, whose stored history was stepped under the other
+            physics (SEP 42 section 5.5).
 
         Returns
         -------
@@ -3517,10 +3560,20 @@ class Simulation(Displayed):
             backend.restore_call_ledgers(
                 state.outcome.logical_calls, state.outcome.atomic_calls
             )
-        self._continue_march(backend, state)
+        if restart:
+            # The snapshot's state was weighted by the other physics, and its energy
+            # would jump at the join: restoring it measured an error of 1.3e-4
+            # against 4.9e-8 starting afresh, on a capillary forced from 1 to 2 bar.
+            logger.info("the Adams history starts afresh: a forced resume")
+        else:
+            self._continue_march(
+                backend, state, adams=isinstance(problem.stepper.integrator, Multistep)
+            )
         return next_plane
 
-    def _continue_march(self, backend: Backend, state: ResumeState) -> None:
+    def _continue_march(
+        self, backend: Backend, state: ResumeState, *, adams: bool = True
+    ) -> None:
         """Continue the Adams history from the file's snapshot, where one fits.
 
         Parameters
@@ -3529,6 +3582,10 @@ class Simulation(Displayed):
             The backend, loaded at the resume position.
         state : solprop.output.hdf5.ResumeState
             What the file holds.
+        adams : bool, optional
+            Whether this run steps with an Adams method. A run continued under
+            another integrator keeps no history, by its own choice, which is
+            recorded as a numerics change and needs no warning (SEP 42 section 5.6).
         """
         restore = getattr(backend, "restore_march", None)
         if restore is None:
@@ -3539,6 +3596,13 @@ class Simulation(Displayed):
             return
         # A march that cannot carry its history restarts it without having been asked
         # to: say so once, as a warning (SEP 29 section 6.6).
+        if not adams:
+            if state.march is not None:
+                logger.info(
+                    "the Adams history is not continued: this run steps "
+                    "with another integrator"
+                )
+            return
         refusal = getattr(backend, "march_export_refusal", lambda: None)()
         if refusal is not None:
             warnings.warn(
@@ -6622,7 +6686,7 @@ class SimulationRunner(Displayed):
         settings = self._simulation.settings
         with _optmat.material_context(derived._material_log):
             metadata = derived.metadata()
-            handler, _ = _open_output(output, metadata, resume=False)
+            handler, _, _ = _open_output(output, metadata, resume=False)
             retention = field_retention(problem, settings.fields, settings.field_planes)
             admission = admit_memory(
                 problem,
@@ -7422,7 +7486,7 @@ def _validate_resume(
             "resume position lies outside the declared propagation interval"
         )
     if state.plane.field is None:
-        if not _completed(problem, state, next_plane):
+        if _work_left(problem, state, next_plane):
             msg = (
                 f"the run's last saved plane, at z = {state.plane.z:.6e} m, kept no "
                 "field (it was saved with fields='none' or 'planes') and the file "
@@ -7439,11 +7503,11 @@ def _validate_resume(
         outcome is None or not outcome.logical_calls or not outcome.atomic_calls
     ):
         raise DriverError("a TDSE resume requires persisted cumulative call ledgers")
-    if outcome is not None and outcome.logical_calls:
+    method = problem.stepper.integrator
+    if outcome is not None and outcome.logical_calls and isinstance(method, Multistep):
+        # Under another integrator the charged ledger stays in the earlier execution
+        # records as provenance, and is not installed (SEP 42 section 5.6).
         calls = CallLedger.from_record(outcome.logical_calls)
-        method = problem.stepper.integrator
-        if not isinstance(method, Multistep):
-            raise DriverError("a logical call ledger requires Adams integration")
         if method.max_calls is not None and calls.total > method.max_calls:
             raise DriverError("logical call budget is below previously charged work")
     if outcome is not None and outcome.atomic_calls:
@@ -7458,32 +7522,6 @@ def _validate_resume(
         ):
             raise DriverError("atomic call budget is below previously attempted work")
     return next_plane
-
-
-def _completed(problem: KernelProblem, state: ResumeState, next_plane: int) -> bool:
-    """Return whether a file holds this run already finished.
-
-    Parameters
-    ----------
-    problem : KernelProblem
-        The translated problem, for its save planes.
-    state : ResumeState
-        What the file holds.
-    next_plane : int
-        The next save plane beyond the file's position.
-
-    Returns
-    -------
-    bool
-        True when the file's outcome is complete, it holds no checkpoint, and no save
-        plane is left: a resume has nothing to do.
-    """
-    return (
-        state.outcome is not None
-        and state.outcome.status == "complete"
-        and state.checkpoint is None
-        and next_plane == len(problem.stepper.save_planes)
-    )
 
 
 def _tdse_memory_execution(
@@ -7680,7 +7718,11 @@ def _open_tdse_archive(
         "quadrature": metadata.quadrature,
         "execution": dataclasses.asdict(execution),
         "provider_pin": tdse_runtime.pinned_revision(),
-        "optical_configuration_hash": metadata.configuration_hash(),
+        # The file's own record on a resume, which the session holds and a snapshot
+        # compares with (SEP 42 section 5.3).
+        "optical_configuration_hash": (
+            metadata if state is None else state.metadata
+        ).configuration_hash(),
         "versions": dict(metadata.versions),
     }
     return TDSEArchiveWriter.open(
@@ -7967,61 +8009,405 @@ def _open_output(
     output: Output | Path | str | None,
     metadata: RunMetadata,
     *,
-    resume: bool | Literal["interpolated"],
-    dense: bool = False,
-) -> tuple[Output, ResumeState | None]:
+    resume: _ResumeChoice,
+) -> tuple[Output, ResumeState | None, RecordComparison | None]:
     """Choose the handler a run writes to, and read what a resumed file holds.
+
+    The resume gate (SEP 42): the file's record and `metadata` are compared path by
+    path. A layout difference is refused, and a compared one unless the resume is
+    forced; numerics may differ. What depends on the file's state -- whether work is
+    left, whether a session forced it -- is decided by :func:`_resume_decision`.
 
     Parameters
     ----------
     output : solprop.output.schema.Output or pathlib.Path or str or None
         The caller's choice.
     metadata : solprop.output.schema.RunMetadata
-        The record of the run about to start, which a file must match to be continued.
-    resume : bool or {'interpolated'}
+        The record of the run about to start, which a file is compared with.
+    resume : bool or {'interpolated', 'force'}
         Whether to continue an existing file; ``"interpolated"`` also from a plane
-        interpolated inside a step.
-    dense : bool
-        Whether the run observes its planes densely.
+        interpolated inside a step, and ``"force"`` across compared differences too.
 
     Returns
     -------
     tuple
-        The handler, and the state to resume from or ``None``.
+        The handler, the state to resume from or ``None``, and the comparison of the
+        two records or ``None``.
 
     Raises
     ------
     DriverError
-        If a resume is asked for and `output` is not a path, or a dense run would
-        resume from an interpolated plane without ``resume="interpolated"``.
+        If a resume is asked for and `output` is not a path.
     OutputError
-        If the file exists and holds a different run.
+        If the file exists and its layout differs, or a compared value differs and
+        the resume is not forced.
     """
     if resume and metadata.configuration.get("_benchmark_plasma_source"):
         raise DriverError("gated plasma benchmark output cannot be resumed")
     if isinstance(output, Path | str):
         path = Path(output)
-        if resume and check_cache(path, metadata):
+        found = _compare_cache(path, metadata) if resume else None
+        if found is not None:
+            stored, comparison = found
+            if comparison.layout or (comparison.refused and resume != "force"):
+                raise OutputError(_resume_refusal(path, stored, comparison))
             state = resume_state(path)
-            if dense and resume != "interpolated" and _interpolated(state):
-                # An interpolated plane is not a state the march passed through, so
-                # a run restarted there is not the run it continues (SEP 14 section
-                # 5); a caller may accept that.
-                msg = (
-                    f"{path} ends on a plane interpolated inside a step at z = "
-                    f"{state.plane.z:.6e} m, not a state the march passed through; "
-                    "pass resume='interpolated' to continue afresh from it, or rerun"
-                )
-                raise DriverError(msg)
-            return HDF5Output(path, append=True), state
-        return HDF5Output(path), None
+            return HDF5Output(path, append=True, gated=True), state, comparison
+        return HDF5Output(path), None, None
     if resume:
         msg = (
             "only a path can be resumed: the file has to be opened in append mode, "
             "which is the driver's to decide; pass output=<path> with resume=True"
         )
         raise DriverError(msg)
-    return (MemoryOutput() if output is None else output), None
+    return (MemoryOutput() if output is None else output), None, None
+
+
+@dataclasses.dataclass(frozen=True)
+class _Continuation:
+    """How a resumed session continues its file (SEP 42 section 4).
+
+    Attributes
+    ----------
+    entry : dict or None
+        The ``resume`` entry its execution records carry, or ``None`` when nothing
+        but rounding separates the records.
+    forced : bool
+        Whether it continues across compared differences, under ``resume="force"``.
+    warning : str
+        What to warn once the session is sure to continue: after a forced one's
+        statistics are found to fit, so that a refusal is not preceded by it.
+    """
+
+    entry: dict[str, object] | None
+    forced: bool = False
+    warning: str = ""
+
+
+_FORCED_NOTE = (
+    "From here the file's record does not describe its planes: stats/* hold, and "
+    "anything rebuilt from the record does not."
+)
+
+
+def _session_planes(
+    state: ResumeState | None, continuation: _Continuation | None
+) -> int:
+    """Return the first plane a post-run report reads.
+
+    Parameters
+    ----------
+    state : ResumeState or None
+        What a resumed file held, or ``None`` for a fresh run.
+    continuation : _Continuation or None
+        How the session continued it.
+
+    Returns
+    -------
+    int
+        The first plane this session wrote when the file was forced, by this
+        session or an earlier one, since the planes before were computed under other
+        physics (SEP 42 section 5.5); otherwise 0, every plane.
+    """
+    if state is None:
+        return 0
+    forced = (continuation is not None and continuation.forced) or (
+        state.outcome is not None and bool(state.outcome.forced_positions)
+    )
+    return state.n_saved if forced else 0
+
+
+def _check_resume_choice(resume: object) -> None:
+    """Refuse a ``resume`` value that is not one of its four.
+
+    Parameters
+    ----------
+    resume : object
+        The caller's value.
+
+    Raises
+    ------
+    ValueError
+        If it is not ``False``, ``True``, ``"interpolated"`` or ``"force"``: a
+        mistyped word would otherwise read as ``True``.
+    """
+    if resume is True or resume is False or resume in _RESUME_CHOICES[2:]:
+        return
+    msg = f"resume must be False, True, 'interpolated' or 'force', got {resume!r}"
+    raise ValueError(msg)
+
+
+def _work_left(problem: KernelProblem, state: ResumeState, next_plane: int) -> bool:
+    """Return whether a file has anything left to compute, by position.
+
+    Parameters
+    ----------
+    problem : KernelProblem
+        The translated problem, for its save planes.
+    state : ResumeState
+        What the file holds.
+    next_plane : int
+        The next save plane beyond the file's position.
+
+    Returns
+    -------
+    bool
+        True while a save plane lies ahead or a terminal checkpoint is still owed
+        its plane. Decided by position, not status: a file killed after its last
+        plane has no work left, though its status reads ``running``.
+    """
+    return state.checkpoint is not None or next_plane < len(problem.stepper.save_planes)
+
+
+def _resume_entry(
+    state: ResumeState, comparison: RecordComparison, *, forced: bool
+) -> dict[str, object] | None:
+    """Return the ``resume`` entry of a session's execution records (SEP 42 §5.3).
+
+    Parameters
+    ----------
+    state : ResumeState
+        What the file holds.
+    comparison : RecordComparison
+        What separates the file's record from the requested one.
+    forced : bool
+        Whether the session continues across compared differences.
+
+    Returns
+    -------
+    dict or None
+        Where the session continues from, whether it was forced, the numerics it
+        changed, the compared values as a grouped text, and the paths read as
+        neutral; ``None`` when there is nothing to record.
+    """
+    if not (comparison.numerics or comparison.neutral or forced):
+        return None
+    return {
+        "from_z": float(state.plane.z),
+        "from_plane": state.n_saved - 1,
+        "forced": forced,
+        "numerics": comparison.numerics_record(),
+        # The grouped text, not every path: the record is rewritten at every plane.
+        "compared": comparison.compared_summary() if forced else "",
+        "neutral": [dotted(path) for path in comparison.neutral],
+    }
+
+
+def _confirm_continuation(
+    continuation: _Continuation | None,
+    backend: Backend,
+    problem: KernelProblem,
+    output: Output | Path | str | None,
+) -> None:
+    """Check a primed continuation can go ahead, then warn what it does.
+
+    Parameters
+    ----------
+    continuation : _Continuation or None
+        How the session continues its file, or ``None`` for a fresh run.
+    backend : Backend
+        The primed backend.
+    problem : KernelProblem
+        The translated problem.
+    output : pathlib.Path or str
+        The file.
+    """
+    if continuation is None:
+        return
+    if continuation.forced and problem.tdse is None:
+        _check_forced_shapes(backend, problem.stats_spec, output)
+    if continuation.warning:
+        warnings.warn(continuation.warning, SolpropWarning, stacklevel=3)
+
+
+def _check_forced_shapes(
+    backend: Backend, spec: StatsSpec, output: Output | Path | str | None
+) -> None:
+    """Refuse a forced resume whose statistics would not fit the file's arrays.
+
+    A statistic's names and shape follow the responses and the species, so a forced
+    change of the number of species, or of plasma on or off, would compute a whole
+    segment and then fail at its first save, leaving a checkpoint from the other
+    physics. Checked after the backend is primed, before any step or write
+    (SEP 42 section 5.5).
+
+    Parameters
+    ----------
+    backend : Backend
+        The primed backend.
+    spec : StatsSpec
+        The statistics the run collects.
+    output : pathlib.Path or str
+        The file being continued.
+
+    Raises
+    ------
+    OutputError
+        If a statistic is missing from either side or its shape differs.
+    """
+    path = Path(cast("Path | str", output))
+    stored = _stored_stat_shapes(path)
+    if not stored:
+        return
+    requested = {
+        name: tuple(np.shape(value)[1:]) for name, value in backend.stats(spec).items()
+    }
+    changed = sorted(
+        f"{name} (stored {stored.get(name)}, now {requested.get(name)})"
+        for name in set(stored) | set(requested)
+        if stored.get(name) != requested.get(name)
+    )
+    if changed:
+        msg = (
+            f"{path} cannot be continued with resume='force': its statistics do not "
+            f"fit this run's, which changes {', '.join(changed)}; nothing was "
+            "computed or written. Launch a new segment from a saved plane instead"
+        )
+        raise OutputError(msg)
+
+
+def _refuse_interpolated(path: Path, state: ResumeState, resume: _ResumeChoice) -> None:
+    """Refuse to continue from a plane interpolated inside a step, unless accepted.
+
+    An interpolated plane is not a state the march passed through, so a run restarted
+    there is not the run it continues (SEP 14 section 5); ``resume="interpolated"``
+    or ``"force"`` accepts that. Tested on the file, not on the requested settings,
+    since ``interpolate_planes`` may change on a resume (SEP 42 section 5.6).
+
+    Parameters
+    ----------
+    path : pathlib.Path
+        The file.
+    state : ResumeState
+        What it holds.
+    resume : bool or {'interpolated', 'force'}
+        The caller's request.
+
+    Raises
+    ------
+    DriverError
+        If the file ends on an interpolated plane and the request does not accept it.
+    """
+    if resume in ("interpolated", "force") or not _interpolated(state):
+        return
+    msg = (
+        f"{path} ends on a plane interpolated inside a step at z = "
+        f"{state.plane.z:.6e} m, not a state the march passed through; "
+        "pass resume='interpolated' to continue afresh from it, or rerun"
+    )
+    raise DriverError(msg)
+
+
+def _resume_decision(
+    path: Path,
+    problem: KernelProblem,
+    state: ResumeState,
+    next_plane: int,
+    comparison: RecordComparison,
+    resume: _ResumeChoice,
+) -> _Continuation | None:
+    """Decide what a resume of a file does, once the records' layouts agree.
+
+    The verdict of SEP 42 section 4: a file with work left continues, recording
+    changed numerics, and continues across compared differences only when forced; a
+    file with nothing left is returned unless the request's numerics differ from any
+    session's; a file a session forced continues only when forced again.
+
+    Parameters
+    ----------
+    path : pathlib.Path
+        The file.
+    problem : KernelProblem
+        The translated problem.
+    state : ResumeState
+        What the file holds.
+    next_plane : int
+        The next save plane beyond the file's position.
+    comparison : RecordComparison
+        What separates the file's record from the requested one.
+    resume : bool or {'interpolated', 'force'}
+        The caller's request.
+
+    Returns
+    -------
+    _Continuation or None
+        How the session continues, or ``None`` when there is nothing to do.
+
+    Raises
+    ------
+    OutputError
+        If a session forced the file and this one does not, while work is left; if
+        a forced resume has nothing to continue; or if a finished file was computed
+        under numerics other than the requested ones.
+    """
+    work_left = _work_left(problem, state, next_plane)
+    outcome = state.outcome
+    forced_at = () if outcome is None else outcome.forced_positions
+    where = ", ".join(f"{z:.6g}" for z in forced_at)
+    if forced_at and resume != "force":
+        if not work_left:
+            warnings.warn(
+                f"{path} was continued with resume='force' at z = {where} m. "
+                + _FORCED_NOTE,
+                SolpropWarning,
+                stacklevel=3,
+            )
+            return None
+        msg = (
+            f"{path} was continued with resume='force' at z = {where} m, so its "
+            "record no longer describes the run it holds; continue it with "
+            "resume='force', or write a new file"
+        )
+        raise OutputError(msg)
+    if comparison.refused:
+        if not work_left:
+            msg = (
+                f"{path} holds a finished run, and resume='force' continues only a "
+                f"file with work left; {comparison.summary()}"
+            )
+            raise OutputError(msg)
+        launch = any(
+            change.path[:2]
+            in (("configuration", "pulse"), ("configuration", "initial"))
+            for change in comparison.refused
+        )
+        warning = (
+            f"forcing a resume of {path} at z = {state.plane.z:.6g} m; "
+            f"{comparison.summary()}\n"
+            + (
+                "The launch differs, which has no effect: the stored field continues.\n"
+                if launch
+                else ""
+            )
+            + "The Adams history starts afresh. "
+            + _FORCED_NOTE
+        )
+        return _Continuation(
+            _resume_entry(state, comparison, forced=True), forced=True, warning=warning
+        )
+    if not work_left:
+        earlier = () if outcome is None else outcome.resumes
+        if comparison.numerics or any(entry.get("numerics") for entry in earlier):
+            # A tightened tolerance must not hand back the loose result, and a file
+            # finished under other numerics than it started with matches neither.
+            changed = comparison.summary() or "an earlier session changed its numerics"
+            msg = (
+                f"{path} holds a finished run that was not computed throughout under "
+                f"the requested numerics, so nothing would be computed; {changed}. "
+                "Write a new file to compute it under these"
+            )
+            raise OutputError(msg)
+        return None
+    _refuse_interpolated(path, state, resume)
+    warning = (
+        f"resuming {path} at z = {state.plane.z:.6g} m with changed numerics; "
+        f"{comparison.summary()}"
+        if comparison.numerics
+        else ""
+    )
+    return _Continuation(
+        _resume_entry(state, comparison, forced=False), warning=warning
+    )
 
 
 def _gnlse_grid(
@@ -10436,7 +10822,10 @@ def _ionisation_inputs(
 
 
 def _peak_field_reports(
-    problem: KernelProblem, output: Output, responses: Sequence[object]
+    problem: KernelProblem,
+    output: Output,
+    responses: Sequence[object],
+    first_plane: int = 0,
 ) -> tuple[PeakFieldReport, ...]:
     """Report the largest field each optmat-rate population saw, after a run.
 
@@ -10453,6 +10842,10 @@ def _peak_field_reports(
         The handler the run wrote; a closed file is reopened for reading.
     responses : sequence of object
         The run's responses.
+    first_plane : int, optional
+        The first plane to read: a session that continued a file across a forced
+        resume reports only the planes it wrote, since the earlier ones were
+        computed under other physics (SEP 42 section 5.5).
 
     Returns
     -------
@@ -10480,12 +10873,15 @@ def _peak_field_reports(
     if not rates:
         return ()
     if isinstance(output, HDF5Output) and output.closed:
-        with open_file(output.path) as reader:
-            return _peak_field_reports(problem, reader, responses)
+        # An internal reader: not the public open_file, which warns of a forced file.
+        with HDF5Output(output.path, readonly=True) as reader:
+            return _peak_field_reports(problem, reader, responses, first_plane)
     if "species_peak_ionisation_rate" in output.stat_names:
-        peaks = np.max(np.asarray(output["stats/species_peak_ionisation_rate"]), axis=0)
+        rows = np.asarray(output["stats/species_peak_ionisation_rate"])[first_plane:]
+        peaks = np.max(rows, axis=0)
     elif "peak_ionisation_rate" in output.stat_names and len(labels) == 1:
-        peaks = np.array([np.max(np.asarray(output["stats/peak_ionisation_rate"]))])
+        rows = np.asarray(output["stats/peak_ionisation_rate"])[first_plane:]
+        peaks = np.array([np.max(rows)])
     else:
         logger.info(
             "the run recorded no peak ionisation rate, so the largest field its "
