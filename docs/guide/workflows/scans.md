@@ -221,8 +221,8 @@ settings of scan workers.
 Fields keep the single-run saved-plane shape. Error histories, noise, species axes
 and periodic statistics remain separate per member. Reductions use the same
 processing definitions and temporary disk spool as `Local` and `Pool`. Completed
-points are revalidated by the ordinary single-run configuration hash before being
-skipped, so changing executor does not change that hash.
+points are revalidated as on the other routes before being skipped (below), so changing
+executor does not change what a point records.
 
 ## Processes and resource limits
 
@@ -270,7 +270,7 @@ with `seed=point.seed`. The file records the derivation, resolved point seed, ac
 noise seed, single-run configuration hash and backend execution settings. A noise
 draw without a recorded seed, or seeded with something other than `point.seed`, is
 rejected. Rerunning a scan rebuilds each point with the same seed, so its completed
-points match their records and are skipped.
+points agree with their records and are skipped.
 
 ## Retention, reductions and reading
 
@@ -328,16 +328,20 @@ hash, actual noise seed and backend policies. Readers expose that provenance whi
 keeping incomplete numerical arrays masked.
 
 One controller owns the collected HDF5 file. Each successful payload is validated,
-staged and flushed before the point is marked `done`. Reruns validate matching
-configuration hashes and skip completed points. A completed point whose rebuilt run has
-another hash is refused, naming the fields that changed. That hash includes the
-point's material manifest: a point resolves its materials, under
-its `materials=` selection or the default one, from its own objects, so its optmat identities,
-policies and the optmat version are frozen for that run and do not depend on what
-another point resolved, and a rerun with another model, policy or optmat version is
-refused by the manifest entry that moved (`materials.records...`,
-`materials.policies...`, `materials.optmat_version`;
-[output](../results/provenance.md#the-material-manifest)). Failed points require
+staged and flushed before the point is marked `done`. A rerun skips a completed point
+whose rebuilt record is its stored one, or differs from it only in rounding, a declared
+neutral value or provenance, as a resume compares them
+([what a resume compares](../results/resuming.md#what-a-resume-compares)); a worker
+whose digest differs hands its record back, and the controller compares the two.
+Unlike a resume, a scan holds the numerics to agreement too: a finished point has
+nothing left to continue, and tightening `rtol` is the commonest reason to rerun a
+scan, so a rerun with changed numerics or physics is refused, naming what changed,
+and is written to a new file. The record includes the point's material manifest: a
+point resolves its materials, under its `materials=` selection or the default one, from
+its own objects, so its optmat models and policies are frozen for that run and do not
+depend on what another point resolved. A model whose numbers changed, or a changed
+policy, is refused by name; another optmat version alone is provenance
+([output](../results/provenance.md#the-material-manifest)). Failed points require
 `retry_failed=True`. A stale `running` point becomes eligible after `stale_age` seconds
 (600 by default). Queue ownership protection uses the live-owner and refreshed-lease rules
 described below.
@@ -370,6 +374,10 @@ scan.
 ## Durable queues and Slurm
 
 For several controllers sharing a filesystem, choose `Queue("pressure_energy.queue")`.
+A queue keeps exact identities: its manifest hashes the builder's code and refuses a
+change, and each point and collected artifact is checked by its configuration hash, so
+the tolerance of a local rerun does not apply to it; `Slurm` drains a queue and
+behaves alike.
 Each controller runs a memory-sized spawned `Pool`. Point artifacts are fsynced before
 publication; the collected file is written under one exclusive controller lock.
 Readers take the corresponding shared lock. The filesystem must support coherent

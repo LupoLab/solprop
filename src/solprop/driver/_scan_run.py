@@ -33,7 +33,7 @@ from solprop.driver.simulation import Simulation
 from solprop.exceptions import DriverError, OutputError
 from solprop.fourier import spectrum_to_optics
 from solprop.log import BarReporter, is_interactive
-from solprop.output.hdf5 import HDF5Output
+from solprop.output.hdf5 import HDF5Output, open_file
 from solprop.output.memory import MemoryOutput
 from solprop.output.scan import PointResult, ScanWriter
 from solprop.output.schema import (
@@ -325,7 +325,7 @@ class _Capture(MemoryOutput):
             Retained arrays keyed by their storage paths.
         """
         if self.spool is not None:
-            with HDF5Output(self.custom_path, readonly=True) as output:
+            with open_file(self.custom_path) as output:
                 if output.metadata is None:
                     raise OutputError("custom reduction output has no metadata")
                 for reduction in self.options.reductions:

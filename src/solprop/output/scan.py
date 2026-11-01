@@ -10,6 +10,7 @@ layout arrays and exact CSR statistics are rebuilt from committed groups at clos
 
 import hashlib
 import json
+import logging
 from collections.abc import Mapping
 from contextlib import ExitStack
 from dataclasses import dataclass, field, replace
@@ -22,8 +23,11 @@ import numpy as np
 from solprop.driver._scan_model import Scan
 from solprop.exceptions import OutputError, ProcessingError
 from solprop.output._scan_lock import read_scan, write_scan
+from solprop.output.compatibility import RecordComparison
 from solprop.output.hdf5 import _dataset, _group
 from solprop.output.schema import RunMetadata, serialise
+
+logger = logging.getLogger(__name__)
 
 __all__ = ["PointResult", "ScanWriter", "grid_values", "read_point", "validate_result"]
 
@@ -367,11 +371,22 @@ class ScanWriter:
         Raises
         ------
         OutputError
-            If a cached configuration differs, a completed point would be demoted,
-            or numerical results are not finite.
+            If a cached configuration differs in more than rounding, neutral values
+            and provenance, a completed point would be demoted, or numerical results
+            are not finite.
         """
         if result.status == "conflict":
-            raise OutputError(self._conflict(result))
+            comparison = self._comparison(result)
+            if comparison is not None and comparison.identical:
+                # A finished point whose record differs only in rounding, neutral
+                # values or provenance is the same point (SEP 42 section 5.7).
+                logger.info(
+                    "point %d: its stored record agrees with the new one but for "
+                    "rounding, neutral values or provenance; reused",
+                    result.index,
+                )
+                return
+            raise OutputError(self._conflict(result, comparison))
         if result.status == "skipped":
             return
         if result.status not in ("done", "failed"):
@@ -412,8 +427,8 @@ class ScanWriter:
         _dataset(file, "points/status")[result.index] = result.status
         file.flush()
 
-    def _conflict(self, result: PointResult) -> str:
-        """Explain a refused reuse by the fields of the run record that changed.
+    def _comparison(self, result: PointResult) -> RecordComparison | None:
+        """Compare a conflicting point's stored record with its new one.
 
         Parameters
         ----------
@@ -422,20 +437,40 @@ class ScanWriter:
 
         Returns
         -------
-        str
-            The worker's explanation, followed by the changed fields -- a material
-            manifest entry among them where an optmat identity, policy or version
-            moved -- when both records can be read.
+        solprop.output.compatibility.RecordComparison or None
+            The comparison, or ``None`` when either record is missing.
         """
         key = f"staged/{result.index}"
         if not result.metadata_json or key not in self.file:
-            return result.error
+            return None
         document = _expand(
             self.file, json.loads(str(_group(self.file, key).attrs["metadata_refs"]))
         )
         stored = RunMetadata.from_json(json.dumps(document))
-        current = RunMetadata.from_json(result.metadata_json)
-        return f"{result.error}; {stored.summarise_differences(current)}"
+        return stored.compare(RunMetadata.from_json(result.metadata_json))
+
+    def _conflict(
+        self, result: PointResult, comparison: RecordComparison | None
+    ) -> str:
+        """Explain a refused reuse by what changed in the run record.
+
+        Parameters
+        ----------
+        result : PointResult
+            The conflict a worker reported.
+        comparison : solprop.output.compatibility.RecordComparison or None
+            The comparison of its stored and new records, when both could be read.
+
+        Returns
+        -------
+        str
+            The worker's explanation, followed by what changed, by class: a changed
+            tolerance among it, since a finished point has nothing left to continue
+            and a scan with changed numerics writes to a new file.
+        """
+        if comparison is None:
+            return result.error
+        return f"{result.error}; {comparison.summary()}"
 
     def _stage(self, result: PointResult) -> None:
         """Write recoverable point arrays and references to common metadata.

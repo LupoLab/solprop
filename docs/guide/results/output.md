@@ -344,9 +344,17 @@ field refuses a resume of an earlier file unless a release declares its neutral 
 the value that reproduces the code before it existed
 ([what a resume compares](resuming.md#what-a-resume-compares)). The test suite pins the
 records of a modal, a radial and two Cartesian runs, and of a custom absorber at its
-defaults, and keeps each release's whole records, so that such a change is deliberate. An array input of more than 2²⁰
-elements is recorded by the SHA-256 of its bytes, with its dtype and shape
-(`ArrayDigest`), rather than inline.
+defaults, and keeps each release's whole records, so that such a change is deliberate.
+An array input of more than 2²⁰ elements is recorded by the SHA-256 of its bytes, with
+its dtype and shape (`ArrayDigest`), rather than inline.
+
+**When the schema is bumped.** Only for a change an older reader would misread, or
+could not append to: a dataset renamed, re-laid or given new units; an attribute that
+changes meaning; anything added inside `stats`, `step_history` or `step_stats`; or
+anything grown per plane. A new field of the JSON run record, a new root attribute or a
+new top-level group written once does not bump it: readers already tolerate them, and a
+resume decides by comparing the records (ADR-063,
+[SEP 42](../../dev/seps/sep-0042-tolerant-resume.md)).
 
 ## A worked example
 

@@ -39,6 +39,10 @@ All notable changes to solprop are recorded here. The format follows
   factor, an Adams file continues under Runge-Kutta, and the interpolated-plane refusal
   is decided by the file, whatever `interpolate_planes` the resuming run asks for.
   `source=` in `field_plane` is checked by the same comparison.
+- A scan rerun reuses a finished point whose record differs only in rounding, a neutral
+  value or provenance, and refuses one whose numerics or physics changed, naming what;
+  the `Queue` and `Slurm` executors keep exact identity (SEP 42). The output schema is
+  bumped only for a change an older reader would misread (ADR-063).
 - Planned work is moving to [GitHub issues](https://github.com/LupoLab/solprop/issues),
   labelled by type, priority and area: new work goes there and not on the roadmap, whose
   entries move as issues take them over (ADR-062). Issue templates and `CONTRIBUTING.md`

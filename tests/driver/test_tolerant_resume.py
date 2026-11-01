@@ -19,7 +19,7 @@ import pytest
 
 from march_bounds import assert_in_envelope
 from solprop.driver.simulation import _check_resume_choice
-from solprop.exceptions import OutputError, SolpropWarning
+from solprop.exceptions import BoundaryWarning, OutputError, SolpropWarning
 from solprop.log import NullReporter
 from solprop.output.hdf5 import open_file, resume
 from solprop.stepper import RungeKutta
@@ -75,6 +75,7 @@ def quietly(simulation, path, **keywords):
     """Run without letting a warning through, so a test sees the ones it expects."""
     with warnings.catch_warnings():
         warnings.simplefilter("error", SolpropWarning)
+        warnings.simplefilter("ignore", BoundaryWarning)
         return simulation.run(path, **keywords)
 
 
@@ -177,6 +178,22 @@ def test_a_file_stopped_after_its_last_plane_has_no_work_left(
         file["meta/outcome"] = json.dumps(outcome)
     handler = quietly(fibre(build_simulation), path, resume=True)
     assert handler.n_saved == N_SAVE
+
+
+def test_a_file_with_an_unknown_group_and_attribute_reads_and_resumes(
+    build_simulation, tmp_path
+):
+    # What a later release of the same schema may add without a bump (SEP 42 §5.8):
+    # a top-level group written once and a root attribute.
+    path = tmp_path / "run.h5"
+    stop(fibre(build_simulation), path)
+    with h5py.File(path, "r+") as file:
+        file.create_group("recipe").attrs["source"] = "a later release"
+        file.attrs["future_attribute"] = 1
+    handler = quietly(fibre(build_simulation), path, resume=True)
+    assert handler.n_saved == N_SAVE
+    with open_file(path) as reader:
+        assert reader.n_saved == N_SAVE
 
 
 @pytest.mark.parametrize("value", ["yes", "Force", 1, None])
