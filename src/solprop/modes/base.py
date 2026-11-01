@@ -38,7 +38,7 @@ from scipy.integrate import quad_vec
 from scipy.optimize import brentq
 
 from solprop.constants import C
-from solprop.exceptions import ModeError
+from solprop.exceptions import ModeError, NoZeroDispersionError
 from solprop.modes.protocol import Mode
 
 __all__ = [
@@ -286,9 +286,11 @@ def zdw(
     Raises
     ------
     ModeError
-        If the range is not ordered and positive, or if ``beta_2`` does not change
-        sign across it: a mode with no zero-dispersion point in the window is a fact
-        the caller has to see, not a missing value to propagate.
+        If the range is not ordered and positive.
+    NoZeroDispersionError
+        If ``beta_2`` does not change sign across it: a mode with no zero-dispersion
+        point in the window is a fact the caller has to see, not a missing value to
+        propagate.
 
     Examples
     --------
@@ -323,7 +325,7 @@ def zdw(
 
     at_lower, at_upper = dispersion(lower), dispersion(upper)
     if at_lower * at_upper > 0.0:
-        raise ModeError(
+        raise NoZeroDispersionError(
             f"beta2 does not change sign over {shortest * 1e9:.4g}-"
             f"{longest * 1e9:.4g} nm (it is {at_lower:.4g} and {at_upper:.4g} s^2/m at "
             "the ends), so there is no zero-dispersion wavelength in that window"
