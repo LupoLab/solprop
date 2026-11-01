@@ -697,7 +697,7 @@ def test_the_run_record_names_its_power_convention(examples):
     # The amplitude label is part of what a file means, so the block prints it beside
     # the spectral convention and the output schema.
     metadata = quiet(examples["Simulation"].metadata)
-    assert "optics spectra, poynting amplitudes, schema 1" in str(metadata)
+    assert "optics spectra, poynting amplitudes, schema 2" in str(metadata)
 
 
 def test_a_mode_built_over_a_mixture_names_its_fill():

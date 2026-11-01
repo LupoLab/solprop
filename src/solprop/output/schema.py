@@ -128,15 +128,17 @@ _ELEMENT_INDICES = re.compile(r"(?:\[\d+\])+$")
 _ARRAY_PART = re.compile(r"\.__(?:ndarray|imaginary)__$")
 """The key of an array record's real or imaginary part, dropped from its stem."""
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 """Version of the saved-output layout; incremented when a stored field changes meaning.
 
-Schema 1 is the first released layout: the record types of this module, written by
-:class:`solprop.output.memory.MemoryOutput` and :class:`solprop.output.hdf5.HDF5Output`
-as ``docs/guide/results/output.md`` describes them. A record that declares any other
-version is refused by name (:class:`RunMetadata`): files written by development
-versions of solprop, which declared output schemas up to 28, are not read, and nor is
-a file from a later release. Read such a file with the solprop version that wrote it.
+Schema 1 is the first released layout, 0.1.0's: the record types of this module, written
+by :class:`solprop.output.memory.MemoryOutput` and
+:class:`solprop.output.hdf5.HDF5Output` as ``docs/guide/results/output.md`` describes
+them. Schema 2 records ``DataPulse.spectral_phase``. A record that declares any other
+version is refused by name (:class:`RunMetadata`): files written by an earlier release
+or by development versions of solprop, which declared output schemas up to 28, are not
+read, and nor is a file from a later release. Read such a file with the solprop version
+that wrote it.
 """
 
 INLINE_ARRAY_LIMIT = 2**20
@@ -2115,9 +2117,9 @@ def _optional_text(value: JsonValue) -> str | None:
 def _refuse_schema(declared: object) -> None:
     """Refuse a record of any output schema but :data:`SCHEMA_VERSION`.
 
-    One rule for every other number: a development version of solprop wrote output
-    schemas up to 28, and a later release may write a higher one, and this release
-    reads neither (ADR-058).
+    One rule for every other number: an earlier release wrote a lower output schema, a
+    development version of solprop wrote schemas up to 28, and a later release may write
+    a higher one, and this release reads none of them (ADR-058).
 
     Parameters
     ----------
@@ -2133,9 +2135,9 @@ def _refuse_schema(declared: object) -> None:
         return
     msg = (
         f"this record declares output schema_version {declared!r}, and this release "
-        f"of solprop reads output schema {SCHEMA_VERSION} only: a file written by a "
-        "development version of solprop or by a later release is not read; read it "
-        "with the solprop version that wrote it"
+        f"of solprop reads output schema {SCHEMA_VERSION} only: a file written by an "
+        "earlier release, by a development version of solprop or by a later release is "
+        "not read; read it with the solprop version that wrote it"
     )
     raise OutputError(msg)
 

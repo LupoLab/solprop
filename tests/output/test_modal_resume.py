@@ -141,7 +141,7 @@ def written(guide, grid, tmp_path_factory):
 def test_the_record_carries_every_modal_identity(written, guide):
     """Labels, tables, metric, responses, guide, frame, band, noise and accessors."""
     stored = resume(written).metadata
-    assert stored.schema_version == SCHEMA_VERSION == 1
+    assert stored.schema_version == SCHEMA_VERSION == 2
     modal = stored.modal
     assert modal is not None
     assert set(modal) == {
@@ -643,7 +643,7 @@ def test_a_scan_point_writes_its_spool_and_reads_the_identity_back(
     results = capture.results()
     assert float(results["reduced/spooled_flux"]) > 0.0
     stored = resume(capture.custom_path).metadata
-    assert stored.schema_version == SCHEMA_VERSION == 1
+    assert stored.schema_version == SCHEMA_VERSION == 2
     assert stored.modal is not None
     assert at(stored.modal, "basis") == "general_modal"
     assert [one.label for one in stored.modes] != [None]

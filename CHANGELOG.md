@@ -23,6 +23,13 @@ All notable changes to solprop are recorded here. The format follows
   [10.5281/zenodo.23854248](https://doi.org/10.5281/zenodo.23854248), which covers
   every release.
 
+### Changed (breaking)
+
+- The output schema is 2: a `DataPulse` records its `spectral_phase` (below), and every
+  field of a recorded dataclass is recorded, at its default too. This release refuses
+  a file written by 0.1.0, and every configuration hash moves, so a 0.1.0 run cannot be
+  resumed; read such a file with 0.1.0.
+
 ### Fixed
 
 - The native backend's HIP build compiles again under its default
