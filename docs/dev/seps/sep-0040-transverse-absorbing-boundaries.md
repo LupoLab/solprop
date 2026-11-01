@@ -15,7 +15,7 @@
 | **Requires** | [SEP 21](archive/sep-0021-absorbing-boundaries.md), [SEP 22](archive/sep-0022-memory-lean-spatial-execution.md), [SEP 34](archive/sep-0034-medium-flux.md) |
 | **Supersedes** | — |
 | **Superseded-by** | — |
-| **Implementation** | Opus 5.5 (AI) for John Travers, branch `feature/sep-0040-transverse-boundaries`: phase 0 complete (Part II); phase 1 waits for re-acceptance |
+| **Implementation** | Opus 5.5 (AI) for John Travers, branch `feature/sep-0040-transverse-boundaries`: phase 0 complete (Part II); Part I revised after review; paused 2026-11-01, awaiting the maintainer's re-read and re-acceptance; no code changed yet; phase 1 not started |
 | **Manual pages** | — |
 
 ## Part I — Proposal
@@ -1950,6 +1950,9 @@ stated. Noise off unless stated.
 - 2026-11-01: Maintainer decisions on R15–R35 (John Travers). Opus 5.5 (drafting agent) re-measured
   the headline numbers on the requested band, revised Part I and answered every point (*Response to
   the 2026-11-01 review* below). Status stays `Draft`; re-acceptance is pending.
+- 2026-11-01: Paused for the maintainer's re-read of Part I. The further AI review was declined. Next:
+  re-acceptance, then merging main into this branch, which is 33 commits behind it at 9d5d92f, then
+  phase 1 on `numpy_ref` (§11). No code has changed. The pull request opens at `Final`, as SEP 0 says.
 
 ### AI review — 2026-10-31 (GPT-6)
 
