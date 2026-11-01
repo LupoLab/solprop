@@ -151,13 +151,17 @@ def test_exact_paths_take_no_tolerance():
 # ---------------------------------------------------------------------- classes
 
 
+def kind(path):
+    """Return the class of a path, compared where no row matches."""
+    row = classify(path)
+    return PathClass.COMPARED if row is None else row.kind
+
+
 def test_rows_cover_their_subtrees():
-    assert classify(("spatial", "axes", 0)).kind is PathClass.LAYOUT
-    assert (
-        classify(("materials", "records", "x", "sources", 0)).kind is PathClass.IGNORED
-    )
-    assert classify(("stepper", "limits", "dz_max")).kind is PathClass.NUMERICS
-    assert classify(("grid", "dt")).kind is PathClass.LAYOUT
+    assert kind(("spatial", "axes", 0)) is PathClass.LAYOUT
+    assert kind(("materials", "records", "x", "sources", 0)) is PathClass.IGNORED
+    assert kind(("stepper", "limits", "dz_max")) is PathClass.NUMERICS
+    assert kind(("grid", "dt")) is PathClass.LAYOUT
     # An unclassified path is compared.
     assert classify(("configuration", "medium", "pressure")) is None
 
@@ -344,7 +348,8 @@ def test_a_stored_record_is_read_as_written(monkeypatch):
     del document["stepper"]["limits"]["stretch"]
     stored = RunMetadata.from_json(json.dumps(document))
     # The record digests to its own text, not to what today's code would write.
-    assert stored.hashed()["grid"]["future_field"] == 1.0
+    grid = stored.hashed()["grid"]
+    assert isinstance(grid, dict) and grid["future_field"] == 1.0
     assert stored.configuration_hash() != metadata.configuration_hash()
     assert stored.grid == metadata.grid
     comparison = stored.compare(metadata)
