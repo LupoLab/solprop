@@ -128,10 +128,10 @@ A change that touches `native/` runs `poe check-all` and follows the native rule
 5. Open a pull request describing what changed, why, and how it was verified. Say plainly
    what you assumed, skipped or could not make pass. Link the issue it closes
    (`Closes #N`), and give it a label or two: its type and, where one fits, its area, as
-   for an issue. If you cannot set labels, a maintainer will. CI runs on every pull request: the
-   gate's checks and the default lane on Linux (with coverage) and macOS, the slow lane on
-   both, the default lane on Windows, at the lowest supported dependency versions, and
-   with the native CPU backend.
+   for an issue. If you cannot set labels, a maintainer will. CI runs on every pull
+   request: the gate's checks and the default lane on Linux (with coverage) and macOS,
+   the slow lane on both, the default lane on Windows, at the lowest supported dependency
+   versions, and with the native CPU backend.
 
 ## Review checklist
 
