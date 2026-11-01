@@ -37,7 +37,7 @@ from solprop.modes import (
     gaussian_to_per_unit_width,
 )
 from solprop.modes.base import beta2, db_per_m
-from solprop.plotting import stats
+from solprop.plotting import plot_stats
 from solprop.pulses import GaussianPulse
 from solprop.stepper.schedule import FixedSchedule
 
@@ -103,7 +103,7 @@ pulse = GaussianPulse(wavelength=800e-9, fwhm=100e-15, energy=0.5).build(grid)[0
 launch = np.stack([math.sqrt(share) * pulse for share in shares])
 output = simulation.with_input(launch).run(progress="none")
 print(output.metadata.transverse_measure)
-stats(output, marker="o", markersize=3)
+plot_stats(output, marker="o", markersize=3)
 
 # %%
 print(f"ran in {perf_counter() - started:.1f} s on numpy_ref")

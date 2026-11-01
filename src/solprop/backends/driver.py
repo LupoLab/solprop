@@ -36,8 +36,8 @@ from jaxtyping import Complex, Float
 from solprop._helpers import NUMBA, Helpers
 from solprop._interrupts import committing
 from solprop.backends.protocol import (
+    BackendHistory,
     Observation,
-    StepHistory,
     StepStats,
     StepSummary,
 )
@@ -1400,7 +1400,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         state = self._require_state()
         if self._low_storage is not None:
             self._hold(None if field else state)
-        history = StepHistory(
+        history = BackendHistory(
             z=np.array([entry[0] for entry in self._history], dtype=np.float64),
             dz=np.array([entry[1] for entry in self._history], dtype=np.float64),
             error_norm=np.array(
@@ -1483,7 +1483,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             z=z,
             field=self._held_field(),
             noise_phase=phase,
-            step_history=StepHistory(
+            step_history=BackendHistory(
                 np.empty(0), np.empty(0), np.empty(0), np.empty(0, bool), np.empty(0)
             ),
             n_steps=0,

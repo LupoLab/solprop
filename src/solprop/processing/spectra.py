@@ -44,10 +44,10 @@ class Passband:
 
     Attributes
     ----------
-    limits : tuple of float
+    spec_range : tuple of float
         The pass band, in m, Hz or rad/s as ``axis`` says, in either order.
     axis : {'wavelength', 'f', 'omega'}
-        The axis of ``limits``.
+        The axis of ``spec_range``.
     width : float or None
         Width of each taper edge, rad/s, whatever the axis: the taper is drawn on the
         angular-frequency grid. ``None`` gives the default of :func:`bandpass`.
@@ -68,14 +68,14 @@ class Passband:
     True
     """
 
-    limits: tuple[float, float]
+    spec_range: tuple[float, float]
     axis: SpectralAxis = "wavelength"
     width: float | None = None
 
     def __post_init__(self) -> None:
         """Refuse an unknown axis, and limits that name no light on it."""
         _check_choice(self.axis, SPECTRAL_AXES, "axis")
-        _check_limits(self.limits, self.axis)
+        _check_limits(self.spec_range, self.axis)
 
 
 Bandpass = tuple[float, float] | Passband | Float[np.ndarray, " n_omega"]
@@ -105,7 +105,7 @@ _FWHM_TO_SIGMA = 1.0 / (2.0 * np.sqrt(2.0 * np.log(2.0)))
 
 def bandpass(
     grid: TimeGrid,
-    limits: tuple[float, float],
+    spec_range: tuple[float, float],
     *,
     axis: SpectralAxis = "wavelength",
     width: float | None = None,
@@ -124,10 +124,10 @@ def bandpass(
     ----------
     grid : solprop.grid.TimeGrid
         The grid whose ``omega`` axis the window is built on.
-    limits : tuple of float
+    spec_range : tuple of float
         The pass band, in m, Hz or rad/s as ``axis`` says, in either order.
     axis : {'wavelength', 'f', 'omega'}
-        The axis of ``limits``; wavelength by default.
+        The axis of ``spec_range``; wavelength by default.
     width : float or None
         Width of each taper edge, rad/s; ``None`` gives the smaller of 64 bin spacings
         and a quarter of the pass band's angular width.
@@ -159,12 +159,12 @@ def bandpass(
     True
     """
     _check_choice(axis, SPECTRAL_AXES, "axis")
-    _check_limits(limits, axis)
+    _check_limits(spec_range, axis)
     if axis == "wavelength":
-        edges = sorted(2.0 * np.pi * C / limit for limit in limits)
+        edges = sorted(2.0 * np.pi * C / limit for limit in spec_range)
     else:
         turn = 2.0 * np.pi if axis == "f" else 1.0
-        edges = sorted(turn * limit for limit in limits)
+        edges = sorted(turn * limit for limit in spec_range)
     if width is None:
         width = min(
             DEFAULT_BANDPASS_BINS * grid.d_omega,
@@ -319,7 +319,7 @@ def _check_limits(limits: tuple[float, float], axis: SpectralAxis) -> None:
     limits : tuple of float
         The pass band, in m, Hz or rad/s as ``axis`` says.
     axis : {'wavelength', 'f', 'omega'}
-        The axis of ``limits``.
+        The axis of ``spec_range``.
 
     Raises
     ------
@@ -369,5 +369,5 @@ def _as_window(grid: TimeGrid, spec: Bandpass) -> Float[np.ndarray, " n_omega"]:
             raise ProcessingError(msg)
         return spec
     if isinstance(spec, Passband):
-        return bandpass(grid, spec.limits, axis=spec.axis, width=spec.width)
+        return bandpass(grid, spec.spec_range, axis=spec.axis, width=spec.width)
     return bandpass(grid, spec)

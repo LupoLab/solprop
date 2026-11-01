@@ -87,7 +87,7 @@ prop_2d(output, "omega", spec_range=wavelength_to_axis("omega", (600e-9, 1100e-9
    from solprop.processing import example_output
 
    figure = prop_2d(example_output(), "wavelength", spec_range=(600e-9, 1100e-9),
-                    trange=(-100e-15, 100e-15))[0]
+                    time_range=(-100e-15, 100e-15))[0]
    figure.set_size_inches(9.5, 3.4)
    figure.tight_layout()
 ```
@@ -113,7 +113,7 @@ over six decades.
 
    output = example_output()
    figure, (left, right) = plt.subplots(1, 2, figsize=(9.5, 3.4))
-   time_1d(output, [0.0, 0.1], trange=(-120e-15, 120e-15), ax=left)
+   time_1d(output, [0.0, 0.1], time_range=(-120e-15, 120e-15), ax=left)
    spec_1d(output, [0.0, 0.1], spec_range=(600e-9, 1100e-9), ax=right)
    figure.tight_layout()
 ```
@@ -123,14 +123,14 @@ optical element of {py:mod}`solprop.optics`, and `transform_limit=`, and draws t
 after a compressor or at its limit ([compression](../workflows/compression.md));
 {py:func}`~solprop.plotting.spectrograms.spectrogram` takes `transfer=`.
 
-{py:func}`~solprop.plotting.propagation.energy` follows the energy along the fibre in
+{py:func}`~solprop.plotting.propagation.plot_energy` follows the energy along the fibre in
 microjoules, with a linked right-hand axis in per cent of the total energy of every mode at
 the first plane, which is what a conversion efficiency means. Its limits are computed
 from the left axis's, so the two axes always agree.
 
 ## The statistics panels
 
-{py:func}`~solprop.plotting.statistics.stats` draws every statistic a run recorded, in two
+{py:func}`~solprop.plotting.statistics.plot_stats` draws every statistic a run recorded, in two
 figures: what the pulse did, and what the waveguide and the gas were doing while it did
 it. Only the groups that have something in them are made, and a run with no statistics at
 all gives an empty list and no error.
@@ -144,10 +144,10 @@ own metadata.
    :filename-prefix: plotting-stats
    :caption: The pulse statistics of the example run. The energy is conserved, the peak power halves and the duration doubles, which is the whole of what pure dispersion does.
 
-   from solprop.plotting import stats
+   from solprop.plotting import plot_stats
    from solprop.processing import example_output
 
-   figure = stats(example_output())[0]
+   figure = plot_stats(example_output())[0]
    figure.set_size_inches(8.0, 6.0)
    figure.tight_layout()
 ```
@@ -196,7 +196,7 @@ does not.
 
    figure = spectrogram(
        output,
-       trange=(-1.2e-12, 1.2e-12),
+       time_range=(-1.2e-12, 1.2e-12),
        gate_fwhm=200e-15,
        spec_range=(700e-9, 950e-9),
    )

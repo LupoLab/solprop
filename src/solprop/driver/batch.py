@@ -11,7 +11,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from solprop.backends.protocol import Observation, StepHistory
+from solprop.backends.protocol import BackendHistory, Observation
 from solprop.driver.run import _history_of, plane_from_observation
 from solprop.driver.simulation import Simulation
 from solprop.exceptions import DriverError
@@ -355,7 +355,7 @@ def split_observation(
     observation: Observation,
     statistics: Mapping[str, np.ndarray],
     *,
-    histories: Sequence[StepHistory],
+    histories: Sequence[BackendHistory],
 ) -> tuple[SavedPlane, ...]:
     """Separate fields, statistics and error histories into ordinary saved planes.
 
@@ -376,7 +376,7 @@ def split_observation(
         Host state with the leading batch axis and shared attempt itinerary.
     statistics : mapping of str to numpy.ndarray
         Saved-plane statistics, each with leading axis ``n_batch``.
-    histories : sequence of solprop.backends.protocol.StepHistory
+    histories : sequence of solprop.backends.protocol.BackendHistory
         One history per member, with that member's error norms. Every itinerary must
         match the observation, including rejected attempts.
 

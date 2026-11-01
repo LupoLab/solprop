@@ -27,7 +27,7 @@ EXCLUDED = {
         # writing a plot, who imports them from their home.
         "CORNERS",
         "DEFAULT_SLICE_WAVELENGTH_RANGE",
-        "DEFAULT_TRANGE",
+        "DEFAULT_TIME_RANGE",
         "DEFAULT_WAVELENGTH_RANGE",
         "OTHER_STATISTICS",
         "POWER_UNITS",
@@ -44,7 +44,6 @@ EXCLUDED = {
         "power_unit",
         "spectral_display",
         "subplot_grid",
-        "wavelength_to_axis",
     },
     "processing": {
         # Constants, type aliases and the axis bookkeeping behind the accessors.
@@ -219,8 +218,8 @@ def test_every_name_is_the_object_its_home_module_defines():
         assert hasattr(sol, name), name
     assert sol.prop_capillary is interface.prop_capillary
     assert sol.prop_2d is plotting.prop_2d
-    assert sol.plot_energy is plotting.energy
-    assert sol.plot_stats is plotting.stats
+    assert sol.plot_energy is plotting.plot_energy
+    assert sol.plot_stats is plotting.plot_stats
     assert sol.energy is processing.energy
     assert sol.capillary_params is tools.capillary_params
     assert sol.compress_taylor is compression.compress_taylor

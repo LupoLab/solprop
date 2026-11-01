@@ -94,7 +94,7 @@ class NativeBatchBackend(LockstepRunner):
             member._score_trial(partials[3 * index : 3 * (index + 1)])  # pyright: ignore[reportPrivateUsage] - reuse the singleton operation order
             for index, member in enumerate(self._native_members)
         )
-        # `StepHistory` and `StepSummary` refuse a non-finite or negative norm on
+        # `BackendHistory` and `StepSummary` refuse a non-finite or negative norm on
         # every route, so the batch owes the reader the member's index rather than
         # an anonymous history error one save plane later.
         for index, norm in enumerate(self._member_norms):

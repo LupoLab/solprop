@@ -136,7 +136,7 @@ for pressure in np.arange(0.0, 31.0, 2.0):
         root_wavelengths.append(
             zdw(
                 mode,
-                wavelength_range=(
+                wavelength_limits=(
                     float(probe_wavelength[index]),
                     float(probe_wavelength[index + 1]),
                 ),

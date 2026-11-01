@@ -98,7 +98,7 @@ figures = prop_2d(
     run,
     "wavelength",
     spec_range=(130e-9, 1.2e-6),
-    trange=(-60e-15, 60e-15),
+    time_range=(-60e-15, 60e-15),
     db_min=-40,
 )
 figures[-1].set_size_inches(9.5, 3.6)
@@ -136,7 +136,7 @@ print(
 # input pulse, so the automatic single-peak width label is disabled.
 
 fig, ax = plt.subplots(figsize=(6.0, 3.2))
-time_1d(run, z=0.0, trange=(-60e-15, 60e-15), widths=False, ax=ax)
+time_1d(run, z=0.0, time_range=(-60e-15, 60e-15), widths=False, ax=ax)
 fig.tight_layout()
 
 # %%

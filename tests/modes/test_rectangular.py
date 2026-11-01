@@ -222,7 +222,7 @@ def test_rectangular_fem_checked_values_from_luna_test_file():
         temperature=293.15,
     )
     with pytest.warns(MaterialRangeWarning, match="borzsonyi"):
-        wavelength = zdw(filled, wavelength_range=(400e-9, 800e-9))
+        wavelength = zdw(filled, wavelength_limits=(400e-9, 800e-9))
     assert abs(wavelength - 563.5e-9) < 1e-9
 
 
