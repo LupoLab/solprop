@@ -67,6 +67,10 @@ def _spatial_settings() -> SimulationSettings:
         dz_max=STEP,
         dz_init=STEP,
         backend="numpy_ref",
+        # These coarse grids launch into the safety ramp's band, which the default
+        # refuses (SEP 40 section 5.3), and their numbers predate the ramp; the
+        # default is tested on adequate grids in tests/test_transverse_resolution.py.
+        spatial_absorber=False,
     )
 
 

@@ -1768,9 +1768,9 @@ def _with_boundary(
         The run's temporal grid.
     absorber : Absorber, False or None
         The collar given; ``False`` zeroes the temporal and spectral rates of the
-        settings' absorber and keeps its lengths, so that the real-space collar, which
-        reads them, is unchanged (without one it builds the hard mask alone, with the
-        real-space collar off, as before); ``None`` leaves the settings' own.
+        settings' absorber and keeps its lengths (without one it builds the hard mask
+        alone); ``None`` leaves the settings' own. The transverse boundary is
+        ``spatial_absorber``'s (SEP 40).
     scheme : {'nonlinear', 'split_step'} or None
         The temporal scheme given; ``None`` leaves the settings' own.
 

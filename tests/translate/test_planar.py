@@ -12,7 +12,7 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose, assert_array_equal
 
-from solprop.boundaries import absorber
+from solprop.boundaries import SpatialAbsorber, absorber
 from solprop.constants import EPS0, C
 from solprop.exceptions import GrazingIncidenceWarning, TranslationError
 from solprop.grid import EnvelopeGrid, FreeGrid
@@ -49,21 +49,27 @@ def space():
     return PlanarGrid(modes, 1e-3, 16, collar_fraction=0.25)
 
 
-@pytest.fixture(scope="module")
-def problem(space):
+def assembled(space, **options):
+    """Return a zero launch's planar problem on `space`."""
     return assemble(
         GRID,
         None,
         [],
         np.zeros((space.n_columns, 1, GRID.n_omega), complex),
-        controller=PIController(rtol=1e-8, atol=1e-12),
+        controller=PIController(rtol=1e-6, atol=1e-12),
         save_planes=[0.1],
         dz_max=0.01,
         dz_init=0.01,
         spatial_grid=space,
         medium=SpatialMedium("Ar", 1.0),
         absorber=absorber(GRID, boundary_length=1.0),
+        **options,
     )
+
+
+@pytest.fixture(scope="module")
+def problem(space):
+    return assembled(space)
 
 
 def test_the_geometry_is_the_slab_kind_with_columns_and_nodes_apart(space, problem):
@@ -84,14 +90,32 @@ def test_the_geometry_is_the_slab_kind_with_columns_and_nodes_apart(space, probl
     assert_allclose(
         geometry.spatial_weights, np.tile(space.x_weights, 16) * space.dy, rtol=1e-15
     )
-    # The y collar alone, on every x node of a row, and the rate it sets.
+    # The y window alone, on every x node of a row; no collar unless one is asked
+    # for (SEP 40).
     rows = geometry.window.reshape(16, -1)
     assert_array_equal(rows, np.repeat(space.window_y[:, None], space.x.size, axis=1))
     assert np.any(rows < 1)
-    assert np.all(geometry.absorber_rate[geometry.window == 1] == 0)
-    assert np.all(geometry.absorber_rate[geometry.window < 1] > 0)
+    assert problem.transverse is None
+    assert not np.any(geometry.absorber_rate)
     assert geometry.inverse_scale == 1 / 16
     assert problem.stepper.propagator_mode == "auto"
+
+
+def test_a_requested_collar_sets_the_y_rate_outside_the_window():
+    # Room as wide as the aperture and enough rows that the declared band, kappa w =
+    # 25 above the floor 22.3, lies below the safety ramp.
+    modes = [SlabMode(HALF_GAP, "Ar", 1.0, order=p) for p in (1, 3)]
+    roomy = PlanarGrid(modes, 1e-3, 40, collar_fraction=1.0)
+    problem = assembled(roomy, spatial_absorber=SpatialAbsorber(kappa=2.5e4))
+    design = problem.transverse
+    geometry = problem.transform.geometry
+    assert design is not None and design.has_collar and geometry is not None
+    rows = geometry.window.reshape(40, -1)
+    assert_array_equal(rows, np.repeat(roomy.window_y[:, None], roomy.x.size, axis=1))
+    # The Planck profile on every x node of a row, zero inside the window.
+    assert_array_equal(geometry.absorber_rate, design.alpha0 * (1 - geometry.window))
+    assert np.all(geometry.absorber_rate[geometry.window == 1] == 0)
+    assert np.all(geometry.absorber_rate[geometry.window < 1] > 0)
 
 
 def test_the_operator_at_ky_zero_is_each_slab_mode_to_its_rounding(space, problem):

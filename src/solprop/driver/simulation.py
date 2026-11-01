@@ -302,7 +302,12 @@ from solprop.translate.problem import (
 from solprop.translate.responses import KerrForm
 from solprop.translate.tdse import AtomicCallLedger, TDSEBinding, refine_response_grid
 from solprop.translate.tdse_source import TDSE_UNAVAILABLE_STATISTICS
-from solprop.translate.transverse import checked_design, resolve_transverse
+from solprop.translate.transverse import (
+    band_wavenumbers,
+    checked_design,
+    resolve_transverse,
+)
+from solprop.transverse_monitor import TransverseEdge
 
 __all__ = [
     "BACKEND_STATISTICS",
@@ -2860,12 +2865,54 @@ class Simulation(Displayed):
             if isinstance(space, RadialGrid)
             else None
         )
-        return BoundaryMonitor.build(
+        monitor = BoundaryMonitor.build(
             self.grid,
             rate,
             check,
             columns=columns,
             split=rate is not None and _scheme(self.settings) == "split_step",
+        )
+        if isinstance(space, RadialGrid | FreeGrid | PlanarGrid) and (
+            self.medium is not None
+        ):
+            monitor.transverse = self._transverse_edge(check, space, self.medium)
+        return monitor
+
+    def _transverse_edge(
+        self,
+        check: BoundaryCheck,
+        space: RadialGrid | FreeGrid | PlanarGrid,
+        medium: SpatialMedium,
+    ) -> TransverseEdge:
+        """Return the transverse edge a free-space run's monitor reads (SEP 40 5.3).
+
+        Parameters
+        ----------
+        check : solprop.monitor.BoundaryCheck
+            The run's thresholds.
+        space : solprop.grid.RadialGrid, solprop.grid.FreeGrid or PlanarGrid
+            Its transverse grid.
+        medium : solprop.spatial.SpatialMedium
+            Its medium.
+
+        Returns
+        -------
+        solprop.transverse_monitor.TransverseEdge
+            The edge, with nothing recorded.
+        """
+        problem = self.translate()
+        length = float(np.max(problem.stepper.save_planes)) - float(problem.initial.z)
+        dispersion = SpatialDispersion(medium, self.grid, Frame.comoving(self.grid))
+        k, _ = band_wavenumbers(space, dispersion, max(length, 0.0))
+        grid = self.grid
+        return TransverseEdge(
+            space,
+            problem.transverse,
+            check.edge_budget,
+            check.stop_factor,
+            length,
+            np.nonzero(grid.inband_mask & grid.active_mask)[0],
+            float(np.min(k)),
         )
 
     def run(  # noqa: PLR0913 - independent execution and output controls

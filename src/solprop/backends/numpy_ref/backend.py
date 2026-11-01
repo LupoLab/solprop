@@ -211,6 +211,8 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
     >>> backend.close()
     """
 
+    reads_transverse_edge = True
+
     name = "numpy_ref"
     max_batch = 1
     # The oracle evaluates its stage tables and Adams bases with the uncompiled forms,

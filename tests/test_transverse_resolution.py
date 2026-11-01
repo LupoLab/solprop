@@ -68,7 +68,12 @@ def suite(
 
 @pytest.mark.parametrize("route", SPATIAL)
 def test_the_default_is_the_safety_ramp_alone(route: str) -> None:
-    problem = ROUTES[route](None).translate()
+    simulation = ROUTES[route](None)
+    # The shared routes opt out (capability_routes); their default is the ramp.
+    simulation.settings = dataclasses.replace(
+        simulation.settings, spatial_absorber=None
+    )
+    problem = simulation.translate()
     design = problem.transverse
     assert design is not None
     assert not design.has_collar

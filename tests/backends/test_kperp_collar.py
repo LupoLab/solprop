@@ -2,13 +2,14 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The transverse collar's rate on every backend (SEP 22 sections 4.2, 4.3 and 7).
+"""The safety ramp's k-perp rate on every backend (SEP 22 sections 4.2, 4.3 and 7).
 
-A zero rate is today's element exactly; the rate is exact under the cumulative flow
+A zero rate is the plain element exactly; the rate is exact under the cumulative flow
 (each column falls by ``exp(-alpha_perp L / 2)`` to a rounding bound) and never
 reaches the noise phase; the three backends agree on a ten-step run carrying it; and
-on an aliased product the collar weakens the folded wave as the weak-conversion
-integral predicts.
+on an aliased product the ramp weakens the folded wave as the weak-conversion
+integral predicts. The rate is SEP 40's designed safety ramp, read from the
+translated problem's ``transverse`` design.
 """
 
 from typing import cast
@@ -24,7 +25,7 @@ from solprop.backends.bodies import PLAIN
 from solprop.backends.driver import StepDriver
 from solprop.backends.numba_cpu.kernels import HOST
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.boundaries import TransverseCollar, transverse_collar_rate
+from solprop.boundaries import SpatialAbsorber
 from solprop.driver import Simulation, SimulationSettings
 from solprop.grid import EnvelopeGrid, FreeGrid, LineGrid
 from solprop.nonlinear.responses import KerrResponse
@@ -50,14 +51,14 @@ def test_a_zero_rate_is_todays_element_exactly(propagating, active):
         rate, _ = bodies.spatial_element(*operands, 0.0)
         assert rate == today  # s + 0 = s: an exact no-op
         # The rate joins the attenuation on the active band alone (Q6).
-        collared, _ = bodies.spatial_element(*operands, 3.0)
-        assert collared == (today - 1.5 if active else today)
+        ramped, _ = bodies.spatial_element(*operands, 3.0)
+        assert ramped == (today - 1.5 if active else today)
 
 
-def column_run(backend, *, collar, schedule, rtol=1e-6):
-    """A linear vacuum Cartesian run, its launch and its end, with `collar`."""
+def column_run(backend, *, ramp, schedule, rtol=1e-6):
+    """A linear vacuum Cartesian run, its launch and its end, with `ramp`."""
     length = 1e-3
-    # The former grid and no temporal collar: the subject is the transverse one.
+    # The former grid and no temporal collar: the subject is the transverse ramp.
     grid = EnvelopeGrid.from_limits(
         length, 800e-9, (700e-9, 950e-9), 150e-15, **LEGACY_GRID
     )
@@ -67,6 +68,7 @@ def column_run(backend, *, collar, schedule, rtol=1e-6):
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-9), 1e-4
     )
     settings = SimulationSettings(
+        boundary_check=None,
         controller=PIController(rtol=rtol, atol=1e-14),
         save_planes=[length],
         dz_max=length / 4 if schedule is None else schedule,
@@ -76,7 +78,7 @@ def column_run(backend, *, collar, schedule, rtol=1e-6):
         else FixedSchedule.uniform(0.0, length, schedule, save_planes=[length]),
         integrator=RungeKutta(),
         backend=backend,
-        transverse_absorber=collar,
+        spatial_absorber=ramp,
         absorber=bare_absorber(grid),
     )
     simulation = Simulation.from_free(
@@ -89,12 +91,14 @@ def column_run(backend, *, collar, schedule, rtol=1e-6):
 
 @pytest.mark.parametrize("schedule", [None, 1e-3 / 7, 1e-3 / 16])
 def test_the_rate_attenuates_each_column_exactly_over_the_run(schedule):
-    collar = TransverseCollar(4e3, fraction=0.5)
-    simulation, output = column_run("numpy_ref", collar=collar, schedule=schedule)
+    # A ramp over the outer half of the wavenumbers, so that the launch's columns
+    # carry it: a few hundred 1/m, a sixth of a neper over the run.
+    ramp = SpatialAbsorber(real_space=False, safety_fraction=0.5)
+    simulation, output = column_run("numpy_ref", ramp=ramp, schedule=schedule)
     launch, end = output.plane_field(0), output.plane_field(1)
-    space = simulation.spatial_grid
-    assert isinstance(space, FreeGrid)
-    rate = transverse_collar_rate(space, collar)
+    design = simulation.translate().transverse
+    assert design is not None
+    rate = design.ramp_rate
     length = float(output["z"][-1])
     steps = int(np.sum(np.asarray(output["step_history/accepted"])))
     expected = np.exp(-rate * length / 2)[:, None, None] * np.abs(launch)
@@ -110,7 +114,7 @@ def test_the_rate_never_reaches_the_noise_phase(backend):
     from solprop.backends.registry import select  # noqa: PLC0415
 
     phases = []
-    for collar in (None, TransverseCollar(4e3, fraction=0.5)):
+    for ramp in (False, SpatialAbsorber(real_space=False, safety_fraction=0.5)):
         grid = EnvelopeGrid.from_limits(1e-3, 800e-9, (700e-9, 950e-9), 150e-15)
         space = FreeGrid(4e-4, 16, 3e-4, 12, collar_fraction=0)
         pulse = SpatialPulse(
@@ -123,13 +127,14 @@ def test_the_rate_never_reaches_the_noise_phase(backend):
             [],
             pulse,
             settings=SimulationSettings(
+                boundary_check=None,
                 controller=PIController(rtol=1e-6, atol=1e-14),
                 save_planes=[1e-3],
                 dz_max=1e-4,
                 dz_init=1e-4,
                 integrator=RungeKutta(),
                 backend=backend,
-                transverse_absorber=collar,
+                spatial_absorber=ramp,
             ),
             noise="modified",
             seed=3,
@@ -146,8 +151,8 @@ def test_the_rate_never_reaches_the_noise_phase(backend):
     assert np.array_equal(phases[0], phases[1])
 
 
-def collared_problem(steps):
-    """A ten-step Cartesian Kerr problem with a transverse collar and its grid."""
+def ramped_problem(steps):
+    """A ten-step Cartesian Kerr problem with a safety ramp and its grid."""
     length = 1e-4
     # The former grid and no temporal collar, as in column_run.
     grid = EnvelopeGrid.from_limits(
@@ -164,6 +169,7 @@ def collared_problem(steps):
         [KerrResponse(1e-22, thg=False)],
         pulse,
         settings=SimulationSettings(
+            boundary_check=None,
             controller=PIController(rtol=1e-6, atol=1e-14),
             save_planes=[length],
             dz_max=length / steps,
@@ -173,7 +179,7 @@ def collared_problem(steps):
             ),
             integrator=RungeKutta(),
             backend="numpy_ref",
-            transverse_absorber=TransverseCollar(2e4, fraction=0.3),
+            spatial_absorber=SpatialAbsorber(real_space=False, safety_fraction=0.3),
             evanescent_rate=5e3,
             absorber=bare_absorber(grid),
         ),
@@ -184,7 +190,7 @@ def collared_problem(steps):
 
 def test_the_backends_agree_on_a_run_carrying_the_rate(spatial_backend_class, request):
     steps = 10
-    grid, space, problem, length = collared_problem(steps)
+    grid, space, problem, length = ramped_problem(steps)
     operator = problem.linear.separable
     assert operator is not None and operator.kperp_rate is not None
     assert np.any(operator.kperp_rate > 0)
@@ -211,7 +217,7 @@ WEAK, TARGET = 19, 38
 """Columns of the weak beam (k_x = 0.95 k_max) and the fold of 2 k_weak (-0.1 k_max)."""
 
 
-def aliased_run(collar):
+def aliased_run(ramp):
     """Plane waves at k_x = 0 and 0.95 k_max on a 40-column line, envelope Kerr."""
     grid = EnvelopeGrid.from_limits(
         ALIAS_LENGTH, 800e-9, (780e-9, 820e-9), 4e-12, thg=False
@@ -232,6 +238,7 @@ def aliased_run(collar):
         [KerrResponse(1e-13, thg=False)],
         field,
         settings=SimulationSettings(
+            boundary_check=None,
             controller=PIController(rtol=1e-8, atol=1e-20),
             save_planes=[ALIAS_LENGTH],
             dz_max=step,
@@ -241,7 +248,7 @@ def aliased_run(collar):
             ),
             integrator=RungeKutta(),
             backend="numpy_ref",
-            transverse_absorber=collar,
+            spatial_absorber=ramp,
         ),
         noise=None,
     )
@@ -253,18 +260,23 @@ def aliased_run(collar):
 
 
 @pytest.mark.medium
-def test_the_collar_weakens_an_aliased_product_as_predicted():
-    strength = 2 / ALIAS_LENGTH
-    plain, without, launched = aliased_run(None)
-    _, with_collar, _ = aliased_run(TransverseCollar(strength))
+def test_the_ramp_weakens_an_aliased_product_as_predicted():
+    plain, without, launched = aliased_run(False)
+    ramped, with_ramp, _ = aliased_run(None)
     space = plain.spatial_grid
     assert isinstance(space, LineGrid)
     rho = np.abs(space.k_x) / np.max(np.abs(space.k_x))
     assert rho[WEAK] == pytest.approx(0.95) and rho[TARGET] == pytest.approx(0.1)
+    # The default ramp's midpoint is the weak beam's column; it spares the rest.
+    design = ramped.translate().transverse
+    assert design is not None
+    rate = design.ramp_rate
+    assert rate[WEAK] == pytest.approx(design.ramp_strength / 2)
+    assert rate[0] == 0.0 and rate[TARGET] == 0.0
     # Weak conversion, so that depletion and cascades stay below the 10 % tolerance.
     assert without / launched < 1e-3
-    # The product's source decays at kappa = S P(0.95) = S / 2; the phase mismatch is
-    # the operator's own, at the carrier.
+    # The product's source decays at kappa = alpha_perp(k_weak) = S P(0.95) = S / 2;
+    # the phase mismatch is the operator's own, at the carrier.
     operator = plain.translate().linear.separable
     assert operator is not None
     carrier = int(np.argmin(np.abs(plain.grid.omega - plain.grid.omega0)))
@@ -273,10 +285,12 @@ def test_the_collar_weakens_an_aliased_product_as_predicted():
         + (operator.k_squared_low[carrier] - operator.kperp_sq_low)
     )
     mismatch = 2 * root[WEAK].real - root[0].real - root[TARGET].real
-    kappa = strength / 2
+    kappa = float(rate[WEAK])
+    # A test of the prediction needs a decay comparable to the run.
+    assert 0.3 < kappa * ALIAS_LENGTH < 30
     damped = (np.exp((-kappa + 1j * mismatch) * ALIAS_LENGTH) - 1) / (
         -kappa + 1j * mismatch
     )
     undamped = (np.exp(1j * mismatch * ALIAS_LENGTH) - 1) / (1j * mismatch)
     predicted = abs(damped) ** 2 / abs(undamped) ** 2
-    assert with_collar / without == pytest.approx(predicted, rel=0.1)
+    assert with_ramp / without == pytest.approx(predicted, rel=0.1)

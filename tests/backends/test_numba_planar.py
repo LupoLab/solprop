@@ -468,6 +468,9 @@ def test_prop_planar_runs_on_numba_as_on_the_reference():
             backend=backend,
             stats=default_spec("free"),
             absorber=bare_absorber(FRONT_GRID),
+            # The coarse case launches 4e-4 into the safety ramp's band, which
+            # would refuse it (SEP 40 section 5.3); the subject is backend parity.
+            spatial_absorber=False,
         )
         outputs[backend] = prop_planar(
             FRONT_GRID, space, responses, launch, settings=settings, progress="none"

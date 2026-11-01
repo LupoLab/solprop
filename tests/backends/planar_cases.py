@@ -8,7 +8,8 @@ Each case is a hybrid family (``tests/backends/test_planar_hybrid.py``) launched
 as a Gaussian in y rather than uniform in it, so every ``k_y`` column is populated
 and the y transforms, the rows' blocks and the collar all act: the slab set's modal
 amplitudes of the uniform launch times ``exp(-(y/w)^2)``, ``w`` a third of the y
-radius, on an argon- or nitrogen-filled 127 um gap over at most ten fixed steps.
+radius, on an argon- or nitrogen-filled 127 um gap over at most ten fixed steps. A
+collar case requests SEP 40's real-space collar (:data:`COLLAR`) in the y room.
 """
 
 import dataclasses
@@ -17,7 +18,7 @@ import math
 import numpy as np
 
 from backends.test_planar_hybrid import FAMILIES, HALF_GAP, LENGTH, ORDERS
-from solprop.boundaries import absorber
+from solprop.boundaries import SpatialAbsorber, absorber
 from solprop.driver import Simulation
 from solprop.grid import EnvelopeGrid
 from solprop.modes import ModeCollection, PlanarGrid, gaussian_coupling
@@ -28,20 +29,28 @@ from solprop.stepper.schedule import FixedSchedule
 RADIUS_Y = 1e-3
 """Half-width of the periodic y window, m."""
 
+COLLAR = SpatialAbsorber(kappa=5.6e3, attenuation=3.0)
+"""The collar cases' y collar: a declared band, kappa w = 22.4 on the 4 mm room.
+
+Three nepers at the band's edge make a collar of 1.3 1/m, inside the default Adams
+method's stability over one whole-length step (h alpha / 2 = 0.07 < 0.0877): the
+cases test the collar's arithmetic, not its strength or its design. Twenty rows put the
+band below the safety ramp, which starts at 0.9 k_y,max = 5.65e3 rad/m. They do not
+resolve the launch for SEP 40's design check, which a collar case's translation skips
+(:func:`planar_case`)."""
+
 CASES = {
-    # name: (hybrid family, n_y, collar_fraction, collar boundary length m or None,
-    # responses: the family's, none, or Kerr without its harmonic)
+    # name: (hybrid family, n_y, collar_fraction, temporal collar boundary length m
+    # or None, responses: the family's, none, or Kerr without its harmonic); a
+    # nonzero collar_fraction requests COLLAR in the room.
     "kerr": ("kerr", 6, 0.0, None, "family"),
-    # A 10 m collar keeps its in-stage rate, 1.3 1/m, inside the default Adams
-    # method's stability over one whole-length step (h alpha / 2 = 0.06 < 0.0877): the
-    # cases test the collar's arithmetic, not its strength.
-    "kerr-collar": ("kerr", 6, 0.3, 10.0, "family"),
-    "kerr-split": ("kerr-split", 6, 0.3, 10.0, "family"),
+    "kerr-collar": ("kerr", 20, 4.0, 10.0, "family"),
+    "kerr-split": ("kerr-split", 20, 4.0, 10.0, "family"),
     "raman": ("raman", 6, 0.0, None, "family"),
     "field-plasma": ("field-plasma", 4, 0.0, None, "family"),
     "field-kerr": ("field-plasma", 4, 0.0, None, "analytic"),
     "envelope-plasma": ("envelope-plasma", 3, 0.0, None, "family"),
-    "collar-only": ("kerr", 6, 0.3, 10.0, "none"),
+    "collar-only": ("kerr", 20, 4.0, 10.0, "none"),
 }
 """Each case's family, y axis, collar and responses.
 
@@ -115,9 +124,22 @@ def planar_case(name, *, steps=None, node_chunk=None):
         "none": [],
         "analytic": [KerrResponse(gamma3(gas, wavelength=800e-9), thg=False)],
     }[respond]
+    collar = collar_fraction > 0
+    # A collar case is translated on a zero launch, whose design check is pending,
+    # and then given its launch, which translation keeps as it is: the parity cases
+    # compare the backends' arithmetic on the collar, not the design's return.
     problem = Simulation.from_planar(
-        grid, space, responses, field0, settings=settings
+        grid,
+        space,
+        responses,
+        np.zeros_like(field0) if collar else field0,
+        settings=settings,
+        spatial_absorber=COLLAR if collar else None,
     ).translate()
+    if collar:
+        problem = dataclasses.replace(
+            problem, initial=dataclasses.replace(problem.initial, field0=field0[None])
+        )
     if node_chunk is not None:
         problem = dataclasses.replace(
             problem,

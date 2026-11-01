@@ -2576,7 +2576,13 @@ def _budget_remedy(
     if rest is not None:
         scale = 1.0 if name == "evanescent_rate" else 2.0
         admissible = scale * (limit / step - rest)
-        if 0 < admissible < value:
+        if name == "safety ramp strength":
+            # The ramp is designed, not set: its levers are the specification's.
+            remedy += (
+                " or a weaker safety ramp (a smaller SpatialAbsorber attenuation or a "
+                "wider safety_fraction; spatial_absorber=False removes it)"
+            )
+        elif 0 < admissible < value:
             remedy += f" or {name} at most {admissible:.3g} 1/m"
     return remedy
 

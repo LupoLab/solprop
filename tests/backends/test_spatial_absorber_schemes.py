@@ -2,7 +2,11 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Keep the spatial in-stage rate independent of the temporal absorber policy."""
+"""Keep the spatial in-stage rate independent of the temporal absorber policy.
+
+Each case requests its module's real-space collar (SEP 40) through its own
+``problem_for``.
+"""
 
 import dataclasses
 
@@ -11,7 +15,6 @@ import pytest
 from numpy.testing import assert_allclose
 
 from backends import test_free_absorber, test_radial_absorber
-from backends.test_radial_absorber import problem_for
 from backends.test_radial_nonlinear import derivative
 from bounds import gamma
 
@@ -19,7 +22,7 @@ absorber_case = test_radial_absorber.absorber_case
 free_absorber = test_free_absorber.free_absorber
 
 
-def assert_spatial_rate(case, spatial_backend_class, temporal_policy):
+def assert_spatial_rate(case, spatial_backend_class, temporal_policy, problem_for):
     grid, _, _, start, index, absorption, _, _ = case
     # The same independent Bessel/DFT operator applies with an absent temporal
     # rate or one applied after a step. Budget dense reductions and time FFTs
@@ -54,11 +57,21 @@ def assert_spatial_rate(case, spatial_backend_class, temporal_policy):
 def test_radial_rate_survives_independent_temporal_policy(
     absorber_case, spatial_backend_class, temporal_policy
 ):
-    assert_spatial_rate(absorber_case, spatial_backend_class, temporal_policy)
+    assert_spatial_rate(
+        absorber_case,
+        spatial_backend_class,
+        temporal_policy,
+        test_radial_absorber.problem_for,
+    )
 
 
 @pytest.mark.parametrize("temporal_policy", ["absent", "split_step"])
 def test_cartesian_rate_survives_independent_temporal_policy(
     free_absorber, spatial_backend_class, temporal_policy
 ):
-    assert_spatial_rate(free_absorber, spatial_backend_class, temporal_policy)
+    assert_spatial_rate(
+        free_absorber,
+        spatial_backend_class,
+        temporal_policy,
+        test_free_absorber.problem_for,
+    )

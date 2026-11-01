@@ -383,7 +383,7 @@ def _estimate(  # noqa: PLR0913, PLR0915 - one estimate at one resolution
     nodes: int,
     planes: int,
     enlarge: float,
-) -> tuple[float, tuple[float, ...], int]:
+) -> tuple[float, tuple[float, ...], int, bool]:
     """Return ``U_ret`` at one resolution of the check.
 
     Parameters
@@ -437,6 +437,7 @@ def _estimate(  # noqa: PLR0913, PLR0915 - one estimate at one resolution
     positions = np.linspace(0.0, z_max, count + 1)[1:]
     total_difference = np.zeros(positions.size)
     total_energy = 0.0
+    outgrown = False
     for omega_j, bin_j, share in zip(omega, band[chosen], shares, strict=True):
         index = float(np.real(dispersion.medium.index(np.array([omega_j]))[0]))
         k = index * omega_j / C
@@ -464,6 +465,7 @@ def _estimate(  # noqa: PLR0913, PLR0915 - one estimate at one resolution
                     )
                     * 2.0
                 )
+                outgrown |= half > _LARGEST * space.outer_radius
                 half = min(half, _LARGEST * space.outer_radius)
                 difference, energy = _radial_return(
                     space, rate, columns, k, positions, half
@@ -480,7 +482,15 @@ def _estimate(  # noqa: PLR0913, PLR0915 - one estimate at one resolution
                     )
                     line = columns[p :: space.n_p]
                     y_rate = rate.reshape(space.n_y, -1)[:, 0]
-                    half_y = _half(space.y, space.radius_y, line, reach, z_max, enlarge)
+                    half_y, beyond = _half(
+                        space.y,
+                        space.radius_y,
+                        np.fft.ifft(line),
+                        reach,
+                        z_max,
+                        enlarge,
+                    )
+                    outgrown |= beyond
                     d, e = _periodic_return(
                         (np.asarray(space.y),),
                         (space.radius_y,),
@@ -507,7 +517,7 @@ def _estimate(  # noqa: PLR0913, PLR0915 - one estimate at one resolution
                 physical = np.fft.ifftn(
                     columns.reshape(tuple(a.size for a in reversed(axes)))
                 )
-                halves = tuple(
+                sized = tuple(
                     _half(
                         axis,
                         size,
@@ -519,6 +529,8 @@ def _estimate(  # noqa: PLR0913, PLR0915 - one estimate at one resolution
                     )
                     for i, (axis, size) in enumerate(zip(axes, sizes, strict=True))
                 )
+                halves = tuple(half for half, _ in sized)
+                outgrown |= any(beyond for _, beyond in sized)
                 difference, energy = _periodic_return(
                     axes,
                     sizes,
@@ -535,7 +547,7 @@ def _estimate(  # noqa: PLR0913, PLR0915 - one estimate at one resolution
             total_difference += share * node_difference / node_energy
             total_energy += share
     returned = float(np.max(total_difference)) / max(total_energy, 1e-300)
-    return returned, tuple(float(w) for w in omega), int(positions.size)
+    return returned, tuple(float(w) for w in omega), int(positions.size), outgrown
 
 
 def _step(positions: np.ndarray, z_max: float) -> float:
@@ -565,7 +577,7 @@ def _half(  # noqa: PLR0913 - the bare grid's half-size along one axis
     enlarge: float,
     *,
     along: int = 0,
-) -> float:
+) -> tuple[float, bool]:
     """Return the bare grid's half-size along one periodic axis (section 4.4).
 
     ``S >= (R + x_q + v_q L) / 2``, at least the design's own half-size, at most
@@ -590,8 +602,8 @@ def _half(  # noqa: PLR0913 - the bare grid's half-size along one axis
 
     Returns
     -------
-    float
-        The half-size, m.
+    tuple
+        The half-size, m, and whether the bare grid needed more than its cap.
     """
     profile = np.sum(
         np.abs(field) ** 2, axis=tuple(i for i in range(field.ndim) if i != along)
@@ -599,7 +611,7 @@ def _half(  # noqa: PLR0913 - the bare grid's half-size along one axis
     extent = _extent(np.abs(axis), profile)
     outer = 0.5 * float(axis.size) * float(axis[1] - axis[0])
     half = 2.0 * enlarge * max(outer, 0.5 * (size + extent + reach * z_max))
-    return min(half, _LARGEST * outer)
+    return min(half, _LARGEST * outer), half > _LARGEST * outer
 
 
 def design_check(
@@ -636,7 +648,7 @@ def design_check(
     columns = np.asarray(launch[0], dtype=np.complex128)
     if not np.any(columns):
         return CheckResult("pending", reason="no launch to check yet")
-    returned, nodes, planes = _estimate(
+    returned, nodes, planes, outgrown = _estimate(
         space,
         rate,
         columns,
@@ -647,7 +659,7 @@ def design_check(
         planes=_PLANES,
         enlarge=1.0,
     )
-    wall, _, _ = _estimate(
+    wall, _, _, _ = _estimate(
         space,
         np.zeros_like(rate),
         columns,
@@ -661,9 +673,17 @@ def design_check(
     refined = False
     status: Status
     reason = ""
-    if 0.5 * BUDGET <= returned <= 2.0 * BUDGET:
+    if outgrown:
+        # A launch that would reach the bare grid's own edge within the run cannot be
+        # compared against it: inconclusive is not a pass (section 4.4).
+        status = "inconclusive"
+        reason = (
+            "the launch outgrows the bare reference grid, which may hold at most "
+            f"{_LARGEST:g} times the design's samples per axis"
+        )
+    elif 0.5 * BUDGET <= returned <= 2.0 * BUDGET:
         refined = True
-        again, nodes, planes = _estimate(
+        again, nodes, planes, _ = _estimate(
             space,
             rate,
             columns,

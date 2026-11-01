@@ -63,7 +63,7 @@ import math
 import warnings
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 import numpy as np
 from jaxtyping import Complex, Float
@@ -72,6 +72,9 @@ from solprop import fourier
 from solprop.exceptions import BoundaryError, BoundaryWarning
 from solprop.fourier import GridKind
 from solprop.grid import TimeGrid
+
+if TYPE_CHECKING:
+    from solprop.transverse_monitor import TransverseEdge
 
 __all__ = [
     "ACTIVE",
@@ -173,6 +176,10 @@ class BoundaryCheck:
         clear of the edges. Off by default: the collar then stays in every stage. It
         applies on binary64 modal routes with the ``"nonlinear"`` absorber scheme
         and a temporal collar alone; elsewhere the collar always stays.
+    transverse_budget : float or None
+        The budget of a free-space run's transverse edge (SEP 40 section 5.3), a field
+        amplitude like `budget`; ``None``, the default, takes `budget`, so relaxing the
+        transverse edge does not relax time.
 
     Examples
     --------
@@ -186,6 +193,7 @@ class BoundaryCheck:
     budget: float = 1e-3
     stop_factor: float = 10.0
     quiet_collar: bool = False
+    transverse_budget: float | None = None
 
     def __post_init__(self) -> None:
         """Validate the thresholds.
@@ -206,6 +214,25 @@ class BoundaryCheck:
         if self.stop_factor < 1.0:
             msg = f"stop_factor must be at least 1, got {self.stop_factor!r}"
             raise BoundaryError(msg)
+        if self.transverse_budget is not None and not (
+            math.isfinite(self.transverse_budget) and self.transverse_budget > 0.0
+        ):
+            msg = (
+                "transverse_budget must be finite and positive, got "
+                f"{self.transverse_budget!r}"
+            )
+            raise BoundaryError(msg)
+
+    @property
+    def edge_budget(self) -> float:
+        """Return the transverse edge's budget: `transverse_budget`, else `budget`.
+
+        Returns
+        -------
+        float
+            A field amplitude.
+        """
+        return self.budget if self.transverse_budget is None else self.transverse_budget
 
 
 DEFAULT_BOUNDARY_CHECK = BoundaryCheck()
@@ -264,6 +291,9 @@ class BoundaryMonitor:
         Quadrature weights of the transverse columns, or ``None`` for modal routes.
     interval : float
         The longest distance, m, a quiet window goes unchecked (:data:`CHECKS`).
+    transverse : solprop.transverse_monitor.TransverseEdge or None
+        A free-space run's transverse edge (SEP 40 section 5.3), read on its own
+        spacing; its record joins this monitor's under ``transverse``.
     split : bool
         Whether the temporal collar is applied once per accepted step (the
         ``"split_step"`` scheme), whose removal the backend then adds up exactly at
@@ -277,6 +307,7 @@ class BoundaryMonitor:
     columns: Float[np.ndarray, " n_columns"] | None = None
     split: bool = False
     interval: float = math.inf
+    transverse: TransverseEdge | None = None
     _launch: float = field(default=math.nan, init=False)
     _floor: float = field(default=0.0, init=False)
     _floor_regions: Float[np.ndarray, " 4"] = field(
@@ -614,6 +645,9 @@ class BoundaryMonitor:
         """
         self._resuming = True
         self._resume_plane = plane
+        edge = None if record is None else record.get("transverse")
+        if self.transverse is not None and isinstance(edge, Mapping):
+            self.transverse.resume(dict(cast("Mapping[str, object]", edge)))
         if record is not None:
             listed = record.get("unwatched")
             if isinstance(listed, list):
@@ -1001,12 +1035,7 @@ class BoundaryMonitor:
         """
         self._plane_row(z)
 
-    def summary(
-        self,
-    ) -> dict[
-        str,
-        float | bool | list[float] | list[list[float]] | dict[str, list[float]] | None,
-    ]:
+    def summary(self) -> dict[str, object]:
         """Return the record of the run so far, for its execution record.
 
         Returns
@@ -1054,7 +1083,7 @@ class BoundaryMonitor:
             """
             return value if math.isfinite(value) else None
 
-        return {
+        record: dict[str, object] = {
             **dataclasses.asdict(self.check),
             "launch_energy": finite(self._launch),
             "resumed_at": list(self._resumed_at),
@@ -1080,12 +1109,17 @@ class BoundaryMonitor:
             "collar_left_out_checks": self._left_out_checks,
             "planes": {name: list(values) for name, values in self._planes.items()},
         }
+        if self.transverse is not None:
+            record["transverse"] = self.transverse.summary()
+        return record
 
     def finish(self) -> None:
         """Report the removed fraction at the end of a run (D5).
 
         Logged always; warns when its square root exceeds the budget.
         """
+        if self.transverse is not None:
+            self.transverse.finish()
         removed = max(self.removed, 0.0)
         logger.info(
             "the temporal collar removed %.3e of the launch energy; the guards peaked "

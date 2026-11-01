@@ -41,7 +41,6 @@ from solprop.backends.protocol import (
     StepStats,
     StepSummary,
 )
-from solprop.backends.spatial import collar_field_fraction
 from solprop.exceptions import BackendError, ConvergenceError
 from solprop.grid import TimeGrid
 from solprop.log import NOT_ESTIMATED, NullReporter, ProgressReporter
@@ -393,7 +392,6 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         self._held_z: float | None = None
         # Field-free planes at which the spatial collar diagnostic was not evaluated
         # since the load (SEP 22, Q2), recorded in `metadata` and logged once.
-        self._collar_skipped = 0
         # Physical RK source dispatches, including rejected trials and excluding
         # recycled stages. SEP 30 records work rather than estimating it from steps.
         self._rk_source_evaluations = 0
@@ -884,8 +882,6 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             record["source_evaluations"] = self._low_storage.source_evaluations
         elif self._adams is None:
             record["source_evaluations"] = self._rk_source_evaluations
-        if self._collar_skipped:
-            record["collar_diagnostic_skipped"] = self._collar_skipped
         if self._monitor is not None:
             record["boundary_monitor"] = self._monitor.summary()
         return record
@@ -1239,7 +1235,6 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             self._adams.begin_run()
         self._in_flight = None
         self._held_z = None
-        self._collar_skipped = 0
         self._rk_source_evaluations = 0
         if self._low_storage is not None:
             self._low_storage.reset()
@@ -1418,32 +1413,6 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             n_rejected=history.n_rejected,
             step_stats=self._drain_step_stats(),
         )
-        geometry = self._problem.transform.geometry
-        if geometry is not None and plane.field is None:
-            self._skip_collar_diagnostic()
-        elif geometry is not None and plane.field is not None:
-            # This is a saved-plane diagnostic, paid only after observation has
-            # already requested host fields. It never causes a device transfer
-            # in the periodic statistics lane or changes the accepted state.
-            operations = 64 * self._problem.shape[1] + 16 * math.ceil(
-                math.log2(self._problem.grids.n_t)
-            )
-            rounding = operations * np.finfo(float).eps
-            threshold = max(
-                self._problem.stepper.controller.rtol, rounding / (1 - rounding)
-            )
-            for member in plane.field:
-                fraction = collar_field_fraction(self._problem, member)
-                if fraction > threshold:
-                    self._logger.warning(
-                        "spatial collar contains %.6e of the beam's field norm at "
-                        "z = %.6e m, above diagnostic threshold %.6e; increase the "
-                        "transverse "
-                        "window to check the influence of its boundary",
-                        fraction,
-                        self._z,
-                        threshold,
-                    )
         self._history = []
         self._clock = time.perf_counter()
         return plane
@@ -1527,22 +1496,6 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         assert self._held is not None  # the plane is held, so its buffer exists
         return self._held.copy()
 
-    def _skip_collar_diagnostic(self) -> None:
-        """Count a field-free plane whose collar diagnostic was not evaluated.
-
-        Logged at the first such plane after a load, and recorded by
-        :meth:`metadata` (SEP 22, Q2): the diagnostic transforms the field, which a
-        field-free plane does not observe.
-        """
-        if self._collar_skipped == 0:
-            self._logger.info(
-                "the spatial collar diagnostic is not evaluated on planes that keep no "
-                "field (first at z = %.6e m); keep the field on a plane to check the "
-                "collar's share of the fluence there",
-                self._z,
-            )
-        self._collar_skipped += 1
-
     # --- the step loop -------------------------------------------------------------
 
     def _begin_plane(self) -> None:  # noqa: B027 - optional by design
@@ -1591,7 +1544,11 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             # stretched step that was executed: otherwise every save plane restarts it
             # from a sliver and it regrows at the growth cap, which over two hundred
             # planes costs more steps than the run needs between them (stepper.md 3).
-            stop = landing(self._z, self._quiet_capped(self._proposal), targets)
+            stop = landing(
+                self._z,
+                self._transverse_capped(self._quiet_capped(self._proposal)),
+                targets,
+            )
             norm, advanced = self._trial_step(self._z, stop.dz)
             # What the controller learns from, and what a rejection is scaled by, is the
             # norm the *proposal* would have scored; what decides acceptance, and what
@@ -1880,6 +1837,11 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
     a host backend's :meth:`_finish` adds to it while a monitor of that scheme is
     attached (:attr:`_split_monitor`), and :meth:`_boundary_energies` drains it."""
 
+    reads_transverse_edge: bool = False
+    """Whether this backend reads a free-space run's transverse edge on the host
+    (SEP 40 section 5.3). A backend that does not leaves the run ``unwatched``, and
+    says so before the first step."""
+
     _collar_quiet: bool = False
     """Whether the modal stage leaves the in-stage temporal collar term out: the run
     opted in, the monitor last found the collar quiet (:data:`solprop.monitor.QUIET`)
@@ -1906,6 +1868,57 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             floor=self._input_floor,
         )
         self._set_collar_quiet(monitor.collar_quiet)
+        edge = monitor.transverse
+        if edge is not None:
+            state = self._observed_field(self._require_state())
+            floor = self._input_floor
+            schedule = self._problem.stepper.schedule
+            edge.launch(
+                np.asarray(state[0]),
+                self._z,
+                noise=None if floor is None else np.asarray(floor[0]),
+                steps=None if schedule is None else np.asarray(schedule.steps),
+                reads=self.reads_transverse_edge,
+                declared=_declared_discard(self._problem),
+            )
+
+    def _read_transverse(self, monitor: BoundaryMonitor, *, plane: bool) -> None:
+        """Read the transverse edge where its spacing or a saved plane asks (SEP 40).
+
+        Parameters
+        ----------
+        monitor : solprop.monitor.BoundaryMonitor
+            The attached monitor.
+        plane : bool
+            Whether a saved plane has just been reached, which is always read.
+        """
+        edge = monitor.transverse
+        if edge is None or not (plane or edge.due(self._z)):
+            return
+        state = self._observed_field(self._require_state())
+        edge.read(np.asarray(state[0]), self._z)
+
+    def _transverse_capped(self, proposal: float) -> float:
+        """Return the proposal, held to the transverse edge's next read (SEP 40 5.3).
+
+        A low-source run commits long steps, and light could cross the edge unseen
+        within one; the read spacing is a ceiling on the step instead.
+
+        Parameters
+        ----------
+        proposal : float
+            The controller's proposal, m.
+
+        Returns
+        -------
+        float
+            The proposal, or the distance to the next read, m.
+        """
+        monitor = self._monitor
+        edge = None if monitor is None else monitor.transverse
+        if edge is None:
+            return proposal
+        return min(proposal, edge.ceiling(self._z))
 
     def _bind_monitor(self, monitor: BoundaryMonitor | None) -> None:
         """Prepare to read a boundary monitor's energies, or stop reading them.
@@ -2076,6 +2089,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             return
         if monitor.stale:
             self._check_boundaries(monitor)
+        self._read_transverse(monitor, plane=True)
         monitor.plane(self._z)
 
     def _take_step_stats(self) -> None:
@@ -2101,6 +2115,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
                 self._check_boundaries(monitor)
             else:
                 monitor.skip(self._z)
+            self._read_transverse(monitor, plane=False)
         if self._row_spec is None:
             return
         self._accepted_steps += 1
@@ -2560,3 +2575,20 @@ def refuse_general_leaves(
                 "converge and be the wrong physics"
             )
             raise BackendError(msg)
+
+
+def _declared_discard(problem: KernelProblem) -> bool:
+    """Return whether a run declared content above ``discard_above`` (SEP 40 5.3).
+
+    Parameters
+    ----------
+    problem : solprop.translate.problem.KernelProblem
+        The run's problem.
+
+    Returns
+    -------
+    bool
+        True when its transverse specification sets ``discard_above``.
+    """
+    design = problem.transverse
+    return design is not None and design.specification.discard_above is not None

@@ -598,10 +598,14 @@ def checked_design(
         else f"returns {result.returned:.2e} of the launch energy, above the "
         f"{BUDGET:.0e} budget"
     )
+    tried = [f for f in LADDER if f > float(space.collar_fraction)]
     advice = (
         f"collar_fraction={passing:g} at the same spacing passes"
         if passing is not None
-        else f"none of the trial fractions {', '.join(f'{f:g}' for f in LADDER)} passes"
+        else f"none of the trial fractions {', '.join(f'{f:g}' for f in tried)} passes"
+        if tried
+        else "no trial fraction above this grid's is tried; refine the grid or "
+        "protect a narrower band"
     )
     wall = (
         f"; a bare wall at the same outer size returns {result.bare_wall:.2e}, "

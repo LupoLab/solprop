@@ -3137,7 +3137,9 @@ class AdamsMarch:
                 if not self._history:
                     self._start()
                 proposal = self._collar_reentry(
-                    self._quiet_capped(self._capped(backend._proposal))
+                    backend._transverse_capped(
+                        self._quiet_capped(self._capped(backend._proposal))
+                    )
                 )
                 stop = landing(backend._z, proposal, targets)
                 dz, end, kink = adams_core.approach(
