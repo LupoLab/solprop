@@ -19,6 +19,8 @@ date-released: "2026-10-31"
 license: GPL-3.0-or-later
 url: "https://solprop.readthedocs.io/"
 repository-code: "https://github.com/LupoLab/solprop"
+# Zenodo's concept DOI, which names every release; each release has its own DOI too.
+doi: 10.5281/zenodo.23854248
 keywords:
   - nonlinear optics
   - ultrafast optics
