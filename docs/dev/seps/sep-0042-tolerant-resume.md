@@ -626,21 +626,18 @@ opened at Final (SEP 0).
 
 - **Q1. The tolerance.** Per element at $10^{-11}$, with an array-scale floor only on named
   tails (recommended); or the array-scale test at $10^{-12}$ the first draft proposed, which
-  the review showed passes real physics changes. **The maintainer agreed the first draft's
-  recommendation on 2026-11-01, before the review reopened it; to confirm.**
+  the review showed passes real physics changes. **Decision (John Travers, 2026-11-01):** as now recommended.
 - **Q2. The launch realisations.** Ignore `configuration.initial` and `noise.spectrum` only
   where compared parameters made them (recommended); or always, as the first draft proposed,
-  which hides array launches. **As Q1: to confirm.**
+  which hides array launches. **Decision (John Travers, 2026-11-01):** as now recommended.
 - **Q3. How long neutral and rename entries live.** For the release that adds them and the
   next minor release, then deleted with the frozen records they serve (recommended); or
   until 1.0. **Decision (John Travers, 2026-11-01):** as recommended.
 - **Q4. Scans and numerics.** A finished point whose numerics differ is a conflict
   (recommended, §5.7); or it is reused and counted, as the first draft proposed, which hands
-  back loose results after a tightened `rtol`. **As Q1: to confirm.**
+  back loose results after a tightened `rtol`. **Decision (John Travers, 2026-11-01):** as now recommended.
 - **Q5. A force override.** Add `resume="force"`, limited by the layout class and recorded
-  in the file (recommended, §5.5); or none, with `with_input` the only route. The maintainer
-  asked what leaving it out would exclude, noting that forcing is sometimes useful. **To
-  confirm.**
+  in the file (recommended, §5.5); or none, with `with_input` the only route. **Decision (John Travers, 2026-11-01):** as recommended; forcing is sometimes useful.
 - **Q6. Opting into numerics changes.** Allow them on `resume=True` with a warning and the
   execution record (recommended), or require a new value of `resume`. **Decision (John
   Travers, 2026-11-01):** as recommended.
@@ -669,6 +666,8 @@ opened at Final (SEP 0).
   values, stored records read as written, the session adopting the file's record,
   `resume="force"`, and no phase 3. Maintainer decisions on Q3, Q6 and Q7 recorded; Q1, Q2,
   Q4 and Q5 ask again, because the review reopened them or the maintainer asked.
+- 2026-11-01: Maintainer decisions (John Travers) on Q1, Q2, Q4 and Q5, as now recommended
+  (§12), `resume="force"` included.
 
 ### AI review — 2026-11-01 (Opus 5.5)
 
@@ -1218,7 +1217,7 @@ as follows. All 24 points are taken, except as stated in points 5, 9 and 12.
 override. The maintainer asked what that would exclude, noting that forcing is sometimes
 useful, and the answer was: every compared difference, with `with_input` the only way on, at
 the cost of a split file and restarted ledgers. So §5.5 adds `resume="force"`, limited by a
-new layout class, and Q5 asks for confirmation. The layout class is new since the review and
+new layout class, and the maintainer confirmed it (Q5). The layout class is new since the review and
 has not itself been reviewed.
 
 **Still unmeasured,** as the review says: a real pair of files from two platforms; the TDSE,
