@@ -11,13 +11,12 @@ what already covers it or touches it:
 - the [issues](https://github.com/LupoLab/solprop/issues) and
   [pull requests](https://github.com/LupoLab/solprop/pulls), open and recently closed;
 - the [SEPs](docs/dev/seps/index.md), since one may already propose the change or be about
-  to alter the code;
-- the [roadmap](docs/dev/roadmap.md), until it is gone.
+  to alter the code.
 
 ```sh
 gh issue list --state all --search "collar"
 gh pr list --state all --search "collar"
-git grep -il "collar" docs/dev/seps docs/dev/roadmap.md
+git grep -il "collar" docs/dev/seps
 ```
 
 If one already covers your work, add to it rather than opening another. If one only
@@ -47,7 +46,7 @@ That is all a report needs. A maintainer fills in the rest.
 ## Writing an issue
 
 Planned work lives in [GitHub issues](https://github.com/LupoLab/solprop/issues), not on
-the roadmap, which takes no new items (ADR-062). So an issue for planned work, written by
+the roadmap, which lists only SEPs (ADR-062). So an issue for planned work, written by
 a person or an agent, has to let someone pick up the task from its text alone.
 [#76](https://github.com/LupoLab/solprop/issues/76) and
 [#77](https://github.com/LupoLab/solprop/issues/77) are examples.
