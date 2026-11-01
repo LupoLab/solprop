@@ -1365,6 +1365,15 @@ on Queue and Slurm beyond point boundaries.
 previews), 5 (design, pins and capabilities by route and species) and 6 (drawings and
 keyword gaps) remain. Phase 4 waits for SEP 40 on `main`.
 
+### Phase order after phase 3 — 2026-11-01
+
+**A second deviation from §11**, agreed with the maintainer: phase 5 is made before phase 4,
+while SEP 40 is still being implemented. Phase 5 does not touch the free-space interface that
+SEP 40 changes. The guided half of phase 4 and most of phase 6 follow it. The free-space half
+of phase 4, its types, recipes, beams and previews, waits for SEP 40 on `main`. Pins are
+therefore carried into `Recipe.modes()` and `preview_input()` when phase 4 adds them, rather
+than the other way round.
+
 ## Part III — History
 
 - 2026-10-31: Drafted, from the requirements of a desktop front end under design.
