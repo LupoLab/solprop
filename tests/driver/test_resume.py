@@ -74,6 +74,13 @@ class Interrupt(NullReporter):
         raise AssertionError("an interrupted run does not finish")
 
 
+class StopAtTheEntrance(NullReporter):
+    """A reporter that stops the run after its launch plane, before any step."""
+
+    def started(self, z_start, z_end, n_planes):
+        raise CrashError("stopped before the first step")
+
+
 def item(parent, *names) -> Any:
     """Return one h5py object or serialised entry, loosely typed for inspection."""
     value = parent
@@ -243,6 +250,119 @@ def test_an_input_noise_run_resumed_does_not_add_its_noise_twice(
             bound,
             what=key,
         )
+
+
+@pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu", "native"])
+def test_a_file_holding_only_its_launch_plane_resumes_without_a_second_draw(
+    build_simulation, tmp_path, backend
+):
+    """Its stored field already carries the draw, at the launch's own position.
+
+    Position cannot tell this load from the launch. Added again, the realisation stays
+    in the field for the rest of the run, so the two files differ by far more than the
+    matched march's rounding budget, and the monitor's floor is a smaller share of the
+    energy it read at the load.
+    """
+    if backend == "native":
+        pytest.importorskip("solprop_native")
+    path = tmp_path / "part.h5"
+
+    def build():
+        return scheduled(build_simulation, noise="input", seed=17, backend=backend)
+
+    with pytest.raises(CrashError):
+        build().run(path, progress=StopAtTheEntrance())
+    stored = resume(path)
+    assert stored.n_saved == 1
+    assert stored.plane.z == 0.0
+    assert stored.plane.field is not None
+    resumed = build().run(path, resume=True)
+    whole_run = build()
+    whole = whole_run.run(tmp_path / "whole.h5")
+    for key in ("field", "noise_phase"):
+        assert_matched(
+            read_file(path, key),
+            read_file(tmp_path / "whole.h5", key),
+            budget(whole_run),
+            what=key,
+        )
+    floors = [
+        run.outcome.execution["boundary_monitor"]["noise_floor"]
+        for run in (resumed, whole)
+    ]
+    assert floors[0] > 0.0
+    assert floors[0] == pytest.approx(floors[1], rel=1e-12)
+
+
+def test_an_interior_launch_plane_resumes_without_a_second_draw(
+    build_simulation, tmp_path
+):
+    """The launch inside the guide takes the draw, so its plane carries it (SEP 37).
+
+    An interior launch refuses a schedule, so these are one adaptive run twice, with no
+    march budget: the same steps from the same state, far inside the run's tolerance.
+    """
+    rtol = 1e-8
+
+    def interior():
+        base = build_simulation(noise=None, backend="numpy_ref", rtol=rtol)
+        return base.with_input(
+            np.asarray(base.translate().initial.field0[0]),
+            initial_z=base.grid.length / 2,
+            noise=build_simulation(noise="input", seed=17).noise,
+        )
+
+    path = tmp_path / "part.h5"
+    with pytest.raises(CrashError):
+        interior().run(path, progress=StopAtTheEntrance())
+    assert resume(path).plane.z == interior().grid.length / 2
+    interior().run(path, resume=True)
+    interior().run(tmp_path / "whole.h5")
+    whole = read_file(tmp_path / "whole.h5", "field")
+    np.testing.assert_allclose(
+        read_file(path, "field"),
+        whole,
+        rtol=0.0,
+        atol=rtol * float(np.abs(whole).max()),
+    )
+
+
+@pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu", "native"])
+def test_the_input_draw_is_added_at_a_launch_and_not_to_a_resumed_state(
+    build_simulation, backend
+):
+    """Once at the launch; never to a stored state, with the floor kept either way."""
+    if backend == "native":
+        pytest.importorskip("solprop_native")
+    simulation = scheduled(build_simulation, noise="input", seed=17, backend=backend)
+    problem = simulation.translate()
+    draw = problem.initial.noise0
+    assert draw is not None
+    engine = select(
+        backend,
+        problem,
+        grid=simulation.grid,
+        modes=simulation.modes,
+        profiles=simulation.profiles,
+    )
+    assert isinstance(engine, StepDriver)
+    try:
+        engine.set_initial(problem.initial.field0, None)
+        launched = engine.observe().require_field().copy()
+        # In band: the load masks the launch, whose pulse has tails outside it.
+        active = problem.grids.active_mask
+        np.testing.assert_allclose(
+            (launched - problem.initial.field0)[..., active],
+            draw[..., active],
+            rtol=0.0,
+            atol=1e-12 * np.linalg.norm(draw),
+        )
+        assert engine._input_floor is draw
+        engine.set_initial(launched, None, z=0.0, resume=True)
+        np.testing.assert_array_equal(engine.observe().require_field(), launched)
+        assert engine._input_floor is draw
+    finally:
+        engine.close()
 
 
 def test_a_default_noise_run_without_a_seed_resumes_from_the_seed_it_recorded(

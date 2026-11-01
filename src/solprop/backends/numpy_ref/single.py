@@ -313,6 +313,7 @@ class NumpySingleBackend(NumpyRefBackend):
         noise: object,
         *,
         z: float = 0.0,
+        resume: bool = False,
     ) -> None:
         """Load a state, holding it at the launch's scale in binary32.
 
@@ -324,9 +325,11 @@ class NumpySingleBackend(NumpyRefBackend):
             Must be ``None``; noise models are refused under single precision.
         z : float, optional
             The position the state belongs to, m.
+        resume : bool, optional
+            Whether `field` came back from a saved plane.
         """
         del noise  # refused under single precision by validation
-        super().set_initial(field, None, z=z)
+        super().set_initial(field, None, z=z, resume=resume)
         state = self._require_state()
         self._state = (state * (1.0 / self._scale)).astype(self._complex)
 
