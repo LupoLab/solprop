@@ -6,9 +6,9 @@
 | **Title** | Resuming by what matters to the run |
 | **Author** | John Travers |
 | **Drafting agent** | Opus 5.5 |
-| **Status** | Draft |
-| **Review status** | In review |
-| **Reviewers** | Opus 5.5 (AI) |
+| **Status** | Accepted |
+| **Review status** | Reviewed |
+| **Reviewers** | John Travers (human); Opus 5.5 (AI) |
 | **Type** | Change |
 | **Created** | 2026-10-31 |
 | **Resolution** | — |
@@ -257,8 +257,8 @@ meaning no differences:
 
 A complete file with changed numerics is refused rather than returned, because the user
 asked for something the file does not hold: a tightened `rtol` must not hand back the loose
-result. The remedy is a new file. A last plane that kept no field without a checkpoint, and a
-file with no plane, are still refused by name after the comparison, as they are today.
+result. The remedy is a new file. A last plane that kept no field without a checkpoint, and
+a file with no plane, are still refused by name after the comparison, as they are today.
 
 **Numerical changes on continuing.** With the controller held to $\text{rtol}_1$ on $[0,
 z_r]$ and $\text{rtol}_2$ on $[z_r, L]$, the continued run is a concatenation of two
@@ -386,49 +386,53 @@ comparison allows it.
 whenever the layout agrees, the arrays fit and there is work left, whatever the compared
 paths say. It is for a user who knows why the records differ: a corrected optmat model on a
 long run, a release that moved a derived table, a change of physics they mean. `resume` now
-checks its value, so a mistyped word is a `ValueError`. Scans have no `resume`, so a scan never
-forces.
+checks its value, so a mistyped word is a `ValueError`. Scans have no `resume`, so a scan
+never forces.
 
-- **The arrays must fit.** After `_prime`, when there are compared differences and it is not a
-  TDSE run, the driver compares `backend.stats(spec)` with the shapes of the file's `stats/*`,
-  before stepping and before anything is written. A statistic's names and shape follow the
-  responses and the species, so force cannot change the number of species or turn plasma on or
-  off. Without this check such a run computes a whole segment and then fails at its first save,
-  with a raw error, leaving a checkpoint from the other physics. A prototype of the check
-  reported a mixture, plasma off, `n_r` and two modes by name, and left an identical
-  continuation unchanged.
+- **The arrays must fit.** After `_prime`, when there are compared differences and it is not
+  a TDSE run, the driver compares `backend.stats(spec)` with the shapes of the file's
+  `stats/*`, before stepping and before anything is written. A statistic's names and shape
+  follow the responses and the species, so force cannot change the number of species or turn
+  plasma on or off. Without this check such a run computes a whole segment and then fails at
+  its first save, with a raw error, leaving a checkpoint from the other physics. A prototype
+  of the check reported a mixture, plasma off, `n_r` and two modes by name, and left an
+  identical continuation unchanged.
 - **The Adams history restarts.** A session with a compared difference does not restore the
-  snapshot, and warns that the physics changed. The state comes from the stored plane, reweighted
-  by the requested problem, and the ledgers stay cumulative. Restoring it would be wrong: a
-  capillary forced from 1 to 2 bar at `rtol=1e-6` reached an error of $1.3\times10^{-4}$ with
-  the snapshot, and $4.9\times10^{-8}$ starting afresh, because the snapshot's state was divided
-  by the old $\sqrt{\operatorname{Re} n_{\rm eff}}$ and its energy jumped at the join.
-- **It warns at once.** Each forced continuation warns, listing `summary()`, because the word stays
-  in a script after the reason for it has gone. A changed launch has no effect, because the stored
-  field is what continues, so the warning says so when a launch parameter differs.
-- **It marks the file.** The §5.3 entry carries `"forced": true`, and is written before any step, so
-  a stopped or failed force leaves its mark. One helper reads "this file was forced, at these
-  positions" from the execution records. No annotation is added.
+  snapshot, and warns that the physics changed. The state comes from the stored plane,
+  reweighted by the requested problem, and the ledgers stay cumulative. Restoring it would
+  be wrong: a capillary forced from 1 to 2 bar at `rtol=1e-6` reached an error of
+  $1.3\times10^{-4}$ with the snapshot, and $4.9\times10^{-8}$ starting afresh, because the
+  snapshot's state was divided by the old $\sqrt{\operatorname{Re} n_{\rm eff}}$ and its
+  energy jumped at the join.
+- **It warns at once.** Each forced continuation warns, listing `summary()`, because the
+  word stays in a script after the reason for it has gone. A changed launch has no effect,
+  because the stored field is what continues, so the warning says so when a launch parameter
+  differs.
+- **It marks the file.** The §5.3 entry carries `"forced": true`, and is written before any
+  step, so a stopped or failed force leaves its mark. One helper reads "this file was
+  forced, at these positions" from the execution records. No annotation is added.
 - **The mark is respected:**
-  - `resume=True` refuses a file with a forced session and names the position, and on a file with
-    no work left returns it with a warning. Otherwise the original script would continue the file
-    with nothing said, because the stored record still matches it: a stopped force then read
-    densities of `[2.47, 2.47, 2.47, 4.95, 2.47]e25` under a record claiming one physics.
-  - `field_plane` refuses a plane beyond the forced position, because it exports a reference frame
-    and a hash that do not describe that plane, and a downstream run would record them as its parent.
+  - `resume=True` refuses a file with a forced session and names the position, and on a file
+    with no work left returns it with a warning. Otherwise the original script would
+    continue the file with nothing said, because the stored record still matches it: a
+    stopped force then read densities of `[2.47, 2.47, 2.47, 4.95, 2.47]e25` under a record
+    claiming one physics.
+  - `field_plane` refuses a plane beyond the forced position, because it exports a reference
+    frame and a hash that do not describe that plane, and a downstream run would record them
+    as its parent.
   - `source=` is refused on those planes, whichever simulation is given.
   - The peak-field report takes only the planes the session wrote.
   - The public `open_file` warns once, naming the position. Internal callers do not.
 
-`stats/*` stay correct, because the requested problem wrote them. Anything rebuilt from the record
-does not, such as `get_power_weight`, which was $2.6\times10^{-4}$ off after that pressure change.
-The manual says so. Storing the requested record beside the first would be bigger than the problem,
-since records reach tens of MB.
+`stats/*` stay correct, because the requested problem wrote them. Anything rebuilt from the
+record does not, such as `get_power_weight`, which was $2.6\times10^{-4}$ off after that
+pressure change. The manual says so. Storing the requested record beside the first would be
+bigger than the problem, since records reach tens of MB.
 
-`with_input` stays the way to record a changed physics properly in its own file. What force adds is
-the same file, cumulative ledgers, and modified noise and fixed schedules; what it costs is a record
-that stops describing the later planes. The manual says which to use when: anything that will be
-coupled onward or processed from the record takes `with_input`.
+`with_input` stays the way to record a changed physics properly in its own file. What force
+adds is the same file, cumulative ledgers, and modified noise and fixed schedules; what it
+costs is a record that stops describing the later planes. The manual says which to use when:
+anything that will be coupled onward or processed from the record takes `with_input`.
 
 #### 5.6 The numerics behind the gate
 
@@ -441,12 +445,12 @@ The continuation meets these, which phase 1 changes:
   admits only `Multistep`, so it never meets this.
 - **Adams history.** `AdamsMarch._refusal` compares the snapshot's `repr` of the method, so
   raising `max_calls` or changing `safety` restarts at order one although the history is
-  still valid. A snapshot gains an attribute `history_key`, holding only the fields that define
-  the history, and the check compares that. An absent key means "start afresh", which is safe and
-  needs no schema bump (§5.8). A change of those fields restarts the march, with the warning it
-  gives today. With the check bypassed, raising `max_calls` continued the history with an error no
-  worse than starting afresh, on both a GNLSE and a capillary run. A forced session never restores
-  a snapshot (§5.5).
+  still valid. A snapshot gains an attribute `history_key`, holding only the fields that
+  define the history, and the check compares that. An absent key means "start afresh", which
+  is safe and needs no schema bump (§5.8). A change of those fields restarts the march, with
+  the warning it gives today. With the check bypassed, raising `max_calls` continued the
+  history with an error no worse than starting afresh, on both a GNLSE and a capillary run.
+  A forced session never restores a snapshot (§5.5).
 - **Interpolated planes.** `_open_output` refuses an interpolated last plane only when the
   requested run is dense. With `interpolate_planes` now free to change, the test drops
   `dense and`, because `_interpolated` reads the file. Otherwise a run stored densely and
@@ -529,9 +533,9 @@ processing, and one in each of `backends/driver.py` and `backends/multistep.py` 
 kernel contract and `KERNEL_SCHEMA_VERSION` do not change.
 
 **Layout: paths or arrays.** Path rows state what the stored arrays mean, which nothing else
-guards: a moved time axis of the same length would fail nowhere. Whether the arrays fit is tested
-on the arrays (§5.5), because a proxy in the record has holes and leaves no special form for
-counting species.
+guards: a moved time axis of the same length would fail nowhere. Whether the arrays fit is
+tested on the arrays (§5.5), because a proxy in the record has holes and leaves no special
+form for counting species.
 
 **Cost.** The walk is linear in the record's size: a prototype took 0.04 s on a 28.6 MB
 record, against 0.28 s for today's canonical JSON and SHA-256. The digest fast path keeps
@@ -591,16 +595,17 @@ test goes through a real file and `check_cache`, not a hand-built record.
 - **Interpolated planes.** A file stored with `interpolate_planes=True` that ends on an
   interpolated plane refuses under `False`. An ordinary non-dense run never trips the test.
 - **Force.**
-  - A changed pressure under `resume="force"` continues, warns, records the entry before any step,
-    and agrees with a restart from the stored plane, with the Adams history not restored.
-  - A layout change refuses, including HE11 to HE12 and a change of noise presence; so do a file
-    with no work left, a change of species count and plasma turned off, before anything is computed
-    or written.
+  - A changed pressure under `resume="force"` continues, warns, records the entry before any
+    step, and agrees with a restart from the stored plane, with the Adams history not
+    restored.
+  - A layout change refuses, including HE11 to HE12 and a change of noise presence; so do a
+    file with no work left, a change of species count and plasma turned off, before anything
+    is computed or written.
   - A radial pressure change and a capillary radius change continue under force.
-  - After a stopped or failed force, `resume=True` refuses, and names the position; `resume="force"`
-    continues. A complete forced file is returned with a warning.
-  - `field_plane` and `source=` refuse planes beyond the position, and the peak-field report leaves
-    out earlier planes. `open_file` warns once, and an internal call does not.
+  - After a stopped or failed force, `resume=True` refuses, and names the position;
+    `resume="force"` continues. A complete forced file is returned with a warning.
+  - `field_plane` and `source=` refuse planes beyond the position, and the peak-field report
+    leaves out earlier planes. `open_file` warns once, and an internal call does not.
   - A file killed after its last plane has no work left.
   - An entry's size stays bounded over many planes.
   - A mistyped `resume` value is a `ValueError`.
@@ -611,9 +616,10 @@ test goes through a real file and `check_cache`, not a hand-built record.
 - **The table.** Every row matches a path in at least one route's record.
 
 Not exercised by CI: a real pair of files from two platforms beyond the frozen records; the
-queue and Slurm executors, whose identity does not change; and a forced TDSE run, which `tdse.**`
-refuses when the descriptor differs. Phase 1 should also try force from an Adams snapshot above order
-2, and on the Cartesian, line, planar and non-general waveguide routes, which neither review ran.
+queue and Slurm executors, whose identity does not change; and a forced TDSE run, which
+`tdse.**` refuses when the descriptor differs. Phase 1 should also try force from an Adams
+snapshot above order 2, and on the Cartesian, line, planar and non-general waveguide routes,
+which neither review ran.
 
 ### 8. Documentation
 
@@ -673,15 +679,15 @@ refuses when the descriptor differs. Phase 1 should also try force from an Adams
   would continue the wrong run silently. Only realisations whose parameters are compared are
   ignored.
 - **No override.** `with_input` covers a deliberate change of physics, but it splits the run
-  across files, restarts the ledgers and refuses modified noise and fixed schedules. For a long
-  run stranded by a change that does not matter to the user, the same file is what is wanted. A
-  forced run restarts the history too, so this is a narrower gain than it first looks, at the cost
-  of one class, a shape check and one helper that readers consult.
-- **An annotation for forced resumes.** `interpolated_resumes` is written on the success path alone,
-  so a stopped force would leave no mark, and that is where the mark matters. The execution records
-  are written before any step, and already exist.
-- **Store the requested record beside the first after a force.** Readers could then be right, but
-  records reach tens of MB, and this is a rare path.
+  across files, restarts the ledgers and refuses modified noise and fixed schedules. For a
+  long run stranded by a change that does not matter to the user, the same file is what is
+  wanted. A forced run restarts the history too, so this is a narrower gain than it first
+  looks, at the cost of one class, a shape check and one helper that readers consult.
+- **An annotation for forced resumes.** `interpolated_resumes` is written on the success
+  path alone, so a stopped force would leave no mark, and that is where the mark matters.
+  The execution records are written before any step, and already exist.
+- **Store the requested record beside the first after a force.** Readers could then be
+  right, but records reach tens of MB, and this is a rare path.
 - **Ask for numerics changes to be opted into.** A value for a choice users make on purpose.
   A warning and a record serve as well.
 - **Continue a finished run to a longer length here.** Moved to its own proposal (§2).
@@ -696,8 +702,8 @@ opened at Final (SEP 0).
      `RunMetadata.compare`; `from_json` keeping the raw record and tolerating absent and
      unknown fields; `check_cache`, append mode and `source=` on the comparison; the handler
      adopting the file's record; the `resume` entry; the ledger, history and
-     interpolated-plane edits; `resume="force"` with its shape check, its restart, its warnings
-     and the readers that respect it; the frozen records; the manual and the ADR.
+     interpolated-plane edits; `resume="force"` with its shape check, its restart, its
+     warnings and the readers that respect it; the frozen records; the manual and the ADR.
    - **Verifies:** §7 except scans and the schema rule.
 2. **Scans and the schema rule.**
    - **Deliverables:** the parent's comparison on a digest conflict in `Local`, `Pool` and
@@ -708,7 +714,8 @@ opened at Final (SEP 0).
 
 - **Q1. The tolerance.** Per element at $10^{-11}$, with an array-scale floor only on named
   tails (recommended); or the array-scale test at $10^{-12}$ the first draft proposed, which
-  the review showed passes real physics changes. **Decision (John Travers, 2026-11-01):** as now recommended.
+  the review showed passes real physics changes. **Decision (John Travers, 2026-11-01):** as
+  now recommended.
 - **Q2. The launch realisations.** Ignore `configuration.initial` and `noise.spectrum` only
   where compared parameters made them (recommended); or always, as the first draft proposed,
   which hides array launches. **Decision (John Travers, 2026-11-01):** as now recommended.
@@ -717,10 +724,12 @@ opened at Final (SEP 0).
   until 1.0. **Decision (John Travers, 2026-11-01):** as recommended.
 - **Q4. Scans and numerics.** A finished point whose numerics differ is a conflict
   (recommended, §5.7); or it is reused and counted, as the first draft proposed, which hands
-  back loose results after a tightened `rtol`. **Decision (John Travers, 2026-11-01):** as now recommended.
+  back loose results after a tightened `rtol`. **Decision (John Travers, 2026-11-01):** as
+  now recommended.
 - **Q5. A force override.** Add `resume="force"`, limited by the layout class and recorded
-  in the file (recommended, §5.5); or none, with `with_input` the only route. **Decision (John Travers, 2026-11-01):** as recommended; forcing is
-  sometimes useful. Its limits were then tightened by the supplementary review (§5.5).
+  in the file (recommended, §5.5); or none, with `with_input` the only route. **Decision
+  (John Travers, 2026-11-01):** as recommended; forcing is sometimes useful. Its limits were
+  then tightened by the supplementary review (§5.5).
 - **Q6. Opting into numerics changes.** Allow them on `resume=True` with a warning and the
   execution record (recommended), or require a new value of `resume`. **Decision (John
   Travers, 2026-11-01):** as recommended.
@@ -756,6 +765,7 @@ opened at Final (SEP 0).
   a forced session restarts the Adams history and marks the file so that later sessions and
   readers respect it, layout names structural values only, whether the arrays fit is tested on
   the arrays, and the handler rather than the driver adopts the file's record.
+- 2026-11-01: Human review (John Travers). Accepted by John Travers; Part I frozen.
 
 ### AI review — 2026-11-01 (Opus 5.5)
 

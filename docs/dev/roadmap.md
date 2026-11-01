@@ -31,6 +31,14 @@ being implemented.
   identifies a new material contract. Ne/Xe, mixtures, mode-averaged and multimode
   routes, bound response and other geometries remain follow-up work; the first route is
   a single-mode capillary with node quadrature.
+- [SEP 42 — Resuming by what matters to the run](seps/sep-0042-tolerant-resume.md):
+  the resume gate compares the stored and requested records path by path instead of by
+  hash. The layout must agree, physics and launch parameters must agree unless the user
+  passes `resume="force"`, numerics such as `rtol` may change on an unfinished run and are
+  recorded, and provenance is ignored. Numbers agree per element to a rounding-level bound,
+  a new recorded field needs a declared neutral value, and optmat models compare by digest.
+  The output schema is bumped only for what an older reader would misread. It answers the
+  resume-compatibility policy ADR-058 left open.
 
 ## Draft enhancement proposals
 
@@ -94,14 +102,6 @@ The [SEP index](seps/index.md) lists every proposal and its current status.
   monitor that judges returning light, and a signed removal ledger. Perfectly matched
   layers, adaptive transverse windows, the escaped transverse field and a flux-weighted
   spatial ledger remain open.
-- [SEP 42 — Resuming by what matters to the run](seps/sep-0042-tolerant-resume.md):
-  the resume gate compares the stored and requested records path by path instead of by
-  hash. The layout must agree, physics and launch parameters must agree unless the user
-  passes `resume="force"`, numerics such as `rtol` may change on an unfinished run and are
-  recorded, and provenance is ignored. Numbers agree per element to a rounding-level bound,
-  a new recorded field needs a declared neutral value, and optmat models compare by digest.
-  The output schema is bumped only for what an older reader would misread. It answers the
-  resume-compatibility policy ADR-058 left open.
 
 The informal items below record work not fully covered by these proposals. When adding
 or revising a SEP, remove an informal item only if the proposal covers it in full;
