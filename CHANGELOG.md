@@ -41,6 +41,10 @@ All notable changes to solprop are recorded here. The format follows
   warning: 20 000 fs² of group-delay dispersion on a 0.4 nm axis at 800 nm came out 13.5 %
   away from the converged spectrum, on a 1.6 nm axis 100 %. A `DataPulse` given a complex
   `spectrum` still unwraps it, and its docstring states that limit.
+- `DataPulse.from_time` puts a pulse where it sat in the record. A pulse more than half
+  the record's length from `t = 0` changed its phase by more than pi per bin, so it was
+  moved by one record length with no warning: at 500 fs in a record from 0 to 800 fs it
+  came out at −300 fs.
 
 ## [0.1.0] - 2026-10-31
 

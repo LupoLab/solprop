@@ -176,7 +176,7 @@ The magnitude and the phase are interpolated separately with a cubic B-spline.
 Interpolating the complex spectrum itself would be wrong: its real and imaginary parts
 oscillate at the pulse's arrival time, and no smooth interpolant follows them.
 `from_spectral_density` keeps the phase it is given, in the pulse's `spectral_phase`,
-and that phase is interpolated as it stands. A complex `spectrum` holds its phase only
+and that phase is interpolated as it stands; `from_time` holds its phase there too. A complex `spectrum` holds its phase only
 modulo $2\pi$, so it is unwrapped first, and unwrapping cannot follow a change of more
 than $\pi$ between neighbouring samples: 20 000 fs² of group-delay dispersion on a 1.6 nm
 axis at 800 nm is built quite wrongly, and with no warning. Give a measured phase through
@@ -187,7 +187,9 @@ a warning is logged when the grid's active band reaches past the data.
 `from_time` takes the record's own axis offset into account with an explicit linear
 phase, so a pulse sitting at 100 fs in a record that starts at −50 fs still arrives at
 100 fs: the data, not an assumption about where the record is centred, says where the
-pulse is.
+pulse is. It unwraps the phase about the middle of the record, where anything inside the
+record changes by less than $\pi$ per bin, so this holds wherever in the record the pulse
+sits and however it is chirped. A pulse that reaches the ends of the record is cut there.
 
 ## Continuous wave
 

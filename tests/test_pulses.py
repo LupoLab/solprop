@@ -610,6 +610,62 @@ def test_a_time_record_that_is_not_centred_still_lands_where_it_sat(field_grid):
     assert_allclose(arrival, 100e-15, rtol=0.0, atol=1e-3 * 100e-15)
 
 
+@pytest.mark.parametrize("arrival", [100e-15, 500e-15, 700e-15])
+def test_a_time_record_lands_anywhere_in_the_record(arrival, chirped_grid):
+    # Past 400 fs the phase changes by more than pi per bin about t = 0.
+    t = np.linspace(0.0, 800e-15, 8192)
+    omega_p = 2.0 * np.pi * C / WAVELENGTH
+    width = 20e-15
+    record = np.exp(-(((t - arrival) / width) ** 2)) * np.cos(omega_p * t)
+    built = DataPulse.from_time(t, record, energy=ENERGY).build(chirped_grid)[0, 0]
+    # The record's transform, analytically: a Gaussian about the carrier, whose phase
+    # is the arrival time alone.
+    omega = np.linspace(0.8 * omega_p, 1.2 * omega_p, 4001)
+    offset = omega - omega_p
+    reference = DataPulse.from_spectral_density(
+        omega, np.exp(-0.5 * (offset * width) ** 2), offset * arrival, energy=ENERGY
+    ).build(chirped_grid)[0, 0]
+    # The spline over the record's coarser bins, measured as 6.4e-7 at every arrival.
+    assert relative_l2(built, reference) < 2e-6
+
+
+def test_a_chirped_time_record_lands_past_the_middle(chirped_grid):
+    t = np.linspace(0.0, 2000e-15, 16384)
+    omega_p = 2.0 * np.pi * C / WAVELENGTH
+    # A chirp at a fixed duration broadens the spectrum, here to about 4 % of the
+    # carrier frequency, well inside the band of the reference below.
+    arrival, width, chirp = 1300e-15, 100e-15, 5.0
+    record = np.exp(-1j * omega_p * t) * np.exp(
+        -(1.0 + 1j * chirp) * ((t - arrival) / width) ** 2
+    )
+    built = DataPulse.from_time(t, record, energy=ENERGY).build(chirped_grid)[0, 0]
+    # The transform of a complex Gaussian, exp(-b s**2) -> exp(-offset**2 / (4 b)) /
+    # sqrt(b) with b = (1 + i chirp) / width**2, on the delay of the arrival.
+    omega = np.linspace(0.8 * omega_p, 1.2 * omega_p, 4001)
+    offset = omega - omega_p
+    scale = (offset * width) ** 2 / (1.0 + chirp**2)
+    reference = DataPulse.from_spectral_density(
+        omega,
+        np.exp(-0.5 * scale),
+        offset * arrival + 0.25 * chirp * scale - 0.5 * math.atan(chirp),
+        energy=ENERGY,
+    ).build(chirped_grid)[0, 0]
+    # The spline over the record's bins, measured as 1.5e-8, with a factor of three.
+    assert relative_l2(built, reference) < 5e-8
+
+
+def test_a_time_record_holds_a_phase_that_matches_its_spectrum():
+    # A late start makes the linear phase large, where its rounding is most exposed.
+    t = np.linspace(5e-12, 5.8e-12, 8192)
+    omega_p = 2.0 * np.pi * C / WAVELENGTH
+    record = np.exp(-(((t - 5.5e-12) / 20e-15) ** 2)) * np.cos(omega_p * t)
+    pulse = DataPulse.from_time(t, record, energy=ENERGY)
+    assert isinstance(pulse.spectral_phase, np.ndarray)
+    assert pulse.spectral_phase.size == pulse.spectrum.size
+    # Quite above pi per bin at this distance from t = 0.
+    assert np.median(np.diff(pulse.spectral_phase)) > 10.0 * np.pi
+
+
 def test_a_complex_time_record_is_read_as_the_analytic_signal(field_grid):
     t = np.linspace(-400e-15, 400e-15, 4096)
     omega_p = 2.0 * np.pi * C / WAVELENGTH

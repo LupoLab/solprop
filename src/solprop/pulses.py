@@ -1943,7 +1943,8 @@ class DataPulse(Displayed):
     applied so that nothing is left sitting on the window edge.
 
     The phase interpolated is ``spectral_phase`` when the pulse holds one, as
-    :meth:`from_spectral_density` makes it, however fast that phase varies. Otherwise
+    :meth:`from_spectral_density` and :meth:`from_time` make it, however fast that phase
+    varies. Otherwise
     it is ``numpy.unwrap(numpy.angle(spectrum))``, which cannot tell a phase change of
     more than pi between neighbouring samples from a smaller one of the other sign: such
     a spectrum, of a strongly chirped pulse or one far from ``t = 0`` on a coarse axis,
@@ -2284,9 +2285,12 @@ class DataPulse(Displayed):
         """Build a pulse from measured time-domain samples on a uniform axis.
 
         The optics-convention spectrum referenced to ``t = 0`` is
-        ``sum_n E_n exp(+i omega t_n)``, which is evaluated as an inverse DFT times a
-        linear phase for the axis offset, so any ``t[0]`` is handled exactly and no
-        assumption is made about where the pulse sits in the record. Only the
+        ``sum_n E_n exp(+i omega t_n)``, which is evaluated as an inverse DFT about the
+        middle of the record times a linear phase for the middle's own time. About the
+        middle, the phase of anything inside the record changes by less than pi per
+        bin, so it unwraps correctly wherever the pulse sits and however it is chirped,
+        for any ``t[0]``; the pulse holds the result as ``spectral_phase``. A pulse that
+        reaches the ends of the record is cut there, and the DFT wraps it. Only the
         non-negative frequencies are kept, and the zero-frequency bin is dropped: a
         spectral phase is meaningless there.
 
@@ -2352,9 +2356,18 @@ class DataPulse(Displayed):
         transform = n_data * np.fft.ifft(values)
         omega = 2.0 * np.pi * np.fft.fftfreq(n_data, float(steps[0]))
         keep = omega > 0.0
+        positive = omega[keep]
+        middle = 0.5 * (times[0] + times[-1])
+        centred = transform[keep] * np.exp(1j * positive * (times[0] - middle))
+        # The middle's linear phase goes on after unwrapping: on the full phase a pulse
+        # more than half a record from t = 0 changes by over pi per bin.
+        angle = np.unwrap(np.angle(centred)) + positive * middle
         return cls(
-            omega=omega[keep],
-            spectrum=transform[keep] * np.exp(1j * omega[keep] * times[0]),
+            omega=positive,
+            # From the phase held, so that the two agree to rounding; adding up the
+            # large phases here loses more than the constructor's check allows.
+            spectrum=np.abs(centred) * np.exp(1j * angle),
+            spectral_phase=angle,
             energy=energy,
             phase=phase,
             t0=t0,
