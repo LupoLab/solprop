@@ -31,6 +31,14 @@ being implemented.
   identifies a new material contract. Ne/Xe, mixtures, mode-averaged and multimode
   routes, bound response and other geometries remain follow-up work; the first route is
   a single-mode capillary with node quadrature.
+- [SEP 41 — Recipes, and the hooks a front end needs](seps/sep-0041-recipes-and-front-ends.md):
+  a versioned TOML recipe that solprop loads, checks, builds, runs, exports as Python,
+  records in its output and resumes from (`solprop run`, `solprop resume`), with the
+  parameter paths and pins, metadata, structured errors, capability queries for routes,
+  species and results, plane observer, scan progress, cost estimate, portable stop,
+  previews, mode launch, beam displacement and tilt, design solvers, pulse loaders and
+  geometry drawings a front end needs. The Python interface changes are additive and no
+  output-schema bump is needed. It lands after SEP 42, whose comparison decides every resume.
 
 ## Draft enhancement proposals
 
