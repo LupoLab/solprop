@@ -10,8 +10,11 @@ All notable changes to solprop are recorded here. The format follows
 ### Added
 
 - The first performance-history rows (`benchmarks/history/`), recorded at 0.1.0 on
-  six CPU and three GPU hardware sets; `docs/dev/benchmarking.md` lists how each is
-  run. The benchmark harness names an AMD GPU from its PCI IDs where ROCm reports only
+  six CPU and three GPU hardware sets, with numba runs beside the native ones on three
+  of them; `docs/dev/benchmarking.md` lists how each is run. The history takes any
+  backend: each row names it, and rows compare only within one backend; a run the
+  history recorded no longer makes the next run in that checkout dirty. The benchmark
+  harness names an AMD GPU from its PCI IDs where ROCm reports only
   "AMD Radeon Graphics".
 
 ### Changed

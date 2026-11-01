@@ -5,8 +5,8 @@
 """Keep and summarise the per-hardware tracking history (SEP 38, section 5.3).
 
 Each hardware set has one CSV under ``benchmarks/history/``, named by its slug, with
-one row per run, case, stepper and width. Rows compare only within one hardware set,
-width, case revision and resolved integrator.
+one row per run, backend, case, stepper and width. Rows compare only within one
+hardware set, backend, width, case revision and resolved integrator.
 """
 
 from __future__ import annotations
@@ -28,6 +28,7 @@ COLUMNS = (
     "solprop",
     "commit",
     "dirty",
+    "backend",
     "native",
     "native_commit",
     "native_build",
@@ -95,22 +96,28 @@ def append(path: Path, rows: Sequence[Record]) -> None:
 
 
 def read(path: Path) -> list[Record]:
-    """Read a history file's rows as strings."""
+    """Read a history file's rows as strings.
+
+    Rows from before the backend column were all native runs.
+    """
     with path.open(encoding="utf-8", newline="") as stream:
-        return list(csv.DictReader(stream))
+        return [
+            {**row, "backend": row.get("backend") or "native"}
+            for row in csv.DictReader(stream)
+        ]
 
 
 def comparable(row: Record) -> tuple[str, ...]:
     """Key the rows that measure the same thing on one hardware set.
 
-    Two rows compare only with the same memory domains spanned, width, threading,
-    case definition,
-    stepper, resolved integrator, tolerances and noise model: a changed library
-    default is a new configuration, not a speed-up.
+    Two rows compare only with the same backend, memory domains spanned, width,
+    threading, case definition, stepper, resolved integrator, tolerances and noise
+    model: a changed library default is a new configuration, not a speed-up.
     """
     return tuple(
         str(row.get(key) or "")
         for key in (
+            "backend",
             "numa_domains",
             "threads",
             "threading",
@@ -135,29 +142,33 @@ def _ratio(
 
 
 def summary(rows: Sequence[Record]) -> list[Record]:
-    """Compare each recorded run with the first and with the previous, per width.
+    """Compare each recorded run with the first and with the previous, per backend
+    and width.
 
-    A run is the rows sharing a date and commit. Each change is the geometric
+    A run is the rows sharing a backend, date and commit. Each change is the geometric
     mean, over the configurations the two runs share, of the ratio of median
     times; below one is faster. Busy rows count, and are counted.
     """
-    runs: dict[tuple[str, str, str], dict[tuple[str, ...], float]] = {}
-    labels: dict[tuple[str, str, str], tuple[str, int]] = {}
+    runs: dict[tuple[str, str, str, str], dict[tuple[str, ...], float]] = {}
+    labels: dict[tuple[str, str, str, str], tuple[str, int]] = {}
     for row in rows:
-        key = (str(row["threads"]), row["date"], row["commit"])
+        backend = str(row.get("backend") or "native")
+        key = (backend, str(row["threads"]), row["date"], row["commit"])
         runs.setdefault(key, {})[comparable(row)] = float(row["median_s"])
         label, busy = labels.get(key, (row["solprop"], 0))
         labels[key] = (label, busy + int(str(row.get("busy") or "0") == "1"))
     result = []
-    first: dict[str, dict[tuple[str, ...], float]] = {}
-    previous: dict[str, dict[tuple[str, ...], float]] = {}
-    for (threads, date, commit), times in runs.items():
-        shared_first, versus_first = _ratio(times, first.setdefault(threads, times))
-        shared_previous, versus_previous = _ratio(times, previous.get(threads, times))
-        previous[threads] = times
-        label, busy = labels[(threads, date, commit)]
+    first: dict[tuple[str, str], dict[tuple[str, ...], float]] = {}
+    previous: dict[tuple[str, str], dict[tuple[str, ...], float]] = {}
+    for (backend, threads, date, commit), times in runs.items():
+        series = (backend, threads)
+        shared_first, versus_first = _ratio(times, first.setdefault(series, times))
+        shared_previous, versus_previous = _ratio(times, previous.get(series, times))
+        previous[series] = times
+        label, busy = labels[(backend, threads, date, commit)]
         result.append(
             {
+                "backend": backend,
                 "threads": threads,
                 "date": date,
                 "commit": commit,
@@ -174,10 +185,11 @@ def summary(rows: Sequence[Record]) -> list[Record]:
 
 
 def show(path: Path, threads: str | None = None) -> None:
-    """Print one line per recorded run and width."""
+    """Print one line per recorded run, backend and width."""
     print(f"{path.stem}")
     print(
-        f"{'threads':>7}  {'date':18} {'solprop':26} {'cases':>5} {'busy':>4} "
+        f"{'backend':9} {'threads':>7}  {'date':18} {'solprop':26} "
+        f"{'cases':>5} {'busy':>4} "
         f"{'vs first':>13} {'vs previous':>13}"
     )
     for row in summary(read(path)):
@@ -188,7 +200,8 @@ def show(path: Path, threads: str | None = None) -> None:
             return "-" if ratio is None else f"{ratio:.3f} ({shared})"
 
         print(
-            f"{row['threads']:>7}  {row['date']:18} {row['solprop']:26} "
+            f"{row['backend']:9} {row['threads']:>7}  {row['date']:18} "
+            f"{row['solprop']:26} "
             f"{row['cases']:>5} {row['busy']:>4} "
             f"{change(row['ratio_first'], row['shared_first']):>13} "
             f"{change(row['ratio_previous'], row['shared_previous']):>13}"

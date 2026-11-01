@@ -129,18 +129,21 @@ measured. `--archive DIR` copies the
 bundle to a directory outside the repository.
 
 `--append-history` adds one row per configuration to
-`benchmarks/history/<hardware>.csv`, which is committed. It records only the whole
-default plan with at least three repeats, on the native backend, and only when:
+`benchmarks/history/<hardware>.csv`, which is committed. Each row names its backend,
+and rows compare only with rows of the same backend, so a `--backend numba_cpu` run
+keeps its own series beside the native one. It records only the whole default plan
+with at least three repeats, and only when:
 
 - every configuration finished, and its repeats took the same steps and reached the
   same final field to rounding, with the native backend running the threads it was
   given;
 - the workers imported solprop from this checkout's `src/` (run from the checkout's
-  own environment, `uv sync --extra native`, not an installed copy), with a native
-  build from a commit after which nothing under `native/` changed but its
-  documentation and tests;
-- nothing under `src/`, `native/` or `benchmarks/` is uncommitted, unless
-  `--allow-dirty`, whose rows are marked dirty.
+  own environment, `uv sync --extra native`, not an installed copy), with, for a
+  native run, a native build from a commit after which nothing under `native/`
+  changed but its documentation and tests;
+- nothing under `src/`, `native/` or `benchmarks/` is uncommitted (the history files
+  aside, so one checkout can record several runs), unless `--allow-dirty`, whose rows
+  are marked dirty.
 
 The hardware name is the CPU model and the production width, plus the instance family
 on a cloud machine, for example `apple-m5-max-18c`, `amd-epyc-7763-16c` or

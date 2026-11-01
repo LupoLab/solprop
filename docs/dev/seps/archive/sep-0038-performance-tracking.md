@@ -163,11 +163,12 @@ SELECTION: [--case NAME]... [--set SET]... [--all] [--stepper S] [--threads W]
   construction to after the warm-up. The CPU costs of §5.2 do not apply, so a device
   plan has no time estimate.
 - `--append-history` adds the run to `benchmarks/history/<slug>.csv`. It records only
-  the whole default plan with at least three repeats, on the native backend, every
-  configuration complete and consistent (§4), timing the checkout's own `src/` with a
-  native build from a commit after which `native/` (but its documentation and tests)
-  has not changed. It refuses uncommitted changes under `src/`,
-  `native/` or `benchmarks/` unless `--allow-dirty`, whose rows are marked dirty.
+  the whole default plan with at least three repeats, on any backend (each row names
+  it, and rows compare within one backend), every configuration complete and
+  consistent (§4), timing the checkout's own `src/` with, for a native run, a native
+  build from a commit after which `native/` (but its documentation and tests) has
+  not changed. It refuses uncommitted changes under `src/`,
+  `native/` or `benchmarks/` (but the history files) unless `--allow-dirty`, whose rows are marked dirty.
 - `history` prints, per width, one line per recorded run: date, version, the number of
   configurations and of busy ones, and the change against the first and the previous
   recorded runs with the number of configurations each compares.
@@ -400,3 +401,8 @@ is final.
 - 2026-10-27: Final, by John Travers, with SEP 30 marked Superseded; the proposal and
   its implementation land in one pull request
   ([LupoLab/solprop#32](https://github.com/LupoLab/solprop/pull/32)).
+- 2026-11-01: At the maintainer's request, the history takes any backend: rows gain a
+  `backend` column and compare within one backend, so the numba backend keeps its own
+  regression series. The first rows, at 0.1.0, include numba runs on three of the
+  machines. The history files no longer count as uncommitted changes, so a checkout
+  that recorded one run can record the next.
