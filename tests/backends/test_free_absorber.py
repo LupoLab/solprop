@@ -30,7 +30,7 @@ def free_absorber(request):
         else FieldGrid.from_limits
     )
     grid = constructor(LENGTH, 800e-9, (600e-9, 1.2e-6), 150e-15)
-    space = FreeGrid(1e-3, 8, 1.2e-3, 6, window_factor=0.5)
+    space = FreeGrid(1e-3, 8, 1.2e-3, 6, collar_fraction=0.5)
     boundary = Absorber(
         np.zeros(grid.n_omega),
         np.zeros(grid.n_t),

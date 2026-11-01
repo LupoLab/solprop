@@ -59,7 +59,7 @@ def free_case(request):
     # The former grid and no collar: these tests are about the Cartesian route, and
     # its exact linear flow is the reference.
     grid = constructor(1e-3, 800e-9, (600e-9, 1.2e-6), 150e-15, **LEGACY_GRID)
-    space = FreeGrid(3e-4, 12, 4e-4, 16, window_factor=0)
+    space = FreeGrid(3e-4, 12, 4e-4, 16, collar_fraction=0)
     pulse = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=3e-9), 80e-6
     )
@@ -290,7 +290,7 @@ def test_cartesian_material_loss_gain_and_evanescence(
     free_case, imaginary_index, backend, request
 ):
     grid, _, _, settings = free_case
-    space = FreeGrid(3e-7, 4, 4e-7, 6, window_factor=0)
+    space = FreeGrid(3e-7, 4, 4e-7, 6, collar_fraction=0)
     rng = np.random.default_rng(317)
     initial = (
         rng.normal(size=(24, 2, grid.n_omega))
@@ -392,7 +392,7 @@ def test_line_gaussian_diffracts_with_the_one_dimensional_closed_forms():
         2 * rayleigh, LINE_WAVELENGTH, (780e-9, 820e-9), 2e-12, thg=False, **LEGACY_GRID
     )
     assert grid.omega[0] == grid.omega0
-    space = LineGrid(1.5e-3, 256, window_factor=0)
+    space = LineGrid(1.5e-3, 256, collar_fraction=0)
     pulse = SpatialPulse(
         GaussianPulse(wavelength=LINE_WAVELENGTH, fwhm=300e-15, energy=1e-3), waist
     )
@@ -447,7 +447,7 @@ def test_line_focal_witness_of_pr_416():
     grid = EnvelopeGrid.from_limits(
         length, LINE_WAVELENGTH, (780e-9, 820e-9), 2e-12, thg=False, **LEGACY_GRID
     )
-    space = LineGrid(1.5e-3, 256, window_factor=0)
+    space = LineGrid(1.5e-3, 256, collar_fraction=0)
     temporal = GaussianPulse(wavelength=LINE_WAVELENGTH, fwhm=300e-15, energy=1e-3)
     output = prop_free(
         grid,
@@ -485,8 +485,8 @@ def test_line_equals_a_plane_uniform_in_y():
     grid = EnvelopeGrid.from_limits(
         length, LINE_WAVELENGTH, (700e-9, 950e-9), 400e-15, thg=False, **LEGACY_GRID
     )
-    line = LineGrid(1e-3, 64, window_factor=0)
-    plane = FreeGrid(1e-3, 64, 2e-4, 4, window_factor=0)
+    line = LineGrid(1e-3, 64, collar_fraction=0)
+    plane = FreeGrid(1e-3, 64, 2e-4, 4, collar_fraction=0)
     start = SpatialPulse(
         GaussianPulse(wavelength=LINE_WAVELENGTH, fwhm=50e-15, energy=5e-2), 150e-6
     ).build(grid, line, medium=SpatialMedium())
@@ -534,7 +534,7 @@ def test_line_kerr_soliton_holds_at_its_power_per_metre(fraction):
     grid = EnvelopeGrid.from_limits(
         length, LINE_WAVELENGTH, (760e-9, 845e-9), 6e-12, thg=False, **LEGACY_GRID
     )
-    space = LineGrid(20 * x0, 256, window_factor=0)
+    space = LineGrid(20 * x0, 256, collar_fraction=0)
     temporal = GaussianPulse(
         wavelength=LINE_WAVELENGTH, fwhm=1e-12, peak_power=power
     ).build(grid)
@@ -581,7 +581,7 @@ def test_line_run_is_recorded_and_labelled_per_metre_of_y(tmp_path):
     grid = EnvelopeGrid.from_limits(
         1e-3, LINE_WAVELENGTH, (600e-9, 1.2e-6), 150e-15, **LEGACY_GRID
     )
-    line = LineGrid(3e-4, 16, window_factor=0.1)
+    line = LineGrid(3e-4, 16, collar_fraction=0.1)
     pulse = SpatialPulse(
         GaussianPulse(wavelength=LINE_WAVELENGTH, fwhm=30e-15, energy=1e-3), 80e-6
     )
@@ -604,7 +604,7 @@ def test_line_run_is_recorded_and_labelled_per_metre_of_y(tmp_path):
         1e-3,
         rtol=gamma(64 * (line.n_columns + grid.n_omega)),
     )
-    plane = FreeGrid(3e-4, 16, 3e-4, 16, window_factor=0.1)
+    plane = FreeGrid(3e-4, 16, 3e-4, 16, collar_fraction=0.1)
     area = Simulation.from_free(
         grid, plane, SpatialMedium(), [], pulse, settings=settings, noise=None
     )
@@ -621,7 +621,7 @@ def test_line_noise_is_one_photon_per_column_per_metre_of_y(model):
     grid = EnvelopeGrid.from_limits(
         1e-3, LINE_WAVELENGTH, (600e-9, 1.2e-6), 150e-15, **LEGACY_GRID
     )
-    line = LineGrid(3e-4, 12, window_factor=0)
+    line = LineGrid(3e-4, 12, collar_fraction=0)
     draw = spatial_noise(_vacuum(grid, line), np.random.default_rng(49), model=model)
     # The plane's bound: fewer than 32 rounded operations per bin, no long sum.
     bound = 32 * EPS / (1 - 32 * EPS)
@@ -685,7 +685,7 @@ def test_a_line_is_recorded_per_metre_of_y_without_from_free_s_key():
     grid = EnvelopeGrid.from_limits(
         1e-3, LINE_WAVELENGTH, (600e-9, 1.2e-6), 150e-15, **LEGACY_GRID
     )
-    line = LineGrid(3e-4, 16, window_factor=0.1)
+    line = LineGrid(3e-4, 16, collar_fraction=0.1)
     pulse = SpatialPulse(
         GaussianPulse(wavelength=LINE_WAVELENGTH, fwhm=30e-15, energy=1e-3), 80e-6
     )

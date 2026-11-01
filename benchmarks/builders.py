@@ -256,7 +256,7 @@ def spatial_grids(
             fft_size="smooth",
         )
         return grid, FreeGrid(
-            half_width * 1.1, size, half_width * 1.1, size, window_factor=0.0
+            half_width * 1.1, size, half_width * 1.1, size, collar_fraction=0.0
         )
     plasma = "filament" in name
     field = FieldGrid.from_limits(

@@ -62,7 +62,7 @@ def column_run(backend, *, collar, schedule, rtol=1e-6):
         length, 800e-9, (700e-9, 950e-9), 150e-15, **LEGACY_GRID
     )
     # A coarse grid: every column propagates, so vacuum attenuates nothing else.
-    space = FreeGrid(4e-4, 16, 3e-4, 12, window_factor=0)
+    space = FreeGrid(4e-4, 16, 3e-4, 12, collar_fraction=0)
     pulse = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-9), 1e-4
     )
@@ -112,7 +112,7 @@ def test_the_rate_never_reaches_the_noise_phase(backend):
     phases = []
     for collar in (None, TransverseCollar(4e3, fraction=0.5)):
         grid = EnvelopeGrid.from_limits(1e-3, 800e-9, (700e-9, 950e-9), 150e-15)
-        space = FreeGrid(4e-4, 16, 3e-4, 12, window_factor=0)
+        space = FreeGrid(4e-4, 16, 3e-4, 12, collar_fraction=0)
         pulse = SpatialPulse(
             GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-9), 1e-4
         )
@@ -153,7 +153,7 @@ def collared_problem(steps):
     grid = EnvelopeGrid.from_limits(
         length, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False, **LEGACY_GRID
     )
-    space = FreeGrid(3e-4, 9, 4e-4, 12, window_factor=0.1)
+    space = FreeGrid(3e-4, 9, 4e-4, 12, collar_fraction=0.1)
     pulse = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=3e-6), 6e-5
     )
@@ -216,7 +216,7 @@ def aliased_run(collar):
     grid = EnvelopeGrid.from_limits(
         ALIAS_LENGTH, 800e-9, (780e-9, 820e-9), 4e-12, thg=False
     )
-    space = LineGrid(4e-5, 40, window_factor=0.0)
+    space = LineGrid(4e-5, 40, collar_fraction=0.0)
     spectrum = GaussianPulse(wavelength=800e-9, fwhm=1e-12, energy=1.0).build(grid)[
         0, 0
     ]

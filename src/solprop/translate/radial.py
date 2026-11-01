@@ -114,7 +114,7 @@ def radial_transform(  # noqa: PLR0913 - geometry and the shared translation con
         taper_scale=None,
         node_chunk=_node_chunk(space.n_r, n_pol, time.n_to, node_budget),
         aeff=tabulate(
-            lambda z: np.full_like(z, np.pi * space.radius**2),
+            lambda z: np.full_like(z, np.pi * space.outer_radius**2),
             0.0,
             z_max * (1 + margin),
         ),

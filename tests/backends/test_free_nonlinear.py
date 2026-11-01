@@ -53,7 +53,9 @@ def test_cartesian_kerr_matches_physical_column_oracle(
         else FieldGrid.from_limits
     )
     grid = constructor(1e-4, 800e-9, (600e-9, 1.2e-6), 150e-15)
-    space = FreeGrid(3e-4 * spatial_scale, 9, 4e-4 * spatial_scale, 12, window_factor=0)
+    space = FreeGrid(
+        3e-4 * spatial_scale, 9, 4e-4 * spatial_scale, 12, collar_fraction=0
+    )
     # The oracle's subject is the response, not the launch: at the 0.001 scale the
     # beam is sub-wavelength and mostly evanescent, which a launch normalised in
     # axial flux refuses, so the input is an explicit array of known amplitude.
@@ -163,7 +165,7 @@ def test_resolved_grazing_allows_backend_construction_and_a_zero_field_trial(
     spatial_backend_class,
 ):
     grid = FieldGrid.from_limits(1e-4, 800e-9, (600e-9, 1.2e-6), 150e-15)
-    space = FreeGrid(3e-7, 9, 4e-7, 12, window_factor=0)
+    space = FreeGrid(3e-7, 9, 4e-7, 12, collar_fraction=0)
     problem = make_problem(
         grid,
         space,
@@ -188,7 +190,7 @@ def test_cartesian_linear_flow_resolves_both_sides_and_exact_cutoff(
     spatial_backend_class, residual
 ):
     grid = EnvelopeGrid.from_limits(1e-4, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False)
-    space = FreeGrid(3e-7, 9, 4e-7, 12, window_factor=0)
+    space = FreeGrid(3e-7, 9, 4e-7, 12, collar_fraction=0)
     initial = np.zeros((space.n_columns, 2, grid.n_omega), complex)
     initial[1, 0, grid.active_mask] = 1
     initial[1, 1, grid.active_mask] = 0.4j

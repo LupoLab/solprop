@@ -62,9 +62,9 @@ def geometry_case(envelope_mixture, geometry, n_pol):
     kwargs = {}
     if geometry in ("radial", "free"):
         space = (
-            RadialGrid(6e-4, 8, window_factor=0.0)
+            RadialGrid(6e-4, 8, collar_fraction=0.0)
             if geometry == "radial"
-            else FreeGrid(3e-4, 4, 4e-4, 4, window_factor=0.0)
+            else FreeGrid(3e-4, 4, 4e-4, 4, collar_fraction=0.0)
         )
         medium = SpatialMedium(mixture)
         initial = SpatialPulse(pulse, 80e-6, jones=jones).build(

@@ -179,7 +179,7 @@ def test_fill_fraction_change_invalidates_the_pressure_function(source, caplog):
 @pytest.mark.parametrize("constant", [False, True])
 def test_radial_update_shares_covered_operator_terms_and_input(source, constant):
     material = source.modes[0].mixture
-    space = RadialGrid(6e-4, 8, window_factor=0.0)
+    space = RadialGrid(6e-4, 8, collar_fraction=0.0)
     pulse = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=10e-15, energy=1e-9), 80e-6
     )
@@ -224,7 +224,7 @@ def test_uncovered_constant_update_falls_back_to_constant_operator(source, geome
     if geometry == "radial":
         source = Simulation.from_radial(
             source.grid,
-            RadialGrid(6e-4, 8, window_factor=0.0),
+            RadialGrid(6e-4, 8, collar_fraction=0.0),
             SpatialMedium(material),
             source.responses,
             SpatialPulse(

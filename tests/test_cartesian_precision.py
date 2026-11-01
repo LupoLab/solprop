@@ -24,7 +24,7 @@ def test_cartesian_square_and_prefactor_meet_the_predeclared_certificate(
 ):
     constructor = FieldGrid.from_limits if kind == "field" else EnvelopeGrid.from_limits
     grid = constructor(1e-4, 800e-9, (600e-9, 1.2e-6), 150e-15)
-    space = FreeGrid(3e-7, 9, 4e-7, 12, window_factor=0)
+    space = FreeGrid(3e-7, 9, 4e-7, 12, collar_fraction=0)
     dispersion = SpatialDispersion(SpatialMedium(index), grid, Frame.comoving(grid))
     high, low, transverse_low = dispersion.cartesian_squares(space)
     actual = (high[None] - space.kperp_sq[:, None]) + (
@@ -109,7 +109,7 @@ def test_cartesian_launch_uses_the_corrected_exact_linear_operator():
     # launch is normalised in axial flux, and refuses a beam whose evanescent
     # columns carry its field (SEP 34). The small-k_perp operator is the one whose
     # cancellation the corrected form avoids.
-    space = FreeGrid(3e-5, 9, 4e-5, 12, window_factor=0)
+    space = FreeGrid(3e-5, 9, 4e-5, 12, collar_fraction=0)
     temporal = GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=3e-11)
     distance = 1e-4
     medium = SpatialMedium()

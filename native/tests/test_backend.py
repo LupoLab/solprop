@@ -527,7 +527,7 @@ def test_the_dispersive_electronic_leaf_runs_on_the_free_space_route(
     its reference.
     """
     original, grid = phase_a_case
-    space = FreeGrid(1e-3, 4, 1.5e-3, 6, window_factor=0)
+    space = FreeGrid(1e-3, 4, 1.5e-3, 6, collar_fraction=0)
     response = DispersiveKerrResponse(
         OptmatKerr("Ar").dispersive_model(), evaluator, thg=False
     )
@@ -818,7 +818,7 @@ def test_temporal_statistics_are_refused_on_a_spatial_problem(
     space: RadialGrid | FreeGrid = (
         RadialGrid(1e-3, 8)
         if kind == "radial"
-        else FreeGrid(1e-3, 4, 1.5e-3, 6, window_factor=0)
+        else FreeGrid(1e-3, 4, 1.5e-3, 6, collar_fraction=0)
     )
     problem = assemble(
         grid,

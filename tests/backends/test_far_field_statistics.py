@@ -122,7 +122,7 @@ def gaussian(waist, *, energy=1e-6):
 
 
 def test_numba_cpu_forms_the_far_field_statistics_through_the_reference_pass(grid):
-    space = FreeGrid(3e-4, 24, 3e-4, 16, window_factor=0.1)
+    space = FreeGrid(3e-4, 24, 3e-4, 16, collar_fraction=0.1)
     simulation = free_simulation(
         grid,
         space,
@@ -175,7 +175,7 @@ def test_the_axial_flux_of_a_vacuum_gaussian_is_its_mean_obliquity(grid):
     waist = 20 * 800e-9 / (2 * np.pi)
     # Twelve waists sampled at a quarter waist: truncation exp(-36), aliasing
     # exp(-79), and no light within exp(-160) of the cut-off.
-    space = FreeGrid(6 * waist, 48, 6 * waist, 48, window_factor=0)
+    space = FreeGrid(6 * waist, 48, 6 * waist, 48, collar_fraction=0)
     simulation = free_simulation(
         grid,
         space,
@@ -198,7 +198,7 @@ def test_the_axial_flux_of_a_vacuum_gaussian_is_its_mean_obliquity(grid):
 def test_the_axial_flux_in_a_gas_is_its_index(grid):
     waist = 100e-6
     medium = SpatialMedium("Ar", pressure=5.0)
-    space = FreeGrid(5e-4, 32, 5e-4, 32, window_factor=0)
+    space = FreeGrid(5e-4, 32, 5e-4, 32, collar_fraction=0)
     simulation = free_simulation(
         grid,
         space,
@@ -225,7 +225,7 @@ def test_the_axial_flux_in_a_gas_is_its_index(grid):
 def lossy_launch(grid):
     # Sixteen columns either way at 0.27 um: the outer columns are evanescent at
     # every band frequency, so every channel carries power.
-    space = FreeGrid(2e-6, 16, 2e-6, 16, window_factor=0)
+    space = FreeGrid(2e-6, 16, 2e-6, 16, collar_fraction=0)
     rng = np.random.default_rng(29)
     shape = (space.n_columns, 1, grid.n_omega)
     field = (rng.standard_normal(shape) + 1j * rng.standard_normal(shape)) * 1e3
@@ -433,7 +433,7 @@ def test_radial_and_planar_geometry_are_refused_before_any_step(grid):
 def test_an_older_native_build_is_refused_the_far_field_statistics_by_name(
     grid, monkeypatch
 ):
-    space = FreeGrid(3e-4, 8, 3e-4, 8, window_factor=0.1)
+    space = FreeGrid(3e-4, 8, 3e-4, 8, collar_fraction=0.1)
     simulation = free_simulation(grid, space, gaussian(60e-6))
     problem = simulation.translate()
     # A build that declares none of them, as every build before SEP 23's third phase:
@@ -497,7 +497,7 @@ def test_the_plugin_probe_reads_what_an_installed_build_declares(monkeypatch):
 
 
 def test_the_host_pass_refuses_what_it_was_not_given(grid):
-    space = FreeGrid(3e-4, 8, 3e-4, 8, window_factor=0.1)
+    space = FreeGrid(3e-4, 8, 3e-4, 8, collar_fraction=0.1)
     simulation = free_simulation(grid, space, gaussian(60e-6))
     problem = simulation.translate()
     field = problem.initial.field0[0]
@@ -530,7 +530,7 @@ def test_the_host_pass_refuses_what_it_was_not_given(grid):
 
 
 def test_the_tables_are_formed_once_and_reused(grid):
-    space = FreeGrid(3e-4, 8, 3e-4, 8, window_factor=0.1)
+    space = FreeGrid(3e-4, 8, 3e-4, 8, collar_fraction=0.1)
     problem = free_simulation(grid, space, gaussian(60e-6)).translate()
     held = FarFieldTables(problem)
     own = held.for_spec(problem.stats_spec)
@@ -575,7 +575,7 @@ def test_lockstep_members_must_carry_equal_tables(table):
 
 
 def test_a_run_records_every_far_field_statistic_at_every_plane(grid):
-    space = FreeGrid(3e-4, 16, 3e-4, 16, window_factor=0.1)
+    space = FreeGrid(3e-4, 16, 3e-4, 16, collar_fraction=0.1)
     simulation = free_simulation(
         grid,
         space,
@@ -611,7 +611,7 @@ def test_a_launched_tilt_moves_towards_the_aperture_that_collects_it(grid):
     # The closed-form direction tests build the stored spectrum with fft2 by hand;
     # this ties the aperture's physical +x to the way a run propagates a launch.
     waist, angle, length = 60e-6, 20e-3, 1e-3
-    space = FreeGrid(3e-4, 64, 3e-4, 32, window_factor=0)
+    space = FreeGrid(3e-4, 64, 3e-4, 32, collar_fraction=0)
     x, y = np.meshgrid(space.x, space.y)
     temporal = GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-6).build(grid)
     profile = np.exp(-(x**2 + y**2) / waist**2)

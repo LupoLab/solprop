@@ -77,7 +77,7 @@ def cartesian(
     grid = EnvelopeGrid.from_limits(
         LENGTH, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False, **LEGACY_GRID
     )
-    space = FreeGrid(3e-4, 12, 4e-4, 12, window_factor=0.25)
+    space = FreeGrid(3e-4, 12, 4e-4, 12, collar_fraction=0.25)
     pulse = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=2e-6), 40e-6
     )

@@ -274,7 +274,7 @@ def cartesian(noise: str | None) -> Simulation:
     medium, responses = _argon()
     return Simulation.from_free(
         SPATIAL_GRID,
-        FreeGrid(3e-4, 12, 4e-4, 16, window_factor=0),
+        FreeGrid(3e-4, 12, 4e-4, 16, collar_fraction=0),
         medium,
         responses,
         _spatial_pulse(),
@@ -289,7 +289,7 @@ def line(noise: str | None) -> Simulation:
     medium, responses = _argon()
     return Simulation.from_free(
         SPATIAL_GRID,
-        LineGrid(3e-4, 16, window_factor=0),
+        LineGrid(3e-4, 16, collar_fraction=0),
         medium,
         responses,
         _spatial_pulse(),

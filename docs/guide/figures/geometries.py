@@ -2303,8 +2303,8 @@ def planar_hybrid() -> drawsvg.Drawing:
     """
     half_gap = 63.5e-6
     modes = [SlabMode(half_gap, cladding=1.45, order=order) for order in (1, 3)]
-    grid = PlanarGrid(modes, 1e-3, 12, window_factor=0.35, n_x=24, x_rule="gauss")
-    outer = grid.radius_y * (1 + grid.window_factor)
+    grid = PlanarGrid(modes, 1e-3, 12, collar_fraction=0.35, n_x=24, x_rule="gauss")
+    outer = grid.radius_y * (1 + grid.collar_fraction)
     plate = 16e-6
     x = np.linspace(-half_gap, half_gap, 161)
     profiles = [mode.field(_ray(x))[:, 1] for mode in modes]
@@ -2443,10 +2443,10 @@ def radial_free() -> drawsvg.Drawing:
     drawsvg.Drawing
         The figure.
     """
-    grid = RadialGrid(1e-3, 24)
+    grid = RadialGrid(1e-3 / 1.1, 24, collar_fraction=0.1)
     waist = 0.3e-3
-    radius = grid.radius
-    inner = radius * (1 - grid.window_factor)
+    radius = grid.outer_radius
+    inner = grid.radius
 
     drawing = _canvas(
         500,
@@ -2554,10 +2554,10 @@ def cartesian_free() -> drawsvg.Drawing:
     drawsvg.Drawing
         The figure.
     """
-    grid = FreeGrid(3e-4, 16, 2e-4, 12, window_factor=0.1)
+    grid = FreeGrid(3e-4, 16, 2e-4, 12, collar_fraction=0.1)
     waist = 80e-6
-    outer_x = grid.radius_x * (1 + grid.window_factor)
-    outer_y = grid.radius_y * (1 + grid.window_factor)
+    outer_x = grid.radius_x * (1 + grid.collar_fraction)
+    outer_y = grid.radius_y * (1 + grid.collar_fraction)
 
     drawing = _canvas(
         500,
@@ -2706,9 +2706,9 @@ def line_free() -> drawsvg.Drawing:
     drawsvg.Drawing
         The figure.
     """
-    grid = LineGrid(3e-4, 16, window_factor=0.1)
+    grid = LineGrid(3e-4, 16, collar_fraction=0.1)
     waist = 80e-6
-    outer = grid.radius_x * (1 + grid.window_factor)
+    outer = grid.radius_x * (1 + grid.collar_fraction)
 
     drawing = _canvas(
         460,
@@ -2846,7 +2846,7 @@ def radial_azimuthal() -> drawsvg.Drawing:
         The figure.
     """
     count = 12
-    grid = RadialGrid(1.0, count, window_factor=0.0)
+    grid = RadialGrid(1.0, count, collar_fraction=0.0)
     orders = (0, 1, 2)
     left, right = 78.0, 520.0
 

@@ -131,7 +131,7 @@ def fine_space():
     Its column images lie some 6 cm apart in the mask plane at 800 nm, so the holes
     are scaled by :data:`FINE` to span several of them.
     """
-    return FreeGrid(1.5e-6, 12, 1.25e-6, 10, window_factor=0.1)
+    return FreeGrid(1.5e-6, 12, 1.25e-6, 10, collar_fraction=0.1)
 
 
 def spec_of(apertures, names=FAR_FIELD_STATISTICS, regions=QUADRANTS):
@@ -406,7 +406,7 @@ def test_the_pass_matches_the_reference(kind, n_pol, profile, weighting):
 
 def test_the_pass_matches_the_reference_on_a_line():
     grid = time_grid("envelope")
-    space = LineGrid(4e-4, 130, window_factor=0)  # three blocks of columns
+    space = LineGrid(4e-4, 130, collar_fraction=0)  # three blocks of columns
     apertures = ApertureSet(
         centres=[[0.0, 0.0], [1.2e-3, 0.0]],
         diameters=[1e-3, 6e-4],
@@ -432,7 +432,7 @@ def test_the_operator_slots_follow_gain_and_zero_frequency():
     # A field grid's zero-frequency bin and a gain medium: the material channel is
     # negative, the admittance and every weight zero at zero frequency.
     grid = time_grid("field")
-    space = FreeGrid(3e-4, 8, 3e-4, 8, window_factor=0)
+    space = FreeGrid(3e-4, 8, 3e-4, 8, collar_fraction=0)
     spec = spec_of(holes("hard"))
     field = random_field(space, 1, grid)
     field[..., 0] = 1e3  # content at zero frequency
@@ -485,7 +485,7 @@ def test_a_partial_request_takes_only_its_slots():
 
 def test_a_hole_enclosing_every_image_is_the_beam_and_the_axis():
     grid = time_grid("envelope")
-    space = FreeGrid(3e-4, 12, 3e-4, 12, window_factor=0)
+    space = FreeGrid(3e-4, 12, 3e-4, 12, collar_fraction=0)
     k_max = np.hypot(np.max(np.abs(space.k_x)), np.max(np.abs(space.k_y)))
     omega_min = float(np.min(grid.omega))
     # Every column propagates at every frequency, and its image lies inside.
@@ -593,7 +593,7 @@ def test_a_column_at_a_hard_edge_is_decided_as_the_reference_decides():
     # One column carries the light; the hole's edge passes through its image at one
     # bin, to the bit, and a hair inside and outside.
     grid = time_grid("envelope")
-    space = FreeGrid(3e-4, 12, 3e-4, 10, window_factor=0)
+    space = FreeGrid(3e-4, 12, 3e-4, 10, collar_fraction=0)
     column, bin_ = 29, grid.n_omega // 2
     tables = aperture_tables(
         spec_of(holes("hard"), ("aperture_spectrum",)),
@@ -638,7 +638,7 @@ def test_a_column_at_a_hard_edge_is_decided_as_the_reference_decides():
 
 def test_the_partials_are_held_once_and_estimated_to_the_byte(monkeypatch):
     grid = time_grid("envelope")
-    space = FreeGrid(3e-4, 12, 2.5e-4, 10, window_factor=0.1)
+    space = FreeGrid(3e-4, 12, 2.5e-4, 10, collar_fraction=0.1)
     spec = spec_of(holes("tanh"), WITH_AXIS)
     field = random_field(space, 2, grid)
     problem = problem_of(grid, space, field, spec)
@@ -676,7 +676,7 @@ def test_the_partials_are_held_once_and_estimated_to_the_byte(monkeypatch):
 
 def test_a_request_beyond_the_held_partials_takes_its_own():
     grid = time_grid("envelope")
-    space = FreeGrid(3e-4, 8, 3e-4, 8, window_factor=0)
+    space = FreeGrid(3e-4, 8, 3e-4, 8, collar_fraction=0)
     field = random_field(space, 1, grid)
     bare = problem_of(grid, space, field, StatsSpec(names=("energy",)))
     assert far_field_partials(bare) == (0, 0)
@@ -699,7 +699,7 @@ def test_a_request_beyond_the_held_partials_takes_its_own():
 
 def test_the_pass_refuses_what_it_cannot_form():
     grid = time_grid("envelope")
-    space = FreeGrid(3e-4, 8, 3e-4, 8, window_factor=0)
+    space = FreeGrid(3e-4, 8, 3e-4, 8, collar_fraction=0)
     field = random_field(space, 1, grid)
     problem = problem_of(grid, space, field, spec_of(holes("tanh")))
     pass_ = FarFieldPass(problem, parallel=False)
@@ -739,7 +739,7 @@ def test_numba_cpu_folds_the_axis_statistics_into_the_pass():
     # The default free-space set: on_axis_spectrum is the pass's W = 1 slot and
     # on_axis_intensity reads its amplitude; both agree with numpy_ref.
     grid = time_grid("envelope")
-    space = FreeGrid(3e-4, 16, 3e-4, 16, window_factor=0.1)
+    space = FreeGrid(3e-4, 16, 3e-4, 16, collar_fraction=0.1)
     launch = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-6), 6e-5
     ).build(grid, space, medium=SpatialMedium(1 + 1e-6j))

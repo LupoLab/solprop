@@ -103,9 +103,9 @@ def free_problem(
     Vacuum optics and argon's density, or a gas mixture's own medium.
     """
     space = (
-        LineGrid(3e-4, 16, window_factor=0)
+        LineGrid(3e-4, 16, collar_fraction=0)
         if line
-        else FreeGrid(3e-4, 9, 4e-4, 12, window_factor=0)
+        else FreeGrid(3e-4, 9, 4e-4, 12, collar_fraction=0)
     )
     pulse = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=3e-6), 8e-5

@@ -159,7 +159,7 @@ def test_the_native_pass_matches_the_reference_and_numba_cpu(name):
 
 def test_the_native_pass_matches_the_reference_on_a_line():
     grid = time_grid("envelope")
-    space = LineGrid(4e-4, 130, window_factor=0)  # three blocks of columns
+    space = LineGrid(4e-4, 130, collar_fraction=0)  # three blocks of columns
     apertures = ApertureSet(
         centres=[[0.0, 0.0], [1.2e-3, 0.0]],
         diameters=[1e-3, 6e-4],
@@ -185,7 +185,7 @@ def test_the_native_pass_matches_the_reference_on_a_line():
 
 def test_the_native_operator_slots_follow_gain_and_zero_frequency():
     grid = time_grid("field")
-    space = FreeGrid(3e-4, 8, 3e-4, 8, window_factor=0)
+    space = FreeGrid(3e-4, 8, 3e-4, 8, collar_fraction=0)
     spec = spec_of(holes("hard"))
     field = random_field(space, 1, grid)
     field[..., 0] = 1e3  # content at zero frequency
@@ -233,7 +233,7 @@ def test_a_partial_native_request_packs_only_its_statistics():
 
 def test_a_native_hole_enclosing_every_image_is_the_beam_and_the_axis():
     grid = time_grid("envelope")
-    space = FreeGrid(3e-4, 12, 3e-4, 12, window_factor=0)
+    space = FreeGrid(3e-4, 12, 3e-4, 12, collar_fraction=0)
     k_max = np.hypot(np.max(np.abs(space.k_x)), np.max(np.abs(space.k_y)))
     reach = DISTANCE * 299792458.0 * k_max / float(np.min(grid.omega))
     apertures = ApertureSet(
@@ -265,7 +265,7 @@ def test_a_native_hole_enclosing_every_image_is_the_beam_and_the_axis():
 
 def test_a_column_at_a_hard_edge_is_decided_natively_as_the_reference_decides():
     grid = time_grid("envelope")
-    space = FreeGrid(3e-4, 12, 3e-4, 10, window_factor=0)
+    space = FreeGrid(3e-4, 12, 3e-4, 10, collar_fraction=0)
     column, bin_ = 29, grid.n_omega // 2
     tables = aperture_tables(
         spec_of(holes("hard"), ("aperture_spectrum",)), grid, space
@@ -335,7 +335,7 @@ def test_the_native_pass_does_not_depend_on_the_thread_count(tmp_path):
 
 def test_the_native_partials_are_held_and_estimated_to_the_byte():
     grid = time_grid("envelope")
-    space = FreeGrid(3e-4, 12, 2.5e-4, 10, window_factor=0.1)
+    space = FreeGrid(3e-4, 12, 2.5e-4, 10, collar_fraction=0.1)
     spec = spec_of(holes("tanh"), WITH_AXIS)
     field = random_field(space, 2, grid)
     problem = problem_of(grid, space, field, spec)
@@ -373,7 +373,7 @@ def test_on_axis_intensity_takes_no_native_slot():
     # Kokkos forms on_axis_intensity in its own spatial pass, so its partials, and the
     # estimate's row, leave the W = 1 slot out; numba_cpu's pass reads that slot.
     grid = time_grid("envelope")
-    space = FreeGrid(3e-4, 12, 2.5e-4, 10, window_factor=0.1)
+    space = FreeGrid(3e-4, 12, 2.5e-4, 10, collar_fraction=0.1)
     field = random_field(space, 2, grid)
     spec = StatsSpec(names=("beam_spectrum", "on_axis_intensity"))
     problem = problem_of(grid, space, field, spec)
@@ -415,7 +415,7 @@ def test_declared_apertures_leave_a_request_without_them_unchanged():
 
 def test_a_native_request_beyond_the_held_partials_grows_them():
     grid = time_grid("envelope")
-    space = FreeGrid(3e-4, 8, 3e-4, 8, window_factor=0)
+    space = FreeGrid(3e-4, 8, 3e-4, 8, collar_fraction=0)
     field = random_field(space, 1, grid)
     bare = problem_of(grid, space, field, StatsSpec(names=("energy",)))
     assert far_field_partials(bare) == (0, 0)
@@ -445,7 +445,7 @@ def test_a_native_request_beyond_the_held_partials_grows_them():
 
 def test_a_native_run_forms_the_statistics_at_planes_and_between_them():
     grid = time_grid("envelope")
-    space = FreeGrid(3e-4, 16, 3e-4, 16, window_factor=0.1)
+    space = FreeGrid(3e-4, 16, 3e-4, 16, collar_fraction=0.1)
     launch = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-6), 6e-5
     ).build(grid, space, medium=SpatialMedium(1 + 1e-6j))
@@ -517,7 +517,7 @@ def test_a_native_run_forms_the_statistics_at_planes_and_between_them():
 
 def test_the_native_refusals_name_what_is_missing():
     grid = time_grid("envelope")
-    space = FreeGrid(3e-4, 8, 3e-4, 8, window_factor=0)
+    space = FreeGrid(3e-4, 8, 3e-4, 8, collar_fraction=0)
     field = random_field(space, 1, grid)
     problem = problem_of(grid, space, field, spec_of(holes("tanh")))
     owner = NativeBackend(problem, grid=grid)

@@ -214,8 +214,8 @@ def test_every_route_takes_the_spatial_collar_from_the_collar_length():
     shorter = dataclasses.replace(collar, collar_length=collar.reference_length / 4)
     planar = PlanarGrid([SlabMode(63.5e-6, "Ar", 1.0)], 1e-3, 8)
     routes: list[tuple[Any, Any]] = [
-        (radial_transform, RadialGrid(300e-6, 16, window_factor=0.5)),
-        (free_transform, FreeGrid(3e-4, 8, 4e-4, 6, window_factor=0.5)),
+        (radial_transform, RadialGrid(300e-6, 16, collar_fraction=0.5)),
+        (free_transform, FreeGrid(3e-4, 8, 4e-4, 6, collar_fraction=0.5)),
         (planar_transform, planar),
     ]
     for build, space in routes:

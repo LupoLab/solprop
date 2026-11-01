@@ -41,7 +41,7 @@ def whole_volume_fraction(problem, field) -> float:
 
 
 def planar(**changes):
-    space = PlanarGrid(slab_modes(), 1.5e-3, 32, window_factor=0.3)
+    space = PlanarGrid(slab_modes(), 1.5e-3, 32, collar_fraction=0.3)
     return Simulation.from_planar(
         GRID, space, [], pulse(), settings=settings(**changes)
     )

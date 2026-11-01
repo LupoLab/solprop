@@ -415,7 +415,7 @@ def test_the_chord_is_the_reference_element_on_every_representation():
     grid = EnvelopeGrid.from_limits(1e-3, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False)
     free = Simulation.from_free(
         grid,
-        FreeGrid(3e-4, 8, 4e-4, 6, window_factor=0.2),
+        FreeGrid(3e-4, 8, 4e-4, 6, collar_fraction=0.2),
         SpatialMedium(),
         [KerrResponse(1e-22, thg=False)],
         SpatialPulse(GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-6), 60e-6),

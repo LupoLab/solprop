@@ -43,7 +43,7 @@ def test_radial_circular_plasma_pays_for_electrons_in_the_area_measure(
     )
     # One Bessel eigenfunction makes the transverse adjoint identity exact for
     # the raw quadrature weights: wk_j F_ji = wr_i B_ij. No T^2=I assumption.
-    space = RadialGrid(0.1, 16, window_factor=0.0)
+    space = RadialGrid(0.1, 16, collar_fraction=0.0)
     profile = j0(space.k_r[0] * space.r)
     potential = ionisation_potential("He") - ionisation_potential("Ar")
     exposure = 3e12 * tau * math.sqrt(math.pi / 2)
@@ -151,7 +151,7 @@ def test_radial_vector_raman_keeps_the_named_refusal(spatial_backend_class):
     grid = EnvelopeGrid.from_limits(
         LENGTH, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False
     )
-    space = RadialGrid(6e-4, 16, window_factor=0.0)
+    space = RadialGrid(6e-4, 16, collar_fraction=0.0)
     response = RamanResponse(
         (DampedOscillator(1e-8, 2e14, undamped_dephasing()),), thg=False
     )
@@ -178,7 +178,7 @@ def test_monochromatic_kerr_uses_the_exact_spatial_prefactor(
         else FieldGrid.from_limits
     )
     grid = constructor(LENGTH, 800e-9, (600e-9, 1.2e-6), 150e-15)
-    space = RadialGrid(6e-4, 32, window_factor=0.0)
+    space = RadialGrid(6e-4, 32, collar_fraction=0.0)
     index = int(np.argmin(np.abs(grid.omega - grid.omega0)))
     amplitude = 2e8
     spectrum = amplitude * (80e-6) ** 2 / 2 * np.exp(-((80e-6 * space.k_r) ** 2) / 4)
@@ -296,7 +296,7 @@ def nonlinear_case(request):
     # Resolve the held-current collar while preserving the non-plasma fixtures.
     window = 200e-15 if kind == "field_plasma" else 150e-15
     grid = constructor(LENGTH, 800e-9, (600e-9, 1.2e-6), window)
-    space = RadialGrid(6e-4, 16, window_factor=0.0)
+    space = RadialGrid(6e-4, 16, collar_fraction=0.0)
     jones = (1 + 0j,) if kind.endswith("raman") else (1 + 0j, 0.5j)
     pulse = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-7), 80e-6, jones=jones
@@ -423,7 +423,7 @@ def test_radial_field_envelope_and_scalar_vector_parity(
 ):
     field_grid, envelope_grid, carrier_index = matched_parity_grids()
     carrier = field_grid.omega[carrier_index]
-    space = RadialGrid(6e-4, 16, window_factor=0.0)
+    space = RadialGrid(6e-4, 16, collar_fraction=0.0)
     waist = 80e-6
     spatial = 2e8 * waist**2 / 2 * np.exp(-((waist * space.k_r) ** 2) / 4)
     duration = 30e-15 / math.sqrt(2 * math.log(2))

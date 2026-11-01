@@ -49,7 +49,7 @@ wavelength, chi3, x0 = 800e-9, 3e-26, 50e-6
 k0 = 2 * math.pi / wavelength
 amplitude = math.sqrt(2 * 8 / (3 * k0**2 * chi3 * x0**2))  # V/m
 length = k0 * x0**2
-space = LineGrid(20 * x0, 64, window_factor=0)
+space = LineGrid(20 * x0, 64, collar_fraction=0)
 grid = EnvelopeGrid.from_limits(
     length, wavelength, (600e-9, 1.1e-6), 400e-15, thg=False
 )

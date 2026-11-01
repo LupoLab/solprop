@@ -136,7 +136,7 @@ def planar_case(family):
     grid = constructor(LENGTH, 800e-9, (600e-9, 1.2e-6), duration)
     modes = [SlabMode(HALF_GAP, order=p, cladding=1.45) for p in ORDERS]
     collar = family.startswith("collar")
-    space = PlanarGrid(modes, 4e-4, N_Y, window_factor=0.3 if collar else 0.0)
+    space = PlanarGrid(modes, 4e-4, N_Y, collar_fraction=0.3 if collar else 0.0)
     pulse = PlanarPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-7),
         80e-6,

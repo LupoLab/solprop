@@ -395,7 +395,7 @@ def test_node_admission_counts_a_symmetric_mixture_as_one_product(
 def test_a_free_column_holds_the_products_in_time_and_frequency(evaluator, products):
     """A Cartesian column adds its products and their spectra, twice per product."""
     grid = FieldGrid.from_limits(1e-4, 800e-9, (400e-9, 2e-6), 100e-15)
-    space = FreeGrid(3e-4, 9, 4e-4, 12, window_factor=0)
+    space = FreeGrid(3e-4, 9, 4e-4, 12, collar_fraction=0)
     pulse = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=3e-6), 8e-5
     )

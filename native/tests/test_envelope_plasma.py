@@ -225,9 +225,9 @@ def envelope_case(
     jones = (1,) if n_pol == 1 else (1, 0.35j)
     if route in ("free", "radial"):
         space = (
-            FreeGrid(3e-4, 4, 4e-4, 4, window_factor=0)
+            FreeGrid(3e-4, 4, 4e-4, 4, collar_fraction=0)
             if route == "free"
-            else RadialGrid(6e-4, 8, window_factor=0)
+            else RadialGrid(6e-4, 8, collar_fraction=0)
         )
         initial = SpatialPulse(pulse, 80e-6, jones=jones).build(
             grid, space, medium=SpatialMedium(fill)

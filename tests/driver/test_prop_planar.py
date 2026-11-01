@@ -582,7 +582,7 @@ def test_the_y_collar_absorbs_what_reaches_it_when_an_absorber_is_declared():
     spatial collar is always in-stage: the default Adams history steps it only
     below 1.4 mm here, so the runs take eighty steps of 1.25 mm.
     """
-    space = PlanarGrid(slab_modes((1,)), 0.5e-3, 32, window_factor=0.5)
+    space = PlanarGrid(slab_modes((1,)), 0.5e-3, 32, collar_fraction=0.5)
     profile = np.exp(-(((space.y - 0.62e-3) / 60e-6) ** 2))
     temporal = GaussianPulse(wavelength=800e-9, fwhm=100e-15, energy=1e-3).build(GRID)
     field0 = (np.fft.fft(profile)[:, None, None] * temporal[0][None]).astype(complex)

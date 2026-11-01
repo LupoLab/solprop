@@ -25,6 +25,16 @@ All notable changes to solprop are recorded here. The format follows
 
 ### Changed (breaking)
 
+- Every spatial grid takes `collar_fraction` in place of `window_factor`, default 0, and
+  puts the room it asks for **outside** the requested size on every geometry
+  ([SEP 40](docs/dev/seps/sep-0040-transverse-absorbing-boundaries.md)). `RadialGrid`'s
+  `radius` is now the requested aperture, the Dirichlet boundary is at
+  `outer_radius = radius * (1 + collar_fraction)`, and `n_r` counts every sample; the
+  transform, the nodes and the effective area use the outer radius. Fractions of 1 and
+  more are allowed. `FreeGrid(rx, nx, ry, ny)` and `LineGrid` lose their inert 10 %
+  margin, so their spacing at the same sample count changes; give
+  `collar_fraction=0.1` for the old grid. `RadialGrid(R, n_r)` keeps its wall and
+  spacing.
 - The output schema is 2: a `DataPulse` records its `spectral_phase` (below), and every
   field of a recorded dataclass is recorded, at its default too. This release refuses
   a file written by 0.1.0, and every configuration hash moves, so a 0.1.0 run cannot be

@@ -65,9 +65,9 @@ def test_spatial_vector_raman_and_actual_width_tails(
     constructor = EnvelopeGrid if family == "envelope" else FieldGrid
     grid = constructor.from_limits(length, 800e-9, (500e-9, 1.2e-6), 100e-15)
     space = (
-        RadialGrid(6e-4, 8, window_factor=0.0)
+        RadialGrid(6e-4, 8, collar_fraction=0.0)
         if geometry == "radial"
-        else FreeGrid(3e-4, 4, 4e-4, 4, window_factor=0.0)
+        else FreeGrid(3e-4, 4, 4e-4, 4, collar_fraction=0.0)
     )
     initial = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=20e-15, energy=1e-7),

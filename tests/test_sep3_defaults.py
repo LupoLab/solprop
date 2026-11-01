@@ -232,7 +232,7 @@ def test_silica_bundles_compare_by_their_digest():
 def _free(responses, materials=None) -> Any:
     """Build a small Cartesian argon run, translating nothing."""
     grid = FieldGrid.from_limits(1e-3, 800e-9, (600e-9, 1.2e-6), 150e-15)
-    space = FreeGrid(3e-4, 12, 4e-4, 16, window_factor=0)
+    space = FreeGrid(3e-4, 12, 4e-4, 16, collar_fraction=0)
     settings = SimulationSettings(
         controller=PIController(rtol=1e-8, atol=1e-14),
         save_planes=[grid.length],

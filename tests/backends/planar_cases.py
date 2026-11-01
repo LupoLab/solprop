@@ -29,7 +29,7 @@ RADIUS_Y = 1e-3
 """Half-width of the periodic y window, m."""
 
 CASES = {
-    # name: (hybrid family, n_y, window_factor, collar boundary length m or None,
+    # name: (hybrid family, n_y, collar_fraction, collar boundary length m or None,
     # responses: the family's, none, or Kerr without its harmonic)
     "kerr": ("kerr", 6, 0.0, None, "family"),
     # A 10 m collar keeps its in-stage rate, 1.3 1/m, inside the default Adams
@@ -64,7 +64,7 @@ def planar_case(name, *, steps=None, node_chunk=None):
     node_chunk : int, optional
         Override for the transform's node chunk, to force a partial last block.
     """
-    family, n_y, window_factor, boundary, respond = CASES[name]
+    family, n_y, collar_fraction, boundary, respond = CASES[name]
     grid, gas, energy, fwhm, plasma, raman, n_r, _, count, scheme = FAMILIES[family]
     steps = count if steps is None else max(1, steps)
     orders = ORDERS.get(family, (1, 3, 5))
@@ -95,7 +95,7 @@ def planar_case(name, *, steps=None, node_chunk=None):
     modal = simulation.with_input(
         np.stack([math.sqrt(share) * pulse for share in shares])
     ).translate()
-    space = PlanarGrid(modes, RADIUS_Y, n_y, window_factor=window_factor, n_x=n_r)
+    space = PlanarGrid(modes, RADIUS_Y, n_y, collar_fraction=collar_fraction, n_x=n_r)
     profile = np.exp(-((space.y / (RADIUS_Y / 3)) ** 2))
     field0 = (
         np.fft.fft(profile)[:, None, None, None] * modal.initial.field0[0][None]

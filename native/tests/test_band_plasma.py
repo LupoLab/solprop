@@ -198,9 +198,9 @@ def spatial(kind: str, steps: int = STEPS) -> tuple[FieldGrid, KernelProblem]:
         LENGTH, 800e-9, (600e-9, 1.2e-6), 200e-15, **LEGACY_GRID
     )
     space = (
-        RadialGrid(6e-4, 16, window_factor=0.0)
+        RadialGrid(6e-4, 16, collar_fraction=0.0)
         if kind == "radial"
-        else FreeGrid(3e-4, 9, 4e-4, 12, window_factor=0)
+        else FreeGrid(3e-4, 9, 4e-4, 12, collar_fraction=0)
     )
     pulse = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-7),
@@ -355,7 +355,7 @@ def test_overlapping_stencil_windows_refuse_uncertified_collar(
     grid = FieldGrid.from_limits(
         LENGTH, 800e-9, (600e-9, 1.2e-6), trange, ffac=ffac, **LEGACY_GRID
     )
-    space = RadialGrid(6e-4, 16, window_factor=0.0)
+    space = RadialGrid(6e-4, 16, collar_fraction=0.0)
     pulse = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=2e-15, energy=1e-8),
         80e-6,

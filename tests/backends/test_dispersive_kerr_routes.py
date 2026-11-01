@@ -255,7 +255,7 @@ def free_problem(
     band: np.ndarray | None = None,
 ):
     """Return a Cartesian free-space problem: vacuum optics, an argon density."""
-    space = FreeGrid(3e-4, 9, 4e-4, 12, window_factor=0) if space is None else space
+    space = FreeGrid(3e-4, 9, 4e-4, 12, collar_fraction=0) if space is None else space
     pulse = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=3e-6), 8e-5
     )
@@ -317,9 +317,9 @@ def test_without_dispersion_the_free_derivative_is_the_constant_one(thg, geometr
     """
     grid = free_grid("field")
     space = (
-        FreeGrid(3e-4, 9, 4e-4, 12, window_factor=0)
+        FreeGrid(3e-4, 9, 4e-4, 12, collar_fraction=0)
         if geometry == "plane"
-        else LineGrid(3e-4, 16, window_factor=0)
+        else LineGrid(3e-4, 16, collar_fraction=0)
     )
     band = sub_octave(grid)
     got = stage_derivative(
@@ -364,7 +364,7 @@ def free_energy_change(response: object, materials: MaterialSelection) -> float:
     )
     simulation = Simulation.from_free(
         grid,
-        FreeGrid(3e-4, 9, 4e-4, 12, window_factor=0),
+        FreeGrid(3e-4, 9, 4e-4, 12, collar_fraction=0),
         SpatialMedium(),
         [response],
         SpatialPulse(GaussianPulse(wavelength=800e-9, fwhm=15e-15, energy=3e-6), 6e-5),

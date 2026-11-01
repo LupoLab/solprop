@@ -147,7 +147,7 @@ def test_a_radial_run_through_three_independent_species(integrator):
     )
     simulation = Simulation.from_radial(
         grid,
-        RadialGrid(1e-3, 16, window_factor=0.0),
+        RadialGrid(1e-3, 16, collar_fraction=0.0),
         SpatialMedium(fill),
         [
             KerrResponse(gamma3(label, wavelength=800e-9), thg=False, species=label)

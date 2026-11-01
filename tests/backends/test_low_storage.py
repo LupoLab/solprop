@@ -214,7 +214,7 @@ def test_the_cartesian_diffraction_reproduces_its_width_and_gouy_phase(fraction)
     and its Fourier-series bounds are that test's own.
     """
     grid = EnvelopeGrid.from_limits(0.1, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False)
-    space = FreeGrid(6e-4, 48, 7.5e-4, 60, window_factor=0)
+    space = FreeGrid(6e-4, 48, 7.5e-4, 60, collar_fraction=0)
     index = int(np.argmin(abs(grid.omega - grid.omega0)))
     wave, waist = grid.omega[index] / C, 80e-6
     distance = fraction * wave * waist**2 / 2
@@ -436,7 +436,7 @@ def test_a_cartesian_kerr_beam_converges_at_order_four():
     grid = EnvelopeGrid.from_limits(
         length, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False
     )
-    space = FreeGrid(3e-4, 9, 4e-4, 12, window_factor=0)
+    space = FreeGrid(3e-4, 9, 4e-4, 12, collar_fraction=0)
     pulse = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=2e-7), 80e-6
     )
@@ -887,7 +887,7 @@ def spatial_collar_problem(steps, integrator):
     grid = EnvelopeGrid.from_limits(
         length, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False
     )
-    space = FreeGrid(3e-4, 9, 4e-4, 12, window_factor=0.25)
+    space = FreeGrid(3e-4, 9, 4e-4, 12, collar_fraction=0.25)
     pulse = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-7), 80e-6
     )
@@ -1378,7 +1378,7 @@ def cartesian_march(mode, *, noise=None, collar=False):
     grid = EnvelopeGrid.from_limits(
         length, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False
     )
-    space = FreeGrid(3e-4, 9, 4e-4, 12, window_factor=0.25 if collar else 0)
+    space = FreeGrid(3e-4, 9, 4e-4, 12, collar_fraction=0.25 if collar else 0)
     pulse = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-7), 80e-6
     )
@@ -1494,7 +1494,7 @@ def test_the_noise_adds_one_volume_and_the_estimate_names_it():
             EnvelopeGrid.from_limits(
                 1e-3, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False
             ),
-            FreeGrid(3e-4, 9, 4e-4, 12, window_factor=0),
+            FreeGrid(3e-4, 9, 4e-4, 12, collar_fraction=0),
             SpatialMedium(),
         ),
         np.random.default_rng(7),
@@ -1555,7 +1555,7 @@ def test_the_noise_draw_never_enters_the_propagating_field():
     grid = EnvelopeGrid.from_limits(
         length, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False
     )
-    space = FreeGrid(3e-4, 9, 4e-4, 12, window_factor=0)
+    space = FreeGrid(3e-4, 9, 4e-4, 12, collar_fraction=0)
     noise = spatial_noise(
         SpatialFlux.resolve(grid, space, SpatialMedium()),
         np.random.default_rng(3),
@@ -1598,7 +1598,7 @@ def test_each_pass_carries_the_draw_at_its_own_position(monkeypatch):
     grid = EnvelopeGrid.from_limits(
         length, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False
     )
-    space = FreeGrid(3e-4, 9, 4e-4, 12, window_factor=0)
+    space = FreeGrid(3e-4, 9, 4e-4, 12, collar_fraction=0)
     noise = spatial_noise(
         SpatialFlux.resolve(grid, space, SpatialMedium()),
         np.random.default_rng(94),

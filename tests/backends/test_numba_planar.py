@@ -443,9 +443,10 @@ def test_prop_planar_runs_on_numba_as_on_the_reference():
     """``prop_planar(..., backend="numba_cpu")`` end to end: fields and statistics.
 
     Ten Kerr steps of the hybrid families' front-end launch through the user's door,
-    with the default collar (``window_factor = 0.1``) and the free-space statistics; the
-    saved plane agrees within the run's bound and the statistics within twice it
-    (squares of the field) plus their own reductions' ``gamma``, the Cartesian ladder's.
+    with no room outside the aperture (``collar_fraction = 0``, the default) and the
+    free-space statistics; the saved plane agrees within the run's bound and the
+    statistics within twice it (squares of the field) plus their own reductions'
+    ``gamma``, the Cartesian ladder's.
     """
     space = PlanarGrid(
         [SlabMode(HALF_GAP, "Ar", 1.0, order=p) for p in (1, 3)], 1.5e-3, 16

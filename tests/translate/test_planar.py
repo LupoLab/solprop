@@ -46,7 +46,7 @@ pytestmark = pytest.mark.filterwarnings(
 @pytest.fixture(scope="module")
 def space():
     modes = [SlabMode(HALF_GAP, "Ar", 1.0, order=p) for p in (1, 3)]
-    return PlanarGrid(modes, 1e-3, 16, window_factor=0.25)
+    return PlanarGrid(modes, 1e-3, 16, collar_fraction=0.25)
 
 
 @pytest.fixture(scope="module")
@@ -148,7 +148,7 @@ def test_the_operator_at_ky_zero_is_each_slab_mode_to_its_rounding(space, proble
 def test_a_high_ky_column_is_evanescent_and_clamped(space, problem):
     separable = problem.linear.separable
     assert separable is not None
-    wide = PlanarGrid(space.modes, 1e-7, 4, window_factor=0.0)
+    wide = PlanarGrid(space.modes, 1e-7, 4, collar_fraction=0.0)
     medium = SpatialMedium("Ar", 1.0)
     dispersion = SpatialDispersion(medium, GRID, Frame.comoving(GRID))
     _, data = planar_operators(wide, dispersion, n_pol=1, z_max=0.1)
@@ -219,7 +219,7 @@ def test_the_problem_refuses_a_slab_geometry_without_its_own_operator(problem):
 
 
 def test_a_free_geometry_refuses_a_wall_term():
-    space = FreeGrid(1e-3, 4, 1e-3, 4, window_factor=0.0)
+    space = FreeGrid(1e-3, 4, 1e-3, 4, collar_fraction=0.0)
     free = assemble(
         GRID,
         None,

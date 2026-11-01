@@ -85,7 +85,7 @@ def absorber_case(request):
         else FieldGrid.from_limits
     )
     grid = constructor(LENGTH, 800e-9, (600e-9, 1.2e-6), 150e-15, **LEGACY_GRID)
-    space = RadialGrid(300e-6, 16, window_factor=0.5)
+    space = RadialGrid(300e-6, 16, collar_fraction=0.5)
     reference_length = 5 * LENGTH
     boundary = Absorber(
         np.zeros(grid.n_omega),

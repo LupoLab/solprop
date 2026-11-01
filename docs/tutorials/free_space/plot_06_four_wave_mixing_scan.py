@@ -83,7 +83,7 @@ grid = EnvelopeGrid.from_limits(LENGTH, WAVELENGTH, (740e-9, 870e-9), 300e-15)
 
 def transverse_grid(spacing, n_y=16):
     """A 0.3 mm by 0.24 mm box at the given x spacing, without a real-space collar."""
-    return FreeGrid(0.15e-3, round(0.3e-3 / spacing), 0.12e-3, n_y, window_factor=0.0)
+    return FreeGrid(0.15e-3, round(0.3e-3 / spacing), 0.12e-3, n_y, collar_fraction=0.0)
 
 
 space = transverse_grid(2e-6)
@@ -144,7 +144,7 @@ print(f"each beam carries {energy * 1e6:.4f} μJ into the sample")
 # (``temporal=False``): the medium has no dispersion, so nothing walks to the edge of
 # the time window, and a collar that absorbs nothing in time compiles no temporal pass.
 # The beams stay well inside the box too, so the grid has no real-space collar
-# (``window_factor=0``).
+# (``collar_fraction=0``).
 #
 # The transverse collar ramps a power rate up to 20 000 m⁻¹ over the outer tenth of
 # the grid's wavenumbers, which removes 60 dB of field at the edge over about 0.7 mm.

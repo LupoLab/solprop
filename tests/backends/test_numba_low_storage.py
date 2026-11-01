@@ -421,7 +421,7 @@ def test_the_radial_route_with_its_in_stage_collar_agrees(family):
         if family == "envelope"
         else FieldGrid.from_limits(*limits)
     )
-    space = RadialGrid(3e-4, 16, window_factor=0.5)
+    space = RadialGrid(3e-4, 16, collar_fraction=0.5)
     pulse = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-7), 80e-6
     )
@@ -482,7 +482,7 @@ def test_a_cartesian_kerr_beam_agrees(mode, collar, noisy):
                     1e-3, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False
                 ),
                 # The collar's window factor, as `cartesian_march` builds its grid.
-                FreeGrid(3e-4, 9, 4e-4, 12, window_factor=0.25 if collar else 0),
+                FreeGrid(3e-4, 9, 4e-4, 12, collar_fraction=0.25 if collar else 0),
                 SpatialMedium(),
             ),
             np.random.default_rng(7),
@@ -524,7 +524,9 @@ def test_a_line_beam_agrees(family):
         else EnvelopeGrid.from_limits(*limits, thg=False)
     )
     collar = family.endswith("collar")
-    space = LineGrid(3e-4 if collar else 4e-4, 24, window_factor=0.3 if collar else 0.0)
+    space = LineGrid(
+        3e-4 if collar else 4e-4, 24, collar_fraction=0.3 if collar else 0.0
+    )
     pulse = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-3),
         80e-6,
@@ -774,7 +776,7 @@ def test_the_engine_holds_its_registers_and_the_table_and_releases_them(mode, co
 def test_the_noise_and_a_field_free_plane_add_one_volume_each():
     """The draw is one counted volume; the held plane one more (SEP 22, Q14)."""
     grid = EnvelopeGrid.from_limits(1e-3, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False)
-    space = FreeGrid(3e-4, 9, 4e-4, 12, window_factor=0)
+    space = FreeGrid(3e-4, 9, 4e-4, 12, collar_fraction=0)
     noise = spatial_noise(
         SpatialFlux.resolve(grid, space, SpatialMedium()),
         np.random.default_rng(7),

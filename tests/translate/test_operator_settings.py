@@ -80,7 +80,7 @@ def line(
     # The budgets below are the evanescent and transverse rates alone: no collar.
     settings.setdefault("absorber", bare_absorber(grid))
     # A 0.2 um spacing: the grid's largest k_x, 1.6e7 rad/m, is past k0 = 7.9e6.
-    space = LineGrid(2e-6, 22, window_factor=0.1)
+    space = LineGrid(2e-6, 22, collar_fraction=0.1)
     pulse = evanescent_beam(grid, space, SpatialMedium() if medium is None else medium)
     planes = [length]
     return Simulation.from_free(
@@ -447,7 +447,7 @@ def test_a_radial_backend_handed_the_refused_step_forms_a_non_finite_stage():
 
 def test_the_radial_bounds_cover_a_varying_medium():
     grid = EnvelopeGrid.from_limits(1e-3, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False)
-    space = RadialGrid(6e-4, 16, window_factor=0.0)
+    space = RadialGrid(6e-4, 16, collar_fraction=0.0)
     medium = SpatialMedium("Ar", pressure=Linear(0.5, 1.5, grid.length))
     model = SpatialDispersion(medium, grid, Frame.comoving(grid))
     # The spectral collar gives the operator a real part for the bound to cover.

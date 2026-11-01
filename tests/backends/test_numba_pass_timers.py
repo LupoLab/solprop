@@ -65,7 +65,7 @@ def test_laps_accumulate_per_name_and_reset_forgets_them():
 def cartesian(integrator, *, collar: bool):
     """Return a small Cartesian envelope Kerr problem of two prescribed steps."""
     grid = EnvelopeGrid.from_limits(LENGTH, 800e-9, (600e-9, 1.2e-6), 100e-15)
-    space = FreeGrid(3e-4, 8, 3e-4, 6, window_factor=0.3 if collar else 0.0)
+    space = FreeGrid(3e-4, 8, 3e-4, 6, collar_fraction=0.3 if collar else 0.0)
     pulse = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-7), 8e-5
     )

@@ -85,7 +85,7 @@ def spatial(kind: str) -> Simulation:
     if kind == "radial":
         return Simulation.from_radial(
             grid,
-            RadialGrid(300e-6, 16, window_factor=0.2),
+            RadialGrid(300e-6, 16, collar_fraction=0.2),
             SpatialMedium(),
             responses,
             pulse,
@@ -94,7 +94,7 @@ def spatial(kind: str) -> Simulation:
         )
     return Simulation.from_free(
         grid,
-        FreeGrid(3e-4, 8, 4e-4, 6, window_factor=0.2),
+        FreeGrid(3e-4, 8, 4e-4, 6, collar_fraction=0.2),
         SpatialMedium(),
         responses,
         pulse,

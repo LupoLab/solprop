@@ -48,7 +48,7 @@ def free_case(request):
     window = 400e-15 if family.endswith("plasma") else 150e-15
     # The former geometry, which the stored records' bounds were derived on.
     grid = constructor(LENGTH, 800e-9, (600e-9, 1.2e-6), window, **LEGACY_GRID)
-    space = FreeGrid(3e-4, 9, 4e-4, 12, window_factor=0)
+    space = FreeGrid(3e-4, 9, 4e-4, 12, collar_fraction=0)
     pulse = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-7),
         80e-6,
@@ -218,7 +218,7 @@ def test_cartesian_analytic_family_plasma_statistics_scan_the_whole_field(
     rate; the plasma ladder above has no Kerr term and so never compiles this family.
     """
     grid = FieldGrid.from_limits(LENGTH, 800e-9, (600e-9, 1.2e-6), 400e-15)
-    space = FreeGrid(3e-4, 9, 4e-4, 12, window_factor=0)
+    space = FreeGrid(3e-4, 9, 4e-4, 12, collar_fraction=0)
     pulse = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-7),
         80e-6,
@@ -276,7 +276,7 @@ def test_cartesian_field_envelope_and_scalar_vector_parity(
 ):
     field_grid, envelope_grid, carrier_index = matched_parity_grids()
     carrier = field_grid.omega[carrier_index]
-    space = FreeGrid(3e-4, 12, 4e-4, 16, window_factor=0)
+    space = FreeGrid(3e-4, 12, 4e-4, 16, collar_fraction=0)
     waist = 80e-6
     spatial = np.fft.fft2(
         (2e8 * np.exp(-((space.r / waist) ** 2))).reshape(space.n_y, space.n_x)

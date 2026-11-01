@@ -28,7 +28,7 @@ def far_field() -> Simulation:
     neither is presented as a measured material coefficient.
     """
     grid = EnvelopeGrid.from_limits(1e-3, 800e-9, (740e-9, 870e-9), 300e-15)
-    space = FreeGrid(0.4e-3, 224, 0.4e-3, 64, window_factor=0.0)
+    space = FreeGrid(0.4e-3, 224, 0.4e-3, 64, collar_fraction=0.0)
     x, y = np.meshgrid(space.x, space.y)
     # The tutorial's launch: each beam's physical field, peak 7.5051e8 V/m (SEP 34).
     pulse = GaussianPulse(wavelength=800e-9, fwhm=50e-15, peak_power=1.0)
