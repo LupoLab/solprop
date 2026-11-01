@@ -7,6 +7,12 @@ All notable changes to solprop are recorded here. The format follows
 
 ## Unreleased
 
+### Changed
+
+- The README, `CITATION.cff` and the citing page name solprop's Zenodo DOI,
+  [10.5281/zenodo.23854248](https://doi.org/10.5281/zenodo.23854248), which covers
+  every release.
+
 ## [0.1.0] - 2026-10-31
 
 The first public release of `solprop` and of its compiled backend, `solprop-native`,

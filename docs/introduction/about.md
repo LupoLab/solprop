@@ -114,10 +114,11 @@ their results, and check that the physical and numerical inputs match.
 
 ## Citing solprop
 
-If you use solprop in published work, please cite the repository,
-<https://github.com/LupoLab/solprop>, with the version you used
-(`python -c "import solprop; print(solprop.__version__)"`). A citable reference will be
-added here when one is available.
+If you use solprop in published work, please cite its Zenodo record,
+[doi:10.5281/zenodo.23854248](https://doi.org/10.5281/zenodo.23854248), with the
+version you used (`python -c "import solprop; print(solprop.__version__)"`). That DOI
+names every release, and the record lists each release's own DOI. `CITATION.cff` in
+the repository holds the same reference, which GitHub offers as *Cite this repository*.
 
 ## Licence
 
