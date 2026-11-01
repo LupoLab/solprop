@@ -11,6 +11,7 @@ import numpy as np
 import pytest
 
 from legacy_geometry import LEGACY_GRID, bare_absorber
+from solprop.backends.registry import available
 from solprop.exceptions import DriverError, SolpropWarning
 from solprop.grid import EnvelopeGrid
 from solprop.log import NullReporter, PlaneObserver
@@ -22,7 +23,16 @@ pytestmark = pytest.mark.filterwarnings("ignore::solprop.exceptions.BoundaryWarn
 
 LENGTH = 0.01
 N_SAVE = 5
-BACKENDS = ["numpy_ref", "numba_cpu", "native"]
+BACKENDS = [
+    "numpy_ref",
+    "numba_cpu",
+    pytest.param(
+        "native",
+        marks=pytest.mark.skipif(
+            "native" not in available(), reason="native is not installed"
+        ),
+    ),
+]
 
 
 class Watcher(NullReporter):

@@ -4,7 +4,6 @@
 
 """A scan's portable stop and its point-by-point progress (SEP 41, S4 and S17)."""
 
-import contextlib
 import logging
 import multiprocessing as mp
 import sys
@@ -650,7 +649,7 @@ def test_work_outside_the_controller_reports_nothing_and_a_set_flag_stops_it():
 
 @pytest.mark.parametrize("arrives", ["before", "during"])
 @pytest.mark.parametrize("watched", [True, False])
-def test_a_worker_runs_controlled_work_under_its_pipe(arrives, watched):
+def test_a_worker_runs_controlled_work_under_its_pipe(arrives, watched, monkeypatch):
     class Controlled:
         stop = None
 
@@ -680,12 +679,15 @@ def test_a_worker_runs_controlled_work_under_its_pipe(arrives, watched):
     )
     for message in messages:
         parent.send(message)
+    # The worker may not close its end, so what it sent is read on every platform: a
+    # closed Windows pipe refuses a read of what is still buffered.
+    keep_open = child.close
+    monkeypatch.setattr(child, "close", lambda: None)
     pool._serve(cast(Connection, child), Controlled(), ())
     received = []
-    # The worker closed its end: read until the pipe says so.
-    with contextlib.suppress(EOFError):
-        while parent.poll():
-            received.append(parent.recv())
+    while parent.poll():
+        received.append(parent.recv())
+    keep_open()
     progress = (
         [
             ("progress", "summary", ("block",)),

@@ -32,7 +32,7 @@ from solprop.output.schema import SCHEMA_VERSION, _decode
 if TYPE_CHECKING:
     from solprop.output.compatibility import RecordComparison
 
-__all__ = ["Resumability", "resumability"]
+__all__ = ["Resumability", "ResumeMode", "resumability"]
 
 ResumeMode = Literal[True, "interpolated", "force"]
 """The ``resume=`` value a file needs to continue."""

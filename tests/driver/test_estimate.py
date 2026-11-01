@@ -9,6 +9,7 @@ import warnings
 
 import pytest
 
+from solprop.backends.registry import available
 from solprop.driver.memory import admit_memory
 from solprop.exceptions import MaterialRangeWarning, SolpropWarning
 from solprop.recipe import Recipe
@@ -23,7 +24,19 @@ def _built(name, backend):
         return recipe.build()
 
 
-@pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu", "native"])
+@pytest.mark.parametrize(
+    "backend",
+    [
+        "numpy_ref",
+        "numba_cpu",
+        pytest.param(
+            "native",
+            marks=pytest.mark.skipif(
+                "native" not in available(), reason="native is not installed"
+            ),
+        ),
+    ],
+)
 def test_the_estimate_reports_the_memory_admission_would_admit(backend):
     simulation = _built("soliton", backend)
     estimate = simulation.estimate()
@@ -40,7 +53,19 @@ def test_the_estimate_reports_the_memory_admission_would_admit(backend):
     assert estimate.total_calls is None
 
 
-@pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu", "native"])
+@pytest.mark.parametrize(
+    "backend",
+    [
+        "numpy_ref",
+        "numba_cpu",
+        pytest.param(
+            "native",
+            marks=pytest.mark.skipif(
+                "native" not in available(), reason="native is not installed"
+            ),
+        ),
+    ],
+)
 def test_a_budget_below_the_memory_is_reported_without_allocating(backend, monkeypatch):
     simulation = _built("soliton", backend)
     built = []

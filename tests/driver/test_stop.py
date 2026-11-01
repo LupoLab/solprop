@@ -10,6 +10,7 @@ import numpy as np
 import pytest
 
 from legacy_geometry import LEGACY_GRID, bare_absorber
+from solprop.backends.registry import available
 from solprop.exceptions import StopRequested
 from solprop.grid import EnvelopeGrid
 from solprop.log import NullReporter
@@ -66,7 +67,19 @@ def _scheduled(build_simulation, backend="numpy_ref"):
     )
 
 
-@pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu", "native"])
+@pytest.mark.parametrize(
+    "backend",
+    [
+        "numpy_ref",
+        "numba_cpu",
+        pytest.param(
+            "native",
+            marks=pytest.mark.skipif(
+                "native" not in available(), reason="native is not installed"
+            ),
+        ),
+    ],
+)
 def test_a_set_flag_stops_the_run_which_returns_and_resumes(
     build_simulation, tmp_path, backend
 ):

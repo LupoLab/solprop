@@ -119,13 +119,13 @@ def test_get_and_set_take_paths_and_check_the_value(recipe):
     with pytest.raises(RecipeError, match="length") as caught:
         recipe.set("length", "3 bar")
     assert caught.value.parameter == "length"
-    with pytest.raises(RecipeError, match=r"lenght"):
-        recipe.set("lenght", 1.0)
+    with pytest.raises(RecipeError, match=r"lengthx"):
+        recipe.set("lengthx", 1.0)
 
 
 def test_unknown_keys_and_routes_are_refused():
-    with pytest.raises(RecipeError, match="wavelenght"):
-        Recipe.loads(GNLSE.replace("wavelength =", "wavelenght ="))
+    with pytest.raises(RecipeError, match="wavelengthx"):
+        Recipe.loads(GNLSE.replace("wavelength =", "wavelengthx ="))
     with pytest.raises(RecipeError, match="radial"):
         Recipe.loads(GNLSE.replace('route = "gnlse"', 'route = "radial"'))
     with pytest.raises(RecipeError, match="output"):
