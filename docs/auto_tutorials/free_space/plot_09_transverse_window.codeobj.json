@@ -1,0 +1,968 @@
+{
+ "BoundaryError": [
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.exceptions",
+   "module_short": "solprop.exceptions",
+   "name": "BoundaryError"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "BoundaryError"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.exceptions",
+   "module_short": "solprop",
+   "name": "SolpropError"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "SolpropError"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "RuntimeError"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "Exception"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "BaseException"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.exceptions",
+   "module_short": "solprop.exceptions",
+   "name": "BoundaryError"
+  }
+ ],
+ "BoundaryWarning": [
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.exceptions",
+   "module_short": "solprop.exceptions",
+   "name": "BoundaryWarning"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "BoundaryWarning"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.exceptions",
+   "module_short": "solprop.exceptions",
+   "name": "SolpropWarning"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "SolpropWarning"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "UserWarning"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "Warning"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "Exception"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "BaseException"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.exceptions",
+   "module_short": "solprop.exceptions",
+   "name": "BoundaryWarning"
+  }
+ ],
+ "C": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "float"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.constants",
+   "module_short": "solprop.constants",
+   "name": "C"
+  }
+ ],
+ "DEFAULT_BOUNDARY_CHECK": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.monitor",
+   "module_short": "solprop.monitor",
+   "name": "BoundaryCheck"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "BoundaryCheck"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.monitor",
+   "module_short": "solprop.monitor",
+   "name": "DEFAULT_BOUNDARY_CHECK"
+  }
+ ],
+ "FieldGrid.from_limits": [
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.grid",
+   "module_short": "solprop.grid",
+   "name": "FieldGrid.from_limits"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "FieldGrid.from_limits"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.grid",
+   "module_short": "solprop.grid",
+   "name": "TimeGrid.from_limits"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "TimeGrid.from_limits"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop._display",
+   "module_short": "solprop._display",
+   "name": "Displayed.from_limits"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "Displayed.from_limits"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.grid.FieldGrid",
+   "module_short": "solprop.grid.FieldGrid",
+   "name": "from_limits"
+  }
+ ],
+ "GaussianPulse": [
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.pulses",
+   "module_short": "solprop.pulses",
+   "name": "GaussianPulse"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "GaussianPulse"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.pulses",
+   "module_short": "solprop.pulses",
+   "name": "ShapedPulse"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "ShapedPulse"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop._display",
+   "module_short": "solprop._display",
+   "name": "Displayed"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "Displayed"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.pulses",
+   "module_short": "solprop.pulses",
+   "name": "GaussianPulse"
+  }
+ ],
+ "KerrResponse": [
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.nonlinear.responses",
+   "module_short": "solprop.nonlinear",
+   "name": "KerrResponse"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.nonlinear",
+   "module_short": "solprop.nonlinear",
+   "name": "KerrResponse"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "KerrResponse"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.nonlinear.responses",
+   "module_short": "solprop.nonlinear",
+   "name": "KerrResponse"
+  }
+ ],
+ "LENGTH": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "float"
+  }
+ ],
+ "PIController": [
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.stepper.controller",
+   "module_short": "solprop.stepper",
+   "name": "PIController"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.stepper",
+   "module_short": "solprop.stepper",
+   "name": "PIController"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "PIController"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.stepper",
+   "module_short": "solprop.stepper",
+   "name": "PIController"
+  }
+ ],
+ "RADII": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ndarray"
+  }
+ ],
+ "RADIUS": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "float"
+  }
+ ],
+ "RadialGrid": [
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.grid",
+   "module_short": "solprop.grid",
+   "name": "RadialGrid"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "RadialGrid"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop._display",
+   "module_short": "solprop._display",
+   "name": "Displayed"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "Displayed"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.grid",
+   "module_short": "solprop.grid",
+   "name": "RadialGrid"
+  }
+ ],
+ "SAMPLES": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "int"
+  }
+ ],
+ "Simulation.from_radial": [
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.driver.simulation",
+   "module_short": "solprop.driver",
+   "name": "Simulation.from_radial"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.driver",
+   "module_short": "solprop.driver",
+   "name": "Simulation.from_radial"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "Simulation.from_radial"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop._display",
+   "module_short": "solprop._display",
+   "name": "Displayed.from_radial"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "Displayed.from_radial"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.driver.Simulation",
+   "module_short": "solprop.driver.Simulation",
+   "name": "from_radial"
+  }
+ ],
+ "SimulationSettings": [
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.driver.simulation",
+   "module_short": "solprop.driver",
+   "name": "SimulationSettings"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.driver",
+   "module_short": "solprop.driver",
+   "name": "SimulationSettings"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "SimulationSettings"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop._display",
+   "module_short": "solprop._display",
+   "name": "Displayed"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "Displayed"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.driver",
+   "module_short": "solprop.driver",
+   "name": "SimulationSettings"
+  }
+ ],
+ "SpatialAbsorber": [
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.spatial_absorber",
+   "module_short": "solprop.spatial_absorber",
+   "name": "SpatialAbsorber"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "SpatialAbsorber"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.boundaries",
+   "module_short": "solprop.boundaries",
+   "name": "SpatialAbsorber"
+  }
+ ],
+ "SpatialMedium": [
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.spatial",
+   "module_short": "solprop.spatial",
+   "name": "SpatialMedium"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "SpatialMedium"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.spatial",
+   "module_short": "solprop.spatial",
+   "name": "SpatialMedium"
+  }
+ ],
+ "SpatialPulse": [
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.pulses",
+   "module_short": "solprop.pulses",
+   "name": "SpatialPulse"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "SpatialPulse"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop._display",
+   "module_short": "solprop._display",
+   "name": "Displayed"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "Displayed"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.pulses",
+   "module_short": "solprop.pulses",
+   "name": "SpatialPulse"
+  }
+ ],
+ "WAIST": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "float"
+  }
+ ],
+ "_": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "dict"
+  }
+ ],
+ "beam": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "function"
+  }
+ ],
+ "critical_power": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "function"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.spatial",
+   "module_short": "solprop.spatial",
+   "name": "critical_power"
+  }
+ ],
+ "error": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "function"
+  }
+ ],
+ "field": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ndarray"
+  }
+ ],
+ "fraction": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "float"
+  }
+ ],
+ "gamma3": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "function"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.physdata",
+   "module_short": "solprop.physdata",
+   "name": "gamma3"
+  }
+ ],
+ "j0": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ufunc"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "scipy.special",
+   "module_short": "scipy.special",
+   "name": "j0"
+  }
+ ],
+ "math.log": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "builtin_function_or_method"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "math",
+   "module_short": "math",
+   "name": "log"
+  }
+ ],
+ "math.pi": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "float"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "math",
+   "module_short": "math",
+   "name": "pi"
+  }
+ ],
+ "math.sqrt": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "builtin_function_or_method"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "math",
+   "module_short": "math",
+   "name": "sqrt"
+  }
+ ],
+ "np.abs": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ufunc"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "abs"
+  }
+ ],
+ "np.array": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "builtin_function_or_method"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "array"
+  }
+ ],
+ "np.asarray": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "builtin_function_or_method"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "asarray"
+  }
+ ],
+ "np.linspace": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "_ArrayFunctionDispatcher"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "linspace"
+  }
+ ],
+ "np.outer": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "_ArrayFunctionDispatcher"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "outer"
+  }
+ ],
+ "np.pi": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "float"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "pi"
+  }
+ ],
+ "np.real": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "_ArrayFunctionDispatcher"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "real"
+  }
+ ],
+ "np.sum": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "_ArrayFunctionDispatcher"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "sum"
+  }
+ ],
+ "record": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "dict"
+  }
+ ],
+ "record.get": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "builtin_function_or_method"
+  }
+ ],
+ "reference": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ndarray"
+  }
+ ],
+ "reference_wall": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "float"
+  }
+ ],
+ "run": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "function"
+  }
+ ],
+ "share": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "float"
+  }
+ ],
+ "status": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "str"
+  }
+ ],
+ "time.perf_counter": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "builtin_function_or_method"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "time",
+   "module_short": "time",
+   "name": "perf_counter"
+  }
+ ],
+ "wall": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "float"
+  }
+ ],
+ "warnings.catch_warnings": [
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "_py_warnings",
+   "module_short": "_py_warnings",
+   "name": "catch_warnings"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "warnings",
+   "module_short": "warnings",
+   "name": "catch_warnings"
+  }
+ ],
+ "warnings.simplefilter": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "function"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "warnings",
+   "module_short": "warnings",
+   "name": "simplefilter"
+  }
+ ]
+}
