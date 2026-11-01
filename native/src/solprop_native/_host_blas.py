@@ -16,6 +16,10 @@ first native backend of a process limits every BLAS that threadpoolctl finds, ex
 this package's own (whose width is fitted at import), to one thread, or to
 ``SOLPROP_BLAS_THREADS`` within the thread budget; the last one to close gives the
 pools back.
+
+The solprop-dependent adapter supplies a shared lease hook, so construction and
+other backend holds can start and finish in either order without restoring each
+other's temporary limits. Standalone use keeps the local limit below.
 """
 
 from __future__ import annotations
@@ -23,6 +27,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
+from collections.abc import Callable
 from typing import Any
 
 from ._budget import thread_count
@@ -35,7 +40,12 @@ _limiter: Any = None
 _reached = "unset"
 
 
-def _limit(own_library: str, budget: int, controller: Any = None) -> tuple[str, Any]:
+def _limit(
+    own_library: str,
+    budget: int,
+    controller: Any = None,
+    acquire: Callable[[list[Any], int], Any] | None = None,
+) -> tuple[str, Any]:
     """Limit the BLAS pools other than `own_library`; say which, return the limit."""
     if controller is None:
         try:
@@ -55,12 +65,22 @@ def _limit(own_library: str, budget: int, controller: Any = None) -> tuple[str, 
     requested = thread_count("SOLPROP_BLAS_THREADS")
     threads = 1 if requested is None else min(requested, budget)
     libraries = controller.select(filepath=others)
-    limiter = libraries.limit(limits=threads)
+    limiter = (
+        libraries.limit(limits=threads)
+        if acquire is None
+        else acquire(libraries.lib_controllers, threads)
+    )
     names = ",".join(sorted({one.internal_api for one in libraries.lib_controllers}))
     return f"{names}: {threads} thread{'s' if threads > 1 else ''}", limiter
 
 
-def hold(own_library: str, budget: int, controller: Any = None) -> str:
+def hold(
+    own_library: str,
+    budget: int,
+    controller: Any = None,
+    *,
+    acquire: Callable[[list[Any], int], Any] | None = None,
+) -> str:
     """Take the host BLAS pools for one more backend; return what applies.
 
     Parameters
@@ -71,6 +91,10 @@ def hold(own_library: str, budget: int, controller: Any = None) -> str:
         The process's thread budget, which ``SOLPROP_BLAS_THREADS`` stays within.
     controller : threadpoolctl.ThreadpoolController, optional
         The library walk; a test passes its own.
+    acquire : callable or None, optional
+        An explicit host-lease hook supplied by solprop's backend adapter, so
+        construction and backend lifetimes share their pool ownership. Standalone
+        use keeps the local threadpoolctl limit and imports no solprop code.
 
     Returns
     -------
@@ -81,7 +105,7 @@ def hold(own_library: str, budget: int, controller: Any = None) -> str:
     global _holders, _limiter, _reached
     with _LOCK:
         if _holders == 0:
-            _reached, _limiter = _limit(own_library, budget, controller)
+            _reached, _limiter = _limit(own_library, budget, controller, acquire)
             logger.info("native: host BLAS pools %s", _reached)
         _holders += 1
         return _reached

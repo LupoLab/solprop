@@ -5,6 +5,7 @@
 """Host construction borrows BLAS pools and restores the previous owner."""
 
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from threading import Event
 from types import SimpleNamespace
 
@@ -14,6 +15,8 @@ import threadpoolctl
 
 import solprop.translate.problem as translation
 from solprop import _process
+from solprop.backends import registry
+from solprop.backends.numba_cpu import fft
 from solprop.constants import C
 from solprop.coupling import CouplingModel, FieldPlane, couple, coupler
 from solprop.driver import Simulation
@@ -31,6 +34,10 @@ class Library:
         self.filepath = filepath
         self.num_threads = threads
         self.user_api = "blas"
+        self.internal_api = "openblas"
+
+    def set_num_threads(self, threads):
+        self.num_threads = threads
 
 
 class Limit:
@@ -198,6 +205,108 @@ def test_no_controllable_blas_is_an_ordinary_scope(pools):
     assert len(pools[1]) == 1
 
 
+def test_construction_does_not_import_an_absent_native_backend(monkeypatch, pools):
+    monkeypatch.delitem(_process.sys.modules, "solprop_native", raising=False)
+    with _process.host_blas():
+        assert widths(pools) == [1, 1]
+        assert "solprop_native" not in _process.sys.modules
+    assert widths(pools) == [32, 32]
+
+
+def test_a_backend_test_double_need_not_supply_native_build_info(monkeypatch, pools):
+    monkeypatch.setitem(
+        _process.sys.modules, "solprop_native", SimpleNamespace(NativeBackend=object)
+    )
+    with _process.host_blas():
+        assert widths(pools) == [1, 1]
+
+
+@pytest.mark.parametrize("name", ["native", "numba_cpu"])
+@pytest.mark.parametrize("first", ["construction", "backend"])
+def test_crossing_backend_and_construction_lifetimes_keep_the_remaining_owner(
+    monkeypatch, pools, name, first
+):
+    controller = Controller(pools[0])
+    if name == "native":
+        native = pytest.importorskip("solprop_native._host_blas")
+        monkeypatch.setattr(native, "_holders", 0)
+        monkeypatch.setattr(native, "_limiter", None)
+
+        def native_start():
+            monkeypatch.setenv("SOLPROP_BLAS_THREADS", "2")
+            native.hold(
+                "/native/blas", 4, controller, acquire=_process.acquire_host_blas
+            )
+            return native.release
+
+        start = native_start
+
+    else:
+        # Isolate BLAS ownership from Numba's separate kernel pool.
+        monkeypatch.setattr(fft, "set_num_threads", lambda _threads: None)
+        monkeypatch.setattr(fft, "get_num_threads", lambda: 1)
+
+        def numba_start():
+            settings = replace(fft.choose_pools(1000, 1000, 1000, threads=1), blas=2)
+            _, lease = fft.apply_pools(settings, controller=controller)
+            return lambda: fft.release_pools(lease)
+
+        start = numba_start
+
+    construction = _process.host_blas()
+
+    def release():
+        pass
+
+    try:
+        if first == "construction":
+            construction.__enter__()
+            release = start()
+            assert widths(pools) == [1, 1]
+            construction.__exit__(None, None, None)
+            assert widths(pools) == [2, 2]
+            release()
+        else:
+            release = start()
+            monkeypatch.delenv("SOLPROP_BLAS_THREADS", raising=False)
+            assert widths(pools) == [2, 2]
+            construction.__enter__()
+            assert widths(pools) == [1, 1]
+            release()
+            assert widths(pools) == [1, 1]
+            construction.__exit__(None, None, None)
+        assert widths(pools) == [32, 32]
+    finally:
+        release()
+        construction.__exit__(None, None, None)
+
+
+def test_a_failed_lease_acquisition_restores_every_touched_library(monkeypatch, pools):
+    failing = pools[0][1]
+    original = failing.set_num_threads
+
+    def fail_once(threads):
+        monkeypatch.setattr(failing, "set_num_threads", original)
+        raise RuntimeError("library setter failed")
+
+    monkeypatch.setattr(failing, "set_num_threads", fail_once)
+    with pytest.raises(RuntimeError, match="library setter failed"):
+        _process.acquire_host_blas(pools[0], 1)
+    assert widths(pools) == [32, 32]
+    assert not _process._BLAS_POOLS
+
+
+def test_releasing_one_owner_twice_keeps_another_owners_narrower_limit(pools):
+    wide = _process.acquire_host_blas(pools[0], 4)
+    narrow = _process.acquire_host_blas(pools[0], 2)
+    assert widths(pools) == [2, 2]
+    wide.restore_original_limits()
+    wide.restore_original_limits()
+    assert widths(pools) == [2, 2]
+    narrow.restore_original_limits()
+    assert widths(pools) == [32, 32]
+
+
 def test_provider_construction_and_standalone_solve_hold_the_pool(monkeypatch, pools):
     original = graded_index.eigh
     observed = []
@@ -230,8 +339,10 @@ def test_provider_construction_and_standalone_solve_hold_the_pool(monkeypatch, p
     assert len(pools[1]) == 2
 
 
-def test_translation_and_coupling_hold_and_restore_the_pool(monkeypatch, pools):
-    simulation = Simulation.from_gnlse(
+@pytest.fixture
+def simulation():
+    """A small host-only construction that any supported CPU backend can own."""
+    return Simulation.from_gnlse(
         0.11,
         0.001,
         [0.0, 0.0, -1.183e-26],
@@ -244,6 +355,11 @@ def test_translation_and_coupling_hold_and_restore_the_pool(monkeypatch, pools):
         noise=None,
         n_save=2,
     )
+
+
+def test_translation_and_coupling_hold_and_restore_the_pool(
+    monkeypatch, pools, simulation
+):
     original_validate = translation.KernelProblem.validate
     observed = []
 
@@ -276,3 +392,38 @@ def test_translation_and_coupling_hold_and_restore_the_pool(monkeypatch, pools):
     assert observed == [[1, 1]]
     assert not np.any(result.launch.samples)
     assert widths(pools) == [32, 32]
+
+
+@pytest.mark.parametrize("name", ["numpy_ref", "numba_cpu", "native"])
+def test_construction_beside_a_live_backend_restores_its_pools(
+    monkeypatch, simulation, name
+):
+    if name not in registry.available():
+        pytest.skip(f"the {name} backend is not installed")
+    problem = simulation.translate()
+    backend = registry.select(
+        name, problem, grid=simulation.grid, modes=simulation.modes
+    )
+    try:
+        controller = threadpoolctl.ThreadpoolController().select(user_api="blas")
+        before = {one.filepath: one.num_threads for one in controller.lib_controllers}
+        native = _process.sys.modules.get("solprop_native")
+        own = "" if native is None else native.build_info().blas_library
+        monkeypatch.setenv("SOLPROP_BLAS_THREADS", "2")
+        monkeypatch.setattr(
+            _process, "thread_budget", lambda: _process.ThreadBudget(2, "test")
+        )
+        with _process.host_blas():
+            during = {
+                one.filepath: one.num_threads for one in controller.lib_controllers
+            }
+            assert during == {
+                path: width if path == own else 2 for path, width in before.items()
+            }
+            # Another construction nests into the hold while the backend lives.
+            simulation.with_input(simulation.initial).translate()
+        assert {
+            one.filepath: one.num_threads for one in controller.lib_controllers
+        } == before
+    finally:
+        backend.close()

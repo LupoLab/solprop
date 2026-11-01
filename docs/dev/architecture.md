@@ -155,9 +155,14 @@ NumPy's and SciPy's controllable BLAS pools at one thread (or `SOLPROP_BLAS_THRE
 under ADR-052) around guide construction, standalone graded-index solves, translation
 and coupling. These coarse scopes change no physical algorithm. They restore the
 previous limits after the last nested or overlapping scope exits, since the limits
-are process-wide. They exclude the native backend's
-own BLAS and do not import a backend; an already loaded native package supplies its
-library identity through `build_info`. See the [BLAS guide](../guide/performance/tuning.md#blas-and-vendor-libraries).
+are process-wide. Construction and the Numba and native adapters share one private
+lease coordinator: each library takes the smallest active request, even when owners
+start and finish in different orders, and only the last release restores its original
+width. Native's adapter supplies the lease hook explicitly; the standalone native
+package keeps its local hold and imports no solprop code. Construction excludes the
+native backend's own BLAS and does not import a backend; an already loaded native
+package supplies its library identity through `build_info`. See the
+[BLAS guide](../guide/performance/tuning.md#blas-and-vendor-libraries).
 
 **The X → T edges.** `solprop.processing.modal` imports
 `solprop.translate.modal_tables.ModalTransformTables` and

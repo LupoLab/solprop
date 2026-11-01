@@ -391,7 +391,9 @@ mode solve (including a node rule's tail certificate), kernel translation and `c
 This overrides `OPENBLAS_NUM_THREADS` and the other vendor defaults for those calls,
 then restores the previous limits even if construction fails. A native backend's own
 BLAS keeps its fitted width. Nested or overlapping construction shares the first
-scope's hold, and the last scope restores the pools. Separate processes, including
+scope's hold. Construction and live backend holds share each library's ownership:
+the narrowest active request applies, and the last owner restores the original width,
+even if the calls start and finish in different orders. Separate processes, including
 scan workers, keep their own pools. Accelerate exposes no runtime
 thread control to threadpoolctl, so these scopes leave it unchanged.
 

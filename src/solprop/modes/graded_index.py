@@ -858,6 +858,7 @@ class GradedIndexProvider(Displayed):
             operator[panel : panel + 2, panel : panel + 2] += local_operator
         return mass, operator
 
+    @host_blas()
     def node_rule(
         self,
         omega: float,
@@ -950,6 +951,7 @@ class GradedIndexProvider(Displayed):
             },
         )
 
+    @host_blas()
     def solve(self, omega: float, z: float, *, nodes: ModalNodeRule) -> ModalSample:
         """Evaluate a variational vector sector or labelled LP approximation.
 

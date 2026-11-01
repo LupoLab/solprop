@@ -23,6 +23,7 @@ import numpy as np
 import numpy.typing as npt
 from solprop._helpers import Helpers
 from solprop._interrupts import committing
+from solprop._process import acquire_host_blas
 from solprop.backends.driver import StepDriver, reached, replay_tolerance
 from solprop.backends.exponential import (
     CarrierReference,
@@ -355,7 +356,9 @@ class NativeBackend(StepDriver[_core.State]):
         # NumPy's own BLAS pool would spin beside the native one while this backend
         # lives; it is held to one thread until the last native backend closes.
         self._host_blas = _host_blas.hold(
-            build_info().blas_library, THREAD_BUDGET.threads
+            build_info().blas_library,
+            THREAD_BUDGET.threads,
+            acquire=acquire_host_blas,
         )
 
     def _apply_mask(self, state: ComplexArray) -> _core.State:
