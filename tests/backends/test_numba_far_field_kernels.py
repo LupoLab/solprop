@@ -39,7 +39,7 @@ from solprop.backends.spatial import (
     far_field_layout,
     far_field_partials,
 )
-from solprop.boundaries import TransverseCollar, absorber
+from solprop.boundaries import SpatialAbsorber, absorber
 from solprop.constants import EPS0, C
 from solprop.driver import Simulation, SimulationSettings
 from solprop.exceptions import BackendError
@@ -148,7 +148,7 @@ def random_field(space, n_pol, grid, *, seed=7):
     return field
 
 
-def problem_of(grid, space, field, spec, *, medium=None, collar=None):
+def problem_of(grid, space, field, spec, *, medium=None, collar=False):
     simulation = Simulation.from_free(
         grid,
         space,
@@ -164,7 +164,7 @@ def problem_of(grid, space, field, spec, *, medium=None, collar=None):
             backend="numba_cpu",
             integrator=RungeKutta(),
             stats=spec,
-            transverse_absorber=collar,
+            spatial_absorber=collar,
         ),
         noise=None,
     )
@@ -383,7 +383,11 @@ def test_the_pass_matches_the_reference(kind, n_pol, profile, weighting):
     spec = spec_of(holes(profile, weighting, size=FINE))
     field = random_field(space, n_pol, grid)
     problem = problem_of(
-        grid, space, field, spec, collar=TransverseCollar(4e3, fraction=0.5)
+        grid,
+        space,
+        field,
+        spec,
+        collar=SpatialAbsorber(real_space=False, safety_fraction=0.5),
     )
     tables = aperture_tables(spec, problem.grids, problem.transform.geometry)
     values, axis = FarFieldPass(problem, parallel=False)(WITH_AXIS, grid, field, tables)

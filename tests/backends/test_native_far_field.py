@@ -42,7 +42,7 @@ from solprop.backends import select
 from solprop.backends.memory import estimate_memory, far_field_memory
 from solprop.backends.numba_cpu.spatial import FarFieldPass
 from solprop.backends.spatial import AXIS_SPECTRUM_ONLY, far_field_partials
-from solprop.boundaries import TransverseCollar, absorber
+from solprop.boundaries import SpatialAbsorber, absorber
 from solprop.driver import Simulation, SimulationSettings
 from solprop.exceptions import BackendError
 from solprop.grid import FreeGrid, LineGrid
@@ -59,7 +59,7 @@ NativeBackend = solprop_native.NativeBackend
 PROBE = Path(__file__).with_name("native_far_field_thread_probe.py")
 
 
-def problem_of(grid, space, field, spec, *, medium=None, collar=None):
+def problem_of(grid, space, field, spec, *, medium=None, collar=False):
     """The kernel problem of ``test_numba_far_field_kernels.problem_of`` for Kokkos."""
     simulation = Simulation.from_free(
         grid,
@@ -76,7 +76,7 @@ def problem_of(grid, space, field, spec, *, medium=None, collar=None):
             backend="native",
             integrator=RungeKutta(),
             stats=spec,
-            transverse_absorber=collar,
+            spatial_absorber=collar,
         ),
         noise=None,
     )
@@ -113,7 +113,11 @@ def case(kind, n_pol, profile, weighting):
     spec = spec_of(holes(profile, weighting, size=FINE))
     field = random_field(space, n_pol, grid)
     problem = problem_of(
-        grid, space, field, spec, collar=TransverseCollar(4e3, fraction=0.5)
+        grid,
+        space,
+        field,
+        spec,
+        collar=SpatialAbsorber(real_space=False, safety_fraction=0.5),
     )
     tables = aperture_tables(spec, problem.grids, problem.transform.geometry)
     return grid, problem, field, tables

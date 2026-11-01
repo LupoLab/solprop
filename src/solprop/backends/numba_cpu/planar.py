@@ -194,8 +194,8 @@ def slab_data(problem: KernelProblem) -> tuple[Any, ...]:
     -------
     tuple
         The free-space record's arrays with ``kappa_sq`` after the transverse
-        residual, then the evanescent rate, the state's polarisation count and the
-        channel count.
+        residual, then the evanescent rate, the state's polarisation count, the
+        channel count and the safety ramp's rate per column (SEP 40).
     """
     data = problem.linear.separable
     assert data is not None and data.kappa_sq is not None
@@ -213,6 +213,7 @@ def slab_data(problem: KernelProblem) -> tuple[Any, ...]:
         data.evanescent_rate,
         data.n_pol,
         data.n_channels,
+        data.kperp_rate,
     )
 
 
@@ -266,6 +267,7 @@ def make_kernels(*, parallel: bool) -> PlanarKernels:
             evanescent,
             n_pol,
             n_channels,
+            ramp,
         ) = data
         for column in wide_columns(forward.shape[0]):
             mode = column // n_pol
@@ -283,6 +285,7 @@ def make_kernels(*, parallel: bool) -> PlanarKernels:
                     clamped[omega],
                     active[omega],
                     evanescent,
+                    ramp[mode],
                 )
                 exponent = distance * value
                 fr, fi, br, bi = _PAIR(exponent.real, exponent.imag)
@@ -340,6 +343,7 @@ def make_kernels(*, parallel: bool) -> PlanarKernels:
             evanescent,
             n_pol,
             n_channels,
+            ramp,
         ) = data
         for column in wide_columns(stage.shape[0]):
             mode = column // n_pol
@@ -359,6 +363,7 @@ def make_kernels(*, parallel: bool) -> PlanarKernels:
                         clamped[omega],
                         active[omega],
                         evanescent,
+                        ramp[mode],
                     )
                     value = prefactor * window[omega] * material[column, omega]
                 if flags[1] and mask[omega]:
@@ -399,6 +404,7 @@ def write_phase(data: Any, z: float, phase: np.ndarray) -> None:
         evanescent,
         n_pol,
         n_channels,
+        ramp,
     ) = data
     for column in range(phase.shape[0]):
         mode = column // n_pol
@@ -416,5 +422,6 @@ def write_phase(data: Any, z: float, phase: np.ndarray) -> None:
                 clamped[omega],
                 active[omega],
                 evanescent,
+                ramp[mode],
             )
             phase[column, omega] = z * value.imag

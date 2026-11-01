@@ -25,6 +25,19 @@ All notable changes to solprop are recorded here. The format follows
 
 ### Changed (breaking)
 
+- A free-space run's transverse boundary is a `SpatialAbsorber`
+  ([SEP 40](docs/dev/seps/sep-0040-transverse-absorbing-boundaries.md)), given as
+  `SimulationSettings.spatial_absorber` or the `spatial_absorber` keyword of
+  `prop_radial`, `prop_free`, `prop_planar` and their `Simulation.from_*` builders. By
+  default every radial, Cartesian, line and planar run carries a designed safety ramp on
+  its outer 10 % of transverse wavenumbers, folded exactly into the operator, radial and
+  planar included; `spatial_absorber=False` removes it. A real-space collar is designed
+  on request, in the grid's room outside its requested size, from a protected band
+  (`kappa`, `angle`, or the launch) and its width, not from the run length, and is
+  refused by name where it cannot meet its budget. `TransverseCollar`,
+  `transverse_collar_rate`, `SimulationSettings.transverse_absorber` and
+  `Absorber.spatial` are removed, and `Absorber.collar_length` no longer sets a
+  real-space rate. Kernel schema 41.
 - Every spatial grid takes `collar_fraction` in place of `window_factor`, default 0, and
   puts the room it asks for **outside** the requested size on every geometry
   ([SEP 40](docs/dev/seps/sep-0040-transverse-absorbing-boundaries.md)). `RadialGrid`'s

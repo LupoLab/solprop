@@ -12,8 +12,6 @@ geometry here rather than chasing the new one.
 
 from __future__ import annotations
 
-import dataclasses
-
 from solprop.boundaries import Absorber, no_absorber
 from solprop.grid import TimeGrid
 
@@ -41,4 +39,4 @@ def bare_absorber(grid: TimeGrid) -> Absorber:
     Absorber
         The bare boundaries.
     """
-    return dataclasses.replace(no_absorber(grid), spatial=False)
+    return no_absorber(grid)

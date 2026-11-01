@@ -639,6 +639,38 @@ class SpatialAbsorberDesign:
             values.setflags(write=False)
             object.__setattr__(self, name, values)
 
+    def record(self) -> dict[str, object]:
+        """Return the design's derived values for the run's record.
+
+        Returns
+        -------
+        dict
+            JSON-ready scalars and tuples: the ramp's start per axis and strength, and
+            with a collar its peak rate, widths, band edges, threshold, crossing step
+            and unguarded band, then the design check's record and the notes. The
+            rates on the nodes and columns are in the operator's own record.
+        """
+        record: dict[str, object] = {
+            "ramp_start": list(self.kappa_s),
+            "ramp_strength": self.ramp_strength,
+            "collar": self.has_collar,
+        }
+        if self.has_collar:
+            record |= {
+                "alpha0": self.alpha0,
+                "width": list(self.width),
+                "kappa_p": list(self.kappa_p),
+                "kappa_lo": self.kappa_lo,
+                "crossing_step": self.crossing_step,
+                "unguarded_above": self.unguarded_above,
+            }
+        record["check"] = dict(self.check)
+        record["notes"] = {
+            name: list(value) if isinstance(value, tuple) else value
+            for name, value in self.notes.items()
+        }
+        return record
+
     @property
     def has_collar(self) -> bool:
         """Return whether the design carries a real-space collar.

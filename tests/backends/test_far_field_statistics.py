@@ -27,7 +27,7 @@ from solprop.backends import registry, select
 from solprop.backends.batch import LockstepRunner
 from solprop.backends.registry import statistics_refusal
 from solprop.backends.spatial import FarFieldTables, collect_spatial
-from solprop.boundaries import TransverseCollar, absorber
+from solprop.boundaries import SpatialAbsorber, absorber
 from solprop.constants import EPS0, C
 from solprop.driver import Simulation, SimulationSettings
 from solprop.driver.run import run_problem
@@ -268,7 +268,9 @@ def channel_powers(problem, grid, field):
     return np.sum(terms, axis=(1, 2)), np.sum(np.abs(terms), axis=(1, 2))
 
 
-@pytest.mark.parametrize("collar", [None, TransverseCollar(3e4, fraction=0.3)])
+@pytest.mark.parametrize(
+    "collar", [False, SpatialAbsorber(real_space=False, safety_fraction=0.3)]
+)
 @pytest.mark.parametrize("loss", [1e-5, -1e-5])
 def test_each_absorbed_channel_is_its_share_of_the_linear_decay(
     grid, lossy_launch, loss, collar
@@ -281,7 +283,7 @@ def test_each_absorbed_channel_is_its_share_of_the_linear_decay(
         medium=SpatialMedium(1 + 1j * loss),
         absorber=absorber(grid, temporal=False),
         spec=StatsSpec(names=("energy", "absorbed_power")),
-        transverse_absorber=collar,
+        spatial_absorber=collar,
     )
     values, problem = entrance(simulation)
     power = values["absorbed_power"][0]
@@ -289,13 +291,13 @@ def test_each_absorbed_channel_is_its_share_of_the_linear_decay(
     # Each channel's power is a sum of n terms with their roundings: 2 gamma_n of
     # the sum of their magnitudes; without a collar the transverse channel is an
     # exact zero.
-    if collar is None:
+    if collar is False:
         assert power[1] == 0.0
     else:
         assert power[1] > 0
     # An evanescent column carries no axial flux, so its channel removes none.
     assert power[2] == 0.0
-    for channel in (0, 1, 3) if collar is not None else (0, 3):
+    for channel in (0, 1, 3) if collar is not False else (0, 3):
         assert_within(
             power[channel],
             expected[channel],

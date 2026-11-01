@@ -50,7 +50,7 @@ from solprop.backends.protocol import Backend
 from solprop.backends.registry import metal_available, resolve_name, select
 from solprop.boundaries import (
     Absorber,
-    TransverseCollar,
+    SpatialAbsorber,
     no_absorber,
     temporal_collar_rate,
     warn_walkoff,
@@ -696,12 +696,15 @@ class SimulationSettings(Displayed):
         :func:`solprop.spatial.physical_evanescent_rate` gives the rate at which the
         grid's non-propagating content decays physically. Refused without a spatial
         grid; a replayed step it would overflow is refused at translation.
-    transverse_absorber : solprop.boundaries.TransverseCollar or None
-        A transverse-wavevector safety ramp on a Cartesian or line grid (SEP 22
-        section 4.3), folded into the operator as an exact diagonal rate. ``None``,
-        the default, carries none. It damps content reaching the grid's outer
-        wavenumbers; it does not replace sizing the grid by the one-half rule.
-        Refused on the radial and hybrid planar kinds and on modal runs.
+    spatial_absorber : solprop.boundaries.SpatialAbsorber, False or None
+        The transverse boundary of a free-space run (SEP 40). ``None``, the default,
+        is ``SpatialAbsorber(real_space=False)``: a wall or a wrap at the grid's
+        outer size and a safety ramp on its outer wavenumbers, folded into the
+        operator as an exact diagonal rate. A
+        :class:`~solprop.boundaries.SpatialAbsorber` asks for a real-space collar
+        too, in the room the grid has outside its requested size
+        (``collar_fraction``). ``False`` carries no ramp either; the boundary
+        monitor still runs. A specification is refused on modal runs.
     adiabatic_accuracy : solprop.adiabatic.AdiabaticAccuracy or None
         The forward-field and reflected-energy budgets a radial medium varying
         along z must meet (SEP 34 section 4.5). ``None``, the default, is
@@ -770,7 +773,7 @@ class SimulationSettings(Displayed):
     fields: FieldsChoice = "all"
     field_planes: Sequence[int] = ()
     evanescent_rate: float | None = None
-    transverse_absorber: TransverseCollar | None = None
+    spatial_absorber: SpatialAbsorber | Literal[False] | None = None
     adiabatic_accuracy: AdiabaticAccuracy | None = None
     boundary_check: BoundaryCheck | None = DEFAULT_BOUNDARY_CHECK
     _default_integrator: Multistep | RungeKutta | None = dataclasses.field(
@@ -1436,6 +1439,7 @@ def metadata_for(  # noqa: PLR0913 - the record's parts, each a distinct object
     tdse_record = None if problem.tdse is None else dataclasses.asdict(problem.tdse)
     return RunMetadata(
         reference=_plane_reference_record(problem, grid, record, frame, modes, modal),
+        transverse=None if problem.transverse is None else problem.transverse.record(),
         grid=GridRecord.from_grid(grid),
         modes=tuple(ModeRecord.from_mode(mode) for mode in modes),
         simulation_kind=(
@@ -2100,7 +2104,9 @@ class Simulation(Displayed):
                     taper_coupling=self.taper_coupling,
                     reuse=self._reuse,
                     evanescent_rate=settings.evanescent_rate,
-                    transverse_absorber=settings.transverse_absorber,
+                    spatial_absorber=_transverse_specification(
+                        settings.spatial_absorber, self.spatial_grid
+                    ),
                     adiabatic_accuracy=settings.adiabatic_accuracy,
                     precision=precision_named(settings.precision),
                 )
@@ -2633,8 +2639,8 @@ class Simulation(Displayed):
             # every earlier run keeps its digest; a collar as its two numbers.
             if self.settings.evanescent_rate is not None:
                 configuration["evanescent_rate"] = self.settings.evanescent_rate
-            if self.settings.transverse_absorber is not None:
-                configuration["transverse_absorber"] = self.settings.transverse_absorber
+            if self.settings.spatial_absorber is not None:
+                configuration["spatial_absorber"] = self.settings.spatial_absorber
             if self.settings.adiabatic_accuracy is not None:
                 configuration["adiabatic_accuracy"] = self.settings.adiabatic_accuracy
             # A quiet collar changes what the stages compute (ADR-057), so the opt-in
@@ -3372,6 +3378,7 @@ class Simulation(Displayed):
         seed: int | None = None,
         materials: MaterialSelection | None = None,
         boundary_check: BoundaryCheck | None = DEFAULT_BOUNDARY_CHECK,
+        spatial_absorber: SpatialAbsorber | Literal[False] | None = None,
     ) -> "Simulation":  # noqa: UP037 - runtime hook evaluates while class is defined
         """Build a radial propagation using physical fields and the scalar QDHT.
 
@@ -3417,6 +3424,12 @@ class Simulation(Displayed):
             the shot-noise floor reaches them; ``None`` watches nothing. Refused
             beside settings that name another check.
 
+        spatial_absorber : solprop.boundaries.SpatialAbsorber, False or None, optional
+            The transverse boundary (SEP 40), when `settings` declare none: ``None``
+            keeps the settings' own, by default the safety ramp alone; a
+            :class:`~solprop.boundaries.SpatialAbsorber` asks for a designed collar in
+            the grid's room outside its requested size; ``False`` carries no ramp.
+
         Returns
         -------
         Simulation
@@ -3434,7 +3447,7 @@ class Simulation(Displayed):
             _selected_medium(medium, materials),
             responses,
             initial,
-            settings=_watched(settings, boundary_check),
+            settings=_bounded(_watched(settings, boundary_check), spatial_absorber),
             frame=frame,
             noise=noise,
             seed=seed,
@@ -3457,6 +3470,7 @@ class Simulation(Displayed):
         seed: int | None = None,
         materials: MaterialSelection | None = None,
         boundary_check: BoundaryCheck | None = DEFAULT_BOUNDARY_CHECK,
+        spatial_absorber: SpatialAbsorber | Literal[False] | None = None,
     ) -> "Simulation":  # noqa: UP037 - runtime hook evaluates while class is defined
         """Build a Cartesian propagation with constant media and transverse FFTs.
 
@@ -3508,6 +3522,12 @@ class Simulation(Displayed):
             the shot-noise floor reaches them; ``None`` watches nothing. Refused
             beside settings that name another check.
 
+        spatial_absorber : solprop.boundaries.SpatialAbsorber, False or None, optional
+            The transverse boundary (SEP 40), when `settings` declare none: ``None``
+            keeps the settings' own, by default the safety ramp alone; a
+            :class:`~solprop.boundaries.SpatialAbsorber` asks for a designed collar in
+            the grid's room outside its requested size; ``False`` carries no ramp.
+
         Returns
         -------
         Simulation
@@ -3532,7 +3552,7 @@ class Simulation(Displayed):
             medium,
             responses,
             initial,
-            settings=_watched(settings, boundary_check),
+            settings=_bounded(_watched(settings, boundary_check), spatial_absorber),
             frame=frame,
             noise=noise,
             seed=seed,
@@ -3557,6 +3577,7 @@ class Simulation(Displayed):
         frame: Frame | None = None,
         materials: MaterialSelection | None = None,
         boundary_check: BoundaryCheck | None = DEFAULT_BOUNDARY_CHECK,
+        spatial_absorber: SpatialAbsorber | Literal[False] | None = None,
     ) -> "Simulation":  # noqa: UP037 - runtime hook evaluates while class is defined
         """Build a hybrid planar propagation: slab modes in x, an FFT in y.
 
@@ -3604,6 +3625,12 @@ class Simulation(Displayed):
             the shot-noise floor reaches them; ``None`` watches nothing. Refused
             beside settings that name another check.
 
+        spatial_absorber : solprop.boundaries.SpatialAbsorber, False or None, optional
+            The transverse boundary (SEP 40), when `settings` declare none: ``None``
+            keeps the settings' own, by default the safety ramp alone; a
+            :class:`~solprop.boundaries.SpatialAbsorber` asks for a designed collar in
+            the grid's room outside its requested size; ``False`` carries no ramp.
+
         Returns
         -------
         Simulation
@@ -3633,7 +3660,9 @@ class Simulation(Displayed):
                     bool(getattr(response, "thg", False)) for response in responses
                 ),
             )
-        settings = _spatial_default(_watched(settings, boundary_check), grid)
+        settings = _spatial_default(
+            _bounded(_watched(settings, boundary_check), spatial_absorber), grid
+        )
         simulation = cls(
             grid,
             (),
@@ -6807,6 +6836,7 @@ def _mixture_reuse(
             source, updated, old, new, problem.responses.prefactor_expansion
         ),
         kernels,
+        problem.transverse,
     )
 
 
@@ -8269,6 +8299,40 @@ def _watched(
         )
         raise DriverError(msg)
     return dataclasses.replace(settings, boundary_check=check)
+
+
+def _bounded(
+    settings: SimulationSettings,
+    spatial_absorber: SpatialAbsorber | Literal[False] | None,
+) -> SimulationSettings:
+    """Apply a spatial constructor's ``spatial_absorber`` keyword to its settings.
+
+    Parameters
+    ----------
+    settings : SimulationSettings
+        The caller's settings.
+    spatial_absorber : solprop.boundaries.SpatialAbsorber, False or None
+        The keyword's value; ``None`` leaves the settings' own.
+
+    Returns
+    -------
+    SimulationSettings
+        `settings`, with the transverse boundary the keyword asks for.
+
+    Raises
+    ------
+    DriverError
+        If the keyword and the settings name two different boundaries.
+    """
+    if spatial_absorber is None or spatial_absorber == settings.spatial_absorber:
+        return settings
+    if settings.spatial_absorber is not None:
+        msg = (
+            "the settings already declare a spatial_absorber; give it there or as "
+            "the spatial_absorber keyword, not both"
+        )
+        raise DriverError(msg)
+    return dataclasses.replace(settings, spatial_absorber=spatial_absorber)
 
 
 def _resolve_noise(
@@ -11044,7 +11108,7 @@ def _spatial_default(
     """Give a spatial run whose settings declare no absorber the default collar.
 
     The temporal and spectral collars become the routes' default (SEP 21, D6); the
-    real-space collar stays off, as it was without an absorber (D9).
+    transverse boundary is the settings' ``spatial_absorber`` (SEP 40).
 
     Parameters
     ----------
@@ -11060,5 +11124,40 @@ def _spatial_default(
     """
     if settings.absorber is not None:
         return settings
-    boundary = dataclasses.replace(default_collar(grid), spatial=False)
-    return dataclasses.replace(settings, absorber=boundary)
+    return dataclasses.replace(settings, absorber=default_collar(grid))
+
+
+def _transverse_specification(
+    setting: SpatialAbsorber | Literal[False] | None,
+    spatial_grid: object,
+) -> SpatialAbsorber | None:
+    """Return the transverse boundary a run's translation resolves (SEP 40).
+
+    Parameters
+    ----------
+    setting : solprop.boundaries.SpatialAbsorber, False or None
+        :attr:`SimulationSettings.spatial_absorber`.
+    spatial_grid : object
+        The run's transverse grid, ``None`` for a modal run.
+
+    Returns
+    -------
+    solprop.boundaries.SpatialAbsorber or None
+        The specification; ``None`` for no ramp and no collar.
+
+    Raises
+    ------
+    DriverError
+        If a modal run is given a specification.
+    """
+    if spatial_grid is None:
+        if isinstance(setting, SpatialAbsorber):
+            msg = (
+                "spatial_absorber sets a free-space run's transverse boundary; a "
+                "modal route has no transverse window"
+            )
+            raise DriverError(msg)
+        return None
+    if setting is False:
+        return None
+    return SpatialAbsorber(real_space=False) if setting is None else setting

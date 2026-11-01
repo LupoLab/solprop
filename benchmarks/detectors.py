@@ -6,7 +6,7 @@
 
 import numpy as np
 
-from solprop.boundaries import TransverseCollar, absorber, custom_absorber
+from solprop.boundaries import absorber, custom_absorber
 from solprop.constants import C
 from solprop.driver import Simulation, SimulationSettings
 from solprop.grid import EnvelopeGrid, FreeGrid
@@ -89,7 +89,6 @@ def far_field() -> Simulation:
                 period=1,
             ),
             absorber=band,
-            transverse_absorber=TransverseCollar(2e4),
             fields="planes",
             field_planes=(-1,),
             backend="numpy_ref",

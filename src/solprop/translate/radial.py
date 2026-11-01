@@ -9,9 +9,9 @@ from collections.abc import Callable, Mapping
 from dataclasses import replace
 
 import numpy as np
-from jaxtyping import Complex
+from jaxtyping import Complex, Float
 
-from solprop.boundaries import TEMPORAL_ALPHA_LENGTH, Absorber
+from solprop.boundaries import Absorber
 from solprop.exceptions import TranslationError
 from solprop.grid import RadialGrid, TimeGrid
 from solprop.profiles import ZProfile
@@ -55,7 +55,7 @@ def radial_transform(  # noqa: PLR0913 - geometry and the shared translation con
     *,
     n_pol: int,
     z_max: float,
-    absorber: Absorber | None = None,
+    collar_rate: Float[np.ndarray, " n_nodes"] | None = None,
     node_budget: int = DEFAULT_NODE_BUDGET,
     margin: float = DEFAULT_MARGIN,
 ) -> Transform:
@@ -71,8 +71,10 @@ def radial_transform(  # noqa: PLR0913 - geometry and the shared translation con
         Number of state polarisation components, 1 or 2.
     z_max : float
         Propagation length in m, positive.
-    absorber : solprop.boundaries.Absorber or None, optional
-        Supplies the spatial collar's reference length. None disables spatial loss.
+    collar_rate : numpy.ndarray or None, optional
+        The real-space collar's power rate on the nodes, 1/m, from the run's
+        :class:`solprop.spatial_absorber.SpatialAbsorberDesign`; ``None`` for no
+        collar.
     node_budget : int, optional
         Shared node-buffer budget in bytes, positive.
     margin : float, optional
@@ -88,11 +90,7 @@ def radial_transform(  # noqa: PLR0913 - geometry and the shared translation con
     diagonal = hankel.j1[:, None] / hankel.j1[None, :]
     synthesis = hankel.inverse_scale * diagonal * hankel.matrix * time.pad_scale
     projection = hankel.forward_scale * diagonal * hankel.matrix
-    rate = (
-        np.zeros(space.n_r)
-        if absorber is None or not absorber.spatial
-        else (TEMPORAL_ALPHA_LENGTH * (1 - space.window) / absorber.in_stage_length)
-    )
+    rate = np.zeros(space.n_r) if collar_rate is None else collar_rate
     geometry = SpatialGeometry(
         kind="radial",
         shape=(space.n_r,),
@@ -132,6 +130,7 @@ def radial_operators(  # noqa: PLR0913 - material and the shared translation con
     absorber: Absorber | None = None,
     margin: float = DEFAULT_MARGIN,
     tol: float = DEFAULT_TOL,
+    transverse_rate: Float[np.ndarray, " n_r"] | None = None,
     reuse_linear: ParameterExpansion | None = None,
     reuse_prefactor: ParameterExpansion | None = None,
 ) -> tuple[LinearOperator, PiecewiseChebyshev | ParameterExpansion]:
@@ -154,6 +153,9 @@ def radial_operators(  # noqa: PLR0913 - material and the shared translation con
     tol : float, optional
         Relative expansion target, positive. The linear expansion additionally
         budgets cancellation roundoff from the material and frame wave numbers.
+    transverse_rate : numpy.ndarray or None, optional
+        The safety ramp's power rate on the ``k_r`` columns, 1/m (SEP 40); exact
+        here, because the radial operator is diagonal in ``k_r``. ``None`` for none.
     reuse_linear, reuse_prefactor : ParameterExpansion or None, optional
         Coefficients of unchanged operator functions on this grid, transverse
         geometry and frame. The caller verifies function identity; new paths must
@@ -208,6 +210,7 @@ def radial_operators(  # noqa: PLR0913 - material and the shared translation con
             evanescent_rate=model.evanescent_rate,
             n_pol=n_pol,
             z_span=(0.0, span),
+            kperp_rate=transverse_rate,
         )
 
     def sampled(
@@ -357,6 +360,7 @@ def radial_operators(  # noqa: PLR0913 - material and the shared translation con
             absorber=absorber,
             margin=margin,
             tol=tol,
+            transverse_rate=transverse_rate,
         )
     if linear is None:
         linear = build_expansion(

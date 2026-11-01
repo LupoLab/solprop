@@ -30,9 +30,9 @@ from fractions import Fraction
 from typing import cast
 
 import numpy as np
-from jaxtyping import Complex
+from jaxtyping import Complex, Float
 
-from solprop.boundaries import TEMPORAL_ALPHA_LENGTH, Absorber
+from solprop.boundaries import Absorber
 from solprop.constants import EPS0, C
 from solprop.exceptions import GrazingIncidenceWarning, TranslationError
 from solprop.grid import TimeGrid
@@ -89,7 +89,7 @@ def planar_transform(  # noqa: PLR0913 - geometry and shared translation control
     *,
     n_pol: int,
     z_max: float,
-    absorber: Absorber | None = None,
+    collar_rate: Float[np.ndarray, " n_nodes"] | None = None,
     node_budget: int = DEFAULT_SPATIAL_NODE_BUDGET,
     margin: float = DEFAULT_MARGIN,
 ) -> Transform:
@@ -106,8 +106,10 @@ def planar_transform(  # noqa: PLR0913 - geometry and shared translation control
         State polarisation count; must be 1.
     z_max : float
         Positive run length in m.
-    absorber : solprop.boundaries.Absorber or None, optional
-        Spatial absorption reference length; None disables the in-stage y collar.
+    collar_rate : numpy.ndarray or None, optional
+        The real-space collar's power rate on the nodes, 1/m, from the run's
+        :class:`solprop.spatial_absorber.SpatialAbsorberDesign`; ``None`` for no
+        collar.
     node_budget : int, optional
         Shared node-buffer budget in bytes, positive.
     margin : float, optional
@@ -160,9 +162,7 @@ def planar_transform(  # noqa: PLR0913 - geometry and shared translation control
             (np.tile(space.x, space.n_y), np.repeat(space.y, n_x))
         ),
         window=window,
-        absorber_rate=np.zeros(space.n_nodes)
-        if absorber is None or not absorber.spatial
-        else TEMPORAL_ALPHA_LENGTH * (1 - window) / absorber.in_stage_length,
+        absorber_rate=np.zeros(space.n_nodes) if collar_rate is None else collar_rate,
         on_axis=space.on_axis,
         forward_scale=1.0,
         inverse_scale=1 / space.n_y,
@@ -183,13 +183,14 @@ def planar_transform(  # noqa: PLR0913 - geometry and shared translation control
     )
 
 
-def planar_operators(
+def planar_operators(  # noqa: PLR0913 - material and the shared translation controls
     space: PlanarGrid,
     dispersion: SpatialDispersion,
     *,
     n_pol: int,
     z_max: float,
     absorber: Absorber | None = None,
+    transverse_rate: Float[np.ndarray, " n_columns"] | None = None,
     margin: float = DEFAULT_MARGIN,
 ) -> tuple[LinearOperator, SeparableOperator]:
     """Keep the planar operator in separable form, with each channel's wall term.
@@ -215,6 +216,9 @@ def planar_operators(
         Positive propagation length in m.
     absorber : solprop.boundaries.Absorber or None, optional
         Shared spectral absorption rate in m^-1.
+    transverse_rate : numpy.ndarray or None, optional
+        The safety ramp's power rate per ``(p, k_y)`` column, 1/m (SEP 40); exact,
+        because the planar operator is diagonal there. ``None`` for none.
     margin : float, optional
         Relative extension of the valid interval, nonnegative.
 
@@ -265,6 +269,7 @@ def planar_operators(
         n_pol=n_pol,
         z_span=(0.0, span),
         kappa_sq=kappa,
+        kperp_rate=transverse_rate,
     )
     _warn_grazing(space, grid, data)
     return LinearOperator(

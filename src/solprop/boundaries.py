@@ -56,9 +56,10 @@ The two rates are applied by different mechanisms, each chosen because it is exa
 
 Two lengths set the collars' strengths (SEP 22 section 4.6). ``reference_length``
 sets the spectral rate and the ceiling every spectral rate is validated against;
-``collar_length``, ``reference_length`` unless given, sets the in-stage collars, the
-temporal ``12.6 (1 - W(t)) / ell_c`` and the spatial ``12.6 (1 - W(x, y)) / ell_c``, and
-their ceiling. A custom spectral rate (:func:`custom_absorber`) can then be as strong as
+``collar_length``, ``reference_length`` unless given, sets the in-stage temporal collar,
+``12.6 (1 - W(t)) / ell_c``, and its ceiling; a free-space run's transverse boundary is
+designed by :class:`SpatialAbsorber` (SEP 40). A custom spectral rate
+(:func:`custom_absorber`) can then be as strong as
 a measurement needs without moving the explicit in-stage collars or their stable step.
 
 The manual page is ``docs/guide/numerics/boundaries.md``.
@@ -75,7 +76,7 @@ import numpy as np
 from jaxtyping import Bool, Float, Inexact
 
 from solprop.exceptions import GridError, SolpropWarning
-from solprop.grid import Collar, FreeGrid, RadialGrid, TimeGrid
+from solprop.grid import Collar, TimeGrid
 from solprop.spatial_absorber import SpatialAbsorber, SpatialAbsorberDesign
 
 __all__ = [
@@ -88,7 +89,6 @@ __all__ = [
     "Absorber",
     "SpatialAbsorber",
     "SpatialAbsorberDesign",
-    "TransverseCollar",
     "absorber",
     "apply_band_mask",
     "apply_split_step",
@@ -99,7 +99,6 @@ __all__ = [
     "split_step_factor",
     "stable_step",
     "temporal_collar_rate",
-    "transverse_collar_rate",
     "warn_walkoff",
 ]
 
@@ -196,10 +195,11 @@ class Absorber:
         The length ``ell`` in metres over which the collar profile is applied once to
         the field. It sets the spectral rate's ceiling, ``60 / ell``.
     collar_length : float or None
-        The length ``ell_c`` in metres that sets the in-stage collars' strength: the
-        temporal collar's largest rate is ``12.6 / ell_c``, and the spatial collar of
-        a radial, Cartesian or planar run is ``12.6 (1 - W) / ell_c``; it also sets
-        the temporal rates' ceiling, ``60 / ell_c``. ``None``, the default, means
+        The length ``ell_c`` in metres that sets the in-stage temporal collar's
+        strength, whose largest rate is ``12.6 / ell_c``; it also sets the temporal
+        rates' ceiling, ``60 / ell_c``. A free-space run's real-space collar is
+        designed separately (:class:`SpatialAbsorber`, SEP 40). ``None``, the
+        default, means
         `reference_length`, as for every absorber before SEP 22; a value equal to
         `reference_length` is stored as ``None``, so that the record carries it only
         where the two differ. Left out of the run record at ``None``.
@@ -209,12 +209,6 @@ class Absorber:
         arrays; it is recorded only when ``False``. Any collar whose temporal rates
         are all zero, however it was built, is translated to no temporal absorber
         (:func:`solprop.translate.masks.temporal_rates`).
-    spatial : bool
-        Whether a radial, Cartesian or planar run applies its real-space collar,
-        ``12.6 (1 - W) / ell_c``. ``False`` keeps the transverse window inert, as a
-        spatial run without an absorber has it; the default collar of a spatial run
-        whose settings declare none is built so (SEP 21), so that adding the
-        temporal and spectral collars does not switch the real-space one on.
 
     Raises
     ------
@@ -242,7 +236,6 @@ class Absorber:
     reference_length: float
     collar_length: float | None = None
     temporal: bool = True
-    spatial: bool = True
 
     def __post_init__(self) -> None:
         """Validate what the shape annotations cannot express.
@@ -757,150 +750,6 @@ def custom_absorber(
         reference_length=reference,
         collar_length=base.in_stage_length,
     )
-
-
-@dataclass(frozen=True)
-class TransverseCollar:
-    r"""A transverse-wavevector (k-perp) safety ramp on a periodic Cartesian grid.
-
-    SEP 22 section 4.3. With :math:`\rho = \max(|k_x|/k_{x,\max}, |k_y|/k_{y,\max})`
-    the power rate is :math:`\alpha_\perp = S\,P(\rho)`, where :math:`P` is zero for
-    :math:`\rho \le 1 - f` and rises as a raised cosine to one at the grid's largest
-    wavenumber. It enters the separable operator as a diagonal rate, which is exact
-    under the cumulative flow and costs no transform (``docs/dev/kernel-contract.md``
-    section 3). It damps content that reaches the outer band and keeps rounding from
-    accumulating at the Nyquist edge; it does **not** remove an alias that in-band
-    content generates, which grid sizing by the one-half rule prevents
-    (``docs/guide/free-space/cartesian.md``).
-
-    Attributes
-    ----------
-    strength : float
-        The rate :math:`S` at the grid's edge, a power coefficient in m^-1, finite and
-        nonnegative. ``S L / 2 >= log(1e3)`` removes 60 dB of field at the edge over
-        an interaction length ``L``.
-    fraction : float
-        The ramp's width :math:`f` as a fraction of each axis's largest wavenumber,
-        in (0, 1). Default 0.1, the width of the spatial grids' default collar.
-
-    Raises
-    ------
-    GridError
-        If the strength is negative or not finite, or the fraction is outside (0, 1).
-
-    Examples
-    --------
-    >>> from solprop.boundaries import TransverseCollar
-    >>> TransverseCollar(strength=2e4)
-    TransverseCollar(strength=20000.0, fraction=0.1)
-    """
-
-    strength: float
-    fraction: float = 0.1
-
-    def __post_init__(self) -> None:
-        """Check the strength and the fraction."""
-        if not math.isfinite(self.strength) or self.strength < 0:
-            msg = (
-                "TransverseCollar.strength must be a finite nonnegative rate in 1/m, "
-                f"got {self.strength!r}"
-            )
-            raise GridError(msg)
-        if not math.isfinite(self.fraction) or not 0 < self.fraction < 1:
-            msg = f"TransverseCollar.fraction must lie in (0, 1), got {self.fraction!r}"
-            raise GridError(msg)
-        object.__setattr__(self, "strength", float(self.strength))
-        object.__setattr__(self, "fraction", float(self.fraction))
-
-
-def transverse_collar_rate(
-    space: FreeGrid | RadialGrid, collar: TransverseCollar
-) -> Float[np.ndarray, " n_columns"]:
-    """Evaluate a transverse collar's power rate on a Cartesian grid's columns.
-
-    Parameters
-    ----------
-    space : solprop.grid.FreeGrid
-        The periodic Cartesian grid, or a :class:`solprop.grid.LineGrid`, on which
-        the collar acts on ``k_x`` alone. A radial grid is refused.
-    collar : TransverseCollar
-        The strength and the ramp's width.
-
-    Returns
-    -------
-    numpy.ndarray
-        The nonnegative power rate in m^-1, shape ``(n_x*n_y,)``, in column order
-        ``ix + n_x*iy``.
-
-    Raises
-    ------
-    GridError
-        If `space` is radial, which is not periodic. The hybrid planar kind's
-        ``k_y``-only collar is not offered either (SEP 22, Q5); translation refuses it.
-
-    Examples
-    --------
-    >>> import numpy as np
-    >>> from solprop.boundaries import TransverseCollar, transverse_collar_rate
-    >>> from solprop.grid import FreeGrid
-    >>> space = FreeGrid(radius_x=1e-4, n_x=20, radius_y=1e-4, n_y=20)
-    >>> rate = transverse_collar_rate(space, TransverseCollar(strength=1e4))
-    >>> rate.shape, float(rate.max()), float(rate[0])
-    ((400,), 10000.0, 0.0)
-    """
-    if not isinstance(space, FreeGrid):
-        msg = (
-            "a TransverseCollar acts on a periodic Cartesian grid (FreeGrid or "
-            f"LineGrid), not on {type(space).__name__}: the radial kind is not "
-            "periodic, and the hybrid planar kind's k_y-only collar is not offered"
-        )
-        raise GridError(msg)
-    profile = [
-        _ramp(_normalised(axis), collar.fraction) for axis in (space.k_x, space.k_y)
-    ]
-    # The max-norm (Q5): the larger of the two axes' ramps, since P is monotone.
-    ramp = np.maximum(profile[0][None, :], profile[1][:, None]).reshape(-1)
-    return collar.strength * ramp
-
-
-def _normalised(axis: Float[np.ndarray, " n_axis"]) -> Float[np.ndarray, " n_axis"]:
-    """Return ``|k| / max |k|`` on one axis, zeros on a one-sample axis.
-
-    Parameters
-    ----------
-    axis : numpy.ndarray
-        Angular frequencies in rad/m.
-
-    Returns
-    -------
-    numpy.ndarray
-        Values in [0, 1].
-    """
-    largest = float(np.max(np.abs(axis)))
-    if largest == 0.0:
-        return np.zeros(axis.size)
-    return np.abs(axis) / largest
-
-
-def _ramp(
-    rho: Float[np.ndarray, " n_axis"], fraction: float
-) -> Float[np.ndarray, " n_axis"]:
-    """Return the raised-cosine ramp, zero up to ``1 - fraction`` and one at one.
-
-    Parameters
-    ----------
-    rho : numpy.ndarray
-        Normalised wavenumbers in [0, 1].
-    fraction : float
-        The ramp's width, in (0, 1).
-
-    Returns
-    -------
-    numpy.ndarray
-        The profile, in [0, 1].
-    """
-    inside = np.clip((rho - 1 + fraction) / fraction, 0.0, 1.0)
-    return 0.5 * (1 - np.cos(np.pi * inside))
 
 
 def stable_step(temporal_rate: Float[np.ndarray, " n_t"]) -> float:
