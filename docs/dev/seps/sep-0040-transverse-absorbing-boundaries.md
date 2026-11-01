@@ -6,7 +6,7 @@
 | **Title** | Transverse absorbing boundaries for free-space propagation |
 | **Author** | John Travers |
 | **Drafting agent** | Opus 5.5 |
-| **Status** | Accepted |
+| **Status** | In progress |
 | **Review status** | Reviewed |
 | **Reviewers** | John Travers (human); GPT-6 (AI); Opus 5.5 (AI) |
 | **Type** | Change |
@@ -15,7 +15,7 @@
 | **Requires** | [SEP 21](archive/sep-0021-absorbing-boundaries.md), [SEP 22](archive/sep-0022-memory-lean-spatial-execution.md), [SEP 34](archive/sep-0034-medium-flux.md) |
 | **Supersedes** | — |
 | **Superseded-by** | — |
-| **Implementation** | Opus 5.5 (AI) for John Travers, branch `feature/sep-0040-transverse-boundaries`: phase 0 complete (Part II); Part I revised after two reviews and accepted again 2026-11-01; no code changed yet; phase 1 not started |
+| **Implementation** | Opus 5.5 (AI) for John Travers, branch `feature/sep-0040-transverse-boundaries`: phase 0 complete (Part II); phase 1 (`numpy_ref`, the interface, the monitor and the manual) started 2026-11-01 |
 | **Manual pages** | — |
 
 ## Part I — Proposal
@@ -2294,6 +2294,9 @@ was run. Part I is frozen, so what affects it is recorded here.
   otherwise unchanged, and the design is the one accepted.
 - 2026-11-01: Part II gains a handoff to phase 1: the order of SEP 42, this SEP, 0.2.0 and SEP 41, and how this
   SEP meets SEP 42's class table and schema rule and SEP 41's recipe registry. §3 adds [#134](https://github.com/LupoLab/solprop/issues/134).
+- 2026-11-01: `main` merged into this branch at 8a9f764, which carries SEP 41 and SEP 42 as accepted. Phase 1
+  started (Opus 5.5 for John Travers): status `In progress`. Its first slice fixes [#128](https://github.com/LupoLab/solprop/issues/128), [#94](https://github.com/LupoLab/solprop/issues/94) and [#132](https://github.com/LupoLab/solprop/issues/132), as §3
+  asks. SEP 42's implementation runs alongside, and this SEP meets it as Part II's handoff says.
 
 ### AI review — 2026-10-31 (GPT-6)
 
