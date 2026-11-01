@@ -137,7 +137,7 @@ Spectral and temporal evolution
         run,
         "wavelength",
         spec_range=(130e-9, 1.2e-6),
-        trange=(-60e-15, 60e-15),
+        time_range=(-60e-15, 60e-15),
         db_min=-40,
     )
     figures[-1].set_size_inches(9.5, 3.6)
@@ -217,7 +217,7 @@ input pulse, so the automatic single-peak width label is disabled.
 
 
     fig, ax = plt.subplots(figsize=(6.0, 3.2))
-    time_1d(run, z=0.0, trange=(-60e-15, 60e-15), widths=False, ax=ax)
+    time_1d(run, z=0.0, time_range=(-60e-15, 60e-15), widths=False, ax=ax)
     fig.tight_layout()
 
 
@@ -251,7 +251,7 @@ Runtime and reproducibility
 
  .. code-block:: none
 
-    3 s; backend native
+    6 s; backend native
 
 
 
@@ -259,7 +259,7 @@ Runtime and reproducibility
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 2.746 seconds)
+   **Total running time of the script:** (0 minutes 6.315 seconds)
 
 
 .. _sphx_glr_download_auto_examples_processes_plot_03_four_wave_mixing.py:

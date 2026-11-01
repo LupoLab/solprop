@@ -347,7 +347,7 @@ figures = prop_2d(
     run,
     "wavelength",
     spec_range=(500e-9, 1.8e-6),
-    trange=(-1e-12, 1e-12),
+    time_range=(-1e-12, 1e-12),
     db_min=-80,
     modes="sum",
 )

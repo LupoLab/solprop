@@ -18,7 +18,6 @@ was asked for is recorded as structured metadata.
 The manual page is ``docs/guide/setup/running.md``.
 """
 
-import dataclasses
 import logging
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
@@ -27,7 +26,7 @@ from typing import Literal
 import numpy as np
 from jaxtyping import Float
 
-from solprop.boundaries import Absorber, no_absorber
+from solprop.boundaries import Absorber
 from solprop.coupling.models import CouplingModel
 from solprop.driver.simulation import (
     DEFAULT_ATOL,
@@ -36,7 +35,6 @@ from solprop.driver.simulation import (
     Simulation,
     SimulationSettings,
 )
-from solprop.exceptions import DriverError
 from solprop.gasflow import VacuumEnd
 from solprop.grid import FreeGrid, RadialGrid, TimeGrid
 from solprop.linear import Frame
@@ -176,7 +174,6 @@ def prop_radial(  # noqa: PLR0913 - the simulation interface and output controls
     solprop.output.schema.Output
         Saved fields, metadata, statistics and step history.
     """
-    settings = _with_boundary(settings, grid, absorber, absorber_scheme)
     simulation = Simulation.from_radial(
         grid,
         space,
@@ -188,6 +185,8 @@ def prop_radial(  # noqa: PLR0913 - the simulation interface and output controls
         noise=noise,
         seed=seed,
         materials=materials,
+        absorber=absorber,
+        absorber_scheme=absorber_scheme,
         boundary_check=boundary_check,
     )
     return simulation.run(
@@ -291,7 +290,6 @@ def prop_free(  # noqa: PLR0913 - the simulation interface and output controls
     solprop.output.schema.Output
         Saved fields, metadata, statistics and step history.
     """
-    settings = _with_boundary(settings, grid, absorber, absorber_scheme)
     simulation = Simulation.from_free(
         grid,
         space,
@@ -303,6 +301,8 @@ def prop_free(  # noqa: PLR0913 - the simulation interface and output controls
         noise=noise,
         seed=seed,
         materials=materials,
+        absorber=absorber,
+        absorber_scheme=absorber_scheme,
         boundary_check=boundary_check,
     )
     return simulation.run(
@@ -395,7 +395,6 @@ def prop_planar(  # noqa: PLR0913 - the simulation interface and output controls
     solprop.output.schema.Output
         Saved fields, metadata, statistics and step history.
     """
-    settings = _with_boundary(settings, grid, absorber, absorber_scheme)
     simulation = Simulation.from_planar(
         grid,
         space,
@@ -404,6 +403,8 @@ def prop_planar(  # noqa: PLR0913 - the simulation interface and output controls
         settings=settings,
         frame=frame,
         materials=materials,
+        absorber=absorber,
+        absorber_scheme=absorber_scheme,
         boundary_check=boundary_check,
     )
     return simulation.run(
@@ -1739,75 +1740,3 @@ def prop_waveguide(  # noqa: PLR0913 - the interface's keyword surface
         progress_period=progress_period,
         resume=resume,
     )
-
-
-def _with_boundary(
-    settings: SimulationSettings,
-    grid: TimeGrid,
-    absorber: Absorber | Literal[False] | None,
-    scheme: AbsorberScheme | None,
-) -> SimulationSettings:
-    """Apply a spatial interface's absorber keywords to its settings (SEP 21 section 5).
-
-    Parameters
-    ----------
-    settings : SimulationSettings
-        The settings given.
-    grid : TimeGrid
-        The run's temporal grid.
-    absorber : Absorber, False or None
-        The collar given; ``False`` zeroes the temporal and spectral rates of the
-        settings' absorber and keeps its lengths, so that the real-space collar, which
-        reads them, is unchanged (without one it builds the hard mask alone, with the
-        real-space collar off, as before); ``None`` leaves the settings' own.
-    scheme : {'nonlinear', 'split_step'} or None
-        The temporal scheme given; ``None`` leaves the settings' own.
-
-    Returns
-    -------
-    SimulationSettings
-        The settings with the keywords applied.
-
-    Raises
-    ------
-    DriverError
-        If a keyword conflicts with what the settings already declare, or a scheme is
-        given beside ``absorber=False``.
-    """
-    changes: dict[str, object] = {}
-    if absorber is False:
-        if scheme is not None:
-            msg = (
-                "absorber=False switches the temporal collar off, so there is nothing "
-                f"for absorber_scheme={scheme!r} to apply; give one or the other"
-            )
-            raise DriverError(msg)
-        current = settings.absorber
-        changes["absorber"] = (
-            dataclasses.replace(no_absorber(grid), spatial=False)
-            if current is None
-            else dataclasses.replace(
-                current,
-                spectral_rate=np.zeros_like(current.spectral_rate),
-                temporal_rate=np.zeros(grid.n_t),
-                temporal_rate_fine=np.zeros(grid.n_to),
-                temporal=False,
-            )
-        )
-    elif absorber is not None:
-        if settings.absorber is not None:
-            msg = (
-                "the settings already declare an absorber; give it there or as the "
-                "absorber keyword, not both"
-            )
-            raise DriverError(msg)
-        changes["absorber"] = absorber
-    if scheme is not None:
-        if settings.absorber_scheme not in (None, scheme):
-            msg = (
-                f"the settings already declare absorber_scheme="
-                f"{settings.absorber_scheme!r}; give it there or as the keyword"
-            )
-            raise DriverError(msg)
-        changes["absorber_scheme"] = scheme
-    return dataclasses.replace(settings, **changes) if changes else settings

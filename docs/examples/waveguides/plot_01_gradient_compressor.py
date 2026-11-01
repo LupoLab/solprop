@@ -174,7 +174,7 @@ figures = prop_2d(
     gradient,
     "wavelength",
     spec_range=(90e-9, 1.4e-6),
-    trange=(-30e-15, 30e-15),
+    time_range=(-30e-15, 30e-15),
     db_min=-40,
     modes="sum",
 )
@@ -243,7 +243,7 @@ fig.tight_layout()
 # magnitude weaker.
 
 fig, ax = plt.subplots(figsize=(6.4, 3.6))
-time_1d(gradient, trange=(-20e-15, 20e-15), ax=ax)
+time_1d(gradient, time_range=(-20e-15, 20e-15), ax=ax)
 fig.tight_layout()
 
 # %%

@@ -13,9 +13,9 @@ is not usable.
 
 from solprop.backends.protocol import (
     Backend,
+    BackendHistory,
     BatchBackend,
     Observation,
-    StepHistory,
     StepStats,
     StepSummary,
 )
@@ -23,9 +23,9 @@ from solprop.backends.registry import available, resolve_name, select, select_ba
 
 __all__ = [
     "Backend",
+    "BackendHistory",
     "BatchBackend",
     "Observation",
-    "StepHistory",
     "StepStats",
     "StepSummary",
     "available",

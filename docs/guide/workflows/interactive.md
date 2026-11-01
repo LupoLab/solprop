@@ -99,7 +99,7 @@ the same object as in its home module:
    * - design tools
      - everything in :py:mod:`solprop.tools` (:doc:`design-tools`)
    * - plots
-     - ``prop_2d``, ``time_1d``, ``spec_1d``, ``spectrogram``, ``plot_energy``, ``plot_stats``
+     - ``prop_2d``, ``time_1d``, ``spec_1d``, ``spectrogram``, ``plot_energy``, ``plot_stats``, ``wavelength_to_axis``
    * - processing
      - ``grid_of``, ``get_field``, ``get_power``, ``get_power_weight``, ``get_spectrum``, ``get_spectral_density``, ``get_phase``, ``bandpass``, ``energy``, ``peak_power``, ``fwhm``, ``fwhm_t``, ``fwhm_f``, ``arrival_time``, ``time_bandwidth``, ``specres``, ``g12``, the autocorrelations and ``coherence_time``, and the general modal accessors ``electric_field``, ``magnetic_field``, ``reconstructed_flux``, ``physical_energy`` and their companions (:doc:`../results/processing`)
    * - optics and compression
@@ -110,7 +110,7 @@ the same object as in its home module:
 
 **One rule for a name two modules share:** the processing function keeps it and the plot
 takes a `plot_` prefix. {py:func}`solprop.processing.time.energy` is `sol.energy`, the number;
-{py:func}`solprop.plotting.propagation.energy` is `sol.plot_energy`, the figure; likewise
+{py:func}`solprop.plotting.propagation.plot_energy` is `sol.plot_energy`, the figure; likewise
 `sol.plot_stats`. `numpy` and `matplotlib.pyplot` are deliberately **not** re-exported, so
 `from solprop.sol import *` never shadows your own `np` and `plt`. A test compares
 `sol.__all__` with the public names of the home modules, so the namespace cannot fall

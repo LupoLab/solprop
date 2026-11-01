@@ -193,7 +193,7 @@ def band_coherence(
     reference: Complex[np.ndarray, "n_reference *rest n_x"],
     *,
     n_bands: int = 32,
-    floor_db: float = -30.0,
+    db_min: float = -30.0,
 ) -> tuple[Float[np.ndarray, " n_bands"], Float[np.ndarray, " n_bands"]]:
     r"""Return an ensemble's coherence averaged over the bands of a reference spectrum.
 
@@ -201,7 +201,7 @@ def band_coherence(
     weighted by the `reference` ensemble's mean spectrum,
     :math:`\sum_b \bar S_b g_{12,b} / \sum_b \bar S_b`, in the `n_bands` equal bands of
     :func:`spectral_bands` across the reference mean spectrum's occupied span. A band
-    whose mean spectral energy is below `floor_db` of the largest band's is not
+    whose mean spectral energy is below `db_min` of the largest band's is not
     scored. The reference selects the bands and weighs them, so two ensembles judged
     against one reference (for example two precisions or two solvers with the same
     seeds) are averaged over the same bins with the same weights. The reference's own
@@ -218,7 +218,7 @@ def band_coherence(
         realisations, summed over the axes between, is the weight.
     n_bands : int, optional
         How many bands, 32 by default.
-    floor_db : float, optional
+    db_min : float, optional
         Bands below this level of the largest band's energy are not scored, dB;
         -30 by default.
 
@@ -261,7 +261,7 @@ def band_coherence(
     if not bands:
         return result, np.zeros(n_bands)
     energy = np.array([weight[:, band].sum() for band in bands])
-    kept = energy >= energy.max() * 10.0 ** (floor_db / 10.0)
+    kept = energy >= energy.max() * 10.0 ** (db_min / 10.0)
     for index, band in enumerate(bands):
         if not kept[index]:
             continue

@@ -56,7 +56,7 @@ modulational instability in y that limit a real planar compressor's energy; see
         gaussian_to_per_unit_width,
     )
     from solprop.modes.base import beta2, db_per_m
-    from solprop.plotting import stats
+    from solprop.plotting import plot_stats
     from solprop.pulses import GaussianPulse
     from solprop.stepper.schedule import FixedSchedule
 
@@ -160,7 +160,7 @@ quadrature diagnostic visible when it has only one recorded value.
     launch = np.stack([math.sqrt(share) * pulse for share in shares])
     output = simulation.with_input(launch).run(progress="none")
     print(output.metadata.transverse_measure)
-    stats(output, marker="o", markersize=3)
+    plot_stats(output, marker="o", markersize=3)
 
 
 
@@ -208,7 +208,7 @@ quadrature diagnostic visible when it has only one recorded value.
 
  .. code-block:: none
 
-    ran in 0.6 s on numpy_ref
+    ran in 1.9 s on numpy_ref
 
 
 
@@ -225,7 +225,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 0.599 seconds)
+   **Total running time of the script:** (0 minutes 1.939 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_waveguides_plot_08_planar.py:

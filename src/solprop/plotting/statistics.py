@@ -32,7 +32,7 @@ from solprop.plotting.style import (
     subplot_grid,
 )
 
-__all__ = ["OTHER_STATISTICS", "PULSE_STATISTICS", "stats"]
+__all__ = ["OTHER_STATISTICS", "PULSE_STATISTICS", "plot_stats"]
 
 PULSE_STATISTICS = (
     "energy",
@@ -89,7 +89,7 @@ _PER_WIDTH = ("energy", "energy_window")
 _LOG_RATIO = 10.0
 
 
-def stats(output: Output, **kwargs: Any) -> list[Figure]:
+def plot_stats(output: Output, **kwargs: Any) -> list[Figure]:
     """Return one figure per group of the statistics a run recorded.
 
     Where a statistic was recorded **between** planes as well as at them
@@ -115,9 +115,9 @@ def stats(output: Output, **kwargs: Any) -> list[Figure]:
     Examples
     --------
     >>> import matplotlib.pyplot as plt
-    >>> from solprop.plotting.statistics import stats
+    >>> from solprop.plotting.statistics import plot_stats
     >>> from solprop.processing._examples import example_output
-    >>> figures = stats(example_output())
+    >>> figures = plot_stats(example_output())
     >>> len(figures), len(figures[0].axes)
     (1, 5)
     >>> plt.close("all")

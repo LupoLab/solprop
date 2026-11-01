@@ -370,9 +370,9 @@ logarithmic plot, because that would change the data; clip them yourself when yo
 
 {py:func}`~solprop.processing.spectra.bandpass` builds a Planck taper that is one inside a
 range and zero outside it, and **returns** it. The range is in wavelength unless `axis`
-says otherwise: `bandpass(grid, limits, axis="f")` takes hertz and `axis="omega"` rad/s,
+says otherwise: `bandpass(grid, spec_range, axis="f")` takes hertz and `axis="omega"` rad/s,
 and a frequency band may start at zero, which no wavelength range can say.
-`bandpass(grid, limits, width=...)` sets the edge width, always in rad/s, because the
+`bandpass(grid, spec_range, width=...)` sets the edge width, always in rad/s, because the
 taper is drawn on the angular-frequency grid.
 
 The field accessors, the compressors and the plots take the window as the `bandpass`

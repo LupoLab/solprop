@@ -152,7 +152,7 @@ actually be stepped, and it follows `progress=` exactly as the progress lines do
 | `"none"` | nothing |
 
 A run into a plane store (memory or HDF5) also keeps it, as the annotation
-{py:data}`~solprop.driver.summary.RUN_SUMMARY_ANNOTATION`
+{py:data}`~solprop.output.schema.RUN_SUMMARY_ANNOTATION`
 (`handler.annotations["run_summary"]`): a list of `{"title", "rows"}`, to which a resume
 adds its own. It is a description for a person; a program should read the run's
 [metadata](../results/provenance.md), which holds all of it. The points of a

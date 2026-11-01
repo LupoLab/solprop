@@ -103,7 +103,7 @@ figures = prop_2d(
     run,
     "wavelength",
     spec_range=(200e-9, 2.6e-6),
-    trange=(-1e-12, 1e-12),
+    time_range=(-1e-12, 1e-12),
     db_min=-40,
 )
 figures[-1].set_size_inches(9.5, 3.6)

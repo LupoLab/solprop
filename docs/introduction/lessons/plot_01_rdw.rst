@@ -142,7 +142,7 @@ distinction is developed in :doc:`/guide/results/power-and-intensity`.
         run,
         "wavelength",
         spec_range=(100e-9, 1e-6),
-        trange=(-20e-15, 20e-15),
+        time_range=(-20e-15, 20e-15),
         db_min=-30,
         modes="sum",
     )
@@ -189,9 +189,9 @@ propagation already computed.
     print(f"conversion efficiency {band / start * 100:.2f} %")
 
     fig, (left, right) = plt.subplots(1, 2, figsize=(9.5, 3.4))
-    time_1d(run, trange=(-30e-15, 30e-15), modes="sum", ax=left)
+    time_1d(run, time_range=(-30e-15, 30e-15), modes="sum", ax=left)
     left.set_title("Total exit pulse")
-    time_1d(run, trange=(-30e-15, 30e-15), modes="sum", bandpass=window, ax=right)
+    time_1d(run, time_range=(-30e-15, 30e-15), modes="sum", bandpass=window, ax=right)
     right.set_title("Exit pulse filtered to 100-140 nm")
     fig.tight_layout()
 
@@ -303,7 +303,7 @@ value.
     largest recorded quadrature diagnostic: 9.84e-10
     peak on-axis intensity 9.189e+14 W/cm²
     peak sampled electron density 1.568e+16 cm⁻³
-    4.3 s; backend native
+    15.2 s; backend native
 
 
 
@@ -321,7 +321,7 @@ illustrative calculation, not a fit to one measurement in that paper.
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 4.350 seconds)
+   **Total running time of the script:** (0 minutes 15.186 seconds)
 
 
 .. _sphx_glr_download_introduction_lessons_plot_01_rdw.py:

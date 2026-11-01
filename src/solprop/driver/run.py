@@ -40,11 +40,10 @@ import numpy as np
 from solprop._host import RunClock, machine, usage
 from solprop._interrupts import committing, handled
 from solprop.backends.populations import axis_refusal
-from solprop.backends.protocol import Backend, Observation
-from solprop.backends.protocol import StepHistory as BackendHistory
+from solprop.backends.protocol import Backend, BackendHistory, Observation
 from solprop.backends.registry import statistics_refusal
 from solprop.driver.memory import MemoryAdmission
-from solprop.driver.summary import RUN_SUMMARY_ANNOTATION, resources, run_summary
+from solprop.driver.summary import resources, run_summary
 from solprop.exceptions import (
     DriverError,
     OutputError,
@@ -70,6 +69,7 @@ from solprop.output.capability import (
 )
 from solprop.output.hdf5 import HDF5Output
 from solprop.output.schema import (
+    RUN_SUMMARY_ANNOTATION,
     BackendRecord,
     CheckpointOutput,
     FieldRetention,
@@ -130,7 +130,7 @@ def _history_of(history: BackendHistory) -> StepHistory:
 
     Parameters
     ----------
-    history : solprop.backends.protocol.StepHistory
+    history : solprop.backends.protocol.BackendHistory
         What the stepper did since the previous observation.
 
     Returns
@@ -141,11 +141,12 @@ def _history_of(history: BackendHistory) -> StepHistory:
     Examples
     --------
     >>> import numpy as np
-    >>> from solprop.backends.protocol import StepHistory
+    >>> from solprop.backends.protocol import BackendHistory
     >>> from solprop.driver.run import _history_of
-    >>> stored = _history_of(StepHistory(np.array([0.5, 1.0]), np.array([0.5, 0.5]),
-    ...                                  np.array([0.4, 0.5]), np.array([True, True]),
-    ...                                  np.array([0.25, 0.75])))
+    >>> history = BackendHistory(np.array([0.5, 1.0]), np.array([0.5, 0.5]),
+    ...                           np.array([0.4, 0.5]), np.array([True, True]),
+    ...                           np.array([0.25, 0.75]))
+    >>> stored = _history_of(history)
     >>> stored.z.tolist(), stored.wall_time.tolist()
     ([0.0, 0.5], [0.25, 0.5])
     """
@@ -205,9 +206,9 @@ def plane_from_observation(
     Examples
     --------
     >>> import numpy as np
-    >>> from solprop.backends.protocol import Observation, StepHistory
+    >>> from solprop.backends.protocol import BackendHistory, Observation
     >>> from solprop.driver.run import plane_from_observation
-    >>> history = StepHistory(np.array([0.5]), np.array([0.5]), np.array([0.3]),
+    >>> history = BackendHistory(np.array([0.5]), np.array([0.5]), np.array([0.3]),
     ...                       np.array([True]), np.array([0.02]))
     >>> observation = Observation(0.5, np.ones((1, 1, 1, 4), complex), None, history,
     ...                           1, 0)
