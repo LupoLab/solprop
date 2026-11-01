@@ -198,7 +198,7 @@ def _case(
         # No collar: ten replayed steps are far beyond the in-stage collar's limit
         # under solprop's default Adams history, and the split-step scheme treats a
         # launch's content outside the active band differently here and on
-        # numpy_ref (an open question on solprop's roadmap); the route is the subject.
+        # numpy_ref (solprop issue #230); the route is the subject.
         simulation.settings = dataclasses.replace(simulation.settings, absorber=None)
         problem = simulation.translate()
     problem = _prescribed(problem, FixedSchedule(np.full(STEPS, Z_END / STEPS)))

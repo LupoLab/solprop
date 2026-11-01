@@ -55,9 +55,9 @@ All notable changes to solprop are recorded here. The format follows
   describe `numba_cpu` as its slower fallback, with the 0.1.0 measurements. They no longer
   advise `numba_cpu` for scans of one-thread workers, which the history does not support,
   and they now say that only GPU builds refuse z-tabulated problems.
-- Planned work is moving to [GitHub issues](https://github.com/LupoLab/solprop/issues),
-  labelled by type, priority and area: new work goes there and not on the roadmap, whose
-  entries move as issues take them over (ADR-062). Issue templates and `CONTRIBUTING.md`
+- Planned work has moved to [GitHub issues](https://github.com/LupoLab/solprop/issues),
+  labelled by type, priority and area: the roadmap now lists only SEPs (ADR-062). Issue
+  templates and `CONTRIBUTING.md`
   say what an issue or a pull request should hold and what to check before opening one.
 - The README, `CITATION.cff` and the citing page name solprop's Zenodo DOI,
   [10.5281/zenodo.23854248](https://doi.org/10.5281/zenodo.23854248), which covers
