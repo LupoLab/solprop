@@ -176,6 +176,33 @@ description gives for free.
 - **The writer lock.** The `*.writer.lock` sidecar is documented under snapshots in the
   [output guide](../../guide/results/output.md).
 
+**Open issues.** From a keyword search of this SEP's subjects against the open issues,
+reading those that matched. It fixes none in full.
+
+- **To resolve first:**
+  - [#86](https://github.com/LupoLab/solprop/issues/86): the names to settle in 0.x. Every
+    keyword joins recipe `format = 1` when this SEP merges, and a rename then needs a format
+    upgrade rule too.
+  - [#87](https://github.com/LupoLab/solprop/issues/87): one table for the route defaults.
+    S9's resolvers should read that table rather than copy the rules a third time.
+- **It changes, or meets the same code as:**
+  - [#98](https://github.com/LupoLab/solprop/issues/98): underscore fields in the signature
+    of `SimulationSettings`, which S9's sync test checks against.
+  - [#5](https://github.com/LupoLab/solprop/issues/5),
+    [#6](https://github.com/LupoLab/solprop/issues/6),
+    [#7](https://github.com/LupoLab/solprop/issues/7) and
+    [#89](https://github.com/LupoLab/solprop/issues/89): the memory estimate that S11
+    reports.
+  - [#125](https://github.com/LupoLab/solprop/issues/125): `Recipe.scan()` builds each point
+    afresh and passes its seed, which avoids this.
+  - [#131](https://github.com/LupoLab/solprop/issues/131): reading a scan file's recipe (S2)
+    goes through `ScanOutput`'s schema check.
+  - [#83](https://github.com/LupoLab/solprop/issues/83) and
+    [#95](https://github.com/LupoLab/solprop/issues/95): the boundary warning, which S10
+    gives a `parameter`.
+  - [#109](https://github.com/LupoLab/solprop/issues/109): a refactor of
+    `driver/simulation.py`.
+
 ### 4. Theory
 
 No new physics. Four definitions matter:
@@ -987,8 +1014,9 @@ The tolerance classes are those of the [testing policy](../testing.md#3-toleranc
 
 The phases are made on one branch and the SEP reaches `main` in one pull request when its
 last commit sets `Final` (SEP 0, *Implementation*). The branch starts after SEP 42's phase
-1, whose gate S2 and S17 rest on. A front end in development builds against the branch; the
-order puts what it needs first.
+1, whose gate S2 and S17 rest on. Phase 4 follows SEP 40, because it registers the
+free-space types, whose interface and default SEP 40 changes. A front end in development
+builds against the branch; the order puts what it needs first.
 
 1. **Recipe core on `gnlse` and `capillary` (S1, S9, S10, S12).** `solprop.recipe` with
    format 1; quantity parser and TOML writer; paths, `None`, complex numbers, arrays and
@@ -1039,8 +1067,8 @@ order puts what it needs first.
   longer `length`), refusing only when the hash differs in more than the run's end?
   Recommended: no in this SEP; extending a finished run is its own question. A changed grid
   is always a new run. **Decision (John Travers, 2026-11-01):** as recommended. Extending a
-  finished run stays a roadmap item for its own proposal, which is simplest after this SEP's
-  recipes; SEP 42 does not take it on.
+  finished run is [#141](https://github.com/LupoLab/solprop/issues/141), simplest after this
+  SEP's recipes; SEP 42 does not take it on.
 - **Q5.** Which pulse-retrieval formats does a retrieval loader support first? **Decision
   (John Travers, 2026-11-01):** the usual three columns of frequency in Hz, spectral power
   density and spectral phase, as Luna.jl's `DataPulse` takes, with care over the phase when
@@ -1066,13 +1094,16 @@ order puts what it needs first.
   that none is a keyword. **Decision (John Travers, 2026-11-01):** as recommended.
 - **Q10. A stop that returns.** `run(stop=)` returns the handler when its own flag stops it
   (recommended, §5.17), or raises like SIGTERM, a `SystemExit` that a front end's `except
-  Exception` misses and that ends a worker thread silently. **Decision (John Travers, 2026-11-01):** as recommended.
+  Exception` misses and that ends a worker thread silently. **Decision (John Travers,
+  2026-11-01):** as recommended.
 - **Q11. One way only.** Drop `Recipe.from_call` for `Recipe.from_keywords` with plain
   values, and never turn an object into a table (recommended, §5.1), or have factories
-  attach their tables so that more calls can be captured. **Decision (John Travers, 2026-11-01):** as recommended.
+  attach their tables so that more calls can be captured. **Decision (John Travers,
+  2026-11-01):** as recommended.
 - **Q12. Edited recipes lose their comments.** `save` is verbatim until a recipe is edited
   and canonical after (recommended, §5.1), or preserve comments, which needs a TOML library
-  that keeps them, a heavier dependency than Q6 took. **Decision (John Travers, 2026-11-01):** as recommended.
+  that keeps them, a heavier dependency than Q6 took. **Decision (John Travers,
+  2026-11-01):** as recommended.
 
 ### 13. References
 
@@ -1117,6 +1148,9 @@ order puts what it needs first.
   the simulation, a stop that returns, and SEP 42 as a requirement. Q9–Q12 ask for confirmation.
 - 2026-11-01: Human review (John Travers), and decisions on Q9–Q12 as recommended. Accepted by
   John Travers; Part I frozen.
+- 2026-11-01: Tracking issue: [#143](https://github.com/LupoLab/solprop/issues/143). Brought to the standard of ADR-062 before the pull request
+  merged: §3 lists the open issues, and Q4 names [#141](https://github.com/LupoLab/solprop/issues/141). §11 notes that phase 4 follows SEP 40, as
+  the maintainer ordered.
 
 ### AI review, 2026-10-31
 
