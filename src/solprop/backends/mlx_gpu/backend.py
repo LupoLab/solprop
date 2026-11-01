@@ -198,6 +198,10 @@ class MlxBackend(NumpySingleBackend):
         Naming what is refused, or a protected operation the device does not establish.
     """
 
+    # SEP 40: the device path's transverse edge is qualified in phase 3; until then a
+    # run here is unwatched there, and a requested collar is refused by name.
+    reads_transverse_edge = False
+
     name = "mlx"
 
     _monitor_weights: mx.array | None = None

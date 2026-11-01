@@ -237,3 +237,14 @@ def test_the_record_holds_the_specification_and_the_design() -> None:
     assert "spatial_absorber" not in default.configuration
     assert default.transverse is not None
     assert default.transverse["collar"] is False
+
+
+def test_a_backend_that_does_not_read_the_edge_refuses_a_collar() -> None:
+    # SEP 40 section 6: a requested collar is refused by name where its return
+    # monitor is not carried (numba_cpu in phase 1).
+    from solprop.exceptions import BackendError  # noqa: PLC0415
+
+    simulation = suite(2.6, SpatialAbsorber())
+    simulation.settings = dataclasses.replace(simulation.settings, backend="numba_cpu")
+    with pytest.raises(BackendError, match="numba_cpu backend does not carry"):
+        simulation.run(progress="none")

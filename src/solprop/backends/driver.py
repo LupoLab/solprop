@@ -328,6 +328,16 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         profiles: Mapping[str, ZProfile] | None = None,
     ) -> None:
         """Adopt a validated problem and start the run at the entrance."""
+        design = problem.transverse
+        if design is not None and design.has_collar and not self.reads_transverse_edge:
+            # SEP 40 section 6: a requested collar is carried, with its return monitor,
+            # where the transverse edge is read; elsewhere it is refused by name.
+            msg = (
+                f"the {self.name} backend does not carry a requested real-space collar "
+                "(SpatialAbsorber with real_space=True) yet: run it on "
+                "backend='numpy_ref', or ask for the safety ramp alone"
+            )
+            raise BackendError(msg)
         self._problem = problem
         self._adams: AdamsMarch | None = None
         # The low-storage march (SEP 24), set at construction by a backend that
