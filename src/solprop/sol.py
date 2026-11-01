@@ -206,6 +206,7 @@ from solprop.pulses import (
     PlanarPulse,
     SechPulse,
     SpatialPulse,
+    TimeDataPulse,
 )
 from solprop.stepper import Multistep, RungeKutta
 from solprop.tools import (
@@ -315,6 +316,7 @@ __all__ = [
     "TabulatedHollowMode",
     "TabulatedMode",
     "TaylorPhase",
+    "TimeDataPulse",
     "TransferFunction",
     "TubeLattice",
     "VincettiMode",
