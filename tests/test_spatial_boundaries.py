@@ -137,7 +137,7 @@ def test_direct_spatial_constructor_derives_a_default_frame(case):
 @pytest.mark.parametrize(
     ("changes", "refusal"),
     [
-        ({"schema_version": 3}, "reads output schema 1 only"),
+        ({"schema_version": 3}, "reads output schema 2 only"),
         ({"spatial": None}, "requires a spatial geometry record"),
     ],
 )

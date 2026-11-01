@@ -6,7 +6,7 @@
 
 Every field of a recorded dataclass is recorded, at its default too, so a change that
 moves one of these records is deliberate and bumps the output schema. The records were
-first pinned before four later additions, which the projection in :func:`split` takes
+first pinned before five later changes, which the projection in :func:`split` takes
 back out, so that the pins still hold everything else. Each is pinned as
 SEP 25 pins a record: its structure -- keys, strings, integers, flags and where every
 number sits -- by an exact SHA-256 (identity metadata, class P), and its numbers, stored
@@ -129,10 +129,13 @@ def build(kind: str) -> Simulation:
 
 def split(kind: str):
     metadata = build(kind).metadata()
-    assert metadata.schema_version == SCHEMA_VERSION == 1
+    assert metadata.schema_version == SCHEMA_VERSION == 2
     # The projection works on the hashed record, since a record without the later
     # additions is not one a run can hold.
     hashed: dict[str, Any] = metadata.hashed()
+    # Output schema 2 adds a field only to `DataPulse`, which none of these runs holds;
+    # the projection takes the number back, and everything else must be unchanged.
+    hashed["schema_version"] = 1
     # SEP 34 adds the plane measure to the spatial record; the projection leaves it
     # out, and everything else must be unchanged.
     if hashed["spatial"] is not None:

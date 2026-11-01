@@ -924,7 +924,8 @@ DRIVER_SURFACE = {
     "_held_field": f"(self) -> {FIELD}",
     "set_initial": (
         "(self, field: jaxtyping.Complex[ndarray, 'n_batch n_modes n_pol n_omega'], "
-        "noise: solprop.noise.NoiseRealisation | None, *, z: float = 0.0) -> None"
+        "noise: solprop.noise.NoiseRealisation | None, *, z: float = 0.0, "
+        "resume: bool = False) -> None"
     ),
     "set_progress": "(self, reporter: solprop.log.ProgressReporter) -> None",
     "propagate_to": "(self, z: float) -> solprop.backends.protocol.StepSummary",
@@ -1107,9 +1108,10 @@ def test_the_surface_a_backend_subclasses_is_frozen(driver):
     monitor's reading is the backend's. Version 39 adds ``_record_attempt`` and
     ``_skip_step`` and freezes ``_take_step_stats``, ``_natural_stop`` and
     ``_natural_stop_due``, which a native Adams march books its attempts through, and
-    the march's policy record (SEP 39).
+    the march's policy record (SEP 39). Version 40 gives ``set_initial`` its ``resume``
+    keyword: a stored field never takes the ``input`` draw again.
     """
-    assert KERNEL_SCHEMA_VERSION == 39, (
+    assert KERNEL_SCHEMA_VERSION == 40, (
         "the seam changed: rewrite the literals of this test"
     )
     for name, signature in {
