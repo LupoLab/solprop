@@ -2327,11 +2327,11 @@ class TimeDataPulse(Displayed):
 
     The stored form is the record, and :meth:`build` takes out its mean ``E_mean`` and
     evaluates the transform in the optics convention,
-    ``sum_n (E_n - E_mean) exp(+i omega t_n)``, at the grid's own frequencies. Nothing is
-    interpolated, so the record may hold any number of pulses at any separation, however
-    deep the fringes between them, and each lands where it sat for any ``t[0]``. That is
-    the difference from a :class:`DataPulse`: a spline through the magnitude and the
-    phase of a spectrum cannot follow a fringe to its null.
+    ``sum_n (E_n - E_mean) exp(+i omega t_n)``, at the grid's own frequencies. Nothing
+    is interpolated, so the record may hold any number of pulses at any separation,
+    however deep the fringes between them, and each lands where it sat for any
+    ``t[0]``. That is the difference from a :class:`DataPulse`: a spline through the
+    magnitude and the phase of a spectrum cannot follow a fringe to its null.
 
     The mean is taken out because a baseline is an offset of the instrument, not part of
     a field that propagates, and left in it would be a step at each end of the record,
