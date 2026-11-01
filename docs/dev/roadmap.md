@@ -1245,13 +1245,6 @@ splines, a transform's component count), which appear in their constructors'
 signatures. The state must survive `dataclasses.replace`, which `field(init=False)`
 would reset, so keeping it out of the signature is a change of construction pattern.
 
-**Continuing a finished run to a longer length.** A resume continues an unfinished run only.
-Continuing a complete run further differs from it in hundreds of length-dependent paths, its
-absorber depends on the length, and the file's record cannot describe planes beyond its own, so
-extended planes could not be exchanged. `with_input` from the last plane does it today, into a
-new file. A proposal would need a comparison on the stored interval and a record of the extended
-file, and is simplest after SEP 41's recipes ([SEP 42](seps/sep-0042-tolerant-resume.md), §2).
-
 ## Known issues
 
 **pytest capped below 9.2.** pytest 9.2 derives a node's id from a structured id, so

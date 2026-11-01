@@ -97,7 +97,8 @@ Out of scope:
   one in hundreds of length-dependent paths, its absorber depends on the length, and the
   file's record cannot describe planes beyond its own. It needs its own proposal, after the
   recipes of SEP 41 (in draft). `with_input` from the last plane already continues a
-  finished run into a new file. The roadmap keeps the item.
+  finished run into a new file. [#141](https://github.com/LupoLab/solprop/issues/141) holds
+  the work.
 - **Reading files of another output schema.** ADR-058 stands: a file is read only at its own
   schema. This SEP makes bumps rare; it adds no readers for old layouts.
 - **Bitwise reproduction of a resumed run.** A resume agrees with an uninterrupted run to
@@ -158,6 +159,28 @@ The relevant decisions:
 
 This SEP answers the roadmap item *A resume-compatibility policy before 1.0*. It chooses
 neither option the item named; §10 says why.
+
+**Open issues.** From a keyword search of this SEP's subjects against the open issues,
+reading those that matched. It fixes none in full.
+
+- **To resolve before 0.2.0:** [#131](https://github.com/LupoLab/solprop/issues/131).
+  `ScanOutput` reads scans of another output schema, so §9's statement that 0.1.0 files stay
+  refused holds for scan files only once that is fixed.
+- **It changes, or meets the same code as:**
+  - [#80](https://github.com/LupoLab/solprop/issues/80): the outcome record is rewritten at
+    every plane, and §5.3's `resume` entry joins it, which is why that entry is kept short.
+  - [#128](https://github.com/LupoLab/solprop/issues/128): what a resume restores of the
+    boundary monitor, in the same first execution record that §5.3 writes to.
+  - [#129](https://github.com/LupoLab/solprop/issues/129): a failed native trial's
+    checkpoint holds the prediction, which the gate cannot tell from a sound state.
+  - [#87](https://github.com/LupoLab/solprop/issues/87): a record of which default applied.
+    Its new fields need $N$ entries if they land after this SEP.
+  - [#125](https://github.com/LupoLab/solprop/issues/125): a scan built from one cached
+    simulation refuses on a rerun because its noise differs. §5.7's comparison does not
+    change that.
+  - [#109](https://github.com/LupoLab/solprop/issues/109) and
+    [#110](https://github.com/LupoLab/solprop/issues/110): refactors of
+    `driver/simulation.py`, `backends/multistep.py` and the step loops.
 
 ### 4. Theory
 
@@ -656,8 +679,9 @@ which neither review ran.
   `resume` on `Simulation.run` and the six `prop_*` routes in `driver/interface.py`, and the
   resume-key paragraphs of `output/schema.py` and `output/hdf5.py`.
 - **ADR:** a new ADR for the policy, narrowing ADR-051 and answering ADR-058's open policy.
-- **Roadmap:** *A resume-compatibility policy before 1.0* goes; *Continuing a finished run
-  to a longer length* comes in.
+- **Roadmap:** *A resume-compatibility policy before 1.0* goes. Continuing a finished run to
+  a longer length, which this SEP gives back, is
+  [#141](https://github.com/LupoLab/solprop/issues/141).
 - **SEP 41:** its §3, §5.2 and §9 describe the resume gate and the schema as they stand
   today, and follow this SEP when it is accepted.
 
@@ -794,6 +818,9 @@ from that tree (§7, §9).
   the arrays, and the handler rather than the driver adopts the file's record.
 - 2026-11-01: Human review (John Travers). Accepted by John Travers; Part I frozen.
 - 2026-11-01: Part I amended before the acceptance pull request merged, for five review comments on it (below), with the maintainer's agreement. 0.2.0 is held until this SEP and SEP 40 land.
+- 2026-11-01: Tracking issue: [#142](https://github.com/LupoLab/solprop/issues/142). Brought to the standard of ADR-062 before the pull request
+  merged: §3 lists the open issues, and the work this SEP gives back moved from the roadmap to
+  [#141](https://github.com/LupoLab/solprop/issues/141).
 
 ### AI review — 2026-11-01 (Opus 5.5)
 
