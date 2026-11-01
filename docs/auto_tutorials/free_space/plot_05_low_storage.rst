@@ -81,7 +81,7 @@ stronger). The temporal envelope has unit peak, so the field is stated directly.
     k0 = 2 * math.pi / wavelength
     amplitude = math.sqrt(2 * 8 / (3 * k0**2 * chi3 * x0**2))  # V/m
     length = k0 * x0**2
-    space = LineGrid(20 * x0, 64, window_factor=0)
+    space = LineGrid(20 * x0, 64, collar_fraction=0)
     grid = EnvelopeGrid.from_limits(
         length, wavelength, (600e-9, 1.1e-6), 400e-15, thg=False
     )
@@ -164,7 +164,13 @@ reused across steps, or the flow formed in every pass -- are those two computati
 
  .. code-block:: none
 
-    band fraction 3.384e-04, parity floor 7.6e-19
+    BoundaryWarning: the launch holds 2.45e-06 of its energy in the safety ramp's band, which the ramp removes as the run starts
+    BoundaryWarning: this backend does not read the transverse edge of a free-space run: the run is unwatched there and cannot report a clean verdict; backend='numpy_ref' reads it (SEP 40 section 5.3)
+    BoundaryWarning: the launch holds 2.45e-06 of its energy in the safety ramp's band, which the ramp removes as the run starts
+    BoundaryWarning: this backend does not read the transverse edge of a free-space run: the run is unwatched there and cannot report a clean verdict; backend='numpy_ref' reads it (SEP 40 section 5.3)
+    BoundaryWarning: the launch holds 2.45e-06 of its energy in the safety ramp's band, which the ramp removes as the run starts
+    BoundaryWarning: this backend does not read the transverse edge of a free-space run: the run is unwatched there and cannot report a clean verdict; backend='numpy_ref' reads it (SEP 40 section 5.3)
+    band fraction 3.241e-04, parity floor 5.4e-19
 
 
 
@@ -199,7 +205,13 @@ seven; ``requested`` is only quoted, since no adaptive run discovered this sched
 
  .. code-block:: none
 
-    observed order 3.81 against a stated order of 4; achieved error 1.17e-06 for a requested tolerance of 1.00e-06
+    BoundaryWarning: the launch holds 2.45e-06 of its energy in the safety ramp's band, which the ramp removes as the run starts
+    BoundaryWarning: this backend does not read the transverse edge of a free-space run: the run is unwatched there and cannot report a clean verdict; backend='numpy_ref' reads it (SEP 40 section 5.3)
+    BoundaryWarning: the launch holds 2.45e-06 of its energy in the safety ramp's band, which the ramp removes as the run starts
+    BoundaryWarning: this backend does not read the transverse edge of a free-space run: the run is unwatched there and cannot report a clean verdict; backend='numpy_ref' reads it (SEP 40 section 5.3)
+    BoundaryWarning: the launch holds 2.45e-06 of its energy in the safety ramp's band, which the ramp removes as the run starts
+    BoundaryWarning: this backend does not read the transverse edge of a free-space run: the run is unwatched there and cannot report a clean verdict; backend='numpy_ref' reads it (SEP 40 section 5.3)
+    observed order 3.81 against a stated order of 4; achieved error 1.09e-06 for a requested tolerance of 1.00e-06
 
 
 
@@ -235,8 +247,8 @@ norm scored on the whole state sees, and it is twenty times smaller than the ban
 
  .. code-block:: none
 
-    15 -> 30 steps: field 1.7e-04, band 3.2e-03
-    30 -> 60 steps: field 1.2e-05, band 2.3e-04
+    15 -> 30 steps: field 1.7e-04, band 3.1e-03
+    30 -> 60 steps: field 1.1e-05, band 2.2e-04
 
 
 
@@ -266,7 +278,9 @@ the measured exponent, and the production run's band is compared with the finest
 
  .. code-block:: none
 
-    21 steps; band 3.392733e-04 against the finest rung's 3.395887e-04
+    BoundaryWarning: the launch holds 2.45e-06 of its energy in the safety ramp's band, which the ramp removes as the run starts
+    BoundaryWarning: this backend does not read the transverse edge of a free-space run: the run is unwatched there and cannot report a clean verdict; backend='numpy_ref' reads it (SEP 40 section 5.3)
+    21 steps; band 3.248999e-04 against the finest rung's 3.252010e-04
 
 
 
@@ -316,7 +330,7 @@ describes calibration and replay.
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 0.744 seconds)
+   **Total running time of the script:** (0 minutes 0.801 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_free_space_plot_05_low_storage.py:

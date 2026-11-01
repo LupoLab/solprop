@@ -73,7 +73,7 @@ of 0.8 mm, twenty waists, puts six lattice points across the far-field radius.
     from matplotlib.patches import Circle
     from scipy import integrate
 
-    from solprop.boundaries import TransverseCollar, absorber, custom_absorber
+    from solprop.boundaries import SpatialAbsorber, absorber, custom_absorber
     from solprop.constants import C
     from solprop.driver import SimulationSettings, prop_free
     from solprop.grid import EnvelopeGrid, FreeGrid
@@ -102,7 +102,7 @@ of 0.8 mm, twenty waists, puts six lattice points across the far-field radius.
     ANGLE = 0.010
     K0 = 2 * np.pi * INDEX / WAVELENGTH * np.sin(ANGLE)
     grid = EnvelopeGrid.from_limits(LENGTH, WAVELENGTH, (740e-9, 870e-9), 300e-15)
-    space = FreeGrid(0.4e-3, 224, 0.4e-3, 64, window_factor=0.0)
+    space = FreeGrid(0.4e-3, 224, 0.4e-3, 64, collar_fraction=0.0)
     k_max = float(np.max(np.abs(space.k_x)))
     print(f"K0/k_max = {K0 / k_max:.2f}; grid {space.n_x} x {space.n_y} x {grid.n_omega}")
 
@@ -273,7 +273,7 @@ is evanescent.
             period=1,
         ),
         absorber=band,
-        transverse_absorber=TransverseCollar(2e4),
+        spatial_absorber=SpatialAbsorber(real_space=False),
         fields="planes",
         field_planes=(-1,),
     )
@@ -300,6 +300,7 @@ is evanescent.
 
  .. code-block:: none
 
+    BoundaryWarning: this backend does not read the transverse edge of a free-space run: the run is unwatched there and cannot report a clean verdict; backend='numpy_ref' reads it (SEP 40 section 5.3)
     9 planes from 0.000 to 1.000 mm
 
 
@@ -371,7 +372,7 @@ statistic here weights it.
  .. code-block:: none
 
 
-    <matplotlib.colorbar.Colorbar object at 0x128a79a90>
+    <matplotlib.colorbar.Colorbar object at 0x1178bd010>
 
 
 
@@ -422,7 +423,7 @@ peaks near the coherence length :math:`\pi/|\Delta k|` and falls back.
     coherence length pi/|dk| = 0.69 mm
     signal peaks at z = 0.750 mm
 
-    <matplotlib.legend.Legend object at 0x12995fcb0>
+    <matplotlib.legend.Legend object at 0x11d315400>
 
 
 
@@ -638,7 +639,7 @@ to the beam spectrum needs no further normalisation.
 
  .. code-block:: none
 
-    collect against the run: 3.7e-16
+    collect against the run: 6.2e-16
     from the definition against the run, largest difference in collected fraction: 2.2e-16
 
 
@@ -693,7 +694,7 @@ transmission of the exit face into air is not modelled.
 
     quadrants against the beam spectrum: 3.2e-16
     towards +x 1.3721e-07 J, towards -x 1.3708e-07 J; upper 1.5409e-07 J, lower 1.2020e-07 J
-    exit energy 2.742884e-07 J; beam spectrum integral 2.742884e-07 J; relative difference 1.6e-15
+    exit energy 2.742885e-07 J; beam spectrum integral 2.742885e-07 J; relative difference 6.0e-15
 
 
 
@@ -749,8 +750,8 @@ the evanescent and material channels are exactly zero.
  .. code-block:: none
 
     energy drop 1.5701e-08 J; absorbed 1.5704e-08 J
-    evanescent and material channels: 0.0 J/m; transverse at the exit 1.0e-09 J/m
-    tutorial run time: 1.4 s
+    evanescent and material channels: 0.0 J/m; transverse at the exit 7.6e-10 J/m
+    tutorial run time: 1.8 s
 
 
 
@@ -768,7 +769,7 @@ far-zone and Fourier-plane conditions and the paraxial error;
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 1.482 seconds)
+   **Total running time of the script:** (0 minutes 1.804 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_free_space_plot_07_far_field_statistics.py:

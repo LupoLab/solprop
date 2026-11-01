@@ -76,7 +76,7 @@ asking for one on a line is refused by name.
     k0 = 2 * math.pi / wavelength
     amplitude = math.sqrt(8 / (3 * k0**2 * chi3 * x0**2))  # V/m
     length = 3 * k0 * x0**2
-    space = LineGrid(20 * x0, 128, window_factor=0)
+    space = LineGrid(20 * x0, 128, collar_fraction=0)
     print(f"soliton peak field {amplitude:.4g} V/m; 3 diffraction lengths {length:.3g} m")
     try:
         critical_power(wavelength, chi3, index=1.0, space=space)
@@ -173,7 +173,9 @@ field rather than assumed.
 
  .. code-block:: none
 
-    1 P': peak power 7.65e+13 W/m, energy 40.72 J/m, peak intensity ratio 0.9998
+    BoundaryWarning: the fixed schedule's longest step, 5.890e-03 m, is longer than the transverse edge's read spacing, 3.682e-03 m: light could cross the edge unseen between two reads; the run is reported as coarse (SEP 40 section 5.3)
+    1 P': peak power 7.65e+13 W/m, energy 40.72 J/m, peak intensity ratio 0.9999
+    BoundaryWarning: the fixed schedule's longest step, 5.890e-03 m, is longer than the transverse edge's read spacing, 3.682e-03 m: light could cross the edge unseen between two reads; the run is reported as coarse (SEP 40 section 5.3)
     0.5 P': peak power 3.825e+13 W/m, energy 20.36 J/m, peak intensity ratio 0.5767
 
 
@@ -191,7 +193,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 2.830 seconds)
+   **Total running time of the script:** (0 minutes 3.018 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_free_space_plot_03_line.py:

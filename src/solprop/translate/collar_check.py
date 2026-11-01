@@ -52,6 +52,7 @@ from solprop.spatial import SpatialDispersion
 __all__ = [
     "BUDGET",
     "REFINED_BUDGET",
+    "WARNING_SHARE",
     "CheckResult",
     "design_check",
 ]

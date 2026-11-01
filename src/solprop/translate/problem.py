@@ -2885,12 +2885,19 @@ def _spatial_assembly(
 
 
 def _crossing_clamped(
-    design: SpatialAbsorberDesign | None, dz_max: float, dz_init: float
+    design: SpatialAbsorberDesign | None,
+    dz_max: float,
+    dz_init: float,
+    *,
+    single: bool = False,
 ) -> tuple[float, float]:
     """Return the step bounds held to a collar's crossing limit (SEP 40 section 4.7).
 
     No adaptive step carries the protected band across the collar unseen; a run
-    without a collar keeps its bounds.
+    without a collar keeps its bounds. Every transverse design also holds the step to
+    the safety ramp's exponent budget (section 6): the propagator's inverse factor
+    ``exp(alpha_s h / 2)`` stays within half the precision's range, so a strong ramp on
+    a fine grid cannot overflow it.
 
     Parameters
     ----------
@@ -2900,15 +2907,21 @@ def _crossing_clamped(
         The requested largest step, m.
     dz_init : float
         The requested first step, m.
+    single : bool, optional
+        Whether the state is binary32, whose range is smaller.
 
     Returns
     -------
     tuple
         The largest step and the first step, m.
     """
-    if design is None or not design.has_collar:
+    if design is None:
         return dz_max, dz_init
-    dz_max = min(dz_max, design.crossing_step)
+    if design.ramp_strength > 0.0:
+        budget = LOG_FLT_MAX if single else LOG_DBL_MAX
+        dz_max = min(dz_max, budget / design.ramp_strength)
+    if design.has_collar:
+        dz_max = min(dz_max, design.crossing_step)
     return dz_max, min(dz_init, dz_max)
 
 
@@ -6438,7 +6451,9 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
         prefactor_index,
         None if reuse is None else reuse.initial,
     )
-    dz_max, dz_init = _crossing_clamped(design, dz_max, dz_init)
+    dz_max, dz_init = _crossing_clamped(
+        design, dz_max, dz_init, single=precision.single
+    )
     settings = _stepper_settings(
         linear,
         tableau=tableau,

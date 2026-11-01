@@ -32,14 +32,14 @@ from dataclasses import dataclass, field
 from typing import Literal, cast
 
 import numpy as np
-from jaxtyping import Complex, Float
+from jaxtyping import Complex, Float, Int
 
 from solprop.exceptions import BoundaryError, BoundaryWarning
 from solprop.grid import FreeGrid, LineGrid, RadialGrid
 from solprop.modes.slab import PlanarGrid
 from solprop.spatial_absorber import RAMP_K_FLOOR, SpatialAbsorberDesign
 
-__all__ = ["GUARD", "READS", "TransverseEdge", "TransverseStatus"]
+__all__ = ["GUARD", "NOISE_FACTOR", "READS", "TransverseEdge", "TransverseStatus"]
 
 logger = logging.getLogger(__name__)
 
@@ -194,7 +194,7 @@ class TransverseEdge:
     budget: float
     stop_factor: float
     length: float
-    band: np.ndarray
+    band: Int[np.ndarray, " n_band"]
     k_min: float
     _faces: tuple[_Face, ...] = field(init=False)
     _weights: np.ndarray = field(init=False)

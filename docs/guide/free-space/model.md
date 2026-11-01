@@ -160,7 +160,6 @@ which the run's `energy` statistic reports
 The [radial tutorial](../../auto_tutorials/free_space/plot_01_radial.rst) launches its beam
 this way.
 
-(spatial-collar-and-statistics)=
 ## Transverse boundaries
 
 A free-space grid has a hard edge: the radial transform holds the field at zero at its
@@ -206,6 +205,8 @@ Refine the grid, launch with less tilt, declare the content with
 `SpatialAbsorber(discard_above=...)`, or remove the ramp with `spatial_absorber=False`.
 What the ramp removes later is reported as `ramp_removed` and warns above the budget.
 
+### Spatial collar and statistics
+
 **A collar on request.** A run whose fast light cannot be given room -- four-wave-mixing
 products at an angle, conical emission -- asks for a real-space collar in the grid's room:
 
@@ -213,9 +214,18 @@ products at an angle, conical emission -- asks for a real-space collar in the gr
 from solprop.boundaries import SpatialAbsorber
 
 space = RadialGrid(300e-6, 230, collar_fraction=2.6)
-prop_radial(grid, space, medium, responses, pulse, settings=settings,
-            spatial_absorber=SpatialAbsorber())            # band from the launch
-prop_free(..., spatial_absorber=SpatialAbsorber(angle=25e-3))  # protect sin(theta) <= 25e-3
+prop_radial(
+    grid,
+    space,
+    medium,
+    responses,
+    pulse,
+    settings=settings,
+    spatial_absorber=SpatialAbsorber(),
+)  # band from the launch
+prop_free(
+    ..., spatial_absorber=SpatialAbsorber(angle=25e-3)
+)  # protect sin(theta) <= 25e-3
 ```
 
 The collar is designed at translation from a *protected* band of transverse wavenumbers

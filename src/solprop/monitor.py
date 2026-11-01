@@ -63,7 +63,7 @@ import math
 import warnings
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, cast
+from typing import cast
 
 import numpy as np
 from jaxtyping import Complex, Float
@@ -72,9 +72,7 @@ from solprop import fourier
 from solprop.exceptions import BoundaryError, BoundaryWarning
 from solprop.fourier import GridKind
 from solprop.grid import TimeGrid
-
-if TYPE_CHECKING:
-    from solprop.transverse_monitor import TransverseEdge
+from solprop.transverse_monitor import TransverseEdge
 
 __all__ = [
     "ACTIVE",

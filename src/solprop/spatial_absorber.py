@@ -471,7 +471,7 @@ class SpatialAbsorber:
         ``sin(theta) = c kappa / omega`` (SEP 23's convention), rad, in (0, pi/2):
         a band that scales with frequency. Neither `kappa` nor `angle` takes the band
         from the launch, ``c_b sqrt(2) kappa_rms`` per axis
-        (:data:`LAUNCH_BAND_FACTOR`).
+        (:data:`~solprop.spatial_absorber.LAUNCH_BAND_FACTOR`).
     discard_above : float or None
         A wavenumber above which the user declares no physical light, rad/m: the
         safety ramp then starts there. Never lowered by default.
@@ -573,9 +573,9 @@ class SpatialAbsorberDesign:
     """A transverse boundary resolved at translation (SEP 40 section 5.2).
 
     Immutable, and part of the translated problem: derived runs share it
-    (:meth:`solprop.driver.Simulation.with_input`), and the design check that belongs
-    to a launch is rerun for a new one. Every derived value is recorded in the run's
-    output beside the specification, not hashed with it.
+    (:meth:`solprop.driver.simulation.Simulation.with_input`), and the design check
+    that belongs to a launch is rerun for a new one. Every derived value is recorded in
+    the run's output beside the specification, not hashed with it.
 
     Attributes
     ----------

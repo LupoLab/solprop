@@ -603,7 +603,7 @@ def checked_design(
 
     SEP 40 section 4.4. Without a collar the check is neither built nor run. A launch
     that is zero everywhere leaves it ``"pending"``, for the launch a coupled child is
-    given (:meth:`solprop.driver.Simulation.with_input`).
+    given (:meth:`solprop.driver.simulation.Simulation.with_input`).
 
     Parameters
     ----------
