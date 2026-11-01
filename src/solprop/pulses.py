@@ -2325,18 +2325,24 @@ def _record_spectrum(
 class TimeDataPulse(Displayed):
     """A pulse from a measured field in time, transformed exactly onto the grid.
 
-    The stored form is the record, and :meth:`build` evaluates its transform in the
-    optics convention, ``sum_n E_n exp(+i omega t_n)``, at the grid's own frequencies.
-    Nothing is interpolated, so the record may hold any number of pulses at any
-    separation, however deep the fringes between them, and each lands where it sat for
-    any ``t[0]``. That is the difference from a :class:`DataPulse`: a spline through the
-    magnitude and the phase of a spectrum cannot follow a fringe to its null.
+    The stored form is the record, and :meth:`build` takes out its mean ``E_mean`` and
+    evaluates the transform in the optics convention,
+    ``sum_n (E_n - E_mean) exp(+i omega t_n)``, at the grid's own frequencies. Nothing is
+    interpolated, so the record may hold any number of pulses at any separation, however
+    deep the fringes between them, and each lands where it sat for any ``t[0]``. That is
+    the difference from a :class:`DataPulse`: a spline through the magnitude and the
+    phase of a spectrum cannot follow a fringe to its null.
+
+    The mean is taken out because a baseline is an offset of the instrument, not part of
+    a field that propagates, and left in it would be a step at each end of the record,
+    whose spectrum reaches the band. A background that varies across the record stays,
+    and is such a step where it does not vanish at the ends. So is the mean of a pulse
+    with a net area, such as a half-cycle pulse, which this changes.
 
     The spectrum is zero at frequencies that are not positive and above the record's
     Nyquist frequency ``pi / dt``, and the grid's spectral collar is applied. The
-    record's ends are its ends: a pulse that reaches them is cut there, and a constant
-    baseline becomes a step at each, whose spectrum falls with frequency. A record
-    longer than the grid's window folds back into it, as any transform sampled at the
+    record's ends are its ends: a pulse that reaches them is cut there. A record longer
+    than the grid's window folds back into it, as any transform sampled at the
     grid's spacing must, and the build warns when that takes more than a millionth of
     the energy.
 
@@ -2522,17 +2528,21 @@ class TimeDataPulse(Displayed):
             ("further delay", engineering(self.t0, "s")),
         ]
 
-    def _warn_if_folded(self, grid: TimeGrid) -> None:
+    def _warn_if_folded(
+        self, values: Inexact[np.ndarray, " n_data"], grid: TimeGrid
+    ) -> None:
         """Warn when enough of the record lies outside the grid's window to matter.
 
         Parameters
         ----------
+        values : numpy.ndarray
+            The record as it is transformed, shape ``(n_data,)``.
         grid : solprop.grid.TimeGrid
             Grid to build on.
         """
         arrival = self.t + self.t0
         half = 0.5 * grid.n_t * grid.dt
-        power = np.abs(self.field) ** 2
+        power = np.abs(values) ** 2
         share = float(np.sum(power[np.abs(arrival) > half]) / np.sum(power))
         if share > _FOLDED_ENERGY_SHARE:
             logger.warning(
@@ -2590,10 +2600,11 @@ class TimeDataPulse(Displayed):
                 nyquist,
                 grid.omega[active].max(),
             )
-        self._warn_if_folded(grid)
+        values = self.field - np.mean(self.field)
+        self._warn_if_folded(values, grid)
         optics = np.zeros(grid.n_omega, dtype=np.complex128)
         optics[inside] = _record_spectrum(
-            self.t, self.field, grid.omega[inside], grid.d_omega
+            self.t, values, grid.omega[inside], grid.d_omega
         )
         optics = optics * grid.omega_window
         spectrum = fourier.spectrum_to_internal(optics, kind=grid.kind)

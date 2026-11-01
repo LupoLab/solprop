@@ -35,7 +35,8 @@ All notable changes to solprop are recorded here. The format follows
   own bin spacing and splined its magnitude and phase, which cannot follow the fringes
   of pulses far apart: pulses at 100 and 600 fs in a record of 800 fs, of relative
   amplitude −0.9, came out 85 % wrong with no warning. The class evaluates the record's
-  transform exactly at the grid's frequencies, 3e-12 from the direct sum on that case.
+  transform exactly at the grid's frequencies, 3e-12 from the direct sum on that case,
+  less its mean: a baseline is an offset of the instrument, not part of the field.
 
 ### Fixed
 

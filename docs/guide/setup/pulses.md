@@ -191,10 +191,11 @@ A spline through a magnitude and a phase cannot follow a spectral fringe to its 
 `DataPulse` suits one compact pulse and not several far apart. If the measurement is a
 field in time, use a `TimeDataPulse`, which interpolates nothing.
 
-A `TimeDataPulse` evaluates the record's transform at the grid's own frequencies,
+A `TimeDataPulse` takes out the record's mean $\bar{E}$ and evaluates the transform at the
+grid's own frequencies,
 
 $$
-\tilde{E}(\omega_k) = \sum_n E_n\, e^{+i\omega_k t_n},
+\tilde{E}(\omega_k) = \sum_n \bigl(E_n - \bar{E}\bigr)\, e^{+i\omega_k t_n},
 $$
 
 with the chirp-z transform, whose cost is that of a few FFTs of the record and the grid
@@ -204,9 +205,13 @@ $t_n$ is the record's own axis. It is what the record says rather than what the 
 
 - The spectrum is zero at frequencies above the record's Nyquist frequency $\pi/\Delta t$,
   and a warning is logged when the grid's active band reaches past it.
-- A pulse that reaches the ends of the record is cut there, and a constant baseline is a
-  step at each end, whose spectrum falls with frequency. A baseline of 1 % of the peak on a
-  20 fs Gaussian changes the built spectrum by 0.15 %, so remove a baseline first.
+- A baseline is an offset of the instrument and not part of a field that propagates, so the
+  mean is taken out: left in, it would be a step at each end of the record, and 1 % of the
+  peak would change a 20 fs Gaussian by 0.15 %. A background that varies across the record
+  stays, and is such a step where it does not vanish at the ends. A pulse with a net area,
+  such as a half-cycle pulse, makes a mean of its own, and taking it out is that step: a
+  unipolar 10 fs Gaussian in an 800 fs record changes by 3.3 % on a 1 to 50 µm band.
+- A pulse that reaches the ends of the record is cut there.
 - A record longer than the grid's window folds back into it, as any spectrum sampled at the
   grid's spacing must, and a warning is logged when that takes more than a millionth of the
   energy.

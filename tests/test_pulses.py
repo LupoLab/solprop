@@ -593,10 +593,10 @@ def direct_transform(t, field, omega):
 
 
 def direct_build(t, field, grid):
-    """Return a record's stored spectrum from the direct sum, at the test energy."""
+    """Return a record's stored spectrum from the direct sum less its mean."""
     inside = (grid.omega > 0.0) & (grid.omega <= np.pi / (t[1] - t[0]))
     optics = np.zeros(grid.n_omega, dtype=np.complex128)
-    optics[inside] = direct_transform(t, field, grid.omega[inside])
+    optics[inside] = direct_transform(t, field - np.mean(field), grid.omega[inside])
     spectrum = fourier.spectrum_to_internal(optics * grid.omega_window, kind=grid.kind)
     realised = fourier.energy_omega(spectrum, grid.dt, kind=grid.kind)
     return spectrum * math.sqrt(ENERGY / realised)
@@ -650,15 +650,41 @@ def test_a_time_record_is_exact_on_either_grid_wherever_it_starts(
         assert relative_l2(built, direct_build(t, record, grid)) < 2e-10
 
 
-def test_a_baseline_in_a_time_record_stays_a_small_change(chirped_grid):
-    # A baseline is a step at each end of the record, and the exact transform keeps it.
+@pytest.mark.parametrize("baseline", [0.01, -0.1, 1.0])
+def test_a_baseline_in_a_time_record_is_taken_out(baseline, chirped_grid):
+    # Left in, it is a step at each end of the record: 2.3e-3 at 1 %, in proportion.
     t = np.linspace(0.0, 800e-15, 8192)
     clean = gaussians_on_a_carrier(t, ((100e-15, 1.0),))
     plain = TimeDataPulse(t=t, field=clean, energy=ENERGY).build(chirped_grid)[0, 0]
-    built = TimeDataPulse(t=t, field=clean + 0.01, energy=ENERGY).build(chirped_grid)
-    assert relative_l2(built[0, 0], direct_build(t, clean + 0.01, chirped_grid)) < 2e-11
-    # The step at each end of the record, measured as 2.3e-3 at this baseline.
-    assert relative_l2(built[0, 0], plain) < 5e-3
+    built = TimeDataPulse(t=t, field=clean + baseline, energy=ENERGY).build(
+        chirped_grid
+    )[0, 0]
+    # The same record but for rounding: 2e-16 measured.
+    assert relative_l2(built, plain) < 1e-14
+
+
+def test_a_complex_time_record_has_its_mean_taken_out_too(chirped_grid):
+    t = np.linspace(0.0, 800e-15, 8192)
+    omega_p = 2.0 * np.pi * C / WAVELENGTH
+    clean = np.exp(-(((t - 300e-15) / 20e-15) ** 2)) * np.exp(-1j * omega_p * t)
+    plain = TimeDataPulse(t=t, field=clean, energy=ENERGY).build(chirped_grid)[0, 0]
+    built = TimeDataPulse(t=t, field=clean + 0.1 + 0.2j, energy=ENERGY).build(
+        chirped_grid
+    )[0, 0]
+    # The same record but for rounding: 1.5e-16 measured.
+    assert relative_l2(built, plain) < 1e-14
+
+
+def test_a_time_record_does_not_take_its_baseline_for_energy_outside_the_window(
+    chirped_grid, caplog
+):
+    # Half of this record lies outside the grid's window, holding only the baseline.
+    t = np.linspace(-6000e-15, 6000e-15, 24576)
+    record = gaussians_on_a_carrier(t, ((0.0, 1.0),)) + 0.1
+    pulse = TimeDataPulse(t=t, field=record, energy=ENERGY)
+    with caplog.at_level(logging.WARNING, logger="solprop.pulses"):
+        pulse.build(chirped_grid)
+    assert "folds back into it" not in caplog.text
 
 
 def test_a_time_record_matches_the_pulse_it_recorded(field_grid):
@@ -780,11 +806,11 @@ def test_a_time_record_matches_the_analytic_transform_of_what_it_holds(
 @pytest.mark.parametrize(
     ("arrival", "disturbance", "tolerance"),
     [
-        # A baseline and a background are steps at the record's ends, which the exact
-        # transform keeps, so each changes the result in proportion to its size: 1.5e-3
-        # measured at 1 % and 1.5e-2 at 10 %.
-        (500e-15, 0.01 * np.ones(8192), 3e-3),
-        (100e-15, 0.1 * np.ones(8192), 3e-2),
+        # A baseline is taken out: 6.6e-11 measured, the same as with none.
+        (500e-15, 0.01 * np.ones(8192), 5e-10),
+        (100e-15, 0.1 * np.ones(8192), 5e-10),
+        # A background has no mean to take out, and is a step at the record's ends:
+        # 1.5e-2 measured at 10 %.
         (500e-15, 0.1 * np.cos(2.0 * np.pi * 3.0 * np.arange(8192) / 8192), 3e-2),
         # White noise of 1 % of the peak, which the spectrum then holds: 1.9 % measured.
         (500e-15, 0.01 * np.random.default_rng(1).standard_normal(8192), 3e-2),
