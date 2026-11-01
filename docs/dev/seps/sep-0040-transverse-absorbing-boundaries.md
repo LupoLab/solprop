@@ -1952,7 +1952,8 @@ stated. Noise off unless stated.
   the 2026-11-01 review* below). Status stays `Draft`; re-acceptance is pending.
 - 2026-11-01: Paused for the maintainer's re-read of Part I. The further AI review was declined. Next:
   re-acceptance, then merging main into this branch, which is 33 commits behind it at 9d5d92f, then
-  phase 1 on `numpy_ref` (§11). No code has changed. The pull request opens at `Final`, as SEP 0 says.
+  phase 1 on `numpy_ref` (§11). No code has changed. A draft pull request marked WIP keeps the work
+  visible, at the maintainer's request, with CI skipped until there is code. It becomes ready at `Final`.
 
 ### AI review — 2026-10-31 (GPT-6)
 
