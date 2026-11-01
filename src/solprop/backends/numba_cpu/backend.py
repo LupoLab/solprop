@@ -3409,6 +3409,7 @@ class NumbaCpuBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         noise: NoiseRealisation | None,
         *,
         z: float = 0.0,
+        resume: bool = False,
     ) -> None:
         """Load a state, and forget the stage the step before it left behind.
 
@@ -3420,8 +3421,11 @@ class NumbaCpuBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
             The realisation, or ``None`` to take the contract's.
         z : float, optional
             Where the state belongs, m. A positive value is a resume.
+        resume : bool, optional
+            Whether `field` came back from a saved plane, and so never takes the
+            ``input`` draw.
         """
-        super().set_initial(field, noise, z=z)
+        super().set_initial(field, noise, z=z, resume=resume)
         # A state that was handed in is not the state any stage was evaluated at, so
         # the first-same-as-last identity is broken until a step has been taken, and
         # so is what the last column evaluation left behind for the statistics.

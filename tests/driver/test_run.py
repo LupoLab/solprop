@@ -131,7 +131,7 @@ class NullBackend:
         self.failure = failure
         self.shape = shape
 
-    def set_initial(self, field, noise, *, z=0.0):
+    def set_initial(self, field, noise, *, z=0.0, resume=False):
         pass
 
     def set_progress(self, reporter):

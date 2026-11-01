@@ -579,6 +579,7 @@ class Backend(Protocol):
         noise: NoiseRealisation | None,
         *,
         z: float = 0.0,
+        resume: bool = False,
     ) -> None:
         """Load a state and the noise realisation at a position, host to device, once.
 
@@ -599,6 +600,10 @@ class Backend(Protocol):
             one to the controller's tolerance and not bitwise, while a replayed
             schedule agrees bitwise on a backend that recycles no stage and to
             round-off on one that does (``docs/dev/stepper.md`` section 3).
+        resume : bool, optional
+            Whether `field` came back from a saved plane of this run, and so already
+            carries the ``input`` realisation even at the launch position, where a file
+            holding only that plane resumes. ``False`` by default.
         """
         ...
 

@@ -527,7 +527,7 @@ class Backend(Protocol):
     name: str
     max_batch: int
 
-    def set_initial(self, field, noise, *, z: float = 0.0) -> None: ...
+    def set_initial(self, field, noise, *, z=0.0, resume=False) -> None: ...
     def set_progress(self, reporter) -> None: ...  # an observer, never an input
     def propagate_to(self, z: float) -> StepSummary: ...  # shared step loop
     def observe(self, *, field: bool = True) -> Observation: ...  # host arrays only

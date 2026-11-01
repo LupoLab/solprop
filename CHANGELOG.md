@@ -43,6 +43,12 @@ All notable changes to solprop are recorded here. The format follows
 - The native backend's HIP build compiles again under its default
   warnings-as-errors: ROCm's Clang refused a thread-local variable that only an OpenMP
   build uses (0.1.0 needed `-DSOLPROP_NATIVE_WARNINGS_AS_ERRORS=OFF`).
+- Resuming a file that holds only its launch plane, from an `input`-noise run stopped
+  before its first saved plane, no longer adds the noise draw to the stored field a
+  second time, which had doubled the noise amplitude for the rest of the run on every
+  backend. `set_initial` takes `resume=True` for a stored field, which moves the kernel
+  schema to 40: rebuild solprop-native. It moves neither the output schema nor the
+  resume key.
 - `DataPulse.from_spectral_density` interpolates the phase it is given. It used to wrap
   the phase into the complex spectrum and unwrap it again, which cannot follow a change
   of more than pi between samples, so a strongly chirped pulse was built wrongly with no
