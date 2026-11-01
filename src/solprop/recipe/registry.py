@@ -19,7 +19,9 @@ quantities into numbers in the keyword's unit, ``{re, im}`` into a complex numbe
 an object, and ``"none"`` into ``None`` where the keyword has that spelling.
 """
 
+import functools
 import io
+import typing
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -36,8 +38,7 @@ from solprop.physdata.mixtures import Mixture
 from solprop.physdata.selection import MaterialSelection
 from solprop.profiles import Constant, Linear, PiecewiseLinear, PressureGradient
 from solprop.pulses import GaussianPulse, SechPulse, load_spectrum
-from solprop.recipe._errors import RecipeError
-from solprop.recipe._format import (
+from solprop.recipe.document import (
     MAX_ARRAY_LENGTH,
     NONE,
     decode_complex,
@@ -46,8 +47,9 @@ from solprop.recipe._format import (
     read_data_file,
     unknown_key,
 )
-from solprop.recipe._metadata import Form, Parameter
-from solprop.recipe._quantity import Unit, beta_unit, parse_quantity, phase_unit
+from solprop.recipe.errors import RecipeError
+from solprop.recipe.metadata import Form, Parameter
+from solprop.recipe.quantity import Unit, beta_unit, parse_quantity, phase_unit
 from solprop.stats import StatsSpec
 from solprop.stepper import LowStorageRungeKutta, Multistep, RungeKutta
 from solprop.stepper.schedule import FixedSchedule
@@ -56,6 +58,8 @@ __all__ = [
     "REGISTRY",
     "BuildContext",
     "Factory",
+    "build_object",
+    "coerce",
     "decode",
     "decode_keyword",
     "unit_of",
@@ -85,7 +89,7 @@ class BuildContext:
 
     Examples
     --------
-    >>> from solprop.recipe._build import BuildContext
+    >>> from solprop.recipe.registry import BuildContext
     >>> BuildContext().grid is None
     True
     """
@@ -117,7 +121,7 @@ class Factory:
 
     Examples
     --------
-    >>> from solprop.recipe._build import REGISTRY
+    >>> from solprop.recipe.registry import REGISTRY
     >>> REGISTRY["GaussianPulse"].units["fwhm"]
     's'
     """
@@ -295,7 +299,7 @@ def _array(
     Raises
     ------
     RecipeError
-        If the list is longer than :data:`~solprop.recipe._format.MAX_ARRAY_LENGTH`.
+        If the list is longer than :data:`~solprop.recipe.document.MAX_ARRAY_LENGTH`.
     """
     if len(value) > MAX_ARRAY_LENGTH:
         msg = (
@@ -338,7 +342,7 @@ def decode(value: object, unit: UnitSpec, context: BuildContext, path: str) -> o
 
     Examples
     --------
-    >>> from solprop.recipe._build import BuildContext, decode
+    >>> from solprop.recipe.registry import BuildContext, decode
     >>> decode("800 nm", "m", BuildContext(), "wavelength")
     8e-07
     >>> decode({"re": 1.45, "im": 0.0}, None, BuildContext(), "cladding")
@@ -421,7 +425,7 @@ def build_object(
 
     Examples
     --------
-    >>> from solprop.recipe._build import BuildContext, build_object
+    >>> from solprop.recipe.registry import BuildContext, build_object
     >>> pulse = build_object(
     ...     {"type": "GaussianPulse", "wavelength": "800 nm", "fwhm": "30 fs",
     ...      "energy": "1 mJ"},
@@ -472,11 +476,93 @@ def build_object(
                 where=f"the keywords of {factory.name}",
                 path=path,
             )
-        arguments[key] = decode(item, factory.units.get(key), context, f"{path}.{key}")
+        decoded = decode(item, factory.units.get(key), context, f"{path}.{key}")
+        arguments[key] = coerce(factory.target, key, decoded)
     try:
         return factory.target(*positional, **arguments)
     except TypeError as error:
         raise RecipeError(f"{factory.name}: {error}", path=path) from error
+
+
+@functools.cache
+def _hints(target: Callable[..., object]) -> Mapping[str, object]:
+    """Return the annotations of a callable's parameters.
+
+    Parameters
+    ----------
+    target : callable
+        A function, class method or class.
+
+    Returns
+    -------
+    collections.abc.Mapping
+        The annotation of each parameter, read once.
+    """
+    function = target.__init__ if isinstance(target, type) else target
+    try:
+        return typing.get_type_hints(function)
+    except NameError, TypeError:  # pragma: no cover - every entry's hints resolve
+        return {}
+
+
+def _wants(annotation: object, kind: type) -> bool:
+    """Return whether an annotation admits a container of a kind, and not a list.
+
+    Parameters
+    ----------
+    annotation : object
+        The parameter's annotation.
+    kind : type
+        ``tuple`` or :class:`numpy.ndarray`.
+
+    Returns
+    -------
+    bool
+        True when the annotation names `kind` and admits no list or sequence.
+    """
+    text = str(annotation)
+    if "Sequence" in text or "list[" in text:
+        return False
+    if kind is tuple:
+        return "tuple[" in text
+    return "ndarray" in text
+
+
+def coerce(target: Callable[..., object], name: str, value: object) -> object:
+    """Give a decoded list the container its parameter's annotation asks for.
+
+    TOML has lists only; a parameter typed as a tuple takes a tuple and one typed as
+    an array takes an array, so a value reaches the constructor as a script passes it.
+
+    Parameters
+    ----------
+    target : callable
+        The constructor or factory.
+    name : str
+        The parameter.
+    value : object
+        The decoded value.
+
+    Returns
+    -------
+    object
+        `value`, as a tuple or a float array where the annotation asks for one.
+
+    Examples
+    --------
+    >>> from solprop.grid import EnvelopeGrid
+    >>> from solprop.recipe.registry import coerce
+    >>> coerce(EnvelopeGrid.from_limits, "wavelength_limits", [4e-7, 2e-6])
+    (4e-07, 2e-06)
+    """
+    if not isinstance(value, list):
+        return value
+    annotation = _hints(target).get(name)
+    if _wants(annotation, tuple):
+        return tuple(value)
+    if _wants(annotation, np.ndarray):
+        return np.asarray(value, dtype=float)
+    return value
 
 
 def _keywords(factory: Factory) -> frozenset[str]:
@@ -561,8 +647,8 @@ def decode_keyword(entry: Parameter, value: object, context: BuildContext) -> ob
 
     Examples
     --------
-    >>> from solprop.recipe._build import BuildContext, decode_keyword
-    >>> from solprop.recipe._metadata import parameters
+    >>> from solprop.recipe.registry import BuildContext, decode_keyword
+    >>> from solprop.recipe.metadata import parameters
     >>> table = parameters("capillary")
     >>> decode_keyword(table["pressure"], ["0 bar", "1.2 bar"], BuildContext())
     [0.0, 1.2]

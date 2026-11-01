@@ -22,9 +22,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Final, Literal
 
 from solprop.exceptions import SolpropError, SolpropWarning
-from solprop.recipe._build import REGISTRY, BuildContext, decode_keyword
-from solprop.recipe._errors import RecipeError
-from solprop.recipe._format import (
+from solprop.recipe.document import (
     FORMAT,
     NONE,
     Document,
@@ -33,9 +31,11 @@ from solprop.recipe._format import (
     unknown_key,
     validate_document,
 )
-from solprop.recipe._metadata import REQUIRED, Parameter, parameters, surface
-from solprop.recipe._paths import format_path, get_path, parse_path, set_path
-from solprop.recipe._quantity import Unit, format_quantity, parse_quantity
+from solprop.recipe.errors import RecipeError
+from solprop.recipe.metadata import REQUIRED, Parameter, parameters, surface
+from solprop.recipe.paths import format_path, get_path, parse_path, set_path
+from solprop.recipe.quantity import Unit, format_quantity, parse_quantity
+from solprop.recipe.registry import REGISTRY, BuildContext, coerce, decode_keyword
 
 if TYPE_CHECKING:
     from solprop.driver.simulation import Simulation
@@ -154,7 +154,7 @@ class Recipe:
     @classmethod
     def loads(
         cls, text: str, *, base: Path | None = None, allow_outside: bool = False
-    ) -> Recipe:
+    ) -> "Recipe":  # noqa: UP037 - the class, checked at run time
         """Read a recipe from TOML text.
 
         Parameters
@@ -174,7 +174,7 @@ class Recipe:
         return cls(parse_text(text), text=text, base=base, allow_outside=allow_outside)
 
     @classmethod
-    def load(cls, path: str | Path, *, allow_outside: bool = False) -> Recipe:
+    def load(cls, path: str | Path, *, allow_outside: bool = False) -> "Recipe":  # noqa: UP037 - the class, checked at run time
         """Read a recipe file.
 
         Parameters
@@ -196,7 +196,7 @@ class Recipe:
     @classmethod
     def from_dict(
         cls, document: Mapping[str, object], *, base: Path | None = None
-    ) -> Recipe:
+    ) -> "Recipe":  # noqa: UP037 - the class, checked at run time
         """Build a recipe from its tables.
 
         Parameters
@@ -216,7 +216,7 @@ class Recipe:
     @classmethod
     def from_keywords(
         cls, route: str, *, title: str | None = None, **keywords: object
-    ) -> Recipe:
+    ) -> "Recipe":  # noqa: UP037 - the class, checked at run time
         """Write a route's keyword call as a recipe, from plain values only.
 
         Parameters
@@ -281,7 +281,7 @@ class Recipe:
         )
 
     @classmethod
-    def example(cls, name: str) -> Recipe:
+    def example(cls, name: str) -> "Recipe":  # noqa: UP037 - checked at run time
         """Load one of the example recipes solprop ships, each a gallery example's.
 
         Parameters
@@ -324,7 +324,7 @@ class Recipe:
         return copy.deepcopy(self._document)
 
     def __eq__(self, other: object) -> bool:
-        """Compare two recipes by their values, not their text.
+        """Compare two recipes by their values, not their text or spelling.
 
         Parameters
         ----------
@@ -338,7 +338,24 @@ class Recipe:
         """
         if not isinstance(other, Recipe):
             return NotImplemented
-        return self._document == other._document
+        return self._canonical_document() == other._canonical_document()
+
+    def _canonical_document(self) -> Document:
+        """Return the tables with each quantity spelled in its display unit.
+
+        Returns
+        -------
+        dict
+            The document a canonical save writes, so that two spellings of one value,
+            ``"1 cm"`` and ``0.01``, compare equal.
+        """
+        document = self.to_dict()
+        table = self._table()
+        document["build"] = {
+            name: _canonical(table[name], value)
+            for name, value in document["build"].items()
+        }
+        return document
 
     __hash__ = None  # type: ignore[assignment]
 
@@ -399,7 +416,7 @@ class Recipe:
         Returns
         -------
         collections.abc.Mapping
-            :class:`~solprop.recipe._metadata.Parameter` by keyword.
+            :class:`~solprop.recipe.metadata.Parameter` by keyword.
         """
         return parameters(self.route)
 
@@ -438,7 +455,13 @@ class Recipe:
         object
             The decoded value.
         """
-        return decode_keyword(self._table()[name], value, context)
+        table = self._table()
+        if name not in table:
+            raise unknown_key(
+                name, list(table), where=f"the {self.route} route's keywords", path=name
+            )
+        decoded = decode_keyword(table[name], value, context)
+        return coerce(surface(self.route), name, decoded)
 
     def check(self) -> list[RecipeIssue]:
         """Find what stops the recipe building, or makes it warn (SEP 41, S10).
@@ -491,7 +514,11 @@ class Recipe:
 
     # ------------------------------------------------------------------ building
 
-    def keywords(self, *, grid: TimeGrid | None = None) -> dict[str, object]:
+    def keywords(
+        self,
+        *,
+        grid: "TimeGrid | None" = None,  # noqa: UP037 - checked at run time
+    ) -> dict[str, object]:
         """Return the route's build keywords as the constructor takes them.
 
         Parameters
@@ -515,7 +542,7 @@ class Recipe:
             out[name] = self._decode(name, value, context)
         return out
 
-    def build(self) -> Simulation:
+    def build(self) -> "Simulation":  # noqa: UP037 - checked at run time
         """Build the simulation the recipe describes, without running it.
 
         Returns
@@ -556,8 +583,10 @@ class Recipe:
         return out
 
     def run(
-        self, output: str | Path | Output | None = None, **run_keywords: object
-    ) -> Output:
+        self,
+        output: "str | Path | Output | None" = None,  # noqa: UP037 - run time
+        **run_keywords: object,
+    ) -> "Output":  # noqa: UP037 - checked at run time
         """Build the simulation and run it, with ``[execution]`` applied.
 
         Parameters
@@ -593,12 +622,7 @@ class Recipe:
         """
         if self._text is not None:
             return self._text
-        document = self.to_dict()
-        document["build"] = {
-            name: _canonical(self._table()[name], value)
-            for name, value in document["build"].items()
-        }
-        return dump_text(document)
+        return dump_text(self._canonical_document())
 
     def save(self, path: str | Path) -> None:
         """Write the recipe to a file.
@@ -627,7 +651,7 @@ class Recipe:
         str
             The script.
         """
-        from solprop.recipe._export import script  # noqa: PLC0415 - only here
+        from solprop.recipe.export import script  # noqa: PLC0415 - only here
 
         return script(self, output)
 

@@ -6,8 +6,8 @@
 
 import pytest
 
-from solprop.recipe._errors import RecipeError
-from solprop.recipe._paths import (
+from solprop.recipe.errors import RecipeError
+from solprop.recipe.paths import (
     Attribute,
     Index,
     Key,

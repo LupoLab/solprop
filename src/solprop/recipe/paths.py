@@ -23,7 +23,7 @@ import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
-from solprop.recipe._errors import RecipeError
+from solprop.recipe.errors import RecipeError
 
 __all__ = [
     "Attribute",

@@ -50,7 +50,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from decimal import Decimal
 
-from solprop.recipe._errors import RecipeError
+from solprop.recipe.errors import RecipeError
 
 __all__ = [
     "Dimension",

@@ -130,7 +130,7 @@ class Form:
 
     Examples
     --------
-    >>> from solprop.recipe._metadata import Form
+    >>> from solprop.recipe.metadata import Form
     >>> Form("number", unit="m", minimum=0.0, exclusive=True).recipe
     True
     """
@@ -160,7 +160,7 @@ class Resolution:
 
     Examples
     --------
-    >>> from solprop.recipe._metadata import Resolution
+    >>> from solprop.recipe.metadata import Resolution
     >>> Resolution(1e-6, "the capillary's default").value
     1e-06
     """
@@ -210,8 +210,8 @@ class Parameter:
 
     Examples
     --------
-    >>> from solprop.recipe import _metadata
-    >>> table = _metadata.parameters("capillary")
+    >>> from solprop.recipe import metadata
+    >>> table = metadata.parameters("capillary")
     >>> table["pressure"].display, table["pressure"].forms[0].unit
     ('bar', 'bar')
     """
@@ -1348,7 +1348,7 @@ def _route_entries(route: str) -> tuple[Parameter, ...]:
     return (*own, *(entry for entry in _shared(route) if entry.name not in names))
 
 
-def surface(route: str) -> Callable[..., Simulation]:
+def surface(route: str) -> "Callable[..., Simulation]":  # noqa: UP037 - run time
     """Return the constructor whose keywords a route's ``[build]`` table holds.
 
     Parameters
@@ -1368,7 +1368,7 @@ def surface(route: str) -> Callable[..., Simulation]:
 
     Examples
     --------
-    >>> from solprop.recipe._metadata import surface
+    >>> from solprop.recipe.metadata import surface
     >>> surface("gnlse").__name__
     'from_gnlse'
     """
@@ -1398,7 +1398,7 @@ def parameters(route: str) -> Mapping[str, Parameter]:
 
     Examples
     --------
-    >>> from solprop.recipe._metadata import parameters
+    >>> from solprop.recipe.metadata import parameters
     >>> table = parameters("gnlse")
     >>> table["rtol"].default is None, table["rtol"].resolver({}).value
     (True, 1e-07)

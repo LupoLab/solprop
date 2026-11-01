@@ -12,7 +12,9 @@ hash included, and the same execution settings, which the hash does not cover.
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Final
 
-from solprop.recipe._build import (
+from solprop.recipe.document import NONE
+from solprop.recipe.errors import RecipeError
+from solprop.recipe.registry import (
     REGISTRY,
     BuildContext,
     UnitSpec,
@@ -20,11 +22,9 @@ from solprop.recipe._build import (
     decode_keyword,
     unit_of,
 )
-from solprop.recipe._errors import RecipeError
-from solprop.recipe._format import NONE
 
 if TYPE_CHECKING:
-    from solprop.recipe._recipe import Recipe
+    from solprop.recipe.core import Recipe
 
 __all__ = ["script"]
 
@@ -34,7 +34,7 @@ _INDENT: Final = "    "
 class _Writer:
     """Render recipe values as Python expressions, and collect what they import."""
 
-    def __init__(self, recipe: Recipe) -> None:
+    def __init__(self, recipe: "Recipe") -> None:  # noqa: UP037 - run time
         """Start with no imports."""
         self.recipe = recipe
         self.imports: dict[str, set[str]] = {}
@@ -161,7 +161,10 @@ def _comment(value: object, unit: UnitSpec) -> str:
     return ""
 
 
-def script(recipe: Recipe, output: str | None) -> str:  # noqa: PLR0912 - two call forms
+def script(  # noqa: PLR0912 - two call forms
+    recipe: "Recipe",  # noqa: UP037 - checked at run time
+    output: str | None,
+) -> str:
     """Write a recipe as a plain Python script.
 
     Parameters
@@ -176,7 +179,7 @@ def script(recipe: Recipe, output: str | None) -> str:  # noqa: PLR0912 - two ca
     str
         The script.
     """
-    from solprop.recipe._metadata import parameters  # noqa: PLC0415 - cycle
+    from solprop.recipe.metadata import parameters  # noqa: PLC0415 - cycle
 
     writer = _Writer(recipe)
     table = parameters(recipe.route)

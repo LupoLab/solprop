@@ -23,6 +23,16 @@ All notable changes to solprop are recorded here. The format follows
   display say which of the integrator, `rtol` and the collar scheme took the route's
   default, and the summary names a Multistep carrier frame
   ([#87](https://github.com/LupoLab/solprop/issues/87)).
+- Recipes ([SEP 41](https://solprop.readthedocs.io/en/latest/dev/seps/sep-0041-recipes-and-front-ends.html)):
+  `solprop.recipe.Recipe` reads a TOML description of a `gnlse` or `capillary` run, with
+  quantities in their units (`"125 um"`, `"1.2 bar"`), checks it (`check()`, each issue
+  at its parameter path), builds and runs it, saves it and exports it as the Python
+  script it stands for (`to_python()`). `solprop.recipe.parameters` gives each
+  keyword's forms, units, display unit, default rule and manual section. The `solprop`
+  command (also `python -m solprop`) runs, checks and exports recipes, and forwards
+  `solprop scan`. Example recipes ship with the package (`Recipe.examples()`). Errors
+  and warnings that concern a value carry its `parameter`; writing TOML takes the
+  `tomli-w` dependency. See [recipes and the command line](https://solprop.readthedocs.io/en/latest/guide/setup/recipes.html).
 - `solprop.pulses.load_spectrum` reads a measured spectrum from a text file (frequency
   or wavelength, power density, and an optional phase) into a `DataPulse`. A wrapped
   phase column is unwrapped only where the power is above a noise floor, a phase in

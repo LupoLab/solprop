@@ -13,9 +13,9 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from solprop.exceptions import SolpropError
-from solprop.recipe import _quantity
-from solprop.recipe._errors import RecipeError
-from solprop.recipe._quantity import (
+from solprop.recipe import quantity
+from solprop.recipe.errors import RecipeError
+from solprop.recipe.quantity import (
     Dimension,
     Unit,
     beta_unit,
@@ -267,7 +267,7 @@ def test_parse_quantity_refuses_values_that_are_not_finite_quantities(value, mat
 def test_parse_quantity_refuses_a_unit_with_two_readings(monkeypatch):
     # No symbol in the table has two readings yet; adding the year, ``a``, would make
     # ``Pa`` both the pascal and the peta-year, which must be refused, not chosen.
-    monkeypatch.setitem(_quantity._SYMBOLS, "a", (Dimension(time=1), 0))
+    monkeypatch.setitem(quantity._SYMBOLS, "a", (Dimension(time=1), 0))
     with pytest.raises(RecipeError, match="'Pa' has more than one reading"):
         parse_quantity("1 Pa", Unit("Pa"))
 

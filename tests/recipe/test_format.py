@@ -12,8 +12,7 @@ import tomllib
 import numpy as np
 import pytest
 
-from solprop.recipe._errors import RecipeError
-from solprop.recipe._format import (
+from solprop.recipe.document import (
     EXECUTION_KEYS,
     FORMAT,
     MAX_ARRAY_LENGTH,
@@ -38,7 +37,8 @@ from solprop.recipe._format import (
     upgrade,
     validate_document,
 )
-from solprop.recipe._quantity import parse_quantity, phase_unit
+from solprop.recipe.errors import RecipeError
+from solprop.recipe.quantity import parse_quantity, phase_unit
 
 EXAMPLE = """\
 [recipe]

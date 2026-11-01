@@ -16,9 +16,9 @@ from solprop.driver import Simulation
 from solprop.driver.interface import prop_capillary, prop_gnlse
 from solprop.driver.simulation import SimulationSettings
 from solprop.exceptions import DriverError
-from solprop.recipe import _metadata
-from solprop.recipe._format import EXECUTION_KEYS, REFUSED_BUILD_KEYS
-from solprop.recipe._quantity import Unit
+from solprop.recipe import metadata
+from solprop.recipe.document import EXECUTION_KEYS, REFUSED_BUILD_KEYS
+from solprop.recipe.quantity import Unit
 
 ROUTES = ("gnlse", "capillary")
 DOCS = Path(__file__).resolve().parents[2] / "docs"
@@ -46,7 +46,7 @@ def _accepts_none(function, name):
 @pytest.mark.parametrize("route", ROUTES)
 def test_the_table_names_every_keyword_of_the_constructor(route):
     signature = inspect.signature(BUILDERS[route])
-    assert list(_metadata.parameters(route)) == list(signature.parameters)
+    assert list(metadata.parameters(route)) == list(signature.parameters)
 
 
 @pytest.mark.parametrize("route", ROUTES)
@@ -60,10 +60,10 @@ def test_the_prop_function_adds_only_the_keywords_a_recipe_refuses(route):
 @pytest.mark.parametrize("route", ROUTES)
 def test_each_default_is_the_signature_s(route):
     signature = inspect.signature(BUILDERS[route])
-    for name, entry in _metadata.parameters(route).items():
+    for name, entry in metadata.parameters(route).items():
         declared = signature.parameters[name].default
         if declared is inspect.Parameter.empty:
-            assert entry.default is _metadata.REQUIRED
+            assert entry.default is metadata.REQUIRED
         else:
             assert entry.default is declared
 
@@ -71,10 +71,10 @@ def test_each_default_is_the_signature_s(route):
 @pytest.mark.parametrize("route", ROUTES)
 def test_the_none_spelling_is_exactly_where_the_default_is_not_none(route):
     builder = BUILDERS[route]
-    for name, entry in _metadata.parameters(route).items():
+    for name, entry in metadata.parameters(route).items():
         needs = (
             entry.default is not None
-            and entry.default is not _metadata.REQUIRED
+            and entry.default is not metadata.REQUIRED
             and _accepts_none(builder, name)
         )
         assert entry.none == needs, name
@@ -84,7 +84,7 @@ def test_the_none_spelling_is_exactly_where_the_default_is_not_none(route):
 
 
 def test_the_execution_keys_are_settings_or_the_run_s_budget():
-    table = _metadata.parameters("execution")
+    table = metadata.parameters("execution")
     assert tuple(table) == tuple(EXECUTION_KEYS)
     fields = {field.name for field in SimulationSettings.__dataclass_fields__.values()}
     assert set(table) - fields == {"memory_budget"}
@@ -94,7 +94,7 @@ def test_the_execution_keys_are_settings_or_the_run_s_budget():
 
 @pytest.mark.parametrize("route", [*ROUTES, "execution"])
 def test_every_unit_reads_and_every_display_unit_matches_it(route):
-    for name, entry in _metadata.parameters(route).items():
+    for name, entry in metadata.parameters(route).items():
         units = [Unit(form.unit) for form in entry.forms if form.unit is not None]
         if entry.display is None:
             continue
@@ -111,7 +111,7 @@ def _slug(heading):
 
 @pytest.mark.parametrize("route", [*ROUTES, "execution"])
 def test_every_anchor_names_a_page_and_a_heading_of_it(route):
-    for name, entry in _metadata.parameters(route).items():
+    for name, entry in metadata.parameters(route).items():
         page, _, anchor = entry.anchor.partition("#")
         path = DOCS / page
         assert path.is_file(), (name, page)
@@ -126,8 +126,8 @@ def test_every_anchor_names_a_page_and_a_heading_of_it(route):
 
 @pytest.mark.parametrize("route", ROUTES)
 def test_every_entry_has_a_group_level_and_summary(route):
-    for name, entry in _metadata.parameters(route).items():
-        assert entry.group in typing.get_args(_metadata.Group), name
+    for name, entry in metadata.parameters(route).items():
+        assert entry.group in typing.get_args(metadata.Group), name
         assert entry.level in ("basic", "advanced"), name
         assert entry.summary.endswith("."), name
         assert entry.forms, name
@@ -154,13 +154,13 @@ def test_the_resolvable_keywords_are_those_the_sep_measured():
     found = {
         name
         for route in ROUTES
-        for name, entry in _metadata.parameters(route).items()
+        for name, entry in metadata.parameters(route).items()
         if entry.resolvable
     }
     assert found == resolvable
     for name in ("dz_init", "raman_fraction", "absorber", "cladding", "backend"):
         for route in ROUTES:
-            entry = _metadata.parameters(route).get(name)
+            entry = metadata.parameters(route).get(name)
             assert entry is None or not entry.resolvable
 
 
@@ -194,7 +194,7 @@ def test_the_resolvers_say_what_the_build_resolves(precision):
         125e-6, 0.1, "He", 1.0, **CAPILLARY, precision=precision
     )
     for route, simulation in (("gnlse", gnlse), ("capillary", capillary)):
-        table = _metadata.parameters(route)
+        table = metadata.parameters(route)
         values = {"precision": precision}
         settings = simulation.settings
         controller = settings.controller
@@ -207,7 +207,7 @@ def test_the_resolvers_say_what_the_build_resolves(precision):
 
 
 def test_the_capillary_s_rules_follow_the_envelope_and_the_tdse():
-    table = _metadata.parameters("capillary")
+    table = metadata.parameters("capillary")
     assert _resolve(table, "thg", {}).value is True
     assert _resolve(table, "plasma", {"envelope": True}).value is False
     assert _resolve(table, "step_planes", {"tdse": object()}).value == 1
@@ -221,6 +221,6 @@ def test_the_capillary_s_rules_follow_the_envelope_and_the_tdse():
 
 def test_a_route_without_metadata_is_refused():
     with pytest.raises(DriverError, match="no recipe surface"):
-        _metadata.parameters("radial")
+        metadata.parameters("radial")
     with pytest.raises(DriverError, match="no recipe surface"):
-        _metadata.surface("radial")
+        metadata.surface("radial")

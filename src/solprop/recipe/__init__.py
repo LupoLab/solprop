@@ -15,9 +15,9 @@ and saved. The format is SEP 41's; the manual page is ``docs/guide/setup/recipes
 'capillary'
 """
 
-from solprop.recipe._errors import RecipeError
-from solprop.recipe._metadata import Form, Parameter, Resolution, parameters
-from solprop.recipe._recipe import Recipe, RecipeIssue
+from solprop.recipe.core import Recipe, RecipeIssue
+from solprop.recipe.errors import RecipeError
+from solprop.recipe.metadata import Form, Parameter, Resolution, parameters
 
 __all__ = [
     "Form",

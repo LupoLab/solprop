@@ -44,7 +44,7 @@ import numpy as np
 import tomli_w
 from jaxtyping import Shaped
 
-from solprop.recipe._errors import RecipeError
+from solprop.recipe.errors import RecipeError
 
 __all__ = [
     "EXECUTION_KEYS",
