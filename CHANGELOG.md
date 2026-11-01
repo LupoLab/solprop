@@ -19,6 +19,9 @@ All notable changes to solprop are recorded here. The format follows
 
 ### Changed
 
+- Planned work is moving to [GitHub issues](https://github.com/LupoLab/solprop/issues),
+  labelled by type, priority and area: new work goes there and not on the roadmap, whose
+  entries move as issues take them over (ADR-062).
 - The README, `CITATION.cff` and the citing page name solprop's Zenodo DOI,
   [10.5281/zenodo.23854248](https://doi.org/10.5281/zenodo.23854248), which covers
   every release.

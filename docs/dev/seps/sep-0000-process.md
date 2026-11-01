@@ -228,10 +228,9 @@ A SEP becomes `Final` when:
 - the functionality runs on the Tier 1 backends (`numpy_ref` and the native CPU build;
   [ADR-061](../decisions.md)), with parity tests, and on `numba_cpu` or `mlx` too where
   the accepted SEP says so — or the accepted SEP records a justified exception, which
-  then has a roadmap item;
+  then has an issue;
 - the manual documents it, and each manual page it produced ends with a link to the SEP;
-- the open questions left are moved to the roadmap or to issues, and named in the last
-  report.
+- the open questions left are moved to issues, and named in the last report.
 
 The SEP's implementation pull request sets `Final` in its last commit, so that
 merging it, which is the maintainers' approval, completes the SEP. A separate pull
@@ -312,7 +311,7 @@ code is kept. Each report states:
   their primary source, and which could not be.
 - **Limitations:** cases refused, ranges not qualified, backends still missing.
 - **Open questions**, numbered Q1, Q2, … through the whole SEP, each with its owner or
-  destination (the next phase, the roadmap, an issue).
+  destination (the next phase, an issue).
 - **Handoff:** what the next phase needs to know.
 
 A report is written honestly: a check that failed, a test left weaker than planned, an
@@ -326,7 +325,8 @@ assumption that had to be invented are all said plainly.
 | ADR ([decisions.md](../decisions.md)) | A durable decision and its reasons; code comments cite ADRs |
 | Manual (`docs/`) | How the functionality works and how to use it, as it is now |
 | Design pages (`docs/dev/`) | How the code is built, as it is now |
-| [Roadmap](../roadmap.md) | Open work: accepted and draft SEPs, then ideas and known issues not fully covered by one |
+| [Issues](https://github.com/LupoLab/solprop/issues) | Planned work (ADR-062) |
+| [Roadmap](../roadmap.md) | Accepted and draft SEPs, then older open work not yet moved to issues |
 | `CHANGELOG.md` | What changed in each release, citing the SEP |
 
 The theory of a SEP moves into the manual when it is implemented: the manual page carries
@@ -354,3 +354,6 @@ that edits this document and adds a line to its history.
   stacked pull requests, run only targeted checks locally, and leave the full gate,
   slow and coverage lanes to CI on the pull request (maintainer's decision, first used
   for SEP 21). Native work is in `native/`, no longer a separate repository.
+- 2026-11-01: Open work goes in GitHub issues, not on the roadmap, whose existing items
+  move over time; the roadmap keeps the lists of accepted and draft SEPs for now
+  (maintainer's decision, ADR-062).

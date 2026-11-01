@@ -577,6 +577,7 @@ Withdrawn (development-process record, not a design decision).
 ## ADR-033 — Conventional branch-and-pull-request development
 
 - **Status:** accepted; amended by ADR-035 (major changes start as enhancement proposals)
+  and ADR-062 (open work goes in an issue, not on the roadmap)
 - **Decision:** Changes arrive as pull requests from topic branches and merge into `main`
   when the full gate (`poe check`, see [tooling.md](tooling.md)) and continuous
   integration are green. Design documents under `docs/dev/` describe the code as it is,
@@ -1665,3 +1666,23 @@ Withdrawn (development-process record, not a design decision).
     feature that `numba_cpu` does not run names `numpy_ref`, or is a worked example
     with committed output.
   - Features that `numba_cpu` and `mlx` run today stay, with their parity tests.
+
+## ADR-062 — GitHub issues are the record of planned work
+
+- **Status:** accepted; amends ADR-033 (where open work is recorded)
+- **Context:** open work was kept in two places, the roadmap page and the issue tracker.
+  With the first public release, outside readers and contributors meet the tracker first.
+- **Decision:**
+  - GitHub issues become the single record of what is planned and when. Each carries a
+    type label (`bug`, `performance`, `enhancement`, `documentation`, `refactor`,
+    `testing`), a `priority: high`, `priority: medium` or `priority: low` label, and an
+    `area:` label where one fits, so that they can be filtered.
+  - New open work goes in an issue. The roadmap takes no new items.
+  - The roadmap's existing items are not moved in one pass. An item leaves the page when
+    an issue takes it over, in the same change, and the page goes when none is left.
+  - The roadmap's lists of accepted and draft SEPs stay for now: they are status lists,
+    which `tests/test_seps.py` checks against the SEPs.
+- **Consequences:**
+  - Until the page is gone, what is planned is the issues and the roadmap together: check
+    both before starting something or reporting it as missing.
+  - A SEP's open questions at `Final` go to issues (SEP 0).
