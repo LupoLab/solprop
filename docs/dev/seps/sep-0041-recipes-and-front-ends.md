@@ -1228,6 +1228,143 @@ in CI on the pull request at `Final`.
   roots that a pin would express (phase 5), lists of mode objects, mode or table objects
   as the GNLSE `fibre`, and runs launched with `with_input`.
 
+### Phase 2 report — provenance, resume and stop (S2, S15, S17)
+
+Complete on 2026-11-01. SEP 42's branch was merged in at its `Final` (`4daf5d8`, PR #336 open),
+and `main` after it (`e34bdee`); the phase's own commits are `e3c2f36` (the stop poll, made in
+phase 1), `1f061c7`, `52cd5d5`, `45b5a9e`, `8dfe354` (the scans' stop) and `1103b21`. Checked as
+phase 1 was.
+
+**Delivered.**
+
+- **The stop** (S17). `Simulation.run(stop=)` and `run_scan(stop=)` take any object with
+  `is_set()`. Every march polls it at the top of each trial, where the state is the last
+  accepted one: the adaptive and replayed Runge–Kutta marches, the Adams march, the
+  low-storage march and the batch, and so the native backend, which steps through them.
+  `run_problem` also polls between planes. A set flag writes the state as SIGTERM does and
+  raises `StopRequested`, a `BaseException`, which `Simulation.run` turns into a return
+  when the flag is its own; another run's propagates. `solprop run` and `solprop resume`
+  set the flag on SIGINT, SIGTERM and SIGBREAK, interrupt on a second signal, and exit
+  with 128 plus the signal. Scans per the §5.17 table. Local and Pool stop the point in
+  flight, Pool through a `"stop"` message on the worker pipe, read by a worker-side flag
+  that holds other messages for later. Batch stops between groups, and Queue and Slurm
+  refuse the flag. A stopped point is released to its earlier state rather than
+  committed, so a rerun computes it at once, not after `stale_age`.
+- **The recipe in the output** (S2). `Recipe.build` attaches the recipe. `with_input`,
+  `with_mixture` and a new value of any setting but `fields`, `field_planes` and
+  `resume_history` drop it with a warning. `run_problem` writes the top-level `recipe` group
+  once (`RecipeRecord`): the authored text, the resolved text, the format, both SHA-256s,
+  and the data files under generated names, embedded up to 16 MiB. A scan's file records
+  the authored recipe through `run_scan(recipe=)`.
+- **The resolved recipe** writes back the drawn seed, `[execution]` at run start, and
+  each resolvable keyword the authored recipe left out, at the value the build used:
+  - `rtol`, `atol` and `dz_max` from the settings;
+  - the integrator as `{type = ...}`, only when it is its class's default instance;
+  - the statistics as a `StatsSpec` table, only without apertures;
+  - the save planes, in place of `n_save`;
+  - the capillary's temperature from its record, and `raman` from whether a Raman
+    response was built;
+  - `plasma` and `thg` from their resolvers;
+  - `loss` and `model` from their defaults.
+
+  A test writes each back alone and rebuilds the file's hash on three examples. Another
+  shows that `dz_init` and `raman_fraction` would move it.
+- **Resume from a file.** `Recipe.from_output(path, resolved=False)`, on a run's file or a
+  scan's (through `ScanOutput`'s schema check), keeps the embedded files, and `save`
+  writes them beside the recipe under their generated names. `resume_file(path, mode)`
+  and `solprop resume` rebuild from the resolved recipe and continue through SEP 42's gate.
+  The file's own `memory_budget` and `node_budget` are ignored. The caller's apply, by
+  default the machine's four fifths as a refusal.
+- **`solprop.output.resumability(path, gate=False)`.** It reports a live writer (by
+  probing the writer lock), another schema, no state, a complete run (by position) and a
+  field-free last plane. It gives the `resume=` a file needs, `"force"` from the forced
+  positions and `"interpolated"` from `ResumeState.interpolated`, now public. It says
+  whether a recipe is stored, missing or of a newer format, and with `gate=True` gives
+  the `RecordComparison`.
+- **S15:** the writer-lock sidecar is described with the file on disk.
+
+**Deviations and decisions.**
+
+- **The stop is polled at the top of each trial, not in `StepDriver._record`.** The
+  Adams and replay marches record a step after committing it, and a raise there would
+  have dropped that step's bookkeeping.
+- **A stopped run's outcome has status `failed`, with the message "StopRequested:
+  stopped by the caller's stop flag"**, as §5.17 keeps `RunOutcome.status` unchanged.
+- **Changing the backend through the settings drops the recipe.** `backend` is a build
+  keyword, so a recipe that names another backend no longer describes the run.
+- **`run_scan` gains `recipe=`**, which §5.2's "a scan's file stores the authored recipe
+  too" needs. `Recipe.scan()` passes it among its keywords.
+
+**Unmeasured.** The stop and the recipe group on the GPU builds, `SIGBREAK` on Windows,
+and Queue and Slurm beyond their refusal.
+
+### Phase 3 report — watching runs (S3, S4, S11, S16)
+
+Complete on 2026-11-01, commits `8dfe354`, `5cda2ba`, `1103b21` and `e5d362f`. Checked as phase 1
+was.
+
+**Delivered.**
+
+- **`PlaneObserver`** (`solprop.log`), an optional protocol that `NullReporter` does not
+  implement. `run_problem` shows each committed plane, the entrance included, before
+  `plane()`; a resume does not repeat planes.
+  - **`PlaneView`** (`solprop.driver.plane_view`) holds the position, statistics row,
+    basis and quantity kinds at once. Its `spectrum`, `field`, `power` and
+    `spectral_density` call the processing functions on a one-plane in-memory output
+    built on request, so what an observer reads is what the file gives. A field the
+    output does not keep is fetched from the backend only on request.
+  - **Failure:** an `Exception` from the observer is logged with its traceback, warned
+    on, and the observer detached. A stop or an interrupt passes through.
+  - **Resources:** the run records `observer_time_s` and `observer_transfers`.
+  - **Tests** on numpy_ref, numba_cpu and native: the copy equals the file, a
+    fixed-schedule run with an observer is bitwise the run without, field-free planes
+    are fetched and counted, a failing observer is detached, a stop from an observer
+    stops the run, and a resume shows the rest.
+- **`ScanReporter`** (with `WatchingScanReporter` for per-point runs, and
+  `NullScanReporter`), accepted by `run_scan(progress=)`; the named choices go through the
+  same path. Pool relays each point's `started`, `plane`, `finished`, `interrupted` and
+  summary over a new `("progress", call, args)` worker message carrying a picklable
+  `PlaneScalars`, never a field. Batch, Queue and Slurm report point boundaries.
+- **`Simulation.estimate()`** (`solprop.driver.estimate`) gives:
+  - the state's shape and the persistent memory, admitted before any allocation; a run
+    refused by its budget is reported and no backend is built;
+  - the output size for the retained fields;
+  - the setup, which is building the backend and taking an untimed warm-up trial step;
+  - the right-hand-side cost, the median of timed trial steps divided by the tableau's
+    stages, labelled with the backend and its threads;
+  - the calls per step (six, one or four), with their total for a fixed schedule.
+
+  On the soliton example: numpy_ref 368 µs, numba_cpu 76 µs and native 77 µs per
+  evaluation, on the Apple M5 Max.
+- **`solprop.capabilities.output(path_or_output)`.** It gives the basis, the physical or
+  coordinate kind and unit of power, energy, spectral density and field, the planes with
+  fields and those with statistics only, and the operations refused with the readers'
+  own text. That text comes from the same gates (`refusal_for` and the compressors'
+  basis check), and a test compares each with the reader's refusal on modal, general
+  modal and spatial files. It also says what a general modal reconstruction needs, and,
+  for a path, whether a recipe is recorded and the resumability.
+- **`[scan]` and `Recipe.scan()`.** Each path's values or range are read in the unit of
+  its keyword (or of a registered type's keyword). The result holds a picklable builder
+  that sets each point's values, passes `point.seed` and builds without `[execution]`,
+  and the `run_scan` keywords.
+
+**Deviations and decisions.**
+
+- **The right-hand-side cost is taken from Runge–Kutta trial steps.** `_trial_step` is
+  the one call every backend implements; the cost of an evaluation does not depend on the
+  integrator that calls it.
+- **`ScanReporter` splits into two protocols.** `point_reporter` is optional, so
+  `WatchingScanReporter` declares it.
+- **The `PlaneView` arrays come from the processing functions**, in their units and
+  convention, rather than raw stored amplitudes.
+
+**Unmeasured.** The `PlaneView` fetch and the estimate on device backends, and `ScanReporter`
+on Queue and Slurm beyond point boundaries.
+
+**State after phase 3.** Phases 4 (the object routes, the waveguide, launches and
+previews), 5 (design, pins and capabilities by route and species) and 6 (drawings and
+keyword gaps) remain. Phase 4 waits for SEP 40 on `main`.
+
 ## Part III — History
 
 - 2026-10-31: Drafted, from the requirements of a desktop front end under design.
