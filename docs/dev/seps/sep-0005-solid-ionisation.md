@@ -1187,3 +1187,4 @@ No implementation phases have started.
 - 2026-10-23: Aligned the shared-flux description with SEP 34's review response:
   the real-index path certificate, forward-component local closure and deferral
   of varying absorption. Solid-ionisation scope is unchanged.
+- 2026-11-01: Tracking issue [#116](https://github.com/LupoLab/solprop/issues/116).

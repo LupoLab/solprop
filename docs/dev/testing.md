@@ -97,8 +97,9 @@ The coverage lane's 100 % leaves out one package, `solprop/backends/mlx_gpu`
 
 The omission ends with a macOS `mlx` job in CI: those two modules with the runtime type
 checks on, coverage restricted to `mlx_gpu` against a recorded floor, a second pass on
-MLX's CPU device, and basedpyright on `mlx_gpu`. It is on the roadmap with the rest of
-the backend's path to full support ([backends.md](backends.md) §4a).
+MLX's CPU device, and basedpyright on `mlx_gpu`. It is in
+[#85](https://github.com/LupoLab/solprop/issues/85) with the rest of the backend's path
+to full support ([backends.md](backends.md) §4a).
 
 Hypothesis properties use the `solprop` profile loaded by `tests/conftest.py`.
 Their example count bounds the work; the per-example wall-clock deadline is disabled

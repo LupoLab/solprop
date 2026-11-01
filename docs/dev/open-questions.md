@@ -5,10 +5,11 @@ not yet made, a choice deferred, or a known limitation accepted for now. Each en
 alone: what the question is, where it lives in the code or the documentation, what is
 known, and why it is open.
 
-This page is not the roadmap. Missing functionality and known defects that are to be
-fixed are listed on the [roadmap](roadmap.md); a major change starts as an
-[enhancement proposal](seps/index.md). An entry here moves to the roadmap if it becomes
-work to do, and is removed when it is settled.
+This page is not a list of planned work. Missing functionality and known defects that are
+to be fixed are in the [issues](https://github.com/LupoLab/solprop/issues) and, until they
+move there, on the [roadmap](roadmap.md); a major change starts as an
+[enhancement proposal](seps/index.md). An entry here moves to an issue if it becomes work
+to do, and is removed when it is settled.
 
 Contributions are welcome: an independent check of any entry below — a derivation, a
 comparison with a reference, a measurement — settles it.

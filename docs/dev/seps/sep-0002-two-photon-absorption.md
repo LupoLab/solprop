@@ -1036,3 +1036,4 @@ appends its report to Part II in its merging pull request.
   separate specialisation is held to a rounding bound fixed before measurement.
   Phase 2's thread invariance (§11) becomes thread-count agreement within such a
   bound.
+- 2026-11-01: Tracking issue [#114](https://github.com/LupoLab/solprop/issues/114).
