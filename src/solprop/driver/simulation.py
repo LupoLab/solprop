@@ -646,8 +646,9 @@ class SimulationSettings(Displayed):
         acts either way (``docs/guide/numerics/boundaries.md``).
     backend : str
         Registry name of the backend to execute the run. The default ``"auto"``
-        resolves to ``"native"`` when installed, otherwise ``"numba_cpu"``, at
-        settings construction; under single precision, to ``"mlx"`` (`precision`).
+        resolves to ``"native"`` when installed, otherwise, with a warning, to the
+        slower ``"numba_cpu"``, at settings construction; under single precision, to
+        ``"mlx"`` (`precision`).
         The stored name is concrete, including in scan workers. An installed
         backend's import or construction errors never trigger a fallback.
     precision : {'double', 'single'}
