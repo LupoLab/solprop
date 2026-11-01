@@ -2332,16 +2332,22 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
                 lab[0].reshape(shape), axes=(0, 1), out=scratch.reshape(shape)
             )
             temporal = self._tables.temporal_rate
+            timed = temporal is not None and responses.absorber_scheme == "nonlinear"
             for first in range(0, transform.n_nodes, transform.node_chunk):
                 rows = slice(first, first + transform.node_chunk)
+                rate = self._rounded(geometry.absorber_rate[rows, None, None])
+                if not timed:
+                    # A rate of the node alone commutes with the temporal transforms:
+                    # a spatial-only pass needs no temporal pair (SEP 40 section 4.7).
+                    scratch[rows] = -0.5 * rate * scratch[rows]
+                    continue
                 field_t = passes.to_time(
                     scratch[rows], grids.crop_index, grids.n_to, kind=self._kind
                 )
-                rate = self._rounded(geometry.absorber_rate[rows, None, None])
-                if temporal is not None and responses.absorber_scheme == "nonlinear":
-                    rate = rate + temporal
                 scratch[rows] = passes.to_frequency(
-                    -0.5 * rate * field_t, grids.crop_index, kind=self._kind
+                    -0.5 * (rate + temporal) * field_t,
+                    grids.crop_index,
+                    kind=self._kind,
                 )
             view = scratch.reshape(shape)
             transforms.fft2(view, axes=(0, 1), out=view)
@@ -2394,10 +2400,16 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
             return result
         n_x, n_y = geometry.shape
         n_p = transform.synthesis.shape[1]
-        rows_t = passes.to_time(
-            slab_rows(transform, lab[0]), grids.crop_index, grids.n_to, kind=self._kind
+        rows_f = slab_rows(transform, lab[0])
+        temporal = responses.temporal_absorber_fine
+        timed = temporal is not None and responses.absorber_scheme == "nonlinear"
+        rows_t = (
+            passes.to_time(rows_f, grids.crop_index, grids.n_to, kind=self._kind)
+            if len(responses.response_order) > 1 or timed
+            else None
         )
         if len(responses.response_order) > 1:
+            assert rows_t is not None
             raman = self._raman_spectrum(bundle.raman_rates, bundle.raman_densities)
             envelope = responses.envelope_plasma is not None
             plasma = bool(responses.plasma_channels) and not self._gated_plasma
@@ -2462,17 +2474,54 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
                 _, prefactor = separable_values(data, rows)
                 result[0, rows] = prefactor * grids.omega_window * columns[rows]
         if self._in_stage_absorber:
-            rate = np.repeat(geometry.absorber_rate.reshape(n_y, n_x)[:, 0], n_p)[
-                :, None, None
-            ]
-            temporal = responses.temporal_absorber_fine
-            if temporal is not None and responses.absorber_scheme == "nonlinear":
-                rate = rate + temporal
-            term = passes.to_frequency(
-                -0.5 * rate * rows_t, grids.crop_index, kind=self._kind
-            )
-            result[0] += grids.active_mask * slab_columns(transform, term)
+            result[0] += self._slab_absorber(rows_f, rows_t)
         return result * inverse_propagator
+
+    def _slab_absorber(
+        self,
+        rows_f: Complex[np.ndarray, "n_modes n_pol n_omega"],
+        rows_t: Inexact[np.ndarray, "n_modes n_pol n_to"] | None,
+    ) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
+        """Return the planar in-stage collar's term on the ``(p, k_y)`` columns.
+
+        The collar's rate depends on y alone, so it acts on the ``(p, y)`` rows. With
+        no temporal rate in-stage it commutes with the temporal transforms, and the
+        pass needs no temporal pair (SEP 40 section 4.7).
+
+        Parameters
+        ----------
+        rows_f : numpy.ndarray
+            The stage's rows in frequency.
+        rows_t : numpy.ndarray or None
+            The same rows in time; required when a temporal rate applies in-stage.
+
+        Returns
+        -------
+        numpy.ndarray
+            The term, masked to the active band.
+        """
+        problem = self._problem
+        transform, grids, responses = (
+            problem.transform,
+            problem.grids,
+            problem.responses,
+        )
+        geometry = transform.geometry
+        assert geometry is not None
+        n_x, n_y = geometry.shape
+        n_p = transform.synthesis.shape[1]
+        rate = np.repeat(geometry.absorber_rate.reshape(n_y, n_x)[:, 0], n_p)[
+            :, None, None
+        ]
+        temporal = responses.temporal_absorber_fine
+        if temporal is not None and responses.absorber_scheme == "nonlinear":
+            assert rows_t is not None
+            term = passes.to_frequency(
+                -0.5 * (rate + temporal) * rows_t, grids.crop_index, kind=self._kind
+            )
+        else:
+            term = -0.5 * rate * rows_f
+        return grids.active_mask * slab_columns(transform, term)
 
     def _absorber_term(
         self,
