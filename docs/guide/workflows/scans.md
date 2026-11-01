@@ -340,7 +340,10 @@ execution order preserves the seed.
 
 Every point's noise is reproducible, whether or not the builder seeds it. Noise the
 builder leaves unseeded — a constructor's default noise, or an explicit model without
-`seed=` — is drawn from `point.seed`. On a scan with neither a seed axis nor a base
+`seed=` — is drawn from `point.seed`, also on a simulation derived from a cached base as
+above, where `with_mixture` and `with_input` keep the base's noise and the draw replaces
+only the noise of the shared translation. It goes on a copy: a builder may return one
+object for every point, and that object is left as it is. On a scan with neither a seed axis nor a base
 seed, `point.seed` is `None` and the draw takes a seed derived from the scan's name
 instead: the same derivation with the first eight bytes of the name's SHA-256 digest,
 read little-endian, in place of `base_seed`. A builder may still seed the noise itself

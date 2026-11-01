@@ -6,9 +6,7 @@ the index, and replace every placeholder. Keep the headings: the parts and their
 are the same in every SEP. Delete the italic guidance as you write each section. The
 process is SEP 0 (sep-0000-process.md); read it first.
 Add the draft to the SEP index and its toctree, and to the roadmap's Draft enhancement
-proposals section after the accepted proposals. Remove informal roadmap items only when
-fully covered by this proposal; for partial coverage, link the SEP and retain the
-uncovered work explicitly. Keep these entries current when the scope or status changes;
+proposals section after the accepted proposals. Keep these entries current when the scope or status changes;
 work this proposal gives back goes in an issue. Open the SEP's tracking issue (SEP 0) and
 name it in Part III.
 -->
@@ -50,7 +48,7 @@ what is not, including tempting adjacent work.*
 ### 3. Context
 
 *What solprop does today in this area, with links to the manual and design pages and to
-the modules involved; the roadmap item this answers, if any; the prior SEPs and ADRs it
+the modules involved; the issue this answers, if any; the prior SEPs and ADRs it
 builds on; and, from a search of the open issues, those it will fix, those that must be
 resolved before it, and any others it changes.*
 

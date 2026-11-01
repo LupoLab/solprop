@@ -628,7 +628,8 @@ class _Work:
         Noise the builder left unseeded is drawn again from ``point.seed``, or from
         :func:`~solprop.driver._scan_model.name_seed` on a scan without seeds, so
         that the point is reproducible and a rerun matches the record of its first
-        run; noise the builder seeded must have used ``point.seed``.
+        run; noise the builder seeded must have used ``point.seed``. The draw goes on
+        a copy: a builder may return one object for every point.
 
         Parameters
         ----------
@@ -644,9 +645,6 @@ class _Work:
         if not isinstance(simulation, Simulation):
             raise DriverError("scan builder must return a Simulation")
         point = job.point
-        simulation._reseed(
-            name_seed(self.scan_name, point.index) if point.seed is None else point.seed
-        )
         if simulation.settings.fields != "all" or simulation.settings.field_planes:
             raise DriverError(
                 "a scan keeps the fields run_scan's fields= and field_planes= ask for, "
@@ -658,6 +656,9 @@ class _Work:
                 "a scan saves the same planes at every point; step_planes saves each "
                 "point's own steps, so it is not scanned: pass step_planes=0"
             )
+        simulation = simulation._reseeded(
+            name_seed(self.scan_name, point.index) if point.seed is None else point.seed
+        )
         requested = self.options.stats
         available = simulation.translate().stats_spec.names
         if not isinstance(requested, str) and set(requested) - set(available):

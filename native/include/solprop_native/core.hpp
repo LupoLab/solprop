@@ -101,7 +101,7 @@ public:
     ones at that size, so macOS keeps 32768 until its own crossover is swept.
    `__APPLE__` is the only platform switch here and for the stage boundary below:
    Windows and linux-aarch64 take the x86 Linux values, which were not measured there
-   (solprop's roadmap, "Thread thresholds on Windows and linux-aarch64"). */
+   (solprop issue #328). */
 #if defined(__APPLE__)
 inline constexpr std::size_t default_threaded_fft_min_samples = 32768;
 #else

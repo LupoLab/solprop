@@ -4,7 +4,7 @@ This is the current architecture of solprop, the reference that changes to the d
 are checked against. Companion documents:
 [conventions.md](conventions.md) (units, signs, shapes), [stepper.md](stepper.md) (the
 solver), [backends.md](backends.md) (execution), [kernel-contract.md](kernel-contract.md)
-(the seam), [decisions.md](decisions.md) (why) and [roadmap.md](roadmap.md) (what is
+(the seam), [decisions.md](decisions.md) (why) and the [issues](https://github.com/LupoLab/solprop/issues) (what is
 next). What this page describes in prose, [structure.md](structure.md) draws: six figures
 of the layers, the data flow, the contract, one stage, the backends and the output side.
 
@@ -633,7 +633,7 @@ Every backend has exact member-versus-singleton identity checks under the same
 schedule. That does not imply a throughput improvement on every workload: whether a
 batch beats independent runs depends on the problem size and the device. Adaptive
 lockstep is not implemented. A group-level failure fails every member of that group;
-recovering the surviving members is an open question ([roadmap](roadmap.md)).
+recovering the surviving members is an open question ([#171](https://github.com/LupoLab/solprop/issues/171)).
 
 Independent simulations use spawned processes, normally one scientific thread per
 worker, rather than threads, because thread pools, FFTW plans and the OpenMP runtime are
@@ -754,7 +754,7 @@ print them, because without a handler a record reaches nobody.
 - **Execution:** scans separate point identity and output collection from the executor.
   New execution policies must preserve that identity and be measured on complete jobs.
 
-The [roadmap](roadmap.md) records selected work and optional extensions.
+The [issues](https://github.com/LupoLab/solprop/issues) record selected work and optional extensions.
 
 ## 16. Coupled linear flows, and non-goals
 

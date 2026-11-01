@@ -94,9 +94,9 @@ All notable changes to solprop are recorded here. The format follows
   describe `numba_cpu` as its slower fallback, with the 0.1.0 measurements. They no longer
   advise `numba_cpu` for scans of one-thread workers, which the history does not support,
   and they now say that only GPU builds refuse z-tabulated problems.
-- Planned work is moving to [GitHub issues](https://github.com/LupoLab/solprop/issues),
-  labelled by type, priority and area: new work goes there and not on the roadmap, whose
-  entries move as issues take them over (ADR-062). Issue templates and `CONTRIBUTING.md`
+- Planned work has moved to [GitHub issues](https://github.com/LupoLab/solprop/issues),
+  labelled by type, priority and area: the roadmap now lists only SEPs (ADR-062). Issue
+  templates and `CONTRIBUTING.md`
   say what an issue or a pull request should hold and what to check before opening one.
 - The README, `CITATION.cff` and the citing page name solprop's Zenodo DOI,
   [10.5281/zenodo.23854248](https://doi.org/10.5281/zenodo.23854248), which covers
@@ -123,6 +123,18 @@ All notable changes to solprop are recorded here. The format follows
 
 ### Fixed
 
+- A scan derived from one cached simulation, the scans guide's own recipe, now gives every
+  point its own noise seed. `with_input(noise="keep")` and `with_mixture` keep the ability
+  to draw unseeded noise again, and the draw replaces only the initial noise of the shared
+  translation. Before, such points shared the base's draw, depended on the worker under
+  `Pool`, could not be rerun in a new process and failed under `base_seed`. Resuming a
+  derived, unseeded run now takes the file's seed, as a constructor's does, instead of
+  being refused.
+- One object returned by a scan builder for every point no longer collapses a noise
+  ensemble under `Batch`, where every member ran on the last point's noise while the file
+  recorded each point's own seed. The draw now goes on a copy, and the builder's object is
+  left as it is. A file written by such a scan holds the wrong noise for its recorded
+  seeds and a rerun does not detect it: run those points again.
 - A scan file whose points' run records declare another output schema, a 0.1.0 scan
   among them, is refused by name, in the words a run file is refused with, when it is
   read (`ScanOutput`, `read_point`) or resumed or collected (`run_scan`, a queue's

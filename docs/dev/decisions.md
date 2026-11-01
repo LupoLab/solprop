@@ -12,7 +12,7 @@ itself lives in [architecture.md](architecture.md), [stepper.md](stepper.md),
 
 **Reading the records.** Each record states the decision as it stands, with the
 measurements that justified it. Where a later record changes part of an earlier one, both
-say so. For open work see [roadmap.md](roadmap.md); for what each backend executes and how
+say so. For open work see the [issues](https://github.com/LupoLab/solprop/issues); for what each backend executes and how
 it is qualified, [backends.md](backends.md); for the current seam,
 [kernel-contract.md](kernel-contract.md).
 
@@ -1109,8 +1109,7 @@ Withdrawn (development-process record, not a design decision).
   of the GPU tests (`pytest -m gpu`) against the oracle, not by the strict-helper
   argument. Round-to-nearest intrinsics in the protected helpers on devices (CUDA's
   `__dmul_rn` and `__dadd_rn`, Clang's contraction pragma on HIP), with a device test
-  that a protected block does not fuse, are on the [roadmap](roadmap.md), after the
-  first release.
+  that a protected block does not fuse, are [#358](https://github.com/LupoLab/solprop/issues/358).
 
 ## ADR-050 — A replay-only low-storage march, accepted in place, with no estimate
 
@@ -1498,7 +1497,7 @@ Withdrawn (development-process record, not a design decision).
     pulse stays clear, it saved 6 to 9 % per step on `numba_cpu` and `native`.
   - On runs whose steps exceed the check interval, such as a short capillary under the
     exponential Adams march, the cap removes the gain. A per-step check that would lift
-    the cap is on the roadmap.
+    the cap is [#224](https://github.com/LupoLab/solprop/issues/224).
   - The monitor's record counts `collar_left_out_checks`.
 
 ## ADR-058 — The 0.x releases are unstable; the first output schema is 1
@@ -1527,8 +1526,8 @@ Withdrawn (development-process record, not a design decision).
 
 ## ADR-059 — Host vector maths on SLEEF for the native CPU kernels on x86-64
 
-- **Status:** proposed with the change that makes it; the maintainers asked for SLEEF to
-  be evaluated and adopted if it paid (2026-10-28)
+- **Status:** accepted 2026-11-01, having shipped in the 0.1.0 wheels; the maintainers
+  asked for SLEEF to be evaluated and adopted if it paid (2026-10-28)
 - **Context:** a profile of the native exponential Adams trial found glibc's scalar
   `exp`, `cos` and `sin` about two thirds of its predict pass on a pressure-gradient
   helium case on an AMD EPYC 7763. A survey of the native CPU backend with Valgrind's
@@ -1592,7 +1591,7 @@ Withdrawn (development-process record, not a design decision).
     the C++ compiler's version.
   - Measured end to end (interleaved fresh processes, the tracking cases): see the
     [benchmark entry](benchmarks.md#host-vector-maths).
-  - Open, on the roadmap: SLEEF on Linux aarch64, AVX-512 against AVX2 end to end, and
+  - Open, in [#339](https://github.com/LupoLab/solprop/issues/339) and [#338](https://github.com/LupoLab/solprop/issues/338): SLEEF on Linux aarch64, AVX-512 against AVX2 end to end, and
     the kernels still per element (the trapezoid and envelope plasma columns, the Adams
     corrector and dense observation, the separable stage propagators).
 
@@ -1681,10 +1680,9 @@ Withdrawn (development-process record, not a design decision).
     `testing`), a `priority: high`, `priority: medium` or `priority: low` label, and an
     `area:` label where one fits, so that they can be filtered. `CONTRIBUTING.md` says
     how to write and label one.
-  - New open work goes in an issue. The roadmap takes no new items.
-  - The roadmap's existing items are not moved in one pass. An item leaves the page when
-    an issue, or a SEP that covers it in full (SEP 0), takes it over, in the same change,
-    and the page goes when none is left.
+  - Open work goes in an issue. The roadmap takes no items.
+  - The roadmap's existing items moved to issues on 2026-11-01. The page goes when its SEP
+    lists move.
   - Work a SEP gives back, by narrowing or by being rejected, deferred or withdrawn, goes
     in an issue, not back on the page.
   - Each SEP has a tracking issue, labelled `sep`, open until the SEP is `Final`,
@@ -1694,8 +1692,8 @@ Withdrawn (development-process record, not a design decision).
   - The roadmap's lists of accepted and draft SEPs stay for now: they are status lists,
     which `tests/test_seps.py` checks against the SEPs.
 - **Consequences:**
-  - Until the page is gone, what is planned is the issues and the roadmap together: check
-    both before starting something or reporting it as missing.
+  - What is planned is the issues: check them before starting something or reporting it as
+    missing.
   - A SEP's open questions at `Final` go to issues (SEP 0).
 
 ## ADR-063 — A resume compares records by what matters to the run

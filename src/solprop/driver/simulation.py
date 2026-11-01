@@ -26,6 +26,7 @@ is ``docs/guide/setup/running.md``.
 """
 
 import contextlib
+import copy
 import dataclasses
 import functools
 import json
@@ -313,7 +314,10 @@ from solprop.translate.general import (
     modal_identity,
 )
 from solprop.translate.linop import power_weight_at
-from solprop.translate.masks import AbsorberScheme
+from solprop.translate.masks import (
+    AbsorberScheme,
+    noise_spectrum,
+)
 from solprop.translate.modal import DEFAULT_NODE_BUDGET
 from solprop.translate.plasma_integration import (
     integration_record,
@@ -2029,8 +2033,9 @@ class Simulation(Displayed):
     """
 
     # How a constructor that drew the noise without a seed draws it again from a given
-    # one: set per instance by `_redrawable`, read by `_reseed`.
-    _noise_redraw: Callable[[int], NoiseRealisation | None] | None = None
+    # one: set per instance by `_redrawable` and carried to a run derived with its
+    # noise kept (`_rebound_noise`), read by `_reseed`.
+    _noise_redraw: Callable[[int | None], NoiseRealisation | None] | None = None
     # The recipe the simulation was built from (SEP 41, S2), set by
     # solprop.recipe.Recipe.build and dropped by every change it would not describe.
     _recipe: RecipeSource | None = None
@@ -2485,6 +2490,8 @@ class Simulation(Displayed):
             Noise spectra must match the existing grid and input shape. A launch
             carries the realised field of its source, so for a launch ``'keep'``
             means no noise: no second floor is drawn unless a realisation is given.
+            Kept noise that was drawn without a seed can still be drawn again from
+            the seed a resume's file or a scan point supplies.
         initial_z : float or None, optional
             Absolute launch position in metres. None retains this simulation's
             launch. An explicit position keeps only existing save planes beyond
@@ -2588,6 +2595,8 @@ class Simulation(Displayed):
         # A derived run starts from what its parent's run has warned and recorded,
         # and keeps its own from here: its siblings never see each other's.
         updated._material_log = self._material_log.copy()
+        if isinstance(noise, str) and replacement_noise is not None:
+            updated._noise_redraw = self._noise_redraw
         if self._recipe is not None:
             self._warn_recipe_dropped("with_input")
         self._check_replaced_input(
@@ -2597,33 +2606,23 @@ class Simulation(Displayed):
             original.initial,
             z=launch_z,
             field0=np.asarray(updated._field0[np.newaxis], dtype=np.complex128),
-            noise0=None
-            if replacement_noise is None
-            else np.asarray(
-                replacement_noise.spectrum[np.newaxis], dtype=np.complex128
-            ),
-            noise_model="none"
-            if replacement_noise is None
-            else replacement_noise.model,
         )
         if original.transform.geometry is None:
-            weight = power_weight_at(original, launch_z)
             record = dataclasses.replace(
                 record,
-                field0=power_amplitude(record.field0, weight, inverse=True),
-                noise0=None
-                if record.noise0 is None
-                else power_amplitude(record.noise0, weight, inverse=True),
+                field0=power_amplitude(
+                    record.field0, power_weight_at(original, launch_z), inverse=True
+                ),
             )
-        updated._problem = dataclasses.replace(
-            original,
-            initial=record,
-            stepper=dataclasses.replace(
-                original.stepper, save_planes=settings.save_planes
+        updated._problem = _with_noise(
+            dataclasses.replace(
+                original,
+                initial=record,
+                stepper=dataclasses.replace(
+                    original.stepper, save_planes=settings.save_planes
+                ),
             ),
-            flags=dataclasses.replace(
-                original.flags, has_noise=record.noise0 is not None
-            ),
+            replacement_noise,
         )
         if initial_z is not None:
             # A new launch changes the save planes: the launch must precede them, and
@@ -2807,7 +2806,11 @@ class Simulation(Displayed):
         -------
         Simulation
             A translated simulation sharing the grid, input field, noise realisation,
-            numerical settings and transverse geometry with this one.
+            numerical settings and transverse geometry with this one. Noise drawn
+            without a seed can still be drawn again from the seed a resume's file or
+            a scan point supplies; on a spatial route, where the draw is measured by
+            the medium's flux, it is drawn again now from the same seed on the new
+            medium. A realisation the caller seeded or supplied is shared unchanged.
 
         Raises
         ------
@@ -2887,6 +2890,8 @@ class Simulation(Displayed):
             materials=self.materials,
         )
         updated._material_log = self._material_log.copy()
+        with _optmat.material_context(updated._material_log):
+            updated.noise, updated._noise_redraw = self._rebound_noise(updated.medium)
         if self._recipe is not None:
             self._warn_recipe_dropped("with_mixture")
         updated.initial = self.initial
@@ -3606,15 +3611,74 @@ class Simulation(Displayed):
         Returns
         -------
         bool
-            Whether the realisation was drawn again; the translation and the record
-            are then rebuilt on their next use.
+            Whether the realisation was drawn again. A translation keeps every leaf
+            but the initial noise, which is all a realisation reaches; the record is
+            rebuilt on its next use.
         """
         if self._noise_redraw is None or self.noise is None or self.noise.seed == seed:
             return False
         self.noise = self._noise_redraw(seed)
-        self._problem = None
+        if self._problem is not None:
+            self._problem = _with_noise(self._problem, self.noise)
         self._metadata = None
         return True
+
+    def _reseeded(self, seed: int) -> "Simulation":  # noqa: UP037 - runtime hook evaluates the class body
+        """Return this run with unseeded noise drawn from `seed`, leaving it as it is.
+
+        A scan's builder may return one object for every point, and a batch keeps each
+        member by reference, so a point's realisation must not land on the object the
+        other points share. Translated first, so that they share its translation.
+
+        Parameters
+        ----------
+        seed : int
+            The entropy to draw from.
+
+        Returns
+        -------
+        Simulation
+            A copy carrying the new realisation and sharing the translation's other
+            leaves, with its own material log as any derived run has; or this run,
+            when there is nothing to draw again (:meth:`_reseed`).
+        """
+        if self._noise_redraw is None or self.noise is None or self.noise.seed == seed:
+            return self
+        self.translate()
+        seeded = copy.copy(self)
+        seeded._material_log = self._material_log.copy()
+        seeded._reseed(seed)
+        return seeded
+
+    def _rebound_noise(
+        self, medium: SpatialMedium | None
+    ) -> tuple[
+        NoiseRealisation | None,
+        Callable[[int | None], NoiseRealisation | None] | None,
+    ]:
+        """Return this run's noise and its redraw for the same run in a new medium.
+
+        A modal draw depends only on the grid, which the updated run shares. A spatial
+        draw is measured by the medium's flux, so it is rebuilt there, and the
+        realisation drawn again from its own seed: what a run carries must be what its
+        redraw gives, or a resume drawing from the recorded seed would disagree with
+        its own file. A realisation seeded or supplied by the caller stays as it is.
+
+        Parameters
+        ----------
+        medium : solprop.spatial.SpatialMedium or None
+            The updated run's medium; ``None`` on a modal route.
+
+        Returns
+        -------
+        tuple
+            The realisation and the redraw the updated run carries.
+        """
+        noise, redraw = self.noise, self._noise_redraw
+        if noise is None or redraw is None or medium is None:
+            return noise, redraw
+        redraw = _spatial_draw(noise.model, self, medium)
+        return redraw(noise.seed), redraw
 
     def _adopt_recorded_seed(self, output: Output | Path | str | None) -> None:
         """Take the noise seed of the file a resume continues, where the call gave none.
@@ -4186,12 +4250,7 @@ class Simulation(Displayed):
         )
         simulation.noise_resolution = resolution
         if noise_model is not None:
-            draw = functools.partial(
-                _spatial_shot_noise,
-                noise_model,
-                SpatialFlux.resolve(grid, space, medium, z=simulation.initial_z),
-                field.shape[1],
-            )
+            draw = _spatial_draw(noise_model, simulation, medium)
             simulation.noise = draw(seed)
             _redrawable(simulation, draw, seed)
         _bind_spatial_rates(simulation, initial)
@@ -9128,6 +9187,73 @@ def _spatial_shot_noise(
         The realisation (:func:`solprop.noise.spatial_noise`).
     """
     return spatial_noise(flux, np.random.default_rng(seed), model=noise, n_pol=n_pol)
+
+
+def _spatial_draw(
+    noise: NoiseModel, simulation: Simulation, medium: SpatialMedium
+) -> Callable[[int | None], NoiseRealisation | None]:
+    """Return the draw of a spatial run's shot noise, measured at its entrance plane.
+
+    Parameters
+    ----------
+    noise : {'input', 'modified'}
+        Which model to use.
+    simulation : Simulation
+        The run whose grids, entrance and polarisation the draw is on.
+    medium : solprop.spatial.SpatialMedium
+        The medium whose flux measures the draw.
+
+    Returns
+    -------
+    collections.abc.Callable
+        Draws the realisation from a seed (:func:`_spatial_shot_noise`).
+    """
+    flux = SpatialFlux.resolve(
+        simulation._base_grid,
+        cast("RadialGrid | FreeGrid | PlanarGrid", simulation.spatial_grid),
+        medium,
+        z=simulation.initial_z,
+    )
+    return functools.partial(
+        _spatial_shot_noise, noise, flux, simulation._field0.shape[1]
+    )
+
+
+def _with_noise(
+    problem: KernelProblem, noise: NoiseRealisation | None
+) -> KernelProblem:
+    """Return `problem` carrying `noise`, every other leaf shared by identity.
+
+    A realisation reaches a translation only through the initial record and the
+    ``has_noise`` flag; what else consults it is a refusal keyed on the model, and a
+    replacement that changes the model is checked by its caller.
+
+    Parameters
+    ----------
+    problem : solprop.translate.problem.KernelProblem
+        The translated problem.
+    noise : solprop.noise.NoiseRealisation or None
+        The realisation in true sqrt(W) on a modal route, or ``None`` for no noise.
+
+    Returns
+    -------
+    solprop.translate.problem.KernelProblem
+        The problem with the realisation in its internal, vacuum-normalised amplitude.
+    """
+    noise0 = None if noise is None else noise_spectrum(noise, problem.shape)
+    if noise0 is not None and problem.transform.geometry is None:
+        noise0 = power_amplitude(
+            noise0, power_weight_at(problem, problem.initial.z), inverse=True
+        )
+    return dataclasses.replace(
+        problem,
+        initial=dataclasses.replace(
+            problem.initial,
+            noise0=noise0,
+            noise_model="none" if noise is None else noise.model,
+        ),
+        flags=dataclasses.replace(problem.flags, has_noise=noise0 is not None),
+    )
 
 
 def _redrawable(
