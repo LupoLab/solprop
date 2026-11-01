@@ -149,8 +149,9 @@ print(f"each beam carries {energy * 1e6:.4f} μJ into the sample")
 #
 # Every free-space run carries a transverse safety ramp over the outer tenth of the
 # grid's wavenumbers, designed from the grid (SEP 40);
-# ``SpatialAbsorber(real_space=False)`` names it explicitly here. On this grid nothing physical reaches that band; the ramp is
-# a safety net against content creeping towards the Nyquist edge.
+# ``SpatialAbsorber(real_space=False)`` names it explicitly here. On this grid nothing
+# physical reaches that band; the ramp is a safety net against content creeping towards
+# the Nyquist edge.
 #
 # The steps are replayed, eight per run, so every delay takes the same schedule.
 
