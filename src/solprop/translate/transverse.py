@@ -24,7 +24,7 @@ from scipy.special import j0
 
 from solprop.constants import C
 from solprop.exceptions import GridError, TranslationError
-from solprop.grid import FreeGrid, LineGrid, RadialGrid
+from solprop.grid import FreeGrid, LineGrid, RadialGrid, TimeGrid
 from solprop.modes.slab import PlanarGrid
 from solprop.spatial import SpatialDispersion
 from solprop.spatial_absorber import (
@@ -213,6 +213,86 @@ def _ramp_profile(
     return 0.5 * (1.0 - np.cos(np.pi * inside))
 
 
+def _intermediate_return(  # noqa: PLR0913, PLR0917 - the design and its weights
+    axes: tuple[_Axis, ...],
+    kappa_p: list[np.ndarray],
+    widths: tuple[float, ...],
+    starts: list[float],
+    alpha0: float,
+    field0: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
+    space: RadialGrid | FreeGrid | PlanarGrid,
+    grid: TimeGrid,
+    k: Float[np.ndarray, " n"],
+) -> float:
+    """Return the launch's energy share the intermediate band would bring back.
+
+    SEP 40 section 4.4: content between the protected band and the ramp is absorbed
+    at the edge only to ``Gamma(kappa)``; its return is ``exp(-2 Gamma)`` with the
+    exact symbol per frequency, weighted by the launch's spectrum. The band is taken in
+    sixteen contiguous groups of bins, each at its power-weighted wavenumber.
+
+    Parameters
+    ----------
+    axes : tuple of _Axis
+        The grid's axes.
+    kappa_p : list of numpy.ndarray
+        The protected band's edge per axis.
+    widths : tuple of float
+        The collar's width per axis, m.
+    starts : list of float
+        The ramp's start per axis, rad/m.
+    alpha0 : float
+        The collar's peak rate, 1/m.
+    field0 : numpy.ndarray
+        The noise-free launch.
+    space : solprop.grid.RadialGrid, solprop.grid.FreeGrid or PlanarGrid
+        The grid, for its spectral weights.
+    grid : solprop.grid.TimeGrid
+        The temporal grid.
+    k : numpy.ndarray
+        The band's wavenumbers, the entrance's first.
+
+    Returns
+    -------
+    float
+        A share of the launch energy.
+    """
+    band = np.nonzero(grid.inband_mask & grid.active_mask)[0]
+    power = np.asarray(space.spectral_weights)[:, None] * np.sum(
+        np.abs(np.asarray(field0[0])[..., band]) ** 2, axis=1
+    )
+    total = float(np.sum(power))
+    if not total > 0.0:
+        return 0.0
+    entrance = np.asarray(k[: band.size])
+    groups = np.array_split(np.arange(band.size), min(128, band.size))
+    spectrum = np.sum(power, axis=0)
+    group_k = np.array(
+        [
+            float(np.average(entrance[g], weights=spectrum[g]))
+            if float(np.sum(spectrum[g])) > 0.0
+            else float(np.mean(entrance[g]))
+            for g in groups
+        ]
+    )
+    group_power = np.stack([np.sum(power[:, g], axis=1) for g in groups], axis=1)
+    returned = 0.0
+    for axis, edge, width, start in zip(axes, kappa_p, widths, starts, strict=True):
+        magnitude = np.abs(axis.columns)
+        between = (magnitude > float(np.max(edge))) & (magnitude < start)
+        if not np.any(between):
+            continue
+        values, inverse = np.unique(magnitude[between], return_inverse=True)
+        loss = np.empty((values.size, group_k.size))
+        for chunk in range(0, values.size, 16):
+            part = values[chunk : chunk + 16]
+            loss[chunk : chunk + 16] = collar_attenuation(
+                part[:, None], group_k[None, :], alpha0, width
+            )
+        returned += float(np.sum(group_power[between] * np.exp(-2.0 * loss[inverse])))
+    return returned / total
+
+
 def resolve_transverse(  # noqa: PLR0912, PLR0915 - one resolution, in order
     specification: SpatialAbsorber,
     space: RadialGrid | FreeGrid | PlanarGrid,
@@ -385,24 +465,14 @@ def resolve_transverse(  # noqa: PLR0912, PLR0915 - one resolution, in order
     edges = tuple(float(np.min(edge)) for edge in kappa_p)
     # What would come back from the intermediate band, kappa_p < |k| < kappa_s,
     # weighted by the launch's spectrum: a report, judged by the monitor (4.4).
-    intermediate = 0.0
-    for axis, edge, width, start in zip(axes, kappa_p, widths, starts, strict=True):
-        between = (np.abs(axis.columns) > float(np.max(edge))) & (
-            np.abs(axis.columns) < start
-        )
-        if total > 0.0 and np.any(between):
-            returned = collar_attenuation(
-                np.abs(axis.columns[between]),
-                np.full(int(np.count_nonzero(between)), float(np.min(k))),
-                alpha0,
-                width,
-            )
-            intermediate += float(np.sum(power[between] * np.exp(-2.0 * returned)))
+    intermediate = _intermediate_return(
+        axes, kappa_p, widths, starts, alpha0, field0, space, grid, k
+    )
     notes |= {
         "kappa_p_band": tuple(
             (float(np.min(edge)), float(np.max(edge))) for edge in kappa_p
         ),
-        "intermediate_return": intermediate / total if total > 0.0 else 0.0,
+        "intermediate_return": intermediate,
     }
     if isinstance(space, RadialGrid):
         notes["reflected_columns"] = int(np.count_nonzero(space.k_r < kappa_lo))

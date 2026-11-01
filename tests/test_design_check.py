@@ -208,7 +208,7 @@ def _periodic(kind: str) -> Simulation:
                 20e-6,
                 waist_x=0.735 * 63.5e-6,
             ),
-            settings=_spatial_settings(),
+            settings=dataclasses.replace(_spatial_settings(), spatial_absorber=None),
             spatial_absorber=SpatialAbsorber(kappa=2.5e5),
         )
     space = (
@@ -222,7 +222,7 @@ def _periodic(kind: str) -> Simulation:
         medium,
         responses,
         pulse,
-        settings=_spatial_settings(),
+        settings=dataclasses.replace(_spatial_settings(), spatial_absorber=None),
         noise=None,
         spatial_absorber=SpatialAbsorber(kappa=2.5e5),
     )

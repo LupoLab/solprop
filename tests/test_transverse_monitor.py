@@ -257,3 +257,29 @@ def test_the_onset_current_counts_inward_flow_only() -> None:
     returning = edge._onset_current(_packet(space, 200e-6, 1e6))  # pyright: ignore[reportPrivateUsage]
     assert leaving < 1e-20
     assert returning > 1e3 * leaving
+
+
+def test_the_ramp_s_removal_stops_a_run_at_ten_budgets() -> None:
+    # Q8, decided on the under-resolved filament's measurements: the ramp's removal
+    # warns above the budget and stops above ten, as the edge does (section 5.3).
+    space = LineGrid(200e-6, 256)
+    ramp = np.where(
+        np.abs(np.asarray(space.k_x)) > 0.9 * np.max(np.abs(space.k_x)), 1e4, 0.0
+    )
+    design = SpatialAbsorberDesign(
+        SpatialAbsorber(real_space=False), ramp, 1e4, (0.9 * float(np.max(space.k_x)),)
+    )
+    edge = TransverseEdge(
+        space, design, 1e-3, 10.0, 0.01, np.arange(1), 2 * math.pi / 800e-9
+    )
+    clean = _packet(space, 0.0, 0.0)
+    edge.launch(clean, 0.0, noise=None, steps=None, reads=True, declared=False)
+    filament = clean.copy()
+    top = int(np.argmax(np.abs(np.asarray(space.k_x))))
+    filament[top] = 0.05 * float(np.max(np.abs(clean)))  # content generated at the edge
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", BoundaryWarning)
+        edge.read(filament, 1e-4)
+        with pytest.raises(BoundaryError, match="safety ramp has removed"):
+            edge.read(filament, 1e-3)
+    assert edge.status == "stopped"

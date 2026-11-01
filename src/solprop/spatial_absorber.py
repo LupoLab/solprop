@@ -155,11 +155,11 @@ _PROFILE = collar_profile(_DEPTH)
 
 
 def collar_attenuation(
-    kappa: Float[np.ndarray, "*shape"] | float,
-    k: Float[np.ndarray, "*shape"] | float,
+    kappa: Float[np.ndarray, ...] | float,
+    k: Float[np.ndarray, ...] | float,
     alpha0: float,
     width: float,
-) -> Float[np.ndarray, "*shape"]:
+) -> Float[np.ndarray, ...]:
     """Return the field attenuation of a collar's round trip, by local WKB.
 
     ``2 w int_0^1 |Im q| ds`` with the exact symbol
@@ -181,7 +181,7 @@ def collar_attenuation(
     Returns
     -------
     numpy.ndarray
-        Field nepers, broadcast to the shape of `kappa` and `k`; zero where
+        Field nepers, `kappa` and `k` broadcast together; zero where
         ``kappa >= k``, which the design refuses before it gets here.
 
     Examples

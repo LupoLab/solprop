@@ -223,6 +223,7 @@ class TransverseEdge:
     _warned: bool = field(default=False, init=False)
     _ramp_warned: bool = field(default=False, init=False)
     _resumed: bool = field(default=False, init=False)
+    _declared_share: float = field(default=0.0, init=False)
     _strip_baseline: float = field(default=0.0, init=False)
     _strip_floor: float = field(default=0.0, init=False)
     _strip_peak: float = field(default=0.0, init=False)
@@ -464,6 +465,8 @@ class TransverseEdge:
             else 0.0
         )
         if declared:
+            # Declared above discard_above: not wanted, so its removal is not judged.
+            self._declared_share = share
             logger.info("the launch holds %.2e of its energy in the ramp's band", share)
             return
         if share > stop:
@@ -614,21 +617,25 @@ class TransverseEdge:
             self._judge_ramp_removal()
             return
         warn, stop = self.budget**2, (self.stop_factor * self.budget) ** 2
+        judgements = []
         for index, face in enumerate(self._faces):
             share = float(np.sum(weighted[face.edge])) / self._launch
             self._peak_raw[index] = max(self._peak_raw[index], share)
             judged = share - self._baseline[index] - self._allowance
             self._peak[index] = max(self._peak[index], judged)
-            if judged > stop:
-                self._status = "stopped"
-                raise BoundaryError(self._stop_message(face.name, judged, z))
+            judgements.append((judged, face.name))
+        worst, name = max(judgements)
+        if worst > stop:
+            self._status = "stopped"
+            raise BoundaryError(self._stop_message(name, worst, z))
+        for judged, face_name in judgements:
             if judged > warn and not self._warned:
                 self._warned = True
                 self._warned_at = z
                 if self._status in ("clear", "coarse"):
                     self._status = "warned"
                 warnings.warn(
-                    f"light reached the transverse edge on its {face.name} face at "
+                    f"light reached the transverse edge on its {face_name} face at "
                     f"z = {z:.4e} m: {judged:.2e} of the launch energy above its "
                     "launch value, which the wall or the wrap returns (SEP 40 "
                     "section 5.3)",
@@ -910,8 +917,28 @@ class TransverseEdge:
             )
 
     def _judge_ramp_removal(self) -> None:
-        """Warn once when the ramp has removed more than the budget (Q8 warns only)."""
+        """Warn, or stop, on what the safety ramp has removed (section 5.3, Q8).
+
+        The ramp's removal tracks the true error of an under-resolved run within a few
+        times, and the ramp can hide that light from the edge; it is judged at the
+        edge's levels (the maintainer's decision on Q8).
+
+        Raises
+        ------
+        BoundaryError
+            When the removal exceeds ``stop_factor`` budgets.
+        """
         removed = self.ramp_removed
+        stop = (self.stop_factor * self.budget) ** 2
+        if removed > stop:
+            self._status = "stopped"
+            msg = (
+                f"the safety ramp has removed {removed:.2e} of the launch energy "
+                f"above the input noise's share, past the stop of {stop:.0e}: "
+                "content reached the grid's outer transverse wavenumbers, which the "
+                "grid cannot resolve; refine the transverse grid (SEP 40 section 5.3)"
+            )
+            raise BoundaryError(msg)
         if removed > self.budget**2 and not self._ramp_warned:
             self._ramp_warned = True
             # Only a run below the warning throughout is clear (section 5.3).
@@ -968,14 +995,18 @@ class TransverseEdge:
     # ------------------------------------------------------------------ results
     @property
     def ramp_removed(self) -> float:
-        """Return the safety ramp's removal above the input noise's own share.
+        """Return the safety ramp's removal above noise and declared content.
 
         Returns
         -------
         float
             A share of the launch energy, signed.
         """
-        return self._ramp_raw - min(self._ramp_noise, self._noise_share_in_ramp)
+        return (
+            self._ramp_raw
+            - min(self._ramp_noise, self._noise_share_in_ramp)
+            - self._declared_share
+        )
 
     @property
     def status(self) -> TransverseStatus:
@@ -1052,6 +1083,7 @@ class TransverseEdge:
         self._ramp_raw = number("raw_ramp_removed")
         self._ramp_noise = number("noise_ramp_removed")
         self._noise_share_in_ramp = number("noise_share_in_ramp")
+        self._declared_share = number("declared_share_in_ramp")
         self._spatial_removed = number("spatial_removed")
         self._reads = int(number("reads"))
         self._largest_gap = number("largest_gap")
@@ -1081,6 +1113,7 @@ class TransverseEdge:
             "launch_energy": self._launch if math.isfinite(self._launch) else None,
             "noise_ramp_removed": self._ramp_noise,
             "noise_share_in_ramp": self._noise_share_in_ramp,
+            "declared_share_in_ramp": self._declared_share,
             "transverse_status": self._status,
             "transverse_reason": self._reason,
             "faces": [face.name for face in self._faces],
