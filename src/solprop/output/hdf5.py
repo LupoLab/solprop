@@ -209,6 +209,10 @@ def _write_march(group: h5py.Group, snapshot: MarchSnapshot) -> None:
     group.attrs["rejections"] = snapshot.rejections
     group.attrs["last_rejected"] = snapshot.last_rejected
     group.attrs["collar_was_quiet"] = snapshot.collar_was_quiet
+    if snapshot.history_key is not None:
+        group.attrs["history_key"] = snapshot.history_key
+    elif "history_key" in group.attrs:
+        del group.attrs["history_key"]
     group.attrs["z"] = snapshot.z
 
 
@@ -251,6 +255,11 @@ def _read_march(file: h5py.File, z: float) -> MarchSnapshot | None:
                 str(name): np.asarray(_dataset(rows, str(name))[()]) for name in rows
             },
             collar_was_quiet=bool(np.asarray(group.attrs["collar_was_quiet"])),
+            history_key=(
+                str(group.attrs["history_key"])
+                if "history_key" in group.attrs
+                else None
+            ),
         )
     except (KeyError, ValueError, OutputError) as error:
         logger.warning("ignoring the unreadable march snapshot in the file: %s", error)

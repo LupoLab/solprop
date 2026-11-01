@@ -363,6 +363,11 @@ def test_an_interpolated_plane_is_resumed_only_on_request(tmp_path, dense):
     assert _interpolated(state)
     with pytest.raises(DriverError, match="resume='interpolated'"):
         capillary(backend="numpy_ref", **dense).run(path, resume=True)
+    # The file decides, not the request: a run resumed without interpolation would
+    # otherwise continue silently from a state the march never passed through.
+    sparse = {**dense, "interpolate_planes": False}
+    with pytest.raises(DriverError, match="resume='interpolated'"):
+        capillary(backend="numpy_ref", **sparse).run(path, resume=True)
     handler = capillary(backend="numpy_ref", **dense).run(
         path, resume="interpolated", progress="none"
     )

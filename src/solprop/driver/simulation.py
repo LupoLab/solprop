@@ -3334,10 +3334,14 @@ class Simulation(Displayed):
             # against 4.9e-8 starting afresh, on a capillary forced from 1 to 2 bar.
             logger.info("the Adams history starts afresh: a forced resume")
         else:
-            self._continue_march(backend, state)
+            self._continue_march(
+                backend, state, adams=isinstance(problem.stepper.integrator, Multistep)
+            )
         return next_plane
 
-    def _continue_march(self, backend: Backend, state: ResumeState) -> None:
+    def _continue_march(
+        self, backend: Backend, state: ResumeState, *, adams: bool = True
+    ) -> None:
         """Continue the Adams history from the file's snapshot, where one fits.
 
         Parameters
@@ -3346,6 +3350,10 @@ class Simulation(Displayed):
             The backend, loaded at the resume position.
         state : solprop.output.hdf5.ResumeState
             What the file holds.
+        adams : bool, optional
+            Whether this run steps with an Adams method. A run continued under
+            another integrator keeps no history, by its own choice, which is
+            recorded as a numerics change and needs no warning (SEP 42 section 5.6).
         """
         restore = getattr(backend, "restore_march", None)
         if restore is None:
@@ -3356,6 +3364,13 @@ class Simulation(Displayed):
             return
         # A march that cannot carry its history restarts it without having been asked
         # to: say so once, as a warning (SEP 29 section 6.6).
+        if not adams:
+            if state.march is not None:
+                logger.info(
+                    "the Adams history is not continued: this run steps "
+                    "with another integrator"
+                )
+            return
         refusal = getattr(backend, "march_export_refusal", lambda: None)()
         if refusal is not None:
             warnings.warn(
@@ -7241,11 +7256,11 @@ def _validate_resume(
         outcome is None or not outcome.logical_calls or not outcome.atomic_calls
     ):
         raise DriverError("a TDSE resume requires persisted cumulative call ledgers")
-    if outcome is not None and outcome.logical_calls:
+    method = problem.stepper.integrator
+    if outcome is not None and outcome.logical_calls and isinstance(method, Multistep):
+        # Under another integrator the charged ledger stays in the earlier execution
+        # records as provenance, and is not installed (SEP 42 section 5.6).
         calls = CallLedger.from_record(outcome.logical_calls)
-        method = problem.stepper.integrator
-        if not isinstance(method, Multistep):
-            raise DriverError("a logical call ledger requires Adams integration")
         if method.max_calls is not None and calls.total > method.max_calls:
             raise DriverError("logical call budget is below previously charged work")
     if outcome is not None and outcome.atomic_calls:

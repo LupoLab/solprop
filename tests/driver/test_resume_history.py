@@ -289,10 +289,14 @@ def test_a_snapshot_from_another_run_is_not_continued(build_simulation):
         backend.set_initial(problem.initial.field0, None, z=snapshot.z)
         assert backend.restore_march(snapshot) is None
         moved = snapshot.__class__(
-            **{**vars(snapshot), "method": repr(INTERACTION)},
+            **{**vars(snapshot), "history_key": INTERACTION.history_key},
         )
         backend.set_initial(problem.initial.field0, None, z=snapshot.z)
-        assert "taken by" in str(backend.restore_march(moved))
+        assert "history was kept by" in str(backend.restore_march(moved))
+        # A snapshot that names no key was written before SEP 42: start afresh.
+        unnamed = snapshot.__class__(**{**vars(snapshot), "history_key": None})
+        backend.set_initial(problem.initial.field0, None, z=snapshot.z)
+        assert "names no history key" in str(backend.restore_march(unnamed))
     finally:
         backend.close()
     runge_kutta = build_simulation(

@@ -11,6 +11,7 @@ marked so that later sessions and readers respect it.
 """
 
 import json
+import logging
 import warnings
 
 import h5py
@@ -21,6 +22,8 @@ from solprop.driver.simulation import _check_resume_choice
 from solprop.exceptions import OutputError, SolpropWarning
 from solprop.log import NullReporter
 from solprop.output.hdf5 import open_file, resume
+from solprop.stepper import RungeKutta
+from solprop.stepper.multistep import Multistep
 
 # Tight time windows for speed, as in test_resume.py: the boundary monitor's warning
 # is not what this module tests.
@@ -184,6 +187,56 @@ def test_a_mistyped_resume_is_refused(value):
         _check_resume_choice(value)
     for valid in (False, True, "interpolated", "force"):
         _check_resume_choice(valid)
+
+
+# ------------------------------------------------- the numerics behind the gate
+
+
+def test_an_adams_run_continues_under_runge_kutta(build_simulation, tmp_path):
+    # The charged ledger stays with the earlier execution as provenance; a
+    # Runge-Kutta march keeps none (SEP 42 section 5.6).
+    path = tmp_path / "run.h5"
+    stop(fibre(build_simulation, integrator=Multistep()), path)
+    charged = resume(path).outcome
+    assert charged is not None and charged.logical_calls
+    with pytest.warns(SolpropWarning, match="with changed numerics"):
+        handler = fibre(build_simulation, integrator=RungeKutta()).run(
+            path, resume=True
+        )
+    assert handler.n_saved == N_SAVE
+    outcome = resume(path).outcome
+    assert outcome is not None and outcome.status == "complete"
+    assert not outcome.logical_calls
+    assert outcome.previous_executions[-1]["logical_calls"] == charged.logical_calls
+    [entry] = outcome.resumes
+    assert "stepper.method" in entry["numerics"]
+
+
+def test_a_raised_call_budget_keeps_the_adams_history(
+    build_simulation, tmp_path, caplog
+):
+    path = tmp_path / "run.h5"
+    stop(fibre(build_simulation, integrator=Multistep()), path)
+    assert resume(path).march is not None
+    with (
+        caplog.at_level(logging.INFO, logger="solprop.driver.simulation"),
+        pytest.warns(SolpropWarning, match="with changed numerics"),
+    ):
+        fibre(build_simulation, integrator=Multistep(max_calls=10**6)).run(
+            path, resume=True
+        )
+    assert "continuing the Adams history" in caplog.text
+    assert "starts afresh" not in caplog.text
+
+
+def test_a_changed_order_starts_the_adams_history_afresh(build_simulation, tmp_path):
+    path = tmp_path / "run.h5"
+    stop(fibre(build_simulation, integrator=Multistep()), path)
+    with pytest.warns(SolpropWarning) as caught:
+        fibre(build_simulation, integrator=Multistep(order=4)).run(path, resume=True)
+    messages = [str(warning.message) for warning in caught]
+    assert any("the Adams history starts afresh" in one for one in messages)
+    assert any("history was kept by" in one for one in messages)
 
 
 # ----------------------------------------------------------------------- force

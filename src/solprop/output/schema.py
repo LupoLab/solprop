@@ -2015,9 +2015,9 @@ class MarchSnapshot:  # numpydoc ignore=PR02
     What a resume needs to carry on as the uninterrupted run would: the accepted state
     exactly as the backend held it, the history's samples in their engine rows, which
     sample each history entry is, the order, the rejection count and the step the
-    controller proposed next. The configuration hash already fixes the method, so a
-    snapshot is never the record of what was computed, only of where a march stood;
-    a resume that cannot use it starts the history afresh.
+    controller proposed next. A snapshot is never the record of what was computed, only
+    of where a march stood: a resume continues it when its history key matches the
+    resuming method's, and otherwise starts the history afresh.
 
     Equality is by identity (``eq=False``) because the fields hold arrays.
 
@@ -2031,7 +2031,7 @@ class MarchSnapshot:  # numpydoc ignore=PR02
     proposal : float
         The step the controller proposed next, m.
     method : str
-        The method's representation, which the resuming run's must equal.
+        The method's representation, kept as provenance.
     order : int
         The order chosen for the next step.
     rejections : int
@@ -2052,6 +2052,10 @@ class MarchSnapshot:  # numpydoc ignore=PR02
         Whether the in-stage collar was left out, quiet, at the last attempt, which
         holds the first step after it returns to its stable step (SEP 39 section
         6.5.9).
+    history_key : str or None
+        What defines the history (:attr:`solprop.stepper.Multistep.history_key`),
+        which the resuming method's must equal; ``None`` for a snapshot that names
+        none, which starts the history afresh (SEP 42 section 5.6).
 
     Raises
     ------
@@ -2084,6 +2088,7 @@ class MarchSnapshot:  # numpydoc ignore=PR02
     slots: Int[np.ndarray, " n_entries"]
     rows: Mapping[str, np.ndarray]
     collar_was_quiet: bool = False
+    history_key: str | None = None
 
     def __post_init__(self) -> None:
         """Refuse a snapshot whose entries disagree or whose numbers are not finite.
