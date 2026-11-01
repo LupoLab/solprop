@@ -3,8 +3,10 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 import dataclasses
+import functools
 import json
 import logging
+import math
 import os
 import time
 from collections.abc import Mapping
@@ -24,7 +26,7 @@ from march_bounds import (
 from solprop import _process
 from solprop.driver._scan_context import _EXECUTOR
 from solprop.driver._scan_model import name_seed
-from solprop.driver.executors import Local, pool
+from solprop.driver.executors import Batch, Local, pool
 from solprop.driver.executors.pool import MemoryBudget, Pool
 from solprop.driver.scan import Scan, run_scan
 from solprop.driver.simulation import Simulation
@@ -52,7 +54,7 @@ def _controller_without_history(monkeypatch):
     monkeypatch.setattr(pool, "peak_rss", lambda: 0)
 
 
-def build_point(point, noise=None):
+def build_point(point, noise=None, gamma=0.11, **changes):
     """Return a short soliton fibre on a prescribed schedule at a fixed order.
 
     So that a scan point and the same simulation run alone are one discrete march,
@@ -63,7 +65,7 @@ def build_point(point, noise=None):
     """
     grid = EnvelopeGrid.from_limits(0.001, 835e-9, (500e-9, 2e-6), 1e-12, **LEGACY_GRID)
     return Simulation.from_gnlse(
-        0.11,
+        gamma,
         0.001,
         [0.0, 0.0, -1.183e-26],
         wavelength=835e-9,
@@ -79,6 +81,7 @@ def build_point(point, noise=None):
         integrator=FIXED_ORDER,
         backend="numpy_ref",
         noise=noise,
+        **changes,
     )
 
 
@@ -195,6 +198,47 @@ def test_scan_equals_single_points_and_reruns_skip(tmp_path, executor):
     np.testing.assert_array_equal(output.point(0)["fields/values"], before)
     assert output.as_grid("reduced/peak_power").shape == (2,)
     np.testing.assert_array_equal(output.where(power=2.0), [1])
+
+
+@pytest.mark.parametrize(
+    "executor", [Local(), Pool(2), Batch(2)], ids=["local", "pool", "batch"]
+)
+def test_a_rerun_differing_only_in_rounding_skips_and_other_changes_conflict(
+    tmp_path, executor
+):
+    # A finished point is reused when its record differs only in rounding, neutral
+    # values or provenance; numerics are held to agreement, since a done point has
+    # nothing left to continue (SEP 42 section 5.7).
+    scan = Scan("scan", power=[1.0, 2.0])
+    path = tmp_path / "scan.h5"
+    keywords = {
+        "executor": executor,
+        "output": path,
+        "progress": "none",
+        "fields": "all",
+    }
+
+    def stored_hashes():
+        with h5py.File(path, "r") as file:
+            stored = _dataset(file, "points/configuration_hash")[()].tolist()
+        return [one.decode() if isinstance(one, bytes) else str(one) for one in stored]
+
+    output = run_scan(scan, build_point, **keywords)
+    before = output.point(0)["fields/values"]
+    hashes = stored_hashes()
+    rounded = functools.partial(build_point, gamma=math.nextafter(0.11, 1.0))
+    first = next(iter(scan.points()))
+    assert len(hashes[0]) == 64
+    assert rounded(first).metadata().configuration_hash() not in hashes
+    output = run_scan(scan, rounded, **keywords)
+    np.testing.assert_array_equal(output.point(0)["fields/values"], before)
+    assert stored_hashes() == hashes
+    with pytest.raises(OutputError, match="the numerics changed: stepper"):
+        run_scan(scan, functools.partial(build_point, rtol=1e-5), **keywords)
+    with pytest.raises(
+        OutputError, match="these compared values differ: configuration"
+    ):
+        run_scan(scan, functools.partial(build_point, gamma=0.12), **keywords)
 
 
 def test_reductions_and_selected_fields(tmp_path):
