@@ -8,8 +8,7 @@ options and how the result will be verified; once accepted it is implemented in 
 report to the SEP. Finished SEPs are archived and linked from the manual pages they
 produced. [SEP 0](sep-0000-process.md) describes the process and says when a SEP is
 needed; new SEPs start from [the template](template.md). The [roadmap](../roadmap.md)
-lists accepted and in-progress SEPs first, then drafts under discussion, followed by
-informal work not fully covered by a proposal.
+lists accepted and in-progress SEPs first, then drafts under discussion.
 
 Commit hashes recorded before solprop's first public release (in proposals, reports
 and benchmark entries) refer to the unpublished development history; the public history

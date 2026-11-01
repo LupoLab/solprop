@@ -31,7 +31,7 @@ in one package. The [capability overview](capabilities.md) describes the current
 models and their limits.
 
 It is a foundation to build on. We intend to keep adding the physics that pulse
-propagation needs — the [roadmap](../dev/roadmap.md) lists what is missing, from
+propagation needs — the [issues](https://github.com/LupoLab/solprop/issues) list what is missing, from
 second-order nonlinearity and harmonic generation to ionisation in solids — until
 solprop covers every physical propagation scenario, each addition specified, verified
 and documented through an [enhancement proposal](../dev/seps/index.md).

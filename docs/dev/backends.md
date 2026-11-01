@@ -1652,7 +1652,7 @@ at most:
   nothing. This threshold and the stage threshold switch only on `__APPLE__`
   (`include/solprop_native/core.hpp`): Windows and linux-aarch64 builds take the values
   measured on x86-64 Linux (Cascade Lake and Zen 3), which have not been measured on
-  those platforms ([roadmap](roadmap.md)).
+  those platforms ([#328](https://github.com/LupoLab/solprop/issues/328)).
 - **One stage phase.** `sum_t dPhi_t Phi_t` is needed three times per stage (the
   combination, the finish and a flow's residual) over up to 306 terms on a varying guide;
   a vectorised kernel forms it once into `stage_phase` (a ledger row) in the same

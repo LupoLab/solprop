@@ -251,7 +251,7 @@ either $z_m$ or $f$.
 $\mathbf x\simeq(z_mc/\omega)\boldsymbol\kappa$, short of the far-zone one by the factor
 $\cos\theta$: a relative error $1-\cos\theta\approx\theta^2/2$, $1.25\times10^{-3}$ at
 50 mrad. It is the statistic's definition, exact for a Fourier plane, not an error the
-tests bound; an exact $\tan\theta$ mapping for wide-angle emission is a roadmap item.
+tests bound; an exact $\tan\theta$ mapping for wide-angle emission is [#187](https://github.com/LupoLab/solprop/issues/187).
 
 **The axial flux in the medium.** Every spectrum weights each transverse column by its
 real axial admittance $Y_z=\varepsilon_0c^2\operatorname{Re}k_z/\omega$ in the run's

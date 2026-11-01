@@ -131,10 +131,6 @@ through `Draft`, `Accepted`, `In progress` and `Deferred`, and closes when the S
    Part III with the date drafted.
 3. Add the SEP to the index table, the index's toctree and the *Draft enhancement
    proposals* section of the [roadmap](../roadmap.md), after the accepted proposals.
-   Review the informal roadmap items in the same change: remove an item only when the
-   SEP covers it in full; for partial coverage, link the SEP, state what it covers and
-   retain the remaining work. Discussion of a possible future extension does not count
-   as coverage by the proposal's implementation scope.
 4. Search the open [issues](https://github.com/LupoLab/solprop/issues) for anything the
    SEP touches, and list what you find in its *Context* section: the issues it will fix,
    those that must be resolved before it, and any others it changes.
@@ -146,8 +142,8 @@ through `Draft`, `Accepted`, `In progress` and `Deferred`, and closes when the S
    documentation and can be discussed.
 
 Revising a draft is free: edit it in place in further pull requests and add a line to
-Part III for each substantial revision. Update its roadmap summary and the informal
-items whenever its scope changes; work that the revised scope no longer covers goes in an
+Part III for each substantial revision. Update its roadmap summary whenever its
+scope changes; work that the revised scope no longer covers goes in an
 issue (ADR-062).
 
 ### Review
@@ -335,7 +331,7 @@ assumption that had to be invented are all said plainly.
 | Manual (`docs/`) | How the functionality works and how to use it, as it is now |
 | Design pages (`docs/dev/`) | How the code is built, as it is now |
 | [Issues](https://github.com/LupoLab/solprop/issues) | Planned work (ADR-062) |
-| [Roadmap](../roadmap.md) | Accepted and draft SEPs, then older open work not yet moved to issues |
+| [Roadmap](../roadmap.md) | Accepted and draft SEPs |
 | `CHANGELOG.md` | What changed in each release, citing the SEP |
 
 The theory of a SEP moves into the manual when it is implemented: the manual page carries
@@ -367,3 +363,5 @@ that edits this document and adds a line to its history.
   move over time, and work a SEP gives back goes in an issue; each SEP has a tracking
   issue, and a draft lists the open issues it touches; the roadmap keeps the lists of
   accepted and draft SEPs for now (maintainer's decision, ADR-062).
+- 2026-11-01: The roadmap's informal items moved to issues, so a new SEP no longer reviews
+  them.
