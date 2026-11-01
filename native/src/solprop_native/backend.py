@@ -371,12 +371,13 @@ class NativeBackend(StepDriver[_core.State]):
         noise: NoiseRealisation | None,
         *,
         z: float = 0.0,
+        resume: bool = False,
     ) -> None:
         """Load an exact host `complex128` state and optional noise realization."""
         _require_initial_array(field, self._problem.shape)
         self._loading = True
         try:
-            super().set_initial(field, noise, z=z)
+            super().set_initial(field, noise, z=z, resume=resume)
         finally:
             self._loading = False
         native_noise = (

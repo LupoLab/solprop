@@ -1136,6 +1136,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         noise: NoiseRealisation | None,
         *,
         z: float = 0.0,
+        resume: bool = False,
     ) -> None:
         """Load a state and the noise realisation at a position.
 
@@ -1146,13 +1147,15 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         state at the run's launch position and never again; the ``modified`` model keeps
         it apart and adds it at every stage, so the propagating field never carries it.
 
-        A `z` past the launch is a **resume**: the state came back from a save plane the
-        run already reached, so it already carries whatever the ``input`` model added at
-        the launch and must not be given a second realisation, and a replayed schedule
-        continues from the edge that plane sits on. The launch is the entrance unless
-        the run starts inside the guide (SEP 37: an interior launch with ``input`` noise
-        takes its draw there). The controller starts afresh from
-        ``dz_init`` either way (``docs/dev/stepper.md`` section 3).
+        A **resume** loads a state from a plane the run already saved, so it already
+        carries whatever the ``input`` model added at the launch and must not be given a
+        second realisation, and a replayed schedule continues from the edge that plane
+        sits on. A `z` past the launch is always one. Position cannot tell for a file
+        holding only its launch plane, which comes back at the launch itself: its caller
+        says so with `resume`. The launch is the entrance unless the run starts inside
+        the guide (SEP 37: an interior launch with ``input`` noise takes its draw
+        there). The controller starts afresh from ``dz_init`` either way
+        (``docs/dev/stepper.md`` section 3).
 
         Everything else a march reads is restored too, so that a backend loaded again
         after a run -- a :class:`~solprop.driver.simulation.SimulationRunner`'s, or
@@ -1179,6 +1182,9 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             problem was assembled with.
         z : float, optional
             The position the state belongs to, m. Zero, the entrance, by default.
+        resume : bool, optional
+            Whether `field` came back from a saved plane of this run, and so never takes
+            the ``input`` draw, whatever `z`. ``False`` by default.
 
         Raises
         ------
@@ -1201,13 +1207,14 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         if (
             model == "input"
             and drawn is not None
+            and not resume
             and position == self._problem.initial.z
         ):
             values = values + drawn
         self._state = self._apply_mask(values)
         self._noise = drawn if model == "modified" else None
-        # The input draw rides in the state; the boundary monitor reads it as the
-        # vacuum floor beneath the light it judges (SEP 21, Q24).
+        # The input draw rides in the state, a resumed one's too; the boundary monitor
+        # reads it as the vacuum floor beneath the light it judges (SEP 21, Q24).
         self._input_floor = drawn if model == "input" else None
         self._z = position
         self._proposal = self._problem.stepper.dz_init

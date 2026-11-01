@@ -29,7 +29,12 @@ class Backend(Protocol):
     max_batch: int  # 1 for backends that step one problem
 
     def set_initial(
-        self, field: Field, noise: NoiseRealisation | None, *, z: float = 0.0
+        self,
+        field: Field,
+        noise: NoiseRealisation | None,
+        *,
+        z: float = 0.0,
+        resume: bool = False,
     ) -> None: ...
     def set_progress(self, reporter: ProgressReporter) -> None: ...  # observer only
     def propagate_to(self, z: float) -> StepSummary: ...

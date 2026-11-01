@@ -1206,6 +1206,7 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         noise: NoiseRealisation | None,
         *,
         z: float = 0.0,
+        resume: bool = False,
     ) -> None:
         """Load a state; an Adams march restarts its history from it.
 
@@ -1220,8 +1221,11 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
             the history afresh unless
             :meth:`~solprop.backends.driver.StepDriver.restore_march` then continues
             it.
+        resume : bool, optional
+            Whether `field` came back from a saved plane, and so never takes the
+            ``input`` draw.
         """
-        super().set_initial(field, noise, z=z)
+        super().set_initial(field, noise, z=z, resume=resume)
         # The entrance plane's quadrature_error is read before any march: the alarm
         # of a previous run on this backend is not its (SEP 22 section 4.7).
         self._alarm = math.nan
