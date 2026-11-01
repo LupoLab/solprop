@@ -815,8 +815,6 @@ def _refuse_other_schemas(file: h5py.File) -> None:
     OutputError
         If any staged point's record declares another output schema.
     """
-    if "staged" not in file:
-        return
     accepted: set[str] = set()
     for name, group in _group(file, "staged").items():
         document = json.loads(str(group.attrs["metadata_refs"]))
