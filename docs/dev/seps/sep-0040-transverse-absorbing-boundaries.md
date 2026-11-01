@@ -15,7 +15,7 @@
 | **Requires** | [SEP 21](archive/sep-0021-absorbing-boundaries.md), [SEP 22](archive/sep-0022-memory-lean-spatial-execution.md), [SEP 34](archive/sep-0034-medium-flux.md) |
 | **Supersedes** | — |
 | **Superseded-by** | — |
-| **Implementation** | Opus 5.5 (AI) for John Travers, branch `feature/sep-0040-transverse-boundaries`: phases 0 and 1 complete (Part II); phase 2 (native) next |
+| **Implementation** | Opus 5.5 (AI) for John Travers, branch `feature/sep-0040-transverse-boundaries`: phases 0–2 complete (Part II); phase 3 (`numba_cpu`, requalification) next |
 | **Manual pages** | — |
 
 ## Part I — Proposal
@@ -2345,6 +2345,62 @@ phase 1's `unwatched` warnings, and §7's remaining measurements: the design che
 at production sizes and on several frequencies, the fixed-schedule limits under
 `Multistep` and the low-storage march, the noise allowance on full grids and the
 anisotropic box.
+
+### Phase 2 — report (2026-11-01)
+
+Phase 2 brings the native CPU backend to `numpy_ref`'s behaviour, on this branch.
+
+**Delivered.**
+
+- *§5.3 on native.* `NativeBackend.reads_transverse_edge` is set: a native run reads the
+  transverse edge, from a host copy of its state, at the edge's reads, at saved planes
+  and, with a requested collar, at every committed step. The native Adams march takes
+  the edge's next read as a `read_at` bound in each call: an adaptive step does not pass
+  it, and the call returns once a committed step reaches it, so the host reads the state
+  there. A replay is not capped and returns at its first step past the read. A requested
+  collar's call has a host step of one. The runner-driven Runge–Kutta and low-storage
+  marches already step from the host, where the driver's ceiling applies.
+- *§6.* Native accepts a requested collar; its rate was already carried on the nodes and
+  the safety ramp in the operators (phase 1).
+- *§4.7.* A spatial-only in-stage pass takes no temporal transform pair: with no temporal
+  rate in-stage, the collar's rate depends on the column alone and commutes with the
+  temporal transforms, so the term is the rate times the spectrum in the transverse
+  physical space. `numpy_ref` (Cartesian, line and planar) and native
+  (`separable_spatial_core`) both skip the pack, the pair and the crop.
+- *SEP 42.* Merged into the branch: the pinned records were taken again and 0.2.0's
+  frozen records refreshed (that release is not tagged). Its class table needs no new
+  row: `spatial.absorber_rate` is there (compared, with a rounding tail), a grid's
+  `collar_fraction` and the settings' `spatial_absorber` are compared by default, and
+  the design's derived values sit outside the hash.
+
+**Deviations from Part I and the phase plan.**
+
+1. *The edge's reductions run on the host copy of the field, not in native memory.* The
+   copy is one per read, and the reads are at most `min(L/16, 4g/v_q)` apart, so the
+   default pays a few dozen copies a run; a requested collar copies at every committed
+   step. §7.7's overhead measurement decides whether the reductions, the strip and the
+   current move into the native memory space (phase 3).
+2. *Phase 1's deviation 3 is settled.* SEP 42 landed while this phase ran; the collar's
+   rate on the nodes is compared with a rounding tail, as anticipated.
+3. *The general-route example's pulse was widened* (100 fs in a 400 fs window, from 30 fs
+   in 200 fs). With #126's cap at one floor, the temporal monitor no longer hid that the
+   30 fs pulse did not fit its 1.00–1.06 µm band.
+
+**Verification** (Apple M5 Max; module-level runs, CI for the rest).
+
+| witness | native against `numpy_ref` |
+|---|---|
+| re-review's packet stopped, Multistep and RK | same stop, to 1e-9 |
+| scaled miss stopped under the ceiling (Multistep) | same stop, to 1e-9; first read past the truth |
+| scaled miss read to the end (budget relaxed) | same reads (≥ 16) and largest gap; record to 1e-7 |
+| scaled miss on a fixed schedule | `coarse` on both; same largest gap |
+| radial collar, `kappa = 8e4`, f = 1, Multistep and RK | same committed steps to 1e-9; field to 1e-10; same reads and status |
+| collar parity suites (free, planar, radial, schemes, low-storage) | pass with the spatial-only pass |
+
+**Owed to phase 3.** `numba_cpu`'s edge and ramp reductions, with a requested collar
+refused by name; the devices; §7.7's 2 % overhead limit on Linux, which also decides
+deviation 1; the suite and tracking cases; the new tutorial; the regenerated galleries
+and geometry figure; §7's remaining measurements.
 
 ## Part III — History
 

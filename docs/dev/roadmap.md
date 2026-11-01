@@ -35,7 +35,7 @@ being implemented.
   routes, bound response and other geometries remain follow-up work; the first route is
   a single-mode capillary with node quadrature.
 - [SEP 40 — Transverse absorbing boundaries for free-space propagation](seps/sep-0040-transverse-absorbing-boundaries.md):
-  in progress: phases 0 and 1 (`numpy_ref`) complete, native next. By default a wall or wrap at the requested
+  in progress: phases 0–2 (`numpy_ref`, native) complete, `numba_cpu` next. By default a wall or wrap at the requested
   size, a numerical safety ramp at the outer wavenumbers (now also radial and planar), and a
   monitor that stops a run whose light reaches the edge. A real-space collar outside the aperture
   on request, for declared fast content, sized by a protected band rather than the run length and
