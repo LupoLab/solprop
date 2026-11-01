@@ -939,6 +939,7 @@ against the branch; the order puts what it needs first.
 - 2026-11-01: Maintainer decisions on Q3 (both defaults stay) and the phase sign (optics by
   default). All of Q1–Q8 are decided. Rebased onto `main` after the 0.1.0 release; §3, §5.12,
   §5.14 and §9 brought up to date.
+- 2026-11-01: Supplementary AI review of the revised text (Opus 5.5).
 
 ### AI review, 2026-10-31
 
@@ -1601,3 +1602,419 @@ From the review of the front end's design (finding G9, not a point on this SEP):
 front end with a default of its own breaks the principle of §2. §5.1 now ships the guide's
 example recipes in the package (`Recipe.example`), so a front end's starting points are
 solprop's.
+
+### Supplementary AI review — 2026-11-01 (Opus 5.5): the revised text
+
+Reviewer: Opus 5.5 (AI), reading the revised Part I independently of the drafting session,
+against the code at revision `4059dc6`, SEP 42's §4 and §5, and the front-end design's use
+of the hooks. **Recommendation: revise §5.1, §5.2 and §5.7 before acceptance.** The split
+of work and the choice of recipe keys equal to keywords hold up, and the quantity rule is
+right. Two findings are blockers: the resolved recipe as defined does not rebuild its run
+(G1), and the round trips rest on an object-to-table step that the classes cannot give
+(G2). G3–G14 are significant and G15–G25 are minor. The G numbers are this review's own and
+have nothing to do with the finding G9 of the front-end design's review, mentioned above.
+Probes are listed at the end; every number below was measured on `numba_cpu` or
+`numpy_ref` unless it says that it was read.
+
+#### Findings
+
+1. **G1 — blocker: the resolved recipe as defined does not rebuild its run (§5.2, §5.9).**
+   §5.2 stores "every build keyword and execution setting at the value used", and
+   `solprop resume` rebuilds from it. Rebuilding with values read back from a default build
+   moved the hash in two of about twenty keywords, and others cannot be written at all:
+   - `dz_init` (the value in `settings.dz_init`): the hash moves at
+     `stepper.limits.auto_init`, because a default build uses the start-up rule and an
+     explicit first step switches it off. So every default capillary or GNLSE run would
+     restart differently. Under today's gate it would be refused.
+   - `raman_fraction` on `from_gnlse(raman=True)`: the default resolves to the silica
+     bundle's value (0.2188 here). Writing that recorded number back leaves the Kerr
+     coefficient alone but moves the hash at `materials.policies.gnlse_raman.origin`,
+     because the record says where the fraction came from. SEP 42's table has no row for
+     that path, so it is compared there and the resume is refused under both gates.
+   - The default `absorber` is an `Absorber` holding four arrays, built by
+     `boundaries.absorber(grid)`. The default `cladding` is an optmat glass object. Neither
+     has a table form.
+   - `grid`, `wavelength_limits` and `trange` are alternatives, as are `fwhm` and `width`,
+     and `n_save` and `save_planes`, so "every keyword" cannot be meant literally.
+   - `settings.backend` holds the resolved name (`driver/simulation.py:927`). The hash
+     leaves the backend out so that a run can move between machines; a resolved `backend`
+     would take that away.
+
+   These did keep the hash: `rtol`, `atol`, `dz_max`, `integrator`, `stats`, `temperature`,
+   `plasma`, `thg`, `raman`, `step_planes`, `save_planes`, `loss`, `model`, `pressure=None`
+   against `1.0`.
+
+   **Recommendation:** define the resolved recipe positively: the authored keys, the pins'
+   solved values, the seed, and a declared list of keywords whose S9 resolver is tested to
+   give the same hash when written explicitly. The rest stay "left to the build", and the
+   resume gate is what catches a moved default. Say that "a later solprop's defaults do not
+   move the run" holds for the listed keywords only. Resolve registered objects recursively,
+   since a pulse's or stepper's own defaults can move too. Keep `backend` as requested. Add
+   a sync test: each resolver's value, written back, keeps the hash.
+
+2. **G2 — blocker: there is no object-to-table step, and the registry rule cannot express
+   the manual's own setups (§1, §5.1, §7).** `Recipe.from_call` and two §7 tests ("every
+   registered type goes table → object → table and back unchanged", and equivalence through
+   `from_call` "for every example") need a table from a built object.
+   - Objects do not keep what made them. `PressureGradient.two_point`, §5.1's own example,
+     holds `positions`, `pressures`, `floor` and `_bore` (`profiles.py:1797`), and it comes
+     back as a `PressureGradient`, not as the class method. `TubeLattice.from_gap` holds
+     `tube_radius` and no gap. `EnvelopeGrid.from_limits`, which every object route needs,
+     holds `t`, `omega`, `t_fine`, `omega_fine` and collars, not its limits.
+   - The manual's radial setup uses module-level functions, with `absorber=absorber(grid)`
+     (`docs/guide/free-space/beams.md:112`) inside the settings. An entry is "a constructor
+     or a named class method", so `boundaries.absorber` (`boundaries.py:533`) is not
+     admitted, `Absorber`'s constructor wants four arrays, and no table can refer to the
+     sibling `grid`. `Mixture.of(*components)` has no keywords to write. `load_spectrum`,
+     §5.12's route to a `DataPulse`, is a function as well.
+   - "Every example" cannot hold as written. The gallery scripts call `with_input` in at
+     least four places, and examples pass `progress="none"` or `output=`, which §5.1
+     refuses. `from_call` has to drop those keys, not refuse them.
+
+   **Recommendation:** make an entry a named factory (constructor, class method or function)
+   with declared keywords and a declared build context it receives, such as `grid`, and
+   define that context in format 1. Let `from_call` invert only the types shown to be
+   lossless, and refuse the others by keyword, or have a factory attach the table it was
+   built from. Rewrite the §7 tests as table → object → hash and table → text → table, and
+   list the examples excluded, with why. Decide this now. Phase 4 would otherwise find it
+   after phases 1–3 have been built on a registry that cannot grow this way.
+
+3. **G3 — significant: format 1 has no spelling for values the keywords take (§5.1).**
+   I classified all 41 keywords of `from_gnlse` and all 61 of `from_capillary` from their
+   annotations. Apart from the callables refused by design and the G2 objects, three gaps
+   remain:
+   - **Complex numbers.** `cladding` is `GlassIndex | complex | None`, and
+     `SpatialPulse.jones` is a tuple of complex numbers, recorded as `((1+0j),)` by default.
+     `tomllib` rejects `1.45+0j`, and §5.1 defines no table or string for it.
+   - **The seed.** A drawn `noise.seed` is about 128 bits (127 in the draw measured), and
+     the resolved recipe must hold it. TOML v1.0.0 specifies 64-bit signed integers and an
+     error beyond them. `tomllib` happens to read the larger value, but another TOML reader
+     need not, so every unseeded run's stored recipe would fall outside the standard. A
+     scan's derived seed is `uint64` (`driver/_scan_model.py`), half of them above $2^{63}$.
+   - **Arrays.** "Arrays other than data files" are refused, yet `betas`, `phases`,
+     `save_planes`, `StatsSpec.energy_windows` and `FixedSchedule.steps` are typed
+     `Sequence | ndarray`, and `betas` has a per-element unit. No layout is defined for the
+     files of the `beta` tuple form or an `IndexTable`; S12 covers spectra only.
+
+   **Recommendation:** add a complex spelling (`{re = , im = }`, say) and a decimal-string
+   form for seeds to format 1. Say that a one-dimensional numeric array is written as a list
+   up to a stated length and as a data file beyond it, and define each file layout, or defer
+   those types by name.
+
+4. **G4 — significant: table names collide with keywords, and the path grammar is too small
+   (§5.1, §5.9).**
+   - `grid` is a keyword of all six routes and `medium` of two, and §5.1's example has
+     `[grid]` and `[medium]` as group tables. `[grid]` with `type = ...` beneath it could be
+     either. `output` is an S9 group and a refused key. A plain mapping such as
+     `[plasma]` with `He = true` looks like a group with an unknown key. The text does not
+     say whether unknown group names or top-level keywords are allowed.
+   - `.name` and `[i]` cannot address a mapping key that is not an identifier, and `launch`
+     keys contain a comma and a colon (`HE1,1:even`, measured on the capillary with
+     `modes=3`). In `[pins]` and `[scan]` a path has to be a quoted TOML key, which does
+     parse (`"pulses[1].energy" = ...`), but the text does not say so.
+   - "A pinned path may not also be set literally" leaves no way to pin `pressure[1]` and
+     set `pressure[0]`, because the array needs something in the pinned place.
+
+   **Recommendation:** rename the groups so that none is a keyword, require every top-level
+   table to be a group or a reserved table, and refuse anything else. Add a quoted segment
+   (`launch["HE1,1:even"].share`) to the grammar, and a placeholder for a pinned element or
+   a rule that only whole keywords are pinned.
+
+5. **G5 — significant: the `[execution]` table has four concrete defects (§3, §5.1, §5.14).**
+   - `boundary_check` is a keyword of all six `from_*` constructors (measured), and
+     `memory_budget` of `from_waveguide`, so both are build keywords and execution settings
+     by §5.1's definitions. §3's statement that `from_*` lacks `boundary_check` is wrong.
+     `prop_radial`, `prop_free` and `prop_planar` also take `absorber` and `absorber_scheme`,
+     which their `from_*` do not and which fit none of §5.1's three lists.
+   - The §5.1 example does not build as written. `fields = "planes"` alone is refused:
+     "field_planes is required exactly when fields='planes'" (`output/schema.py:3075`).
+   - `memory_budget` is "passed to `run`", but §5.1's surface is `recipe.build()` followed by
+     `simulation.run("rdw.h5")`. Nothing carries it across, and settings has no such field.
+     `from_waveguide`'s budget is another gate: it admits the guide's tables at build and is
+     refused without `provider` (`driver/simulation.py:4940`), so S14's "the same budget" is
+     true of the unit only.
+   - `Recipe.scan()`'s builder cannot apply `[execution] fields`. With `fields` set in a
+     builder, the point's status was `failed` (`driver/_scan_run.py:404`); `run_scan` takes
+     `fields=` itself, and `Recipe.scan()` returns only the `Scan` and the builder.
+     Separately, `Scan` requires a `name`, which also sets durable filenames and the
+     derived seeds (`name_seed`), and `base_seed` is optional. `[scan]` has room for neither.
+
+   **Recommendation:** take `boundary_check` as a build keyword. Fix the example with
+   `field_planes`. Have the `Simulation` hold the recipe's `memory_budget` for its `run`, or
+   add `Recipe.run`. Have `Recipe.scan()` return the `run_scan` keywords too, and reserve
+   `name` and `base_seed` in `[scan]`, with `name` required.
+
+6. **G6 — significant: `"none"` collides on a listed execution setting (§5.1).** For
+   `memory_budget`, `None` means the environment or the machine's default and the string
+   `"none"` means no check (`driver/memory.py:231`, `driver/simulation.py:2900`). So the test
+   that "no keyword accepts both" fails on the table's own key, and a loader that maps
+   `"none"` to `None` would silently turn a recipe's "no check" into a default budget.
+   **Recommendation:** spell `None` only where the default is not `None`, which on
+   `from_gnlse` and `from_capillary` is exactly `noise` and `boundary_check` by signature.
+   Elsewhere leaving the key out already says `None`. State the test on that set.
+
+7. **G7 — significant: the "changed after its build" rule errs both ways, and the group's
+   lifetime is undefined (§5.2, §6).**
+   - **False alarm.** `_adopt_recorded_seed` redraws an unseeded realisation on a resume.
+     Measured: after it, the hash equals the file's and differs from the build's. So
+     `solprop run x.toml --resume` on an unseeded recipe meets "writes no recipe group and
+     warns". The same happens to a scan builder that leaves the seed to `_reseed`
+     (`driver/_scan_run.py:401`).
+   - **Missed change.** Replacing `fields`, `resume_history`, `backend` or `boundary_check`
+     leaves the hash the same (measured; `_EXECUTION_SETTINGS`). A file can hold a resolved
+     `[execution]` that is not what ran, and a resume through it uses the wrong retention.
+   - **Cost.** Comparing needs a hash at build, which is a translation, so §6's "building a
+     recipe adds milliseconds" no longer holds. R9 measured 0.13 s on the capillary, and a
+     guide route builds its tables there.
+   - **Lifetime.** "At run start" does not say what a resume does. SEP 42 §5.8 allows a
+     top-level group "written once" and keeps the stored record unrewritten, and under it
+     `solprop run edited.toml --resume` may continue with a changed `rtol`. A later
+     `solprop resume` then returns to the first session's numerics.
+
+   **Recommendation:** drop the comparison. The simulation carries its recipe, and each
+   mutator (`with_input`, `with_mixture`, a settings change outside the execution list) drops
+   it and warns. Write the execution section from the settings at run start. Write the group
+   once, never rewrite it, and let SEP 42's execution records say how later sessions differed.
+
+8. **G8 — significant: S5's record conflicts with SEP 42, and S6's has no place to go (§1,
+   §5.5, §5.6, §6, §9).** S5 records "through the input record that exists". On the capillary
+   that record is `configuration.initial` beside `configuration.pulse` (both measured, with
+   `initial` shaped `(3, 1, 385)` for `modes=3`). SEP 42 §5.2 makes `configuration.initial`
+   **ignored** where `configuration.pulse` is present. So two recipes with the same pulse and
+   different `launch` would continue each other's files with nothing said, and the shares
+   would be readable from nowhere. In S6, the `Alignment` record belongs to a coupling step,
+   and a free-space launch has none, so the fallback is empty; the fields would go in
+   `configuration.pulse`. Q8's decision already makes additive fields acceptable.
+   **Recommendation:** state plainly that S5 adds a `launch` record (`configuration["launch"]`
+   already holds an incident report, `driver/simulation.py:2393`, so it needs its own name),
+   that S6 adds fields to `SpatialPulse`, and that each has an SEP 42 neutral entry and a
+   compared class. Remove the conditional schema text from §1, §6, §9 and the phase 4 report.
+
+9. **G9 — significant: `solprop resume` and `resumability` do not cover what exists or what
+   SEP 42 adds (§5.2, §5.17).**
+   - §5.2 continues through `resume=True`. A dense run stopped mid-way was refused there
+     (`DriverError`: "ends on a plane interpolated inside a step") and continued under
+     `resume="interpolated"` (measured). The command has no such option, though §5.17 and §7
+     name the case.
+   - SEP 42 adds `resume="force"`, a refusal of a file with a forced session, and "work left"
+     judged by position and not status (its §4, §5.5). §5.17's reasons have none of these.
+   - The gate needs a requested record, and `resumability(path)` has only the file, so a
+     moved optmat digest cannot be seen without a rebuild.
+   - "No recipe and so no rebuild from the file alone" is listed as a reason for "not at
+     all", yet such a file resumes from its script.
+   - A file whose writer is still alive, and a recipe of a newer format, are not listed.
+
+   **Recommendation:** separate three answers: can the file structurally continue, and from
+   which `z`; can it be rebuilt from itself; and, on request and at the cost of a rebuild,
+   does the gate pass. Give `solprop resume` and `resume_file` a mode. Add the missing reasons.
+
+10. **G10 — significant: the stop's description and its scan form do not match the code
+    (§5.17, §6).**
+    - §5.17 polls "where SIGTERM takes effect today, between commits". SIGTERM raises at once
+      at whatever line is reached and is held only during a commit (`_interrupts.py:10-15`).
+      A poll at commit exit runs once per accepted step, so it does not answer during
+      rejected trials, `translate`, backend selection or atomic preparation.
+    - `_GUARD` is process-global and `committing` has no per-run handle, so a flag polled
+      there is not per run (read, not tried with two runs).
+    - `run_scan(stop=)`: a `threading.Event` cannot cross to a `Pool` worker, and `Pool._stop`
+      ends with `process.terminate()` (`driver/executors/pool.py:430`), the abrupt exit on
+      Windows that §5.17 was written to avoid. Batch, Queue and Slurm are not mentioned. The
+      point loop catches `Exception` only (`driver/_scan_run.py:627`), so a `RunTerminated`
+      leaves it. What happens to the point in flight is not stated.
+    - `RunTerminated` needs a signal number and reads "terminated by SIGTERM", code 143
+      (`exceptions.py:64`). It is a `SystemExit`, which a front end's `except Exception`
+      misses.
+
+    The core does work. A prototype that set a pending `RunTerminated` from another thread,
+    with the run on a non-main thread, stopped in 34 ms, and the file resumed to completion.
+    **Recommendation:** add polls at the run's start and per trial, and state the latency:
+    one step or trial. Make the flag run-scoped. Give the stop reason its own text. Specify
+    `stop` per executor: Local polls, Pool sends a pipe message, Queue and Slurm stop between
+    points or refuse.
+
+11. **G11 — significant: `solve_parameter` and `[pins]` are not implementable as written
+    (§3, §5.1, §5.7, §7).**
+    - `("rdw", pump, rdw, peak_power=None)` cannot reproduce `pressure_rdw`:
+      `pressure_rdw(..., peak_power=2e9)` raises "the largest constituent needs fwhm"
+      (measured; `tools.py:1954`). The target also needs `fwhm`, `shape` and
+      `nonlinear_phase`. The §7 test as written would fail.
+    - The nonlinear targets need the fill's Kerr coefficient at each trial value, and "a mode
+      need not know its fill's Kerr response" (`tools.py:1231`). So `build_mode(value) ->
+      mode` is not enough for `soliton_order`, or for `rdw` on a tabulated mode. The role of
+      the `parameter` argument is not stated.
+    - §3 says the zero-dispersion search samples. `pressure_zdw` brackets once with `brentq`
+      and refuses equal signs (`tools.py:2369`); the sampling is over wavelength, inside the
+      modes' ZDW search. A sampled ZDW search over a parameter is new work, not reuse, and the
+      "equals `pressure_zdw`" test holds only for a single root.
+    - The `rdw` and `soliton_order` pin tables are not given, nor which mode a pin solves on,
+      nor which $z$ on a pressure gradient. No syntax lets a target read a path. If the
+      implicit read set is the mode's inputs, any two pins on mode parameters read each other,
+      so a cycle is always refused and the dependency order is never used. That part is a
+      judgement: over-built, or a read set is missing.
+    - The front-end design asks for `solve_pin(recipe, pin)` with its roots, and lists a pin
+      giving pressure and energy from `capillary_design`. §5.1 has no call that returns a
+      solved value or the roots, and no two-output pin. Without such a call a front end has
+      to write its own `build_mode`, which is the physics the principle of §2 keeps out of it.
+    - §5.10 counts pins as "metadata level" and §6 says `check()` costs a translation.
+      Measured on the Marcatili capillary on a busy machine: `pressure_zdw` 0.47 s,
+      `pressure_rdw` 0.14 s linear and 0.40 s with the nonlinear phase, first-call costs
+      included. A non-Marcatili builder pays up to 258 mode builds.
+
+    **Recommendation:** have the builder return a mode and its fill, or take a `gamma(value)`.
+    Carry `fwhm`, `shape` and `nonlinear_phase` in the target. Define each pin table, the mode
+    and the $z$. Add `Recipe.resolve()` and `Recipe.pin_roots(path)`. Either define read sets
+    or drop dependency order from format 1. Count pins in `check()`'s cost.
+
+12. **G12 — significant: "node and memory budgets apply" is not a limit on a received file
+    (§5.2, §7).** With `memory_budget=None` the machine's four fifths "only warns"
+    (`driver/simulation.py:2903`). A recipe can itself say `memory_budget = "none"`, and
+    `node_budget` is a build keyword it can raise. `from_gnlse` has no `node_budget`. So a
+    received file chooses its own limits. Also, §5.2 reads embedded files into memory, but
+    `Recipe.from_output(...).save(...)` then holds a `file =` with nothing behind it, and
+    embedding has no size limit ("usually small").
+    **Recommendation:** in `resume_file` and `Recipe.from_output`, ignore the recipe's own
+    budgets and apply the caller's, refusing by default. Say what saving such a recipe does
+    with its data. Cap what is embedded, and record a hash and a path beyond the cap.
+
+13. **G13 — significant: the phases have dependencies the plan does not state (§11, header).**
+    Each phase can otherwise reach a green gate, as far as I can tell from reading it.
+    - Phase 2 verifies embedded data files, but the only way to load one, `load_spectrum`,
+      arrives in phase 5, and `{type = "DataPulse", file = ...}` is not `DataPulse`'s
+      constructor. Move S12 before phase 2, with its entry in the registry.
+    - The header says **Requires** —, yet S2 and Q8 rest on SEP 42. §9 and Q4 call it "in
+      draft" and it is now Accepted.
+    - S12 needs the `DataPulse` fix, which is not on this revision (`pulses.py:2102`,
+      `pulses.py:2182`). SEP 42 §9 says it takes the output schema to 2. So §7's "schema-1
+      file" is stale, and §9's "no computed field changes" and §6's "unchanged by ... S7–S18"
+      need that exception.
+    - `Recipe.scan()` (phase 3), `Recipe.modes()` and `preview_input()` (phase 4) all read
+      pinned values, and pins come in phase 5. Phase 5 should list those retrofits.
+
+14. **G14 — significant: §7 leaves new behaviour unverified.**
+    - S6 has no entry: the band and edge refusals, energy after a tilt, the agreement with
+      `Alignment`.
+    - S16 and S18 have none. `preview_input` should equal the run's initial field, and each
+      S16 refusal should match the reader's actual refusal, or the rules drift.
+    - `load_spectrum`'s phase rules and `phase_convention` have none; "Loaders" tests energy
+      and centre wavelength only.
+    - Equal hashes cannot catch a `to_python()` that drops `fields`, `boundary_check`,
+      `memory_budget` or `backend`, none of which is hashed, so §1's "gives the same run" is
+      not what is tested.
+
+    **Recommendation:** add these, and compare the execution settings in the export test.
+
+15. **G15 — minor: the entrance plane is not defined for the observer (§5.3, §7).** The
+    entrance is saved without a `plane()` call (`driver/run.py:485-505`, against `:580`).
+    Measured: at the second `plane()` the file held three rows. So "once per save plane ...
+    before `plane()`" and "each plane" disagree there. **Recommendation:** say that the
+    entrance is observed. Say also that a resume does not re-deliver earlier planes, which a
+    front end reads from the file.
+
+16. **G16 — minor: `observe_boundary` is undefined in its details (§5.3).** The monitor has no
+    verdict: it warns once or stops (`monitor.py:706`), and the word appears only for the
+    collar's quiet flag (`backends/driver.py:1990`). It runs inside `propagate_to`
+    (`backends/driver.py:1974`), so a call there falls outside "after the plane is committed",
+    and the failure policy names only `observe_plane`. A `runtime_checkable` protocol checks
+    every member, so the optional method needs a protocol of its own. **Recommendation:**
+    define the verdict's type, the call site and the failure policy.
+
+17. **G17 — minor: S6 leaves the order and some routes open (§4, §5.6).**
+    - `SpatialPulse.build` applies `propz` spectrally (`pulses.py:296`), and whether a tilt
+      and offset apply at the waist or the launch plane differs by $\mathrm{propz}\tan\theta$.
+    - A $k(\omega)$ screen makes the field non-separable, while `build` multiplies one
+      transverse spectrum by the temporal one, so the normalisation has to change.
+    - "A beam's displacement and an `Alignment` add" fails on `prop_waveguide(incident=...)`,
+      which samples the beam on a radial grid (`driver/simulation.py:9985`), where S6 refuses
+      any nonzero value.
+    - A `LineGrid` has no $y$.
+    - A tilted pulse front is delayed by about $x\sin\theta\,n/c$ across the beam, which
+      belongs among the validity conditions for the time window.
+
+18. **G18 — minor: `load_spectrum`'s defaults and heuristic (§5.12).**
+    - `axis_unit="Hz"` stays the default with `axis="wavelength"`; it should follow `axis`.
+    - `columns=(0, 1, 2)` names a column that "is optional".
+    - The "small fraction" is not a keyword, though it changes what a recipe builds.
+    - The wrapped test has no override, and a wrapped column in degrees spans 360 and is taken
+      as unwrapped radians with nothing said. A wrapped column undersampled past $\pi$ per
+      sample cannot be detected, and it deserves a warning: at 1.6π per sample the recovered
+      slope was −0.25 of the true one (measured through today's `from_spectral_density`).
+    - The hold rule applies to wrapped columns only, so an unwrapped column's noisy floor still
+      feeds the spline. That is a judgement.
+
+    The sign rule itself is right (see below).
+
+19. **G19 — minor: S9's `kind` cannot describe the keywords (§5.9).** It is singular and has no
+    mapping, while `pressure` has four forms, `plasma` is bool, object or per-species map,
+    `loss` and `modes` are unions, and `gas`, `raman` and `launch` are maps. A front end needs
+    these. **Recommendation:** add a list of forms, each with its kind and units.
+
+20. **G20 — minor: S14's "`noise`, `seed`: add to planar" is contradicted by the code (§5.14).**
+    "A planar grid carries no noise draw" (`docs/guide/media/noise.md:255`), for the reason in
+    `PLANAR_NOISE` (`driver/simulation.py:484`). Adding it means declaring a photon measure,
+    which §2 rules out. **Recommendation:** list it as a documented difference.
+
+21. **G21 — minor: S8 and S10 contradict each other (§5.8, §5.10, §7).** `parameter` is set
+    "wherever the interface layer refuses a value", value refusals "are not rules", and the
+    lint requires every refusal that sets `parameter` to name a rule. **Recommendation:** lint
+    combination refusals only, by a marker on the raise.
+
+22. **G22 — minor: S18's previews are underspecified (§5.18).** `beta` and the rest depend on
+    $z$ on a gradient (`_zdw_near(mode, omega, z)`), and no $z$ is given. On a guide route the
+    dense tables are built at construction, so "the mode solve only" is the large cost, and it
+    needs the memory admission `from_waveguide` makes. The text also does not say whether
+    `preview_input` includes noise, and an unseeded preview would otherwise draw.
+
+23. **G23 — minor: "as written" and the writer (§4, §5.2, §6, §7, Q7).** §5.2's `authored` is
+    "canonical ... as written" and §6's is "stored verbatim", and these differ: a canonical
+    writer turns `"0.8 um"` into `"800 nm"` and drops comments. §7's "equal recipe" needs a
+    meaning. Q7's display unit says µm and the format's strings say `um`. **Recommendation:**
+    keep the loaded text verbatim, compare recipes by value, and fix one ASCII spelling for
+    writing while reading both. That saving a hand-written recipe loses its comments is a
+    judgement for the maintainer.
+
+24. **G24 — minor: a scan's file holds no recipe (§2, §5.2).** The collected file has `common`,
+    `executions`, `layouts`, `points`, `scan` and `staged` (measured), and S2 speaks of a run.
+    §2's "reopen a results file with the setup that made it" therefore stops short of a
+    `Recipe.scan()`. **Recommendation:** store the authored recipe in the scan file, or say that
+    it is not stored.
+
+25. **G25 — minor, a judgement: the registry's size is public surface (§5.1, §9).** §9 weighs
+    renaming route keywords only, but every keyword of every registered type also becomes part
+    of format 1, including `TDSEBasis` (14 keywords), `HaccBasis`, and `Multistep`'s
+    `equal_approach` and `max_growth`. **Recommendation:** register the documented user-facing
+    types first, and let `from_call` refuse the rest towards the Python export. Adding an entry
+    later is additive; removing one is not.
+
+#### Verified and found correct
+
+- §4's decimal rule: the example's values and others convert to the script's literal, where
+  naive products fail (`800`, `7.5`, `275`, `100`). 200,000 random doubles written in a chosen
+  prefix and read back had no failures. The default decimal context rounds at 28 digits, so an
+  implementation should use a local context.
+- The §5.1 capillary example builds, apart from `fields` (G5).
+- A rebuild with an explicit copy of a drawn seed has the file's hash, and an unseeded rebuild
+  adopts it. `wavelength_limits` as a list, `pressure=1` against `1.0`, and `pressure=None`
+  against `1.0` do not move the hash.
+- An unknown top-level `recipe` group in a written file reads, resumes and survives, which
+  agrees with SEP 42 §5.8.
+- `RunTerminated` raised from a reporter after a commit leaves a file that `resume=True`
+  finishes.
+- §5.12: a phase of $+\omega\tau$ overlaps a pulse with `t0=+tau` and not `-tau`, so the sign
+  statement is right. Today's `from_spectral_density` does lose a phase step above $\pi$. The
+  three-column layout agrees with the other code's documentation; I did not check its sign.
+- §4's tilt matches `Alignment`'s definition (read). The capillary's labels display as
+  `HE1,1:even`.
+
+#### Not checked
+
+- `tomli-w`: it is not in the shared environment, so its writing of large integers and nested
+  tables is untested.
+- The native and device backends. `PlaneView`'s neutrality and device fetch were not
+  prototyped.
+- The guide and provider registry of phase 4, beyond the signatures, and `solve_parameter` on
+  anything but the existing Marcatili tools.
+- S4's pipe message, S11, S13, Windows, and Queue or Slurm behaviour, which was read only.
+- SEP 42 has no code yet, so every statement about it comes from its text.
+
+No test suite and no long run were performed. Capillaries were built and not run; the runs
+were GNLSE fibres of at most 30 cm with a handful of saved planes, and a one-point scan.
