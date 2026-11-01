@@ -418,7 +418,7 @@ def test_runge_kutta_native_resume_keeps_no_logical_ledger(
         # A Runge-Kutta march keeps no logical ledger: the counts stay with the
         # earlier execution as provenance, not installed (SEP 42 section 5.6).
         backend.restore_call_ledgers({"startup": 1}, {})
-        assert backend._adams is None
+        assert "response_calls" not in backend.metadata()
         with pytest.raises(BackendError, match="does not restore"):
             backend.restore_call_ledgers({}, {"attempted": 1})
     finally:
