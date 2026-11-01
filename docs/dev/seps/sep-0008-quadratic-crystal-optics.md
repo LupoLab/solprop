@@ -1579,3 +1579,4 @@ verification is not verification of all coefficients in an article.
   [SEP 34](archive/sep-0034-medium-flux.md) following SEP 31's review and split.
   SEP 31 retains field exchange and coupling; the shared flux proposal
   includes admitted radial adiabatic transport and complex local flux.
+- 2026-11-01: Tracking issue [#118](https://github.com/LupoLab/solprop/issues/118).

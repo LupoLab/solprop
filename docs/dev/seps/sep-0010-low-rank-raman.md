@@ -453,6 +453,7 @@ No implementation phases have started.
 - 2026-10-17: Restated reproducibility for SEP 25, retaining exact input-based identities.
 - 2026-10-22: Reviewed with SEP 1 and revised to use its execution contract, exact
   default, explicit approximation and current material/state semantics.
+- 2026-11-01: Tracking issue [#120](https://github.com/LupoLab/solprop/issues/120).
 
 ### Maintainer directions — 2026-10-22
 

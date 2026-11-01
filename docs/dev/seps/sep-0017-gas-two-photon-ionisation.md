@@ -1027,3 +1027,4 @@ not re-audited by this follow-up review.
   reviews remain recorded. Status Accepted; review status Reviewed. Phase 0's
   scientific and numerical qualification gates remain prerequisites for production
   implementation; acceptance does not claim they have passed. Part I is frozen.
+- 2026-11-01: Tracking issue [#122](https://github.com/LupoLab/solprop/issues/122).

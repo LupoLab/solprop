@@ -97,7 +97,9 @@ Any status ──► Superseded (by a later SEP)
 | Active | A Process SEP in force | `seps/` | no |
 
 The folder, the [index](index.md) and the roadmap are kept consistent with the status in
-the header; `tests/test_seps.py` checks it.
+the header; `tests/test_seps.py` checks it. A SEP's tracking issue (ADR-062) stays open
+through `Draft`, `Accepted`, `In progress` and `Deferred`, and closes when the SEP reaches
+`Final`, `Rejected`, `Withdrawn` or `Superseded`. A Process SEP has none.
 
 ## 5. Roles
 
@@ -133,13 +135,20 @@ the header; `tests/test_seps.py` checks it.
    SEP covers it in full; for partial coverage, link the SEP, state what it covers and
    retain the remaining work. Discussion of a possible future extension does not count
    as coverage by the proposal's implementation scope.
-4. Open a pull request on a branch named `docs/sep-NNNN-short-slug`. A draft merges
+4. Search the open [issues](https://github.com/LupoLab/solprop/issues) for anything the
+   SEP touches, and list what you find in its *Context* section: the issues it will fix,
+   those that must be resolved before it, and any others it changes.
+5. Open the SEP's tracking issue, titled `SEP N: <title>` and labelled `sep` with a type,
+   a priority and any area that fits. It links the SEP and the issues found, and says
+   where the SEP stands and what comes next. Name the issue in the SEP's Part III.
+6. Open a pull request on a branch named `docs/sep-NNNN-short-slug`. A draft merges
    early — once it is coherent, not once it is agreed — so it appears in the developer
    documentation and can be discussed.
 
 Revising a draft is free: edit it in place in further pull requests and add a line to
 Part III for each substantial revision. Update its roadmap summary and the informal
-items whenever its scope changes; restore work that the revised scope no longer covers.
+items whenever its scope changes; work that the revised scope no longer covers goes in an
+issue (ADR-062).
 
 ### Review
 
@@ -192,8 +201,8 @@ The maintainers accept a SEP in a pull request that sets the status to `Accepted
 in **Resolution** (the date and the pull request or discussion where it was decided), adds
 a line to Part III and moves the SEP from *Draft enhancement proposals* to *Accepted
 enhancement proposals* on the [roadmap](../roadmap.md). A rejection or deferral records
-the reasons in the SEP, removes its proposal listing from the roadmap and restores any
-still-relevant informal work that it had replaced. Apply the same roadmap update on
+the reasons in the SEP, removes its proposal listing from the roadmap and opens an issue
+for any still-relevant work that it had replaced (ADR-062). Apply the same update on
 withdrawal; for supersession, reconcile the work with the replacement SEP's scope.
 
 From acceptance, Part I is frozen. A deviation found during implementation is recorded in
@@ -228,10 +237,9 @@ A SEP becomes `Final` when:
 - the functionality runs on the Tier 1 backends (`numpy_ref` and the native CPU build;
   [ADR-061](../decisions.md)), with parity tests, and on `numba_cpu` or `mlx` too where
   the accepted SEP says so — or the accepted SEP records a justified exception, which
-  then has a roadmap item;
+  then has an issue;
 - the manual documents it, and each manual page it produced ends with a link to the SEP;
-- the open questions left are moved to the roadmap or to issues, and named in the last
-  report.
+- the open questions left are moved to issues, and named in the last report.
 
 The SEP's implementation pull request sets `Final` in its last commit, so that
 merging it, which is the maintainers' approval, completes the SEP. A separate pull
@@ -312,7 +320,7 @@ code is kept. Each report states:
   their primary source, and which could not be.
 - **Limitations:** cases refused, ranges not qualified, backends still missing.
 - **Open questions**, numbered Q1, Q2, … through the whole SEP, each with its owner or
-  destination (the next phase, the roadmap, an issue).
+  destination (the next phase, an issue).
 - **Handoff:** what the next phase needs to know.
 
 A report is written honestly: a check that failed, a test left weaker than planned, an
@@ -326,7 +334,8 @@ assumption that had to be invented are all said plainly.
 | ADR ([decisions.md](../decisions.md)) | A durable decision and its reasons; code comments cite ADRs |
 | Manual (`docs/`) | How the functionality works and how to use it, as it is now |
 | Design pages (`docs/dev/`) | How the code is built, as it is now |
-| [Roadmap](../roadmap.md) | Open work: accepted and draft SEPs, then ideas and known issues not fully covered by one |
+| [Issues](https://github.com/LupoLab/solprop/issues) | Planned work (ADR-062) |
+| [Roadmap](../roadmap.md) | Accepted and draft SEPs, then older open work not yet moved to issues |
 | `CHANGELOG.md` | What changed in each release, citing the SEP |
 
 The theory of a SEP moves into the manual when it is implemented: the manual page carries
@@ -354,3 +363,7 @@ that edits this document and adds a line to its history.
   stacked pull requests, run only targeted checks locally, and leave the full gate,
   slow and coverage lanes to CI on the pull request (maintainer's decision, first used
   for SEP 21). Native work is in `native/`, no longer a separate repository.
+- 2026-11-01: Open work goes in GitHub issues, not on the roadmap, whose existing items
+  move over time, and work a SEP gives back goes in an issue; each SEP has a tracking
+  issue, and a draft lists the open issues it touches; the roadmap keeps the lists of
+  accepted and draft SEPs for now (maintainer's decision, ADR-062).
