@@ -68,7 +68,7 @@ about :math:`3.5K_0`, so the rule asks for :math:`k_{x,\max} > 7K_0`, a spacing 
 2.6 μm. A spacing of 2 μm puts :math:`K_0` at 0.11 of :math:`k_{x,\max}` and the
 signal at 0.33. In y the beams' own spread decides, and 15 μm suffices.
 
-.. GENERATED FROM PYTHON SOURCE LINES 55-97
+.. GENERATED FROM PYTHON SOURCE LINES 55-99
 
 .. code-block:: Python
 
@@ -81,7 +81,9 @@ signal at 0.33. In y the beams' own spread decides, and 15 μm suffices.
     from solprop.boundaries import SpatialAbsorber, absorber, custom_absorber
     from solprop.constants import C
     from solprop.driver import Simulation, SimulationSettings
+    from solprop.exceptions import BoundaryError
     from solprop.grid import EnvelopeGrid, FreeGrid
+    from solprop.monitor import BoundaryCheck
     from solprop.nonlinear.responses import KerrResponse
     from solprop.physdata.nonlinear_data import chi3_from_n2
     from solprop.pulses import GaussianPulse
@@ -128,7 +130,7 @@ signal at 0.33. In y the beams' own spread decides, and 15 μm suffices.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 98-108
+.. GENERATED FROM PYTHON SOURCE LINES 100-110
 
 Build the launch
 ----------------
@@ -141,7 +143,7 @@ Gaussian times a temporal envelope of unit peak, scaled to ``FIELD``. Its energy
 then what it carries through the sample's entrance, the axial Poynting flux in the
 glass (:doc:`/guide/free-space/flux`).
 
-.. GENERATED FROM PYTHON SOURCE LINES 108-132
+.. GENERATED FROM PYTHON SOURCE LINES 110-134
 
 .. code-block:: Python
 
@@ -182,7 +184,7 @@ glass (:doc:`/guide/free-space/flux`).
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 133-157
+.. GENERATED FROM PYTHON SOURCE LINES 135-159
 
 Statistics, absorber and collar
 -------------------------------
@@ -209,7 +211,7 @@ the Nyquist edge.
 
 The steps are replayed, eight per run, so every delay takes the same schedule.
 
-.. GENERATED FROM PYTHON SOURCE LINES 157-210
+.. GENERATED FROM PYTHON SOURCE LINES 159-212
 
 .. code-block:: Python
 
@@ -273,7 +275,7 @@ The steps are replayed, eight per run, so every delay takes the same schedule.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 211-216
+.. GENERATED FROM PYTHON SOURCE LINES 213-218
 
 The scan
 --------
@@ -281,7 +283,7 @@ The runner translates, admits the memory and builds the backend once; each delay
 is one ``run`` on it, with the delay recorded in that run's configuration and hash.
 The energy in each box is the region spectrum summed over frequency.
 
-.. GENERATED FROM PYTHON SOURCE LINES 216-231
+.. GENERATED FROM PYTHON SOURCE LINES 218-233
 
 .. code-block:: Python
 
@@ -308,23 +310,45 @@ The energy in each box is the region spectrum summed over frequency.
 
  .. code-block:: none
 
-    BoundaryWarning: this backend does not read the transverse edge of a free-space run: the run is unwatched there and cannot report a clean verdict; backend='numpy_ref' reads it (SEP 40 section 5.3)
-    BoundaryWarning: this backend does not read the transverse edge of a free-space run: the run is unwatched there and cannot report a clean verdict; backend='numpy_ref' reads it (SEP 40 section 5.3)
-    BoundaryWarning: this backend does not read the transverse edge of a free-space run: the run is unwatched there and cannot report a clean verdict; backend='numpy_ref' reads it (SEP 40 section 5.3)
-    BoundaryWarning: this backend does not read the transverse edge of a free-space run: the run is unwatched there and cannot report a clean verdict; backend='numpy_ref' reads it (SEP 40 section 5.3)
-    BoundaryWarning: this backend does not read the transverse edge of a free-space run: the run is unwatched there and cannot report a clean verdict; backend='numpy_ref' reads it (SEP 40 section 5.3)
-    BoundaryWarning: this backend does not read the transverse edge of a free-space run: the run is unwatched there and cannot report a clean verdict; backend='numpy_ref' reads it (SEP 40 section 5.3)
-    BoundaryWarning: this backend does not read the transverse edge of a free-space run: the run is unwatched there and cannot report a clean verdict; backend='numpy_ref' reads it (SEP 40 section 5.3)
-    BoundaryWarning: this backend does not read the transverse edge of a free-space run: the run is unwatched there and cannot report a clean verdict; backend='numpy_ref' reads it (SEP 40 section 5.3)
-    BoundaryWarning: this backend does not read the transverse edge of a free-space run: the run is unwatched there and cannot report a clean verdict; backend='numpy_ref' reads it (SEP 40 section 5.3)
-    BoundaryWarning: this backend does not read the transverse edge of a free-space run: the run is unwatched there and cannot report a clean verdict; backend='numpy_ref' reads it (SEP 40 section 5.3)
-    BoundaryWarning: this backend does not read the transverse edge of a free-space run: the run is unwatched there and cannot report a clean verdict; backend='numpy_ref' reads it (SEP 40 section 5.3)
+    BoundaryWarning: the launch holds 2.38e-06 of its energy in the outer 5% of the requested size on its y- face: the aperture clips it
+    BoundaryWarning: the fixed schedule's longest step, 1.250e-04 m, is longer than the transverse edge's read spacing, 6.250e-05 m: light could cross the edge unseen between two reads; the run is reported as coarse (SEP 40 section 5.3)
+    BoundaryWarning: light reached the transverse edge on its y- face at z = 6.2500e-04 m: 1.40e-06 of the launch energy above its launch value, which the wall or the wrap returns (SEP 40 section 5.3)
+    BoundaryWarning: the launch holds 2.38e-06 of its energy in the outer 5% of the requested size on its y- face: the aperture clips it
+    BoundaryWarning: the fixed schedule's longest step, 1.250e-04 m, is longer than the transverse edge's read spacing, 6.250e-05 m: light could cross the edge unseen between two reads; the run is reported as coarse (SEP 40 section 5.3)
+    BoundaryWarning: light reached the transverse edge on its y- face at z = 6.2500e-04 m: 1.40e-06 of the launch energy above its launch value, which the wall or the wrap returns (SEP 40 section 5.3)
+    BoundaryWarning: the launch holds 2.38e-06 of its energy in the outer 5% of the requested size on its y- face: the aperture clips it
+    BoundaryWarning: the fixed schedule's longest step, 1.250e-04 m, is longer than the transverse edge's read spacing, 6.250e-05 m: light could cross the edge unseen between two reads; the run is reported as coarse (SEP 40 section 5.3)
+    BoundaryWarning: light reached the transverse edge on its y- face at z = 6.2500e-04 m: 1.41e-06 of the launch energy above its launch value, which the wall or the wrap returns (SEP 40 section 5.3)
+    BoundaryWarning: the launch holds 2.38e-06 of its energy in the outer 5% of the requested size on its y- face: the aperture clips it
+    BoundaryWarning: the fixed schedule's longest step, 1.250e-04 m, is longer than the transverse edge's read spacing, 6.250e-05 m: light could cross the edge unseen between two reads; the run is reported as coarse (SEP 40 section 5.3)
+    BoundaryWarning: light reached the transverse edge on its y- face at z = 6.2500e-04 m: 1.44e-06 of the launch energy above its launch value, which the wall or the wrap returns (SEP 40 section 5.3)
+    BoundaryWarning: the launch holds 2.38e-06 of its energy in the outer 5% of the requested size on its y- face: the aperture clips it
+    BoundaryWarning: the fixed schedule's longest step, 1.250e-04 m, is longer than the transverse edge's read spacing, 6.250e-05 m: light could cross the edge unseen between two reads; the run is reported as coarse (SEP 40 section 5.3)
+    BoundaryWarning: light reached the transverse edge on its y- face at z = 5.0000e-04 m: 1.02e-06 of the launch energy above its launch value, which the wall or the wrap returns (SEP 40 section 5.3)
+    BoundaryWarning: the launch holds 2.38e-06 of its energy in the outer 5% of the requested size on its y- face: the aperture clips it
+    BoundaryWarning: the fixed schedule's longest step, 1.250e-04 m, is longer than the transverse edge's read spacing, 6.250e-05 m: light could cross the edge unseen between two reads; the run is reported as coarse (SEP 40 section 5.3)
+    BoundaryWarning: light reached the transverse edge on its y- face at z = 5.0000e-04 m: 1.04e-06 of the launch energy above its launch value, which the wall or the wrap returns (SEP 40 section 5.3)
+    BoundaryWarning: the launch holds 2.38e-06 of its energy in the outer 5% of the requested size on its y- face: the aperture clips it
+    BoundaryWarning: the fixed schedule's longest step, 1.250e-04 m, is longer than the transverse edge's read spacing, 6.250e-05 m: light could cross the edge unseen between two reads; the run is reported as coarse (SEP 40 section 5.3)
+    BoundaryWarning: light reached the transverse edge on its y- face at z = 5.0000e-04 m: 1.02e-06 of the launch energy above its launch value, which the wall or the wrap returns (SEP 40 section 5.3)
+    BoundaryWarning: the launch holds 2.38e-06 of its energy in the outer 5% of the requested size on its y- face: the aperture clips it
+    BoundaryWarning: the fixed schedule's longest step, 1.250e-04 m, is longer than the transverse edge's read spacing, 6.250e-05 m: light could cross the edge unseen between two reads; the run is reported as coarse (SEP 40 section 5.3)
+    BoundaryWarning: light reached the transverse edge on its y- face at z = 6.2500e-04 m: 1.44e-06 of the launch energy above its launch value, which the wall or the wrap returns (SEP 40 section 5.3)
+    BoundaryWarning: the launch holds 2.38e-06 of its energy in the outer 5% of the requested size on its y- face: the aperture clips it
+    BoundaryWarning: the fixed schedule's longest step, 1.250e-04 m, is longer than the transverse edge's read spacing, 6.250e-05 m: light could cross the edge unseen between two reads; the run is reported as coarse (SEP 40 section 5.3)
+    BoundaryWarning: light reached the transverse edge on its y- face at z = 6.2500e-04 m: 1.41e-06 of the launch energy above its launch value, which the wall or the wrap returns (SEP 40 section 5.3)
+    BoundaryWarning: the launch holds 2.38e-06 of its energy in the outer 5% of the requested size on its y- face: the aperture clips it
+    BoundaryWarning: the fixed schedule's longest step, 1.250e-04 m, is longer than the transverse edge's read spacing, 6.250e-05 m: light could cross the edge unseen between two reads; the run is reported as coarse (SEP 40 section 5.3)
+    BoundaryWarning: light reached the transverse edge on its y- face at z = 6.2500e-04 m: 1.40e-06 of the launch energy above its launch value, which the wall or the wrap returns (SEP 40 section 5.3)
+    BoundaryWarning: the launch holds 2.38e-06 of its energy in the outer 5% of the requested size on its y- face: the aperture clips it
+    BoundaryWarning: the fixed schedule's longest step, 1.250e-04 m, is longer than the transverse edge's read spacing, 6.250e-05 m: light could cross the edge unseen between two reads; the run is reported as coarse (SEP 40 section 5.3)
+    BoundaryWarning: light reached the transverse edge on its y- face at z = 6.2500e-04 m: 1.40e-06 of the launch energy above its launch value, which the wall or the wrap returns (SEP 40 section 5.3)
     peak signal efficiency: 3.61e-04 of the beams' energy
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 232-237
+.. GENERATED FROM PYTHON SOURCE LINES 234-239
 
 In the weak-conversion limit the signal :math:`2\mathbf k_1-\mathbf k_2` is driven by
 :math:`E_1^2E_2^*`, so its energy follows :math:`\int I_1^2(t)\,I_2(t-\tau)\,dt`.
@@ -332,7 +356,7 @@ For Gaussian pulses of intensity FWHM :math:`T` that is a Gaussian in
 :math:`\tau` of FWHM :math:`T\sqrt{3/2}`, 61 fs here; the medium has no dispersion
 to change it. The scan's second moment, read as a Gaussian's width, recovers it.
 
-.. GENERATED FROM PYTHON SOURCE LINES 237-257
+.. GENERATED FROM PYTHON SOURCE LINES 239-259
 
 .. code-block:: Python
 
@@ -371,11 +395,11 @@ to change it. The scan's second moment, read as a Gaussian's width, recovers it.
 
     correlation FWHM: 61.1 fs (predicted 61.2 fs)
 
-    <matplotlib.legend.Legend object at 0x115d3fe00>
+    <matplotlib.legend.Legend object at 0x1278927b0>
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 258-269
+.. GENERATED FROM PYTHON SOURCE LINES 260-274
 
 Grid sizing, not the ramp, prevents aliasing
 --------------------------------------------
@@ -389,7 +413,42 @@ exactly zero, because the fold happens inside the product's evaluation, so the r
 cannot touch it. Each run below keeps its exit field (``fields="planes"``,
 ``field_planes=(-1,)``) to show the transverse spectrum.
 
-.. GENERATED FROM PYTHON SOURCE LINES 269-305
+The ramp does see the beams' own content near the grid's edge, and its ledger stops
+the coarse run, as it should: the grid cannot resolve the light (SEP 40).
+
+.. GENERATED FROM PYTHON SOURCE LINES 274-281
+
+.. code-block:: Python
+
+
+    coarse = transverse_grid(7.4e-6)
+    try:
+        simulation_for(coarse).run(progress="none")
+    except BoundaryError as error:
+        print(f"7.4 μm grid: {str(error).split(':')[0]}")
+
+
+
+
+
+.. rst-class:: sphx-glr-script-out
+
+ .. code-block:: none
+
+    BoundaryWarning: the launch holds 2.38e-06 of its energy in the outer 5% of the requested size on its y- face: the aperture clips it
+    BoundaryWarning: the fixed schedule's longest step, 1.250e-04 m, is longer than the transverse edge's read spacing, 6.250e-05 m: light could cross the edge unseen between two reads; the run is reported as coarse (SEP 40 section 5.3)
+    BoundaryWarning: the safety ramp has removed 8.30e-06 of the launch energy above the input noise's share: content reached the grid's outer wavenumbers; refine the transverse grid (SEP 40 section 5.3)
+    BoundaryWarning: light reached the transverse edge on its y- face at z = 5.0000e-04 m: 1.01e-06 of the launch energy above its launch value, which the wall or the wrap returns (SEP 40 section 5.3)
+    7.4 μm grid: the safety ramp has removed 1.14e-04 of the launch energy above the input noise's share, past the stop of 1e-04
+
+
+
+
+.. GENERATED FROM PYTHON SOURCE LINES 282-283
+
+A relaxed check lets the coarse runs finish, so that what they hold can be read.
+
+.. GENERATED FROM PYTHON SOURCE LINES 283-320
 
 .. code-block:: Python
 
@@ -406,7 +465,7 @@ cannot touch it. Each run below keeps its exit field (``fields="planes"``,
         return np.fft.fftshift(spatial_grid.k_x), np.fft.fftshift(profile / profile.sum())
 
 
-    coarse = transverse_grid(7.4e-6)
+    relaxed = BoundaryCheck(transverse_budget=1.0)
     cases = {
         "7.4 μm, no ramp": (coarse, False),
         "7.4 μm, ramp": (coarse, SpatialAbsorber(real_space=False)),
@@ -419,6 +478,7 @@ cannot touch it. Each run below keeps its exit field (``fields="planes"``,
             fields="planes",
             field_planes=(-1,),
             spatial_absorber=collar,
+            boundary_check=relaxed,
         ).run(progress="none")
         k_x, profile = kx_spectrum(spatial_grid, run)
         axis.semilogy(k_x / K0, profile, ".-", ms=3, label=label)
@@ -442,18 +502,18 @@ cannot touch it. Each run below keeps its exit field (``fields="planes"``,
 
  .. code-block:: none
 
-    BoundaryWarning: this backend does not read the transverse edge of a free-space run: the run is unwatched there and cannot report a clean verdict; backend='numpy_ref' reads it (SEP 40 section 5.3)
+    BoundaryWarning: the fixed schedule's longest step, 1.250e-04 m, is longer than the transverse edge's read spacing, 6.250e-05 m: light could cross the edge unseen between two reads; the run is reported as coarse (SEP 40 section 5.3)
     7.4 μm, no ramp: energy fraction within K0/4 of +-2 K0: 5.47e-03
-    BoundaryWarning: this backend does not read the transverse edge of a free-space run: the run is unwatched there and cannot report a clean verdict; backend='numpy_ref' reads it (SEP 40 section 5.3)
+    BoundaryWarning: the fixed schedule's longest step, 1.250e-04 m, is longer than the transverse edge's read spacing, 6.250e-05 m: light could cross the edge unseen between two reads; the run is reported as coarse (SEP 40 section 5.3)
     7.4 μm, ramp: energy fraction within K0/4 of +-2 K0: 5.40e-03
-    BoundaryWarning: this backend does not read the transverse edge of a free-space run: the run is unwatched there and cannot report a clean verdict; backend='numpy_ref' reads it (SEP 40 section 5.3)
+    BoundaryWarning: the fixed schedule's longest step, 1.250e-04 m, is longer than the transverse edge's read spacing, 6.250e-05 m: light could cross the edge unseen between two reads; the run is reported as coarse (SEP 40 section 5.3)
     2 μm, ramp: energy fraction within K0/4 of +-2 K0: 1.37e-05
 
-    <matplotlib.legend.Legend object at 0x1189b4830>
+    <matplotlib.legend.Legend object at 0x127550590>
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 306-318
+.. GENERATED FROM PYTHON SOURCE LINES 321-333
 
 On the coarse grid the alias carries the same energy with and without the ramp,
 to within the little the ramp takes from the beams' and the alias's own far tails:
@@ -468,7 +528,7 @@ where it was. The signal efficiency at zero delay on a 3 μm grid, which breaks 
 one-half rule for the signal (:math:`k_{x,\max} = 6.1K_0 < 7K_0`), on the scan's
 grid, and on a grid finer in both directions:
 
-.. GENERATED FROM PYTHON SOURCE LINES 318-333
+.. GENERATED FROM PYTHON SOURCE LINES 333-348
 
 .. code-block:: Python
 
@@ -495,9 +555,14 @@ grid, and on a grid finer in both directions:
 
  .. code-block:: none
 
-    BoundaryWarning: this backend does not read the transverse edge of a free-space run: the run is unwatched there and cannot report a clean verdict; backend='numpy_ref' reads it (SEP 40 section 5.3)
-    BoundaryWarning: this backend does not read the transverse edge of a free-space run: the run is unwatched there and cannot report a clean verdict; backend='numpy_ref' reads it (SEP 40 section 5.3)
-    BoundaryWarning: this backend does not read the transverse edge of a free-space run: the run is unwatched there and cannot report a clean verdict; backend='numpy_ref' reads it (SEP 40 section 5.3)
+    BoundaryWarning: the launch holds 2.38e-06 of its energy in the outer 5% of the requested size on its y- face: the aperture clips it
+    BoundaryWarning: the fixed schedule's longest step, 1.250e-04 m, is longer than the transverse edge's read spacing, 6.250e-05 m: light could cross the edge unseen between two reads; the run is reported as coarse (SEP 40 section 5.3)
+    BoundaryWarning: light reached the transverse edge on its y- face at z = 5.0000e-04 m: 1.03e-06 of the launch energy above its launch value, which the wall or the wrap returns (SEP 40 section 5.3)
+    BoundaryWarning: the launch holds 2.38e-06 of its energy in the outer 5% of the requested size on its y- face: the aperture clips it
+    BoundaryWarning: the fixed schedule's longest step, 1.250e-04 m, is longer than the transverse edge's read spacing, 6.250e-05 m: light could cross the edge unseen between two reads; the run is reported as coarse (SEP 40 section 5.3)
+    BoundaryWarning: light reached the transverse edge on its y- face at z = 5.0000e-04 m: 1.04e-06 of the launch energy above its launch value, which the wall or the wrap returns (SEP 40 section 5.3)
+    BoundaryWarning: the fixed schedule's longest step, 1.250e-04 m, is longer than the transverse edge's read spacing, 6.250e-05 m: light could cross the edge unseen between two reads; the run is reported as coarse (SEP 40 section 5.3)
+    BoundaryWarning: light reached the transverse edge on its y- face at z = 5.0000e-04 m: 1.17e-06 of the launch energy above its launch value, which the wall or the wrap returns (SEP 40 section 5.3)
     3 μm x 15 μm: 3.608957e-04, +1.1e-03 from the finest
     2 μm x 15 μm: 3.605193e-04, +7.7e-05 from the finest
     1.5 μm x 10 μm: 3.604918e-04, +0.0e+00 from the finest
@@ -505,13 +570,13 @@ grid, and on a grid finer in both directions:
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 334-337
+.. GENERATED FROM PYTHON SOURCE LINES 349-352
 
 The 3 μm grid is off by about a part in a thousand: there the signal's own cubic
 products fold onto the other signal. The scan's grid is within about a part in
 ten thousand of the finest, far below what the correlation width needs.
 
-.. GENERATED FROM PYTHON SOURCE LINES 339-347
+.. GENERATED FROM PYTHON SOURCE LINES 354-362
 
 The absorption band
 -------------------
@@ -522,7 +587,7 @@ At the scan's energy self-phase modulation reshapes the spectrum as well; a copy
 beam 1 a hundred times weaker in field, one more input to a runner, is linear to
 about a part in a million and shows the rate alone.
 
-.. GENERATED FROM PYTHON SOURCE LINES 347-368
+.. GENERATED FROM PYTHON SOURCE LINES 362-383
 
 .. code-block:: Python
 
@@ -560,14 +625,16 @@ about a part in a million and shows the rate alone.
 
  .. code-block:: none
 
-    BoundaryWarning: this backend does not read the transverse edge of a free-space run: the run is unwatched there and cannot report a clean verdict; backend='numpy_ref' reads it (SEP 40 section 5.3)
+    BoundaryWarning: the launch holds 2.38e-06 of its energy in the outer 5% of the requested size on its y- face: the aperture clips it
+    BoundaryWarning: the fixed schedule's longest step, 1.250e-04 m, is longer than the transverse edge's read spacing, 6.250e-05 m: light could cross the edge unseen between two reads; the run is reported as coarse (SEP 40 section 5.3)
+    BoundaryWarning: light reached the transverse edge on its y- face at z = 6.2500e-04 m: 1.41e-06 of the launch energy above its launch value, which the wall or the wrap returns (SEP 40 section 5.3)
     largest departure of the transmission from exp(-alpha L): 7.2e-07
-    tutorial run time: 8.6 s
+    tutorial run time: 12.6 s
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 369-376
+.. GENERATED FROM PYTHON SOURCE LINES 384-391
 
 Related reading
 ---------------
@@ -580,7 +647,7 @@ and the transverse safety ramp. The design is
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 8.612 seconds)
+   **Total running time of the script:** (0 minutes 12.755 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_free_space_plot_06_four_wave_mixing_scan.py:

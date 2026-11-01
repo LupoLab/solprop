@@ -148,7 +148,7 @@ in the distance it ran, and the samples that keep the spacing:
 
  .. code-block:: none
 
-    stopped: light reached the transverse edge on its r face at z = 4.9827e-03 m: 1.08e-04 of the launch energy above its launch value, past the stop of 1e-04; the wall or the wrap returns it into the aperture. Try a radius of at least 0.000388 m, at the same spacing (n_r of at least 234); this is a lower bound, and light generated late may need more. A user who knows better raises BoundaryCheck.transverse_budget
+    stopped: light reached the transverse edge on its r face at z = 4.9229e-03 m: 1.01e-04 of the launch energy above its launch value, past the stop of 1e-04; the wall or the wrap returns it into the aperture. Try a radius of at least 0.000391 m, at the same spacing (n_r of at least 236); this is a lower bound, and light generated late may need more. A user who knows better raises BoundaryCheck.transverse_budget
 
 
 
@@ -205,8 +205,8 @@ there above its launch, ``edge_max``.
 
  .. code-block:: none
 
-    wall at 2 R: warned, largest edge share 2.4e-05 over 16 reads
-    wall at 3 R: clear, largest edge share 3.6e-09 over 16 reads
+    wall at 2 R: warned, largest edge share 2.4e-05 over 19 reads
+    wall at 3 R: clear, largest edge share 3.6e-09 over 19 reads
 
 
 
@@ -258,10 +258,10 @@ requested radius, against a wall at eight times the radius.
  .. code-block:: none
 
       wall    status    edge share   field error   wall time (s)
-        1 R  off               nan      1.0e-01       0.19
-        2 R  warned        2.4e-05      4.0e-05       0.24
-        3 R  clear         3.6e-09      5.5e-08       0.25
-        8 R  reference                                  0.52
+        1 R  off               nan      1.0e-01       0.20
+        2 R  warned        2.4e-05      4.0e-05       0.21
+        3 R  clear         3.6e-09      8.9e-09       0.26
+        8 R  reference                                  0.54
 
 
 
@@ -302,7 +302,7 @@ by name. Here it needs 2.6 radii of room:
 
  .. code-block:: none
 
-    collar in 2.6 R of room: clear, field error 1.7e-06, removed 7.8e-05 of the energy, 1.85 s
+    collar in 2.6 R of room: clear, field error 1.7e-06, removed 7.7e-05 of the energy, 1.83 s
 
 
 
@@ -335,7 +335,7 @@ wider run. ``spatial_absorber=False`` removes the safety ramp, and
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 4.541 seconds)
+   **Total running time of the script:** (0 minutes 4.466 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_free_space_plot_09_transverse_window.py:

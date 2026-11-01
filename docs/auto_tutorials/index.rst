@@ -613,7 +613,7 @@ For the full filament and crossing-beam lessons, begin with the
 
 .. raw:: html
 
-    <div class="sphx-glr-thumbcontainer" tooltip="LowStorageRungeKutta replays a fixed schedule with classical RK4 in the interaction picture, holding three copies of the state where the adaptive marches hold fifteen or more. It has no error estimate, so its accuracy is measured from outside, on the quantity that matters, by three-level Richardson calibration (/guide/numerics/fixed-schedules). Here a 30 fs line beam whose peak field is sqrt(2) times the soliton&#x27;s, twice the soliton power, self-phase modulates over one diffraction length, and the weak band is the light it generates below 690 nm: three parts in ten thousand of the energy. The whole field converges twenty times faster than that band, so a norm scored on the field would call a schedule converged while the band is still wrong. A few seconds on numpy_ref.">
+    <div class="sphx-glr-thumbcontainer" tooltip="LowStorageRungeKutta replays a fixed schedule with classical RK4 in the interaction picture, holding three copies of the state where the adaptive marches hold fifteen or more. It has no error estimate, so its accuracy is measured from outside, on the quantity that matters, by three-level Richardson calibration (/guide/numerics/fixed-schedules). Here a 30 fs line beam whose peak field is sqrt(2) times the soliton&#x27;s, twice the soliton power, self-phase modulates over one diffraction length, and the weak band is the light it generates below 690 nm: two parts in ten thousand of the energy. The whole field converges twenty times faster than that band, so a norm scored on the field would call a schedule converged while the band is still wrong. A few seconds on numpy_ref.">
 
 .. only:: html
 

@@ -300,7 +300,7 @@ is evanescent.
 
  .. code-block:: none
 
-    BoundaryWarning: this backend does not read the transverse edge of a free-space run: the run is unwatched there and cannot report a clean verdict; backend='numpy_ref' reads it (SEP 40 section 5.3)
+    BoundaryWarning: the fixed schedule's longest step, 1.250e-04 m, is longer than the transverse edge's read spacing, 6.250e-05 m: light could cross the edge unseen between two reads; the run is reported as coarse (SEP 40 section 5.3)
     9 planes from 0.000 to 1.000 mm
 
 
@@ -372,7 +372,7 @@ statistic here weights it.
  .. code-block:: none
 
 
-    <matplotlib.colorbar.Colorbar object at 0x1178bd010>
+    <matplotlib.colorbar.Colorbar object at 0x1167e74d0>
 
 
 
@@ -423,7 +423,7 @@ peaks near the coherence length :math:`\pi/|\Delta k|` and falls back.
     coherence length pi/|dk| = 0.69 mm
     signal peaks at z = 0.750 mm
 
-    <matplotlib.legend.Legend object at 0x11d315400>
+    <matplotlib.legend.Legend object at 0x116f6be00>
 
 
 
@@ -640,7 +640,7 @@ to the beam spectrum needs no further normalisation.
  .. code-block:: none
 
     collect against the run: 6.2e-16
-    from the definition against the run, largest difference in collected fraction: 2.2e-16
+    from the definition against the run, largest difference in collected fraction: 1.7e-16
 
 
 
@@ -751,7 +751,7 @@ the evanescent and material channels are exactly zero.
 
     energy drop 1.5701e-08 J; absorbed 1.5704e-08 J
     evanescent and material channels: 0.0 J/m; transverse at the exit 7.6e-10 J/m
-    tutorial run time: 1.8 s
+    tutorial run time: 2.5 s
 
 
 
@@ -769,7 +769,7 @@ far-zone and Fourier-plane conditions and the paraxial error;
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 1.804 seconds)
+   **Total running time of the script:** (0 minutes 2.499 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_free_space_plot_07_far_field_statistics.py:

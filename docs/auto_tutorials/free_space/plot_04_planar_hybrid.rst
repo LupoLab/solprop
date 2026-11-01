@@ -105,8 +105,8 @@ the mode's real effective index (:doc:`/guide/free-space/flux`).
       gap:             127 um
       x nodes:         37 (slab rule)
       half-width in y: 1.5 mm, 64 samples
-      spacing in y:    51.56 um
-      window factor:   0.1
+      spacing in y:    46.88 um
+      collar fraction: 0
       measure:         area: energy J, power W
 
 
@@ -222,7 +222,7 @@ and across y after integrating over the gap. The widths in y are the run's
 
  .. code-block:: none
 
-    ran in 1.1 s on numpy_ref
+    ran in 1.6 s on numpy_ref
 
 
 
@@ -239,7 +239,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 1.100 seconds)
+   **Total running time of the script:** (0 minutes 1.573 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_free_space_plot_04_planar_hybrid.py:

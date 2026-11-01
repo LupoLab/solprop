@@ -88,6 +88,16 @@ All notable changes to solprop are recorded here. The format follows
   margin, so their spacing at the same sample count changes; give
   `collar_fraction=0.1` for the old grid. `RadialGrid(R, n_r)` keeps its wall and
   spacing.
+- A free-space run whose light reaches its transverse boundary now warns or stops,
+  where it used to log and carry on
+  ([SEP 40](docs/dev/seps/sep-0040-transverse-absorbing-boundaries.md)). The boundary
+  monitor reads the outer 5 % of the grid on every backend. It warns above 1e-6 of the
+  launch energy and stops at 1e-4, naming a size and a sample count to try, and
+  `BoundaryCheck.transverse_budget` sets those levels apart from the time window's. The
+  safety ramp's removal is judged at the same levels. Its monitor record reports a
+  `transverse_status`, with `ramp_removed` and `spatial_removed`. Reads are at most
+  `min(L/16, 4g/v)` apart, a ceiling on the step, so a low-source run takes a few more
+  steps. A launch with more than 1e-4 of its energy in the ramp's band is refused.
 - Names and keywords with two meanings or two spellings are settled, with no aliases;
   `docs/dev/conventions.md` section 7 gives the rule for each:
   - `prop_2d`, `time_1d` and `spectrogram` take `time_range`, not `trange`, which stays
