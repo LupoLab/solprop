@@ -39,6 +39,14 @@ being implemented.
   previews, mode launch, beam displacement and tilt, design solvers, pulse loaders and
   geometry drawings a front end needs. The Python interface changes are additive and no
   output-schema bump is needed. It lands after SEP 42, whose comparison decides every resume.
+- [SEP 42 — Resuming by what matters to the run](seps/sep-0042-tolerant-resume.md):
+  the resume gate compares the stored and requested records path by path instead of by
+  hash. The layout must agree, physics and launch parameters must agree unless the user
+  passes `resume="force"`, numerics such as `rtol` may change on an unfinished run and are
+  recorded, and provenance is ignored. Numbers agree per element to a rounding-level bound,
+  a new recorded field needs a declared neutral value, and optmat models compare by digest.
+  The output schema is bumped only for what an older reader would misread. It answers the
+  resume-compatibility policy ADR-058 left open.
 
 ## Draft enhancement proposals
 
@@ -1244,14 +1252,6 @@ fields (the route's default integrator, a read file's stored field lists, a glas
 splines, a transform's component count), which appear in their constructors'
 signatures. The state must survive `dataclasses.replace`, which `field(init=False)`
 would reset, so keeping it out of the signature is a change of construction pattern.
-
-**A resume-compatibility policy before 1.0.** The output schema
-records every field of a recorded dataclass, at its default too
-(ADR-051 in [decisions](decisions.md)),
-so a release that adds a field moves every configuration hash, and a run written by the
-previous release can no longer be resumed. Before 1.0, decide between computing a
-resume hash with the stored file's own schema rules and reintroducing omit-at-default
-as a documented rule from 1.0 on.
 
 ## Known issues
 
