@@ -177,16 +177,18 @@ are leaves too:
 A list of numbers is compared number by number, like an array. Differences in a list or an
 array are reported as one entry with a count.
 
-**Normalisation.** Two steps run before the walk, because neither is table data: model
-records and solids are re-keyed from `material:kind:name` to `(material, kind, digest)`, so
-that a renamed model is the same model; and a subtree whose `__class__` begins with
-`optmat.` is dropped, because the manifest records its digest.
+**Normalisation.** Two steps run before the walk, because neither is table data. Model
+records are re-keyed from `material:kind:name` to `(material, kind, digest)` and solids from
+`(material, axis, model)` to `(material, axis, digest)`, with a solid's `model` leaf
+dropped, so that a renamed model is the same model. And a subtree whose `__class__` begins
+with `optmat.` is dropped, because the manifest records its digest.
 
 **Classes.** A table $T$ maps path patterns to classes. A pattern is a tuple of components,
 with `*` matching one component (a list index included), `**` any number, and braces listing
-alternatives. The first row that matches a leaf's path decides, and an unmatched path is
-compared, so a field nobody has classified is held to agreement: the safe error is a
-refusal.
+alternatives. A row matches a leaf when its pattern matches the leaf's path or an ancestor
+of it, so a row classifies a whole subtree: `spatial.axes` covers `spatial.axes[0]`. The
+first row that matches decides, and an unmatched path is compared, so a field nobody has
+classified is held to agreement: the safe error is a refusal.
 
 $$
 c(p) \in \{\text{layout},\ \text{compared},\ \text{numerics},\ \text{ignored}\}.
@@ -249,7 +251,7 @@ meaning no differences:
 
 | The file and the differences | `resume=True`, work left | `resume=True`, no work left | `resume="force"` |
 |---|---|---|---|
-| none, or only rounding and neutral | continues | nothing to do, as today | as `resume=True`, and accepts an interpolated last plane |
+| none, or only rounding and neutral | continues | nothing to do, if every session ran under these numerics; otherwise refused, as in the next row | as `resume=True`, and accepts an interpolated last plane |
 | numerics | continues, recorded | refused: nothing would be computed | as `resume=True`, and accepts an interpolated last plane |
 | compared | refused | refused | continues if there is work left, marked and with the Adams history restarted; otherwise refused |
 | layout, or the arrays do not fit (§5.5) | refused | refused | refused |
@@ -257,8 +259,13 @@ meaning no differences:
 
 A complete file with changed numerics is refused rather than returned, because the user
 asked for something the file does not hold: a tightened `rtol` must not hand back the loose
-result. The remedy is a new file. A last plane that kept no field without a checkpoint, and
-a file with no plane, are still refused by name after the comparison, as they are today.
+result. The remedy is a new file. The stored record alone cannot show this, because it
+describes only the first session: a file started at `rtol=1e-6` and finished at `1e-5` still
+matches the original script. So on a file with no work left the requested numerics are also
+compared with each session's, which the `resume` entries of §5.3 give. An unfinished file
+with a mixed history just continues, recorded as usual. A scan's point has one session, so
+§5.7 does not meet this. A last plane that kept no field without a checkpoint, and a file
+with no plane, are still refused by name after the comparison, as they are today.
 
 **Numerical changes on continuing.** With the controller held to $\text{rtol}_1$ on $[0,
 z_r]$ and $\text{rtol}_2$ on $[z_r, L]$, the continued run is a concatenation of two
@@ -410,7 +417,8 @@ never forces.
   differs.
 - **It marks the file.** The §5.3 entry carries `"forced": true`, and is written before any
   step, so a stopped or failed force leaves its mark. One helper reads "this file was
-  forced, at these positions" from the execution records. No annotation is added.
+  forced, at these positions" from the execution records, and which numerics each session
+  ran. No annotation is added.
 - **The mark is respected:**
   - `resume=True` refuses a file with a forced session and names the position, and on a file
     with no work left returns it with a warning. Otherwise the original script would
@@ -559,13 +567,18 @@ test goes through a real file and `check_cache`, not a hand-built record.
 
 - **Frozen records.** `tests/output/test_record_stability.py` already pins each case's
   structure and numbers against today's build. It gains, per case and for a capillary and a
-  GNLSE route, the whole record of the latest release when phase 1 lands, built by checking
-  out that release's tag and never regenerated.
+  GNLSE route, the whole record of a release, never regenerated. The first set is 0.2.0's,
+  the release this SEP ships in (§9), captured from the tree that is tagged;
+  `docs/dev/releasing.md` gains the step for later releases, by checking out the tag.
   - Each must compare as continuing with the current build, on every CI platform. A fixture
     captured once and compared on all platforms is the real cross-platform check.
   - A new recorded field fails until it has an $N$ entry, which is what enforces the rule.
   - An optmat data revision moves a digest and is a correct refusal, not a solprop
-    regression, so this test tolerates differences under `materials` alone.
+    regression, and it also moves the arrays built from that data, such as
+    `configuration.mixture_processing.cross_section_m2`. So a case whose manifest digests
+    moved is compared by structure alone, which logs the digests, and the new-field check
+    still applies. A case with no optmat data, such as a plain GNLSE, is always compared in
+    full, so a solprop regression cannot hide behind an optmat update.
     `test_record_stability`'s docstring changes to match.
 - **Another release's file.** Files with the stamp an earlier build would write, each of
   them: lacking a defaulted `StepLimits` field, lacking a required `GridRecord` field,
@@ -577,8 +590,9 @@ test goes through a real file and `check_cache`, not a hand-built record.
   per-element test would not. NaN, infinity, complex and integer-against-float cases.
 - **Exact paths.** A length moved by $10^{-13}$ refuses by name, rather than failing later.
 - **Materials.** On a real route's record: a changed optmat version, model name or status
-  with the same digests continues, and a changed model number moves a manifest digest and
-  refuses, naming the model. So dropping the `optmat.` subtrees hides nothing.
+  with the same digests continues, a renamed solid included, and a changed model number
+  moves a manifest digest and refuses, naming the model. So dropping the `optmat.` subtrees
+  hides nothing.
 - **Launch.** A changed pulse energy refuses. `with_input(spectrum*1.5)` and a different
   passed-in realisation refuse. An unseeded rerun continues. A different modified-noise
   realisation refuses.
@@ -588,7 +602,9 @@ test goes through a real file and `check_cache`, not a hand-built record.
   tolerance, to the T-class envelope `testing.md` uses for resumed runs. Raising `max_calls`
   keeps the Adams history.
 - **Complete files.** A complete file with a tightened `rtol` refuses, and one with only
-  neutral differences has nothing to do.
+  neutral differences has nothing to do. A file started at `rtol=1e-6` and finished at
+  `1e-5` refuses the original script's `resume=True`, and refuses `1e-5` too, because
+  neither ran the whole file.
 - **Session identity.** `suspend` and `reopen` after a tolerant resume work, and
   `output.metadata` is the file's. A snapshot on a TDSE run after a tolerant resume, where
   the provider is available.
@@ -613,7 +629,9 @@ test goes through a real file and `check_cache`, not a hand-built record.
   one with changed numerics or physics is a conflict.
 - **Schema rule.** A file with an unknown top-level group and root attribute is read and
   resumed. Adding a dataset in `stats` is covered by the rule, not by tolerance.
-- **The table.** Every row matches a path in at least one route's record.
+- **The table.** Every row matches a path in at least one route's record. A row covers the
+  leaves beneath it: a moved `spatial.axes[0]` is layout, and a changed
+  `materials.records.*.sources[0]` is ignored.
 
 Not exercised by CI: a real pair of files from two platforms beyond the frozen records; the
 queue and Slurm executors, whose identity does not change; and a forced TDSE run, which
@@ -651,10 +669,13 @@ which neither review ran.
   text changes.
 - **Output schema:** unchanged by this SEP. The `resume` entry goes into the free-form
   `RunOutcome.execution`, and `history_key` is an optional attribute of a snapshot.
-- **Files already written:** the `DataPulse` phase fix takes the output schema to 2 before
-  this SEP lands, so 0.1.0 files stay refused by their schema. The rules here apply to files
-  of the schema current when phase 1 lands, and later ones, and to earlier files of that
-  schema through their full records and digests.
+- **Files already written:** the output schema is 2 on `main`, from the `DataPulse` phase
+  fix, and no release carries it yet. 0.1.0 files stay refused by their schema.
+- **Older readers:** 0.2.0 is tagged after this SEP lands, so every released reader of
+  schema 2 knows these rules, and 0.1.0 refuses schema 2 by its version. Without that order,
+  a reader from before this SEP would see a forced file's record match the original script
+  and continue it silently, which §5.8's own rule would answer with a bump. Should the order
+  change, this SEP bumps the schema. A later change to what force records bumps it too.
 - **`KERNEL_SCHEMA_VERSION`:** unchanged.
 - **The configuration hash:** unchanged. It is still stamped in every file, and it is the
   exact identity §3 lists.
@@ -709,6 +730,9 @@ opened at Final (SEP 0).
    - **Deliverables:** the parent's comparison on a digest conflict in `Local`, `Pool` and
      `Batch`; the bump rule in `output.md` and `contributing.md`.
    - **Verifies:** the scan and schema tests of §7.
+
+0.2.0 is tagged once phase 2 is merged, and the first frozen records are captured from that
+tree (§7, §9).
 
 ### 12. Open questions
 
@@ -766,6 +790,8 @@ opened at Final (SEP 0).
   readers respect it, layout names structural values only, whether the arrays fit is tested on
   the arrays, and the handler rather than the driver adopts the file's record.
 - 2026-11-01: Human review (John Travers). Accepted by John Travers; Part I frozen.
+- 2026-11-01: Part I amended before the acceptance pull request merged, for five review comments on it
+  (below), with the maintainer's agreement. 0.2.0 is held until this SEP lands.
 
 ### AI review — 2026-11-01 (Opus 5.5)
 
@@ -1730,3 +1756,20 @@ in points 5 and 16.
 **Still unmeasured:** a real comparer, since none exists; a snapshot above order 2 under force; force on
 the Cartesian, line, planar and non-general waveguide routes; any TDSE run. §7 assigns what can be tried
 to phase 1.
+
+### Amendment after review of the acceptance pull request — 2026-11-01 (Opus 5.5, drafting agent)
+
+Five comments from Copilot's review of the acceptance pull request, each checked against the text and the code, and taken
+before the pull request merged:
+
+1. **Solids.** They are keyed by `(material, axis, model)` and hold a `model` leaf, so §4's re-keying did not cover a renamed
+   solid. §4 now normalises them separately.
+2. **Rows and descendants.** §4 matched a row against a leaf's exact path, so `spatial.axes[0]` fell through to compared, and
+   force could have accepted a moved axis. A row now covers its subtree.
+3. **Mixed numerics.** A file finished at a looser `rtol` still matched the original script, which would have got "nothing to
+   do". §4 now compares the request with each session's numerics on a file with no work left.
+4. **Frozen records and optmat.** A data revision moves arrays outside `materials` too. A case whose digests moved is now compared
+   by structure alone, and a case with no optmat data always in full.
+5. **Older readers.** A reader from before this SEP would have continued a forced file. The comment proposed a schema boundary or
+   a coordinated release, and the maintainer chose the release: 0.2.0, the first to carry schema 2, is held until this SEP lands, so
+   no released reader of schema 2 lacks these rules (§9). This also fixes where the first frozen records come from.
