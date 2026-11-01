@@ -34,7 +34,7 @@ import numpy as np
 from jaxtyping import Complex, Float
 
 from solprop._helpers import NUMBA, Helpers
-from solprop._interrupts import committing
+from solprop._interrupts import StopFlag, committing, poll
 from solprop.backends.protocol import (
     Observation,
     StepHistory,
@@ -374,6 +374,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         self._clock = time.perf_counter()
         self._progress: ProgressReporter = NullReporter()
         self._progress_started = False
+        self._stop: StopFlag | None = None
         # The statistics channel between planes. The spec a row is evaluated with is
         # the periodic subset promoted to `names`, so the row goes through the very
         # same `stats` the save planes use and is bitwise what a plane would record.
@@ -1266,6 +1267,31 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         self._progress = reporter
         self._progress_started = False
 
+    def set_stop(self, flag: StopFlag | None) -> None:
+        """Attach the flag every trial step polls, or detach it with ``None``.
+
+        A run polls its own flag before each trial (SEP 41, S17), where the state is
+        the last accepted one, so a stop abandons nothing but the trial not yet taken.
+        Polling changes nothing the propagation computes.
+
+        Parameters
+        ----------
+        flag : solprop._interrupts.StopFlag or None
+            Any object with an ``is_set()`` method, such as a
+            :class:`threading.Event`.
+        """
+        self._stop = flag
+
+    def _poll_stop(self) -> None:
+        """Raise when the run's stop flag is set; called before every trial step.
+
+        Raises
+        ------
+        solprop._interrupts.StopRequested
+            If the flag is set.
+        """
+        poll(self._stop)
+
     def propagate_to(self, z: float) -> StepSummary:
         """Step the state to a position, landing on it exactly.
 
@@ -1587,6 +1613,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             stretch=settings.stretch,
         )
         while not reached(self._z, target):
+            self._poll_stop()
             # The controller's state is its own proposal, never the clipped or
             # stretched step that was executed: otherwise every save plane restarts it
             # from a sliver and it regrows at the growth cap, which over two hundred
@@ -1785,6 +1812,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         edges = schedule.edges
         slack = replay_tolerance(schedule, target)
         while self._schedule_index < schedule.n_steps and self._z < target - slack:
+            self._poll_stop()
             dz = float(schedule.steps[self._schedule_index])
             norm, advanced = self._trial_step(self._z, dz)
             if not math.isfinite(norm):

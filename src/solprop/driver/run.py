@@ -38,7 +38,7 @@ from typing import cast
 import numpy as np
 
 from solprop._host import RunClock, machine, usage
-from solprop._interrupts import committing, handled
+from solprop._interrupts import StopFlag, StopRequested, committing, handled, poll
 from solprop.backends.populations import axis_refusal
 from solprop.backends.protocol import Backend, Observation
 from solprop.backends.protocol import StepHistory as BackendHistory
@@ -282,6 +282,7 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
     snapshots: SnapshotController | None = None,
     tdse_archive: TDSEArchiveWriter | None = None,
     boundary_monitor: BoundaryMonitor | None = None,
+    stop: StopFlag | None = None,
 ) -> None:
     """Run one translated problem to its save planes, writing each one out.
 
@@ -365,6 +366,13 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
         the execution record at every save plane without the per-plane rows, which
         the closing record (complete, failed or out of budget) carries, and its removed
         fraction is reported at the end. ``None`` watches nothing.
+    stop : solprop._interrupts.StopFlag or None, optional
+        The run's own stop flag, any object with an ``is_set()`` method (SEP 41,
+        S17). It is polled before the first step, before every trial step and between
+        save planes; once it is set the run writes its state as for SIGTERM, tells the
+        reporter through ``interrupted``, and raises
+        :class:`~solprop._interrupts.StopRequested`, which
+        :meth:`~solprop.driver.simulation.Simulation.run` turns into a return.
 
     Raises
     ------
@@ -429,6 +437,9 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
         estimated=not isinstance(problem.stepper.integrator, LowStorageRungeKutta),
     )
     backend.set_progress(reporter)
+    set_stop = getattr(backend, "set_stop", None)
+    if set_stop is not None:
+        set_stop(stop)
     started = time.perf_counter()
     clock = RunClock.start()
     logger.debug(
@@ -514,6 +525,9 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
             attach(boundary_monitor)
         index = start_plane
         while index < planes.size:
+            # Before the first step and between planes, for a backend that does not
+            # poll per trial itself.
+            poll(stop)
             target = float(planes[index])
             pending = None
             pending_save_count = output.n_saved
@@ -608,8 +622,10 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
         )
         if failed_z is not None:
             reached = failed_z
-        if isinstance(error, RunTerminated):
-            logger.warning(
+        if isinstance(error, RunTerminated | StopRequested):
+            # A stop the caller asked for is not a warning; a signal may be one.
+            logger.log(
+                logging.INFO if isinstance(error, StopRequested) else logging.WARNING,
                 "%s at z = %.6e m; the run's state there is written, and "
                 "resume=True continues it",
                 error,
@@ -622,6 +638,8 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
             reporter.interrupted(reached, error)
         raise
     finally:
+        if set_stop is not None:
+            set_stop(None)
         try:
             output.close()
         except BaseException as error:
