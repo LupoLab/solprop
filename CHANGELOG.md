@@ -49,7 +49,11 @@ All notable changes to solprop are recorded here. The format follows
   reports a run's memory (admitted before anything is allocated), output size and the
   cost of one right-hand-side evaluation; `solprop.capabilities.output` says what a
   results file can give: its basis, which quantities are physical fluxes, which planes
-  keep fields, which operations its readers refuse and why. See [recipes and the command line](https://solprop.readthedocs.io/en/latest/guide/setup/recipes.html).
+  keep fields, which operations its readers refuse and why. A reporter that implements
+  `observe_plane` (`solprop.log.PlaneObserver`) is shown each saved plane as a lazy
+  view, whose spectrum, field, power and spectral density come from the processing
+  functions, fetched from a device only on request; a failing observer is detached and
+  the run completes. See [recipes and the command line](https://solprop.readthedocs.io/en/latest/guide/setup/recipes.html).
 - `solprop.pulses.load_spectrum` reads a measured spectrum from a text file (frequency
   or wavelength, power density, and an optional phase) into a `DataPulse`. A wrapped
   phase column is unwrapped only where the power is above a noise floor, a phase in

@@ -43,6 +43,7 @@ __all__ = [
     "LogReporter",
     "NullReporter",
     "NullScanReporter",
+    "PlaneObserver",
     "PlaneSummary",
     "ProgressChoice",
     "ProgressReporter",
@@ -413,6 +414,40 @@ class ProgressReporter(Protocol):
         total : float
             Wall time of the whole run, s.
         """
+
+
+@runtime_checkable
+class PlaneObserver(ProgressReporter, Protocol):
+    """A reporter that is shown each saved plane, for a front end to draw (SEP 41, S3).
+
+    The driver calls :meth:`observe_plane` once per save plane, the entrance included,
+    after the plane is committed to the output and before :meth:`plane`; a resume
+    does not show the planes it continues after again. The view is lazy: the field
+    and the spectral density are computed only when asked for, and on a device a plane
+    whose field the output does not keep is fetched only then, a transfer the run's
+    resource summary counts. Its arrays are valid only during the call, so an
+    observer copies what it keeps, and it runs in the march's thread: reduce the plane
+    to what is drawn, hand that to a bounded queue that replaces an undelivered
+    preview, and return.
+
+    An exception from the observer, other than a stop or an interrupt, does not fail
+    the run: it is logged once with its traceback, warned on, and the observer is not
+    called again in that run; :meth:`plane`, :meth:`finished` and ``interrupted`` are
+    still delivered. Nothing an observer does may change the propagation.
+    :class:`NullReporter` does not implement it, so a quiet run builds no view.
+    """
+
+    def observe_plane(self, z: float, plane: object) -> None:
+        """Be shown one saved plane.
+
+        Parameters
+        ----------
+        z : float
+            Its position, m.
+        plane : solprop.driver.plane_view.PlaneView
+            The lazy view of it.
+        """
+        ...
 
 
 @runtime_checkable

@@ -44,6 +44,7 @@ from solprop.backends.protocol import Backend, Observation
 from solprop.backends.protocol import StepHistory as BackendHistory
 from solprop.backends.registry import statistics_refusal
 from solprop.driver.memory import MemoryAdmission
+from solprop.driver.plane_view import PlaneWatch
 from solprop.driver.summary import RUN_SUMMARY_ANNOTATION, resources, run_summary
 from solprop.exceptions import (
     DriverError,
@@ -492,6 +493,14 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
         boundary_check=None if boundary_monitor is None else boundary_monitor.check,
     )
     keeper = _MarchKeeper(output, backend, resume_history)
+    # A plane observer is shown each committed plane (SEP 41, S3); a field the output
+    # does not keep is fetched from the backend only when the observer asks.
+    watch = PlaneWatch(
+        reporter,
+        metadata,
+        lambda: _fetched(problem, backend),
+        clock.observer,
+    )
     pending: SavedPlane | None = None
     pending_save_count = output.n_saved
     snapshots_started = False
@@ -532,6 +541,7 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
                     RunOutcome("running", reached),
                     clock=clock,
                 )
+            watch.show(pending, output.n_saved - 1)
         attach = getattr(backend, "attach_monitor", None)
         if boundary_monitor is not None and attach is not None:
             if resumed:
@@ -609,6 +619,7 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
                     persist=persist,
                     provenance=metadata,
                 )
+            watch.show(pending, output.n_saved - 1)
             reporter.plane(summary.z, summary)
             # A natural step can stop short of the requested plane (SEP 14).
             if math.isclose(summary.z, target, rel_tol=1e-12, abs_tol=0.0):
@@ -791,6 +802,28 @@ def _observed(problem: KernelProblem, backend: Backend, *, keep: bool) -> Observ
         otherwise.
     """
     return _power_observation(problem, backend.observe(field=keep))
+
+
+def _fetched(problem: KernelProblem, backend: Backend) -> np.ndarray:
+    """Return the field at the backend's current plane, in output units.
+
+    For a plane observer shown a plane whose field the output does not keep.
+
+    Parameters
+    ----------
+    problem : solprop.translate.problem.KernelProblem
+        The translated problem.
+    backend : solprop.backends.protocol.Backend
+        The backend, at the plane.
+
+    Returns
+    -------
+    numpy.ndarray
+        The field, as a saved plane holds it.
+    """
+    plane = plane_from_observation(_observed(problem, backend, keep=True), field=True)
+    assert plane.field is not None  # observed with its field
+    return plane.field
 
 
 def field_retention(

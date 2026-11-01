@@ -322,6 +322,11 @@ def resources(spent: Mapping[str, float | int | None]) -> str:
         parts.append(f"{_duration(float(cpu))} CPU")
     if peak is not None:
         parts.append(f"process peak memory {memory_size(peak)}")
+    observer = spent.get("observer_time_s")
+    if observer is not None:
+        transfers = int(spent.get("observer_transfers") or 0)
+        fetched = f", {transfers} fields fetched for it" if transfers else ""
+        parts.append(f"{_duration(float(observer))} in the plane observer{fetched}")
     return "resources: " + ", ".join(parts)
 
 
