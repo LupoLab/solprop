@@ -569,7 +569,9 @@ test goes through a real file and `check_cache`, not a hand-built record.
   structure and numbers against today's build. It gains, per case and for a capillary and a
   GNLSE route, the whole record of a release, never regenerated. The first set is 0.2.0's,
   the release this SEP ships in (§9), captured from the tree that is tagged;
-  `docs/dev/releasing.md` gains the step for later releases, by checking out the tag.
+  `docs/dev/releasing.md` gains the step for later releases, by checking out the tag. Until
+  that tag, phase 1's set is captured from its own tree, and work landing before the tag may
+  refresh it, as SEP 40's will; it stops changing at the tag.
   - Each must compare as continuing with the current build, on every CI platform. A fixture
     captured once and compared on all platforms is the real cross-platform check.
   - A new recorded field fails until it has an $N$ entry, which is what enforces the rule.
@@ -731,8 +733,9 @@ opened at Final (SEP 0).
      `Batch`; the bump rule in `output.md` and `contributing.md`.
    - **Verifies:** the scan and schema tests of §7.
 
-0.2.0 is tagged once phase 2 is merged, and the first frozen records are captured from that
-tree (§7, §9).
+0.2.0 is tagged after phase 2 is merged, and after SEP 40, which changes the free-space
+records and defaults and goes into the same release. The first frozen records are captured
+from that tree (§7, §9).
 
 ### 12. Open questions
 
@@ -790,8 +793,7 @@ tree (§7, §9).
   readers respect it, layout names structural values only, whether the arrays fit is tested on
   the arrays, and the handler rather than the driver adopts the file's record.
 - 2026-11-01: Human review (John Travers). Accepted by John Travers; Part I frozen.
-- 2026-11-01: Part I amended before the acceptance pull request merged, for five review comments on it
-  (below), with the maintainer's agreement. 0.2.0 is held until this SEP lands.
+- 2026-11-01: Part I amended before the acceptance pull request merged, for five review comments on it (below), with the maintainer's agreement. 0.2.0 is held until this SEP and SEP 40 land.
 
 ### AI review — 2026-11-01 (Opus 5.5)
 
@@ -1773,3 +1775,6 @@ before the pull request merged:
 5. **Older readers.** A reader from before this SEP would have continued a forced file. The comment proposed a schema boundary or
    a coordinated release, and the maintainer chose the release: 0.2.0, the first to carry schema 2, is held until this SEP lands, so
    no released reader of schema 2 lacks these rules (§9). This also fixes where the first frozen records come from.
+
+The maintainer then also held 0.2.0 for SEP 40, so one release carries all the breaks. That changes when the first
+frozen records are captured (§7, §11), not the reasoning of point 5.
