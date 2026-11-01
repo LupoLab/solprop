@@ -6,7 +6,7 @@
 | **Title** | Recipes, and the hooks a front end needs |
 | **Author** | John C. Travers |
 | **Drafting agent** | Claude Opus 5.5 (2026-10-31) |
-| **Status** | Accepted |
+| **Status** | In progress |
 | **Review status** | Reviewed |
 | **Reviewers** | John Travers (human); Opus 5.5 (AI); Codex (AI) |
 | **Type** | Change |
@@ -15,7 +15,7 @@
 | **Requires** | SEP 42 (resuming by what matters to the run; accepted) |
 | **Supersedes** | — |
 | **Superseded-by** | — |
-| **Implementation** | — |
+| **Implementation** | In progress: John Travers, with Opus 5.5, on `feature/sep-0041-recipes`; phase 1 started 2026-11-01 |
 | **Manual pages** | — |
 
 ## Part I — Proposal
@@ -1119,6 +1119,25 @@ builds against the branch; the order puts what it needs first.
 
 *One report per phase, appended in the pull request that merges the phase (SEP 0 §8).*
 
+### Start of implementation — 2026-11-01
+
+**A deviation from §11.** §11 starts the branch after SEP 42's phase 1. The maintainer
+started phases 1–3 earlier, alongside SEP 42 and SEP 40, because most of their work needs
+nothing from SEP 42's gate:
+
+- phase 1 (the recipe core) sits above translation and adds no recorded field;
+- phase 3 (watching runs) is driver hook work;
+- of phase 2, the stop, the writer-lock text and writing the recipe group are independent.
+
+The parts that rest on SEP 42 (`resume_file`, `solprop resume`, `resumability` and the
+resumability field of `OutputCapabilities`) are made after SEP 42's phase-1 branch is merged into
+this one. Phase 4 still follows SEP 40.
+
+**Also on this branch.** [#87](https://github.com/LupoLab/solprop/issues/87) (one table of
+route defaults) is phase 1's first slice, so that S9's resolvers read that table rather than
+copy the rules again. [#86](https://github.com/LupoLab/solprop/issues/86) is settled separately
+before this SEP is set `Final`.
+
 ## Part III — History
 
 - 2026-10-31: Drafted, from the requirements of a desktop front end under design.
@@ -1151,6 +1170,8 @@ builds against the branch; the order puts what it needs first.
 - 2026-11-01: Tracking issue: [#143](https://github.com/LupoLab/solprop/issues/143). Brought to the standard of ADR-062 before the pull request
   merged: §3 lists the open issues, and Q4 names [#141](https://github.com/LupoLab/solprop/issues/141). §11 notes that phase 4 follows SEP 40, as
   the maintainer ordered.
+- 2026-11-01: In progress. Phases 1–3 started on `feature/sep-0041-recipes` (John Travers, with
+  Opus 5.5), ahead of SEP 42's phase 1 (Part II).
 
 ### AI review, 2026-10-31
 
