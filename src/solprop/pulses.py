@@ -1897,7 +1897,8 @@ def _continued_phase(
     record. Where ``S`` is near its rounding floor ``M / S`` can be far larger, as with
     a background periodic on the record, which is one bin of ``S`` but spreads in ``M``.
     Unclamped, the phase then reaches 1e14 rad, where float64 cannot hold it: 1 % of
-    such a background on a pulse past the record's middle was built 93 % wrong, not 7e-7.
+    such a background on a pulse past the record's middle was built 93 % wrong, not
+    7e-7.
 
     Parameters
     ----------
