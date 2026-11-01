@@ -40,6 +40,7 @@ from typing import Any, Literal, cast
 import numpy as np
 from jaxtyping import Bool, Complex, Float
 
+from solprop._process import host_blas
 from solprop.adiabatic import AdiabaticAccuracy, certify_radial_path
 from solprop.boundaries import (
     STABILITY_RADIUS,
@@ -5843,6 +5844,7 @@ def _stepper_settings(
     )
 
 
+@host_blas()
 def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a run
     grid: TimeGrid,
     modes: Mode | Sequence[Mode] | None,

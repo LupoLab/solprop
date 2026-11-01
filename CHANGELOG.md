@@ -142,6 +142,13 @@ All notable changes to solprop are recorded here. The format follows
   record's length from `t = 0` changed its phase by more than pi per bin, so it was moved
   by one record length with no warning: at 500 fs in a record from 0 to 800 fs it came out
   at −300 fs.
+- Guide and incident-plane construction, kernel translation and coupling now limit
+  NumPy's and SciPy's controllable BLAS pools to one thread, or `SOLPROP_BLAS_THREADS`
+  within the process budget, and restore their previous limits afterwards. This
+  prevents the thousands of small graded-index eigensolves from occupying every CPU
+  before a backend starts.
+  Vendor thread defaults are overridden only during construction; the native
+  backend's own BLAS keeps its fitted width.
 
 ## [0.1.0] - 2026-10-31
 

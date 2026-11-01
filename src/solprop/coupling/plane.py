@@ -52,6 +52,7 @@ import numpy as np
 from jaxtyping import Complex, Float
 
 from solprop import fourier
+from solprop._process import host_blas
 from solprop.adiabatic import AdiabaticAdmission
 from solprop.constants import EPS0, C
 from solprop.coupling.models import ScalarModeBasis
@@ -1252,6 +1253,7 @@ class FieldPlane:
         )
 
     @classmethod
+    @host_blas()
     def from_pulse(  # noqa: PLR0913 - the beam, its grids and the plane's medium
         cls,
         pulse: object,

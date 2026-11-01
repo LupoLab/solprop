@@ -150,6 +150,20 @@ problem, and caches them. It is the one numerical construction kept in P: it yie
 nodes and weights for T to fold into the transform, and no compiled code, per-stage
 evaluation or hot loop enters P with it.
 
+**Construction's host resources.** The private process policy in `_process` holds
+NumPy's and SciPy's controllable BLAS pools at one thread (or `SOLPROP_BLAS_THREADS`
+under ADR-052) around guide construction, standalone graded-index solves, translation
+and coupling. These coarse scopes change no physical algorithm. They restore the
+previous limits after the last nested or overlapping scope exits, since the limits
+are process-wide. Construction and the Numba and native adapters share one private
+lease coordinator: each library takes the smallest active request, even when owners
+start and finish in different orders, and only the last release restores its original
+width. Native's adapter supplies the lease hook explicitly; the standalone native
+package keeps its local hold and imports no solprop code. Construction excludes the
+native backend's own BLAS and does not import a backend; an already loaded native
+package supplies its library identity through `build_info`. See the
+[BLAS guide](../guide/performance/tuning.md#blas-and-vendor-libraries).
+
 **The X → T edges.** `solprop.processing.modal` imports
 `solprop.translate.modal_tables.ModalTransformTables` and
 `solprop.translate.general.guide_identity`, and that is inherent to the output schema

@@ -36,6 +36,7 @@ from jaxtyping import Bool, Complex, Float
 
 from solprop import fourier
 from solprop._display import Displayed, line
+from solprop._process import host_blas
 from solprop.constants import C
 from solprop.exceptions import (
     GeneralModalBasisWarning,
@@ -697,6 +698,7 @@ class _Regional:
     electronic: tuple[DispersiveKerrResponse, ...]
 
 
+@host_blas()
 def general_modal_route(  # noqa: PLR0913 - a guide, a grid, a launch and four policies
     guide: ModalGuide,
     grid: TimeGrid,

@@ -35,7 +35,7 @@ import threadpoolctl
 from numba import get_num_threads, set_num_threads
 from numba.core import config as numba_config
 
-from solprop._process import ThreadBudget, thread_budget, unbound
+from solprop._process import ThreadBudget, acquire_host_blas, thread_budget, unbound
 from solprop.backends.numba_cpu import openmp
 from solprop.backends.numba_cpu.openmp import pyfftw
 from solprop.exceptions import BackendError
@@ -479,7 +479,7 @@ def apply_pools(
         uncontrolled = replace(pools, blas_mechanism="uncontrolled")
         _log_pools(uncontrolled)
         return uncontrolled, None
-    limiter = libraries.limit(limits=pools.blas)
+    limiter = acquire_host_blas(libraries.lib_controllers, pools.blas)
     limiter.__enter__()
     names = ",".join(sorted({one.internal_api for one in libraries.lib_controllers}))
     reached = replace(pools, numba=get_num_threads(), blas_mechanism=names)

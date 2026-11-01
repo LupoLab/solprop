@@ -23,9 +23,171 @@ import contextlib
 import functools
 import os
 import sys
+import threading
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
+
+_BLAS_LOCK = threading.RLock()
+_BLAS_USERS: set[object] = set()
+_BLAS_LIMITS = contextlib.ExitStack()
+
+
+@dataclass(frozen=True)
+class _BlasPool:
+    """Keep one library's original width and its live owners' requests."""
+
+    # threadpoolctl has no stubs; dynamic library controllers stop at this boundary.
+    library: Any
+    original: int
+    requests: dict[object, int]
+
+
+_BLAS_POOLS: dict[str, _BlasPool] = {}
+
+
+@dataclass(frozen=True)
+class _BlasLease(contextlib.AbstractContextManager[None]):
+    """Release one owner's requests without disturbing the remaining owners."""
+
+    owner: object
+    paths: tuple[str, ...]
+
+    def __exit__(self, *_exception: object) -> None:
+        """Release the owner without suppressing a context's exception.
+
+        Parameters
+        ----------
+        *_exception : object
+            Exception details supplied by the context protocol.
+        """
+        self.restore_original_limits()
+
+    def restore_original_limits(self) -> None:
+        """Restore the remaining limit, or the original width after last release."""
+        with _BLAS_LOCK:
+            for path in self.paths:
+                pool = _BLAS_POOLS.get(path)
+                if pool is None or self.owner not in pool.requests:
+                    continue
+                remaining = [
+                    width
+                    for owner, width in pool.requests.items()
+                    if owner is not self.owner
+                ]
+                pool.library.set_num_threads(
+                    min(remaining) if remaining else pool.original
+                )
+                # A failed setter leaves this owner intact so release can retry.
+                del pool.requests[self.owner]
+                if not pool.requests:
+                    del _BLAS_POOLS[path]
+
+
+def acquire_host_blas(libraries: Sequence[Any], threads: int) -> _BlasLease:
+    """Borrow host BLAS libraries at the narrowest of their active requests.
+
+    Construction and backend lifetimes can cross in either order. Independent
+    threadpoolctl limiters capture each other's temporary settings and restore
+    them too early; this process-owned lease saves the original width once.
+    Native's adapter supplies this hook explicitly, keeping standalone native
+    imports independent of solprop.
+
+    Parameters
+    ----------
+    libraries : sequence
+        Threadpoolctl library controllers, already selected by the caller. Their
+        untyped library API is confined here and to the private pool record.
+    threads : int
+        Positive requested width, already resolved against the caller's budget.
+
+    Returns
+    -------
+    _BlasLease
+        Eagerly applied, idempotently released by a context exit or by
+        ``restore_original_limits``, as the backend adapters expect.
+    """
+    owner = object()
+    paths = tuple(os.path.realpath(library.filepath) for library in libraries)
+    lease = _BlasLease(owner, paths)
+    with _BLAS_LOCK:
+        try:
+            for library, path in zip(libraries, paths, strict=True):
+                if path not in _BLAS_POOLS:
+                    _BLAS_POOLS[path] = _BlasPool(library, library.num_threads, {})
+                pool = _BLAS_POOLS[path]
+                pool.requests[owner] = threads
+                library.set_num_threads(min(pool.requests.values()))
+        except BaseException:
+            lease.restore_original_limits()
+            raise
+    return lease
+
+
+@contextlib.contextmanager
+def host_blas() -> Iterator[None]:
+    """Hold host construction's BLAS pools within the process's thread budget.
+
+    Small mode solves and coupling products otherwise start every worker in
+    NumPy's and SciPy's independent BLAS libraries. The scope overrides their
+    vendor defaults with one thread, or ``SOLPROP_BLAS_THREADS`` under ADR-052,
+    then restores the previous limits, including a live backend's own hold.
+    The native backend's BLAS keeps its separately fitted width.
+
+    Nested and overlapping construction share one library walk and the first
+    scope's limit. The last scope restores it: threadpoolctl changes process-wide
+    pools, so one Python thread must not restore them while another is using
+    them. Importing this module starts no library walk or numerical runtime.
+
+    Yields
+    ------
+    None
+        While the controllable host BLAS pools are limited. A BLAS with no
+        runtime thread control, such as Accelerate, is left as it was.
+
+    Raises
+    ------
+    ValueError
+        If a thread-count environment variable is invalid.
+    """
+    with _BLAS_LOCK:
+        if not _BLAS_USERS:
+            # Delayed: _process is imported before NumPy and the native runtime.
+            import threadpoolctl  # noqa: PLC0415
+
+            requested = thread_count("SOLPROP_BLAS_THREADS")
+            threads = thread_budget().explicit(1 if requested is None else requested)
+            native = sys.modules.get("solprop_native")
+            build_info = getattr(native, "build_info", None)
+            own = (
+                ""
+                if build_info is None
+                else os.path.realpath(build_info().blas_library)
+            )
+            controller = threadpoolctl.ThreadpoolController()
+            libraries = controller.select(user_api="blas")
+            paths = [
+                library.filepath
+                for library in libraries.lib_controllers
+                if os.path.realpath(library.filepath) != own
+            ]
+            # An empty selection must not limit the native BLAS on its own.
+            if paths:
+                _BLAS_LIMITS.enter_context(
+                    acquire_host_blas(
+                        controller.select(filepath=paths).lib_controllers, threads
+                    )
+                )
+        owner = object()
+        _BLAS_USERS.add(owner)
+    try:
+        yield
+    finally:
+        with _BLAS_LOCK:
+            _BLAS_USERS.remove(owner)
+            if not _BLAS_USERS:
+                _BLAS_LIMITS.close()
 
 
 def _query() -> tuple[int, ...]:
