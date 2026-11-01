@@ -139,7 +139,8 @@ the header; `tests/test_seps.py` checks it.
 
 Revising a draft is free: edit it in place in further pull requests and add a line to
 Part III for each substantial revision. Update its roadmap summary and the informal
-items whenever its scope changes; restore work that the revised scope no longer covers.
+items whenever its scope changes; work that the revised scope no longer covers goes in an
+issue (ADR-062).
 
 ### Review
 
@@ -192,8 +193,8 @@ The maintainers accept a SEP in a pull request that sets the status to `Accepted
 in **Resolution** (the date and the pull request or discussion where it was decided), adds
 a line to Part III and moves the SEP from *Draft enhancement proposals* to *Accepted
 enhancement proposals* on the [roadmap](../roadmap.md). A rejection or deferral records
-the reasons in the SEP, removes its proposal listing from the roadmap and restores any
-still-relevant informal work that it had replaced. Apply the same roadmap update on
+the reasons in the SEP, removes its proposal listing from the roadmap and opens an issue
+for any still-relevant work that it had replaced (ADR-062). Apply the same update on
 withdrawal; for supersession, reconcile the work with the replacement SEP's scope.
 
 From acceptance, Part I is frozen. A deviation found during implementation is recorded in
@@ -355,5 +356,5 @@ that edits this document and adds a line to its history.
   slow and coverage lanes to CI on the pull request (maintainer's decision, first used
   for SEP 21). Native work is in `native/`, no longer a separate repository.
 - 2026-11-01: Open work goes in GitHub issues, not on the roadmap, whose existing items
-  move over time; the roadmap keeps the lists of accepted and draft SEPs for now
-  (maintainer's decision, ADR-062).
+  move over time, and work a SEP gives back goes in an issue; the roadmap keeps the lists
+  of accepted and draft SEPs for now (maintainer's decision, ADR-062).

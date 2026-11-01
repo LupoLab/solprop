@@ -8,7 +8,8 @@ process is SEP 0 (sep-0000-process.md); read it first.
 Add the draft to the SEP index and its toctree, and to the roadmap's Draft enhancement
 proposals section after the accepted proposals. Remove informal roadmap items only when
 fully covered by this proposal; for partial coverage, link the SEP and retain the
-uncovered work explicitly. Keep these entries current when the scope or status changes.
+uncovered work explicitly. Keep these entries current when the scope or status changes;
+work this proposal gives back goes in an issue.
 -->
 
 | | |

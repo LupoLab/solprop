@@ -3,8 +3,8 @@
 ```{note}
 Planned work is moving to [GitHub issues](https://github.com/LupoLab/solprop/issues)
 (ADR-062). New work goes in an issue and is not added to this page. The entries below
-stay until they are moved: an entry leaves this page when an issue takes it over, and
-the page goes when none is left. The lists of accepted and draft SEPs stay for now.
+stay until they are moved: an entry leaves this page when an issue, or a SEP that covers
+it in full, takes it over, and the page goes when none is left. The lists of accepted and draft SEPs stay for now.
 ```
 
 This page lists functionality solprop does not have yet, and known issues in what it has.

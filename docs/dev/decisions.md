@@ -1679,7 +1679,10 @@ Withdrawn (development-process record, not a design decision).
     `area:` label where one fits, so that they can be filtered.
   - New open work goes in an issue. The roadmap takes no new items.
   - The roadmap's existing items are not moved in one pass. An item leaves the page when
-    an issue takes it over, in the same change, and the page goes when none is left.
+    an issue, or a SEP that covers it in full (SEP 0), takes it over, in the same change,
+    and the page goes when none is left.
+  - Work a SEP gives back, by narrowing or by being rejected, deferred or withdrawn, goes
+    in an issue, not back on the page.
   - The roadmap's lists of accepted and draft SEPs stay for now: they are status lists,
     which `tests/test_seps.py` checks against the SEPs.
 - **Consequences:**
