@@ -96,12 +96,12 @@ The [SEP index](seps/index.md) lists every proposal and its current status.
   spatial ledger remain open.
 - [SEP 42 — Resuming by what matters to the run](seps/sep-0042-tolerant-resume.md):
   the resume gate compares the stored and requested records path by path instead of by
-  hash: numerics such as `rtol` and the integrator may change and are recorded,
-  provenance and the realised launch arrays are ignored, numbers agree to a
-  rounding-level tolerance, a path an older record lacks reads as its neutral value, and
-  optmat models compare by digest. The output schema is bumped only for layouts an older
-  reader would misread. A last phase, after SEP 41's recipes, continues a finished run
-  to a longer length. It answers the resume-compatibility policy ADR-058 left open.
+  hash. The layout must agree, physics and launch parameters must agree unless the user
+  passes `resume="force"`, numerics such as `rtol` may change on an unfinished run and are
+  recorded, and provenance is ignored. Numbers agree per element to a rounding-level bound,
+  a new recorded field needs a declared neutral value, and optmat models compare by digest.
+  The output schema is bumped only for what an older reader would misread. It answers the
+  resume-compatibility policy ADR-058 left open.
 
 The informal items below record work not fully covered by these proposals. When adding
 or revising a SEP, remove an informal item only if the proposal covers it in full;
@@ -1244,6 +1244,13 @@ fields (the route's default integrator, a read file's stored field lists, a glas
 splines, a transform's component count), which appear in their constructors'
 signatures. The state must survive `dataclasses.replace`, which `field(init=False)`
 would reset, so keeping it out of the signature is a change of construction pattern.
+
+**Continuing a finished run to a longer length.** A resume continues an unfinished run only.
+Continuing a complete run further differs from it in hundreds of length-dependent paths, its
+absorber depends on the length, and the file's record cannot describe planes beyond its own, so
+extended planes could not be exchanged. `with_input` from the last plane does it today, into a
+new file. A proposal would need a comparison on the stored interval and a record of the extended
+file, and is simplest after SEP 41's recipes ([SEP 42](seps/sep-0042-tolerant-resume.md), §2).
 
 ## Known issues
 

@@ -23,379 +23,422 @@
 ### 1. Abstract
 
 Today a file resumes only when the rebuilt run's configuration hash equals the stored one,
-exactly. That is stricter than continuing the run needs. A later release that adds a
-field, a newer optmat with the same numbers, a looser tolerance, or a platform whose
-mathematics library rounds differently in the last bit each refuses a resume of the same
-physics. This SEP replaces hash equality as the resume gate with a comparison of the two
-records path by path. The comparison needs four rules:
+exactly. That is stricter than continuing the run needs. A release that adds a field, a
+newer optmat with the same numbers, a looser tolerance, or a platform whose mathematics
+library rounds differently in the last bit each refuses a resume of the same physics. This
+SEP replaces hash equality as the resume gate with a comparison of the two records path by
+path. A short table sorts every recorded path into one of four classes:
 
-- **classes:** a short table sorts every recorded path into one of three classes:
-  - *compared*, which must agree (the default);
-  - *numerics*, which may change and is recorded;
-  - *ignored*, which is provenance, or a launch realisation that the stored field
-    supersedes;
-- **tolerance:** numbers agree to within a rounding-level tolerance rather than bit for
-  bit;
-- **neutral values:** a path one record lacks reads as its neutral value;
-- **materials:** optmat models are compared by the digest of their numbers, not by
-  version or name.
+- **layout:** the stored state and the file's arrays depend on it; it must agree, with no
+  override;
+- **compared (the default):** physics and launch parameters; it must agree, unless the user
+  forces the resume;
+- **numerics:** how accurately the run steps; it may change while there is something left to
+  compute, and the change is recorded;
+- **ignored:** provenance, and launch realisations whose parameters are compared.
 
-The output schema version leaves the comparison: a resume needs the same schema, and the
-schema is bumped only for a layout an older reader would misread.
-
-A final phase continues a finished run to a longer length. It depends on the recipes of
-SEP 41, which is still in draft.
+Numbers agree per element within a rounding-level tolerance, and a path one record lacks is
+a difference unless a table declares its neutral value. optmat models are compared by the
+digest of their numbers. `resume="force"` continues in the same file whenever the layout
+agrees, and says so in the file. The output schema is bumped only for a change an older
+reader would misread.
 
 Success means:
 
-- every 0.1.0 route's record resumes under later releases unless the physics changed;
-- a resume with a changed `rtol` or integrator continues and says so;
-- every refusal still names the paths that changed;
-- compatibility code is confined to one table of classes and one table of neutral
-  values and renames.
+- a run resumes after an upgrade, an optmat release with the same numbers or a move to
+  another platform, unless the physics changed;
+- an unfinished run resumes with a changed `rtol` or integrator, and the file says which
+  session stepped how;
+- every refusal names what changed, and a change of physics is never continued unasked;
+- the compatibility code is one table of classes and one table of neutral values and
+  renames, and the rest is small edits to existing code.
 
 ### 2. Motivation and scope
 
 A resume should succeed whenever continuing the stored state with the requested problem
 gives the run the user asked for, and be refused, with a reason, when it would not. The
-present gate departs from that in four ways, each of which a user meets in ordinary
-work.
+present gate departs from that in four ways, each of which a user meets in ordinary work.
 
-- **A field added in a release breaks every earlier file.** A run record holds every
-  field of every dataclass it serialises, at its default too (ADR-051). A release that
-  adds a field to `PIController`, a pulse, a response or a mode moves every configuration
-  hash, so nothing written by the previous release resumes, though the new field's
-  default reproduces the old behaviour. Several conditional records in
-  `metadata_for` (`transverse_measure`, `plasma_integration`, the trapezoid rule's
-  absent `integration`) exist only to keep earlier hashes, and the roadmap's
-  *A resume-compatibility policy before 1.0* asks what to do about it.
+- **A field added in a release breaks every earlier file.** A run record holds every field
+  of every dataclass it serialises, at its default too (ADR-051). A release that adds a
+  field to `PIController`, a pulse, a response or a mode moves every configuration hash and
+  bumps the output schema, though the new field's default may reproduce the old behaviour
+  exactly. The roadmap's *A resume-compatibility policy before 1.0* asked what to do about
+  it.
 - **The material manifest is compared by version.** The resume key covers the optmat
-  version, and each model's name, status, status reason and sources. An optmat release
-  that changes no number a run uses still refuses its resume. So does a renamed model
-  with the same digest.
-- **Numbers are compared bit for bit.** The record holds derived arrays: the launch
-  field `configuration.initial`, the noise spectrum, the mixture-processing tables, the
-  absorber rates, the band rule's taps. They are built with the platform's `exp`, `sin`
-  and FFTs. SEP 25 gave up bitwise agreement across platforms and builds, but the resume
-  key did not, so nothing guarantees that a run started on one machine resumes on
-  another.
-- **Accuracy settings count as physics.** A run stopped part-way under `rtol=1e-6`
-  cannot be finished under `rtol=1e-5`, nor with another integrator, though either
-  continuation is well defined. The boundary check's budget was taken out of the key for
-  the same reason (SEP 21).
+  version, and each model's name, status, status reason and sources. An optmat release that
+  changes no number a run uses still refuses its resume.
+- **Numbers are compared bit for bit.** The record holds numbers computed with the
+  platform's mathematics library and FFTs: the launch field, the noise spectrum, the mixture
+  tables, the absorber rates, an ionisation threshold found by bisection. SEP 25 gave up
+  bitwise agreement across platforms, and `tests/record_numbers.py` already compares these
+  numbers to a bound, but the resume key did not follow. So nothing guarantees that a run
+  started on one machine resumes on another.
+- **Accuracy settings count as physics.** A run stopped part-way under `rtol=1e-6` cannot be
+  finished under `rtol=1e-5`, nor with another integrator, though either continuation is
+  well defined. The boundary check's budget left the key for the same reason (SEP 21).
+
+And there is no way to insist. A long run stranded by a corrected optmat model, or by a
+release that moved a derived table, can only continue in a new file through `with_input`,
+which restarts the Adams history and the call ledgers and refuses modified noise and fixed
+schedules.
 
 In scope:
 
 - the classification of recorded paths and the comparison rules;
-- their use wherever the configuration hash is used as a compatibility test: the resume
-  gate `check_cache`, an appending `HDF5Output`, a scan's finished points, and
-  processing's `source=` checks;
-- the record of a resumed session's numerical changes;
-- the rule for when the output schema is bumped;
-- continuing a finished run to a longer length (phase 3).
+- reading a stored record that an earlier or later release wrote;
+- what a session holds after continuing, and the code a continuation meets behind the gate;
+- `resume="force"`;
+- scans' reuse of finished points;
+- the rule for when the output schema is bumped.
 
 Out of scope:
 
-- **Reading files of another output schema.** ADR-058 stands: a file is read only at its
-  own schema. This SEP makes bumps rare; it does not add readers for old layouts.
-- **Resuming with changed physics.** A deliberately changed model starts a new segment
-  from a saved field ([interior launch](../../guide/results/interior-launch.md)). No
-  override continues a run under different physics in the same file.
-- **Bitwise reproduction of a resumed run.** A resume agrees with an uninterrupted run
-  to the bounds SEP 25 set, as today.
-- **The size of the run record.** The roadmap's *Large arrays in the run record* item is
-  unchanged. The comparison treats an array the same whether it is held in the JSON or
-  as a dataset.
-- **Snapshot and suspend integrity checks.** They compare a file with the session that
-  is writing it, and keep exact hash equality.
+- **Continuing a finished run to a longer length.** The longer run differs from the stored
+  one in hundreds of length-dependent paths, its absorber depends on the length, and the
+  file's record cannot describe planes beyond its own. It needs its own proposal, after the
+  recipes of SEP 41 (in draft). `with_input` from the last plane already continues a
+  finished run into a new file. The roadmap keeps the item.
+- **Reading files of another output schema.** ADR-058 stands: a file is read only at its own
+  schema. This SEP makes bumps rare; it adds no readers for old layouts.
+- **Bitwise reproduction of a resumed run.** A resume agrees with an uninterrupted run to
+  the bounds SEP 25 set, as today.
+- **The size of the run record.** The roadmap's *Large arrays in the run record* is
+  unchanged.
 
 ### 3. Context
 
-The resume key is `RunMetadata.configuration_hash()` (`solprop/output/schema.py`). It is
-a SHA-256 of the canonical JSON of `RunMetadata.hashed()`, which holds:
+The resume key is `RunMetadata.configuration_hash()` (`solprop/output/schema.py`), a SHA-256
+of the canonical JSON of `RunMetadata.hashed()`. That holds the schema version and
+simulation kind; the grid, modes, spatial and modal records, quadrature and power
+convention; the configuration (medium, guide, pulse, launch field, responses, profiles,
+absorber, save planes, statistics, precision and derived tables); the noise; the stepper
+record; the material manifest's identities and policies; the launch position and the TDSE
+descriptor. Kept out are the wall-clock time, package versions, git provenance, backend
+record and boundary check ([resuming](../../guide/results/resuming.md#the-resume-key)).
 
-- the schema version and the simulation kind;
-- the grid, the modes, the spatial and modal records, the quadrature and the power
-  convention;
-- the configuration: medium, guide, pulse, launch field, responses, profiles, absorber,
-  save planes, statistics, precision and the derived processing tables;
-- the noise model, seed and spectrum;
-- the stepper record: tableau, controller, limits, schedule and integrator;
-- the material manifest's identities and policies;
-- the launch position and the TDSE descriptor.
+`check_cache` (`solprop/output/hdf5.py`) is the gate. These places test the hash too, and §5
+says what happens to each:
 
-Kept out are the wall-clock time, the package versions, the git provenance, the backend
-record and the boundary check
-([resuming](../../guide/results/resuming.md#the-resume-key)).
+| Where | What it asks | Under this SEP |
+|---|---|---|
+| `check_cache` | may this file be continued? | the comparison |
+| `HDF5Output` opening in append mode | does the file hold this run? | the comparison, then adopts the file's record |
+| `_stored_metadata`, stamp against record | is the file intact? | exact, against the stored text |
+| `_validate_metadata` (`output/scan.py`) | is a scan row intact? | exact, against the stored text |
+| `resolve_metadata_write` | is a second write the same run? | exact |
+| `HDF5Output.reopen`, snapshots, the TDSE archive context | has the session's file changed? | exact, against the adopted record |
+| the scan drivers' finished-point check | is this point done? | the comparison, numerics held to agreement |
+| `Queue` and `Slurm` at collection, and the queue manifest | is this the declared scan? | exact, unchanged |
+| processing's `source=` check | did this simulation write this output? | the comparison |
 
-`check_cache` (`solprop/output/hdf5.py`) is the gate. On a mismatch,
-`RunMetadata.differences` lists the dotted paths that differ and `summarise_differences`
-words the refusal. Four other places test compatibility by hash equality:
+Every route to a stored record goes through `RunMetadata.from_json`, which rebuilds
+`GridRecord`, `ModeRecord`, `StepperRecord`, `NoiseRecord` and others through `_rebuild`. A
+field the class no longer has is an unexpected keyword, a required field that is absent is
+missing, and a defaulted field that is absent is filled in, after which the digest no longer
+matches the file's stamp. Any of these refuses before a hash is compared.
 
-- `HDF5Output.open` in append mode;
-- `resolve_metadata_write`;
-- the scan drivers' finished-point check (`solprop/driver/_scan_run.py` and
-  `_scan_batch.py`);
-- processing's check that `source=` wrote the output (`solprop/processing/planes.py`).
+Two earlier rulings relaxed the gate for particular cases: a realisation drawn without a
+seed is drawn again from the file's seed (`Simulation._adopt_recorded_seed`), and the
+boundary check's budget is outside the key. A session's backend and provider facts already
+go into `RunOutcome.execution`, and earlier sessions' into `previous_executions`.
 
-Two earlier rulings relaxed the gate for particular cases.
-
-- **Unseeded noise.** A realisation drawn without a seed is drawn again from the file's
-  seed before the comparison (`Simulation._adopt_recorded_seed`).
-- **The boundary check.** Its budget and guard width are outside the key, so a run
-  stopped at the window's edge resumes under a relaxed check.
-
-A resumed session's backend and provider facts already go into `RunOutcome.execution`.
-Earlier sessions' facts are kept in `previous_executions`, outside the scientific
-identity.
+`tests/output/test_record_stability.py` and `tests/record_numbers.py` already pin run
+records: the structure by an exact hash, and the numbers to `RECORD_RTOL = 1e-11`, a bound
+chosen from the largest departure a change of libm, BLAS or compiler can make.
 
 The relevant decisions:
 
-- **ADR-051:** no compatibility with earlier configurations; every field is recorded at
-  its default; a file of another schema is never resumed.
-- **ADR-058:**
-  - the 0.x releases may break the resume key if the changelog says so;
-  - a file of another schema is refused everywhere;
-  - a resume-compatibility policy is to be decided before 1.0.
+- **ADR-051:** no compatibility with earlier configurations; every field is recorded at its
+  default; a file of another schema is never resumed.
+- **ADR-058:** the 0.x releases may break the resume key if the changelog says so; a file of
+  another schema is refused everywhere; a resume-compatibility policy is to be decided
+  before 1.0.
 - **SEP 25:** no bitwise reproducibility anywhere; bounds instead.
-- **SEP 14:** interpolated planes resume only with `resume="interpolated"`.
+- **SEP 14:** an interpolated plane resumes only with `resume="interpolated"`.
 
-This SEP answers the roadmap item *A resume-compatibility policy before 1.0*
-(*Release preparation*). It chooses neither option the item named; §10 says why.
+This SEP answers the roadmap item *A resume-compatibility policy before 1.0*. It chooses
+neither option the item named; §10 says why.
 
 ### 4. Theory
 
-**Records as trees.** A record is the JSON tree of `hashed()`:
-- an object is a mapping;
-- a serialised dataclass is a mapping with a `__class__` entry;
-- an array is a mapping with `__ndarray__`, `dtype` and `shape`, treated as one leaf;
-- a list is a sequence;
-- every other value is a leaf.
+**Records as trees.** A record is the parsed JSON of `hashed()`. A path is a tuple of
+components: mapping keys and list indices, never a dotted string, because a key may contain
+a dot. A leaf is any value that is not a plain mapping or list, and these tagged mappings
+are leaves too:
 
-A path $p$ is the dotted route to a node, with list indices as `[i]` and keyed tables
-under their keys, as `differences` writes them today.
+| Tag | Meaning | Agreement |
+|---|---|---|
+| `__ndarray__`, with `__imaginary__` when complex | an array | numeric, below |
+| `__complex__` | a complex scalar | numeric, below |
+| `__enum__` | an enumeration member | exact |
+| `ArrayDigest` | the SHA-256 of a large array | exact |
+| `__callable__`, `__repr__`, marked `reproducible: false` | a repr, unstable across processes | exact, with the reason in the refusal |
 
-**Classes.** A table $T$ of path patterns (dotted names with `*` matching one component
-and `**` any number) assigns each path a class. The first matching pattern wins, and the
-deepest node that matches decides for its subtree:
+A list of numbers is compared number by number, like an array. Differences in a list or an
+array are reported as one entry with a count.
+
+**Normalisation.** Two steps run before the walk, because neither is table data: model
+records and solids are re-keyed from `material:kind:name` to `(material, kind, digest)`, so
+that a renamed model is the same model; and a subtree whose `__class__` begins with
+`optmat.` is dropped, because the manifest records its digest.
+
+**Classes.** A table $T$ maps path patterns to classes. A pattern is a tuple of components,
+with `*` matching one component (a list index included), `**` any number, and braces listing
+alternatives. The first row that matches a leaf's path decides, and an unmatched path is
+compared, so a field nobody has classified is held to agreement: the safe error is a
+refusal.
 
 $$
-c(p) \in \{\text{compared},\ \text{numerics},\ \text{ignored}\},
-\qquad c(p) = \text{compared} \text{ if no pattern matches.}
+c(p) \in \{\text{layout},\ \text{compared},\ \text{numerics},\ \text{ignored}\}.
 $$
 
-Compared is the default, so a field nobody has classified is held to agreement: the safe
-error is a refusal.
+**Agreement of leaves.** Strings, booleans, integers, `None`, enumerations and digests agree
+when equal. An integer and a float, such as `pressure=1` and `1.0`, compare as numbers.
+Floating-point numbers and arrays of the same shape agree when, for every element,
 
-**Agreement of leaves.** Two leaves $a$ and $b$ at a compared path agree when:
+$$
+|a_i - b_i| \le \varepsilon \max(|a_i|, |b_i|), \qquad \varepsilon = 10^{-11},
+$$
 
-- strings, booleans, integers and `None` are equal;
-- floating-point scalars and arrays have equal shapes and dtype kinds, and
-  $$
-  \max_i |a_i - b_i| \le \varepsilon \max\!\Big(\max_i |a_i|,\ \max_i |b_i|\Big),
-  \qquad \varepsilon = 10^{-12},
-  $$
-  with complex values measured by modulus, NaN agreeing only with NaN in the same place
-  and an infinity only with the same infinity.
+with complex values measured by modulus, NaN agreeing only with NaN in the same place and an
+infinity only with the same infinity. The test is per element because the elements of an
+array may be different quantities: the dispersion coefficients `[β2, β3, β4]` span 18 orders
+of magnitude, and a scale taken from the array's largest element would let β3 double and β4
+change sign. A few arrays have tails of rounding, which a per-element test would judge
+against themselves. Only the paths $T$ marks **tail** add a floor, taken from the array:
+$|a_i - b_i| \le \varepsilon \max_j(|a_j|, |b_j|)$.
 
-The scale is the larger array's maximum, not each element, so that the near-zero tail
-of a spectrum is judged against the array's scale rather than its own.
+$\varepsilon$ is `RECORD_RTOL`, one constant shared with the tests. It rests on a
+measurement: the largest departure among the record's numbers is the ionisation threshold,
+found by bisection to a relative bracket of $10^{-12}$. It is far below any stepper
+tolerance in use and any change a user makes on purpose. Continuing with numbers that agree
+to $\varepsilon$ perturbs the solution at about the order of the rounding the march makes
+itself, which is the kind of difference SEP 25 bounds rather than forbids.
 
-$\varepsilon = 10^{-12}$ is about $4500$ units in the last place of a double. That is
-well above the spread of a few libm ulps carried through the short chains of operations
-that build these arrays. It is orders of magnitude below the stepper tolerances runs use
-(the routes default to $10^{-6}$ or $10^{-5}$ relative) and below any parameter change a
-user makes on purpose. Continuing with physics arrays that agree to $\varepsilon$
-perturbs the solution at the same order as the rounding the march already makes at
-every step. That is the kind of difference SEP 25 bounds rather than forbids.
+**Exact paths.** A few numbers cannot take a tolerance, because the driver does exact
+arithmetic on them. A resume finds its plane by `searchsorted` on the save planes and lands
+on them, so a save plane moved by $10^{-13}$ fails later with an unrelated error. $T$ marks
+them **exact**: `configuration.save_planes`, `initial_z` and `grid.length`. Plain arithmetic
+on a user's number makes them bit-identical across platforms, so nothing is lost.
 
-**Absent paths.** A path present in one record and absent from the other is resolved
-before comparison by a neutral value $\nu(p)$, the value that reproduces the behaviour
-of the code before the path existed:
+**Absent paths.** A path present in one record and absent from the other is a difference,
+unless a table $N$ gives its neutral value: the value that reproduces the behaviour of the
+code before the path existed. With an entry, the absent side reads as that value and the
+comparison goes on. The table holds one line per field that a release declared neutral.
+Every new recorded field therefore needs a decision, and the frozen records of §7 fail until
+someone makes it. The field's default is deliberately not consulted: a new field that
+changes what runs compute would agree with itself through its own default, and resolving a
+stored `__class__` would import a module a file names.
 
-- If the parent is a serialised dataclass that still has the field, $\nu(p)$ is the
-  field's `metadata["neutral"]` where declared, otherwise its default.
-- Otherwise $\nu(p)$ comes from a table $N$ of neutral values. A path in neither is a
-  difference.
+A default changed deliberately needs no entry. The earlier record holds the old value, which
+the comparison sees as a change of physics, and so it should. $N$ also has a short section
+of class renames, for a class moved between modules.
 
-The convention this rests on:
+**Materials.** After normalisation a model is identified by `(material, kind, digest)`.
+optmat's digest is the SHA-256 of the model's canonical record, which identifies its
+numbers, and it leaves out status, status reason and the override fields, so `modified` and
+`base` stay compared. Two optmat versions that give a model the same digest give the run the
+same numbers.
 
-> A field added to a recorded dataclass takes, as its default, the value that reproduces
-> the earlier behaviour, or declares that value as `neutral`.
+**Verdict.** For stored record $S$ and requested record $R$, with equal digests a fast path
+meaning no differences:
 
-A default changed deliberately needs nothing. The earlier record holds the old value,
-which the comparison sees as a change in physics, and so it should.
+| Differences | `resume=True`, unfinished file | `resume=True`, complete file | `resume="force"` |
+|---|---|---|---|
+| none, or only rounding and neutral | continues | nothing to do, as today | as `resume=True` |
+| numerics | continues, recorded | refused: nothing would be computed | as `resume=True` |
+| compared | refused | refused | continues, recorded, flagged; refused on a complete file |
+| layout | refused | refused | refused |
 
-**Materials.** The manifest's model records are compared as a set keyed by
-`(material, kind, digest)`. A model's name, status, status reason, sources and optmat
-version are *ignored*, and so is the manifest's optmat version. Species, compositions,
-solids and policies are *compared*, with each species' record list read as digests. The
-digest is optmat's SHA-256 of the model's canonical record, which identifies its
-numbers. Two optmat versions that give a model the same digest give the run the same
-numbers.
+A complete file with changed numerics is refused rather than returned, because the user
+asked for something the file does not hold: a tightened `rtol` must not hand back the loose
+result. The remedy is a new file.
 
-**Save planes.** `configuration.save_planes` is compared, with one exception that phase
-3 uses. When the stored run is complete and the new planes extend the stored ones, it
-counts as an extension rather than a difference. The new planes $z'_k$ extend the
-stored planes $z_k$ when $z'_k$ agrees with $z_k$ for every stored $k$ and there are
-more of them.
-
-**Verdict.** For stored record $S$ and requested record $R$, after resolving absent
-paths:
-
-- the resume is **refused** if a compared path disagrees, and the refusal names every
-  such path;
-- otherwise it **continues**, and the numerics paths that differ are reported and
-  recorded.
-
-Ignored paths are never looked at.
-
-**Numerical changes on continuing.** With the controller held to $\text{rtol}_1$ on
-$[0, z_r]$ and $\text{rtol}_2$ on $[z_r, L]$, the continued run is a concatenation of
-two adaptive integrations from one state. Its local error is bounded on each segment by
-that segment's tolerance. So the whole run is no better than the looser of the two.
-That is a statement about accuracy, not identity, and it is recorded, not refused.
-
-Some integrator changes leave the stored history unusable:
-- a change of method (Multistep versus Runge–Kutta, or another Adams formulation);
-- a change of order or of the history's parameters.
-
-After such a change the Adams history is not reused, and the march starts at order one
-from the stored field, exactly as `resume_history=False` does today.
+**Numerical changes on continuing.** With the controller held to $\text{rtol}_1$ on $[0,
+z_r]$ and $\text{rtol}_2$ on $[z_r, L]$, the continued run is a concatenation of two
+adaptive integrations from one state, and its local error is bounded on each segment by that
+segment's tolerance. So the whole run is no better than the looser of the two. That is a
+statement about accuracy, not identity, and it is recorded, not refused.
 
 ### 5. Proposed interface
 
 #### 5.1 The comparison
 
-A new module `solprop.output.compatibility` holds the class table $T$, the neutral table
-$N$ (with its class-rename entries) and the comparison. `RunMetadata` gains one method:
+A new module `solprop.output.compatibility` holds $T$, $N$ and the comparison. `RunMetadata`
+gains one method:
 
 ```text
-comparison = stored.compare(requested)      # RecordComparison
-comparison.continues                        # bool
-comparison.refused                          # tuple of PathChange (compared paths)
-comparison.numerics                         # tuple of PathChange (allowed, recorded)
-comparison.summary()                        # the refusal or report text
+comparison = stored.compare(requested)     # RecordComparison
+comparison.continues                       # bool, for resume=True
+comparison.layout                          # tuple of PathChange
+comparison.refused                         # tuple of PathChange (compared paths)
+comparison.numerics                        # tuple of PathChange (recorded)
+comparison.neutral                         # tuple of paths read through N
+comparison.summary()                       # the refusal or report text
 ```
 
-`PathChange` holds the path, the stored value and the requested value, with arrays
-summarised by shape and largest difference. The values of an absent path appear as
-`absent → neutral`. `RunMetadata.differences` and `summarise_differences` stay, for
-displays that want every difference, numerics included.
+`PathChange` holds the path and both values, with arrays and lists summarised by shape and
+largest difference. `summary()` groups elements as `summarise_differences` does, because a
+pressure change moves about 500 paths: it names every part of the record that changed, with
+its first entries and a count of the rest. `differences` and `summarise_differences` stay,
+for displays that want every difference.
 
-`check_cache(path, metadata)` keeps its signature:
-
-- it returns `True` when the comparison continues;
-- it raises `OutputError` with `comparison.summary()` when the comparison refuses;
-- it logs the numerics changes at warning level when it continues.
-
-The `materials` note in the refusal changes accordingly. It names the models whose
-digests changed, not the optmat version.
+`check_cache(path, metadata)` keeps its signature and returns `True` or raises `OutputError`
+with `comparison.summary()`. It wraps an internal function that returns the comparison,
+which the driver uses for the record of §5.3. The refusal names the models whose digests
+changed, and for a callable says that its repr changes between processes and to pass an
+object that carries its data.
 
 #### 5.2 The class table
 
-The initial table, in order. A path not matched is compared.
+In order; the first row that matches decides, and an unmatched path is compared.
 
-| Pattern | Class | Why |
+| Pattern | Class | How, and why |
 |---|---|---|
-| `stepper.**` | numerics | tableau, controller, limits, schedule, integrator: how accurately, not what |
-| `configuration.propagator_mode` | numerics | which equivalent linear propagator form steps the run |
-| `configuration.initial` | ignored | the launch field realised on the grid; the stored field supersedes it |
-| `noise.spectrum` | ignored | the realisation drawn from `noise.model` and `noise.seed`, both compared |
+| `simulation_kind`, `power_convention` | layout | exact |
+| `initial_z`, `grid.length`, `configuration.save_planes` | layout | exact, §4 |
+| `grid.**` | layout | the stored arrays' axes |
+| `modes`' length, `modes[*].kind` | layout | the state's basis; a mode's data is compared |
+| `spatial.**`, `quadrature.**`, `modal.**` | layout | the state's basis and transforms |
+| `configuration.precision`, `configuration.statistics.**` | layout | the error floor and the per-plane datasets |
+| `tdse.**` | layout | the archive and call ledgers bind to it; compared as text, so numbers inside `configuration_json` are exact |
+| `stepper.**`, `configuration.propagator_mode` | numerics | how accurately, not what |
+| `configuration.initial`, where `configuration.pulse` is present | ignored | realised from a compared pulse on a compared grid; the stored field supersedes it |
+| `configuration.initial` otherwise | compared, tail | an array launch: this is its only record |
+| `noise.spectrum`, where `noise.seed` is set and `noise.model` is `input` | ignored | drawn from a compared model and seed, used only at the launch |
+| `noise.spectrum` otherwise | compared, tail | a realisation passed in has no other record, and modified noise is injected at every step |
+| `configuration.absorber.{spectral_rate, temporal_rate, temporal_rate_fine}` | compared, tail | rates with rounding tails |
 | `materials.optmat_version` | ignored | provenance |
-| `materials.records.**` except `material`, `kind`, `digest`, `modified`, `base` | ignored | provenance; the digest identifies the numbers |
-| `**.citation` | ignored | a citation string, which may carry a source file's hash |
+| `materials.records.*.{name, status, status_reason, sources, optmat_version}` | ignored | provenance; the digest identifies the numbers |
+| `materials.policies.ionisation[*].{model, status}`, `**.cladding.source` | ignored | a model's name and status, outside the manifest's records |
+| `**.citation` | ignored | a citation string, which may carry a file's hash and the optmat release |
 
-The pulse parameters, noise model and seed, launch position, precision, statistics, save
-planes, grid, modes and every physics record stay compared. A resume whose launch
-differs is refused. The stored field does supersede the launch, but a script that
-changed its pulse and kept its output path is more likely a mistake than a wish to
-continue the old run. The unseeded-noise ruling is kept.
+`with_input` drops `configuration.pulse` for an array launch, so that condition is what
+separates a launch built from parameters from one that is only an array. The unseeded-noise
+ruling is kept, and a passed-in realisation is still never replaced. A launch that differs
+in its parameters is refused: the stored field does supersede it, but a script that changed
+its pulse and kept its output path is more likely a mistake than a wish to continue the old
+run.
 
-The table is data, reviewed like code. A test asserts that every pattern matches a path
-in at least one route's record, so that a stale row is noticed.
+The table is data, reviewed like code. A test asserts that every row matches a path in at
+least one route's record, so a stale row is noticed.
 
-#### 5.3 The record of a resumed session
+#### 5.3 What a session holds after continuing
 
-When a resume continues with numerics changes, the session's
-`RunOutcome.execution` gains a `resume` entry:
+After a continuation **the session's identity is the file's record**. Append mode adopts it;
+the driver uses it for the writer, for the TDSE archive context and for `output.metadata`.
+So the exact checks of §3 compare a file with its own record and hold, and `suspend`,
+`reopen` and snapshots work after a tolerant resume. The requested problem is what steps.
+The file's stored record is never rewritten: it describes the run as first written, and the
+executions say how each session continued it.
+
+A continuation with differences gains a `resume` entry in that session's
+`RunOutcome.execution`:
 
 ```text
-{"from_z": 0.0412, "from_plane": 82,
- "numerics": {"stepper.controller.rtol": [1e-06, 1e-05], ...},
+{"from_z": 0.0412, "from_plane": 82, "forced": false,
+ "numerics": {"stepper.controller.rtol": [1e-06, 1e-05]},
+ "compared": {},
  "neutral": ["stepper.controller.new_field"]}
 ```
 
-It lists:
+`previous_executions` keeps it with the session. A non-finite value, such as the default
+`dz_max`, is written as text, because `RunOutcome` refuses non-finite numbers.
 
-- the position the session started from;
-- each numerics path that changed, with its stored and requested values;
-- the paths that were read as neutral.
+#### 5.4 Reading a stored record
 
-`previous_executions` keeps it with the session, so a reader can see which segment was
-stepped how. The file's stored `RunMetadata` is never rewritten. It describes the run as
-first written, and the executions describe how each session continued it.
+The stored record reaches the comparison as it was written.
 
-#### 5.4 Scans, appends and processing
+- `from_json` keeps the raw hashed part. A record read from a file digests to its own stamp
+  and compares by its own text, whatever today's code would write, so the stamp check and
+  `_validate_metadata` still mean "the file is intact".
+- Rebuilding a dataclass for reading drops fields the class no longer has, and fills an
+  absent field from $N$, or from the field's default where it has one. The rebuilt object is
+  for reading only and the comparison never sees it. An absent required field with no $N$
+  entry refuses, by path.
 
-- **Appending.** `HDF5Output` in append mode, and `resolve_metadata_write`, use
-  `compare`. They keep the file's record when it continues and raise as today when it
-  refuses.
-- **Scans.** A scan's finished point is reused when its stored record and the point's
-  new record continue, so the scan reruns only points whose physics changed. A
-  finished point whose numerics differ is reused, not rerun, and the scan's closing
-  summary counts such points. A point that refuses is a `conflict`, as today. The
-  per-point `configuration_hash` stays in the scan file as the point's exact identity.
-- **Processing.** `source=` is accepted when the source simulation's record and the
-  output's continue.
+A file from a newer release of the same schema can therefore be read. It resumes only if the
+comparison allows it.
 
-#### 5.5 The output schema
+#### 5.5 Forcing a resume
+
+`resume="force"` on `Simulation.run` and the `prop_*` routes continues in the same file
+whenever the layout agrees and there is something left to compute, whatever the compared
+paths say. It is for a user who knows why the records differ: a corrected optmat model on a
+long run, a release that moved a derived table, a change of physics they mean.
+
+- **What it refuses:** any layout difference, because the stored state cannot be loaded and
+  the file's arrays would not fit; and a complete file, because nothing would be computed.
+- **What it also accepts:** an interpolated last plane, recorded as `resume="interpolated"`
+  records it.
+- **What it records:** every difference, in the §5.3 entry with `"forced": true`, and the
+  position in a new annotation `forced_resumes` (`FORCED_RESUMES_ANNOTATION`).
+- **What it warns about:** the file's stored record no longer describes the planes after
+  that position, and processing reads that record. `open_file` warns once for a file with
+  the annotation, naming the position, and `source=` is refused by the comparison unless the
+  simulation matches.
+
+A scan never forces. `with_input` stays the way to record a changed physics properly in its
+own file, and the manual says which to use when.
+
+#### 5.6 The numerics behind the gate
+
+The continuation meets these, which phase 1 changes:
+
+- **Call ledgers.** A run that goes from `Multistep` to `RungeKutta` is refused today by
+  `_validate_resume` and by `restore_call_ledgers`, because a logical call ledger requires
+  Adams integration. The charged ledger stays on as provenance in `previous_executions` and
+  is not installed in a Runge–Kutta march. The reverse direction already works. A TDSE run
+  admits only `Multistep`, so it never meets this.
+- **Adams history.** `AdamsMarch._refusal` compares the snapshot's `repr` of the method, so
+  raising `max_calls` or changing `safety` restarts at order one although the history is
+  still valid. The check compares only the fields that define the history. A change of those
+  restarts the march, with the warning it gives today.
+- **Interpolated planes.** `_open_output` refuses an interpolated last plane only when the
+  requested run is dense. With `interpolate_planes` now free to change, the test drops
+  `dense and`, because `_interpolated` reads the file. Otherwise a run stored densely and
+  resumed sparsely would continue silently from a state the march never passed through.
+
+#### 5.7 Scans
+
+A finished point is reused when its stored record and the point's new record differ only in
+rounding, neutral values or ignored paths. Numerics are held to agreement here: tightening
+`rtol` is the commonest reason to rerun a scan, and a done point has nothing left to
+continue. A scan with changed numerics writes to a new file.
+
+The worker keeps its digest check. A mismatch already returns a `conflict` result carrying
+the new record, and the parent, which holds the scan file, compares it with the stored one
+and treats a pass as `skipped`. So `_Job` is unchanged, and the common case costs nothing.
+
+`Queue` and `Slurm` keep exact identity: their manifest hashes the builder's code and
+refuses a change, and their per-point checks stay exact. The manual says so.
+
+#### 5.8 The output schema
 
 `schema_version` stays in the record and in the configuration hash, but leaves the
-comparison:
+comparison. A resume needs the stored file's schema to equal the current one, as
+`_refuse_schema` already requires, checked before the comparison.
 
-- **Resume:** a resume needs the stored file's schema to equal the current one, and
-  says so if it does not. This is a precondition, checked before the comparison.
-- **When to bump:** the schema is bumped only for a change that an older reader would
-  misread or that an older file cannot be appended to:
-  - a dataset renamed, re-laid or given new units;
-  - an attribute changing meaning;
-  - a required group added.
-- **No bump:** adding an optional group, attribute, annotation or record field does
-  not bump the schema. Readers ignore groups and attributes they do not know, and read
-  a missing optional one as absent. Phase 2 checks that every reader does, and states
-  the rule.
+The schema is bumped only for a change an older reader would misread or that cannot be
+appended to:
 
-The rule goes into `docs/guide/results/output.md` and a new ADR, which narrows ADR-051's
-"a file of another output schema is never resumed, through its resume key" to "through
-the schema precondition". The ADR also replaces ADR-051's "no field is left out to keep
-an earlier record's hash" by the neutral-value rule. Fields are still recorded in full.
+- a dataset renamed, re-laid or given new units, or an attribute changing meaning;
+- anything added inside `stats`, `step_history` or `step_stats`, or anything grown per
+  plane.
 
-#### 5.6 Continuing a finished run (phase 3)
+It is not bumped for a new field in the JSON record, a root attribute, or a top-level group
+written once. Those are the additions readers already tolerate (an unknown top-level group
+and root attribute were measured to read and resume), and a new top-level group is what SEP
+41's `recipe` group needs.
 
-A complete run is continued to a longer length when:
-- the stored record compares as continuing against the requested run rebuilt at the
-  stored length;
-- the requested save planes extend the stored ones.
+The rule goes into `docs/guide/results/output.md`, which today says a new field "bumps the
+output schema", and a new ADR. The ADR narrows ADR-051's "a file of another output schema is
+never resumed, through its resume key" to the schema precondition, and replaces its "no
+field is left out to keep an earlier record's hash" with the neutral-value rule. Fields are
+still recorded in full.
 
-Rebuilding at the stored length needs the builder's arguments, which a `Simulation`
-does not keep. SEP 41's resolved recipe carries them, so this phase needs SEP 41's
-recipe core. Its interface is SEP 41's `solprop resume FILE` with a new `--length L`
-option, and the recipe with its length replaced in Python. This answers SEP 41's Q4 for
-the length. A `Simulation.run(..., resume=True)` whose length exceeds a
-complete file's says how to continue through the recipe, rather than refusing without a
-reason.
-
-Extending is refused for:
-- a run whose length-dependent configuration is not a function of $z$ restricted to the
-  stored interval, such as a profile sampled on the run's own planes, with the paths
-  named;
-- a budget-exhausted run, which is unfinished and resumes as today.
-
-Phase 3 adds an entry to the class table: `**.span` and the configuration's `length`
-entries are compared on the stored interval.
-
-#### 5.7 Example
+#### 5.9 Example
 
 ```text
 sim = Simulation.from_capillary(..., rtol=1e-6)
@@ -406,237 +449,214 @@ sim = Simulation.from_capillary(..., rtol=1e-5)
 sim.run("run.h5", resume=True)
 # WARNING resuming run.h5 at z = 0.0412 m with changed numerics:
 #   stepper.controller.rtol 1e-06 -> 1e-05
-# INFO 2 paths read as neutral: stepper.controller.new_field, ...
 
 sim = Simulation.from_capillary(..., pressure=1.2)
 sim.run("run.h5", resume=True)
-# OutputError: run.h5 cannot be resumed: these compared paths differ:
-#   configuration.profiles.pressure.value 1.0 -> 1.2,
-#   configuration.medium.shared_pressure (201 elements, max |Δ| 0.2), ...
-#   To continue with different physics, launch a new segment from a saved
-#   plane (interior launch).
+# OutputError: run.h5 cannot be resumed; these compared values differ:
+#   configuration: medium.shared_pressure.values (201 elements, largest 0.2),
+#   profiles.pressure.value 1.0 -> 1.2, ... and 518 more
+#   To change the physics, launch a new segment from a saved plane; to
+#   continue in this file regardless, pass resume="force".
 ```
 
 ### 6. Implementation strategies
 
-**Where the classification lives.** There are two choices.
+**Where the classification lives.** One table of path patterns is recommended over
+annotating fields with `dataclasses.field(metadata=...)`. It covers configuration keys,
+which are not dataclass fields, and optmat's classes, which solprop does not own, and it
+keeps every compatibility decision in one reviewable place.
 
-- **One table of path patterns (recommended).** It covers configuration keys, which
-  are not dataclass fields, and keeps every compatibility decision in one reviewable
-  place.
-- **Annotate fields with `dataclasses.field(metadata=...)`.** This puts the class
-  beside the field. But it spreads the decisions over the package, and it cannot
-  annotate the route-built configuration mapping.
+**Layer.** The work belongs to the output layer, with small edits in the driver and
+processing, and one in each of `backends/driver.py` and `backends/multistep.py` (§5.6). The
+kernel contract and `KERNEL_SCHEMA_VERSION` do not change.
 
-Field metadata is used only for the `neutral` value, which belongs with the field's
-default.
+**Cost.** The walk is linear in the record's size: a prototype took 0.04 s on a 28.6 MB
+record, against 0.28 s for today's canonical JSON and SHA-256. The digest fast path keeps
+processing's per-plane `source=` check as cheap as it is.
 
-**Layer.** The work belongs to the output layer (`solprop/output`), with call sites in
-the driver and processing. No physics, translation or backend code changes. The kernel
-contract and `KERNEL_SCHEMA_VERSION` do not change. No backend is touched.
+**Retention.** Each $N$ entry names the release that added it, and is deleted with that
+release's frozen records (Q3).
 
-**The comparer.** It is a recursive walk over two parsed records, like
-`_differences`, but with arrays as leaves and the class decided on entry to each node.
-An ignored subtree is skipped. The stored record is parsed once. The cost is linear in
-the record's size, so tens of milliseconds for the largest spatial records the roadmap
-mentions (about 20 MB). Today's check serialises and hashes that record, which costs
-about the same.
-
-**Class renames.** A recorded `__class__` names the class's module path. A class moved
-between modules adds one line to $N$'s rename section, mapping the old path to the new
-one. A class renamed for a new meaning adds nothing, and the resume is refused.
-
-**Retention.** Neutral and rename entries record the release that added them (Q3).
-
-**What the comparison guards.** One test per route records a run at a fixed small
-configuration. The records captured from the 0.1.0 release are frozen as JSON fixtures
-under `tests/data/records/` and compared with a fresh build of the same configuration.
-A change that adds a field with a non-neutral default fails the test. The developer then
-either declares the neutral value or accepts the break, lists it under "Changed
-(breaking)" in the changelog and refreshes the fixture. The test is what enforces the
-convention. Without it, the neutral rule would be a promise.
-
-**Retiring earlier workarounds.** The conditional records in `metadata_for` that exist
-only to keep earlier hashes stay as they are. Their absence is now neutral by the
-generic rule, so they cost nothing. A later clean-up may write them unconditionally.
+**Earlier workarounds.** The conditional records in `metadata_for` (`transverse_measure`,
+`plasma_integration`, `quiet_collar`, `evanescent_rate`) stay as they are. Both records lack
+them in the ordinary case, so they cost nothing. Writing them unconditionally later would
+need $N$ entries, and is not proposed.
 
 **New dependencies.** None.
 
 ### 7. Verification and validation
 
-The tests are P (structural) and R (rounding) class (`docs/dev/testing.md` §3). Nothing
-here changes a computed field.
+The tests are P (structural) and R (rounding) class (`docs/dev/testing.md` §3), and T for
+the resumed-run envelope. Nothing here changes a computed field. Unless it says otherwise, a
+test goes through a real file and `check_cache`, not a hand-built record.
 
-- **Classification:**
-  - every pattern in $T$ matches some path in at least one route's record;
-  - every top-level key of `hashed()` is reached by the walk.
-- **Tolerance:**
-  - perturbing a compared array by $10^{-13}$ relative continues;
-  - perturbing it by $10^{-10}$ refuses and names the path;
-  - NaN, infinity and complex-modulus cases;
-  - a zero array against a zero array.
-- **Neutral values:**
-  - a stored record with a field removed resumes when the field's default is neutral,
-    and refuses when it is not;
-  - a path in neither record nor table refuses;
-  - a renamed class resolves through $N$.
-- **Materials:**
-  - a manifest with a changed optmat version, model name or status, and unchanged
-    digests, continues;
-  - a changed digest refuses and names the model.
-- **Numerics:** a capillary run stopped part-way resumes with a changed `rtol` and with
-  `RungeKutta()` instead of the default `Multistep`.
-  - The `resume` execution entry records both.
-  - The Adams history is not reused after the method change.
-  - The resumed run agrees with an uninterrupted run at the looser tolerance, to the
-    T-class envelope `testing.md` already uses for resumed runs.
-- **Launch:**
-  - a changed pulse energy refuses;
-  - an unseeded rerun continues;
-  - a perturbed `configuration.initial` alone continues.
-- **Frozen records:** the 0.1.0 fixtures, per route, compare as continuing with the
-  current build.
-- **Scans:**
-  - a two-point scan whose stored points differ only in numerics is reused, and its
-    summary counts both points;
-  - a point whose physics changed is a conflict.
-- **Extension (phase 3):**
-  - a complete capillary run continued from 5 mm to 10 mm agrees with a 10 mm run to the
-    resumed-run envelope;
-  - non-extending planes refuse with the remedy.
+- **Frozen records.** `tests/output/test_record_stability.py` already pins each case's
+  structure and numbers against today's build. It gains, per case and for a capillary and a
+  GNLSE route, the whole record of the latest release when phase 1 lands, built by checking
+  out that release's tag and never regenerated.
+  - Each must compare as continuing with the current build, on every CI platform. A fixture
+    captured once and compared on all platforms is the real cross-platform check.
+  - A new recorded field fails until it has an $N$ entry, which is what enforces the rule.
+  - An optmat data revision moves a digest and is a correct refusal, not a solprop
+    regression, so this test tolerates differences under `materials` alone.
+    `test_record_stability`'s docstring changes to match.
+- **Another release's file.** Files with the stamp an earlier build would write, each of
+  them: lacking a defaulted `StepLimits` field, lacking a required `GridRecord` field,
+  lacking a top-level entry, and holding an unknown field. With an $N$ entry the first three
+  continue, and without one they refuse by path.
+- **Tolerance.** The mixed-scale case: `betas` with β3 doubled and β4's sign flipped
+  refuses. A 4-ulp change of `lambda0`, `trange`, `energy` or `fwhm` continues on the
+  capillary with one and two modes and on the radial route. A named tail agrees where its
+  per-element test would not. NaN, infinity, complex and integer-against-float cases.
+- **Exact paths.** A length moved by $10^{-13}$ refuses by name, rather than failing later.
+- **Materials.** On a real route's record: a changed optmat version, model name or status
+  with the same digests continues, and a changed model number moves a manifest digest and
+  refuses, naming the model. So dropping the `optmat.` subtrees hides nothing.
+- **Launch.** A changed pulse energy refuses. `with_input(spectrum*1.5)` and a different
+  passed-in realisation refuse. An unseeded rerun continues. A different modified-noise
+  realisation refuses.
+- **Numerics.** A capillary run stopped part-way resumes with a changed `rtol`, and with
+  `RungeKutta()` after a ledger was written. The `resume` entry records both, a non-finite
+  value included, and the resumed run agrees with an uninterrupted run at the looser
+  tolerance, to the T-class envelope `testing.md` uses for resumed runs. Raising `max_calls`
+  keeps the Adams history.
+- **Complete files.** A complete file with a tightened `rtol` refuses, and one with only
+  neutral differences has nothing to do.
+- **Session identity.** `suspend` and `reopen` after a tolerant resume work, and
+  `output.metadata` is the file's. A snapshot on a TDSE run after a tolerant resume, where
+  the provider is available.
+- **Interpolated planes.** A file stored with `interpolate_planes=True` that ends on an
+  interpolated plane refuses under `False`. An ordinary non-dense run never trips the test.
+- **Force.** A changed pressure under `resume="force"` continues, records every difference,
+  writes the annotation, and warns on `open_file`. A layout change and a complete file
+  refuse under force.
+- **Scans.** A rerun whose points differ only in rounding or a neutral value skips them, and
+  one with changed numerics or physics is a conflict.
+- **Schema rule.** A file with an unknown top-level group and root attribute is read and
+  resumed. Adding a dataset in `stats` is covered by the rule, not by tolerance.
+- **The table.** Every row matches a path in at least one route's record.
 
-No benchmark is needed. The comparison's time on the largest test record is logged once
-to confirm that it is no slower than the hash it replaces.
+Not exercised by CI: a real pair of files from two platforms beyond the frozen records, and
+the queue and Slurm executors, whose identity does not change.
 
 ### 8. Documentation
 
-- **`docs/guide/results/resuming.md`:** "The resume key" becomes "What a resume
-  compares". It covers:
-  - the three classes and the table;
-  - the tolerance;
-  - neutral values;
-  - materials by digest;
-  - the numerics record, and an example refusal and an example continuation.
-
-  "Noise drawn without a seed" stays.
-- **`docs/guide/results/output.md`:** the schema-version paragraph says when the schema
-  is bumped and that a resume needs the same schema.
-- **`docs/dev/contributing.md` or `structure.md`:** the convention for a new recorded
-  field (a neutral default or a declared `neutral`), and the frozen-record test.
-- **Docstrings:** `RunMetadata.compare`, `RecordComparison`, `PathChange` and
-  `check_cache`.
-- **ADR:** a new ADR for the policy, narrowing ADR-051 and answering ADR-058's open
-  policy.
-- **Roadmap:**
-  - the *Release preparation* item is removed, since this SEP covers it;
-  - phase 3 is linked from SEP 41's Q4.
+- **`docs/guide/results/resuming.md`:** "The resume key" becomes "What a resume compares":
+  the classes and table, the tolerance, neutral values, materials by digest, the numerics
+  record, forcing, and which of `force` and `with_input` to use when, with an example
+  refusal and an example continuation. "Noise drawn without a seed" stays.
+- **`docs/guide/results/run-access.md`:** the paragraph on `check_cache`.
+- **`docs/guide/results/output.md`:** when the schema is bumped; "every field is recorded"
+  keeps its first half.
+- **`docs/dev/contributing.md`:** a new recorded field needs a decision, and how to add an
+  $N$ entry and refresh frozen records at a release.
+- **Docstrings:** `RunMetadata.compare`, `RecordComparison`, `PathChange`, `check_cache`,
+  `Simulation.run`'s `resume`, and the resume-key paragraphs of `output/schema.py` and
+  `output/hdf5.py`.
+- **ADR:** a new ADR for the policy, narrowing ADR-051 and answering ADR-058's open policy.
+- **Roadmap:** *A resume-compatibility policy before 1.0* goes; *Continuing a finished run
+  to a longer length* comes in.
+- **SEP 41:** its §3, §5.2 and §9 describe the resume gate and the schema as they stand
+  today, and follow this SEP when it is accepted.
 
 ### 9. Compatibility and impact
 
-- **Behaviour:** resumes that were refused now continue where the run is unchanged. A
-  resume with changed numerics continues with a warning where it used to be refused.
-  Nothing that continued before is refused now, because every path the old key compared
-  bit for bit is compared at least as loosely, or not at all.
-- **Breaking changes:** none to the API. `check_cache`'s refusal text changes.
-- **Output schema:** unchanged. The `resume` entry goes into the free-form
-  `RunOutcome.execution` mapping.
+- **Behaviour:** resumes that were refused now continue where the run is unchanged, or with
+  a warning where numerics changed. Nothing that continued before is refused, because equal
+  hashes mean no differences. The `dense and` edit affects only a non-dense file ending on
+  an interpolated plane, which an ordinary run cannot produce; §7 tests it.
+- **Breaking changes:** none to the API; `resume` gains a value, and `check_cache`'s refusal
+  text changes.
+- **Output schema:** unchanged by this SEP. The `resume` entry goes into the free-form
+  `RunOutcome.execution`, and `forced_resumes` is an annotation.
+- **Files already written:** the `DataPulse` phase fix takes the output schema to 2 before
+  this SEP lands, so 0.1.0 files stay refused by their schema. The rules here apply to files
+  of the schema current when phase 1 lands, and later ones, and to earlier files of that
+  schema through their full records and digests.
 - **`KERNEL_SCHEMA_VERSION`:** unchanged.
-- **The configuration hash:** unchanged. It is still stamped in every file and used for
-  exact identity.
+- **The configuration hash:** unchanged. It is still stamped in every file, and it is the
+  exact identity §3 lists.
 - **Validated results:** unaffected, since no computed field changes.
 - **Luna.jl:** no difference to record.
 
-Files written by 0.1.0 benefit at once, because they already hold full records and
-material digests.
-
 ### 10. Alternatives considered
 
-- **Hash with the stored file's own rules.** Keep one hashing function per released
-  record layout, and hash the requested run as the stored file's release would have.
-  This is a growing set of versioned hashers, which is the compatibility code the
-  maintainers want to avoid. It also still compares bit for bit and still refuses
-  numerics changes.
-- **Reintroduce omit-at-default.** Record a field only when it is not at its default.
-  This keeps hashes stable when fields are added, but not when they are removed or
-  when a default changes. It also gives up the record's statement of every value used,
-  which ADR-051 chose for good reason. The neutral-value rule gets the same tolerance of
-  added fields while keeping full records.
-- **Ignore the launch.** The stored field supersedes the launch, so the pulse and noise
-  could be ignored on resume. This is rejected because it lets a mistaken resume
-  continue the wrong run silently (§5.2). Only the realised arrays are ignored.
-- **An override such as `resume="force"`.** Continue in the same file whatever the
-  compared paths say, and record the differences. This is rejected for now: interior
-  launch already continues from a saved field with different physics, in a file that
-  describes it. See Q5.
-- **Ask for numerics changes to be opted into** (`resume="numerics"`). This adds a
-  value for a choice users make on purpose when they change `rtol`. A warning and a
-  record serve as well. See Q6.
+- **Hash with the stored file's own rules.** One hashing function per released record
+  layout. This is a growing set of versioned hashers, the compatibility code the maintainer
+  wants to avoid, and it still compares bit for bit and still refuses numerics changes.
+- **Reintroduce omit-at-default.** Hashes stay stable when fields are added, but not when
+  they are removed or a default changes, and the record stops stating every value used,
+  which ADR-051 chose for good reason.
+- **Read an absent field as its current default.** Less to write per field, but a new field
+  that changes the physics agrees with itself and continues silently, and a test built on
+  the same rule cannot catch it. An explicit table is less code and keeps the refusal as the
+  safe error.
+- **Scale the tolerance by the array's largest element.** Simpler, but it lets real changes
+  in dispersion coefficients through (§4).
+- **Ignore the launch altogether.** The stored field supersedes it, but a mistaken resume
+  would continue the wrong run silently. Only realisations whose parameters are compared are
+  ignored.
+- **No override.** `with_input` covers a deliberate change of physics, but it splits the run
+  across files and restarts the history and ledgers. For a long run stranded by a change
+  that does not matter to the user, the same file is what is wanted, and the cost is one
+  class and one annotation.
+- **Ask for numerics changes to be opted into.** A value for a choice users make on purpose.
+  A warning and a record serve as well.
+- **Continue a finished run to a longer length here.** Moved to its own proposal (§2).
 
 ### 11. Phases
 
-All phases go on one branch, `feature/sep-0042-tolerant-resume`, with one pull request
+Both phases go on one branch, `feature/sep-0042-tolerant-resume`, with one pull request
 opened at Final (SEP 0).
 
-1. **Comparison and resume gate.**
-   - **Deliverables:**
-     - `solprop.output.compatibility` with $T$, $N$, the tolerance and
-       `RunMetadata.compare`;
-     - `check_cache`, append mode, `resolve_metadata_write` and processing's `source=`
-       check on the comparison;
-     - the `resume` execution entry;
-     - the Adams history dropped on a method change;
-     - the frozen 0.1.0 record fixtures;
-     - the manual sections of §8 and the ADR.
-   - **Verifies:** §7 up to the frozen records.
+1. **Comparison and resume.**
+   - **Deliverables:** `solprop.output.compatibility` with $T$, $N$, normalisation and
+     `RunMetadata.compare`; `from_json` keeping the raw record and tolerating absent and
+     unknown fields; `check_cache`, append mode and `source=` on the comparison; the session
+     adopting the file's record; the `resume` entry; the ledger, history and
+     interpolated-plane edits; `resume="force"` with its annotation and warning; the frozen
+     records; the manual and the ADR.
+   - **Verifies:** §7 except scans and the schema rule.
 2. **Scans and the schema rule.**
-   - **Deliverables:**
-     - finished-point reuse by comparison in both scan drivers, with the summary count;
-     - the schema precondition, and the bump rule in `output.md` and
-       `contributing.md`.
-   - **Verifies:** the scan tests of §7, and a file with an unknown optional group read
-     and resumed.
-3. **Continuing a finished run.** This needs SEP 41's recipe core.
-   - **Deliverables:** the extension rule for save planes and spans, and
-     `solprop resume --length`.
-   - **Verifies:** the extension tests of §7.
+   - **Deliverables:** the parent's comparison on a digest conflict in `Local`, `Pool` and
+     `Batch`; the bump rule in `output.md` and `contributing.md`.
+   - **Verifies:** the scan and schema tests of §7.
 
 ### 12. Open questions
 
-- **Q1. The tolerance.** $\varepsilon = 10^{-12}$ relative to the array's largest
-  magnitude, or bit equality as today.
-  - *Recommendation:* $10^{-12}$. Bit equality is what keeps a run from resuming on
-    another machine.
-- **Q2. The launch realisations.** Ignore `configuration.initial` and `noise.spectrum`
-  (the parameters that made them stay compared), or compare them within tolerance.
-  - *Recommendation:* ignore them. A change in how a pulse is realised on the grid, or
-    in NumPy's generator, says nothing about the continuation, and the stored field
-    supersedes both.
-- **Q3. How long neutral and rename entries live.** Keep each entry for the release
-  that adds it and the next minor release, then delete it with the frozen fixture it
-  serves. Or keep them until 1.0.
-  - *Recommendation:* the current and previous minor release. The table stays short,
-    and a user two releases behind finishes the run with the older install.
-- **Q4. Scans and numerics.** Reuse a finished point whose numerics differ, or rerun
-  it.
-  - *Recommendation:* reuse it and count it in the summary. A user who changed `rtol`
-    to recompute writes to a new scan file.
-- **Q5. A force override.** Offer `resume="force"`, recording every difference.
-  - *Recommendation:* no, because interior launch covers changed physics. Revisit if
-    users ask for it.
-- **Q6. Opting into numerics changes.** Allow them on `resume=True` with a warning, or
-  require `resume="numerics"`.
-  - *Recommendation:* allow them with a warning and the execution record.
-- **Q7. Precision.** Keep `configuration.precision` compared, or make it numerics.
-  - *Recommendation:* compared. A single-precision continuation of a double run changes
-    the error floor of the continuation, and the output guide promises that a run is
-    never resumed in the other precision.
+- **Q1. The tolerance.** Per element at $10^{-11}$, with an array-scale floor only on named
+  tails (recommended); or the array-scale test at $10^{-12}$ the first draft proposed, which
+  the review showed passes real physics changes. **The maintainer agreed the first draft's
+  recommendation on 2026-11-01, before the review reopened it; to confirm.**
+- **Q2. The launch realisations.** Ignore `configuration.initial` and `noise.spectrum` only
+  where compared parameters made them (recommended); or always, as the first draft proposed,
+  which hides array launches. **As Q1: to confirm.**
+- **Q3. How long neutral and rename entries live.** For the release that adds them and the
+  next minor release, then deleted with the frozen records they serve (recommended); or
+  until 1.0. **Decision (John Travers, 2026-11-01):** as recommended.
+- **Q4. Scans and numerics.** A finished point whose numerics differ is a conflict
+  (recommended, §5.7); or it is reused and counted, as the first draft proposed, which hands
+  back loose results after a tightened `rtol`. **As Q1: to confirm.**
+- **Q5. A force override.** Add `resume="force"`, limited by the layout class and recorded
+  in the file (recommended, §5.5); or none, with `with_input` the only route. The maintainer
+  asked what leaving it out would exclude, noting that forcing is sometimes useful. **To
+  confirm.**
+- **Q6. Opting into numerics changes.** Allow them on `resume=True` with a warning and the
+  execution record (recommended), or require a new value of `resume`. **Decision (John
+  Travers, 2026-11-01):** as recommended.
+- **Q7. Precision.** Keep `configuration.precision` from changing (recommended), or make it
+  numerics. **Decision (John Travers, 2026-11-01):** as recommended; it is layout, so
+  `force` does not change it either.
 
 ### 13. References
 
-1. solprop, [Resuming a calculation and checking compatibility](../../guide/results/resuming.md).
+1. solprop, [Resuming a calculation and checking
+   compatibility](../../guide/results/resuming.md).
 2. solprop, [Output: the schema version](../../guide/results/output.md#the-schema-version).
-3. solprop, [Design decisions](../decisions.md): ADR-051 and ADR-058.
-4. solprop, [SEP 25 — Rounding-level reproducibility](archive/sep-0025-rounding-level-reproducibility.md).
+3. solprop, [Starting from a saved interior field](../../guide/results/interior-launch.md).
+4. solprop, [Design decisions](../decisions.md): ADR-051 and ADR-058.
+5. solprop, [SEP 25 — Rounding-level
+   reproducibility](archive/sep-0025-rounding-level-reproducibility.md).
 
 ## Part II — Implementation record
 
@@ -644,6 +664,11 @@ opened at Final (SEP 0).
 
 - 2026-10-31: Drafted.
 - 2026-11-01: AI review (Opus 5.5).
+- 2026-11-01: Opus 5.5 (drafting agent) answered R1–R24 and revised Part I (response below):
+  a layout class, a per-element tolerance with named tails, an explicit table of neutral
+  values, stored records read as written, the session adopting the file's record,
+  `resume="force"`, and no phase 3. Maintainer decisions on Q3, Q6 and Q7 recorded; Q1, Q2,
+  Q4 and Q5 ask again, because the review reopened them or the maintainer asked.
 
 ### AI review — 2026-11-01 (Opus 5.5)
 
@@ -1108,3 +1133,93 @@ My view of each, beyond the points above:
 **Not checked:** a real pair of records from two platforms; the TDSE, general modal,
 Cartesian and planar routes' records, or any run of them; a queue or Slurm scan, which
 were read only; and anything of SEP 41 beyond its text, since it has no code.
+
+### Response to review — 2026-11-01 (Opus 5.5, drafting agent)
+
+R1, R3, R7 and R8 were re-checked against the code before this response: R1 by the
+arithmetic ($6.8\times10^{-15}$ for the review's `betas`), R3 by reading `_rebuild` and the
+stamp check, R7 and R8 by reading `_validate_resume` and `_open_output`. Part I is revised
+as follows. All 24 points are taken, except as stated in points 5, 9 and 12.
+
+1. **R1 taken.** The test is per element (§4). Only rows $T$ marks **tail** add an
+   array-scale floor, namely the array launch, a passed-in noise spectrum and the absorber's
+   rates. §7 has the `betas` case. The FFT-bound floor of `tests/record_numbers.py` is not
+   copied, since it would hide β4.
+2. **R2 taken.** An absent path is a difference unless $N$ lists it. The default lookup,
+   field metadata and imports are gone (§4, §10).
+3. **R3 taken.** `from_json` keeps the raw hashed part and tolerates absent and unknown
+   fields, and the comparison works on the raw record (§5.4). §7 goes through real files
+   with the stamp an earlier build would write. §9's claim about 0.1.0 files is withdrawn,
+   for the further reason in point 15.
+4. **R4 taken.** `configuration.initial` is ignored only where `configuration.pulse` is
+   present, and `noise.spectrum` only for seeded input noise (§5.2). `with_input` removes
+   the pulse record for an array launch (`driver/simulation.py`, `with_input`), which is
+   what makes the condition safe. Modified noise is compared, not recorded as numerics,
+   because it acts at every step.
+5. **R5 taken, with one limit.** $\varepsilon = 10^{-11}$ is `RECORD_RTOL`, shared with the
+   tests. The TDSE descriptor is stated as compared text (§5.2), and frozen records on every
+   CI platform are the cross-platform check. Whether a digest ever takes in a libm-computed
+   number remains open, and those frozen records would show it. They do not cover a TDSE
+   record, because CI has no provider.
+6. **R6 taken.** `save_planes`, `initial_z` and `grid.length` are exact (§4), so a moved
+   length refuses by name rather than failing later.
+7. **R7 taken.** The ledger is kept as provenance across a change to Runge–Kutta and is not
+   installed (§5.6). Phase 1 edits both call sites, and §6 now names the backend edits.
+8. **R8 taken.** `dense and` goes (§5.6), with a test both ways.
+9. **R9 taken for files and for scans, as a refusal.** A complete file with changed numerics
+   is refused with the remedy (§4). Neutral and rounding differences still reuse. For a
+   scan, a done point with changed numerics is a conflict (§5.7). This reverses the first
+   draft's Q4, which the maintainer had agreed, so Q4 asks again.
+10. **R10 taken.** After a continuation the session's identity is the file's record (§5.3),
+    which defines "keep the file's record" and leaves the exact checks valid.
+11. **R11 taken.** Subtrees whose `__class__` begins with `optmat.` are dropped in
+    normalisation, with rows for the wrapper's `source` and the policies' `model` and
+    `status`, and a test on a real route that a changed number moves a digest (§4, §5.2,
+    §7). `reference_temperature` stays compared until phase 1 establishes whether the digest
+    covers it.
+12. **R12 taken, by a smaller route than the one suggested.** The worker's check stays as it
+    is, because a `conflict` result already carries the new record, and the parent compares
+    only then (§5.7). `_Job` does not change, and no record travels in the common case.
+    Queue and Slurm keep exact identity, stated in §3 and §5.7. No summary count is needed
+    now that numerics are not reused.
+13. **R13 taken.** "No bump" is limited to record fields, root attributes and top-level
+    groups written once (§5.8), and §8 lists the places that contradict the rule.
+14. **R14 taken.** Phase 3 is out; §2 says why, and the roadmap keeps the item. The SEP
+    closes at phase 2 and needs nothing from SEP 41. SEP 41's Q4 decision text moves with
+    it.
+15. **R15 taken.** The frozen records extend `test_record_stability` rather than adding a
+    second mechanism, an optmat data revision is a tolerated difference there, and §7 gains
+    the missing tests. Fixtures come from a tag, checked out. Since the review, the
+    `DataPulse` phase fix has taken the output schema to 2 on its way to main, so 0.1.0
+    records would be refused by schema: the fixtures come from the latest release when phase
+    1 lands.
+16. **R16 taken.** Non-finite values are written as text (§5.3).
+17. **R17 taken.** `check_cache` wraps an internal function that returns the comparison, and
+    `compare` takes the digest fast path (§4, §5.1).
+18. **R18 taken.** Paths are tuples, the first matching row decides, the tags are listed,
+    integers against floats are stated, and re-keying is a normalisation step and not table
+    data (§4).
+19. **R19 taken.** §6 no longer says the conditional records are neutral by a generic rule.
+20. **R20 taken.** §5.6 says the history check compares only the fields that define the
+    history, so a raised call budget keeps it.
+21. **R21 taken.** §3 is now a full table of what tests the hash and what becomes of it, and
+    §8 lists the further pages and docstrings.
+22. **R22 taken.** A callable stays compared, because its repr is all the record holds, and
+    the refusal now gives the reason and the remedy (§4, §5.1). `resume="force"` also gets
+    past it.
+23. **R23 taken.** §1 now claims less about where the compatibility code sits and the design
+    is smaller, as the point suggests: one table $N$, one class-prefix rule, no phase 3.
+    `resume="force"` adds one class and one annotation, for the reason in the next
+    paragraph.
+24. **R24 taken.** Reports group elements, and "names every path" is softened to what
+    `summary()` does (§5.1, §5.9).
+
+**Where this departs from the review.** The review agreed with the first draft's Q5, no
+override. The maintainer asked what that would exclude, noting that forcing is sometimes
+useful, and the answer was: every compared difference, with `with_input` the only way on, at
+the cost of a split file and restarted ledgers. So §5.5 adds `resume="force"`, limited by a
+new layout class, and Q5 asks for confirmation. The layout class is new since the review and
+has not itself been reviewed.
+
+**Still unmeasured,** as the review says: a real pair of files from two platforms; the TDSE,
+general modal and planar records; and queue and Slurm scans.
