@@ -14,6 +14,7 @@ import pytest
 import threadpoolctl
 
 import solprop.translate.problem as translation
+from modal_provider_cases import GENERAL_Z_END, general_grid, general_guide
 from solprop import _process
 from solprop.backends import registry
 from solprop.backends.numba_cpu import fft
@@ -25,6 +26,7 @@ from solprop.modes import graded_index
 from solprop.modes.graded_index import GradedIndexProvider, PowerLawPermittivity
 from solprop.modes.guide import ModalGuide
 from solprop.modes.material import IndexMaterial
+from solprop.translate import general
 
 
 class Library:
@@ -307,6 +309,23 @@ def test_releasing_one_owner_twice_keeps_another_owners_narrower_limit(pools):
     assert widths(pools) == [32, 32]
 
 
+def test_a_failed_release_keeps_ownership_for_a_retry(monkeypatch, pools):
+    lease = _process.acquire_host_blas(pools[0], 1)
+    failing = pools[0][0]
+    original = failing.set_num_threads
+
+    def fail_once(threads):
+        monkeypatch.setattr(failing, "set_num_threads", original)
+        raise RuntimeError("library restore failed")
+
+    monkeypatch.setattr(failing, "set_num_threads", fail_once)
+    with pytest.raises(RuntimeError, match="library restore failed"):
+        lease.restore_original_limits()
+    lease.restore_original_limits()
+    assert widths(pools) == [32, 32]
+    assert not _process._BLAS_POOLS
+
+
 def test_provider_construction_and_standalone_solve_hold_the_pool(monkeypatch, pools):
     original = graded_index.eigh
     observed = []
@@ -394,6 +413,27 @@ def test_translation_and_coupling_hold_and_restore_the_pool(
     assert widths(pools) == [32, 32]
 
 
+def test_general_route_tables_are_built_inside_the_translation_hold(monkeypatch, pools):
+    # Simulation.from_waveguide builds these leaves before assemble(), so the
+    # route needs its own coarse hold beyond the provider's individual solves.
+    grid = general_grid()
+    guide = general_guide(grid=grid, chi3=None)
+    original = general.modal_transform_tables
+    observed = []
+
+    def held_tables(*args, **kwargs):
+        observed.append(widths(pools))
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(general, "modal_transform_tables", held_tables)
+    route = general.general_modal_route(
+        guide, grid, z_max=GENERAL_Z_END, omega_reference=grid.omega0
+    )
+    assert route.n_modes == 1
+    assert observed == [[1, 1]]
+    assert widths(pools) == [32, 32]
+
+
 @pytest.mark.parametrize("name", ["numpy_ref", "numba_cpu", "native"])
 def test_construction_beside_a_live_backend_restores_its_pools(
     monkeypatch, simulation, name
@@ -418,7 +458,12 @@ def test_construction_beside_a_live_backend_restores_its_pools(
                 one.filepath: one.num_threads for one in controller.lib_controllers
             }
             assert during == {
-                path: width if path == own else 2 for path, width in before.items()
+                path: width
+                if path == own
+                else 2
+                if name == "numpy_ref"
+                else min(width, 2)
+                for path, width in before.items()
             }
             # Another construction nests into the hold while the backend lives.
             simulation.with_input(simulation.initial).translate()

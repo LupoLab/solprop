@@ -71,10 +71,16 @@ class _BlasLease(contextlib.AbstractContextManager[None]):
                 pool = _BLAS_POOLS.get(path)
                 if pool is None or self.owner not in pool.requests:
                     continue
-                del pool.requests[self.owner]
+                remaining = [
+                    width
+                    for owner, width in pool.requests.items()
+                    if owner is not self.owner
+                ]
                 pool.library.set_num_threads(
-                    min(pool.requests.values()) if pool.requests else pool.original
+                    min(remaining) if remaining else pool.original
                 )
+                # A failed setter leaves this owner intact so release can retry.
+                del pool.requests[self.owner]
                 if not pool.requests:
                     del _BLAS_POOLS[path]
 

@@ -387,7 +387,9 @@ back. The run's metadata records what applied as `host_blas`.
 Guide construction and coupling happen before a backend exists. They also hold the
 controllable host BLAS pools at one thread, or at `SOLPROP_BLAS_THREADS` within the
 process budget. The hold covers `ModalGuide.from_provider`, a standalone graded-index
-mode solve (including a node rule's tail certificate), kernel translation and `couple`.
+mode solve (including a node rule's tail certificate), `general_modal_route`, kernel
+assembly and `couple`. The general modal route builds its large reference tables
+inside `Simulation.from_waveguide`, before kernel assembly.
 This overrides `OPENBLAS_NUM_THREADS` and the other vendor defaults for those calls,
 then restores the previous limits even if construction fails. A native backend's own
 BLAS keeps its fitted width. Nested or overlapping construction shares the first
