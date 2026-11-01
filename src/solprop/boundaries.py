@@ -76,6 +76,7 @@ from jaxtyping import Bool, Float, Inexact
 
 from solprop.exceptions import GridError, SolpropWarning
 from solprop.grid import Collar, FreeGrid, RadialGrid, TimeGrid
+from solprop.spatial_absorber import SpatialAbsorber, SpatialAbsorberDesign
 
 __all__ = [
     "DEFAULT_BOUNDARY_N",
@@ -85,6 +86,8 @@ __all__ = [
     "STABILITY_RADIUS",
     "TEMPORAL_ALPHA_LENGTH",
     "Absorber",
+    "SpatialAbsorber",
+    "SpatialAbsorberDesign",
     "TransverseCollar",
     "absorber",
     "apply_band_mask",
