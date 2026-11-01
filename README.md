@@ -90,13 +90,20 @@ prop_2d(run, "wavelength")
 
 ## Fast CPUs and GPUs: the native backend
 
-solprop runs out of the box on a NumPy reference backend and a compiled Numba CPU
-backend. For speed on large problems — multimode and general modal guides, broadband
-supercontinuum grids, free-space beams — add the optional **native backend**,
-solprop-native, built from [`native/`](https://github.com/LupoLab/solprop/tree/main/native)
-in this repository: C++ kernels built with [Kokkos](https://kokkos.org), using OpenMP,
-FFTW and a vendor BLAS on multi-core CPUs, or CUDA and HIP on NVIDIA and AMD GPUs. Once
-it is installed, solprop uses it automatically; your scripts do not change. See
+**Use the native backend.** solprop-native, built from
+[`native/`](https://github.com/LupoLab/solprop/tree/main/native) in this repository, is
+the backend solprop is developed and run on: C++ kernels built with
+[Kokkos](https://kokkos.org), using OpenMP, FFTW and a vendor BLAS on multi-core CPUs, or
+CUDA and HIP on NVIDIA and AMD GPUs. Once it is installed, solprop uses it automatically;
+your scripts do not change.
+
+Without it, solprop falls back to `numba_cpu`, a compiled CPU backend included in the
+package, and warns that it has done so. `numba_cpu` is correct and tested, but it is a
+second-tier fallback for machines the native backend cannot reach: in the
+[recorded benchmarks](https://solprop.readthedocs.io/en/latest/guide/performance/backends.html#which-backend-to-use)
+it took 1.5 to 2.2 times as long at one thread and 2.1 to 2.8 times as long on all cores,
+and new features do not always reach it. The third backend, `numpy_ref`, is the plain NumPy reference that the
+others are tested against. See
 [The native backend](https://solprop.readthedocs.io/en/latest/guide/performance/native.html) and
 [Performance tuning](https://solprop.readthedocs.io/en/latest/guide/performance/tuning.html).
 
@@ -106,14 +113,14 @@ solprop needs Python 3.14 (3.15 is not yet supported: some dependencies have no 
 for it) and runs on Linux, macOS and Windows:
 
 ```sh
-pip install "solprop[native]"   # with the compiled native backend (recommended)
-pip install solprop             # elsewhere: the NumPy and Numba backends only
+pip install "solprop[native]"   # the default: with the compiled native backend
+pip install solprop             # no wheel for your platform: the slower fallback backends
 ```
 
 The `native` extra installs a precompiled wheel of the native backend, the fastest way to
 run solprop, on macOS on Apple silicon (osx-arm64), Linux on x86-64 (linux-64), Linux on
 aarch64 (linux-aarch64) and Windows on x86-64 (win-64). On other platforms, and for GPUs,
-build it from source (below).
+build it from source (below) rather than stay on the fallback.
 [Installation](https://solprop.readthedocs.io/en/latest/introduction/installation.html) covers environment checks and a
 first run.
 

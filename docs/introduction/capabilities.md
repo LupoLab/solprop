@@ -140,8 +140,9 @@ Start with [results and interpretation](../guide/results/index.md), then
 [examples](../examples/index.md) show self-compression, dispersive-wave emission,
 supercontinuum generation, Raman dynamics, mode conversion, and beam propagation.
 
-The NumPy reference and Numba CPU backends are included with solprop. The separate
-native backend provides compiled CPU and GPU execution. Choose a backend using
+The separate native backend provides fast CPU and GPU execution and is the one to use by
+default. The NumPy reference and the slower Numba CPU fallback are included with solprop.
+Choose a backend using
 the [supported combinations](../guide/setup/model-selection.md#which-backend-runs-what)
 and the [backend guide](../guide/performance/backends.md);
 the installed native build determines whether it executes on a CPU or GPU.

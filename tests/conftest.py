@@ -53,6 +53,12 @@ import convergence_records  # noqa: E402 - `tests/` reaches sys.path with this f
 import shards  # noqa: E402 - test helper beside conftest
 import solprop  # noqa: E402, F401 - imported after the hook so the package is checked too
 from distribution import remember_nodeid  # noqa: E402 - test helper beside conftest
+from solprop.backends import registry  # noqa: E402 - needs the hook above
+
+# The lanes without the native package run on `backend="auto"`, and its fallback
+# warning fires once per process: under `filterwarnings = ["error"]` it would fail
+# whichever test came first on each worker. The warning's own tests reset this flag.
+registry._warned_native_fallback = True
 
 # ------------------------------------------------------------------------- the tiers
 #
