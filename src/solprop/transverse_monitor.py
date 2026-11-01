@@ -611,6 +611,7 @@ class TransverseEdge:
                 share = float(np.sum(weighted[face.edge])) / self._launch
                 self._peak_raw[index] = max(self._peak_raw[index], share)
             self._judge_return(state, z)
+            self._judge_ramp_removal()
             return
         warn, stop = self.budget**2, (self.stop_factor * self.budget) ** 2
         for index, face in enumerate(self._faces):
@@ -913,6 +914,9 @@ class TransverseEdge:
         removed = self.ramp_removed
         if removed > self.budget**2 and not self._ramp_warned:
             self._ramp_warned = True
+            # Only a run below the warning throughout is clear (section 5.3).
+            if self._status in ("clear", "coarse"):
+                self._status = "warned"
             warnings.warn(
                 f"the safety ramp has removed {removed:.2e} of the launch energy above "
                 "the input noise's share: content reached the grid's outer "
