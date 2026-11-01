@@ -51,7 +51,8 @@ what is not, including tempting adjacent work.*
 
 *What solprop does today in this area, with links to the manual and design pages and to
 the modules involved; the roadmap item this answers, if any; the prior SEPs and ADRs it
-builds on.*
+builds on; and, from a search of the open issues, those it will fix, those that must be
+resolved before it, and any others it changes.*
 
 ### 4. Theory
 

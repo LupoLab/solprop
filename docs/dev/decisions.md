@@ -1685,6 +1685,8 @@ Withdrawn (development-process record, not a design decision).
     in an issue, not back on the page.
   - Each SEP has a tracking issue, labelled `sep`, open until the SEP is `Final`,
     `Rejected`, `Withdrawn` or `Superseded` (SEP 0). A Process SEP has none.
+  - Drafting a SEP includes searching the open issues: its *Context* lists those it will
+    fix, those that must be resolved before it, and any others it changes (SEP 0).
   - The roadmap's lists of accepted and draft SEPs stay for now: they are status lists,
     which `tests/test_seps.py` checks against the SEPs.
 - **Consequences:**

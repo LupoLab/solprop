@@ -180,9 +180,9 @@ The long form is [SEP 0](docs/dev/seps/sep-0000-process.md); the index is
   kernel-contract changes; new backends; process changes. Not for fixes, documentation,
   tests, refactoring, tooling, or optimisations that leave results unchanged.
 - **Writing one.** Copy `template.md` to `sep-NNNN-short-slug.md` with the next free
-  number, add it to the index and the roadmap's draft section, open its tracking issue
-  (SEP 0), and merge it early as
-  `Draft` from a `docs/sep-NNNN-…` branch. A SEP stands alone: it cites solprop's,
+  number, add it to the index and the roadmap's draft section, list in its *Context* the
+  open issues it will fix or that must be resolved first (search them), open its tracking
+  issue (SEP 0), and merge it early as `Draft` from a `docs/sep-NNNN-…` branch. A SEP stands alone: it cites solprop's,
   solprop-native's and optmat's own docs and code, the literature (with DOIs) and public
   reports — never another code's source, local paths, machines or private notes. Theory
   is re-derived in SI units and the conventions of `conventions.md`; it compares options
@@ -204,7 +204,8 @@ The long form is [SEP 0](docs/dev/seps/sep-0000-process.md); the index is
   run, sources checked and not checked, limitations, numbered open questions and a
   handoff.
 - **Finishing.** At `Final`, the manual pages the SEP produced link to it, its open
-  questions move to issues, its tracking issue closes, and the `CHANGELOG.md` line cites it.
+  questions move to issues, its tracking issue closes, and the `CHANGELOG.md` line cites
+  it.
 
 ---
 

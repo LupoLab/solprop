@@ -135,10 +135,13 @@ through `Draft`, `Accepted`, `In progress` and `Deferred`, and closes when the S
    SEP covers it in full; for partial coverage, link the SEP, state what it covers and
    retain the remaining work. Discussion of a possible future extension does not count
    as coverage by the proposal's implementation scope.
-4. Open the SEP's tracking issue, titled `SEP N: <title>` and labelled `sep` with a type,
-   a priority and any area that fits. It links the SEP and says where it stands and what
-   comes next. Name the issue in the SEP's Part III.
-5. Open a pull request on a branch named `docs/sep-NNNN-short-slug`. A draft merges
+4. Search the open [issues](https://github.com/LupoLab/solprop/issues) for anything the
+   SEP touches, and list what you find in its *Context* section: the issues it will fix,
+   those that must be resolved before it, and any others it changes.
+5. Open the SEP's tracking issue, titled `SEP N: <title>` and labelled `sep` with a type,
+   a priority and any area that fits. It links the SEP and the issues found, and says
+   where the SEP stands and what comes next. Name the issue in the SEP's Part III.
+6. Open a pull request on a branch named `docs/sep-NNNN-short-slug`. A draft merges
    early — once it is coherent, not once it is agreed — so it appears in the developer
    documentation and can be discussed.
 
@@ -362,5 +365,5 @@ that edits this document and adds a line to its history.
   for SEP 21). Native work is in `native/`, no longer a separate repository.
 - 2026-11-01: Open work goes in GitHub issues, not on the roadmap, whose existing items
   move over time, and work a SEP gives back goes in an issue; each SEP has a tracking
-  issue, and the roadmap keeps the lists of accepted and draft SEPs for now (maintainer's
-  decision, ADR-062).
+  issue, and a draft lists the open issues it touches; the roadmap keeps the lists of
+  accepted and draft SEPs for now (maintainer's decision, ADR-062).
