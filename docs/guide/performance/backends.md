@@ -6,40 +6,47 @@ sees it: solprop first translates a simulation into one numerical problem — th
 and tables of its linear operator, its nonlinear responses and its transforms — and
 every backend executes that same problem. The backends differ in speed, in where they
 run and in the representations they support. Choose a backend that supports the full
-configuration; a faster backend does not select a different physical model.
+configuration; a faster backend does not select a different physical model. Use the
+native backend unless you have a reason not to; `numba_cpu` is its slower fallback.
 
 | backend | what it is | use it for |
 |---|---|---|
 | `numpy_ref` | plain NumPy, the **reference**: every other backend is tested against it | checking a result; the few representations only it runs (`CoherentWall(method="cf4")`, with `integrator=RungeKutta()`); small problems where compiling costs more than running |
-| `numba_cpu` | compiled kernels shipped with solprop, with its own thread pools | the default when the native backend is not installed; problems the native backend refuses; many single-threaded scan workers |
-| `native` | the [native backend](native.md), the optional solprop-native distribution built from the repository's `native/` directory: OpenMP, FFTW and a vendor BLAS on a CPU, or CUDA/HIP on a GPU | the default when installed, and usually the fastest for large runs, the general modal route, moving solid guides and the coherent wall |
+| `numba_cpu` | compiled kernels shipped with solprop, with its own thread pools | the fallback where the native backend cannot run: `"auto"` uses it, with a warning, when `solprop-native` is not installed or the processor is below its wheel's baseline. Also problems a GPU build refuses or runs slowly, in a process that has only that build |
+| `native` | the [native backend](native.md), the optional solprop-native distribution built from the repository's `native/` directory: OpenMP, FFTW and a vendor BLAS on a CPU, or CUDA/HIP on a GPU | **the one to use**: the default when installed, and the fastest in every recorded comparison with `numba_cpu` |
 | `mlx` | the Apple-silicon GPU through Apple's MLX, in **single precision only** ([single precision](single-precision.md)); the `mlx` extra, macOS on Apple silicon; **experimental** in this release | `precision="single"` capillary and fibre runs on a Mac, where it is the `"auto"` choice; it refuses `precision="double"` |
 
 **Tiers.** `numpy_ref` and `native` are the core backends: new features land on both,
 and they come first for testing and development (the few features one of them refuses
-are named below and in their chapters). `numba_cpu` is mature and tested, but a
-new feature reaches it only where its design says so; until then it refuses the run by
-name and names a backend that runs it. `mlx` is experimental
+are named below and in their chapters). `numba_cpu` is Tier 2: mature and tested, but
+slower, and a new feature reaches it only where its design says so; until then it refuses
+the run by name and names a backend that runs it. `mlx` is experimental
 ([backends, §10](../../dev/backends.md); [ADR-061](../../dev/decisions.md)).
 
 `backend="auto"`, the default of every entry point, is `"native"` when `solprop_native`
-is installed and `"numba_cpu"` otherwise; under `precision="single"` it is `"mlx"` when
-MLX and a Metal GPU are present, and refused otherwise. It **never falls back** but in one case: if the
-native backend cannot import, fails its compatibility check or refuses the problem, the
+is installed. Without it, `"auto"` chooses `"numba_cpu"` and emits a `SolpropWarning` once
+per process, saying so and how to install the native backend, and the run records
+`numba_cpu` as its backend. To use `numba_cpu` deliberately and silence the warning, pass
+`backend="numba_cpu"`. Under `precision="single"`, `"auto"` is `"mlx"` when MLX and a Metal
+GPU are present, and refused otherwise.
+
+With the native backend installed, `"auto"` **never falls back** but in one case: if it
+cannot import, fails its compatibility check or refuses the problem, the
 error is raised, naming what was refused, and you choose another backend explicitly.
 The one exception is a processor below the installed native build's CPU baseline (an
 x86-64 processor without AVX2 under a wheel, for example; see
-[installation](../../introduction/installation.md)): there `"auto"` chooses `"numba_cpu"`
-and emits a `SolpropWarning` once per process naming the missing features, and the run
-records `numba_cpu` as its backend. `backend="native"` raises instead. Important
-unsupported combinations include `CoherentWall(method="cf4")`, which only
-`numpy_ref` runs, with the Runge–Kutta march. The native backend also refuses a problem whose
-linear operator or nonlinear prefactor varies along z in a way
+[installation](../../introduction/installation.md)): there `"auto"` chooses `"numba_cpu"`,
+with the same warning naming the missing features. `backend="native"` raises instead.
+
+Important unsupported combinations include `CoherentWall(method="cf4")`, which only
+`numpy_ref` runs, with the Runge–Kutta march. A GPU build of the native backend also refuses
+a problem whose linear operator or nonlinear prefactor varies along z in a way
 that could not be expanded in the medium's parameters and had to be tabulated along z
 instead: the adiabatic opt-out `taper_coupling=False` of a multimode capillary taper
 whose expansion does not resolve (a kinked radius profile, for instance), or a gas
-mixture whose species have independent density paths. The refusal leads with the keyword
-that runs it, `backend="numba_cpu"` or `backend="numpy_ref"`. The
+mixture of three or more species on independent density paths. The refusal leads with
+what runs it: a CPU build of the native backend, `backend="numba_cpu"` or
+`backend="numpy_ref"`. The
 [TDSE response](../media/tdse.md) currently requires `numpy_ref`;
 select it explicitly rather than relying on automatic backend choice.
 
@@ -79,10 +86,21 @@ and what to use for scans are on [Performance tuning](tuning.md).
 
 ## Which backend to use
 
-The default — the installed native backend, otherwise `numba_cpu` — is an installation policy, not a
-prediction of the fastest backend for every shape. The measurements behind the advice
-below are in the [indicative results](../../dev/benchmarks.md#indicative-results); time
-your own problem for ten steps before committing a long campaign to one backend.
+Use the native backend. In the [performance history](../../dev/benchmarking.md), recorded
+at 0.1.0 on 2026-11-01 on the three machines below, the native backend's distribution wheel
+was faster than `numba_cpu` on every case compared, ten at one thread and twelve on all
+cores. The table gives `numba_cpu`'s time over the native backend's; single cases ranged
+from 1.2 to 6.7:
+
+| processor | one thread, geometric mean | all cores, geometric mean |
+|---|---|---|
+| two Intel Xeon Gold 6240 (36 cores) | 2.2 | 2.8 |
+| AMD EPYC 7763 (16 cores) | 2.0 | 2.4 |
+| Apple M5 Max (18 cores; most of its `numba_cpu` rows are flagged as on a busy machine) | 1.5 | 2.1 |
+
+The measurements behind the advice below are in the
+[indicative results](../../dev/benchmarks.md#indicative-results); time your own problem for
+ten steps before committing a long campaign to one backend.
 
 - **Which native build.** Build the native backend on the machine that runs it, or install a
   distribution build, the wheel ([build profiles](building-native.md#build-profiles)): the local build was the
@@ -91,9 +109,9 @@ your own problem for ten steps before committing a long campaign to one backend.
   prefer MKL (with oneAPI sourced) for TE/TM coherent walls, where it was 1.4–1.8 times
   faster than OpenBLAS; elsewhere the two tied.
 - **Independent scans on a many-core CPU.** Many one-thread workers beat one many-thread
-  run ([Performance tuning](tuning.md#recipes)). In that pattern `numba_cpu` is
-  competitive with or faster than the native backend on fibre cases, while a single many-thread run
-  of the same case is faster on the native backend.
+  run ([Performance tuning](tuning.md#recipes)). Stay on the native backend for them: it
+  also led at one thread in the table above. Those are single-process timings, so for a
+  large campaign time one point of the scan with your real number of workers.
 - **The general modal route** (`from_waveguide(..., provider=...)`): either compiled
   backend was 1.3 to 7.7 times faster than `numpy_ref` over ten steps at one thread, and a
   local native build gains a further factor at more threads. `numpy_ref` is slowest on the

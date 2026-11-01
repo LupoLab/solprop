@@ -50,8 +50,8 @@ Five executors, all in `solprop.driver.executors`, run the points:
 | `Queue(path)` | a durable queue on a shared filesystem, drained by one or more controllers |
 | `Slurm(script, ...)` | prepares a queue and submits a Slurm array job that drains it |
 
-A builder's omitted `backend` resolves to the native backend when it is installed and to `numba_cpu`
-otherwise, as described in
+A builder's omitted `backend` resolves to the native backend when it is installed and otherwise,
+with a warning, to the slower `numba_cpu`, as described in
 [running a simulation](../performance/resources.md#backend-choice-and-scan-workers); every
 executor keeps that concrete choice, so name the backend in the builder when the workers
 may run on machines with different installations.
