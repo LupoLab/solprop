@@ -1142,6 +1142,92 @@ before this SEP is set `Final`.
 [#70](https://github.com/LupoLab/solprop/pull/70) replaced with the class `TimeDataPulse` before
 this SEP was accepted; the text now names the class.
 
+### Phase 1 report — recipe core on `gnlse` and `capillary` (S1, S9, S10, S12)
+
+Complete on 2026-11-01, commits `db6e692` to `48889c8` on `feature/sep-0041-recipes`, with
+#87 as its first slice. Checked by the fast checks and the directly affected test modules,
+on `numpy_ref`, `numba_cpu` and the native CPU build (Apple M5 Max); the full gate runs
+in CI on the pull request at `Final`.
+
+**Delivered.**
+
+- **#87, one table of route defaults** (`solprop.driver.defaults`). `ROUTE_DEFAULTS` holds
+  each route's integrator, tolerances, noise policy and collar scheme, with two variants
+  (a capillary beside the TDSE response, a waveguide of slab modes), and pure functions
+  resolve each default. `SimulationSettings` marks what it took from the table, so a copy
+  in the other precision resolves the tolerance and the backend `"auto"` again. A new
+  record outside the hash, `RunMetadata.defaults` (`DefaultsResolution`), the run summary
+  and the settings' display say which values were defaults. The summary names a
+  Multistep carrier frame. An incident launch keeps a default noise's resolution, and an
+  interior launch keeps the single-precision reason. The guide says that naming an
+  integrator keeps the interface's tolerance.
+- **`solprop.recipe`** (S1): the quantity parser and writer, parameter paths, the
+  five-table document, the factory registry (24 types, below), `Recipe` with
+  `load`/`loads`/`from_dict`/`from_keywords`/`examples`/`example`, `get`/`set`, `check`,
+  `build`, `run`, `to_text`/`save` and `to_python`, and the `solprop` command with `run`,
+  `check`, `export` and `scan` (also `python -m solprop`). `tomli-w` writes TOML (Q6).
+- **Parameter metadata** (S9): one entry per keyword of `from_gnlse` (41), `from_capillary`
+  (61) and the execution settings (4), with forms, units, the `"none"` spelling, display
+  units, the resolvable flag, resolvers that read the defaults table, group, level,
+  summary and manual anchor. Tests hold it to the signatures, the anchors to the manual's
+  headings and the resolvers to what the build resolves.
+- **Structured validation** (S10): `parameter` and `rule` on `SolpropError`, `parameter`
+  on `SolpropWarning`, set at about 105 refusal sites of these two routes; `Recipe.check()`;
+  `solprop.grid.suggest`. On the capillary example `check()` costs 0.24 s (a GNLSE
+  0.01 s) and loading a recipe 1 ms.
+- **`solprop.pulses.load_spectrum`** (S12).
+- **27 example recipes**, each tested to build the configuration hash and execution
+  settings of the gallery example it mirrors, through the recipe and through its Python
+  export run in a subprocess.
+- Ahead of phase 2, because they touch no SEP 42 code: the stop flag in the backends and
+  `run_problem` (S17, without `Simulation.run`'s return yet), and S15's text.
+
+**Deviations and decisions made in the phase.**
+
+- **The modules are public.** §5.1 names only `solprop.recipe`. Its modules are
+  `core`, `document`, `metadata`, `paths`, `quantity`, `registry`, `export` and `errors`,
+  public so the API reference documents them and a front end can call the quantity
+  parser and writer to display values.
+- **The registry.** `GaussianPulse`, `SechPulse`, `load_spectrum`,
+  `PressureGradient.two_point`, `PressureGradient.from_stages`, `Constant`, `Linear`,
+  `PiecewiseLinear`, `Mixture.fill`, `Mixture.partial_pressures`, `Mixture.air`,
+  `EnvelopeGrid.from_limits`, `FieldGrid.from_limits`, `StatsSpec`, `BoundaryCheck`,
+  `FixedSchedule`, `FixedSchedule.uniform`, `Multistep`, `RungeKutta` (without its
+  `tableau`), `LowStorageRungeKutta`, `absorber` (on the grid), `TubeLattice`,
+  `CoherentWall` and `MaterialSelection`. Left out: `CustomPulse`, a `DataPulse` or
+  `TimeDataPulse` from arrays, `IndexTable`, mode objects, a TDSE response and a glass
+  cladding object, which the Python export carries.
+- **Decoded lists take the container the parameter's annotation names**, a tuple or an
+  array, so a recipe passes what a script passes; two recipes compare by value, so `"1 cm"`
+  and `0.01` are equal.
+- **A value built on the grid** (`absorber`) is built by building the route once without
+  it to obtain the grid. The export writes it only when the recipe gives `grid`
+  explicitly; otherwise it refuses, naming the keyword.
+- **The recipe is not yet carried by the `Simulation`** (§5.2): nothing reads it before
+  the recorded recipe, so it moves to phase 2 with the mutators that drop it.
+- **Where `parameter` comes from.** The small validators of pulses, grids, profiles and
+  the step controller name their own arguments, which the routes rename where a keyword
+  differs (`reference_wavelength` → `wavelength`, `phase` → `phases`), because a call
+  wrapped from outside cannot tell which of its keywords was refused. Left without a
+  parameter, where it would be ambiguous: object-level checks in `Simulation.__init__`,
+  the mode and quadrature constructors, `Mixture.fill`'s own refusals and an unknown
+  backend name. Material warnings raised at translation, the commonest being a gas index
+  used outside its fit because of `wavelength_limits`, are not labelled in this phase.
+- **`load_spectrum` across interior gaps.** Below the noise floor inside the band a
+  wrapped phase is interpolated linearly between the samples above it; §5.12 states only
+  the hold beyond the band.
+- **`grid.suggest`'s rule** is a documented heuristic, stated as a starting point: ten
+  input bandwidths each side of the carrier, at least half the carrier frequency on the
+  `gnlse` route and all of it on the `capillary` route, and thirty input durations of
+  window beyond the delays.
+- **Units the grammar does not hold.** `ionisation_field_range` (V/m) and
+  `loss_db_per_m` (dB/m) take plain numbers in their stated units, with no quantity
+  string.
+- **Ten gallery scripts on these routes have no recipe**, listed with the reason in
+  `tests/recipe/test_examples.py` and checked against the gallery: two phase-matching
+  roots that a pin would express (phase 5), lists of mode objects, mode or table objects
+  as the GNLSE `fibre`, and runs launched with `with_input`.
+
 ## Part III — History
 
 - 2026-10-31: Drafted, from the requirements of a desktop front end under design.
