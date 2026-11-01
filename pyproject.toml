@@ -271,8 +271,8 @@ filterwarnings = [
     # SEP 40 section 5.3: a fixed schedule sparser than the transverse edge's read
     # spacing reports itself as coarse; most test schedules are a few steps long.
     "ignore:the fixed schedule's longest step.*read spacing:Warning",
-    # SEP 40 phase 1: only numpy_ref reads the edge yet; the native and numba_cpu
-    # backends carry it in phases 2 and 3, which remove this entry.
+    # SEP 40 phase 2: numpy_ref and native read the edge; numba_cpu and mlx carry it
+    # in phase 3, which removes this entry.
     "ignore:this backend does not read the transverse edge:Warning",
     # The safety ramp's warning levels on test grids sized before it existed; its stop
     # and its launch refusal stay errors, and its own tests assert the warnings.

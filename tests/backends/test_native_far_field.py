@@ -18,6 +18,7 @@ computations is held to the rounding bound of that module, fixed before measurin
 
 import dataclasses
 from pathlib import Path
+from typing import Literal
 
 import numpy as np
 import pytest
@@ -59,7 +60,15 @@ NativeBackend = solprop_native.NativeBackend
 PROBE = Path(__file__).with_name("native_far_field_thread_probe.py")
 
 
-def problem_of(grid, space, field, spec, *, medium=None, collar=False):
+def problem_of(
+    grid,
+    space,
+    field,
+    spec,
+    *,
+    medium=None,
+    collar: SpatialAbsorber | Literal[False] = False,
+):
     """The kernel problem of ``test_numba_far_field_kernels.problem_of`` for Kokkos."""
     simulation = Simulation.from_free(
         grid,
@@ -475,8 +484,11 @@ def test_a_native_run_forms_the_statistics_at_planes_and_between_them():
                 integrator=RungeKutta(),
                 stats=spec,
                 # The launch puts 5e-5 into the safety ramp's band, which warns
-                # (SEP 40 section 5.3); the subject is the statistics' placement.
+                # (SEP 40 section 5.3); the subject is the statistics' placement,
+                # and numba_cpu does not yet read the transverse edge, whose reads
+                # would cap native's steps alone.
                 spatial_absorber=False,
+                boundary_check=None,
             ),
             noise=None,
         )

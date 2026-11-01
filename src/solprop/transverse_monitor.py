@@ -367,7 +367,7 @@ class TransverseEdge:
             warnings.warn(
                 "this backend does not read the transverse edge of a free-space run: "
                 "the run is unwatched there and cannot report a clean verdict; "
-                "backend='numpy_ref' reads it (SEP 40 section 5.3)",
+                "backend='numpy_ref' and backend='native' read it (SEP 40 section 5.3)",
                 BoundaryWarning,
                 stacklevel=4,
             )
@@ -827,6 +827,20 @@ class TransverseEdge:
             previous_z, previous = self._current_last
             self._current += 0.5 * (z - previous_z) * (previous + current)
         self._current_last = (z, current)
+
+    @property
+    def next_read(self) -> float:
+        """Return where the edge is next read, m; infinite when nothing is read.
+
+        A backend that marches without the host, as the native Adams march does,
+        holds its steps to it as :meth:`ceiling` does and hands the state back there.
+
+        Returns
+        -------
+        float
+            The position, m.
+        """
+        return self._next
 
     @property
     def every_step(self) -> bool:

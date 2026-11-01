@@ -428,6 +428,19 @@ refuse a fluence negative beyond its rounding budget. The helper
 as one; its end-of-plane log is retired, and the boundary monitor's transverse edge
 (SEP 40) judges the boundary instead. A backend whose own statistics do not apply this measure refuses the schema.
 
+**The transverse edge is read on the host** ([SEP 40](seps/sep-0040-transverse-absorbing-boundaries.md)).
+A backend whose `StepDriver.reads_transverse_edge` is set hands the monitor's
+`TransverseEdge` its observed field at the edge's reads, at saved planes, and with a
+requested collar at every committed step; the read spacing is a ceiling on the step.
+`numpy_ref` and `native` set it. The native Adams march takes the edge's next read as
+the call's `read_at` bound: an adaptive step does not pass it, and the call returns once
+a committed step reaches it, so the host reads the state there; a replay is not capped
+and returns at its first step past the read. With a collar the host step is one, so the
+march returns at every committed step. `numba_cpu` and mlx report `unwatched` until
+SEP 40's phase 3, and refuse a requested collar by name. The edge's reductions run on the
+host copy of the field; moving them into the native memory space is left to the cost
+measurement of SEP 40 section 7.7.
+
 ## 3. `numba_cpu`: the compiled in-tree backend
 
 ### 3.1 Why numba, and what the measurements say

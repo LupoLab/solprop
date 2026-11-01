@@ -20,6 +20,7 @@ A kernel test module: ``poe cov-kernels`` runs it with the compiler disabled.
 import dataclasses
 import functools
 import math
+from typing import Literal
 
 import numpy as np
 import pytest
@@ -148,7 +149,15 @@ def random_field(space, n_pol, grid, *, seed=7):
     return field
 
 
-def problem_of(grid, space, field, spec, *, medium=None, collar=False):
+def problem_of(
+    grid,
+    space,
+    field,
+    spec,
+    *,
+    medium=None,
+    collar: SpatialAbsorber | Literal[False] = False,
+):
     simulation = Simulation.from_free(
         grid,
         space,

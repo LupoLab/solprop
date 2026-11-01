@@ -241,7 +241,7 @@ def test_the_record_holds_the_specification_and_the_design() -> None:
 
 def test_a_backend_that_does_not_read_the_edge_refuses_a_collar() -> None:
     # SEP 40 section 6: a requested collar is refused by name where its return
-    # monitor is not carried (numba_cpu in phase 1).
+    # monitor is not carried (numba_cpu until phase 3).
     from solprop.exceptions import BackendError  # noqa: PLC0415
 
     simulation = suite(2.6, SpatialAbsorber())
