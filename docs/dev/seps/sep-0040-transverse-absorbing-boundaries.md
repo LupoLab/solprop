@@ -15,7 +15,7 @@
 | **Requires** | [SEP 21](archive/sep-0021-absorbing-boundaries.md), [SEP 22](archive/sep-0022-memory-lean-spatial-execution.md), [SEP 34](archive/sep-0034-medium-flux.md) |
 | **Supersedes** | — |
 | **Superseded-by** | — |
-| **Implementation** | Opus 5.5 (AI) for John Travers, branch `feature/sep-0040-transverse-boundaries`: phase 0 complete (Part II); phase 1 (`numpy_ref`, the interface, the monitor and the manual) started 2026-11-01 |
+| **Implementation** | Opus 5.5 (AI) for John Travers, branch `feature/sep-0040-transverse-boundaries`: phases 0 and 1 complete (Part II); phase 2 (native) next |
 | **Manual pages** | — |
 
 ## Part I — Proposal
@@ -2233,6 +2233,119 @@ was run. Part I is frozen, so what affects it is recorded here.
   - `collar_fraction` replaces `window_factor` on the grids, `radius` changes meaning on `RadialGrid`, and
     `BoundaryCheck` gains `transverse_budget`.
 
+### Phase 1 — report (2026-11-01)
+
+Phase 1 delivers the interface, the design, the design check, the step limits and the
+monitor's transverse edge on `numpy_ref`, with the guide pages, on this branch. CI runs
+on [#71](https://github.com/LupoLab/solprop/pull/71) from here.
+
+**Delivered.**
+
+- *Prerequisites (§3).* [#128](https://github.com/LupoLab/solprop/issues/128) with
+  [#126](https://github.com/LupoLab/solprop/issues/126), [#94](https://github.com/LupoLab/solprop/issues/94) and
+  [#132](https://github.com/LupoLab/solprop/issues/132), as the maintainer decided: the
+  temporal monitor subtracts at most one floor, a resume continues from the latest
+  execution that kept a record and lists unwatched stretches, the quiet collar rests only
+  on modal and radial stages, and a scan point keeps its closing record without rows.
+- *§5.1.* `collar_fraction` on every grid, outside the requested size, default 0;
+  `RadialGrid.outer_radius`.
+- *§4.2–4.5, §5.2.* `solprop.spatial_absorber`: `SpatialAbsorber`, `SpatialAbsorberDesign`
+  and the formulas (the WKB root with the exact symbol, solved per frequency for an angle;
+  the threshold law; the ramp's strength; the crossing limit), re-exported from
+  `solprop.boundaries`. `solprop.translate.transverse` resolves the design against the
+  grid, the medium over the requested band at the path's nodes and the noise-free launch.
+  The safety ramp is on by default on every geometry, radial and planar included. The
+  removals of §5.2. Kernel schema 41.
+- *§4.4.* `solprop.translate.collar_check`, the design check by direct propagation, with
+  §4.4's contract, the trial ladder, the bare wall's comparison, the pending check of a
+  coupled child and its rerun under `with_input`.
+- *§4.7.* The adaptive crossing clamp, and the refusal of a fixed schedule beyond the
+  crossing limit at `c_x = 0.15` or the damping bound.
+- *§5.3.* `solprop.transverse_monitor`: the edge per face with launch baselines and the
+  noise allowance, the read spacing as a step ceiling (driver and Python Adams march), the
+  launch's share in the ramp's band, `ramp_removed`, a requested collar's return strip and
+  inward current and its `spatial_removed`, `transverse_status` in the record, the log and
+  the start-of-run summary, and resume. The end-of-plane collar log is retired.
+- *§6, phase 1.* A backend that does not read the edge (`numba_cpu`, native, `mlx`) runs
+  the default unwatched, warning before the first step, and refuses a requested collar by
+  name at the start of a run.
+- *§8.* The free-space model, Cartesian, boundaries, spatial decompositions, kernel
+  contract, backends and Luna pages; the four-wave-mixing and far-field tutorials' code.
+
+**Decisions.**
+
+- *Q8 (John Travers, 2026-11-01): the ramp's removal stops a run at ten budgets*, as the
+  edge does. On radial argon filaments (3 P_cr, 3 cm) it tracks the true energy error within
+  2–4 times: runs 7–9 % wrong in field (15.6 µm spacing) read 3–5e-3 and are stopped, runs
+  0.2–0.3 % wrong warn, refined runs read about 1e-11, and every gallery reads at most
+  4e-10. Without the stop the coarse runs completed, one of them `clear`, because the ramp
+  hides the light from the edge.
+- The phase-1 prerequisites' open decisions (#128's unwatched stretch, #126's cap at one
+  floor, #132's record without rows) were taken as their issues recommended.
+
+**Deviations from Part I.**
+
+1. *The launch's ramp-band judgement lives in the monitor.* §5.3 places it at
+   translation; it needs the check's levels, so it is judged at the launch, on every
+   backend, before the first step. With `boundary_check=None` it is not judged.
+2. *A mixture update keeps its design*, as it keeps the transform the design's rate is in.
+3. *The resume key.* The specification is hashed in the configuration; the design's
+   derived values are recorded beside it (`RunMetadata.transverse`). The collar's rate on
+   the nodes is still in the hashed geometry record. SEP 42, merged as an accepted
+   proposal and not yet implemented, will class it as a rate with a rounding tail.
+4. *No per-plane rows for the edge.* Its record keeps maxima and totals only, so no output
+   schema bump is needed under SEP 42's §5.8.
+5. *The coarse and phase-1 unwatched warnings are filtered in the test configuration*,
+   because the suite's short fixed schedules and non-reading backends would raise them
+   everywhere; the unwatched entry is removed in phases 2 and 3. The shared coarse
+   capability routes opt out of the ramp (`spatial_absorber=False`): they launch into its
+   band, which the default refuses, and their numbers predate it.
+
+**Verification run** (Apple M5 Max, `numpy_ref`; module-level runs, CI for the rest).
+
+| witness | measured | Part II |
+|---|---|---|
+| strength, suite case, f = 1, 1.5, 2, 2.6 | 698.5, 436.0, 318.4, 241.4 m⁻¹ | 698, 436, 318, 242 |
+| root over the weak-loss formula, κ_p w = 20 | 1.061 | 1.06 |
+| direct check, suite, f = 1 and 1.5 | 8.908e-7, 6.84e-9 | 8.91e-7, 6.88e-9 |
+| direct check, linear witnesses | 5.254e-4, 6.709e-4 | 5.25e-4, 6.70e-4 |
+| nonlinear suite (1/8): as configured | stopped at 0.50 cm, naming 3.66 R | stopped; about 3.8 R |
+| nonlinear suite: wall at 2R; collar f = 2.6 | 3.97e-5 (`warned`); 1.65e-6 (`clear`) | 4e-5; 1.7e-6 |
+| bare wall at f = 1, linear, edge share | 3.05e-6 | 2.9e-6 |
+| re-review's packet: edge share at 0, 0.5, 1 mm; field error | 2.951e-14, 0.3087, 3.937e-12; 1.000 | 2.95e-14, 0.309, 3.92e-12; 1.00 |
+| committed steps, Multistep and RK | 14 (0.2953 L), 27 (0.0985 L) | 14 (0.295 L), 27 (0.098 L) |
+| weak signal: protected, declared outside, wrapped | 0.996, 0.997, 0.990 | 0.96, 1.006, 0.97 |
+| ledger with the ramp, lossless | closes to 1e-9 | — |
+
+**Findings for phase 2 and the record.**
+
+- The profile's floor, `kappa_p w >= 22.3`, refuses the suite beam's launch-derived collar
+  below `f ≈ 1.75` (`kappa_p w = 12.7` at f = 1). §4.4's "first passes near f = 1.3" is the
+  check alone; a declared band clears the floor sooner.
+- solprop propagates as `exp(-i k_z z)`: a component `exp(i q s)` travels to smaller `s`.
+  The phase-0 prototypes used the opposite sign, so the strip and the current read inward
+  at `q > 0` here.
+- On the nonlinear witness a wall at 2R warns (its edge share is 2.4e-5) though its error
+  is 4e-5 in field, and a requested collar's inward current reads 2–4e-7, about ten times
+  the linear clean-escape figure, while the true return is about 3e-12. Both are
+  conservative; §7.6's nonlinear qualification of the current is owed.
+- The design check's equal-energy frequency nodes give a weak colour no node (a 1e-3
+  sideband beside a beam), and the design reports no return for a declared signal absent
+  from the launch, such as a generated sideband.
+- RK took 109–119 steps on the nonlinear witness against Part II's 67–71, with or without
+  the edge and the ramp; the errors agree to two digits.
+
+**Owed before Final, and handoff.** Phase 2 (native): the edge's reductions, the strip and
+current, the read ceiling in the native Adams march, the planar ramp's parity, the
+spatial-only pass without the temporal pair, and native's acceptance of a requested
+collar. Phase 3: `numba_cpu`'s default parts, the devices, §7.7's 2 % overhead limit,
+the suite and tracking cases (`spatial_absorber` at f = 2.6, n_r = 230), the new tutorial,
+the galleries' regenerated output and the geometry figure, which would otherwise show
+phase 1's `unwatched` warnings, and §7's remaining measurements: the design check's cost
+at production sizes and on several frequencies, the fixed-schedule limits under
+`Multistep` and the low-storage march, the noise allowance on full grids and the
+anisotropic box.
+
 ## Part III — History
 
 - 2026-10-31: Drafted, from SEP 21's finding R4 and decision D9, and a linear probe of the
@@ -2297,6 +2410,8 @@ was run. Part I is frozen, so what affects it is recorded here.
 - 2026-11-01: `main` merged into this branch at 8a9f764, which carries SEP 41 and SEP 42 as accepted. Phase 1
   started (Opus 5.5 for John Travers): status `In progress`. Its first slice fixes [#128](https://github.com/LupoLab/solprop/issues/128), [#94](https://github.com/LupoLab/solprop/issues/94) and [#132](https://github.com/LupoLab/solprop/issues/132), as §3
   asks. SEP 42's implementation runs alongside, and this SEP meets it as Part II's handoff says.
+- 2026-11-01: Phase 1 complete on `numpy_ref` (Part II's report). Q8 decided by the maintainer: the safety
+  ramp's removal stops a run at ten budgets. CI runs on #71 from here.
 
 ### AI review — 2026-10-31 (GPT-6)
 
