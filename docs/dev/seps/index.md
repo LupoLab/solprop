@@ -36,7 +36,7 @@ Proposals that are active, in draft, accepted, in progress or deferred.
 | [17](sep-0017-gas-two-photon-ionisation.md) | Broadband two-photon continuum response beside strong-field ionisation | Accepted | Feature |
 | [21](archive/sep-0021-absorbing-boundaries.md) | Temporal boundaries: wider windows, absorption and the escaped field | Final | Change |
 | [32](sep-0032-raman-maxwell-bloch.md) | Raman Maxwell–Bloch dynamics | Draft | Feature |
-| [40](sep-0040-transverse-absorbing-boundaries.md) | Transverse absorbing boundaries for free-space propagation | In progress | Change |
+| [40](sep-0040-transverse-absorbing-boundaries.md) | Transverse absorbing boundaries for free-space propagation | Draft | Change |
 
 SEP 13, the standalone numerical prerequisite for SEP 12, SEP 14, which carried it to
 the compiled backends, and SEP 16, which unified the multistep family and made it the
