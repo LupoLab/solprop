@@ -87,11 +87,12 @@ The coverage lane's 100 % leaves out one package, `solprop/backends/mlx_gpu`
 - the coverage lane runs on Linux, where MLX does not install (it installs on macOS on
   Apple silicon only), so the package cannot be imported there, let alone measured;
 - its tests, `tests/backends/test_mlx.py` and the `mlx` cases of
-  `tests/backends/test_single_precision.py`, run in the macOS default lane, on MLX's
-  CPU device where the hosted runner exposes no Metal GPU, and without the runtime type
-  checks (ADR-053); the custom Metal kernels (the `gpu_only` tests) run only on a Metal
-  device, by hand: `uv run pytest tests/backends/test_mlx.py
-  tests/backends/test_single_precision.py` on an Apple-silicon Mac with the `mlx` extra;
+  `tests/backends/test_single_precision.py`, run on Metal in the macOS default lane,
+  including the custom kernels (the `gpu_only` tests). The lane asserts that Metal is
+  available, so losing the device fails the job rather than silently skipping those
+  tests. It runs without coverage or the runtime type checks (ADR-053);
+- no CI pass selects MLX's CPU device with `SOLPROP_MLX_DEVICE=cpu`; that path remains
+  available for local tests, where the custom kernels' tests skip;
 - basedpyright runs on Linux, where `mlx.core` does not resolve, so the package's MLX
   calls are not type-checked.
 

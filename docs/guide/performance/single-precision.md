@@ -10,10 +10,11 @@ its accuracy in binary32 is a property of the problem, so this page records whic
 ```{note}
 Single precision runs on the `mlx` backend, on the GPU of an Apple-silicon Mac
 ([choosing a backend](backends.md#the-apple-gpu-backend)), for capillary and fibre runs
-and radial and Cartesian free space. `mlx` is **experimental** in this release: its
-Metal kernels are not run in continuous integration, the survival record below was
-measured on the reference implementation (on `mlx` for two cases only), and on the
-default grids it can be slower than binary64 `native`; build single-precision grids
+and radial and Cartesian free space. Its Metal kernels run in the macOS lane of
+continuous integration. `mlx` is **experimental** in this release: its coverage is not
+measured, the survival record below was measured on the reference implementation
+(on `mlx` for two cases only), and on the default grids it can be slower than binary64
+`native`; build single-precision grids
 with `fft_size="pow2"` ([grid sizes on `mlx`](#grid-sizes-on-mlx)). `numpy_ref` runs
 every route below as the reference implementation, which defines the arithmetic and
 measures it but is not fast. `numba_cpu` and `native` compute in binary64 only.
@@ -223,17 +224,19 @@ bands): both survive.
   benchmark suite, and they have not been repeated since: they indicate what a
   power-of-two grid gains, and do not hold on the default grids, where `mlx` can be
   slower than `native` ([grid sizes on `mlx`](#grid-sizes-on-mlx)).
-- **`mlx` is experimental.** Its custom Metal kernels are tested on a Metal device by
-  hand, not in continuous integration, whose macOS runners test the backend on MLX's
-  CPU device; its coverage is not measured there. Its survival limits are unmeasured
-  beyond the two plasma cases above: the comb-to-continuum's 0.05 m is the reference implementation's, whose binary32
+- **`mlx` is experimental.** Its custom Metal kernels run in continuous integration's
+  macOS default lane, which requires a usable Metal device. That lane does not measure
+  their coverage or run the runtime type checks, and no CI pass selects MLX's CPU device
+  ([the remaining CI gaps](../../dev/testing.md#the-mlx-omission)). Its survival limits
+  are unmeasured beyond the two plasma cases above: the comb-to-continuum's 0.05 m is the
+  reference implementation's, whose binary32
   transforms (SciPy's) are two to four times more accurate than MLX's GPU transform (on
   an Apple M5 Max, against a binary64 transform: 2.0 to 2.6 times at 2¹⁴ to 2¹⁸
   samples, 3.1 to 4.0 times at 12288 and 98304). A less accurate transform shortens the
   limit: the binary32 FFTW transforms of the withdrawn
   [SEP 36](../../dev/seps/archive/sep-0036-native-reduced-precision.md) kept the case
   inside its envelopes to 0.025 m only. Power-of-two grids by default under single
-  precision, a macOS `mlx` job in continuous integration and a re-timing on current
+  precision, a macOS `mlx` job with coverage and type checks, and a re-timing on current
   grids come before it is fully supported.
 
 The [worked example](../../auto_examples/performance/plot_01_single_precision.rst) runs a

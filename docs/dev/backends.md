@@ -1727,9 +1727,10 @@ matrix product (`passes.project_many`), measured at 1.18 times faster on a one-m
 plasma capillary, where launches bound the stage, and neutral on larger ones.
 
 **Status: experimental** in the first release. The custom Metal kernels (`gpu_only` in
-`tests/backends/test_mlx.py`) run only on a Metal device, by hand; CI's macOS lane runs
-the module on MLX's CPU device without the runtime type checks, basedpyright on Linux
-cannot resolve `mlx.core`, and the coverage lane omits `mlx_gpu`
+`tests/backends/test_mlx.py`) run on Metal in CI's macOS default lane, which asserts
+that the device is available. That lane runs without coverage or the runtime type
+checks, no CI pass selects MLX's CPU device, basedpyright on Linux cannot resolve
+`mlx.core`, and the coverage lane omits `mlx_gpu`
 ([testing](testing.md#the-mlx-omission)). The default `fft_size="auto"` takes the smooth
 size that a cost model fitted to FFTW's CPU transforms ranks cheapest
 (`grid._RADIX_PENALTY`); MLX's GPU FFT runs such sizes four to eight times slower than
@@ -1788,9 +1789,9 @@ also holds the transverse transforms' copies and the reference's in-place passes
 separate arrays, measured at up to 18 fine-grid columns per column on the Cartesian
 route and 6 on the radial one (`memory._MLX_TRANSIENT_COLUMNS`), and with the envelope
 plasma the device's own arrays per node sample (drive, loss and current; rate,
-exposure, populations, flag and scan scratch per channel). On MLX's CPU device, which CI
-uses where no Metal GPU is present, the kernels are replaced by MLX operations (the
-propagator by NumPy in binary64) and their tests skip.
+exposure, populations, flag and scan scratch per channel). On MLX's CPU device, available
+for local tests with `SOLPROP_MLX_DEVICE=cpu`, the kernels are replaced by MLX operations
+(the propagator by NumPy in binary64) and their tests skip. CI requires Metal instead.
 
 ## 5. JAX: evaluated, not adopted
 

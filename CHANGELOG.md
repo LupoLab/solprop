@@ -122,6 +122,10 @@ All notable changes to solprop are recorded here. The format follows
   read (`ScanOutput`, `read_point`) or resumed or collected (`run_scan`, a queue's
   collector). Before, only the scan container's own version was checked, and that
   stayed 1, so such a scan was read as if its layout were this release's.
+- Correct the 0.1.0 limitation statement about `mlx`: its custom Metal kernels already
+  run in continuous integration's macOS default lane. That lane now requires Metal,
+  so losing the device fails the job rather than silently skipping the kernel tests.
+  MLX coverage, runtime type checks and an explicit CPU-device pass remain absent.
 - The native backend's HIP build compiles again under its default
   warnings-as-errors: ROCm's Clang refused a thread-local variable that only an OpenMP
   build uses (0.1.0 needed `-DSOLPROP_NATIVE_WARNINGS_AS_ERRORS=OFF`).
