@@ -654,6 +654,61 @@ def test_a_chirped_time_record_lands_past_the_middle(chirped_grid):
     assert relative_l2(built, reference) < 5e-8
 
 
+@pytest.mark.parametrize(
+    ("record_pulses", "tolerance"),
+    [
+        # Each is (amplitude, carrier over the carrier, arrival, width). Two interfering
+        # pulses, whose spectral minima carry a fast phase: 1.6e-3 is the spline's at
+        # these minima, and an unwrap about the middle of the record gives 2.9e-2.
+        (((1.0, 1.0, 100e-15, 10e-15), (-0.9, 1.0, 120e-15, 10e-15)), 4e-3),
+        # A dim pulse in its own band far from the bright one: 6.9e-3 is the spline's,
+        # and an unwrap about t = 0 or about the record's centroid gives 7.1e-2.
+        (((1.0, 1.0, 60e-15, 20e-15), (0.05, 1.15, 740e-15, 20e-15)), 1.5e-2),
+    ],
+    ids=["interfering", "dim_and_far"],
+)
+def test_a_time_record_follows_its_own_group_delay(
+    record_pulses, tolerance, chirped_grid
+):
+    t = np.linspace(0.0, 800e-15, 8192)
+    omega_p = 2.0 * np.pi * C / WAVELENGTH
+    omega = np.linspace(0.7 * omega_p, 1.3 * omega_p, 40001)
+    record = np.zeros_like(t)
+    reference = np.zeros_like(omega, dtype=complex)
+    for amplitude, carrier, arrival, width in record_pulses:
+        record += (
+            amplitude
+            * np.exp(-(((t - arrival) / width) ** 2))
+            * np.cos(carrier * omega_p * t)
+        )
+        offset = omega - carrier * omega_p
+        # Each Gaussian's transform, sqrt(pi) width exp(-(offset width / 2)**2), on its
+        # delay, the carrier's phase at the arrival being part of the record's.
+        reference += (
+            amplitude
+            * width
+            * np.exp(-((0.5 * offset * width) ** 2))
+            * np.exp(1j * offset * arrival)
+        )
+    built = DataPulse.from_time(t, record, energy=ENERGY).build(chirped_grid)[0, 0]
+    # At this spacing the phase of the sum changes by far less than pi per sample.
+    expected = DataPulse.from_spectral_density(
+        omega, np.abs(reference) ** 2, np.unwrap(np.angle(reference)), energy=ENERGY
+    ).build(chirped_grid)[0, 0]
+    assert relative_l2(built, expected) < tolerance
+
+
+def test_a_time_record_with_no_field_has_a_zero_spectrum_and_phase():
+    t = np.linspace(0.0, 800e-15, 64)
+    pulse = DataPulse.from_time(t, np.zeros_like(t), energy=ENERGY)
+    assert isinstance(pulse.spectral_phase, np.ndarray)
+    # An exact zero, whose group delay is taken as zero rather than divided by.
+    assert np.all(pulse.spectrum == 0.0)
+    assert_allclose(
+        pulse.spectral_phase, pulse.omega * 0.5 * (t[0] + t[-1]), rtol=0.0, atol=1e-9
+    )
+
+
 def test_a_time_record_holds_a_phase_that_matches_its_spectrum():
     # A late start makes the linear phase large, where its rounding is most exposed.
     t = np.linspace(5e-12, 5.8e-12, 8192)

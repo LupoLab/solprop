@@ -187,9 +187,15 @@ a warning is logged when the grid's active band reaches past the data.
 `from_time` takes the record's own axis offset into account with an explicit linear
 phase, so a pulse sitting at 100 fs in a record that starts at −50 fs still arrives at
 100 fs: the data, not an assumption about where the record is centred, says where the
-pulse is. It unwraps the phase about the middle of the record, where anything inside the
-record changes by less than $\pi$ per bin, so this holds wherever in the record the pulse
-sits and however it is chirped. A pulse that reaches the ends of the record is cut there.
+pulse is. It continues the phase from bin to bin along the record's own group delay,
+$\operatorname{Re}\bigl(\mathcal{F}[t E]/\mathcal{F}[E]\bigr)$, so this holds wherever in
+the record the pulse sits. A pulse that reaches the ends of the record is cut there.
+
+The spectrum is sampled at the record's own bin spacing, $2\pi/T$ for a record of length
+$T$, which resolves one compact pulse but not the fringes of two pulses far apart. Such a
+record is built badly, with no warning: two pulses 500 fs apart in a record of 800 fs
+came out more than 50 % wrong. Extending the record with zeros reduces this error without
+removing it.
 
 ## Continuous wave
 

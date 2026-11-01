@@ -1878,6 +1878,46 @@ class CustomPulse(ShapedPulse):
 # --- pulses from measured data --------------------------------------------------------
 
 
+def _continued_phase(
+    omega: Float[np.ndarray, " n_data"],
+    spectrum: Complex[np.ndarray, " n_data"],
+    moment: Complex[np.ndarray, " n_data"],
+) -> Float[np.ndarray, " n_data"]:
+    """Return a record's spectral phase, continued along its own group delay.
+
+    With ``S`` the transform of ``E(t)`` and ``M`` that of ``t E(t)``, the phase's slope
+    is exactly ``Re(M / S)``, so the turns between neighbouring bins need not be guessed
+    as :func:`numpy.unwrap` does, by taking the smaller change. That guess fails for a
+    pulse more than half a record from the time origin, and for one that is not there,
+    a spectral minimum's fast phase can tip it. Where ``S`` vanishes the delay is taken
+    as zero, since no phase is defined there.
+
+    Parameters
+    ----------
+    omega : numpy.ndarray
+        Angular frequency axis, rad/s, shape ``(n_data,)``, increasing.
+    spectrum : numpy.ndarray
+        The record's transform ``S`` on ``omega``, shape ``(n_data,)``.
+    moment : numpy.ndarray
+        The transform ``M`` of the record times its time, about the same origin as
+        ``spectrum``, in seconds times the units of ``spectrum``, shape ``(n_data,)``.
+
+    Returns
+    -------
+    numpy.ndarray
+        The continuous phase of `spectrum`, rad, shape ``(n_data,)``.
+    """
+    delay = np.real(
+        np.divide(moment, spectrum, out=np.zeros_like(spectrum), where=spectrum != 0.0)
+    )
+    wrapped = np.angle(spectrum)
+    change = np.diff(wrapped)
+    # The trapezoid of the delay over each bin only has to choose among whole turns.
+    expected = np.diff(omega) * 0.5 * (delay[1:] + delay[:-1])
+    change -= 2.0 * np.pi * np.round((change - expected) / (2.0 * np.pi))
+    return wrapped[0] + np.concatenate(([0.0], np.cumsum(change)))
+
+
 def _checked_spectral_phase(
     spectral_phase: Float[np.ndarray, " n_data_phase"],
     spectrum: Complex[np.ndarray, " n_data"],
@@ -2286,13 +2326,20 @@ class DataPulse(Displayed):
 
         The optics-convention spectrum referenced to ``t = 0`` is
         ``sum_n E_n exp(+i omega t_n)``, which is evaluated as an inverse DFT about the
-        middle of the record times a linear phase for the middle's own time. About the
-        middle, the phase of anything inside the record changes by less than pi per
-        bin, so it unwraps correctly wherever the pulse sits and however it is chirped,
-        for any ``t[0]``; the pulse holds the result as ``spectral_phase``. A pulse that
-        reaches the ends of the record is cut there, and the DFT wraps it. Only the
-        non-negative frequencies are kept, and the zero-frequency bin is dropped: a
-        spectral phase is meaningless there.
+        middle of the record times a linear phase for the middle's own time. The phase
+        is continued from bin to bin along the record's own group delay, so a pulse
+        lands where it sat for any ``t[0]`` and anywhere in the record, and the pulse
+        holds the result as ``spectral_phase``. Only the non-negative frequencies are
+        kept, and the zero-frequency bin is dropped: a spectral phase is meaningless
+        there.
+
+        The spectrum is sampled at the record's own bin spacing, ``2 pi / T`` for a
+        record of length ``T``, which resolves one compact pulse but not the fringes of
+        two pulses far apart. Such a record is built badly, and without any warning: two
+        pulses 500 fs apart in a record of 800 fs came out more than 50 % wrong.
+        Extending the record with zeros samples the spectrum more finely, which reduces
+        this error without removing it. A pulse that reaches the ends of the record is
+        cut there.
 
         A real array is the electric field. A complex array is taken as the analytic
         signal in the optics convention, so that a positive frequency means a positive
@@ -2358,10 +2405,10 @@ class DataPulse(Displayed):
         keep = omega > 0.0
         positive = omega[keep]
         middle = 0.5 * (times[0] + times[-1])
-        centred = transform[keep] * np.exp(1j * positive * (times[0] - middle))
-        # The middle's linear phase goes on after unwrapping: on the full phase a pulse
-        # more than half a record from t = 0 changes by over pi per bin.
-        angle = np.unwrap(np.angle(centred)) + positive * middle
+        shift = np.exp(1j * positive * (times[0] - middle))
+        centred = transform[keep] * shift
+        moment = (n_data * np.fft.ifft((times - middle) * values))[keep] * shift
+        angle = _continued_phase(positive, centred, moment) + positive * middle
         return cls(
             omega=positive,
             # From the phase held, so that the two agree to rounding; adding up the
