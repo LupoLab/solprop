@@ -42,9 +42,9 @@ The [SEP index](seps/index.md) lists every proposal and its current status.
   size, a numerical safety ramp at the outer wavenumbers (now also radial and planar), and a
   monitor that stops a run whose light reaches the edge. A real-space collar outside the aperture
   on request, for declared fast content, sized by a protected band rather than the run length and
-  checked at translation against the launch's own return, with a signed removal ledger. A split
-  factor, perfectly matched layers, adaptive transverse windows, the escaped transverse field and
-  a flux-weighted spatial ledger remain open.
+  checked at translation by propagating the launch through it, with a removal ledger. A split
+  factor, polynomial profiles, perfectly matched layers, adaptive transverse windows, the escaped
+  transverse field and a flux-weighted spatial ledger remain open.
 - [SEP 1 — Efficient causal Raman evaluation](seps/sep-0001-raman-response.md):
   exact sampled recurrences, including the current lag taper and silica endpoints,
   beside default exact FFT evaluation. A common execution contract retains analytic

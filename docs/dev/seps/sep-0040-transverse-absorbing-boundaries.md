@@ -36,13 +36,14 @@ distance and detection by default, and absorption for the fast light that needs 
   wavenumbers, and is offered on the radial and planar grids too.
 - **The monitor.** The boundary monitor gains a transverse edge, on by default. With no
   absorber, whatever reaches the edge comes back, so it judges the energy *reaching* the edge
-  and stops a run that exceeds the budget, naming a size to try.
+  and stops a run that exceeds the budget, naming a size to try. It also judges what the
+  safety ramp removes.
 - **A collar on request.** A `SpatialAbsorber`, outside the requested aperture, with a strength
   set by a *protected* band of transverse wavenumbers and by the collar's width, not by the
   propagation length.
-- **The design check.** Translation predicts how much of the launch the collar would reflect
-  back, and refuses a design above the budget, naming the fraction that meets it. With a
-  collar, the monitor judges the light *returning*.
+- **The design check.** Translation propagates the launch linearly through the collar it has
+  designed, and refuses a design whose return exceeds the budget, naming a fraction that meets
+  it. With a collar, the monitor judges the light *returning*.
 - **Scheme and step.** The collar is an in-stage rate seen by the error controller, under a
   step limit that stops a packet crossing it unseen within one step.
 
@@ -54,13 +55,14 @@ Success is judged against an allocated error budget (§7.1):
   agrees with an independent analytic reference to $10^{-3}$ over the requested aperture;
 - measured reflection and transmission against transverse wavenumber agree with the
   calibrated design over the protected band;
-- a weak sideband generated at an angle leaves through a requested collar, agreeing with a
-  larger-domain reference to $10^{-5}$ of its own field;
+- a weak sideband generated at an angle leaves through a requested collar, and returns what
+  the design's report predicts, $1.3\times10^{-5}$ of its own field on the witness, against a
+  larger-domain reference;
 - the same self-focusing case with a requested collar reaches a converged large-radius
   reference to $10^{-3}$.
 
-Cost is reported at matched accuracy. Backward compatibility is not a constraint: no
-release depends on the present interface, and downstream scripts are updated with it.
+Cost is reported at matched accuracy. The interface changes below break 0.1.0's, which ADR-058
+allows in the 0.x releases; each is listed under "Changed (breaking)" in the changelog.
 
 ### 2. Motivation and scope
 
@@ -140,25 +142,31 @@ and the first version of this SEP took that to mean that every run should carry 
 
 **What phase 0 found** (Part II, every number reproducible from its harness).
 
-- *Distance beats absorption for a slow beam.* On the suite case, at the same radial spacing:
+- *At a designed strength, distance beats absorption for a slow beam.* On the suite case, at the
+  same radial spacing, with collars designed by §4 on the requested band:
 
-  | boundary | error at 8 cm | Multistep steps |
-  |---|---|---|
-  | wall at the requested radius, as the case is configured | $1.0\times10^{-1}$ | 149 |
-  | today's collar inside the request | $9.9\times10^{-2}$ | 470 |
-  | a bare wall at twice the radius | $3.9\times10^{-5}$ | 68 |
-  | a designed collar at the same outer radius | $2.1\times10^{-3}$ | 174 |
-  | a designed collar, 3.6 times the radius | $2.9\times10^{-6}$ | 107 |
-  | a bare wall, 3.6 times the radius | $6.3\times10^{-9}$ | 68 |
+  | outer radius | wall, no collar | designed collar | `Multistep` steps, wall / collar |
+  |---|---|---|---|
+  | $R$, as the case is configured | $1.0\times10^{-1}$ | none: no room | 149 / – |
+  | $R$, today's collar inside the request | – | $9.9\times10^{-2}$ | – / 470 |
+  | $2R$ | $3.9\times10^{-5}$ | $1.1\times10^{-3}$ | 68 / 163 |
+  | $2.5R$ | $9.1\times10^{-7}$ | $9.5\times10^{-5}$ | – / 125 |
+  | $3.6R$ | $6.3\times10^{-9}$ | $1.7\times10^{-6}$ | 68 / 76 |
 
-  No collar in a scan of fractions, band edges and strengths beat a wall at the same outer
-  radius, and the probes above agree on all three geometries. The slow content that matters lies
-  below the collar's reflecting threshold, however the design is chosen.
+  In a scan of fractions, band edges and strengths on this case, no collar beat a wall at the same
+  outer radius by more than 10 %, and that one was far below the design's strength. The §2 radial
+  probe and the designed Cartesian collars agree. This is about designed strengths with room to
+  spare: when the wall is close, an undesigned weak collar does help, as the table above shows
+  (Cartesian AN 30 at $f = 0.5$ gives $1.18\times10^{-2}$ against its bare wrap's
+  $2.93\times10^{-2}$, on the campaign's reference). The slow content that matters lies below the
+  designed collar's reflecting threshold.
 - *The collar's value is in fast content.* A weak four-wave-mixing sideband at
   $1.5\times10^5$ rad/m, $10^{-6}$ of the pump's energy, leaves through a designed collar to
-  $4\times10^{-6}$ of its own field. With the collar inert it wraps back, wrong by 0.98.
-- *So a default collar would be both costly and unsafe.* A fraction wide enough to pass is no
-  better than a wall at the same radius, at up to 30 times the per-step cost.
+  $1.1\times10^{-5}$ of its own field. With the collar inert it wraps back, wrong by 0.98.
+- *So a default collar would buy little.* At the fractions first proposed it misses the budget: 1.0
+  radially gives $1.1\times10^{-3}$ on the suite case, and 0.5 on the Cartesian probe gives
+  $3.6\times10^{-2}$. A wider one passes, but a wall at the same radius is better by a further two
+  orders, without the collar's cost.
 
 **So the default is detection.** A run that reaches its boundary needs more room, and the
 useful thing is to say so. A collar is for the run that has fast light it cannot give room
@@ -171,8 +179,8 @@ to, and which declares that light.
   and planar (slab × y) grids: its placement, profile, strength, step limit and design check.
 - The transverse-wavenumber ($k_\perp$) ramp of SEP 22, as a numerical safety band,
   on the Cartesian, line, radial and planar grids, on by default.
-- The removal ledger: what a collar removes, measured, signed, and attributed alongside
-  the temporal collar and the mask.
+- The removal ledger: what a collar removes, measured and attributed alongside the temporal
+  collar and the mask.
 - The interface: one spatial absorber specification, its resolution at translation, the
   grid's collar fraction, and the keywords of `prop_radial`, `prop_free`, `prop_planar` and
   their `Simulation.from_*` builders.
@@ -374,9 +382,16 @@ matches the measurement to between $-1.3\,\%$ and $+0.04\,\%$. Translation there
 $\Gamma_\mathrm{wkb}(\kappa_p;\alpha_0) = \Gamma_\mathrm{min}$, a monotone scalar root, at
 $k_{\min}$. It is 1.06 times the formula's value for Planck at $\kappa_p w = 20$.
 
-$k_{\min}$ is the smallest $k_z$ at $\kappa_p$ over the *requested* band and over the run's
-medium path (§5.2). It is computed, not assumed to be the red edge, because a material's
-dispersion need not put it there. §7.1 sets $\Gamma_\mathrm{min} = \log(5\times10^3)$.
+For a declared `kappa`, $k_{\min}$ is the smallest $k_z$ at $\kappa_p$ over the *requested* band
+and over the run's medium path (§5.2). It is computed, not assumed to be the red edge, because a
+material's dispersion need not put it there. §7.1 sets $\Gamma_\mathrm{min} = \log(5\times10^3)$.
+
+A declared `angle` is different. With $\kappa_p(\omega) = \omega\sin\theta/c$, the attenuation
+$\Gamma \approx n\,\alpha_0 w\langle P\rangle/\sin\theta$ hardly depends on frequency. Pairing the
+bluest $\kappa_p$ with the reddest $k_z$, which never occur together, would over-strengthen the
+collar by $\omega_{\max}/\omega_{\min}$: 1.3 on the §2 band and 3.2 on the suite's. The root is
+therefore solved per frequency, $\min_\omega\Gamma_\mathrm{wkb}(\kappa_p(\omega),\omega;\alpha_0)
+= \Gamma_\mathrm{min}$.
 
 **The propagation length does not appear.** Today's strength, $12.6/(L/20)$, halves when
 the run doubles in length with the same beam and the same grid. A collar sized by $\kappa_p$
@@ -412,29 +427,47 @@ band, $\kappa_\mathrm{lo} < \kappa_p$, to mean the collar works. Phase 0 refuted
 nonlinear witness, the collar's excess error over a wall at the same radius falls on one
 curve in $\kappa_\mathrm{lo}/\kappa_\mathrm{rms}$, whatever the fraction, band edge or
 strength: 0 at 1.0, $10^{-5}$ at 3.2, $2\times10^{-4}$ at 4.7, $2\times10^{-3}$ at 6.7, and
-$1.5\times10^{-2}$ at 12. A design that opens its band by raising $\kappa_p$ is the least
-accurate, because the strength rises while the beam's own content stays near
-$\kappa_\mathrm{rms}$.
+$1.5\times10^{-2}$ at 12. That curve is one beam on one geometry, so the design does not use it.
+A design that opens its band by raising $\kappa_p$ is the least accurate, because the strength
+rises while the beam's own content stays near $\kappa_\mathrm{rms}$.
 
 **The design check.** What matters is how much of the launch reaches the collar and how much
-of that reflects. Translation estimates the launch's own returned energy,
+comes back. A product of plane-wave reflection and a ray share cannot say: evaluated on the
+witnesses it is wrong by up to nine decades (Part III, R15), and in the other direction once made
+depth-aware, because the return lives in diffraction tails. Translation therefore computes it. It
+propagates the launch linearly on the design's own operator, and compares it over the requested
+aperture with the same launch on a bare grid large enough that the launch does not reach its edge,
+taking the largest energy difference over planes up to $L$:
 
 $$
-U_\mathrm{ret} = \sum_\kappa S(\kappa)\,T(\kappa)\,|r(\kappa)|^2 ,
+U_\mathrm{ret} = \max_{z\le L}\ \frac{\big\|E_\mathrm{collar}(z) - E_\mathrm{large}(z)\big\|^2_\mathrm{aperture}}{U_\mathrm{launch}} .
 $$
 
-from the noise-free launch's angular spectrum $S$, the share $T$ of each $\kappa$ that reaches
-the collar within $L$ (a linear estimate), and the calibrated reflection $r(\kappa)$ for the
-profile, which phase 1 tabulates from the phase 0 calibration. Above the reflection budget
-of §7.1 the design is refused, naming the fraction that meets it. This is where the run length
-enters: it decides how much slow content reaches the edge, not the collar's strength.
+- *The launch* is the noise-free one, at its energy-bearing frequencies.
+- *The operators.* Radially, the exact generator
+  $\mathrm{diag}(i k_z) + F\,\mathrm{diag}(-\alpha/2)\,B$ by eigendecomposition: 16–66 ms per
+  frequency at $n_r$ = 128–320. On the Cartesian grid, a one-frequency Strang march, 10–20 ms for 64
+  steps at $150^2$–$220^2$, which reproduced five full §2 probes to three digits. On the line and
+  planar routes, the same in one dimension, per mode, which has not been run. The large bare grid
+  is diagonal, so it needs no march.
+- *The verdict.* Above the reflection budget of §7.1, $4\times10^{-8}$ in energy, the design is
+  refused. The check is rerun at trial fractions, at the grid's spacing, to name one that passes.
+  It also computes the bare wall at the same outer size, and the message says when that returns
+  less, which on a slow beam it does.
 
-- For a beam that fills its collar this reduces to $\kappa_\mathrm{lo} \le \kappa_\mathrm{rms}$,
-  which is $w \gtrsim 20\,w_0$ for Planck with $c_b = 3$.
-- On the nonlinear witness, where 1 % of the energy reaches the collar,
-  $\kappa_\mathrm{lo} \lesssim 3\text{–}4.7\,\kappa_\mathrm{rms}$ suffices.
-- The check sees only the linear launch. Content generated later is the monitor's to judge
-  (§5.3).
+| suite case, designed on the requested band | $f = 1$ | 1.5 | 2 | 2.6 |
+|---|---|---|---|---|
+| direct estimate, one frequency, linear | $8.9\times10^{-7}$ | $6.9\times10^{-9}$ | $1.2\times10^{-10}$ | $2.7\times10^{-12}$ |
+| measured, full nonlinear run | $1.14\times10^{-6}$ | $9.1\times10^{-9}$ | $1.7\times10^{-10}$ | $2.8\times10^{-12}$ |
+
+It first passes near $f = 1.3$. It agrees on the linear monitor witnesses too: $5.25\times10^{-4}$
+against $5.3\times10^{-4}$, and $6.70\times10^{-4}$ against $6.7\times10^{-4}$.
+
+Its limits are stated, not assumed away. The nonlinear agreement is one case at 0.9 of the critical
+power with noise off, and a collapsing beam will not follow it, which is the monitor's job, as is
+any content generated later (§5.3). Several frequencies and the Cartesian cost at production sizes
+are measured in phase 1. This is also where the run length enters: it decides how much slow content
+reaches the edge, not the collar's strength.
 
 **The real-space collar cannot cover the whole grid.** On the probe grid the Nyquist
 wavenumber is $\pi/\Delta x \approx 10^6$ m⁻¹. Absorbing everything up to $0.9$ of it at
@@ -443,17 +476,18 @@ beam. A $k_\perp$ rate is exact and free, but it acts **throughout the aperture*
 cannot be put below any wavenumber that physical light in the aperture may carry. The
 design therefore orders three wavenumbers, $\kappa_\mathrm{lo} < \kappa_p \le \kappa_s$:
 
-- **the protected band**, $\kappa \le \kappa_p$: never subject to a $k_\perp$ rate, and
-  absorbed at the edge to $\Gamma_\mathrm{min}$ with reflection below the budget. What the
-  run must keep, including radiation the user expects to be *generated*, belongs here. The
-  user declares it, or accepts the default derived from the launch (§5.2), which covers
+- **the protected band**, $\kappa \le \kappa_p$: never subject to a $k_\perp$ rate, and above
+  $\kappa_\mathrm{lo}$ absorbed at the edge to $\Gamma_\mathrm{min}$ with reflection below the
+  budget. What the run must keep, including radiation the user expects to be *generated*, belongs
+  here. The user declares it, or accepts the default derived from the launch (§5.2), which covers
   only the launched content's spread. A weak launched or generated signal is protected only
   if its angle is declared: the launch-derived band does not cover a weak tilted seed.
 - **the numerical safety band**, $\kappa \ge \kappa_s$: the outer fraction $f_s$ of the
   grid's largest wavenumber on each axis, $f_s = 0.1$ by default as today. Content there is
   removed by the $k_\perp$ ramp wherever it is. The grid's one-half sizing rule
   ([Cartesian](../../guide/free-space/cartesian.md#grid-sizing-and-the-transverse-safety-ramp))
-  puts all physical content below it.
+  keeps Kerr products below it. It says nothing of plasma and ionisation sources, whose products no
+  multiple of the bandwidth bounds, so the monitor judges what the ramp removes (§5.3).
 - **the intermediate band**, $\kappa_p < \kappa < \kappa_s$: kept in the aperture, and
   absorbed at the edge only to $\Gamma_\mathrm{wkb}(\kappa)$. The resolved design reports what
   would return (below), and the monitor's returned share (§5.3) detects it.
@@ -473,44 +507,41 @@ linear operator. It is sized so that content in its upper half is attenuated by
 $\Gamma_\mathrm{min} + 2$ nepers over the distance in which it would come back:
 
 $$
-\alpha_s = \frac{2(\Gamma_\mathrm{min} + 2)\,\kappa_{s,1/2}}{k_{\min}\,\ell},
+\alpha_s = \frac{2(\Gamma_\mathrm{min} + 2)\,\kappa_{s,1/2}}{k_s\,\ell}.
 $$
 
-where $\ell$ is the collar's width $w$ when one is present, and the requested size when none
-is: with no collar, the distance over which the content crosses the aperture and returns.
-The 2 nepers are measured: inside the ramp, the collar's own wavenumber broadening defeats
-the additive estimate $\Gamma + \Gamma_s$ by up to 1.7 Np. The design reports the shortfall
-band as measured, not as a crossing point of the two estimates. Like the collar's, this
-strength does not depend on $L$.
+- $\ell$ is the collar's width $w$ when one is present, and the requested size when none is: with
+  no collar, the distance over which the content crosses the aperture and returns.
+- $k_s$ is the smallest over the requested band of $\max\big(k_z(\kappa_{s,1/2},\omega),\,
+  0.44\,k(\omega)\big)$. The floor is $k_z$ at $0.9\,k$, §5.2's limit: without it the rate diverges
+  as $\kappa_{s,1/2}\to k$, which on a band reaching 1.6 µm happens at $\Delta x \approx 0.76$ µm.
+  Columns beyond cutoff are already damped by the evanescent operator.
+- The 2 nepers are measured: inside the ramp, the collar's own wavenumber broadening defeats
+  the additive estimate $\Gamma + \Gamma_s$ by up to 1.7 Np. The design reports the shortfall
+  band as measured, not as a crossing point of the two estimates.
+
+Like the collar's, this strength does not depend on $L$.
 
 Content generated *inside* the collar sees at most half the round-trip attenuation, and under
 7 % of it from the collar's inner half. A collar is not a place to generate light.
 
-**Rectangular grids.** Each face is designed on the component normal to it ($\kappa_x$ for
-the x faces, with width $w_x$; $\kappa_y$ for the y faces, with $w_y$), so a face's band and
-reflection depend on its own normal component. A packet heading for a corner crosses both
-collars and is attenuated by both. The safety ramp keeps SEP 22's maximum of the
-normalised components, so each axis keeps its own safety band.
+**Rectangular grids.** The rate is one profile with one peak, $\alpha_0(1 - W_x W_y)$. Each face is
+designed on the component normal to it, with its own $\kappa_{p,a}$ and width $w_a$, and $\alpha_0$
+is the largest of the two roots. So a face's band and reflection depend on its own normal component,
+and a packet heading for a corner crosses both collars and is attenuated by both. The launch-derived
+band is per axis (§5.2), so an elliptical launch does not over-strengthen its slow axis. The safety
+ramp keeps SEP 22's maximum of the normalised components, with the larger $\alpha_s$ of the two axes.
+Every two-dimensional witness so far used a square box, so the anisotropic box is in §7.7's matrix.
 
 **Slab modes.** A slab mode is the Cartesian case with $k \to \beta_p$. The extremes run over
 modes: a design on one mode alone leaves another at 0.9 of $\Gamma_\mathrm{min}$.
 
-#### 4.5 Profiles
+#### 4.5 The profile
 
-All are $0 \le P \le 1$ on $s\in[0,1]$ and zero for $s\le0$.
-
-- **The Planck taper's complement,** $P = 1 - W$ (today's shape), is the default (Q3). It has
-  the lowest edge reflection for $\kappa_p w \ge 50$, the fastest tail, a stretched
-  exponential, and no reflection floor.
-- **The polynomials** $P = s^n$, $n = 2, 3, 4$, are the classic CAPs [2, 3]. Their reflection
-  has a power-law tail. $s^3$ and $s^4$ open the band at narrower widths, with floors of
-  $\kappa_p w \ge 14.5$ and 16.2 (25.3 for $s^2$), but reflect up to $2\times10^{-4}$ at the
-  periodic grid's wrap point, where they meet 1 with a finite slope. They are offered only
-  with a smooth top.
-
-**A fair comparison** holds fixed the width, the grid, the protected band and the attained
-$\Gamma(\kappa_p)$. It compares the reflection floor over the protected band, the
-attenuation over the intermediate band, and the steps taken under the step limits of §4.7.
+The profile is the Planck taper's complement, $P = 1 - W$ (today's shape), on $s\in[0,1]$ and zero
+for $s\le0$ (Q3). It has the lowest edge reflection for $\kappa_p w \ge 50$, the fastest tail, a
+stretched exponential, and no reflection floor. The classic polynomial CAPs [2, 3] were measured
+and are not offered (§10).
 
 #### 4.6 The radial grid
 
@@ -524,8 +555,9 @@ the radial operator lie outside §4.1's planar model:
 - **the lowest columns.** The lowest QDHT column has
   $\kappa R_\mathrm{req} = j_{0,1}/(1+f)$, near-standing modes of the disc. They are not
   attenuated by their overlap with the collar: they are *reflected* into modes trapped in the
-  aperture, and decay at 0.2–7 % of the overlap estimate. The resolved design reports these
-  columns as reflected, and the protected band may not include them.
+  aperture, and decay at 0.2–7 % of the overlap estimate. Like all content below
+  $\kappa_\mathrm{lo}$ they are not absorbed. The resolved design reports them as reflected, and
+  the design check counts what they return.
 
 A $k_r$-diagonal safety ramp is exact on the radial grid, because the radial linear operator
 is diagonal in $k_r$. Its largest wavenumber is $k_{r,\max} = j_{0,N}/R$ [8].
@@ -565,7 +597,7 @@ controller's growth cap of 1.1 per step keeps it from crossing a collar unseen.
 The limit is kept as a guard, for adaptive runs through `dz_max` and for fixed schedules:
 
 $$
-h \le c_\times\,\frac{w\,k_{\min}}{\kappa_p},
+h \le c_\times\,w\,\min_\omega\frac{k_z(\kappa_p(\omega),\omega)}{\kappa_p(\omega)},
 $$
 
 - $c_\times = 0.5$ for the adaptive `dz_max` clamp, which on the §2 probe never bound a step.
@@ -578,6 +610,8 @@ $$
   share is the check.
 - A fixed schedule that exceeds the limit is refused at translation, and the monitor's check
   interval is held within it.
+- $c_\times = 0.15$ and the damping bound were measured under Runge–Kutta only. §7.4 measures them
+  under `Multistep` and the low-storage march, which has no error estimate.
 
 **The stability limit binds `Multistep` in proportion to $\alpha_0$.** It is
 $2r/\alpha_\mathrm{eff}$ (§3), with $r = 3.3$ under Runge–Kutta and $r = 0.0877$ under `Multistep`
@@ -609,45 +643,26 @@ For the target of $10^{-3}$ in the aperture's field norm (§7.1), the design tak
   incident;
 - a reflection floor $|r| \le 2\times10^{-4}$, $4\times10^{-8}$ in power, over
   $\kappa_\mathrm{lo} \le \kappa \le \kappa_p$;
-- the launch's predicted own return (§4.4) within the same reflection budget.
+- the launch's computed own return (§4.4) within the same reflection budget, $4\times10^{-8}$
+  in energy.
 
 These are added in amplitude, because they can arrive together.
 
-#### 4.9 Removal, passivity and the ledger
-
-**The collar is not passive in the flux metric.** For multiplication by
-$A = \operatorname{diag}(\alpha)$ on the nodes, and a nonlocal flux metric $M$ (SEP 34), the
-rate of change of the flux is governed by the form $(MA + AM)/2$. Positive $A$ and $M$ do
-not make it positive semidefinite. A two-node block with an interior node ($\alpha_i = 0$)
-and a collar node has a zero diagonal entry beside an off-diagonal $\alpha_j M_{ij}/2$, and
-so a negative determinant whenever $M_{ij}\ne0$. This is not a cutoff effect:
-
-- *An independent check.* 64 Fourier nodes on a 600 µm interval,
-  $M = F^\dagger\operatorname{diag}\big(\sqrt{1-(k_x/k)^2}\big)F$ at 800 nm, and a
-  unit-peak quadratic collar outside 200 µm. The minimum generalised eigenvalue is
-  $-1.25\times10^{-10}$, with every $|k_x|/k\le0.043$ (reproduced 2026-10-31).
-- *SEP 21's radial witness* recorded $-2.9\times10^{-7}$.
-
-So:
-
-- **Admission, not assertion.** A requested collar's worst generalised eigenvalue, relative to
-  its peak rate, is checked at translation against $-\varepsilon_P$, with
-  $\varepsilon_P = 1.3\times10^{-4}$ (Q6). In practice it is a guard near cutoff: the worst
-  realistic value is $-1.3\times10^{-5}$.
-  - The full problem is not affordable: on a $256^2$ Cartesian grid it is a dense eigenproblem
-    of order 65 536 at each frequency. A one-axis surrogate does *not* bound it (short by 1.5–9
-    times), and matrix-free Lanczos is unreliable.
-  - The admission value is computed on a *corner* surrogate, the axis metric at
-    $k\,\kappa_{\mathrm{axis},\max}/\kappa_\mathrm{corner}$, solved densely at the smallest-$k$
-    bin, the value being monotone in frequency. It bounds every grid tested with a margin of
-    2–7, at 6–11 ms per axis at 256 nodes; the radial problem costs about 30 ms at $n_r = 256$.
-- **Removal is signed.** `spatial_removed` may go negative. It is called "removed field
-  norm", never "absorbed physical energy". It may be read as energy only for a paraxial
-  beam far from cutoff, where the field norm and the flux agree (SEP 21 D16).
+#### 4.9 Removal and the ledger
 
 **The measure.** This SEP's monitor and ledger use the quadrature-weighted field norm $U$,
-as `BoundaryMonitor.split_removal` does today. The flux-weighted ledger is the roadmap item
-of D16, not claimed here.
+as `BoundaryMonitor.split_removal` does today. In that norm the rate $\alpha|E|^2$ is non-negative
+at every node, so a collar's removal is too, within the trapezoid's error. The flux-weighted ledger
+is the roadmap item of SEP 21 D16, not claimed here.
+
+**Removal is not called absorbed energy.** The collar is not passive in the flux metric. For
+multiplication by $A = \operatorname{diag}(\alpha)$ on the nodes, and a nonlocal flux metric $M$
+(SEP 34), the rate of change of the flux is governed by $(MA + AM)/2$, which positive $A$ and $M$ do
+not make positive semidefinite. SEP 21's radial witness recorded a worst generalised eigenvalue of
+$-2.9\times10^{-7}$ of the peak rate. `spatial_removed` is therefore "removed field norm". It may be
+read as energy only for a paraxial beam far from cutoff, where the field norm and the flux agree
+(SEP 21 D16). This SEP does not add an admission on that eigenvalue, because the first version's was
+only ever a guard near cutoff, which §5.2's refusal already provides (§10).
 
 **Attribution.** On an accepted step the treatments act in a fixed, documented order:
 
@@ -663,9 +678,7 @@ trapezoid rule, as for the in-stage temporal collar.
   (SEP 21 D10).
 - A plane that keeps no field still accumulates, because the reduction runs on the backend.
 - `spatial_removed` is reported in J/m on the line route and in J elsewhere, in the units of
-  `absorbed_power`'s channels' integrals, and separately from them. It is reported signed,
-  never clipped at zero as the temporal monitor's removed fraction is today. With no collar it
-  is zero.
+  `absorbed_power`'s channels' integrals, and separately from them. With no collar it is zero.
 - The safety ramp's removal is SEP 23's transverse channel of `absorbed_power`. That
   channel exists today only where a separable operator does (Cartesian, line and planar).
   It is extended to the radial ($k_r$) ramp, so that every removal of the field norm has a
@@ -686,11 +699,13 @@ FreeGrid(radius_x, n_x, radius_y, n_y, collar_fraction=0.5)
 # periodic half-width = radius * (1 + collar_fraction)
 ```
 
-`radius` is the aperture the user wants modelled: flat, with no absorption.
+`radius` is the aperture the user wants modelled: flat, with no absorption. It changes meaning on
+`RadialGrid`, from the outer radius to the requested one, and the grid gains `outer_radius`. The
+transforms, nodes and `aeff` use the outer radius.
 
 - The grid counts its samples and is built before the absorber is known, so a fraction cannot
   be applied implicitly. A requested collar on a grid with `collar_fraction=0` is refused,
-  naming the fraction that would meet the design check. The guide gives 1.0 (radial) and 0.5
+  naming a fraction that passes the design check. The guide gives 1.0 (radial) and 0.5
   (Cartesian, line, planar) as starting points for fast content (Q2).
 - A fraction $f$ costs $(1+f)$ in radial samples and $(1+f)$ to $(1+f)^2$ in radial work
   (measured below), and $(1+f)^2$ in Cartesian memory.
@@ -699,7 +714,13 @@ FreeGrid(radius_x, n_x, radius_y, n_y, collar_fraction=0.5)
 - The other consumers of the window (§3) follow the placement. The coupling plane's radial
   resampling keeps the requested radius and its own collar fraction, rather than doubling an
   outer radius that now includes the collar. The coupling elements' boundary mask is the
-  region outside the requested size.
+  region outside the requested size. Their edge diagnostic, `_edge_nodes`, keeps its outer-tenth
+  fallback, so that it does not go blind at $f = 0$.
+- **Statistics.** Field in a collar is being removed, so it is not an observable. With a
+  `SpatialAbsorber`, energy, widths and peak are reported over the requested aperture, and SEP 23's
+  far-field statistics transform the whole grid, as they do today; §7.5's weak-signal witness tests
+  whether that suffices. The ledger sums the whole grid, so that it closes. With no absorber, a
+  bare fraction is just a larger aperture and everything sums the whole grid.
 
 Measured at fixed spacing, on a dedicated Intel Xeon Gold 6240, $f = 1$ costs 1.9–2.3 times
 per step for the grid alone and 2.5–2.9 times with the collar, below $(1+f)^2 = 4$.
@@ -711,12 +732,13 @@ The user gives a specification; translation resolves it into an immutable design
 ```text
 from solprop.boundaries import SpatialAbsorber
 
-prop_radial(grid, space, medium, responses, pulse)      # the default: safety ramp and monitor
-prop_free(..., spatial_absorber=SpatialAbsorber(angle=25e-3))        # a collar, protecting sin(theta) <= 25e-3
-prop_free(..., spatial_absorber=SpatialAbsorber(kappa=2e5))          # a collar, protecting |kappa| <= 2e5 rad/m
+prop_radial(grid, space, medium, responses, pulse, settings=...)  # the default: safety ramp and monitor
+prop_free(..., spatial_absorber=SpatialAbsorber(angle=25e-3))     # a collar, protecting sin(theta) <= 25e-3
+prop_free(..., spatial_absorber=SpatialAbsorber(kappa=2e5))       # a collar, protecting |kappa| <= 2e5 rad/m
 SpatialAbsorber()                                       # a collar, band from the launch
 SpatialAbsorber(angle=25e-3, discard_above=4e5)         # and remove everything above 4e5 rad/m
-SpatialAbsorber(attenuation=math.log(1e4), profile="planck")
+SpatialAbsorber(attenuation=math.log(1e4))
+SpatialAbsorber(real_space=False, safety_fraction=0.2)  # no collar, a wider ramp
 prop_free(..., spatial_absorber=False)                  # no safety ramp either; the monitor still runs
 ```
 
@@ -725,73 +747,71 @@ prop_free(..., spatial_absorber=False)                  # no safety ramp either;
 - `kappa` (rad/m) or `angle` (rad): the protected band. Neither given means "from the launch".
 - `discard_above` (rad/m or `None`).
 - `attenuation` $\Gamma_\mathrm{min}$ (field nepers, default $\log(5\times10^3)$).
-- `profile`.
 - `safety_fraction` $f_s$ (default 0.1).
+- `real_space` (default `True`): `False` is a ramp-only specification, which is how the default
+  run is resolved, and how a thin-plate Cartesian run sets its ramp without a collar.
 
 The angle follows SEP 23's convention, $\sin\theta = c\kappa/\omega$, the angle in vacuum
 behind a planar exit face, so a protected angle is a frequency-dependent band
-$\kappa_p(\omega) = \omega\sin\theta/c$. The design uses its largest value on the requested
-band.
-
-With no `spatial_absorber` argument, a run resolves a ramp-only design with the default
-`safety_fraction`.
+$\kappa_p(\omega) = \omega\sin\theta/c$, handled per frequency (§4.2, §4.7).
 
 **`SpatialAbsorberDesign`, the resolution.** Translation resolves the specification
 against the grid, the space, the medium and the launch, in a fixed order of precedence:
 explicit `kappa`, then `angle`, then the launch.
 
-- **Launch-derived band.** $\kappa_p = c_b\,\kappa_\mathrm{rms}$, $c_b = 3$, where
-  $\kappa_\mathrm{rms}$ is the launch's energy-weighted rms transverse wavenumber over active
-  bins, computed on the noise-free launch before noise is added. For a Gaussian launch
-  $\kappa_\mathrm{rms} w_0 = \sqrt2$ on $|\kappa_\perp|$, whatever the waist. The band's edge
-  says what the collar absorbs; it does not by itself protect the launch, which is the design
-  check's job (§4.4).
+- **Launch-derived band.** Per axis, $\kappa_{p,a} = c_b\,\sqrt2\,\kappa_{\mathrm{rms},a}$, $c_b = 3$,
+  where $\kappa_{\mathrm{rms},a}$ is the launch's energy-weighted rms wavenumber along that axis over
+  active bins, computed on the noise-free launch before noise is added. Radially,
+  $\kappa_p = c_b\,\kappa_\mathrm{rms}$ on $|\kappa_\perp|$. For a Gaussian launch
+  $\kappa_\mathrm{rms} w_0 = \sqrt2$, whatever the waist. The band's edge says what the collar
+  absorbs; it does not by itself protect the launch, which is the design check's job (§4.4).
 - **Wavenumbers.** $k_{\min}$ and $k_{\max}$ (§4.2–4.3) are the extremes of $k_z$ at the
   relevant $\kappa$ over the *requested* band, `inband_mask & active_mask`, or a declared band.
   Envelope and field grids carry active bins well outside the request, where the spectral
   collar is already removing content. Taking $k_{\min}$ there doubles $\alpha_0$ and the error,
-  halves the stability limit, and makes the report wrong by $10^4$ in returned energy. Bins
-  evanescent at $\kappa_p$ are refused, as is any such bin with $\kappa_p > 0.9\,k$.
+  halves the stability limit, and makes the report wrong by $10^4$ in returned energy.
   - On a route whose medium varies along $z$ (SEP 34's radial adiabatic transport), they are
-    taken over the medium at the path's nodes, so that the entrance alone does not set them.
+    taken over the medium at the path's nodes, so that the entrance alone does not set them, and
+    the design check runs at the path's extreme nodes, taking the larger return.
   - On the planar route, $k_z$ is each slab mode's longitudinal wavenumber, and the
     extremes run over modes.
 - **The resolved design holds:**
   - the real-space rate on the nodes, if a collar was requested;
   - the safety ramp's rate on the spectral columns;
   - $\kappa_\mathrm{lo}$, $\kappa_p$ and $\kappa_s$, with the intermediate band's report (§4.4);
-  - the launch's predicted own return (§4.4);
+  - the launch's computed own return, and the bare wall's at the same size (§4.4);
   - the unguarded band of §4.7;
   - the QDHT columns reflected below the band (§4.6);
-  - the crossing step limit;
-  - the passivity admission value of §4.9.
+  - the crossing step limit.
 
   All are recorded in the output.
-- **Refusals.** A requested collar is refused, by name, naming the fraction or width that would
-  pass, when:
-  - the launch's predicted own return exceeds the reflection budget (§4.4);
-  - its band edge is below the profile's floor (Planck: $\kappa_p w < 22$, §4.3);
-  - its passivity value fails §4.9;
+- **Refusals.** A requested collar is refused by name, naming a fraction or width that would pass
+  where one exists, when:
+  - the launch's computed own return exceeds the reflection budget (§4.4);
+  - its band edge is below the profile's floor ($\kappa_p w < 22$, §4.3);
+  - a requested-band bin is evanescent at $\kappa_p(\omega)$, or has $\kappa_p(\omega) > 0.9\,k(\omega)$;
+  - the bands are out of order: $\kappa_p > \kappa_s$, or `discard_above` below $\kappa_p$;
   - the grid has no room for it (`collar_fraction=0`).
 - **When it is frozen and rebuilt.** The design is resolved once per translation and is
   immutable. It is part of the translated problem, so it follows that problem's sharing.
   - `with_input` keeps the design. A derived run shares its parent's linear operator,
-    transform and step limits, and that sharing is what lets derived runs and batches reuse
-    them. The precedent is the optmat rate bindings, which also stay bound to the original
-    input. When the new launch's $\kappa_\mathrm{rms}$ exceeds the band the design was
+    transform and step limits, and that sharing is what lets derived runs reuse them. The
+    precedent is the optmat rate bindings, which also stay bound to the original input. The design
+    check is not rerun. When the new launch's $\kappa_\mathrm{rms}$ exceeds the band the design was
     resolved for, the run warns.
   - A scan point builds and translates its own simulation, so it resolves its own design.
-    Points that differ only in energy keep $\kappa_\mathrm{rms}$ and the same design, and so
-    still share leaves in a lockstep batch.
-  - Coupling a field to another grid or medium (SEP 31) resolves the child's own
-    specification on its own grid. A child whose band is launch-derived is translated
-    against its actual incident launch, not against the zero placeholder launch that sizes
-    its port.
+  - Coupling a field to another grid or medium (SEP 31) resolves the child's own specification on
+    its own grid. **A coupled child with a collar declares its band,** with `kappa` or `angle`: the
+    port is translated before the launch exists, and a launch carries its source's realised noise,
+    which would raise $\kappa_\mathrm{rms}$ by 1.45 at $\eta = 10^{-3}$ and 3.4 at $10^{-2}$ on the
+    suite's grid. A launch-derived specification there is refused by name. So the design check on a
+    child runs on the launch given to `with_input`, or is recorded as not run.
   - A launch that is zero everywhere, with a requested collar and no declared `kappa` or
     `angle`, is refused.
-  - A resume translates the simulation again and resolves the same design. The design is
-    recorded in the run's configuration and is part of its resume key, so any difference
-    refuses the resume.
+  - A resume translates the simulation again and resolves the same design. The run's resume key
+    hashes the specification and the inputs it was resolved from. The derived values, which come
+    from a root-finder and an eigensolver, are recorded beside it, not in it, so that a resume is
+    not refused across BLAS builds.
 
 **Removed:**
 
@@ -809,64 +829,91 @@ The monitor gains a transverse edge per face: one for the radial grid, four for 
 Cartesian box, two for the line and the slab. Every share is an energy share of the launch's
 field norm $U_\mathrm{launch}$, and is judged at Q7's levels through `BoundaryCheck`, as for the
 temporal guards: a warning above its budget, $10^{-3}$ in field ($10^{-6}$ in energy), and a stop
-above ten budgets.
+above ten budgets. `BoundaryCheck` gains `transverse_budget`, defaulting to `budget`, so that
+relaxing the transverse edge does not relax time.
 
 What it judges depends on whether a collar is present, because the physics differs.
 
 | situation | measured quantity | judged |
 |---|---|---|
-| launch clipped by the aperture | the launch's share in the guard (the outer 5 % of the requested size) at $z=0$ | warn above budget |
-| **no collar:** light reaching the wall or the wrap | the guard's share, its maximum over checks above its launch value | warn and stop |
+| launch clipped by the aperture | the launch's share in the outer 5 % of the *requested* size, at $z=0$ | warn above budget |
+| **no collar:** light reaching the wall or the wrap | the *edge* share: the outer 5 % of the *outer* size, its maximum over checks above its launch value | warn and stop |
 | **collar:** inadequate absorption, or contamination returning | the returned share in the return strip, and the inward current at the collar's onset | warn and stop |
 | **collar:** intended outward flow | guard and collar shares along $z$; `spatial_removed` | recorded at INFO, never a stop |
+| **any:** light removed by the safety ramp | the ramp's removal, cumulative, above the launch's share in the band | warn; a stop is settled in phase 1 (Q8) |
 | a design's limits | the intermediate band's report and the unguarded band, at translation | recorded |
 
 **With no collar, reaching the edge is the failure.** Everything that reaches the edge comes back
 or wraps, so no direction is needed. The direction-resolving estimators below read nothing useful
 here: on the suite case, 10 % wrong in field, the outer quarter's strip reads $1.4\times10^{-7}$
-in energy, below the warning, and the inward current reads zero, because a slow return coincides
-with outflow. The guard's share tracks the true error instead. On that case it reads:
+in energy, below the warning, and on a linear 100 µm beam the inward current reads zero, because a
+slow return coincides with outflow. The edge share tracks the true error instead. On the suite case
+at $f = 0$, at its five saved planes:
 
 | z (cm) | 2 | 4 | 6 | 8 |
 |---|---|---|---|---|
 | true aperture error, energy | $6.1\times10^{-7}$ | $2.4\times10^{-4}$ | $3.6\times10^{-3}$ | $1.1\times10^{-2}$ |
-| guard above its launch value | $7.7\times10^{-7}$ | $9.5\times10^{-5}$ | $3.0\times10^{-4}$ | $4.1\times10^{-4}$ |
+| edge share above its launch value | $7.7\times10^{-7}$ | $9.5\times10^{-5}$ | $3.0\times10^{-4}$ | $4.1\times10^{-4}$ |
 
 It stays within 3× at onset, and falls behind by up to 30× only once the error is already large.
-So the warning comes near a true error of $10^{-6}$ and the stop near 1–5 × $10^{-4}$. The launch
-baseline stops a converging launch being stopped falsely.
+So the warning comes near a true error of $10^{-6}$ and the stop near 1–5 × $10^{-4}$. It would stop
+this case between 4 and 6 cm, as inferred from those planes; §7.6 tests it at the real check
+interval. The launch baseline stops a converging launch being stopped falsely.
 
-- **The noise allowance.** The builders' default input noise fills the guard. Its expectation is
-  removed by the launch baseline, and a reading is judged above three standard deviations of the
-  guard's noise reading, $3\,\eta f_g/\sqrt{M}$, for noise share $\eta$, guard area share $f_g$ and
-  $M$ independent modes in the guard. This matches one-frequency radial measurements at
-  $\eta = 3\times10^{-6}$ to $10^{-3}$; §7.6 qualifies it on full grids.
-- **The stop message names a size to try,** by the ray estimate $R\,L/z_w$, with $z_w$ the plane
-  at which the guard first passed the warning. It is deliberately generous: on the suite case it
-  gives about 3.8 $R$, where 2 $R$ already meets the budget. A user who knows better raises the budget
-  with `boundary_check`.
+- **A larger bare grid reads conservatively.** The edge is at the outer size, not the request's,
+  which would falsely stop a run with room to spare: on a reference grid the request's outer 5 %
+  reads up to $3.4\times10^{-3}$ on this case. At the outer edge, one frequency, a bare wall reads
+  $2.3\times10^{-4}$ at $f = 0.5$ (true error $8\times10^{-7}$), $2.9\times10^{-6}$ at $f = 1$ (below
+  $5\times10^{-13}$) and $1.3\times10^{-7}$ at $f = 1.25$. Light at the wall has not yet come back
+  within $L$, but it would in a slightly longer run, so the reading errs on the side of more room,
+  deliberately.
+- **The noise allowance.** The builders' default input noise fills the edge. Its expectation is
+  removed by the launch baseline. The judged value is the difference of two noise readings,
+  maximised over checks, so the allowance is several standard deviations of one reading:
+  $8\,\eta f_g/\sqrt{M}$, for noise share $\eta$, edge area share $f_g$ and $M$ independent modes in
+  it. On a one-dimensional probe, the judged value's 95th percentile is about $5\,\eta f_g/\sqrt M$
+  and its largest about 7. §7.6 qualifies this on full grids. When the allowance exceeds the warning,
+  translation records that the run is insensitive below it, and warns if it exceeds the stop.
+- **The stop message names a size to try, and a sample count.** It gives at least $R\,L/z_w$, with
+  $z_w$ the plane at which the edge first passed the warning, and says this is a lower bound. On the
+  suite case it gives about 3.8 $R$, where 2 $R$ already meets the budget. Light generated at $z_f$
+  needs $R(L-z_f)/(z_w-z_f)$, which can be more, so a filament may take a second try. A user who
+  knows better raises `transverse_budget`.
+- **Cadence.** The edge is read at a fixed check interval, staying out of the temporal guards'
+  every-step `ACTIVE` rule, so a run with light near its edge does not slow down. Linear witnesses
+  read the same within a few per cent at 1 mm and 0.1 mm.
 
 **With a collar, reaching the edge is intended, and what returns is the failure.** The returned
 share is the field near the edge that travels *towards* the aperture's interior.
 
 - **Its strip.** A strip of width $s$ resolves direction to $10^{-6}$ leakage only for
-  wavenumbers $q \ge 16/s$, an uncertainty limit. The strip runs over the collar plus at most the
-  request's outer quarter.
+  wavenumbers $q \ge 16/s$, an uncertainty limit. The strip runs over the collar plus
+  $\min(w/2, R/4)$ of the request.
 - **The estimator.** The inward energy at $q \le -16/s$ of a Kaiser(8)-windowed transform along
   the face's normal, on $\sqrt r\,E$ radially. Its transform is padded twice.
 - **The current.** It is supplemented by the cumulative rectified inward current at the collar's
   onset, accumulated at every accepted step, judged above the launch's energy outside the
-  request.
-- **The floors.** The strip's maximum over checks is judged above its launch-time value and above
-  three times the exact noise expectation; the current is judged above its own. When three times
+  request. In the native Adams march, which otherwise returns to the host only at checks, it is a
+  native reduction.
+- **The floors.** The strip's maximum over checks is judged above its launch-time value, above
+  three times the exact noise expectation, and above $10^{-6}$ of its own windowed energy, the
+  Kaiser window's leakage. The current is judged above its own noise expectation. When three times
   the strip's floor exceeds the warning, translation records that the run is insensitive below
   it, and warns if it exceeds the stop, as on a Cartesian grid with explicit input noise at 1 nJ.
+- The launch baselines join `BoundaryMonitor.resume`, so that a resume judges against the original
+  launch.
 
-Measured in two dimensions: clean escape, through a Cartesian corner included, reads at most
-$2.4\times10^{-8}$; every wall, wrap and collar at one sixteenth of the design strength stops; the
-margin to the weakest stop-level failure is about $6\times10^3$. The reflected spread of a slow
-launch is under-read 7–100 times, so it warns rather than stops. The design check is what keeps
-that case out, and the guide says so.
+Measured in two dimensions, one frequency, linear: clean escape, through a Cartesian corner included,
+reads at most $2.4\times10^{-8}$; every wall, wrap and collar at one sixteenth of the design strength
+stops; the margin to the weakest stop-level failure is about $6\times10^3$. The reflected spread of a
+slow launch is under-read 7–100 times, so it warns rather than stops. The design check is what keeps
+that case out, and the guide says so. The strip and current have not yet read a nonlinear run, and
+the prototype's noise fixes have not been re-run; §7.6 does both.
+
+**The ramp's removal.** The default radial and planar ramps are new, and an under-resolved filament
+could otherwise lose energy through them unseen. The removal is cheap, because the columns are
+already spectral. It is judged cumulatively above the launch's own share in the band, which default
+input noise fills.
 
 The end-of-plane log of `collar_field_fraction` is retired.
 
@@ -885,18 +932,25 @@ The end-of-plane log of `collar_field_fraction` is retired.
 
 **Layers.**
 
-- *Physics* (`solprop.boundaries`, `solprop.grid`): the specification, the design formulas,
-  the tabulated reflection and the profile library.
+- *Physics* (`solprop.boundaries`, `solprop.grid`): the specification and the design formulas.
 - *Translation* (`solprop.translate.radial`, `.free`, `.planar`, `.spatial`, `.problem`):
-  resolution against medium and launch, the design check, the step limits, the passivity
-  admission, and the rates on the kernel problem.
-- *Backends:* the in-stage term (existing), the guard reduction, the returned-share and removal
-  reductions.
+  resolution against medium and launch, the design check, the step limits, and the rates on the
+  kernel problem.
+- *Backends:* the in-stage term (existing), the edge and ramp reductions, the returned-share and
+  removal reductions.
 - *Monitor* (`solprop.monitor`): the transverse edge and its policy.
 
-**The default's cost is the guard reading.** A norm reduction at the monitor's checks, beside the
-temporal guards' own. The ramp rides the linear operator and costs nothing per step. A default
-run's steps and wall time should not change, which §7.7 checks.
+**The default's cost.** The edge needs one transverse inverse transform per check: today's
+reductions need none, since radially they use spectral weights and on the Cartesian grid Parseval's
+theorem. At the fixed cadence of §5.3 this should be small, and §7.7 measures it. The campaign's
+collar overhead under `Multistep`, +14 % radially and +22–27 % on the Cartesian grid, is what an
+every-step reading would cost, which is why the edge stays out of that rule.
+
+The ramp rides the linear operator and adds nothing per step, with one bound: it enters the exponent
+check (`_check_exponent_budget`), so a fixed schedule is refused above $h\alpha_s/2 > 709$ (88.7 in
+binary32), and an adaptive run is held to it at its floor. It does not bind on the suite case
+($\alpha_s \approx 10^4$ m⁻¹). At $R = 50$ µm and $\Delta x = 1$ µm in silica ($\alpha_s$ about
+$2\times10^5$ m⁻¹), the limit is about 7 mm in binary64 and 1 mm in binary32.
 
 **Folding the rate into the linear operator** is exact but not affordable. In the radial
 basis, $F\,\mathrm{diag}(\alpha)\,B$ is dense and does not commute with the diagonal linear
@@ -905,30 +959,39 @@ the diagonal contract of [kernel-contract.md](../kernel-contract.md) §3.
 
 **The safety ramp** is a per-column rate in the linear operator, existing on the Cartesian
 route. It is lifted to the radial ($k_r$) and planar ($k_y$ per mode) columns, with its
-strength from §4.4.
+strength from §4.4. The radial operator is a dense table with `radial_rate_bounds`, so this is
+representable.
 
 **Kernel contract.** The problem gains the crossing limit and the radial and planar ramp columns.
-`SCHEMA_VERSION` is bumped once, in phase 1. The output schema records the design and the ledger,
-also in phase 1.
+`KERNEL_SCHEMA_VERSION` is bumped once, in phase 1. The output schema records the design and the
+ledger, also in phase 1.
 
-**Backends, in order.**
+**Backends, under ADR-061.** A default spatial run never refuses, because the ramp and the edge are
+on for every run, and `backend="auto"` can resolve to `numba_cpu`.
 
-- `numpy_ref`: the oracle.
-- `numba_cpu`: the existing in-stage kernels, the ramp columns and the monitor reductions.
-- The native CPU build: the same.
-- The MLX and native device backends follow the standing device policy
-  ([backends.md](../backends.md)) and refuse what they do not yet implement, by name.
+- `numpy_ref` (Tier 1): the oracle, carrying everything.
+- The native CPU build (Tier 1): everything, with parity.
+- `numba_cpu` (Tier 2): the default parts only, the ramp columns and the edge and ramp reductions,
+  with parity, because refusing them would break ordinary runs on machines below the native wheel's
+  baseline and wherever the native backend is not installed. It refuses a requested collar by name,
+  naming the native backend, because the return strip and current are not worth carrying there.
+- The native device builds and `mlx` (Tier 3) carry the ramp, an operator table, and either read the
+  edge on the host at a check or record the transverse edge as unwatched in the run's output. They
+  may refuse a requested collar by name. Device qualification follows the standing policy
+  ([backends.md](../backends.md)).
 
 **Cost to be measured, not assumed (§7.7).**
 
 - The in-stage cost per stage.
-- The monitor's windowed transforms and reductions, with their scratch.
+- The monitor's windowed transforms and reductions, with their scratch. The inward current cost 1.5
+  FFT pairs per check in the prototype.
+- The design check, per frequency, at production sizes.
 - The added samples of a requested collar.
 - The steps under the crossing and stability limits.
 
 Scratch is reused from the stage buffers where the backend already holds a physical-space
 volume. Any additional buffer is listed in the memory ledger
-([benchmarks.md](../benchmarks.md)).
+([backends.md](../backends.md) §8).
 
 **No new dependencies.**
 
@@ -974,78 +1037,101 @@ Phase 0 built and used these; they are carried into the tests or kept with the h
 #### 7.3 Calibration
 
 Done in phase 0 on the real discrete operators (the periodic Fourier operator, the QDHT and the
-slab-mode operator), recorded in Part II: the WKB root, the threshold law, the band-edge floors,
+slab-mode operator), recorded in Part II: the WKB root, the threshold law, the band-edge floor,
 the radial and slab corrections, the safety band's shortfall, the content generated in the collar,
-and $c_\times$. Phase 1 turns the reflection into the table $r(\kappa)$ of §4.4 and checks it
-against the 1-D measurements on `numpy_ref`.
+and $c_\times$. Phase 1 adds the design check's cost at production sizes and with several frequencies,
+and runs it on the line and planar routes.
 
 #### 7.4 Scheme accuracy
 
-The aperture error at three step sizes in-stage, under each integrator. The §4.7 crossing
-counterexample, run in-stage, as a regression test: refused, or accurate, never silently wrong.
+The aperture error at three step sizes in-stage, under Runge–Kutta, `Multistep` and the low-storage
+march, which sets the fixed-schedule limit and damping bound of §4.7 for each. Each is qualified or
+refused by name. The §4.7 crossing counterexample, run in-stage, as a regression test: refused, or
+accurate, never silently wrong.
 
 #### 7.5 Physics witnesses
 
-These run in the tests at reduced size. Their phase 0 full-length values are the target.
+These run in the tests at reduced size. Part II tabulates each witness's definition and expected
+reading, with the basis of its tolerance.
 
+- **The design check.** Its estimate against a full run, on the four suite-case fractions of §4.4 and
+  the two linear witnesses. The estimate is compared with a run, not with itself.
 - **The linear beam.** The probe of §2, on a collar that passes the design check, against reference
   7.2.1, within §7.1's budget. The same beam on a collar that fails it is refused.
 - **A protected weak signal,** a four-wave-mixing sideband at an angle in fused silica, on the line
-  route at 256 samples (seconds). Protected: within $10^{-5}$ of the sideband's own field. Declared
-  outside the band: the report predicts its returned energy to ±10 %. Wrapped: wrong by 0.97.
+  route at 256 samples (seconds). Protected: the returned energy matches the design's report within
+  ±10 %, $1.6\times10^{-10}$ of the sideband's energy, on a design with the requested-band rule, and
+  its far-field statistics agree with the larger-domain reference. Declared outside the band: the
+  same, at $1.05\times10^{-4}$. Wrapped: wrong by 0.97.
 - **A nonlinear field reaching the boundary,** the suite's `spatial_absorber` case scaled paraxially
-  to 1 cm, which reproduces every 8 cm error to two digits in 3–16 s. Against a converged
-  large-radius reference: as configured, stopped by the monitor; on a requested collar at $f = 2.6$, within $10^{-5}$. A
-  ten-step witness is not possible, because the error appears only once the beam fills the
-  collar's region. The full 8 cm runs only in the suite.
+  to 1 cm, which reproduces the 8 cm errors to two digits in 3–16 s ($1.07\times10^{-3}$ and
+  $1.68\times10^{-6}$ on the $f = 1$ and 2.6 designs below), against
+  a converged large-radius reference:
+  - as configured, stopped by the monitor;
+  - on a bare wall at $2R$, passing;
+  - a hand-built collar at $f = 1$, true error $1.1\times10^{-3}$, which the design check refuses:
+    the monitor's strip and current read it, for the first time on a nonlinear run;
+  - on a requested collar at $f = 2.6$, within three times its measured $1.7\times10^{-6}$.
+
+  A ten-step witness is not possible, because the error appears only once the beam reaches the
+  edge. The full 8 cm runs only in the suite.
+- **An under-resolved filament.** A self-focusing run with plasma on a coarse transverse grid, whose
+  ramp removal the monitor reads, with a refined run as its reference. It settles Q8.
 
 #### 7.6 Monitor
 
-One or a few frequencies on `numpy_ref`, asserting phase 0's readings within a factor of 3:
+One or a few frequencies on `numpy_ref`, asserting Part II's readings within a factor of 3. Clean,
+warning and stop classes lie decades apart, and the factor covers differences between the prototype's
+transforms and the code's.
 
 - *No collar:*
   - a run that stays away from the edge completes with no warning beyond INFO;
-  - a wall and a wrap, slow and fast, are caught by the guard's share;
+  - a wall and a wrap, slow and fast, are caught by the edge share;
+  - a bare wall at $f = 1$ warns, and at $f = 1.5$ does not (§5.3);
   - converging launches read zero until they truly spread back;
   - a launch with tails on the edge is caught at $z = 0$, and not again;
   - the noise allowance holds under each route's noise, on full frequency grids, with the check
-    interval the monitor really uses.
+    interval the monitor really uses, on the nonlinear suite case as well as the linear ones.
 - *A collar:*
-  - a strong escape, through a Cartesian corner included, completes with no warning beyond INFO;
+  - a strong escape, through a Cartesian corner included, completes with no warning beyond INFO,
+    under explicit noise too, with the current's noise subtraction and per-step accumulation;
   - a wall, a wrap, and collars at one quarter and one sixteenth of the design strength are caught;
   - the converging launch needs its baseline;
   - the slow launch on a refused design, built by hand, reads 7–100 times under, and is recorded as
     an expected shortfall.
+- *The ramp:* its removal on a clean run stays below the warning under default noise.
 
 #### 7.7 Invariants, ledger and cost
 
 - **The default changes nothing short of the edge.** A run whose light stays away from the edge
-  takes the same steps as today's, within the accuracy envelope, and its field agrees within the
-  ramp's effect at $\kappa_s$.
-- **Inside the protected band, nothing changes.** A beam whose content lies in the
-  protected band and stays inside the aperture is unchanged to rounding.
+  takes the same steps as today's, within the accuracy envelope of [testing.md](../testing.md) §3,
+  and agrees with today's field within that envelope, on a launch with no content in the ramp's band.
+- **Inside the protected band, nothing changes.** A beam whose content lies in the protected band,
+  and whose tail at the collar's onset is below rounding, is unchanged to rounding.
 - **The ledger closes.** With temporal and spatial collars both active, the ledger closes:
-  $U(z)$ plus the credits plus the mask entry equals $U_\mathrm{launch}$, within
-  the step's error. The test runs in a lossless, linear medium. Otherwise the safety ramp
+  $U(z)$ plus the credits plus the mask entry equals $U_\mathrm{launch}$. The test runs in a lossless,
+  linear medium, checking at every step, so that its tolerance is the trapezoid's error at the step
+  size; a coarser cadence widens it by the ratio squared. Otherwise the safety ramp
   (the transverse channel), the evanescent and material channels and any ionisation loss
   enter the closure too. Checked across a checkpoint and resume, and with field-free planes.
-- **Passivity admission.** The admission values of §4.9, on each geometry.
 - **Independence of $L$.** The resolved operator is the same for $L$ and $2L$; this is
   checked directly. Propagations to a common plane are compared on a matched fixed schedule,
   where they must agree to rounding. Adaptive runs are compared within the accuracy envelope
   of [testing.md](../testing.md) §3, not against `rtol`.
-- **Parity.** `numpy_ref`, `numba_cpu` and the native CPU build on matched schedules and
-  histories, within the summation-bound tolerances of [testing.md](../testing.md).
+- **Parity.** `numpy_ref` and the native CPU build on matched schedules and histories, and
+  `numba_cpu` for the parts it carries, within the summation-bound tolerances of
+  [testing.md](../testing.md).
 - **Qualification matrix.**
   - *Routes:* radial, square and anisotropic Cartesian, line, and planar with one and two
     modes.
   - *Grids:* field and envelope.
   - *Precision:* double, and single where the route supports it.
   - *Integrators:* RK, Multistep and low-storage RK.
-  - *Backends:* each CPU backend.
+  - *Backends:* each CPU backend, and what §6 says of the others: the default runs on all of them.
 
   A cell is either qualified or refused by name, with a refusal test. The design's
-  serialisation and resume round trip is tested.
+  serialisation and resume round trip is tested, including a resume judged against the original
+  launch's baselines.
 - **Cost.** Steps, wall time and memory on the suite's spatial cases against today, at matched
   accuracy, with and without a requested collar, at several collar widths at fixed physical
   resolution. A ledger entry in [benchmarks.md](../benchmarks.md).
@@ -1061,6 +1147,8 @@ One or a few frequencies on `numpy_ref`, asserting phase 0's readings within a f
   - the theory in its calibrated form, the protected, intermediate and safety bands;
   - that a weak generated or launched signal is protected only if its angle is declared, and that
     a slow reflected spread under a collar warns rather than stops;
+  - what the monitor cannot judge: a filament generated late needs more room than the stop message
+    names;
   - the step limit and the ledger;
   - a worked example.
 - [Boundaries](../../guide/numerics/boundaries.md): links the transverse boundary from
@@ -1076,14 +1164,15 @@ One or a few frequencies on `numpy_ref`, asserting phase 0's readings within a f
   no transverse absorber, so a radial run reflects from its outer radius and a Cartesian one
   wraps. So does solprop by default, but it detects that and stops, and offers a designed
   absorber on request.
+- `CHANGELOG.md`: each break of §9 under "Changed (breaking)" (ADR-058), citing this SEP.
 
 ### 9. Compatibility and impact
 
 Breaking, deliberately, with no compatibility shims:
 
 - `window_factor` becomes `collar_fraction`, defaulting to 0. `RadialGrid(R, n_r)` keeps its wall
-  and spacing. A script that gave `FreeGrid(rx, nx, ry, ny)` loses the inert 10 % margin, so its
-  spacing at the same `n_x` changes.
+  and spacing, and `radius` means the requested size. A script that gave `FreeGrid(rx, nx, ry, ny)`
+  loses the inert 10 % margin, so its spacing at the same `n_x` changes.
 - `TransverseCollar`, `SimulationSettings.transverse_absorber` and `Absorber.spatial` are
   removed. The safety ramp's strength is no longer a free rate, and it is on by default.
 - **A run whose light reaches its boundary now warns or stops** where it used to log and carry on.
@@ -1091,12 +1180,12 @@ Breaking, deliberately, with no compatibility shims:
 - An explicit absorber, which used to enable today's collar, is replaced by a `SpatialAbsorber`
   that may be refused.
 
-Kernel `SCHEMA_VERSION` and output `SCHEMA_VERSION` are bumped in phase 1.
+`KERNEL_SCHEMA_VERSION` and the output schema are bumped in phase 1.
 
 Validated results to redo:
 
 - the suite's `spatial_absorber` case, which as configured would now stop. It gets a requested
-  collar at $f = 2.6$ on $n_r = 230$, with a measured error of $2.9\times10^{-6}$, so that the
+  collar at $f = 2.6$ on $n_r = 230$, with a measured error of $1.7\times10^{-6}$, so that the
   suite keeps tracking the collar's cost path. Its revision is bumped. The stop itself is tested
   in §7.5, because a tracking case that stops part-way gives no timing;
 - the radial, Cartesian, line and planar performance-tracking cases, for the same check;
@@ -1107,24 +1196,36 @@ Validated results to redo:
 - the introduction's filament and crossing-beam tutorials;
 - the geometry figure.
 
-Downstream Cartesian models that run with a $k_\perp$ ramp and no real-space collar take the
-default and re-qualify their numbers.
+Downstream Cartesian models that run with a $k_\perp$ ramp and no real-space collar take
+`SpatialAbsorber(real_space=False)`, or the default, and re-qualify their numbers.
 
 The device backends (MLX and the native GPU builds) run today's in-stage collar now, with no
-refusal. Under the new design they either carry the new parts (the radial and planar
-safety ramps, the transverse monitor edges) or refuse those parts by name.
+refusal. Under the new design a default run keeps running on them, with the ramp and the edge read on
+the host or recorded as unwatched, and they may refuse a requested collar by name (§6). `numba_cpu`
+also comes to refuse a requested collar, which it runs today.
 
 ### 10. Alternatives considered
 
 - **A real-space collar by default** (this SEP as first accepted), at fractions of 1.0 radially and
-  0.5 otherwise. Phase 0: radial $f = 1$ gives $1.1$–$4.4\times10^{-3}$ against a bare wall's
+  0.5 otherwise. Phase 0: radial $f = 1$ gives $1.1\times10^{-3}$ against a bare wall's
   $3.9\times10^{-5}$ on the suite case, and Cartesian $f = 0.5$ gives $3.6\times10^{-2}$ on the
   probe. It costs 2.5–2.9 times per step radially and buys nothing on a slow beam.
 - **Outside placement as distance only, by default:** a bare wall at $(1+f)R$. It is robust on the
   suite case, but not within budget on the §2 radial probe ($1.1\times10^{-3}$), and it charges
   every run 2.1 times for room most do not need. The monitor asks for the room when it is needed.
-- **A default fraction that follows the design,** resolved at translation: $f$ of 8–10 on the suite
-  case, with an outer size no longer fixed by the grid.
+- **A default fraction that follows the design check,** resolved at translation: about $f = 1.3$ on
+  the suite case, with an outer size no longer fixed by the grid. A wall at that size does better.
+- **A design check from a tabulated reflection,** $\sum S\,T\,|r|^2$. Evaluated on the witnesses, it
+  is wrong by up to nine decades (Part III, R15).
+- **A passivity admission on the flux metric,** in the first version, on a dense corner surrogate.
+  Its worst realistic value was a guard near cutoff, which the $0.9\,k$ refusal covers. It measures a
+  metric the monitor and ledger do not use, and it would refuse any grid with an evanescent corner,
+  whatever its fraction.
+- **Polynomial profiles,** $s^n$, $n = 2, 3, 4$ [2, 3]. $s^3$ and $s^4$ open the band at narrower
+  widths, with floors of $\kappa_p w \ge 14.5$ and 16.2 against Planck's 22.3, but reflect up to
+  $2\times10^{-4}$ at the periodic grid's wrap point, where they meet 1 with a finite slope. They would
+  need a smooth top, which was never calibrated, and the design check would have to be rerun on it.
+  They go to the roadmap at Final.
 - **Protecting less,** lowering the band to what the width supports. The band opens only by
   *raising* $\kappa_p$, and that measured worst.
 - **The direction-resolving monitor on the default.** It reads below its warning on the suite
@@ -1144,6 +1245,8 @@ safety ramps, the transverse monitor edges) or refuse those parts by name.
   including on a $10^{-3}$-amplitude packet under a strong beam. It is not offered.
 - **The singular transmission-free profile of Manolopoulos** [4]. It needs the split scheme, because
   in-stage its peak rate would set the step, and it was not measured.
+- **Requiring a launch-derived band on a coupled child,** by translating the child again against its
+  incident launch. It needs new machinery in SEP 31's port, and a band robust to the source's noise.
 - **Keep the collar, retune its constants.** SEP 21's sweep shows that width and strength
   alone reach a few $10^{-3}$ at best, and that the right strength depends on the beam, not
   on $L$. Retuning would leave the length coupling.
@@ -1170,32 +1273,36 @@ Part II. Its evidence led to this revision.
 
 **Phase 1 — `numpy_ref`, interface and documentation.**
 
-- `collar_fraction`, with the outside placement.
-- `SpatialAbsorber` and its resolution, the design check with the tabulated reflection, and the
-  removals of §5.2.
-- The crossing limit.
-- The radial and planar safety ramps, and the no-collar ramp strength.
-- The monitor's transverse edges, in both regimes, and the ledger.
+- `collar_fraction`, with the outside placement, `outer_radius` and the statistics of §5.1.
+- `SpatialAbsorber` and its resolution, the design check by direct propagation, and the removals of
+  §5.2.
+- The crossing limit, and §7.4's measurements under each integrator.
+- The radial and planar safety ramps, and the ramp's strength.
+- The monitor's transverse edges, in both regimes, the ramp's removal, and the ledger.
+- Q8, settled by the under-resolved witness.
 - Both schema bumps.
 - The tests of §7 on `numpy_ref`, the qualification matrix's `numpy_ref` column, the manual
   pages and the tutorial.
-- The other backends refuse what they lack, by name.
+- The other backends: a default run still runs on them, with the edge recorded as unwatched until
+  they carry it; they refuse a requested collar by name.
 
-**Phase 2 — `numba_cpu`.** The same, with parity on matched schedules, and without the free routes'
-needless temporal pair.
+**Phase 2 — native CPU.** Everything, with parity, and without the free routes' needless temporal
+pair. The native Adams march's inward current.
 
-**Phase 3 — native CPU, requalification, Final.**
+**Phase 3 — `numba_cpu`, requalification, Final.**
 
-- The compiled paths, with parity.
-- The suite's spatial cases, the galleries, the benchmark ledger and the Luna page.
-- Roadmap items: the split scheme, with its measured potential and accuracy cap; device backends,
-  left to the standing policy.
+- `numba_cpu`'s default parts, with parity.
+- The device backends' default path, compile-checked, with their qualification left to the standing
+  policy as a roadmap item.
+- The suite's spatial cases, the galleries, the benchmark ledger, the changelog and the Luna page.
+- Roadmap items: the split scheme, with its measured potential and accuracy cap; the polynomial
+  profiles.
 
 ### 12. Open questions
 
-All are decided (John Travers). Q1–Q7 were first decided on 2026-10-31. Phase 0 changed Q1, Q2 and
-Q4, on 2026-10-31 and 2026-11-01, and this revision states them as they now stand. Part II
-records what changed and why.
+All but Q8 are decided (John Travers). Q1–Q7 were first decided on 2026-10-31. Phase 0 and the
+2026-11-01 review changed Q1, Q2, Q3, Q4 and Q6, and this revision states them as they now stand.
+Part II and Part III record what changed and why.
 
 1. **Q1 — the default.** *Decided:* no real-space collar. `prop_radial`, `prop_free` and
    `prop_planar` keep a wall or a wrap at the requested size, with the safety ramp and the monitor.
@@ -1204,8 +1311,8 @@ records what changed and why.
    (radial) and 0.5 (Cartesian, line, planar) become the guide's starting points for a requested
    collar. They are not applied implicitly, because a grid counts its samples and is built before
    the absorber (§5.1).
-3. **Q3 — the profile.** *Decided:* the Planck taper's complement, confirmed by phase 0. Polynomials
-   with a smooth top are offered. The singular profile is dropped.
+3. **Q3 — the profile.** *Decided:* the Planck taper's complement, confirmed by phase 0, and the only
+   one offered. The polynomials go to the roadmap, and the singular profile is dropped.
 4. **Q4 — the scheme and the integrator.** *Decided:* in-stage only, keeping `Multistep` as the
    radial and planar default under a collar. The split goes to the roadmap, and `cover` is dropped
    (§10). Whether SEP 21's split temporal collar needs the analogous crossing limit is already on
@@ -1213,12 +1320,15 @@ records what changed and why.
 5. **Q5 — the default protected band.** *Decided:* the launch times $c_b = 3$, as the band's default
    upper edge. The design check, not the band, protects the launch. The guide tells users who expect
    generated radiation (four-wave mixing, conical emission) to declare an `angle`.
-6. **Q6 — the safety band and passivity tolerance.** *Decided:* the outer 10 % of each axis's
-   wavenumbers, on by default on every geometry, radial and planar included, with the strength
-   rule of §4.4. $\varepsilon_P = 1.3\times10^{-4}$, phase 0's worst measured value with a margin
-   of ten.
+6. **Q6 — the safety band.** *Decided:* the outer 10 % of each axis's wavenumbers, on by default on
+   every geometry, radial and planar included, with the strength rule of §4.4. The passivity
+   tolerance is gone with the admission (§10).
 7. **Q7 — the monitor's policy.** *Decided:* warn above $10^{-3}$ of the launch's field norm and
    stop above $10^{-2}$, in both regimes of §5.3, through `BoundaryCheck`.
+8. **Q8 — whether the ramp's removal stops a run.** *Deferred to phase 1.* It warns at Q7's level from
+   the start. The same level would stop an under-resolved filament, but its false-stop rate on the
+   galleries is unknown, so phase 1's witness and the galleries' readings decide, and the question
+   returns to the maintainer.
 
 ### 13. References
 
@@ -1752,6 +1862,51 @@ Two choices made while rewriting Part I, for the maintainer's re-acceptance:
   uses the requested size, the distance over which content crosses the aperture and returns. The
   ramp is exact in its own basis, so this was derived and not measured.
 
+### Phase 0 — follow-up: the adopted rule and the direct check (2026-11-01)
+
+The review (Part III, R18) found the headline numbers measured under the wavenumber rule P0-13
+rejected. They are re-measured here on the requested band, at the same radial spacing, RK and
+`Multistep` agreeing to two digits. Energy shares of the launch.
+
+| suite case, at 8 cm | $f = 1$ | 1.5 | 2 | 2.6 |
+|---|---|---|---|---|
+| $n_r$; $\alpha_0$ (m⁻¹) | 128; 698 | 160; 436 | 192; 318 | 230; 242 |
+| field error | $1.07\times10^{-3}$ | $9.53\times10^{-5}$ | $1.28\times10^{-5}$ | $1.68\times10^{-6}$ |
+| energy | $1.14\times10^{-6}$ | $9.09\times10^{-9}$ | $1.65\times10^{-10}$ | $2.81\times10^{-12}$ |
+| direct linear check, 800 nm | $8.91\times10^{-7}$ | $6.88\times10^{-9}$ | $1.24\times10^{-10}$ | $2.74\times10^{-12}$ |
+| check over measured | 0.78 | 0.76 | 0.75 | 0.98 |
+| RK / `Multistep` steps | 68 / 163 | 67 / 125 | 67 / 84 | 67 / 76 |
+
+- *The check* first passes the budget near $f = 1.3$. Its floor in this form is about
+  $5\times10^{-13}$, from the reference quadrature, so a larger bare-grid reference must meet the
+  same.
+- *The sideband* on the requested-band design reads $1.1\times10^{-5}$ of its own field at full size,
+  and $1.26\times10^{-5}$ at 256 samples, where its report predicts $1.59\times10^{-10}$ in energy
+  against $1.53\times10^{-10}$ measured.
+- *A bare wall at the outer edge, one frequency,* the edge share against the true error: $f = 0$:
+  $2.5\times10^{-3}$, $2.9\times10^{-2}$; 0.5: $2.3\times10^{-4}$, $8.0\times10^{-7}$; 0.75:
+  $3.6\times10^{-5}$, $3.2\times10^{-10}$; 1: $2.9\times10^{-6}$, below $5\times10^{-13}$; 1.25:
+  $1.3\times10^{-7}$; 1.5: $3.4\times10^{-9}$.
+
+**The witnesses and their expected readings** (R24). Tests assert these. All are `numpy_ref` unless
+stated. Noise off unless stated.
+
+| witness | set-up | quantity | expected | tolerance and its basis |
+|---|---|---|---|---|
+| design check | suite case, 800 nm, the table above | the direct check over a full run | 0.75–0.98 | within a factor 2: the measured spread, plus the linear estimate's one case of evidence |
+| design check | linear Gaussian, $R$ 150 µm, spacing 3 µm, 2 cm, $f$ 0.9, $\alpha_0$ 6880 m⁻¹, waist 10 and 15 µm | the direct check over the truth | $5.25/5.3$, $6.70/6.7$ ($\times10^{-4}$) | ±5 %: it is the same linear operator |
+| nonlinear | suite scaled 1/8: $w_0$ 35.36 µm, $R$ 106.07 µm, 1 cm, $n_r = 64(1+f)$ | error at 1 cm: as configured; wall at $2R$; collar $f = 2.6$ | $1.0\times10^{-1}$; $4\times10^{-5}$; $1.7\times10^{-6}$ | a factor 3 on the last two; the first above $10^{-2}$; §7.1's $10^{-3}$ is the requirement |
+| weak signal | line route, fused silica, §7.5, 256 samples, 1024 bins | returned energy over the report, protected and declared-outside | 0.96, 1.006 | ±10 %: measured 1–4 %, doubled for the grid |
+| weak signal | as above, wrapped | error over the sideband's field | 0.97 | above 0.5: any wrap |
+| no collar | radial wall, $R$ 300 µm, spacing 4.69 µm, 8 cm, one frequency | edge share at waist 100 µm; 60; 40 | $1.7\times10^{-3}$; $7.0\times10^{-3}$; $1.5\times10^{-2}$ | factor 3: §7.6 |
+| no collar | Cartesian wrap, the same | edge share at waist 100 µm; 60; 40 | $2.7\times10^{-2}$; $1.2\times10^{-1}$; $1.9\times10^{-1}$ | factor 3 |
+| no collar | bare wall on the same beam, $f$ 1 and 1.5 | edge share | $2.9\times10^{-6}$, $3.4\times10^{-9}$ | factor 3 |
+| no collar | converging 120 µm, focus 4 cm; 170 µm, focus 8 cm | edge share above its launch before $z$ = 5 cm | 0 | exact: the baseline |
+| collar | Cartesian, $R$ 150 µm, spacing 3 µm, $f$ 0.9, $\alpha_0$ 6880 m⁻¹, one frequency, 2 cm, checks every 1 mm | strip on clean corner escape; wrap; $\alpha_0/4$, tilt $3\times10^5$ | $\le 2\times10^{-8}$; 0.4; $1.7\times10^{-3}$ | factor 3 |
+| collar | radial, the same | strip on clean ring $3\times10^5$; wall | $1.4\times10^{-8}$; 0.43 | factor 3 |
+| collar | clipped launch, 80 µm | launch guard share, Cartesian and radial | $3.2\times10^{-4}$, $6.7\times10^{-4}$ | factor 3 |
+| collar | radial waist 10 µm on that collar, refused by the check, built by hand | truth; strip | $5.3\times10^{-4}$; $7.1\times10^{-5}$ | an expected shortfall, recorded |
+
 ## Part III — History
 
 - 2026-10-31: Drafted, from SEP 21's finding R4 and decision D9, and a linear probe of the
@@ -1792,6 +1947,9 @@ Two choices made while rewriting Part I, for the maintainer's re-acceptance:
 - 2026-11-01: Opus 5.5 completed an AI review of the rewritten Part I against main at 9d5d92f and
   the campaign's results. Findings R15–R35 below, one of them blocking; Part I is unchanged.
   The maintainer's decisions and the response are pending.
+- 2026-11-01: Maintainer decisions on R15–R35 (John Travers). Opus 5.5 (drafting agent) re-measured
+  the headline numbers on the requested band, revised Part I and answered every point (*Response to
+  the 2026-11-01 review* below). Status stays `Draft`; re-acceptance is pending.
 
 ### AI review — 2026-10-31 (GPT-6)
 
@@ -2633,4 +2791,56 @@ evidence claims. The numbers below are from that re-run.
 - **R21: the passivity admission is dropped,** with $\varepsilon_P$ and the corner surrogate. This
   changes Q6's tolerance.
 
-The other points await decision.
+**All the other points: as the review recommends** (John Travers), where the review offered a
+choice taking the response's reading below.
+
+### Response to the 2026-11-01 review (Opus 5.5, drafting agent)
+
+- **R15, taken.** §4.4 now computes the launch's return by direct linear propagation against a larger
+  bare grid, replacing the formula and the table in §4.8, §5.2, §6, §7.3 and §7.5. The "$w \gtrsim
+  20\,w_0$" and "3–4.7" reductions are gone. The review compared with an analytic reference; §4.4 uses
+  a larger bare grid, so that any launch works. §2's and §10's wrong "$f$ of 8–10" and "30 times" are
+  corrected. A bare wall's return is computed too, and the refusal says when it is better.
+- **R16, taken.** §5.3 separates the launch-clip region, at the request, from the edge, at the outer
+  size. New measurements there show the reading conservative at $f > 0$, stated in §5.3 and kept
+  deliberately. That goes beyond what the review asked, and is worth the maintainer's eye.
+- **R17, decided.** §6, §9, §11. The order is `numpy_ref`, native, then `numba_cpu`'s default parts. The
+  review left a requested collar on `numba_cpu` open; §6 refuses it by name, under ADR-061.
+- **R18, taken.** Re-measured in Part II; §1, §2, §7.5 and §9 use the new numbers. The sideband test
+  now follows the report, not a fixed $10^{-5}$.
+- **R19, taken.** §4.2, §4.7 and §5.2 solve an `angle` band per frequency.
+- **R20, decided.** §5.2. A launch-derived specification on a coupled child is refused. The design
+  check runs on the launch given to `with_input`, or is recorded as not run.
+- **R21, decided.** The admission and $\varepsilon_P$ are gone from §4.9, §5.2, §7.7 and Q6, with the
+  reason in §10.
+- **R22, taken.** §4.4 defines $k_s$ with a floor at $0.9\,k$. §6 states the exponent bound.
+- **R23, taken.** §5.3 judges the ramp's removal, and §4.4 limits the one-half rule to Kerr products.
+  The review offered a warning and a stop. Its false-stop rate is unmeasured, so it warns, and the stop
+  is Q8, deferred to phase 1. §7.5 adds the witness, which has not yet been run.
+- **R24, taken.** Part II tabulates the witnesses, readings and tolerance bases. §7.7 restates ledger
+  closure at the trapezoid's error and the protected-band test with a tail below rounding. §1's
+  $10^{-3}$ is the requirement and §7.5's bound the test.
+- **R25, taken.** §7.4, §7.5, §7.6 add the nonlinear read, the other integrators and the re-run of the
+  noise fixes.
+- **R26, taken.** §5.3 keeps the edge at a fixed cadence, out of the every-step rule. §6 states the cost.
+  §5.3 makes the current a native reduction in the Adams march.
+- **R27, taken.** §5.3's allowance is $8\,\eta f_g/\sqrt M$, on the review's probe, with an "insensitive
+  below" record, and the strip's leakage floor is restored. The 8 is one-dimensional, and §7.6 qualifies
+  it.
+- **R28, taken.** §5.3 words the size as a lower bound and names the sample count, and §8 documents it.
+- **R29, taken.** §4.4 and §5.2: one profile with the larger root, per-axis launch band, the larger
+  $\alpha_s$, and refusals for out-of-order bands. All of this is design, not measurement, so the
+  anisotropic box stays in §7.7's matrix.
+- **R30, taken.** §5.2 restores `real_space=False`, which the rewrite had dropped.
+- **R31, taken.** §5.1 defines `radius` and `outer_radius`, the statistics and `_edge_nodes`. The review
+  named this as unspecified; the statistics rule is the drafting agent's and is worth the maintainer's
+  eye.
+- **R32, taken.** §5.2 hashes the specification and inputs, with derived values outside the key. §5.3
+  adds the baselines to the monitor's resume.
+- **R33, taken.** §2, §4.4 and §5.3 restate the claims with their scope. The "reads zero" claim is now
+  attributed to the linear witness.
+- **R34, taken.** Of its two options, the polynomials go to the roadmap, which is the smaller change.
+  §4.5, §5.2, §10 and Q3.
+- **R35, taken.** Each stale reference is fixed. §4.9 now says that removal is non-negative in the
+  field norm. `BoundaryCheck` gains `transverse_budget`. The maintainer's re-read of Part I remains
+  owed before re-acceptance.
