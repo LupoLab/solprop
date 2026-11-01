@@ -33,7 +33,12 @@ class Backend(Protocol):
     max_batch: int  # 1 for backends that step one problem
 
     def set_initial(
-        self, field: Field, noise: NoiseRealisation | None, *, z: float = 0.0
+        self,
+        field: Field,
+        noise: NoiseRealisation | None,
+        *,
+        z: float = 0.0,
+        resume: bool = False,
     ) -> None: ...
     def set_progress(self, reporter: ProgressReporter) -> None: ...  # observer only
     def propagate_to(self, z: float) -> StepSummary: ...
@@ -1735,7 +1740,8 @@ can be slower than binary64 `native`, and the guide sends single-precision grids
 precision (or a per-backend transform cost), a macOS `mlx` CI job (coverage with a
 recorded floor, the runtime type checks, basedpyright on `mlx_gpu`), the default
 in-stage collar's tests restored on the default geometry, bounds against the oracle
-that can detect an `mlx` error, and a re-timing on an idle machine (roadmap).
+that can detect an `mlx` error, and a re-timing on an idle machine
+([#85](https://github.com/LupoLab/solprop/issues/85)).
 
 **The envelope-grid plasma** (`mlx_gpu/envelope.py`, SEP 33 §6.3) is one kernel thread
 per sample: native's closed-form ellipse (`envelope_axes`: the scaled Gram matrix's

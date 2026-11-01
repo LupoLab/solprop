@@ -1,5 +1,12 @@
 # Roadmap
 
+```{note}
+Planned work is moving to [GitHub issues](https://github.com/LupoLab/solprop/issues)
+(ADR-062). New work goes in an issue and is not added to this page. The entries below
+stay until they are moved: an entry leaves this page when an issue, or a SEP that covers
+it in full, takes it over, and the page goes when none is left. The lists of accepted and draft SEPs stay for now.
+```
+
 This page lists functionality solprop does not have yet, and known issues in what it has.
 It is not a schedule: the items are grouped by area, and none is promised.
 Some qualification sequences state the order in which their checks are needed.
@@ -31,6 +38,22 @@ being implemented.
   identifies a new material contract. Ne/Xe, mixtures, mode-averaged and multimode
   routes, bound response and other geometries remain follow-up work; the first route is
   a single-mode capillary with node quadrature.
+- [SEP 41 — Recipes, and the hooks a front end needs](seps/sep-0041-recipes-and-front-ends.md):
+  a versioned TOML recipe that solprop loads, checks, builds, runs, exports as Python,
+  records in its output and resumes from (`solprop run`, `solprop resume`), with the
+  parameter paths and pins, metadata, structured errors, capability queries for routes,
+  species and results, plane observer, scan progress, cost estimate, portable stop,
+  previews, mode launch, beam displacement and tilt, design solvers, pulse loaders and
+  geometry drawings a front end needs. The Python interface changes are additive and no
+  output-schema bump is needed. It lands after SEP 42, whose comparison decides every resume.
+- [SEP 42 — Resuming by what matters to the run](seps/sep-0042-tolerant-resume.md):
+  the resume gate compares the stored and requested records path by path instead of by
+  hash. The layout must agree, physics and launch parameters must agree unless the user
+  passes `resume="force"`, numerics such as `rtol` may change on an unfinished run and are
+  recorded, and provenance is ignored. Numbers agree per element to a rounding-level bound,
+  a new recorded field needs a declared neutral value, and optmat models compare by digest.
+  The output schema is bumped only for what an older reader would misread. It answers the
+  resume-compatibility policy ADR-058 left open.
 
 ## Draft enhancement proposals
 
@@ -435,20 +458,6 @@ per column and frequency before the inverse transform: another half of the state
 [SEP 40](seps/sep-0040-transverse-absorbing-boundaries.md) adds the transverse edge to the
 monitor, with the same choice of measure; the time-resolved flux stays open.
 
-**The boundary monitor's remaining SEP 21 items.** What
-[SEP 21](seps/archive/sep-0021-absorbing-boundaries.md) asked of the monitor and the
-first release does not yet do:
-- a stop names the edge's share, its position and the budget, but not which edge, nor the
-  check's coverage, nor whether to strengthen or widen the collar; the removed fraction
-  is logged at INFO and warned of only above the budget; and a run whose steps the
-  in-stage collar's stability limit holds says nothing of it;
-- a fixed low-storage schedule is checked at the monitor's cadence, and does not refuse a
-  schedule whose steps are too long for the checks to cover;
-- the thresholds were qualified on modal runs; the shot-noise floor's margin, the
-  general modal route and the low-storage march are unqualified;
-- the campaign's witnesses (a window that wraps, the flux reading, the floor's scaling
-  law) are not yet tests.
-
 **A walk-off parameterisation of the collar.** SEP 21 (D3) proposed sizing both edges of
 the temporal collar from the walk-off a run expects, `absorber(..., walkoff=...)`,
 refusing a conflicting `boundary_N`; a run cut into slices keeps its parent's strength
@@ -469,13 +478,6 @@ that width, on plasma and Raman cases, is unmeasured.
 **Adams steps near the collar's limit across backends.** Near the in-stage collar's
 stability limit the backends' Adams steps differ by up to 2 %; the controller question
 SEP 21 recorded about it is open.
-
-**Replaying a guided run's history.** `FixedSchedule.from_history` cannot replay a
-default guided run whose steps the in-stage collar's limit held, and the guide does not
-yet describe it, `band_coherence` or `spectral_bands`.
-
-**Recording the default controller.** Radial, Cartesian and planar runs take a default
-controller only when the caller gives none; the run's record does not say which applied.
 
 **A radial noise witness.** Input noise on the radial route has no witness of its own
 against an independent reference.
@@ -760,17 +762,6 @@ GPUs with slow double precision.
   one-photon-per-mode seed at high pulse energy. Kokkos has no Metal backend, and one
   would need a single-source C++ compiler for Metal (the runtime part is modest: 5 to
   10 thousand lines for each existing GPU backend).
-- `mlx` from experimental to supported. The first release ships the backend
-  experimental ([backends](backends.md) §4a). What decides full support: power-of-two
-  grids by default under single precision, or a per-backend transform cost in
-  `fft_size="auto"` (MLX's GPU FFT runs 2-3-5-smooth sizes four to eight times slower
-  than powers of two); a macOS `mlx` job in CI (the `mlx` tests with the runtime type
-  checks, coverage of `mlx_gpu` against a recorded floor, a pass on MLX's CPU device,
-  basedpyright on `mlx_gpu`), which ends the coverage omission
-  ([testing](testing.md#the-mlx-omission)); the default in-stage collar's `mlx` tests
-  restored on the default geometry; bounds against the oracle that can detect an `mlx`
-  error; and a re-timing on current grids on an idle machine, which replaces the
-  guide's speed table.
 
 **Benchmark platforms beyond CPU tracking.**
 [SEP 38](seps/archive/sep-0038-performance-tracking.md) (final) tracks native CPU and
@@ -1013,13 +1004,6 @@ requires fibre geometry. Both were left out of
 worker to check each point's problem against its runner's, the second a field-free
 member observation.
 
-**The compiled backends' extra volumes in the memory estimate.** `estimate_memory`
-counts the reference's base buffers on every backend: on the Cartesian kind the
-Runge–Kutta march holds 13 state volumes on `numpy_ref`, 16 on `numba_cpu` and 15 on
-native CPU, and the difference, gigabytes on a large grid, is declared not counted
-([SEP 22](seps/archive/sep-0022-memory-lean-spatial-execution.md) §6.1). Count them per
-backend so that admission is exact there too.
-
 **Cold-start compilation.** `numba_cpu`'s parallel kernels are compiled in every new
 process rather than read from numba's disk cache, because parallel closures compiled in
 different processes can collide in the cache. A collision-free cache would remove the
@@ -1222,29 +1206,6 @@ planes, apertures and polarisation optics; its partial coverage is noted below.
   spectrum's rings. SEP 31 added radial offline transport and apertures;
   extensions to these in-run statistics remain open.
 
-## Release preparation
-
-**The first release.** Publish `solprop` and `solprop-native` at one version from a tag,
-following the checklist in [Releasing and the native wheels](releasing.md): the wheels
-workflow with publishing enabled, the archive DOI, and a fresh install of
-`solprop[native]` on each wheel platform. The native wheels and their recipe were
-qualified by [SEP 29](seps/archive/sep-0029-compiled-backend-distribution.md).
-
-**Internal state in public constructors.** `SimulationSettings`, `RunMetadata`,
-`TabulatedGlass` and `solprop.translate.Transform` carry internal state in underscore
-fields (the route's default integrator, a read file's stored field lists, a glass's
-splines, a transform's component count), which appear in their constructors'
-signatures. The state must survive `dataclasses.replace`, which `field(init=False)`
-would reset, so keeping it out of the signature is a change of construction pattern.
-
-**A resume-compatibility policy before 1.0.** The output schema
-records every field of a recorded dataclass, at its default too
-(ADR-051 in [decisions](decisions.md)),
-so a release that adds a field moves every configuration hash, and a run written by the
-previous release can no longer be resumed. Before 1.0, decide between computing a
-resume hash with the stored file's own schema rules and reintroducing omit-at-default
-as a documented rule from 1.0 on.
-
 ## Known issues
 
 **pytest capped below 9.2.** pytest 9.2 derives a node's id from a structured id, so
@@ -1346,8 +1307,3 @@ absorbing gas indices and non-ideal density to be handled properly.
 Likewise the field retention of [SEP 22](seps/archive/sep-0022-memory-lean-spatial-execution.md)
 (`fields=`, `field_planes=`) is set on `SimulationSettings` or through
 `run_scan`, not as a keyword of the `prop_*` functions. Offer both there together.
-
-**Two slow coupling-envelope tests in the medium tier.** Two of the recorded-envelope
-oracles in `tests/coupling/test_envelopes.py` take about 30–50 s each in the medium tier.
-If CI time becomes a constraint, they can move to the slow tier, with a cheaper check of
-the same envelope left in the medium tier ([SEP 31](seps/archive/sep-0031-simulation-coupling.md)).

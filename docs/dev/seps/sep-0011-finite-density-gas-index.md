@@ -412,6 +412,7 @@ No implementation phases have started.
   mixture EOS, corrected the upstream pair/default/status descriptions, specified
   shared response state and cache invalidation, and retained explicit questions for
   the standalone acceptance review. This is not a completed full review of SEP 11.
+- 2026-11-01: Tracking issue [#121](https://github.com/LupoLab/solprop/issues/121).
 
 ### Compatibility findings and response — 2026-10-22 — GPT-6
 

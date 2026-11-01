@@ -373,6 +373,7 @@ class MlxBackend(NumpySingleBackend):
         noise: object,
         *,
         z: float = 0.0,
+        resume: bool = False,
     ) -> None:
         """Load a state onto the device at the launch's scale.
 
@@ -384,8 +385,10 @@ class MlxBackend(NumpySingleBackend):
             Must be ``None``.
         z : float, optional
             The position, m.
+        resume : bool, optional
+            Whether `field` came back from a saved plane.
         """
-        super().set_initial(field, noise, z=z)
+        super().set_initial(field, noise, z=z, resume=resume)
         self._state = cast(Any, mx.array(np.asarray(self._require_state())))
 
     def _observed_field(

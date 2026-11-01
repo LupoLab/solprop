@@ -3303,7 +3303,7 @@ class Simulation(Displayed):
             field = power_amplitude(
                 field, power_weight_at(problem, state.plane.z), inverse=True
             )
-        backend.set_initial(field, None, z=state.plane.z)
+        backend.set_initial(field, None, z=state.plane.z, resume=True)
         if state.outcome is not None:
             backend.restore_call_ledgers(
                 state.outcome.logical_calls, state.outcome.atomic_calls

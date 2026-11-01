@@ -577,6 +577,7 @@ Withdrawn (development-process record, not a design decision).
 ## ADR-033 — Conventional branch-and-pull-request development
 
 - **Status:** accepted; amended by ADR-035 (major changes start as enhancement proposals)
+  and ADR-062 (open work goes in an issue, not on the roadmap)
 - **Decision:** Changes arrive as pull requests from topic branches and merge into `main`
   when the full gate (`poe check`, see [tooling.md](tooling.md)) and continuous
   integration are green. Design documents under `docs/dev/` describe the code as it is,
@@ -1186,8 +1187,8 @@ Withdrawn (development-process record, not a design decision).
   no scientific use of it was found.
 - **Consequences:** an unwindowed native SAE run's lattice must pass the certificate. A
   change that moves an identity bumps the version it moves and adds no compatibility
-  layer; a resume-compatibility policy is decided before 1.0 (ADR-058; roadmap,
-  *Release preparation*).
+  layer; a resume-compatibility policy is decided before 1.0 (ADR-058;
+  [SEP 42](seps/sep-0042-tolerant-resume.md)).
 
 ## ADR-052 — One thread budget per process, which every pool stays within
 
@@ -1518,8 +1519,8 @@ Withdrawn (development-process record, not a design decision).
 - **Why:** breaking costs nothing before anyone depends on the package, and a promise
   made now would freeze seams already known to need work.
 - **Consequences:** a released version cannot read a development output file; keep an
-  older install for those. The resume-compatibility policy for 1.0 stays on the roadmap
-  (*Release preparation*).
+  older install for those. [SEP 42](seps/sep-0042-tolerant-resume.md) sets the
+  resume-compatibility policy.
 
 ## ADR-059 — Host vector maths on SLEEF for the native CPU kernels on x86-64
 
@@ -1665,3 +1666,31 @@ Withdrawn (development-process record, not a design decision).
     feature that `numba_cpu` does not run names `numpy_ref`, or is a worked example
     with committed output.
   - Features that `numba_cpu` and `mlx` run today stay, with their parity tests.
+
+## ADR-062 — GitHub issues are the record of planned work
+
+- **Status:** accepted; amends ADR-033 (where open work is recorded)
+- **Context:** open work was kept in two places, the roadmap page and the issue tracker.
+  With the first public release, outside readers and contributors meet the tracker first.
+- **Decision:**
+  - GitHub issues become the single record of what is planned and when. Each carries a
+    type label (`bug`, `performance`, `enhancement`, `documentation`, `refactor`,
+    `testing`), a `priority: high`, `priority: medium` or `priority: low` label, and an
+    `area:` label where one fits, so that they can be filtered. `CONTRIBUTING.md` says
+    how to write and label one.
+  - New open work goes in an issue. The roadmap takes no new items.
+  - The roadmap's existing items are not moved in one pass. An item leaves the page when
+    an issue, or a SEP that covers it in full (SEP 0), takes it over, in the same change,
+    and the page goes when none is left.
+  - Work a SEP gives back, by narrowing or by being rejected, deferred or withdrawn, goes
+    in an issue, not back on the page.
+  - Each SEP has a tracking issue, labelled `sep`, open until the SEP is `Final`,
+    `Rejected`, `Withdrawn` or `Superseded` (SEP 0). A Process SEP has none.
+  - Drafting a SEP includes searching the open issues: its *Context* lists those it will
+    fix, those that must be resolved before it, and any others it changes (SEP 0).
+  - The roadmap's lists of accepted and draft SEPs stay for now: they are status lists,
+    which `tests/test_seps.py` checks against the SEPs.
+- **Consequences:**
+  - Until the page is gone, what is planned is the issues and the roadmap together: check
+    both before starting something or reporting it as missing.
+  - A SEP's open questions at `Final` go to issues (SEP 0).
