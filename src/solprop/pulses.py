@@ -66,6 +66,7 @@ __all__ = [
     "SechPulse",
     "ShapedPulse",
     "SpatialPulse",
+    "TimeDataPulse",
 ]
 
 logger = logging.getLogger(__name__)
@@ -87,6 +88,11 @@ _GAUSS_EXPONENT_CLIP = 745.0
 # A cubic B-spline needs four points, so tabulated data shorter than this cannot be
 # interpolated onto a grid.
 _MIN_DATA_POINTS = 4
+
+# The share of a time record's energy outside the grid's window above which the build
+# warns that it folds back in. It is well above the rounding of a pulse that decays
+# inside the window, and a noise floor outside it that reaches this share does fold.
+_FOLDED_ENERGY_SHARE = 1e-6
 
 _Quantity = Literal["energy", "peak_power", "average_power"]
 
@@ -1446,7 +1452,7 @@ class PulseSum(Displayed):
     pulses : tuple of Pulse
         The members, at least one; any object with a ``build(grid)`` method whose
         spectra share a shape, typically :class:`GaussianPulse`, :class:`SechPulse`,
-        :class:`CustomPulse` or :class:`DataPulse`.
+        :class:`CustomPulse`, :class:`DataPulse` or :class:`TimeDataPulse`.
 
     Examples
     --------
@@ -1878,63 +1884,6 @@ class CustomPulse(ShapedPulse):
 # --- pulses from measured data --------------------------------------------------------
 
 
-def _continued_phase(
-    omega: Float[np.ndarray, " n_data"],
-    spectrum: Complex[np.ndarray, " n_data"],
-    moment: Complex[np.ndarray, " n_data"],
-    half_length: float,
-) -> Float[np.ndarray, " n_data"]:
-    """Return a record's spectral phase, continued along its own group delay.
-
-    With ``S`` the transform of ``E(t)`` and ``M`` that of ``t E(t)``, the phase's slope
-    is exactly ``Re(M / S)``, so the turns between neighbouring bins need not be guessed
-    as :func:`numpy.unwrap` does, by taking the smaller change. That guess fails for a
-    pulse more than half a record from the time origin, and for one that is not there,
-    a spectral minimum's fast phase can tip it. Where ``S`` vanishes the delay is taken
-    as zero, since no phase is defined there.
-
-    Nothing in a record lies outside it, so the delay about its middle is clamped to the
-    record. Where ``S`` is near its rounding floor ``M / S`` can be far larger, as with
-    a background periodic on the record, which is one bin of ``S`` but spreads in ``M``.
-    Unclamped, the phase then reaches 1e14 rad, where float64 cannot hold it: 1 % of
-    such a background on a pulse past the record's middle was built 93 % wrong, not
-    7e-7.
-
-    Parameters
-    ----------
-    omega : numpy.ndarray
-        Angular frequency axis, rad/s, shape ``(n_data,)``, increasing.
-    spectrum : numpy.ndarray
-        The record's transform ``S`` on ``omega``, shape ``(n_data,)``.
-    moment : numpy.ndarray
-        The transform ``M`` of the record, less its mean, times its time, about the same
-        origin as ``spectrum``, in seconds times the units of ``spectrum``, shape
-        ``(n_data,)``.
-    half_length : float
-        Half the length of the record, s, with ``spectrum`` about its middle.
-
-    Returns
-    -------
-    numpy.ndarray
-        The continuous phase of `spectrum`, rad, shape ``(n_data,)``.
-    """
-    delay = np.clip(
-        np.real(
-            np.divide(
-                moment, spectrum, out=np.zeros_like(spectrum), where=spectrum != 0.0
-            )
-        ),
-        -half_length,
-        half_length,
-    )
-    wrapped = np.angle(spectrum)
-    change = np.diff(wrapped)
-    # The trapezoid of the delay over each bin only has to choose among whole turns.
-    expected = np.diff(omega) * 0.5 * (delay[1:] + delay[:-1])
-    change -= 2.0 * np.pi * np.round((change - expected) / (2.0 * np.pi))
-    return wrapped[0] + np.concatenate(([0.0], np.cumsum(change)))
-
-
 def _checked_spectral_phase(
     spectral_phase: Float[np.ndarray, " n_data_phase"],
     spectrum: Complex[np.ndarray, " n_data"],
@@ -2000,13 +1949,14 @@ class DataPulse(Displayed):
     applied so that nothing is left sitting on the window edge.
 
     The phase interpolated is ``spectral_phase`` when the pulse holds one, as
-    :meth:`from_spectral_density` and :meth:`from_time` make it, however fast that phase
-    varies. Otherwise
-    it is ``numpy.unwrap(numpy.angle(spectrum))``, which cannot tell a phase change of
-    more than pi between neighbouring samples from a smaller one of the other sign: such
-    a spectrum, of a strongly chirped pulse or one far from ``t = 0`` on a coarse axis,
-    is built with the wrong phase and without any warning. Give that phase through
+    :meth:`from_spectral_density` makes it, however fast that phase varies. Otherwise it
+    is ``numpy.unwrap(numpy.angle(spectrum))``, which cannot tell a phase change of more
+    than pi between neighbouring samples from a smaller one of the other sign: such a
+    spectrum, of a strongly chirped pulse or one far from ``t = 0`` on a coarse axis, is
+    built with the wrong phase and without any warning. Give that phase through
     :meth:`from_spectral_density`, or sample it more finely.
+
+    A measured field in time is a :class:`TimeDataPulse`, which needs no interpolation.
 
     Attributes
     ----------
@@ -2326,80 +2276,132 @@ class DataPulse(Displayed):
             wavelength=wavelength,
         )
 
-    @classmethod
-    def from_time(
-        cls,
-        t: Float[np.ndarray, " n_data"],
-        field: Inexact[np.ndarray, " n_data_field"],
-        *,
-        energy: float,
-        phase: Sequence[float] | np.ndarray = (),
-        t0: float = 0.0,
-        wavelength: float | None = None,
-        # The return annotation stays quoted: beartype resolves it while the class body
-        # is still executing, when the bare class name is not yet bound.
-    ) -> "DataPulse":  # noqa: UP037
-        """Build a pulse from measured time-domain samples on a uniform axis.
 
-        The optics-convention spectrum referenced to ``t = 0`` is
-        ``sum_n E_n exp(+i omega t_n)``, which is evaluated as an inverse DFT about the
-        middle of the record times a linear phase for the middle's own time. The phase
-        is continued from bin to bin along the record's own group delay, so a pulse
-        lands where it sat for any ``t[0]`` and anywhere in the record, and the pulse
-        holds the result as ``spectral_phase``. Only the non-negative frequencies are
-        kept, and the zero-frequency bin is dropped: a spectral phase is meaningless
-        there.
+def _record_spectrum(
+    t: Float[np.ndarray, " n_data"],
+    values: Inexact[np.ndarray, " n_data"],
+    omega: Float[np.ndarray, " n_wanted"],
+    d_omega: float,
+) -> Complex[np.ndarray, " n_wanted"]:
+    """Return ``sum_n E_n exp(+i omega t_n)`` on frequencies of a uniform axis.
 
-        The spectrum is sampled at the record's own bin spacing, ``2 pi / T`` for a
-        record of length ``T``, which resolves one compact pulse but not the fringes of
-        two pulses far apart. Such a record is built badly, and without any warning: two
-        pulses 500 fs apart in a record of 800 fs came out more than 50 % wrong.
-        Extending the record with zeros samples the spectrum more finely, which reduces
-        this error without removing it. A pulse that reaches the ends of the record is
-        cut there.
+    The chirp-z transform evaluates the sum in ``O((n_data + n_wanted) log)`` operations
+    for any two spacings, where an FFT needs them to be commensurate.
 
-        A real array is the electric field. A complex array is taken as the analytic
-        signal in the optics convention, so that a positive frequency means a positive
-        frequency, as everywhere else at the interface.
+    Parameters
+    ----------
+    t : numpy.ndarray
+        Uniform time axis, s, shape ``(n_data,)``.
+    values : numpy.ndarray
+        Samples on ``t``, shape ``(n_data,)``.
+    omega : numpy.ndarray
+        The frequencies wanted, rad/s, shape ``(n_wanted,)``, in any order, each a whole
+        number of `d_omega` from the others.
+    d_omega : float
+        Spacing of the axis `omega` belongs to, rad/s.
 
-        Parameters
-        ----------
-        t : numpy.ndarray
-            Time samples, s, shape ``(n_data,)``, uniformly spaced and increasing.
-        field : numpy.ndarray
-            Measured field on ``t``, arbitrary units, shape ``(n_data,)``.
-        energy : float
-            Pulse energy to scale to, J.
-        phase : array_like, optional
-            Further Taylor coefficients about ``wavelength``, ``s**n`` at order ``n``.
-        t0 : float, optional
-            Further delay, s.
-        wavelength : float or None, optional
-            Reference wavelength of the Taylor phase, m.
+    Returns
+    -------
+    numpy.ndarray
+        The sum at each frequency, shape ``(n_wanted,)``.
+    """
+    # scipy.signal takes half a second to import: only this function needs it.
+    from scipy.signal import czt  # noqa: PLC0415
 
-        Returns
-        -------
-        DataPulse
-            The pulse, holding the spectrum of the record.
+    # The mean step: it does not gather the rounding of one difference over the record.
+    dt = float(t[-1] - t[0]) / (t.size - 1)
+    first = float(omega.min())
+    index = np.rint((omega - first) / d_omega).astype(np.int64)
+    on_axis = czt(
+        values,
+        m=int(index.max()) + 1,
+        w=np.exp(1j * d_omega * dt),
+        a=np.exp(-1j * first * dt),
+    )
+    return on_axis[index] * np.exp(1j * omega * float(t[0]))
+
+
+@dataclass(frozen=True, eq=False, kw_only=True)
+class TimeDataPulse(Displayed):
+    """A pulse from a measured field in time, transformed exactly onto the grid.
+
+    The stored form is the record, and :meth:`build` evaluates its transform in the
+    optics convention, ``sum_n E_n exp(+i omega t_n)``, at the grid's own frequencies.
+    Nothing is interpolated, so the record may hold any number of pulses at any
+    separation, however deep the fringes between them, and each lands where it sat for
+    any ``t[0]``. That is the difference from a :class:`DataPulse`: a spline through the
+    magnitude and the phase of a spectrum cannot follow a fringe to its null.
+
+    The spectrum is zero at frequencies that are not positive and above the record's
+    Nyquist frequency ``pi / dt``, and the grid's spectral collar is applied. The
+    record's ends are its ends: a pulse that reaches them is cut there, and a constant
+    baseline becomes a step at each, whose spectrum falls with frequency. A record
+    longer than the grid's window folds back into it, as any transform sampled at the
+    grid's spacing must, and the build warns when that takes more than a millionth of
+    the energy.
+
+    A real array is the electric field. A complex array is taken as the analytic signal
+    in the optics convention, so that a positive frequency means a positive frequency,
+    as everywhere else at the interface.
+
+    Attributes
+    ----------
+    t : numpy.ndarray
+        Time samples, s, shape ``(n_data,)``, uniformly spaced and increasing.
+    field : numpy.ndarray
+        Measured field on ``t``, arbitrary units, shape ``(n_data,)``, real or complex.
+    energy : float
+        Pulse energy to scale to, J.
+    phase : array_like
+        Further optics-convention Taylor coefficients, applied on top of the phase
+        already in the record, about ``wavelength``; radians at order 0 and ``s**n``
+        thereafter.
+    t0 : float
+        Further delay, s, on top of the arrival time the record's own axis implies.
+    wavelength : float or None
+        Reference wavelength of the Taylor phase, m. Defaults to the spectral centre of
+        mass of the record.
+
+    Raises
+    ------
+    PulseError
+        If the arrays disagree in length, the record is too short or not finite, the
+        axis is not uniform and increasing, or the record has nothing at positive
+        frequencies.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from solprop.pulses import TimeDataPulse
+    >>> t = np.linspace(-100e-15, 100e-15, 1024)
+    >>> field = np.exp(-((t / 20e-15) ** 2)) * np.cos(2.35e15 * t)
+    >>> pulse = TimeDataPulse(t=t, field=field, energy=1e-6)
+    >>> float(round(pulse.reference_wavelength * 1e9))
+    802.0
+    """
+
+    t: Float[np.ndarray, " n_data"]
+    field: Inexact[np.ndarray, " n_data_field"]
+    energy: float
+    phase: Sequence[float] | np.ndarray = ()
+    t0: float = 0.0
+    wavelength: float | None = None
+
+    def __post_init__(self) -> None:
+        """Validate the record and adopt read-only copies of the arrays.
 
         Raises
         ------
         PulseError
-            If the arrays disagree in length, the axis is not uniform and increasing, or
-            the record is too short.
-
-        Examples
-        --------
-        >>> import numpy as np
-        >>> from solprop.pulses import DataPulse
-        >>> t = np.linspace(-100e-15, 100e-15, 1024)
-        >>> field = np.exp(-((t / 20e-15) ** 2)) * np.cos(2.35e15 * t)
-        >>> pulse = DataPulse.from_time(t, field, energy=1e-6)
-        >>> float(round(pulse.reference_wavelength * 1e9))
-        802.0
+            If the arrays disagree in length, the record is too short or not finite, the
+            axis is not uniform and increasing, or the record has nothing at positive
+            frequencies.
         """
-        times = np.asarray(t, dtype=np.float64).reshape(-1)
-        values = np.asarray(field, dtype=np.complex128).reshape(-1)
+        times = np.array(self.t, dtype=np.float64).reshape(-1)
+        values = np.array(
+            self.field,
+            dtype=np.complex128 if np.iscomplexobj(self.field) else np.float64,
+        ).reshape(-1)
         if times.size != values.size:
             msg = (
                 f"t and field must have the same length, got {times.size} and "
@@ -2409,41 +2411,197 @@ class DataPulse(Displayed):
         if times.size < _MIN_DATA_POINTS:
             msg = f"a time record needs at least {_MIN_DATA_POINTS} samples"
             raise PulseError(msg)
+        if not np.all(np.isfinite(times)) or not np.all(np.isfinite(values)):
+            msg = "t and field must be finite everywhere"
+            raise PulseError(msg)
         steps = np.diff(times)
-        # The record is resampled by a DFT, which has no meaning on a non-uniform axis.
-        # A relative spread of 1e-9 is far below any real digitiser's jitter and far
-        # above the round-off of a linspace.
+        # The transform takes one step for the whole record. A relative spread of 1e-9
+        # is far below any real digitiser's jitter and far above the round-off of a
+        # linspace.
         if steps[0] <= 0.0 or not np.allclose(steps, steps[0], rtol=1e-9, atol=0.0):
             msg = "t must be uniformly spaced and increasing"
             raise PulseError(msg)
-        n_data = times.size
-        transform = n_data * np.fft.ifft(values)
-        omega = 2.0 * np.pi * np.fft.fftfreq(n_data, float(steps[0]))
+        _check_positive("energy", self.energy)
+        if self.wavelength is not None:
+            _check_positive("wavelength", self.wavelength)
+        times.setflags(write=False)
+        values.setflags(write=False)
+        object.__setattr__(self, "t", times)
+        object.__setattr__(self, "field", values)
+        object.__setattr__(self, "phase", _frozen_phase(self.phase))
+        self._spectral_centre()
+
+    def _spectral_centre(self) -> float:
+        """Return the spectral centre of mass of the record, rad/s.
+
+        Returns
+        -------
+        float
+            The mean of the positive frequencies of the record's DFT, by its power.
+
+        Raises
+        ------
+        PulseError
+            If the record has nothing at positive frequencies.
+        """
+        dt = float(self.t[-1] - self.t[0]) / (self.t.size - 1)
+        omega = 2.0 * np.pi * np.fft.fftfreq(self.t.size, dt)
         keep = omega > 0.0
-        positive = omega[keep]
-        middle = 0.5 * (times[0] + times[-1])
-        shift = np.exp(1j * positive * (times[0] - middle))
-        centred = transform[keep] * shift
-        # A baseline lies in the zero-frequency bin of the record's transform, which is
-        # dropped, but times the time axis it is a sawtooth that decays slowly across
-        # the band and swamps the delay in the pulse's wings, so it is taken out first.
-        # A 10 % baseline otherwise costs 1.3e-3 against the clean record's 6.6e-7.
-        ramp = (times - middle) * (values - np.mean(values))
-        moment = (n_data * np.fft.ifft(ramp))[keep] * shift
-        half_length = 0.5 * n_data * float(steps[0])
-        angle = _continued_phase(positive, centred, moment, half_length)
-        angle = angle + positive * middle
-        return cls(
-            omega=positive,
-            # From the phase held, so that the two agree to rounding; adding up the
-            # large phases here loses more than the constructor's check allows.
-            spectrum=np.abs(centred) * np.exp(1j * angle),
-            spectral_phase=angle,
-            energy=energy,
-            phase=phase,
-            t0=t0,
-            wavelength=wavelength,
+        # The optics convention's +i is the inverse DFT's, whose scale is immaterial.
+        weight = np.abs(np.fft.ifft(self.field)[keep]) ** 2
+        total = float(np.sum(weight))
+        if total <= 0.0:
+            msg = "the record has nothing at positive frequencies to make a pulse from"
+            raise PulseError(msg)
+        return float(np.sum(omega[keep] * weight)) / total
+
+    @property
+    def reference_wavelength(self) -> float:
+        """Return the wavelength the Taylor phase is expanded about, m.
+
+        Returns
+        -------
+        float
+            ``wavelength`` if it was given, otherwise the wavelength of the spectral
+            centre of mass of the record.
+        """
+        return 2.0 * np.pi * C / self._reference_frequency()
+
+    def _reference_frequency(self) -> float:
+        """Return the frequency the Taylor phase is expanded about, rad/s.
+
+        Returns
+        -------
+        float
+            The frequency of ``wavelength``, else the record's spectral centre of mass.
+        """
+        if self.wavelength is not None:
+            return 2.0 * np.pi * C / self.wavelength
+        return self._spectral_centre()
+
+    def __repr__(self) -> str:
+        """Return a one-line description with the record summarised, never dumped.
+
+        Returns
+        -------
+        str
+            For example ``TimeDataPulse(<1024 values, 0 s to 1 ps>, energy=1 uJ)``.
+        """
+        return line(
+            "TimeDataPulse",
+            [("", self._data_text()), ("energy", engineering(self.energy, "J"))],
         )
+
+    def _data_text(self) -> str:
+        """Return the extent of the measured record, for printing.
+
+        Returns
+        -------
+        str
+            The number of samples and the times they span.
+        """
+        return summarise(np.asarray(self.t, dtype=float), "s")
+
+    def _describe(self) -> tuple[str, list[tuple[str, object]]]:
+        """Return the title and rows of the printed block.
+
+        Returns
+        -------
+        tuple
+            The title and ``(key, value)`` rows.
+        """
+        reference = (
+            "the record's centre"
+            if self.wavelength is None
+            else engineering(self.wavelength, "m")
+        )
+        return "TimeDataPulse: a measured field in time", [
+            ("data", self._data_text()),
+            ("energy", engineering(self.energy, "J")),
+            ("further phase", f"{phase_text(self.phase)} about {reference}"),
+            ("further delay", engineering(self.t0, "s")),
+        ]
+
+    def _warn_if_folded(self, grid: TimeGrid) -> None:
+        """Warn when enough of the record lies outside the grid's window to matter.
+
+        Parameters
+        ----------
+        grid : solprop.grid.TimeGrid
+            Grid to build on.
+        """
+        arrival = self.t + self.t0
+        half = 0.5 * grid.n_t * grid.dt
+        power = np.abs(self.field) ** 2
+        share = float(np.sum(power[np.abs(arrival) > half]) / np.sum(power))
+        if share > _FOLDED_ENERGY_SHARE:
+            logger.warning(
+                "%.3g of the record's energy lies outside the grid's time window of "
+                "+/-%.4g s and folds back into it; widen the window or cut the record",
+                share,
+                half,
+            )
+
+    def build(self, grid: TimeGrid) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
+        """Return the initial spectrum of the recorded pulse on the given grid.
+
+        Parameters
+        ----------
+        grid : solprop.grid.TimeGrid
+            Grid to build on.
+
+        Returns
+        -------
+        numpy.ndarray
+            Stored spectrum, shape ``(1, 1, n_omega)``, in the square root of watts.
+
+        Raises
+        ------
+        PulseError
+            If the delay leaves the window, or the record's band does not reach the
+            grid's active band at all.
+
+        Examples
+        --------
+        >>> import numpy as np
+        >>> from solprop.grid import FieldGrid
+        >>> from solprop.pulses import TimeDataPulse
+        >>> t = np.linspace(-100e-15, 100e-15, 1024)
+        >>> field = np.exp(-((t / 20e-15) ** 2)) * np.cos(2.35e15 * t)
+        >>> pulse = TimeDataPulse(t=t, field=field, energy=1e-6)
+        >>> grid = FieldGrid.from_limits(1.0, 800e-9, (200e-9, 2e-6), 400e-15)
+        >>> pulse.build(grid).shape[:2]
+        (1, 1)
+        """
+        _check_delay(grid, self.t0)
+        nyquist = np.pi * (self.t.size - 1) / float(self.t[-1] - self.t[0])
+        inside = (grid.omega > 0.0) & (grid.omega <= nyquist)
+        active = grid.active_mask
+        if not np.any(inside & active):
+            msg = (
+                f"the record reaches {nyquist:.4g} rad/s, which does not reach the "
+                "grid's active band"
+            )
+            raise PulseError(msg)
+        if np.any(active & ~inside):
+            logger.warning(
+                "the record's Nyquist frequency is %.4g rad/s but the grid's active "
+                "band reaches %.4g rad/s; the input is zero above it",
+                nyquist,
+                grid.omega[active].max(),
+            )
+        self._warn_if_folded(grid)
+        optics = np.zeros(grid.n_omega, dtype=np.complex128)
+        optics[inside] = _record_spectrum(
+            self.t, self.field, grid.omega[inside], grid.d_omega
+        )
+        optics = optics * grid.omega_window
+        spectrum = fourier.spectrum_to_internal(optics, kind=grid.kind)
+        phase = np.asarray(self.phase)
+        spectrum = spectrum * _phase_factor(
+            grid, phase, self.t0, self._reference_frequency()
+        )
+        return _canonical(_rescale(spectrum, grid, self.energy, "energy"))
 
 
 # --- continuous wave ------------------------------------------------------------------

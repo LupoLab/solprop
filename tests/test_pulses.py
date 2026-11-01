@@ -27,6 +27,7 @@ from solprop.pulses import (
     GaussianPulse,
     SechPulse,
     ShapedPulse,
+    TimeDataPulse,
 )
 
 EPS = np.finfo(np.float64).eps
@@ -579,11 +580,92 @@ def test_replacing_the_spectrum_alone_does_not_keep_the_old_phase():
         dataclasses.replace(pulse, spectrum=np.full(8, 1j))
 
 
-def test_a_data_pulse_from_a_time_record_matches_the_pulse_it_recorded(field_grid):
+# --- a measured field in time ---------------------------------------------------------
+
+
+def direct_transform(t, field, omega):
+    """Return sum_n E_n exp(+i omega t_n) by the sum itself, in blocks of omega."""
+    blocks = [
+        np.exp(1j * np.outer(omega[start : start + 256], t)) @ field
+        for start in range(0, omega.size, 256)
+    ]
+    return np.concatenate(blocks)
+
+
+def direct_build(t, field, grid):
+    """Return a record's stored spectrum from the direct sum, at the test energy."""
+    inside = (grid.omega > 0.0) & (grid.omega <= np.pi / (t[1] - t[0]))
+    optics = np.zeros(grid.n_omega, dtype=np.complex128)
+    optics[inside] = direct_transform(t, field, grid.omega[inside])
+    spectrum = fourier.spectrum_to_internal(optics * grid.omega_window, kind=grid.kind)
+    realised = fourier.energy_omega(spectrum, grid.dt, kind=grid.kind)
+    return spectrum * math.sqrt(ENERGY / realised)
+
+
+def gaussians_on_a_carrier(t, members, fwhm=10e-15):
+    """Return a real record of ``(arrival, amplitude)`` Gaussians on the carrier."""
+    shape = sum(
+        amplitude * np.exp(-2.0 * math.log(2.0) * ((t - arrival) / fwhm) ** 2)
+        for arrival, amplitude in members
+    )
+    return shape * np.cos(2.0 * np.pi * C / WAVELENGTH * t)
+
+
+@pytest.mark.parametrize(
+    "members",
+    [
+        ((100e-15, 1.0), (600e-15, -0.9)),
+        ((100e-15, 1.0), (600e-15, 0.5)),
+        ((200e-15, 1.0), (300e-15, 1.0), (500e-15, 1.0)),
+        ((100e-15, 1.0), (600e-15, -1.0)),
+        ((100e-15, 1.0), (120e-15, -0.9)),
+        ((700e-15, 1.0),),
+    ],
+    ids=["far_minus_0.9", "far_plus_0.5", "three", "far_minus_1", "close", "one"],
+)
+def test_a_time_record_of_separated_pulses_is_its_exact_transform(
+    members, chirped_grid
+):
+    # A spline through the magnitude and the phase at the record's own bins gives 85 %,
+    # 56 %, 17 %, 85 %, 0.15 % and 2e-8 on these cases, and at eight times those bins
+    # still 2.3 %, 0.10 %, 0.011 %, 4.7 %, 1e-7 and 1e-10.
+    t = np.linspace(0.0, 800e-15, 8192)
+    record = gaussians_on_a_carrier(t, members)
+    built = TimeDataPulse(t=t, field=record, energy=ENERGY).build(chirped_grid)[0, 0]
+    # The rounding of the chirp factors, measured as 2.6e-12 on the worst of these.
+    assert relative_l2(built, direct_build(t, record, chirped_grid)) < 2e-11
+
+
+@pytest.mark.parametrize("start", [-900e-15, 100e-15], ids=["early", "late"])
+def test_a_time_record_is_exact_on_either_grid_wherever_it_starts(
+    start, chirped_grid, field_grid
+):
+    t = np.linspace(start, start + 800e-15, 2048)
+    arrivals = start + 100e-15, start + 600e-15
+    record = gaussians_on_a_carrier(t, ((arrivals[0], 1.0), (arrivals[1], -0.9)))
+    pulse = TimeDataPulse(t=t, field=record, energy=ENERGY)
+    for grid in (chirped_grid, field_grid):
+        built = pulse.build(grid)[0, 0]
+        # Measured as 6e-13 on the envelope grid and 2.8e-11 on the field grid.
+        assert relative_l2(built, direct_build(t, record, grid)) < 2e-10
+
+
+def test_a_baseline_in_a_time_record_stays_a_small_change(chirped_grid):
+    # A baseline is a step at each end of the record, and the exact transform keeps it.
+    t = np.linspace(0.0, 800e-15, 8192)
+    clean = gaussians_on_a_carrier(t, ((100e-15, 1.0),))
+    plain = TimeDataPulse(t=t, field=clean, energy=ENERGY).build(chirped_grid)[0, 0]
+    built = TimeDataPulse(t=t, field=clean + 0.01, energy=ENERGY).build(chirped_grid)
+    assert relative_l2(built[0, 0], direct_build(t, clean + 0.01, chirped_grid)) < 2e-11
+    # The step at each end of the record, measured as 2.3e-3 at this baseline.
+    assert relative_l2(built[0, 0], plain) < 5e-3
+
+
+def test_a_time_record_matches_the_pulse_it_recorded(field_grid):
     t = np.linspace(-1600e-15, 1600e-15, 16384)
     omega_p = 2.0 * np.pi * C / WAVELENGTH
     record = np.exp(-2.0 * math.log(2.0) * (t / FWHM) ** 2) * np.cos(omega_p * t)
-    pulse = DataPulse.from_time(t, record, energy=ENERGY)
+    pulse = TimeDataPulse(t=t, field=record, energy=ENERGY)
     density = fourier.spectral_density(
         pulse.build(field_grid)[0, 0], field_grid.dt, kind="field"
     )
@@ -592,32 +674,30 @@ def test_a_data_pulse_from_a_time_record_matches_the_pulse_it_recorded(field_gri
         reference.build(field_grid)[0, 0], field_grid.dt, kind="field"
     )
     keep = expected > 1e-6 * expected.max()
-    # The record's own bin spacing is 2 pi / 3.2 ps, about twenty points per spectral
-    # sigma, and the spline then costs another factor; 1e-6 leaves an order in hand.
-    assert_allclose(density[keep], expected[keep], rtol=1e-6, atol=0.0)
+    # Measured as 1.1e-10.
+    assert_allclose(density[keep], expected[keep], rtol=1e-9, atol=0.0)
 
 
 def test_a_time_record_that_is_not_centred_still_lands_where_it_sat(field_grid):
-    # The record's own axis offset is carried by an explicit linear phase, so a pulse
-    # sitting at 100 fs in a record that starts at -50 fs still arrives at 100 fs.
+    # The record's own axis carries the time, so a pulse sitting at 100 fs in a record
+    # that starts at -50 fs still arrives at 100 fs.
     t = np.linspace(-50e-15, 750e-15, 4096)
     omega_p = 2.0 * np.pi * C / WAVELENGTH
     record = np.exp(-2.0 * math.log(2.0) * ((t - 100e-15) / FWHM) ** 2) * np.cos(
         omega_p * t
     )
-    pulse = DataPulse.from_time(t, record, energy=ENERGY)
+    pulse = TimeDataPulse(t=t, field=record, energy=ENERGY)
     arrival = centroid(pulse.build(field_grid)[0, 0], field_grid)
     assert_allclose(arrival, 100e-15, rtol=0.0, atol=1e-3 * 100e-15)
 
 
 @pytest.mark.parametrize("arrival", [100e-15, 500e-15, 700e-15])
 def test_a_time_record_lands_anywhere_in_the_record(arrival, chirped_grid):
-    # Past 400 fs the phase changes by more than pi per bin about t = 0.
     t = np.linspace(0.0, 800e-15, 8192)
     omega_p = 2.0 * np.pi * C / WAVELENGTH
     width = 20e-15
     record = np.exp(-(((t - arrival) / width) ** 2)) * np.cos(omega_p * t)
-    built = DataPulse.from_time(t, record, energy=ENERGY).build(chirped_grid)[0, 0]
+    built = TimeDataPulse(t=t, field=record, energy=ENERGY).build(chirped_grid)[0, 0]
     # The record's transform, analytically: a Gaussian about the carrier, whose phase
     # is the arrival time alone.
     omega = np.linspace(0.8 * omega_p, 1.2 * omega_p, 4001)
@@ -625,8 +705,8 @@ def test_a_time_record_lands_anywhere_in_the_record(arrival, chirped_grid):
     reference = DataPulse.from_spectral_density(
         omega, np.exp(-0.5 * (offset * width) ** 2), offset * arrival, energy=ENERGY
     ).build(chirped_grid)[0, 0]
-    # The spline over the record's coarser bins, measured as 6.4e-7 at every arrival.
-    assert relative_l2(built, reference) < 2e-6
+    # Measured as 6.6e-11 at every arrival.
+    assert relative_l2(built, reference) < 5e-10
 
 
 def test_a_chirped_time_record_lands_past_the_middle(chirped_grid):
@@ -638,7 +718,7 @@ def test_a_chirped_time_record_lands_past_the_middle(chirped_grid):
     record = np.exp(-1j * omega_p * t) * np.exp(
         -(1.0 + 1j * chirp) * ((t - arrival) / width) ** 2
     )
-    built = DataPulse.from_time(t, record, energy=ENERGY).build(chirped_grid)[0, 0]
+    built = TimeDataPulse(t=t, field=record, energy=ENERGY).build(chirped_grid)[0, 0]
     # The transform of a complex Gaussian, exp(-b s**2) -> exp(-offset**2 / (4 b)) /
     # sqrt(b) with b = (1 + i chirp) / width**2, on the delay of the arrival.
     omega = np.linspace(0.8 * omega_p, 1.2 * omega_p, 4001)
@@ -650,24 +730,23 @@ def test_a_chirped_time_record_lands_past_the_middle(chirped_grid):
         offset * arrival + 0.25 * chirp * scale - 0.5 * math.atan(chirp),
         energy=ENERGY,
     ).build(chirped_grid)[0, 0]
-    # The spline over the record's bins, measured as 1.5e-8, with a factor of three.
-    assert relative_l2(built, reference) < 5e-8
+    # Measured as 1.6e-10.
+    assert relative_l2(built, reference) < 1e-9
 
 
 @pytest.mark.parametrize(
     ("record_pulses", "tolerance"),
     [
         # Each is (amplitude, carrier over the carrier, arrival, width). Two interfering
-        # pulses, whose spectral minima carry a fast phase: 1.6e-3 is the spline's at
-        # these minima, and an unwrap about the middle of the record gives 2.9e-2.
-        (((1.0, 1.0, 100e-15, 10e-15), (-0.9, 1.0, 120e-15, 10e-15)), 4e-3),
-        # A dim pulse in its own band far from the bright one: 6.9e-3 is the spline's,
-        # and an unwrap about t = 0 or about the record's centroid gives 7.1e-2.
-        (((1.0, 1.0, 60e-15, 20e-15), (0.05, 1.15, 740e-15, 20e-15)), 1.5e-2),
+        # pulses, whose spectral minima carry a fast phase. What is left is the spline
+        # of the reference at those minima: 1.5e-6 measured.
+        (((1.0, 1.0, 100e-15, 10e-15), (-0.9, 1.0, 120e-15, 10e-15)), 5e-6),
+        # A dim pulse in its own band far from the bright one: 2.7e-5 measured.
+        (((1.0, 1.0, 60e-15, 20e-15), (0.05, 1.15, 740e-15, 20e-15)), 1e-4),
     ],
     ids=["interfering", "dim_and_far"],
 )
-def test_a_time_record_follows_its_own_group_delay(
+def test_a_time_record_matches_the_analytic_transform_of_what_it_holds(
     record_pulses, tolerance, chirped_grid
 ):
     t = np.linspace(0.0, 800e-15, 8192)
@@ -690,7 +769,7 @@ def test_a_time_record_follows_its_own_group_delay(
             * np.exp(-((0.5 * offset * width) ** 2))
             * np.exp(1j * offset * arrival)
         )
-    built = DataPulse.from_time(t, record, energy=ENERGY).build(chirped_grid)[0, 0]
+    built = TimeDataPulse(t=t, field=record, energy=ENERGY).build(chirped_grid)[0, 0]
     # At this spacing the phase of the sum changes by far less than pi per sample.
     expected = DataPulse.from_spectral_density(
         omega, np.abs(reference) ** 2, np.unwrap(np.angle(reference)), energy=ENERGY
@@ -701,15 +780,14 @@ def test_a_time_record_follows_its_own_group_delay(
 @pytest.mark.parametrize(
     ("arrival", "disturbance", "tolerance"),
     [
-        # A baseline is one bin at zero frequency, out of the band, so only the spline's
-        # 6.6e-7 is left. It reaches the phase through the delay, unless taken out.
-        (500e-15, 0.01 * np.ones(8192), 2e-6),
-        (100e-15, 0.1 * np.ones(8192), 2e-6),
-        # A 10 % background periodic on the record, one bin far below the band: 1.5e-6
-        # measured, and 170 % if the delay is not clamped to the record.
-        (500e-15, 0.1 * np.cos(2.0 * np.pi * 3.0 * np.arange(8192) / 8192), 5e-6),
-        # White noise of 1 % of the peak, which the spectrum then holds: 0.7 % measured.
-        (500e-15, 0.01 * np.random.default_rng(1).standard_normal(8192), 2e-2),
+        # A baseline and a background are steps at the record's ends, which the exact
+        # transform keeps, so each changes the result in proportion to its size: 1.5e-3
+        # measured at 1 % and 1.5e-2 at 10 %.
+        (500e-15, 0.01 * np.ones(8192), 3e-3),
+        (100e-15, 0.1 * np.ones(8192), 3e-2),
+        (500e-15, 0.1 * np.cos(2.0 * np.pi * 3.0 * np.arange(8192) / 8192), 3e-2),
+        # White noise of 1 % of the peak, which the spectrum then holds: 1.9 % measured.
+        (500e-15, 0.01 * np.random.default_rng(1).standard_normal(8192), 3e-2),
     ],
     ids=["baseline_late", "baseline_early", "periodic_background", "noise"],
 )
@@ -720,7 +798,7 @@ def test_a_measured_time_record_stays_where_it_sat(
     omega_p = 2.0 * np.pi * C / WAVELENGTH
     width = 20e-15
     pulse = np.exp(-(((t - arrival) / width) ** 2)) * np.cos(omega_p * t)
-    built = DataPulse.from_time(t, pulse + disturbance, energy=ENERGY).build(
+    built = TimeDataPulse(t=t, field=pulse + disturbance, energy=ENERGY).build(
         chirped_grid
     )[0, 0]
     omega = np.linspace(0.8 * omega_p, 1.2 * omega_p, 4001)
@@ -731,47 +809,116 @@ def test_a_measured_time_record_stays_where_it_sat(
     assert relative_l2(built, reference) < tolerance
 
 
-def test_a_time_record_with_no_field_has_a_zero_spectrum_and_phase():
-    t = np.linspace(0.0, 800e-15, 64)
-    pulse = DataPulse.from_time(t, np.zeros_like(t), energy=ENERGY)
-    assert isinstance(pulse.spectral_phase, np.ndarray)
-    # An exact zero, whose group delay is taken as zero rather than divided by.
-    assert np.all(pulse.spectrum == 0.0)
-    assert_allclose(
-        pulse.spectral_phase, pulse.omega * 0.5 * (t[0] + t[-1]), rtol=0.0, atol=1e-9
-    )
-
-
-def test_a_time_record_holds_a_phase_that_matches_its_spectrum():
-    # A late start makes the linear phase large, where its rounding is most exposed.
-    t = np.linspace(5e-12, 5.8e-12, 8192)
-    omega_p = 2.0 * np.pi * C / WAVELENGTH
-    record = np.exp(-(((t - 5.5e-12) / 20e-15) ** 2)) * np.cos(omega_p * t)
-    pulse = DataPulse.from_time(t, record, energy=ENERGY)
-    assert isinstance(pulse.spectral_phase, np.ndarray)
-    assert pulse.spectral_phase.size == pulse.spectrum.size
-    # Quite above pi per bin at this distance from t = 0.
-    assert np.median(np.diff(pulse.spectral_phase)) > 10.0 * np.pi
-
-
-def test_a_complex_time_record_is_read_as_the_analytic_signal(field_grid):
+def test_a_complex_time_record_is_read_as_the_analytic_signal(chirped_grid):
     t = np.linspace(-400e-15, 400e-15, 4096)
     omega_p = 2.0 * np.pi * C / WAVELENGTH
     shape = np.exp(-2.0 * math.log(2.0) * (t / FWHM) ** 2)
-    real = DataPulse.from_time(t, shape * np.cos(omega_p * t), energy=ENERGY)
-    complex_record = DataPulse.from_time(
-        t, shape * np.exp(-1j * omega_p * t), energy=ENERGY
+    real = TimeDataPulse(t=t, field=shape * np.cos(omega_p * t), energy=ENERGY)
+    analytic_record = TimeDataPulse(
+        t=t, field=shape * np.exp(-1j * omega_p * t), energy=ENERGY
     )
-    keep = np.abs(real.spectrum) > 1e-6 * np.abs(real.spectrum).max()
-    # The two records describe the same field, so their spectra agree in shape once
-    # each is normalised by its own peak; the analytic signal is twice the real
-    # field's one-sided spectrum, which the normalisation removes.
+    # The same field: scaled to one energy, the factor of two between them goes, and
+    # the real field's negative frequencies do not reach this band. Measured as 7e-15.
+    built = analytic_record.build(chirped_grid)[0, 0]
+    assert relative_l2(built, real.build(chirped_grid)[0, 0]) < 1e-13
+
+
+def test_a_time_record_carries_the_requested_energy_and_further_delay(chirped_grid):
+    t = np.linspace(-100e-15, 100e-15, 2048)
+    record = gaussians_on_a_carrier(t, ((0.0, 1.0),))
+    delay = 50e-15
+    built = TimeDataPulse(t=t, field=record, energy=ENERGY, t0=delay).build(
+        chirped_grid
+    )[0, 0]
     assert_allclose(
-        np.abs(complex_record.spectrum[keep]) / np.abs(complex_record.spectrum).max(),
-        np.abs(real.spectrum[keep]) / np.abs(real.spectrum).max(),
-        rtol=1e-9,
+        fourier.energy_omega(built, chirped_grid.dt, kind=chirped_grid.kind),
+        ENERGY,
+        rtol=1e-12,
         atol=0.0,
     )
+    assert_allclose(centroid(built, chirped_grid), delay, rtol=0.0, atol=1e-3 * delay)
+
+
+def test_a_time_record_expands_its_further_phase_about_the_wavelength_given(
+    chirped_grid,
+):
+    t = np.linspace(-100e-15, 100e-15, 2048)
+    record = gaussians_on_a_carrier(t, ((0.0, 1.0),))
+    pulse = TimeDataPulse(
+        t=t, field=record, energy=ENERGY, phase=(0.0, 30e-15), wavelength=900e-9
+    )
+    assert_allclose(pulse.reference_wavelength, 900e-9, rtol=1e-15, atol=0.0)
+    # A pure first-order phase is a delay, wherever it is expanded.
+    arrival = centroid(pulse.build(chirped_grid)[0, 0], chirped_grid)
+    assert_allclose(arrival, 30e-15, rtol=0.0, atol=1e-3 * 30e-15)
+
+
+def test_a_time_record_defaults_its_reference_to_the_spectral_centre_of_mass():
+    t = np.linspace(-100e-15, 100e-15, 1024)
+    record = gaussians_on_a_carrier(t, ((0.0, 1.0),), fwhm=30e-15)
+    pulse = TimeDataPulse(t=t, field=record, energy=ENERGY)
+    assert_allclose(pulse.reference_wavelength, WAVELENGTH, rtol=1e-3, atol=0.0)
+
+
+def test_a_time_record_holds_read_only_copies_and_records_itself():
+    t = np.linspace(0.0, 800e-15, 64)
+    record = gaussians_on_a_carrier(t, ((400e-15, 1.0),), fwhm=100e-15)
+    pulse = TimeDataPulse(t=t, field=record.astype(np.float32), energy=ENERGY)
+    assert isinstance(pulse.t, np.ndarray)
+    assert isinstance(pulse.field, np.ndarray)
+    assert not pulse.t.flags.writeable
+    assert not pulse.field.flags.writeable
+    assert pulse.field.dtype == np.float64
+    written = json.loads(json.dumps(serialise(pulse)))
+    assert written["__class__"] == "solprop.pulses.TimeDataPulse"
+    assert written["t"]["__ndarray__"] == t.tolist()
+    assert written["field"]["__ndarray__"] == pulse.field.tolist()
+
+
+def test_a_time_record_warns_and_is_zero_above_its_nyquist_frequency(
+    field_grid, caplog
+):
+    # A Nyquist frequency of 4e15 rad/s, at 471 nm, which the grid's band runs past.
+    nyquist = 4e15
+    t = (np.arange(1024) - 512.0) * math.pi / nyquist
+    record = gaussians_on_a_carrier(t, ((0.0, 1.0),))
+    pulse = TimeDataPulse(t=t, field=record, energy=ENERGY)
+    with caplog.at_level(logging.WARNING, logger="solprop.pulses"):
+        built = pulse.build(field_grid)[0, 0]
+    assert "Nyquist frequency" in caplog.text
+    assert np.all(built[field_grid.omega > nyquist * (1.0 + 1e-12)] == 0.0)
+    assert np.any(built != 0.0)
+
+
+def test_a_time_record_says_when_it_does_not_reach_the_band(chirped_grid):
+    # A Nyquist frequency of about 3e14 rad/s, below the grid's band, 600 nm to 1.1 um.
+    t = np.linspace(0.0, 1e-12, 100)
+    record = np.exp(-(((t - 500e-15) / 100e-15) ** 2)) * np.cos(1e14 * t)
+    pulse = TimeDataPulse(t=t, field=record, energy=ENERGY)
+    with pytest.raises(PulseError, match="does not reach the grid's active band"):
+        pulse.build(chirped_grid)
+
+
+@pytest.mark.parametrize(
+    ("members", "t0", "folds"),
+    [
+        (((0.0, 1.0),), 0.0, False),
+        (((0.0, 1.0), (3000e-15, 0.5)), 0.0, True),
+        (((2000e-15, 1.0),), 0.0, False),
+        (((2000e-15, 1.0),), 1500e-15, True),
+    ],
+    ids=["inside", "outside", "inside_undelayed", "delayed_outside"],
+)
+def test_a_time_record_warns_when_it_folds_into_the_window(
+    members, t0, folds, chirped_grid, caplog
+):
+    # The window of the grid is +/-2.68 ps.
+    t = np.linspace(-4000e-15, 4000e-15, 16384)
+    record = gaussians_on_a_carrier(t, members)
+    pulse = TimeDataPulse(t=t, field=record, energy=ENERGY, t0=t0)
+    with caplog.at_level(logging.WARNING, logger="solprop.pulses"):
+        pulse.build(chirped_grid)
+    assert ("folds back into it" in caplog.text) is folds
 
 
 def test_a_data_pulse_warns_when_the_grid_reaches_past_the_data(field_grid, caplog):
@@ -1007,9 +1154,38 @@ def test_from_spectral_density_rejects_mismatched_arrays():
     ],
     ids=["mismatch", "too-short", "non-uniform", "decreasing"],
 )
-def test_from_time_rejects_a_bad_record(t, field, message):
+def test_a_time_data_pulse_rejects_a_bad_record(t, field, message):
     with pytest.raises(PulseError, match=message):
-        DataPulse.from_time(t, field, energy=ENERGY)
+        TimeDataPulse(t=t, field=field, energy=ENERGY)
+
+
+@pytest.mark.parametrize(
+    ("field", "message"),
+    [
+        (np.array([1.0, np.nan, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]), "finite"),
+        (np.zeros(8), "nothing at positive frequencies"),
+        (np.ones(8), "nothing at positive frequencies"),
+    ],
+    ids=["not-finite", "zero", "constant"],
+)
+def test_a_time_data_pulse_rejects_a_record_with_no_pulse_in_it(field, message):
+    t = np.linspace(0.0, 1e-12, 8)
+    with pytest.raises(PulseError, match=message):
+        TimeDataPulse(t=t, field=field, energy=ENERGY)
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"energy": 0.0}, "energy"),
+        ({"energy": ENERGY, "wavelength": 0.0}, "wavelength"),
+    ],
+    ids=["energy", "wavelength"],
+)
+def test_a_time_data_pulse_rejects_bad_parameters(kwargs, message):
+    t = np.linspace(0.0, 1e-12, 8)
+    with pytest.raises(PulseError, match=message):
+        TimeDataPulse(t=t, field=np.cos(1e15 * t), **kwargs)
 
 
 @pytest.mark.parametrize(

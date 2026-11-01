@@ -21,7 +21,7 @@ In scripts and library code, import from the home modules listed below.
 |---|---|
 | {mod}`solprop.driver` | the entry points `prop_gnlse`, `prop_capillary`, `prop_waveguide`, `prop_radial`, `prop_free` and `prop_planar`, the `Simulation` object behind them, and `run_problem`, the loop over save planes that takes a translated problem, a backend already holding its initial state and an output handler, for a batch runner of your own |
 | {mod}`solprop.grid` | time and frequency grids (`FieldGrid`, `EnvelopeGrid`) and the free-space transverse grids (`RadialGrid`, `FreeGrid`, `LineGrid`) |
-| {mod}`solprop.pulses` | initial pulses: `GaussianPulse`, `SechPulse`, `CustomPulse`, `DataPulse`, and spatial and planar pulses |
+| {mod}`solprop.pulses` | initial pulses: `GaussianPulse`, `SechPulse`, `CustomPulse`, `DataPulse`, `TimeDataPulse`, and spatial and planar pulses |
 | {mod}`solprop.profiles` | quantities that vary along z: radius, pressure and temperature profiles such as `PiecewiseLinear` and `PressureGradient` |
 | {mod}`solprop.gasflow` | the steady gas flow of a pressure gradient: `steady_fill`, choked ends, `flow_report` |
 | {mod}`solprop.boundaries` | absorbing boundaries in time and frequency |

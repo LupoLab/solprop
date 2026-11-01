@@ -75,6 +75,7 @@ from solprop.pulses import (
     SechPulse,
     ShapedPulse,
     SpatialPulse,
+    TimeDataPulse,
 )
 from solprop.spatial import SpatialMedium
 from solprop.stepper import PIController, RungeKutta
@@ -362,6 +363,11 @@ def build_examples(folder):
     data = DataPulse(
         omega=np.linspace(2e15, 3e15, 512), spectrum=np.ones(512, complex), energy=1e-6
     )
+    time_data = TimeDataPulse(
+        t=np.linspace(-100e-15, 100e-15, 512),
+        field=np.cos(2.35e15 * np.linspace(-100e-15, 100e-15, 512)),
+        energy=1e-6,
+    )
     lattice = TubeLattice(180e-9, 9e-6, 6)
     table = index_table()
     mirror = ChirpedMirror.lookup("PC70").bounces(4)
@@ -375,6 +381,7 @@ def build_examples(folder):
         "SechPulse": SechPulse(wavelength=1030e-9, width=20e-15, peak_power=1e6),
         "CustomPulse": CustomPulse(wavelength=800e-9, energy=1e-6, shape_fn=flat_top),
         "DataPulse": data,
+        "TimeDataPulse": time_data,
         "CWPulse": CWPulse(wavelength=1064e-9, average_power=10.0, bandwidth=1e-9),
         "SpatialPulse": SpatialPulse(gaussian, 100e-6),
         "MarcatiliMode": MarcatiliMode(125e-6, "He", 1.2),
@@ -463,6 +470,7 @@ NAMES = sorted(
         "SechPulse",
         "CustomPulse",
         "DataPulse",
+        "TimeDataPulse",
         "CWPulse",
         "SpatialPulse",
         "MarcatiliMode",

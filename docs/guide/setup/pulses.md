@@ -8,7 +8,7 @@ phase — and hands back the array the solver expects. The keyword drivers
 what they use, and what to reach for when the input is anything else — a super-Gaussian,
 a measured spectrum, a continuous wave, several pulses at once, or a transverse beam.
 
-This page covers the five temporal builders, the two ways of fixing a pulse's size, the
+This page covers the six temporal builders, the two ways of fixing a pulse's size, the
 sign and phase-origin conventions that decide where in the window a pulse lands and
 which way it chirps, measured and continuous-wave inputs, multi-colour inputs, and the
 transverse beams of the spatially resolved geometries. The normative statements are in
@@ -45,9 +45,10 @@ The returned array is always `(n_modes, n_pol, n_omega)` with both leading axes 
 one, which is the canonical kernel layout of [conventions](../../dev/conventions.md), §6.
 Nothing squeezes it; a multimode input is a stack of these.
 
-The five builders are {py:class}`~solprop.pulses.GaussianPulse`,
+The six builders are {py:class}`~solprop.pulses.GaussianPulse`,
 {py:class}`~solprop.pulses.SechPulse`, {py:class}`~solprop.pulses.CustomPulse`,
-{py:class}`~solprop.pulses.DataPulse` and {py:class}`~solprop.pulses.CWPulse`. They all
+{py:class}`~solprop.pulses.DataPulse`, {py:class}`~solprop.pulses.TimeDataPulse` and
+{py:class}`~solprop.pulses.CWPulse`. They all
 satisfy the {py:class}`~solprop.pulses.Pulse` protocol, which is what downstream code
 types against. The first three share {py:class}`~solprop.pulses.ShapedPulse`, which holds
 the parameters they have in common and the whole of `build`; subclass it and supply an
@@ -62,6 +63,7 @@ message that names the problem, so a bad envelope never reaches the initial stat
 | `SechPulse` | $\operatorname{sech}^2(t/\tau_w)$ | `fwhm` or the natural width `width` |
 | `CustomPulse` | any callable `I(t)` | implicit in the callable |
 | `DataPulse` | measured spectrum, interpolated | implicit in the data |
+| `TimeDataPulse` | measured field, transformed exactly | implicit in the data |
 | `CWPulse` | monochromatic or $\operatorname{sech}^2$ in $\omega$ | `bandwidth`, a wavelength FWHM |
 
 The FWHM conversions are exact for every order. A super-Gaussian of order $m$ uses
@@ -160,42 +162,58 @@ and envelope representations stay in step.
 
 ## Measured pulses
 
-{py:class}`~solprop.pulses.DataPulse` stores the measured complex spectrum, because that
-is what a measurement gives: a spectral power density and a retrieved phase. Three ways
-in:
+{py:class}`~solprop.pulses.DataPulse` stores a measured complex spectrum, because that
+is what a spectrometer and a phase retrieval give.
+{py:class}`~solprop.pulses.TimeDataPulse` stores a measured field in time, because that is
+what a field measurement gives.
 
 ```{code-block} python
-from solprop.pulses import DataPulse
+from solprop.pulses import DataPulse, TimeDataPulse
 
 DataPulse(omega=omega, spectrum=complex_spectrum, energy=1e-6)
 DataPulse.from_spectral_density(omega, intensity, spectral_phase, energy=1e-6)
-DataPulse.from_time(t, measured_field, energy=1e-6)
+TimeDataPulse(t=t, field=measured_field, energy=1e-6)
 ```
 
-The magnitude and the phase are interpolated separately with a cubic B-spline.
+A `DataPulse` interpolates the magnitude and the phase separately with a cubic B-spline.
 Interpolating the complex spectrum itself would be wrong: its real and imaginary parts
 oscillate at the pulse's arrival time, and no smooth interpolant follows them.
 `from_spectral_density` keeps the phase it is given, in the pulse's `spectral_phase`,
-and that phase is interpolated as it stands; `from_time` holds its phase there too. A complex `spectrum` holds its phase only
+and that phase is interpolated as it stands. A complex `spectrum` holds its phase only
 modulo $2\pi$, so it is unwrapped first, and unwrapping cannot follow a change of more
 than $\pi$ between neighbouring samples: 20 000 fs² of group-delay dispersion on a 1.6 nm
 axis at 800 nm is built quite wrongly, and with no warning. Give a measured phase through
-`from_spectral_density`. Outside the data's own frequency range the built spectrum is exactly zero, the
-grid's spectral collar is applied so that nothing is left sitting on the window edge, and
-a warning is logged when the grid's active band reaches past the data.
+`from_spectral_density`. Outside the data's own frequency range the built spectrum is
+exactly zero, the grid's spectral collar is applied so that nothing is left sitting on the
+window edge, and a warning is logged when the grid's active band reaches past the data.
 
-`from_time` takes the record's own axis offset into account with an explicit linear
-phase, so a pulse sitting at 100 fs in a record that starts at −50 fs still arrives at
-100 fs: the data, not an assumption about where the record is centred, says where the
-pulse is. It continues the phase from bin to bin along the record's own group delay,
-$\operatorname{Re}\bigl(\mathcal{F}[t E]/\mathcal{F}[E]\bigr)$, so this holds wherever in
-the record the pulse sits. A pulse that reaches the ends of the record is cut there.
+A spline through a magnitude and a phase cannot follow a spectral fringe to its null, so a
+`DataPulse` suits one compact pulse and not several far apart. If the measurement is a
+field in time, use a `TimeDataPulse`, which interpolates nothing.
 
-The spectrum is sampled at the record's own bin spacing, $2\pi/T$ for a record of length
-$T$, which resolves one compact pulse but not the fringes of two pulses far apart. Such a
-record is built badly, with no warning: two pulses 500 fs apart in a record of 800 fs
-came out more than 50 % wrong. Extending the record with zeros reduces this error without
-removing it.
+A `TimeDataPulse` evaluates the record's transform at the grid's own frequencies,
+
+$$
+\tilde{E}(\omega_k) = \sum_n E_n\, e^{+i\omega_k t_n},
+$$
+
+with the chirp-z transform, whose cost is that of a few FFTs of the record and the grid
+together. This is exact whatever the record holds: any number of pulses, at any separation,
+with any fringe contrast, and each lands where it sat wherever the record starts, because
+$t_n$ is the record's own axis. It is what the record says rather than what the pulse was:
+
+- The spectrum is zero at frequencies above the record's Nyquist frequency $\pi/\Delta t$,
+  and a warning is logged when the grid's active band reaches past it.
+- A pulse that reaches the ends of the record is cut there, and a constant baseline is a
+  step at each end, whose spectrum falls with frequency. A baseline of 1 % of the peak on a
+  20 fs Gaussian changes the built spectrum by 0.15 %, so remove a baseline first.
+- A record longer than the grid's window folds back into it, as any spectrum sampled at the
+  grid's spacing must, and a warning is logged when that takes more than a millionth of the
+  energy.
+
+A real array is the electric field; a complex one is the analytic signal in the optics
+convention. The run record holds the record itself, which costs the same as the spectrum
+at its own bins: two real numbers for each real sample.
 
 ## Continuous wave
 
