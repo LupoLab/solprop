@@ -2620,3 +2620,17 @@ evidence claims. The numbers below are from that re-run.
 - *R33, confirmed:* the §2 Cartesian row and the "inward current reads zero" claim are overstated.
 - *R35, confirmed:* batches refuse spatial geometry, and the memory ledger is `backends.md` §8.
 - *Not independently checked:* R23's and R25's suspected cases, R29, R31, R34.
+
+#### The maintainer's decisions on this review (John Travers, 2026-11-01)
+
+- **R15: direct propagation.** The design check propagates the noise-free launch linearly, with and
+  without the collar, on the design's own operator, and refuses above the budget, naming a fraction
+  that passes. Several frequencies and the Cartesian cost at production sizes are measured in phase 1.
+- **R17: the default never refuses.** The order becomes `numpy_ref`, then native. `numba_cpu` carries
+  the default parts. Device runs carry the ramp and check on the host or record the edge as unwatched.
+  The collar and the return strip may refuse by name.
+- **R20: a coupled child with a collar declares its band** (`kappa` or `angle`).
+- **R21: the passivity admission is dropped,** with $\varepsilon_P$ and the corner surrogate. This
+  changes Q6's tolerance.
+
+The other points await decision.
