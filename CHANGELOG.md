@@ -54,6 +54,20 @@ All notable changes to solprop are recorded here. The format follows
   view, whose spectrum, field, power and spectral density come from the processing
   functions, fetched from a device only on request; a failing observer is detached and
   the run completes. See [recipes and the command line](https://solprop.readthedocs.io/en/latest/guide/setup/recipes.html).
+- Design solvers for any guide ([SEP 41](https://solprop.readthedocs.io/en/latest/dev/seps/sep-0041-recipes-and-front-ends.html)):
+  `solprop.tools.solve_parameter` finds every value of a guide or fill parameter
+  (a radius, a pressure, a core size, a wall thickness) that meets a target, `ZDW`,
+  `RDW` or `SolitonOrder`, discarding sign changes through a wall resonance, and
+  returns them as `DesignRoots` with the attainable range when there is none.
+  `tools.radius_zdw` inverts `zdw` in the radius; `tools.soliton_peak_power` and
+  `tools.pulse_energy` give the pulse for a soliton order. A recipe's `[pins]` table
+  sets a value from such a target (`Recipe.resolve()`, `Recipe.pin_roots()`), solved at
+  each build and each scan point and recorded with the run. `Recipe.modes()` and
+  `Recipe.preview_input()` preview the mode set and the launched pulse before a run.
+  `solprop.capabilities.route` lists a route's keywords, their values and the rules
+  that couple them, each refusal naming its rule (`SolpropError.rule`), and
+  `solprop.capabilities.species` what a gas admits: its ionisation models with their
+  status, its Raman response, and its data ranges.
 - `solprop.pulses.load_spectrum` reads a measured spectrum from a text file (frequency
   or wavelength, power density, and an optional phase) into a `DataPulse`. A wrapped
   phase column is unwrapped only where the power is above a noise floor, a phase in
