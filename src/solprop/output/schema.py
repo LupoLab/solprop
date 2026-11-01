@@ -3967,8 +3967,8 @@ class PlaneStore(Displayed, ABC):
             )
             raise OutputError(msg)
         try:
-            text = json.dumps(value, sort_keys=True)
-        except TypeError as error:
+            text = json.dumps(value, sort_keys=True, allow_nan=False)
+        except (TypeError, ValueError) as error:
             msg = f"annotation {name!r} is not plain JSON: {error}"
             raise OutputError(msg) from error
         self._write_annotation(name, text)

@@ -1366,3 +1366,14 @@ def test_an_annotation_is_refused_where_it_cannot_be_written(tmp_path, grid, met
     path.unlink()
     with pytest.raises(OutputError, match="cannot annotate"):
         handler.annotate("note", 1)
+
+
+def test_an_annotation_refuses_non_finite_numbers(metadata):
+    # NaN and Infinity are not plain JSON: a strict reader of the file must be
+    # able to parse every annotation, so they are refused like any other value
+    # that is not plain JSON, as the execution records already do.
+    memory = MemoryOutput()
+    memory.open(metadata)
+    for value in (float("nan"), float("inf"), {"peak": float("nan")}):
+        with pytest.raises(OutputError, match="not plain JSON"):
+            memory.annotate("note", value)
