@@ -96,7 +96,7 @@ Out of scope:
 - **Continuing a finished run to a longer length.** The longer run differs from the stored
   one in hundreds of length-dependent paths, its absorber depends on the length, and the
   file's record cannot describe planes beyond its own. It needs its own proposal, after the
-  recipes of SEP 41 (in draft). `with_input` from the last plane already continues a
+  recipes of SEP 41 (accepted). `with_input` from the last plane already continues a
   finished run into a new file. [#141](https://github.com/LupoLab/solprop/issues/141) holds
   the work.
 - **Reading files of another output schema.** ADR-058 stands: a file is read only at its own
