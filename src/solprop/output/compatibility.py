@@ -108,6 +108,13 @@ class _Any:
     """One path component of any value, the ``*`` of a pattern."""
 
     def __repr__(self) -> str:
+        """Return the wildcard as a pattern writes it.
+
+        Returns
+        -------
+        str
+            ``"*"``.
+        """
         return "*"
 
 
@@ -115,6 +122,13 @@ class _AnyDepth:
     """Any number of path components, the ``**`` of a pattern."""
 
     def __repr__(self) -> str:
+        """Return the wildcard as a pattern writes it.
+
+        Returns
+        -------
+        str
+            ``"**"``.
+        """
         return "**"
 
 
@@ -1488,21 +1502,34 @@ def record_paths(record: Mapping[str, JsonValue]) -> Iterator[RecordPath]:
         Each leaf's path, after normalisation; an array or a list of numbers is one
         leaf.
     """
-    normalised = _normalised(record)
+    yield from _leaf_paths((), _normalised(record))
 
-    def walk(path: RecordPath, value: JsonValue) -> Iterator[RecordPath]:
-        if _is_tagged_leaf(value) or (
-            isinstance(value, list) and _list_array(value) is not None
-        ):
-            yield path
-        elif isinstance(value, dict):
-            for key, item in value.items():
-                yield from walk((*path, key), item)
-        elif isinstance(value, list):
-            yield path
-            for index, item in enumerate(value):
-                yield from walk((*path, index), item)
-        else:
-            yield path
 
-    yield from walk((), normalised)
+def _leaf_paths(path: RecordPath, value: JsonValue) -> Iterator[RecordPath]:
+    """Yield the leaf paths beneath one value, as :func:`record_paths` lists them.
+
+    Parameters
+    ----------
+    path : tuple
+        Where the value sits.
+    value : object
+        The value.
+
+    Yields
+    ------
+    tuple
+        Each leaf's path; a list's own path too, which a length row classifies.
+    """
+    if _is_tagged_leaf(value) or (
+        isinstance(value, list) and _list_array(value) is not None
+    ):
+        yield path
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            yield from _leaf_paths((*path, key), item)
+    elif isinstance(value, list):
+        yield path
+        for index, item in enumerate(value):
+            yield from _leaf_paths((*path, index), item)
+    else:
+        yield path

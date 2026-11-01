@@ -45,19 +45,20 @@ dataset. :func:`resume` continues only from a plane that carries a field: a
 terminal checkpoint always does, and a file whose last regular plane is field-free and
 which holds no checkpoint is refused by name when a run is continued from it.
 
-**Cache and resume.** :func:`check_cache` compares the record's
-:meth:`~solprop.output.schema.RunMetadata.configuration_hash` and refuses a mismatch
-by naming the fields that changed; the digest covers the physics, not only the
-statistic names and the state shape, so resuming with different physics of the same
-shape is refused. It covers the run's material manifest too: another optmat model,
-material policy or optmat version is refused by the manifest entry that changed. A
-file of another output schema is not read at all
-(:data:`~solprop.output.schema.SCHEMA_VERSION`). :func:`resume` returns the metadata,
-the last plane -- converted back
-to the internal convention -- and the step history. A handler built
-with ``append=True`` then carries on in the same file: it opens it read-write instead
-of replacing it, checks that the record offered describes the run the file holds, and
-continues numbering planes and attempts where the file left off. :func:`open_file`
+**Cache and resume.** :func:`check_cache` compares the file's record with the requested
+one path by path (:meth:`~solprop.output.schema.RunMetadata.compare`, SEP 42): the
+layout and the physics must agree, numbers to a rounding-level tolerance, so resuming
+with different physics of the same shape is refused, by naming what changed; the
+numerics may change, and provenance -- the optmat version, a model's name -- is
+ignored, while an optmat model whose numbers changed is refused by name. A file of
+another output schema is not read at all
+(:data:`~solprop.output.schema.SCHEMA_VERSION`).
+:func:`resume` returns the metadata, the last plane -- converted back to the internal
+convention -- and the step history. A handler built with ``append=True`` then carries
+on in the same file: it opens it read-write instead of replacing it, compares the
+record offered with the file's unless the driver's gate already has, holds the file's
+record as its own, and continues numbering planes and attempts where the file left
+off. :func:`open_file`
 opens a finished file **read-only** through the same protocol it was written with, which
 is how :mod:`solprop.processing` reads a run after the driver has closed it.
 
@@ -698,14 +699,14 @@ class HDF5Output(PlaneStore):
         time included, and becomes the handler's ``metadata``, and the run's layout is
         read from the file so that the next plane is checked against the ones already
         there.
-    gated : bool, optional
-        With ``append``: the driver's resume gate has already compared the records and
-        decided to continue, forced or not, so the record given to ``open`` is not
-        compared again (SEP 42 section 5.3). Without it, appending compares.
     readonly : bool, optional
         Open the file at once, for reading only: the handler comes back open, with
         the file's own record as its ``metadata``, and refuses ``open`` and ``save``.
         This is what :func:`open_file` builds.
+    gated : bool, optional
+        With ``append``: the driver's resume gate has already compared the records and
+        decided to continue, forced or not, so the record given to ``open`` is not
+        compared again (SEP 42 section 5.3). Without it, appending compares.
 
     Raises
     ------

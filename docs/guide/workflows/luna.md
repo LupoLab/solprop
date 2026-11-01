@@ -280,8 +280,8 @@ error.
   them, not at every accepted step (which costs Luna about a fifth of a step); each has
   one definition.
 - A file records the configuration, package versions and git commit, not a copy of the
-  source; its resume key is a SHA-256 of the whole configuration, and a refused resume
-  names what changed (Luna's key covers only the statistic names and the state shape).
+  source; a resume compares the whole recorded configuration path by path, and a
+  refused resume names what changed (Luna's key covers only the statistic names and the state shape).
   The step schedule and history are stored. The file is opened once and, as Luna's
   is, preallocated for the planned planes with an `n_saved` count; it also grows by
   doubling past them and is trimmed to the count when closed. Compression is gzip or

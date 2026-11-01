@@ -2895,17 +2895,25 @@ class Simulation(Displayed):
             Seconds between the line reporter's periodic lines, s; ``0`` leaves only
             the plane and closing lines. A bar has its own redraw period and a given
             reporter its own business.
-        resume : bool or {'interpolated'}, optional
-            Continue the file at `output` if it holds this same run, instead of
-            replacing it. Only a path can be resumed: the driver has to open the file in
-            append mode itself. Noise a constructor drew without a seed is drawn
-            again from the seed the file recorded, so re-running the same call
-            continues its file (``docs/guide/results/resuming.md``). A run
-            interpolating its planes
-            (``interpolate_planes``) whose last plane was interpolated inside a step is
-            refused unless this is ``"interpolated"``: it then continues afresh from
-            the interpolated field, and the position is recorded in the annotation
+        resume : bool or {'interpolated', 'force'}, optional
+            Continue the file at `output` instead of replacing it, when its record
+            and this run's agree on what matters to the run
+            (``docs/guide/results/resuming.md``, SEP 42): the layout and the physics
+            must agree, numbers to a rounding-level tolerance; a changed tolerance or
+            integrator continues while there is work left, with a warning, and is
+            recorded in the session's execution record; provenance is ignored. A
+            finished file is returned only when every session ran under this run's
+            numerics. Only a path can be resumed: the driver has to open the file in
+            append mode itself. Noise a constructor drew without a seed is drawn again
+            from the seed the file recorded, so re-running the same call continues its
+            file. A file whose last plane was interpolated inside a step is refused
+            unless this is ``"interpolated"``: it then continues afresh from the
+            interpolated field, and the position is recorded in the annotation
             :data:`~solprop.output.schema.INTERPOLATED_RESUMES_ANNOTATION`.
+            ``"force"`` also continues across changed physics while the layout agrees,
+            the statistics fit and work is left, restarting the Adams history and
+            marking the file, past which its record no longer describes its planes; a
+            forced file then continues only under ``"force"``.
         memory_budget : int or str or None, optional
             The memory budget this run is admitted against before its backend
             allocates: bytes, or a string such as ``"16 GiB"`` or ``"warn:16 GiB"``,
@@ -2932,11 +2940,13 @@ class Simulation(Displayed):
 
         Raises
         ------
+        ValueError
+            If `resume` is not one of its four values.
         DriverError
-            If a resume is asked for and `output` is not a path, or the last plane
-            of a dense run was interpolated and `resume` is not ``"interpolated"``;
-            or `tdse_archive` is given without a TDSE response or at the path of
-            the optical file.
+            If a resume is asked for and `output` is not a path, or the file's last
+            plane was interpolated and `resume` is neither ``"interpolated"`` nor
+            ``"force"``; or `tdse_archive` is given without a TDSE response or at the
+            path of the optical file.
         TDSEArchiveError
             If the archive's path holds another file, or a write to it fails; the
             run then stops at its last optical checkpoint.
@@ -2944,8 +2954,16 @@ class Simulation(Displayed):
             If the run's estimated persistent memory exceeds its budget; nothing has
             been allocated or written.
         OutputError
-            If a file is there and was written for a different run; the message names
-            the fields that changed.
+            If a file is there and its layout or physics differ (unless forced), a
+            forced file is resumed without ``"force"``, a finished file was computed
+            under other numerics, or a forced run's statistics do not fit the file's;
+            the message names what changed.
+
+        Warns
+        -----
+        SolpropWarning
+            When a resume continues under changed numerics, is forced, or returns a
+            finished forced file.
 
         Examples
         --------
@@ -3080,7 +3098,7 @@ class Simulation(Displayed):
             and _interpolated(state)
             and isinstance(handler, PlaneStore)
         ):
-            # Allowed only by resume="interpolated"; the record says where.
+            # Allowed only by resume="interpolated" or "force"; the record says where.
             earlier = handler.annotations.get(INTERPOLATED_RESUMES_ANNOTATION, [])
             handler.annotate(
                 INTERPOLATED_RESUMES_ANNOTATION,

@@ -25,15 +25,19 @@ internal objects and stay in the FFT convention, marked so by
 **Provenance, not source.** The provenance is the resolved configuration, the
 package versions and the git commit with a dirty flag -- never the source text.
 
-**The resume key.** :meth:`RunMetadata.configuration_hash` digests the schema version,
-the grid, the modes, the configuration, the noise, the stepper settings with the
-stepping method when it is not the tableau (SEP 13), and the identities and policies
-of the run's material manifest, and nothing else: not the
-wall-clock time the run started, not the package versions, and not the git provenance,
-so that a resume survives an unrelated commit or a dirty working tree. It is a SHA-256
-of canonical JSON rather than :func:`hash`, so it is stable across processes, and it
-covers the physics rather than only the statistic names and the state shape, so a
-resume with different physics of the same shape is refused.
+**The resume key.** :meth:`RunMetadata.hashed` is the part of the record that says what
+was computed: the schema version, the grid, the modes, the configuration, the noise, the
+stepper settings with the stepping method when it is not the tableau (SEP 13), and the
+identities and policies of the run's material manifest, and nothing else: not the
+wall-clock time the run started, not the package versions, and not the git provenance.
+:meth:`RunMetadata.configuration_hash` is a SHA-256 of its canonical JSON rather than
+:func:`hash`, so it is stable across processes; it is stamped in every file and is the
+exact identity a suspended writer, a snapshot and a scan row are checked by. A resume
+compares the hashed parts path by path instead (:meth:`RunMetadata.compare`, SEP 42):
+the layout and the physics must agree, the numerics may change, and provenance is
+ignored, so a resume with different physics of the same shape is refused and a run
+continues after an upgrade or on another platform. A record read from a file is
+compared as it was written.
 
 The manual page is ``docs/guide/results/output.md``.
 """
@@ -48,7 +52,7 @@ import platform
 import re
 import subprocess
 from abc import ABC, abstractmethod
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import Enum
@@ -570,6 +574,54 @@ def _decode(value: JsonValue) -> object:
     if isinstance(value, dict) and "__ndarray__" in value:
         return _decode_array(value)
     return value
+
+
+def _stored_entry(
+    document: Mapping[str, JsonValue],
+    name: str,
+    path: tuple[str, ...],
+    *,
+    default: JsonValue = None,
+    required: bool = False,
+) -> JsonValue:
+    """Return one entry of a stored record, reading an absent one as neutral.
+
+    Another release of the same output schema may lack an entry (SEP 42 section 5.4):
+    it reads as its neutral value (:func:`solprop.output.compatibility.neutral_value`),
+    else as `default`, unless it is required.
+
+    Parameters
+    ----------
+    document : collections.abc.Mapping
+        The stored mapping.
+    name : str
+        The entry.
+    path : tuple of str
+        Where the mapping sits in the run record.
+    default : object, optional
+        What an absent entry with no neutral value reads as.
+    required : bool, optional
+        Whether an absent entry with no neutral value is refused.
+
+    Returns
+    -------
+    object
+        The entry, its neutral value or `default`.
+
+    Raises
+    ------
+    OutputError
+        If a required entry is absent and has no neutral value.
+    """
+    if name in document:
+        return document[name]
+    found, value = compatibility.neutral_value((*path, name))
+    if found:
+        return value
+    if required:
+        msg = f"stored metadata lacks {compatibility.dotted((*path, name))}"
+        raise OutputError(msg)
+    return default
 
 
 def _rebuild[T](
@@ -1383,20 +1435,14 @@ class StepperRecord:
         >>> StepperRecord.from_record(serialise(one)).tableau
         'Tsit5'
         """
+        # Another release of this schema may lack an optional field (SEP 42 §5.4).
+        stored = cast(
+            "Callable[..., Any]",
+            functools.partial(_stored_entry, document, path=("stepper",)),
+        )
 
-        def stored(name: str, *, required: bool) -> JsonValue:
-            # Another release of this schema may lack an optional field (SEP 42
-            # section 5.4): its neutral value, else its default, None.
-            if name in document:
-                return document[name]
-            found, value = compatibility.neutral_value(("stepper", name))
-            if found or not required:
-                return value
-            msg = f"stored metadata lacks stepper.{name}"
-            raise OutputError(msg)
-
-        schedule = _decode(stored("schedule", required=False))
-        limits = stored("limits", required=False)
+        schedule = _decode(stored("schedule"))
+        limits = stored("limits")
         return cls(
             tableau=str(stored("tableau", required=True)),
             controller=cast(
@@ -1408,7 +1454,7 @@ class StepperRecord:
                 StepLimits, cast("dict[str, JsonValue]", limits), ("stepper", "limits")
             ),
             schedule=None if schedule is None else np.asarray(schedule, dtype=float),
-            method=_optional_text(stored("method", required=False)),
+            method=_optional_text(stored("method")),
         )
 
 
@@ -3160,13 +3206,10 @@ class RunMetadata(Displayed):
         # not by the first field its layout lacks.
         _refuse_schema(document["schema_version"])
 
-        def stored(name: str, default: JsonValue = None) -> Any:
-            # Another release of this schema may lack a top-level entry; it reads as
-            # its neutral value, else the field's default (SEP 42 section 5.4).
-            if name in document:
-                return document[name]
-            found, value = compatibility.neutral_value((name,))
-            return value if found else default
+        # Another release of this schema may lack a top-level entry (SEP 42 §5.4).
+        stored = cast(
+            "Callable[..., Any]", functools.partial(_stored_entry, document, path=())
+        )
 
         try:
             noise = stored("noise")
@@ -3186,18 +3229,18 @@ class RunMetadata(Displayed):
                 if noise is None
                 else _rebuild(NoiseRecord, noise, ("noise",)),
                 backend=None if backend is None else _rebuild(BackendRecord, backend),
-                versions=cast("Mapping[str, str]", stored("versions", {})),
+                versions=cast("Mapping[str, str]", stored("versions", default={})),
                 git=None if git is None else _rebuild(GitProvenance, git),
-                created=str(stored("created", "")),
+                created=str(stored("created", default="")),
                 schema_version=document["schema_version"],
                 spectral_convention=str(
-                    stored("spectral_convention", SPECTRAL_CONVENTION)
+                    stored("spectral_convention", default=SPECTRAL_CONVENTION)
                 ),
-                field_layout=str(stored("field_layout", FIELD_LAYOUT)),
+                field_layout=str(stored("field_layout", default=FIELD_LAYOUT)),
                 spatial=stored("spatial"),
                 modal=stored("modal"),
                 materials=MaterialManifest.from_dict(stored("materials")),
-                initial_z=stored("initial_z", 0.0),
+                initial_z=stored("initial_z", default=0.0),
                 tdse=stored("tdse"),
                 quadrature=stored("quadrature"),
                 reference=stored("reference"),
