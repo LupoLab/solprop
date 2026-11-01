@@ -1,0 +1,42 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Spike only, never merged: what the Windows on Arm runner carries.
+name: Spike probe
+on:
+  push:
+    branches: [spike/native-coverage]
+    paths: [".github/workflows/spike-probe.yml"]
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: windows-11-arm
+    steps:
+      - shell: pwsh
+        run: |
+          $PSVersionTable.PSVersion; $env:PROCESSOR_ARCHITECTURE
+          (Get-CimInstance Win32_Processor | Select-Object Name, NumberOfCores, NumberOfLogicalProcessors | Format-List | Out-String)
+          (Get-CimInstance Win32_OperatingSystem).Caption
+          [math]::Round((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory/1GB,1)
+          Get-Command clang, clang++, clang-cl, ninja, cmake, python, uv, flang, flang-new -ErrorAction SilentlyContinue | Format-Table Source
+          clang --version; clang -print-target-triple; ninja --version; cmake --version
+          $llvm = Split-Path (Split-Path (Get-Command clang).Source); $llvm
+          Get-ChildItem "$llvm\lib" -Filter '*omp*' -ErrorAction SilentlyContinue | Format-Table FullName, Length
+          Get-ChildItem "$llvm\bin" -Filter '*omp*' -ErrorAction SilentlyContinue | Format-Table FullName, Length
+          Get-ChildItem "$llvm\lib\clang" -Recurse -Filter 'omp*.h' -ErrorAction SilentlyContinue | Format-Table FullName
+          Get-ChildItem "$llvm\lib\clang\*\lib\windows" -ErrorAction SilentlyContinue | Select-Object -First 12 Name
+          Get-ChildItem 'C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC' -ErrorAction SilentlyContinue | Format-Table Name
+      - uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
+        with:
+          arch: arm64
+      - shell: pwsh
+        run: |
+          'int main(){return 0;}' | Set-Content t.c
+          clang -fopenmp t.c -o t.exe; "clang -fopenmp exit $LASTEXITCODE"
+          $r = (Get-Command cl -ErrorAction SilentlyContinue).Source; "cl: $r"
+          $env:VSCMD_ARG_TGT_ARCH
+          'int main(){return __ARM_NEON;}' | Set-Content n.c; clang n.c -o n.exe; "neon compile $LASTEXITCODE"; .\n.exe; "__ARM_NEON=$LASTEXITCODE"
+          "HW features via .NET not checked"
+          python -c "import platform,sys;print(platform.machine(),sys.version,sys.platform)"
