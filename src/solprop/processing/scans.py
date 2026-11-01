@@ -27,7 +27,12 @@ from solprop.exceptions import ProcessingError
 from solprop.output._scan_lock import read_scan
 from solprop.output.capability import capability_of
 from solprop.output.hdf5 import _dataset, _group
-from solprop.output.scan import _expand, grid_values, read_point
+from solprop.output.scan import (
+    _expand,
+    _refuse_other_schemas,
+    grid_values,
+    read_point,
+)
 from solprop.output.schema import (
     GridRecord,
     JsonValue,
@@ -725,6 +730,15 @@ class ScanOutput(Displayed):
     ----------
     path : pathlib.Path
         Collected file path.
+
+    Raises
+    ------
+    ProcessingError
+        If the file is not a scan file of this container version.
+    OutputError
+        If a point's stored run record declares an output schema other than this
+        release's: a scan written by 0.1.0, by a development version or by a later
+        release is refused by name, as a run file is.
     """
 
     def __init__(self, path: Path | str) -> None:
@@ -733,6 +747,7 @@ class ScanOutput(Displayed):
         with read_scan(self.path) as file:
             if file.attrs.get("scan_schema_version") != 1:
                 raise ProcessingError("unsupported scan file schema")
+            _refuse_other_schemas(file)
 
     def __repr__(self) -> str:
         """Return a one-line description naming the file, without opening it.
