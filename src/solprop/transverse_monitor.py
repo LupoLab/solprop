@@ -722,7 +722,8 @@ class TransverseEdge:
 
         A Kaiser(8)-windowed transform along each face's normal, padded twice; the
         inward energy is that at ``|q| >= 16 / s`` travelling inward, where the
-        window's leakage is about ``1e-6`` (section 5.3). The larger face's, as shares of the launch.
+        window's leakage is about ``1e-6`` (section 5.3). The larger face's, as
+        shares of the launch.
 
         Parameters
         ----------
