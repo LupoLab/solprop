@@ -1187,8 +1187,8 @@ Withdrawn (development-process record, not a design decision).
   no scientific use of it was found.
 - **Consequences:** an unwindowed native SAE run's lattice must pass the certificate. A
   change that moves an identity bumps the version it moves and adds no compatibility
-  layer; a resume-compatibility policy is decided before 1.0 (ADR-058; roadmap,
-  *Release preparation*).
+  layer; a resume-compatibility policy is decided before 1.0 (ADR-058;
+  [SEP 42](seps/sep-0042-tolerant-resume.md)).
 
 ## ADR-052 — One thread budget per process, which every pool stays within
 
@@ -1519,8 +1519,8 @@ Withdrawn (development-process record, not a design decision).
 - **Why:** breaking costs nothing before anyone depends on the package, and a promise
   made now would freeze seams already known to need work.
 - **Consequences:** a released version cannot read a development output file; keep an
-  older install for those. The resume-compatibility policy for 1.0 stays on the roadmap
-  (*Release preparation*).
+  older install for those. [SEP 42](seps/sep-0042-tolerant-resume.md) sets the
+  resume-compatibility policy.
 
 ## ADR-059 — Host vector maths on SLEEF for the native CPU kernels on x86-64
 
