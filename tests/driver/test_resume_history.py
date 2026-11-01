@@ -398,6 +398,17 @@ def test_a_rewritten_snapshot_holds_only_its_own_rows(tmp_path):
     assert np.array_equal(snapshot.rows["store"], store + 3)
 
 
+def test_the_history_key_crosses_the_file_and_a_rewrite_clears_it(tmp_path):
+    path = tmp_path / "run.h5"
+    saved_with(path, march(history_key="adams-pec2/3"))
+    snapshot = resume(path).march
+    assert snapshot is not None and snapshot.history_key == "adams-pec2/3"
+    # A snapshot that names none, written over one that did, names none either.
+    saved_with(path, march(history_key="adams-pec2/3"), march())
+    snapshot = resume(path).march
+    assert snapshot is not None and snapshot.history_key is None
+
+
 @pytest.mark.parametrize("quiet", [False, True])
 def test_the_collar_flag_crosses_the_file(tmp_path, quiet):
     # Whether the collar was quiet at the last attempt holds the first step after it

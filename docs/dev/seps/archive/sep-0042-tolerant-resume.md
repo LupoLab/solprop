@@ -957,7 +957,17 @@ stay as they are. The schema rule goes into `output.md` and `contributing.md`, a
   decide, and that queues keep exact identity, in `docs/guide/workflows/scans.md`; the
   changelog.
 
-**Deviations from the proposal.** None.
+**Deviations from the proposal.**
+
+1. **A row §5.2 does not have**: `configuration.plasma_integration.certified_error` is
+   ignored. The frozen capillary record, written on macOS arm64, failed on CI's Linux
+   x86-64 runner by that one number, 4.5e-11 apart, above $\varepsilon$: it is the
+   maximum of the band rule's error found by a bounded scalar search
+   (`translate/plasma_integration.py`, `_certified_max`), whose last digits follow the
+   platform. It is a bound derived from the taps, which are compared and agreed, not an
+   input, so ignoring it hides no physics. §4's claim that the largest platform
+   departure among a record's numbers is the ionisation threshold's 1e-12 does not hold
+   for this derived bound; the frozen records found it, as §7 intended.
 
 **Decisions.** `_scan_run` keeps reading a custom reduction's spool through the public
 `open_file`: a scan point is never forced, so it never warns, and a test patches that

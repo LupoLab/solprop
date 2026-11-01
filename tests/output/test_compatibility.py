@@ -13,6 +13,7 @@ import copy
 import json
 import math
 
+import h5py
 import numpy as np
 import pytest
 
@@ -26,7 +27,9 @@ from solprop.output.compatibility import (
     compare_records,
     record_paths,
 )
+from solprop.output.hdf5 import _stored_stat_shapes
 from solprop.output.schema import RunMetadata, _example_metadata, serialise
+from solprop.stepper.multistep import ComparisonMultistep
 
 
 def array(values, dtype="float64"):
@@ -376,3 +379,118 @@ def test_every_path_of_a_record_is_walked_once():
     walked = list(record_paths(record))
     assert len(walked) == len(set(walked))
     assert ("configuration", "gamma") in walked
+
+
+# ------------------------------------------------------------------ edges of the walk
+
+
+def test_patterns_match_as_written():
+    assert repr(compatibility.ANY) == "*"
+    assert repr(compatibility.ANY_DEPTH) == "**"
+    pattern = compatibility._pattern("**.citation")
+    assert compatibility._full_matches(pattern, ("a", "b", "citation"))
+    assert not compatibility._full_matches(pattern, ())
+    assert not compatibility._full_matches(compatibility._pattern("a.b"), ("a",))
+    assert not compatibility._prefix_matches(compatibility._pattern("a.b"), ("a",))
+
+
+def test_a_moved_class_is_renamed_before_the_walk(monkeypatch):
+    monkeypatch.setattr(compatibility, "CLASS_RENAMES", {"old.Kerr": "new.Kerr"})
+    one = {"configuration": {"kerr": {"__class__": "old.Kerr", "chi3": 1.0}}}
+    two = {"configuration": {"kerr": {"__class__": "new.Kerr", "chi3": 1.0}}}
+    assert compare_records(one, two).identical
+
+
+def test_manifest_entries_without_a_digest_key_or_solids_are_walked_as_they_are():
+    def record(records):
+        return {"materials": {"records": records, "policies": {}}}
+
+    # Two models with the same numbers under one identity are both kept.
+    twins = {
+        "a": {"material": "Ar", "kind": "k", "digest": "d", "name": "a"},
+        "b": {"material": "Ar", "kind": "k", "digest": "d", "name": "b"},
+    }
+    assert compare_records(record(twins), record(twins)).identical
+    assert compare_records(record({"x": "odd"}), record({"x": "odd"})).identical
+    assert compare_records(record(None), record(None)).identical
+    # A record lacking an ignored field differs in nothing that matters.
+    full = dict(twins["a"], sources=["s"])
+    assert compare_records(record({"a": full}), record({"a": twins["a"]})).identical
+
+
+def test_malformed_numbers_compare_as_text():
+    bad_complex = {"z": {"__complex__": [1.0]}}
+    assert compare_records(bad_complex, copy.deepcopy(bad_complex)).identical
+    ragged = {"values": [[1.0], [1.0, 2.0]]}
+    assert compare_records(ragged, copy.deepcopy(ragged)).identical
+    mismatched = {
+        "a": {
+            "dtype": "complex128",
+            "shape": [2],
+            "__ndarray__": [1.0, 2.0],
+            "__imaginary__": [0.0],
+        }
+    }
+    assert compare_records(mismatched, copy.deepcopy(mismatched)).identical
+    changed = copy.deepcopy(mismatched)
+    changed["a"]["__ndarray__"] = [1.0, 3.0]
+    assert not compare_records(mismatched, changed).continues
+
+
+def test_changes_are_summarised_by_what_they_hold():
+    enum = {"__enum__": "solprop.Kind", "value": "a"}
+    digest = {
+        "__class__": "solprop.output.schema.ArrayDigest",
+        "sha256": "0" * 64,
+        "dtype": "float64",
+        "shape": [3],
+    }
+    other_digest = dict(digest, sha256="1" * 64)
+    one = {"configuration": {"kind": enum, "big": digest, "obj": {"__class__": "x.Y"}}}
+    two = {
+        "configuration": {
+            "kind": dict(enum, value="b"),
+            "big": other_digest,
+            "obj": 3,
+        }
+    }
+    summary = compare_records(one, two).summary()
+    assert "kind 'a' -> 'b'" in summary
+    assert "big 'digest 000000000000' -> 'digest 111111111111'" in summary
+    assert "obj '<x.Y>' -> 3" in summary
+
+
+def test_the_numerics_record_writes_every_value_as_plain_json():
+    one = {"stepper": {"schedule": array([1.0, 2.0]), "z": {"__complex__": [1.0, 2.0]}}}
+    two = {"stepper": {"schedule": array([1.0, 2.5]), "z": {"__complex__": [1.0, 3.0]}}}
+    record = compare_records(one, two).numerics_record()
+    assert record["stepper.schedule"] == ["shape [2]", "shape [2]"]
+    assert record["stepper.z"] == ["(1+2j)", "(1+3j)"]
+    json.dumps(record, allow_nan=False)
+
+
+def test_a_stored_record_lacking_stepper_entries_or_materials(monkeypatch):
+    metadata = _example_metadata()
+    document = json.loads(metadata.to_json())
+    del document["materials"]
+    del document["stepper"]["method"]
+    stored = RunMetadata.from_json(json.dumps(document))
+    assert "materials" not in stored.hashed()
+    assert stored.stepper.method is None
+    del document["stepper"]["tableau"]
+    with pytest.raises(OutputError, match=r"lacks stepper\.tableau"):
+        RunMetadata.from_json(json.dumps(document))
+    with_neutral(monkeypatch, Neutral("stepper.tableau", "DOPRI5", "0.2.0"))
+    assert RunMetadata.from_json(json.dumps(document)).stepper.tableau == "DOPRI5"
+
+
+def test_a_comparison_variant_keys_its_history_on_its_whole_representation():
+    method = ComparisonMultistep(corrector="pece", order=4)
+    assert method.history_key == repr(method)
+
+
+def test_a_file_without_statistics_reports_none(tmp_path):
+    path = tmp_path / "bare.h5"
+    with h5py.File(path, "w"):
+        pass
+    assert _stored_stat_shapes(path) == {}

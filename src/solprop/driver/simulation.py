@@ -8022,8 +8022,6 @@ def _check_forced_shapes(
     """
     path = Path(cast("Path | str", output))
     stored = _stored_stat_shapes(path)
-    if not stored:
-        return
     requested = {
         name: tuple(np.shape(value)[1:]) for name, value in backend.stats(spec).items()
     }

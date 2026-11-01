@@ -248,15 +248,15 @@ def _full_matches(
     return _component_matches(head, path[0]) and _full_matches(rest, path[1:])
 
 
-def _lookup(record: JsonValue, path: Sequence[str | int]) -> tuple[bool, JsonValue]:
-    """Return whether a record holds a path, and the value there.
+def _lookup(record: JsonValue, path: Sequence[str]) -> tuple[bool, JsonValue]:
+    """Return whether a record holds a path of mapping keys, and the value there.
 
     Parameters
     ----------
     record : object
         A record, as JSON.
-    path : sequence
-        The path.
+    path : sequence of str
+        The keys.
 
     Returns
     -------
@@ -264,15 +264,10 @@ def _lookup(record: JsonValue, path: Sequence[str | int]) -> tuple[bool, JsonVal
         ``(True, value)``, or ``(False, None)`` when the record lacks the path.
     """
     value = record
-    for component in path:
-        if isinstance(component, int):
-            if not isinstance(value, list) or component >= len(value):
-                return False, None
-            value = value[component]
-        else:
-            if not isinstance(value, dict) or component not in value:
-                return False, None
-            value = value[component]
+    for key in path:
+        if not isinstance(value, dict) or key not in value:
+            return False, None
+        value = value[key]
     return True, value
 
 
@@ -341,17 +336,6 @@ class Row:
     tail: bool = False
     subtree: bool = True
     when: Callable[[JsonValue], bool] | None = None
-
-    @property
-    def components(self) -> tuple[object, ...]:
-        """Return the parsed pattern.
-
-        Returns
-        -------
-        tuple
-            Its components.
-        """
-        return _pattern(self.pattern)
 
     def covers(self, path: RecordPath) -> bool:
         """Say whether the row's pattern reaches a path, whatever its condition.
@@ -500,6 +484,13 @@ CLASS_TABLE: Final[tuple[Row, ...]] = (
         tail=True,
     ),
     Row("spatial.absorber_rate", _COMPARED, "rates with rounding tails", tail=True),
+    Row(
+        "configuration.plasma_integration.certified_error",
+        _IGNORED,
+        "an error bound derived from the compared taps by a maximisation whose last "
+        "digits move across platforms: 4.5e-11 apart between macOS arm64 and Linux "
+        "x86-64",
+    ),
     Row("materials.optmat_version", _IGNORED, "provenance"),
     Row(
         "materials.records.*.{name,status,status_reason,sources,optmat_version}",
