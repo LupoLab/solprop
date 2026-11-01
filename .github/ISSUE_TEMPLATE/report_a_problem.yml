@@ -1,0 +1,40 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+name: Report a problem
+description: A wrong result, a failure or a question about the physics. A maintainer fills in the rest.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please [search the issues](https://github.com/LupoLab/solprop/issues?q=is%3Aissue) first. Differences from Luna.jl that are deliberate are listed in [Noteworthy differences from Luna](https://solprop.readthedocs.io/en/latest/guide/workflows/luna.html).
+  - type: textarea
+    id: script
+    attributes:
+      label: The smallest script that shows it
+      render: python
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+      description: For a physics question, what you compared against (a paper, an independent code, an analytic limit) and at what parameters.
+    validations:
+      required: true
+  - type: textarea
+    id: got
+    attributes:
+      label: What you got
+      description: The output or the traceback.
+    validations:
+      required: true
+  - type: textarea
+    id: versions
+    attributes:
+      label: Versions
+      description: The output of `python -c "import solprop; print(solprop.__version__)"`, and of `python -m solprop_native` if the native backend is installed.
+      render: text
+    validations:
+      required: true
