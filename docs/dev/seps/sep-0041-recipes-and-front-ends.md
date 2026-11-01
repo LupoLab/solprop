@@ -881,9 +881,9 @@ against the branch; the order puts what it needs first.
   longer `length`), refusing only when the hash differs in more than the run's end?
   Recommended: no in this SEP; extending a finished run is its own question. A changed
   grid is always a new run.
-  **Decision (John Travers, 2026-11-01):** as recommended; extending a finished run goes
-  to the resume-compatibility proposal, SEP 42 (in draft), whose last phase needs this
-  SEP's recipes.
+  **Decision (John Travers, 2026-11-01):** as recommended. Extending a finished run stays a
+  roadmap item for its own proposal, which is simplest after this SEP's recipes; the
+  resume-compatibility proposal, SEP 42 (in draft), does not take it on.
 - **Q5.** Which pulse-retrieval formats does `load_retrieval` support first?
   **Decision (John Travers, 2026-11-01):** the usual three columns of frequency in Hz,
   spectral power density and spectral phase, as Luna.jl's `DataPulse` takes, with care over
