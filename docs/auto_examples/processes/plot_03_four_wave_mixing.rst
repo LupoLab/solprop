@@ -53,7 +53,8 @@ the idler. Phase matching is sharp. This example's original set-up used 0.48 bar
 the pressure moved to 0.445 bar because optmat's helium index (SEP 3) puts the linear
 phase matching of this capillary at 0.457 bar, and the pump's Kerr phase moves the
 exit optimum to 0.445 bar. At 0.48 bar the idler would now carry under a tenth of the
-pump.
+pump. The experiment found its optimum at 46.7 kPa (0.467 bar), in a 0.5 m fibre of the
+same bore.
 
 **What is approximate.** Only the fundamental mode is carried. The helium index is
 optmat's fit, qualified over the whole band (from 60 nm).
@@ -66,12 +67,12 @@ a starting pressure, then refine the nonlinear calculation around it.
 The :doc:`frequency-dependent Kerr chapter </guide/media/dispersive-kerr>`
 explains the carrier-coefficient approximation used here.
 
-.. GENERATED FROM PYTHON SOURCE LINES 56-58
+.. GENERATED FROM PYTHON SOURCE LINES 57-59
 
 The run
 -------
 
-.. GENERATED FROM PYTHON SOURCE LINES 58-93
+.. GENERATED FROM PYTHON SOURCE LINES 59-94
 
 .. code-block:: Python
 
@@ -123,12 +124,12 @@ The run
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 94-96
+.. GENERATED FROM PYTHON SOURCE LINES 95-97
 
 Spectral and temporal evolution
 -------------------------------
 
-.. GENERATED FROM PYTHON SOURCE LINES 96-107
+.. GENERATED FROM PYTHON SOURCE LINES 97-108
 
 .. code-block:: Python
 
@@ -155,14 +156,14 @@ Spectral and temporal evolution
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 108-112
+.. GENERATED FROM PYTHON SOURCE LINES 109-113
 
 The idler
 ---------
 The energy in a band around the idler along the fibre, and the input and output
 spectra.
 
-.. GENERATED FROM PYTHON SOURCE LINES 112-133
+.. GENERATED FROM PYTHON SOURCE LINES 113-134
 
 .. code-block:: Python
 
@@ -205,13 +206,13 @@ spectra.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 134-137
+.. GENERATED FROM PYTHON SOURCE LINES 135-138
 
 The two input pulses in time, as launched. Their coherent power beats at the
 difference frequency. The width of one beat is not the 35 fs duration of either
 input pulse, so the automatic single-peak width label is disabled.
 
-.. GENERATED FROM PYTHON SOURCE LINES 137-142
+.. GENERATED FROM PYTHON SOURCE LINES 138-143
 
 .. code-block:: Python
 
@@ -232,12 +233,12 @@ input pulse, so the automatic single-peak width label is disabled.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 143-145
+.. GENERATED FROM PYTHON SOURCE LINES 144-146
 
 Runtime and reproducibility
 ----------------------------
 
-.. GENERATED FROM PYTHON SOURCE LINES 145-147
+.. GENERATED FROM PYTHON SOURCE LINES 146-148
 
 .. code-block:: Python
 
@@ -251,7 +252,7 @@ Runtime and reproducibility
 
  .. code-block:: none
 
-    6 s; backend native
+    5 s; backend native
 
 
 
@@ -259,7 +260,7 @@ Runtime and reproducibility
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 6.315 seconds)
+   **Total running time of the script:** (0 minutes 4.772 seconds)
 
 
 .. _sphx_glr_download_auto_examples_processes_plot_03_four_wave_mixing.py:

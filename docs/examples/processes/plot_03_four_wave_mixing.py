@@ -38,7 +38,8 @@ the idler. Phase matching is sharp. This example's original set-up used 0.48 bar
 the pressure moved to 0.445 bar because optmat's helium index (SEP 3) puts the linear
 phase matching of this capillary at 0.457 bar, and the pump's Kerr phase moves the
 exit optimum to 0.445 bar. At 0.48 bar the idler would now carry under a tenth of the
-pump.
+pump. The experiment found its optimum at 46.7 kPa (0.467 bar), in a 0.5 m fibre of the
+same bore.
 
 **What is approximate.** Only the fundamental mode is carried. The helium index is
 optmat's fit, qualified over the whole band (from 60 nm).

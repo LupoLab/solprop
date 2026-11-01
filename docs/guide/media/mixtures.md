@@ -177,8 +177,8 @@ declares the populations as its parameters, `density:<label>`, instead of `press
 Two species in a uniform bore are two parameters and keep the tensor expansion of the
 linear operator on every backend; three species, or two in a taper (whose radius is a
 third), exceed its two parameters (`MAX_PARAMETERS`), so the operator is tabulated
-along z, which `numpy_ref` and `numba_cpu` evaluate and the native backend refuses by name, as for
-any three independent profiles. A single gas keeps its one `density` parameter. The
+along z, which `numpy_ref`, `numba_cpu` and a native CPU build evaluate and a native GPU
+build refuses by name, as for any three independent profiles. A single gas keeps its one `density` parameter. The
 rotational Raman populations take one reference temperature
 ({func}`~solprop.nonlinear.mixtures.raman_temperature`,
 [Raman](raman-models.md#the-rotational-ladder)). `serialise()` records a temperature path as
@@ -241,8 +241,9 @@ The operator has three possible representations:
    as a single-gas run, including its density spline.
 2. Independent populations declare `density:<label>`. The tensor expansion supports at
    most two varying parameters (`MAX_PARAMETERS`); beyond that the operator is
-   tabulated along z. `numpy_ref` and `numba_cpu` evaluate that table on the host;
-   The native backend refuses it, naming the component labels, and suggests `numba_cpu`. Cartesian
+   tabulated along z. `numpy_ref` and `numba_cpu` evaluate that table on the host, and a
+   native CPU build in its own kernels; a native GPU build refuses it, naming the table's
+   size and the CPU backends. Cartesian
    media must be constant in every component, including mixtures whose total density
    is constant while their composition varies.
 3. A total-degree Chebyshev basis, keeping `comb(N+d, d)` terms for `N` parameters and
@@ -476,9 +477,11 @@ Node fluence is `epsilon_0 c/2` times the fine-grid temporal sum of the physical
 analytic flux, summed over polarisation. For a modal run that is
 $\operatorname{Re}[E\cdot E_w^*]$, with $E$ synthesised from the saved true-power
 amplitude divided by $\sqrt w$ and $E_w$ from it multiplied by $\sqrt w$ (the
-Poynting flux of [power and intensity](../results/power-and-intensity.md)); for a radial or
-Cartesian run, which has no modal weight, it is $|E|^2$, reconstructed by the inverse
-Hankel or Cartesian transform. The stored synthesis matrix has its temporal padding
+Poynting flux of [power and intensity](../results/power-and-intensity.md)); for a radial,
+Cartesian or planar run it is the signed axial flux of the medium
+([free-space flux](../free-space/flux.md)), $\operatorname{Re}[E\cdot G^*]$, with $G$ the
+conjugate of the plane's own admittance applied to the stored spectrum, both reconstructed
+by the inverse Hankel or Cartesian transform. The stored synthesis matrix has its temporal padding
 scale removed. No extra spectral or temporal window is applied. A mode-averaged run has
 one effective node, with fluence equal to pulse energy divided by effective area.
 A finite radial Hankel transform is only approximately unitary: its physical

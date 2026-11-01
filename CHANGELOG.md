@@ -31,6 +31,8 @@ All notable changes to solprop are recorded here. The format follows
 
 ### Changed
 
+- Corrected the mixtures guide on spatial fluence and on who refuses a z table, three worked
+  examples' prose, and how `ReferenceState.temperature` reads where a source declares none.
 - A resume compares the stored and requested run records path by path instead of
   requiring equal configuration hashes (SEP 42, ADR-063). The layout and the physics
   must agree, numbers to 1e-11 per element, so a run resumes after an upgrade that adds

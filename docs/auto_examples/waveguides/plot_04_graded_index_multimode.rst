@@ -79,7 +79,7 @@ propagation constants converge at second order in the element count.
 The fibre
 ---------
 The core law is fused silica's Sellmeier fit (Malitson's, optmat's absolute
-``malitson_1965/sellmeier`` reached by its former name) on the axis, scaled by
+``malitson_1965/sellmeier``) on the axis, scaled by
 the parabola; the cladding is the same glass scaled by ``1 - 2 Delta``, written as
 a small permittivity law of our own -- anything with ``permittivity``,
 ``omega_domain`` and ``identity`` is one
@@ -362,7 +362,7 @@ too.
       statistics:      analytic_flux, fwhm_t, fwhm_t_outer, omega0, physical_energy
       between planes:  none
       run:             RunMetadata(multimode, field grid of 4096, 4 modes, native,
-                       2026-11-01T19:15:43.984122+00:00)
+                       2026-11-01T22:35:43.967755+00:00)
 
 
 
@@ -746,7 +746,7 @@ A ten-centimetre and a 4.5 mm run of four channels on the general modal route.
 
  .. code-block:: none
 
-    220 s; backend native, 32 threads
+    195 s; backend native, 18 threads
 
 
 
@@ -763,7 +763,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (3 minutes 39.893 seconds)
+   **Total running time of the script:** (3 minutes 15.348 seconds)
 
 
 .. _sphx_glr_download_auto_examples_waveguides_plot_04_graded_index_multimode.py:
