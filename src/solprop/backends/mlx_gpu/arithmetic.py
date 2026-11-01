@@ -15,7 +15,7 @@ evidence:
   double-float arithmetic from binary64 terms held as pairs of binary32 numbers
   (:class:`DoubleFloatTerms`), then rounded once: on the Metal device by one custom
   kernel compiled in ``"safe"`` math mode, whose two-sum and two-product cannot be
-  reassociated; on MLX's CPU device, which continuous integration uses, in binary64 on
+  reassociated; on MLX's CPU device, available for local tests, in binary64 on
   the host with NumPy (the memory is shared). The phase is range-reduced in double-float
   before its binary32 cosine and sine, and the exponential of the real part is
   ``exp(hi) (1 + lo)``.

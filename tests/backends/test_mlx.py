@@ -6,10 +6,10 @@
 
 Class R throughout: both sides replay the same fixed schedule with the same method in
 binary32, and the bounds are the oracle tests' own formulas. On the Metal GPU every
-protected operation runs through its custom kernel; on MLX's CPU device, which
-continuous integration uses when the runner exposes no Metal device, the graph code
-runs and the kernels' tests are skipped. The local GPU lane is the whole module on the
-Metal device.
+protected operation runs through its custom kernel. Continuous integration's macOS
+default lane requires Metal and runs those kernels. On MLX's CPU device, available for
+local tests, the graph code runs and the kernels' tests are skipped. The local GPU lane
+is the whole module on the Metal device.
 """
 
 import dataclasses

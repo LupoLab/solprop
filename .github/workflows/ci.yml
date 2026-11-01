@@ -240,18 +240,18 @@ jobs:
           path: wheelhouse
       - run: uv python install 3.14
       # The wheel goes in after the sync, which would remove it (hence --no-sync below).
-      # On macOS the sync adds the mlx extra: the mlx backend's tests (SEP 33) run here,
-      # on MLX's CPU device when the hosted runner has no usable Metal GPU.
+      # On macOS the sync adds the mlx extra: the mlx backend's tests (SEP 33),
+      # including its custom kernels, run here on the hosted runner's Metal GPU.
       - run: uv sync --locked ${{ runner.os == 'macOS' && '--extra mlx' || '' }}
       - run: uv pip install --no-deps wheelhouse/*.whl
       - run: >-
           uv run --no-sync python -c "from solprop.backends.registry import resolve_name;
           assert resolve_name() == 'native', resolve_name()"
-      # Records whether the hosted runner exposes Metal to MLX (SEP 33, Q7).
+      # Fail rather than silently skipping the custom kernels if Metal disappears.
       - if: runner.os == 'macOS'
         run: >-
           uv run --no-sync python -c "import mlx.core as mx;
-          print('Metal available:', mx.metal.is_available())"
+          assert mx.metal.is_available(), 'The macOS test lane requires Metal for MLX'"
       - run: uv run --no-sync poe test --junitxml=junit.xml
       # The timings tests/shards.py rewrites the shard weights from.
       - if: ${{ !cancelled() }}
