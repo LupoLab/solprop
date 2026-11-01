@@ -119,7 +119,7 @@ def radial(medium=None, **overrides):
     grid = EnvelopeGrid.from_limits(1e-3, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False)
     return Simulation.from_radial(
         grid,
-        RadialGrid(6e-4, 8, window_factor=0.0),
+        RadialGrid(6e-4, 8),
         SpatialMedium(Mixture.fill({"He": 1.0}, 1.0)) if medium is None else medium,
         [],
         SpatialPulse(GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-9), 80e-6),
@@ -379,5 +379,5 @@ def test_an_explicit_realisation_is_still_refused_by_a_resume(tmp_path):
     field = parent.translate().initial.field0[0]
     parent.with_input(field).run(path, progress="none")
     other = parent.with_input(field, noise=fibre(noise="input", seed=5).noise)
-    with pytest.raises(OutputError, match=r"noise\.seed"):
+    with pytest.raises(OutputError, match=r"noise: seed"):
         other.run(path, resume=True, progress="none")
