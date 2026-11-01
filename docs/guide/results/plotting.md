@@ -238,3 +238,75 @@ does not.
 Mode names come from the structured metadata: a mode records the class it is and the
 arguments it was built from, so the label is read rather than parsed out of a printed
 description, and a change to how a mode prints cannot break it.
+
+## Cross-section drawings
+
+{mod}`solprop.plotting.geometry` draws the cross-section of a guide or a free-space grid:
+its outline, not its fields. A capillary is its gas-filled bore in a wall; an
+antiresonant fibre its tubes, to scale, inside a jacket; a step-index fibre or a
+graded-index provider its core in a cladding; a rectangular or planar guide its bore
+between walls or plates; and a radial, Cartesian, line or planar grid its medium with
+the absorbing collar its `window_factor` declares. The cross-section figures of
+[the spatial decompositions](../setup/spatial-decompositions.md) draw their outlines
+from it, so the manual and the library show one geometry.
+
+None of the hollow-guide models carries a wall thickness: the wall enters only through
+the effective index. It is drawn
+{py:data}`~solprop.plotting.geometry.WALL_FRACTION` of the guide's size thick, and so
+is an antiresonant fibre's jacket. A direction the geometry leaves unbounded, a
+fibre's cladding or the y of a planar guide or a line grid, is drawn to the `extent`
+you give, in metres. Everything else is to scale, at the position `z` along a guide
+whose radius or width varies.
+
+```python
+import matplotlib.pyplot as plt
+
+from solprop.modes import TubeLattice, VincettiMode
+from solprop.plotting.geometry import draw
+
+lattice = TubeLattice(wall_thickness=180e-9, tube_radius=9e-6, n_tubes=6)
+fibre = VincettiMode(15e-6, cladding=1.45, lattice=lattice)
+figure, ax = plt.subplots(figsize=(4, 4))
+draw(ax, fibre)  # axes in micrometres, equal aspect
+plt.close(figure)
+```
+
+```{eval-rst}
+.. list-table::
+   :header-rows: 1
+   :widths: 34 66
+
+   * - name
+     - what it does
+   * - :py:func:`~solprop.plotting.geometry.outline`
+     - The cross-section as shapes in metres, back to front: each a
+       :py:class:`~solprop.plotting.geometry.Disc`,
+       :py:class:`~solprop.plotting.geometry.Ring` or
+       :py:class:`~solprop.plotting.geometry.Box` naming the region it fills.
+   * - :py:func:`~solprop.plotting.geometry.draw`
+     - Those shapes in a Matplotlib axes, in micrometres.
+   * - :py:func:`~solprop.plotting.geometry.thumbnail`
+     - A small square figure of a route's representative guide or grid, with no axes,
+       for a front end's route picker; the pairs it draws are listed in
+       :py:data:`~solprop.plotting.geometry.THUMBNAILS`.
+   * - :py:class:`~solprop.plotting.geometry.Palette`
+     - The colours: a fill and an edge per region, a background and the dashed
+       boundary, each a ``#rrggbb`` string; :py:data:`~solprop.plotting.geometry.LIGHT`
+       (the default) and :py:data:`~solprop.plotting.geometry.DARK` are built in.
+```
+
+The colours are explicit rather than styled by a stylesheet, so a drawing looks the
+same in Matplotlib, saved as SVG, and in a Qt application. A thumbnail is a bare
+`matplotlib.figure.Figure`, made without `pyplot`: it needs no closing, saves to PNG or
+SVG with `savefig` at `size` pixels square, and shows in Qt through
+`matplotlib.backends.backend_qtagg.FigureCanvasQTAgg`.
+
+```python
+import io
+
+from solprop.plotting.geometry import DARK, thumbnail
+
+icon = thumbnail("capillary", "mode_averaged", 96, palette=DARK)
+buffer = io.BytesIO()
+icon.savefig(buffer, format="png")  # 96 x 96 pixels, for a picker's icon
+```

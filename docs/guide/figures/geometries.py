@@ -15,13 +15,17 @@ Every figure is a cross-section of one spatial decomposition, drawn to scale unl
 standfirst says otherwise, and everything in it that is a number comes from solprop:
 the mode fields from ``Mode.field``, ``StepIndexMode.electromagnetic_field`` and the
 providers' ``solve``, the node sets from the modes' own quadrature rules, the providers'
-node rules and the grids' axes, the collars from the grids' windows, the wall geometry
-from the mode and lattice classes. Only the radial-and-azimuthal figure, which draws
-something solprop does not build, reads Bessel zeros of order one and two from SciPy.
+node rules and the grids' axes, the collar windows from the grids. The outlines --
+walls, bores, tubes, cores, claddings, plates and collars -- are the shapes
+:func:`solprop.plotting.geometry.outline` returns, so these figures and the library's
+own drawings (``draw``, ``thumbnail``) show one geometry; only how a region is painted
+is this script's. Only the radial-and-azimuthal figure, which draws something solprop
+does not build, reads Bessel zeros of order one and two from SciPy.
 
 The style is the structure figures': the same sans-serif stack with no embedded font,
 the same neutral colours, stroke width, corner radius and arrow heads, read from
-``build.py`` by path rather than copied. Colours are CSS custom properties with a
+``build.py`` by path rather than copied; the regions' colours are the library's light
+and dark palettes. Colours are CSS custom properties with a
 ``prefers-color-scheme`` override, because an SVG included as an image is an isolated
 document that sees none of the page's stylesheet. Nothing is drawn through ``<defs>``
 -- no marker, gradient, pattern or clip path -- because those mint generated
@@ -61,6 +65,8 @@ from solprop.modes.quadrature import (
     quadrature_rule,
     transverse_quadrature,
 )
+from solprop.plotting import geometry
+from solprop.plotting.geometry import Disc, Palette, Ring, Shape
 from solprop.profiles import PiecewiseLinear
 
 try:
@@ -163,38 +169,68 @@ DOT = 1.9
 NEUTRALS = ("ground", "ink", "dim", "rule")
 """The colours taken over from the structure figures' palettes."""
 
+REGION_CLASSES: dict[str, str] = {
+    "medium": "gas",
+    "wall": "glass",
+    "core": "core",
+    "cladding": "glass",
+    "collar": "collar",
+}
+"""The CSS class that paints each region of a library outline; a figure whose cladding
+is air paints it as gas instead."""
+
+THINNEST = 1.6
+"""The thinnest wall drawn, in user units: a thinner one, such as a tube's, is drawn
+this thick, as its figure's standfirst says."""
+
+
+def _regions(palette: Palette) -> dict[str, str]:
+    """Return the region colours of one library palette as CSS custom properties.
+
+    Parameters
+    ----------
+    palette : solprop.plotting.geometry.Palette
+        The library's light or dark palette.
+
+    Returns
+    -------
+    dict of str
+        Property name to colour for the gas and the glass, a fill and an edge each.
+    """
+    return {
+        "gas-fill": palette.medium,
+        "gas-edge": palette.medium_edge,
+        "glass-fill": palette.wall,
+        "glass-edge": palette.wall_edge,
+    }
+
+
 LIGHT = {
     **{name: _STYLE.LIGHT[name] for name in NEUTRALS},
-    "gas-fill": "#e9f1fb",
-    "gas-edge": "#2f5eb0",
-    "glass-fill": "#d5e9dc",
-    "glass-edge": "#2c7a55",
+    **_regions(geometry.LIGHT),
     "metal-fill": "#e4e0d6",
     "metal-edge": "#7a6848",
-    "core-fill": "#cfe0f4",
-    "core-edge": "#2f5eb0",
-    "collar-fill": "#f8e8d2",
-    "collar-edge": "#a96a15",
+    "core-fill": geometry.LIGHT.core,
+    "core-edge": geometry.LIGHT.core_edge,
+    "collar-fill": geometry.LIGHT.collar,
+    "collar-edge": geometry.LIGHT.collar_edge,
     "curve-a": "#b8334f",
     "curve-b": "#6f45a6",
     "curve-c": "#a96a15",
     "pol": "#b8334f",
 }
-"""The palette on a light ground: the neutrals, one fill and edge per region, and three
-curve colours."""
+"""The palette on a light ground: the neutrals, one fill and edge per region (the
+library's light palette, and a metal of this script's own), and three curve colours."""
 
 DARK = {
     **{name: _STYLE.DARK[name] for name in NEUTRALS},
-    "gas-fill": "#18222f",
-    "gas-edge": "#7ba6e8",
-    "glass-fill": "#173528",
-    "glass-edge": "#5cb98a",
+    **_regions(geometry.DARK),
     "metal-fill": "#35302a",
     "metal-edge": "#c9b48c",
-    "core-fill": "#1d3150",
-    "core-edge": "#7ba6e8",
-    "collar-fill": "#3a2b15",
-    "collar-edge": "#e0a44f",
+    "core-fill": geometry.DARK.core,
+    "core-edge": geometry.DARK.core_edge,
+    "collar-fill": geometry.DARK.collar,
+    "collar-edge": geometry.DARK.collar_edge,
     "curve-a": "#ee8ca0",
     "curve-b": "#b99ae6",
     "curve-c": "#e0a44f",
@@ -514,6 +550,66 @@ def _rect(
             class_=klass,
         )
     )
+
+
+def _outline(
+    drawing: drawsvg.Drawing,
+    shapes: Sequence[Shape],
+    section: Section,
+    *,
+    y_scale: float | None = None,
+    cladding: str = "glass",
+) -> None:
+    """Draw a library outline, each region painted by its CSS class.
+
+    Parameters
+    ----------
+    drawing : drawsvg.Drawing
+        The drawing to append to.
+    shapes : sequence of solprop.plotting.geometry.Shape
+        What :func:`solprop.plotting.geometry.outline` returned, in m, back to front.
+    section : Section
+        Where, and at what scale.
+    y_scale : float or None, optional
+        User units per metre of y when y is drawn schematically; the section's scale
+        by default. Only a box may then be drawn.
+    cladding : str, optional
+        The class that paints a cladding: ``glass``, or ``gas`` for air.
+    """
+    classes = {**REGION_CLASSES, "cladding": cladding}
+    vertical = section.scale if y_scale is None else y_scale
+
+    def page_y(y: float) -> float:
+        """Return the page y of a transverse y, at the vertical scale.
+
+        Parameters
+        ----------
+        y : float
+            Transverse y, in m.
+
+        Returns
+        -------
+        float
+            The page coordinate, in user units.
+        """
+        return section.cy - y * vertical
+
+    for shape in shapes:
+        klass = classes[shape.region]
+        if isinstance(shape, Disc):
+            x, y = shape.centre
+            _circle(
+                drawing, section.px(x), page_y(y), shape.radius * section.scale, klass
+            )
+        elif isinstance(shape, Ring):
+            x, y = shape.centre
+            outer = shape.outer * section.scale
+            inner = min(shape.inner * section.scale, outer - THINNEST)
+            _annulus(drawing, section.px(x), page_y(y), inner, outer, klass)
+        else:
+            left, right = section.px(shape.lower[0]), section.px(shape.upper[0])
+            top, bottom = page_y(shape.upper[1]), page_y(shape.lower[1])
+            _rect(drawing, (left, top), (right - left, bottom - top), klass)
 
 
 def _head(
@@ -928,6 +1024,10 @@ CORE_PX = 118.0
 LABEL_X = 330.0
 """Where the labels to the right of a section begin."""
 
+WALL_EDGE = 1 + geometry.WALL_FRACTION
+"""A capillary's drawn outer radius, in bore radii: the library draws its wall
+:data:`solprop.plotting.geometry.WALL_FRACTION` of the bore radius thick."""
+
 
 def _capillary(radius: float, **changes: object) -> MarcatiliMode:
     """Return an evacuated capillary mode on a constant silica-like wall.
@@ -948,9 +1048,9 @@ def _capillary(radius: float, **changes: object) -> MarcatiliMode:
 
 
 def _capillary_section(
-    drawing: drawsvg.Drawing, section: Section, radius: float, wall: float
+    drawing: drawsvg.Drawing, section: Section, mode: MarcatiliMode
 ) -> None:
-    """Draw a gas-filled bore in a glass wall.
+    """Draw a capillary's outline: a gas-filled bore in a glass wall.
 
     Parameters
     ----------
@@ -958,13 +1058,10 @@ def _capillary_section(
         The drawing to append to.
     section : Section
         Where, and at what scale.
-    radius, wall : float
-        Bore radius and drawn wall thickness, in m.
+    mode : solprop.modes.MarcatiliMode
+        A mode of the capillary.
     """
-    outer = (radius + wall) * section.scale
-    inner = radius * section.scale
-    _annulus(drawing, section.cx, section.cy, inner, outer, "glass")
-    _circle(drawing, section.cx, section.cy, inner, "gas")
+    _outline(drawing, geometry.outline(mode), section)
 
 
 def mode_averaged() -> drawsvg.Drawing:
@@ -993,8 +1090,8 @@ def mode_averaged() -> drawsvg.Drawing:
             "mode-averaged route propagates in its place.",
         ),
     )
-    section = Section(CORE_CX, CORE_CY + 5, CORE_PX / (1.18 * radius))
-    _capillary_section(drawing, section, radius, 0.18 * radius)
+    section = Section(CORE_CX, CORE_CY + 5, CORE_PX / (WALL_EDGE * radius))
+    _capillary_section(drawing, section, mode)
     _circle(drawing, section.cx, section.cy, disc * section.scale, "boundary")
     _circle(drawing, section.cx, section.cy, 3.2, "node")
     _polarisation(drawing, (section.cx - 38, section.cy - 60), 0.0, 44, "A(t), √W")
@@ -1106,8 +1203,8 @@ def capillary_radial() -> drawsvg.Drawing:
             "twelve Gauss nodes in r/a and one azimuthal node carrying the whole 2π.",
         ),
     )
-    section = Section(CORE_CX, CORE_CY + 5, CORE_PX / (1.18 * radius))
-    _capillary_section(drawing, section, radius, 0.18 * radius)
+    section = Section(CORE_CX, CORE_CY + 5, CORE_PX / (WALL_EDGE * radius))
+    _capillary_section(drawing, section, modes[0])
     for r in rule.xi_r * radius:
         _circle(drawing, section.cx, section.cy, r * section.scale, "ring")
     _rule_dots(drawing, section, nodes)
@@ -1147,11 +1244,11 @@ def capillary_radial() -> drawsvg.Drawing:
     profiles = [_polar_profile(mode, x) for mode in modes]
     peak = max(float(np.max(np.abs(profile))) for profile in profiles)
     panel = Panel(
-        section.px(-1.18 * radius),
-        section.px(1.18 * radius),
+        section.px(-WALL_EDGE * radius),
+        section.px(WALL_EDGE * radius),
         372,
         470,
-        (-1.18 * radius, 1.18 * radius),
+        (-WALL_EDGE * radius, WALL_EDGE * radius),
         (-0.6, 1.05),
     )
     _guides(
@@ -1162,7 +1259,7 @@ def capillary_radial() -> drawsvg.Drawing:
     )
     _frame(drawing, panel, "x", "E_x(x, 0)")
     for profile, klass in zip(profiles, CURVES, strict=True):
-        padded_x = np.concatenate([[-1.18 * radius], x, [1.18 * radius]])
+        padded_x = np.concatenate([[-WALL_EDGE * radius], x, [WALL_EDGE * radius]])
         padded = np.concatenate([[0.0], profile / peak, [0.0]])
         _curve(drawing, panel, padded_x, padded, klass)
     _key(
@@ -1207,8 +1304,8 @@ def capillary_full() -> drawsvg.Drawing:
             "every node.",
         ),
     )
-    section = Section(CORE_CX, CORE_CY + 5, CORE_PX / (1.18 * radius))
-    _capillary_section(drawing, section, radius, 0.18 * radius)
+    section = Section(CORE_CX, CORE_CY + 5, CORE_PX / (WALL_EDGE * radius))
+    _capillary_section(drawing, section, he11)
     for r in rule.xi_r * radius:
         _circle(drawing, section.cx, section.cy, r * section.scale, "ring")
     for (r, theta), (ex, ey) in zip(nodes, fields, strict=True):
@@ -1261,11 +1358,11 @@ def capillary_full() -> drawsvg.Drawing:
     profiles = (_polar_profile(he11, x), _polar_profile(te01, x, component=1))
     peak = max(float(np.max(np.abs(profile))) for profile in profiles)
     panel = Panel(
-        section.px(-1.18 * radius),
-        section.px(1.18 * radius),
+        section.px(-WALL_EDGE * radius),
+        section.px(WALL_EDGE * radius),
         372,
         470,
-        (-1.18 * radius, 1.18 * radius),
+        (-WALL_EDGE * radius, WALL_EDGE * radius),
         (-1.05, 1.05),
     )
     _guides(
@@ -1276,7 +1373,7 @@ def capillary_full() -> drawsvg.Drawing:
     )
     _frame(drawing, panel, "x", "along y = 0")
     for profile, klass in zip(profiles, ("curve-a", "curve-b"), strict=True):
-        padded_x = np.concatenate([[-1.18 * radius], x, [1.18 * radius]])
+        padded_x = np.concatenate([[-WALL_EDGE * radius], x, [WALL_EDGE * radius]])
         padded = np.concatenate([[0.0], profile / peak, [0.0]])
         _curve(drawing, panel, padded_x, padded, klass)
     _key(
@@ -1345,8 +1442,8 @@ def capillary_wall() -> drawsvg.Drawing:
     for side, (cx, title) in enumerate(
         ((140.0, "truncated at the wall"), (420.0, "the coherent wall"))
     ):
-        section = Section(cx, 170, 88 / (1.18 * radius))
-        _capillary_section(drawing, section, radius, 0.18 * radius)
+        section = Section(cx, 170, 88 / (WALL_EDGE * radius))
+        _capillary_section(drawing, section, modes[0])
         for r in rule.xi_r * radius:
             _circle(drawing, cx, section.cy, r * section.scale, "ring")
         _rule_dots(drawing, section, nodes)
@@ -1424,7 +1521,7 @@ def antiresonant() -> drawsvg.Drawing:
     count = lattice.n_tubes
     gap = 2 * ((core + tube) * math.sin(math.pi / count) - tube)
     jacket = core + 2 * tube
-    outer = jacket + 3e-6
+    outer = jacket + geometry.WALL_FRACTION * core
     x = np.linspace(0.0, core, 401)
     profile = _polar_profile(mode, x)
     levels = (0.9, 0.5, 0.1)
@@ -1443,24 +1540,7 @@ def antiresonant() -> drawsvg.Drawing:
         ),
     )
     section = Section(CORE_CX, CORE_CY + 5, CORE_PX / outer)
-    _annulus(
-        drawing,
-        section.cx,
-        section.cy,
-        jacket * section.scale,
-        outer * section.scale,
-        "glass",
-    )
-    _circle(drawing, section.cx, section.cy, jacket * section.scale, "gas")
-    for index in range(count):
-        angle = math.pi / count + 2 * math.pi * index / count
-        centre = (
-            section.px((core + tube) * math.cos(angle)),
-            section.py((core + tube) * math.sin(angle)),
-        )
-        _annulus(
-            drawing, *centre, tube * section.scale - 1.6, tube * section.scale, "glass"
-        )
+    _outline(drawing, geometry.outline(mode), section)
     for level, r in zip(levels, contour, strict=True):
         del level
         _circle(drawing, section.cx, section.cy, r * section.scale, "ring")
@@ -1567,10 +1647,9 @@ def step_index() -> drawsvg.Drawing:
         ),
     )
     section = Section(CORE_CX, CORE_CY + 5, CORE_PX / shown)
-    _circle(drawing, section.cx, section.cy, shown * section.scale, "gas")
+    _outline(drawing, geometry.outline(mode, extent=shown), section, cladding="gas")
     for r in (1.5, 2.0, 2.5, 3.0):
         _circle(drawing, section.cx, section.cy, r * radius * section.scale, "ring")
-    _circle(drawing, section.cx, section.cy, radius * section.scale, "core")
     _line(
         drawing,
         [(section.px(-shown), section.py(0)), (section.px(shown), section.py(0))],
@@ -1694,9 +1773,7 @@ def graded_index() -> drawsvg.Drawing:
         ),
     )
     section = Section(CORE_CX, CORE_CY + 5, CORE_PX / (1.12 * outer))
-    _circle(drawing, section.cx, section.cy, 1.12 * outer * section.scale, "glass")
-    _circle(drawing, section.cx, section.cy, outer * section.scale, "glass")
-    _circle(drawing, section.cx, section.cy, radius * section.scale, "core")
+    _outline(drawing, geometry.outline(provider, extent=1.12 * outer), section)
     edges = np.concatenate(
         [
             np.linspace(0, 1, provider.elements + 1)[1:],
@@ -1820,8 +1897,7 @@ def general_modal() -> drawsvg.Drawing:
         ),
     )
     section = Section(CORE_CX, CORE_CY + 5, CORE_PX / shown)
-    _circle(drawing, section.cx, section.cy, shown * section.scale, "gas")
-    _circle(drawing, section.cx, section.cy, radius * section.scale, "core")
+    _outline(drawing, geometry.outline(guide, extent=shown), section, cladding="gas")
     transverse = np.hypot(electric[:, 0].real, electric[:, 1].real)
     longest = float(np.max(transverse))
     for (px, py), (ex, ey, _) in zip(rule.xy, electric, strict=True):
@@ -2037,7 +2113,7 @@ def rectangular() -> drawsvg.Drawing:
     order = cartesian_nodes(mode.azimuthal_order)
     rule = quadrature_rule("cartesian", full=True, n_r=order, n_theta=order)
     nodes = rule.nodes(mode.dimlimits())
-    wall = 8e-6
+    wall = geometry.WALL_FRACTION * max(half_x, half_y)
     x = np.linspace(-half_x, half_x, 121)
     y = np.linspace(-half_y, half_y, 81)
     along_x = mode.field(np.stack([x, np.zeros_like(x)], axis=-1))[:, 0]
@@ -2055,18 +2131,7 @@ def rectangular() -> drawsvg.Drawing:
         ),
     )
     section = Section(165.0, 202.0, 120.0 / (half_x + wall))
-    _rect(
-        drawing,
-        (section.px(-half_x - wall), section.py(half_y + wall)),
-        (2 * (half_x + wall) * section.scale, 2 * (half_y + wall) * section.scale),
-        "glass",
-    )
-    _rect(
-        drawing,
-        (section.px(-half_x), section.py(half_y)),
-        (2 * half_x * section.scale, 2 * half_y * section.scale),
-        "gas",
-    )
+    _outline(drawing, geometry.outline(mode), section)
     for px, py in nodes:
         _circle(drawing, section.px(px), section.py(py), DOT * 0.9, "node")
     _polarisation(drawing, (section.cx, section.cy + 4), 0.0, 44, "E along x")
@@ -2174,7 +2239,7 @@ def slab() -> drawsvg.Drawing:
     order = cartesian_nodes(modes[-1].azimuthal_order)
     rule = quadrature_rule("slab", full=False, n_r=order)
     nodes = rule.nodes(modes[0].dimlimits())
-    plate = 16e-6
+    plate = geometry.WALL_FRACTION * half_gap
     x = np.linspace(-half_gap, half_gap, 161)
     profiles = [mode.field(_ray(x))[:, 1] for mode in modes]
 
@@ -2190,20 +2255,7 @@ def slab() -> drawsvg.Drawing:
     )
     section = Section(170.0, 208.0, 105.0 / (half_gap + plate))
     top, bottom = section.cy - 80.0, section.cy + 80.0
-    height = bottom - top
-    for left in (-half_gap - plate, half_gap):
-        _rect(
-            drawing,
-            (section.px(left), top),
-            (plate * section.scale, height),
-            "glass",
-        )
-    _rect(
-        drawing,
-        (section.px(-half_gap), top),
-        (2 * half_gap * section.scale, height),
-        "gas",
-    )
+    _outline(drawing, geometry.outline(modes[0], extent=80.0 / section.scale), section)
     # The free direction: nothing bounds the field in y, and nothing varies along it.
     for end, tip in ((top + 16, top + 2), (bottom - 16, bottom - 2)):
         _arrow(
@@ -2305,7 +2357,7 @@ def planar_hybrid() -> drawsvg.Drawing:
     modes = [SlabMode(half_gap, cladding=1.45, order=order) for order in (1, 3)]
     grid = PlanarGrid(modes, 1e-3, 12, window_factor=0.35, n_x=24, x_rule="gauss")
     outer = grid.radius_y * (1 + grid.window_factor)
-    plate = 16e-6
+    plate = geometry.WALL_FRACTION * half_gap
     x = np.linspace(-half_gap, half_gap, 161)
     profiles = [mode.field(_ray(x))[:, 1] for mode in modes]
 
@@ -2325,25 +2377,7 @@ def planar_hybrid() -> drawsvg.Drawing:
 
     # y is drawn schematically: the periodic cell spans the section's height.
     per_metre = 0.5 * height / outer
-    for left in (-half_gap - plate, half_gap):
-        _rect(
-            drawing,
-            (section.px(left), top),
-            (plate * section.scale, height),
-            "glass",
-        )
-    _rect(
-        drawing,
-        (section.px(-half_gap), top),
-        (2 * half_gap * section.scale, height),
-        "collar",
-    )
-    _rect(
-        drawing,
-        (section.px(-half_gap), section.cy - grid.radius_y * per_metre),
-        (2 * half_gap * section.scale, 2 * grid.radius_y * per_metre),
-        "gas",
-    )
+    _outline(drawing, geometry.outline(grid), section, y_scale=per_metre)
     for value, window in zip(grid.y, grid.window_y, strict=True):
         for position in grid.x:
             _circle(
@@ -2459,15 +2493,7 @@ def radial_free() -> drawsvg.Drawing:
         ),
     )
     section = Section(CORE_CX, CORE_CY + 5, CORE_PX / radius)
-    _circle(drawing, section.cx, section.cy, radius * section.scale, "gas")
-    _annulus(
-        drawing,
-        section.cx,
-        section.cy,
-        inner * section.scale,
-        radius * section.scale,
-        "collar",
-    )
+    _outline(drawing, geometry.outline(grid), section)
     for r in grid.r:
         _circle(drawing, section.cx, section.cy, r * section.scale, "ring")
     for r in grid.r:
@@ -2570,18 +2596,7 @@ def cartesian_free() -> drawsvg.Drawing:
         ),
     )
     section = Section(CORE_CX, CORE_CY, 130.0 / outer_x)
-    _rect(
-        drawing,
-        (section.px(-outer_x), section.py(outer_y)),
-        (2 * outer_x * section.scale, 2 * outer_y * section.scale),
-        "collar",
-    )
-    _rect(
-        drawing,
-        (section.px(-grid.radius_x), section.py(grid.radius_y)),
-        (2 * grid.radius_x * section.scale, 2 * grid.radius_y * section.scale),
-        "gas",
-    )
+    _outline(drawing, geometry.outline(grid), section)
     for level in (0.9, 0.5, 0.1):
         _circle(
             drawing,
@@ -2721,19 +2736,7 @@ def line_free() -> drawsvg.Drawing:
     )
     section = Section(CORE_CX, CORE_CY, 130.0 / outer)
     top, bottom = section.cy - 80.0, section.cy + 80.0
-    height = bottom - top
-    _rect(
-        drawing,
-        (section.px(-outer), top),
-        (2 * outer * section.scale, height),
-        "collar",
-    )
-    _rect(
-        drawing,
-        (section.px(-grid.radius_x), top),
-        (2 * grid.radius_x * section.scale, height),
-        "gas",
-    )
+    _outline(drawing, geometry.outline(grid, extent=80.0 / section.scale), section)
     # The free direction: nothing bounds the field in y, and nothing varies along it.
     for end, tip in ((top + 16, top + 2), (bottom - 16, bottom - 2)):
         _arrow(

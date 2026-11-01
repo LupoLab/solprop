@@ -86,6 +86,14 @@ All notable changes to solprop are recorded here. The format follows
   and readers respect the mark (SEP 42, ADR-063). `RunMetadata.compare` and
   `solprop.output.compatibility` hold the comparison; `RunOutcome.resumes` and
   `RunOutcome.forced_positions` read back how each session continued its file.
+- Cross-section drawings in the library
+  ([SEP 41](https://solprop.readthedocs.io/en/latest/dev/seps/sep-0041-recipes-and-front-ends.html)): `solprop.plotting.geometry.outline`
+  gives the outline of a capillary, antiresonant, step-index, graded-index, rectangular
+  or planar guide, or of a radial, Cartesian, line or planar grid, as shapes in metres;
+  `draw(ax, guide, palette=...)` paints it in Matplotlib, and `thumbnail(route,
+  representation, size)` makes a small figure of a route for a front end's picker. Colours
+  come from an explicit `Palette` (`LIGHT`, `DARK`). The user guide's cross-section
+  figures draw their outlines from it.
 
 ### Changed
 

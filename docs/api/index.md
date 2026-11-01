@@ -56,7 +56,7 @@ In scripts and library code, import from the home modules listed below.
 | {mod}`solprop.processing` | post-processing of a saved run: fields, spectra, pulse metrics, coherence, compression, the physical fields of a general modal run, and `field_plane`, a saved plane read back for coupling |
 | {mod}`solprop.coupling` | coupling simulations through a field plane: `FieldPlane` (from a run, a `SpatialPulse`, an analytic field or arrays), `regrid`, `InputPort`, `couple` under a `CouplingModel` with its `CouplingReport`, the scalar profiles `ScalarModeBasis`, the recorded pair envelopes and `Outcouple`; `transport` through the linear elements `FreeSpace`, `ThinLens`, `Aperture`, `TransmissionMask`, `Alignment`, `PolarisationTransform`, `Mirror`, `PlanarInterface` and `SpectralTransfer` ([coupling simulations](../guide/workflows/coupling.md); [the transport report](transport.md)) |
 | {mod}`solprop.stats` | the statistics recorded at the saved planes, and `StatsSpec` to choose them |
-| {mod}`solprop.plotting` | the standard figures: propagation maps, slices, spectrograms, statistics |
+| {mod}`solprop.plotting` | the standard figures: propagation maps, slices, spectrograms, statistics; and the cross-section of a guide or grid ({mod}`solprop.plotting.geometry`: `outline`, `draw`, `thumbnail` and the `Palette`; [cross-section drawings](../guide/results/plotting.md#cross-section-drawings)) |
 | {mod}`solprop.optics` | linear optics applied to a pulse outside a propagation: materials, chirped mirrors, grating and prism pairs |
 | {mod}`solprop.tools` | design calculators: soliton numbers, dispersive-wave phase matching, nonlinear lengths |
 
