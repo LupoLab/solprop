@@ -19,7 +19,7 @@ import warnings
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Final, Literal
+from typing import TYPE_CHECKING, Final, Literal, cast
 
 from solprop.exceptions import SolpropError, SolpropWarning
 from solprop.recipe.document import (
@@ -38,11 +38,13 @@ from solprop.recipe.quantity import Unit, format_quantity, parse_quantity
 from solprop.recipe.registry import REGISTRY, BuildContext, coerce, decode_keyword
 
 if TYPE_CHECKING:
+    from solprop._interrupts import StopFlag
     from solprop.driver.simulation import Simulation
     from solprop.grid import TimeGrid
+    from solprop.log import ProgressChoice, ProgressReporter
     from solprop.output.schema import Output, RecipeRecord
 
-__all__ = ["Recipe", "RecipeIssue"]
+__all__ = ["Recipe", "RecipeIssue", "resume_file"]
 
 ROUTES: Final = ("gnlse", "capillary")
 """The routes a recipe of format 1 describes in this release (SEP 41, phase 1)."""
@@ -142,6 +144,10 @@ class Recipe:
         self._text = text
         self._base = base
         self._allow_outside = allow_outside
+        # Data files a run's output embedded, by the name the recipe refers to them by,
+        # and the generated name each is filed under (from_output).
+        self._embedded: dict[str, bytes] = {}
+        self._filed: dict[str, str] = {}
         self.route = str(self._document["recipe"]["route"])
         if self.route not in ROUTES:
             raise unknown_key(
@@ -305,6 +311,47 @@ class Recipe:
         with importlib.resources.as_file(root.joinpath(f"{name}.toml")) as path:
             return cls.load(path)
 
+    @classmethod
+    def from_output(cls, path: str | Path, *, resolved: bool = False) -> "Recipe":  # noqa: UP037 - the class, checked at run time
+        """Read back the recipe a run's output records (SEP 41, S2).
+
+        Parameters
+        ----------
+        path : str or pathlib.Path
+            The HDF5 output.
+        resolved : bool, optional
+            Read the resolved recipe, which rebuilds the run as it ran, rather than
+            the authored one, for editing.
+
+        Returns
+        -------
+        Recipe
+            The recipe, holding the data files the output embedded.
+
+        Raises
+        ------
+        RecipeError
+            If the file records no recipe, being a file from a script, or its recipe
+            is of a newer format.
+        """
+        from solprop.output.hdf5 import open_file  # noqa: PLC0415 - layer above
+
+        with open_file(path) as handler:
+            record = handler.recipe
+        if record is None:
+            msg = (
+                f"{path} records no recipe: it was written from a script, which is "
+                "what resumes or rebuilds it"
+            )
+            raise RecipeError(msg)
+        text = record.resolved if resolved else record.authored
+        recipe = cls.loads(text)
+        for name, entry in record.files.items():
+            recipe._filed[entry.path] = name
+            if entry.data is not None:
+                recipe._embedded[entry.path] = entry.data
+        return recipe
+
     # ------------------------------------------------------------------ the values
 
     @property
@@ -404,7 +451,7 @@ class Recipe:
         steps = parse_path(path)
         build = set_path(self._document["build"], steps, _plain(value, path))
         keyword = format_path(steps[:1])
-        context = BuildContext(base=self._base, allow_outside=self._allow_outside)
+        context = self._context()
         self._decode(keyword, build[keyword], _deferred(context))
         self._document["build"] = build
         self._text = None
@@ -480,7 +527,7 @@ class Recipe:
             The issues, errors first; empty when the recipe builds cleanly.
         """
         issues: list[RecipeIssue] = []
-        context = BuildContext(base=self._base, allow_outside=self._allow_outside)
+        context = self._context()
         for name, value in self._document["build"].items():
             try:
                 self._decode(name, value, _deferred(context))
@@ -533,9 +580,7 @@ class Recipe:
         dict
             Keyword arguments for the route's ``Simulation.from_*``.
         """
-        context = BuildContext(
-            base=self._base, allow_outside=self._allow_outside, grid=grid
-        )
+        context = self._context(grid)
         out: dict[str, object] = {}
         for name, value in self._document["build"].items():
             if grid is None and _needs_grid(value):
@@ -654,15 +699,50 @@ class Recipe:
             return self._text
         return dump_text(self._canonical_document())
 
+    def _context(self, grid: "TimeGrid | None" = None) -> BuildContext:  # noqa: UP037
+        """Return the context the recipe's values are decoded in.
+
+        Parameters
+        ----------
+        grid : solprop.grid.TimeGrid or None, optional
+            The route's grid, for a value built on it.
+
+        Returns
+        -------
+        BuildContext
+            The data files' directory, the embedded files and the grid.
+        """
+        return BuildContext(
+            base=self._base,
+            allow_outside=self._allow_outside,
+            grid=grid,
+            embedded=self._embedded,
+        )
+
     def save(self, path: str | Path) -> None:
         """Write the recipe to a file.
+
+        A recipe read back from a run's output (:meth:`from_output`) writes the data
+        files the output embedded beside it, under the generated names they were
+        filed by, and refers to them by those names; a file the output only referred
+        to stays a reference, which :meth:`check` reports when it is missing.
 
         Parameters
         ----------
         path : str or pathlib.Path
             The ``.toml`` file to write.
         """
-        Path(path).write_text(self.to_text(), encoding="utf-8")
+        path = Path(path)
+        if not self._embedded:
+            path.write_text(self.to_text(), encoding="utf-8")
+            return
+        for original, data in self._embedded.items():
+            (path.parent / self._filed[original]).write_bytes(data)
+        document = self._canonical_document()
+        document["build"] = cast(
+            "dict[str, object]", _renamed(document["build"], self._filed)
+        )
+        path.write_text(dump_text(document), encoding="utf-8")
 
     def to_python(self, output: str | None = None) -> str:
         """Return a plain Python script that makes the same run.
@@ -693,7 +773,7 @@ class Recipe:
         tuple
             The keyword, the value as written and the decoded value.
         """
-        context = BuildContext(base=self._base, allow_outside=self._allow_outside)
+        context = self._context()
         for name, value in self._document["build"].items():
             yield name, value, self._decode(name, value, _deferred(context))
 
@@ -824,3 +904,99 @@ def _canonical(entry: Parameter, value: object) -> object:
     if not math.isfinite(number):  # pragma: no cover - refused by parse_quantity
         return value
     return format_quantity(number, Unit(unit), entry.display)
+
+
+def _renamed(value: object, names: Mapping[str, str]) -> object:
+    """Return a value with its data-file references renamed.
+
+    Parameters
+    ----------
+    value : object
+        A value as the recipe writes it.
+    names : collections.abc.Mapping
+        The new name of each file, by the name the recipe refers to it by.
+
+    Returns
+    -------
+    object
+        A copy, each ``file`` that `names` holds replaced.
+    """
+    if isinstance(value, Mapping):
+        out = {key: _renamed(item, names) for key, item in value.items()}
+        if "sha256" in out and isinstance(out.get("file"), str):
+            out["file"] = names.get(str(out["file"]), out["file"])
+        return out
+    if isinstance(value, list):
+        return [_renamed(item, names) for item in value]
+    return value
+
+
+def resume_file(
+    path: str | Path,
+    mode: bool | Literal["interpolated", "force"] = True,
+    *,
+    memory_budget: int | str | None = None,
+    node_budget: int | None = None,
+    progress: "ProgressReporter | ProgressChoice | None" = None,  # noqa: UP037
+    stop: "StopFlag | None" = None,  # noqa: UP037 - checked at run time
+) -> "Output":  # noqa: UP037 - checked at run time
+    """Continue a run from its output file alone, rebuilding it from its recipe.
+
+    The simulation is rebuilt from the resolved recipe the file records (SEP 41, S2)
+    and run into the same file with ``resume=mode``, so the resume gate decides by its
+    comparison of the stored and rebuilt records, and records any difference as it
+    does for any resume (SEP 42). A file written from a script records no recipe; its
+    script resumes it.
+
+    Resuming a file runs the setup it holds. A file received from someone else does
+    not choose its own limits: the recipe's ``memory_budget`` and ``node_budget`` are
+    ignored, and the caller's apply, refusing by default rather than warning.
+
+    Parameters
+    ----------
+    path : str or pathlib.Path
+        The output file.
+    mode : bool or {'interpolated', 'force'}, optional
+        As :meth:`~solprop.driver.simulation.Simulation.run`'s ``resume`` takes it.
+    memory_budget : int or str or None, optional
+        The run's memory budget; ``None`` takes the machine's default, four fifths of
+        its memory, as a refusal.
+    node_budget : int or None, optional
+        The node-buffer budget of a capillary run; ``None`` takes solprop's default.
+    progress : object, optional
+        Where progress goes, as :meth:`~solprop.driver.simulation.Simulation.run`
+        takes it.
+    stop : object, optional
+        The run's stop flag, any object with an ``is_set()`` method.
+
+    Returns
+    -------
+    solprop.output.schema.Output
+        The handler the run continued in.
+
+    Raises
+    ------
+    RecipeError
+        If the file records no recipe, or one of a newer format.
+    """
+    from solprop.driver.memory import resolve_memory_budget  # noqa: PLC0415 - layer D
+
+    recipe = Recipe.from_output(path, resolved=True)
+    document = recipe.to_dict()
+    document["build"].pop("node_budget", None)
+    if node_budget is not None:
+        document["build"]["node_budget"] = node_budget
+    document.get("execution", {}).pop("memory_budget", None)
+    rebuilt = Recipe(document)
+    rebuilt._embedded = recipe._embedded
+    rebuilt._filed = recipe._filed
+    if memory_budget is None:
+        default = resolve_memory_budget(None)
+        memory_budget = default.limit if default.limit is not None else "none"
+    return rebuilt.build().run(
+        Path(path),
+        resume=mode,
+        memory_budget=memory_budget,
+        progress=progress,
+        stop=stop,
+    )

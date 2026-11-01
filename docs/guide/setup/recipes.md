@@ -167,11 +167,14 @@ A test holds the table to the constructors' signatures, so it cannot drift from 
 solprop run rdw.toml -o rdw.h5 [--progress log] [--resume]
 solprop check rdw.toml              # print the issues; exit 1 on an error
 solprop export rdw.toml --python    # print the equivalent script
+solprop resume rdw.h5               # continue a run from its file alone
 solprop scan ...                    # python -m solprop.scan, unchanged
 ```
 
 `python -m solprop` is the same command. `check` exits 0 when the recipe builds (warnings
-included), 1 when it does not, and 2 when the file cannot be read.
+included), 1 when it does not, and 2 when the file cannot be read. `run` and `resume` stop
+cleanly on Ctrl-C, writing the state, and `solprop resume` continues it
+([resuming from the file alone](../results/resuming.md#resuming-from-the-file-alone)).
 
 ## The example recipes
 

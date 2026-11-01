@@ -36,7 +36,11 @@ All notable changes to solprop are recorded here. The format follows
   `trange` from the input pulses, as a starting point. A run built from a recipe records
   it in a top-level `recipe` group of its output, as written and as resolved (the recipe
   that rebuilds the run); `Simulation.run(stop=...)` takes a flag that stops the run,
-  writes its state and returns, and `solprop run` stops cleanly on Ctrl-C. See [recipes and the command line](https://solprop.readthedocs.io/en/latest/guide/setup/recipes.html).
+  writes its state and returns, and `solprop run` stops cleanly on Ctrl-C. `solprop resume`
+  and `solprop.recipe.resume_file` continue a run from its file alone, and
+  `solprop.output.resumability` says whether a file can continue, from where and with
+  which `resume=`, whether it can rebuild itself, and, on request, what the gate would
+  compare. See [recipes and the command line](https://solprop.readthedocs.io/en/latest/guide/setup/recipes.html).
 - `solprop.pulses.load_spectrum` reads a measured spectrum from a text file (frequency
   or wavelength, power density, and an optional phase) into a `DataPulse`. A wrapped
   phase column is unwrapped only where the power is above a noise floor, a phase in

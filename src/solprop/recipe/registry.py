@@ -41,10 +41,12 @@ from solprop.pulses import GaussianPulse, SechPulse, load_spectrum
 from solprop.recipe.document import (
     MAX_ARRAY_LENGTH,
     NONE,
+    DataFile,
+    array_from_bytes,
+    checked_bytes,
     decode_complex,
     decode_data_file,
     decode_integer,
-    load_array,
     read_data_file,
     unknown_key,
 )
@@ -87,6 +89,9 @@ class BuildContext:
     grid : solprop.grid.TimeGrid or None
         The route's time grid, for a factory that declares it as its context;
         ``None`` until the route has built one.
+    embedded : collections.abc.Mapping
+        Data files held in memory by the name the recipe refers to them by, as a
+        run's output embeds them (SEP 41, S2); read before the directory.
 
     Examples
     --------
@@ -98,6 +103,7 @@ class BuildContext:
     base: Path | None = None
     allow_outside: bool = False
     grid: TimeGrid | None = None
+    embedded: Mapping[str, bytes] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -370,6 +376,38 @@ def decode(value: object, unit: UnitSpec, context: BuildContext, path: str) -> o
     return _number(value, unit, 0, path)
 
 
+def _data_bytes(reference: DataFile, context: BuildContext, path: str) -> bytes:
+    """Return the checked bytes of a data file, embedded or on disk.
+
+    Parameters
+    ----------
+    reference : DataFile
+        The reference.
+    context : BuildContext
+        The embedded files and the recipe's directory.
+    path : str
+        The value's path.
+
+    Returns
+    -------
+    bytes
+        The contents, whose digest is the one recorded.
+
+    Raises
+    ------
+    RecipeError
+        If the file is neither embedded nor reachable from a directory.
+    """
+    if reference.file in context.embedded:
+        return checked_bytes(context.embedded[reference.file], reference, path=path)
+    if context.base is None:
+        msg = "a recipe read from text holds no data file; load it from its file"
+        raise RecipeError(msg, path=path)
+    return read_data_file(
+        reference, context.base, allow_outside=context.allow_outside, path=path
+    )
+
+
 def _data_array(
     value: Mapping[str, object], context: BuildContext, path: str
 ) -> np.ndarray:
@@ -380,7 +418,7 @@ def _data_array(
     value : collections.abc.Mapping
         The ``{file, sha256}`` reference.
     context : BuildContext
-        The recipe's directory.
+        The recipe's directory and embedded files.
     path : str
         The value's path.
 
@@ -388,19 +426,9 @@ def _data_array(
     -------
     numpy.ndarray
         The array.
-
-    Raises
-    ------
-    RecipeError
-        If the recipe has no directory to resolve the file against.
     """
     reference = decode_data_file(value, path=path)
-    if context.base is None:
-        msg = "a recipe read from text holds no data file; load it from its file"
-        raise RecipeError(msg, path=path)
-    return load_array(
-        reference, context.base, allow_outside=context.allow_outside, path=path
-    )
+    return array_from_bytes(_data_bytes(reference, context, path), reference, path=path)
 
 
 def build_object(
@@ -462,12 +490,7 @@ def build_object(
             },
             path=path,
         )
-        if context.base is None:
-            msg = "a recipe read from text holds no data file; load it from its file"
-            raise RecipeError(msg, path=path)
-        data = read_data_file(
-            reference, context.base, allow_outside=context.allow_outside, path=path
-        )
+        data = _data_bytes(reference, context, path)
         keywords[factory.data_file] = io.StringIO(data.decode("utf-8-sig"))
     accepted = _keywords(factory)
     arguments: dict[str, object] = {}

@@ -731,6 +731,28 @@ class ResumeState(Displayed):
     checkpoint: TerminalCheckpoint | None = None
     march: MarchSnapshot | None = None
 
+    @property
+    def interpolated(self) -> bool:
+        """Whether the plane the file resumes from was interpolated inside a step.
+
+        A landed plane is the end of an accepted step of the run; an interpolated one
+        lies inside a step, and a resume from it needs ``resume="interpolated"``.
+        The entrance is the initial field.
+
+        Returns
+        -------
+        bool
+            Whether the plane is not a state the march passed through.
+        """
+        if self.checkpoint is not None:
+            return not self.checkpoint.landed
+        if self.n_saved <= 1:
+            return False
+        history = self.history
+        # The history records where each attempt started and how long it was.
+        ends = (history.z + history.h)[history.accepted]
+        return not bool(np.any(np.isclose(ends, self.plane.z, rtol=1e-12, atol=0.0)))
+
     def __repr__(self) -> str:
         """Return a one-line description: where a run stopped.
 

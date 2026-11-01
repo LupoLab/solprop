@@ -453,5 +453,5 @@ def test_a_signal_stops_the_command_s_run_through_its_flag(
     status = main(["run", str(path), "-o", str(tmp_path / "out.h5")])
     assert status == 128 + signal.SIGINT
     assert seen == {"stopped": True}
-    assert "--resume continues it" in capsys.readouterr().err
+    assert "solprop resume" in capsys.readouterr().err
     assert signal.getsignal(signal.SIGINT) is before

@@ -56,6 +56,8 @@ __all__ = [
     "TABLES",
     "DataFile",
     "Document",
+    "array_from_bytes",
+    "checked_bytes",
     "decode_array",
     "decode_complex",
     "decode_data_file",
@@ -967,6 +969,71 @@ def load_array(
         objects (which only pickling could load) or its dtype is not numeric.
     """
     data = read_data_file(reference, base_dir, allow_outside=allow_outside, path=path)
+    return array_from_bytes(data, reference, path=path)
+
+
+def checked_bytes(
+    data: bytes, reference: DataFile, *, path: str | None = None
+) -> bytes:
+    """Return a data file's bytes held in memory, checking its SHA-256 digest.
+
+    The bytes of a file a run's output embedded (SEP 41, S2) are checked as a file's on
+    disk are.
+
+    Parameters
+    ----------
+    data : bytes
+        The contents.
+    reference : DataFile
+        The reference that records the digest.
+    path : str or None, optional
+        The parameter path, for the error.
+
+    Returns
+    -------
+    bytes
+        `data`.
+
+    Raises
+    ------
+    RecipeError
+        If the digest is not the one recorded.
+    """
+    digest = sha256_digest(data)
+    if digest != reference.sha256:
+        raise RecipeError(
+            f"the embedded data file {reference.file!r} has SHA-256 {digest}, not the "
+            f"{reference.sha256} the recipe records",
+            path=path,
+        )
+    return data
+
+
+def array_from_bytes(
+    data: bytes, reference: DataFile, *, path: str | None = None
+) -> Shaped[np.ndarray, "*shape"]:
+    """Load a numeric array from the bytes of a ``.npy`` file, with pickling disabled.
+
+    Parameters
+    ----------
+    data : bytes
+        The file's checked contents.
+    reference : DataFile
+        The reference, for the errors.
+    path : str or None, optional
+        The parameter path, for the errors.
+
+    Returns
+    -------
+    numpy.ndarray
+        The array, of a boolean, integer, float or complex dtype.
+
+    Raises
+    ------
+    RecipeError
+        If it is not a ``.npy`` file, it holds objects (which only pickling could
+        load) or its dtype is not numeric.
+    """
     if not data.startswith(b"\x93NUMPY"):
         raise RecipeError(
             f"the data file {reference.file!r} is not a .npy file", path=path

@@ -24,6 +24,7 @@ from solprop.output.hdf5 import (
     resume,
 )
 from solprop.output.memory import MemoryOutput
+from solprop.output.resumability import Resumability, resumability
 from solprop.output.schema import (
     FIELD_LAYOUT,
     HISTORY_FIELDS,
@@ -84,6 +85,7 @@ __all__ = [
     "Output",
     "PlaneLayout",
     "PlaneStore",
+    "Resumability",
     "ResumeState",
     "RunMetadata",
     "RunOutcome",
@@ -105,6 +107,7 @@ __all__ = [
     "read_snapshot",
     "resolve_metadata_write",
     "restore_snapshot",
+    "resumability",
     "resume",
     "serialise",
 ]

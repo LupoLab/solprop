@@ -2,9 +2,10 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The ``solprop`` command line: run, check and export recipes (SEP 41, S1).
+"""The ``solprop`` command line: run, check, export and resume recipes (SEP 41, S1).
 
-``solprop run recipe.toml -o out.h5`` builds and runs a recipe, ``solprop check``
+``solprop run recipe.toml -o out.h5`` builds and runs a recipe, ``solprop resume
+out.h5`` continues it from the file alone, ``solprop check``
 reports what stops it building, ``solprop export --python`` prints the equivalent
 script, and ``solprop scan`` is ``python -m solprop.scan``. The same commands run as
 ``python -m solprop``. The manual page is ``docs/guide/setup/recipes.md``.
@@ -14,11 +15,16 @@ import argparse
 import signal
 import sys
 import threading
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 from pathlib import Path
 from types import FrameType
+from typing import TYPE_CHECKING, Literal, cast
 
 from solprop.exceptions import SolpropError
+
+if TYPE_CHECKING:
+    from solprop.log import ProgressChoice
 
 __all__ = ["main"]
 
@@ -50,6 +56,33 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument(
         "--resume", action="store_true", help="continue the output file if it exists"
     )
+    resume = commands.add_parser(
+        "resume", help="continue a run from its output file and the recipe it records"
+    )
+    resume.add_argument("output", type=Path, help="the HDF5 file to continue")
+    how = resume.add_mutually_exclusive_group()
+    how.add_argument(
+        "--interpolated",
+        action="store_true",
+        help="continue from a last plane interpolated inside a step",
+    )
+    how.add_argument(
+        "--force",
+        action="store_true",
+        help="continue across changed physics while the layout agrees",
+    )
+    resume.add_argument(
+        "--memory-budget",
+        default=None,
+        help="the run's memory budget, such as '16 GiB' (default: four fifths of "
+        "the machine, refused beyond)",
+    )
+    resume.add_argument(
+        "--progress",
+        choices=("auto", "bar", "log", "none"),
+        default="auto",
+        help="how the run reports its progress (default: auto)",
+    )
     check = commands.add_parser("check", help="report what stops a recipe building")
     check.add_argument("recipe", type=Path, help="the recipe file")
     export = commands.add_parser("export", help="print a recipe as another form")
@@ -79,32 +112,18 @@ def _stop_signals() -> tuple[signal.Signals, ...]:
     return tuple(getattr(signal, name) for name in names if hasattr(signal, name))
 
 
-def _run(recipe_path: Path, output: Path, progress: str, *, resume: bool) -> int:
-    """Build and run a recipe, stopping it cleanly on a signal.
+@contextmanager
+def _stopping() -> Iterator[tuple[threading.Event, list[int]]]:
+    """Map the stop signals onto a run's flag for the block's duration.
 
-    The signals set the run's stop flag (SEP 41, S17): the run writes its state and
-    returns, and ``solprop run --resume`` continues it. A second signal while it stops
-    interrupts at once.
+    The first signal sets the flag (SEP 41, S17), so the run writes its state and
+    returns; a second, while it stops, interrupts at once.
 
-    Parameters
-    ----------
-    recipe_path : pathlib.Path
-        The recipe file.
-    output : pathlib.Path
-        The HDF5 file.
-    progress : str
-        The progress choice.
-    resume : bool
-        Whether to continue the file.
-
-    Returns
-    -------
-    int
-        Zero when the run completes, and ``128`` plus the signal's number when a
-        signal stopped it.
+    Yields
+    ------
+    tuple
+        The flag, and the list the signals received are appended to.
     """
-    from solprop.recipe import Recipe  # noqa: PLC0415 - imports the physics
-
     flag = threading.Event()
     received: list[int] = []
 
@@ -129,20 +148,99 @@ def _run(recipe_path: Path, output: Path, progress: str, *, resume: bool) -> int
         received.append(number)
         flag.set()
 
-    recipe = Recipe.load(recipe_path)
     previous = {number: signal.signal(number, stop) for number in _stop_signals()}
     try:
-        recipe.run(output, progress=progress, resume=resume, stop=flag)
+        yield flag, received
     finally:
         for number, handler in previous.items():
             signal.signal(number, handler)
-    if received:
-        sys.stderr.write(
-            f"solprop: stopped by {signal.Signals(received[0]).name}; the state is "
-            f"written to {output}, and solprop run --resume continues it\n"
+
+
+def _stopped(received: list[int], output: Path) -> int:
+    """Report how a run ended and return the exit status.
+
+    Parameters
+    ----------
+    received : list of int
+        The signals that stopped it; empty when it completed.
+    output : pathlib.Path
+        The file it wrote.
+
+    Returns
+    -------
+    int
+        Zero, or ``128`` plus the first signal's number.
+    """
+    if not received:
+        return 0
+    sys.stderr.write(
+        f"solprop: stopped by {signal.Signals(received[0]).name}; the state is "
+        f"written to {output}, and solprop resume {output} continues it\n"
+    )
+    return 128 + received[0]
+
+
+def _run(recipe_path: Path, output: Path, progress: str, *, resume: bool) -> int:
+    """Build and run a recipe, stopping it cleanly on a signal.
+
+    Parameters
+    ----------
+    recipe_path : pathlib.Path
+        The recipe file.
+    output : pathlib.Path
+        The HDF5 file.
+    progress : str
+        The progress choice.
+    resume : bool
+        Whether to continue the file.
+
+    Returns
+    -------
+    int
+        Zero when the run completes, and ``128`` plus the signal's number when a
+        signal stopped it.
+    """
+    from solprop.recipe import Recipe  # noqa: PLC0415 - imports the physics
+
+    recipe = Recipe.load(recipe_path)
+    with _stopping() as (flag, received):
+        recipe.run(output, progress=progress, resume=resume, stop=flag)
+    return _stopped(received, output)
+
+
+def _resume(
+    output: Path, mode: bool | str, memory_budget: str | None, progress: str
+) -> int:
+    """Continue a run from its output file alone (SEP 41, S2).
+
+    Parameters
+    ----------
+    output : pathlib.Path
+        The HDF5 file.
+    mode : bool or str
+        ``True``, ``"interpolated"`` or ``"force"``.
+    memory_budget : str or None
+        The caller's memory budget, or ``None`` for the machine's default as a
+        refusal.
+    progress : str
+        The progress choice.
+
+    Returns
+    -------
+    int
+        As :func:`_run`'s.
+    """
+    from solprop.recipe import resume_file  # noqa: PLC0415 - imports the physics
+
+    with _stopping() as (flag, received):
+        resume_file(
+            output,
+            cast("bool | Literal['interpolated', 'force']", mode),
+            memory_budget=memory_budget,
+            progress=cast("ProgressChoice", progress),
+            stop=flag,
         )
-        return 128 + received[0]
-    return 0
+    return _stopped(received, output)
 
 
 def _check(recipe_path: Path) -> int:
@@ -206,6 +304,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _run(args.recipe, args.output, args.progress, resume=args.resume)
         if args.command == "check":
             return _check(args.recipe)
+        if args.command == "resume":
+            mode = (
+                "force" if args.force else "interpolated" if args.interpolated else True
+            )
+            return _resume(args.output, mode, args.memory_budget, args.progress)
         from solprop.recipe import Recipe  # noqa: PLC0415 - imports the physics
 
         sys.stdout.write(Recipe.load(args.recipe).to_python(args.output))

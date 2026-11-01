@@ -8102,14 +8102,7 @@ def _interpolated(state: ResumeState) -> bool:
     bool
         Whether the plane is not a state the march passed through.
     """
-    if state.checkpoint is not None:
-        return not state.checkpoint.landed
-    if state.n_saved <= 1:
-        return False
-    history = state.history
-    # The history records where each attempt started and how long it was.
-    ends = (history.z + history.h)[history.accepted]
-    return not bool(np.any(np.isclose(ends, state.plane.z, rtol=1e-12, atol=0.0)))
+    return state.interpolated
 
 
 def _open_output(
