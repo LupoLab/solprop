@@ -48,14 +48,14 @@ import platform
 import re
 import subprocess
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import Enum
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _package_version
 from pathlib import Path
-from typing import Literal, Protocol, cast, runtime_checkable
+from typing import Any, Literal, Protocol, cast, runtime_checkable
 
 import numpy as np
 from jaxtyping import Bool, Complex, Float, Int
@@ -68,7 +68,8 @@ from solprop.grid import EnvelopeGrid, TimeGrid
 from solprop.modes.material import JsonValue
 from solprop.modes.protocol import Mode, TransverseMeasure
 from solprop.noise import NoiseRealisation
-from solprop.physdata.selection import MaterialManifest
+from solprop.output import compatibility
+from solprop.physdata.selection import MaterialManifest, hashed_document
 from solprop.stepper import FixedSchedule, PIController, Tableau
 
 __all__ = [
@@ -571,24 +572,56 @@ def _decode(value: JsonValue) -> object:
     return value
 
 
-def _rebuild[T](build: Callable[..., T], record: Mapping[str, JsonValue]) -> T:
+def _rebuild[T](
+    build: type[T],
+    record: Mapping[str, JsonValue],
+    path: tuple[str | int, ...] = (),
+) -> T:
     """Return a record instance from the dictionary :func:`serialise` made of it.
+
+    The instance is for reading. A record another release of the same output schema
+    wrote may lack a field this class has, or hold one it does not (SEP 42 section
+    5.4): a field the class no longer has is dropped, and an absent field is filled
+    from its neutral value (:func:`solprop.output.compatibility.neutral_value`) or,
+    where it has one, the field's default. A resume never compares the rebuilt
+    instance: it compares the stored text (:meth:`RunMetadata.compare`).
 
     Parameters
     ----------
-    build : collections.abc.Callable
-        The record class to rebuild, called with the fields as keyword arguments.
+    build : type
+        The record dataclass to rebuild, called with the fields as keyword arguments.
     record : collections.abc.Mapping
         Its serialised form.
+    path : tuple, optional
+        Where the record sits in the run record, for a refusal.
 
     Returns
     -------
     object
         The rebuilt record.
+
+    Raises
+    ------
+    OutputError
+        If a required field is absent and has no neutral value.
     """
-    arguments = {
-        name: _decode(item) for name, item in record.items() if name != "__class__"
-    }
+    fields = {entry.name: entry for entry in dataclasses.fields(build) if entry.init}  # pyright: ignore[reportArgumentType] - a record dataclass
+    arguments = {name: _decode(item) for name, item in record.items() if name in fields}
+    for name, entry in fields.items():
+        if name in arguments:
+            continue
+        found, value = compatibility.neutral_value((*path, name))
+        if found:
+            arguments[name] = _decode(value)
+        elif (
+            entry.default is dataclasses.MISSING
+            and entry.default_factory is dataclasses.MISSING
+        ):
+            msg = (
+                f"stored metadata lacks {compatibility.dotted((*path, name))}, which "
+                "this release requires and declares no neutral value for"
+            )
+            raise OutputError(msg)
     return build(**arguments)
 
 
@@ -1350,15 +1383,32 @@ class StepperRecord:
         >>> StepperRecord.from_record(serialise(one)).tableau
         'Tsit5'
         """
-        schedule = _decode(document["schedule"])
+
+        def stored(name: str, *, required: bool) -> JsonValue:
+            # Another release of this schema may lack an optional field (SEP 42
+            # section 5.4): its neutral value, else its default, None.
+            if name in document:
+                return document[name]
+            found, value = compatibility.neutral_value(("stepper", name))
+            if found or not required:
+                return value
+            msg = f"stored metadata lacks stepper.{name}"
+            raise OutputError(msg)
+
+        schedule = _decode(stored("schedule", required=False))
+        limits = stored("limits", required=False)
         return cls(
-            tableau=str(document["tableau"]),
-            controller=cast("dict[str, JsonValue]", document["controller"]),
-            limits=_rebuild(
-                StepLimits, cast("dict[str, JsonValue]", document["limits"])
+            tableau=str(stored("tableau", required=True)),
+            controller=cast(
+                "dict[str, JsonValue]", stored("controller", required=True)
+            ),
+            limits=StepLimits()
+            if limits is None
+            else _rebuild(
+                StepLimits, cast("dict[str, JsonValue]", limits), ("stepper", "limits")
             ),
             schedule=None if schedule is None else np.asarray(schedule, dtype=float),
-            method=_optional_text(document["method"]),
+            method=_optional_text(stored("method", required=False)),
         )
 
 
@@ -2142,6 +2192,61 @@ def _refuse_schema(declared: object) -> None:
     raise OutputError(msg)
 
 
+_HASHED_KEYS: tuple[str, ...] = (
+    "schema_version",
+    "simulation_kind",
+    "grid",
+    "modes",
+    "configuration",
+    "noise",
+    "stepper",
+    "spatial",
+    "power_convention",
+    "modal",
+    "materials",
+    "initial_z",
+    "tdse",
+    "quadrature",
+)
+"""The entries of :meth:`RunMetadata.hashed`, in the order it builds them."""
+
+
+def _stored_hashed(document: Mapping[str, JsonValue]) -> dict[str, JsonValue]:
+    """Return the hashed part of a stored record, as the stored text holds it.
+
+    The entries :meth:`RunMetadata.hashed` covers, taken from the document rather than
+    from the objects rebuilt from it: the general modal identity without its accessor
+    list (:func:`_hashed_modal`), and the material manifest's hashed part
+    (:func:`solprop.physdata.selection.hashed_document`). An entry the document lacks
+    stays absent, so the record digests to the stamp its writer computed.
+
+    Parameters
+    ----------
+    document : collections.abc.Mapping
+        A stored record, as :meth:`RunMetadata.to_json` wrote it.
+
+    Returns
+    -------
+    dict
+        Its hashed part.
+    """
+    hashed = {name: document[name] for name in _HASHED_KEYS if name in document}
+    modal = hashed.get("modal")
+    if isinstance(modal, dict):
+        hashed["modal"] = {
+            key: value for key, value in modal.items() if key != "accessors"
+        }
+    if "materials" in hashed:
+        materials = hashed["materials"]
+        hashed["materials"] = cast(
+            "JsonValue",
+            hashed_document(
+                None if materials is None else cast("dict[str, object]", materials)
+            ),
+        )
+    return hashed
+
+
 def _hashed_modal(modal: Mapping[str, object] | None) -> JsonValue:
     """Return the general modal identity as the resume key sees it.
 
@@ -2541,6 +2646,9 @@ class RunMetadata(Displayed):
     quadrature: Mapping[str, object] | None = None
     reference: Mapping[str, object] | None = None
     noise_resolution: NoiseResolution | None = None
+    _stored: dict[str, JsonValue] | None = dataclasses.field(
+        default=None, init=False, repr=False, compare=False, metadata={"record": False}
+    )
 
     def __repr__(self) -> str:
         """Return a one-line description: what kind of run, on what, made when.
@@ -2712,8 +2820,11 @@ class RunMetadata(Displayed):
         Returns
         -------
         dict
-            The hashed part of the record, JSON-ready.
+            The hashed part of the record, JSON-ready: as the file holds it for a
+            record read from one (:meth:`from_json`).
         """
+        if self._stored is not None:
+            return self._stored
         return {
             "schema_version": self.schema_version,
             "simulation_kind": self.simulation_kind,
@@ -2798,6 +2909,43 @@ class RunMetadata(Displayed):
         found: list[str] = []
         _differences(self.hashed(), other.hashed(), "", found)
         return tuple(found)
+
+    def compare(self, requested: "RunMetadata") -> compatibility.RecordComparison:  # noqa: UP037 - bound after the class body
+        """Compare this stored record with a requested one, path by path (SEP 42).
+
+        Each difference is sorted by :data:`solprop.output.compatibility.CLASS_TABLE`
+        into the layout, which no resume continues across; compared paths (physics and
+        launch parameters), which only a forced resume continues across; and the
+        numerics, which a resume continues across while there is work left, recording
+        them. Provenance is ignored, numbers agree per element to
+        :data:`~solprop.output.compatibility.RECORD_RTOL`, and a path one record lacks
+        is a difference unless a release declared its neutral value. Equal digests
+        mean no differences, without a walk.
+
+        Parameters
+        ----------
+        requested : RunMetadata
+            The record of the run asked for.
+
+        Returns
+        -------
+        solprop.output.compatibility.RecordComparison
+            The differences, by class.
+
+        Examples
+        --------
+        >>> import dataclasses
+        >>> from solprop.output.schema import _example_metadata
+        >>> stored = _example_metadata()
+        >>> stored.compare(stored).continues
+        True
+        >>> changed = dataclasses.replace(stored, configuration={"gamma": 0.22})
+        >>> print(stored.compare(changed).summary())
+        these compared values differ: configuration: gamma 0.11 -> 0.22
+        """
+        if self.configuration_hash() == requested.configuration_hash():
+            return compatibility.RecordComparison()
+        return compatibility.compare_records(self.hashed(), requested.hashed())
 
     def summarise_differences(
         self,
@@ -2951,35 +3099,54 @@ class RunMetadata(Displayed):
         except json.JSONDecodeError as error:
             msg = f"stored metadata is not valid JSON: {error}"
             raise OutputError(msg) from error
+        if not isinstance(document, dict) or "schema_version" not in document:
+            msg = "stored metadata is missing or malformed: no schema_version"
+            raise OutputError(msg)
+        # The version first: a file of another schema is refused by its version,
+        # not by the first field its layout lacks.
+        _refuse_schema(document["schema_version"])
+
+        def stored(name: str, default: JsonValue = None) -> Any:
+            # Another release of this schema may lack a top-level entry; it reads as
+            # its neutral value, else the field's default (SEP 42 section 5.4).
+            if name in document:
+                return document[name]
+            found, value = compatibility.neutral_value((name,))
+            return value if found else default
+
         try:
-            # The version first: a file of another schema is refused by its version,
-            # not by the first field its layout lacks.
-            _refuse_schema(document["schema_version"])
-            noise = document["noise"]
-            resolution = document["noise_resolution"]
-            git = document["git"]
-            backend = document["backend"]
-            return cls(
-                grid=_rebuild(GridRecord, document["grid"]),
-                modes=tuple(_rebuild(ModeRecord, one) for one in document["modes"]),
+            noise = stored("noise")
+            resolution = stored("noise_resolution")
+            git = stored("git")
+            backend = stored("backend")
+            metadata = cls(
+                grid=_rebuild(GridRecord, document["grid"], ("grid",)),
+                modes=tuple(
+                    _rebuild(ModeRecord, one, ("modes", index))
+                    for index, one in enumerate(document["modes"])
+                ),
                 simulation_kind=document["simulation_kind"],
                 configuration=document["configuration"],
                 stepper=StepperRecord.from_record(document["stepper"]),
-                noise=None if noise is None else _rebuild(NoiseRecord, noise),
+                noise=None
+                if noise is None
+                else _rebuild(NoiseRecord, noise, ("noise",)),
                 backend=None if backend is None else _rebuild(BackendRecord, backend),
-                versions=document["versions"],
+                versions=cast("Mapping[str, str]", stored("versions", {})),
                 git=None if git is None else _rebuild(GitProvenance, git),
-                created=document["created"],
+                created=str(stored("created", "")),
                 schema_version=document["schema_version"],
-                spectral_convention=document["spectral_convention"],
-                field_layout=document["field_layout"],
-                spatial=document["spatial"],
-                modal=document["modal"],
-                materials=MaterialManifest.from_dict(document["materials"]),
-                initial_z=document["initial_z"],
-                tdse=document["tdse"],
-                quadrature=document["quadrature"],
-                reference=document["reference"],
+                spectral_convention=str(
+                    stored("spectral_convention", SPECTRAL_CONVENTION)
+                ),
+                field_layout=str(stored("field_layout", FIELD_LAYOUT)),
+                spatial=stored("spatial"),
+                modal=stored("modal"),
+                materials=MaterialManifest.from_dict(stored("materials")),
+                initial_z=stored("initial_z", 0.0),
+                tdse=stored("tdse"),
+                quadrature=stored("quadrature"),
+                reference=stored("reference"),
                 noise_resolution=None
                 if resolution is None
                 else _rebuild(NoiseResolution, resolution),
@@ -2987,6 +3154,10 @@ class RunMetadata(Displayed):
         except (KeyError, TypeError, MaterialError) as error:
             msg = f"stored metadata is missing or malformed: {error}"
             raise OutputError(msg) from error
+        # The record as written: it digests to its own stamp and is compared by its
+        # own text, whatever today's code would write (SEP 42 section 5.4).
+        object.__setattr__(metadata, "_stored", _stored_hashed(document))
+        return metadata
 
 
 def _example_metadata() -> RunMetadata:
