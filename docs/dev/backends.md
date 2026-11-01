@@ -419,9 +419,10 @@ coefficients through `problem.flux.at(z)` (kernel schema 35): energy and the far
 spectra weight each column and bin by the real admittance `c Re k_z/omega` of that root,
 and fluence, intensities and the on-axis spectrum synthesise the closure `G` from the
 complex admittance before forming `Re(E conj(G))/2`, signed and not clipped. The widths
-refuse a fluence negative beyond its rounding budget. The collar diagnostic,
-`backends.spatial.collar_field_fraction`, stays an electric-field-norm share and is named
-as one. A backend whose own statistics do not apply this measure refuses the schema.
+refuse a fluence negative beyond its rounding budget. The helper
+`backends.spatial.collar_field_fraction` stays an electric-field-norm share and is named
+as one; its end-of-plane log is retired, and the boundary monitor's transverse edge
+(SEP 40) judges the boundary instead. A backend whose own statistics do not apply this measure refuses the schema.
 
 ## 3. `numba_cpu`: the compiled in-tree backend
 

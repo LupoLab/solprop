@@ -365,9 +365,10 @@ channel's transverse square `κ_p(ω)² = k²ε_co − β_p(ω)²` from the mode
 propagation constant (its wall term under its loss policy), zero at inactive
 frequencies; column `c` belongs to channel `c % n_channels`, and `kperp_sq` is then
 `k_y²` per column with the channel fastest. `kperp_rate` is float64,
-`n_modes` entries, finite and nonnegative, a transverse collar's power rate per column
-in m^-1 (`solprop.boundaries.TransverseCollar`); `None` is stored
-as zeros, and a nonzero one is refused beside `kappa_sq`. `evanescent_rate` is
+`n_modes` entries, finite and nonnegative, the safety ramp's power rate per column in
+m^-1 (`solprop.spatial_absorber.SpatialAbsorberDesign.ramp_rate`, kernel schema 41); `None`
+is stored as zeros. On the hybrid planar kind it acts per `(p, k_y)` column, and the
+slab element takes it as its `transverse_rate`. `evanescent_rate` is
 `solprop.spatial.EVANESCENT_RATE` unless the run sets `SimulationSettings.evanescent_rate`.
 
 For each column and frequency form
@@ -1092,8 +1093,7 @@ spatial kind it does not execute.
 n_modes, n_pol, n_omega)`, `noise_phase` (if a noise model is active, so processing can restore the
 background), both `None` for an observation made with `observe(field=False)`: nothing then crosses to the host and nothing scans the field, so a
 diverged field-free run is caught by the step loop's finite-norm rule and the
-statistics; the spatial collar diagnostic is not evaluated there, and the backend
-counts such planes in `metadata()` (`collar_diagnostic_skipped`) and logs the first, `step_history` (arrays of z, h, error norm, accepted flag, wall time since the
+statistics, `step_history` (arrays of z, h, error norm, accepted flag, wall time since the
 last observation; recorded whether the run was adaptive or replayed a schedule, since the
 embedded estimate is computed either way), `n_steps`, `n_rejected`, and `step_stats`. `stats()` returns a dict of small host arrays
 keyed by statistic name with a leading batch axis.

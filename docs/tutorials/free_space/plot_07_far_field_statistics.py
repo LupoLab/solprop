@@ -53,7 +53,7 @@ import numpy as np
 from matplotlib.patches import Circle
 from scipy import integrate
 
-from solprop.boundaries import TransverseCollar, absorber, custom_absorber
+from solprop.boundaries import SpatialAbsorber, absorber, custom_absorber
 from solprop.constants import C
 from solprop.driver import SimulationSettings, prop_free
 from solprop.grid import EnvelopeGrid, FreeGrid
@@ -196,7 +196,7 @@ settings = SimulationSettings(
         period=1,
     ),
     absorber=band,
-    transverse_absorber=TransverseCollar(2e4),
+    spatial_absorber=SpatialAbsorber(real_space=False),
     fields="planes",
     field_planes=(-1,),
 )

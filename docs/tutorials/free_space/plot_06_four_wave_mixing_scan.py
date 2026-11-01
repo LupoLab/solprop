@@ -22,7 +22,8 @@ wanted only as statistics. This tutorial builds it the memory-lean way
   ``region_spectrum`` boxes of transverse wavevector;
 - a custom spectral absorber, :func:`~solprop.boundaries.custom_absorber`, for an
   absorption band of the sample;
-- a transverse safety ramp, :class:`~solprop.boundaries.TransverseCollar`.
+- the transverse safety ramp every free-space run carries, set by
+  :class:`~solprop.boundaries.SpatialAbsorber` (SEP 40).
 
 It then shows why the grid, not the ramp, keeps the cubic products from aliasing, and
 checks the grid by refinement. The sample is a generic dispersionless glass, so the
@@ -57,7 +58,7 @@ import time
 import matplotlib.pyplot as plt
 import numpy as np
 
-from solprop.boundaries import TransverseCollar, absorber, custom_absorber
+from solprop.boundaries import SpatialAbsorber, absorber, custom_absorber
 from solprop.constants import C
 from solprop.driver import Simulation, SimulationSettings
 from solprop.grid import EnvelopeGrid, FreeGrid
@@ -146,10 +147,10 @@ print(f"each beam carries {energy * 1e6:.4f} μJ into the sample")
 # The beams stay well inside the box too, so the grid has no real-space collar
 # (``collar_fraction=0``).
 #
-# The transverse collar ramps a power rate up to 20 000 m⁻¹ over the outer tenth of
-# the grid's wavenumbers, which removes 60 dB of field at the edge over about 0.7 mm.
-# On this grid nothing physical reaches that band; the ramp is a safety net against
-# content creeping towards the Nyquist edge.
+# Every free-space run carries a transverse safety ramp over the outer tenth of the
+# grid's wavenumbers, designed from the grid (SEP 40);
+# ``SpatialAbsorber(real_space=False)`` names it explicitly here. On this grid nothing physical reaches that band; the ramp is
+# a safety net against content creeping towards the Nyquist edge.
 #
 # The steps are replayed, eight per run, so every delay takes the same schedule.
 
@@ -185,7 +186,7 @@ def settings_for(**changes):
             names=("energy", "region_spectrum"), spectral_regions=regions
         ),
         "absorber": band_absorber,
-        "transverse_absorber": TransverseCollar(2e4),
+        "spatial_absorber": SpatialAbsorber(real_space=False),
         "fields": "none",
     }
     options.update(changes)
@@ -253,15 +254,15 @@ axis.set(xlabel="delay of beam 2 (fs)", ylabel="signal / beam energy")
 axis.legend()
 
 # %%
-# Grid sizing, not the collar, prevents aliasing
-# ----------------------------------------------
+# Grid sizing, not the ramp, prevents aliasing
+# --------------------------------------------
 # On a grid of 7.4 μm the beams sit at :math:`0.40\,k_{x,\max}`, at the edge of the
 # one-half rule once their spread is counted, and the signal at
 # :math:`1.2\,k_{x,\max}`, past the grid's edge. It is generated already folded, at
 # :math:`3K_0-2k_{x,\max} \approx -0.8\,k_{x,\max} \approx -2K_0`: an unphysical beam
 # on the wrong side, at an angle where a cubic product of the two beams, landing only
-# on odd multiples of :math:`K_0`, puts nothing. It lands where the collar's ramp is
-# exactly zero, because the fold happens inside the product's evaluation, so the collar
+# on odd multiples of :math:`K_0`, puts nothing. It lands where the safety ramp is
+# exactly zero, because the fold happens inside the product's evaluation, so the ramp
 # cannot touch it. Each run below keeps its exit field (``fields="planes"``,
 # ``field_planes=(-1,)``) to show the transverse spectrum.
 
@@ -279,9 +280,9 @@ def kx_spectrum(spatial_grid, run):
 
 coarse = transverse_grid(7.4e-6)
 cases = {
-    "7.4 μm, no collar": (coarse, None),
-    "7.4 μm, collar": (coarse, TransverseCollar(2e4)),
-    "2 μm, collar": (space, TransverseCollar(2e4)),
+    "7.4 μm, no ramp": (coarse, False),
+    "7.4 μm, ramp": (coarse, SpatialAbsorber(real_space=False)),
+    "2 μm, ramp": (space, SpatialAbsorber(real_space=False)),
 }
 figure, axis = plt.subplots(figsize=(7, 3.8), layout="constrained")
 for label, (spatial_grid, collar) in cases.items():
@@ -289,7 +290,7 @@ for label, (spatial_grid, collar) in cases.items():
         spatial_grid,
         fields="planes",
         field_planes=(-1,),
-        transverse_absorber=collar,
+        spatial_absorber=collar,
     ).run(progress="none")
     k_x, profile = kx_spectrum(spatial_grid, run)
     axis.semilogy(k_x / K0, profile, ".-", ms=3, label=label)
@@ -301,7 +302,7 @@ axis.axvline(-3, color="0.6", lw=0.8)
 axis.legend()
 
 # %%
-# On the coarse grid the alias carries the same energy with and without the collar,
+# On the coarse grid the alias carries the same energy with and without the ramp,
 # to within the little the ramp takes from the beams' and the alias's own far tails:
 # it has nothing else to act on. On the 2 μm grid the band at :math:`\pm2K_0` holds
 # only the far tails of the beams, broadened by self- and cross-phase modulation, and
