@@ -1374,6 +1374,83 @@ of phase 4, its types, recipes, beams and previews, waits for SEP 40 on `main`. 
 therefore carried into `Recipe.modes()` and `preview_input()` when phase 4 adds them, rather
 than the other way round.
 
+### Phase 5 report — design, pins and capability (S7, S1's pins, S8)
+
+Complete on 2026-11-01, commits `a3ad93a` (capabilities), `59bdf15` (solvers) and
+`50926af` (pins). Checked as phase 1 was. Pins reach `Recipe.modes()` and
+`preview_input()` with the guided half of phase 4, which adds them.
+
+**Delivered.**
+
+- **`tools.solve_parameter(build, search, target, *, z=0.0)`** with the targets `ZDW`,
+  `RDW` and `SolitonOrder`, returning `DesignRoots` (every root, ascending; `pick` by
+  `"lowest"`, `"highest"` or an index; the attainable range when there is none).
+  - It samples 129 linear and, where the range is positive, 129 logarithmic values,
+    refines each sign change with Brent's method to a relative 2e-12, and keeps a
+    refined change only where the residual has fallen to a thousandth of its bracket
+    ends', which discards a change through a pole.
+  - `RDW` is `pressure_rdw`'s residual, now one shared function, with `peak_power`,
+    `fwhm` and the nonlinear phase. `pressure_rdw` uses the same sampler.
+  - `radius_zdw`; `soliton_peak_power` and `pulse_energy`, the closed-form inverses,
+    which `capillary_design` now calls with the same arithmetic.
+  - **Tests:** `RDW` reproduces `pressure_rdw` (linear, largest constituent and supplied
+    power) to 1e-12; `ZDW` reproduces `pressure_zdw` to 3e-8 where it has one root;
+    `radius_zdw` inverts `zdw`; two roots on either side of a zero-dispersion point for a
+    soliton order; six roots around a Vincetti wall resonance, alternating in sign; a
+    synthetic pole discarded.
+- **`[pins]`** (`solprop.recipe.pins`).
+  - Targets `zdw` and `rdw` set `radius` or a constant `pressure` of the capillary;
+    `soliton_order` sets a pulse's `energy` or `peak_power`, on the route or on one of
+    `pulses`.
+  - The guide's pin is solved by building the route once, at the middle of the search
+    range, and re-evaluating its launch mode at each trial value (a density for a
+    pressure, `at_parameters` for a radius), with the fill's Kerr coefficient where the
+    target needs it. A pulse pin is closed form on that mode.
+  - `Recipe.resolve()` returns the recipe with the pins written as values, and
+    `Recipe.pin_roots(path)` the solver's roots. `check()` reports a pin that does not
+    read, or a target not met, on the pinned path, with the attainable range. A build
+    solves the pins and each scan point solves its own. A run records the authored text
+    with its pins and the resolved one.
+  - The Python export binds the literals to `keywords`, then writes `solve_pin(...)` and
+    `solve_pulse(...)` (public in `solprop.recipe.pins`) before the route's call.
+  - **Tests:** a pinned pressure equals `pressure_zdw` to 1e-7; a soliton-order pin gives
+    order 4 on the launch mode; the pulse pin reads the pressure the guide's pin settles;
+    a scan re-solves its pins per point; two guide pins, an array element (a gradient's),
+    a pin also set literally, an unpinnable keyword and malformed tables are refused on
+    their path; an unreachable target is one issue with its attainable range; the export
+    builds the same configuration hash in a subprocess.
+- **`solprop.capabilities.route(name)` and `species(name)`.**
+  - `RouteCapabilities` lists the route's keywords (from S9), each choice keyword's
+    values, and the rules that couple keywords. 42 rules, each with an id, the keywords
+    it binds, a reason and its routes. The id is given as `rule=` at its raise sites (53
+    sites), and a lint test over the source checks each site against the registry and
+    each rule's use.
+  - `SpeciesCapabilities` gives the ionisation models with optmat's own statuses (the
+    recommended one first), the Raman status and whether it is on by default, the data
+    ranges and the material records with their statuses. Air is refused, pointing to its
+    components.
+
+**Deviations and decisions.**
+
+- **`SolitonOrder` holds the pulse and solves the guide**; the opposite question, the
+  pulse for an order on a given mode, is closed form and is what a `soliton_order` pin
+  uses.
+- **`RDW`'s `shape` defaults to `"sech"`**, as `pressure_rdw` and the rest of
+  `solprop.tools` do, not the `"gauss"` of §5.7's sketch.
+- **The attainable range is computed only when there is no root**, on a coarser grid
+  (17 linear and 17 logarithmic values) with the modes rebuilt rather than kept.
+- **A pin on one of `pulses` is exported as its solved value** with the pin in a comment:
+  the pulse object cannot be built without its energy.
+- **Pin values are written as numbers** in their keywords' units.
+- **Rules that depend on a value, a type or the machine are not registered** (a mixture
+  at a different temperature, `precision` with `backend="auto"` and no Metal, and the
+  like); their refusals carry `parameter` and no `rule`.
+
+**Unmeasured, and a cost.** An unreachable `zdw` pin on a capillary with the default
+dispersive cladding costs about ten seconds, since the attainable range searches the
+zero-dispersion wavelength at each of its samples and the glass model is slow to evaluate;
+with a constant cladding index it is about a second.
+
 ## Part III — History
 
 - 2026-10-31: Drafted, from the requirements of a desktop front end under design.
