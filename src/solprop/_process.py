@@ -23,9 +23,76 @@ import contextlib
 import functools
 import os
 import sys
+import threading
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+
+_BLAS_LOCK = threading.RLock()
+_BLAS_USERS: set[object] = set()
+_BLAS_LIMITS = contextlib.ExitStack()
+
+
+@contextlib.contextmanager
+def host_blas() -> Iterator[None]:
+    """Hold host construction's BLAS pools within the process's thread budget.
+
+    Small mode solves and coupling products otherwise start every worker in
+    NumPy's and SciPy's independent BLAS libraries. The scope overrides their
+    vendor defaults with one thread, or ``SOLPROP_BLAS_THREADS`` under ADR-052,
+    then restores the previous limits, including a live backend's own hold.
+    The native backend's BLAS keeps its separately fitted width.
+
+    Nested and overlapping construction share one library walk and the first
+    scope's limit. The last scope restores it: threadpoolctl changes process-wide
+    pools, so one Python thread must not restore them while another is using
+    them. Importing this module starts no library walk or numerical runtime.
+
+    Yields
+    ------
+    None
+        While the controllable host BLAS pools are limited. A BLAS with no
+        runtime thread control, such as Accelerate, is left as it was.
+
+    Raises
+    ------
+    ValueError
+        If a thread-count environment variable is invalid.
+    """
+    with _BLAS_LOCK:
+        if not _BLAS_USERS:
+            # Delayed: _process is imported before NumPy and the native runtime.
+            import threadpoolctl  # noqa: PLC0415
+
+            requested = thread_count("SOLPROP_BLAS_THREADS")
+            threads = thread_budget().explicit(1 if requested is None else requested)
+            native = sys.modules.get("solprop_native")
+            own = (
+                ""
+                if native is None
+                else os.path.realpath(native.build_info().blas_library)
+            )
+            controller = threadpoolctl.ThreadpoolController()
+            libraries = controller.select(user_api="blas")
+            paths = [
+                library.filepath
+                for library in libraries.lib_controllers
+                if os.path.realpath(library.filepath) != own
+            ]
+            # An empty selection must not limit the native BLAS on its own.
+            if paths:
+                _BLAS_LIMITS.enter_context(
+                    controller.select(filepath=paths).limit(limits=threads)
+                )
+        owner = object()
+        _BLAS_USERS.add(owner)
+    try:
+        yield
+    finally:
+        with _BLAS_LOCK:
+            _BLAS_USERS.remove(owner)
+            if not _BLAS_USERS:
+                _BLAS_LIMITS.close()
 
 
 def _query() -> tuple[int, ...]:

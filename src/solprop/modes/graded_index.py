@@ -24,6 +24,7 @@ from scipy.optimize import brentq
 from scipy.special import kve, roots_legendre
 
 from solprop._display import Displayed, line
+from solprop._process import host_blas
 from solprop.constants import EPS0, C
 from solprop.exceptions import ModeError
 from solprop.modes.guide import radial_node_rule
@@ -596,6 +597,7 @@ class GradedIndexProvider(Displayed):
         exterior = float(self._eps(omega, np.full(1, 2.0))[0])
         return axis / exterior - 1
 
+    @host_blas()
     def _solution(self, omega: float, z: float) -> _RadialSolution:
         """Solve the variational eigenproblem with an exact exterior.
 

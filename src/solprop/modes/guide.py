@@ -13,6 +13,7 @@ import numpy as np
 from jaxtyping import Complex, Float, Inexact
 
 from solprop._display import Displayed, engineering, line
+from solprop._process import host_blas
 from solprop.constants import C
 from solprop.exceptions import ModeError
 from solprop.modes._stepindex_vector import _fields, _power
@@ -2202,6 +2203,7 @@ class ModalGuide(Displayed):
         )
 
     @classmethod
+    @host_blas()
     def from_provider(  # noqa: PLR0913 - a provider and five declarations of the sampling
         cls,
         provider: ModalProvider,

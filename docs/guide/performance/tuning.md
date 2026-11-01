@@ -382,8 +382,20 @@ the native backend's, serves only small host-side products during a native run, 
 idle workers spin on the cores the native pool needs: while a native backend lives, every
 BLAS threadpoolctl finds other than the backend's own is held to one thread
 (`SOLPROP_BLAS_THREADS` sets another count), and the last backend to close gives the pools
-back. The run's metadata records what applied as `host_blas`. Otherwise a BLAS's own
-variables apply:
+back. The run's metadata records what applied as `host_blas`.
+
+Guide construction and coupling happen before a backend exists. They also hold the
+controllable host BLAS pools at one thread, or at `SOLPROP_BLAS_THREADS` within the
+process budget. The hold covers `ModalGuide.from_provider`, a standalone graded-index
+mode solve (including a node rule's tail certificate), kernel translation and `couple`.
+This overrides `OPENBLAS_NUM_THREADS` and the other vendor defaults for those calls,
+then restores the previous limits even if construction fails. A native backend's own
+BLAS keeps its fitted width. Nested or overlapping construction shares the first
+scope's hold, and the last scope restores the pools. Separate processes, including
+scan workers, keep their own pools. Accelerate exposes no runtime
+thread control to threadpoolctl, so these scopes leave it unchanged.
+
+Outside a backend's lifetime and these construction scopes, a BLAS's own variables apply:
 
 | library | thread variable | notes |
 |---|---|---|
