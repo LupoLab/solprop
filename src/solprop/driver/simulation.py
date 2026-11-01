@@ -190,7 +190,6 @@ from solprop.output.hdf5 import (
     _resume_refusal,
     _stored_metadata,
     _stored_stat_shapes,
-    open_file,
 )
 from solprop.output.hdf5 import resume as resume_state
 from solprop.output.memory import MemoryOutput
@@ -3039,10 +3038,13 @@ class Simulation(Displayed):
                     profiles=self.profiles,
                     tdse_binding=binding,
                 )
-                forced = continuation is not None and continuation.forced
-                start_plane = self._prime(backend, problem, state, restart=forced)
-                if forced and problem.tdse is None:
-                    _check_forced_shapes(backend, problem.stats_spec, output)
+                start_plane = self._prime(
+                    backend,
+                    problem,
+                    state,
+                    restart=continuation is not None and continuation.forced,
+                )
+                _confirm_continuation(continuation, backend, problem, output)
                 self._consistency_gate(
                     binding, problem, handler, metadata, backend, admission
                 )
@@ -3070,7 +3072,9 @@ class Simulation(Displayed):
                 raise
             finally:
                 _close_run(backend, binding, archive, handler, failure)
-            self._peak_fields = _peak_field_reports(problem, handler, self.responses)
+            self._peak_fields = _peak_field_reports(
+                problem, handler, self.responses, _session_planes(state, continuation)
+            )
         if (
             state is not None
             and _interpolated(state)
@@ -7827,16 +7831,47 @@ class _Continuation:
         but rounding separates the records.
     forced : bool
         Whether it continues across compared differences, under ``resume="force"``.
+    warning : str
+        What to warn once the session is sure to continue: after a forced one's
+        statistics are found to fit, so that a refusal is not preceded by it.
     """
 
     entry: dict[str, object] | None
     forced: bool = False
+    warning: str = ""
 
 
 _FORCED_NOTE = (
     "From here the file's record does not describe its planes: stats/* hold, and "
     "anything rebuilt from the record does not."
 )
+
+
+def _session_planes(
+    state: ResumeState | None, continuation: _Continuation | None
+) -> int:
+    """Return the first plane a post-run report reads.
+
+    Parameters
+    ----------
+    state : ResumeState or None
+        What a resumed file held, or ``None`` for a fresh run.
+    continuation : _Continuation or None
+        How the session continued it.
+
+    Returns
+    -------
+    int
+        The first plane this session wrote when the file was forced, by this
+        session or an earlier one, since the planes before were computed under other
+        physics (SEP 42 section 5.5); otherwise 0, every plane.
+    """
+    if state is None:
+        return 0
+    forced = (continuation is not None and continuation.forced) or (
+        state.outcome is not None and bool(state.outcome.forced_positions)
+    )
+    return state.n_saved if forced else 0
 
 
 def _check_resume_choice(resume: object) -> None:
@@ -7913,6 +7948,33 @@ def _resume_entry(
         "compared": comparison.compared_summary() if forced else "",
         "neutral": [dotted(path) for path in comparison.neutral],
     }
+
+
+def _confirm_continuation(
+    continuation: _Continuation | None,
+    backend: Backend,
+    problem: KernelProblem,
+    output: Output | Path | str | None,
+) -> None:
+    """Check a primed continuation can go ahead, then warn what it does.
+
+    Parameters
+    ----------
+    continuation : _Continuation or None
+        How the session continues its file, or ``None`` for a fresh run.
+    backend : Backend
+        The primed backend.
+    problem : KernelProblem
+        The translated problem.
+    output : pathlib.Path or str
+        The file.
+    """
+    if continuation is None:
+        return
+    if continuation.forced and problem.tdse is None:
+        _check_forced_shapes(backend, problem.stats_spec, output)
+    if continuation.warning:
+        warnings.warn(continuation.warning, SolpropWarning, stacklevel=3)
 
 
 def _check_forced_shapes(
@@ -8066,7 +8128,7 @@ def _resume_decision(
             in (("configuration", "pulse"), ("configuration", "initial"))
             for change in comparison.refused
         )
-        warnings.warn(
+        warning = (
             f"forcing a resume of {path} at z = {state.plane.z:.6g} m; "
             f"{comparison.summary()}\n"
             + (
@@ -8075,11 +8137,11 @@ def _resume_decision(
                 else ""
             )
             + "The Adams history starts afresh. "
-            + _FORCED_NOTE,
-            SolpropWarning,
-            stacklevel=3,
+            + _FORCED_NOTE
         )
-        return _Continuation(_resume_entry(state, comparison, forced=True), forced=True)
+        return _Continuation(
+            _resume_entry(state, comparison, forced=True), forced=True, warning=warning
+        )
     if not work_left:
         earlier = () if outcome is None else outcome.resumes
         if comparison.numerics or any(entry.get("numerics") for entry in earlier):
@@ -8094,14 +8156,15 @@ def _resume_decision(
             raise OutputError(msg)
         return None
     _refuse_interpolated(path, state, resume)
-    if comparison.numerics:
-        warnings.warn(
-            f"resuming {path} at z = {state.plane.z:.6g} m with changed numerics; "
-            f"{comparison.summary()}",
-            SolpropWarning,
-            stacklevel=3,
-        )
-    return _Continuation(_resume_entry(state, comparison, forced=False))
+    warning = (
+        f"resuming {path} at z = {state.plane.z:.6g} m with changed numerics; "
+        f"{comparison.summary()}"
+        if comparison.numerics
+        else ""
+    )
+    return _Continuation(
+        _resume_entry(state, comparison, forced=False), warning=warning
+    )
 
 
 def _gnlse_grid(
@@ -10573,7 +10636,10 @@ def _ionisation_inputs(
 
 
 def _peak_field_reports(
-    problem: KernelProblem, output: Output, responses: Sequence[object]
+    problem: KernelProblem,
+    output: Output,
+    responses: Sequence[object],
+    first_plane: int = 0,
 ) -> tuple[PeakFieldReport, ...]:
     """Report the largest field each optmat-rate population saw, after a run.
 
@@ -10590,6 +10656,10 @@ def _peak_field_reports(
         The handler the run wrote; a closed file is reopened for reading.
     responses : sequence of object
         The run's responses.
+    first_plane : int, optional
+        The first plane to read: a session that continued a file across a forced
+        resume reports only the planes it wrote, since the earlier ones were
+        computed under other physics (SEP 42 section 5.5).
 
     Returns
     -------
@@ -10617,12 +10687,15 @@ def _peak_field_reports(
     if not rates:
         return ()
     if isinstance(output, HDF5Output) and output.closed:
-        with open_file(output.path) as reader:
-            return _peak_field_reports(problem, reader, responses)
+        # An internal reader: not the public open_file, which warns of a forced file.
+        with HDF5Output(output.path, readonly=True) as reader:
+            return _peak_field_reports(problem, reader, responses, first_plane)
     if "species_peak_ionisation_rate" in output.stat_names:
-        peaks = np.max(np.asarray(output["stats/species_peak_ionisation_rate"]), axis=0)
+        rows = np.asarray(output["stats/species_peak_ionisation_rate"])[first_plane:]
+        peaks = np.max(rows, axis=0)
     elif "peak_ionisation_rate" in output.stat_names and len(labels) == 1:
-        peaks = np.array([np.max(np.asarray(output["stats/peak_ionisation_rate"]))])
+        rows = np.asarray(output["stats/peak_ionisation_rate"])[first_plane:]
+        peaks = np.array([np.max(rows)])
     else:
         logger.info(
             "the run recorded no peak ionisation rate, so the largest field its "

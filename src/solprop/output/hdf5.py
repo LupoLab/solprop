@@ -70,6 +70,7 @@ The manual page is ``docs/guide/results/output.md``.
 import json
 import logging
 import math
+import warnings
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -81,7 +82,7 @@ from jaxtyping import Complex
 
 from solprop import fourier
 from solprop._display import Displayed, line, tail
-from solprop.exceptions import OutputError
+from solprop.exceptions import OutputError, SolpropWarning
 from solprop.output._writer_lock import WriterLock
 from solprop.output.compatibility import RecordComparison
 from solprop.output.schema import (
@@ -2221,6 +2222,12 @@ def open_file(path: Path | str) -> HDF5Output:
     OutputError
         If the file cannot be opened, or carries no metadata.
 
+    Warns
+    -----
+    SolpropWarning
+        Once, for a file a session continued with ``resume="force"``, naming where
+        (SEP 42 section 5.5).
+
     Examples
     --------
     >>> import numpy as np, tempfile
@@ -2248,4 +2255,16 @@ def open_file(path: Path | str) -> HDF5Output:
     >>> shape, planes, stored.closed
     ((1, 1, 1, 2560), 1, True)
     """
-    return HDF5Output(path, readonly=True)
+    handler = HDF5Output(path, readonly=True)
+    outcome = handler.outcome
+    forced = () if outcome is None else outcome.forced_positions
+    if forced:
+        where = ", ".join(f"{z:.6g}" for z in forced)
+        warnings.warn(
+            f"{path} was continued with resume='force' at z = {where} m: past there "
+            "its record does not describe its planes. stats/* hold; anything rebuilt "
+            "from the record does not, and those planes are not exchanged",
+            SolpropWarning,
+            stacklevel=2,
+        )
+    return handler
