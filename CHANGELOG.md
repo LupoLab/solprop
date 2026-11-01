@@ -13,6 +13,12 @@ All notable changes to solprop are recorded here. The format follows
   [10.5281/zenodo.23854248](https://doi.org/10.5281/zenodo.23854248), which covers
   every release.
 
+### Fixed
+
+- The native backend's HIP build compiles again under its default
+  warnings-as-errors: ROCm's Clang refused a thread-local variable that only an OpenMP
+  build uses (0.1.0 needed `-DSOLPROP_NATIVE_WARNINGS_AS_ERRORS=OFF`).
+
 ## [0.1.0] - 2026-10-31
 
 The first public release of `solprop` and of its compiled backend, `solprop-native`,
