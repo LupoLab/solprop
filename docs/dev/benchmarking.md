@@ -184,10 +184,13 @@ so that their rows stay one series:
   `uv pip install solprop-native==<version>` from PyPI, and every command run as
   `.venv/bin/python -m benchmarks …`: a later `uv sync` or `uv run` removes the
   wheel. The wheel records the tag's commit, so the history accepts it.
+- **numba rows** come from a second run in the same checkout with
+  `--backend numba_cpu`, on the Apple M5 Max, the Xeon Gold 6240 and the EPYC 7763.
 - **GPU rows build the tag's native backend** with the `cuda` or `hip` preset's
   options into a separate environment, out of tree (`uv build native --wheel
   --config-setting build-dir=…`), so that the checkout stays clean. ROCm 10 builds
-  the HIP backend only with `-DSOLPROP_NATIVE_WARNINGS_AS_ERRORS=OFF` at 0.1.0.
+  the HIP backend only with `-DSOLPROP_NATIVE_WARNINGS_AS_ERRORS=OFF` at 0.1.0 (fixed
+  after it).
 - **The instance type separates the operating systems.** The hardware name carries
   no operating system, so Linux and Windows on one cloud shape differ only by
   `--instance-type`. Google Cloud allowed a 32-vCPU C4D only in `us-central1` at
