@@ -49,6 +49,7 @@ __all__ = [
     "ModelChoice",
     "ModelIdentityLike",
     "OptmatModel",
+    "hashed_document",
 ]
 
 STATUSES: Final[tuple[str, ...]] = (
@@ -681,6 +682,67 @@ _SOLID_POLICY: Final = ("material", "axis", "model", "digest", "transparent")
 """The fields of a solid's entry that identify it; with its bound, they are hashed."""
 
 
+def _solid_identity(solid: Mapping[str, object]) -> dict[str, object]:
+    """Return the hashed part of a solid's entry: identity and policy.
+
+    Parameters
+    ----------
+    solid : collections.abc.Mapping
+        One entry of :attr:`MaterialManifest.solids`.
+
+    Returns
+    -------
+    dict
+        Its identifying fields, and the absorption bound of a transparent one.
+    """
+    identity = {name: solid.get(name) for name in _SOLID_POLICY}
+    if solid.get("transparent"):
+        identity["absorption_bound"] = solid.get("absorption_bound")
+    return identity
+
+
+def hashed_document(document: Mapping[str, object] | None) -> dict[str, object] | None:
+    """Return the hashed part of a stored manifest, as the stored text holds it.
+
+    :meth:`MaterialManifest.hashed` of the manifest :meth:`MaterialManifest.to_dict`
+    wrote, taken from the stored document without rebuilding its records, so that a
+    record written by another release of the same output schema hashes as it was
+    written (SEP 42 section 5.4).
+
+    Parameters
+    ----------
+    document : collections.abc.Mapping or None
+        A stored manifest, or ``None`` for the empty one.
+
+    Returns
+    -------
+    dict or None
+        The optmat version, records, species, compositions, solids' identities and
+        policies; ``None`` for the empty manifest.
+
+    Examples
+    --------
+    >>> from solprop.physdata.selection import (
+    ...     MaterialManifest, MaterialSelection, hashed_document,
+    ... )
+    >>> manifest = MaterialManifest("0.1.1", MaterialSelection().to_dict(), policies={})
+    >>> hashed_document(manifest.to_dict()) == manifest.hashed()
+    True
+    """
+    if document is None:
+        return None
+    hashed = {
+        name: document[name]
+        for name in ("optmat_version", "records", "species", "compositions", "policies")
+        if name in document
+    }
+    hashed["solids"] = _keyed(
+        [_solid_identity(solid) for solid in _stored_entries(document, "solids")],
+        ("material", "axis", "model"),
+    )
+    return hashed
+
+
 @dataclass(frozen=True)
 class MaterialManifest:
     """Record the optmat materials of one run: identities, policies and measurements.
@@ -832,24 +894,6 @@ class MaterialManifest:
         """
         return self.selection is None and not self.records
 
-    def _solid_identity(self, solid: Mapping[str, object]) -> dict[str, object]:
-        """Return the hashed part of a solid's entry: identity and policy.
-
-        Parameters
-        ----------
-        solid : collections.abc.Mapping
-            One entry of :attr:`solids`.
-
-        Returns
-        -------
-        dict
-            Its identifying fields, and the absorption bound of a transparent one.
-        """
-        identity = {name: solid.get(name) for name in _SOLID_POLICY}
-        if solid.get("transparent"):
-            identity["absorption_bound"] = solid.get("absorption_bound")
-        return identity
-
     def hashed(self) -> dict[str, object] | None:
         """Return the identities and policies, which the resume key covers.
 
@@ -877,7 +921,7 @@ class MaterialManifest:
             "species": _keyed(self.species, ("label",)),
             "compositions": [dict(entry) for entry in self.compositions],
             "solids": _keyed(
-                [self._solid_identity(solid) for solid in self.solids],
+                [_solid_identity(solid) for solid in self.solids],
                 ("material", "axis", "model"),
             ),
             "policies": dict(self.policies or {}),

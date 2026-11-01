@@ -279,7 +279,7 @@ def test_tdse_runtime_statistics_refuse_legacy_rate_observables(march_problem, n
 def test_shared_rk_driver_refuses_persisted_response_budgets(
     narrow_grid, linear_problem, kind
 ):
-    """A backend without persistent budget accounting cannot silently reset it."""
+    """A Runge-Kutta backend keeps no logical ledger and refuses an atomic one."""
     problem = linear_problem(narrow_grid, save_planes=[1e-5], dz_init=1e-6)
     backend = NumbaCpuBackend(
         problem, grid=narrow_grid, threads=1, fftw_threads=1, plan_flag="estimate"
@@ -288,11 +288,14 @@ def test_shared_rk_driver_refuses_persisted_response_budgets(
         backend.restore_call_ledgers({}, None)
         logical = {"startup": 1} if kind == "logical" else {}
         atomic = {"attempted": 1} if kind == "atomic" else None
-        message = (
-            "require an Adams run" if kind == "logical" else "does not restore atomic"
-        )
-        with pytest.raises(BackendError, match=message):
+        if kind == "logical":
+            # A Runge-Kutta march keeps no logical ledger: the counts stay with the
+            # earlier execution as provenance, not installed (SEP 42 section 5.6).
             backend.restore_call_ledgers(logical, atomic)
+            assert backend._adams is None
+        else:
+            with pytest.raises(BackendError, match="does not restore atomic"):
+                backend.restore_call_ledgers(logical, atomic)
     finally:
         backend.close()
 
@@ -301,7 +304,7 @@ def test_shared_rk_driver_refuses_persisted_response_budgets(
 def test_reference_rk_restoration_requires_the_matching_response_path(
     narrow_grid, linear_problem, kind
 ):
-    """Valid ledger records still require their Adams or TDSE execution owner."""
+    """An atomic ledger requires its TDSE owner; a logical one is provenance here."""
     problem = linear_problem(narrow_grid, save_planes=[1e-5], dz_init=1e-6)
     backend = NumpyRefBackend(problem, grid=narrow_grid)
     try:
@@ -311,11 +314,13 @@ def test_reference_rk_restoration_requires_the_matching_response_path(
             if kind == "atomic"
             else None
         )
-        message = (
-            "require an Adams run" if kind == "logical" else "requires a TDSE binding"
-        )
-        with pytest.raises(BackendError, match=message):
+        if kind == "logical":
+            # Not installed in a Runge-Kutta march (SEP 42 section 5.6).
             backend.restore_call_ledgers(logical, atomic)
+            assert backend._adams is None
+        else:
+            with pytest.raises(BackendError, match="requires a TDSE binding"):
+                backend.restore_call_ledgers(logical, atomic)
     finally:
         backend.close()
 

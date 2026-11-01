@@ -530,7 +530,7 @@ def test_a_changed_guide_table_or_material_refuses_by_the_field_that_moved(
     metadata = build(other, grid).metadata()
     changed = stored.differences(metadata)
     assert any(one.startswith(f"modal.{field}") for one in changed), changed
-    with pytest.raises(OutputError, match="these fields changed"):
+    with pytest.raises(OutputError, match="cannot be resumed"):
         check_cache(written, metadata)
 
 
@@ -603,7 +603,7 @@ def test_the_noise_realisation_is_recorded_and_reconstructed_on_resume(
     other = build(guide, grid, noise="input", seed=18)
     changed = stored.differences(other.metadata())
     assert any(one.startswith("noise") for one in changed), changed
-    with pytest.raises(OutputError, match="these fields changed"):
+    with pytest.raises(OutputError, match="cannot be resumed"):
         check_cache(path, other.metadata())
 
 
@@ -708,7 +708,7 @@ def test_a_file_in_one_basis_refuses_to_resume_in_another(grid, basis_pair, tmp_
     ):
         assert any(one.startswith(field) for one in changed), changed
     assert stored.configuration_hash() != other.configuration_hash()
-    with pytest.raises(OutputError, match="these fields changed"):
+    with pytest.raises(OutputError, match="cannot be resumed"):
         check_cache(path, other)
 
 
@@ -726,7 +726,7 @@ def test_a_file_without_a_basis_refuses_to_resume_with_one(grid, basis_pair, tmp
     changed = stored.differences(other)
     assert any(one.startswith("modal.metric.gauge_id") for one in changed), changed
     assert any(one.startswith("modal.tables.gauge_id") for one in changed), changed
-    with pytest.raises(OutputError, match="these fields changed"):
+    with pytest.raises(OutputError, match="cannot be resumed"):
         check_cache(path, other)
 
 

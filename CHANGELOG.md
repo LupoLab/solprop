@@ -22,9 +22,32 @@ All notable changes to solprop are recorded here. The format follows
   `from_*` do.
 - `solprop.sol` exports `wavelength_to_axis`, which the plots' documentation sends the
   reader to.
+- `resume="force"` continues a file across changed physics, in the same file, while
+  the stored arrays' layout agrees, the statistics fit and work is left: the Adams
+  history restarts, the session's execution record marks the file, and later sessions
+  and readers respect the mark (SEP 42, ADR-063). `RunMetadata.compare` and
+  `solprop.output.compatibility` hold the comparison; `RunOutcome.resumes` and
+  `RunOutcome.forced_positions` read back how each session continued its file.
 
 ### Changed
 
+- A resume compares the stored and requested run records path by path instead of
+  requiring equal configuration hashes (SEP 42, ADR-063). The layout and the physics
+  must agree, numbers to 1e-11 per element, so a run resumes after an upgrade that adds
+  a field with a declared neutral value, after an optmat release that changed no number
+  it uses, or on another platform; a changed tolerance or integrator continues an
+  unfinished run, with a warning and a record of it, and a finished file is returned
+  only under the numerics every session ran. optmat models are compared by the digest
+  of their numbers, so a changed optmat version, model name or status no longer refuses
+  a resume. A refusal names what differs by class and part of the record, and says what
+  to do instead. An Adams history continues across a changed call budget or safety
+  factor, an Adams file continues under Runge-Kutta, and the interpolated-plane refusal
+  is decided by the file, whatever `interpolate_planes` the resuming run asks for.
+  `source=` in `field_plane` is checked by the same comparison.
+- A scan rerun reuses a finished point whose record differs only in rounding, a neutral
+  value or provenance, and refuses one whose numerics or physics changed, naming what;
+  the `Queue` and `Slurm` executors keep exact identity (SEP 42). The output schema is
+  bumped only for a change an older reader would misread (ADR-063).
 - `backend="auto"` now warns, once per process, whenever it chooses `numba_cpu`: when
   `solprop-native` is not installed as well as on a processor below its wheel's baseline.
   The warning says how to install the native backend; an explicit `backend="numba_cpu"`
@@ -61,6 +84,10 @@ All notable changes to solprop are recorded here. The format follows
     other annotation names. The stored name is still `"run_summary"`.
 - `mode_average=True` beside `tdse=` is refused by name when the simulation is built. It
   used to build, then fail at translation with a message that did not name it.
+- `resume` takes `False`, `True`, `"interpolated"` or `"force"`, and any other value is a
+  `ValueError`: a mistyped word used to read as `True`. An appending `HDF5Output` holds
+  the file's own record as its `metadata` after a resume, not the one offered, and
+  compares the two instead of requiring equal hashes (SEP 42).
 - The output schema is 2: a `DataPulse` records its `spectral_phase` (below), and every
   field of a recorded dataclass is recorded, at its default too. This release refuses
   a file written by 0.1.0, and every configuration hash moves, so a 0.1.0 run cannot be

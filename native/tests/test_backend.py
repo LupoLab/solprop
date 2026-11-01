@@ -408,17 +408,17 @@ def test_schema_requires_the_inherited_response_accounting_hooks(
         check_build()
 
 
-def test_runge_kutta_native_resume_refuses_response_ledgers(
+def test_runge_kutta_native_resume_keeps_no_logical_ledger(
     phase_a_case: PhaseACase,
 ) -> None:
     problem, grid = phase_a_case
     backend = NativeBackend(problem, grid=grid)
     try:
         backend.restore_call_ledgers({}, {})
-        with pytest.raises(
-            BackendError, match="logical response calls require an Adams run"
-        ):
-            backend.restore_call_ledgers({"startup": 1}, {})
+        # A Runge-Kutta march keeps no logical ledger: the counts stay with the
+        # earlier execution as provenance, not installed (SEP 42 section 5.6).
+        backend.restore_call_ledgers({"startup": 1}, {})
+        assert "response_calls" not in backend.metadata()
         with pytest.raises(BackendError, match="does not restore"):
             backend.restore_call_ledgers({}, {"attempted": 1})
     finally:

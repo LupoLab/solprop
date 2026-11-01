@@ -25,15 +25,19 @@ internal objects and stay in the FFT convention, marked so by
 **Provenance, not source.** The provenance is the resolved configuration, the
 package versions and the git commit with a dirty flag -- never the source text.
 
-**The resume key.** :meth:`RunMetadata.configuration_hash` digests the schema version,
-the grid, the modes, the configuration, the noise, the stepper settings with the
-stepping method when it is not the tableau (SEP 13), and the identities and policies
-of the run's material manifest, and nothing else: not the
-wall-clock time the run started, not the package versions, and not the git provenance,
-so that a resume survives an unrelated commit or a dirty working tree. It is a SHA-256
-of canonical JSON rather than :func:`hash`, so it is stable across processes, and it
-covers the physics rather than only the statistic names and the state shape, so a
-resume with different physics of the same shape is refused.
+**The resume key.** :meth:`RunMetadata.hashed` is the part of the record that says what
+was computed: the schema version, the grid, the modes, the configuration, the noise, the
+stepper settings with the stepping method when it is not the tableau (SEP 13), and the
+identities and policies of the run's material manifest, and nothing else: not the
+wall-clock time the run started, not the package versions, and not the git provenance.
+:meth:`RunMetadata.configuration_hash` is a SHA-256 of its canonical JSON rather than
+:func:`hash`, so it is stable across processes; it is stamped in every file and is the
+exact identity a suspended writer, a snapshot and a scan row are checked by. A resume
+compares the hashed parts path by path instead (:meth:`RunMetadata.compare`, SEP 42):
+the layout and the physics must agree, the numerics may change, and provenance is
+ignored, so a resume with different physics of the same shape is refused and a run
+continues after an upgrade or on another platform. A record read from a file is
+compared as it was written.
 
 The manual page is ``docs/guide/results/output.md``.
 """
@@ -55,7 +59,7 @@ from enum import Enum
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _package_version
 from pathlib import Path
-from typing import Literal, Protocol, cast, runtime_checkable
+from typing import Any, Literal, Protocol, cast, runtime_checkable
 
 import numpy as np
 from jaxtyping import Bool, Complex, Float, Int
@@ -68,7 +72,8 @@ from solprop.grid import EnvelopeGrid, TimeGrid
 from solprop.modes.material import JsonValue
 from solprop.modes.protocol import Mode, TransverseMeasure
 from solprop.noise import NoiseRealisation
-from solprop.physdata.selection import MaterialManifest
+from solprop.output import compatibility
+from solprop.physdata.selection import MaterialManifest, hashed_document
 from solprop.stepper import FixedSchedule, PIController, Tableau
 
 __all__ = [
@@ -580,24 +585,104 @@ def _decode(value: JsonValue) -> object:
     return value
 
 
-def _rebuild[T](build: Callable[..., T], record: Mapping[str, JsonValue]) -> T:
-    """Return a record instance from the dictionary :func:`serialise` made of it.
+def _stored_entry(
+    document: Mapping[str, JsonValue],
+    name: str,
+    path: tuple[str, ...],
+    *,
+    default: JsonValue = None,
+    required: bool = False,
+) -> JsonValue:
+    """Return one entry of a stored record, reading an absent one as neutral.
+
+    Another release of the same output schema may lack an entry (SEP 42 section 5.4):
+    it reads as its neutral value (:func:`solprop.output.compatibility.neutral_value`),
+    else as `default`, unless it is required.
 
     Parameters
     ----------
-    build : collections.abc.Callable
-        The record class to rebuild, called with the fields as keyword arguments.
+    document : collections.abc.Mapping
+        The stored mapping.
+    name : str
+        The entry.
+    path : tuple of str
+        Where the mapping sits in the run record.
+    default : object, optional
+        What an absent entry with no neutral value reads as.
+    required : bool, optional
+        Whether an absent entry with no neutral value is refused.
+
+    Returns
+    -------
+    object
+        The entry, its neutral value or `default`.
+
+    Raises
+    ------
+    OutputError
+        If a required entry is absent and has no neutral value.
+    """
+    if name in document:
+        return document[name]
+    found, value = compatibility.neutral_value((*path, name))
+    if found:
+        return value
+    if required:
+        msg = f"stored metadata lacks {compatibility.dotted((*path, name))}"
+        raise OutputError(msg)
+    return default
+
+
+def _rebuild[T](
+    build: type[T],
+    record: Mapping[str, JsonValue],
+    path: tuple[str | int, ...] = (),
+) -> T:
+    """Return a record instance from the dictionary :func:`serialise` made of it.
+
+    The instance is for reading. A record another release of the same output schema
+    wrote may lack a field this class has, or hold one it does not (SEP 42 section
+    5.4): a field the class no longer has is dropped, and an absent field is filled
+    from its neutral value (:func:`solprop.output.compatibility.neutral_value`) or,
+    where it has one, the field's default. A resume never compares the rebuilt
+    instance: it compares the stored text (:meth:`RunMetadata.compare`).
+
+    Parameters
+    ----------
+    build : type
+        The record dataclass to rebuild, called with the fields as keyword arguments.
     record : collections.abc.Mapping
         Its serialised form.
+    path : tuple, optional
+        Where the record sits in the run record, for a refusal.
 
     Returns
     -------
     object
         The rebuilt record.
+
+    Raises
+    ------
+    OutputError
+        If a required field is absent and has no neutral value.
     """
-    arguments = {
-        name: _decode(item) for name, item in record.items() if name != "__class__"
-    }
+    fields = {entry.name: entry for entry in dataclasses.fields(build) if entry.init}  # pyright: ignore[reportArgumentType] - a record dataclass
+    arguments = {name: _decode(item) for name, item in record.items() if name in fields}
+    for name, entry in fields.items():
+        if name in arguments:
+            continue
+        found, value = compatibility.neutral_value((*path, name))
+        if found:
+            arguments[name] = _decode(value)
+        elif (
+            entry.default is dataclasses.MISSING
+            and entry.default_factory is dataclasses.MISSING
+        ):
+            msg = (
+                f"stored metadata lacks {compatibility.dotted((*path, name))}, which "
+                "this release requires and declares no neutral value for"
+            )
+            raise OutputError(msg)
     return build(**arguments)
 
 
@@ -1359,15 +1444,26 @@ class StepperRecord:
         >>> StepperRecord.from_record(serialise(one)).tableau
         'Tsit5'
         """
-        schedule = _decode(document["schedule"])
+        # Another release of this schema may lack an optional field (SEP 42 §5.4).
+        stored = cast(
+            "Callable[..., Any]",
+            functools.partial(_stored_entry, document, path=("stepper",)),
+        )
+
+        schedule = _decode(stored("schedule"))
+        limits = stored("limits")
         return cls(
-            tableau=str(document["tableau"]),
-            controller=cast("dict[str, JsonValue]", document["controller"]),
-            limits=_rebuild(
-                StepLimits, cast("dict[str, JsonValue]", document["limits"])
+            tableau=str(stored("tableau", required=True)),
+            controller=cast(
+                "dict[str, JsonValue]", stored("controller", required=True)
+            ),
+            limits=StepLimits()
+            if limits is None
+            else _rebuild(
+                StepLimits, cast("dict[str, JsonValue]", limits), ("stepper", "limits")
             ),
             schedule=None if schedule is None else np.asarray(schedule, dtype=float),
-            method=_optional_text(document["method"]),
+            method=_optional_text(stored("method")),
         )
 
 
@@ -1853,6 +1949,55 @@ class RunOutcome:
             tuple(_outcome_record(record) for record in self.previous_executions),
         )
 
+    @property
+    def resumes(self) -> tuple[Mapping[str, object], ...]:
+        """Return the ``resume`` entries of every session, oldest first (SEP 42).
+
+        A session that continued a file across differences from its record writes one
+        in its execution record before any step: where it continued from, whether it
+        was forced, which numerics it changed (path to stored and requested value),
+        the compared values it forced past, and the paths read as neutral.
+
+        Returns
+        -------
+        tuple of collections.abc.Mapping
+            The entries, from the earlier executions and then this one.
+
+        Examples
+        --------
+        >>> from solprop.output.schema import RunOutcome
+        >>> resume = {"from_z": 0.04, "forced": True, "numerics": {}}
+        >>> RunOutcome("running", 0.05, execution={"resume": resume}).forced_positions
+        (0.04,)
+        """
+        executions = [
+            record.get("execution") for record in self.previous_executions
+        ] + [self.execution]
+        return tuple(
+            cast("Mapping[str, object]", execution["resume"])
+            for execution in executions
+            if isinstance(execution, Mapping)
+            and isinstance(execution.get("resume"), Mapping)
+        )
+
+    @property
+    def forced_positions(self) -> tuple[float, ...]:
+        """Return where sessions forced a resume past a compared difference, m.
+
+        From such a position on, the file's record does not describe its planes
+        (SEP 42 section 5.5): what is rebuilt from the record is not what stepped.
+
+        Returns
+        -------
+        tuple of float
+            The positions, oldest first; empty for a file never forced.
+        """
+        return tuple(
+            float(cast("float", entry["from_z"]))
+            for entry in self.resumes
+            if entry.get("forced")
+        )
+
 
 def _outcome_record(record: Mapping[str, object]) -> dict[str, object]:
     """Own finite JSON values so later provider mutations cannot change a snapshot.
@@ -1925,9 +2070,9 @@ class MarchSnapshot:  # numpydoc ignore=PR02
     What a resume needs to carry on as the uninterrupted run would: the accepted state
     exactly as the backend held it, the history's samples in their engine rows, which
     sample each history entry is, the order, the rejection count and the step the
-    controller proposed next. The configuration hash already fixes the method, so a
-    snapshot is never the record of what was computed, only of where a march stood;
-    a resume that cannot use it starts the history afresh.
+    controller proposed next. A snapshot is never the record of what was computed, only
+    of where a march stood: a resume continues it when its history key matches the
+    resuming method's, and otherwise starts the history afresh.
 
     Equality is by identity (``eq=False``) because the fields hold arrays.
 
@@ -1941,7 +2086,7 @@ class MarchSnapshot:  # numpydoc ignore=PR02
     proposal : float
         The step the controller proposed next, m.
     method : str
-        The method's representation, which the resuming run's must equal.
+        The method's representation, kept as provenance.
     order : int
         The order chosen for the next step.
     rejections : int
@@ -1962,6 +2107,11 @@ class MarchSnapshot:  # numpydoc ignore=PR02
         Whether the in-stage collar was left out, quiet, at the last attempt, which
         holds the first step after it returns to its stable step (SEP 39 section
         6.5.9).
+    history_key : str or None
+        What defines the history
+        (:attr:`solprop.stepper.multistep.Multistep.history_key`), which the resuming
+        method's must equal; ``None`` for a snapshot that names none, which starts the
+        history afresh (SEP 42 section 5.6).
 
     Raises
     ------
@@ -1994,6 +2144,7 @@ class MarchSnapshot:  # numpydoc ignore=PR02
     slots: Int[np.ndarray, " n_entries"]
     rows: Mapping[str, np.ndarray]
     collar_was_quiet: bool = False
+    history_key: str | None = None
 
     def __post_init__(self) -> None:
         """Refuse a snapshot whose entries disagree or whose numbers are not finite.
@@ -2149,6 +2300,61 @@ def _refuse_schema(declared: object) -> None:
         "not read; read it with the solprop version that wrote it"
     )
     raise OutputError(msg)
+
+
+_HASHED_KEYS: tuple[str, ...] = (
+    "schema_version",
+    "simulation_kind",
+    "grid",
+    "modes",
+    "configuration",
+    "noise",
+    "stepper",
+    "spatial",
+    "power_convention",
+    "modal",
+    "materials",
+    "initial_z",
+    "tdse",
+    "quadrature",
+)
+"""The entries of :meth:`RunMetadata.hashed`, in the order it builds them."""
+
+
+def _stored_hashed(document: Mapping[str, JsonValue]) -> dict[str, JsonValue]:
+    """Return the hashed part of a stored record, as the stored text holds it.
+
+    The entries :meth:`RunMetadata.hashed` covers, taken from the document rather than
+    from the objects rebuilt from it: the general modal identity without its accessor
+    list (:func:`_hashed_modal`), and the material manifest's hashed part
+    (:func:`solprop.physdata.selection.hashed_document`). An entry the document lacks
+    stays absent, so the record digests to the stamp its writer computed.
+
+    Parameters
+    ----------
+    document : collections.abc.Mapping
+        A stored record, as :meth:`RunMetadata.to_json` wrote it.
+
+    Returns
+    -------
+    dict
+        Its hashed part.
+    """
+    hashed = {name: document[name] for name in _HASHED_KEYS if name in document}
+    modal = hashed.get("modal")
+    if isinstance(modal, dict):
+        hashed["modal"] = {
+            key: value for key, value in modal.items() if key != "accessors"
+        }
+    if "materials" in hashed:
+        materials = hashed["materials"]
+        hashed["materials"] = cast(
+            "JsonValue",
+            hashed_document(
+                None if materials is None else cast("dict[str, object]", materials)
+            ),
+        )
+    return hashed
 
 
 def _hashed_modal(modal: Mapping[str, object] | None) -> JsonValue:
@@ -2550,6 +2756,9 @@ class RunMetadata(Displayed):
     quadrature: Mapping[str, object] | None = None
     reference: Mapping[str, object] | None = None
     noise_resolution: NoiseResolution | None = None
+    _stored: dict[str, JsonValue] | None = dataclasses.field(
+        default=None, init=False, repr=False, compare=False, metadata={"record": False}
+    )
 
     def __repr__(self) -> str:
         """Return a one-line description: what kind of run, on what, made when.
@@ -2721,8 +2930,11 @@ class RunMetadata(Displayed):
         Returns
         -------
         dict
-            The hashed part of the record, JSON-ready.
+            The hashed part of the record, JSON-ready: as the file holds it for a
+            record read from one (:meth:`from_json`).
         """
+        if self._stored is not None:
+            return self._stored
         return {
             "schema_version": self.schema_version,
             "simulation_kind": self.simulation_kind,
@@ -2807,6 +3019,43 @@ class RunMetadata(Displayed):
         found: list[str] = []
         _differences(self.hashed(), other.hashed(), "", found)
         return tuple(found)
+
+    def compare(self, requested: "RunMetadata") -> compatibility.RecordComparison:  # noqa: UP037 - bound after the class body
+        """Compare this stored record with a requested one, path by path (SEP 42).
+
+        Each difference is sorted by :data:`solprop.output.compatibility.CLASS_TABLE`
+        into the layout, which no resume continues across; compared paths (physics and
+        launch parameters), which only a forced resume continues across; and the
+        numerics, which a resume continues across while there is work left, recording
+        them. Provenance is ignored, numbers agree per element to
+        :data:`~solprop.output.compatibility.RECORD_RTOL`, and a path one record lacks
+        is a difference unless a release declared its neutral value. Equal digests
+        mean no differences, without a walk.
+
+        Parameters
+        ----------
+        requested : RunMetadata
+            The record of the run asked for.
+
+        Returns
+        -------
+        solprop.output.compatibility.RecordComparison
+            The differences, by class.
+
+        Examples
+        --------
+        >>> import dataclasses
+        >>> from solprop.output.schema import _example_metadata
+        >>> stored = _example_metadata()
+        >>> stored.compare(stored).continues
+        True
+        >>> changed = dataclasses.replace(stored, configuration={"gamma": 0.22})
+        >>> print(stored.compare(changed).summary())
+        these compared values differ: configuration: gamma 0.11 -> 0.22
+        """
+        if self.configuration_hash() == requested.configuration_hash():
+            return compatibility.RecordComparison()
+        return compatibility.compare_records(self.hashed(), requested.hashed())
 
     def summarise_differences(
         self,
@@ -2960,35 +3209,51 @@ class RunMetadata(Displayed):
         except json.JSONDecodeError as error:
             msg = f"stored metadata is not valid JSON: {error}"
             raise OutputError(msg) from error
+        if not isinstance(document, dict) or "schema_version" not in document:
+            msg = "stored metadata is missing or malformed: no schema_version"
+            raise OutputError(msg)
+        # The version first: a file of another schema is refused by its version,
+        # not by the first field its layout lacks.
+        _refuse_schema(document["schema_version"])
+
+        # Another release of this schema may lack a top-level entry (SEP 42 §5.4).
+        stored = cast(
+            "Callable[..., Any]", functools.partial(_stored_entry, document, path=())
+        )
+
         try:
-            # The version first: a file of another schema is refused by its version,
-            # not by the first field its layout lacks.
-            _refuse_schema(document["schema_version"])
-            noise = document["noise"]
-            resolution = document["noise_resolution"]
-            git = document["git"]
-            backend = document["backend"]
-            return cls(
-                grid=_rebuild(GridRecord, document["grid"]),
-                modes=tuple(_rebuild(ModeRecord, one) for one in document["modes"]),
+            noise = stored("noise")
+            resolution = stored("noise_resolution")
+            git = stored("git")
+            backend = stored("backend")
+            metadata = cls(
+                grid=_rebuild(GridRecord, document["grid"], ("grid",)),
+                modes=tuple(
+                    _rebuild(ModeRecord, one, ("modes", index))
+                    for index, one in enumerate(document["modes"])
+                ),
                 simulation_kind=document["simulation_kind"],
                 configuration=document["configuration"],
                 stepper=StepperRecord.from_record(document["stepper"]),
-                noise=None if noise is None else _rebuild(NoiseRecord, noise),
+                noise=None
+                if noise is None
+                else _rebuild(NoiseRecord, noise, ("noise",)),
                 backend=None if backend is None else _rebuild(BackendRecord, backend),
-                versions=document["versions"],
+                versions=cast("Mapping[str, str]", stored("versions", default={})),
                 git=None if git is None else _rebuild(GitProvenance, git),
-                created=document["created"],
+                created=str(stored("created", default="")),
                 schema_version=document["schema_version"],
-                spectral_convention=document["spectral_convention"],
-                field_layout=document["field_layout"],
-                spatial=document["spatial"],
-                modal=document["modal"],
-                materials=MaterialManifest.from_dict(document["materials"]),
-                initial_z=document["initial_z"],
-                tdse=document["tdse"],
-                quadrature=document["quadrature"],
-                reference=document["reference"],
+                spectral_convention=str(
+                    stored("spectral_convention", default=SPECTRAL_CONVENTION)
+                ),
+                field_layout=str(stored("field_layout", default=FIELD_LAYOUT)),
+                spatial=stored("spatial"),
+                modal=stored("modal"),
+                materials=MaterialManifest.from_dict(stored("materials")),
+                initial_z=stored("initial_z", default=0.0),
+                tdse=stored("tdse"),
+                quadrature=stored("quadrature"),
+                reference=stored("reference"),
                 noise_resolution=None
                 if resolution is None
                 else _rebuild(NoiseResolution, resolution),
@@ -2996,6 +3261,10 @@ class RunMetadata(Displayed):
         except (KeyError, TypeError, MaterialError) as error:
             msg = f"stored metadata is missing or malformed: {error}"
             raise OutputError(msg) from error
+        # The record as written: it digests to its own stamp and is compared by its
+        # own text, whatever today's code would write (SEP 42 section 5.4).
+        object.__setattr__(metadata, "_stored", _stored_hashed(document))
+        return metadata
 
 
 def _example_metadata() -> RunMetadata:
@@ -3500,6 +3769,7 @@ class PlaneStore(Displayed, ABC):
     def __init__(self) -> None:
         """Start with nothing stored and nothing opened."""
         self._metadata: RunMetadata | None = None
+        self._session_resume: dict[str, object] | None = None
         self._n_saved = 0
         self._planned = 0
         self._closed = False
@@ -3536,6 +3806,21 @@ class PlaneStore(Displayed, ABC):
         """
         return self._terminal_checkpoint
 
+    def record_resume(self, entry: Mapping[str, object]) -> None:
+        """Attach a ``resume`` entry to every execution record this session writes.
+
+        A session that continues a file across differences from its record says how
+        (SEP 42 section 5.3): every outcome it records from now on carries the entry
+        in its execution record, the first included, so a session that stops or fails
+        still leaves it, and :attr:`RunOutcome.resumes` reads it back.
+
+        Parameters
+        ----------
+        entry : collections.abc.Mapping
+            The entry: finite JSON values.
+        """
+        self._session_resume = dict(entry)
+
     def record_outcome(
         self, outcome: RunOutcome, checkpoint: TerminalCheckpoint | None = None
     ) -> None:
@@ -3556,6 +3841,10 @@ class PlaneStore(Displayed, ABC):
         """
         self._check_usable()
         self._require_metadata()
+        if self._session_resume is not None:
+            outcome = dataclasses.replace(
+                outcome, execution={**outcome.execution, "resume": self._session_resume}
+            )
         previous = self._outcome
         if previous is not None:
             history = previous.previous_executions

@@ -156,15 +156,23 @@ Then, for every release:
    `CITATION.cff` the same `version` and `date-released`
    (`tests/test_release_metadata.py` checks that they agree). The commit that does so
    is the release commit.
-6. Check that CI passed on the release commit. When it merged a pull request whose head
+6. Freeze the release's run records (ADR-063). For 0.2.0, refresh
+   `tests/output/test_record_stability/frozen/0.2.0` with `write_frozen("0.2.0")` in
+   `tests/output/test_record_stability.py`, on the tree being released, and include it in
+   the release commit. For every later release, once it is tagged, check out the tag, run
+   `write_frozen("X.Y.Z")` there and commit the new folder to `main`: the records come
+   from the tree that was released, and are never regenerated. When a minor release is
+   out, delete the folder of the release before it, and the entries of
+   `solprop.output.compatibility.NEUTRAL_VALUES` that name that release.
+7. Check that CI passed on the release commit. When it merged a pull request whose head
    has the same tree and passed CI, the push to `main` runs none of CI's lanes
    ([CI](tooling.md#ci)), and that pull request's run is the release commit's record.
-7. With the release commit at the head of `main`, run the wheels workflow on it,
+8. With the release commit at the head of `main`, run the wheels workflow on it,
    `gh workflow run wheels.yml --ref main`, and wait for it to pass. It is the only
    workflow that builds and tests the Linux aarch64 wheel, and on `main` it otherwise
    runs only weekly. On a branch the publish jobs are skipped, so this is a dry run of
    the release.
-8. Then tag that commit, as below.
+9. Then tag that commit, as below.
 
 ### Tagging and publishing
 

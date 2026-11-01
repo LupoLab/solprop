@@ -9,6 +9,7 @@ plane, which is all a resume check reads.
 """
 
 import json
+import re
 from typing import Any
 
 import numpy as np
@@ -107,24 +108,29 @@ def test_the_printed_record_names_optmat_and_its_models(selected):
 @pytest.mark.parametrize(
     ("materials", "entry"),
     [
-        (MaterialSelection(electronic="carrier-kerr"), "materials.policies.electronic"),
-        (MaterialSelection(carrier_wavelength=800e-9), "materials.policies.carrier"),
+        (
+            MaterialSelection(electronic="carrier-kerr"),
+            "materials: policies.electronic",
+        ),
+        (MaterialSelection(carrier_wavelength=800e-9), "materials: policies.carrier"),
     ],
     ids=["electronic", "carrier"],
 )
 def test_a_changed_policy_refuses_resume(tmp_path, selected, materials, entry):
     path = written(tmp_path / "run.h5", selected)
-    with pytest.raises(OutputError, match=entry.replace(".", r"\.")) as refused:
+    with pytest.raises(OutputError, match=re.escape(entry)) as refused:
         check_cache(path, metadata(materials))
     assert "the material manifest differs" in str(refused.value)
 
 
-def test_a_changed_optmat_version_refuses_resume(tmp_path, selected, monkeypatch):
-    # Deliberately conservative: the version alone refuses, whatever moved.
+def test_a_changed_optmat_version_alone_resumes(tmp_path, selected, monkeypatch):
+    # The version is provenance: a model is compared by the digest of its numbers,
+    # so a release that moved none of them continues the run (SEP 42).
     path = written(tmp_path / "run.h5", selected)
     monkeypatch.setattr(_optmat, "optmat_version", lambda: "0.1.2")
-    with pytest.raises(OutputError, match=r"materials\.optmat_version"):
-        check_cache(path, metadata())
+    changed = metadata()
+    assert changed.configuration_hash() != selected.configuration_hash()
+    assert check_cache(path, changed)
 
 
 def test_a_malformed_stored_manifest_is_refused_on_reading(selected):
@@ -189,7 +195,7 @@ def test_a_changed_raman_or_ionisation_choice_refuses_resume(
     other = run_metadata(gas, changed, **run)
     assert other.configuration_hash() != base.configuration_hash()
     path = written(tmp_path / "run.h5", base)
-    with pytest.raises(OutputError, match=r"materials\.") as refused:
+    with pytest.raises(OutputError, match=r"materials: ") as refused:
         check_cache(path, other)
     assert "the material manifest differs" in str(refused.value)
     assert check_cache(path, run_metadata(gas, SELECTION, **run))
