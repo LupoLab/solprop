@@ -6,9 +6,9 @@
 | **Title** | Recipes, and the hooks a front end needs |
 | **Author** | John C. Travers |
 | **Drafting agent** | Claude Opus 5.5 (2026-10-31) |
-| **Status** | Draft |
-| **Review status** | In review |
-| **Reviewers** | Opus 5.5 (AI), Codex (AI) |
+| **Status** | Accepted |
+| **Review status** | Reviewed |
+| **Reviewers** | John Travers (human); Opus 5.5 (AI); Codex (AI) |
 | **Type** | Change |
 | **Created** | 2026-10-31 |
 | **Resolution** | — |
@@ -1063,17 +1063,16 @@ order puts what it needs first.
   needed and the fallback is gone (section 9).
 - **Q9. The shape of format 1.** One `[build]` table with no group tables (recommended,
   §5.1, §6), or the group tables the maintainer first approved, with their names changed so
-  that none is a keyword. **Reopened by the supplementary review; to confirm.**
+  that none is a keyword. **Decision (John Travers, 2026-11-01):** as recommended.
 - **Q10. A stop that returns.** `run(stop=)` returns the handler when its own flag stops it
   (recommended, §5.17), or raises like SIGTERM, a `SystemExit` that a front end's `except
-  Exception` misses and that ends a worker thread silently. **To confirm.**
+  Exception` misses and that ends a worker thread silently. **Decision (John Travers, 2026-11-01):** as recommended.
 - **Q11. One way only.** Drop `Recipe.from_call` for `Recipe.from_keywords` with plain
   values, and never turn an object into a table (recommended, §5.1), or have factories
-  attach their tables so that more calls can be captured. **Reopened by the supplementary
-  review; to confirm.**
+  attach their tables so that more calls can be captured. **Decision (John Travers, 2026-11-01):** as recommended.
 - **Q12. Edited recipes lose their comments.** `save` is verbatim until a recipe is edited
   and canonical after (recommended, §5.1), or preserve comments, which needs a TOML library
-  that keeps them, a heavier dependency than Q6 took. **To confirm.**
+  that keeps them, a heavier dependency than Q6 took. **Decision (John Travers, 2026-11-01):** as recommended.
 
 ### 13. References
 
@@ -1116,6 +1115,8 @@ order puts what it needs first.
   the maintainer's leave to reopen earlier decisions: one `[build]` table, factories with a declared
   context, one-way recipes, a resolved recipe defined by what rebuilds the run, a recipe carried by
   the simulation, a stop that returns, and SEP 42 as a requirement. Q9–Q12 ask for confirmation.
+- 2026-11-01: Human review (John Travers), and decisions on Q9–Q12 as recommended. Accepted by
+  John Travers; Part I frozen.
 
 ### AI review, 2026-10-31
 
