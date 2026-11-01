@@ -257,9 +257,12 @@ def record(
     solprop.output.schema.RecipeRecord
         The authored and resolved texts, and the data files.
     """
+    # A pinned recipe builds through its resolved copy, which remembers the authored
+    # text with its pins (Recipe.resolve).
+    authored = recipe._authored or recipe
     return RecipeRecord(
         FORMAT,
-        recipe.to_text(),
+        authored.to_text(),
         dump_text(resolved_document(recipe, simulation)),
         _files(recipe, base, allow_outside=allow_outside),
     )

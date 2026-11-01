@@ -50,6 +50,8 @@ if TYPE_CHECKING:
     from solprop.grid import TimeGrid
     from solprop.log import ProgressChoice, ProgressReporter, StopFlag
     from solprop.output.schema import Output
+    from solprop.recipe.pins import Pin
+    from solprop.tools import DesignRoots
 
 __all__ = [
     "ROUTES",
@@ -162,6 +164,9 @@ class Recipe:
         # and the generated name each is filed under (from_output).
         self._embedded: dict[str, bytes] = {}
         self._filed: dict[str, str] = {}
+        # The authored recipe a resolved one was solved from (resolve), whose text a
+        # run records beside the resolved one.
+        self._authored: Recipe | None = None
         self.route = str(self._document["recipe"]["route"])
         if self.route not in ROUTES:
             raise unknown_key(
@@ -563,20 +568,27 @@ class Recipe:
                 self._decode(name, value, _deferred(context))
             except RecipeError as error:
                 issues.append(_issue(error))
+        pinned = set(self._document.get("pins", {}))
         missing = [
             name
             for name, entry in self._table().items()
-            if entry.default is REQUIRED and name not in self._document["build"]
+            if entry.default is REQUIRED
+            and name not in self._document["build"]
+            and name not in pinned
         ]
         issues.extend(
             RecipeIssue(f"{name} is required", name, "error") for name in missing
         )
         if issues:
             return issues
+        try:
+            resolved = self.resolve()
+        except RecipeError as error:
+            return [_issue(error)]
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always", SolpropWarning)
             try:
-                self.build().translate()
+                resolved.build().translate()
             except SolpropError as error:
                 issues.append(_issue(error))
         issues.extend(
@@ -621,12 +633,16 @@ class Recipe:
     def build(self) -> "Simulation":  # noqa: UP037 - checked at run time
         """Build the simulation the recipe describes, without running it.
 
+        Pins are solved first (:meth:`resolve`).
+
         Returns
         -------
         solprop.driver.simulation.Simulation
             The simulation, with ``[execution]``'s settings applied, carrying this
             recipe, which its first run records in its output.
         """
+        if self._document.get("pins"):
+            return self.resolve().build()
         builder = surface(self.route)
         simulation = builder(**self.keywords())
         if any(_needs_grid(value) for value in self._document["build"].values()):
@@ -640,6 +656,172 @@ class Recipe:
         # The simulation carries its recipe, which its first run records (S2).
         simulation._recipe = self
         return simulation
+
+    # ------------------------------------------------------------------ pins
+
+    def resolve(self) -> "Recipe":  # noqa: UP037 - the class, checked at run time
+        """Return the recipe with each pin replaced by its solved value.
+
+        The pin on the guide or fill is solved first, on the launch mode at the
+        launch position; the pins on pulses then read the mode it settled
+        (:mod:`solprop.recipe.pins`). A run of a pinned recipe records both texts:
+        the authored one with its pins, and the resolved one.
+
+        Returns
+        -------
+        Recipe
+            A recipe without ``[pins]``, its pinned paths set in ``[build]`` as
+            numbers in their keywords' units; a copy of this one when it has no pins.
+
+        Raises
+        ------
+        RecipeError
+            On the pinned path, if a pin does not read, or its target is not met in
+            its search range (naming the attainable range).
+
+        Examples
+        --------
+        >>> from solprop.recipe import Recipe
+        >>> recipe = Recipe.example("soliton_self_compression")
+        >>> document = recipe.to_dict()
+        >>> del document["build"]["energy"]
+        >>> document["pins"] = {"energy": {"target": "soliton_order", "order": 4}}
+        >>> pinned = Recipe.from_dict(document)
+        >>> f"{pinned.resolve().get('energy') * 1e6:.1f} uJ"
+        '126.1 uJ'
+        """
+        from solprop.recipe.pins import read_pins  # noqa: PLC0415 - cycle
+
+        pins = read_pins(self)
+        working = self._copy(("pins",))
+        for pin in pins:
+            if pin.stage == "pulse":
+                working._document["build"] = set_path(
+                    working._document["build"],
+                    parse_path(pin.path),
+                    _placeholder(pin.path),
+                )
+        for pin in pins:
+            value = _pick(pin, working._solve(pin))
+            working._document["build"] = set_path(
+                working._document["build"], parse_path(pin.path), value
+            )
+        working._text = None
+        working._authored = self if pins else None
+        return working
+
+    def pin_roots(self, path: str) -> "DesignRoots":  # noqa: UP037 - TYPE_CHECKING
+        """Return every root of one pin's target, for a front end to choose among.
+
+        A pin on a pulse reads the guide as its own pin (if any) settles it.
+
+        Parameters
+        ----------
+        path : str
+            The pinned path, as ``[pins]`` writes it.
+
+        Returns
+        -------
+        solprop.tools.DesignRoots
+            The roots over the pin's search range, or none with the attainable range.
+
+        Raises
+        ------
+        RecipeError
+            If the path is not pinned, or a pin does not read.
+        """
+        from solprop.recipe.pins import read_pins  # noqa: PLC0415 - cycle
+
+        pins = read_pins(self)
+        steps = format_path(parse_path(path))
+        chosen = next((pin for pin in pins if pin.path == steps), None)
+        if chosen is None:
+            msg = "this path is not pinned"
+            raise RecipeError(msg, path=path)
+        working = self._copy(("pins",))
+        for pin in pins:
+            if pin.stage == "pulse":
+                working._document["build"] = set_path(
+                    working._document["build"],
+                    parse_path(pin.path),
+                    _placeholder(pin.path),
+                )
+        if chosen.stage == "pulse":
+            for pin in pins:
+                if pin.stage == "guide":
+                    working._document["build"] = set_path(
+                        working._document["build"],
+                        parse_path(pin.path),
+                        _pick(pin, working._solve(pin)),
+                    )
+        return working._solve(chosen)
+
+    def _copy(self, drop: tuple[str, ...]) -> "Recipe":  # noqa: UP037 - checked at run time
+        """Return a copy without some top-level tables, its data files kept.
+
+        Parameters
+        ----------
+        drop : tuple of str
+            The tables to leave out.
+
+        Returns
+        -------
+        Recipe
+            The copy.
+        """
+        document = {
+            name: table for name, table in self.to_dict().items() if name not in drop
+        }
+        recipe = Recipe(document, base=self._base, allow_outside=self._allow_outside)
+        recipe._embedded = self._embedded
+        recipe._filed = self._filed
+        return recipe
+
+    def _solve(self, pin: "Pin") -> "DesignRoots":  # noqa: UP037 - TYPE_CHECKING
+        """Solve one pin on this (unpinned) recipe's keywords.
+
+        Parameters
+        ----------
+        pin : solprop.recipe.pins.Pin
+            The pin.
+
+        Returns
+        -------
+        solprop.tools.DesignRoots
+            Its roots.
+        """
+        from solprop.recipe.pins import (  # noqa: PLC0415 - cycle
+            design_target,
+            solve_pin,
+            solve_pulse,
+        )
+
+        keywords = self.keywords()
+        if any(_needs_grid(value) for value in self._document["build"].values()):
+            probe = self._copy(())
+            if pin.stage == "guide" and pin.search is not None:
+                low, high = pin.search
+                probe._document["build"][pin.path] = (
+                    math.sqrt(low * high) if low > 0.0 else 0.5 * (low + high)
+                )
+            keywords = self.keywords(grid=probe.build()._base_grid)
+        if pin.stage == "pulse":
+            keywords.pop(pin.path, None)
+            return solve_pulse(
+                self.route,
+                keywords,
+                pin.path,
+                cast("float", pin.keys["order"]),
+                pin.search,
+            )
+        target = design_target(pin, keywords)
+        return solve_pin(
+            self.route,
+            keywords,
+            pin.path,
+            target,
+            cast("tuple[float, float]", pin.search),
+        )
 
     def record(
         self,
@@ -1106,6 +1288,50 @@ def _renamed(value: object, names: Mapping[str, str]) -> object:
     if isinstance(value, list):
         return [_renamed(item, names) for item in value]
     return value
+
+
+def _placeholder(path: str) -> float:
+    """Return the value a pulse pin stands at while the guide is solved.
+
+    Parameters
+    ----------
+    path : str
+        The pulse pin's path.
+
+    Returns
+    -------
+    float
+        Its placeholder, in SI.
+    """
+    from solprop.recipe.pins import placeholder  # noqa: PLC0415 - cycle
+
+    return placeholder(path)
+
+
+def _pick(pin: "Pin", roots: "DesignRoots") -> float:  # noqa: UP037 - TYPE_CHECKING
+    """Return a pin's chosen root, an unmet target refused on its path.
+
+    Parameters
+    ----------
+    pin : solprop.recipe.pins.Pin
+        The pin.
+    roots : solprop.tools.DesignRoots
+        Its roots.
+
+    Returns
+    -------
+    float
+        The root its ``root`` key chooses.
+
+    Raises
+    ------
+    RecipeError
+        Naming the attainable range when there is no root, or an index past them.
+    """
+    try:
+        return roots.pick(pin.root)
+    except SolpropError as error:
+        raise RecipeError(str(error), path=pin.path) from error
 
 
 def resume_file(

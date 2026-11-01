@@ -135,6 +135,45 @@ carrier, and at least half the carrier frequency on the `gnlse` route or all of 
 knows nothing of the medium or the length, so it is a starting point: check the spectrum
 at the band's edges and the boundary monitor's verdict.
 
+## Pins
+
+A `[pins]` table sets a value from a design target instead of a literal. The pressure
+that puts the zero-dispersion wavelength at 500 nm, and the energy that makes the pulse a
+fourth-order soliton there:
+
+```text
+[pins]
+pressure = {target = "zdw", wavelength = "500 nm", search = ["0.01 bar", "20 bar"]}
+energy = {target = "soliton_order", order = 4}
+```
+
+| Target | Keys, beside `search` and `root` | Pins |
+|---|---|---|
+| `zdw` | `wavelength` | the guide or fill: `radius` or a constant `pressure` |
+| `rdw` | `rdw`; optionally `peak_power` with `fwhm`, `shape`, `nonlinear_phase` | the same; the pump is the recipe's `wavelength` |
+| `soliton_order` | `order` | a pulse's `energy` or `peak_power`, as `energy` or `pulses[0].energy` |
+
+A pin on the guide or fill needs `search`, the range its solver
+({py:func}`solprop.tools.solve_parameter`) samples, in the keyword's unit; it is solved
+on the launch mode (the first) at the entrance. A soliton-order pin is closed form, on
+that mode with the fill's Kerr coefficient, after the guide's pin. So at most one
+parameter of the guide or fill is pinned, then the pulses; a pinned value is not also
+written in `[build]`, and a pressure gradient, or one element of an array, cannot be
+pinned. `root` chooses among several roots: `"lowest"` (the default), `"highest"` or an
+index.
+
+`recipe.resolve()` returns the recipe with each pin replaced by its value, and
+`recipe.pin_roots("pressure")` the solver's {py:class}`~solprop.tools.DesignRoots`: every
+root, or none with the range the target does reach, for a front end to offer. A target
+not met in its range is an issue of `check()` on the pinned path. A build solves the pins
+(each scan point solves its own), a run records both the authored recipe and the
+resolved one, and `to_python()` writes the solver calls
+({py:func}`~solprop.recipe.pins.solve_pin`,
+{py:func}`~solprop.recipe.pins.solve_pulse`) before the route's. Solving a guide's pin
+costs a few hundred evaluations of one mode, about a second for a capillary. A design that
+sets two values at once, such as {py:func}`~solprop.tools.capillary_design`, is not a pin:
+call it and write its values in `[build]`.
+
 ## Scans
 
 A `[scan]` table varies parameter paths over a grid of points. `name` is required: it

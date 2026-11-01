@@ -10,6 +10,7 @@ hash included, and the same execution settings, which the hash does not cover.
 """
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final
 
 from solprop.recipe.document import NONE
@@ -198,6 +199,7 @@ def script(
     writer = _Writer(recipe)
     table = parameters(recipe.route)
     document = recipe.to_dict()
+    document["build"] = _array_pins(recipe, document["build"])
     lines = []
     prelude = []
     grid = document["build"].get("grid")
@@ -217,6 +219,12 @@ def script(
             rendered = repr(decode_keyword(entry, value, BuildContext()))
         comment = _comment(value, unit_of(entry, value))
         lines.append(f"{_INDENT}{name}={rendered},{comment}")
+    pinned = _pins(recipe, writer)
+    if pinned:
+        # The literals are bound once, the pins solved on them, and the route called
+        # with both (SEP 41: the solver call before the route's call).
+        prelude.extend(["keywords = dict(", *lines, ")", *pinned.lines])
+        lines = [f"{_INDENT}**keywords,", *pinned.keywords]
     execution = dict(document.get("execution", {}))
     budget = execution.pop("memory_budget", None)
     target = repr(output)
@@ -250,6 +258,129 @@ def script(
             body.append(f"{_INDENT}output={target},")
         body.append(")")
     return "\n".join([*header, *_imports(writer), "", *prelude, *body]) + "\n"
+
+
+@dataclass(frozen=True)
+class _Pinned:
+    """The script lines that solve a recipe's pins.
+
+    Attributes
+    ----------
+    lines : list of str
+        The solver calls, each binding a name.
+    keywords : list of str
+        The route call's keyword lines that pass the solved values.
+    """
+
+    lines: list[str]
+    keywords: list[str]
+
+    def __bool__(self) -> bool:
+        """Return whether there are pins.
+
+        Returns
+        -------
+        bool
+            Whether any solver call is written.
+        """
+        return bool(self.keywords)
+
+
+def _pins(
+    recipe: "Recipe",  # noqa: UP037 - checked at run time
+    writer: _Writer,
+) -> _Pinned:
+    """Write a recipe's pins as solver calls on the bound keywords.
+
+    The pin on the guide or fill becomes a :func:`~solprop.recipe.pins.solve_pin`
+    call, a route-level pulse pin a :func:`~solprop.recipe.pins.solve_pulse` call on
+    the keywords with the guide's value. A pin on one of ``pulses`` is written at the
+    value it solves to now, with the pin in a comment: the pulse object cannot be
+    built without its energy.
+
+    Parameters
+    ----------
+    recipe : Recipe
+        The recipe.
+    writer : _Writer
+        The writer, which collects the imports.
+
+    Returns
+    -------
+    _Pinned
+        The lines.
+    """
+    from solprop.recipe.pins import read_pins  # noqa: PLC0415 - cycle
+
+    pins = read_pins(recipe)
+    lines: list[str] = []
+    keywords: list[str] = []
+    solved: list[str] = []
+    for pin in pins:
+        name = pin.path
+        if pin.stage == "guide":
+            writer.need("solprop.recipe.pins", "solve_pin")
+            kind = "ZDW" if pin.target == "zdw" else "RDW"
+            writer.need("solprop.tools", kind)
+            if pin.target == "zdw":
+                target = f"ZDW({pin.keys['wavelength']!r})"
+            else:
+                extra = "".join(
+                    f", {key}={pin.keys[key]!r}"
+                    for key in ("peak_power", "fwhm", "shape", "nonlinear_phase")
+                    if key in pin.keys
+                )
+                target = f"RDW(keywords['wavelength'], {pin.keys['rdw']!r}{extra})"
+            lines.append(
+                f"{name} = solve_pin({recipe.route!r}, keywords, {name!r}, {target}, "
+                f"{pin.search!r}).pick({pin.root!r})"
+            )
+        elif "[" not in name:
+            writer.need("solprop.recipe.pins", "solve_pulse")
+            given = "".join(f", {item!r}: {item}" for item in solved)
+            on = f"{{**keywords{given}}}" if solved else "keywords"
+            lines.append(
+                f"{name} = solve_pulse({recipe.route!r}, {on}, {name!r}, "
+                f"{pin.keys['order']!r}, {pin.search!r}).pick({pin.root!r})"
+            )
+        else:
+            # Written into the pulse's table as its literal (_array_pins).
+            lines.append(
+                f"# {name}: soliton order {pin.keys['order']!r}, solved when exported"
+            )
+            continue
+        solved.append(name)
+        keywords.append(f"{_INDENT}{name}={name},")
+    return _Pinned(lines, keywords)
+
+
+def _array_pins(
+    recipe: "Recipe",  # noqa: UP037 - checked at run time
+    build: dict[str, object],
+) -> dict[str, object]:
+    """Return ``[build]`` with each pin on one of ``pulses`` set to its solved value.
+
+    Parameters
+    ----------
+    recipe : Recipe
+        The recipe.
+    build : dict
+        Its ``[build]`` table.
+
+    Returns
+    -------
+    dict
+        The table, unchanged when no such pin exists.
+    """
+    from solprop.recipe.paths import parse_path, set_path  # noqa: PLC0415 - cycle
+
+    paths = [path for path in recipe.to_dict().get("pins", {}) if "[" in path]
+    if not paths:
+        return build
+    resolved = recipe.resolve()
+    for path in paths:
+        build = set_path(build, parse_path(path), resolved.get(path))
+    return build
 
 
 def _imports(writer: _Writer) -> list[str]:
