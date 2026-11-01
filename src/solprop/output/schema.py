@@ -85,6 +85,7 @@ __all__ = [
     "BackendRecord",
     "CheckpointOutput",
     "Convention",
+    "DefaultsResolution",
     "FieldRetention",
     "FieldsChoice",
     "GitProvenance",
@@ -1171,6 +1172,40 @@ class NoiseResolution:
     requested: str | None
     resolved: str | None
     reason: str | None = None
+
+
+@dataclass(frozen=True)
+class DefaultsResolution:
+    """Which of a run's numerics took its route's default, and which route that was.
+
+    The companion of :class:`NoiseResolution` for the stepping (``docs/guide/numerics/
+    choosing-a-stepper.md``): the integrator, the step controller and the temporal
+    collar's scheme are each either the caller's or the route's default from
+    :data:`solprop.driver.defaults.ROUTE_DEFAULTS`. Outside the hash: what the run
+    computes is in the stepper record already, and how it was chosen is not physics.
+
+    Attributes
+    ----------
+    route : str or None
+        The row of the defaults table the constructor read, or ``None`` for settings
+        built by hand.
+    defaulted : sequence of str
+        Which of ``"integrator"``, ``"rtol"`` and ``"absorber_scheme"`` took the
+        route's default, in that order, adopted as a tuple.
+
+    Examples
+    --------
+    >>> from solprop.output.schema import DefaultsResolution
+    >>> DefaultsResolution("capillary", ["integrator", "rtol"])
+    DefaultsResolution(route='capillary', defaulted=('integrator', 'rtol'))
+    """
+
+    route: str | None
+    defaulted: Sequence[str] = ()
+
+    def __post_init__(self) -> None:
+        """Adopt the names as a tuple, so a record read back compares equal."""
+        object.__setattr__(self, "defaulted", tuple(self.defaulted))
 
 
 @dataclass(frozen=True)
@@ -2431,6 +2466,10 @@ class RunMetadata(Displayed):
         How the noise model was chosen (SEP 37): the requested and the resolved
         model and any fallback's reason. Outside the hash; ``None`` when the record's
         builder did not say, as for a record built by hand.
+    defaults : DefaultsResolution or None
+        Which of the integrator, the controller and the collar scheme took the
+        route's default. Outside the hash; ``None`` when the record's builder did not
+        say.
     backend : BackendRecord or None
         What executed the run, written by the driver from the backend's own
         ``metadata()``; ``None`` for a record built before a backend existed. Outside
@@ -2541,6 +2580,7 @@ class RunMetadata(Displayed):
     quadrature: Mapping[str, object] | None = None
     reference: Mapping[str, object] | None = None
     noise_resolution: NoiseResolution | None = None
+    defaults: DefaultsResolution | None = None
 
     def __repr__(self) -> str:
         """Return a one-line description: what kind of run, on what, made when.
@@ -2906,6 +2946,8 @@ class RunMetadata(Displayed):
         # How the model was chosen, beside the key: the resolved model is in the
         # hashed noise record already, and a request is not part of the physics.
         document["noise_resolution"] = serialise(self.noise_resolution)
+        # Which numerics took the route's default, beside the key for the same reason.
+        document["defaults"] = serialise(self.defaults)
         document["spectral_convention"] = self.spectral_convention
         document["field_layout"] = self.field_layout
         document["backend"] = serialise(self.backend)
@@ -2957,6 +2999,8 @@ class RunMetadata(Displayed):
             _refuse_schema(document["schema_version"])
             noise = document["noise"]
             resolution = document["noise_resolution"]
+            # Absent from a record written before the defaults were recorded.
+            defaults = document.get("defaults")
             git = document["git"]
             backend = document["backend"]
             return cls(
@@ -2983,6 +3027,9 @@ class RunMetadata(Displayed):
                 noise_resolution=None
                 if resolution is None
                 else _rebuild(NoiseResolution, resolution),
+                defaults=None
+                if defaults is None
+                else _rebuild(DefaultsResolution, defaults),
             )
         except (KeyError, TypeError, MaterialError) as error:
             msg = f"stored metadata is missing or malformed: {error}"

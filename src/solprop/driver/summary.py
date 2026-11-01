@@ -199,9 +199,9 @@ def run_summary(  # noqa: PLR0913 - the run's parts, each a distinct object
         ),
         ("responses", _responses(problem, configuration)),
         ("shot noise", _noise(metadata)),
-        ("integrator", _integrator(problem)),
+        ("integrator", _defaulted(_integrator(problem), metadata, "integrator")),
         ("propagator", str(execution.get("propagator_mode", "not reported"))),
-        ("tolerances", _tolerances(problem)),
+        ("tolerances", _tolerances(problem, metadata)),
         ("absorber", _absorber(problem, boundary_check)),
         ("save planes", _planes(problem, planes)),
         ("output", _output(output)),
@@ -722,29 +722,60 @@ def _integrator(problem: KernelProblem) -> str:
             if integrator.variable_order
             else f"order {integrator.order}"
         )
-        return f"Multistep, {orders}, {integrator.formulation} formulation"
+        frame = (
+            ""
+            if integrator.carrier_frame == "off"
+            else f", {integrator.carrier_frame} carrier frame"
+        )
+        return f"Multistep, {orders}, {integrator.formulation} formulation{frame}"
     return f"LowStorageRungeKutta ({integrator.scheme})"
 
 
-def _tolerances(problem: KernelProblem) -> str:
+def _defaulted(text: str, metadata: RunMetadata, choice: str) -> str:
+    """Mark a row whose value is the route's default rather than the caller's.
+
+    Parameters
+    ----------
+    text : str
+        The row's description.
+    metadata : solprop.output.schema.RunMetadata
+        The run's record, whose ``defaults`` says which choices were defaults.
+    choice : str
+        The choice the row describes: ``"integrator"`` or ``"rtol"``.
+
+    Returns
+    -------
+    str
+        `text`, followed by ``"(capillary default)"`` or similar where the route's
+        default applied.
+    """
+    defaults = metadata.defaults
+    if defaults is None or defaults.route is None or choice not in defaults.defaulted:
+        return text
+    return f"{text} ({defaults.route} default)"
+
+
+def _tolerances(problem: KernelProblem, metadata: RunMetadata) -> str:
     """Describe the step control: tolerances and step bound, or a replayed schedule.
 
     Parameters
     ----------
     problem : solprop.translate.problem.KernelProblem
         The translated problem.
+    metadata : solprop.output.schema.RunMetadata
+        The run's record, which says whether the tolerance is the route's default.
 
     Returns
     -------
     str
-        For example ``"rtol 1e-06, atol 1e-10, dz_max 50 mm"``.
+        For example ``"rtol 1e-06, atol 1e-10 (capillary default), dz_max 50 mm"``.
     """
     stepper = problem.stepper
     controller = stepper.controller
-    text = (
-        f"rtol {controller.rtol:.3g}, atol {controller.atol:.3g}, "
-        f"dz_max {engineering(stepper.dz_max, 'm')}"
+    tolerances = _defaulted(
+        f"rtol {controller.rtol:.3g}, atol {controller.atol:.3g}", metadata, "rtol"
     )
+    text = f"{tolerances}, dz_max {engineering(stepper.dz_max, 'm')}"
     if stepper.schedule is not None:
         text += f"; replaying a fixed schedule of {stepper.schedule.steps.size} steps"
     return text

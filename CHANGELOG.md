@@ -16,6 +16,13 @@ All notable changes to solprop are recorded here. The format follows
   history recorded no longer makes the next run in that checkout dirty. The benchmark
   harness names an AMD GPU from its PCI IDs where ROCm reports only
   "AMD Radeon Graphics".
+- One table of the route defaults, `solprop.driver.defaults.ROUTE_DEFAULTS`, with the
+  functions that resolve each default (`default_rtol`, `default_integrator`,
+  `default_controller`, `default_scheme`, `resolve_noise`); the run record's new
+  `defaults` entry (`DefaultsResolution`), the start-of-run summary and the settings'
+  display say which of the integrator, `rtol` and the collar scheme took the route's
+  default, and the summary names a Multistep carrier frame
+  ([#87](https://github.com/LupoLab/solprop/issues/87)).
 
 ### Changed
 

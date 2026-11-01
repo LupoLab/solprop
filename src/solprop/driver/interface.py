@@ -575,7 +575,7 @@ def prop_gnlse(  # noqa: PLR0913 - the interface's keyword surface
         what it drew.
     rtol : float or None, optional
         Relative tolerance of the step controller, dimensionless and positive.
-        ``None`` takes :data:`~solprop.driver.simulation.DEFAULT_RTOL`, ``1e-7``, or
+        ``None`` takes :data:`~solprop.driver.defaults.DEFAULT_RTOL`, ``1e-7``, or
         under ``precision="single"`` the floor
         :data:`~solprop.translate.precision.SINGLE_RTOL_FLOOR`, ``1e-6``. The map
         from this local tolerance to the global error at the output is problem dependent
@@ -583,7 +583,7 @@ def prop_gnlse(  # noqa: PLR0913 - the interface's keyword surface
         (``docs/dev/stepper.md`` section 3).
     atol : float, optional
         Absolute tolerance, in the square root of watts, non-negative; ``1e-14`` by
-        default (:data:`~solprop.driver.simulation.DEFAULT_ATOL`).
+        default (:data:`~solprop.driver.defaults.DEFAULT_ATOL`).
     dz_max : float, optional
         Cap on the controller's step proposal, m; ``None`` uses half the length.
     dz_init : float, optional
@@ -1068,12 +1068,12 @@ def prop_capillary(  # noqa: PLR0913 - the interface's keyword surface
         Entropy of the noise generator.
     rtol : float or None, optional
         Relative step tolerance. ``None`` takes
-        :data:`~solprop.driver.simulation.CAPILLARY_RTOL`, ``1e-6``, in either
+        :data:`~solprop.driver.defaults.CAPILLARY_RTOL`, ``1e-6``, in either
         precision (it equals the single-precision floor). Calibrate it for a production
         run (``docs/dev/stepper.md`` section 3).
     atol : float, optional
         Absolute step tolerance, in the square root of watts; ``1e-10`` by default
-        (:data:`~solprop.driver.simulation.WAVEGUIDE_ATOL`).
+        (:data:`~solprop.driver.defaults.WAVEGUIDE_ATOL`).
     dz_max : float or None, optional
         Cap on the step, m; ``None`` takes half the capillary.
     dz_init : float or None, optional
@@ -1564,12 +1564,12 @@ def prop_waveguide(  # noqa: PLR0913 - the interface's keyword surface
         Entropy of the noise generator.
     rtol : float or None, optional
         Relative step tolerance. ``None`` takes
-        :data:`~solprop.driver.simulation.WAVEGUIDE_RTOL`, ``1e-5``, in either
+        :data:`~solprop.driver.defaults.WAVEGUIDE_RTOL`, ``1e-5``, in either
         precision. Calibrate it for a production run (``docs/dev/stepper.md``
         section 3).
     atol : float, optional
         Absolute step tolerance, in the square root of watts; ``1e-10`` by default
-        (:data:`~solprop.driver.simulation.WAVEGUIDE_ATOL`).
+        (:data:`~solprop.driver.defaults.WAVEGUIDE_ATOL`).
     dz_max : float or None, optional
         Cap on the step, m; ``None`` takes half the waveguide.
     dz_init : float or None, optional
@@ -1787,7 +1787,7 @@ def _with_boundary(
             raise DriverError(msg)
         changes["absorber"] = absorber
     if scheme is not None:
-        if settings.absorber_scheme not in (None, scheme):
+        if settings.absorber_scheme_named and settings.absorber_scheme != scheme:
             msg = (
                 f"the settings already declare absorber_scheme="
                 f"{settings.absorber_scheme!r}; give it there or as the keyword"
