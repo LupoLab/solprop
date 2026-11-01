@@ -84,7 +84,13 @@ from solprop.physdata import Gas
 from solprop.physdata.mixtures import Mixture
 from solprop.profiles import FromCallable, ZProfile
 from solprop.spatial import FAR_FIELD_STATISTICS, SpatialDispersion, SpatialMedium
-from solprop.spatial_absorber import SpatialAbsorber, SpatialAbsorberDesign
+from solprop.spatial_absorber import (
+    CROSSING_ADAPTIVE,
+    CROSSING_FIXED,
+    DAMPING_BOUND,
+    SpatialAbsorber,
+    SpatialAbsorberDesign,
+)
 from solprop.stats import StatsSpec
 from solprop.stepper.controller import PIController, default_dz_min
 from solprop.stepper.low_storage import LowStorageRungeKutta
@@ -1802,6 +1808,7 @@ class KernelProblem:
         geometry = self.transform.geometry
         if geometry is not None and np.any(geometry.absorber_rate):
             self._check_spatial_collar_stability()
+            self._check_collar_crossing()
             return
         rate = self.responses.temporal_absorber
         if rate is None or self.responses.absorber_scheme != "nonlinear":
@@ -1971,8 +1978,43 @@ class KernelProblem:
                 f"the fixed step or step floor {longest:.3e} m exceeds the spatial "
                 f"collar stability limit {limit:.3e} m (effective power rate at most "
                 f"{largest:.3e} 1/m). Take shorter steps, "
-                f"{self._runge_kutta_advice()}or increase boundary_length; the "
-                "spatial absorber is always in-stage and cannot use split_step."
+                f"{self._runge_kutta_advice()}or widen the collar (a larger "
+                "collar_fraction designs a weaker one); the spatial absorber is "
+                "always in-stage and cannot use split_step."
+            )
+            raise TranslationError(msg)
+
+    def _check_collar_crossing(self) -> None:
+        """Refuse a fixed schedule a requested collar cannot be accurate under.
+
+        SEP 40 section 4.7: a fixed in-stage schedule is checked at the crossing
+        limit's ``c_x = 0.15`` (:data:`solprop.spatial_absorber.CROSSING_FIXED`),
+        because it is bound first by damping accuracy, ``alpha0 h / 2 <= 1.3``
+        (:data:`solprop.spatial_absorber.DAMPING_BOUND`). An adaptive run is held to
+        the crossing limit through ``dz_max`` instead (:func:`assemble`).
+
+        Raises
+        ------
+        TranslationError
+            Naming the bound and the longest step.
+        """
+        design = self.transverse
+        schedule = self.stepper.schedule
+        if design is None or not design.has_collar or schedule is None:
+            return
+        longest = float(np.max(schedule.steps))
+        crossing = design.crossing_step * CROSSING_FIXED / CROSSING_ADAPTIVE
+        damping = 2.0 * DAMPING_BOUND / design.alpha0
+        bound, name = min(
+            (crossing, "the collar-crossing limit"), (damping, "the damping bound")
+        )
+        if longest > bound:
+            msg = (
+                f"the fixed schedule's longest step {longest:.3e} m exceeds {name} of "
+                f"the requested collar, {bound:.3e} m (SEP 40 section 4.7): a step "
+                "that long could carry the protected band across the collar unseen or "
+                "damp it inaccurately. Take shorter steps, or an adaptive run, which "
+                "the crossing limit holds"
             )
             raise TranslationError(msg)
 

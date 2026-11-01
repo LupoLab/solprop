@@ -10,6 +10,7 @@ its returned energies are the full case's: the direct check reads 8.91e-7, 6.88e
 4e-8 budget near f = 1.3.
 """
 
+import dataclasses
 import math
 from typing import cast
 
@@ -27,7 +28,7 @@ from solprop.translate.collar_check import (
     _periodic_return,
     _radial_return,
 )
-from test_transverse_resolution import W0, suite
+from test_transverse_resolution import LENGTH, W0, suite
 
 
 @pytest.mark.parametrize(
@@ -270,3 +271,21 @@ def test_the_periodic_march_absorbs_what_a_wrap_returns() -> None:
     collar, wrap = returns
     assert collar == pytest.approx(3.62e-4, rel=0.05)
     assert collar < 0.1 * wrap
+
+
+def test_a_fixed_schedule_beyond_the_collar_s_limits_is_refused() -> None:
+    # Section 4.7: a fixed in-stage schedule is checked at c_x = 0.15 and at
+    # alpha0 h / 2 <= 1.3; the scaled suite's f = 2.6 design allows about 1.35 mm.
+    from solprop.stepper import FixedSchedule  # noqa: PLC0415
+
+    def scheduled(step: float) -> Simulation:
+        simulation = suite(2.6, SpatialAbsorber())
+        simulation.settings = dataclasses.replace(
+            simulation.settings,
+            schedule=FixedSchedule.uniform(0.0, LENGTH, step, save_planes=[LENGTH]),
+        )
+        return simulation
+
+    with pytest.raises(TranslationError, match=r"section 4\.7"):
+        scheduled(LENGTH / 4).translate()
+    assert scheduled(LENGTH / 16).translate().transverse is not None
