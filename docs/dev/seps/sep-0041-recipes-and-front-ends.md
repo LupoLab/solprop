@@ -12,7 +12,7 @@
 | **Type** | Change |
 | **Created** | 2026-10-31 |
 | **Resolution** | — |
-| **Requires** | — |
+| **Requires** | SEP 42 (resuming by what matters to the run; accepted) |
 | **Supersedes** | — |
 | **Superseded-by** | — |
 | **Implementation** | — |
@@ -24,30 +24,29 @@
 
 solprop is driven only from Python today. A complete simulation is a call to one of six
 `prop_*` functions, and nothing in solprop can write that call down, read it back, or
-explain its parameters to anything other than a person reading the docstrings. This SEP
-adds a **recipe**: a versioned TOML description of a simulation that solprop reads,
-validates, builds, runs, exports as a plain Python script, records in its output and
-resumes from. Around it come the smaller facilities that any front end needs from solprop
-instead of copying from it:
+explain its parameters to anything other than a person reading the docstrings. This SEP adds
+a **recipe**: a versioned TOML description of a simulation that solprop reads, validates,
+builds, runs, exports as a plain Python script, records in its output and resumes from.
+Around it come the smaller facilities that any front end needs from solprop instead of
+copying from it:
 
 - parameter metadata, structured validation and a capability query;
 - a supported observer of saved planes, scan progress, a cost estimate and a portable stop;
 - launch into chosen modes, beam displacement and tilt;
 - design solvers for every guided route, and pinned parameters that use them;
-- previews of the modes and the input, a statement of what a results file can give;
+- previews of the modes and the input, and a statement of what a results file can give;
 - measured-pulse loaders and geometry drawings.
 
 The first user is a desktop front end being designed separately; scripts and batch systems
-gain the same things (`solprop run recipe.toml`). Success is judged by round trips, with
-the noise seed fixed: a recipe and the Python call it stands for build the same
-`Simulation` (equal `configuration_hash`); a recipe exported to Python and run gives the
-same run; and a file written from a recipe resumes from the file alone.
+gain the same things (`solprop run recipe.toml`). Success is judged by round trips, with the
+noise seed fixed: a recipe and the Python call it stands for build the same `Simulation`
+(equal `configuration_hash`); a recipe exported to Python and run gives the same run,
+execution settings included; and a file written from a recipe resumes from the file alone.
 
 The **Python interface changes are additive**: every name is new and every new keyword
-defaults to today's behaviour. The recipe is stored without an output-schema change. The
-one possible break is in files: if the launch or beam changes (S5, S6) cannot be recorded
-through records that exist, phase 4 bumps the output schema once, which ADR-058 permits
-in a 0.x minor release and the changelog lists (section 9, Q8).
+defaults to today's behaviour. No output-schema bump is needed: the recipe is a top-level
+group written once, and the launch and beam changes (S5, S6) add recorded fields, which SEP
+42 makes additive. This SEP therefore lands after SEP 42.
 
 ### 2. Motivation and scope
 
@@ -61,15 +60,16 @@ A front end must:
 - say whether a stopped run can be resumed, and resume it;
 - say what each results file can show.
 
-Today each of these would mean a hand-written copy of rules that live in solprop's code,
-and the copy would drift with every release. The principle of this SEP is that **solprop
-holds the physics, the defaults and the rules; a front end holds only presentation**.
+Today each of these would mean a hand-written copy of rules that live in solprop's code, and
+the copy would drift with every release. The principle of this SEP is that **solprop holds
+the physics, the defaults and the rules; a front end holds only presentation**.
 
 The same gaps hurt script users. A results file does not record the call that made it, so a
-run can be resumed only by the script that started it (the [resume key](../../guide/results/resuming.md)
-checks a rebuilt simulation; it cannot rebuild one). A batch job is a Python file per
-configuration. A scan's builder must be a module-level function for pool executors
-([scans](../../guide/workflows/scans.md)), which a declarative description gives for free.
+run can be resumed only by the script that started it (the [resume
+key](../../guide/results/resuming.md) checks a rebuilt simulation; it cannot rebuild one). A
+batch job is a Python file per configuration. A scan's builder must be a module-level
+function for pool executors ([scans](../../guide/workflows/scans.md)), which a declarative
+description gives for free.
 
 **In scope** (the labels S1–S18 are used throughout):
 
@@ -97,8 +97,8 @@ configuration. A scan's builder must be a module-level function for pool executo
 **Out of scope:**
 
 - the front end itself, which is a separate project;
-- remote execution and a network service (a recipe and `solprop run` are how remote work
-  is done for now, through the existing executors);
+- remote execution and a network service (a recipe and `solprop run` are how remote work is
+  done for now, through the existing executors);
 - arbitrary Python inside a recipe (custom pulse shapes or responses, callables): the way
   out is the Python export;
 - a graphical recipe editor in solprop;
@@ -107,66 +107,70 @@ configuration. A scan's builder must be a module-level function for pool executo
 
 ### 3. Context
 
-- **Entry points.** [`prop_gnlse`, `prop_capillary` and `prop_waveguide`](../../guide/setup/running.md)
-  take keywords. `prop_radial`, `prop_free` and `prop_planar` take a `TimeGrid` first, then
-  objects: `space`, `responses`, `initial` and the keyword `settings`, all three with an
-  optional `frame`; `prop_radial` and `prop_free` also take a `medium`. Each has a
-  `Simulation.from_*` constructor, so a simulation can be built without running it, and
-  `Simulation.run(output, progress=..., resume=..., memory_budget=..., tdse_archive=...,
-  snapshots=...)` runs it. The keyword surfaces differ: the `prop_*` functions also take
-  `output`, `progress`, `progress_period`, `resume`, `snapshots`, `boundary_check` and, on
-  the capillary, `tdse_archive`, which `from_*` does not; `from_waveguide` takes
-  `memory_budget`, which no `prop_*` does; and `fields`, `field_planes` and
-  `resume_history` are on no keyword surface, only on `Simulation.settings`.
+- **Entry points.** [`prop_gnlse`, `prop_capillary` and
+  `prop_waveguide`](../../guide/setup/running.md) take keywords. `prop_radial`, `prop_free`
+  and `prop_planar` take a `TimeGrid` first, then objects: `space`, `responses`, `initial`
+  and the keyword `settings`, all three with an optional `frame`; `prop_radial` and
+  `prop_free` also take a `medium`. Each has a `Simulation.from_*` constructor, so a
+  simulation can be built without running it, and `Simulation.run(output, progress=...,
+  resume=..., memory_budget=..., tdse_archive=..., snapshots=...)` runs it. The keyword
+  surfaces differ: the `prop_*` functions also take `output`, `progress`, `progress_period`,
+  `resume`, `snapshots` and, on the capillary, `tdse_archive`, which `from_*` does not;
+  `prop_radial`, `prop_free` and `prop_planar` also take `absorber` and `absorber_scheme`,
+  which their `from_*` hold in `settings`; `boundary_check` is on every `from_*`;
+  `from_waveguide` takes `memory_budget`, which admits a guide's tables at build; and
+  `fields`, `field_planes` and `resume_history` are on no keyword surface, only on
+  `Simulation.settings`.
 - **Names.** The route keywords name the reference wavelength `wavelength` and the pulse
   shape `shape`, as the pulse objects and `solprop.tools` do (since the 0.1.0 release
   preparation, PR #64).
 - **Progress.** [`ProgressReporter`](../../guide/performance/progress.md) is a
   `runtime_checkable` protocol with four calls (`started`, `step`, `plane`, `finished`),
   extended by optional protocols (`InterruptibleReporter.interrupted`,
-  `SummarisingReporter.summary`) that a reporter may implement; `NullReporter`
-  implements both. Membership is checked by name. `plane(z, summary)` receives the plane's
-  cost, not its field. A reporter's exception propagates through the run loop, which
-  records the run as failed.
-- **Output and resume.** The HDF5 output (ADR-058) records the resolved configuration, metadata and `configuration_hash`. A file of
-  any other output schema is refused wherever it is opened, and the schema version is
-  inside the resume key; a 0.x minor release may change the schema, listing the break.
-  Every field of a recorded dataclass is recorded, at its default too, so adding a field
-  moves the hash and bumps the schema. `resume=True` continues a file only when a rebuilt
-  simulation has the same hash; when the call gives no noise seed, the rebuild takes the
-  seed recorded in the file. The call's arguments are not stored, and the stored
-  configuration cannot rebuild a simulation. `RunOutcome.status` is `running`,
-  `complete`, `budget_exhausted` or `failed`. SIGTERM and Ctrl-C stop a run between its
-  commits (`RunTerminated`) with the state written; a dense run whose last plane is
-  interpolated resumes only with `resume="interpolated"`.
+  `SummarisingReporter.summary`) that a reporter may implement; `NullReporter` implements
+  both. Membership is checked by name. `plane(z, summary)` receives the plane's cost, not
+  its field. A reporter's exception propagates through the run loop, which records the run
+  as failed.
+- **Output and resume.** The HDF5 output (ADR-058) records the resolved configuration,
+  metadata and `configuration_hash`. A file of any other output schema is refused wherever
+  it is opened. SEP 42, on which this SEP rests, makes the resume gate a comparison of the
+  stored and requested records, adds `resume="force"`, and makes a new recorded field or a
+  top-level group additive. When a call gives no noise seed, the rebuild takes the seed
+  recorded in the file. The call's arguments are not stored, and the stored configuration
+  cannot rebuild a simulation. `RunOutcome.status` is `running`, `complete`,
+  `budget_exhausted` or `failed`. SIGTERM and Ctrl-C raise `RunTerminated`, a `SystemExit`,
+  at once, and are held only while a commit is being written; the state is written, and
+  `resume=True` continues. A dense run whose last plane is interpolated resumes only with
+  `resume="interpolated"`.
 - **Scans.** `run_scan(scan, build, executor=...)` already reports progress: `"auto"` gives
   an outer bar or one log line per finished point; the inner runs are quiet. A scan's
   builder must pass `point.seed`. `python -m solprop.scan` is the command-line entry point.
 - **Design tools.** [`solprop.tools`](../../guide/workflows/design-tools.md) has
-  `pressure_zdw`, `pressure_rdw`, `capillary_design`, `soliton_params` and others, built
-  on the Marcatili capillary; `pressure_rdw` also takes a `lattice` and builds a
-  `VincettiMode`. The searches sample rather than bracket once: the zero-dispersion search
-  samples $\beta_2$ and discards sign changes through a pole, and `pressure_rdw` samples
-  129 logarithmic and 129 linear pressures. Modes expose `beta`, `beta2`, `zdw`, `aeff` and
-  loss.
+  `pressure_zdw`, `pressure_rdw`, `capillary_design`, `soliton_params` and others, built on
+  the Marcatili capillary; `pressure_rdw` also takes a `lattice` and builds a
+  `VincettiMode`. `pressure_zdw` brackets once over pressure, inside a zero-dispersion
+  search that samples $\beta_2$ over wavelength and discards sign changes through a pole;
+  `pressure_rdw` samples 129 logarithmic and 129 linear pressures. A mode need not know its
+  fill's Kerr response. Modes expose `beta`, `beta2`, `zdw`, `aeff` and loss.
 - **Modes.** `prop_waveguide` already selects a launch mode with `channel`, by index or
   display label (labels display as `HE1,1:even`), or computes a launch from an `incident`
-  beam and a `coupling`. General modal bases measure physical energy with a flux metric
-  that has cross terms ([general modal](../../guide/waveguides/general-modal.md)).
+  beam and a `coupling`. General modal bases measure physical energy with a flux metric that
+  has cross terms ([general modal](../../guide/waveguides/general-modal.md)).
 - **Errors.** The builders raise `SolpropError` subclasses (`DriverError`,
   `TranslationError`, `ModeError`); `DriverError` is also a `RuntimeError`, not a
   `ValueError`. Most carry a message only; `ResponseBudgetError` carries `z`, `field` and
   `calls`. Warnings (`MaterialRangeWarning`, `BoundaryWarning`) carry a message.
 - **Memory.** `solprop.driver.memory` already estimates a run's persistent memory and admits
   it against a budget (`MemoryBudgetError`).
-- **Pulses and beams.** `DataPulse` takes arrays; there are no file loaders.
-  `SpatialPulse(temporal, waist, order, propz, jones)` has no displacement or tilt;
-  `solprop.coupling.Alignment(displacement, tilt, model_error)` applies them as a coupling
-  step, with the tilt a phase screen in the medium's real wave number.
-- **Results.** The [processing](../../guide/results/processing.md) functions accept
-  spatial files but do not return physical powers from them; compression refuses spatial
-  and general modal outputs; general modal reconstruction needs the guide and reference
-  tables, of which a file may hold only the identities.
+- **Pulses and beams.** `DataPulse` takes arrays and keeps a supplied unwrapped phase; there
+  are no file loaders. `SpatialPulse(temporal, waist, order, propz, jones)` has no
+  displacement or tilt; `solprop.coupling.Alignment(displacement, tilt, model_error)`
+  applies them as a coupling step, with the tilt a phase screen in the medium's real wave
+  number.
+- **Results.** The [processing](../../guide/results/processing.md) functions accept spatial
+  files but do not return physical powers from them; compression refuses spatial and general
+  modal outputs; general modal reconstruction needs the guide and reference tables, of which
+  a file may hold only the identities.
 - **Figures.** The geometry drawings in the user guide are generated by a docs script and
   styled with CSS custom properties, which only a browser renders.
 - **The writer lock.** The `*.writer.lock` sidecar is documented under snapshots in the
@@ -180,132 +184,168 @@ No new physics. Four definitions matter:
   `Recipe(R).build()` and the `Simulation` built by $C$ have equal `configuration_hash`,
   with the noise seed fixed in both. The hash already covers everything that decides the
   computed fields (grid, modes, configuration, noise, stepper, materials and launch), so
-  this is the right identity and needs no second definition.
-- **Quantities.** Recipe values are numbers in the keyword's documented SI unit, or
-  quantity strings (`"125 um"`, `"1.2 bar"`, `"7.5 fs"`, `"2e14 W/cm^2"`) converted to that
-  unit. The unit is the one the docstring states today, so pressure stays in bar
-  (conventions.md) and a bare `1.2` for `pressure` means 1.2 bar. A string is parsed as a
-  decimal mantissa and a unit; the unit's dimension must match the keyword's, so
-  `"125 um"` for `pressure` is refused. The conversion is exact in decimal (a power-of-ten
-  prefix shifts the exponent, any other factor multiplies exactly) and is rounded once to
-  the nearest binary64 value, so `"800 nm"` gives the literal `800e-9` that a script
-  writes. Writing a value back chooses a prefix in which the shortest decimal
-  representation of the double is exact, so the round trip is the identity. Keywords whose
-  elements carry different units (`phases` is $[\mathrm{rad}, \mathrm{s}, \mathrm{s}^2,
-  \dots]$, `betas` is $\mathrm{s}^n/\mathrm{m}$ by order, the `(z, p)` form of `pressure`
-  pairs metres with bar) have a unit per element or per form (S9). Temperature accepts K
-  only.
+  this is the right identity and needs no second definition. Equivalence runs one way, from
+  table to object: there is no step from an object back to a table (§5.1).
+- **Quantities.** Recipe values are numbers in the keyword's documented SI unit, or quantity
+  strings (`"125 um"`, `"1.2 bar"`, `"7.5 fs"`, `"2e14 W/cm^2"`) converted to that unit. The
+  unit is the one the docstring states today, so pressure stays in bar (conventions.md) and
+  a bare `1.2` for `pressure` means 1.2 bar. A string is parsed as a decimal mantissa and a
+  unit; the unit's dimension must match the keyword's, so `"125 um"` for `pressure` is
+  refused. The conversion is exact in decimal (a power-of-ten prefix shifts the exponent,
+  any other factor multiplies exactly, in a local context with enough digits) and is rounded
+  once to the nearest binary64 value, so `"800 nm"` gives the literal `800e-9` that a script
+  writes. Writing a value back chooses a prefix in which the shortest decimal representation
+  of the double is exact, so the round trip is the identity. Keywords whose elements carry
+  different units (`phases` is $[\mathrm{rad}, \mathrm{s}, \mathrm{s}^2, \dots]$, `betas` is
+  $\mathrm{s}^n/\mathrm{m}$ by order, the `(z, p)` form of `pressure` pairs metres with bar)
+  have a unit per element or per form (S9). Temperature accepts K only.
 - **Beam tilt.** A tilt $(\theta_x, \theta_y)$ multiplies the launched field by
   $\exp[\mathrm{i}\,k(\omega)(x\sin\theta_x + y\sin\theta_y)]$, $k(\omega)$ the medium's
-  real wave number at the launch plane, as `coupling.Alignment` defines it. With
-  $k(\omega)$ rather than $k(\omega_0)$ every frequency leaves at the same angle: a pure
-  tilt with no angular dispersion. The transverse wavenumbers $k(\omega)\sin\theta$ must
-  lie inside the grid's transverse band at every active frequency, and the tilted and
-  displaced beam must be negligible at the window's edges; otherwise the launch is
-  refused.
+  real wave number at the launch plane, as `coupling.Alignment` defines it. With $k(\omega)$
+  rather than $k(\omega_0)$ every frequency leaves at the same angle: a pure tilt with no
+  angular dispersion. Tilt and displacement apply at the launch plane, after any `propz`.
+  The screen depends on frequency, so the field is no longer a product of a transverse and a
+  temporal part, and the energy is set after it. The transverse wavenumbers
+  $k(\omega)\sin\theta$ must lie inside the grid's transverse band at every active
+  frequency, the tilted and displaced beam must be negligible at the window's edges, and the
+  pulse-front delay of about $x\sin\theta\,n/c$ across the beam must fit in the time window;
+  otherwise the launch is refused.
 - **Launch normalisation.** On a basis whose modes are flux-orthogonal (a diagonal flux
-  metric, as for the Marcatili modes), the energy of a launch is the sum of the
-  modes' energies, and fractions of the pulse energy are physical. On a general modal basis
-  the flux metric $M$ has cross terms, and the energy of coefficients $a$ is $a^\dagger M a$,
+  metric, as for the Marcatili modes), the energy of a launch is the sum of the modes'
+  energies, and fractions of the pulse energy are physical. On a general modal basis the
+  flux metric $M$ has cross terms, and the energy of coefficients $a$ is $a^\dagger M a$,
   which depends on the relative phases. There a launch gives relative amplitudes and phases,
-  and the coefficients are scaled so that $a^\dagger M a$ is the pulse energy; the
-  per-mode shares are coordinate quantities, not an energy split (S5).
+  and the coefficients are scaled so that $a^\dagger M a$ is the pulse energy; the per-mode
+  shares are coordinate quantities, not an energy split (S5).
 
 ### 5. Proposed interface
 
 #### 5.1 S1 — `solprop.recipe`
 
-A recipe is a TOML document. Its vocabulary is defined once:
+A recipe is a TOML document with five fixed tables. No other top-level name is allowed, so a
+future keyword can never collide with the format.
 
-- **Build keywords** are the keywords of the route's `Simulation.from_*` constructor.
-- **Execution settings** are a named list, held in an `[execution]` table:
-  `boundary_check`, `memory_budget`, `fields`, `field_planes` and `resume_history`. They
-  are applied to the built simulation's settings or passed to `Simulation.run`.
-- **Refused keys.** `output`, `progress`, `progress_period`, `resume`, `snapshots` and
-  `tdse_archive` choose files, terminals and resume behaviour, which the caller or the
-  command line supplies. A recipe holding one is refused, naming it.
-
-Tables other than `[recipe]`, `[execution]`, `[scan]` and `[pins]` group build keywords
-for reading; the group of each keyword comes from its metadata (S9). The loader flattens
-them, so a keyword may appear in any group table, but at most once.
+| Table | Holds |
+|---|---|
+| `[recipe]` | `format` and `route`, required; `title` and `solprop` (the version that wrote it), informative |
+| `[build]` | the keywords of the route's `Simulation.from_*` constructor, under their own names, and nothing else |
+| `[execution]` | `fields`, `field_planes`, `resume_history` and `memory_budget`, which are not build keywords. The first three are applied to the built simulation's settings; `memory_budget` goes to `run` |
+| `[pins]` | values set from a design target |
+| `[scan]` | a scan over paths |
 
 ```text
 [recipe]
 format = 1
 route = "capillary"
 title = "RDW in a helium capillary"
-solprop = "0.2.0"                 # the version that wrote it; informative
+solprop = "0.2.0"
 
-[geometry]
+[build]
 radius = "125 um"
 length = "1 m"
 mode_average = true
-
-[medium]
 gas = "He"
 pressure = ["0 bar", "1.2 bar"]   # a gradient, as the keyword accepts
 temperature = "293.15 K"
-
-[nonlinear]
 plasma = true
-
-[input]
 wavelength = "800 nm"
 fwhm = "7.5 fs"
 energy = "275 uJ"
-
-[grid]
 wavelength_limits = ["100 nm", "1500 nm"]
 trange = "200 fs"
 
 [execution]
 fields = "planes"
+field_planes = [0, -1]
 ```
 
+A build keyword is a value of `[build]` whether or not it is a table: `[build.plasma]` is
+the `plasma` keyword's mapping, and `[[build.pulses]]` its list of pulses. Grouping for
+reading is a front end's business, from the metadata's `group` (S9).
+
+- **Refused keys.** `output`, `progress`, `progress_period`, `resume`, `stop`, `snapshots`
+  and `tdse_archive` choose files, terminals and resume behaviour, which the caller or the
+  command line supplies. A recipe holding one is refused, naming it. `prop_radial`,
+  `prop_free` and `prop_planar` unpack `absorber` and `absorber_scheme` onto their settings;
+  a recipe uses the `from_*` form, so those go under the `settings` object.
+  `from_waveguide`'s own `memory_budget` admits a guide's tables at build and is a build
+  keyword; `[execution] memory_budget` admits the run. They share a unit and nothing else.
 - **Only what was set is written.** A keyword left out takes solprop's default at build
-  time, so a recipe follows solprop's improvements. The resolved values, defaults and
-  seed included, are recorded in the output beside it (S2).
-- **`None`.** TOML has no null. Where a keyword accepts `None` as a value with its own
-  meaning (`noise = None` against the default `"default"`), the recipe writes the string
-  `"none"`. The metadata records which keywords accept it, and a test checks that no
-  keyword accepts both `None` and the string `"none"` as different values.
-- **Objects.** Values that are objects (a pulse list, a `Gas` mixture, a coupling, a
-  profile, the guides and mode providers of `prop_waveguide`, and on the object routes the
-  grids, spaces, media, beams, responses and settings) are inline tables or arrays of
-  tables with a `type` key naming an entry in a fixed registry in `solprop.recipe`, and
-  that entry's keywords:
-  `pulses = [{type = "GaussianPulse", wavelength = "800 nm", fwhm = "30 fs", energy = "1 mJ"}]`.
-  An entry is a constructor or a named class method (`type =
-  "PressureGradient.two_point"`). Only registered types load; a recipe never imports a
-  module or evaluates code.
-- **What a recipe cannot hold.** Callables (`beta`, `loss`, a mode's loss function) and
-  arrays other than data files. `Recipe.from_call` refuses them, naming the keyword; the
+  time, so a recipe follows solprop's improvements. What ran is recorded in the output
+  beside it (S2).
+- **`None`.** TOML has no null, and leaving a key out already says `None` wherever that is
+  the default. Only the keywords whose default is not `None` need a spelling, `noise` and
+  `boundary_check` on the keyword routes, and those write the string `"none"`. The metadata
+  lists them, and a test checks that each accepts no `"none"` of its own. `[execution]
+  memory_budget = "none"` keeps its existing meaning, no check.
+- **Numbers.** A number is a TOML number in the keyword's SI unit or a quantity string
+  (section 4). A complex number is `{re = 1.45, im = 0.0}`. An integer too large for TOML's
+  64 bits, such as a drawn noise seed, is a decimal string; any integer keyword accepts one.
+- **Arrays.** A one-dimensional numeric array (`betas`, `phases`, `save_planes`,
+  `StatsSpec.energy_windows`) is a list of up to 10 000 numbers, with the metadata's unit
+  per element. A larger one, or a larger-dimensional one, is a data file (below).
+- **Objects.** A value that is an object (a pulse, a gas mixture, a coupling, a profile, a
+  guide or mode provider, and on the object routes the grids, spaces, media, beams,
+  responses and settings) is an inline table or array of tables with a `type` key naming an
+  entry in a fixed registry in `solprop.recipe`, and that entry's keywords: `pulses = [{type
+  = "GaussianPulse", wavelength = "800 nm", fwhm = "30 fs", energy = "1 mJ"}]`. An entry is
+  a **named factory**, a constructor, a class method or a module function, with its keywords
+  declared and any **build context** it receives declared too. The context is what format 1
+  defines a factory may be given, the route's `grid`. So `absorber = {type = "absorber"}`
+  under `settings` builds `boundaries.absorber(grid)`, and `{type =
+  "PressureGradient.two_point", ...}` and `{type = "EnvelopeGrid.from_limits", ...}` are
+  entries as well. Only registered types load: a recipe never imports a module or evaluates
+  code. The registry starts with the documented user-facing types (phase 4 lists them),
+  because every keyword of an entry becomes public: adding an entry later is additive, and
+  removing one is not. A type outside it is the Python export's job.
+- **A recipe is one-way.** A recipe is built into objects, and objects are never turned back
+  into tables, because they do not keep what made them: a `PressureGradient.two_point` holds
+  positions and pressures, and an `EnvelopeGrid` its arrays and not its limits. So a saved
+  recipe always comes from a recipe. `Recipe.from_keywords(route, **keywords)` builds one
+  from plain values and refuses an object or a callable by keyword, pointing to the table
+  form or the Python export.
+- **What a recipe cannot hold.** Callables (`beta`, `loss`, a mode's loss function), and
+  types not in the registry, such as `IndexTable` and the `beta` tuple form in format 1. The
   Python export is the way out.
-- **Data files.** Arrays (a measured spectrum, an index table, a mode table) are referred to
-  by a path relative to the recipe, with a SHA-256 recorded beside it and checked on load:
-  `{type = "DataPulse", file = "spectrum.csv", sha256 = "…"}`. The path, after symbolic
-  links are resolved, must lie inside the recipe's directory unless the caller allows
-  otherwise.
+- **Data files.** A data file is referred to by a path relative to the recipe, with a
+  SHA-256 recorded beside it and checked on load: `{file = "table.npy", sha256 = "…"}` for
+  an array, read with pickling disabled, and `{type = "load_spectrum", file =
+  "spectrum.csv", sha256 = "…", energy = "1 uJ"}` for a measured pulse (S12). The path,
+  after symbolic links are resolved, must lie inside the recipe's directory unless the
+  caller allows otherwise.
 - **Parameter paths.** Every value has a canonical path: the keyword, then `.name` for a
-  keyword of an object and `[i]` for an element of an array, as in `pressure`,
-  `pulses[1].energy` or `pressure[1]`. Paths are what `Recipe.set` and `Recipe.get` take,
-  what errors and warnings name (S10), what a scan varies and what a pin sets. The metadata
-  of a path is that of the keyword it ends on (S9).
-- **Pins.** A `[pins]` table sets a value from a design target instead of a literal:
-  `pressure = {target = "zdw", wavelength = "800 nm", search = ["0.1 bar", "10 bar"],
-  root = "lowest"}`. Targets are those of the design solvers (S7): `zdw`, `rdw` (with the
-  nonlinear phase where `pressure_rdw` has it) and `soliton_order`. A pinned path may not
-  also be set literally. Pins are resolved at build, after the literal values, in the
-  order of their dependencies (a pin whose target reads another pinned path follows it); a
-  cycle is refused, naming its paths. An unreachable target is an issue on the pinned
-  path with the attainable range. `root` chooses among several roots (`"lowest"`,
-  `"highest"` or an index); the solver reports all of them. The resolved value goes into
-  the resolved recipe (S2), and the Python export writes the solver call before the
+  keyword of an object, `[i]` for an element of an array and `["key"]` for a key of a
+  mapping, as in `pressure`, `pulses[1].energy` or `launch["HE1,1:even"].share`. In `[pins]`
+  and `[scan]` a path is a quoted TOML key where it needs to be. Paths are what `Recipe.set`
+  and `Recipe.get` take, what errors and warnings name (S10), what a scan varies and what a
+  pin sets. The metadata of a path is that of the keyword it ends on (S9).
+- **Pins.** `[pins]` sets a whole value from a design target instead of a literal: `pressure
+  = {target = "zdw", wavelength = "800 nm", search = ["0.1 bar", "10 bar"], root =
+  "lowest"}`. A pinned path may not also be set literally, and an element of an array cannot
+  be pinned.
+
+  | Target | Keys, beside `search` and `root` | Pins | Solved |
+  |---|---|---|---|
+  | `zdw` | `wavelength` | a parameter of the guide or fill | on the launch mode at the launch position |
+  | `rdw` | `rdw`, and optionally `peak_power` with `fwhm`, `shape` and `nonlinear_phase` | the same | the same; the pump is the recipe's `wavelength` |
+  | `soliton_order` | `order` | a pulse's `energy` or `peak_power` | on the launch mode at the launch position, with the fill's Kerr coefficient |
+
+  Pins resolve in two fixed stages, after the literals: at most one pin on a parameter of
+  the guide or fill, then the pins on pulses, which read it. So no dependency order is
+  needed and no cycle can be written. A pressure gradient cannot be pinned, because the
+  target needs one mode. An unreachable target is an issue on the pinned path with the
+  attainable range. `root` chooses among several roots (`"lowest"`, `"highest"` or an
+  index). `Recipe.pin_roots(path)` returns the solver's `DesignRoots`, and
+  `Recipe.resolve()` returns the recipe with the pins replaced by their values. A design
+  that sets two values at once, such as `capillary_design`, is not a pin: a front end calls
+  it and writes its values as literals. The Python export writes the solver call before the
   route's call.
-- **Scans.** An optional `[scan]` table names paths and their values (a list, or
-  `{start, stop, num, spacing = "linear" | "log"}`). `Recipe.scan()` returns the `Scan`
-  and a picklable builder that passes `point.seed` and re-solves the pins at each point,
-  so pool and queue executors work without a module-level function.
+- **Scans.** `[scan]` requires `name`, which sets durable filenames and the derived seeds,
+  and may give `base_seed`; the other keys are paths and their values (a list, or `{start,
+  stop, num, spacing = "linear" | "log"}`). `Recipe.scan()` returns a `RecipeScan` with the
+  `Scan`, a picklable builder that passes `point.seed` and re-solves the pins at each point,
+  and the keywords for `run_scan`, which takes `fields` and `field_planes` itself and
+  refuses them on a point's settings.
 - **Examples.** The recipes of the guide's tutorials and gallery examples ship in the
   package: `Recipe.examples()` lists them and `Recipe.example(name)` loads one. A front end
   starts a new setup from one of them, so a starting point such as Kerr and plasma on in
@@ -320,16 +360,23 @@ The Python surface:
 ```text
 from solprop.recipe import Recipe
 
-recipe = Recipe.load("rdw.toml")          # or Recipe.from_dict(...), Recipe.loads(text)
+recipe = Recipe.load("rdw.toml")          # or Recipe.loads(text), Recipe.from_dict(...)
 recipe.set("pressure", "1.5 bar")         # validated against the metadata (S9)
 recipe.set("pulses[1].energy", "10 uJ")
 problems = recipe.check()                 # list of RecipeIssue (S10), empty if fine
-simulation = recipe.build()               # a Simulation, not run
-output = simulation.run("rdw.h5")         # the recipe is recorded (S2)
+simulation = recipe.build()               # a Simulation, not run, carrying its recipe
+output = recipe.run("rdw.h5")             # build, then run with [execution] applied
 recipe.to_python()                        # a plain script with the route's call
 recipe.save("rdw-1.5bar.toml")
-Recipe.from_call(prop_capillary, radius=125e-6, ...)   # a recipe from keywords
+Recipe.from_keywords("capillary", radius=125e-6, ...)
 ```
+
+`recipe.run` is `build` followed by `run`, with `memory_budget` passed on; `simulation.run`
+given a simulation from `build` records the recipe too, and takes the budget as usual. Two
+recipes are equal when their values are equal. A recipe keeps the text it was loaded from:
+`save` writes that text verbatim while the recipe is unchanged, comments included, and
+writes canonical TOML once it has been edited, which keeps no comments and spells each
+quantity in the keyword's display unit (S9), in ASCII (`um`; `µm` is read too).
 
 And the command line (a `solprop` console script and `python -m solprop`):
 
@@ -337,46 +384,76 @@ And the command line (a `solprop` console script and `python -m solprop`):
 solprop run rdw.toml -o rdw.h5 [--progress log] [--resume]
 solprop check rdw.toml                    # validate and build; print issues; exit status
 solprop export rdw.toml --python          # print the equivalent script
-solprop resume rdw.h5                     # S2
+solprop resume rdw.h5 [--interpolated | --force] [--memory-budget ...]     # S2
 solprop scan …                            # the existing python -m solprop.scan, unchanged
 ```
 
 `to_python()` writes the route's `prop_*` call when every key is on its surface, and
 otherwise `Simulation.from_*`, the settings and `run`; keyword arguments in SI, one comment
-per keyword stating the recipe's quantity string, and nothing that a reader would not
-write by hand.
+per keyword stating the recipe's quantity string, and nothing that a reader would not write
+by hand. Execution settings are part of what it writes, and the tests compare them, because
+the hash does not cover them.
 
 #### 5.2 S2 — the recipe in the output, and resume from a file
 
-At run start the driver writes, when the simulation was built from a recipe, a group
-`recipe` in the output holding:
+A `Simulation` from `Recipe.build` carries its recipe. `with_input`, `with_mixture` and a
+change of a setting outside `[execution]` drop it and warn, so a file never holds a recipe
+that does not describe its run. Nothing is compared at build, so building costs no
+translation. At the first run start the driver writes a top-level group `recipe` in the
+output, once, holding:
 
-- `authored`: the recipe's canonical TOML text, as written (only what was set);
-- `resolved`: every build keyword and execution setting at the value used, defaults, pins
-  and the noise seed included;
-- the recipe format, the SHA-256 of each text, and the `configuration_hash` the recipe
-  built;
-- the data files the recipe refers to, under generated names (they are usually small).
+- `authored`: the recipe's text as loaded, or its canonical TOML if it was edited;
+- `resolved`: the recipe to rebuild from, also TOML:
+  - the authored keys, with each pin replaced by its solved value and the noise seed that
+    was drawn;
+  - each keyword the metadata marks **resolvable** (S9), at the value used;
+  - `[execution]`, from the settings at run start.
+- the recipe format and the SHA-256 of each text;
+- the data files the recipe refers to, under generated names, up to 16 MiB in all; a larger
+  one is recorded by its path and hash only.
 
-The group is provenance: it is **not** part of `configuration_hash`, so editing a comment
-or the title does not block a resume, and it needs **no output-schema change**: the group
-is optional, a reader that does not know it ignores it, and a file without it is a file
-from a script. If the simulation was changed after it was built (its `settings` replaced,
-`with_input`, `with_mixture`), its hash differs from the recipe's; the driver then writes
-no recipe group and warns, so a file never holds a recipe that does not rebuild its run.
+`resolved` is defined by what rebuilds the run, not by "every keyword". A keyword is
+resolvable when its value, written back, gives the same record, and a sync test holds each
+one to that. `rtol`, `atol`, `dz_max`, `integrator`, `stats`, `temperature`, `plasma`,
+`thg`, `raman`, `step_planes`, `save_planes`, `loss` and `model` were measured to qualify on
+the keyword routes. These do not, and stay left to the build:
 
-`Recipe.from_output(path, resolved=False)` reads the authored recipe back (for editing) or
-the resolved one (to show the setup that ran). `solprop resume run.h5` (or
-`resume_file(path)`) rebuilds the simulation from the **resolved** recipe, so a later
-solprop's defaults do not move the run, checks that its hash equals the stored one, and
-continues the file through the existing `resume=True` path, which compares hashes as it
-does now. A file written without a recipe resumes as it does today, from the script.
+- `dz_init` (an explicit first step turns the start-up rule off, which moves
+  `stepper.limits.auto_init`);
+- `raman_fraction` (the record says where the fraction came from);
+- the default `absorber` and `cladding` (no table form);
+- `backend`, which stays as requested, so a run can move between machines;
+- the alternatives `grid` and `wavelength_limits`, and `fwhm` and `width`, of which only the
+  authored one is written. `save_planes` replaces `n_save`, whose planes it holds.
+
+So a later solprop's default cannot move a resolvable keyword, and for the rest the resume
+gate is what notices. The group is provenance outside `configuration_hash`, so it needs no
+schema change (SEP 42 §5.8): a reader that does not know it ignores it, and a file without
+it is a file from a script. It is never rewritten. A later session that differs, such as
+`solprop run edited.toml --resume` with a changed `rtol`, is recorded in that session's
+execution record (SEP 42 §5.3), and `solprop resume` afterwards returns to the first
+session's numerics, with the warning SEP 42 gives for a numerics change.
+
+`Recipe.from_output(path, resolved=False)` reads the authored recipe back for editing, or
+the resolved one to show the setup that ran. Saving such a recipe writes its embedded data
+files beside it under generated names; a file that was only referred to stays a dangling
+reference, and `check` says so. `solprop resume run.h5` (or `resume_file(path, mode=True)`,
+with `mode` as `resume` takes it: `True`, `"interpolated"` or `"force"`) rebuilds the
+simulation from the resolved recipe and continues the file through that same `resume=`, so
+SEP 42's gate decides, by its comparison and with its record. A file written without a
+recipe resumes as it does today, from the script. A scan's file stores the authored recipe
+too, in the same group, so a scan reopens with its setup.
 
 **Received files.** Resuming a file runs the setup it holds, and the guide says so. The
-limits: the recipe passes the same checks as a loaded one (registered types only, no
-execution keys that choose paths); embedded data files are read into memory, never
-written at their stored names; node and memory budgets apply; and parsing an HDF5 file is
-itself an exposure of the HDF5 library, which the guide states.
+limits:
+
+- the recipe passes the same checks as a loaded one (registered types only, no keys that
+  choose paths);
+- embedded data files are read into memory and written only under generated names;
+- `resume_file` ignores the recipe's own `memory_budget` and `node_budget`, and applies the
+  caller's, refusing rather than warning by default, because a received file must not choose
+  its own limits;
+- parsing an HDF5 file is itself an exposure of the HDF5 library, which the guide states.
 
 #### 5.3 S3 — a plane observer
 
@@ -390,101 +467,111 @@ class PlaneObserver(ProgressReporter, Protocol):
 The specific name avoids reporters that already have an `observe` attribute, and
 `NullReporter` does **not** implement it, so a quiet run builds no view. The driver calls
 `observe_plane` once per save plane, after the plane is committed to the output and before
-`plane()`.
+`plane()`. That includes the entrance, which has no `plane()` call of its own. A resume does
+not deliver earlier planes again; a front end reads those from the file.
 
 `PlaneView` is lazy. It holds the plane's position, the grid, the statistics row and a
 description of the basis (S16: whether its quantities are physical flux or coordinate
 quantities, and in which units). Its methods compute on request: the frequency- and
 time-domain field, by mode where modes exist, and the spectral density. On a host backend
-nothing is copied until asked. On a device backend, a plane whose field the output keeps
-is already on the host; on a field-free plane (`fields="none"` or `"planes"`, the scan
-default), asking for the field fetches one plane from the device, and the driver counts
-that transfer in the run's resource summary. The arrays are valid only for the call; an
-observer copies what it keeps. The existing rule holds: nothing an observer does may
-change the propagation.
+nothing is copied until asked. On a device backend, a plane whose field the output keeps is
+already on the host; on a field-free plane (`fields="none"` or `"planes"`, the scan
+default), asking for the field fetches one plane from the device, and the driver counts that
+transfer in the run's resource summary. The arrays are valid only for the call; an observer
+copies what it keeps. The existing rule holds: nothing an observer does may change the
+propagation.
 
-**Failure and workload.** An exception from `observe_plane`, other than `RunTerminated`
-and `KeyboardInterrupt`, does not fail the run: the driver logs it once with its
-traceback, warns, and calls the observer no more in that run; `plane`, `finished` and
-`interrupted` are still delivered. The observer runs in the march's thread and solprop
-bounds nothing about its time; the driver reports the time spent in observers in the
-resource summary. The guide gives the pattern a front end uses: reduce the plane to what
-it draws, put it in a bounded queue that replaces an undelivered preview, and return,
-keeping terminal and error events on a reliable channel. Transport and disconnection are
-the front end's; solprop guarantees only the above.
+**Failure and workload.** An exception from `observe_plane`, other than `RunTerminated` and
+`KeyboardInterrupt`, does not fail the run: the driver logs it once with its traceback,
+warns, and calls the observer no more in that run; `plane`, `finished` and `interrupted` are
+still delivered. The observer runs in the march's thread and solprop bounds nothing about
+its time; the driver reports the time spent in observers in the resource summary. The guide
+gives the pattern a front end uses: reduce the plane to what it draws, put it in a bounded
+queue that replaces an undelivered preview, and return, keeping terminal and error events on
+a reliable channel. Transport and disconnection are the front end's; solprop guarantees only
+the above.
 
-An observer may also implement `observe_boundary(z, verdict)`, called with the boundary
-monitor's verdict when it changes, so a front end shows it without reading the log.
+The boundary monitor needs no hook. It warns once with a `BoundaryWarning` or stops the run
+with a `BoundaryError`, and a front end has both, with `parameter` set (S10).
 
 #### 5.4 S4 — scan progress
 
 `run_scan(..., progress=)` accepts a `ScanReporter` as well as its literal choices:
-`scan_started(n_points)`, `point_started(index, point)`,
-`point_finished(index, status, wall)`, `scan_finished()`, and optionally
-`point_reporter(index) -> ProgressReporter | None` for per-point progress.
+`scan_started(n_points)`, `point_started(index, point)`, `point_finished(index, status,
+wall)`, `scan_finished()`, and optionally `point_reporter(index) -> ProgressReporter | None`
+for per-point progress.
 
 - The local executor calls `point_reporter` in this process.
 - A pool reports `point_started` when it dispatches a point and `point_finished` when it
-  collects it. Per-point progress needs a new message on the worker pipe, carrying `z`
-  and the `PlaneSummary` of each plane (never a field), at the progress period.
-- Batch, queue and Slurm executors report point boundaries only, from the collected
-  files.
+  collects it. Per-point progress needs a new message on the worker pipe, carrying `z` and
+  the `PlaneSummary` of each plane (never a field), at the progress period.
+- Batch, queue and Slurm executors report point boundaries only, from the collected files.
 
 #### 5.5 S5 — launch into chosen modes
 
 `prop_capillary` and `prop_waveguide` gain `launch`, a mapping from mode label to a share
-and, optionally, a phase in radians:
-`launch = {"HE1,1": 0.9, "HE1,2": {"share": 0.1, "phase": 1.57}}`.
+and, optionally, a phase in radians: `launch = {"HE1,1": 0.9, "HE1,2": {"share": 0.1,
+"phase": 1.57}}`.
 
 - **Labels** resolve as `channel` resolves them, by display label or index; a label that
   leaves a parity open when both polarisations are present is refused, naming the
   candidates. A label not in the mode set is refused, naming the available ones.
 - **Shares.** On a flux-orthogonal basis (section 4) the shares are energy fractions,
-  normalised to one. On a general modal basis they are relative amplitudes squared,
-  scaled with the phases so that the flux-metric energy is the pulse's; the guide and the
-  run's metadata say that the split is then a coordinate one.
-- **Per pulse.** `launch` is either one mapping, for every pulse, or a list of mappings,
-  one per pulse in `pulses`, so a pump and a seed can go into different modes.
+  normalised to one. On a general modal basis they are relative amplitudes squared, scaled
+  with the phases so that the flux-metric energy is the pulse's; the guide and the run's
+  metadata say that the split is then a coordinate one.
+- **Per pulse.** `launch` is either one mapping, for every pulse, or a list of mappings, one
+  per pulse in `pulses`, so a pump and a seed can go into different modes.
 - **With the other launch keywords.** `launch` generalises `channel`: giving both is
-  refused. `incident` with `coupling` computes the launch from a beam and is exclusive
-  with `launch`. `Simulation.with_input` remains the way to launch an array.
+  refused. `incident` with `coupling` computes the launch from a beam and is exclusive with
+  `launch`. `Simulation.with_input` remains the way to launch an array.
 - The default, `None`, launches as today.
 
-The launch is recorded through the input record that exists, not a new field where that
-can be done (section 9, Q8).
+The launch is recorded in a new `configuration` entry, `modal_launch`, holding each pulse's
+labels, shares and phases. `configuration["launch"]` already holds an incident beam's
+report, and SEP 42 ignores `configuration.initial` where a pulse is recorded, so without
+this entry two recipes with the same pulse and different launches would continue each
+other's files. The entry is compared under SEP 42, and is absent from older records through
+a neutral entry.
 
 #### 5.6 S6 — beam displacement and tilt
 
 `SpatialPulse` gains `displacement=(d_x, d_y)` in m and `tilt=(theta_x, theta_y)` in rad,
-both defaulting to zero, with the names and definitions of `coupling.Alignment`
-(section 4). They are applied when the beam is built on a Cartesian grid; on a radial grid
-a nonzero value is refused (it breaks the symmetry). `coupling.Alignment` stays the way to
-misalign a beam *into a guide*; a beam's displacement and an `Alignment` add, which the
-documentation states. The tilt's validity is the band and edge condition of section 4,
-checked at build; `Alignment`'s `model_error` budget, which certifies a paraxial screen
-against a guide's modes, does not apply to a free-space launch. Where the existing
-`Alignment` record can record the launch, it does; otherwise see section 9 and Q8.
+both defaulting to zero, with the names and definitions of `coupling.Alignment` (section 4).
+They are recorded as those two fields of `configuration.pulse`, compared under SEP 42, with
+a neutral entry of zero for older records. They are applied when the beam is built on a
+Cartesian grid. A nonzero value is refused on a radial grid, which it breaks the symmetry
+of, and so on `prop_waveguide(incident=...)`, which samples the beam radially, and a nonzero
+`y` component on a line grid, which has no `y`. `coupling.Alignment` stays the way to
+misalign a beam *into a guide*. The tilt's validity is the band, edge and delay conditions
+of section 4, checked at build; `Alignment`'s `model_error` budget, which certifies a
+paraxial screen against a guide's modes, does not apply to a free-space launch.
 
 #### 5.7 S7 — design solvers for every guided route
 
 A general solver and thin named wrappers:
 
 ```text
-tools.solve_parameter(build_mode, parameter, search, target) -> DesignRoots
-    # target: ("zdw", wavelength) | ("rdw", pump, rdw, peak_power=None)
-    #       | ("soliton_order", N, pulse)
+tools.solve_parameter(build, search, target, *, z=0.0) -> DesignRoots
+    # build(value) -> mode, or (mode, gamma) where the target needs the fill's Kerr
+    # target: ZDW(wavelength)
+    #       | RDW(pump, rdw, peak_power=None, fwhm=None, shape="gauss", nonlinear_phase=...)
+    #       | SolitonOrder(order, pulse)
 tools.radius_zdw(gas, pressure, zdw_wavelength, ...)          # new
 ```
 
-`build_mode(value)` returns a mode for a trial value of the parameter (radius, pressure,
-core size, wall thickness), so one solver serves the capillary, antiresonant, rectangular
-and slab modes. It **reuses the existing searches**: it samples the target over the search
-range (logarithmic and linear, as `pressure_rdw` does), discards sign changes through a
-pole as the zero-dispersion search does, refines each bracketed root, and returns **every
-root** found, with the attainable range when there is none. The `rdw` target carries the
-nonlinear phase through `peak_power`, so it reproduces `pressure_rdw` beyond linear phase
-matching. The existing capillary functions keep their signatures and gain no `mode`
-keyword: `solve_parameter` is the general form.
+`build(value)` returns a mode for a trial value of the parameter (radius, pressure, core
+size, wall thickness), so one solver serves the capillary, antiresonant, rectangular and
+slab modes. A mode need not know its fill's Kerr response, so a nonlinear target needs
+`build` to return it as well. The solver samples the target over the search range
+(logarithmic and linear, as `pressure_rdw` does), discards sign changes through a pole,
+refines each bracketed root, and returns **every root** found, with the attainable range
+when there is none. For `RDW` and `SolitonOrder` this reuses what `pressure_rdw` does. For
+`ZDW` a sampled search over the parameter is new, since `pressure_zdw` brackets once, and it
+costs up to 258 mode builds on a non-Marcatili guide. `RDW` reproduces `pressure_rdw` beyond
+linear phase matching, which needs `fwhm` and `nonlinear_phase` beside `peak_power`. The
+existing capillary functions keep their signatures and gain no `mode` keyword:
+`solve_parameter` is the general form.
 
 #### 5.8 S8 — a capability query
 
@@ -494,52 +581,56 @@ solprop.capabilities.species("N2") -> SpeciesCapabilities
 ```
 
 `RouteCapabilities` lists the route's keywords (from S9), the allowed values of each
-enumerated keyword, and the **combination rules** of the interface layer (route ×
-keyword × species) with their reasons: for example, `tdse` requires the capillary route
-and a helium fill; `kerr_form` requires `provider`. Each such rule has an id, and the
-builder that enforces it raises with that id and `parameter` set; a lint-style test checks
-that every refusal of the interface layer that sets `parameter` names a listed rule.
-Refusals that depend on values (grid coverage, node budgets, material validity) are not
-rules; `check()` finds them (S10). `SpeciesCapabilities` lists the ionisation models with
-their status (curated, provisional, unavailable), whether a Raman response exists and its
-status, and the validity ranges optmat records.
+enumerated keyword, and the **combination rules** of the interface layer (route × keyword ×
+species) with their reasons: for example, `tdse` requires the capillary route and a helium
+fill; `kerr_form` requires `provider`. Each such rule has an id, and the builder that
+enforces it raises with that id and `parameter` set; a lint-style test checks that every
+combination refusal, marked as one at the raise, names a listed rule. Refusals that depend
+on values (grid coverage, node budgets, material validity) are not rules; `check()` finds
+them (S10). `SpeciesCapabilities` lists the ionisation models with their status (curated,
+provisional, unavailable), whether a Raman response exists and its status, and the validity
+ranges optmat records.
 
 #### 5.9 S9 — parameter metadata
 
 A table beside each interface function and each registered recipe type, one entry per
 keyword:
 
-- SI unit (or none), and a unit per element or per form where elements differ
-  (section 4);
-- kind (number, integer, boolean, choice, quantity array, object), allowed range or
-  choices, and whether `None` is accepted (written `"none"`);
-- default as documented (the function's default stays the single source; the table refers
-  to it), and, where the default is `None` resolved by a rule (`rtol` by route, `plasma`
-  and `thg` by `envelope`, `step_planes` by TDSE, `raman` by species, `pressure` at one
-  bar), a resolver that returns the value that will be used with the rule's text;
+- SI unit (or none), and a unit per element or per form where elements differ (section 4);
+- a list of **forms**, because many keywords take several (`pressure` a number, a gradient,
+  a table or a profile; `plasma` a boolean, a rate or a per-species mapping), each with its
+  kind (number, integer, boolean, choice, quantity array, mapping, object), its units and
+  its allowed range or choices;
+- whether it needs the `"none"` spelling (§5.1), its recommended display unit, in ASCII
+  (Q7), and whether it is **resolvable** (§5.2);
+- default as documented (the function's default stays the single source; the table refers to
+  it), and, where the default is `None` resolved by a rule (`rtol` by route, `plasma` and
+  `thg` by `envelope`, `step_planes` by TDSE, `raman` by species, `pressure` at one bar), a
+  resolver that returns the value that will be used with the rule's text;
 - group (`geometry`, `medium`, `nonlinear`, `input`, `grid`, `numerics`, `output`), level
   (`basic` or `advanced`), a one-line summary, and the anchor of its manual section.
 
 `solprop.recipe.parameters("capillary")` returns it. A test checks that the table and the
-signature name the same keywords and that each default matches, for the `from_*`
-surfaces, the `prop_*` surfaces and the execution settings. A front end's tooltips and
-field validation come from this table; its own labels and wording are its business.
+signature name the same keywords and that each default matches, for the `from_*` surfaces,
+the `prop_*` surfaces and the execution settings. A second test writes each resolvable
+keyword back and checks that the hash holds. A front end's tooltips and field validation
+come from this table; its own labels and wording are its business.
 
 #### 5.10 S10 — structured validation
 
 `SolpropError` gains an optional `parameter` attribute (a path, or a tuple of paths for a
-conflict) and an optional `rule` (S8), set wherever the interface layer refuses a value.
-The warnings that concern a value (`MaterialRangeWarning`, `BoundaryWarning`, the
+conflict) and an optional `rule` (S8), set wherever the interface layer refuses a value. The
+warnings that concern a value (`MaterialRangeWarning`, `BoundaryWarning`, the
 provisional-Raman warning) carry `parameter` too. No exception changes class.
 
-`Recipe.check()` collects every issue it can at the metadata level (type, unit,
-dimension, range, unknown key, refused key, pins), then builds the simulation and
-translates it, stopping before the backend is constructed, and reports the first refusal
-of the builder or translation with its `parameter`. Translation finds the value-dependent
-refusals; it costs about a tenth of a second on the capillary example, so a front end
-calls it on a pause in typing, not on every keystroke. `solprop.grid.suggest(pulses,
-route=...)` proposes `wavelength_limits` and `trange` from the input pulses and the
-expected broadening, labelled as a starting point.
+`Recipe.check()` collects every issue it can at the metadata level (type, unit, dimension,
+range, unknown key, refused key), solves the pins, then builds the simulation and translates
+it, stopping before the backend is constructed, and reports the first refusal of the builder
+or translation with its `parameter`. Translation finds the value-dependent refusals; it
+costs about a tenth of a second on the capillary example, and a pin some tenths more on a
+Marcatili capillary, so a front end calls it on a pause in typing, not on every keystroke.
+`solprop.grid.suggest(pulses, route=...)` proposes `wavelength_limits` and `trange` from the
+input pulses and the expected broadening, labelled as a starting point.
 
 #### 5.11 S11 — a cost estimate
 
@@ -551,42 +642,45 @@ expected broadening, labelled as a starting point.
   attempted);
 - the output file size for the requested planes;
 - the cost of one right-hand-side evaluation on the chosen backend, timed after one untimed
-  warm-up call (so compilation and transform planning are excluded and reported
-  separately), labelled with the backend and thread count;
+  warm-up call (so compilation and transform planning are excluded and reported separately),
+  labelled with the backend and thread count;
 - the integrator's calls per step, and, for fixed schedules, the total.
 
 It does not predict the number of adaptive steps, which depends on the physics.
 
 #### 5.12 S12 — measured-pulse loaders
 
-`solprop.pulses.load_spectrum(path, *, energy, axis="frequency", axis_unit="Hz",
-columns=(0, 1, 2), phase_convention="optics", ...)` reads a whitespace- or comma-delimited
-text file and returns a `DataPulse`. The default layout is the usual output of a
-measurement and retrieval, the same three columns Luna.jl's `DataPulse` documents:
+`solprop.pulses.load_spectrum(path, *, energy, axis="frequency", axis_unit=None,
+columns=None, phase_unit="rad", phase_convention="optics", wrapped=None, floor=1e-4)` reads
+a whitespace- or comma-delimited text file and returns a `DataPulse`. The default layout is
+the usual output of a measurement and retrieval, the same three columns Luna.jl's
+`DataPulse` documents:
 
 1. frequency in Hz;
 2. spectral power density, in arbitrary units, because `energy` sets the scale;
-3. spectral phase in radians; the column is optional, and a file without it has a flat
-   phase.
+3. spectral phase in radians; a file with only two columns has a flat phase.
 
 `axis="wavelength"` applies the Jacobian between wavelength and frequency densities, and
-`columns` picks other columns. A descending axis is sorted. `phase_convention="fft"` reads
-the opposite sign: solprop's interface uses the optics convention (conventions.md §2), so
-a delay $\tau$ is $+\omega\tau$ here, while a file written for Luna.jl holds the FFT
-convention, in which the same delay is $-\omega\tau$.
+`axis_unit` defaults to the axis's own SI unit. `columns` picks other columns. A descending
+axis is sorted. `phase_convention="fft"` reads the opposite sign: solprop's interface uses
+the optics convention (conventions.md §2), so a delay $\tau$ is $+\omega\tau$ here, while a
+file written for Luna.jl holds the FFT convention, in which the same delay is $-\omega\tau$.
 
 The phase needs care when it is regridded:
 
-- **It is interpolated as given.** A cubic spline runs through the file's unwrapped phase, as
-  `DataPulse.from_spectral_density` does once it keeps the phase it is given (a fix on its
-  own, listed in the changelog), not through a phase re-derived from the complex spectrum.
-  Wrapping an unwrapped phase and unwrapping it again cannot recover a change of more than
-  $\pi$ between samples.
-- **A wrapped column is recognised.** A column whose values all lie within a range of
-  $2\pi$ is taken as wrapped and unwrapped; any other is taken as unwrapped and left alone.
+- **It is interpolated as given.** A cubic spline runs through the file's unwrapped phase,
+  as `DataPulse.from_spectral_density` does, not through a phase re-derived from the complex
+  spectrum. Wrapping an unwrapped phase and unwrapping it again cannot recover a change of
+  more than $\pi$ between samples.
+- **A wrapped column is recognised.** With `wrapped=None`, a column whose values all lie
+  within a range of $2\pi$ is taken as wrapped and unwrapped, and any other is left alone;
+  `wrapped` says which where that guess would be wrong. A phase in degrees needs
+  `phase_unit="deg"`, or it spans 360 and looks unwrapped.
 - **The noise floor does not steer the unwrapping.** A wrapped phase is unwrapped only over
-  samples above a small fraction of the peak power, and held at the nearest such sample
-  beyond them, where the measured phase means nothing.
+  samples above `floor` times the peak power, and held at the nearest such sample beyond
+  them, where the measured phase means nothing. An unwrapped column is taken as it stands.
+- **Undersampling is said.** A wrapped column whose steps at significant power cluster near
+  $\pm\pi$ cannot be recovered, and is warned on.
 
 Tool-specific export formats are left until someone needs one; the `columns` keyword and
 `DataPulse.from_time` already cover most of them. There is no `load_retrieval`.
@@ -609,16 +703,15 @@ nothing and changes no default.
 |---|---|---|
 | `interpolate_planes`, `step_planes` | gnlse, capillary | add to waveguide |
 | `polarisation_taper` | gnlse | add to capillary and waveguide where a spectral collar exists |
-| `noise`, `seed` | all but planar | add to planar |
-| `memory_budget` | `from_waveguide` and `Simulation.run` | a recipe carries it under `[execution]`, passed to `run`; documented as the same budget |
+| `noise`, `seed` | all but planar | a documented difference: a planar grid carries no noise draw, and adding one means declaring a photon measure, which is physics |
+| `memory_budget` | `from_waveguide` and `Simulation.run` | different gates with one unit, documented: the guide's tables at build, the run at `run` (§5.1) |
 | `step_planes` default `0` (gnlse) vs `None` (capillary) | | same behaviour on gnlse (no TDSE); write `None` on both for one signature |
 | integrator and `rtol` defaults by route | | deliberate (per-route qualification); exposed through S9's resolvers and documented in one table |
 | `atol` defaults (1e-14 gnlse, 1e-10 others) | | deliberate, kept (Q3): `atol` acts only when the field norm falls to about `atol/rtol` (1e-7 √W and 1e-4 √W), far below any real pulse; measured norms are 759 √W for 1 pJ in a capillary and 1.9e3 √W for a 10 W GNLSE pulse, and a capillary run takes the same steps at either value |
 | `loss` (capillary) vs `loss_db_per_m` (gnlse) | | different meanings (a switch or model vs a number); keep both, documented |
 | `raman` default `False` (gnlse) vs `None` (gas routes) | | deliberate, kept (Q3): the GNLSE has no medium to read a response from, so `None` there would switch fused silica's Raman on for every fibre |
 
-New keywords record nothing new when left at their defaults: each maps onto a setting the
-run already records.
+These new keywords map onto settings the run already records.
 
 #### 5.15 S15 — the writer-lock sidecar
 
@@ -640,59 +733,82 @@ machinery that exists (`CheckpointOutput` and the readers' refusals):
   density, field) whether it is a **physical flux** or a **coordinate quantity**, with its
   unit;
 - which planes keep fields, and which only statistics rows;
-- which operations are available and which refused, with the reason: compression on
-  spatial and general modal outputs, general modal reconstruction without the guide and
-  reference tables (with the identities the file holds), physical powers from a spatial
-  file;
+- which operations are available and which refused, with the reason: compression on spatial
+  and general modal outputs, general modal reconstruction without the guide and reference
+  tables (with the identities the file holds), physical powers from a spatial file;
 - whether a recipe is recorded (S2) and the file's resumability (S17).
 
-`PlaneView` (S3) carries the same description for the plane it shows; it does not make
-the same physical operations available on every basis.
+`PlaneView` (S3) carries the same description for the plane it shows; it does not make the
+same physical operations available on every basis.
 
 #### 5.17 S17 — a portable stop, and resumability
 
 `Simulation.run` and `run_scan` accept `stop=`: any object with an `is_set()` method
-(`threading.Event` qualifies). The driver checks it where SIGTERM takes effect today,
-between commits, and when it is set raises `RunTerminated` through the same path, so the
-state is written and `resume=True` continues the run. A front end sets it from any thread
-on any platform; signals are not needed (on Windows, `os.kill` with `SIGINT` terminates a
-process outright). `solprop run` maps SIGINT, SIGTERM and, on Windows, `SIGBREAK` (sent by
-`CTRL_BREAK_EVENT`) onto it.
+(`threading.Event` qualifies). The flag belongs to that run. The driver polls it before the
+run's first step and at every trial step, so it answers within one step or trial, or after
+the translation or atomic preparation in progress. When it is set, the run writes its state
+as for SIGTERM, tells the reporter through `interrupted`, and **returns the handler**: a
+requested stop is not an error. `outcome.message` says that the caller's flag stopped it,
+and `resume=True` continues. A front end sets it from any thread on any platform; signals
+are not needed (on Windows, `os.kill` with `SIGINT` terminates a process outright). `solprop
+run` maps SIGINT, SIGTERM and, on Windows, `SIGBREAK` (sent by `CTRL_BREAK_EVENT`) onto it,
+and exits with the usual status.
+
+Across a scan, a stopped point is not committed, and a rerun computes it again:
+
+| Executor | `stop=` |
+|---|---|
+| local | polled by the point in flight |
+| pool | a message on the worker pipe, which that worker's run polls; the pool's abrupt `terminate` remains the last resort |
+| batch | between groups |
+| queue, Slurm | refused, naming the queue's own tools; points run in other processes or on other machines |
 
 ```text
-solprop.output.resumability(path) -> Resumability
+solprop.output.resumability(path, gate=False) -> Resumability
 ```
 
-`Resumability` says whether the file can be continued and how: `resume=True`,
-`resume="interpolated"` (the last plane is interpolated), or not at all, with the reason
-(a complete run, no checkpoint written before a failure, another output schema, no
-recipe and so no rebuild from the file alone), and the `z` it would continue from. A
-front end's own run states (queued, stopping, stopped) stay its own; `RunOutcome.status`
-is unchanged. A changed grid, a wider time window included, is a new run, not a resume
-(Q4).
+`Resumability` answers three questions separately:
+
+- **Can the file continue, and from where?** The `z`, and the `resume=` value it needs:
+  `True`, `"interpolated"` or `"force"` (a file with a forced session). Otherwise the
+  reason: no work left, no checkpoint written before a failure, another output schema, or a
+  writer still alive.
+- **Can it be rebuilt from itself?** Whether a recipe is stored, and readable: a newer
+  format is named. No recipe does not mean it cannot continue, only that its script must do
+  it.
+- **Does the gate pass?** Only with `gate=True`, at the cost of a rebuild: SEP 42's
+  `RecordComparison` for the stored recipe, so a moved optmat digest shows before a resume
+  is tried.
+
+A front end's own run states (queued, stopping, stopped) stay its own; `RunOutcome.status`
+is unchanged. A changed grid, a wider time window included, is a new run, not a resume (Q4).
 
 #### 5.18 S18 — previews
 
 Before a run, a front end shows what a recipe will build without building the run:
 
-- `Recipe.modes()` returns the mode set a guided route would build (labels, `beta`,
-  `beta2`, `zdw`, effective areas and loss over the grid's band), at the cost of the mode
-  solve only;
+- `Recipe.modes(z=None)` returns the mode set a guided route would build (labels, `beta`,
+  `beta2`, `zdw`, effective areas and loss over the grid's band), at the launch position
+  unless `z` is given. Its cost is the mode solve: on a guide route that means the dense
+  tables, with the memory admission `from_waveguide` makes.
 - `Recipe.preview_input()` returns the input pulse, and the beam on free-space routes, on
-  the run's grid, as the launch will set them (S5, S6), with its energy and peak power.
+  the run's grid, as the launch will set them (S5, S6), with its energy and peak power, and
+  without noise, so a preview draws nothing.
 
 ### 6. Implementation strategies
 
-- **Layer.** All of this is interface and driver work above translation
-  (architecture.md section 3). No backend, kernel or stepper changes;
-  `KERNEL_SCHEMA_VERSION` is unchanged. The output schema is unchanged by S1–S4 and
-  S7–S18; S5 and S6 change it only if their launches cannot be recorded through the
-  existing records (section 9).
+- **Layer.** All of this is interface and driver work above translation (architecture.md
+  section 3). No backend, kernel or stepper changes; `KERNEL_SCHEMA_VERSION` is unchanged,
+  and so is the output schema (section 9).
 - **Recipe keys = keywords (recommended) or a designed schema.** A designed schema with its
   own names (`[pulse] shape = "gaussian"`) reads well, but is a second vocabulary to keep in
-  step with six functions and their docstrings. Using the build keywords themselves,
-  grouped by metadata, keeps one vocabulary, makes `to_python()` direct, and lets the sync
-  test (S9) catch every drift. A front end may present any names it likes.
+  step with six functions and their docstrings. Using the build keywords themselves keeps
+  one vocabulary, makes `to_python()` direct, and lets the sync test (S9) catch every drift.
+  A front end may present any names it likes.
+- **One `[build]` table (recommended) or group tables.** Tables such as `[geometry]` and
+  `[grid]` read well by hand, but `grid` and `medium` are keywords, `output` is a refused
+  key, and a mapping such as `[plasma]` looks like a group. One table has none of these
+  problems, and it needs no list of reserved words as keywords are added.
 - **Metadata: a table (recommended) or `Annotated` signatures.** `Annotated[float,
   Unit("m"), Range(0, None)]` puts metadata in the signature, but every interface function
   is already long, the type checker and the runtime array-shape checks would see the
@@ -701,75 +817,109 @@ Before a run, a front end shows what a recipe will build without building the ru
 - **TOML reading and writing.** `tomllib` (standard library) reads, and `tomli-w` writes
   (Q6). It is pure Python with no dependencies of its own, MIT-licensed, and its wheel is
   about 7 kB. It joins the core table of `docs/dev/dependencies.md`. It writes no comments,
-  which a written recipe does not need: the authored text is stored verbatim (§5.2).
+  so an edited recipe loses them (§5.1). Tried on this format, it round-trips nested tables,
+  arrays of tables and quoted path keys through `tomllib`.
 - **Unit parsing.** A small parser in `solprop.recipe` with a fixed table of SI prefixes,
-  the units the keywords use and their dimensions, converting with `decimal`; no
-  dependency on a units library.
-- **Plane observer.** The view wraps what the driver already holds when it calls
-  `plane()`; it computes or fetches only on request.
-- **Stop.** The flag is polled where the commit guard already admits SIGTERM, so a stop
-  costs one attribute call per commit.
+  the units the keywords use and their dimensions, converting with `decimal`; no dependency
+  on a units library.
+- **Plane observer.** The view wraps what the driver already holds when it calls `plane()`;
+  it computes or fetches only on request.
+- **Stop.** The flag is polled per trial step, a cost of one attribute call, and it raises
+  the same internal path as SIGTERM, which a prototype showed working from another thread
+  with the run on a non-main thread: it stopped in 34 ms and the file resumed to completion.
+  The run catches it when its own flag set it. It is not held in the process-global signal
+  guard.
 - **Cost.** Loading and building a recipe add milliseconds. The plane observer costs only
-  what the observer asks for. `check()` costs a translation. The estimate costs a warm-up
-  and a few timed calls, only on request.
+  what the observer asks for. `check()` costs a translation and the pins. The estimate costs
+  a warm-up and a few timed calls, only on request.
 
 ### 7. Verification and validation
 
 The tolerance classes are those of the [testing policy](../testing.md#3-tolerance-policy).
 
-- **Recipe equivalence** (class P, configuration identity). For every example in the user
-  guide and gallery, a recipe written by `Recipe.from_call` and reloaded builds a
-  simulation with the same `configuration_hash` as the original call, with the seed fixed.
-  The keyword routes in phase 1, the object routes and the waveguide in phase 4.
+- **Recipe equivalence** (class P, configuration identity). For the examples of the user
+  guide and gallery, a hand-written recipe builds a simulation with the same
+  `configuration_hash` as the example's call, with the seed fixed. The manual's list of
+  examples that have no recipe (those using `with_input`, callables or an unregistered type)
+  is checked too, so it stays true. The keyword routes in phase 1, the object routes and the
+  waveguide in phase 4.
 - **Python export** (class P). `to_python()` of each of those recipes, executed in a
-  subprocess with the run replaced by a build, gives the same hash.
-- **Round trip** (class P). `save` then `load` returns an equal recipe; every registered
-  type goes table → object → table and back unchanged; formats are upgraded by tests
-  holding a recipe of each older format.
+  subprocess with the run replaced by a build, gives the same hash and the same execution
+  settings, which the hash does not cover.
+- **Round trip** (class P). Table → text → table returns an equal recipe; each registered
+  type goes table → object → hash; a recipe loaded and unchanged saves verbatim; formats are
+  upgraded by tests holding a recipe of each older format.
+- **Resolved recipes** (class P). Each keyword the metadata marks resolvable, written back,
+  keeps the hash. A rebuild from `resolved` has the file's hash, seed included. The §5.2
+  list of keywords that are not resolvable is tested as such, so a keyword that becomes
+  resolvable is noticed.
 - **Quantities** (class P). Each unit and prefix converts to the literal a script writes,
   including the section 5.1 example's values; writing back is the identity; a wrong
-  dimension and an ambiguous string are refused.
-- **Provenance.** A file written from a recipe holds both texts and the built hash; a
-  simulation changed after its build writes no recipe; a schema-1 file with and without
-  the recipe group is read by the readers.
-- **Resume from a file** (class T). A short capillary run stopped by the `stop` flag after
-  a few planes, and another stopped by SIGTERM, resumed with `solprop resume`, agree with
-  an uninterrupted run within an accuracy envelope against a tighter reference, set per
-  case in a comment. `resumability` is checked on a complete file, a stopped file, an
-  interpolated last plane and a failure before the first checkpoint.
+  dimension and an ambiguous string are refused. A complex number, a 128-bit seed as a
+  decimal string, and a list at and over the array limit.
+- **Provenance.** A file written from a recipe holds both texts; a simulation changed after
+  its build by a mutator or a setting outside `[execution]` writes no recipe and warns; a
+  change of `fields` is written as it was at run start; an unseeded resume through
+  `_adopt_recorded_seed` neither warns nor rewrites the group; a file of the current schema
+  with and without the group is read by the readers; a scan's file holds its recipe.
+- **Resume from a file** (class T). A short capillary run stopped by the `stop` flag after a
+  few planes, and another stopped by SIGTERM, resumed with `solprop resume`, agree with an
+  uninterrupted run within an accuracy envelope against a tighter reference, set per case in
+  a comment. `resume_file` takes each mode. `resumability` is checked on a complete file, a
+  stopped file, an interpolated last plane, a failure before the first checkpoint, a forced
+  file, a live writer and a newer recipe format, and `gate=True` shows a moved digest.
+- **Stop.** The flag stops before the first step, between trials and on a non-main thread;
+  two runs in one process stop separately; the run returns and resumes. Each executor as
+  §5.17 says.
 - **Sync.** Metadata tables match the signatures (names, defaults) on every surface; every
-  interface refusal that sets `parameter` names a listed rule; no keyword accepts both
-  `None` and `"none"`.
+  marked combination refusal names a listed rule; the keywords with the `"none"` spelling
+  are those whose default is not `None`, and each accepts no `"none"` of its own.
 - **Observer.** The observer's copy of each plane equals the plane read back from the file
-  (class P). A fixed-schedule run with an observer that asks for every view agrees with
-  the run without one (class R). A failing observer is detached and the run completes; a
-  stop raised from an observer stops the run. Both on `numpy_ref`, `numba_cpu` and the
-  native build, field-free planes included.
+  (class P). A fixed-schedule run with an observer that asks for every view agrees with the
+  run without one (class R). The entrance is observed, and a resume does not repeat planes.
+  A failing observer is detached and the run completes; a stop raised from an observer stops
+  the run. Both on `numpy_ref`, `numba_cpu` and the native build, field-free planes
+  included.
 - **Estimate.** On the three backends, a budget below the persistent memory is reported
   without allocation, and the reported memory agrees with `solprop.driver.memory`.
-- **Pins and scans.** A pinned pressure equals `pressure_zdw` for the same target; a scan
-  re-solves its pins per point; a cycle and an unreachable target are refused.
-- **Design solvers.** `solve_parameter` with the Marcatili builder reproduces
-  `pressure_zdw` and `pressure_rdw` (with `peak_power`) to their tolerance and finds both
-  roots where a resonance gives two; `radius_zdw` inverts `zdw`.
-- **Loaders.** Each loader reads its test file to the energy stated in the file within
-  the quadrature error of its sampling, and to the centre wavelength within one sample
-  spacing; a wavelength-to-frequency conversion conserves energy to the same bound.
+- **Pins and scans.** A pinned pressure equals `pressure_zdw` for the same target, where it
+  has a single root; a scan re-solves its pins per point; two mode-parameter pins, a pinned
+  gradient and an unreachable target are refused. `Recipe.scan()`'s keywords carry
+  `[execution]` to `run_scan`.
+- **Design solvers.** `solve_parameter` with the Marcatili builder reproduces `pressure_rdw`
+  (with `peak_power`, `fwhm` and the nonlinear phase) to its tolerance, `pressure_zdw` where
+  it has one root, and finds both roots where a resonance gives two; `radius_zdw` inverts
+  `zdw`.
+- **Loaders.** The test file reads to the stated energy within the quadrature error of its
+  sampling, and to the centre wavelength within one sample spacing; a
+  wavelength-to-frequency conversion conserves energy to the same bound. A delay of $\tau$
+  read in each `phase_convention` puts the pulse at $\pm\tau$. A large chirp in an unwrapped
+  column survives, a wrapped column unwraps with a noise floor beside it, degrees are read,
+  and an undersampled wrapped column warns.
 - **Launch.** On a Marcatili basis the per-mode energies equal the shares; on a general
-  modal basis the flux-metric energy equals the pulse energy.
+  modal basis the flux-metric energy equals the pulse energy. Two recipes with the same
+  pulse and different launches refuse each other's files under SEP 42's gate.
+- **Beams.** Displacement and tilt agree with `coupling.Alignment`'s definition; each
+  frequency leaves at one angle; the energy after the screen is the pulse's; each refusal of
+  section 4 and §5.6 fires. A record without the fields continues through its neutral entry.
+- **Previews and capabilities.** `preview_input` equals the run's noise-free initial field;
+  `modes` equals the built mode set. Each refusal `OutputCapabilities` states matches the
+  reader's actual refusal, so the two cannot drift.
 - **Safety.** A recipe naming an unregistered type, holding a refused key, or reaching a
   path outside its directory (symbolic links resolved) without an explicit allowance is
-  refused; an embedded data file is never written at its stored name.
+  refused; an embedded data file is never written at its stored name, and the cap holds; a
+  received file's own budgets are ignored.
 
 ### 8. Documentation
 
 - A new guide page, *Recipes and the command line* (`guide/setup/recipes.md`): the format,
   quantities, `None`, paths, objects, data files, pins, scans, `solprop run`, `check`,
-  `export` and `resume`, with the capillary example above.
-- [Resuming](../../guide/results/resuming.md): resume from a file alone, `resumability`,
-  the portable stop, and that resuming a received file runs its setup.
+  `export` and `resume`, with the capillary example above, and the examples that have no
+  recipe, with why.
+- [Resuming](../../guide/results/resuming.md): resume from a file alone, `resumability`, the
+  portable stop, and that resuming a received file runs its setup.
 - [Progress](../../guide/performance/progress.md): `PlaneObserver`, its failure policy and
-  the coalescing pattern, `ScanReporter`.
+  the coalescing pattern, how the boundary warning reaches a front end, `ScanReporter`.
 - [Pulses](../../guide/setup/pulses.md) and [beams](../../guide/free-space/beams.md):
   loaders, mode launch (and its meaning on general bases), displacement and tilt.
 - [Design tools](../../guide/workflows/design-tools.md): the general solver, `radius_zdw`
@@ -782,28 +932,23 @@ The tolerance classes are those of the [testing policy](../testing.md#3-toleranc
 
 ### 9. Compatibility and impact
 
-- **Python interface: additive.** Every name is new, every new keyword defaults to
-  today's behaviour, and the new reporter calls are optional protocols with names no
-  reporter is likely to have (adding them to `ProgressReporter` itself would break
-  third-party reporters and is not proposed). No exception changes class.
-- **Output schema: unchanged by the recipe.** The recipe group is optional and outside the
-  hash, so files written before and after phase 2 are read and resumed alike.
-- **Output schema and S5, S6.** Every recorded field is recorded at its default, so a new
-  field on `SpatialPulse` or a new launch record would move the hash and bump the schema,
-  which in a 0.x minor release makes files of the previous release unreadable (ADR-058).
-  S5 and S6 are designed to record their launches through records that exist (the input
-  and `Alignment` records). If that proves impossible, the record changes are confined to
-  phase 4 and made as one schema bump, listed under "Changed (breaking)" in the changelog
-  (Q8). The resume-compatibility proposal, SEP 42 (in draft), would remove the need: under
-  it, a new field in the record bumps neither.
+- **Python interface: additive.** Every name is new, every new keyword defaults to today's
+  behaviour, and the new reporter calls are optional protocols with names no reporter is
+  likely to have (adding them to `ProgressReporter` itself would break third-party reporters
+  and is not proposed). No exception changes class.
+- **Output schema: unchanged.** The recipe group is a top-level group written once, and
+  outside the hash, so files written before and after phase 2 are read and resumed alike
+  (SEP 42 §5.8). S5 and S6 add recorded fields, each with a neutral entry and compared under
+  SEP 42. So this SEP lands after SEP 42's phase 1 and bumps nothing.
 - **Recipe stability.** Recipe `format = 1` becomes a public format when this SEP merges.
   Renaming a keyword later then needs a format upgrade rule as well as a changelog entry.
-  The route vocabulary was aligned (`wavelength`, `shape`) before the first release, and
-  S14's `atol` and `raman` rows stay as they are (Q3).
+  Every keyword of a registered type is part of the format too, so the registry starts
+  small. The route vocabulary was aligned (`wavelength`, `shape`) before the first release,
+  and S14's `atol` and `raman` rows stay as they are (Q3).
 - **Two choices that would be breaking, and are not recommended:** renaming keywords to one
-  vocabulary across routes where the meanings differ (`loss`/`loss_db_per_m`), and
-  aligning integrator or tolerance defaults across routes (the per-route defaults were
-  qualified separately).
+  vocabulary across routes where the meanings differ (`loss`/`loss_db_per_m`), and aligning
+  integrator or tolerance defaults across routes (the per-route defaults were qualified
+  separately).
 - **Validated results:** unchanged; no computed field changes.
 - **Dependencies:** `tomli-w`, to write TOML (section 6, Q6).
 
@@ -823,85 +968,112 @@ The tolerance classes are those of the [testing policy](../testing.md#3-toleranc
   one purpose and one test strategy (the recipe round trips), and the hooks name recipe
   paths, so splitting would publish recipe format 1 before the pins, paths and previews it
   must describe. One SEP, on one branch, lets the format freeze once.
+- **Turning objects back into tables** (a `Recipe.from_call`). It would need every object to
+  keep what made it, or a factory to attach its table, and would be wrong for hand-built
+  objects. A recipe always comes from a recipe, or from plain values.
+- **A resolved recipe holding every keyword.** Simple to state, but it does not rebuild its
+  run: values read back from a default build move the hash or have no table form (§5.2).
+- **Comparing hashes to detect a simulation changed after its build.** It costs a
+  translation at every build, gives a false alarm on an unseeded resume and misses a changed
+  `fields`. Mutators dropping the recipe are cheap and exact.
+- **A boundary hook on the observer.** The monitor has no verdict to give: it warns once or
+  stops, and a front end has both.
 - **A rule language for cross-field validation.** Instant validation of every rule would
-  need the value-dependent refusals of translation written a second time. `check()`
-  reuses them; only the combination rules are listed (S8).
+  need the value-dependent refusals of translation written a second time. `check()` reuses
+  them; only the combination rules are listed (S8).
 - **Signals for stopping.** Portable only on POSIX; a flag is portable and testable.
 
 ### 11. Phases
 
 The phases are made on one branch and the SEP reaches `main` in one pull request when its
-last commit sets `Final` (SEP 0, *Implementation*). A front end in development builds
-against the branch; the order puts what it needs first.
+last commit sets `Final` (SEP 0, *Implementation*). The branch starts after SEP 42's phase
+1, whose gate S2 and S17 rest on. A front end in development builds against the branch; the
+order puts what it needs first.
 
-1. **Recipe core on `gnlse` and `capillary` (S1, S9, S10).** `solprop.recipe` with format
-   1; quantity parser and TOML writer; paths and the `None` spelling; the registry for
-   these routes' objects; metadata tables with resolvers and their sync tests;
-   `Recipe.load/save/get/set/check/build/to_python/from_call/example`; `parameter` on errors and
-   warnings; the `solprop` console script with `run`, `check` and `export`; the guide
-   page. Verifies recipe equivalence, Python export and quantities on every
-   keyword-route example of these routes.
-2. **Provenance, resume and stop (S2, S15, S17).** The recipe group in the output,
-   `Recipe.from_output`, `solprop resume`, the `stop` flag, `resumability`; the
+1. **Recipe core on `gnlse` and `capillary` (S1, S9, S10, S12).** `solprop.recipe` with
+   format 1; quantity parser and TOML writer; paths, `None`, complex numbers, arrays and
+   data files; the factory registry for these routes' objects; `load_spectrum` as its first
+   data-file entry; metadata tables with forms, resolvers and their sync tests;
+   `Recipe.load/save/get/set/check/build/run/to_python/from_keywords/example`; `parameter`
+   on errors and warnings; the `solprop` console script with `run`, `check` and `export`;
+   the guide page. Verifies recipe equivalence, Python export, quantities and the loader's
+   phase rules on every keyword-route example of these routes.
+2. **Provenance, resume and stop (S2, S15, S17).** The recipe group in the output, the
+   resolvable keywords and their test, `Recipe.from_output`, `solprop resume` and
+   `resume_file` with their modes, the `stop` flag per executor, `resumability`; the
    writer-lock text. Verifies resume from a file after a stop and after SIGTERM, and the
    received-file limits.
-3. **Watching runs (S3, S4, S11, S16).** `PlaneObserver` and `PlaneView`, the boundary
-   verdict, `ScanReporter` and the pool's progress message, `Simulation.estimate()`,
-   `[scan]` tables and `Recipe.scan()`, result capabilities. Verifies observer neutrality
-   and failure on the three backends, and scan progress on local and pool executors.
-4. **Object routes, waveguide, launches and previews (S1 continued, S5, S6, S18).**
-   Recipes for `waveguide`, `radial`, `free` and `planar` (registered types for guides,
-   mode providers, grids, spaces, media, beams, responses and settings); `launch`; beam
-   displacement and tilt; `Recipe.modes()` and `preview_input()`. Verifies recipe
-   equivalence on these routes' examples and the launch normalisation; reports whether a
-   schema bump was needed (Q8).
-5. **Design, pins and capability (S7, S1's pins, S8, S12).** `solve_parameter`,
-   `radius_zdw`; `[pins]`; `solprop.capabilities.route` and `species` with rule ids; the
-   pulse loaders.
+3. **Watching runs (S3, S4, S11, S16).** `PlaneObserver` and `PlaneView`, `ScanReporter` and
+   the pool's progress message, `Simulation.estimate()`, `[scan]` tables and
+   `Recipe.scan()`, result capabilities. Verifies observer neutrality and failure on the
+   three backends, and scan progress on local and pool executors.
+4. **Object routes, waveguide, launches and previews (S1 continued, S5, S6, S18).** Recipes
+   for `waveguide`, `radial`, `free` and `planar`, with the documented user-facing types
+   registered and listed (guides, mode providers, grids, spaces, media, beams, responses and
+   settings, and the factories such as `absorber`); `launch` with its record; beam
+   displacement and tilt with their neutral entries; `Recipe.modes()` and `preview_input()`.
+   Verifies recipe equivalence on these routes' examples, the launch normalisation and the
+   beams.
+5. **Design, pins and capability (S7, S1's pins, S8).** `solve_parameter`, `radius_zdw`;
+   `[pins]`, `Recipe.resolve` and `pin_roots`; pins carried into what already reads values,
+   `Recipe.scan()`, `Recipe.modes()`, `preview_input()` and the resolved recipe;
+   `solprop.capabilities.route` and `species` with rule ids.
 6. **Drawings and keyword gaps (S13, S14).** `solprop.plotting.geometry` and the guide
    figures moved onto it; the missing keywords added; the route-defaults table.
 
 ### 12. Open questions
 
 - **Q1.** Recipe values: accept both quantity strings and SI numbers, and write quantity
-  strings (recommended), or SI numbers only?
-  **Decision (John Travers, 2026-11-01):** as recommended.
+  strings (recommended), or SI numbers only? **Decision (John Travers, 2026-11-01):** as
+  recommended.
 - **Q2.** Should `[recipe] route` be required, or inferred from the keywords present
   (recommended: required; inference is fragile between `capillary` and `waveguide`)?
   **Decision (John Travers, 2026-11-01):** as recommended.
 - **Q3.** S14's open rows: align the `atol` defaults, and give `prop_gnlse` the gas-route
   `raman` default semantics? Each is a change of default. Recommended: keep both and
-  document them as deliberate; if either is to change, change it in a minor release
-  before this SEP merges, listed as a break (ADR-058), so that recipe format 1 is
-  published with the final defaults.
-  **Decision (John Travers, 2026-11-01):** as recommended; both stay and are documented as
-  deliberate.
+  document them as deliberate; if either is to change, change it in a minor release before
+  this SEP merges, listed as a break (ADR-058), so that recipe format 1 is published with
+  the final defaults. **Decision (John Travers, 2026-11-01):** as recommended; both stay and
+  are documented as deliberate.
 - **Q4.** Should `solprop resume` also accept a recipe edited after the run (for example a
   longer `length`), refusing only when the hash differs in more than the run's end?
-  Recommended: no in this SEP; extending a finished run is its own question. A changed
-  grid is always a new run.
-  **Decision (John Travers, 2026-11-01):** as recommended. Extending a finished run stays a
-  roadmap item for its own proposal, which is simplest after this SEP's recipes; the
-  resume-compatibility proposal, SEP 42 (in draft), does not take it on.
-- **Q5.** Which pulse-retrieval formats does `load_retrieval` support first?
-  **Decision (John Travers, 2026-11-01):** the usual three columns of frequency in Hz,
-  spectral power density and spectral phase, as Luna.jl's `DataPulse` takes, with care over
-  the phase when regridding. §5.12 now specifies this, through `load_spectrum` alone.
-  The phase is in the optics convention by default, with a keyword for the other sign.
-- **Q6.** Is `tomli-w` acceptable as a dependency instead of a subset writer?
-  **Decision (John Travers, 2026-11-01):** yes, take the dependency; it is light, and
-  there is no reason to rewrite it.
+  Recommended: no in this SEP; extending a finished run is its own question. A changed grid
+  is always a new run. **Decision (John Travers, 2026-11-01):** as recommended. Extending a
+  finished run stays a roadmap item for its own proposal, which is simplest after this SEP's
+  recipes; SEP 42 does not take it on.
+- **Q5.** Which pulse-retrieval formats does a retrieval loader support first? **Decision
+  (John Travers, 2026-11-01):** the usual three columns of frequency in Hz, spectral power
+  density and spectral phase, as Luna.jl's `DataPulse` takes, with care over the phase when
+  regridding. §5.12 now specifies this, through `load_spectrum` alone. The phase is in the
+  optics convention by default, with a keyword for the other sign.
+- **Q6.** Is `tomli-w` acceptable as a dependency instead of a subset writer? **Decision
+  (John Travers, 2026-11-01):** yes, take the dependency; it is light, and there is no
+  reason to rewrite it.
 - **Q7.** Should the metadata include a recommended display unit per keyword (fs for
-  durations, µm for radii), or is that left to front ends? Recommended: include it, so
-  that recipes written by any front end use the same quantity strings.
-  **Decision (John Travers, 2026-11-01):** as recommended.
+  durations, µm for radii), or is that left to front ends? Recommended: include it, so that
+  recipes written by any front end use the same quantity strings. **Decision (John Travers,
+  2026-11-01):** as recommended. Display units are spelled in ASCII in a recipe (`um`); `µm`
+  is read too, and a front end shows what it likes.
 - **Q8.** If S5 or S6 cannot record its launch through existing records, is one
   output-schema bump in phase 4 acceptable (listed under ADR-058), or should the feature
-  wait for the resume-compatibility policy of 1.0? Recommended: the bump, made once and
-  in the same minor release as any other schema change.
-  **Decision (John Travers, 2026-11-01):** avoid the bump through SEP 42 (in draft), under
-  which an additive record field moves neither the schema nor a resume; failing that, one
-  bump as recommended.
+  wait for the resume-compatibility policy of 1.0? Recommended: the bump, made once and in
+  the same minor release as any other schema change. **Decision (John Travers,
+  2026-11-01):** avoid the bump through SEP 42, under which an additive record field moves
+  neither the schema nor a resume. SEP 42 is now accepted and comes first, so no bump is
+  needed and the fallback is gone (section 9).
+- **Q9. The shape of format 1.** One `[build]` table with no group tables (recommended,
+  §5.1, §6), or the group tables the maintainer first approved, with their names changed so
+  that none is a keyword. **Reopened by the supplementary review; to confirm.**
+- **Q10. A stop that returns.** `run(stop=)` returns the handler when its own flag stops it
+  (recommended, §5.17), or raises like SIGTERM, a `SystemExit` that a front end's `except
+  Exception` misses and that ends a worker thread silently. **To confirm.**
+- **Q11. One way only.** Drop `Recipe.from_call` for `Recipe.from_keywords` with plain
+  values, and never turn an object into a table (recommended, §5.1), or have factories
+  attach their tables so that more calls can be captured. **Reopened by the supplementary
+  review; to confirm.**
+- **Q12. Edited recipes lose their comments.** `save` is verbatim until a recipe is edited
+  and canonical after (recommended, §5.1), or preserve comments, which needs a TOML library
+  that keeps them, a heavier dependency than Q6 took. **To confirm.**
 
 ### 13. References
 
@@ -940,6 +1112,10 @@ against the branch; the order puts what it needs first.
   default). All of Q1–Q8 are decided. Rebased onto `main` after the 0.1.0 release; §3, §5.12,
   §5.14 and §9 brought up to date.
 - 2026-11-01: Supplementary AI review of the revised text (Opus 5.5).
+- 2026-11-01: Opus 5.5 (drafting agent) answered G1–G25 and revised Part I (response below), with
+  the maintainer's leave to reopen earlier decisions: one `[build]` table, factories with a declared
+  context, one-way recipes, a resolved recipe defined by what rebuilds the run, a recipe carried by
+  the simulation, a stop that returns, and SEP 42 as a requirement. Q9–Q12 ask for confirmation.
 
 ### AI review, 2026-10-31
 
@@ -2018,3 +2194,90 @@ Probes are listed at the end; every number below was measured on `numba_cpu` or
 
 No test suite and no long run were performed. Capillaries were built and not run; the runs
 were GNLSE fibres of at most 30 cm with a handful of saved planes, and a one-point scan.
+
+### Response to the supplementary review — 2026-11-01 (Opus 5.5, drafting agent)
+
+G1 was re-run before this response (`dz_init` moves `stepper.limits.auto_init`, and
+`raman_fraction` moves `materials.policies.gnlse_raman.origin`), and the rest of the numbers
+quoted are the reviewer's. The revised format was tried with `tomli-w` 1.2.0 and `tomllib`,
+including nested tables and quoted path keys, and the §5.1 example's values build on the
+capillary. The maintainer gave leave to reopen decisions and approved text for a better and
+more consistent result, and Q9–Q12 list what that reopened. All 25 points are taken, with
+the departures stated in points 2, 4, 7, 10, 11 and 16.
+
+1. **G1 taken.** The resolved recipe is defined by what rebuilds the run (§5.2), with a
+   resolvable flag in the metadata and a sync test. `backend` stays as requested. A keyword
+   that cannot qualify stays left to the build, and the resume gate notices a moved default.
+2. **G2 taken, more simply than recommended.** Entries are named factories with a declared
+   build context, which format 1 limits to the route's `grid`. The inverse is dropped
+   altogether: no object becomes a table, so `from_call` gives way to `from_keywords` with
+   plain values (Q11). The §7 tests run table → object → hash, with hand-written recipes,
+   and the examples without a recipe are listed and checked.
+3. **G3 taken.** Complex numbers, decimal-string integers, and lists up to a stated length
+   with data files beyond (§5.1). `IndexTable` and the `beta` tuple form are deferred by
+   name.
+4. **G4 taken, by a different route.** Rather than renaming groups, the format drops them:
+   one `[build]` table and four other fixed tables (Q9), so no future keyword can collide.
+   This reopens the example the maintainer approved. The path grammar gains `["key"]`, and
+   only whole values are pinned.
+5. **G5 taken.** `boundary_check` is a build keyword, §3 is corrected, the example has
+   `field_planes`, `Recipe.run` carries `memory_budget`, and `Recipe.scan()` returns the
+   `run_scan` keywords, with `name` required and `base_seed` reserved. `absorber` on the
+   object routes goes under `settings`.
+6. **G6 taken.** `"none"` is spelled only where the default is not `None`.
+7. **G7 taken, with one addition.** The simulation carries its recipe and mutators drop it;
+   the group is written once and never rewritten. Execution settings come from the run
+   start. The built hash is no longer stored, since it would only repeat the file's own
+   stamp.
+8. **G8 taken.** S5 adds `configuration.modal_launch`, S6 adds two fields to the pulse
+   record, each compared with a neutral entry, and the conditional schema text is gone. This
+   also settles Q8.
+9. **G9 taken.** `resumability` answers three questions, `gate=True` costs a rebuild, and
+   `solprop resume` and `resume_file` take a mode (§5.1, §5.2, §5.17).
+10. **G10 taken, with a further change.** The stop polls before the first step and per
+    trial, is per run, and is defined per executor. Beyond the point: a run stopped by its
+    own flag returns rather than raising (Q10), because a `SystemExit` ends a worker thread
+    silently and misses `except Exception`, and the reviewer's own text-only remedy would
+    leave that.
+11. **G11 taken, more simply than recommended.** Targets are typed and carry what they need,
+    and `build` may return the Kerr coefficient. `Recipe.resolve` and `pin_roots` are added.
+    Instead of read sets, pins resolve in two fixed stages with at most one mode-parameter
+    pin, so cycles cannot be written. `capillary_design` is not a pin: it sets two values,
+    and a front end writes them as literals. §3's account of the search is corrected, and a
+    sampled zero-dispersion search is stated as new work.
+12. **G12 taken.** `resume_file` applies the caller's budgets and refuses by default;
+    embedding has a cap; `check` reports a file left dangling after saving (§5.2).
+13. **G13 taken.** S12 moves to phase 1, **Requires** names SEP 42, §7's stale schema text
+    goes, and phase 5 lists its retrofits. The `DataPulse` fix lands separately
+    ([LupoLab/solprop#70](https://github.com/LupoLab/solprop/pull/70)), and §5.12 only
+    relies on it.
+14. **G14 taken.** §7 gains tests for S6, S16, S18, the phase rules and the execution
+    settings.
+15. **G15 taken.** The entrance is observed, and a resume does not repeat planes.
+16. **G16 taken by removal.** `observe_boundary` goes: the monitor warns once or stops, and
+    a front end has both, so a hook would have no verdict to carry. The front-end design's
+    lamp reads those instead.
+17. **G17 taken.** Tilt and displacement apply at the launch plane, after `propz`; the
+    energy is set after the screen; `incident` and the line grid's `y` are refused; the
+    pulse-front delay joins the validity conditions.
+18. **G18 taken.** `axis_unit` follows the axis, a two-column file is allowed by default,
+    and `wrapped`, `floor` and `phase_unit` are keywords, because they change what a recipe
+    builds. Undersampling warns. The hold rule stays for wrapped columns only.
+19. **G19 taken.** The metadata has a list of forms.
+20. **G20 taken.** Planar noise is a documented difference.
+21. **G21 taken.** The lint covers combination refusals, marked at the raise.
+22. **G22 taken.** `modes` takes `z`, its cost and admission on a guide route are stated,
+    and `preview_input` draws no noise.
+23. **G23 taken.** The text is kept verbatim until a recipe is edited, recipes compare by
+    value, and writing uses ASCII while both spellings read. Losing comments on an edit is
+    Q12.
+24. **G24 taken.** A scan's file stores the authored recipe.
+25. **G25 taken.** The registry starts with the documented user-facing types, and §9 says
+    why.
+
+**Consistency.** The front-end design was revised to match: recipe sketch, pins, the
+boundary lamp, and the service table.
+
+**Still unmeasured,** as the review says: the native and device backends, and `PlaneView` on
+them; the guide and provider registry of phase 4; `solve_parameter` beyond the Marcatili
+tools; Windows; Queue and Slurm. Nobody independent has read this revision.
