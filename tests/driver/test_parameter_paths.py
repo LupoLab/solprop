@@ -458,7 +458,7 @@ def test_a_refusal_names_the_keyword_it_refuses(
             build()
     assert type(caught.value) is kind
     assert caught.value.parameter == parameter
-    assert caught.value.rule is None
+    # Which rule each refusal enforces, if any, is tests/test_capability_queries.py's.
 
 
 def test_an_error_raised_outside_an_interface_names_no_parameter() -> None:

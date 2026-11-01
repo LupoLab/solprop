@@ -202,11 +202,13 @@ def capillary_fill(  # noqa: PLR0913 - the public constructor's material options
                     "gas",
                     *(name for name, value in given.items() if value is not None),
                 ),
+                rule="mixture-carries-pressure",
             )
         if susceptibility is not None:
             raise DriverError(
                 "Mixture carries species susceptibilities; omit susceptibility",
                 parameter=("gas", "susceptibility"),
+                rule="mixture-carries-susceptibility",
             )
         mixture = material
     else:
@@ -224,6 +226,7 @@ def capillary_fill(  # noqa: PLR0913 - the public constructor's material options
                 raise DriverError(
                     "fraction mappings carry species optics; omit susceptibility",
                     parameter=("gas", "susceptibility"),
+                    rule="mixture-carries-susceptibility",
                 )
             fractions = {
                 species(name, selection=selection): fraction
@@ -238,6 +241,7 @@ def capillary_fill(  # noqa: PLR0913 - the public constructor's material options
                     "susceptibilities; omit susceptibility, or build the Mixture "
                     "yourself",
                     parameter=("gas", "susceptibility"),
+                    rule="mixture-carries-susceptibility",
                 )
             mixture = Mixture.air(
                 1.0 if pressure is None else pressure,

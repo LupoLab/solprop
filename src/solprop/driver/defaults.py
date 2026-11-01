@@ -526,12 +526,14 @@ def resolve_noise(
                     f"a noise seed was given, but this run takes no noise by default "
                     f"({fallback}): pass a noise model with the seed, or drop the seed"
                 )
-                raise DriverError(msg, parameter=("seed", "noise"))
+                raise DriverError(
+                    msg, parameter=("seed", "noise"), rule="seed-needs-noise"
+                )
             return None, NoiseResolution("default", None, fallback)
         return "input", NoiseResolution("default", "input")
     if noise is None and seed is not None:
         msg = "a noise seed requires a noise model"
-        raise DriverError(msg, parameter=("seed", "noise"))
+        raise DriverError(msg, parameter=("seed", "noise"), rule="seed-needs-noise")
     if route == "capillary tdse" and noise is not None:
         msg = (
             f"noise={noise!r} beside the TDSE response: the atomic source is expensive "

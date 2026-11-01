@@ -959,7 +959,11 @@ class SimulationSettings(Displayed):
                 "the march's own steps as well, so the plane count is not known in "
                 "advance; keep fields='all' or 'none' beside step_planes"
             )
-            raise DriverError(msg, parameter=("fields", "step_planes"))
+            raise DriverError(
+                msg,
+                parameter=("fields", "step_planes"),
+                rule="fields-planes-step-planes",
+            )
         if self.tdse_execution is not None:
             _admit_tdse_execution(self, precision)
         # The annotation refuses another integrator first wherever the annotations are
@@ -1127,19 +1131,25 @@ def _admit_tdse_execution(settings: SimulationSettings, precision: Precision) ->
             "precision='single' refuses a TDSE response: no backend runs it in "
             "binary32 (SEP 33 section 5.1); use precision='double'"
         )
-        raise DriverError(msg, parameter=("tdse_execution", "precision"))
+        raise DriverError(
+            msg, parameter=("tdse_execution", "precision"), rule="tdse-double-precision"
+        )
     if settings.backend != "numpy_ref":
         msg = (
             f"tdse_execution requires an explicit backend='numpy_ref', the one backend "
             f"that runs the TDSE response; got backend={settings.backend!r}"
         )
-        raise DriverError(msg, parameter=("tdse_execution", "backend"))
+        raise DriverError(
+            msg, parameter=("tdse_execution", "backend"), rule="tdse-numpy-ref"
+        )
     if not isinstance(settings.integrator, Multistep):
         msg = (
             "tdse_execution requires integrator=Multistep(), the Adams method the TDSE "
             f"response steps with; got {type(settings.integrator).__name__}()"
         )
-        raise DriverError(msg, parameter=("tdse_execution", "integrator"))
+        raise DriverError(
+            msg, parameter=("tdse_execution", "integrator"), rule="tdse-multistep"
+        )
 
 
 def _quiet_collar(settings: SimulationSettings) -> bool:
@@ -1329,13 +1339,19 @@ def _admit_low_storage(
             f"the {integrator.name} march replays a prescribed schedule; pass "
             "schedule=FixedSchedule.uniform(...), or step adaptively with RungeKutta()"
         )
-        raise DriverError(msg, parameter=("integrator", "schedule"))
+        raise DriverError(
+            msg, parameter=("integrator", "schedule"), rule="low-storage-needs-schedule"
+        )
     if settings.interpolate_planes:
         msg = (
             f"the {integrator.name} march lands on its schedule's edges and has no "
             "dense output; drop interpolate_planes"
         )
-        raise DriverError(msg, parameter=("integrator", "interpolate_planes"))
+        raise DriverError(
+            msg,
+            parameter=("integrator", "interpolate_planes"),
+            rule="low-storage-no-interpolation",
+        )
     return backend
 
 
@@ -1365,7 +1381,9 @@ def _admit_integrator(integrator: Multistep, backend: str) -> None:
             "Runge-Kutta march; pass one of those or 'auto', or "
             "integrator=RungeKutta()"
         )
-        raise DriverError(msg, parameter=("integrator", "backend"))
+        raise DriverError(
+            msg, parameter=("integrator", "backend"), rule="integrator-backends"
+        )
 
 
 def metadata_for(  # noqa: PLR0913 - the record's parts, each a distinct object
@@ -6320,7 +6338,7 @@ class Simulation(Displayed):
                 "electronic one too, and on a field grid the drive form reaches the "
                 "kernel through the Kerr term (docs/guide/media/raman.md)"
             )
-            raise DriverError(msg, parameter=("raman", "kerr"))
+            raise DriverError(msg, parameter=("raman", "kerr"), rule="raman-needs-kerr")
         if polarisation is not None:
             msg = (
                 f"polarisation={polarisation!r}: this path is scalar and propagates "
@@ -6330,7 +6348,9 @@ class Simulation(Displayed):
                 "capillary run, a polarisation-resolved mode set, which is not "
                 "validated end to end yet"
             )
-            raise DriverError(msg, parameter="polarisation")
+            raise DriverError(
+                msg, parameter="polarisation", rule="scalar-capillary-polarisation"
+            )
         _check_wall_declaration(
             wall,
             backend=backend,
@@ -7129,7 +7149,9 @@ def _refuse_plasma_settings(
     """
     if envelope and active and thg:
         msg = "envelope plasma cannot be combined with THG"
-        raise DriverError(msg, parameter=("envelope", "plasma", "thg"))
+        raise DriverError(
+            msg, parameter=("envelope", "plasma", "thg"), rule="envelope-plasma-no-thg"
+        )
     if integration is None:
         return
     if envelope:
@@ -7138,13 +7160,21 @@ def _refuse_plasma_settings(
             "column's running-integral rule; envelope plasma converts its currents "
             "with exact inverse-frequency factors and takes no such rule"
         )
-        raise DriverError(msg, parameter=("plasma_integration", "envelope"))
+        raise DriverError(
+            msg,
+            parameter=("plasma_integration", "envelope"),
+            rule="plasma-integration-field-grid",
+        )
     if not active:
         msg = (
             f"plasma_integration={integration!r} is given but the plasma is off; "
             "turn it on (plasma=True) or drop plasma_integration"
         )
-        raise DriverError(msg, parameter=("plasma_integration", "plasma"))
+        raise DriverError(
+            msg,
+            parameter=("plasma_integration", "plasma"),
+            rule="plasma-integration-needs-plasma",
+        )
 
 
 def _refuse_idle_preionisation(mixture: Mixture, responses: Sequence[object]) -> None:
@@ -7415,7 +7445,9 @@ def _check_wall_declaration(
             "Leave taper_coupling at its default with wall=, or pass wall=None for "
             "the adiabatic route"
         )
-        raise DriverError(msg, parameter=("wall", "taper_coupling"))
+        raise DriverError(
+            msg, parameter=("wall", "taper_coupling"), rule="wall-keeps-taper-coupling"
+        )
     resolved = resolve_name(backend)
     selected = f"{backend!r}" if backend == resolved else f"{backend!r} ({resolved})"
     if wall.method == "cf4" and resolved != _CF4_BACKEND:
@@ -7429,7 +7461,9 @@ def _check_wall_declaration(
             f"backend={_CF4_BACKEND!r} with method='cf4', or leave the method at its "
             "default"
         )
-        raise DriverError(msg, parameter=("wall.method", "backend"))
+        raise DriverError(
+            msg, parameter=("wall.method", "backend"), rule="wall-cf4-numpy-ref"
+        )
     if loss is not True:
         msg = (
             f"a coherent wall block is the loss model, and this run declares "
@@ -7438,7 +7472,7 @@ def _check_wall_declaration(
             "be discarded in silence. Pass loss=True with wall=, or leave wall=None "
             "and keep the uncoupled loss you asked for"
         )
-        raise DriverError(msg, parameter=("wall", "loss"))
+        raise DriverError(msg, parameter=("wall", "loss"), rule="wall-is-the-loss")
     if model != "full":
         msg = (
             f"a coherent wall block needs one capillary model, the full one, and "
@@ -7446,7 +7480,7 @@ def _check_wall_declaration(
             "model's transverse eigenvalue, and the reduced model's leading-order "
             "carrier beside it would be overridden rather than propagated"
         )
-        raise DriverError(msg, parameter=("wall", "model"))
+        raise DriverError(msg, parameter=("wall", "model"), rule="wall-full-model")
     if lattice is not None:
         msg = (
             "a coherent wall block assumes one uniform dielectric wall at a single "
@@ -7455,7 +7489,7 @@ def _check_wall_declaration(
             "capillary. Leave wall=None and keep the Vincetti loss, or drop the "
             "lattice"
         )
-        raise DriverError(msg, parameter=("wall", "lattice"))
+        raise DriverError(msg, parameter=("wall", "lattice"), rule="wall-no-lattice")
 
 
 # Positions along the capillary at which the modes' group delays are read.
@@ -8678,7 +8712,7 @@ def _gnlse_grid(
                 "prop_capillary's "
                 "path"
             )
-            raise DriverError(msg, parameter="grid")
+            raise DriverError(msg, parameter="grid", rule="gnlse-envelope-grid")
         return grid
     if wavelength_limits is None or trange is None:
         msg = (
@@ -8686,7 +8720,9 @@ def _gnlse_grid(
             "your own"
         )
         raise DriverError(
-            msg, parameter=_unset(wavelength_limits=wavelength_limits, trange=trange)
+            msg,
+            parameter=_unset(wavelength_limits=wavelength_limits, trange=trange),
+            rule="grid-or-limits",
         )
     with _about(renamed=_GRID_KEYWORDS):
         return EnvelopeGrid.from_limits(length, wavelength, wavelength_limits, trange)
@@ -8752,17 +8788,25 @@ def _gnlse_fibre(  # noqa: PLR0913 - the coefficients of the mapping
         raise DriverError(
             "give exactly one of betas, beta and fibre",
             parameter=("betas", "beta", "fibre"),
+            rule="betas-beta-or-fibre",
         )
     if (gamma is None) == (n2 is None):
-        raise DriverError("give exactly one of gamma and n2", parameter=("gamma", "n2"))
+        raise DriverError(
+            "give exactly one of gamma and n2",
+            parameter=("gamma", "n2"),
+            rule="gamma-or-n2",
+        )
     if n2 is not None and fibre is None:
         raise DriverError(
-            "n2 requires fibre with an effective area", parameter=("n2", "fibre")
+            "n2 requires fibre with an effective area",
+            parameter=("n2", "fibre"),
+            rule="n2-needs-fibre-area",
         )
     if fibre is not None and loss is not None:
         raise DriverError(
             "the fibre carries its loss; scale it on the mode",
             parameter=("fibre", "loss_db_per_m"),
+            rule="fibre-carries-loss",
         )
     omega_ref = 2.0 * np.pi * C / wavelength
     mode = (
@@ -8833,6 +8877,7 @@ def _gnlse_mode(
             raise DriverError(
                 "n2 requires a fibre table with an effective-area column",
                 parameter=("n2", "fibre"),
+                rule="n2-needs-fibre-area",
             )
         area = (
             1.0
@@ -8966,7 +9011,9 @@ def _shaped_pulse(  # noqa: PLR0913 - the pulse's keyword surface
                 f"{', '.join(given)}: give each pulse its own duration, energy and "
                 "phase, and leave the single-pulse keywords unset"
             )
-            raise DriverError(msg, parameter=("pulses", *given))
+            raise DriverError(
+                msg, parameter=("pulses", *given), rule="pulses-or-pulse-keywords"
+            )
         with _about("pulses"):
             return PulseSum(tuple(pulses))
     if shape == "sech":
@@ -8989,7 +9036,9 @@ def _shaped_pulse(  # noqa: PLR0913 - the pulse's keyword surface
             "than width=, which is the natural width of a sech**2 pulse"
         )
         raise DriverError(
-            msg, parameter="fwhm" if width is None else ("width", "shape")
+            msg,
+            parameter="fwhm" if width is None else ("width", "shape"),
+            rule="gauss-fwhm",
         )
     with _about(renamed=_PULSE_KEYWORDS):
         return GaussianPulse(
@@ -9030,7 +9079,9 @@ def _save_planes(
     if save_planes is not None:
         if n_save is not None:
             msg = "give save_planes or n_save, not both"
-            raise DriverError(msg, parameter=("save_planes", "n_save"))
+            raise DriverError(
+                msg, parameter=("save_planes", "n_save"), rule="save-planes-or-n-save"
+            )
         return np.ascontiguousarray(save_planes, dtype=np.float64).reshape(-1)
     count = DEFAULT_N_SAVE if n_save is None else n_save
     if count < 2:
@@ -9542,6 +9593,7 @@ def _capillary_grid(  # noqa: PLR0913 - the three grid keywords and the two swit
                     "grid",
                     *(name for name, value in given.items() if value is not None),
                 ),
+                rule="grid-or-limits",
             )
         return grid
     if wavelength_limits is None or trange is None:
@@ -9550,7 +9602,9 @@ def _capillary_grid(  # noqa: PLR0913 - the three grid keywords and the two swit
             "or a grid of your own"
         )
         raise DriverError(
-            msg, parameter=_unset(wavelength_limits=wavelength_limits, trange=trange)
+            msg,
+            parameter=_unset(wavelength_limits=wavelength_limits, trange=trange),
+            rule="grid-or-limits",
         )
     with _about(renamed=_GRID_KEYWORDS):
         if envelope:
@@ -9614,11 +9668,13 @@ def _capillary_modes(  # noqa: PLR0913 - capillary geometry and material keyword
             raise DriverError(
                 "lattice is refused: the given modes carry their own geometry",
                 parameter=("lattice", "modes"),
+                rule="lattice-builds-modes",
             )
         if model == "reduced":
             raise DriverError(
                 'lattice is incompatible with model="reduced"',
                 parameter=("lattice", "model"),
+                rule="lattice-full-model",
             )
         return ModeCollection.vincetti(
             radius,
@@ -10001,7 +10057,9 @@ def _no_quadrature(
             "energy moving between modes is what a mode-averaged run cannot carry "
             "(docs/guide/waveguides/mode-averaging.md)"
         )
-        raise DriverError(msg, parameter=("mode_average", "modes"))
+        raise DriverError(
+            msg, parameter=("mode_average", "modes"), rule="mode-average-one-mode"
+        )
     given = [
         name
         for name, value, unset in (
@@ -10017,7 +10075,9 @@ def _no_quadrature(
             "transverse rule, and a mode-averaged run has none, its mode being a "
             "uniform disc of the effective area"
         )
-        raise DriverError(msg, parameter=("mode_average", *given))
+        raise DriverError(
+            msg, parameter=("mode_average", *given), rule="mode-average-no-quadrature"
+        )
 
 
 def _capillary_responses(  # noqa: PLR0913 - the switches of the responses, one each
@@ -10100,7 +10160,9 @@ def _capillary_responses(  # noqa: PLR0913 - the switches of the responses, one 
             "a capillary run with neither kerr nor plasma has no nonlinearity; use "
             "the linear propagator instead of a solver"
         )
-        raise DriverError(msg, parameter=("kerr", "plasma"))
+        raise DriverError(
+            msg, parameter=("kerr", "plasma"), rule="capillary-needs-nonlinearity"
+        )
     return responses
 
 
@@ -10356,6 +10418,7 @@ def _tdse_entry(  # noqa: PLR0913 - the entry point's TDSE keywords together
             raise DriverError(
                 "tdse_execution requires a TDSEGasResponse",
                 parameter=("tdse_execution", "tdse"),
+                rule="tdse-execution-needs-tdse",
             )
         return None
     if not isinstance(tdse, TDSEGasResponse):
@@ -10370,6 +10433,7 @@ def _tdse_entry(  # noqa: PLR0913 - the entry point's TDSE keywords together
             f"the TDSE response owns the electronic response; leave "
             f"{', '.join(given)} unset beside tdse=",
             parameter=("tdse", *(name.removesuffix("=False") for name in given)),
+            rule="tdse-owns-electronic",
         )
     response = tdse
     window = tdse.atomic_window
@@ -11599,7 +11663,7 @@ def _refuse_dispersive_policy(materials: MaterialSelection | None, route: str) -
         f"dispersive hyperpolarizability model, and {route} is a constant coefficient "
         "this route keeps: select 'carrier-kerr' (or 'recommended') here"
     )
-    raise DriverError(msg, parameter="materials.electronic")
+    raise DriverError(msg, parameter="materials.electronic", rule="gnlse-carrier-kerr")
 
 
 def _check_electronic_policy(
@@ -11943,7 +12007,11 @@ def _boundary(
                 "absorber=False switches the temporal collar off, so there is nothing "
                 f"for absorber_scheme={scheme!r} to apply; give one or the other"
             )
-            raise DriverError(msg, parameter=("absorber", "absorber_scheme"))
+            raise DriverError(
+                msg,
+                parameter=("absorber", "absorber_scheme"),
+                rule="absorber-scheme-needs-absorber",
+            )
         return no_absorber(grid), None
     if absorber is None:
         absorber = default_collar(grid) if default is None else default(grid)

@@ -852,12 +852,16 @@ def _scaling(energy: float | None, peak_power: float | None) -> tuple[float, _Qu
                 "only one of energy or peak_power can be given, got "
                 f"energy={energy!r} and peak_power={peak_power!r}"
             )
-            raise PulseError(msg, parameter=("energy", "peak_power"))
+            raise PulseError(
+                msg, parameter=("energy", "peak_power"), rule="energy-or-peak-power"
+            )
         _check_positive("energy", energy)
         return energy, "energy"
     if peak_power is None:
         msg = "one of energy or peak_power must be given, got neither"
-        raise PulseError(msg, parameter=("energy", "peak_power"))
+        raise PulseError(
+            msg, parameter=("energy", "peak_power"), rule="energy-or-peak-power"
+        )
     _check_positive("peak_power", peak_power)
     return peak_power, "peak_power"
 
@@ -1804,12 +1808,12 @@ def _sech_width(fwhm: float | None, width: float | None) -> float:
                 "only one of fwhm or width can be given, got "
                 f"fwhm={fwhm!r} and width={width!r}"
             )
-            raise PulseError(msg, parameter=("fwhm", "width"))
+            raise PulseError(msg, parameter=("fwhm", "width"), rule="fwhm-or-width")
         _check_positive("width", width)
         return width
     if fwhm is None:
         msg = "one of fwhm or width must be given, got neither"
-        raise PulseError(msg, parameter=("fwhm", "width"))
+        raise PulseError(msg, parameter=("fwhm", "width"), rule="fwhm-or-width")
     _check_positive("fwhm", fwhm)
     return fwhm * SECH_FWHM_TO_WIDTH
 

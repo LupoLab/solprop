@@ -185,6 +185,34 @@ print(rtol.resolver({"precision": "single"}))  # the capillary's tolerance in bi
 
 A test holds the table to the constructors' signatures, so it cannot drift from them.
 
+## What a route and a species admit
+
+{py:func}`solprop.capabilities.route` gives a route's keywords, the allowed values of each
+enumerated one, and the **combination rules** its builder enforces: `raman` needs `kerr`,
+a TDSE response needs a helium fill, `save_planes` and `n_save` are not given together.
+Each rule has a stable id and a reason, and a refusal that enforces one carries the id as
+its `rule` beside the keywords as its `parameter`, so a front end can mark the fields in
+conflict and say why. A refusal that depends on a value, such as a grid that does not
+cover the input or a pressure outside a model's range, is not a rule: `check()` finds it.
+{py:func}`solprop.capabilities.species` gives what a built-in gas brings: optmat's
+ionisation-rate models with their status, whether it has a Raman response and its
+status, and the wavelength and temperature ranges its models hold over.
+
+```python
+from solprop import capabilities
+
+capillary = capabilities.route("capillary")
+print(capillary.choices["shape"])  # ('gauss', 'sech')
+for rule in capillary.rules_for("raman"):
+    print(rule.id, rule.keywords, rule.reason)
+
+nitrous_oxide = capabilities.species("N2O")
+print(nitrous_oxide.raman, nitrous_oxide.raman_by_default)  # provisional False
+```
+
+A test reads the source for every refusal marked with a rule and holds it to
+{py:data}`solprop.capabilities.RULES`.
+
 ## The command line
 
 ```text

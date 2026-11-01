@@ -90,17 +90,33 @@ def _helium(mode: MarcatiliMode) -> Species:
     """
     if mode.mixture is not None:
         if len(mode.mixture.components) != 1:
-            raise TranslationError("TDSE refuses gas mixtures")
+            raise TranslationError(
+                "TDSE refuses gas mixtures",
+                parameter=("tdse", "gas"),
+                rule="tdse-helium",
+            )
         component = mode.mixture.components[0]
         if component.preionisation != 0.0:
-            raise TranslationError("TDSE refuses preionised populations")
+            raise TranslationError(
+                "TDSE refuses preionised populations",
+                parameter=("tdse", "gas"),
+                rule="tdse-helium",
+            )
         material = component.species
     elif mode.gas == Gas.He:
         material = species(Gas.He)
     else:
-        raise TranslationError("TDSE requires a declared helium fill")
+        raise TranslationError(
+            "TDSE requires a declared helium fill",
+            parameter=("tdse", "gas"),
+            rule="tdse-helium",
+        )
     if material.name != "He" or not isinstance(material.kerr, OptmatKerr):
-        raise TranslationError("TDSE requires the selected optmat helium material")
+        raise TranslationError(
+            "TDSE requires the selected optmat helium material",
+            parameter=("tdse", "gas"),
+            rule="tdse-helium",
+        )
     return material
 
 
