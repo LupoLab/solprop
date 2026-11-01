@@ -32,6 +32,7 @@ __all__ = [
     "MemoryBudgetError",
     "MemoryBudgetWarning",
     "ModeError",
+    "NoZeroDispersionError",
     "NoiseError",
     "OpticsGeometryError",
     "OutputError",

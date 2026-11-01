@@ -43,8 +43,8 @@ from solprop.driver import Simulation
 from solprop.exceptions import (
     BackendError,
     DriverError,
-    ModeError,
     OutputError,
+    SolpropWarning,
     TranslationError,
 )
 from solprop.modes.guide import ChannelBasis, ModalGuide
@@ -428,10 +428,13 @@ def test_zdw_is_withheld_on_a_split_block_and_admitted_on_the_plain_route(
     plain_record = build(plain, grid)._modal_identity()
     assert plain_record is not None
     assert "zdw" in cast("list[str]", plain_record["accessors"])
-    # The plain route admits the name at the door: what it then raises is the
-    # statistic's own, about this window having no zero crossing.
-    with pytest.raises(ModeError, match="no zero-dispersion wavelength"):
-        build(plain, grid, stats=StatsSpec(names=("zdw",))).run(progress="none")
+    # The plain route admits the name at the door: this window has no zero crossing,
+    # so the run finishes and records that, in the statistic's own words.
+    with pytest.warns(SolpropWarning, match="records nan for modes"):
+        admitted = build(plain, grid, stats=StatsSpec(names=("zdw",))).run(
+            progress="none"
+        )
+    assert np.isnan(np.asarray(admitted["stats/zdw"])).all()
     # The file door reads the published list and agrees with the run.
     path = tmp_path / "rotated.h5"
     build(rotated, grid).run(path, progress="none")
