@@ -1,0 +1,236 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+"""A recipe written out as the plain Python script a person would write (SEP 41, S1).
+
+The script is the way out of a recipe for whatever a recipe cannot hold: a custom
+pulse, a callable, an unregistered type. It makes the same run: the same simulation,
+hash included, and the same execution settings, which the hash does not cover.
+"""
+
+from collections.abc import Mapping
+from typing import TYPE_CHECKING, Final
+
+from solprop.recipe._build import (
+    REGISTRY,
+    BuildContext,
+    UnitSpec,
+    decode,
+    decode_keyword,
+    unit_of,
+)
+from solprop.recipe._errors import RecipeError
+from solprop.recipe._format import NONE
+
+if TYPE_CHECKING:
+    from solprop.recipe._recipe import Recipe
+
+__all__ = ["script"]
+
+_INDENT: Final = "    "
+
+
+class _Writer:
+    """Render recipe values as Python expressions, and collect what they import."""
+
+    def __init__(self, recipe: Recipe) -> None:
+        """Start with no imports."""
+        self.recipe = recipe
+        self.imports: dict[str, set[str]] = {}
+
+    def need(self, module: str, name: str) -> None:
+        """Record an import.
+
+        Parameters
+        ----------
+        module : str
+            The module.
+        name : str
+            The name it provides.
+        """
+        self.imports.setdefault(module, set()).add(name)
+
+    def expression(  # noqa: PLR0911 - one return per kind of value
+        self, value: object, unit: UnitSpec, path: str
+    ) -> str:
+        """Return a value as a Python expression.
+
+        Parameters
+        ----------
+        value : object
+            The value as the recipe writes it.
+        unit : str, callable or None
+            Its unit.
+        path : str
+            Its parameter path.
+
+        Returns
+        -------
+        str
+            The expression, numbers in SI.
+
+        Raises
+        ------
+        RecipeError
+            For a value built on the route's grid, which the script cannot name
+            before the route has built it.
+        """
+        if isinstance(value, Mapping):
+            if "type" in value:
+                return self.factory(value, path)
+            if set(value) == {"file", "sha256"}:
+                self.need("numpy", "")
+                return f"numpy.load({value['file']!r}, allow_pickle=False)"
+            if set(value) == {"re", "im"}:
+                return repr(complex(float(value["re"]), float(value["im"])))  # type: ignore[arg-type]
+            items = ", ".join(
+                f"{key!r}: {self.expression(item, None, f'{path}.{key}')}"
+                for key, item in value.items()
+            )
+            return "{" + items + "}"
+        if isinstance(value, list):
+            decoded = decode(value, unit, BuildContext(), path)
+            return repr(decoded)
+        if value == NONE:
+            return "None"
+        return repr(decode(value, unit, BuildContext(), path))
+
+    def factory(self, table: Mapping[str, object], path: str) -> str:
+        """Return a registered type's call.
+
+        Parameters
+        ----------
+        table : collections.abc.Mapping
+            The table with its ``type``.
+        path : str
+            Its parameter path.
+
+        Returns
+        -------
+        str
+            The call, with the name imported.
+
+        Raises
+        ------
+        RecipeError
+            For a factory built on the route's grid.
+        """
+        factory = REGISTRY[str(table["type"])]
+        if factory.context:
+            msg = (
+                f"{factory.name} is built on the route's grid, which a script cannot "
+                "name before the route builds it; write that keyword by hand"
+            )
+            raise RecipeError(msg, path=path)
+        root = factory.name.split(".")[0]
+        self.need(factory.target.__module__, root)
+        arguments = []
+        if factory.data_file is not None:
+            arguments.append(f"{table['file']!r}")
+        for key, item in table.items():
+            if key in ("type", "file", "sha256"):
+                continue
+            rendered = self.expression(item, factory.units.get(key), f"{path}.{key}")
+            arguments.append(f"{key}={rendered}")
+        return f"{factory.name}({', '.join(arguments)})"
+
+
+def _comment(value: object, unit: UnitSpec) -> str:
+    """Return the comment that states a quantity as the recipe wrote it.
+
+    Parameters
+    ----------
+    value : object
+        The value as written.
+    unit : str, callable or None
+        Its unit; a value without one gets no comment.
+
+    Returns
+    -------
+    str
+        ``"  # 125 um"`` for a quantity string, or a list holding one; empty
+        otherwise.
+    """
+    if unit is None:
+        return ""
+    if isinstance(value, str) and value != NONE:
+        return f"  # {value}"
+    if isinstance(value, list) and any(isinstance(item, str) for item in value):
+        return "  # " + ", ".join(str(item) for item in value)
+    return ""
+
+
+def script(recipe: Recipe, output: str | None) -> str:  # noqa: PLR0912 - two call forms
+    """Write a recipe as a plain Python script.
+
+    Parameters
+    ----------
+    recipe : Recipe
+        The recipe.
+    output : str or None
+        The file the run writes, or ``None`` for memory.
+
+    Returns
+    -------
+    str
+        The script.
+    """
+    from solprop.recipe._metadata import parameters  # noqa: PLC0415 - cycle
+
+    writer = _Writer(recipe)
+    table = parameters(recipe.route)
+    document = recipe.to_dict()
+    lines = []
+    for name, value in document["build"].items():
+        entry = table[name]
+        if entry.none and value == NONE:
+            rendered = "None"
+        elif isinstance(value, Mapping | list):
+            rendered = writer.expression(value, unit_of(entry, value), name)
+        else:
+            rendered = repr(decode_keyword(entry, value, BuildContext()))
+        comment = _comment(value, unit_of(entry, value))
+        lines.append(f"{_INDENT}{name}={rendered},{comment}")
+    execution = dict(document.get("execution", {}))
+    budget = execution.pop("memory_budget", None)
+    target = repr(output)
+    title = recipe.title or f"a {recipe.route} run"
+    header = [f'"""{title}, written from its recipe by solprop."""', ""]
+    if execution or budget is not None:
+        writer.need("solprop.driver", "Simulation")
+        settings = ", ".join(
+            f"{key}={tuple(item) if isinstance(item, list) else item!r}"
+            for key, item in execution.items()
+        )
+        body = [
+            f"simulation = Simulation.from_{recipe.route}(",
+            *lines,
+            ")",
+        ]
+        if settings:
+            writer.need("dataclasses", "")
+            body.append(
+                "simulation.settings = dataclasses.replace("
+                f"simulation.settings, {settings})"
+            )
+        run = f"output = simulation.run({target}"
+        if budget is not None:
+            run += f", memory_budget={None if budget == NONE else budget!r}"
+        body.append(run + ")")
+    else:
+        writer.need("solprop.driver", f"prop_{recipe.route}")
+        body = [f"output = prop_{recipe.route}(", *lines]
+        if output is not None:
+            body.append(f"{_INDENT}output={target},")
+        body.append(")")
+    imports = []
+    for module in sorted(writer.imports):
+        names = sorted(name for name in writer.imports[module] if name)
+        if not names:
+            imports.append(f"import {module}")
+    for module in sorted(writer.imports):
+        names = sorted(name for name in writer.imports[module] if name)
+        if names:
+            imports.append(f"from {module} import {', '.join(names)}")
+    return "\n".join([*header, *imports, "", *body]) + "\n"

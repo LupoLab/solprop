@@ -59,6 +59,9 @@ dependencies = [
     "tomli-w>=1.0",
 ]
 
+[project.scripts]
+solprop = "solprop.cli:main"
+
 [project.urls]
 Homepage = "https://solprop.readthedocs.io/"
 Documentation = "https://solprop.readthedocs.io/en/latest/"

@@ -22,7 +22,7 @@ import inspect
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Final, Literal
+from typing import TYPE_CHECKING, Final, Literal
 
 from solprop.driver.defaults import (
     default_integrator,
@@ -31,6 +31,9 @@ from solprop.driver.defaults import (
     resolve_noise,
 )
 from solprop.exceptions import DriverError
+
+if TYPE_CHECKING:
+    from solprop.driver.simulation import Simulation
 
 __all__ = [
     "REQUIRED",
@@ -71,10 +74,11 @@ Group = Literal[
 Level = Literal["basic", "advanced"]
 """Whether a newcomer sees a keyword, or only an expert."""
 
-ElementUnits = Literal["phases", "betas"]
+ElementUnits = Literal["phases", "betas", "z_pressure"]
 """Keywords whose elements carry different units (SEP 41 section 4).
 
-``phases`` is ``[rad, s, s^2, ...]``; ``betas`` is ``s^n/m`` for order ``n``.
+``phases`` is ``[rad, s, s^2, ...]``; ``betas`` is ``s^n/m`` for order ``n``; the
+``(z, p)`` form of ``pressure`` pairs metres with bar.
 """
 
 
@@ -526,6 +530,9 @@ def _length_fraction(fraction: float, text: str) -> Resolver:
 
 # ------------------------------------------------------------------- the forms
 
+_PROFILES: Final = ("Constant", "Linear", "PiecewiseLinear")
+"""The registered profiles along z a keyword may take."""
+
 _NONE: Final = Form("choice", choices=("none",))
 """The ``"none"`` spelling, as a form."""
 
@@ -537,11 +544,13 @@ _POWER: Final = Form("number", unit="W", minimum=0.0, exclusive=True)
 _BOOLEAN: Final = Form("boolean")
 _PULSES: Final = Form(
     "object",
-    types=("GaussianPulse", "SechPulse", "DataPulse", "TimeDataPulse", "load_spectrum"),
+    types=("GaussianPulse", "SechPulse", "load_spectrum"),
 )
-_GRID: Final = Form("object", types=("EnvelopeGrid.from_limits",))
+_GRID: Final = Form(
+    "object", types=("EnvelopeGrid.from_limits", "FieldGrid.from_limits")
+)
 _STATS: Final = Form("object", types=("StatsSpec",))
-_SCHEDULE: Final = Form("object", types=("FixedSchedule.uniform", "FixedSchedule"))
+_SCHEDULE: Final = Form("object", types=("FixedSchedule.uniform",))
 _INTEGRATOR: Final = Form(
     "object", types=("Multistep", "RungeKutta", "LowStorageRungeKutta")
 )
@@ -969,7 +978,7 @@ def _capillary() -> tuple[Parameter, ...]:
     return (
         Parameter(
             "radius",
-            (_POSITIVE_LENGTH, Form("object", types=("profile",))),
+            (_POSITIVE_LENGTH, Form("object", types=_PROFILES)),
             "geometry",
             "basic",
             "Core radius, or a radius profile along z.",
@@ -978,7 +987,14 @@ def _capillary() -> tuple[Parameter, ...]:
         ),
         Parameter(
             "gas",
-            (Form("string"), Form("mapping"), Form("object", types=("Mixture",))),
+            (
+                Form("string"),
+                Form("mapping"),
+                Form(
+                    "object",
+                    types=("Mixture.fill", "Mixture.partial_pressures", "Mixture.air"),
+                ),
+            ),
             "medium",
             "basic",
             "The fill: a species, a mapping of species to fractions, or a mixture.",
@@ -989,8 +1005,15 @@ def _capillary() -> tuple[Parameter, ...]:
             (
                 Form("number", unit="bar", minimum=0.0),
                 Form("pair", unit="bar", minimum=0.0, length=2),
-                Form("array", unit="bar", minimum=0.0),
-                Form("object", types=("PressureGradient.two_point", "profile")),
+                Form("array", elements="z_pressure"),
+                Form(
+                    "object",
+                    types=(
+                        "PressureGradient.two_point",
+                        "PressureGradient.from_stages",
+                        *_PROFILES,
+                    ),
+                ),
             ),
             "medium",
             "basic",
@@ -1109,7 +1132,7 @@ def _capillary() -> tuple[Parameter, ...]:
             "temperature",
             (
                 Form("number", unit="K", minimum=0.0, exclusive=True),
-                Form("object", types=("profile",)),
+                Form("object", types=_PROFILES),
             ),
             "medium",
             "advanced",
@@ -1155,7 +1178,7 @@ def _capillary() -> tuple[Parameter, ...]:
             "preionisation",
             (
                 Form("number", minimum=0.0, maximum=1.0),
-                Form("object", types=("profile",)),
+                Form("object", types=_PROFILES),
                 Form("mapping"),
             ),
             "nonlinear",
@@ -1325,7 +1348,7 @@ def _route_entries(route: str) -> tuple[Parameter, ...]:
     return (*own, *(entry for entry in _shared(route) if entry.name not in names))
 
 
-def surface(route: str) -> Callable[..., object]:
+def surface(route: str) -> Callable[..., Simulation]:
     """Return the constructor whose keywords a route's ``[build]`` table holds.
 
     Parameters
