@@ -270,7 +270,9 @@ def spatial_grids(
         # the requested collar, at the former spacing (64 samples over the aperture).
         return field, RadialGrid(3e-4, size, collar_fraction=2.6)
     if name.startswith("radial"):
-        return field, RadialGrid(1e-3, size)
+        # 1.5 mm since revision 2 (SEP 40): on 1 mm the filament's light reaches the
+        # wall at 2.9 cm, and the transverse edge stops the run.
+        return field, RadialGrid(1.5e-3, size)
     if name == "line":
         return field, LineGrid(1e-3, size)
     if name.startswith("cartesian_filament"):

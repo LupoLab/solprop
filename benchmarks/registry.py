@@ -258,15 +258,18 @@ _TRACKED = (
     ),
     Case(
         "radial_filament_256",
-        1,
+        2,
         ("tracking", "free-space"),
         "prop_radial",
         "spatial",
         0.03,
-        (256, 864, 1728),
-        "Ar filament with plasma, 256 radial nodes",
+        (384, 864, 1728),
+        "Ar filament with plasma, 384 radial nodes on 1.5 mm",
         planes=4,
-        cost=(8.05, 9.07),
+        # Revision 2 (SEP 40): revision 1's release costs, 8.05 and 9.07 s, times the
+        # ratio measured locally (1.51 at 1 thread, 1.53 at 16), until the next release
+        # run measures it.
+        cost=(12.2, 13.9),
     ),
     # A 2 cm guide, the window SEP 37 phase 0 measured, rather than the example's 0.1 m.
     Case(
@@ -373,13 +376,13 @@ _MODAL = (
 _FREE = (
     Case(
         "radial_filament_512",
-        1,
+        2,
         ("free-space",),
         "prop_radial",
         "spatial",
         0.03,
-        (512, 864, 1728),
-        "radial_filament_256 at 512 nodes",
+        (768, 864, 1728),
+        "radial_filament_256 at twice the radial resolution",
     ),
     *(
         Case(
