@@ -37,7 +37,7 @@ import warnings
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Final, Literal, cast
+from typing import Final, Literal, Protocol, cast
 
 import numpy as np
 from jaxtyping import Complex, Float
@@ -233,6 +233,7 @@ from solprop.output.schema import (
     NoiseResolution,
     Output,
     PlaneStore,
+    RecipeRecord,
     RunMetadata,
     StepLimits,
     StepperRecord,
@@ -424,6 +425,10 @@ _FIELD_RANGE_ABOVE = 30.0
 _PRESSURE_FORM_ENTRIES = 2
 """Entries in either of the two pair forms of the ``pressure`` keyword."""
 
+_RECIPE_EXECUTION = ("fields", "field_planes", "resume_history")
+"""The settings a recipe's ``[execution]`` table holds: a change of any other one drops
+the recipe, which would no longer describe the run (SEP 41, S2)."""
+
 _EXECUTION_SETTINGS = (
     "backend",
     "resume_history",
@@ -493,6 +498,28 @@ class _AutoBackend(str):
             The class and its arguments.
         """
         return (_AutoBackend, (str(self), self.precision))
+
+
+class RecipeSource(Protocol):
+    """What built a simulation from a recipe: it writes the record its output keeps.
+
+    :class:`solprop.recipe.Recipe` is one (SEP 41, S2); the driver needs only this.
+    """
+
+    def record(self, simulation: "Simulation") -> RecipeRecord:  # noqa: UP037 - later
+        """Return the authored and resolved recipe of a run about to start.
+
+        Parameters
+        ----------
+        simulation : Simulation
+            The simulation, translated, with its settings at run start.
+
+        Returns
+        -------
+        solprop.output.schema.RecipeRecord
+            The record its output keeps.
+        """
+        ...
 
 
 @dataclass(frozen=True, eq=False)
@@ -1994,6 +2021,9 @@ class Simulation(Displayed):
     # How a constructor that drew the noise without a seed draws it again from a given
     # one: set per instance by `_redrawable`, read by `_reseed`.
     _noise_redraw: Callable[[int], NoiseRealisation | None] | None = None
+    # The recipe the simulation was built from (SEP 41, S2), set by
+    # solprop.recipe.Recipe.build and dropped by every change it would not describe.
+    _recipe: RecipeSource | None = None
 
     def __init__(  # noqa: PLR0913 - the physics of a run, each a distinct object
         self,
@@ -2140,6 +2170,18 @@ class Simulation(Displayed):
                     "translation)"
                 )
                 raise DriverError(msg)
+        if self._recipe is not None:
+            dropped = [
+                one.name
+                for one in dataclasses.fields(SimulationSettings)
+                if one.name not in _RECIPE_EXECUTION
+                and not one.name.startswith("_")
+                and not _same_setting(
+                    getattr(self._settings, one.name), getattr(settings, one.name)
+                )
+            ]
+            if dropped:
+                self._drop_recipe(f"its {', '.join(dropped)} changed")
         if hasattr(self, "noise"):
             _check_initial_position(self, settings)
             _check_tdse_execution(self, settings)
@@ -2536,6 +2578,8 @@ class Simulation(Displayed):
         # A derived run starts from what its parent's run has warned and recorded,
         # and keeps its own from here: its siblings never see each other's.
         updated._material_log = self._material_log.copy()
+        if self._recipe is not None:
+            self._warn_recipe_dropped("with_input")
         self._check_replaced_input(
             updated._field0, None if isinstance(noise, str) else replacement_noise
         )
@@ -2693,6 +2737,47 @@ class Simulation(Displayed):
         """
         return SimulationRunner(self, memory_budget=memory_budget)
 
+    def _drop_recipe(self, reason: str) -> None:
+        """Forget the recipe, which no longer describes this simulation, and warn.
+
+        Parameters
+        ----------
+        reason : str
+            What changed, for the warning.
+
+        Warns
+        -----
+        SolpropWarning
+            Saying the run will record no recipe.
+        """
+        self._recipe = None
+        msg = (
+            f"this Simulation was built from a recipe, but {reason}, which the recipe "
+            "does not describe: its output will record no recipe, and resuming it "
+            "needs this script"
+        )
+        warnings.warn(msg, SolpropWarning, stacklevel=3)
+
+    def _warn_recipe_dropped(self, mutator: str) -> None:
+        """Warn that a derived simulation does not carry this one's recipe.
+
+        Parameters
+        ----------
+        mutator : str
+            The method that derived it.
+
+        Warns
+        -----
+        SolpropWarning
+            Saying the derived run will record no recipe.
+        """
+        msg = (
+            f"{mutator} derives a simulation the recipe this one was built from does "
+            "not describe: its output will record no recipe, and resuming it needs "
+            "the script"
+        )
+        warnings.warn(msg, SolpropWarning, stacklevel=3)
+
     def with_mixture(self, mixture: Mixture) -> "Simulation":  # noqa: UP037 - runtime hook evaluates the class body
         """Update material paths while preserving the run's geometry and input.
 
@@ -2792,6 +2877,8 @@ class Simulation(Displayed):
             materials=self.materials,
         )
         updated._material_log = self._material_log.copy()
+        if self._recipe is not None:
+            self._warn_recipe_dropped("with_mixture")
         updated.initial = self.initial
         updated._mixture_selection = self._mixture_selection
         updated._reuse = _mixture_reuse(self, updated, old, mixture, original)
@@ -3308,6 +3395,7 @@ class Simulation(Displayed):
                     boundary_monitor=self._boundary_monitor(),
                     resume_record=None if continuation is None else continuation.entry,
                     stop=stop,
+                    recipe=None if self._recipe is None else self._recipe.record(self),
                 )
             except StopRequested as error:
                 failure = error

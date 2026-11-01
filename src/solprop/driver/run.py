@@ -76,6 +76,7 @@ from solprop.output.schema import (
     FieldsChoice,
     Output,
     PlaneStore,
+    RecipeRecord,
     RunMetadata,
     RunOutcome,
     SavedPlane,
@@ -284,6 +285,7 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
     boundary_monitor: BoundaryMonitor | None = None,
     resume_record: Mapping[str, object] | None = None,
     stop: StopFlag | None = None,
+    recipe: RecipeRecord | None = None,
 ) -> None:
     """Run one translated problem to its save planes, writing each one out.
 
@@ -379,6 +381,9 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
         reporter through ``interrupted``, and raises
         :class:`~solprop._interrupts.StopRequested`, which
         :meth:`~solprop.driver.simulation.Simulation.run` turns into a return.
+    recipe : solprop.output.schema.RecipeRecord or None, optional
+        The recipe the run was built from (SEP 41, S2), recorded in a plane store at
+        the first run start and never rewritten; ``None`` records none.
 
     Raises
     ------
@@ -465,6 +470,9 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
         if not isinstance(output, PlaneStore):
             raise DriverError("a resume entry needs an output that records outcomes")
         output.record_resume(resume_record)
+    if recipe is not None and isinstance(output, PlaneStore):
+        with committing():
+            output.record_recipe(recipe)
     # A store that preallocates (`PlaneStore.reserve`) sizes itself for the entrance
     # and every save plane; a resumed one keeps what it holds and grows to the rest.
     reserve = getattr(output, "reserve", None)

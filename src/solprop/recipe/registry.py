@@ -43,6 +43,7 @@ from solprop.recipe.document import (
     NONE,
     decode_complex,
     decode_data_file,
+    decode_integer,
     load_array,
     read_data_file,
     unknown_key,
@@ -669,6 +670,9 @@ def decode_keyword(entry: Parameter, value: object, context: BuildContext) -> ob
     kinds = {form.kind for form in entry.forms}
     if isinstance(value, str) and "string" in kinds and "number" not in kinds:
         return value
+    if isinstance(value, str) and "integer" in kinds and "number" not in kinds:
+        # An integer beyond 64 bits, such as a drawn seed, is written as a string.
+        return decode_integer(value, path=entry.name)
     if not any(form.recipe for form in entry.forms):
         msg = (
             f"{entry.name} takes a Python object or function that a recipe cannot "

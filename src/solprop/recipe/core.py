@@ -40,7 +40,7 @@ from solprop.recipe.registry import REGISTRY, BuildContext, coerce, decode_keywo
 if TYPE_CHECKING:
     from solprop.driver.simulation import Simulation
     from solprop.grid import TimeGrid
-    from solprop.output.schema import Output
+    from solprop.output.schema import Output, RecipeRecord
 
 __all__ = ["Recipe", "RecipeIssue"]
 
@@ -549,7 +549,8 @@ class Recipe:
         Returns
         -------
         solprop.driver.simulation.Simulation
-            The simulation, with ``[execution]``'s settings applied.
+            The simulation, with ``[execution]``'s settings applied, carrying this
+            recipe, which its first run records in its output.
         """
         builder = surface(self.route)
         simulation = builder(**self.keywords())
@@ -561,7 +562,35 @@ class Recipe:
         }
         if changes:
             simulation.settings = dataclasses.replace(simulation.settings, **changes)
+        # The simulation carries its recipe, which its first run records (S2).
+        simulation._recipe = self
         return simulation
+
+    def record(
+        self,
+        simulation: "Simulation",  # noqa: UP037 - checked at run time
+    ) -> "RecipeRecord":  # noqa: UP037 - checked at run time
+        """Return the record a run built from this recipe keeps in its output.
+
+        Called by :meth:`~solprop.driver.simulation.Simulation.run` at the run's
+        start, with the settings it starts with.
+
+        Parameters
+        ----------
+        simulation : solprop.driver.simulation.Simulation
+            The simulation this recipe built.
+
+        Returns
+        -------
+        solprop.output.schema.RecipeRecord
+            The authored and resolved texts, and the data files
+            (:mod:`solprop.recipe.provenance`).
+        """
+        from solprop.recipe.provenance import record  # noqa: PLC0415 - cycle
+
+        return record(
+            self, simulation, base=self._base, allow_outside=self._allow_outside
+        )
 
     def _execution(self) -> dict[str, object]:
         """Return the ``[execution]`` table's values as the settings take them.

@@ -135,6 +135,15 @@ carrier, and at least half the carrier frequency on the `gnlse` route or all of 
 knows nothing of the medium or the length, so it is a starting point: check the spectrum
 at the band's edges and the boundary monitor's verdict.
 
+## The recipe in the output
+
+A simulation built by `recipe.build()` carries its recipe, and its first run records it
+in the output beside the run, as the recipe was written and as it resolved: the recipe
+that rebuilds the run, seed included ([the file's layout](../results/output.md#the-recipe-a-run-was-built-from)).
+A change the recipe would not describe drops it with a warning, and the run then records
+none: `with_input`, `with_mixture`, or a new value of a setting other than `fields`,
+`field_planes` and `resume_history`.
+
 ## The parameter metadata
 
 {py:func}`solprop.recipe.parameters` returns, for each keyword of a route, the forms its

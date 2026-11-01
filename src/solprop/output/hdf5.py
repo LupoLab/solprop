@@ -95,6 +95,8 @@ from solprop.output.schema import (
     MarchSnapshot,
     PlaneLayout,
     PlaneStore,
+    RecipeFile,
+    RecipeRecord,
     RunMetadata,
     RunOutcome,
     SavedPlane,
@@ -549,6 +551,92 @@ def _write_json(file: h5py.File, text: str) -> None:
     file.create_dataset(_METADATA_KEY, data=text, dtype=h5py.string_dtype())
 
 
+_RECIPE_KEY = "recipe"
+"""The top-level group of the recipe a run was built from (SEP 41, S2)."""
+
+
+def _text(stored: object) -> str:
+    """Return a stored string dataset's value as text.
+
+    Parameters
+    ----------
+    stored : object
+        What h5py read: bytes or str.
+
+    Returns
+    -------
+    str
+        The text.
+    """
+    return stored.decode("utf-8") if isinstance(stored, bytes) else str(stored)
+
+
+def _read_recipe(file: h5py.File) -> RecipeRecord | None:
+    """Return the recipe an open file records, or ``None`` for a run from a script.
+
+    Parameters
+    ----------
+    file : h5py.File
+        The open file.
+
+    Returns
+    -------
+    RecipeRecord or None
+        The record.
+    """
+    if _RECIPE_KEY not in file:
+        return None
+    group = _group(file, _RECIPE_KEY)
+    files: dict[str, RecipeFile] = {}
+    if "files" in group:
+        stored = _group(group, "files")
+        for name in stored:
+            entry = stored[str(name)]
+            data = (
+                None
+                if not isinstance(entry, h5py.Dataset) or entry.shape is None
+                else bytes(np.asarray(entry[()], dtype=np.uint8))
+            )
+            files[str(name)] = RecipeFile(
+                _text(entry.attrs["path"]), _text(entry.attrs["sha256"]), data
+            )
+    return RecipeRecord(
+        int(cast("int", group.attrs["format"])),
+        _text(_dataset(group, "authored")[()]),
+        _text(_dataset(group, "resolved")[()]),
+        files,
+    )
+
+
+def _write_recipe(file: h5py.File, record: RecipeRecord) -> None:
+    """Write the recipe group of an open file.
+
+    Parameters
+    ----------
+    file : h5py.File
+        The file, open for writing, without a recipe group.
+    record : RecipeRecord
+        The recipe.
+    """
+    group = file.create_group(_RECIPE_KEY)
+    group.attrs["format"] = record.format
+    group.attrs["authored_sha256"] = record.authored_sha256
+    group.attrs["resolved_sha256"] = record.resolved_sha256
+    group.create_dataset("authored", data=record.authored, dtype=h5py.string_dtype())
+    group.create_dataset("resolved", data=record.resolved, dtype=h5py.string_dtype())
+    files = group.create_group("files")
+    for name, entry in record.files.items():
+        dataset = (
+            files.create_dataset(name, data=h5py.Empty("u1"))
+            if entry.data is None
+            else files.create_dataset(
+                name, data=np.frombuffer(entry.data, dtype=np.uint8)
+            )
+        )
+        dataset.attrs["path"] = entry.path
+        dataset.attrs["sha256"] = entry.sha256
+
+
 def _read_annotations(file: h5py.File) -> dict[str, JsonValue]:
     """Return the post-run annotations an open file carries.
 
@@ -957,6 +1045,7 @@ class HDF5Output(PlaneStore):
         self._file = file
         self._adopt_state(file)
         self._annotations = _read_annotations(file)
+        self._recipe = _read_recipe(file)
 
     def _open_file(self) -> h5py.File:
         """Open the file once: fresh, or read-write to continue what it holds.
@@ -997,6 +1086,7 @@ class HDF5Output(PlaneStore):
             try:
                 self._adopt_state(file)
                 self._annotations = _read_annotations(file)
+                self._recipe = _read_recipe(file)
                 if "z" in file:
                     self._adopt_handles(file)
             except BaseException as error:
@@ -1637,6 +1727,17 @@ class HDF5Output(PlaneStore):
             The stored field, optics convention.
         """
         return np.asarray(_dataset(self._require_file(), "field")[slot])
+
+    def _write_recipe(self, record: RecipeRecord) -> None:
+        """Write the recipe group into the open file (SEP 41, S2).
+
+        Parameters
+        ----------
+        record : RecipeRecord
+            The recipe.
+        """
+        self._refuse_readonly()
+        _write_recipe(self._require_file(), record)
 
     def _write_annotation(self, name: str, text: str) -> None:
         """Write one post-run annotation into the file, replacing one of that name.

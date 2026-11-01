@@ -103,6 +103,8 @@ __all__ = [
     "Output",
     "PlaneLayout",
     "PlaneStore",
+    "RecipeFile",
+    "RecipeRecord",
     "RunMetadata",
     "RunOutcome",
     "SavedPlane",
@@ -3772,6 +3774,71 @@ class CheckpointOutput(Protocol):
         ...
 
 
+@dataclass(frozen=True)
+class RecipeFile:
+    """A data file a recorded recipe refers to (SEP 41, S2).
+
+    Attributes
+    ----------
+    path : str
+        The path the recipe wrote, relative to its directory.
+    sha256 : str
+        Its SHA-256, as the recipe recorded it.
+    data : bytes or None
+        Its contents, embedded under the generated name it is filed by; ``None``
+        when the run's files together passed the embedding cap, and only the path and
+        hash are kept.
+    """
+
+    path: str
+    sha256: str
+    data: bytes | None = None
+
+
+@dataclass(frozen=True)
+class RecipeRecord:
+    """The recipe a run was built from, as its output records it once (SEP 41, S2).
+
+    Provenance outside the run record and its hash: a file without one is a file from
+    a script, and a reader that does not know it ignores it.
+
+    Attributes
+    ----------
+    format : int
+        The recipe format.
+    authored : str
+        The recipe's text as loaded, or its canonical TOML if it was edited.
+    resolved : str
+        The recipe to rebuild the run from: the authored keys with the drawn seed, the
+        keywords whose value written back gives the same record, at the values used,
+        and the execution settings at run start.
+    files : collections.abc.Mapping
+        The data files the recipe refers to, by the generated name each is filed by.
+
+    Examples
+    --------
+    >>> from solprop.output.schema import RecipeRecord
+    >>> record = RecipeRecord(1, "[recipe]", "[recipe]", {})
+    >>> record.authored_sha256 == record.resolved_sha256
+    True
+    """
+
+    format: int
+    authored: str
+    resolved: str
+    files: Mapping[str, RecipeFile] = dataclasses.field(default_factory=dict)
+
+    @property
+    def authored_sha256(self) -> str:
+        """The SHA-256 of the authored text, in hexadecimal."""
+        return hashlib.sha256(self.authored.encode("utf-8")).hexdigest()
+
+    @property
+    def resolved_sha256(self) -> str:
+        """The SHA-256 of the resolved text, in hexadecimal."""
+        return hashlib.sha256(self.resolved.encode("utf-8")).hexdigest()
+
+
 class PlaneStore(Displayed, ABC):
     """The shared half of an output handler: one save protocol for every backing store.
 
@@ -3808,6 +3875,7 @@ class PlaneStore(Displayed, ABC):
         """Start with nothing stored and nothing opened."""
         self._metadata: RunMetadata | None = None
         self._session_resume: dict[str, object] | None = None
+        self._recipe: RecipeRecord | None = None
         self._n_saved = 0
         self._planned = 0
         self._closed = False
@@ -3858,6 +3926,45 @@ class PlaneStore(Displayed, ABC):
             The entry: finite JSON values.
         """
         self._session_resume = dict(entry)
+
+    def record_recipe(self, record: RecipeRecord) -> None:
+        """Record the recipe the run was built from, unless one is recorded already.
+
+        Written once, at the first run start, and never rewritten (SEP 41, S2): a
+        later session of the same file, from a script or from an edited recipe,
+        leaves the first session's recipe in place and is recorded in its own
+        execution record.
+
+        Parameters
+        ----------
+        record : RecipeRecord
+            The authored and resolved texts and the data files.
+        """
+        self._check_usable()
+        if self.recipe is not None:
+            return
+        self._write_recipe(record)
+        self._recipe = record
+
+    def _write_recipe(self, record: RecipeRecord) -> None:
+        """Persist the recipe; a store that lives in memory has nothing to do.
+
+        Parameters
+        ----------
+        record : RecipeRecord
+            The recipe.
+        """
+
+    @property
+    def recipe(self) -> RecipeRecord | None:
+        """The recipe the run was built from, or ``None`` for a run from a script.
+
+        Returns
+        -------
+        RecipeRecord or None
+            The record.
+        """
+        return self._recipe
 
     def record_outcome(
         self, outcome: RunOutcome, checkpoint: TerminalCheckpoint | None = None
