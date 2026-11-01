@@ -199,7 +199,11 @@ def show_results(rows: list[Record]) -> None:
 
 
 def history_rows(
-    rows: list[Record], machine: Record, source: Record, provenance: Record
+    rows: list[Record],
+    machine: Record,
+    source: Record,
+    provenance: Record,
+    backend: str,
 ) -> list[Record]:
     """Shape a complete run's results as history rows."""
     build = provenance.get("build_info") or {}
@@ -210,6 +214,7 @@ def history_rows(
             "solprop": provenance["packages"]["solprop"],
             "commit": (source.get("revision") or "")[:12],
             "dirty": int(bool(source.get("dirty"))),
+            "backend": backend,
             "native": build.get("package_version"),
             "native_commit": (build.get("git_commit") or "")[:12] or None,
             "native_build": "; ".join(
@@ -256,8 +261,6 @@ def refuse_partial(
     args: argparse.Namespace, rows: list[Record], production: int, source: Record
 ) -> None:
     """Admit to the history only a complete default run of committed code."""
-    if args.backend != "native":
-        raise SuiteError("the history records the native backend only")
     if source.get("dirty") is None:
         raise SuiteError("the source state is unknown (no Git checkout or no git)")
     if source["dirty"] and not args.allow_dirty:
@@ -396,7 +399,9 @@ def track(args: argparse.Namespace) -> int:
             print(f"Not added to the history: {refusal}.", file=sys.stderr)
             return 1
         path = history.HISTORY / f"{machine['slug']}.csv"
-        history.append(path, history_rows(results, machine, source, provenance))
+        history.append(
+            path, history_rows(results, machine, source, provenance, args.backend)
+        )
         print(f"History: {path}")
     if args.archive is not None:
         target = args.archive / output.name

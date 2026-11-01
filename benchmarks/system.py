@@ -365,12 +365,15 @@ def git_receipt(directory: Path) -> Record:
 
     try:
         revision = git("rev-parse", "HEAD").decode().strip()
-        changes = git("diff", "HEAD", "--binary")
+        # The history is what a run writes, not what it times: a run recorded in
+        # this checkout does not make the next one dirty.
+        history = ":(exclude)benchmarks/history"
+        changes = git("diff", "HEAD", "--binary", "--", ".", history)
         # Untracked files count only where the timed code lives, so an editor's
         # settings directory does not make every run dirty.
         untracked = git(
             "ls-files", "--others", "--exclude-standard", "-z", "--",
-            "src", "native", "benchmarks",
+            "src", "native", "benchmarks", history,
         ).split(b"\0")  # fmt: skip
         from benchmarks.records import file_hash  # noqa: PLC0415
 

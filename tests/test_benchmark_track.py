@@ -8,6 +8,7 @@ import argparse
 import csv
 import importlib.util
 import socket
+import subprocess
 import sys
 
 import pytest
@@ -134,6 +135,7 @@ def test_history_rows_append_read_and_summarise(tmp_path):
         machine,
         {"revision": "a" * 40},
         provenance,
+        "native",
     )
     assert all(tuple(row) == history.COLUMNS for row in first)
     history.append(path, first)
@@ -154,6 +156,17 @@ def test_history_rows_append_read_and_summarise(tmp_path):
     changed = [{**row, "date": "2100-01-01T00:00Z", "rtol": "1e-05"} for row in later]
     history.append(path, changed)
     assert history.summary(history.read(path))[-1]["shared_previous"] == 0
+    # A numba run of the same commit is its own series, never compared with native.
+    numba = [
+        {**row, "date": "2101-01-01T00:00Z", "backend": "numba_cpu", "median_s": "8.0"}
+        for row in later
+    ]
+    history.append(path, numba)
+    last = history.summary(history.read(path))[-2:]
+    assert [(row["backend"], row["ratio_first"]) for row in last] == [
+        ("numba_cpu", 1.0),
+        ("numba_cpu", 1.0),
+    ]
     with pytest.raises(SuiteError, match="exactly the declared columns"):
         history.append(tmp_path / "new.csv", [{"date": "x"}])
 
@@ -169,6 +182,8 @@ def test_older_history_files_gain_new_columns_and_newer_ones_are_refused(tmp_pat
     rows = history.read(path)
     assert tuple(rows[0]) == history.COLUMNS
     assert (rows[0]["case"], rows[0]["commit"]) == ("rdw", "")
+    # Rows from before the backend column were native runs.
+    assert rows[0]["backend"] == "native"
     with path.open("w", encoding="utf-8", newline="") as stream:
         csv.writer(stream).writerow([*history.COLUMNS, "future"])
     with pytest.raises(SuiteError, match="later version"):
@@ -190,8 +205,8 @@ def test_the_history_takes_only_a_complete_default_run_of_committed_code():
     rows, _ = runner.plan_rows(select(), ("default",), None, 16)
     clean = {"revision": "a" * 40, "dirty": False}
     track.refuse_partial(namespace(), rows, 16, clean)
+    track.refuse_partial(namespace(backend="numba_cpu"), rows, 16, clean)
     for args, source, message in (
-        (namespace(backend="numpy_ref"), clean, "native backend only"),
         (namespace(), {"revision": None, "dirty": None}, "source state is unknown"),
         (namespace(), {**clean, "dirty": True}, "uncommitted changes"),
         (namespace(repeats=2), clean, "three repeats"),
@@ -229,6 +244,28 @@ def test_inconsistent_or_foreign_runs_are_not_recorded():
     }  # fmt: skip
     # The thread budget gave the native backend fewer threads than asked for.
     assert not track.summarise(row, receipt, busy=False)["consistent"]
+
+
+def test_a_recorded_history_does_not_make_the_next_run_dirty(tmp_path):
+    def git(*arguments: str) -> None:
+        subprocess.run(
+            ["git", "-C", str(tmp_path), "-c", "user.name=t", "-c", "user.email=t@t",
+             *arguments],
+            check=True, capture_output=True,
+        )  # fmt: skip
+
+    for name in ("src/solprop.py", "benchmarks/history/old.csv"):
+        (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / name).write_text("x\n")
+    git("init", "-q")
+    git("add", ".")
+    git("commit", "-qm", "start")
+    assert system.git_receipt(tmp_path)["dirty"] is False
+    (tmp_path / "benchmarks/history/old.csv").write_text("x\ny\n")
+    (tmp_path / "benchmarks/history/new.csv").write_text("z\n")
+    assert system.git_receipt(tmp_path)["dirty"] is False
+    (tmp_path / "src/added.py").write_text("y\n")
+    assert system.git_receipt(tmp_path)["dirty"] is True
 
 
 def test_a_machine_without_swap_counters_is_judged_by_cpu_alone():
@@ -299,7 +336,7 @@ def test_a_tracking_run_records_complete_runs_and_appends_history(
         assert row["same_steps"]
         assert row["finite"]
     assert read_record(out / "plan.json")["hardware"]["slug"]
-    # The history takes the native backend only.
+    # The history takes the whole default plan only.
     assert (
         cli.main(
             [
@@ -309,13 +346,14 @@ def test_a_tracking_run_records_complete_runs_and_appends_history(
                 "--backend",
                 "numpy_ref",
                 "--append-history",
+                "--allow-dirty",
                 "--out",
                 str(tmp_path / "refused"),
             ]
         )
         == 2
     )
-    assert "native backend only" in capsys.readouterr().err
+    assert "whole default plan" in capsys.readouterr().err
 
 
 def test_threading_policies_replace_the_callers_openmp_settings():
@@ -404,8 +442,20 @@ def test_a_device_plan_runs_each_case_once_and_its_rows_stand_apart():
             "device,Card Series\ncard0,AMD Instinct MI300X\n",
             "AMD Instinct MI300X",
         ),
+        (
+            None,
+            "device,Card Series,Card Model,Subsystem ID\n"
+            "card0,AMD Radeon Graphics,0x74b9,0x74a5\n",
+            "AMD MI325X",
+        ),
+        (
+            None,
+            "device,Card Series,Card Model\ncard0,AMD Radeon Graphics,0x1234\n",
+            None,
+        ),
         (None, None, None),
-        ("", "device,Card Model\ncard0,0x74a5\n", None),
+        ("", "device,Card Model\ncard0,0x74a5\n", "AMD MI325X"),
+        ("", "device,Card Model\ncard0,0x1234\n", None),
     ],
 )
 def test_the_gpu_is_named_from_the_vendor_query(nvidia, amd, model):
