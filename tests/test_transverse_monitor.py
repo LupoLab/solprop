@@ -96,12 +96,19 @@ def test_the_reads_are_spaced_by_the_ceiling() -> None:
     assert record["largest_gap"] <= LENGTH / 16 * (1 + 1e-9)
 
 
-def test_a_backend_that_does_not_read_the_edge_says_so() -> None:
-    simulation = suite(1.5, None)
-    simulation.settings = dataclasses.replace(simulation.settings, backend="numba_cpu")
-    output, messages = quietly(simulation)
-    assert edge_record(output)["transverse_status"] == "unwatched"
-    assert any("does not read the transverse edge" in one for one in messages)
+def test_numba_cpu_reads_the_edge_as_numpy_ref_does() -> None:
+    # A backend that does not read it is tested in tests/backends/
+    # test_transverse_backends.py, with numba_cpu's reading switched off.
+    records = []
+    for backend in ("numpy_ref", "numba_cpu"):
+        simulation = suite(1.5, None)
+        simulation.settings = dataclasses.replace(simulation.settings, backend=backend)
+        output, messages = quietly(simulation)
+        assert not any("does not read the transverse edge" in one for one in messages)
+        records.append(edge_record(output))
+    reference, found = records
+    assert found["transverse_status"] == reference["transverse_status"]
+    assert found["reads"] == reference["reads"] > 0
 
 
 def test_the_transverse_budget_relaxes_the_edge_alone() -> None:
