@@ -2,8 +2,8 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-# Resonant dispersive wave emission in a helium-filled capillary, the first lesson
-# (docs/introduction/tutorials/plot_01_rdw.py).
+# Resonant dispersive wave emission in a helium-filled capillary, the first lesson.
+# mirrors: docs/introduction/tutorials/plot_01_rdw.py
 
 [recipe]
 format = 1

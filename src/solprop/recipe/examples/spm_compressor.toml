@@ -1,0 +1,24 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Self-phase modulation in a metre of argon, the interactive session's run.
+# mirrors: docs/tutorials/basics/plot_04_interactive_session.py
+
+[recipe]
+format = 1
+route = "capillary"
+title = "Self-phase modulation in argon, one metre"
+
+[build]
+radius = "125 um"
+length = "1 m"
+gas = "Ar"
+pressure = "1 bar"
+wavelength = "800 nm"
+wavelength_limits = ["400 nm", "1600 nm"]
+trange = "600 fs"
+fwhm = "30 fs"
+energy = "100 uJ"
+n_save = 41
+seed = 20261027

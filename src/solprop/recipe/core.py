@@ -404,7 +404,8 @@ class Recipe:
         steps = parse_path(path)
         build = set_path(self._document["build"], steps, _plain(value, path))
         keyword = format_path(steps[:1])
-        self._decode(keyword, build[keyword], BuildContext(base=self._base))
+        context = BuildContext(base=self._base, allow_outside=self._allow_outside)
+        self._decode(keyword, build[keyword], _deferred(context))
         self._document["build"] = build
         self._text = None
 

@@ -1,0 +1,33 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Ten fixed steps of a three-channel helium bore with the coherent wall, the script's
+# first run.
+# mirrors: docs/tutorials/capillaries/plot_07_coherent_wall.py
+
+[recipe]
+format = 1
+route = "capillary"
+title = "Three channels and the coherent wall"
+
+[build]
+radius = "50 um"
+length = "0.2 mm"
+gas = "He"
+pressure = "1 bar"
+wavelength = "800 nm"
+grid = { type = "FieldGrid.from_limits", length = "0.2 mm", reference_wavelength = "800 nm", wavelength_limits = ["400 nm", "1600 nm"], trange = "300 fs" }
+absorber = { type = "absorber", boundary_length = 1e3 }  # the reference length, m
+fwhm = "30 fs"
+energy = "0.001 uJ"
+modes = 3
+n_save = 6
+backend = "numpy_ref"
+wall = { type = "CoherentWall" }
+schedule = { type = "FixedSchedule", steps = [2e-05, 2e-05, 2e-05, 2e-05, 2e-05, 2e-05, 2e-05, 2e-05, 2e-05, 2e-05] }
+dz_max = "0.02 mm"
+dz_init = "0.02 mm"
+plasma = false
+raman = false
+noise = "none"

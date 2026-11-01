@@ -274,7 +274,7 @@ def test_a_factory_on_the_grid_waits_for_the_route_s_grid():
     built = recipe.build()
     assert built.settings.absorber is not None
     assert recipe.check() == []
-    with pytest.raises(RecipeError, match="grid"):
+    with pytest.raises(RecipeError, match="give grid"):
         recipe.to_python()
 
 
@@ -323,7 +323,7 @@ def test_decode_reads_quantities_complex_numbers_mappings_and_pairs():
     assert decode({"He": 0.5}, None, context, "gas") == {"He": 0.5}
     table = parameters("capillary")
     pairs = decode_keyword(
-        table["pressure"], [["0 m", "1 bar"], ["1 m", "0 bar"]], context
+        table["pressure"], [["0 m", "1 m"], ["1 bar", "0 bar"]], context
     )
     assert pairs == [[0.0, 1.0], [1.0, 0.0]]
     with pytest.raises(RecipeError, match="10000"):

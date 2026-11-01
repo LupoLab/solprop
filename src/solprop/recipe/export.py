@@ -38,6 +38,8 @@ class _Writer:
         """Start with no imports."""
         self.recipe = recipe
         self.imports: dict[str, set[str]] = {}
+        # The name the script binds the route's grid to, when the recipe gives one.
+        self.grid: str | None = None
 
     def need(self, module: str, name: str) -> None:
         """Record an import.
@@ -90,8 +92,13 @@ class _Writer:
             )
             return "{" + items + "}"
         if isinstance(value, list):
-            decoded = decode(value, unit, BuildContext(), path)
-            return repr(decoded)
+            if any(isinstance(item, Mapping) for item in value):
+                items = ", ".join(
+                    self.expression(item, unit, f"{path}[{index}]")
+                    for index, item in enumerate(value)
+                )
+                return f"[{items}]"
+            return repr(decode(value, unit, BuildContext(), path))
         if value == NONE:
             return "None"
         return repr(decode(value, unit, BuildContext(), path))
@@ -117,15 +124,16 @@ class _Writer:
             For a factory built on the route's grid.
         """
         factory = REGISTRY[str(table["type"])]
-        if factory.context:
+        if factory.context and self.grid is None:
             msg = (
-                f"{factory.name} is built on the route's grid, which a script cannot "
-                "name before the route builds it; write that keyword by hand"
+                f"{factory.name} is built on the route's grid, which a script can "
+                "name only when the recipe gives the grid; give grid, or write that "
+                "keyword by hand"
             )
             raise RecipeError(msg, path=path)
         root = factory.name.split(".")[0]
         self.need(factory.target.__module__, root)
-        arguments = []
+        arguments = [] if not factory.context else [str(self.grid)]
         if factory.data_file is not None:
             arguments.append(f"{table['file']!r}")
         for key, item in table.items():
@@ -161,7 +169,7 @@ def _comment(value: object, unit: UnitSpec) -> str:
     return ""
 
 
-def script(  # noqa: PLR0912 - two call forms
+def script(
     recipe: "Recipe",  # noqa: UP037 - checked at run time
     output: str | None,
 ) -> str:
@@ -185,9 +193,17 @@ def script(  # noqa: PLR0912 - two call forms
     table = parameters(recipe.route)
     document = recipe.to_dict()
     lines = []
+    prelude = []
+    grid = document["build"].get("grid")
+    if isinstance(grid, Mapping):
+        # A value built on the grid needs it by name: bind the grid first.
+        prelude.append(f"grid = {writer.expression(grid, None, 'grid')}")
+        writer.grid = "grid"
     for name, value in document["build"].items():
         entry = table[name]
-        if entry.none and value == NONE:
+        if writer.grid is not None and name == "grid":
+            rendered = writer.grid
+        elif entry.none and value == NONE:
             rendered = "None"
         elif isinstance(value, Mapping | list):
             rendered = writer.expression(value, unit_of(entry, value), name)
@@ -227,13 +243,30 @@ def script(  # noqa: PLR0912 - two call forms
         if output is not None:
             body.append(f"{_INDENT}output={target},")
         body.append(")")
-    imports = []
-    for module in sorted(writer.imports):
-        names = sorted(name for name in writer.imports[module] if name)
-        if not names:
-            imports.append(f"import {module}")
-    for module in sorted(writer.imports):
-        names = sorted(name for name in writer.imports[module] if name)
-        if names:
-            imports.append(f"from {module} import {', '.join(names)}")
-    return "\n".join([*header, *imports, "", *body]) + "\n"
+    return "\n".join([*header, *_imports(writer), "", *prelude, *body]) + "\n"
+
+
+def _imports(writer: _Writer) -> list[str]:
+    """Return the script's import lines: plain imports first, then from-imports.
+
+    Parameters
+    ----------
+    writer : _Writer
+        The writer that collected the names.
+
+    Returns
+    -------
+    list of str
+        The lines, each group sorted by module.
+    """
+    plain = [
+        f"import {module}"
+        for module in sorted(writer.imports)
+        if not any(writer.imports[module])
+    ]
+    named = [
+        f"from {module} import {', '.join(sorted(n for n in names if n))}"
+        for module, names in sorted(writer.imports.items())
+        if any(names)
+    ]
+    return [*plain, *named]

@@ -134,17 +134,20 @@ class Factory:
 
 
 def _pressure_pair(index: int) -> Unit:
-    """Return the unit of an element of a ``(z, p)`` pair: metres, then bar.
+    """Return the unit of a row of the ``(z, p)`` form: metres, then bar.
+
+    The form is two rows, the positions and the pressures there, ``[[z...], [p...]]``,
+    and every element of a row takes the row's unit.
 
     Parameters
     ----------
     index : int
-        The element's position in its pair.
+        The row.
 
     Returns
     -------
     Unit
-        ``m`` for the position, ``bar`` for the pressure.
+        ``m`` for the positions, ``bar`` for the pressures.
     """
     return Unit("m") if index == 0 else Unit("bar")
 
@@ -221,10 +224,11 @@ REGISTRY: Final[Mapping[str, Factory]] = {
                 "hard_kinks": "m",
             },
         ),
+        Factory("FixedSchedule", FixedSchedule, {"steps": "m", "z_start": "m"}),
         Factory("Multistep", Multistep),
         Factory("RungeKutta", RungeKutta),
         Factory("LowStorageRungeKutta", LowStorageRungeKutta),
-        Factory("absorber", absorber, {"boundary_length": "s"}, context=("grid",)),
+        Factory("absorber", absorber, {"boundary_length": "m"}, context=("grid",)),
         Factory(
             "TubeLattice", TubeLattice, {"wall_thickness": "m", "tube_radius": "m"}
         ),
@@ -313,8 +317,9 @@ def _array(
         if isinstance(element, Mapping):
             out.append(decode(element, unit, context, where))
         elif isinstance(element, list):
-            # A row of a pair form: its elements take the rule by position.
-            out.append(_array(element, unit, context, where))
+            # A row of a two-row form: every element takes the row's unit.
+            row = unit(index).text if callable(unit) else unit
+            out.append(_array(element, row, context, where))
         else:
             out.append(_number(element, unit, index, where))
     return out

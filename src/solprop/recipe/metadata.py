@@ -78,7 +78,7 @@ ElementUnits = Literal["phases", "betas", "z_pressure"]
 """Keywords whose elements carry different units (SEP 41 section 4).
 
 ``phases`` is ``[rad, s, s^2, ...]``; ``betas`` is ``s^n/m`` for order ``n``; the
-``(z, p)`` form of ``pressure`` pairs metres with bar.
+``(z, p)`` form of ``pressure`` is two rows, positions in metres and pressures in bar.
 """
 
 

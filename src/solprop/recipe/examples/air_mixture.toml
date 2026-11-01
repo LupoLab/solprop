@@ -1,0 +1,49 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# A 15 um capillary of air at 6 bar, with per-species plasma and nitrogen's Raman
+# response.
+# mirrors: docs/tutorials/capillaries/plot_04_air_mixture.py
+# Unseeded, as the script is: each run draws its own input noise.
+
+[recipe]
+format = 1
+route = "capillary"
+title = "Air in a narrow capillary"
+
+[build]
+radius = "15 um"
+length = "0.225 m"
+gas = { type = "Mixture.air", pressure = "6 bar", temperature = "300 K" }
+grid = { type = "FieldGrid.from_limits", length = "0.225 m", reference_wavelength = "800 nm", wavelength_limits = ["300 nm", "2000 nm"], trange = "200 fs", ffac = 24.0 }
+wavelength = "800 nm"
+fwhm = "30 fs"
+energy = "2.2 uJ"
+mode_average = true
+cladding = 1.45
+plasma = { N2 = true, O2 = true }
+raman = ["N2"]
+thg = false
+rtol = 1e-5
+atol = 1e-12
+# numpy.linspace(0, 0.225, 21)[1:] as the script computes it, in metres.
+save_planes = [
+    0.01125, 0.0225, 0.03375, 0.045, 0.056249999999999994, 0.0675, 0.07875, 0.09,
+    0.10124999999999999, 0.11249999999999999, 0.12375, 0.135, 0.14625, 0.1575,
+    0.16874999999999998, 0.18, 0.19125, 0.20249999999999999, 0.21375, 0.225,
+]
+dz_init = "0.01 mm"
+dz_max = "2 mm"
+ionisation_field_range = [1e7, 1e12]
+
+[build.stats]
+type = "StatsSpec"
+names = [
+    "energy",
+    "species_ionisation",
+    "species_electron_density",
+    "species_peak_ionisation_rate",
+    "species_density",
+    "species_ionisation_energy",
+]

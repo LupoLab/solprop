@@ -1,0 +1,32 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# A higher-order soliton with Raman on a 0.5 ps window, the time-window tutorial's
+# first run, which the boundary monitor stops.
+# mirrors: docs/tutorials/basics/plot_07_time_window.py
+# The peak power is the script's arithmetic to the last digit: three times the
+# fundamental soliton's, 3 |beta2| / (gamma width^2).
+
+[recipe]
+format = 1
+route = "gnlse"
+title = "A soliton on a short time window"
+
+[build]
+gamma = "0.11 W^-1/m"
+length = "0.4 m"
+betas = [0, 0, "-0.01183 ps^2/m", "8.1e-5 ps^3/m"]
+wavelength = "835 nm"
+wavelength_limits = ["600 nm", "1600 nm"]
+trange = "500 fs"
+raman = true
+n_save = 21
+noise = "none"
+
+[[build.pulses]]
+type = "SechPulse"
+wavelength = "835 nm"
+width = "28 fs"
+peak_power = "411.525974025974 W"
+t0 = "0 fs"
