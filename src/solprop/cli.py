@@ -11,9 +11,12 @@ script, and ``solprop scan`` is ``python -m solprop.scan``. The same commands ru
 """
 
 import argparse
+import signal
 import sys
+import threading
 from collections.abc import Sequence
 from pathlib import Path
+from types import FrameType
 
 from solprop.exceptions import SolpropError
 
@@ -63,8 +66,25 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _stop_signals() -> tuple[signal.Signals, ...]:
+    """Return the signals that stop a run from the command line.
+
+    Returns
+    -------
+    tuple of signal.Signals
+        SIGINT and SIGTERM, and on Windows SIGBREAK, which ``CTRL_BREAK_EVENT``
+        sends.
+    """
+    names = ("SIGINT", "SIGTERM", "SIGBREAK")
+    return tuple(getattr(signal, name) for name in names if hasattr(signal, name))
+
+
 def _run(recipe_path: Path, output: Path, progress: str, *, resume: bool) -> int:
-    """Build and run a recipe.
+    """Build and run a recipe, stopping it cleanly on a signal.
+
+    The signals set the run's stop flag (SEP 41, S17): the run writes its state and
+    returns, and ``solprop run --resume`` continues it. A second signal while it stops
+    interrupts at once.
 
     Parameters
     ----------
@@ -80,11 +100,48 @@ def _run(recipe_path: Path, output: Path, progress: str, *, resume: bool) -> int
     Returns
     -------
     int
-        Zero.
+        Zero when the run completes, and ``128`` plus the signal's number when a
+        signal stopped it.
     """
     from solprop.recipe import Recipe  # noqa: PLC0415 - imports the physics
 
-    Recipe.load(recipe_path).run(output, progress=progress, resume=resume)
+    flag = threading.Event()
+    received: list[int] = []
+
+    def stop(number: int, frame: FrameType | None) -> None:
+        """Set the run's flag on the first signal; interrupt on the second.
+
+        Parameters
+        ----------
+        number : int
+            The signal.
+        frame : types.FrameType or None
+            The interrupted frame, unused.
+
+        Raises
+        ------
+        KeyboardInterrupt
+            On a second signal, while the run is still stopping.
+        """
+        del frame
+        if flag.is_set():
+            raise KeyboardInterrupt
+        received.append(number)
+        flag.set()
+
+    recipe = Recipe.load(recipe_path)
+    previous = {number: signal.signal(number, stop) for number in _stop_signals()}
+    try:
+        recipe.run(output, progress=progress, resume=resume, stop=flag)
+    finally:
+        for number, handler in previous.items():
+            signal.signal(number, handler)
+    if received:
+        sys.stderr.write(
+            f"solprop: stopped by {signal.Signals(received[0]).name}; the state is "
+            f"written to {output}, and solprop run --resume continues it\n"
+        )
+        return 128 + received[0]
     return 0
 
 

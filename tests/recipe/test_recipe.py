@@ -6,6 +6,8 @@
 
 import hashlib
 import json
+import os
+import signal
 import subprocess
 import sys
 import textwrap
@@ -431,3 +433,25 @@ def test_every_object_form_names_registered_types():
             for form in entry.forms:
                 if form.kind == "object" and form.recipe:
                     assert set(form.types) <= set(REGISTRY), (entry.name, form.types)
+
+
+def test_a_signal_stops_the_command_s_run_through_its_flag(
+    tmp_path, monkeypatch, capsys
+):
+    path = tmp_path / "soliton.toml"
+    path.write_text(GNLSE)
+    seen = {}
+
+    def run(self, output, *, stop, **keywords):
+        os.kill(os.getpid(), signal.SIGINT)
+        seen["stopped"] = stop.is_set()
+        with pytest.raises(KeyboardInterrupt):
+            os.kill(os.getpid(), signal.SIGINT)
+
+    monkeypatch.setattr(Recipe, "run", run)
+    before = signal.getsignal(signal.SIGINT)
+    status = main(["run", str(path), "-o", str(tmp_path / "out.h5")])
+    assert status == 128 + signal.SIGINT
+    assert seen == {"stopped": True}
+    assert "--resume continues it" in capsys.readouterr().err
+    assert signal.getsignal(signal.SIGINT) is before

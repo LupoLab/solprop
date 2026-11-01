@@ -45,6 +45,7 @@ from scipy.special import j0, jn_zeros
 
 import solprop.driver.tdse as tdse_runtime
 from solprop._display import Displayed, engineering, line, summarise
+from solprop._interrupts import StopFlag, StopRequested
 from solprop.adiabatic import AdiabaticAccuracy
 from solprop.backends.multistep import CallLedger
 from solprop.backends.protocol import Backend
@@ -3075,7 +3076,7 @@ class Simulation(Displayed):
             split=rate is not None and _scheme(self.settings) == "split_step",
         )
 
-    def run(  # noqa: PLR0913 - independent execution and output controls
+    def run(  # noqa: PLR0913, PLR0915 - independent execution and output controls
         self,
         output: Output | Path | str | None = None,
         *,
@@ -3085,6 +3086,7 @@ class Simulation(Displayed):
         memory_budget: int | str | None = None,
         tdse_archive: TDSEArchive | None = None,
         snapshots: SnapshotController | None = None,
+        stop: StopFlag | None = None,
     ) -> Output:
         """Execute the run and return the handler it was written to.
 
@@ -3143,11 +3145,21 @@ class Simulation(Displayed):
             atomic provider. Requires HDF5, ``step_planes=1``, ``fields='all'``
             and no interpolated output. Adams history cannot be explicitly disabled.
             A configured archive is copied together with the optical file.
+        stop : object or None, optional
+            This run's own stop flag: any object with an ``is_set()`` method, such as
+            a :class:`threading.Event` (SEP 41, S17). It is polled before the first
+            step and before every trial step, so the run answers within one step or
+            trial. When it is set the run writes its state as for SIGTERM, tells the
+            reporter through ``interrupted``, and returns the handler: a requested
+            stop is not an error. The outcome's message says the caller's flag
+            stopped it, and ``resume=True`` continues the file. A front end sets it
+            from any thread on any platform, without signals; each run polls its own.
 
         Returns
         -------
         solprop.output.schema.Output
-            The handler the run was written to.
+            The handler the run was written to, complete or, after `stop` was set,
+            holding the state where it stopped.
 
         Raises
         ------
@@ -3295,7 +3307,13 @@ class Simulation(Displayed):
                     tdse_archive=archive,
                     boundary_monitor=self._boundary_monitor(),
                     resume_record=None if continuation is None else continuation.entry,
+                    stop=stop,
                 )
+            except StopRequested as error:
+                failure = error
+                # A stop raised by another run's flag is that run's to catch.
+                if error.flag is not stop:
+                    raise
             except BaseException as error:
                 failure = error
                 raise
