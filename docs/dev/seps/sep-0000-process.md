@@ -97,7 +97,9 @@ Any status ──► Superseded (by a later SEP)
 | Active | A Process SEP in force | `seps/` | no |
 
 The folder, the [index](index.md) and the roadmap are kept consistent with the status in
-the header; `tests/test_seps.py` checks it.
+the header; `tests/test_seps.py` checks it. A SEP's tracking issue (ADR-062) stays open
+through `Draft`, `Accepted`, `In progress` and `Deferred`, and closes when the SEP reaches
+`Final`, `Rejected`, `Withdrawn` or `Superseded`. A Process SEP has none.
 
 ## 5. Roles
 
@@ -133,7 +135,10 @@ the header; `tests/test_seps.py` checks it.
    SEP covers it in full; for partial coverage, link the SEP, state what it covers and
    retain the remaining work. Discussion of a possible future extension does not count
    as coverage by the proposal's implementation scope.
-4. Open a pull request on a branch named `docs/sep-NNNN-short-slug`. A draft merges
+4. Open the SEP's tracking issue, titled `SEP N: <title>` and labelled `sep` with a type,
+   a priority and any area that fits. It links the SEP and says where it stands and what
+   comes next. Name the issue in the SEP's Part III.
+5. Open a pull request on a branch named `docs/sep-NNNN-short-slug`. A draft merges
    early — once it is coherent, not once it is agreed — so it appears in the developer
    documentation and can be discussed.
 
@@ -356,5 +361,6 @@ that edits this document and adds a line to its history.
   slow and coverage lanes to CI on the pull request (maintainer's decision, first used
   for SEP 21). Native work is in `native/`, no longer a separate repository.
 - 2026-11-01: Open work goes in GitHub issues, not on the roadmap, whose existing items
-  move over time, and work a SEP gives back goes in an issue; the roadmap keeps the lists
-  of accepted and draft SEPs for now (maintainer's decision, ADR-062).
+  move over time, and work a SEP gives back goes in an issue; each SEP has a tracking
+  issue, and the roadmap keeps the lists of accepted and draft SEPs for now (maintainer's
+  decision, ADR-062).

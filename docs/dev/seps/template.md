@@ -9,7 +9,8 @@ Add the draft to the SEP index and its toctree, and to the roadmap's Draft enhan
 proposals section after the accepted proposals. Remove informal roadmap items only when
 fully covered by this proposal; for partial coverage, link the SEP and retain the
 uncovered work explicitly. Keep these entries current when the scope or status changes;
-work this proposal gives back goes in an issue.
+work this proposal gives back goes in an issue. Open the SEP's tracking issue (SEP 0) and
+name it in Part III.
 -->
 
 | | |

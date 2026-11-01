@@ -1683,6 +1683,8 @@ Withdrawn (development-process record, not a design decision).
     and the page goes when none is left.
   - Work a SEP gives back, by narrowing or by being rejected, deferred or withdrawn, goes
     in an issue, not back on the page.
+  - Each SEP has a tracking issue, labelled `sep`, open until the SEP is `Final`,
+    `Rejected`, `Withdrawn` or `Superseded` (SEP 0). A Process SEP has none.
   - The roadmap's lists of accepted and draft SEPs stay for now: they are status lists,
     which `tests/test_seps.py` checks against the SEPs.
 - **Consequences:**
