@@ -19,6 +19,9 @@ All notable changes to solprop are recorded here. The format follows
 
 ### Changed
 
+- A run asking for the `zdw` statistic is no longer stopped when its band holds no
+  zero-dispersion point: the plane records `nan` with a warning. A direct `stats.zdw`
+  call still raises, now `NoZeroDispersionError`, a `ModeError`.
 - `backend="auto"` now warns, once per process, whenever it chooses `numba_cpu`: when
   `solprop-native` is not installed as well as on a processor below its wheel's baseline.
   The warning says how to install the native backend; an explicit `backend="numba_cpu"`

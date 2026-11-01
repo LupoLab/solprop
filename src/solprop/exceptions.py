@@ -135,6 +135,10 @@ class ModeError(SolpropError, ValueError):
     """A waveguide mode or mode set is invalid."""
 
 
+class NoZeroDispersionError(ModeError):
+    """``beta_2`` has one sign at both ends of a zero-dispersion search window."""
+
+
 class PulseError(SolpropError, ValueError):
     """An input pulse specification is invalid or does not fit the grid."""
 

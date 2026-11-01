@@ -107,9 +107,8 @@ MALITSON = SellmeierGlass(
 
 
 # The Luna witnesses below are frozen (``docs/dev/testing.md``), so every input they
-# depend on is stated rather than defaulted. The temperature is solprop's room
-# temperature, deliberately, against Luna's 294 K: the bounds below absorb it.
-WITNESS_TEMPERATURE = 293.15
+# depend on is stated rather than defaulted, the temperature with them: Luna's 294 K.
+WITNESS_TEMPERATURE = 294.0
 
 
 def former_fill(law, pressure):

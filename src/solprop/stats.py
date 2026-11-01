@@ -51,7 +51,12 @@ from jaxtyping import Bool, Complex, Float
 
 from solprop import fourier
 from solprop.constants import EPS0, C
-from solprop.exceptions import ApertureEdgeWarning, OutputError
+from solprop.exceptions import (
+    ApertureEdgeWarning,
+    NoZeroDispersionError,
+    OutputError,
+    SolpropWarning,
+)
 from solprop.grid import TimeGrid
 from solprop.modes import base as modes_base
 from solprop.modes.protocol import Mode
@@ -1248,9 +1253,10 @@ def zdw(
 
     Raises
     ------
-    solprop.exceptions.ModeError
+    solprop.exceptions.NoZeroDispersionError
         If a mode has no zero-dispersion point in the search window, rather than a
-        missing value that would propagate silently.
+        missing value that would propagate silently. :func:`collect` records ``nan``
+        with a warning instead, so that a run is not stopped by its band.
 
     Examples
     --------
@@ -2498,6 +2504,53 @@ def _profile_for(profiles: Mapping[str, ZProfile] | None, name: str) -> ZProfile
     return profiles[name]
 
 
+def _zdw_or_nan(
+    modes: Sequence[Mode], z: float, grid: TimeGrid
+) -> Float[np.ndarray, " n_modes"]:
+    """Return each mode's zero-dispersion wavelength in a grid's band, or ``nan``.
+
+    A run asked for this statistic is not stopped because its band holds no zero: the
+    plane records ``nan`` with a warning, as :func:`fwhm_t` does for a missing crossing.
+    A direct call to :func:`zdw` still raises.
+
+    Parameters
+    ----------
+    modes : collections.abc.Sequence
+        The propagated modes, in state order.
+    z : float
+        Position along the waveguide, m.
+    grid : solprop.grid.TimeGrid
+        The grid whose band is searched.
+
+    Returns
+    -------
+    numpy.ndarray
+        Zero-dispersion wavelength or ``nan``, shape ``(n_modes,)``, m.
+
+    Warns
+    -----
+    solprop.exceptions.SolpropWarning
+        If ``beta_2`` has one sign at both ends of the band for any mode.
+    """
+    window = inband_wavelengths(grid)
+    values = np.full(len(modes), np.nan)
+    for index, mode in enumerate(modes):
+        try:
+            values[index] = zdw([mode], z, wavelength_range=window)[0]
+        except NoZeroDispersionError:
+            continue
+    missing = np.flatnonzero(np.isnan(values))
+    if missing.size:
+        warnings.warn(
+            f"the 'zdw' statistic records nan for modes {missing.tolist()}: beta_2 has "
+            f"one sign at both ends of the grid's {window[0] * 1e9:.4g}-"
+            f"{window[1] * 1e9:.4g} nm band",
+            SolpropWarning,
+            stacklevel=3,
+        )
+    return values
+
+
 def collect(  # noqa: PLR0913 - a spec, a grid, a plane and four optional sources
     spec: StatsSpec,
     grid: TimeGrid,
@@ -2629,9 +2682,7 @@ def collect(  # noqa: PLR0913 - a spec, a grid, a plane and four optional source
             if modes is None:
                 msg = "the 'zdw' statistic needs the propagated modes"
                 raise OutputError(msg)
-            values[name] = zdw(
-                modes, plane.z, wavelength_range=inband_wavelengths(grid)
-            )
+            values[name] = _zdw_or_nan(modes, plane.z, grid)
     logger.debug("collected %d statistics at z = %.6e m", len(values), plane.z)
     return values
 
