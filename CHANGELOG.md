@@ -68,6 +68,39 @@ All notable changes to solprop are recorded here. The format follows
 
 ### Changed (breaking)
 
+- A free-space run's transverse boundary is a `SpatialAbsorber`
+  ([SEP 40](docs/dev/seps/sep-0040-transverse-absorbing-boundaries.md)), given as
+  `SimulationSettings.spatial_absorber` or the `spatial_absorber` keyword of
+  `prop_radial`, `prop_free`, `prop_planar` and their `Simulation.from_*` builders. By
+  default every radial, Cartesian, line and planar run carries a designed safety ramp on
+  its outer 10 % of transverse wavenumbers, folded exactly into the operator, radial and
+  planar included; `spatial_absorber=False` removes it. A real-space collar is designed
+  on request, in the grid's room outside its requested size, from a protected band
+  (`kappa`, `angle`, or the launch) and its width, not from the run length, and is
+  refused by name where it cannot meet its budget. `TransverseCollar`,
+  `transverse_collar_rate`, `SimulationSettings.transverse_absorber` and
+  `Absorber.spatial` are removed, and `Absorber.collar_length` no longer sets a
+  real-space rate. Kernel schema 41.
+- Every spatial grid takes `collar_fraction` in place of `window_factor`, default 0, and
+  puts the room it asks for **outside** the requested size on every geometry
+  ([SEP 40](docs/dev/seps/sep-0040-transverse-absorbing-boundaries.md)). `RadialGrid`'s
+  `radius` is now the requested aperture, the Dirichlet boundary is at
+  `outer_radius = radius * (1 + collar_fraction)`, and `n_r` counts every sample; the
+  transform, the nodes and the effective area use the outer radius. Fractions of 1 and
+  more are allowed. `FreeGrid(rx, nx, ry, ny)` and `LineGrid` lose their inert 10 %
+  margin, so their spacing at the same sample count changes; give
+  `collar_fraction=0.1` for the old grid. `RadialGrid(R, n_r)` keeps its wall and
+  spacing.
+- A free-space run whose light reaches its transverse boundary now warns or stops,
+  where it used to log and carry on
+  ([SEP 40](docs/dev/seps/sep-0040-transverse-absorbing-boundaries.md)). The boundary
+  monitor reads the outer 5 % of the grid on every backend. It warns above 1e-6 of the
+  launch energy and stops at 1e-4, naming a size and a sample count to try, and
+  `BoundaryCheck.transverse_budget` sets those levels apart from the time window's. The
+  safety ramp's removal is judged at the same levels. Its monitor record reports a
+  `transverse_status`, with `ramp_removed` and `spatial_removed`. Reads are at most
+  `min(L/16, 4g/v)` apart, a ceiling on the step, so a low-source run takes a few more
+  steps. A launch with more than 1e-4 of its energy in the ramp's band is refused.
 - Names and keywords with two meanings or two spellings are settled, with no aliases;
   `docs/dev/conventions.md` section 7 gives the rule for each:
   - `prop_2d`, `time_1d` and `spectrogram` take `time_range`, not `trange`, which stays
@@ -125,6 +158,25 @@ All notable changes to solprop are recorded here. The format follows
   read (`ScanOutput`, `read_point`) or resumed or collected (`run_scan`, a queue's
   collector). Before, only the scan container's own version was checked, and that
   stayed 1, so such a scan was read as if its layout were this release's.
+- Under input noise, the boundary monitor subtracts at most one floor from the collar's
+  removal: the floor is put in once at the launch and cannot lose more. It subtracted
+  the floor's rate over the whole run, about 37 floors under the default collar, so a
+  removal of a few 1e-3 read as zero, with no warning, and the split scheme's subtraction
+  grew with the number of steps ([#126](https://github.com/LupoLab/solprop/issues/126)).
+- A resumed run's monitor record continues from the latest execution that kept one: a
+  second hard kill before the monitor started, or an execution with
+  `boundary_check=None`, no longer restarts the totals, and the stretch run unwatched is
+  listed under `unwatched`. The signed removal is kept and restored, so a stop and
+  resume reads as the whole run; the quiet collar's state is restored; and a resume on a
+  held row no longer counts the resumed state in the next row's guard maxima
+  ([#128](https://github.com/LupoLab/solprop/issues/128)).
+- `BoundaryCheck(quiet_collar=True)` no longer records the collar as left out on the
+  Cartesian, line and planar routes, whose stages keep it, or caps their steps for
+  nothing ([#94](https://github.com/LupoLab/solprop/issues/94)).
+- A scan point keeps its closing boundary-monitor record, without the per-plane rows,
+  under every executor (`read_point(...)["boundary_monitor"]`); a batched point no longer
+  stores the launch's zeros; and a `BoundaryWarning` raised as an error fails its own
+  batched point alone, as under `Local` ([#132](https://github.com/LupoLab/solprop/issues/132)).
 - The native backend's HIP build compiles again under its default
   warnings-as-errors: ROCm's Clang refused a thread-local variable that only an OpenMP
   build uses (0.1.0 needed `-DSOLPROP_NATIVE_WARNINGS_AS_ERRORS=OFF`).

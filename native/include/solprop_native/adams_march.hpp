@@ -257,6 +257,12 @@ struct Bounds {
   bool first_check = false;
   double check_interval = 0.0;
   double last_check = 0.0;
+  /** The transverse edge's reads (solprop SEP 40 section 5.3): an adaptive step is
+   *  capped at the read spacing, and the call returns at the committed position from
+   *  which the next proposal would carry past the next read. */
+  bool has_read_at = false;
+  double read_at = 0.0;
+  double read_spacing = 0.0;
   /** The call's own bound: its attempts and its wall time, s. */
   std::size_t max_attempts = 256;
   double max_seconds = 0.1;

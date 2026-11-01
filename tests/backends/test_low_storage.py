@@ -42,6 +42,7 @@ from bounds import (
     propagation_growth,
     step_budget,
 )
+from legacy_geometry import with_collar_rate
 from solprop.backends.driver import StepDriver
 from solprop.backends.low_storage import HostLowStorage, schedule_key, table_steps
 from solprop.backends.memory import estimate_memory, ledger_groups
@@ -214,7 +215,7 @@ def test_the_cartesian_diffraction_reproduces_its_width_and_gouy_phase(fraction)
     and its Fourier-series bounds are that test's own.
     """
     grid = EnvelopeGrid.from_limits(0.1, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False)
-    space = FreeGrid(6e-4, 48, 7.5e-4, 60, window_factor=0)
+    space = FreeGrid(6e-4, 48, 7.5e-4, 60, collar_fraction=0)
     index = int(np.argmin(abs(grid.omega - grid.omega0)))
     wave, waist = grid.omega[index] / C, 80e-6
     distance = fraction * wave * waist**2 / 2
@@ -436,7 +437,7 @@ def test_a_cartesian_kerr_beam_converges_at_order_four():
     grid = EnvelopeGrid.from_limits(
         length, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False
     )
-    space = FreeGrid(3e-4, 9, 4e-4, 12, window_factor=0)
+    space = FreeGrid(3e-4, 9, 4e-4, 12, collar_fraction=0)
     pulse = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=2e-7), 80e-6
     )
@@ -887,13 +888,13 @@ def spatial_collar_problem(steps, integrator):
     grid = EnvelopeGrid.from_limits(
         length, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False
     )
-    space = FreeGrid(3e-4, 9, 4e-4, 12, window_factor=0.25)
+    space = FreeGrid(3e-4, 9, 4e-4, 12, collar_fraction=0.25)
     pulse = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-7), 80e-6
     )
     schedule = FixedSchedule.uniform(0.0, length, length / steps)
     arguments = {} if integrator is None else {"integrator": integrator}
-    return assemble(
+    problem = assemble(
         grid,
         None,
         [KerrResponse(1e-22, thg=False)],
@@ -908,7 +909,13 @@ def spatial_collar_problem(steps, integrator):
         absorber=absorber(grid),
         absorber_scheme="split_step",
         **arguments,
-    ), schedule
+    )
+    # A collar cannot be designed on this coarse box (SEP 40's floor); the subject is
+    # the stability check of an in-stage spatial rate, so the rate the old collar had,
+    # 12.6 (1 - W) / (L / 20), is put on directly and the problem validated again.
+    problem = with_collar_rate(problem, 12.6 / (length / 20))
+    problem.validate()
+    return problem, schedule
 
 
 def test_a_step_past_rk4_s_interval_beside_the_spatial_collar_is_refused():
@@ -1378,7 +1385,7 @@ def cartesian_march(mode, *, noise=None, collar=False):
     grid = EnvelopeGrid.from_limits(
         length, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False
     )
-    space = FreeGrid(3e-4, 9, 4e-4, 12, window_factor=0.25 if collar else 0)
+    space = FreeGrid(3e-4, 9, 4e-4, 12, collar_fraction=0.25 if collar else 0)
     pulse = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-7), 80e-6
     )
@@ -1409,6 +1416,10 @@ def cartesian_march(mode, *, noise=None, collar=False):
     problem = dataclasses.replace(
         problem, transform=dataclasses.replace(problem.transform, node_chunk=7)
     )
+    if collar:
+        # A collar cannot be designed on this coarse box (SEP 40's floor); the subject
+        # is the march's ledger beside an in-stage term, so its rate is put on directly.
+        problem = with_collar_rate(problem, 12.6 / (length / 20))
     return problem, grid, space
 
 
@@ -1494,7 +1505,7 @@ def test_the_noise_adds_one_volume_and_the_estimate_names_it():
             EnvelopeGrid.from_limits(
                 1e-3, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False
             ),
-            FreeGrid(3e-4, 9, 4e-4, 12, window_factor=0),
+            FreeGrid(3e-4, 9, 4e-4, 12, collar_fraction=0),
             SpatialMedium(),
         ),
         np.random.default_rng(7),
@@ -1555,7 +1566,7 @@ def test_the_noise_draw_never_enters_the_propagating_field():
     grid = EnvelopeGrid.from_limits(
         length, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False
     )
-    space = FreeGrid(3e-4, 9, 4e-4, 12, window_factor=0)
+    space = FreeGrid(3e-4, 9, 4e-4, 12, collar_fraction=0)
     noise = spatial_noise(
         SpatialFlux.resolve(grid, space, SpatialMedium()),
         np.random.default_rng(3),
@@ -1598,7 +1609,7 @@ def test_each_pass_carries_the_draw_at_its_own_position(monkeypatch):
     grid = EnvelopeGrid.from_limits(
         length, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False
     )
-    space = FreeGrid(3e-4, 9, 4e-4, 12, window_factor=0)
+    space = FreeGrid(3e-4, 9, 4e-4, 12, collar_fraction=0)
     noise = spatial_noise(
         SpatialFlux.resolve(grid, space, SpatialMedium()),
         np.random.default_rng(94),

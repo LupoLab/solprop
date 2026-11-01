@@ -277,9 +277,10 @@ it cares about does not have that problem.
 ## Two lengths: the spectral rate and the in-stage collars
 
 A single length would set three things: the spectral collar's strength, the ceiling
-`60/ℓ` every rate is validated against, and the strength of the in-stage collars, the
-temporal `12.6 (1 − W(t))/ℓ` and, on a spatial grid, the transverse
-`12.6 (1 − W(x, y))/ℓ` ([free-space propagation](../free-space/model.md#spatial-collar-and-statistics)).
+`60/ℓ` every rate is validated against, and the strength of the in-stage temporal collar,
+`12.6 (1 − W(t))/ℓ`. (A free-space run's real-space collar is designed separately, from
+a protected band and its width:
+[transverse boundaries](../free-space/model.md#transverse-boundaries).)
 The two kinds of rate are applied very differently. The spectral rate is diagonal in ω
 and rides the linear operator, where it is exact and free whatever its strength; the
 in-stage collars are explicit terms, and their largest rate bounds the step an explicit
@@ -290,9 +291,8 @@ So {py:class}`~solprop.boundaries.Absorber` carries two lengths
 ([SEP 22](../../dev/seps/archive/sep-0022-memory-lean-spatial-execution.md) §4.6):
 
 - `reference_length`, `ℓ`, sets the spectral rate and its ceiling `60/ℓ`;
-- `collar_length`, `ℓ_c`, sets the in-stage collars — the temporal one's largest rate
-  is `12.6/ℓ_c`, and the spatial collar is `12.6 (1 − W)/ℓ_c` — and their ceiling
-  `60/ℓ_c`. `None`, the default, means `reference_length`, and a value equal to the
+- `collar_length`, `ℓ_c`, sets the in-stage temporal collar — its largest rate is
+  `12.6/ℓ_c` — and its ceiling `60/ℓ_c`. `None`, the default, means `reference_length`, and a value equal to the
   reference length is stored as `None`. {py:attr}`~solprop.boundaries.Absorber.in_stage_length` returns
   the length in force.
 
@@ -358,15 +358,16 @@ A spectral-only collar is passed as `absorber=absorber(grid, temporal=False)`; a
 that turns both soft collars off on the fibre entry points is
 [SEP 21](../../dev/seps/archive/sep-0021-absorbing-boundaries.md)'s.
 
-### A transverse collar
+### The transverse boundary
 
-The collars above act on time, frequency and the transverse coordinates. A Cartesian
-run may also carry a ramp in the transverse **wavenumber**,
-`SimulationSettings(transverse_absorber=TransverseCollar(strength))`
-({py:class}`~solprop.boundaries.TransverseCollar`, SEP 22): a power rate diagonal in
-$k_\perp$, which rides the linear operator exactly, like the spectral rate, rather than
-the stages. It is a safety ramp at the grid's largest wavenumbers, not anti-aliasing,
-and is independent of the `Absorber` and its lengths:
+The collars above act on time and frequency. A free-space run's transverse boundary is
+its own ([SEP 40](../../dev/seps/sep-0040-transverse-absorbing-boundaries.md)): a wall or a
+wrap at the grid's outer size, a safety ramp in the transverse **wavenumber** on every
+geometry, which rides the linear operator exactly like the spectral rate, the monitor's
+transverse edge, and, on request, a designed real-space collar,
+`spatial_absorber=SpatialAbsorber(...)`
+({py:class}`~solprop.boundaries.SpatialAbsorber`). It is independent of the `Absorber` and
+its lengths: [transverse boundaries](../free-space/model.md#transverse-boundaries) and
 [grid sizing and the transverse safety ramp](../free-space/cartesian.md#grid-sizing-and-the-transverse-safety-ramp).
 
 ## Which runs carry one, and how to change it
@@ -374,7 +375,7 @@ and is independent of the `Absorber` and its lengths:
 | entry point | absorber by default |
 |---|---|
 | `prop_capillary`, `prop_waveguide`, `prop_gnlse` and their `Simulation.from_*` builders | the grid's default collar, `absorber(grid)`: spectral and temporal, `boundary_N = 20`, applied in every stage |
-| `prop_radial`, `prop_free`, `prop_planar` and their builders, whose settings declare none | the same temporal and spectral collar, applied once per accepted step (`absorber_scheme="split_step"`) unless planes are interpolated; the real-space transverse collar stays off, as before (`Absorber.spatial=False`) |
+| `prop_radial`, `prop_free`, `prop_planar` and their builders, whose settings declare none | the same temporal and spectral collar, applied once per accepted step (`absorber_scheme="split_step"`) unless planes are interpolated; the transverse boundary is the safety ramp and the monitor's edge, with a real-space collar only on request (`spatial_absorber`, SEP 40) |
 | a `Simulation` built directly with its own `SimulationSettings` | none unless `SimulationSettings(absorber=...)` is given |
 
 Every `prop_*` entry point takes `absorber=` and `absorber_scheme=`. Pass
@@ -439,9 +440,10 @@ noise the floor alone fills the collar far above the threshold, so the option on
 on noise-free runs; on a 2 cm noise-free GNLSE Raman/shock run whose pulse stays clear it
 saved 6 to 9 % per step on `numba_cpu` and `native` (Apple M5 Max). It is off by default
 because a run cannot know in advance whether its light stays clear, and an omission
-judged too early is an error nothing reports (ADR-057). It applies to binary64 modal
-stages with the in-stage scheme; the split scheme, the low-storage march, the general
-modal route, coupled flows, a radial real-space collar and single precision always keep
+judged too early is an error nothing reports (ADR-057). It applies to binary64 modal and
+radial stages with the in-stage scheme; the split scheme, the low-storage march, the
+general modal route, coupled flows, a real-space collar, single precision, and the
+Cartesian, line and planar routes, whose stages keep the term regardless, always keep
 the collar. The record's `collar_left_out_checks` counts the checks that found it out.
 
 **Above the shot-noise floor.** Input noise, on by default, puts one photon per mode across
@@ -449,10 +451,12 @@ the whole window, guards and collar included. Light below that floor cannot be t
 the vacuum, so the monitor judges what lies above it: from each region's energy it
 subtracts three times the floor's expected share (the floor is uniform in time on
 average, and three times its expectation clears its fluctuation in a narrow guard), and
-from the collar's removal rate the floor's expected removal. A weak launch is therefore
-not stopped for its own noise, while light well above the floor that reaches an edge
-still is. Light that arrives at an edge weaker than the vacuum's own share of it is not
-reported.
+from the collar's removal the floor's expected removal, up to the floor itself: the
+input noise puts one floor in at the launch and never adds to it, so the floor cannot
+lose more than that, however long the run. A weak launch is therefore not stopped for its
+own noise, while light well above the floor that reaches an edge still is. Light that
+arrives at an edge, or leaves through the collar, weaker than the vacuum's own share of
+it is not reported.
 
 What the monitor saw is kept in the run's execution record, under `boundary_monitor`: the
 launch occupancies, the largest guard and collar occupancies and where the guards peaked,
@@ -482,10 +486,25 @@ host to be watched.
 A resumed run continues the record: the state it resumes from is checked by the first
 step, not judged as a launch, so a run stopped at an edge can be resumed under a relaxed
 check (the check is not part of the resume key; the quiet-collar opt-in is). The totals,
-the launch occupancies and the rows of a closing record are restored, so the removed
-fraction and the guard maxima continue against the original launch, and `resumed_at`
-lists where the run was resumed. A run killed without a closing record restores its
-totals, and its rows start again at the resume.
+the launch occupancies, the quiet collar's state and the rows of a closing record are
+restored, so the removed fraction and the guard maxima continue against the original
+launch, and `resumed_at` lists where the run was resumed. A run killed without a closing
+record restores its totals, and its rows start again at the resume. The record continues
+from the latest execution that kept one: an execution killed before its monitor started,
+or run with `boundary_check=None`, is passed over, and the stretch it ran unwatched is
+listed under `unwatched` as `[start, end]` in metres, because what left the window there
+is unknown rather than zero. The record also keeps the signed removal (`removed_signed`)
+and the floor's expected removal (`floor_removed_fraction`), so that a resume continues
+from the same numbers the whole run would hold.
+
+On a free-space run the monitor also watches the **transverse edge**
+([SEP 40](../../dev/seps/sep-0040-transverse-absorbing-boundaries.md)): the energy in the
+outer 5 % of the grid's outer size above its launch value with no collar, and what
+returns with a requested one, at `BoundaryCheck`'s levels or its own `transverse_budget`,
+which relaxes the transverse edge without relaxing time. Its reads are spaced as a ceiling
+on the step, and its record joins the monitor's under `transverse`, with a
+`transverse_status` that only reads `clear` for a run that read its edge at the required
+spacing and found nothing ([transverse boundaries](../free-space/model.md#transverse-boundaries)).
 
 `SimulationSettings(boundary_check=None)`, or `boundary_check=None` on any `prop_*`
 function or `Simulation.from_*` constructor, watches nothing; a `BoundaryCheck` with a

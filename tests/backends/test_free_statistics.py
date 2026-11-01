@@ -33,7 +33,7 @@ def test_free_packed_statistics_match_host_definitions(
         else partial(EnvelopeGrid.from_limits, thg=False)
     )
     grid = constructor(1e-4, 800e-9, (600e-9, 1.2e-6), 150e-15)
-    space, waist = FreeGrid(4e-4, 32, 5e-4, 40, window_factor=0), 100e-6
+    space, waist = FreeGrid(4e-4, 32, 5e-4, 40, collar_fraction=0), 100e-6
     pulse = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=3e-9),
         waist,

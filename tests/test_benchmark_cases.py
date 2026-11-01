@@ -223,9 +223,14 @@ def test_tracked_definitions_change_only_with_a_new_revision():
         ("argon_blueshift_envelope", 1, "0b376ed0c4ae"),
         ("h2_raman_averaged", 1, "4b7440bfae07"),
         ("ctc", 1, "5e88b5b3b60f"),
-        ("radial_filament_256", 1, "ea6c16906669"),
+        ("radial_filament_256", 2, "a7bd268f25df"),
         ("grin_nonlinear", 1, "5a1ddf84368a"),
         ("kerr_beam_384", 1, "88c44c3d288c"),
         ("kerr_beam_192", 1, "1c8baa576a04"),
     ]
-    assert {case.revision for case in CASES.values()} == {1}
+    # Revision 2 for SEP 40: spatial_absorber requests a collar, and the radial
+    # filaments' wall moves out to 1.5 mm, which their light no longer reaches.
+    revisions = {case.name: case.revision for case in CASES.values()}
+    for name in ("spatial_absorber", "radial_filament_256", "radial_filament_512"):
+        assert revisions.pop(name) == 2, name
+    assert set(revisions.values()) == {1}

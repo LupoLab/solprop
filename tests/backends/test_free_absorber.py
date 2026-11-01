@@ -2,7 +2,11 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Check Cartesian collar derivatives and step-count independence."""
+"""Check Cartesian collar derivatives and step-count independence.
+
+The collar is SEP 40's real-space collar, requested with a declared band on a grid
+with room; its rate is the Planck profile ``alpha0 (1 - W)`` on the nodes.
+"""
 
 import dataclasses
 from functools import partial
@@ -11,15 +15,28 @@ import numpy as np
 import pytest
 from scipy.linalg import expm
 
-from backends.test_radial_absorber import LENGTH, problem_for, rk_bound
+from backends.test_radial_absorber import LENGTH, assembled, rk_bound
 from backends.test_radial_nonlinear import derivative
 from bounds import gamma
 from solprop.backends.spatial import collar_field_fraction
-from solprop.boundaries import TEMPORAL_ALPHA_LENGTH, Absorber
+from solprop.boundaries import Absorber, SpatialAbsorber
 from solprop.constants import C
 from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid
 from solprop.nonlinear.responses import KerrResponse
 from spatial_records import record_metric
+
+COLLAR = SpatialAbsorber(kappa=11.5e3, attenuation=400.0)
+"""A declared band, kappa w = 23 on the narrower 2 mm collar, above the floor 22.3.
+
+Four hundred nepers at the band's edge make a collar of about 1e4 1/m, an exponent
+near one over the run, so that the absorber is a sizeable part of the flow."""
+
+
+def problem_for(case, steps, **options):
+    """The case's problem on a fixed schedule of `steps`, with the collar requested."""
+    grid, space, boundary, start, _, _, _, responses = case
+    options.setdefault("spatial_absorber", COLLAR)
+    return assembled(grid, space, boundary, start, responses, steps, **options)
 
 
 @pytest.fixture(params=["field_real", "field_analytic", "envelope"])
@@ -30,7 +47,9 @@ def free_absorber(request):
         else FieldGrid.from_limits
     )
     grid = constructor(LENGTH, 800e-9, (600e-9, 1.2e-6), 150e-15)
-    space = FreeGrid(1e-3, 8, 1.2e-3, 6, window_factor=0.5)
+    # Twice the aperture's room, and enough columns per axis that the declared band
+    # lies below each axis's safety ramp.
+    space = FreeGrid(1e-3, 26, 1.2e-3, 30, collar_fraction=2.0)
     boundary = Absorber(
         np.zeros(grid.n_omega),
         np.zeros(grid.n_t),
@@ -43,6 +62,13 @@ def free_absorber(request):
     start = np.zeros((space.n_columns, 2, grid.n_omega), complex)
     start[:, 0, index] = np.fft.fft2(field.reshape(space.n_y, space.n_x)).ravel()
     start[:, 1, index] = 0.7j * start[:, 0, index]
+    responses = (
+        [KerrResponse(0.0, thg=False)] if request.param == "field_analytic" else []
+    )
+    design = problem_for(
+        (grid, space, boundary, start, index, None, None, responses), 8
+    ).transverse
+    assert design is not None and design.has_collar
     # Build the DFT from its geometric sums, independently of FFT calls in
     # either backend, so the matrix exponential is a distinct absorber oracle.
     ix, iy = (
@@ -58,13 +84,13 @@ def free_absorber(request):
         )
     )
     inverse = np.conj(forward.T) / space.n_columns
-    rate = TEMPORAL_ALPHA_LENGTH * (1 - space.window) / boundary.reference_length
+    rate = design.alpha0 * (1 - space.window)
     absorption = forward @ (-0.5 * rate[:, None] * inverse)
     wave = grid.omega[index] / C
-    phase = 1j * space.kperp_sq / (np.sqrt(wave**2 - space.kperp_sq) + wave)
-    responses = (
-        [KerrResponse(0.0, thg=False)] if request.param == "field_analytic" else []
-    )
+    # The safety ramp rides the diagonal operator as -alpha_s / 2 on each column.
+    phase = 1j * space.kperp_sq / (
+        np.sqrt(wave**2 - space.kperp_sq) + wave
+    ) - 0.5 * np.asarray(design.ramp_rate)
     return grid, space, boundary, start, index, absorption, phase, responses
 
 
@@ -97,16 +123,17 @@ def test_cartesian_absorber_has_no_per_step_window_loss(
     free_absorber, spatial_backend_class, steps, request
 ):
     grid, space, _, start, index, absorption, phase, _ = free_absorber
+    problem = problem_for(free_absorber, steps)
+    assert problem.transverse is not None
     linear_norm = np.max(np.abs(phase))
     # The physical absorber is unitarily similar to diag(-alpha/2), so its
     # spectral norm is known without measuring a matrix norm.
-    absorber_norm = TEMPORAL_ALPHA_LENGTH / (10 * LENGTH)
+    absorber_norm = 0.5 * problem.transverse.alpha0
     bound = rk_bound(linear_norm, absorber_norm, steps)
     bound += gamma(256 * (space.n_columns + grid.n_to)) * steps
     bound += gamma(64) * LENGTH * grid.omega[index] / C
     assert 0 < bound < 0.01
     expected = expm(LENGTH * (np.diag(phase) + absorption)) @ start[:, :, index]
-    problem = problem_for(free_absorber, steps)
     backend = spatial_backend_class(problem, grid=grid)
     try:
         backend.set_initial(problem.initial.field0, None)
@@ -131,7 +158,7 @@ def test_cartesian_absorber_has_no_per_step_window_loss(
 
 
 def test_cartesian_collar_diagnostic_reports_illuminated_window(
-    free_absorber, spatial_backend_class, caplog, request
+    free_absorber, spatial_backend_class, request
 ):
     grid, space, _, start, _, _, _, _ = free_absorber
     problem = problem_for(free_absorber, 8)
@@ -149,15 +176,8 @@ def test_cartesian_collar_diagnostic_reports_illuminated_window(
         bound,
         spatial_backend_class.name,
     )
-
-    backend = spatial_backend_class(problem, grid=grid)
-    try:
-        backend.set_initial(problem.initial.field0, None)
-        backend.observe()
-        assert "spatial collar contains" in caplog.text
-        assert f"{measured:.6e}" in caplog.text
-    finally:
-        backend.close()
+    # The end-of-plane log of this share is retired (SEP 40 section 5.3): the
+    # monitor's transverse edge judges the boundary instead.
 
 
 def test_cartesian_split_step_temporal_absorber_reconstructs_physical_field(

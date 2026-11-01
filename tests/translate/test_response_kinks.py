@@ -176,7 +176,7 @@ def test_a_route_that_cannot_land_the_kink_refuses_it_by_name():
         for component in mixture.components
     )
     grid = EnvelopeGrid.from_limits(8e-6, 800e-9, (500e-9, 1.2e-6), 80e-15)
-    space = RadialGrid(6e-4, 8, window_factor=0.0)
+    space = RadialGrid(6e-4, 8, collar_fraction=0.0)
     pulse = GaussianPulse(wavelength=800e-9, fwhm=20e-15, energy=1e-7)
     with pytest.raises(
         TranslationError, match=r"preionisation:population-0 path kinks at z = 2e-06"

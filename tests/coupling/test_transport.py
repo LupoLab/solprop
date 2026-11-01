@@ -577,8 +577,8 @@ def test_windows_without_a_collar_use_their_outer_tenth(
     beam: BeamFactory, air: SpatialMedium
 ):
     for space in (
-        RadialGrid(0.6e-3, 64, window_factor=0.0),
-        FreeGrid(0.6e-3, 32, 0.6e-3, 32, window_factor=0.0),
+        RadialGrid(0.6e-3, 64, collar_fraction=0.0),
+        FreeGrid(0.6e-3, 32, 0.6e-3, 32, collar_fraction=0.0),
     ):
         state = beam(space, 0.15e-3)
         # Half a metre spreads the 150 um beam well past this window: the wrap is

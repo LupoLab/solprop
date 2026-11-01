@@ -24,7 +24,7 @@ from solprop.spatial import cartesian_fluence_widths
 @pytest.fixture
 def free_backend_problem():
     grid = EnvelopeGrid.from_limits(1e-4, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False)
-    space = FreeGrid(3e-4, 4, 4e-4, 6, window_factor=0)
+    space = FreeGrid(3e-4, 4, 4e-4, 6, collar_fraction=0)
     problem = make_problem(
         grid,
         space,
@@ -130,7 +130,7 @@ def test_allocator_counter_is_zero_on_windows_without_a_process_handle(monkeypat
 @pytest.mark.parametrize("radius", [1.4e308, float(np.nextafter(0.0, 1.0))])
 def test_free_grid_names_unrepresentable_extents(radius):
     with pytest.raises(GridError, match="extent or spacing"):
-        FreeGrid(radius, 4, 1.0, 6, window_factor=0.5)
+        FreeGrid(radius, 4, 1.0, 6, collar_fraction=0.5)
 
 
 def test_cartesian_widths_reject_nonnumeric_samples():

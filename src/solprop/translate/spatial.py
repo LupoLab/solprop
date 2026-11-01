@@ -335,18 +335,18 @@ class SeparableOperator:
         operator exactly as before.
     kperp_rate : numpy.ndarray or None
         Kernel schema 31: the transverse-wavevector power absorption rate
-        ``alpha_perp`` of a :class:`solprop.boundaries.TransverseCollar`, in
+        ``alpha_perp`` of a run's safety ramp (SEP 40), in
         m^-1, one per column, shape ``(n_modes,)``, finite and nonnegative. It enters
         the operator on the active band only, beside the spectral rate,
         ``D -= alpha_perp / 2`` (SEP 22 section 5.3), and never the unitary phase.
         ``None`` (the default) is stored as zeros, whose operator is today's to the
-        last bit. Refused nonzero on the hybrid planar kind.
+        last bit. On the hybrid planar kind it acts per ``(p, k_y)`` column (SEP 40).
 
     Raises
     ------
     TranslationError
         If arrays, scales, frequency counts or the valid interval disagree, or the
-        transverse rate is negative, misshaped or set on the hybrid planar kind.
+        transverse rate is negative or misshaped.
     """
 
     k_squared: Complex[np.ndarray, " n_k"]
@@ -450,8 +450,7 @@ class SeparableOperator:
         Raises
         ------
         TranslationError
-            If it is not one finite nonnegative rate per column, or is nonzero on the
-            hybrid planar kind.
+            If it is not one finite nonnegative rate per column.
         """
         rate = (
             np.zeros(self.kperp_sq.size)
@@ -465,12 +464,8 @@ class SeparableOperator:
                 f"column, shape {self.kperp_sq.shape}"
             )
             raise TranslationError(msg)
-        if self.kappa_sq is not None and np.any(rate):
-            msg = (
-                "separable kperp_rate is refused on the hybrid planar kind: its "
-                "k_y-only transverse collar is not part of SEP 22"
-            )
-            raise TranslationError(msg)
+        # On the hybrid planar kind the rate acts on k_y alone, per (p, k_y) column,
+        # which is diagonal there (SEP 40 section 5.4).
         object.__setattr__(self, "kperp_rate", rate)
 
     @property

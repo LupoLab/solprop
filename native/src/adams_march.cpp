@@ -218,6 +218,24 @@ double quiet_capped(const Policy& policy, const double proposal, const bool quie
   return py_min(proposal, policy.quiet_interval);
 }
 
+namespace {
+
+double read_capped(const Bounds& bounds, const double proposal) {
+  // The edge's read spacing is a ceiling on the step (solprop SEP 40 section 5.3), as
+  // `TransverseEdge.ceiling` gives it; a step is not made to land on a read.
+  if (!bounds.has_read_at)
+    return proposal;
+  return py_min(proposal, bounds.read_spacing);
+}
+
+// `TransverseEdge.due`: read here when the next proposal would carry past the read.
+bool read_due(const Bounds& bounds, const double z, const double proposal) {
+  return bounds.has_read_at &&
+         z + proposal >= bounds.read_at - 1e-12 * py_max(std::abs(z), 1.0);
+}
+
+} // namespace
+
 double collar_reentry(const Policy& policy, const double proposal,
                       const std::size_t order, const bool was_quiet, const bool quiet) {
   const bool returning = was_quiet && !quiet;
@@ -425,6 +443,7 @@ Result run(const Policy& policy, State& state, Engine& engine, const Bounds& bou
             carrier_capped(policy, state.z, proposed, engine.chord_phase(state.z, end));
       }
       proposed = quiet_capped(policy, proposed, bounds.quiet);
+      proposed = read_capped(bounds, proposed);
       proposed = collar_reentry(policy, proposed, state.order, state.collar_was_quiet,
                                 bounds.quiet);
       state.collar_was_quiet = bounds.quiet;
@@ -531,7 +550,8 @@ Result run(const Policy& policy, State& state, Engine& engine, const Bounds& bou
         result.reason = Reason::reached;
         return result;
       }
-      if (bounds.host_step > 0 && accepted == bounds.host_step) {
+      if ((bounds.host_step > 0 && accepted == bounds.host_step) ||
+          read_due(bounds, state.z, state.proposal)) {
         result.reason = Reason::host_step;
         return result;
       }

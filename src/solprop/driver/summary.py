@@ -33,6 +33,7 @@ from solprop.monitor import BoundaryCheck
 from solprop.output.schema import Output, RunMetadata
 from solprop.stepper.multistep import Multistep
 from solprop.translate.problem import KernelProblem
+from solprop.transverse_monitor import READS
 
 __all__ = [
     "RunSummary",
@@ -196,6 +197,11 @@ def run_summary(  # noqa: PLR0913 - the run's parts, each a distinct object
         ("propagator", str(execution.get("propagator_mode", "not reported"))),
         ("tolerances", _tolerances(problem)),
         ("absorber", _absorber(problem, boundary_check)),
+        *(
+            [("transverse edge", _transverse(problem, boundary_check, backend))]
+            if problem.transform.geometry is not None
+            else []
+        ),
         ("save planes", _planes(problem, planes)),
         ("output", _output(output)),
         ("start", _start(start_plane, planes.size, z_start)),
@@ -769,6 +775,53 @@ def _absorber(problem: KernelProblem, check: BoundaryCheck | None) -> str:
         f"{text}; edges watched (guards {check.guard_fraction:g} of the window, "
         f"budget {check.budget:.0e})"
     )
+
+
+def _transverse(
+    problem: KernelProblem, check: BoundaryCheck | None, backend: str
+) -> str:
+    """Describe a free-space run's transverse boundary and what its edge can report.
+
+    SEP 40 section 5.3: ``unwatched``, ``coarse`` and ``off`` are said before the
+    first step, so that a run that cannot reach a clean verdict says so.
+
+    Parameters
+    ----------
+    problem : solprop.translate.problem.KernelProblem
+        The translated problem.
+    check : solprop.monitor.BoundaryCheck or None
+        The edge thresholds, or ``None`` when nothing is watched.
+    backend : str
+        The backend's name.
+
+    Returns
+    -------
+    str
+        The boundary, then what the monitor will report.
+    """
+    design = problem.transverse
+    if design is None:
+        boundary = "wall or wrap, no safety ramp"
+    elif design.has_collar:
+        boundary = (
+            f"requested collar, alpha0 {design.alpha0:.3g} 1/m, design check "
+            f"{design.check.get('status', 'not run')}; safety ramp"
+        )
+    else:
+        boundary = "wall or wrap with the safety ramp"
+    if check is None:
+        return f"{boundary}; off (boundary_check=None)"
+    if backend != "numpy_ref":
+        return f"{boundary}; unwatched on {backend} (numpy_ref reads it)"
+    schedule = problem.stepper.schedule
+    if (
+        schedule is not None
+        and float(np.max(schedule.steps))
+        > (float(np.max(problem.stepper.save_planes)) - float(problem.initial.z))
+        / READS
+    ):
+        return f"{boundary}; coarse: the fixed schedule is sparser than its reads"
+    return f"{boundary}; watched (budget {check.edge_budget:.0e})"
 
 
 def _planes(problem: KernelProblem, planes: np.ndarray) -> str:

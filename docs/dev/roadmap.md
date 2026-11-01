@@ -34,6 +34,15 @@ being implemented.
   identifies a new material contract. Ne/Xe, mixtures, mode-averaged and multimode
   routes, bound response and other geometries remain follow-up work; the first route is
   a single-mode capillary with node quadrature.
+- [SEP 40 — Transverse absorbing boundaries for free-space propagation](seps/sep-0040-transverse-absorbing-boundaries.md):
+  in progress: phases 0–2 (`numpy_ref`, native) complete, `numba_cpu` next. By default a wall or wrap at the requested
+  size, a numerical safety ramp at the outer wavenumbers (now also radial and planar), and a
+  monitor that stops a run whose light reaches the edge. A real-space collar outside the aperture
+  on request, for declared fast content, sized by a protected band rather than the run length and
+  checked at translation by propagating the launch through it, with a removal ledger. A split
+  factor and polynomial profiles are left to issues [#144](https://github.com/LupoLab/solprop/issues/144) and [#145](https://github.com/LupoLab/solprop/issues/145). Perfectly matched layers,
+  adaptive transverse windows, the escaped transverse field and a flux-weighted spatial ledger remain
+  open. Tracking issue: [#124](https://github.com/LupoLab/solprop/issues/124).
 - [SEP 41 — Recipes, and the hooks a front end needs](seps/sep-0041-recipes-and-front-ends.md):
   a versioned TOML recipe that solprop loads, checks, builds, runs, exports as Python,
   records in its output and resumes from (`solprop run`, `solprop resume`), with the
@@ -97,11 +106,3 @@ The [SEP index](seps/index.md) lists every proposal and its current status.
   subtraction, a weak-response limit and local temporal integration. Its ensemble,
   data and integration questions must be settled before acceptance; shared-level
   ladders, vector saturation and repeated-window histories remain future work.
-- [SEP 40 — Transverse absorbing boundaries for free-space propagation](seps/sep-0040-transverse-absorbing-boundaries.md):
-  the radial, Cartesian, line and planar real-space collar placed outside the requested
-  aperture and sized by a declared protected band of transverse wavenumbers rather than
-  the run length, in-stage under a collar-crossing step limit (split optional for RK),
-  with the k⊥ ramp kept to a numerical safety band (now also radial and planar), a
-  monitor that judges returning light, and a signed removal ledger. Perfectly matched
-  layers, adaptive transverse windows, the escaped transverse field and a flux-weighted
-  spatial ledger remain open.

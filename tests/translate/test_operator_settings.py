@@ -4,8 +4,9 @@
 
 """The separable-operator settings and the exponent budget (SEP 22 section 5.3).
 
-Every setting at its default is today's operator and record exactly (structural);
-the budget refuses only a step the run cannot shrink whose factor overflows, warns
+Every setting at its default is the documented operator and record exactly
+(structural): the safety ramp of SEP 40 rides the operator through its rate alone; the
+budget refuses only a step the run cannot shrink whose factor overflows, warns
 within a tenth of the limit, and leaves adaptive runs alone (section 4.5).
 """
 
@@ -17,7 +18,7 @@ import pytest
 
 from legacy_geometry import bare_absorber
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.boundaries import TransverseCollar, absorber, transverse_collar_rate
+from solprop.boundaries import SpatialAbsorber, absorber
 from solprop.driver import Simulation, SimulationSettings
 from solprop.exceptions import (
     ExponentBudgetWarning,
@@ -25,7 +26,6 @@ from solprop.exceptions import (
 )
 from solprop.grid import EnvelopeGrid, LineGrid, RadialGrid
 from solprop.linear import Frame
-from solprop.modes import PlanarGrid, SlabMode
 from solprop.nonlinear.responses import KerrResponse
 from solprop.output.schema import serialise
 from solprop.profiles import Linear
@@ -40,7 +40,7 @@ from solprop.spatial import (
 from solprop.stepper import FixedSchedule, Multistep, PIController, RungeKutta
 from solprop.translate.chebyshev import build
 from solprop.translate.linop import LinearOperator, phi_rate
-from solprop.translate.problem import EXPONENT_BUDGET, LOG_DBL_MAX, assemble
+from solprop.translate.problem import EXPONENT_BUDGET, LOG_DBL_MAX
 from solprop.translate.radial import radial_operators, radial_rate_bounds
 from solprop.translate.spatial import rate_bounds, separable_values
 
@@ -77,10 +77,12 @@ def line(
 ) -> Simulation:
     """A Kerr line whose finest columns are evanescent, replayed at `step`."""
     grid = EnvelopeGrid.from_limits(length, WAVELENGTH, (700e-9, 950e-9), 400e-15)
-    # The budgets below are the evanescent and transverse rates alone: no collar.
+    # The budgets below are the evanescent and transverse rates alone: no collar,
+    # and no safety ramp unless a test asks for one.
     settings.setdefault("absorber", bare_absorber(grid))
+    settings.setdefault("spatial_absorber", False)
     # A 0.2 um spacing: the grid's largest k_x, 1.6e7 rad/m, is past k0 = 7.9e6.
-    space = LineGrid(2e-6, 22, window_factor=0.1)
+    space = LineGrid(2e-6, 22, collar_fraction=0.1)
     pulse = evanescent_beam(grid, space, SpatialMedium() if medium is None else medium)
     planes = [length]
     return Simulation.from_free(
@@ -105,54 +107,79 @@ def line(
     )
 
 
-def test_every_setting_at_its_default_is_todays_operator_and_record():
-    plain = line()
-    zero = line(transverse_absorber=TransverseCollar(0.0))
-    operator = plain.translate().linear.separable
-    assert operator is not None
+def test_every_setting_at_its_default_is_the_documented_operator_and_record():
+    # The default transverse boundary is the safety ramp alone (SEP 40): the
+    # design's rate on the columns, unrecorded because nothing was asked.
+    plain = line(spatial_absorber=None, step=None)
+    problem = plain.translate()
+    operator = problem.linear.separable
+    design = problem.transverse
+    assert operator is not None and design is not None
+    assert not design.has_collar
     assert operator.evanescent_rate == EVANESCENT_RATE
-    assert operator.kperp_rate is not None
-    assert np.array_equal(operator.kperp_rate, np.zeros(operator.kperp_sq.size))
-    collared = zero.translate().linear.separable
-    assert collared is not None
-    # A zero rate leaves every element of the operator as it was (s + 0 = s).
-    for one, other in zip(
-        separable_values(operator), separable_values(collared), strict=True
-    ):
-        assert np.array_equal(one, other)
+    assert operator.kperp_rate is not None and np.any(operator.kperp_rate > 0)
+    assert np.array_equal(operator.kperp_rate, design.ramp_rate)
     configuration = plain.metadata().configuration
     assert "evanescent_rate" not in configuration
-    assert "transverse_absorber" not in configuration
-    # An explicit default rate is the same operator, recorded because it was asked.
-    explicit = line(evanescent_rate=EVANESCENT_RATE)
-    stated = explicit.translate().linear.separable
-    assert stated is not None
-    assert np.array_equal(separable_values(stated)[0], separable_values(operator)[0])
-    assert explicit.metadata().configuration["evanescent_rate"] == EVANESCENT_RATE
+    assert "spatial_absorber" not in configuration
+    # False asks for no ramp: exact zeros, and recorded because it was asked.
+    bare = line(step=None)
+    unramped = bare.translate()
+    assert unramped.transverse is None
+    without = unramped.linear.separable
+    assert without is not None and without.kperp_rate is not None
+    assert np.array_equal(without.kperp_rate, np.zeros(without.kperp_sq.size))
+    assert bare.metadata().configuration["spatial_absorber"] is False
+    # The ramp enters through its rate alone: the default operator with the rate
+    # removed is the unramped one, element by element (s + 0 = s).
+    stripped = dataclasses.replace(operator, kperp_rate=None)
+    for one, other in zip(
+        separable_values(stripped), separable_values(without), strict=True
+    ):
+        assert np.array_equal(one, other)
+    # The default asked for explicitly is the same operator, recorded.
+    stated = line(spatial_absorber=SpatialAbsorber(real_space=False), step=None)
+    explicit = stated.translate().linear.separable
+    assert explicit is not None and explicit.kperp_rate is not None
+    assert np.array_equal(explicit.kperp_rate, operator.kperp_rate)
+    assert stated.metadata().configuration["spatial_absorber"] == SpatialAbsorber(
+        real_space=False
+    )
+    # An explicit default evanescent rate is the same operator, recorded likewise.
+    rated = line(evanescent_rate=EVANESCENT_RATE)
+    capped = rated.translate().linear.separable
+    assert capped is not None
+    assert np.array_equal(separable_values(capped)[0], separable_values(without)[0])
+    assert rated.metadata().configuration["evanescent_rate"] == EVANESCENT_RATE
 
 
 def test_the_settings_reach_the_operator_and_the_record():
-    collar = TransverseCollar(5e3, fraction=0.2)
-    simulation = line(evanescent_rate=3e5, transverse_absorber=collar)
+    specification = SpatialAbsorber(real_space=False, safety_fraction=0.2)
+    simulation = line(evanescent_rate=3e5, spatial_absorber=specification, step=None)
     problem = simulation.translate()
     operator = problem.linear.separable
-    assert operator is not None
+    design = problem.transverse
+    assert operator is not None and design is not None
     assert operator.evanescent_rate == 3e5
+    assert design.specification == specification
     space = simulation.spatial_grid
     assert isinstance(space, LineGrid) and operator.kperp_rate is not None
-    assert np.array_equal(operator.kperp_rate, transverse_collar_rate(space, collar))
+    assert np.array_equal(operator.kperp_rate, design.ramp_rate)
+    # The ramp covers the outer fifth of the wavenumbers it was asked to.
+    top = float(np.max(np.abs(space.k_x)))
+    assert design.kappa_s == (pytest.approx(0.8 * top),)
+    assert np.all(operator.kperp_rate[np.abs(space.k_x) <= 0.8 * top] == 0.0)
     configuration = simulation.metadata().configuration
     assert configuration["evanescent_rate"] == 3e5
-    # The collar is recorded as its two numbers, never as its column array.
-    recorded = serialise(configuration["transverse_absorber"])
-    assert recorded == {
-        "__class__": "solprop.boundaries.TransverseCollar",
-        "strength": 5e3,
-        "fraction": 0.2,
-    }
+    # The specification is recorded as its fields, never as the design's arrays.
+    recorded = serialise(configuration["spatial_absorber"])
+    assert isinstance(recorded, dict)
+    assert recorded["__class__"] == "solprop.spatial_absorber.SpatialAbsorber"
+    assert recorded["safety_fraction"] == 0.2 and recorded["real_space"] is False
+    assert not any(isinstance(value, np.ndarray) for value in recorded.values())
     assert (
         simulation.metadata().configuration_hash()
-        != line().metadata().configuration_hash()
+        != line(step=None, spatial_absorber=None).metadata().configuration_hash()
     )
 
 
@@ -180,45 +207,11 @@ def test_the_settings_are_refused_where_they_do_not_apply():
         shape="sech",
         noise=None,
     )
-    for name, value in (
-        ("evanescent_rate", 1e3),
-        ("transverse_absorber", TransverseCollar(1.0)),
-    ):
-        modal.settings = dataclasses.replace(modal.settings, **{name: value})
-        modal._problem = None
-        with pytest.raises(TranslationError, match="no spatial grid"):
-            modal.translate()
-        modal.settings = dataclasses.replace(modal.settings, **{name: None})
-    grid = EnvelopeGrid.from_limits(1e-3, WAVELENGTH, (700e-9, 950e-9), 400e-15)
-    controls = {
-        "controller": PIController(rtol=1e-6, atol=1e-14),
-        "save_planes": [1e-3],
-        "dz_max": 1e-4,
-        "dz_init": 1e-4,
-        "transverse_absorber": TransverseCollar(1.0),
-    }
-    radial = RadialGrid(1e-4, 16)
-    with pytest.raises(TranslationError, match="not on RadialGrid"):
-        assemble(
-            grid,
-            None,
-            [],
-            np.zeros((16, 1, grid.n_omega), complex),
-            spatial_grid=radial,
-            medium=SpatialMedium(),
-            **controls,
-        )
-    planar = PlanarGrid([SlabMode(50e-6, "Ar", 1.0)], 1e-4, 8)
-    with pytest.raises(TranslationError, match="not on PlanarGrid"):
-        assemble(
-            grid,
-            None,
-            [],
-            np.zeros((planar.n_columns, 1, grid.n_omega), complex),
-            spatial_grid=planar,
-            medium=SpatialMedium(),
-            **controls,
-        )
+    modal.settings = dataclasses.replace(modal.settings, evanescent_rate=1e3)
+    with pytest.raises(TranslationError, match="no spatial grid"):
+        modal.translate()
+    # A modal run's spatial_absorber is refused by the driver, and the radial and
+    # planar kinds carry the safety ramp (tests/test_transverse_resolution.py).
 
 
 # --- the exponent budget (section 4.5) -------------------------------------------
@@ -276,15 +269,18 @@ def test_the_step_floor_is_held_to_the_budget_and_an_adaptive_run_is_not():
     adaptive.translate()
 
 
-def test_a_transverse_collar_past_the_budget_names_its_strength():
+def test_a_safety_ramp_past_the_budget_names_its_strength():
+    # The default ramp on this sub-wavelength line is stronger than a 0.1 mm step's
+    # budget admits: it alone overflows, and the refusal names its strength.
     step = 1e-4
-    strength = 2.2 * LOG_DBL_MAX / step
-    with pytest.raises(
-        TranslationError, match="transverse_absorber strength"
-    ) as caught:
-        line(transverse_absorber=TransverseCollar(strength), step=step).translate()
-    rest = EVANESCENT_RATE
-    assert f"at most {2 * (LOG_DBL_MAX / step - rest):.3g} 1/m" in str(caught.value)
+    design = line(spatial_absorber=None, step=None).translate().transverse
+    assert design is not None
+    assert design.ramp_strength > 2 * LOG_DBL_MAX / step
+    with pytest.raises(TranslationError, match="safety ramp strength") as caught:
+        line(spatial_absorber=None, step=step).translate()
+    # The ramp is designed, not set, so the refusal names the specification's levers.
+    assert "spatial_absorber=False" in str(caught.value)
+    assert "safety_fraction" in str(caught.value)
 
 
 def test_gain_spans_the_adams_methods_steps():
@@ -342,7 +338,7 @@ def test_two_settings_that_overflow_alone_name_only_the_step():
     with pytest.raises(TranslationError, match="overflows") as caught:
         line(
             evanescent_rate=rate,
-            transverse_absorber=TransverseCollar(2.4 * LOG_DBL_MAX / step),
+            spatial_absorber=None,  # the default ramp, past 2 LOG_DBL_MAX / step
             step=step,
         ).translate()
     # Either term alone overflows, so no admissible rate for the binding one exists.
@@ -361,8 +357,10 @@ def radial(
 ) -> Simulation:
     """A radial Kerr run whose outer columns are evanescent, capped at RATE."""
     grid = EnvelopeGrid.from_limits(length, WAVELENGTH, (700e-9, 950e-9), 400e-15)
-    # The budgets below are the evanescent and transverse rates alone: no collar.
+    # The budgets below are the evanescent and transverse rates alone: no collar,
+    # and no safety ramp.
     settings.setdefault("absorber", bare_absorber(grid))
+    settings.setdefault("spatial_absorber", False)
     # Sixteen columns over 4 um: the largest k_r, about 1.2e7 rad/m, is past k0.
     space = RadialGrid(4e-6, 16)
     pulse = evanescent_beam(grid, space, SpatialMedium())
@@ -447,7 +445,7 @@ def test_a_radial_backend_handed_the_refused_step_forms_a_non_finite_stage():
 
 def test_the_radial_bounds_cover_a_varying_medium():
     grid = EnvelopeGrid.from_limits(1e-3, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False)
-    space = RadialGrid(6e-4, 16, window_factor=0.0)
+    space = RadialGrid(6e-4, 16, collar_fraction=0.0)
     medium = SpatialMedium("Ar", pressure=Linear(0.5, 1.5, grid.length))
     model = SpatialDispersion(medium, grid, Frame.comoving(grid))
     # The spectral collar gives the operator a real part for the bound to cover.

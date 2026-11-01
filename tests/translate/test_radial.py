@@ -73,7 +73,7 @@ def endpoint_budget(exponent):
 @pytest.fixture
 def case():
     grid = EnvelopeGrid.from_limits(1e-3, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False)
-    return grid, RadialGrid(6e-4, 16, window_factor=0.0)
+    return grid, RadialGrid(6e-4, 16, collar_fraction=0.0)
 
 
 @pytest.mark.parametrize("comoving", [False, True])
@@ -247,7 +247,7 @@ def test_the_radial_adiabatic_term_matches_an_independent_oracle(
     grid, _ = case
     # Columns 0-2 cut off inside the band and the rest are evanescent throughout,
     # with no column crossing the cutoff along the pressure ramp.
-    space = RadialGrid(1e-6, 16, window_factor=0.0)
+    space = RadialGrid(1e-6, 16, collar_fraction=0.0)
     medium = SpatialMedium("Ar", pressure=Linear(0.5, 1.5, grid.length))
     model = SpatialDispersion(medium, grid, Frame.comoving(grid))
     if route == "table":
@@ -308,8 +308,10 @@ def test_a_cutoff_crossing_along_the_path_refuses(case):
     assert high > low
     # Place the first column's transverse wave number between the entrance and exit
     # material wave numbers of one active bin, so its q = 0 lies inside the path.
-    unit = RadialGrid(1.0, 16, window_factor=0.0)
-    space = RadialGrid(float(unit.k_r[0]) / (0.5 * (low + high)), 16, window_factor=0.0)
+    unit = RadialGrid(1.0, 16, collar_fraction=0.0)
+    space = RadialGrid(
+        float(unit.k_r[0]) / (0.5 * (low + high)), 16, collar_fraction=0.0
+    )
     assert low < space.k_r[0] < high
     with pytest.raises(TranslationError, match="cutoff"):
         radial_operators(
@@ -337,8 +339,10 @@ def test_a_cutoff_crossing_at_a_declared_jump_refuses(case, monkeypatch):
     middle = omega.size // 2
     low = float(omega[middle] * np.real(medium.index(omega, 0.0))[middle] / C)
     high = float(omega[middle] * np.real(medium.index(omega, length))[middle] / C)
-    unit = RadialGrid(1.0, 16, window_factor=0.0)
-    space = RadialGrid(float(unit.k_r[0]) / (0.5 * (low + high)), 16, window_factor=0.0)
+    unit = RadialGrid(1.0, 16, collar_fraction=0.0)
+    space = RadialGrid(
+        float(unit.k_r[0]) / (0.5 * (low + high)), 16, collar_fraction=0.0
+    )
     # The z tables break at the jump, so each side resolves and only the endpoint
     # term's own check sees column 0 change its propagating status.
     monkeypatch.setattr(radial, "MAX_PARAMETERS", 0)
@@ -354,7 +358,7 @@ def test_a_cutoff_crossing_at_a_declared_jump_refuses(case, monkeypatch):
 def test_a_varying_medium_with_no_propagating_column_carries_no_amplitude(case):
     grid, _ = case
     # k_r[0] = 2.4e7 rad/m exceeds every band wave number (at most 1.1e7 rad/m).
-    space = RadialGrid(1e-7, 16, window_factor=0.0)
+    space = RadialGrid(1e-7, 16, collar_fraction=0.0)
     model = SpatialDispersion(
         SpatialMedium("Ar", pressure=Linear(0.5, 1.5, grid.length)),
         grid,

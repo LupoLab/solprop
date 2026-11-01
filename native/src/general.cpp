@@ -2330,6 +2330,7 @@ public:
   void seed_modal_wisdom();
   void seed_stream_wisdom();
   void separable_core(std::size_t stage, bool material);
+  void separable_spatial_core();
   void separable_volume_core(std::size_t stage);
   void separable_stage_input(std::size_t stage, double dz);
   void separable_load_current();
@@ -2811,6 +2812,9 @@ public:
   // Free space's node field and polarisation alias the chunk's time rows and their
   // projected rows (SEP 28): the copies between them are identities.
   bool separable_aliased_{};
+  // The in-stage collar with no temporal rate beside it: its rate depends on the
+  // column alone, so its pass needs no temporal pair (solprop SEP 40 section 4.7).
+  bool spatial_only_absorber_{};
   std::size_t temporal_tail_rows_{};
   TailRowPlans<ExecutionSpace, ComplexView2, RealView2> temporal_tail_inverse_real_,
       coarse_tail_inverse_real_;
@@ -4235,6 +4239,9 @@ void GeneralWorkspace::upload() {
     copy_vector(execution_space_, projection_coarse_,
                 problem_.projection_coarse_matrix);
   copy_vector(execution_space_, absorber_fine_, problem_.absorber_fine);
+  spatial_only_absorber_ =
+      std::all_of(problem_.absorber_fine.begin(), problem_.absorber_fine.end(),
+                  [](const double rate) { return rate == 0.0; });
   copy_vector(execution_space_, absorber_coarse_, problem_.absorber_coarse);
   if (problem_.plasma)
     copy_vector(execution_space_, rate_coefficients_, problem_.rate_coefficients);
@@ -9097,6 +9104,30 @@ void GeneralWorkspace::separable_volume_core(const std::size_t stage) {
   Kokkos::Profiling::popRegion();
 }
 
+// The in-stage collar's term alone (solprop SEP 40 section 4.7): with no temporal
+// rate beside it, the rate depends on the column alone and commutes with the temporal
+// transforms, so the term is the rate times the scratch's spectrum, in the transverse
+// physical space, and the pass takes only the transverse pair. The temporal pair
+// would return the crop's bins to rounding; the bins it would drop lie outside the
+// active band, which the finish masks.
+void GeneralWorkspace::separable_spatial_core() {
+  Kokkos::Profiling::pushRegion("solprop_native.free.spatial_core");
+  transverse_inverse();
+  const auto index = register_index();
+  const auto spatial = spatial_;
+  const auto scratch = transverse_;
+  const auto n_pol = problem_.n_pol_state;
+  cartesian_for(
+      "solprop_native.free.absorber_spectrum", execution_space_, problem_.n_columns(),
+      problem_.n_omega,
+      KOKKOS_LAMBDA(const std::size_t column, const std::size_t omega) {
+        scratch.data()[index.cell(column, omega)] *=
+            -0.5 * spatial.absorber(column / n_pol);
+      });
+  transverse_forward();
+  Kokkos::Profiling::popRegion();
+}
+
 // The separable stage's core (solprop SEP 24 Q5): from its input in the transverse
 // scratch, the material response (or, `material` false, the in-stage absorber's term)
 // back into the scratch, in frequency, chunk by chunk through the temporal transforms.
@@ -9105,6 +9136,10 @@ void GeneralWorkspace::separable_volume_core(const std::size_t stage) {
 void GeneralWorkspace::separable_core(const std::size_t stage, const bool material) {
   if (material && volume_kerr_) {
     separable_volume_core(stage);
+    return;
+  }
+  if (!material && spatial_only_absorber_) {
+    separable_spatial_core();
     return;
   }
   // SEP 6's dispersive response runs chunk by chunk beside the material's response

@@ -14,7 +14,7 @@ calibration
 (:doc:`/guide/numerics/fixed-schedules`). Here a 30 fs line beam whose peak field is
 ``sqrt(2)`` times the soliton's, twice the soliton power, self-phase modulates over one
 diffraction length, and the weak band is the light
-it generates below 690 nm: three parts in ten thousand of the energy. The whole field
+it generates below 690 nm: two parts in ten thousand of the energy. The whole field
 converges twenty times faster than that band, so a norm scored on the field would call
 a schedule converged while the band is still wrong. A few seconds on ``numpy_ref``.
 """
@@ -45,11 +45,14 @@ from solprop.stepper import (
 # the soliton power ``P'``. It crosses one diffraction length ``k x0**2`` of vacuum
 # with an absolute Kerr susceptibility (the line tutorial's beam, shorter and
 # stronger). The temporal envelope has unit peak, so the field is stated directly.
+# The line needs 128 samples: on 64 the self-focused beam reaches the grid's outer
+# wavenumbers, the safety ramp's ledger stops the run (SEP 40), and the band would
+# read half as large again.
 wavelength, chi3, x0 = 800e-9, 3e-26, 50e-6
 k0 = 2 * math.pi / wavelength
 amplitude = math.sqrt(2 * 8 / (3 * k0**2 * chi3 * x0**2))  # V/m
 length = k0 * x0**2
-space = LineGrid(20 * x0, 64, window_factor=0)
+space = LineGrid(20 * x0, 128, collar_fraction=0)
 grid = EnvelopeGrid.from_limits(
     length, wavelength, (600e-9, 1.1e-6), 400e-15, thg=False
 )

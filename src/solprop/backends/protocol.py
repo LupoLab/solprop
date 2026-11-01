@@ -34,7 +34,7 @@ from typing import Protocol, runtime_checkable
 import numpy as np
 from jaxtyping import Bool, Complex, Float, Int
 
-from solprop.exceptions import BackendError, BoundaryError
+from solprop.exceptions import BackendError, BoundaryError, BoundaryWarning
 from solprop.log import ProgressReporter
 from solprop.monitor import BoundaryMonitor
 from solprop.noise import NoiseRealisation
@@ -777,8 +777,21 @@ class BatchBackend(Backend, Protocol):
         ...
 
     @property
-    def member_stops(self) -> tuple[BoundaryError | None, ...]:
+    def member_stops(self) -> tuple[BoundaryError | BoundaryWarning | None, ...]:
         """Return what stopped each member's watch, ``None`` where nothing did.
+
+        A stop, or a warning raised as an error under an ``"error"`` filter.
+
+        Returns
+        -------
+        tuple
+            One entry per member, in member order.
+        """
+        ...
+
+    @property
+    def member_records(self) -> tuple[Mapping[str, object] | None, ...]:
+        """Return each member's monitor record as it closed, ``None`` if unwatched.
 
         Returns
         -------
@@ -788,5 +801,8 @@ class BatchBackend(Backend, Protocol):
         ...
 
     def finish_monitors(self) -> None:
-        """Report each still-watched member's removed fraction at the run's end."""
+        """Report each still-watched member's removed fraction at the run's end.
+
+        A warning raised as an error fails that member alone (:attr:`member_stops`).
+        """
         ...

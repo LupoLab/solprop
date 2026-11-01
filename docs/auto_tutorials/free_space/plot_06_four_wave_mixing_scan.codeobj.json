@@ -8,6 +8,87 @@
    "name": "float"
   }
  ],
+ "BoundaryCheck": [
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.monitor",
+   "module_short": "solprop.monitor",
+   "name": "BoundaryCheck"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "BoundaryCheck"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.monitor",
+   "module_short": "solprop.monitor",
+   "name": "BoundaryCheck"
+  }
+ ],
+ "BoundaryError": [
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.exceptions",
+   "module_short": "solprop.exceptions",
+   "name": "BoundaryError"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "BoundaryError"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.exceptions",
+   "module_short": "solprop",
+   "name": "SolpropError"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "SolpropError"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "RuntimeError"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "Exception"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "BaseException"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.exceptions",
+   "module_short": "solprop.exceptions",
+   "name": "BoundaryError"
+  }
+ ],
  "C": [
   {
    "is_class": false,
@@ -395,6 +476,29 @@
    "name": "SimulationSettings"
   }
  ],
+ "SpatialAbsorber": [
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.spatial_absorber",
+   "module_short": "solprop.spatial_absorber",
+   "name": "SpatialAbsorber"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "SpatialAbsorber"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.boundaries",
+   "module_short": "solprop.boundaries",
+   "name": "SpatialAbsorber"
+  }
+ ],
  "SpatialFlux.resolve": [
   {
    "is_class": true,
@@ -462,29 +566,6 @@
    "module": "solprop.stats",
    "module_short": "solprop.stats",
    "name": "StatsSpec"
-  }
- ],
- "TransverseCollar": [
-  {
-   "is_class": true,
-   "is_explicit": false,
-   "module": "solprop.boundaries",
-   "module_short": "solprop.boundaries",
-   "name": "TransverseCollar"
-  },
-  {
-   "is_class": true,
-   "is_explicit": false,
-   "module": "solprop",
-   "module_short": "solprop",
-   "name": "TransverseCollar"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "solprop.boundaries",
-   "module_short": "solprop.boundaries",
-   "name": "TransverseCollar"
   }
  ],
  "WAIST": [
@@ -972,16 +1053,16 @@
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "solprop.boundaries",
-   "module_short": "solprop.boundaries",
-   "name": "TransverseCollar"
+   "module": "solprop.spatial_absorber",
+   "module_short": "solprop.spatial_absorber",
+   "name": "SpatialAbsorber"
   },
   {
    "is_class": false,
    "is_explicit": false,
    "module": "solprop",
    "module_short": "solprop",
-   "name": "TransverseCollar"
+   "name": "SpatialAbsorber"
   }
  ],
  "custom_absorber": [
@@ -1706,6 +1787,22 @@
    "name": "ndarray"
   }
  ],
+ "relaxed": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.monitor",
+   "module_short": "solprop.monitor",
+   "name": "BoundaryCheck"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "BoundaryCheck"
+  }
+ ],
  "results": [
   {
    "is_class": false,
@@ -1950,13 +2047,13 @@
    "name": "function"
   }
  ],
- "solprop.boundaries.TransverseCollar": [
+ "solprop.boundaries.SpatialAbsorber": [
   {
    "is_class": false,
    "is_explicit": true,
    "module": "solprop.boundaries",
    "module_short": "solprop.boundaries",
-   "name": "TransverseCollar"
+   "name": "SpatialAbsorber"
   }
  ],
  "solprop.boundaries.custom_absorber": [

@@ -44,9 +44,7 @@ from solprop.adiabatic import AdiabaticAccuracy, certify_radial_path
 from solprop.boundaries import (
     STABILITY_RADIUS,
     Absorber,
-    TransverseCollar,
     stable_step,
-    transverse_collar_rate,
 )
 from solprop.constants import EPS0, C
 from solprop.exceptions import (
@@ -86,6 +84,13 @@ from solprop.physdata import Gas
 from solprop.physdata.mixtures import Mixture
 from solprop.profiles import FromCallable, ZProfile
 from solprop.spatial import FAR_FIELD_STATISTICS, SpatialDispersion, SpatialMedium
+from solprop.spatial_absorber import (
+    CROSSING_ADAPTIVE,
+    CROSSING_FIXED,
+    DAMPING_BOUND,
+    SpatialAbsorber,
+    SpatialAbsorberDesign,
+)
 from solprop.stats import StatsSpec
 from solprop.stepper.controller import PIController, default_dz_min
 from solprop.stepper.low_storage import LowStorageRungeKutta
@@ -166,6 +171,7 @@ from solprop.translate.tdse_source import (
     current_numerator,
     steady_current_certificate,
 )
+from solprop.translate.transverse import checked_design, resolve_transverse
 
 __all__ = [
     "DEFAULT_COMPONENTS",
@@ -195,7 +201,7 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-KERNEL_SCHEMA_VERSION = 40
+KERNEL_SCHEMA_VERSION = 41
 """Version of the kernel contract this module implements.
 
 Incremented on every change to the field list of ``docs/dev/kernel-contract.md``. A
@@ -456,6 +462,15 @@ field or stage bundle moves.
 Version 40 gives ``StepDriver.set_initial`` its ``resume`` keyword: a stored field never
 takes the ``input`` draw again, at the launch position included, where a file holding
 only its launch plane resumes. No ``KernelProblem`` field or stage bundle moves.
+
+Version 41 (SEP 40) resolves a free-space run's transverse boundary at translation.
+``KernelProblem.transverse`` holds the design
+(:class:`solprop.spatial_absorber.SpatialAbsorberDesign`), host-side: a backend meets
+it only through fields it already reads. ``SeparableOperator.kperp_rate``, the safety
+ramp, is admitted on the radial kind, where it rides the dense operator, and on the
+hybrid planar kind per ``(p, k_y)`` column, which the slab element now takes as its
+``transverse_rate``. The geometry's ``absorber_rate`` is the design's collar, zero
+without one, and an adaptive run's ``dz_max`` is held to the collar's crossing limit.
 """
 
 DEFAULT_COMPONENTS = ("x",)
@@ -1082,7 +1097,7 @@ class KernelProblem:
     ...     dz_max=0.1, dz_init=1e-3, shock=False, prefactor_index=1.0, density=1.0,
     ... )
     >>> problem.shape, problem.grid_kind, problem.schema_version
-    ((1, 1, 1, 3072), 'envelope', 40)
+    ((1, 1, 1, 3072), 'envelope', 41)
     """
 
     schema_version: int
@@ -1100,6 +1115,7 @@ class KernelProblem:
     current_numerator: Float[np.ndarray, "n_modes n_pol n_omega"] | None = None
     flux: FluxPlan | None = None
     precision: Precision = DOUBLE
+    transverse: SpatialAbsorberDesign | None = None
 
     @property
     def device_ready(self) -> bool:
@@ -1792,6 +1808,7 @@ class KernelProblem:
         geometry = self.transform.geometry
         if geometry is not None and np.any(geometry.absorber_rate):
             self._check_spatial_collar_stability()
+            self._check_collar_crossing()
             return
         rate = self.responses.temporal_absorber
         if rate is None or self.responses.absorber_scheme != "nonlinear":
@@ -1961,8 +1978,43 @@ class KernelProblem:
                 f"the fixed step or step floor {longest:.3e} m exceeds the spatial "
                 f"collar stability limit {limit:.3e} m (effective power rate at most "
                 f"{largest:.3e} 1/m). Take shorter steps, "
-                f"{self._runge_kutta_advice()}or increase boundary_length; the "
-                "spatial absorber is always in-stage and cannot use split_step."
+                f"{self._runge_kutta_advice()}or widen the collar (a larger "
+                "collar_fraction designs a weaker one); the spatial absorber is "
+                "always in-stage and cannot use split_step."
+            )
+            raise TranslationError(msg)
+
+    def _check_collar_crossing(self) -> None:
+        """Refuse a fixed schedule a requested collar cannot be accurate under.
+
+        SEP 40 section 4.7: a fixed in-stage schedule is checked at the crossing
+        limit's ``c_x = 0.15`` (:data:`solprop.spatial_absorber.CROSSING_FIXED`),
+        because it is bound first by damping accuracy, ``alpha0 h / 2 <= 1.3``
+        (:data:`solprop.spatial_absorber.DAMPING_BOUND`). An adaptive run is held to
+        the crossing limit through ``dz_max`` instead (:func:`assemble`).
+
+        Raises
+        ------
+        TranslationError
+            Naming the bound and the longest step.
+        """
+        design = self.transverse
+        schedule = self.stepper.schedule
+        if design is None or not design.has_collar or schedule is None:
+            return
+        longest = float(np.max(schedule.steps))
+        crossing = design.crossing_step * CROSSING_FIXED / CROSSING_ADAPTIVE
+        damping = 2.0 * DAMPING_BOUND / design.alpha0
+        bound, name = min(
+            (crossing, "the collar-crossing limit"), (damping, "the damping bound")
+        )
+        if longest > bound:
+            msg = (
+                f"the fixed schedule's longest step {longest:.3e} m exceeds {name} of "
+                f"the requested collar, {bound:.3e} m (SEP 40 section 4.7): a step "
+                "that long could carry the protected band across the collar unseen or "
+                "damp it inaccurately. Take shorter steps, or an adaptive run, which "
+                "the crossing limit holds"
             )
             raise TranslationError(msg)
 
@@ -2448,7 +2500,7 @@ def _budget_term(
         return f"the medium's gain over {span} step(s)", span * bounds.gain, None
     terms = (
         ("evanescent_rate", bounds.evanescent, 1.0),
-        ("transverse_absorber strength", bounds.transverse, 2.0),
+        ("safety ramp strength", bounds.transverse, 2.0),
         ("spectral absorber rate", bounds.spectral, 2.0),
         (attenuation, bounds.propagating, 0.0),
     )
@@ -2524,7 +2576,13 @@ def _budget_remedy(
     if rest is not None:
         scale = 1.0 if name == "evanescent_rate" else 2.0
         admissible = scale * (limit / step - rest)
-        if 0 < admissible < value:
+        if name == "safety ramp strength":
+            # The ramp is designed, not set: its levers are the specification's.
+            remedy += (
+                " or a weaker safety ramp (a smaller SpatialAbsorber attenuation or a "
+                "wider safety_fraction; spatial_absorber=False removes it)"
+            )
+        elif 0 < admissible < value:
             remedy += f" or {name} at most {admissible:.3g} 1/m"
     return remedy
 
@@ -2588,7 +2646,8 @@ class _Assembly:
     kinks: tuple[tuple[float, str], ...] = ()
     taper_coupling: bool = True
     evanescent_rate: float | None = None
-    transverse_absorber: TransverseCollar | None = None
+    spatial_absorber: SpatialAbsorber | None = None
+    launch: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"] | None = None
     adiabatic_accuracy: AdiabaticAccuracy | None = None
     noise_model: NoiseModel = "none"
 
@@ -2597,7 +2656,7 @@ def _check_operator_settings(
     *,
     spatial: bool,
     evanescent_rate: float | None,
-    transverse_absorber: TransverseCollar | None,
+    spatial_absorber: SpatialAbsorber | None,
 ) -> None:
     """Refuse the separable-operator settings where they cannot apply.
 
@@ -2607,8 +2666,8 @@ def _check_operator_settings(
         Whether the run has a spatial grid.
     evanescent_rate : float or None
         The requested evanescent cap, m^-1.
-    transverse_absorber : solprop.boundaries.TransverseCollar or None
-        The requested transverse collar.
+    spatial_absorber : solprop.spatial_absorber.SpatialAbsorber or None
+        The requested transverse boundary.
 
     Raises
     ------
@@ -2616,9 +2675,9 @@ def _check_operator_settings(
         If either is set on a run without a spatial grid, or the rate is not
         positive and finite.
     """
-    if not spatial and (evanescent_rate is not None or transverse_absorber is not None):
+    if not spatial and (evanescent_rate is not None or spatial_absorber is not None):
         msg = (
-            "evanescent_rate and transverse_absorber set the spatial operator, and "
+            "evanescent_rate and spatial_absorber set the spatial operator, and "
             "this run has no spatial grid"
         )
         raise TranslationError(msg)
@@ -2674,6 +2733,7 @@ def _spatial_assembly(
     Transform,
     PiecewiseChebyshev | ParameterExpansion | SeparableOperator,
     FluxPlan,
+    SpatialAbsorberDesign | None,
 ]:
     """Assemble the operator, the transform, the prefactor and the plane measure.
 
@@ -2694,8 +2754,9 @@ def _spatial_assembly(
     Returns
     -------
     tuple
-        The operator, the transform, the already translated prefactor and the
-        run's plane measure.
+        The operator, the transform, the already translated prefactor, the run's
+        plane measure and its transverse boundary's design (SEP 40), ``None`` for
+        none.
     """
     dispersion = (
         SpatialDispersion(medium, grid, frame)
@@ -2704,16 +2765,10 @@ def _spatial_assembly(
             medium, grid, frame, evanescent_rate=build.evanescent_rate
         )
     )
-    collar = build.transverse_absorber
-    if collar is not None and not isinstance(spatial_grid, FreeGrid):
-        msg = (
-            "transverse_absorber acts on a periodic Cartesian grid (FreeGrid or "
-            f"LineGrid), not on {type(spatial_grid).__name__}: the radial kind is not "
-            "periodic, and the hybrid planar kind's k_y-only collar is not offered "
-            "(SEP 22, Q5)"
-        )
-        raise TranslationError(msg)
     reuse = build.reuse
+    design = _transverse_design(spatial_grid, dispersion, build)
+    ramp = None if design is None else design.ramp_rate
+    collar_rate = None if design is None else design.collar_rate
     if isinstance(spatial_grid, PlanarGrid):
         if build.has_noise:
             msg = (
@@ -2727,6 +2782,7 @@ def _spatial_assembly(
             z_max=build.z_max,
             n_pol=build.n_pol,
             absorber=build.absorber,
+            transverse_rate=ramp,
             margin=build.margin,
         )
         transform = (
@@ -2737,7 +2793,7 @@ def _spatial_assembly(
                 grid,
                 z_max=build.z_max,
                 n_pol=build.n_pol,
-                absorber=build.absorber,
+                collar_rate=collar_rate,
                 node_budget=build.node_budget,
                 margin=build.margin,
             )
@@ -2747,6 +2803,7 @@ def _spatial_assembly(
             transform,
             prefactor,
             flux_plan(spatial_grid, dispersion, linear, tol=build.tol),
+            design,
         )
     if isinstance(spatial_grid, FreeGrid):
         linear, prefactor = free_operators(
@@ -2756,9 +2813,7 @@ def _spatial_assembly(
             n_pol=build.n_pol,
             absorber=build.absorber,
             margin=build.margin,
-            transverse_rate=None
-            if collar is None
-            else transverse_collar_rate(spatial_grid, collar),
+            transverse_rate=ramp,
         )
         transform = (
             reuse.transform
@@ -2768,7 +2823,7 @@ def _spatial_assembly(
                 grid,
                 z_max=build.z_max,
                 n_pol=build.n_pol,
-                absorber=build.absorber,
+                collar_rate=collar_rate,
                 node_budget=build.node_budget,
                 margin=build.margin,
             )
@@ -2778,6 +2833,7 @@ def _spatial_assembly(
             transform,
             prefactor,
             flux_plan(spatial_grid, dispersion, linear, tol=build.tol),
+            design,
         )
     admission = None
     if not all(path.is_constant for path in medium.parameter_paths.values()):
@@ -2802,6 +2858,7 @@ def _spatial_assembly(
         absorber=build.absorber,
         margin=build.margin,
         tol=build.tol,
+        transverse_rate=ramp,
         reuse_linear=None if reuse is None else reuse.phi_expansion,
         reuse_prefactor=None if reuse is None else reuse.prefactor_expansion,
     )
@@ -2813,7 +2870,7 @@ def _spatial_assembly(
             grid,
             z_max=build.z_max,
             n_pol=build.n_pol,
-            absorber=build.absorber,
+            collar_rate=collar_rate,
             node_budget=build.node_budget,
             margin=build.margin,
         )
@@ -2823,7 +2880,84 @@ def _spatial_assembly(
         transform,
         prefactor,
         flux_plan(spatial_grid, dispersion, linear, tol=build.tol, admission=admission),
+        design,
     )
+
+
+def _crossing_clamped(
+    design: SpatialAbsorberDesign | None,
+    dz_max: float,
+    dz_init: float,
+    *,
+    single: bool = False,
+) -> tuple[float, float]:
+    """Return the step bounds held to a collar's crossing limit (SEP 40 section 4.7).
+
+    No adaptive step carries the protected band across the collar unseen; a run
+    without a collar keeps its bounds. Every transverse design also holds the step to
+    the safety ramp's exponent budget (section 6): the propagator's inverse factor
+    ``exp(alpha_s h / 2)`` stays within half the precision's range, so a strong ramp on
+    a fine grid cannot overflow it.
+
+    Parameters
+    ----------
+    design : solprop.spatial_absorber.SpatialAbsorberDesign or None
+        The run's transverse boundary.
+    dz_max : float
+        The requested largest step, m.
+    dz_init : float
+        The requested first step, m.
+    single : bool, optional
+        Whether the state is binary32, whose range is smaller.
+
+    Returns
+    -------
+    tuple
+        The largest step and the first step, m.
+    """
+    if design is None:
+        return dz_max, dz_init
+    if design.ramp_strength > 0.0:
+        budget = LOG_FLT_MAX if single else LOG_DBL_MAX
+        dz_max = min(dz_max, budget / design.ramp_strength)
+    if design.has_collar:
+        dz_max = min(dz_max, design.crossing_step)
+    return dz_max, min(dz_init, dz_max)
+
+
+def _transverse_design(
+    spatial_grid: RadialGrid | FreeGrid | PlanarGrid,
+    dispersion: SpatialDispersion,
+    build: _Assembly,
+) -> SpatialAbsorberDesign | None:
+    """Return the run's transverse boundary, resolved or carried over (SEP 40).
+
+    A material update (:class:`TranslationReuse`) keeps the design its reused
+    transform and expansions were built with, as it keeps the transform itself.
+
+    Parameters
+    ----------
+    spatial_grid : solprop.grid.RadialGrid, solprop.grid.FreeGrid or PlanarGrid
+        The transverse geometry.
+    dispersion : solprop.spatial.SpatialDispersion
+        The medium and the temporal grid.
+    build : _Assembly
+        The assembly's knobs, with the specification and the noise-free launch.
+
+    Returns
+    -------
+    solprop.spatial_absorber.SpatialAbsorberDesign or None
+        The design, or ``None`` when the run asked for no transverse boundary.
+    """
+    if build.reuse is not None:
+        return build.reuse.transverse
+    if build.spatial_absorber is None:
+        return None
+    assert build.launch is not None
+    design = resolve_transverse(
+        build.spatial_absorber, spatial_grid, dispersion, build.launch, build.z_max
+    )
+    return checked_design(design, spatial_grid, dispersion, build.launch, build.z_max)
 
 
 def _general_assembly(
@@ -5718,6 +5852,9 @@ class TranslationReuse:
         Prefactor coefficients, under the same function-identity requirement.
     raman_undamped : Mapping
         Component label to undamped rows, for unchanged Raman models and time grid.
+    transverse : SpatialAbsorberDesign or None
+        The transverse boundary the reused transform and expansions were built with,
+        kept as they are (SEP 40).
     """
 
     transform: Transform
@@ -5725,6 +5862,7 @@ class TranslationReuse:
     phi_expansion: ParameterExpansion | None
     prefactor_expansion: ParameterExpansion | None
     raman_undamped: Mapping[str, Float[np.ndarray, "... n_to_doubled"]]
+    transverse: SpatialAbsorberDesign | None = None
 
 
 def _check_tdse_assembly_route(
@@ -5888,7 +6026,7 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
     reuse: TranslationReuse | None = None,
     initial_z: float = 0.0,
     evanescent_rate: float | None = None,
-    transverse_absorber: TransverseCollar | None = None,
+    spatial_absorber: SpatialAbsorber | None = None,
     adiabatic_accuracy: AdiabaticAccuracy | None = None,
     precision: Precision = DOUBLE,
 ) -> KernelProblem:
@@ -6062,10 +6200,12 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
         The spatial operator's evanescent field attenuation cap in m^-1, positive and
         finite (SEP 22 section 4.4); ``None`` keeps
         :data:`solprop.spatial.EVANESCENT_RATE`. Refused without a spatial grid.
-    transverse_absorber : solprop.boundaries.TransverseCollar or None, optional
-        A transverse-wavevector safety ramp folded into the Cartesian operator as
-        ``SeparableOperator.kperp_rate`` (SEP 22 section 4.3). Refused on the radial
-        and hybrid planar kinds and without a spatial grid.
+    spatial_absorber : solprop.spatial_absorber.SpatialAbsorber or None, optional
+        The transverse boundary (SEP 40): resolved against the grid, the medium and
+        the noise-free `field0` into the safety ramp, folded into the operator as
+        ``SeparableOperator.kperp_rate``, and a real-space collar on request, as the
+        geometry's ``absorber_rate``; its design is :attr:`KernelProblem.transverse`.
+        ``None``, the default here, carries neither. Refused without a spatial grid.
     adiabatic_accuracy : solprop.adiabatic.AdiabaticAccuracy or None, optional
         The budgets a radial medium varying along z must meet for its forward
         amplitude transport (SEP 34 section 4.5); None, the default, is
@@ -6151,7 +6291,7 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
     _check_operator_settings(
         spatial=spatial_grid is not None,
         evanescent_rate=evanescent_rate,
-        transverse_absorber=transverse_absorber,
+        spatial_absorber=spatial_absorber,
     )
     if spatial_grid is None and len(mode_set) != n_modes:
         msg = (
@@ -6209,7 +6349,8 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
         ),
         taper_coupling=taper_coupling,
         evanescent_rate=evanescent_rate,
-        transverse_absorber=transverse_absorber,
+        spatial_absorber=spatial_absorber,
+        launch=state,
         adiabatic_accuracy=adiabatic_accuracy,
     )
     # Each mode's frequency-only terms are sampled once per frequency vector for the
@@ -6217,12 +6358,13 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
     with _shared_sampling():
         translated_prefactor = None
         flux = None
+        design = None
         if general is not None:
             linear, transform, translated_prefactor = _general_assembly(
                 general, grid, mode_set, working_frame, build
             )
         elif spatial_grid is not None and medium is not None:
-            linear, transform, translated_prefactor, flux = _spatial_assembly(
+            linear, transform, translated_prefactor, flux, design = _spatial_assembly(
                 spatial_grid, medium, grid, working_frame, build
             )
         else:
@@ -6309,6 +6451,9 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
         prefactor_index,
         None if reuse is None else reuse.initial,
     )
+    dz_max, dz_init = _crossing_clamped(
+        design, dz_max, dz_init, single=precision.single
+    )
     settings = _stepper_settings(
         linear,
         tableau=tableau,
@@ -6349,6 +6494,7 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
         current_numerator=None if tdse is None else current_numerator(grid),
         flux=flux,
         precision=precision,
+        transverse=design,
     )
     _validated(problem)
     logger.debug(
@@ -6401,7 +6547,7 @@ def debug_summary(problem: KernelProblem) -> str:
     ...     width=100e-15, peak_power=9.8, shape="sech", n_save=3,
     ... )
     >>> print(debug_summary(simulation.translate()).splitlines()[0])
-    kernel problem schema 40: envelope grid, route modal
+    kernel problem schema 41: envelope grid, route modal
     """
     linear, transform = problem.linear, problem.transform
     tables, metric = transform.modal_tables, linear.modal_metric

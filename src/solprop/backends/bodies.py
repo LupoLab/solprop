@@ -633,6 +633,7 @@ def define_bodies(  # noqa: PLR0915 - bodies share one compiler-bound closure
         clamped: complex,
         active: bool,
         evanescent_rate: float,
+        transverse_rate: float,
     ) -> tuple[complex, complex]:
         """Evaluate one hybrid planar column's exact longitudinal rate and prefactor.
 
@@ -663,6 +664,8 @@ def define_bodies(  # noqa: PLR0915 - bodies share one compiler-bound closure
             Whether this frequency belongs to the physical band.
         evanescent_rate : float
             Maximum evanescent field attenuation in m^-1.
+        transverse_rate : float
+            The column's safety-ramp power rate on ``k_y``, m^-1 (SEP 40).
 
         Returns
         -------
@@ -670,7 +673,6 @@ def define_bodies(  # noqa: PLR0915 - bodies share one compiler-bound closure
             Linear field rate in m^-1 and the cropped nonlinear prefactor.
         """
         longitudinal = ((square - transverse) + (square_low - transverse_low)) - wall
-        # The hybrid planar kind carries no transverse collar (SEP 22, Q5).
         return longitudinal_rate(
             longitudinal,
             frame,
@@ -679,7 +681,7 @@ def define_bodies(  # noqa: PLR0915 - bodies share one compiler-bound closure
             clamped,
             active,
             evanescent_rate,
-            0.0,
+            transverse_rate,
         )
 
     @decorate

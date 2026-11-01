@@ -552,8 +552,11 @@ def mlx_stage_bytes(problem: KernelProblem) -> int:
 # Fine-grid column arrays a stage's graph holds beyond the reference's rows on the
 # spatial routes: MLX's transverse transforms copy their axes to the last one and
 # back, and the reference's in-place passes are separate arrays on the device.
-# Measured against MLX's peak on radial and Cartesian beams (tests/backends/test_mlx).
-_MLX_TRANSIENT_COLUMNS = {"free": 18, "radial": 6}
+# Measured against MLX's peak on radial and Cartesian beams (tests/backends/test_mlx);
+# the radial count is nine since SEP 40's safety ramp gave the radial operator a rate,
+# with which MLX's peak on the 32-node beam varied from 7.0 to 7.8 MB between runs
+# against six columns' 7.2 MB (nine give 8.6 MB).
+_MLX_TRANSIENT_COLUMNS = {"free": 18, "radial": 9}
 
 
 def _mlx_per_stage(problem: KernelProblem, rows: dict[str, int]) -> int:
@@ -686,7 +689,7 @@ def estimate_guide_memory(
     >>> from solprop.grid import FieldGrid
     >>> from solprop.processing._examples import example_general_run
     >>> run, tables, guide = example_general_run()
-    >>> grid = FieldGrid.from_limits(1e-5, 1.03e-6, (1.0e-6, 1.06e-6), 200e-15)
+    >>> grid = FieldGrid.from_limits(1e-5, 1.03e-6, (1.0e-6, 1.06e-6), 400e-15)
     >>> estimate = estimate_guide_memory(guide, grid, z_max=1e-5, backend="numpy_ref")
     >>> held = sum(
     ...     array.nbytes

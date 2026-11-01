@@ -244,7 +244,7 @@ def test_radial_cartesian_and_line_routes():
     assert rows(radial)["medium"].startswith("SpatialMedium(")
     free = Simulation.from_free(
         grid,
-        FreeGrid(3e-4, 12, 4e-4, 16, window_factor=0),
+        FreeGrid(3e-4, 12, 4e-4, 16, collar_fraction=0),
         SpatialMedium(),
         [],
         pulse,
@@ -254,7 +254,7 @@ def test_radial_cartesian_and_line_routes():
     assert rows(free)["representation"] == "Cartesian 12x16, scalar"
     line = Simulation.from_free(
         grid,
-        LineGrid(1.5e-3, 64, window_factor=0),
+        LineGrid(1.5e-3, 64, collar_fraction=0),
         SpatialMedium(),
         [],
         pulse,

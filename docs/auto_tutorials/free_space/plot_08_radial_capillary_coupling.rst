@@ -774,7 +774,7 @@ through a :class:`~solprop.coupling.elements.PlanarInterface`, before giving it
 
  .. code-block:: none
 
-    run time 2.1 s
+    run time 2.8 s
 
 
 
@@ -792,7 +792,7 @@ The design is
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 2.126 seconds)
+   **Total running time of the script:** (0 minutes 2.787 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_free_space_plot_08_radial_capillary_coupling.py:

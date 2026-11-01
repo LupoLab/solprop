@@ -119,7 +119,7 @@ def radial(medium=None, **overrides):
     grid = EnvelopeGrid.from_limits(1e-3, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False)
     return Simulation.from_radial(
         grid,
-        RadialGrid(6e-4, 8, window_factor=0.0),
+        RadialGrid(6e-4, 8),
         SpatialMedium(Mixture.fill({"He": 1.0}, 1.0)) if medium is None else medium,
         [],
         SpatialPulse(GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-9), 80e-6),

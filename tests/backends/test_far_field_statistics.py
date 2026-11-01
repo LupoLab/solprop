@@ -27,7 +27,7 @@ from solprop.backends import registry, select
 from solprop.backends.batch import LockstepRunner
 from solprop.backends.registry import statistics_refusal
 from solprop.backends.spatial import FarFieldTables, collect_spatial
-from solprop.boundaries import TransverseCollar, absorber
+from solprop.boundaries import SpatialAbsorber, absorber
 from solprop.constants import EPS0, C
 from solprop.driver import Simulation, SimulationSettings
 from solprop.driver.run import run_problem
@@ -122,7 +122,7 @@ def gaussian(waist, *, energy=1e-6):
 
 
 def test_numba_cpu_forms_the_far_field_statistics_through_the_reference_pass(grid):
-    space = FreeGrid(3e-4, 24, 3e-4, 16, window_factor=0.1)
+    space = FreeGrid(3e-4, 24, 3e-4, 16, collar_fraction=0.1)
     simulation = free_simulation(
         grid,
         space,
@@ -175,7 +175,7 @@ def test_the_axial_flux_of_a_vacuum_gaussian_is_its_mean_obliquity(grid):
     waist = 20 * 800e-9 / (2 * np.pi)
     # Twelve waists sampled at a quarter waist: truncation exp(-36), aliasing
     # exp(-79), and no light within exp(-160) of the cut-off.
-    space = FreeGrid(6 * waist, 48, 6 * waist, 48, window_factor=0)
+    space = FreeGrid(6 * waist, 48, 6 * waist, 48, collar_fraction=0)
     simulation = free_simulation(
         grid,
         space,
@@ -198,7 +198,7 @@ def test_the_axial_flux_of_a_vacuum_gaussian_is_its_mean_obliquity(grid):
 def test_the_axial_flux_in_a_gas_is_its_index(grid):
     waist = 100e-6
     medium = SpatialMedium("Ar", pressure=5.0)
-    space = FreeGrid(5e-4, 32, 5e-4, 32, window_factor=0)
+    space = FreeGrid(5e-4, 32, 5e-4, 32, collar_fraction=0)
     simulation = free_simulation(
         grid,
         space,
@@ -225,7 +225,7 @@ def test_the_axial_flux_in_a_gas_is_its_index(grid):
 def lossy_launch(grid):
     # Sixteen columns either way at 0.27 um: the outer columns are evanescent at
     # every band frequency, so every channel carries power.
-    space = FreeGrid(2e-6, 16, 2e-6, 16, window_factor=0)
+    space = FreeGrid(2e-6, 16, 2e-6, 16, collar_fraction=0)
     rng = np.random.default_rng(29)
     shape = (space.n_columns, 1, grid.n_omega)
     field = (rng.standard_normal(shape) + 1j * rng.standard_normal(shape)) * 1e3
@@ -268,7 +268,9 @@ def channel_powers(problem, grid, field):
     return np.sum(terms, axis=(1, 2)), np.sum(np.abs(terms), axis=(1, 2))
 
 
-@pytest.mark.parametrize("collar", [None, TransverseCollar(3e4, fraction=0.3)])
+@pytest.mark.parametrize(
+    "collar", [False, SpatialAbsorber(real_space=False, safety_fraction=0.3)]
+)
 @pytest.mark.parametrize("loss", [1e-5, -1e-5])
 def test_each_absorbed_channel_is_its_share_of_the_linear_decay(
     grid, lossy_launch, loss, collar
@@ -281,7 +283,7 @@ def test_each_absorbed_channel_is_its_share_of_the_linear_decay(
         medium=SpatialMedium(1 + 1j * loss),
         absorber=absorber(grid, temporal=False),
         spec=StatsSpec(names=("energy", "absorbed_power")),
-        transverse_absorber=collar,
+        spatial_absorber=collar,
     )
     values, problem = entrance(simulation)
     power = values["absorbed_power"][0]
@@ -289,13 +291,13 @@ def test_each_absorbed_channel_is_its_share_of_the_linear_decay(
     # Each channel's power is a sum of n terms with their roundings: 2 gamma_n of
     # the sum of their magnitudes; without a collar the transverse channel is an
     # exact zero.
-    if collar is None:
+    if collar is False:
         assert power[1] == 0.0
     else:
         assert power[1] > 0
     # An evanescent column carries no axial flux, so its channel removes none.
     assert power[2] == 0.0
-    for channel in (0, 1, 3) if collar is not None else (0, 3):
+    for channel in (0, 1, 3) if collar is not False else (0, 3):
         assert_within(
             power[channel],
             expected[channel],
@@ -433,7 +435,7 @@ def test_radial_and_planar_geometry_are_refused_before_any_step(grid):
 def test_an_older_native_build_is_refused_the_far_field_statistics_by_name(
     grid, monkeypatch
 ):
-    space = FreeGrid(3e-4, 8, 3e-4, 8, window_factor=0.1)
+    space = FreeGrid(3e-4, 8, 3e-4, 8, collar_fraction=0.1)
     simulation = free_simulation(grid, space, gaussian(60e-6))
     problem = simulation.translate()
     # A build that declares none of them, as every build before SEP 23's third phase:
@@ -497,7 +499,7 @@ def test_the_plugin_probe_reads_what_an_installed_build_declares(monkeypatch):
 
 
 def test_the_host_pass_refuses_what_it_was_not_given(grid):
-    space = FreeGrid(3e-4, 8, 3e-4, 8, window_factor=0.1)
+    space = FreeGrid(3e-4, 8, 3e-4, 8, collar_fraction=0.1)
     simulation = free_simulation(grid, space, gaussian(60e-6))
     problem = simulation.translate()
     field = problem.initial.field0[0]
@@ -530,7 +532,7 @@ def test_the_host_pass_refuses_what_it_was_not_given(grid):
 
 
 def test_the_tables_are_formed_once_and_reused(grid):
-    space = FreeGrid(3e-4, 8, 3e-4, 8, window_factor=0.1)
+    space = FreeGrid(3e-4, 8, 3e-4, 8, collar_fraction=0.1)
     problem = free_simulation(grid, space, gaussian(60e-6)).translate()
     held = FarFieldTables(problem)
     own = held.for_spec(problem.stats_spec)
@@ -575,7 +577,7 @@ def test_lockstep_members_must_carry_equal_tables(table):
 
 
 def test_a_run_records_every_far_field_statistic_at_every_plane(grid):
-    space = FreeGrid(3e-4, 16, 3e-4, 16, window_factor=0.1)
+    space = FreeGrid(3e-4, 16, 3e-4, 16, collar_fraction=0.1)
     simulation = free_simulation(
         grid,
         space,
@@ -611,7 +613,7 @@ def test_a_launched_tilt_moves_towards_the_aperture_that_collects_it(grid):
     # The closed-form direction tests build the stored spectrum with fft2 by hand;
     # this ties the aperture's physical +x to the way a run propagates a launch.
     waist, angle, length = 60e-6, 20e-3, 1e-3
-    space = FreeGrid(3e-4, 64, 3e-4, 32, window_factor=0)
+    space = FreeGrid(3e-4, 64, 3e-4, 32, collar_fraction=0)
     x, y = np.meshgrid(space.x, space.y)
     temporal = GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-6).build(grid)
     profile = np.exp(-(x**2 + y**2) / waist**2)

@@ -29,9 +29,9 @@ def test_spatial_channels_and_all_population_statistics(
 ):
     mixture, grid, _, responses, original = mixture_case()
     space = (
-        RadialGrid(6e-4, 8, window_factor=0.0)
+        RadialGrid(6e-4, 8, collar_fraction=0.0)
         if geometry == "radial"
-        else FreeGrid(3e-4, 4, 4e-4, 4, window_factor=0.0)
+        else FreeGrid(3e-4, 4, 4e-4, 4, collar_fraction=0.0)
     )
     pulse = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=10e-15, energy=1e-9),

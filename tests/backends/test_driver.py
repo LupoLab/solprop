@@ -1109,11 +1109,15 @@ def test_the_surface_a_backend_subclasses_is_frozen(driver):
     ``_skip_step`` and freezes ``_take_step_stats``, ``_natural_stop`` and
     ``_natural_stop_due``, which a native Adams march books its attempts through, and
     the march's policy record (SEP 39). Version 40 gives ``set_initial`` its ``resume``
-    keyword: a stored field never takes the ``input`` draw again.
+    keyword: a stored field never takes the ``input`` draw again. Version 41 adds the
+    problem's ``transverse`` design and the class attribute ``reads_transverse_edge``,
+    whether a backend reads a free-space run's transverse edge (SEP 40), without
+    changing these signatures.
     """
-    assert KERNEL_SCHEMA_VERSION == 40, (
+    assert KERNEL_SCHEMA_VERSION == 41, (
         "the seam changed: rewrite the literals of this test"
     )
+    assert StepDriver.reads_transverse_edge is False
     for name, signature in {
         "observe_members": (
             "(self) -> tuple[solprop.backends.protocol.Observation, ...]"

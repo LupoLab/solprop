@@ -9,8 +9,8 @@ Beams in radial and Cartesian geometries, a self-focusing diagnostic, a line bea
 one direction, a planar guide resolved across its width, a weak band calibrated under
 the low-storage march, a four-wave-mixing delay scan run through one backend with
 statistics-only planes, far-field spectra collected through apertures in a mask
-plane, and a beam prepared by Kerr self-focusing in a gas gap and coupled into a
-capillary.
+plane, a beam prepared by Kerr self-focusing in a gas gap and coupled into a
+capillary, and a transverse window sized with the boundary monitor.
 
 For the full filament and crossing-beam lessons, begin with the
 :doc:`/introduction/index`.
@@ -97,7 +97,7 @@ For the full filament and crossing-beam lessons, begin with the
 
 .. raw:: html
 
-    <div class="sphx-glr-thumbcontainer" tooltip="LowStorageRungeKutta replays a fixed schedule with classical RK4 in the interaction picture, holding three copies of the state where the adaptive marches hold fifteen or more. It has no error estimate, so its accuracy is measured from outside, on the quantity that matters, by three-level Richardson calibration (/guide/numerics/fixed-schedules). Here a 30 fs line beam whose peak field is sqrt(2) times the soliton&#x27;s, twice the soliton power, self-phase modulates over one diffraction length, and the weak band is the light it generates below 690 nm: three parts in ten thousand of the energy. The whole field converges twenty times faster than that band, so a norm scored on the field would call a schedule converged while the band is still wrong. A few seconds on numpy_ref.">
+    <div class="sphx-glr-thumbcontainer" tooltip="LowStorageRungeKutta replays a fixed schedule with classical RK4 in the interaction picture, holding three copies of the state where the adaptive marches hold fifteen or more. It has no error estimate, so its accuracy is measured from outside, on the quantity that matters, by three-level Richardson calibration (/guide/numerics/fixed-schedules). Here a 30 fs line beam whose peak field is sqrt(2) times the soliton&#x27;s, twice the soliton power, self-phase modulates over one diffraction length, and the weak band is the light it generates below 690 nm: two parts in ten thousand of the energy. The whole field converges twenty times faster than that band, so a norm scored on the field would call a schedule converged while the band is still wrong. A few seconds on numpy_ref.">
 
 .. only:: html
 
@@ -163,6 +163,23 @@ For the full filament and crossing-beam lessons, begin with the
     </div>
 
 
+.. raw:: html
+
+    <div class="sphx-glr-thumbcontainer" tooltip="A free-space grid ends at a boundary: a radial grid has a hard wall at its outer radius, which reflects, and a Cartesian or line grid is periodic, so light that leaves one side comes back at the other. By default solprop puts no absorber there. It folds a safety ramp into the operator, which removes light only at the grid&#x27;s largest transverse wavenumbers, and its boundary monitor reads the outer 5 % of the grid, the transverse edge. A run whose light reaches the edge warns, and stops at ten times the budget, naming a size to try. This tutorial sizes a radial window with the monitor, checks the result against a much wider window, and then asks for a designed real-space collar instead. It is the spatial companion of /auto_tutorials/basics/plot_07_time_window.">
+
+.. only:: html
+
+  .. image:: /auto_tutorials/free_space/images/thumb/sphx_glr_plot_09_transverse_window_thumb.png
+    :alt:
+
+  :doc:`/auto_tutorials/free_space/plot_09_transverse_window`
+
+.. raw:: html
+
+      <div class="sphx-glr-thumbnail-title">Is my transverse window big enough?</div>
+    </div>
+
+
 .. thumbnail-parent-div-close
 
 .. raw:: html
@@ -181,4 +198,5 @@ For the full filament and crossing-beam lessons, begin with the
    /auto_tutorials/free_space/plot_06_four_wave_mixing_scan
    /auto_tutorials/free_space/plot_07_far_field_statistics
    /auto_tutorials/free_space/plot_08_radial_capillary_coupling
+   /auto_tutorials/free_space/plot_09_transverse_window
 

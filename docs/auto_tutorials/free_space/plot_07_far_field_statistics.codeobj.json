@@ -492,6 +492,29 @@
    "name": "SimulationSettings"
   }
  ],
+ "SpatialAbsorber": [
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.spatial_absorber",
+   "module_short": "solprop.spatial_absorber",
+   "name": "SpatialAbsorber"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "SpatialAbsorber"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.boundaries",
+   "module_short": "solprop.boundaries",
+   "name": "SpatialAbsorber"
+  }
+ ],
  "SpatialFlux.resolve": [
   {
    "is_class": true,
@@ -559,29 +582,6 @@
    "module": "solprop.stats",
    "module_short": "solprop.stats",
    "name": "StatsSpec"
-  }
- ],
- "TransverseCollar": [
-  {
-   "is_class": true,
-   "is_explicit": false,
-   "module": "solprop.boundaries",
-   "module_short": "solprop.boundaries",
-   "name": "TransverseCollar"
-  },
-  {
-   "is_class": true,
-   "is_explicit": false,
-   "module": "solprop",
-   "module_short": "solprop",
-   "name": "TransverseCollar"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "solprop.boundaries",
-   "module_short": "solprop.boundaries",
-   "name": "TransverseCollar"
   }
  ],
  "WAIST": [

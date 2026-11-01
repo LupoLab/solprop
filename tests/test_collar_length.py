@@ -11,7 +11,6 @@ collar's own arrays.
 """
 
 import dataclasses
-from typing import Any
 
 import numpy as np
 import pytest
@@ -27,16 +26,11 @@ from solprop.boundaries import (
 from solprop.driver import SimulationSettings
 from solprop.driver.simulation import _refined_tdse_collar
 from solprop.exceptions import DriverError, GridError
-from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid, RadialGrid
-from solprop.modes import SlabMode
-from solprop.modes.slab import PlanarGrid
+from solprop.grid import FieldGrid
 from solprop.nonlinear.tdse import TDSESampling
 from solprop.output.schema import serialise
 from solprop.stepper import PIController
-from solprop.translate.free import free_transform
 from solprop.translate.masks import temporal_rates
-from solprop.translate.planar import planar_transform
-from solprop.translate.radial import radial_transform
 from solprop.translate.tdse import refine_response_grid
 
 
@@ -51,8 +45,7 @@ def test_an_absorber_at_its_defaults_records_its_defaults(grid):
     assert collar.in_stage_length == collar.reference_length
     record = serialise(collar)
     assert isinstance(record, dict)
-    # Every field is recorded, the two SEP 22 added and SEP 21's real-space switch
-    # at their defaults too.
+    # Every field is recorded, the two SEP 22 added at their defaults too.
     assert set(record) == {
         "__class__",
         "spectral_rate",
@@ -62,10 +55,8 @@ def test_an_absorber_at_its_defaults_records_its_defaults(grid):
         "reference_length",
         "collar_length",
         "temporal",
-        "spatial",
     }
     assert record["collar_length"] is None and record["temporal"] is True
-    assert record["spatial"] is True
     explicit = dataclasses.replace(collar, collar_length=collar.reference_length)
     assert explicit.collar_length is None
     assert serialise(explicit) == record
@@ -206,33 +197,6 @@ def test_a_user_rate_that_fits_keeps_the_reference_length(grid):
 def test_a_user_rate_is_finite_non_negative_and_on_the_axis(grid, rate, message):
     with pytest.raises(GridError, match=message):
         custom_absorber(grid, rate)
-
-
-def test_every_route_takes_the_spatial_collar_from_the_collar_length():
-    time = EnvelopeGrid.from_limits(1e-3, 800e-9, (650e-9, 1000e-9), 300e-15)
-    collar = absorber(time)
-    shorter = dataclasses.replace(collar, collar_length=collar.reference_length / 4)
-    planar = PlanarGrid([SlabMode(63.5e-6, "Ar", 1.0)], 1e-3, 8)
-    routes: list[tuple[Any, Any]] = [
-        (radial_transform, RadialGrid(300e-6, 16, window_factor=0.5)),
-        (free_transform, FreeGrid(3e-4, 8, 4e-4, 6, window_factor=0.5)),
-        (planar_transform, planar),
-    ]
-    for build, space in routes:
-        default = build(space, time, n_pol=1, z_max=1e-3, absorber=collar).geometry
-        moved = build(space, time, n_pol=1, z_max=1e-3, absorber=shorter).geometry
-        assert default is not None and moved is not None
-        window = default.window
-        # The same expression on the same inputs: exact, by construction.
-        assert np.array_equal(
-            default.absorber_rate,
-            TEMPORAL_ALPHA_LENGTH * (1 - window) / collar.reference_length,
-        )
-        assert np.array_equal(
-            moved.absorber_rate,
-            TEMPORAL_ALPHA_LENGTH * (1 - window) / shorter.in_stage_length,
-        )
-        assert np.any(moved.absorber_rate)
 
 
 @pytest.mark.parametrize("kind", ["standard", "shorter", "spectral"])

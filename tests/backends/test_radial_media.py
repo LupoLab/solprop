@@ -61,7 +61,7 @@ def test_radial_medium_flows_match_an_independent_cumulative_oracle(
     )
     grid = constructor(length, 800e-9, (600e-9, 1.2e-6), 150e-15)
     radius = 1e-6 if material == "evanescent" else 6e-4
-    space = RadialGrid(radius, 16, window_factor=0.0)
+    space = RadialGrid(radius, 16, collar_fraction=0.0)
     medium = (
         SpatialMedium("Ar", pressure=Linear(0.5, 1.5, length))
         if material == "varying"
@@ -165,7 +165,7 @@ def test_radial_gradient_flow_conserves_axial_flux_and_resumes(spatial_backend_c
     grid = EnvelopeGrid.from_limits(
         length, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False
     )
-    space = RadialGrid(6e-4, 16, window_factor=0.0)
+    space = RadialGrid(6e-4, 16, collar_fraction=0.0)
     medium = SpatialMedium("Ar", pressure=Linear(0.5, 1.5, length))
     initial = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=3e-9), 1e-4

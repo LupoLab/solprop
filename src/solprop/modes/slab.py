@@ -61,7 +61,7 @@ from jaxtyping import Complex, Float
 from solprop._display import Displayed, engineering, line
 from solprop.constants import EPS0, C
 from solprop.exceptions import GridError, ModeError
-from solprop.grid import _periodic_axis
+from solprop.grid import _check_fraction, _periodic_axis
 from solprop.modes.fill import LossSpec, _sqrt1p_minus_one
 from solprop.modes.protocol import (
     ChannelLabel,
@@ -965,9 +965,10 @@ class PlanarGrid(Displayed):
         Requested physical half-width in y, m, finite and positive.
     n_y : int
         Samples in y, an integer of at least 2.
-    window_factor : float
-        Added collar width divided by `radius_y`, in [0, 1): the periodic half-width
-        is ``radius_y * (1 + window_factor)``; zero disables the collar. Default 0.1.
+    collar_fraction : float
+        Room outside `radius_y`, as a fraction of it, finite and at least 0: the
+        periodic half-width is ``radius_y * (1 + collar_fraction)``. The default 0
+        wraps at `radius_y`.
     n_x : int or None
         Slab-rule x nodes asked of
         :func:`solprop.modes.quadrature.transverse_quadrature`; ``None`` (the
@@ -1027,7 +1028,7 @@ class PlanarGrid(Displayed):
     radius_y: float
     n_y: int
     _: KW_ONLY
-    window_factor: float = 0.1
+    collar_fraction: float = 0.0
     n_x: int | None = None
     x_rule: Literal["gauss_kronrod", "gauss"] = "gauss_kronrod"
     rule: TransverseQuadrature = field(init=False, repr=False)
@@ -1050,8 +1051,7 @@ class PlanarGrid(Displayed):
             raise GridError("PlanarGrid.n_y must be an integer of at least 2")
         if not math.isfinite(self.radius_y) or self.radius_y <= 0:
             raise GridError("PlanarGrid.radius_y must be finite and positive")
-        if not math.isfinite(self.window_factor) or not 0 <= self.window_factor < 1:
-            raise GridError("PlanarGrid.window_factor must be finite and lie in [0, 1)")
+        _check_fraction("PlanarGrid", self.collar_fraction)
         highest = max(mode.azimuthal_order for mode in modes)
         needed = cartesian_nodes(highest)
         count = (
@@ -1081,7 +1081,7 @@ class PlanarGrid(Displayed):
         matrices = mode_matrix(modes, rule, 0.0, components=(component,))
         centre = mode_matrix(modes, on_axis_rule("slab"), 0.0, components=(component,))
         y, k_y, window_y, _ = _periodic_axis(
-            "PlanarGrid", self.radius_y, self.n_y, self.window_factor
+            "PlanarGrid", self.radius_y, self.n_y, self.collar_fraction
         )
         values = {
             "x": np.ascontiguousarray(rule.nodes(limits)[:, 0]),
@@ -1238,7 +1238,7 @@ class PlanarGrid(Displayed):
                 f"{engineering(self.radius_y, 'm')}, {self.n_y} samples",
             ),
             ("spacing in y", engineering(self.dy, "m")),
-            ("window factor", f"{self.window_factor:g}"),
+            ("collar fraction", f"{self.collar_fraction:g}"),
             ("measure", "area: energy J, power W"),
         ]
 

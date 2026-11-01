@@ -651,6 +651,7 @@ def make_slab_kernels(*, noise: bool, parallel: bool) -> SlabKernels:  # noqa: P
                         data[8][j],
                         data[9][j],
                         data[10],
+                        data[13][mode],
                     )
                     angle = position * rate.imag
                     value = value + drawn[column, j] * complex(
@@ -727,6 +728,7 @@ def make_slab_kernels(*, noise: bool, parallel: bool) -> SlabKernels:  # noqa: P
                         data[8][j],
                         data[9][j],
                         data[10],
+                        data[13][mode],
                     )
                 source = 0.0 + 0.0j
                 if terms[0]:
@@ -788,6 +790,7 @@ def make_slab_kernels(*, noise: bool, parallel: bool) -> SlabKernels:  # noqa: P
                     data[8][j],
                     data[9][j],
                     data[10],
+                    data[13][mode],
                 )
                 exponent = distance * rate
                 real, imag, _, _ = _PAIR(exponent.real, exponent.imag)

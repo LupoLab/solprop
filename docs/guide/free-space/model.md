@@ -160,48 +160,101 @@ which the run's `energy` statistic reports
 The [radial tutorial](../../auto_tutorials/free_space/plot_01_radial.rst) launches its beam
 this way.
 
-## Spatial collar and statistics
+## Transverse boundaries
 
-The outer `window_factor` of each spatial grid (a tenth by default) is its **collar**, a
-Planck window that falls from one to zero. It absorbs only when the run declares an
-absorber, `SimulationSettings(absorber=absorber(grid))` ({py:func}`solprop.boundaries.absorber`);
-without one, energy that reaches the edge of the grid is reflected by the radial
-transform's $E = 0$ at $R$, or wraps around the periodic Cartesian box.
+A free-space grid has a hard edge: the radial transform holds the field at zero at its
+outer radius, and the Cartesian, line and planar grids are periodic, so light that
+reaches the edge is reflected or wraps round into the aperture, and the answer is wrong.
+solprop's answer, from [SEP 40](../../dev/seps/sep-0040-transverse-absorbing-boundaries.md),
+is **room first, detection always, and absorption only for declared fast light**.
 
-With an absorber, the spatial window defines a power rate
-`alpha_r = 12.6*(1-window)/boundary.in_stage_length` — the collar's `collar_length`,
-which is its `reference_length` unless set
-([two lengths](../numerics/boundaries.md#two-lengths-the-spectral-rate-and-the-in-stage-collars)) —
-the same bounded profile as the
-temporal collar ([why the temporal rate is not the logarithm](../numerics/boundaries.md#why-the-temporal-rate-is-not-the-logarithm)).
-It enters every nonlinear stage as `F diag(-alpha_r/2) B E`, independently of the
-material prefactor. The rate does not depend on time, so the radial backends compose its
-fixed matrices once at construction; the Cartesian backends apply the same term through
-their transverse FFT pair, `fft2(-alpha_r/2 * ifft2 E)`, without a dense matrix. Selecting
-the temporal `split_step` scheme does not split the spatial absorber.
+**Room first.** The grids take `collar_fraction`, the room outside the requested size,
+as a fraction of it: `RadialGrid(R, n_r, collar_fraction=f)` puts its wall at
+`outer_radius = R*(1+f)`, and `FreeGrid`, `LineGrid` and `PlanarGrid` make their period
+`radius*(1+f)` on each axis; `n_r`, `n_x`, `n_y` count every sample. The default is 0: the
+requested size is the grid's. For a slow beam a bare wall further out beats any designed
+collar at the same outer radius -- on the suite's self-focusing case a wall at twice the
+radius is wrong by `4e-5` in field where the best collar there gives `1e-3` -- so the first
+remedy for light at the edge is more room at the same spacing.
 
-Like the temporal in-stage absorber, the spatial term is conditionally stable. The
-fixed-step stability diagnostic uses the weighted inverse transform $T$: the largest
-spatial power rate is bounded by `max(alpha_r)*norm(T,2)**2`, with a floating-point
-budget on that norm, and the temporal in-stage maximum rate is added when present. A
-replayed step or step floor above `2*STABILITY_RADIUS/combined_rate` is refused at
-translation. This is a
-rate diagnostic, not a guarantee that a chosen step resolves diffraction or nonlinear
-evolution.
+**Detection always.** The [boundary monitor](../numerics/boundaries.md#watching-the-windows-edges)
+watches the transverse edge of every free-space run. With no real-space collar, whatever
+reaches the edge comes back, so it judges, per face, the energy in the outer 5 % of the
+*outer* size above its launch value. Energy shares above `1e-6` of the launch warn and
+above `1e-4` stop the run (`BoundaryCheck`'s `budget` and `stop_factor`, or its own
+`transverse_budget`), and the stop names a size and a sample count to try. That size is a
+lower bound: light generated late, by a filament, may need more. Reads are spaced so that
+light cannot cross the edge unseen between two of them, at most `min(L/16, 4g/v)` apart,
+with `g` the edge's width and `v` the spread of the current spectrum, and the spacing is a
+ceiling on the step: a low-source run, which would otherwise take long steps, takes a few
+more. A fixed schedule cannot be held to it, and reports itself as `coarse`.
 
-At every saved plane the driver measures the fraction of the field's squared norm,
-$\sum_p|E_{a,p}|^2$ integrated over time, in nodes where the spatial window is below one.
-This is an electric-field-norm diagnostic of the edge, not a share of the physical flux.
-It logs a warning above the requested relative
-tolerance, with a rounding floor `gamma(64*n_columns + 16*ceil(log2(n_t)))`, where
-`n_columns` is `n_r` for a radial run and `n_x*n_y` for a Cartesian one. The warning prints
-the fraction and the threshold. It changes neither the state nor the step controller, and
-it adds no device transfer between saved planes. When it fires, repeat the run with a
-larger radius to find out whether the boundary influences the result. A plane that keeps
-no field ([field retention](../results/output.md)) is observed without its field, so the
-diagnostic, which reads the field, is not evaluated there: the run logs that once and
-counts the planes in its execution record (`collar_diagnostic_skipped`). Keep the field
-on the planes whose collar share you want checked.
+Every run reports a `transverse_status` in its monitor record and says at the start what
+it will be able to report: `clear` (read at the spacing, below the warning), `warned`,
+`stopped`, `insensitive` (the input noise's allowance exceeds the warning), `coarse`,
+`unwatched` (a backend that does not read the edge; all of solprop's own do) or `off`
+(`boundary_check=None`). Only `clear` is a clean verdict. The tutorial
+[Is my transverse window big enough?](../../auto_tutorials/free_space/plot_09_transverse_window.rst)
+sizes a radial window with the monitor and checks it against a wider one.
+
+**The safety ramp.** Every free-space run also carries a transverse-wavenumber ramp on the
+outer 10 % of each axis's wavenumbers, radial and planar included, folded exactly into the
+linear operator at no cost per step. It removes what reaches the grid's resolution limit,
+where nothing physical should be, with a strength set by the grid, not the run length. A
+launch with physical light in that band is judged before the first step: above `1e-6` of
+its energy it warns, and above `1e-4` it is refused, because the ramp would erase it.
+Refine the grid, launch with less tilt, declare the content with
+`SpatialAbsorber(discard_above=...)`, or remove the ramp with `spatial_absorber=False`.
+What the ramp removes later is reported as `ramp_removed` and warns above the budget.
+
+### Spatial collar and statistics
+
+**A collar on request.** A run whose fast light cannot be given room -- four-wave-mixing
+products at an angle, conical emission -- asks for a real-space collar in the grid's room:
+
+```{code-block} python
+from solprop.boundaries import SpatialAbsorber
+
+space = RadialGrid(300e-6, 230, collar_fraction=2.6)
+prop_radial(
+    grid,
+    space,
+    medium,
+    responses,
+    pulse,
+    settings=settings,
+    spatial_absorber=SpatialAbsorber(),
+)  # band from the launch
+prop_free(
+    ..., spatial_absorber=SpatialAbsorber(angle=25e-3)
+)  # protect sin(theta) <= 25e-3
+```
+
+The collar is designed at translation from a *protected* band of transverse wavenumbers
+(an explicit `kappa`, an `angle`, or three times the launch's rms spread) and its width,
+as a complex absorbing potential whose strength attenuates the band's edge by
+`log(5e3)` nepers on the way out and back. Translation then propagates the launch through
+it, linearly, and compares with a bare grid large enough not to return it: a design that
+returns more than `4e-8` of the launch's energy is refused, naming a fraction that passes,
+and saying when a bare wall at the same size returns less. A design is also refused below
+the profile's floor (`kappa_p * w >= 22.3`), near cutoff, or with no room. A weak generated
+or launched signal is protected only if its angle is declared: the launch-derived band
+covers the launch, not what it will generate. The design check is rerun for a new launch
+given by `with_input`.
+
+The collar is an in-stage rate, `F diag(-alpha/2) B` in every stage, so the error
+controller sees it, under a step limit that stops a protected packet crossing it unseen
+within one step; a fixed schedule beyond that limit, or beyond the damping bound
+`alpha0 h / 2 = 1.3`, is refused. With a collar, reaching the edge is intended, and the
+monitor judges what *returns*: the inward energy in a strip over the collar, resolved by a
+windowed transform, and the inward current across its onset. A slow reflected spread under
+a collar warns rather than stops; the design check is what keeps that case out. The
+collar's removal is recorded as `spatial_removed`, a share of the launch's field norm.
+
+**The record.** The specification is stored under `configuration["spatial_absorber"]`
+when one is given, and the resolved design's derived values -- the ramp's start and
+strength, a collar's strength, band, threshold and step limit, and its check -- under the
+run metadata's `transverse` record, outside the resume key.
 
 **Statistics.** The default set for a spatial run (`default_spec("radial")` or
 `default_spec("free")`) is `energy`, `on_axis_intensity`, `peak_intensity`,
@@ -359,8 +412,8 @@ initial contraction, not a resolved collapse.
 
 ## Cartesian example and memory
 
-`FreeGrid(radius_x, n_x, radius_y, n_y)` names x before y, and `window_factor=0` leaves
-no collar at all; a Cartesian run is shown in
+`FreeGrid(radius_x, n_x, radius_y, n_y)` names x before y, and wraps at the requested
+half-widths unless `collar_fraction` gives it room ([transverse boundaries](#transverse-boundaries)); a Cartesian run is shown in
 [Cartesian and line beams](beams.md#cartesian-and-line-beams). The [Cartesian tutorial](../../auto_tutorials/free_space/plot_02_cartesian.rst)
 adds argon Kerr propagation. The scalar second-moment width uses the fluence centroid, and
 the interpolated widths use circular averages of the bilinear fluence interpolant; both

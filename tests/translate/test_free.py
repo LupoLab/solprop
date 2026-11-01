@@ -99,7 +99,7 @@ def test_free_operator_names_its_varying_medium_refusal(free_inputs):
 def test_grazing_correction_resolves_the_original_microscopic_grid(kind):
     constructor = FieldGrid.from_limits if kind == "field" else EnvelopeGrid.from_limits
     time = constructor(1e-4, 800e-9, (600e-9, 1.2e-6), 150e-15)
-    space = FreeGrid(3e-7, 9, 4e-7, 12, window_factor=0)
+    space = FreeGrid(3e-7, 9, 4e-7, 12, collar_fraction=0)
     dispersion = SpatialDispersion(SpatialMedium(), time, Frame.comoving(time))
     expected = dispersion.shared_values()
     linear, data = free_operators(space, dispersion, n_pol=1, z_max=time.length)

@@ -120,7 +120,7 @@ def test_cartesian_gaussian_width_gouy_exact_diffraction(
     diffraction_grid, spatial_backend_class, fraction, request
 ):
     grid = diffraction_grid
-    space = FreeGrid(6e-4, 48, 7.5e-4, 60, window_factor=0)
+    space = FreeGrid(6e-4, 48, 7.5e-4, 60, collar_fraction=0)
     index = int(np.argmin(abs(grid.omega - grid.omega0)))
     wave, waist = grid.omega[index] / C, 80e-6
     distance = fraction * wave * waist**2 / 2
@@ -203,8 +203,8 @@ def test_cartesian_and_radial_agree_with_resampling_budget(
     diffraction_grid, spatial_backend_class, request
 ):
     grid = diffraction_grid
-    space = FreeGrid(6e-4, 48, 7.5e-4, 60, window_factor=0)
-    radial = RadialGrid(1.2e-3, 64, window_factor=0)
+    space = FreeGrid(6e-4, 48, 7.5e-4, 60, collar_fraction=0)
+    radial = RadialGrid(1.2e-3, 64, collar_fraction=0)
     index = int(np.argmin(abs(grid.omega - grid.omega0)))
     wave, waist = grid.omega[index] / C, 80e-6
     distance = wave * waist**2 / 2

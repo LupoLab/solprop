@@ -57,6 +57,7 @@ hard-mask zeros, and explicitly exact zeros and no-ops.
 | `current_numerator` | `(n_modes,n_pol,n_omega) float64` or `None` | independent current coefficient numerator, `-crop_scale/(2 epsilon_0 c)` on active bins; divided by the stage real effective index |
 | `flux` | `FluxPlan` or `None` | a spatial run's plane measure ([SEP 34](seps/archive/sep-0034-medium-flux.md), `translate.spatial.FluxPlan`): `base`, the separable coefficients with the entrance material square, whose principal root gives the dimensionless axial admittance `c k_z/omega` of every column and bin (zero on nonpropagating, inactive and nonpositive-frequency bins); `material`, the z table of the complex material square `(omega n/c)²` for a varying radial medium, `None` for a uniform one; and `admission`, the varying path's adiabatic certificate. `at(z)` gives a plane's coefficients. Every spatial statistic weights its columns by the real admittance at its plane (energy, spectra, absorbed powers) or synthesises the closure `G` with the complex one (fluence, intensities, on-axis spectrum). Required with spatial geometry and `None` otherwise; its active mask equals `grids.active_mask`. Added in version 35 |
 | `precision` | `translate.precision.Precision` | the arithmetic the run is held in ([SEP 33](seps/archive/sep-0033-single-precision-mlx.md), ADR-054): `state` and `source`, each `"double"` or `"single"` and equal (a mixed record is refused). Every table here is binary64 either way; a backend that admits single precision narrows its tables on upload, each with its own power-of-two exponent, and holds the state at the launch's exact power-of-two scale. Under `"single"`, `validate` refuses the general modal route, the hybrid planar kind, coupled flows, TDSE responses, the dispersive electronic response, the far-field statistics and noise models; `numba_cpu` and `native` refuse a single-precision problem by name. Default `DOUBLE`. Added in version 36 |
+| `transverse` | `SpatialAbsorberDesign` or `None` | a free-space run's resolved transverse boundary ([SEP 40](seps/sep-0040-transverse-absorbing-boundaries.md), `spatial_absorber.SpatialAbsorberDesign`), host-side: the safety ramp's rate per column, which the separable operator carries as `kperp_rate` (the dense operator radially), and a requested collar's rate on the nodes, which the geometry carries as `absorber_rate`, with its band, strength, crossing step and design check. A backend meets it only through those fields and the stepper's `dz_max`, held to the collar's crossing limit and to the ramp's exponent budget. `None` for no transverse boundary and on modal routes. Added in version 41 |
 `KernelProblem` also carries one **property**, which is not a field and so not a row
 above: `device_ready` is true when Φ (§3) and the prefactor (§5) are each a weighted sum
 of a fixed set of arrays, and false when either took the z table.
@@ -93,7 +94,7 @@ expansion. A
 total-degree expansion is not part of the contract: it failed the joint memory and
 build-cost criterion on the short fixture.
 
-The current version is kernel schema **40**
+The current version is kernel schema **41**
 (`solprop.translate.problem.KERNEL_SCHEMA_VERSION`), and the tables of this document
 describe it. A version bump that adds an optional field
 leaves every problem that does not use it unchanged, `schema_version` itself being the
@@ -365,9 +366,10 @@ channel's transverse square `κ_p(ω)² = k²ε_co − β_p(ω)²` from the mode
 propagation constant (its wall term under its loss policy), zero at inactive
 frequencies; column `c` belongs to channel `c % n_channels`, and `kperp_sq` is then
 `k_y²` per column with the channel fastest. `kperp_rate` is float64,
-`n_modes` entries, finite and nonnegative, a transverse collar's power rate per column
-in m^-1 (`solprop.boundaries.TransverseCollar`); `None` is stored
-as zeros, and a nonzero one is refused beside `kappa_sq`. `evanescent_rate` is
+`n_modes` entries, finite and nonnegative, the safety ramp's power rate per column in
+m^-1 (`solprop.spatial_absorber.SpatialAbsorberDesign.ramp_rate`, kernel schema 41); `None`
+is stored as zeros. On the hybrid planar kind it acts per `(p, k_y)` column, and the
+slab element takes it as its `transverse_rate`. `evanescent_rate` is
 `solprop.spatial.EVANESCENT_RATE` unless the run sets `SimulationSettings.evanescent_rate`.
 
 For each column and frequency form
@@ -1092,8 +1094,7 @@ spatial kind it does not execute.
 n_modes, n_pol, n_omega)`, `noise_phase` (if a noise model is active, so processing can restore the
 background), both `None` for an observation made with `observe(field=False)`: nothing then crosses to the host and nothing scans the field, so a
 diverged field-free run is caught by the step loop's finite-norm rule and the
-statistics; the spatial collar diagnostic is not evaluated there, and the backend
-counts such planes in `metadata()` (`collar_diagnostic_skipped`) and logs the first, `step_history` (arrays of z, h, error norm, accepted flag, wall time since the
+statistics, `step_history` (arrays of z, h, error norm, accepted flag, wall time since the
 last observation; recorded whether the run was adaptive or replayed a schedule, since the
 embedded estimate is computed either way), `n_steps`, `n_rejected`, and `step_stats`. `stats()` returns a dict of small host arrays
 keyed by statistic name with a leading batch axis.

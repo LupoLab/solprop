@@ -16,10 +16,11 @@ statistics needed to interpret those calculations.
 ## The grid
 
 {py:class}`~solprop.grid.FreeGrid` is built as
-`FreeGrid(radius_x, n_x, radius_y, n_y, window_factor=0.1)`, x before y. The periodic
-half-width is `radius*(1+window_factor)` on each axis; the extra width is the absorbing
-collar, so the default adds ten per cent on each side. This differs from
-{py:class}`~solprop.grid.RadialGrid`, whose `radius` includes its collar. A flattened
+`FreeGrid(radius_x, n_x, radius_y, n_y, collar_fraction=0)`, x before y. The periodic
+half-width is `radius*(1+collar_fraction)` on each axis, and `n_x`, `n_y` count every
+sample; the default wraps at the requested half-widths, and a fraction gives the room a
+requested collar is designed in ([transverse boundaries](model.md#transverse-boundaries)).
+{py:class}`~solprop.grid.RadialGrid` places its room the same way, outside its `radius`. A flattened
 column is `ix + n_x*iy`: x varies fastest. The frequencies are in FFT order, and odd
 sizes put the origin between samples. {py:class}`~solprop.grid.LineGrid` is the x axis
 alone, with one y sample of unit width
@@ -41,42 +42,43 @@ the rule, and refining it checks that. Plasma and ionisation sources are not pol
 in the field, so no multiple of $K$ bounds their products, and only refinement judges
 the grid.
 
-{py:class}`~solprop.boundaries.TransverseCollar` is a **safety ramp** in $k_\perp$, set
-as `SimulationSettings(transverse_absorber=TransverseCollar(strength, fraction=0.1))`.
-With $\rho=\max(|k_x|/k_{x,\max},|k_y|/k_{y,\max})$ its power rate is
-$\alpha_\perp=S\,P(\rho)$, zero for $\rho\le1-f$ and rising as a raised cosine to $S$ at
-the grid's largest wavenumber; on a {py:class}`~solprop.grid.LineGrid` it acts on $k_x$
-alone. The max-norm protects the rectangle the grid defines, since aliasing in $x$ is
-decided by $k_x$ alone. The rate is diagonal in the transverse wavenumber, so it enters
-the separable operator as an exact rate on the active band, $D\to D-\alpha_\perp/2$, at
-the cost of one load and one add per element and with no effect on the noise phase:
-whatever steps the run takes, each column falls by $e^{-\alpha_\perp L/2}$ over a
-distance $L$. It damps content that reaches the outer band, from cascades or drifting
-towards the edge, weakening the products that would fold back with it, and it keeps
-rounding from accumulating at the Nyquist edge. It **cannot** remove an alias that
-in-band content generates, because the fold happens inside the product's evaluation and
-lands where $P=0$; that is the grid's job. The default ten per cent touches only content
-that should not be there on a grid sized by the rule: products between $K$ and
-$k_{x,\max}$, a four-wave-mixing signal leaving at a larger angle say, are physical and
-must not be damped. A strength with $SL_{\mathrm{int}}/2\ge\ln10^3$ removes 60 dB of field
-at the edge over an interaction length $L_{\mathrm{int}}$; its upper bound is the
-[exponent budget](model.md#exact-longitudinal-operator).
+Every free-space run carries a **safety ramp** in $k_\perp$
+([SEP 40](../../dev/seps/sep-0040-transverse-absorbing-boundaries.md)). With
+$\rho=\max(|k_x|/k_{x,\max},|k_y|/k_{y,\max})$ its power rate is $\alpha_s P(\rho)$, zero
+for $\rho\le1-f_s$ and rising as a raised cosine to $\alpha_s$ at the grid's largest
+wavenumber, with $f_s = 0.1$ by default; on a {py:class}`~solprop.grid.LineGrid` it acts on
+$k_x$ alone. The max-norm protects the rectangle the grid defines, since aliasing in $x$ is
+decided by $k_x$ alone, and each axis's strength is designed from its own size: content in
+the ramp's upper half is attenuated by $\log(5\times10^3)+2$ nepers over the distance in
+which it would cross the aperture and come back, with the larger of the two axes'
+strengths on the profile. The rate is diagonal in the transverse wavenumber, so it enters
+the separable operator as an exact rate on the active band, $D\to D-\alpha_s P/2$, at no
+cost per step and with no effect on the noise phase. It damps content that reaches the
+outer band, from cascades or drifting towards the edge, and keeps rounding from
+accumulating at the Nyquist edge. It **cannot** remove an alias that in-band content
+generates, because the fold happens inside the product's evaluation and lands where
+$P=0$; that is the grid's job. The ten per cent touches only content that should not be
+there on a grid sized by the rule: products between $K$ and $k_{x,\max}$, a four-wave-mixing
+signal leaving at a larger angle say, are physical and are not damped.
 
 ```{code-block} python
-from solprop.boundaries import TransverseCollar
+from solprop.boundaries import SpatialAbsorber
 
+# a wider ramp, no collar; spatial_absorber=False removes the ramp altogether
 settings = dataclasses.replace(
-    settings, transverse_absorber=TransverseCollar(strength=2e4, fraction=0.1)
+    settings, spatial_absorber=SpatialAbsorber(real_space=False, safety_fraction=0.2)
 )
 ```
 
-The real-space [spatial collar](model.md#spatial-collar-and-statistics) and this ramp are
-complementary: the first removes light that has walked to the edge of the box and
-selects nothing by angle, the second acts on high-angle components wherever they are and
-does nothing for a beam leaving the box. The ramp is refused on the radial kind, which
-is not periodic, on the hybrid planar kind and on modal runs. It is recorded in the
-run's configuration as its two numbers, and only when set. The far-field statistic
-`absorbed_power` reports the power it removes as its transverse channel
+A launch with physical light in the ramp's band is judged before the first step and
+refused above `1e-4` of its energy, unless declared with `discard_above`, which also starts
+the ramp there. The ramp and a requested real-space collar
+([transverse boundaries](model.md#transverse-boundaries)) are complementary: the collar
+removes light that has walked to the edge of the box and protects a declared band of
+angles, the ramp acts on the grid's highest wavenumbers wherever they are. On an
+anisotropic box each face of a collar is designed on its own axis. The specification is
+recorded in the run's configuration when one is given. The far-field statistic
+`absorbed_power` reports the power the ramp removes as its transverse channel
 ([far-field statistics](model.md#far-field-and-fourier-plane-statistics)).
 
 ## Transform and energy

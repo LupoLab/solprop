@@ -449,7 +449,7 @@ def _radial(medium, length=1e-3, radius=6e-4, points=16):
     grid = EnvelopeGrid.from_limits(
         length, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False
     )
-    space = RadialGrid(radius, points, window_factor=0.0)
+    space = RadialGrid(radius, points, collar_fraction=0.0)
     return SpatialDispersion(medium, grid, Frame.comoving(grid)), space
 
 

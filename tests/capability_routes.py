@@ -67,6 +67,10 @@ def _spatial_settings() -> SimulationSettings:
         dz_max=STEP,
         dz_init=STEP,
         backend="numpy_ref",
+        # These coarse grids launch into the safety ramp's band, which the default
+        # refuses (SEP 40 section 5.3), and their numbers predate the ramp; the
+        # default is tested on adequate grids in tests/test_transverse_resolution.py.
+        spatial_absorber=False,
     )
 
 
@@ -274,7 +278,7 @@ def cartesian(noise: str | None) -> Simulation:
     medium, responses = _argon()
     return Simulation.from_free(
         SPATIAL_GRID,
-        FreeGrid(3e-4, 12, 4e-4, 16, window_factor=0),
+        FreeGrid(3e-4, 12, 4e-4, 16, collar_fraction=0),
         medium,
         responses,
         _spatial_pulse(),
@@ -289,7 +293,7 @@ def line(noise: str | None) -> Simulation:
     medium, responses = _argon()
     return Simulation.from_free(
         SPATIAL_GRID,
-        LineGrid(3e-4, 16, window_factor=0),
+        LineGrid(3e-4, 16, collar_fraction=0),
         medium,
         responses,
         _spatial_pulse(),

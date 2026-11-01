@@ -31,7 +31,7 @@ from solprop_native.backend import (
 @pytest.fixture
 def free_payload(phase_a_case: PhaseACase) -> dict[str, object]:
     original, grid = phase_a_case
-    space = FreeGrid(1e-3, 4, 1.5e-3, 6, window_factor=0)
+    space = FreeGrid(1e-3, 4, 1.5e-3, 6, collar_fraction=0)
     problem = assemble(
         grid,
         None,
@@ -239,7 +239,7 @@ def test_a_line_of_one_y_row_matches_the_reference(collar: float) -> None:
     grid = EnvelopeGrid.from_limits(
         length, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False
     )
-    space = LineGrid(3e-4, 24, window_factor=collar)
+    space = LineGrid(3e-4, 24, collar_fraction=collar)
     pulse = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-3),
         80e-6,
@@ -306,7 +306,7 @@ def _planar_problem(
     """Return a small Kerr slab problem: three orders, 5 y rows, two rows per chunk."""
     # A constant plate index: the fixture's band reaches beyond silica's fit.
     modes = [SlabMode(63.5e-6, order=p, cladding=1.45) for p in (1, 2, 3)]
-    space = PlanarGrid(modes, 1e-3, 5, window_factor=collar)
+    space = PlanarGrid(modes, 1e-3, 5, collar_fraction=collar)
     pulse = PlanarPulse(
         GaussianPulse(wavelength=835e-9, fwhm=100e-15, energy=1e-6),
         2e-4,

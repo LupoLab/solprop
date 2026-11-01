@@ -178,7 +178,7 @@ def test_a_field_free_plane_is_held_natively_and_resumes_to_rounding():
     built again from the resumed run's own step, section 4.3).
     """
     grid = EnvelopeGrid.from_limits(1e-3, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False)
-    space = FreeGrid(3e-4, 9, 4e-4, 12, window_factor=0)
+    space = FreeGrid(3e-4, 9, 4e-4, 12, collar_fraction=0)
     noise = spatial_noise(
         SpatialFlux.resolve(grid, space, SpatialMedium()),
         np.random.default_rng(7),

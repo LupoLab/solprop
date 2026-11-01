@@ -290,7 +290,7 @@ def test_without_dispersion_the_mode_averaged_derivative_is_the_constant_one(thg
 def test_the_radial_route_executes_the_leaf():
     """The radial route shares the fused node path; without dispersion it is Kerr's."""
     grid = FieldGrid.from_limits(1e-4, 800e-9, (400e-9, 2e-6), 100e-15)
-    space = RadialGrid(4e-4, 16, window_factor=0.0)
+    space = RadialGrid(4e-4, 16, collar_fraction=0.0)
     pulse = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-6), 1e-4
     )
