@@ -61,7 +61,9 @@ import numpy as np
 from solprop.boundaries import SpatialAbsorber, absorber, custom_absorber
 from solprop.constants import C
 from solprop.driver import Simulation, SimulationSettings
+from solprop.exceptions import BoundaryError
 from solprop.grid import EnvelopeGrid, FreeGrid
+from solprop.monitor import BoundaryCheck
 from solprop.nonlinear.responses import KerrResponse
 from solprop.physdata.nonlinear_data import chi3_from_n2
 from solprop.pulses import GaussianPulse
@@ -266,6 +268,18 @@ axis.legend()
 # exactly zero, because the fold happens inside the product's evaluation, so the ramp
 # cannot touch it. Each run below keeps its exit field (``fields="planes"``,
 # ``field_planes=(-1,)``) to show the transverse spectrum.
+#
+# The ramp does see the beams' own content near the grid's edge, and its ledger stops
+# the coarse run, as it should: the grid cannot resolve the light (SEP 40).
+
+coarse = transverse_grid(7.4e-6)
+try:
+    simulation_for(coarse).run(progress="none")
+except BoundaryError as error:
+    print(f"7.4 μm grid: {str(error).split(':')[0]}")
+
+# %%
+# A relaxed check lets the coarse runs finish, so that what they hold can be read.
 
 
 def kx_spectrum(spatial_grid, run):
@@ -279,7 +293,7 @@ def kx_spectrum(spatial_grid, run):
     return np.fft.fftshift(spatial_grid.k_x), np.fft.fftshift(profile / profile.sum())
 
 
-coarse = transverse_grid(7.4e-6)
+relaxed = BoundaryCheck(transverse_budget=1.0)
 cases = {
     "7.4 μm, no ramp": (coarse, False),
     "7.4 μm, ramp": (coarse, SpatialAbsorber(real_space=False)),
@@ -292,6 +306,7 @@ for label, (spatial_grid, collar) in cases.items():
         fields="planes",
         field_planes=(-1,),
         spatial_absorber=collar,
+        boundary_check=relaxed,
     ).run(progress="none")
     k_x, profile = kx_spectrum(spatial_grid, run)
     axis.semilogy(k_x / K0, profile, ".-", ms=3, label=label)

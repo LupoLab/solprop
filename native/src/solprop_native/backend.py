@@ -2610,11 +2610,13 @@ class _NativeAdamsMarch(AdamsMarch):
         monitor = backend._monitor
         checked = None
         read_at = None
+        spacing = 0.0
         if monitor is not None:
             steps.append(monitor.steps_to_check())
             checked = monitor.checked_at
             # The transverse edge is read on the host (solprop SEP 40 section 5.3):
-            # the march stops at its next read, and a collar's current is taken at
+            # steps are capped at its spacing, the march returns before a step
+            # would carry past its next read, and a collar's current is taken at
             # every committed step.
             edge = getattr(monitor, "transverse", None)
             if edge is not None:
@@ -2622,6 +2624,7 @@ class _NativeAdamsMarch(AdamsMarch):
                     steps.append(1)
                 if math.isfinite(edge.next_read):
                     read_at = float(edge.next_read)
+                    spacing = float(edge.ceiling(backend._z))
         return {
             "target": float(target),
             "quiet": bool(backend._collar_quiet),
@@ -2631,6 +2634,7 @@ class _NativeAdamsMarch(AdamsMarch):
             "check_interval": 0.0 if monitor is None else float(monitor.interval),
             "last_check": 0.0 if checked is None else float(checked),
             "read_at": read_at,
+            "read_spacing": spacing,
             "max_attempts": self.MAX_ATTEMPTS,
             "max_seconds": self.MAX_SECONDS,
             "replay": slack is not None,

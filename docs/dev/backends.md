@@ -431,13 +431,17 @@ as one; its end-of-plane log is retired, and the boundary monitor's transverse e
 **The transverse edge is read on the host** ([SEP 40](seps/sep-0040-transverse-absorbing-boundaries.md)).
 A backend whose `StepDriver.reads_transverse_edge` is set hands the monitor's
 `TransverseEdge` its observed field at the edge's reads, at saved planes, and with a
-requested collar at every committed step; the read spacing is a ceiling on the step.
-Every solprop backend sets it; `numba_cpu` keeps its state on the host and steps from
-there, under the driver's ceiling, as mlx does from its widened device state. The native
-Adams march takes the edge's next read as the call's `read_at` bound: an adaptive step
-does not pass it, and the call returns once a committed step reaches it, so the host
-reads the state there; a replay is not capped and returns at its first step past the
-read. With a collar the host step is one, so the march returns at every committed step.
+requested collar at every committed step. The read spacing is a ceiling on the step, and
+a step is not made to land on a read: the edge is read at the last committed position
+from which the next proposal would carry past the next read (`TransverseEdge.due`), so
+reads stay at most a spacing apart without shortening the steps between them (landing on
+each read cost 10-35 % more steps on the suite's line and planar cases). Every solprop
+backend sets it; `numba_cpu` keeps its state on the host and steps from there, under the
+driver's ceiling, as mlx does from its widened device state. The native Adams march
+takes the next read and the spacing as the call's `read_at` and `read_spacing` bounds:
+an adaptive step is capped at the spacing, and the call returns at the committed
+position from which the next proposal would pass the read, so the host reads the state
+there. With a collar the host step is one, so the march returns at every committed step.
 A native device build reads the edge the same way, copying its state to the host at each
 read; it is compiled, not qualified on a device. A backend that does not set it reports
 `unwatched` and refuses a requested collar by name. The edge's reductions run on the

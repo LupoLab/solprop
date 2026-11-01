@@ -1900,20 +1900,25 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             Whether a saved plane has just been reached, which is always read.
         """
         edge = getattr(monitor, "transverse", None)
-        if edge is None or not (plane or edge.every_step or edge.due(self._z)):
+        if edge is None:
+            return
+        # Read before the next step would carry past the read (`TransverseEdge.due`).
+        due = edge.due(self._z, self._proposal)
+        if not (plane or edge.every_step or due):
             return
         state = np.asarray(self._observed_field(self._require_state())[0])
         if edge.every_step and not plane:
             # A collar's inward current accumulates at every committed step.
             edge.step(state, self._z)
-        if plane or edge.due(self._z):
+        if plane or due:
             edge.read(state, self._z)
 
     def _transverse_capped(self, proposal: float) -> float:
-        """Return the proposal, held to the transverse edge's next read (SEP 40 5.3).
+        """Return the proposal, held to the transverse edge's read spacing (SEP 40 5.3).
 
         A low-source run commits long steps, and light could cross the edge unseen
-        within one; the read spacing is a ceiling on the step instead.
+        within one; the read spacing is a ceiling on the step instead. The step is not
+        made to land on a read: the edge is read before a step would pass one.
 
         Parameters
         ----------
@@ -1923,7 +1928,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         Returns
         -------
         float
-            The proposal, or the distance to the next read, m.
+            The proposal, or the read spacing, m.
         """
         monitor = self._monitor
         edge = None if monitor is None else getattr(monitor, "transverse", None)

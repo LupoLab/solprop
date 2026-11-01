@@ -215,6 +215,7 @@ class TransverseEdge:
     _last_columns: np.ndarray | None = field(default=None, init=False)
     _last_z: float = field(default=math.nan, init=False)
     _next: float = field(default=math.inf, init=False)
+    _spacing_now: float = field(default=math.inf, init=False)
     _reads: int = field(default=0, init=False)
     _largest_gap: float = field(default=0.0, init=False)
     _warned_at: float = field(default=math.nan, init=False)
@@ -345,7 +346,8 @@ class TransverseEdge:
             self._last_z = z
             if noise is not None:
                 self._noise_columns = self._column_power(noise)
-            self._next = z + self._spacing(state) if reads else math.inf
+            self._spacing_now = self._spacing(state)
+            self._next = z + self._spacing_now if reads else math.inf
             self._last_columns = self._column_power(state)
             self._last_rate = (z, self._collar_rate(nodes))
             if not reads:
@@ -414,6 +416,7 @@ class TransverseEdge:
                     stacklevel=4,
                 )
         spacing = self._spacing(state)
+        self._spacing_now = spacing
         self._next = z + spacing
         if steps is not None and steps.size and float(np.max(steps)) > spacing:
             self._status = "coarse" if self._status == "clear" else self._status
@@ -535,7 +538,12 @@ class TransverseEdge:
         return spacing
 
     def ceiling(self, z: float) -> float:
-        """Return the longest step from `z` that does not pass the next read.
+        """Return the longest step the reads allow from `z`: the read spacing.
+
+        A step is not made to land on a read. It is capped at the spacing, and the edge
+        is read at the last committed position from which the next step would carry
+        past the next read (:meth:`due`), so reads stay at most a spacing apart without
+        shortening the steps between them.
 
         Parameters
         ----------
@@ -547,24 +555,28 @@ class TransverseEdge:
         float
             The step, m; infinite when nothing is read.
         """
+        del z  # the spacing does not depend on the position between reads
         if not math.isfinite(self._next):
             return math.inf
-        return max(self._next - z, 1e-15 * max(abs(z), 1.0))
+        return self._spacing_now
 
-    def due(self, z: float) -> bool:
-        """Return whether the committed step at `z` reaches the next read.
+    def due(self, z: float, proposal: float = 0.0) -> bool:
+        """Return whether the edge is read at the committed position `z`.
 
         Parameters
         ----------
         z : float
             The committed position, m.
+        proposal : float, optional
+            The next step proposed from `z`, m: the edge is read now when that step
+            would carry past the next read.
 
         Returns
         -------
         bool
             True to call :meth:`read`.
         """
-        return z >= self._next - 1e-12 * max(abs(z), 1.0)
+        return z + proposal >= self._next - 1e-12 * max(abs(z), 1.0)
 
     def read(
         self, state: Complex[np.ndarray, "n_modes n_pol n_omega"], z: float
@@ -607,7 +619,8 @@ class TransverseEdge:
         self._last_rate = (z, rate)
         self._last_z = z
         self._last_columns = self._column_power(state)
-        self._next = z + self._spacing(state)
+        self._spacing_now = self._spacing(state)
+        self._next = z + self._spacing_now
         if self.design is not None and self.design.has_collar:
             # With a collar, outward flow is intended: recorded at INFO, never stopped.
             for index, face in enumerate(self._faces):
