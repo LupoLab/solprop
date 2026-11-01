@@ -362,7 +362,7 @@ too.
       statistics:      analytic_flux, fwhm_t, fwhm_t_outer, omega0, physical_energy
       between planes:  none
       run:             RunMetadata(multimode, field grid of 4096, 4 modes, native,
-                       2026-10-31T14:05:53.711615+00:00)
+                       2026-11-01T19:15:43.984122+00:00)
 
 
 
@@ -529,7 +529,7 @@ normal dispersion broadens it.
         run,
         "wavelength",
         spec_range=(500e-9, 1.8e-6),
-        trange=(-1e-12, 1e-12),
+        time_range=(-1e-12, 1e-12),
         db_min=-80,
         modes="sum",
     )
@@ -746,7 +746,7 @@ A ten-centimetre and a 4.5 mm run of four channels on the general modal route.
 
  .. code-block:: none
 
-    132 s; backend native, 18 threads
+    220 s; backend native, 32 threads
 
 
 
@@ -763,7 +763,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (2 minutes 11.884 seconds)
+   **Total running time of the script:** (3 minutes 39.893 seconds)
 
 
 .. _sphx_glr_download_auto_examples_waveguides_plot_04_graded_index_multimode.py:

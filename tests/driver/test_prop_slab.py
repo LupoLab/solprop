@@ -52,8 +52,7 @@ from solprop.output.hdf5 import open_file
 from solprop.output.schema import RunMetadata
 from solprop.physdata import n2
 from solprop.physdata.selection import MaterialSelection
-from solprop.plotting import energy as plot_energy
-from solprop.plotting import spec_1d, stats, time_1d
+from solprop.plotting import plot_energy, plot_stats, spec_1d, time_1d
 from solprop.processing import get_field, transverse_units
 from solprop.processing.scans import (
     _provenance,
@@ -318,7 +317,7 @@ def test_the_run_records_its_measure_and_labels_per_unit_width():
     assert json.loads(metadata.to_json())["schema_version"] == 2
     units = transverse_units(output)
     assert (units.power, units.energy, units.intensity) == ("W/m", "J/m", "W/m^2")
-    figures = stats(output)
+    figures = plot_stats(output)
     labels = [axis.get_ylabel() for figure in figures for axis in figure.axes]
     assert "Energy (uJ/m)" in labels
     assert any(label.startswith("Peak power (") and "W/m)" in label for label in labels)

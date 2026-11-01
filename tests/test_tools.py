@@ -639,7 +639,7 @@ def test_the_pressure_solvers_invert_the_forward_calculations(pressure, radius):
     assert tools.pressure_rdw(
         radius, "He", target, PUMP, cladding=GLASS
     ) == pytest.approx(pressure, rel=1e-8)
-    zero = base.zdw(mode, wavelength_range=(200e-9, 990e-9))
+    zero = base.zdw(mode, wavelength_limits=(200e-9, 990e-9))
     # beta2 is a Richardson difference good to 5e-9 (modes.base), which the root
     # inherits through the slope of beta2 in pressure.
     assert tools.pressure_zdw(radius, "He", zero, cladding=GLASS) == pytest.approx(
@@ -974,7 +974,7 @@ def test_a_zero_dispersion_pressure_designed_under_a_selection_holds_in_the_run(
     target = 600e-9
     pressure = quiet(tools.pressure_zdw, 125e-6, "Ar", target, materials=SELECTION)
     run = selected_run("Ar", pressure, (400e-9, 1.2e-6))
-    found = quiet(base.zdw, run.modes[0], wavelength_range=(400e-9, 990e-9))
+    found = quiet(base.zdw, run.modes[0], wavelength_limits=(400e-9, 990e-9))
     assert found == pytest.approx(target, rel=1e-7)
 
 

@@ -18,7 +18,6 @@ was asked for is recorded as structured metadata.
 The manual page is ``docs/guide/setup/running.md``.
 """
 
-import dataclasses
 import logging
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
@@ -27,7 +26,7 @@ from typing import Literal
 import numpy as np
 from jaxtyping import Float
 
-from solprop.boundaries import Absorber, no_absorber
+from solprop.boundaries import Absorber
 from solprop.coupling.models import CouplingModel
 from solprop.driver.simulation import (
     DEFAULT_ATOL,
@@ -36,7 +35,6 @@ from solprop.driver.simulation import (
     Simulation,
     SimulationSettings,
 )
-from solprop.exceptions import DriverError
 from solprop.gasflow import VacuumEnd
 from solprop.grid import FreeGrid, RadialGrid, TimeGrid
 from solprop.linear import Frame
@@ -102,7 +100,7 @@ def prop_radial(  # noqa: PLR0913 - the simulation interface and output controls
     seed: int | None = None,
     output: Output | Path | str | None = None,
     snapshots: SnapshotController | None = None,
-    resume: bool | Literal["interpolated"] = False,
+    resume: bool | Literal["interpolated", "force"] = False,
     progress: ProgressReporter | ProgressChoice | None = None,
     progress_period: float = DEFAULT_PROGRESS_PERIOD,
     materials: MaterialSelection | None = None,
@@ -140,10 +138,13 @@ def prop_radial(  # noqa: PLR0913 - the simulation interface and output controls
     snapshots : solprop.output.SnapshotController or None, optional
         Immutable local checkpoints at committed accepted steps; requires HDF5,
         ``step_planes=1``, all fields and non-interpolated observations.
-    resume : bool or {'interpolated'}, optional
-        Continue an existing matching HDF5 file.
-        ``"interpolated"`` also continues a dense run from a plane interpolated
-        inside a step (:meth:`solprop.driver.simulation.Simulation.run`).
+    resume : bool or {'interpolated', 'force'}, optional
+        Continue the file at `output` when its record and this run's agree on what
+        matters to the run: the layout and physics must agree, a changed tolerance or
+        integrator continues while work is left, and provenance is ignored. Only a
+        path can be resumed. ``"interpolated"`` also continues from a plane
+        interpolated inside a step; ``"force"`` also continues across changed physics,
+        marking the file (:meth:`solprop.driver.simulation.Simulation.run`).
     progress : ProgressReporter, {'auto', 'bar', 'log', 'none'} or None, optional
         Where progress goes; ``None`` takes the process default: a bar on a terminal
         or in a notebook, log lines otherwise (:func:`solprop.driver.run.run_problem`).
@@ -173,7 +174,6 @@ def prop_radial(  # noqa: PLR0913 - the simulation interface and output controls
     solprop.output.schema.Output
         Saved fields, metadata, statistics and step history.
     """
-    settings = _with_boundary(settings, grid, absorber, absorber_scheme)
     simulation = Simulation.from_radial(
         grid,
         space,
@@ -185,6 +185,8 @@ def prop_radial(  # noqa: PLR0913 - the simulation interface and output controls
         noise=noise,
         seed=seed,
         materials=materials,
+        absorber=absorber,
+        absorber_scheme=absorber_scheme,
         boundary_check=boundary_check,
     )
     return simulation.run(
@@ -209,7 +211,7 @@ def prop_free(  # noqa: PLR0913 - the simulation interface and output controls
     seed: int | None = None,
     output: Output | Path | str | None = None,
     snapshots: SnapshotController | None = None,
-    resume: bool | Literal["interpolated"] = False,
+    resume: bool | Literal["interpolated", "force"] = False,
     progress: ProgressReporter | ProgressChoice | None = None,
     progress_period: float = DEFAULT_PROGRESS_PERIOD,
     materials: MaterialSelection | None = None,
@@ -252,10 +254,13 @@ def prop_free(  # noqa: PLR0913 - the simulation interface and output controls
     snapshots : solprop.output.SnapshotController or None, optional
         Immutable local checkpoints at committed accepted steps; requires HDF5,
         ``step_planes=1``, all fields and non-interpolated observations.
-    resume : bool or {'interpolated'}, optional
-        Continue an existing matching HDF5 file.
-        ``"interpolated"`` also continues a dense run from a plane interpolated
-        inside a step (:meth:`solprop.driver.simulation.Simulation.run`).
+    resume : bool or {'interpolated', 'force'}, optional
+        Continue the file at `output` when its record and this run's agree on what
+        matters to the run: the layout and physics must agree, a changed tolerance or
+        integrator continues while work is left, and provenance is ignored. Only a
+        path can be resumed. ``"interpolated"`` also continues from a plane
+        interpolated inside a step; ``"force"`` also continues across changed physics,
+        marking the file (:meth:`solprop.driver.simulation.Simulation.run`).
     progress : ProgressReporter, {'auto', 'bar', 'log', 'none'} or None, optional
         Where progress goes; ``None`` takes the process default: a bar on a terminal
         or in a notebook, log lines otherwise (:func:`solprop.driver.run.run_problem`).
@@ -285,7 +290,6 @@ def prop_free(  # noqa: PLR0913 - the simulation interface and output controls
     solprop.output.schema.Output
         Saved fields, metadata, statistics and step history.
     """
-    settings = _with_boundary(settings, grid, absorber, absorber_scheme)
     simulation = Simulation.from_free(
         grid,
         space,
@@ -297,6 +301,8 @@ def prop_free(  # noqa: PLR0913 - the simulation interface and output controls
         noise=noise,
         seed=seed,
         materials=materials,
+        absorber=absorber,
+        absorber_scheme=absorber_scheme,
         boundary_check=boundary_check,
     )
     return simulation.run(
@@ -318,7 +324,7 @@ def prop_planar(  # noqa: PLR0913 - the simulation interface and output controls
     frame: Frame | None = None,
     output: Output | Path | str | None = None,
     snapshots: SnapshotController | None = None,
-    resume: bool | Literal["interpolated"] = False,
+    resume: bool | Literal["interpolated", "force"] = False,
     progress: ProgressReporter | ProgressChoice | None = None,
     progress_period: float = DEFAULT_PROGRESS_PERIOD,
     materials: MaterialSelection | None = None,
@@ -354,10 +360,13 @@ def prop_planar(  # noqa: PLR0913 - the simulation interface and output controls
     snapshots : solprop.output.SnapshotController or None, optional
         Immutable local checkpoints at committed accepted steps; requires HDF5,
         ``step_planes=1``, all fields and non-interpolated observations.
-    resume : bool or {'interpolated'}, optional
-        Continue an existing matching HDF5 file.
-        ``"interpolated"`` also continues a dense run from a plane interpolated
-        inside a step (:meth:`solprop.driver.simulation.Simulation.run`).
+    resume : bool or {'interpolated', 'force'}, optional
+        Continue the file at `output` when its record and this run's agree on what
+        matters to the run: the layout and physics must agree, a changed tolerance or
+        integrator continues while work is left, and provenance is ignored. Only a
+        path can be resumed. ``"interpolated"`` also continues from a plane
+        interpolated inside a step; ``"force"`` also continues across changed physics,
+        marking the file (:meth:`solprop.driver.simulation.Simulation.run`).
     progress : ProgressReporter, {'auto', 'bar', 'log', 'none'} or None, optional
         Where progress goes; ``None`` takes the process default.
     progress_period : float, optional
@@ -386,7 +395,6 @@ def prop_planar(  # noqa: PLR0913 - the simulation interface and output controls
     solprop.output.schema.Output
         Saved fields, metadata, statistics and step history.
     """
-    settings = _with_boundary(settings, grid, absorber, absorber_scheme)
     simulation = Simulation.from_planar(
         grid,
         space,
@@ -395,6 +403,8 @@ def prop_planar(  # noqa: PLR0913 - the simulation interface and output controls
         settings=settings,
         frame=frame,
         materials=materials,
+        absorber=absorber,
+        absorber_scheme=absorber_scheme,
         boundary_check=boundary_check,
     )
     return simulation.run(
@@ -452,7 +462,7 @@ def prop_gnlse(  # noqa: PLR0913 - the interface's keyword surface
     snapshots: SnapshotController | None = None,
     backend: str = "auto",
     precision: PrecisionName = "double",
-    resume: bool | Literal["interpolated"] = False,
+    resume: bool | Literal["interpolated", "force"] = False,
     progress: ProgressReporter | ProgressChoice | None = None,
     progress_period: float = DEFAULT_PROGRESS_PERIOD,
     materials: MaterialSelection | None = None,
@@ -655,11 +665,13 @@ def prop_gnlse(  # noqa: PLR0913 - the interface's keyword surface
         ``backend="auto"`` then resolves to the experimental ``mlx`` where MLX and a
         Metal GPU are present, and is refused otherwise; ``numpy_ref`` runs it as the
         reference, and ``numba_cpu`` and ``native`` refuse it.
-    resume : bool or {'interpolated'}, optional
-        Continue the file at `output` if it holds this same run, instead of replacing
-        it. Only a path can be resumed.
-        ``"interpolated"`` also continues a dense run from a plane interpolated
-        inside a step (:meth:`solprop.driver.simulation.Simulation.run`).
+    resume : bool or {'interpolated', 'force'}, optional
+        Continue the file at `output` when its record and this run's agree on what
+        matters to the run: the layout and physics must agree, a changed tolerance or
+        integrator continues while work is left, and provenance is ignored. Only a
+        path can be resumed. ``"interpolated"`` also continues from a plane
+        interpolated inside a step; ``"force"`` also continues across changed physics,
+        marking the file (:meth:`solprop.driver.simulation.Simulation.run`).
     progress : ProgressReporter, {'auto', 'bar', 'log', 'none'} or None, optional
         Where progress goes; ``None`` takes the process default: a bar on a terminal
         or in a notebook, log lines otherwise (:func:`solprop.driver.run.run_problem`).
@@ -689,8 +701,8 @@ def prop_gnlse(  # noqa: PLR0913 - the interface's keyword surface
         specified in a way this interface does not accept; the message names what is
         wrong.
     OutputError
-        If a file is there and was written for a different run; the message names the
-        fields that changed.
+        If a file is there whose layout or physics differ, and the resume is not
+        forced; the message names what changed.
 
     Examples
     --------
@@ -838,7 +850,7 @@ def prop_capillary(  # noqa: PLR0913 - the interface's keyword surface
     polarisation: str | float | None = None,
     output: Output | Path | str | None = None,
     snapshots: SnapshotController | None = None,
-    resume: bool | Literal["interpolated"] = False,
+    resume: bool | Literal["interpolated", "force"] = False,
     progress: ProgressReporter | ProgressChoice | None = None,
     progress_period: float = DEFAULT_PROGRESS_PERIOD,
     materials: MaterialSelection | None = None,
@@ -1130,11 +1142,13 @@ def prop_capillary(  # noqa: PLR0913 - the interface's keyword surface
     snapshots : solprop.output.SnapshotController or None, optional
         Immutable local checkpoints at committed accepted steps; requires HDF5,
         ``step_planes=1``, all fields and non-interpolated observations.
-    resume : bool or {'interpolated'}, optional
-        Continue an interrupted run in the file at `output`, after checking that its
-        configuration is this one's.
-        ``"interpolated"`` also continues a dense run from a plane interpolated
-        inside a step (:meth:`solprop.driver.simulation.Simulation.run`).
+    resume : bool or {'interpolated', 'force'}, optional
+        Continue the file at `output` when its record and this run's agree on what
+        matters to the run: the layout and physics must agree, a changed tolerance or
+        integrator continues while work is left, and provenance is ignored. Only a
+        path can be resumed. ``"interpolated"`` also continues from a plane
+        interpolated inside a step; ``"force"`` also continues across changed physics,
+        marking the file (:meth:`solprop.driver.simulation.Simulation.run`).
     progress : ProgressReporter, {'auto', 'bar', 'log', 'none'} or None, optional
         Where progress goes; ``None`` takes the process default: a bar on a terminal
         or in a notebook, log lines otherwise (:func:`solprop.driver.run.run_problem`).
@@ -1172,7 +1186,8 @@ def prop_capillary(  # noqa: PLR0913 - the interface's keyword surface
         If a keyword is missing, inconsistent, or names something this path does not
         carry.
     OutputError
-        If a resume is asked for against a file written by a different configuration.
+        If a resume is asked for against a file whose layout or physics differ, and it
+        is not forced (:meth:`solprop.driver.simulation.Simulation.run`).
 
     Examples
     --------
@@ -1348,7 +1363,7 @@ def prop_waveguide(  # noqa: PLR0913 - the interface's keyword surface
     taper_coupling: bool = True,
     output: Output | Path | str | None = None,
     snapshots: SnapshotController | None = None,
-    resume: bool | Literal["interpolated"] = False,
+    resume: bool | Literal["interpolated", "force"] = False,
     progress: ProgressReporter | ProgressChoice | None = None,
     progress_period: float = DEFAULT_PROGRESS_PERIOD,
     materials: MaterialSelection | None = None,
@@ -1620,11 +1635,13 @@ def prop_waveguide(  # noqa: PLR0913 - the interface's keyword surface
     snapshots : solprop.output.SnapshotController or None, optional
         Immutable local checkpoints at committed accepted steps; requires HDF5,
         ``step_planes=1``, all fields and non-interpolated observations.
-    resume : bool or {'interpolated'}, optional
-        Continue an interrupted run in the file at `output`, after checking that its
-        configuration is this one's.
-        ``"interpolated"`` also continues a dense run from a plane interpolated
-        inside a step (:meth:`solprop.driver.simulation.Simulation.run`).
+    resume : bool or {'interpolated', 'force'}, optional
+        Continue the file at `output` when its record and this run's agree on what
+        matters to the run: the layout and physics must agree, a changed tolerance or
+        integrator continues while work is left, and provenance is ignored. Only a
+        path can be resumed. ``"interpolated"`` also continues from a plane
+        interpolated inside a step; ``"force"`` also continues across changed physics,
+        marking the file (:meth:`solprop.driver.simulation.Simulation.run`).
     progress : ProgressReporter, {'auto', 'bar', 'log', 'none'} or None, optional
         Where progress goes; ``None`` takes the process default: a bar on a terminal
         or in a notebook, log lines otherwise (:func:`solprop.driver.run.run_problem`).
@@ -1723,75 +1740,3 @@ def prop_waveguide(  # noqa: PLR0913 - the interface's keyword surface
         progress_period=progress_period,
         resume=resume,
     )
-
-
-def _with_boundary(
-    settings: SimulationSettings,
-    grid: TimeGrid,
-    absorber: Absorber | Literal[False] | None,
-    scheme: AbsorberScheme | None,
-) -> SimulationSettings:
-    """Apply a spatial interface's absorber keywords to its settings (SEP 21 section 5).
-
-    Parameters
-    ----------
-    settings : SimulationSettings
-        The settings given.
-    grid : TimeGrid
-        The run's temporal grid.
-    absorber : Absorber, False or None
-        The collar given; ``False`` zeroes the temporal and spectral rates of the
-        settings' absorber and keeps its lengths, so that the real-space collar, which
-        reads them, is unchanged (without one it builds the hard mask alone, with the
-        real-space collar off, as before); ``None`` leaves the settings' own.
-    scheme : {'nonlinear', 'split_step'} or None
-        The temporal scheme given; ``None`` leaves the settings' own.
-
-    Returns
-    -------
-    SimulationSettings
-        The settings with the keywords applied.
-
-    Raises
-    ------
-    DriverError
-        If a keyword conflicts with what the settings already declare, or a scheme is
-        given beside ``absorber=False``.
-    """
-    changes: dict[str, object] = {}
-    if absorber is False:
-        if scheme is not None:
-            msg = (
-                "absorber=False switches the temporal collar off, so there is nothing "
-                f"for absorber_scheme={scheme!r} to apply; give one or the other"
-            )
-            raise DriverError(msg)
-        current = settings.absorber
-        changes["absorber"] = (
-            dataclasses.replace(no_absorber(grid), spatial=False)
-            if current is None
-            else dataclasses.replace(
-                current,
-                spectral_rate=np.zeros_like(current.spectral_rate),
-                temporal_rate=np.zeros(grid.n_t),
-                temporal_rate_fine=np.zeros(grid.n_to),
-                temporal=False,
-            )
-        )
-    elif absorber is not None:
-        if settings.absorber is not None:
-            msg = (
-                "the settings already declare an absorber; give it there or as the "
-                "absorber keyword, not both"
-            )
-            raise DriverError(msg)
-        changes["absorber"] = absorber
-    if scheme is not None:
-        if settings.absorber_scheme not in (None, scheme):
-            msg = (
-                f"the settings already declare absorber_scheme="
-                f"{settings.absorber_scheme!r}; give it there or as the keyword"
-            )
-            raise DriverError(msg)
-        changes["absorber_scheme"] = scheme
-    return dataclasses.replace(settings, **changes) if changes else settings

@@ -102,7 +102,7 @@ figures = prop_2d(
     run,
     "wavelength",
     spec_range=(100e-9, 1e-6),
-    trange=(-20e-15, 20e-15),
+    time_range=(-20e-15, 20e-15),
     db_min=-30,
     modes="sum",
 )
@@ -131,9 +131,9 @@ print(f"input {start * 1e6:.1f} μJ, 100-140 nm at the exit {band * 1e9:.2f} nJ"
 print(f"conversion efficiency {band / start * 100:.2f} %")
 
 fig, (left, right) = plt.subplots(1, 2, figsize=(9.5, 3.4))
-time_1d(run, trange=(-30e-15, 30e-15), modes="sum", ax=left)
+time_1d(run, time_range=(-30e-15, 30e-15), modes="sum", ax=left)
 left.set_title("Total exit pulse")
-time_1d(run, trange=(-30e-15, 30e-15), modes="sum", bandpass=window, ax=right)
+time_1d(run, time_range=(-30e-15, 30e-15), modes="sum", bandpass=window, ax=right)
 right.set_title("Exit pulse filtered to 100-140 nm")
 fig.tight_layout()
 

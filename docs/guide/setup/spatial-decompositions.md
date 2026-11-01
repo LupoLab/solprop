@@ -807,7 +807,7 @@ azimuthal instability, which dominates above the critical power.
 grid for anything with azimuthal structure. A capillary's azimuthal *mode sets*
 ([above](#capillary-modes-on-the-full-cross-section)) are a different thing: modes of a
 guide, not transforms of free space. The single-order transform is recorded as a
-candidate on the [roadmap](../../dev/roadmap.md).
+candidate in [#205](https://github.com/LupoLab/solprop/issues/205).
 
 ## Choosing a decomposition
 

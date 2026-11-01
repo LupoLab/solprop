@@ -137,9 +137,15 @@ from solprop.physdata import (
     sapphire,
     species,
 )
-from solprop.plotting import energy as plot_energy
-from solprop.plotting import prop_2d, spec_1d, spectrogram, time_1d
-from solprop.plotting import stats as plot_stats
+from solprop.plotting import (
+    plot_energy,
+    plot_stats,
+    prop_2d,
+    spec_1d,
+    spectrogram,
+    time_1d,
+    wavelength_to_axis,
+)
 from solprop.processing import (
     CepOptimum,
     Compression,
@@ -435,6 +441,7 @@ __all__ = [
     "time_bandwidth",
     "transform_limit",
     "transmission",
+    "wavelength_to_axis",
     "zdw",
 ]
 

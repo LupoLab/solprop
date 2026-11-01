@@ -217,9 +217,9 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 <text x="492.5" y="1161.0" font-size="12" class="dim">low_storage · controller · schedule</text>
 <rect x="743.5" y="1108.0" width="251.00000000000003" height="81.5" rx="7" ry="7" class="fill-d" />
 <text x="753.5" y="1130.0" font-size="15" class="bold ink-d">output/</text>
-<text x="753.5" y="1145.5" font-size="12" class="dim">schema · capability · memory · hdf5</text>
-<text x="753.5" y="1161.0" font-size="12" class="dim">tdse_archive · snapshots · scan</text>
-<text x="753.5" y="1176.5" font-size="12" class="dim">scan_artifacts</text>
+<text x="753.5" y="1145.5" font-size="12" class="dim">schema · compatibility · capability</text>
+<text x="753.5" y="1161.0" font-size="12" class="dim">memory · hdf5 · tdse_archive</text>
+<text x="753.5" y="1176.5" font-size="12" class="dim">snapshots · scan · scan_artifacts</text>
 <rect x="307.0" y="1199.5" width="77.75" height="112.5" rx="7" ry="7" class="fill-d" />
 <text x="317.0" y="1221.5" font-size="15" class="bold ink-d">scan.py</text>
 <rect x="394.75" y="1199.5" width="204.8" height="112.5" rx="7" ry="7" class="fill-d" />

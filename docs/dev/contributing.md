@@ -44,6 +44,27 @@ together with the slow and coverage lanes (`poe test-slow`, `poe cov`); a change
 complete when they pass there. A change to the documentation alone needs less; see
 [documentation-only changes](testing.md#documentation-only-changes).
 
+## Add a field to the run record
+
+A run record holds every field of every dataclass it serialises, at its default too,
+and a resume compares records path by path
+([what a resume compares](../guide/results/resuming.md#what-a-resume-compares)). A new
+recorded field therefore needs a decision, and the frozen records of
+`tests/output/test_record_stability.py` fail until it is made:
+
+- if the field's value for an earlier file reproduces what the code did before it
+  existed, add a {py:class}`~solprop.output.compatibility.Neutral` entry to
+  {py:data}`~solprop.output.compatibility.NEUTRAL_VALUES`, naming the release it lands
+  in; it is deleted with that release's frozen records after the next minor release;
+- if it changes what runs compute, add no entry: earlier files are then refused, as a
+  change of physics should be.
+
+Classify the path in {py:data}`~solprop.output.compatibility.CLASS_TABLE` when it is
+not physics: layout, numerics or provenance. A class moved between modules takes an
+entry in {py:data}`~solprop.output.compatibility.CLASS_RENAMES`. Whether the output
+schema is bumped follows [the schema rule](../guide/results/output.md#the-schema-version),
+and a release adds its frozen records ([releasing](releasing.md)).
+
 ## Work on the documentation
 
 Build the manual with `uv run poe docs`. It executes no gallery script: the

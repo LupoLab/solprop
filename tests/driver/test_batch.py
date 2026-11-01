@@ -12,7 +12,7 @@ from jaxtyping import TypeCheckError
 
 from driver.test_scans import build_point
 from runtime_types import requires_typecheck
-from solprop.backends.protocol import Observation, StepHistory, StepStats
+from solprop.backends.protocol import BackendHistory, Observation, StepStats
 from solprop.driver.batch import (
     BatchMember,
     _structure,
@@ -225,7 +225,7 @@ def test_batch_memory_includes_parameter_arrays_and_shared_views():
 @pytest.fixture
 def observed_batch():
     histories = tuple(
-        StepHistory(
+        BackendHistory(
             z=np.array([0.25, 0.5]),
             dz=np.array([0.25, 0.25]),
             error_norm=np.array([0.125, 0.25]) * (index + 1),

@@ -20,17 +20,9 @@ import numpy as np
 
 from bounds import fft_bound
 
-RECORD_RTOL = 1e-11
-"""Agreement asked of each number in a run record with its stored value, relative.
-
-The record's numbers are host computations: the configuration's own literals, and a
-few derived values (material densities and weights, an ionisation threshold). The
-largest departure a change of libm, BLAS or compiler can make is the threshold field's,
-found by bisection to a relative bracket of 1e-12 (``optmat_rates``); a rounding that
-flips one bisection decision moves it within that bracket. The rest are a few hundred
-correctly rounded operations, below 1e-13. Fixed from that bracket with a factor of
-five to spare, and far below any deliberate change to a configured number.
-"""
+# The agreement asked of each number in a run record with its stored value, relative:
+# one constant with the resume comparison (SEP 42), whose module states its basis.
+from solprop.output.compatibility import RECORD_RTOL
 
 
 def record_skeleton(value: object) -> tuple[object, list[float], list[float]]:

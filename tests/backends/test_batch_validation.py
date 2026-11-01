@@ -116,7 +116,7 @@ def test_batch_refuses_reloading_a_shared_field_and_mismatched_statistics(monkey
 @pytest.mark.parametrize("kind", ["common", "numpy", "numba"])
 @pytest.mark.parametrize("norm", [float("nan"), float("inf"), -1.0])
 def test_batch_names_the_member_behind_an_invalid_norm(monkeypatch, kind, norm):
-    # The same value refuses the member's own StepHistory/StepSummary, so a
+    # The same value refuses the member's own BackendHistory/StepSummary, so a
     # singleton does not survive it either: what the batch owes its caller is the
     # index of the point that produced it, not an anonymous history error.
     with ExitStack() as cleanup:

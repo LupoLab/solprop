@@ -21,11 +21,13 @@ import pytest
 
 from solprop.boundaries import absorber, no_absorber
 from solprop.driver import Simulation, SimulationSettings
-from solprop.driver.interface import _with_boundary
-from solprop.driver.simulation import _spatial_default
+from solprop.driver.simulation import _spatial_default, _with_boundary
 from solprop.exceptions import DriverError
-from solprop.grid import FieldGrid
+from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid, RadialGrid
+from solprop.modes import PlanarGrid, SlabMode
 from solprop.modes.capillary import MarcatiliMode
+from solprop.pulses import GaussianPulse, PlanarPulse, SpatialPulse
+from solprop.spatial import SpatialMedium
 from solprop.stepper import PIController
 from solprop.translate.plasma_source import plasma_source_record
 from solprop.translate.raman import kernel_taper
@@ -106,7 +108,7 @@ def test_waveguide_takes_the_scheme() -> None:
     assert simulation.settings.absorber_scheme == "split_step"
 
 
-def _settings(grid: FieldGrid, **keywords: Any) -> SimulationSettings:
+def _settings(grid: FieldGrid | EnvelopeGrid, **keywords: Any) -> SimulationSettings:
     return SimulationSettings(
         PIController(rtol=1e-6, atol=0.0), save_planes=[grid.length],
         dz_max=grid.length, dz_init=grid.length * 1e-3, **keywords,
@@ -128,6 +130,58 @@ def test_spatial_absorber_false_keeps_the_lengths(grid: FieldGrid) -> None:
     assert bare is not None
     assert not np.any(bare.spectral_rate)
     assert bare.spatial is False
+
+
+def _radial(grid: EnvelopeGrid, **keywords: Any) -> Simulation:
+    return Simulation.from_radial(
+        grid, RadialGrid(radius=600e-6, n_r=16), SpatialMedium(), [], _beam(),
+        noise=None, **keywords,
+    )  # fmt: skip
+
+
+def _free(grid: EnvelopeGrid, **keywords: Any) -> Simulation:
+    return Simulation.from_free(
+        grid, FreeGrid(600e-6, 16, 600e-6, 16), SpatialMedium(), [], _beam(),
+        noise=None, **keywords,
+    )  # fmt: skip
+
+
+def _planar(grid: EnvelopeGrid, **keywords: Any) -> Simulation:
+    pulse = PlanarPulse(
+        GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-6),
+        200e-6,
+        waist_x=70e-6,
+    )
+    guide = PlanarGrid([SlabMode(100e-6, "Ar", 1.0)], 1e-3, 8)
+    return Simulation.from_planar(grid, guide, [], pulse, **keywords)
+
+
+def _beam() -> SpatialPulse:
+    return SpatialPulse(
+        GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=3e-9), waist=60e-6
+    )
+
+
+@pytest.mark.parametrize("build", [_radial, _free, _planar])
+def test_spatial_builders_take_the_absorber_keywords(
+    build: Callable[..., Simulation],
+) -> None:
+    """The spatial `from_*` apply the keywords as the spatial `prop_*` do."""
+    grid = EnvelopeGrid.from_limits(1e-3, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False)
+    collar = absorber(grid)
+    given = build(
+        grid,
+        settings=_settings(grid),
+        absorber=collar,
+        absorber_scheme="split_step",
+    )
+    assert given.settings.absorber is collar
+    assert given.settings.absorber_scheme == "split_step"
+    off = build(grid, settings=_settings(grid), absorber=False).settings.absorber
+    assert off is not None
+    assert not np.any(off.spectral_rate)
+    with pytest.raises(DriverError, match="already declare an absorber"):
+        build(grid, settings=_settings(grid, absorber=collar), absorber=collar)
 
 
 def test_spatial_keywords_refuse_a_contradiction(grid: FieldGrid) -> None:

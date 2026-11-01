@@ -565,7 +565,7 @@ def test_stepindex_material_derivative_between_witness_points():
     # Fourth-order truncation plus subtraction of indices near 1.45.
     assert_allclose((4 * narrow - wide) / 3, one.dneff_domega(omega), rtol=1e-9, atol=0)
     assert np.all(np.isfinite(beta2(one, omega)))
-    assert 400e-9 < zdw(one, wavelength_range=(400e-9, 1400e-9)) < 1400e-9
+    assert 400e-9 < zdw(one, wavelength_limits=(400e-9, 1400e-9)) < 1400e-9
     # The cladding's own slope, which every witness fibre leaves at a constant:
     # a numerical-aperture core over a silica cladding (measured 3.36e-11) and a
     # constant core over one (1.06e-10). Both dcladding terms are live here. The

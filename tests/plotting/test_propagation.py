@@ -206,7 +206,7 @@ def test_spec_1d_names_the_modes(multimode):
 
 
 def test_energy_draws_a_conversion_efficiency_axis(single):
-    figure = propagation.energy(single)
+    figure = propagation.plot_energy(single)
     left, right = figure.axes
     assert left.get_ylabel() == "Energy (uJ)"
     assert right.get_ylabel() == "Conversion efficiency (%)"
@@ -216,7 +216,7 @@ def test_energy_draws_a_conversion_efficiency_axis(single):
 
 
 def test_energy_scales_the_efficiency_by_the_input(single):
-    figure = propagation.energy(single)
+    figure = propagation.plot_energy(single)
     left, right = figure.axes
     low, high = left.get_ylim()
     ratio = right.get_ylim()[1] / high
@@ -225,14 +225,14 @@ def test_energy_scales_the_efficiency_by_the_input(single):
 
 
 def test_energy_draws_one_line_per_mode(multimode):
-    figure = propagation.energy(multimode)
+    figure = propagation.plot_energy(multimode)
     assert len(figure.axes[0].lines) == 3
     assert figure.axes[0].get_legend() is not None
 
 
 def test_energy_accepts_a_bandpass_and_an_axis(single):
     figure, ax = plt.subplots()
-    assert propagation.energy(single, bandpass=(700e-9, 900e-9), ax=ax) is figure
+    assert propagation.plot_energy(single, bandpass=(700e-9, 900e-9), ax=ax) is figure
 
 
 def test_the_dash_patterns_repeat_beyond_the_fifth_mode():

@@ -25,7 +25,8 @@ keywords in Python spelling and every quantity in SI units (pressures stay in ba
 | `pulses=[Pulses.GaussPulse(...), ...]` | `pulses=[GaussianPulse(...), ...]` ({class}`~solprop.pulses.PulseSum`) |
 | `modes=:HE11` (mode-averaged), `modes=1`, `modes=4` | `mode_average=True`, `modes=1`, `modes=4`, or a list of mode objects; solprop's default is the resolved `modes=1` |
 | `Plotting.prop_2D`, `time_1D`, `spec_1D` | `prop_2d`, `time_1d`, `spec_1d` |
-| `Plotting.stats`, `Plotting.energy` | `stats`, `energy` (`plot_stats`, `plot_energy` in `solprop.sol`) |
+| `trange`, `λrange`, `dBmin` of a plot | `time_range`, `spec_range`, `db_min`; `spec_range` is in the units of the plot's axis, and `wavelength_to_axis` converts a wavelength range. `trange` stays the time window's length on `prop_*`, as it is in Luna |
+| `Plotting.stats`, `Plotting.energy` | `plot_stats`, `plot_energy` |
 | `Processing.getEt`, `getEω`, `getIω` | `get_field`, `get_spectrum`, `get_spectral_density` |
 | `getEt(...; propagate=f, FTL=true)` | `get_field(..., transfer=f, transform_limit=True)` |
 | `Processing.getφ`, `nearest_z` | `get_phase`, `nearest_plane` |
@@ -280,8 +281,8 @@ error.
   them, not at every accepted step (which costs Luna about a fifth of a step); each has
   one definition.
 - A file records the configuration, package versions and git commit, not a copy of the
-  source; its resume key is a SHA-256 of the whole configuration, and a refused resume
-  names what changed (Luna's key covers only the statistic names and the state shape).
+  source; a resume compares the whole recorded configuration path by path, and a
+  refused resume names what changed (Luna's key covers only the statistic names and the state shape).
   The step schedule and history are stored. The file is opened once and, as Luna's
   is, preallocated for the planned planes with an `n_saved` count; it also grows by
   doubling past them and is trimmed to the count when closed. Compression is gzip or

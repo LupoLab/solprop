@@ -36,8 +36,8 @@ from jaxtyping import Complex, Float
 from solprop._helpers import NUMBA, Helpers
 from solprop._interrupts import committing
 from solprop.backends.protocol import (
+    BackendHistory,
     Observation,
-    StepHistory,
     StepStats,
     StepSummary,
 )
@@ -951,7 +951,10 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
 
         Non-TDSE backends inherit logical budget persistence while refusing atomic
         counts. The caller first loads the saved field, which resets Adams history;
-        the next source evaluation charges startup against these cumulative counts.
+        the next source evaluation charges startup against these cumulative counts. A
+        run continued under a Runge-Kutta or low-storage march keeps no logical
+        ledger: the counts stay in the earlier execution records as provenance and are
+        not installed (SEP 42 section 5.6).
 
         Parameters
         ----------
@@ -971,7 +974,11 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             )
         if logical:
             if self._adams is None:
-                raise BackendError("logical response calls require an Adams run")
+                self._logger.info(
+                    "the charged call ledger stays with the earlier executions: "
+                    "this march keeps none"
+                )
+                return
             # The march imports its driver, so the ledger type is loaded only when
             # a constructed backend restores a saved run.
             from solprop.backends.multistep import CallLedger  # noqa: PLC0415
@@ -1400,7 +1407,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         state = self._require_state()
         if self._low_storage is not None:
             self._hold(None if field else state)
-        history = StepHistory(
+        history = BackendHistory(
             z=np.array([entry[0] for entry in self._history], dtype=np.float64),
             dz=np.array([entry[1] for entry in self._history], dtype=np.float64),
             error_norm=np.array(
@@ -1483,7 +1490,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             z=z,
             field=self._held_field(),
             noise_phase=phase,
-            step_history=StepHistory(
+            step_history=BackendHistory(
                 np.empty(0), np.empty(0), np.empty(0), np.empty(0, bool), np.empty(0)
             ),
             n_steps=0,

@@ -309,6 +309,33 @@ class Multistep:
         return f"{prefix}adams-pec{self.order}/{self.order + 1}{variable}{frame}"
 
     @property
+    def history_key(self) -> str:
+        """Return what defines the history a march of this method keeps.
+
+        A resume continues an Adams history only when the snapshot's key equals the
+        resuming method's (SEP 42 section 5.6): the formulation, the carrier frame and
+        the highest order define the samples a history holds and how they combine. The
+        call budget, the safety factor and the other step-size settings choose the
+        next step, not what the history means, so a change of them keeps it.
+
+        Returns
+        -------
+        str
+            :attr:`name` without the variable-order marker.
+
+        Examples
+        --------
+        >>> from solprop.stepper.multistep import Multistep
+        >>> Multistep(max_calls=10).history_key == Multistep(safety=0.5).history_key
+        True
+        >>> Multistep().history_key == Multistep(order=4).history_key
+        False
+        """
+        prefix = "exponential-" if self.formulation == "exponential" else ""
+        frame = "" if self.carrier_frame == "off" else f"-{self.carrier_frame}-frame"
+        return f"{prefix}adams-pec{self.order}/{self.order + 1}{frame}"
+
+    @property
     def real_stability_interval(self) -> float:
         """Return the negative-real stability interval of the highest order run.
 
@@ -419,6 +446,20 @@ class ComparisonMultistep(Multistep):
                 "(corrector 'pec' or 'pece' with corrector_order = order + 1)"
             )
             raise StepperError(msg)
+
+    @property
+    def history_key(self) -> str:
+        """Return what defines the history a march of this variant keeps.
+
+        Every field of a comparison variant may shape its history, so the whole
+        representation: any change restarts it.
+
+        Returns
+        -------
+        str
+            The variant's representation.
+        """
+        return repr(self)
 
     @property
     def name(self) -> str:

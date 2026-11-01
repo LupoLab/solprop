@@ -131,10 +131,6 @@ through `Draft`, `Accepted`, `In progress` and `Deferred`, and closes when the S
    Part III with the date drafted.
 3. Add the SEP to the index table, the index's toctree and the *Draft enhancement
    proposals* section of the [roadmap](../roadmap.md), after the accepted proposals.
-   Review the informal roadmap items in the same change: remove an item only when the
-   SEP covers it in full; for partial coverage, link the SEP, state what it covers and
-   retain the remaining work. Discussion of a possible future extension does not count
-   as coverage by the proposal's implementation scope.
 4. Search the open [issues](https://github.com/LupoLab/solprop/issues) for anything the
    SEP touches, and list what you find in its *Context* section: the issues it will fix,
    those that must be resolved before it, and any others it changes.
@@ -146,8 +142,8 @@ through `Draft`, `Accepted`, `In progress` and `Deferred`, and closes when the S
    documentation and can be discussed.
 
 Revising a draft is free: edit it in place in further pull requests and add a line to
-Part III for each substantial revision. Update its roadmap summary and the informal
-items whenever its scope changes; work that the revised scope no longer covers goes in an
+Part III for each substantial revision. Update its roadmap summary whenever its
+scope changes; work that the revised scope no longer covers goes in an
 issue (ADR-062).
 
 ### Review
@@ -216,18 +212,22 @@ An implementer picks up an accepted SEP with a commit that sets the status to
 `In progress` and records, in the **Implementation** field, who is implementing it and the
 branch. Every phase is made on that one branch, `feature/sep-NNNN-short-slug`, which may
 start on top of an open pull request's branch when pull requests are stacked behind CI.
-Each phase is:
+Push that commit and open the SEP's one pull request from it, as a draft titled
+`WIP: SEP N …` and linked from the tracking issue, so that CI can run during development
+and the work can be followed. Each phase is:
 
 1. implemented under the rules of §7, native code in `native/` with the Python backends;
 2. checked with the fast checks and the directly affected tests of `AGENTS.md` only;
 3. reported: the phase report (§8) is appended to Part II, and the **Implementation**
    field and Part III updated, in commits on the branch.
 
-The SEP reaches `main` in one pull request, opened when its last commit sets `Final`
-(*Completion*). CI runs the full gate, slow and coverage lanes on it; failures are fixed
-by further commits on the branch. Reviewers review that pull request, and merging it is
-the maintainers' approval. Phases may be taken by different implementers, one after
-another on the branch.
+The SEP reaches `main` in that pull request, marked ready for review when its last commit
+sets `Final` (*Completion*). CI runs the full gate, slow and coverage lanes on every push
+to it. It need not be green while the pull request is a draft, and a push that needs no
+run has `[skip ci]` in its head commit's message; failures are fixed by further commits
+on the branch. Reviewers review the pull request once it is ready, and merging it is the
+maintainers' approval. Phases may be taken by different implementers, one after another
+on the branch.
 
 ### Completion
 
@@ -335,7 +335,7 @@ assumption that had to be invented are all said plainly.
 | Manual (`docs/`) | How the functionality works and how to use it, as it is now |
 | Design pages (`docs/dev/`) | How the code is built, as it is now |
 | [Issues](https://github.com/LupoLab/solprop/issues) | Planned work (ADR-062) |
-| [Roadmap](../roadmap.md) | Accepted and draft SEPs, then older open work not yet moved to issues |
+| [Roadmap](../roadmap.md) | Accepted and draft SEPs |
 | `CHANGELOG.md` | What changed in each release, citing the SEP |
 
 The theory of a SEP moves into the manual when it is implemented: the manual page carries
@@ -367,3 +367,9 @@ that edits this document and adds a line to its history.
   move over time, and work a SEP gives back goes in an issue; each SEP has a tracking
   issue, and a draft lists the open issues it touches; the roadmap keeps the lists of
   accepted and draft SEPs for now (maintainer's decision, ADR-062).
+- 2026-11-01: The roadmap's informal items moved to issues, so a new SEP no longer reviews
+  them.
+- 2026-11-01: A SEP implementation's one pull request is opened as a draft when
+  implementation starts, not when the SEP is set `Final`, so that CI can run during
+  development and the work can be followed; it is marked ready at `Final` (maintainer's
+  decision, already the practice on SEP 40 and SEP 41).
