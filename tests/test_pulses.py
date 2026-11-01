@@ -698,6 +698,39 @@ def test_a_time_record_follows_its_own_group_delay(
     assert relative_l2(built, expected) < tolerance
 
 
+@pytest.mark.parametrize(
+    ("arrival", "disturbance", "tolerance"),
+    [
+        # A baseline is one bin at zero frequency, out of the band, so only the spline's
+        # 6.6e-7 is left. It reaches the phase through the delay, unless taken out.
+        (500e-15, 0.01 * np.ones(8192), 2e-6),
+        (100e-15, 0.1 * np.ones(8192), 2e-6),
+        # A 10 % background periodic on the record, one bin far below the band: 1.5e-6
+        # measured, and 170 % if the delay is not clamped to the record.
+        (500e-15, 0.1 * np.cos(2.0 * np.pi * 3.0 * np.arange(8192) / 8192), 5e-6),
+        # White noise of 1 % of the peak, which the spectrum then holds: 0.7 % measured.
+        (500e-15, 0.01 * np.random.default_rng(1).standard_normal(8192), 2e-2),
+    ],
+    ids=["baseline_late", "baseline_early", "periodic_background", "noise"],
+)
+def test_a_measured_time_record_stays_where_it_sat(
+    arrival, disturbance, tolerance, chirped_grid
+):
+    t = np.linspace(0.0, 800e-15, 8192)
+    omega_p = 2.0 * np.pi * C / WAVELENGTH
+    width = 20e-15
+    pulse = np.exp(-(((t - arrival) / width) ** 2)) * np.cos(omega_p * t)
+    built = DataPulse.from_time(t, pulse + disturbance, energy=ENERGY).build(
+        chirped_grid
+    )[0, 0]
+    omega = np.linspace(0.8 * omega_p, 1.2 * omega_p, 4001)
+    offset = omega - omega_p
+    reference = DataPulse.from_spectral_density(
+        omega, np.exp(-0.5 * (offset * width) ** 2), offset * arrival, energy=ENERGY
+    ).build(chirped_grid)[0, 0]
+    assert relative_l2(built, reference) < tolerance
+
+
 def test_a_time_record_with_no_field_has_a_zero_spectrum_and_phase():
     t = np.linspace(0.0, 800e-15, 64)
     pulse = DataPulse.from_time(t, np.zeros_like(t), energy=ENERGY)

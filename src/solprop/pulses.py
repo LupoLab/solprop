@@ -1882,6 +1882,7 @@ def _continued_phase(
     omega: Float[np.ndarray, " n_data"],
     spectrum: Complex[np.ndarray, " n_data"],
     moment: Complex[np.ndarray, " n_data"],
+    half_length: float,
 ) -> Float[np.ndarray, " n_data"]:
     """Return a record's spectral phase, continued along its own group delay.
 
@@ -1892,6 +1893,12 @@ def _continued_phase(
     a spectral minimum's fast phase can tip it. Where ``S`` vanishes the delay is taken
     as zero, since no phase is defined there.
 
+    Nothing in a record lies outside it, so the delay about its middle is clamped to the
+    record. Where ``S`` is near its rounding floor ``M / S`` can be far larger, as with
+    a background periodic on the record, which is one bin of ``S`` but spreads in ``M``.
+    Unclamped, the phase then reaches 1e14 rad, where float64 cannot hold it: 1 % of
+    such a background on a pulse past the record's middle was built 93 % wrong, not 7e-7.
+
     Parameters
     ----------
     omega : numpy.ndarray
@@ -1899,16 +1906,25 @@ def _continued_phase(
     spectrum : numpy.ndarray
         The record's transform ``S`` on ``omega``, shape ``(n_data,)``.
     moment : numpy.ndarray
-        The transform ``M`` of the record times its time, about the same origin as
-        ``spectrum``, in seconds times the units of ``spectrum``, shape ``(n_data,)``.
+        The transform ``M`` of the record, less its mean, times its time, about the same
+        origin as ``spectrum``, in seconds times the units of ``spectrum``, shape
+        ``(n_data,)``.
+    half_length : float
+        Half the length of the record, s, with ``spectrum`` about its middle.
 
     Returns
     -------
     numpy.ndarray
         The continuous phase of `spectrum`, rad, shape ``(n_data,)``.
     """
-    delay = np.real(
-        np.divide(moment, spectrum, out=np.zeros_like(spectrum), where=spectrum != 0.0)
+    delay = np.clip(
+        np.real(
+            np.divide(
+                moment, spectrum, out=np.zeros_like(spectrum), where=spectrum != 0.0
+            )
+        ),
+        -half_length,
+        half_length,
     )
     wrapped = np.angle(spectrum)
     change = np.diff(wrapped)
@@ -2407,8 +2423,15 @@ class DataPulse(Displayed):
         middle = 0.5 * (times[0] + times[-1])
         shift = np.exp(1j * positive * (times[0] - middle))
         centred = transform[keep] * shift
-        moment = (n_data * np.fft.ifft((times - middle) * values))[keep] * shift
-        angle = _continued_phase(positive, centred, moment) + positive * middle
+        # A baseline lies in the zero-frequency bin of the record's transform, which is
+        # dropped, but times the time axis it is a sawtooth that decays slowly across
+        # the band and swamps the delay in the pulse's wings, so it is taken out first.
+        # A 10 % baseline otherwise costs 1.3e-3 against the clean record's 6.6e-7.
+        ramp = (times - middle) * (values - np.mean(values))
+        moment = (n_data * np.fft.ifft(ramp))[keep] * shift
+        half_length = 0.5 * n_data * float(steps[0])
+        angle = _continued_phase(positive, centred, moment, half_length)
+        angle = angle + positive * middle
         return cls(
             omega=positive,
             # From the phase held, so that the two agree to rounding; adding up the
