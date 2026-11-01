@@ -144,20 +144,27 @@ before the first tag:
    publish by pushing a tag.
 3. Under *Settings → Secrets and variables → Actions*, add the repository variable
    `PUBLISH` with the value `true`. The publish jobs are skipped without it.
+4. **On Zenodo**, signed in with GitHub, switch on `LupoLab/solprop` under *GitHub*
+   (the organisation must grant Zenodo's application access). Zenodo archives each
+   GitHub release, not a tag, with the metadata of `.zenodo.json`, and gives it a DOI,
+   plus one concept DOI for every version.
 
 Then, for every release:
 
-4. On `main`, check that the changelog's `Unreleased` section describes the release,
-   then move it under the new version. The commit that does so is the release commit.
-5. Check that CI passed on the release commit. When it merged a pull request whose head
+5. On `main`, check that the changelog's `Unreleased` section describes the release,
+   then move it under the new version, `## [X.Y.Z] - YYYY-MM-DD`, and give
+   `CITATION.cff` the same `version` and `date-released`
+   (`tests/test_release_metadata.py` checks that they agree). The commit that does so
+   is the release commit.
+6. Check that CI passed on the release commit. When it merged a pull request whose head
    has the same tree and passed CI, the push to `main` runs none of CI's lanes
    ([CI](tooling.md#ci)), and that pull request's run is the release commit's record.
-6. With the release commit at the head of `main`, run the wheels workflow on it,
+7. With the release commit at the head of `main`, run the wheels workflow on it,
    `gh workflow run wheels.yml --ref main`, and wait for it to pass. It is the only
    workflow that builds and tests the Linux aarch64 wheel, and on `main` it otherwise
    runs only weekly. On a branch the publish jobs are skipped, so this is a dry run of
    the release.
-7. Then tag that commit, as below.
+8. Then tag that commit, as below.
 
 ### Tagging and publishing
 
@@ -178,6 +185,10 @@ Then, for every release:
    has seen, so a release that needs a change takes a new version.
 3. Install the published release in a fresh environment, `pip install "solprop[native]"`
    on each platform, and check that `backend="auto"` resolves to `native`.
+4. Publish a GitHub release from the tag, with the version's changelog section as its
+   notes: `gh release create vX.Y.Z --verify-tag --title "solprop X.Y.Z" --notes-file
+   NOTES.md`. Zenodo archives it and gives it a DOI; on the first release, add the
+   concept DOI, which names every version, to `CITATION.cff` and the README.
 
 The actions in the workflows are pinned by commit; when updating one, take the commit of
 its release tag and keep the version in the trailing comment.

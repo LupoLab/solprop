@@ -74,10 +74,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from solprop.driver import prop_capillary
-from solprop.exceptions import (
-    GrazingIncidenceWarning,
-    SolpropWarning,
-)
+from solprop.exceptions import GrazingIncidenceWarning
 from solprop.modes import CoherentWall
 from solprop.plotting import prop_2d, time_1d
 from solprop.processing import bandpass, energy, fwhm_t, get_power, grid_of
@@ -101,7 +98,7 @@ total power then beats at their difference frequency, which makes the width of t
 *total* power a sub-femtosecond fringe rather than the pulse. Durations and peak
 powers below are of the pump band alone, through a band-pass."""
 
-PUMP = {"lambda0": 800e-9, "fwhm": 10e-15, "energy": 250e-6}
+PUMP = {"wavelength": 800e-9, "fwhm": 10e-15, "energy": 250e-6}
 """The pump: wavelength (m), duration (s) and energy (J)."""
 
 UV = (100e-9, 250e-9)
@@ -115,7 +112,7 @@ design = capillary_params(
     2.0 * ENTRANCE / 3.0,
     energy=PUMP["energy"],
     fwhm=PUMP["fwhm"],
-    wavelength=PUMP["lambda0"],
+    wavelength=PUMP["wavelength"],
     shape="gauss",
 )
 print(design)
@@ -138,12 +135,11 @@ print(design)
 def propagate(pressure):
     """Propagate the pump through the capillary at one fill."""
     with warnings.catch_warnings():
-        # Two notices every run repeats, each one of the approximations named at
-        # the top: the wall's quasi-static ratio comes within a factor ten of its
-        # limit at the band's longest wavelengths; and the wall's generator is
-        # resolved along z to the round-off floor of its samples, which it reports.
-        for category in (GrazingIncidenceWarning, SolpropWarning):
-            warnings.simplefilter("ignore", category)
+        # A notice every run repeats, one of the approximations named at the top:
+        # the wall's quasi-static ratio comes within a factor ten of its limit at
+        # the band's longest wavelengths. Every other warning, the boundary
+        # monitor's included, is shown.
+        warnings.simplefilter("ignore", GrazingIncidenceWarning)
         return prop_capillary(
             RADIUS,
             LENGTH,

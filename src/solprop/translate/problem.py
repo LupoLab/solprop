@@ -172,13 +172,13 @@ __all__ = [
     "DEFAULT_FLOW_CONDITION_LIMIT",
     "DEFAULT_STRETCH",
     "EXPONENT_BUDGET",
+    "KERNEL_SCHEMA_VERSION",
     "LOG_DBL_MAX",
     "LOG_FLT_MAX",
     "MAX_GENERAL_FLOW_EXPONENT",
     "MAX_N_COMPONENTS",
     "MAX_N_POL",
     "MOVING_FLOW_CERTIFICATE",
-    "SCHEMA_VERSION",
     "TAPER_FLOW_CERTIFICATE",
     "Flags",
     "Initial",
@@ -195,7 +195,7 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 39
+KERNEL_SCHEMA_VERSION = 40
 """Version of the kernel contract this module implements.
 
 Incremented on every change to the field list of ``docs/dev/kernel-contract.md``. A
@@ -452,6 +452,10 @@ number its algorithm reads, and the driver's protected surface gains
 attempt and of an accepted step on which the driver has no work, beside the frozen
 ``_take_step_stats``, ``_natural_stop`` and ``_natural_stop_due``; no ``KernelProblem``
 field or stage bundle moves.
+
+Version 40 gives ``StepDriver.set_initial`` its ``resume`` keyword: a stored field never
+takes the ``input`` draw again, at the launch position included, where a file holding
+only its launch plane resumes. No ``KernelProblem`` field or stage bundle moves.
 """
 
 DEFAULT_COMPONENTS = ("x",)
@@ -1026,7 +1030,7 @@ class KernelProblem:
     Attributes
     ----------
     schema_version : int
-        The contract version, :data:`SCHEMA_VERSION`.
+        The contract version, :data:`KERNEL_SCHEMA_VERSION`.
     grid_kind : {'field', 'envelope'}
         Selects r2c/c2r against c2c transforms and the response formulas.
     shape : tuple of int
@@ -1078,7 +1082,7 @@ class KernelProblem:
     ...     dz_max=0.1, dz_init=1e-3, shock=False, prefactor_index=1.0, density=1.0,
     ... )
     >>> problem.shape, problem.grid_kind, problem.schema_version
-    ((1, 1, 1, 3072), 'envelope', 39)
+    ((1, 1, 1, 3072), 'envelope', 40)
     """
 
     schema_version: int
@@ -1185,10 +1189,10 @@ class KernelProblem:
         >>> problem.validate() is None
         True
         """
-        if self.schema_version != SCHEMA_VERSION:
+        if self.schema_version != KERNEL_SCHEMA_VERSION:
             msg = (
-                f"schema_version {self.schema_version} is not the {SCHEMA_VERSION} "
-                "this translation layer writes"
+                f"schema_version {self.schema_version} is not the kernel schema "
+                f"{KERNEL_SCHEMA_VERSION} this translation layer writes"
             )
             raise TranslationError(msg)
         if (self.tdse is None) != (self.current_numerator is None):
@@ -1250,9 +1254,9 @@ class KernelProblem:
         --------
         >>> from solprop.driver import Simulation
         >>> simulation = Simulation.from_gnlse(
-        ...     0.11, 0.01, [0.0, 0.0, -1.183e-26], lambda0=835e-9,
+        ...     0.11, 0.01, [0.0, 0.0, -1.183e-26], wavelength=835e-9,
         ...     wavelength_limits=(500e-9, 2e-6), trange=1e-12,
-        ...     width=100e-15, peak_power=9.8, pulseshape="sech",
+        ...     width=100e-15, peak_power=9.8, shape="sech",
         ... )
         >>> simulation.translate().validate_launch() is None
         True
@@ -6323,7 +6327,7 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
         step_planes=step_planes,
     )
     problem = KernelProblem(
-        schema_version=SCHEMA_VERSION,
+        schema_version=KERNEL_SCHEMA_VERSION,
         grid_kind=grid.kind,
         shape=(n_batch, n_modes, n_pol, n_omega),
         flags=Flags.from_content(
@@ -6392,12 +6396,12 @@ def debug_summary(problem: KernelProblem) -> str:
     >>> from solprop.driver import Simulation
     >>> from solprop.translate.problem import debug_summary
     >>> simulation = Simulation.from_gnlse(
-    ...     0.11, 0.01, [0.0, 0.0, -1.183e-26], lambda0=835e-9,
+    ...     0.11, 0.01, [0.0, 0.0, -1.183e-26], wavelength=835e-9,
     ...     wavelength_limits=(500e-9, 2e-6), trange=1e-12,
-    ...     width=100e-15, peak_power=9.8, pulseshape="sech", n_save=3,
+    ...     width=100e-15, peak_power=9.8, shape="sech", n_save=3,
     ... )
     >>> print(debug_summary(simulation.translate()).splitlines()[0])
-    kernel problem schema 39: envelope grid, route modal
+    kernel problem schema 40: envelope grid, route modal
     """
     linear, transform = problem.linear, problem.transform
     tables, metric = transform.modal_tables, linear.modal_metric

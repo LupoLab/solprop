@@ -240,7 +240,7 @@ def _transient_case():
             modes=4,
             grid=grid,
             absorber=absorber(grid, boundary_length=1.0e3),
-            lambda0=800e-9,
+            wavelength=800e-9,
             fwhm=10e-15,
             energy=1e-9,
             dz_max=TRANSIENT_STEP,

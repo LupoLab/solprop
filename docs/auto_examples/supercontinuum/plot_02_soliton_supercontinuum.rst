@@ -96,7 +96,7 @@ spectrum
                     5.0,
                     "He",
                     (0.2, 0.0),
-                    lambda0=800e-9,
+                    wavelength=800e-9,
                     fwhm=6e-15,
                     energy=1e-3,
                     trange=1e-12,
@@ -229,7 +229,7 @@ independent fields, 1 for identical ones).
 
  .. code-block:: none
 
-    20 shots; spectrally weighted RIN 3.767e-06, spectrally weighted coherence 0.999999999933
+    20 shots; spectrally weighted RIN 3.758e-06, spectrally weighted coherence 0.999999999934
 
 
 
@@ -257,7 +257,7 @@ Runtime and reproducibility
 
  .. code-block:: none
 
-    766 s for 20 shots; backend native
+    107 s for 20 shots; backend native
 
 
 
@@ -274,7 +274,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (12 minutes 45.758 seconds)
+   **Total running time of the script:** (1 minutes 46.949 seconds)
 
 
 .. _sphx_glr_download_auto_examples_supercontinuum_plot_02_soliton_supercontinuum.py:

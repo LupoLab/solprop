@@ -28,7 +28,7 @@ runs on **a field grid, for a guide of constant geometry or a solid guide whose 
 moves along z**, on `numpy_ref`, `numba_cpu` and the native backend (its CPU build and
 its CUDA and HIP device builds alike); a coupled flow runs on all of them too, except
 that a flow with a CF4 section runs on `numpy_ref` alone. A general modal run writes,
-reads back and resumes an HDF5 file (output schema 7), a scan point writes one, and a
+reads back and resumes an HDF5 file, a scan point writes one, and a
 batch of launches on one guide runs in lockstep. A declared basis over a block that is
 only *nearly* degenerate propagates as a coupled matrix flow, and a guide whose geometry
 moves carries the connection of its moving basis, which couples its channels.
@@ -86,7 +86,7 @@ output = prop_waveguide(
     length,
     provider=guide,
     grid=grid,
-    lambda0=835e-9,
+    wavelength=835e-9,
     fwhm=40e-15,
     energy=4e-11,
     n_save=2,
@@ -123,7 +123,7 @@ it, coupled under a declared model
 ```text
 beam = SpatialPulse(GaussianPulse(wavelength=835e-9, fwhm=20e-15, energy=1e-9), 3e-6)
 simulation = Simulation.from_waveguide(
-    (), length, provider=guide, lambda0=835e-9, grid=grid, incident=beam,
+    (), length, provider=guide, wavelength=835e-9, grid=grid, incident=beam,
     coupling=CouplingModel("vector_paraxial", model_error=0.2),
 )
 simulation.configuration["launch"]   # the CouplingReport: incident, launched, budget
@@ -181,7 +181,7 @@ capture: it is physics, not a defect.
 The beam is launched at its waist (`propz=0`; otherwise it is refused, because carrying a
 beam to the entrance is transport, which this launch does not model) and centred on the
 guide's axis; a one-component Jones vector is polarised along x. The beam carries its own
-pulse, so `fwhm`, `width`, `energy`, `peak_power`, `phases`, `pulses` and `pulseshape` are
+pulse, so `fwhm`, `width`, `energy`, `peak_power`, `phases`, `pulses` and `shape` are
 refused beside it, as is `channel=`. Direct amplitudes — a named channel, or a state
 passed to {meth}`~solprop.driver.simulation.Simulation.with_input` — already describe
 light inside the guide and are launched as they are.
@@ -236,7 +236,7 @@ import dataclasses
 from solprop.driver import Simulation
 
 simulation = Simulation.from_waveguide(
-    (), length, provider=guide, grid=grid, lambda0=835e-9, fwhm=40e-15, energy=4e-11
+    (), length, provider=guide, grid=grid, wavelength=835e-9, fwhm=40e-15, energy=4e-11
 )
 simulation.settings = dataclasses.replace(
     simulation.settings, absorber_scheme="split_step"
@@ -305,14 +305,14 @@ and a `nan` at every plane would read as "no alarm was raised" when what is true
 bound and its sampled Gram are checked once, when the guide is built, and nothing watches
 the resolution during the run.
 
-**Output schema 7 carries this basis.** A general modal run writes an HDF5 file, reads it
+**The output file carries this basis.** A general modal run writes an HDF5 file, reads it
 back and resumes it: the record persists the channel labels row by row, the provider, the
 sampling the reference is rebuilt from, the materials and their declared Kerr responses,
 the table and metric identities with the measured Gram defect, the shared co-moving
 frame, the run's active band, the basis the noise was drawn in, and the list of accessors
 the basis admits. All of that is inside the resume key, so a run continued against a
-changed guide, table, material or channel order is refused by the field that moved, and a
-file written before schema 7 is never resumed into one. A **declared change of basis** is
+changed guide, table, material or channel order is refused by the field that moved. A
+**declared change of basis** is
 in the key four times over — the metric's kind moves to `dense`, both gauges gain
 `+circular(i,j)`, the channels carry handedness instead of parity, and the sampling
 carries the declaration with its matrix — so a file written in one basis cannot resume in
@@ -392,7 +392,7 @@ at the translation layer and in the backend.
   rather than redefined.
 * `observable_rtol` and `observable_atol` as numbers, which nothing would enforce.
 
-**How to read the record.** `output.metadata.modal` is the run's schema-7 modal
+**How to read the record.** `output.metadata.modal` is the run's modal
 identity, and every entry of it is in the key a resume is checked against. `basis` says
 which kind of channels the state carries; `guide` names the provider, the sampling it
 was solved on and — only where one was declared — the change of basis with its matrix;
@@ -423,7 +423,7 @@ which runs on `numpy_ref` alone:
 
 * `Simulation.from_waveguide(..., provider=guide)` and
   `prop_waveguide(..., provider=guide)`, with the launch, the noise draw, the statistics
-  above, in-memory results and an HDF5 file that reads back and resumes (schema 7);
+  above, in-memory results and an HDF5 file that reads back and resumes;
 * the three-component nonlinear source, chunked over nodes with its own memory ledger;
 * the instantaneous cubic in two declared forms, `kerr_form="real"` (the default, third
   harmonic included) and `"analytic"`, and the silica tensor Raman model as a region's
@@ -478,7 +478,7 @@ Not implemented, and refused rather than approximated:
   provider's node rule carries no embedded coarse rule to difference. Unlike the power
   names this one is a gap: a second rule, or a tail estimate, would give the alarm
   something to report;
-* the **reference arrays in the file**. Output schema 7 records the guide's *identity*
+* the **reference arrays in the file**. The run record holds the guide's *identity*
   and not its tens of megabytes of stored E and H, so a reconstruction is made by
   rebuilding the tables from the guide — tens of milliseconds for the route, about 0.7 s
   if the guide itself must still be solved — and every accessor checks them against the

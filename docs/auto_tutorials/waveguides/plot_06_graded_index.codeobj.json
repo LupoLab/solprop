@@ -1,0 +1,1978 @@
+{
+ "AXIS_INDEX": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "float"
+  }
+ ],
+ "C": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "float"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.constants",
+   "module_short": "solprop.constants",
+   "name": "C"
+  }
+ ],
+ "CONTRAST": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "float"
+  }
+ ],
+ "ELEMENTS": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "int"
+  }
+ ],
+ "FieldGrid.from_limits": [
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.grid",
+   "module_short": "solprop.grid",
+   "name": "FieldGrid.from_limits"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "FieldGrid.from_limits"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.grid",
+   "module_short": "solprop.grid",
+   "name": "TimeGrid.from_limits"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "TimeGrid.from_limits"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop._display",
+   "module_short": "solprop._display",
+   "name": "Displayed.from_limits"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "Displayed.from_limits"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.grid.FieldGrid",
+   "module_short": "solprop.grid.FieldGrid",
+   "name": "from_limits"
+  }
+ ],
+ "GradedIndexProvider": [
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.modes.graded_index",
+   "module_short": "solprop.modes",
+   "name": "GradedIndexProvider"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.modes",
+   "module_short": "solprop.modes",
+   "name": "GradedIndexProvider"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "GradedIndexProvider"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop._display",
+   "module_short": "solprop._display",
+   "name": "Displayed"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "Displayed"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.modes",
+   "module_short": "solprop.modes",
+   "name": "GradedIndexProvider"
+  }
+ ],
+ "IndexMaterial": [
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.modes.material",
+   "module_short": "solprop.modes",
+   "name": "IndexMaterial"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.modes",
+   "module_short": "solprop.modes",
+   "name": "IndexMaterial"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "IndexMaterial"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.modes",
+   "module_short": "solprop.modes",
+   "name": "IndexMaterial"
+  }
+ ],
+ "ModalGuide.from_provider": [
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.modes.guide",
+   "module_short": "solprop.modes",
+   "name": "ModalGuide.from_provider"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.modes",
+   "module_short": "solprop.modes",
+   "name": "ModalGuide.from_provider"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "ModalGuide.from_provider"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop._display",
+   "module_short": "solprop._display",
+   "name": "Displayed.from_provider"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "Displayed.from_provider"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.modes.ModalGuide",
+   "module_short": "solprop.modes.ModalGuide",
+   "name": "from_provider"
+  }
+ ],
+ "PowerLawPermittivity": [
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.modes.graded_index",
+   "module_short": "solprop.modes",
+   "name": "PowerLawPermittivity"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.modes",
+   "module_short": "solprop.modes",
+   "name": "PowerLawPermittivity"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "PowerLawPermittivity"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.modes",
+   "module_short": "solprop.modes",
+   "name": "PowerLawPermittivity"
+  }
+ ],
+ "RADIUS": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "float"
+  }
+ ],
+ "Simulation.from_waveguide": [
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.driver.simulation",
+   "module_short": "solprop.driver",
+   "name": "Simulation.from_waveguide"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.driver",
+   "module_short": "solprop.driver",
+   "name": "Simulation.from_waveguide"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "Simulation.from_waveguide"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop._display",
+   "module_short": "solprop._display",
+   "name": "Displayed.from_waveguide"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "Displayed.from_waveguide"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.driver.Simulation",
+   "module_short": "solprop.driver.Simulation",
+   "name": "from_waveguide"
+  }
+ ],
+ "WAVELENGTH": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "float"
+  }
+ ],
+ "active": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ndarray"
+  }
+ ],
+ "ax": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.axes._axes",
+   "module_short": "matplotlib.axes",
+   "name": "Axes"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.axes",
+   "module_short": "matplotlib.axes",
+   "name": "Axes"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib",
+   "module_short": "matplotlib",
+   "name": "Axes"
+  }
+ ],
+ "ax.legend": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.axes._axes",
+   "module_short": "matplotlib.axes",
+   "name": "Axes.legend"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.axes",
+   "module_short": "matplotlib.axes",
+   "name": "Axes.legend"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib",
+   "module_short": "matplotlib",
+   "name": "Axes.legend"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.axes._base",
+   "module_short": "matplotlib.axes._base",
+   "name": "_AxesBase.legend"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.axes",
+   "module_short": "matplotlib.axes",
+   "name": "_AxesBase.legend"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib",
+   "module_short": "matplotlib",
+   "name": "_AxesBase.legend"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.artist",
+   "module_short": "matplotlib.artist",
+   "name": "Artist.legend"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib",
+   "module_short": "matplotlib",
+   "name": "Artist.legend"
+  }
+ ],
+ "ax.plot": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.axes._axes",
+   "module_short": "matplotlib.axes",
+   "name": "Axes.plot"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.axes",
+   "module_short": "matplotlib.axes",
+   "name": "Axes.plot"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib",
+   "module_short": "matplotlib",
+   "name": "Axes.plot"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.axes._base",
+   "module_short": "matplotlib.axes._base",
+   "name": "_AxesBase.plot"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.axes",
+   "module_short": "matplotlib.axes",
+   "name": "_AxesBase.plot"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib",
+   "module_short": "matplotlib",
+   "name": "_AxesBase.plot"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.artist",
+   "module_short": "matplotlib.artist",
+   "name": "Artist.plot"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib",
+   "module_short": "matplotlib",
+   "name": "Artist.plot"
+  }
+ ],
+ "ax.set": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.axes._axes",
+   "module_short": "matplotlib.axes",
+   "name": "Axes.set"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.axes",
+   "module_short": "matplotlib.axes",
+   "name": "Axes.set"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib",
+   "module_short": "matplotlib",
+   "name": "Axes.set"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.axes._base",
+   "module_short": "matplotlib.axes._base",
+   "name": "_AxesBase.set"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.axes",
+   "module_short": "matplotlib.axes",
+   "name": "_AxesBase.set"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib",
+   "module_short": "matplotlib",
+   "name": "_AxesBase.set"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.artist",
+   "module_short": "matplotlib.artist",
+   "name": "Artist.set"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib",
+   "module_short": "matplotlib",
+   "name": "Artist.set"
+  }
+ ],
+ "centre": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "int"
+  }
+ ],
+ "declared": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ndarray"
+  }
+ ],
+ "declared.copy": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "builtin_function_or_method"
+  }
+ ],
+ "declared_ratio": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "float64"
+  }
+ ],
+ "entrance": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ndarray"
+  }
+ ],
+ "exit_amplitudes": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ndarray"
+  }
+ ],
+ "fig": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.figure",
+   "module_short": "matplotlib.figure",
+   "name": "Figure"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib",
+   "module_short": "matplotlib",
+   "name": "Figure"
+  }
+ ],
+ "general_modal_route": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "function"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.translate.general",
+   "module_short": "solprop.translate.general",
+   "name": "general_modal_route"
+  }
+ ],
+ "grid": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.grid",
+   "module_short": "solprop.grid",
+   "name": "FieldGrid"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "FieldGrid"
+  }
+ ],
+ "grid.active_mask": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.grid",
+   "module_short": "solprop.grid",
+   "name": "FieldGrid.active_mask"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "FieldGrid.active_mask"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.grid",
+   "module_short": "solprop.grid",
+   "name": "TimeGrid.active_mask"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "TimeGrid.active_mask"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop._display",
+   "module_short": "solprop._display",
+   "name": "Displayed.active_mask"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "Displayed.active_mask"
+  }
+ ],
+ "grid.n_omega": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.grid",
+   "module_short": "solprop.grid",
+   "name": "FieldGrid.n_omega"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "FieldGrid.n_omega"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.grid",
+   "module_short": "solprop.grid",
+   "name": "TimeGrid.n_omega"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "TimeGrid.n_omega"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop._display",
+   "module_short": "solprop._display",
+   "name": "Displayed.n_omega"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "Displayed.n_omega"
+  }
+ ],
+ "grid.omega": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ndarray"
+  }
+ ],
+ "grid.omega0": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.grid",
+   "module_short": "solprop.grid",
+   "name": "FieldGrid.omega0"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "FieldGrid.omega0"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.grid",
+   "module_short": "solprop.grid",
+   "name": "TimeGrid.omega0"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "TimeGrid.omega0"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop._display",
+   "module_short": "solprop._display",
+   "name": "Displayed.omega0"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "Displayed.omega0"
+  }
+ ],
+ "guide": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.modes.guide",
+   "module_short": "solprop.modes",
+   "name": "ModalGuide"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.modes",
+   "module_short": "solprop.modes",
+   "name": "ModalGuide"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "ModalGuide"
+  }
+ ],
+ "guide.field_provider": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.modes.graded_index",
+   "module_short": "solprop.modes",
+   "name": "GradedIndexProvider"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.modes",
+   "module_short": "solprop.modes",
+   "name": "GradedIndexProvider"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "GradedIndexProvider"
+  }
+ ],
+ "guide.mode_collection.channel_labels": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.modes.collection",
+   "module_short": "solprop.modes",
+   "name": "ModeCollection.channel_labels"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.modes",
+   "module_short": "solprop.modes",
+   "name": "ModeCollection.channel_labels"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "ModeCollection.channel_labels"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop._display",
+   "module_short": "solprop._display",
+   "name": "Displayed.channel_labels"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "Displayed.channel_labels"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "collections.abc",
+   "module_short": "collections.abc",
+   "name": "Sequence.channel_labels"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "collections",
+   "module_short": "collections",
+   "name": "Sequence.channel_labels"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "collections.abc",
+   "module_short": "collections.abc",
+   "name": "Reversible.channel_labels"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "collections",
+   "module_short": "collections",
+   "name": "Reversible.channel_labels"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "collections.abc",
+   "module_short": "collections.abc",
+   "name": "Collection.channel_labels"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "collections",
+   "module_short": "collections",
+   "name": "Collection.channel_labels"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "collections.abc",
+   "module_short": "collections.abc",
+   "name": "Iterable.channel_labels"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "collections",
+   "module_short": "collections",
+   "name": "Iterable.channel_labels"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "collections.abc",
+   "module_short": "collections.abc",
+   "name": "Sized.channel_labels"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "collections",
+   "module_short": "collections",
+   "name": "Sized.channel_labels"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "collections.abc",
+   "module_short": "collections.abc",
+   "name": "Container.channel_labels"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "collections",
+   "module_short": "collections",
+   "name": "Container.channel_labels"
+  }
+ ],
+ "guide.sampling": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.modes.guide",
+   "module_short": "solprop.modes",
+   "name": "ModalSampling"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.modes",
+   "module_short": "solprop.modes",
+   "name": "ModalSampling"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "ModalSampling"
+  }
+ ],
+ "held": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ndarray"
+  }
+ ],
+ "held_share": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "float"
+  }
+ ],
+ "ideal": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ndarray"
+  }
+ ],
+ "intensity": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ndarray"
+  }
+ ],
+ "intensity.max": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "builtin_function_or_method"
+  }
+ ],
+ "launch": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ndarray"
+  }
+ ],
+ "length": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "float"
+  }
+ ],
+ "missed": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "float"
+  }
+ ],
+ "nodes": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.modes.vector",
+   "module_short": "solprop.modes",
+   "name": "ModalNodeRule"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.modes",
+   "module_short": "solprop.modes",
+   "name": "ModalNodeRule"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "ModalNodeRule"
+  }
+ ],
+ "nodes.xy": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ndarray"
+  }
+ ],
+ "np.abs": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ufunc"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "abs"
+  }
+ ],
+ "np.angle": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "_ArrayFunctionDispatcher"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "angle"
+  }
+ ],
+ "np.any": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "_ArrayFunctionDispatcher"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "any"
+  }
+ ],
+ "np.argmin": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "_ArrayFunctionDispatcher"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "argmin"
+  }
+ ],
+ "np.argsort": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "_ArrayFunctionDispatcher"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "argsort"
+  }
+ ],
+ "np.array": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "builtin_function_or_method"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "array"
+  }
+ ],
+ "np.diag": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "_ArrayFunctionDispatcher"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "diag"
+  }
+ ],
+ "np.einsum": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "_ArrayFunctionDispatcher"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "einsum"
+  }
+ ],
+ "np.hypot": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ufunc"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "hypot"
+  }
+ ],
+ "np.linspace": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "_ArrayFunctionDispatcher"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "linspace"
+  }
+ ],
+ "np.pi": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "float"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "pi"
+  }
+ ],
+ "np.real": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "_ArrayFunctionDispatcher"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "real"
+  }
+ ],
+ "np.sqrt": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ufunc"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "sqrt"
+  }
+ ],
+ "np.sum": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "_ArrayFunctionDispatcher"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "sum"
+  }
+ ],
+ "np.zeros": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "builtin_function_or_method"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "zeros"
+  }
+ ],
+ "np.zeros_like": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "_ArrayFunctionDispatcher"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "zeros_like"
+  }
+ ],
+ "omega": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "float"
+  }
+ ],
+ "order": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ndarray"
+  }
+ ],
+ "pattern": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ndarray"
+  }
+ ],
+ "plane": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.output.schema",
+   "module_short": "solprop.output",
+   "name": "SavedPlane"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.output",
+   "module_short": "solprop.output",
+   "name": "SavedPlane"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "SavedPlane"
+  }
+ ],
+ "plane.field": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ndarray"
+  }
+ ],
+ "plane.z": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "float"
+  }
+ ],
+ "planes": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "list"
+  }
+ ],
+ "plt.show": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "function"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.pyplot",
+   "module_short": "matplotlib.pyplot",
+   "name": "show"
+  }
+ ],
+ "plt.subplots": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "function"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.pyplot",
+   "module_short": "matplotlib.pyplot",
+   "name": "subplots"
+  }
+ ],
+ "predicted": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "float64"
+  }
+ ],
+ "project_transverse_field": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "function"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.translate.modal_tables",
+   "module_short": "solprop.translate.modal_tables",
+   "name": "project_transverse_field"
+  }
+ ],
+ "projected": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.translate.modal_tables",
+   "module_short": "solprop.translate.modal_tables",
+   "name": "ProjectedLaunch"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.translate",
+   "module_short": "solprop.translate",
+   "name": "ProjectedLaunch"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "ProjectedLaunch"
+  }
+ ],
+ "projected.amplitudes": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ndarray"
+  }
+ ],
+ "provider": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.modes.graded_index",
+   "module_short": "solprop.modes",
+   "name": "GradedIndexProvider"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.modes",
+   "module_short": "solprop.modes",
+   "name": "GradedIndexProvider"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "GradedIndexProvider"
+  }
+ ],
+ "provider.node_rule": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.modes.graded_index",
+   "module_short": "solprop.modes",
+   "name": "GradedIndexProvider.node_rule"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.modes",
+   "module_short": "solprop.modes",
+   "name": "GradedIndexProvider.node_rule"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "GradedIndexProvider.node_rule"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop._display",
+   "module_short": "solprop._display",
+   "name": "Displayed.node_rule"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "Displayed.node_rule"
+  }
+ ],
+ "q": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "float"
+  }
+ ],
+ "radius": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ndarray"
+  }
+ ],
+ "ratio": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "complex128"
+  }
+ ],
+ "route": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.translate.general",
+   "module_short": "solprop.translate.general",
+   "name": "GeneralModalRoute"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.translate",
+   "module_short": "solprop.translate",
+   "name": "GeneralModalRoute"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "GeneralModalRoute"
+  }
+ ],
+ "route.tables": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.translate.modal_tables",
+   "module_short": "solprop.translate.modal_tables",
+   "name": "ModalTransformTables"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.translate",
+   "module_short": "solprop.translate",
+   "name": "ModalTransformTables"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "ModalTransformTables"
+  }
+ ],
+ "route.tables.electric": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ndarray"
+  }
+ ],
+ "run": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.output.memory",
+   "module_short": "solprop.output",
+   "name": "MemoryOutput"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.output",
+   "module_short": "solprop.output",
+   "name": "MemoryOutput"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "MemoryOutput"
+  }
+ ],
+ "run.planes": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.output.memory",
+   "module_short": "solprop.output",
+   "name": "MemoryOutput.planes"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.output",
+   "module_short": "solprop.output",
+   "name": "MemoryOutput.planes"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "MemoryOutput.planes"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.output.schema",
+   "module_short": "solprop.output.schema",
+   "name": "PlaneStore.planes"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.output",
+   "module_short": "solprop.output",
+   "name": "PlaneStore.planes"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "PlaneStore.planes"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop._display",
+   "module_short": "solprop._display",
+   "name": "Displayed.planes"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "Displayed.planes"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "abc",
+   "module_short": "abc",
+   "name": "ABC.planes"
+  }
+ ],
+ "sample": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.modes.vector",
+   "module_short": "solprop.modes",
+   "name": "ModalSample"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.modes",
+   "module_short": "solprop.modes",
+   "name": "ModalSample"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "ModalSample"
+  }
+ ],
+ "sample.electric": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ndarray"
+  }
+ ],
+ "sample_modal_table": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "function"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.translate.modal_tables",
+   "module_short": "solprop.translate.modal_tables",
+   "name": "sample_modal_table"
+  }
+ ],
+ "sampling": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.modes.guide",
+   "module_short": "solprop.modes",
+   "name": "ModalSampling"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.modes",
+   "module_short": "solprop.modes",
+   "name": "ModalSampling"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "ModalSampling"
+  }
+ ],
+ "sampling.nodes": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.modes.vector",
+   "module_short": "solprop.modes",
+   "name": "ModalNodeRule"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.modes",
+   "module_short": "solprop.modes",
+   "name": "ModalNodeRule"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "ModalNodeRule"
+  }
+ ],
+ "sampling.omega": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ndarray"
+  }
+ ],
+ "sampling.z": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "float"
+  }
+ ],
+ "simulation": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.driver.simulation",
+   "module_short": "solprop.driver",
+   "name": "Simulation"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.driver",
+   "module_short": "solprop.driver",
+   "name": "Simulation"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "Simulation"
+  }
+ ],
+ "simulation.with_input": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.driver.simulation",
+   "module_short": "solprop.driver",
+   "name": "Simulation.with_input"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.driver",
+   "module_short": "solprop.driver",
+   "name": "Simulation.with_input"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "Simulation.with_input"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop._display",
+   "module_short": "solprop._display",
+   "name": "Displayed.with_input"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "Displayed.with_input"
+  }
+ ],
+ "solved": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ndarray"
+  }
+ ],
+ "spoiled": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ndarray"
+  }
+ ],
+ "support": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ndarray"
+  }
+ ],
+ "table": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.translate.modal_tables",
+   "module_short": "solprop.translate.modal_tables",
+   "name": "DenseModalTable"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.translate",
+   "module_short": "solprop.translate",
+   "name": "DenseModalTable"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "DenseModalTable"
+  }
+ ],
+ "table.evaluate": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.translate.modal_tables",
+   "module_short": "solprop.translate.modal_tables",
+   "name": "DenseModalTable.evaluate"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.translate",
+   "module_short": "solprop.translate",
+   "name": "DenseModalTable.evaluate"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "DenseModalTable.evaluate"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop._display",
+   "module_short": "solprop._display",
+   "name": "Displayed.evaluate"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "Displayed.evaluate"
+  }
+ ],
+ "turned": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "float"
+  }
+ ],
+ "weights": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ndarray"
+  }
+ ]
+}

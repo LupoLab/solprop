@@ -26,9 +26,9 @@ internal objects and stay in the FFT convention, marked so by
 package versions and the git commit with a dirty flag -- never the source text.
 
 **The resume key.** :meth:`RunMetadata.configuration_hash` digests the schema version,
-the grid, the modes, the configuration, the noise, the stepper settings, from schema 8
-the identities and policies of the run's material manifest, and from schema 9 the
-stepping method when it is not the tableau (SEP 13), and nothing else: not the
+the grid, the modes, the configuration, the noise, the stepper settings with the
+stepping method when it is not the tableau (SEP 13), and the identities and policies
+of the run's material manifest, and nothing else: not the
 wall-clock time the run started, not the package versions, and not the git provenance,
 so that a resume survives an unrelated commit or a dirty working tree. It is a SHA-256
 of canonical JSON rather than :func:`hash`, so it is stable across processes, and it
@@ -128,88 +128,17 @@ _ELEMENT_INDICES = re.compile(r"(?:\[\d+\])+$")
 _ARRAY_PART = re.compile(r"\.__(?:ndarray|imaginary)__$")
 """The key of an array record's real or imaginary part, dropped from its stem."""
 
-SCHEMA_VERSION = 28
-"""Version of the record layout; incremented whenever a stored field changes meaning.
+SCHEMA_VERSION = 2
+"""Version of the saved-output layout; incremented when a stored field changes meaning.
 
-Version 9 adds the SEP 13 stepping method. Independent version-10 branches added
-SEP 12 launch/TDSE identities and terminal checkpoints, and SEP 14 route-dependent
-step limits. Version 11 on main adds interpolated and natural-step save policies.
-Version 12 combines both histories. Version 13 (SEP 16) lets
-``StepperRecord.method`` name the Adams method's formulation: the exponential one
-appears in its representation, while the default interaction formulation is left out,
-so a version-12 method string and its configuration hash are unchanged. Version 14
-records the controller's norm ``region``; a version-13 record had none, and scored the
-requested band. Version 15 names the formulation in every Adams method string, the
-interaction one included, now that the exponential one is the default; a method string
-of an earlier version that names none was stepped in the interaction picture. Version
-16 (SEP 18) records the field plasma column's band integration rule: the configuration
-carries ``plasma_integration``, its taps, band edge and policies, and the file's root
-attributes repeat the rule, ``K``, ``theta_b``, the taps and the certified error. A
-run integrated with the plain trapezoid records neither, as before. Version 17 (SEP
-19) records the transverse quadrature of a resolved modal run -- its family, requested
-and realised counts, nodes and physical weights -- in ``quadrature`` and its resume key,
-so that a run continued on another rule is refused. A record older than 17 has none,
-which means "not recorded", never a field-scale rule. Version 18 (SEP 20) admits
-``model="hacc"`` TDSE records, atomic windows and ``consistency`` provenance: a haCC or
-windowed response serialises its ``model`` and ``atomic_window`` and its descriptor is
-``solprop.tdse-descriptor.v3``, and the consistency record travels with the execution
-facts, outside the hash. An SAE record without a window keeps its keys, so its
-configuration and descriptor identities are those of version 17. Version 18 also
-admits an optional raw-archive reference (SEP 20 phase 2): the TDSE execution record,
-in ``backend.settings["tdse"]["archive"]`` and in each outcome's ``execution``, names
-the archive's schema, run UUID and path, outside the hash; a run without an archive
-records none. Version 19 (SEP 24 phase 1) lets ``StepperRecord.method`` name the
-low-storage march, ``LowStorageRungeKutta(scheme='rk4ip')``, which replays a schedule
-with no error estimate: its step history records the norm 0.0 on every step, meaning
-"not estimated", never a step that met its tolerance exactly, and a record older than 19
-never carries such a norm for that reason. Version 20 (SEP 22) makes the stored field
-optional: a run keeps it on every plane, on the planes it names or on none
-(:class:`FieldRetention`), the file's root attribute ``fields`` says which and a
-``field_planes`` dataset lists the planes that carry one, and a field-free file has no
-``field`` or ``noise_phase`` dataset. From version 20 an array input above
-:data:`INLINE_ARRAY_LIMIT` elements is recorded by its content digest
-(:class:`ArrayDigest`) rather than inline, and a field added to a recorded dataclass
-after its record existed was left out while it held its default. Version 21 records
-every field of a recorded dataclass, at its default too, and a scalar Raman response
-with all its fields: no record leaves out what an earlier record lacked, so every
-configuration hash moved. Loading older records preserves their original field
-presence and configuration hash. Version 22 (SEP 27) changes the field-plasma source
-to the held-current equation and records ``plasma_source`` in its configuration:
-the source form, certificate limit and taper sample counts. The measured
-full-transform steady-current certificate is execution evidence under
-``backend.settings["plasma_source"]``, outside the hash. Every previous schema has a
-different resume key. A private gated benchmark
-carries ``_benchmark_plasma_source`` and refuses continuation even under this schema.
-Version 23 (SEP 34) measures every spatial energy, power, fluence and intensity as the
-axial Poynting flux of the medium at the plane: the spatial record names the
-``flux_model`` and carries the run's plane-measure coefficients (``flux_plan``), from
-which a saved plane's admittance at its own position is rebuilt. Earlier spatial
-records used the vacuum measure and are refused by the processing that needs one.
-Version 24 (SEP 31) carries the plane-reference record (``RunMetadata.reference``):
-the antiderivatives of the frame quantities the run's linear operator removed, the
-frequency origin of its linear term, the carrier, and the reference origin of its
-path, which a run launched from another run's plane inherits with that parent's
-identity (``configuration["coupling"]``). Any saved plane's absolute phase and time
-reference is rebuilt from it alone. The tables are derived numbers, outside the hash;
-the inherited origin is in the configuration, inside it. Planes of an earlier file
-cannot be exchanged.
-
-Version 25 (SEP 33) records every run's ``precision`` in its hashed configuration,
-``"double"`` included, so a resume in the other precision is refused through the hash.
-The saved arrays are binary64 either way. Version 26 (SEP 37) records how the run's
-noise model was resolved (``RunMetadata.noise_resolution``): the model the caller
-asked for, ``"default"`` when the keyword was omitted, the model the run carries, and
-why a default fell back to none. It sits beside the hash, not in it, because the
-resolved model is already there through the noise record. A record older than 26 has
-none.
-
-Version 27 (SEP 21) records ``Absorber.spatial``, and a GNLSE or spatial run that
-declares no absorber records the default collar it now has rather than none.
-
-Version 28 (SEP 39) adds the in-stage collar's flag at the last attempt to an Adams
-march snapshot (:attr:`MarchSnapshot.collar_was_quiet`), which decides the step after a
-quiet collar returns. A snapshot of an earlier file has none and is not used: the
-resumed march restarts its history.
+Schema 1 is the first released layout, 0.1.0's: the record types of this module, written
+by :class:`solprop.output.memory.MemoryOutput` and
+:class:`solprop.output.hdf5.HDF5Output` as ``docs/guide/results/output.md`` describes
+them. Schema 2 records ``DataPulse.spectral_phase``. A record that declares any other
+version is refused by name (:class:`RunMetadata`): files written by an earlier release
+or by development versions of solprop, which declared output schemas up to 28, are not
+read, and nor is a file from a later release. Read such a file with the solprop version
+that wrote it.
 """
 
 INLINE_ARRAY_LIMIT = 2**20
@@ -1075,11 +1004,10 @@ class ModeRecord:
         The physical channel this row of the mode axis is, as
         :meth:`solprop.modes.protocol.ChannelLabel.as_mapping` writes it: the
         family, the azimuthal and radial orders, the parity, the handedness and
-        the display label. **Output schema 7**; ``None`` on a
-        record read back from an older file, which named its channels by class
-        name and position and cannot be given quantum numbers after the fact.
-        Outside :meth:`RunMetadata.hashed` below schema 7, so that every file
-        written before this field existed keeps the digest it was stamped with.
+        the display label. :meth:`from_mode` always records one; ``None`` on a
+        record built without it, which names its channel only by class name and
+        position, and which :func:`solprop.processing.modal.channel_labels`
+        refuses. Part of :meth:`RunMetadata.hashed`.
 
     Examples
     --------
@@ -1264,18 +1192,16 @@ class StepLimits:
     stretch : float
         Landing stretch factor, dimensionless; 1 switches landing stretch off.
     interval_cap : bool
-        Whether a step was capped at its operator-table interval's width (output
-        schema 10; every earlier run was).
+        Whether a step was capped at its operator-table interval's width.
     auto_init : bool
         Whether the start-up rule took the step after the first from the first step's
-        estimate (output schema 10; no earlier run did).
+        estimate.
     interpolate_planes : bool
         Whether the save planes but the end and the hard kinks were interpolated
-        inside accepted steps (output schema 11); ``False`` when every plane was
-        landed on, as in every earlier run.
+        inside accepted steps; ``False`` when every plane was landed on.
     step_planes : int
-        A positive ``k`` when the end of every ``k``-th accepted step was saved too
-        (output schema 11); ``0`` for the requested planes only.
+        A positive ``k`` when the end of every ``k``-th accepted step was saved too;
+        ``0`` for the requested planes only.
 
     Examples
     --------
@@ -1312,8 +1238,8 @@ class StepperRecord:
         Name of the Runge-Kutta scheme.
     method : str or None
         The integrator that stepped the run instead of the tableau, as its ``repr``:
-        a low-call Adams method (SEP 13, recorded from output schema 9) or the
-        low-storage march (SEP 24, from schema 19); ``None`` for the Runge-Kutta march.
+        a low-call Adams method (SEP 13) or the low-storage march (SEP 24); ``None``
+        for the Runge-Kutta march.
     controller : dict
         The step controller as :func:`serialise` records it: tolerances, safety and
         gain factors, lag and the norm weights.
@@ -1432,7 +1358,7 @@ class StepperRecord:
                 StepLimits, cast("dict[str, JsonValue]", document["limits"])
             ),
             schedule=None if schedule is None else np.asarray(schedule, dtype=float),
-            method=_optional_text(document.get("method")),
+            method=_optional_text(document["method"]),
         )
 
 
@@ -1467,7 +1393,7 @@ class StepHistory(Displayed):
         Scaled error norm each attempt scored as executed, shape ``(n_steps,)``,
         dimensionless; the controller's rescaled equivalent of a landing step is its
         own and is not recorded. The low-storage march estimates none and records 0.0,
-        "not estimated" (output schema 19).
+        "not estimated", never a step that met its tolerance exactly.
     accepted : numpy.ndarray
         Whether each attempt was accepted, shape ``(n_steps,)``, boolean.
     wall_time : numpy.ndarray
@@ -1622,7 +1548,7 @@ class StepStats(Displayed):
     A run whose :class:`solprop.stats.StatsSpec` names a ``periodic`` subset gets one
     row every ``period`` accepted steps, evaluated inside the backend's step loop and
     flushed here at each plane. Empty for a run that asked for none, which is
-    the default and what every file written before schema version 3 holds.
+    the default.
 
     Stored the way the step history is -- flat columns concatenated over planes with a
     per-plane ``counts`` beside them -- so that a resume appends and a scan needs no NaN
@@ -2173,7 +2099,7 @@ def _differences(
 
 
 def _optional_text(value: JsonValue) -> str | None:
-    """Return a stored optional string, ``None`` when absent or null.
+    """Return a stored optional string, ``None`` when null.
 
     Parameters
     ----------
@@ -2188,91 +2114,32 @@ def _optional_text(value: JsonValue) -> str | None:
     return None if value is None else str(value)
 
 
-def _hashed_stepper(
-    stepper: StepperRecord,
-    schema_version: int,
-    stored_limits: tuple[str, ...] | None = None,
-) -> JsonValue:
-    """Return the stepper record as the resume key takes it at a schema version.
+def _refuse_schema(declared: object) -> None:
+    """Refuse a record of any output schema but :data:`SCHEMA_VERSION`.
 
-    The method enters the key at schema 9 (SEP 13), the interval cap and start-up
-    rule at schema 10 (SEP 14), and the controller's norm region at schema 14, and not
-    before, so that a digest stamped at an earlier
-    schema still verifies: those records have no such fields. Below schema 15 the
-    method string leaves the interaction formulation out, as it was written then.
+    One rule for every other number: an earlier release wrote a lower output schema, a
+    development version of solprop wrote schemas up to 28, and a later release may write
+    a higher one, and this release reads none of them (ADR-058).
 
     Parameters
     ----------
-    stepper : StepperRecord
-        The record.
-    schema_version : int
-        The record's output schema.
-    stored_limits : tuple of str or None
-        Fields present in a loaded record, distinguishing the two schema-10 lineages.
+    declared : object
+        The ``schema_version`` the record declares.
 
-    Returns
-    -------
-    object
-        The serialised record, without ``method`` below schema 9 and without the
-        interval cap and start-up rule below schema 10.
+    Raises
+    ------
+    OutputError
+        If `declared` is not :data:`SCHEMA_VERSION`.
     """
-    record = cast("dict[str, JsonValue]", serialise(stepper))
-    if schema_version < 9:
-        record.pop("method", None)
-    method = record.get("method")
-    if schema_version < 15 and isinstance(method, str):
-        # Before schema 15 the interaction formulation, then the default, was left out
-        # of the method's representation.
-        record["method"] = method.replace(", formulation='interaction'", "", 1)
-    if schema_version < 14:
-        # The norm's region enters the key at schema 14; before it the norm scored the
-        # requested band and recorded no region.
-        controller = dict(cast("dict[str, JsonValue]", record["controller"]))
-        controller.pop("region", None)
-        record["controller"] = controller
-    if stored_limits is not None:
-        record["limits"] = {
-            key: value
-            for key, value in cast("dict[str, JsonValue]", record["limits"]).items()
-            if key in stored_limits
-        }
-    elif schema_version < 11:
-        limits = dict(cast("dict[str, JsonValue]", record["limits"]))
-        limits.pop("interpolate_planes", None)
-        limits.pop("step_planes", None)
-        if schema_version < 10:
-            limits.pop("interval_cap", None)
-            limits.pop("auto_init", None)
-        record["limits"] = limits
-    return record
-
-
-def _hashed_modes(modes: Sequence[ModeRecord], schema_version: int) -> list[JsonValue]:
-    """Return the mode records as the resume key of one schema version sees them.
-
-    :attr:`ModeRecord.label` is output schema 7's. A record read back from an older
-    file carries none, and a record built here from a live mode carries one whatever
-    the version says, so the key of a schema-6 or older record is taken with the
-    field removed: the digests stamped into every file written before this field
-    existed still verify, which is what keeps those files readable.
-
-    Parameters
-    ----------
-    modes : collections.abc.Sequence
-        The mode records, in state order.
-    schema_version : int
-        The version of the record the key is being taken for.
-
-    Returns
-    -------
-    list
-        The serialised records, without ``label`` below schema 7.
-    """
-    records = cast("list[dict[str, JsonValue]]", serialise(list(modes)))
-    if schema_version < 7:
-        for record in records:
-            record.pop("label", None)
-    return cast("list[JsonValue]", records)
+    if type(declared) is int and declared == SCHEMA_VERSION:
+        return
+    msg = (
+        f"this record declares output schema_version {declared!r}, and this release "
+        f"of solprop reads output schema {SCHEMA_VERSION} only: a file written by an "
+        "earlier release, by a development version of solprop or by a later release is "
+        "not read; read it with the solprop version that wrote it"
+    )
+    raise OutputError(msg)
 
 
 def _hashed_modal(modal: Mapping[str, object] | None) -> JsonValue:
@@ -2447,7 +2314,7 @@ def _flow_text(flow: object) -> str:
 def _modal_rows(modal: Mapping[str, object] | None) -> list[tuple[str, object]]:
     """Return the printed rows of a general modal identity, or none at all.
 
-    Every schema-7 field of :attr:`RunMetadata.modal` appears in one of these rows,
+    Every field of :attr:`RunMetadata.modal` appears in one of these rows,
     including the ``flow`` entry of a coherent wall,
     so that a printed record says which guide, which table and which basis produced
     the file; the rows are absent altogether for a route that has no such identity.
@@ -2561,8 +2428,9 @@ class RunMetadata(Displayed):
     noise : NoiseRecord or None
         The shot-noise realisation, or ``None`` for a noiseless run.
     noise_resolution : NoiseResolution or None
-        How the noise model was chosen (schema 26): the requested and the resolved
-        model and any fallback's reason. Outside the hash; ``None`` when not recorded.
+        How the noise model was chosen (SEP 37): the requested and the resolved
+        model and any fallback's reason. Outside the hash; ``None`` when the record's
+        builder did not say, as for a record built by hand.
     backend : BackendRecord or None
         What executed the run, written by the driver from the backend's own
         ``metadata()``; ``None`` for a record built before a backend existed. Outside
@@ -2575,49 +2443,48 @@ class RunMetadata(Displayed):
     created : str
         When the run started, ISO 8601 in UTC. Outside the hash.
     schema_version : int
-        Version of this record layout.
+        Version of this record layout, :data:`SCHEMA_VERSION`; any other is refused.
     spectral_convention : str
         Sign convention of the stored field, always ``'optics'``.
     field_layout : str
         Axis order of the stored field.
     spatial : collections.abc.Mapping or None
-        Spatial geometry, axis meanings, integration measures and field units.
-        None for modal runs and for legacy version-3 metadata. Included in the
-        version-4 resume key.
+        Spatial geometry, axis meanings, integration measures, field units and the
+        plane measure (``flux_model`` and ``flux_plan``, SEP 34). Required for the
+        radial, free and slab routes and ``None`` for modal runs. Included in the
+        resume key.
     modal : collections.abc.Mapping or None
         The identity of a **general modal guide**: the ordered channel labels, the
         table, metric, response and provider identities, the sampling the reference
         is rebuilt from, the gauge, the frame, the active band, the noise reference
         basis and the accessors this basis admits, as
         :func:`solprop.translate.general.modal_identity` writes it. ``None`` for
-        every other route, and for any record read back from a file older than
-        **output schema 7**. Included in the schema-7 resume key, so that a run
-        continued against a different guide, a different table or a reordered mode
-        axis is refused by the field that changed
+        every other route. Included in the resume key, less the accessor list, so
+        that a run continued against a different guide, a different table or a
+        reordered mode axis is refused by the field that changed
         (:mod:`solprop.output.capability`).
     materials : solprop.physdata.selection.MaterialManifest
-        The run's **material manifest** of output schema 8: the optmat version, the
+        The run's **material manifest**: the optmat version, the
         identity of every optmat model the run resolved, its species, compositions
         and solids, the policies in force and what was measured about them. Empty
-        for a run of solprop's own materials, and for any record read back from a
-        file older than schema 8. Its identities and policies are in the schema-8
+        for a run of solprop's own materials. Its identities and policies are in the
         resume key (:meth:`~solprop.physdata.selection.MaterialManifest.hashed`), so
         a run continued with another model, policy or optmat version is refused by
         the entry that changed.
     initial_z : float
-        Absolute launch position in metres, zero when absent in a historical record.
+        Absolute launch position in metres; zero for a run launched at the entrance.
+        Included in the resume key.
     tdse : collections.abc.Mapping or None
-        Resolved scientific atomic descriptor. Included in the SEP 12 schema-10
-        lineage and in schema 12; provider execution and device facts belong to the
-        backend record.
+        Resolved scientific atomic descriptor, included in the resume key; ``None``
+        for a run without a TDSE response. Provider execution and device facts
+        belong to the backend record.
     quadrature : collections.abc.Mapping or None
         The transverse rule of a resolved modal run, as
         :meth:`solprop.modes.quadrature.TransverseQuadrature.record` writes it: the
-        family, the counts, the nodes and the physical weights. Output schema 17 and
-        in its resume key (SEP 19). ``None`` for the mode-averaged and spatial routes,
-        and for any record older than schema 17, where it means "not recorded".
+        family, the counts, the nodes and the physical weights, in the resume key
+        (SEP 19). ``None`` for the mode-averaged and spatial routes.
     reference : collections.abc.Mapping or None
-        The plane-reference record of output schema 24 (SEP 31): ``carrier``, the
+        The plane-reference record (SEP 31): ``carrier``, the
         grid's reference frequency in rad/s; ``origin``, the reference of the run's
         path origin (phase, delay, calibrated), inherited from a parent plane for a
         run launched from one; ``parent``, that parent's provenance or ``None``;
@@ -2628,9 +2495,9 @@ class RunMetadata(Displayed):
         ``z``, the launch plane first. :func:`solprop.coupling.plane.reference_at`
         rebuilds any saved plane's reference from it. Derived numbers, so outside
         the hash; the inherited origin enters it through
-        ``configuration["coupling"]``.
-        Written to JSON from schema 24 only; ``None`` for any record read back from
-        an older file.
+        ``configuration["coupling"]``. Every run records one; ``None`` on a record
+        built without it, as by hand, whose planes cannot be exchanged
+        (:func:`solprop.processing.planes.field_plane`).
 
     Examples
     --------
@@ -2674,14 +2541,6 @@ class RunMetadata(Displayed):
     quadrature: Mapping[str, object] | None = None
     reference: Mapping[str, object] | None = None
     noise_resolution: NoiseResolution | None = None
-    # The two development branches both used schema 10. Preserve presence, not a
-    # cached digest: changing a loaded scientific value must still change its hash.
-    _stored_launch_fields: tuple[str, ...] | None = dataclasses.field(
-        default=None, repr=False, metadata={"record": False}
-    )
-    _stored_step_limit_fields: tuple[str, ...] | None = dataclasses.field(
-        default=None, repr=False, metadata={"record": False}
-    )
 
     def __repr__(self) -> str:
         """Return a one-line description: what kind of run, on what, made when.
@@ -2737,98 +2596,36 @@ class RunMetadata(Displayed):
         ]
 
     def __post_init__(self) -> None:
-        """Stamp the creation time when the caller did not, and adopt plain copies."""
+        """Refuse another schema, stamp the creation time and adopt plain copies.
+
+        Raises
+        ------
+        OutputError
+            If the record declares an output schema other than :data:`SCHEMA_VERSION`,
+            if `initial_z` is not finite and nonnegative, or if a spatial record is
+            missing or names no plane measure.
+        """
+        _refuse_schema(self.schema_version)
         if not self.created:
             object.__setattr__(self, "created", datetime.now(UTC).isoformat())
         object.__setattr__(self, "modes", tuple(self.modes))
         object.__setattr__(self, "configuration", dict(self.configuration))
         object.__setattr__(self, "versions", dict(self.versions))
-        # The plane-reference record is outside the hash, so a record of an earlier
-        # schema may hold one; it is written to JSON from schema 24 only.
-        for name in ("spatial", "modal", "reference"):
+        for name in ("spatial", "modal", "reference", "tdse", "quadrature"):
             value = getattr(self, name)
             if value is not None:
                 object.__setattr__(self, name, dict(value))
         if not np.isfinite(self.initial_z) or self.initial_z < 0:
             raise OutputError("initial_z must be finite and nonnegative")
-        if self.tdse is not None:
-            object.__setattr__(self, "tdse", dict(self.tdse))
-        if self.quadrature is not None:
-            if self.schema_version < 17:
-                msg = (
-                    "a quadrature record requires output schema 17 and this record "
-                    f"declares schema {self.schema_version}: below 17 it is outside "
-                    "the resume key"
-                )
-                raise OutputError(msg)
-            object.__setattr__(self, "quadrature", dict(self.quadrature))
-        if self.schema_version < 10 and (
-            self.initial_z != 0.0 or self.tdse is not None
-        ):
-            raise OutputError(
-                "interior launch and TDSE metadata require output schema 10"
-            )
-        self._check_historical_layout()
-        if self.simulation_kind in ("radial", "free", "slab") and (
-            self.schema_version < 4 or self.spatial is None
-        ):
-            msg = "spatial metadata requires schema 4 and a spatial geometry record"
+        if self.simulation_kind in ("radial", "free", "slab") and self.spatial is None:
+            msg = "spatial metadata requires a spatial geometry record"
             raise OutputError(msg)
-        if (
-            self.spatial is not None
-            and self.schema_version >= 23
-            and "flux_model" not in self.spatial
-        ):
+        if self.spatial is not None and "flux_model" not in self.spatial:
             msg = (
-                "spatial metadata of schema 23 or later must name its flux_model "
-                "and carry its flux_plan (SEP 34)"
+                "spatial metadata must name its flux_model and carry its flux_plan "
+                "(SEP 34)"
             )
             raise OutputError(msg)
-        if self.modal is not None and self.schema_version < 7:
-            # The identity would be carried by the record and left out of the
-            # digest, so two runs on different guides would share a resume key.
-            msg = (
-                "a general modal identity requires output schema 7 and this record "
-                f"declares schema {self.schema_version}: below 7 the identity is "
-                "outside the resume key, so two runs on different guides would "
-                "share one"
-            )
-            raise OutputError(msg)
-        if not self.materials.empty and self.schema_version < 8:
-            # As for the modal identity: below 8 the manifest is outside the key.
-            msg = (
-                "a material manifest requires output schema 8 and this record "
-                f"declares schema {self.schema_version}: below 8 the manifest is "
-                "outside the resume key, so two runs on different optmat models "
-                "would share one"
-            )
-            raise OutputError(msg)
-
-    def _check_historical_layout(self) -> None:
-        """Refuse values a historical field layout cannot include in its identity."""
-        launch_fields = self._stored_launch_fields
-        if launch_fields is None:
-            launch_fields = ("initial_z", "tdse") if self.schema_version >= 12 else ()
-        if (self.initial_z != 0.0 and "initial_z" not in launch_fields) or (
-            self.tdse is not None and "tdse" not in launch_fields
-        ):
-            raise OutputError(
-                "this historical metadata layout cannot record launch or TDSE identity"
-            )
-        if self._stored_step_limit_fields is not None:
-            for name, default in (
-                ("interval_cap", True),
-                ("auto_init", False),
-                ("interpolate_planes", False),
-                ("step_planes", 0),
-            ):
-                if (
-                    name not in self._stored_step_limit_fields
-                    and getattr(self.stepper.limits, name) != default
-                ):
-                    raise OutputError(
-                        f"historical metadata cannot record changed step limit {name}"
-                    )
 
     @property
     def transverse_measure(self) -> TransverseMeasure:
@@ -2836,10 +2633,9 @@ class RunMetadata(Displayed):
 
         A run on modes uniform in y (:class:`solprop.modes.slab.SlabMode`) records
         ``configuration["transverse_measure"] = "per_unit_width"``: its powers are
-        W/m, its energies J/m and its intensities still W/m². Every other run, and
-        every file written before the key existed, measures an area. The key sits
-        in the free-form configuration and is written only where it is not the
-        default, so no stored field changes meaning and the schema is unchanged.
+        W/m, its energies J/m and its intensities still W/m². Every other run measures
+        an area. The key sits in the free-form configuration and is written only
+        where it is not the default.
 
         Returns
         -------
@@ -2868,14 +2664,15 @@ class RunMetadata(Displayed):
 
     @property
     def power_convention(self) -> str:
-        """Return the amplitude label implied by this record's schema version.
+        """Return the amplitude label of the stored field.
 
         Returns
         -------
         str
-            ``poynting`` for schema 6 onward, ``vacuum`` for legacy files.
+            Always ``"poynting"``: the interface modal amplitude, whose squared
+            modulus is the true power in watts (``docs/dev/conventions.md`` §4).
         """
-        return "poynting" if self.schema_version >= 6 else "vacuum"
+        return "poynting"
 
     def hashed(self) -> dict[str, JsonValue]:
         """Return the part of the record the resume key is taken over.
@@ -2891,8 +2688,9 @@ class RunMetadata(Displayed):
         -------
         dict
             The serialised schema version, grid, modes, simulation kind, configuration,
-            noise and stepper settings, and from schema 8 the material manifest's
-            identities and policies.
+            noise and stepper settings, the spatial record, the power convention, the
+            general modal identity, the material manifest's identities and policies,
+            the launch position, the TDSE descriptor and the transverse quadrature.
 
         Examples
         --------
@@ -2916,46 +2714,26 @@ class RunMetadata(Displayed):
         dict
             The hashed part of the record, JSON-ready.
         """
-        record: dict[str, JsonValue] = {
+        return {
             "schema_version": self.schema_version,
             "simulation_kind": self.simulation_kind,
             "grid": serialise(self.grid),
-            "modes": _hashed_modes(self.modes, self.schema_version),
+            "modes": serialise(list(self.modes)),
             "configuration": serialise(dict(self.configuration)),
             "noise": serialise(self.noise),
-            "stepper": _hashed_stepper(
-                self.stepper, self.schema_version, self._stored_step_limit_fields
-            ),
+            "stepper": serialise(self.stepper),
+            "spatial": serialise(self.spatial),
+            "power_convention": self.power_convention,
+            # All of the general-guide identity but the accessor list, which is the
+            # build's capability and not the run's description (_hashed_modal).
+            "modal": _hashed_modal(self.modal),
+            # The material manifest's identities and policies; a run of solprop's
+            # own materials keys on `None`.
+            "materials": serialise(self.materials.hashed()),
+            "initial_z": self.initial_z,
+            "tdse": serialise(self.tdse),
+            "quadrature": serialise(self.quadrature),
         }
-        # Preserve the exact version-3 key so old files remain readable and their
-        # stored hash still verifies. Continuing them with version 4 is refused.
-        if self.schema_version >= 4:
-            record["spatial"] = serialise(self.spatial)
-        if self.schema_version >= 6:
-            record["power_convention"] = self.power_convention
-        if self.schema_version >= 7:
-            # The same guard as the schema-6 power convention: the general-guide
-            # identity enters the key at schema 7 and not before, so a schema-6
-            # digest stays what it was stamped with. All of it but the accessor
-            # list, which is the build's capability and not the run's description.
-            record["modal"] = _hashed_modal(self.modal)
-        if self.schema_version >= 8:
-            # The material manifest's identities and policies, under the same guard,
-            # so that every digest stamped before schema 8 still verifies. A run of
-            # solprop's own materials keys on `None`.
-            record["materials"] = serialise(self.materials.hashed())
-        launch_fields = self._stored_launch_fields
-        if launch_fields is None:
-            launch_fields = ("initial_z", "tdse") if self.schema_version >= 12 else ()
-        if "initial_z" in launch_fields:
-            record["initial_z"] = self.initial_z
-        if "tdse" in launch_fields:
-            record["tdse"] = serialise(self.tdse)
-        if self.schema_version >= 17:
-            # The transverse rule (SEP 19), under the same guard as every addition,
-            # so that each digest stamped before schema 17 still verifies.
-            record["quadrature"] = serialise(self.quadrature)
-        return record
 
     def configuration_hash(self) -> str:
         """Return the resume key: a digest of everything that was computed.
@@ -3101,10 +2879,11 @@ class RunMetadata(Displayed):
         Returns
         -------
         str
-            Canonical JSON carrying the hashed part plus the versions, the git
-            provenance, the creation time and -- at schema 7 and above -- the
-            whole general modal identity, whose published accessor list the
-            hashed part leaves out.
+            Canonical JSON carrying the hashed part plus the whole general modal
+            identity, whose published accessor list the hashed part leaves out, the
+            whole material manifest, the plane-reference record, the noise model's
+            resolution, the conventions, the backend record, the versions, the git
+            provenance and the creation time.
 
         Examples
         --------
@@ -3114,23 +2893,19 @@ class RunMetadata(Displayed):
         ['backend', 'configuration', 'created']
         """
         document = self.hashed()
-        if self.schema_version >= 7:
-            # The whole identity, including the accessor list `hashed` leaves out:
-            # what a file records and what its resume key is taken over are two
-            # different questions, and the published accessors answer only the
-            # first (:func:`_hashed_modal`).
-            document["modal"] = serialise(self.modal)
-        if self.schema_version >= 8:
-            # The whole manifest, measurements included, beside its hashed part.
-            document["materials"] = serialise(self.materials.to_dict())
-        if self.schema_version >= 24:
-            # Derived from the hashed problem, so stored beside the key, not in it: a
-            # resume on another build may evaluate the frame to a different last bit.
-            document["reference"] = serialise(self.reference)
-        if self.schema_version >= 26:
-            # How the model was chosen, beside the key: the resolved model is in the
-            # hashed noise record already, and a request is not part of the physics.
-            document["noise_resolution"] = serialise(self.noise_resolution)
+        # The whole identity, including the accessor list `hashed` leaves out: what a
+        # file records and what its resume key is taken over are two different
+        # questions, and the published accessors answer only the first
+        # (:func:`_hashed_modal`).
+        document["modal"] = serialise(self.modal)
+        # The whole manifest, measurements included, beside its hashed part.
+        document["materials"] = serialise(self.materials.to_dict())
+        # Derived from the hashed problem, so stored beside the key, not in it: a
+        # resume on another build may evaluate the frame to a different last bit.
+        document["reference"] = serialise(self.reference)
+        # How the model was chosen, beside the key: the resolved model is in the
+        # hashed noise record already, and a request is not part of the physics.
+        document["noise_resolution"] = serialise(self.noise_resolution)
         document["spectral_convention"] = self.spectral_convention
         document["field_layout"] = self.field_layout
         document["backend"] = serialise(self.backend)
@@ -3160,7 +2935,8 @@ class RunMetadata(Displayed):
         Raises
         ------
         OutputError
-            If the document is not valid JSON, or a required field is missing.
+            If the document is not valid JSON, declares an output schema other than
+            :data:`SCHEMA_VERSION`, or a required field is missing.
 
         Examples
         --------
@@ -3176,8 +2952,11 @@ class RunMetadata(Displayed):
             msg = f"stored metadata is not valid JSON: {error}"
             raise OutputError(msg) from error
         try:
+            # The version first: a file of another schema is refused by its version,
+            # not by the first field its layout lacks.
+            _refuse_schema(document["schema_version"])
             noise = document["noise"]
-            resolution = document.get("noise_resolution")
+            resolution = document["noise_resolution"]
             git = document["git"]
             backend = document["backend"]
             return cls(
@@ -3194,20 +2973,16 @@ class RunMetadata(Displayed):
                 schema_version=document["schema_version"],
                 spectral_convention=document["spectral_convention"],
                 field_layout=document["field_layout"],
-                spatial=document.get("spatial"),
-                modal=document.get("modal"),
-                materials=MaterialManifest.from_dict(document.get("materials")),
-                initial_z=document.get("initial_z", 0.0),
-                tdse=document.get("tdse"),
-                quadrature=document.get("quadrature"),
-                reference=document.get("reference"),
+                spatial=document["spatial"],
+                modal=document["modal"],
+                materials=MaterialManifest.from_dict(document["materials"]),
+                initial_z=document["initial_z"],
+                tdse=document["tdse"],
+                quadrature=document["quadrature"],
+                reference=document["reference"],
                 noise_resolution=None
                 if resolution is None
                 else _rebuild(NoiseResolution, resolution),
-                _stored_launch_fields=tuple(
-                    key for key in ("initial_z", "tdse") if key in document
-                ),
-                _stored_step_limit_fields=tuple(document["stepper"]["limits"]),
             )
         except (KeyError, TypeError, MaterialError) as error:
             msg = f"stored metadata is missing or malformed: {error}"
@@ -3660,7 +3435,7 @@ class CheckpointOutput(Protocol):
 
     @property
     def outcome(self) -> RunOutcome | None:
-        """Return recorded status, or None for legacy output.
+        """Return recorded status, or None when no outcome was recorded.
 
         Returns
         -------
@@ -3732,7 +3507,7 @@ class PlaneStore(Displayed, ABC):
 
     @property
     def outcome(self) -> RunOutcome | None:
-        """Return the execution outcome, absent on legacy files.
+        """Return the execution outcome, or None when none was recorded.
 
         Returns
         -------
@@ -3767,15 +3542,11 @@ class PlaneStore(Displayed, ABC):
         Raises
         ------
         OutputError
-            If the handler is closed, metadata is older than schema 10, or the
-            checkpoint disagrees with the outcome or stored field layout.
+            If the handler is closed or holds no metadata, or the checkpoint
+            disagrees with the outcome or stored field layout.
         """
         self._check_usable()
-        metadata = self._require_metadata()
-        if metadata.schema_version < 10:
-            raise OutputError(
-                "outcomes and terminal checkpoints require output schema 10"
-            )
+        self._require_metadata()
         previous = self._outcome
         if previous is not None:
             history = previous.previous_executions
@@ -3967,9 +3738,8 @@ class PlaneStore(Displayed, ABC):
     def step_stat_names(self) -> tuple[str, ...]:
         """Return the statistics the between-planes channel carries.
 
-        Empty for a run that asked for no periodic subset, and for a file written
-        before schema version 3, which is how a reader tells whether the channel is
-        there to prefer over the planes.
+        Empty for a run that asked for no periodic subset, which is how a reader
+        tells whether the channel is there to prefer over the planes.
 
         Returns
         -------

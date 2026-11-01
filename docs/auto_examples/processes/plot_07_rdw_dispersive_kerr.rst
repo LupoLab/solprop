@@ -123,7 +123,7 @@ as the only arguments. Every run takes the default backend.
             1.5,  # length, m
             "He",
             (0.8, 0.0),  # bar, entrance to exit
-            lambda0=800e-9,
+            wavelength=800e-9,
             fwhm=7.5e-15,
             energy=275e-6,
             modes=modes,
@@ -468,7 +468,7 @@ Runtime and reproducibility
 
  .. code-block:: none
 
-    366 s; backend native
+    44 s; backend native
 
 
 
@@ -476,7 +476,7 @@ Runtime and reproducibility
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (6 minutes 5.819 seconds)
+   **Total running time of the script:** (0 minutes 44.014 seconds)
 
 
 .. _sphx_glr_download_auto_examples_processes_plot_07_rdw_dispersive_kerr.py:

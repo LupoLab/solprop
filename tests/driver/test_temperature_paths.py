@@ -53,7 +53,7 @@ def _quiet_gas_index():
 def keywords(**overrides):
     """Return a cheap capillary's keywords: laminar, a continuum, no plasma."""
     return {
-        "lambda0": 800e-9,
+        "wavelength": 800e-9,
         "wavelength_limits": (200e-9, 2e-6),
         "trange": 100e-15,
         "fwhm": 10e-15,
@@ -205,7 +205,7 @@ def test_three_populations_on_the_native_z_table_with_each_march(integrator):
 def test_the_run_records_the_temperature_path():
     metadata = build(PAIR, WARM).metadata()
     configuration = cast("dict", serialise(metadata.configuration))
-    assert metadata.schema_version == 28
+    assert metadata.schema_version == 2
     # The constructor's record keeps the path as the dataclass it is, and the
     # medium's record samples it with its breakpoints, as it does a density.
     assert configuration["capillary"]["temperature"] == {

@@ -88,7 +88,7 @@ run = prop_waveguide(
     1e-3,
     provider=guide,
     grid=grid,
-    lambda0=835e-9,
+    wavelength=835e-9,
     fwhm=40e-15,
     energy=1e-9,
     n_save=3,

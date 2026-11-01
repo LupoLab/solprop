@@ -294,7 +294,7 @@ def capillary(composition: Mapping[str, float]) -> Simulation:
             2e-3,
             dict(composition),
             1.0,
-            lambda0=800e-9,
+            wavelength=800e-9,
             wavelength_limits=(150e-9, 4e-6),
             trange=150e-15,
             fwhm=10e-15,

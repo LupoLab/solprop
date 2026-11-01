@@ -52,16 +52,16 @@ from solprop.translate.precision import (
 )
 
 GNLSE = {
-    "lambda0": 835e-9,
+    "wavelength": 835e-9,
     "wavelength_limits": (500e-9, 2e-6),
     "trange": 1e-12,
     "width": 100e-15,
     "peak_power": 9.8,
-    "pulseshape": "sech",
+    "shape": "sech",
     "n_save": 3,
     "noise": None,
 }
-PULSE = {"lambda0": 800e-9, "fwhm": 30e-15, "energy": 1e-6, "noise": None}
+PULSE = {"wavelength": 800e-9, "fwhm": 30e-15, "energy": 1e-6, "noise": None}
 WINDOW = {"wavelength_limits": (400e-9, 2e-6), "trange": 200e-15, "n_save": 2}
 
 
@@ -255,10 +255,10 @@ def _general(precision, entry):
         GENERAL_Z_END,
         provider=general_guide(grid=grid),
         grid=grid,
-        lambda0=835e-9,
+        wavelength=835e-9,
         fwhm=20e-15,
         energy=1e-12,
-        pulseshape="gauss",
+        shape="gauss",
         n_save=2,
         noise=None,
         **_keyword(precision),
@@ -468,7 +468,7 @@ def test_a_tdse_run_s_refusals_name_the_precision_and_the_integrator():
 
 
 def test_a_slab_mode_set_carries_no_noise_and_refuses_a_model():
-    launch = {"lambda0": 800e-9, "fwhm": 30e-15, "energy": 1e-6}
+    launch = {"wavelength": 800e-9, "fwhm": 30e-15, "energy": 1e-6}
     slabs = Simulation.from_waveguide(_slabs(), 0.01, "Ar", 1.0, **launch, **WINDOW)
     assert slabs.noise is None
     assert slabs.noise_resolution == NoiseResolution("default", None, SLAB_NOISE)

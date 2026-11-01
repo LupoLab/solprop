@@ -35,7 +35,7 @@ from solprop.stepper import PIController
 from solprop.stepper.multistep import MarchPolicy
 from solprop.stepper.schedule import FixedSchedule
 from solprop.translate.linop import LinearOperator, delta_phi
-from solprop.translate.problem import SCHEMA_VERSION
+from solprop.translate.problem import KERNEL_SCHEMA_VERSION
 from solprop.translate.spatial import SeparableOperator
 from solprop.translate.stage import StageScalars, StageTerms, scalars
 
@@ -924,7 +924,8 @@ DRIVER_SURFACE = {
     "_held_field": f"(self) -> {FIELD}",
     "set_initial": (
         "(self, field: jaxtyping.Complex[ndarray, 'n_batch n_modes n_pol n_omega'], "
-        "noise: solprop.noise.NoiseRealisation | None, *, z: float = 0.0) -> None"
+        "noise: solprop.noise.NoiseRealisation | None, *, z: float = 0.0, "
+        "resume: bool = False) -> None"
     ),
     "set_progress": "(self, reporter: solprop.log.ProgressReporter) -> None",
     "propagate_to": "(self, z: float) -> solprop.backends.protocol.StepSummary",
@@ -933,7 +934,7 @@ DRIVER_SURFACE = {
 """Every ``StepDriver`` member a subclass overrides or calls, with its signature.
 
 The literal is the seam a separately built backend is compiled against, and
-``SCHEMA_VERSION`` is its version: change a signature here only together with a
+``KERNEL_SCHEMA_VERSION`` is its version: change a signature here only together with a
 bump of the version and a changelog line (``AGENTS.md``, "Backends, kernels and hot
 paths"). ``solprop-native`` looks these names up at construction (its
 ``DRIVER_SURFACE``).
@@ -1060,7 +1061,7 @@ def test_a_trials_bundles_taken_together_are_kept_until_the_next_hoist(driver):
 
 
 def test_the_surface_a_backend_subclasses_is_frozen(driver):
-    """The driver's protected surface and the stage bundles are ``SCHEMA_VERSION`` 15's.
+    """The protected driver surface and stage bundles are ``KERNEL_SCHEMA_VERSION``'s.
 
     A separately built backend is compiled against these names and shapes, and its build
     stays valid across solprop commits because this test, not a version pin, guards
@@ -1107,9 +1108,12 @@ def test_the_surface_a_backend_subclasses_is_frozen(driver):
     monitor's reading is the backend's. Version 39 adds ``_record_attempt`` and
     ``_skip_step`` and freezes ``_take_step_stats``, ``_natural_stop`` and
     ``_natural_stop_due``, which a native Adams march books its attempts through, and
-    the march's policy record (SEP 39).
+    the march's policy record (SEP 39). Version 40 gives ``set_initial`` its ``resume``
+    keyword: a stored field never takes the ``input`` draw again.
     """
-    assert SCHEMA_VERSION == 39, "the seam changed: rewrite the literals of this test"
+    assert KERNEL_SCHEMA_VERSION == 40, (
+        "the seam changed: rewrite the literals of this test"
+    )
     for name, signature in {
         "observe_members": (
             "(self) -> tuple[solprop.backends.protocol.Observation, ...]"

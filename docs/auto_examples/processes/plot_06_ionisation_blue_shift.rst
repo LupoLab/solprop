@@ -81,7 +81,7 @@ The run
         0.4,
         "Ar",
         1.7,
-        lambda0=800e-9,
+        wavelength=800e-9,
         fwhm=30e-15,
         energy=3e-6,
         loss=False,
@@ -211,7 +211,7 @@ Runtime and reproducibility
 
  .. code-block:: none
 
-    13 s; backend native
+    10 s; backend native
 
 
 
@@ -219,7 +219,7 @@ Runtime and reproducibility
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 12.726 seconds)
+   **Total running time of the script:** (0 minutes 9.847 seconds)
 
 
 .. _sphx_glr_download_auto_examples_processes_plot_06_ionisation_blue_shift.py:

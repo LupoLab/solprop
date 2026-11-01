@@ -1937,7 +1937,7 @@ class ModalSampling(Displayed):
         node coordinates and area weights are the megabytes
         :class:`~solprop.translate.modal_tables.ModalTransformTables` already
         describes by extent, and the rule's own ``identity`` is a mapping of
-        scalars (output schema 7).
+        scalars, as the run record holds it.
 
         The profile error is **measured**, by a dense solve and a reduction, so it
         enters at :data:`~solprop.modes.material.MEASURED_DIGITS` significant

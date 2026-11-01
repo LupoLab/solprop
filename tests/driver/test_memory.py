@@ -318,7 +318,7 @@ def test_the_scan_output_imports_first_without_a_cycle():
 
 
 GUIDE_RUN = {
-    "lambda0": GRIN_WAVELENGTH,
+    "wavelength": GRIN_WAVELENGTH,
     "fwhm": 60e-15,
     "energy": 1e-12,
     "backend": "numpy_ref",
@@ -392,7 +392,7 @@ def test_a_memory_budget_without_a_guide_is_refused_by_name():
             1e-3,
             "He",
             1.0,
-            lambda0=800e-9,
+            wavelength=800e-9,
             memory_budget="1 GiB",
             noise=None,
             integrator=Multistep(),

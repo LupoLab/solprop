@@ -26,7 +26,7 @@ from solprop.output.schema import SavedPlane
 from solprop.stats import StatsSpec, collect
 from solprop.stepper import FixedSchedule, PIController
 from solprop.translate.linop import unitary_phase
-from solprop.translate.problem import SCHEMA_VERSION
+from solprop.translate.problem import KERNEL_SCHEMA_VERSION
 from solprop.translate.responses import prefactor_at
 
 LENGTH = 0.01  # m
@@ -154,7 +154,7 @@ def test_a_declared_raman_kernel_is_executed_rather_than_refused(
     backend.close()
 
 
-@pytest.mark.parametrize("declared", [2, 3, SCHEMA_VERSION - 1, 99])
+@pytest.mark.parametrize("declared", [2, 3, KERNEL_SCHEMA_VERSION - 1, 99])
 def test_an_unknown_contract_version_is_refused_before_validation(
     backend_class, soliton_problem, narrow_grid, declared
 ):
@@ -170,10 +170,10 @@ def test_an_unknown_contract_version_is_refused_before_validation(
     problem = dataclasses.replace(
         soliton_problem(narrow_grid, 1, save_planes=[LENGTH]), schema_version=declared
     )
-    with pytest.raises(
-        BackendError,
-        match=f"version {SCHEMA_VERSION} and the problem declares version {declared}",
-    ):
+    expected = (
+        f"version {KERNEL_SCHEMA_VERSION} and the problem declares version {declared}"
+    )
+    with pytest.raises(BackendError, match=expected):
         backend_class(problem)
 
 

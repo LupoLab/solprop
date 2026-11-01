@@ -67,7 +67,7 @@ def tiny_simulation(*, max_calls=None):
         0.0,
         1e-5,
         [0.0, 0.0, -1e-26],
-        lambda0=800e-9,
+        wavelength=800e-9,
         wavelength_limits=(500e-9, 1.6e-6),
         trange=200e-15,
         fwhm=20e-15,
@@ -88,7 +88,7 @@ def atomic_simulation():
         1e-5,
         "He",
         0.1,
-        lambda0=800e-9,
+        wavelength=800e-9,
         wavelength_limits=(400e-9, 1.6e-6),
         trange=60e-15,
         fwhm=6e-15,
@@ -158,7 +158,7 @@ def test_interior_input_uses_actual_z_modal_weight():
         0.001,
         "He",
         PressureGradient.two_point(0.001, 0.1, 1.0),
-        lambda0=800e-9,
+        wavelength=800e-9,
         wavelength_limits=(400e-9, 1.6e-6),
         trange=60e-15,
         fwhm=6e-15,
@@ -871,20 +871,20 @@ def test_interior_metadata_retains_an_explicit_absolute_frame():
     assert launch.metadata().configuration["frame"] is frame
 
 
-def test_legacy_resume_without_outcome_loads_field_without_restoring_ledgers(
+def test_a_resume_without_an_outcome_loads_the_field_without_restoring_ledgers(
     monkeypatch,
 ):
     simulation = tiny_simulation()
     problem = simulation.translate()
     state = ResumeState(
-        dataclasses.replace(simulation.metadata(), schema_version=9),
+        simulation.metadata(),
         SavedPlane(z=5e-6, field=simulation._field0),
         1,
         StepHistory.empty(),
     )
 
     def forbidden(*args, **kwargs):
-        raise AssertionError("legacy files carry no call ledgers to restore")
+        raise AssertionError("a file without an outcome carries no call ledgers")
 
     monkeypatch.setattr(NumpyRefBackend, "restore_call_ledgers", forbidden)
     backend = select("numpy_ref", problem, grid=simulation.grid, modes=simulation.modes)

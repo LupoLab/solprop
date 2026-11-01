@@ -6,6 +6,7 @@
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![basedpyright](https://img.shields.io/badge/basedpyright-checked-42b983)](https://docs.basedpyright.com)
 [![PyPI](https://img.shields.io/pypi/v/solprop.svg)](https://pypi.org/project/solprop/)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23854248.svg)](https://doi.org/10.5281/zenodo.23854248)
 [![Python 3.14](https://img.shields.io/badge/python-3.14-blue.svg)](https://www.python.org/downloads/)
 [![Licence: GPL-3.0-or-later](https://img.shields.io/badge/licence-GPL--3.0--or--later-blue.svg)](https://github.com/LupoLab/solprop/blob/main/LICENSE)
 [![REUSE](https://img.shields.io/badge/REUSE-compliant-green)](https://reuse.software)
@@ -41,7 +42,7 @@ run = prop_capillary(
     1.5,  # length, m
     "He",
     (0.8, 0.0),  # pressure gradient, bar: entrance to exit
-    lambda0=800e-9,
+    wavelength=800e-9,
     fwhm=7.5e-15,
     energy=275e-6,
     modes=4,  # the first four HE_1m modes
@@ -162,4 +163,4 @@ users. The code is free software under the [GNU General Public License, version 
 (at your option) any later version](https://github.com/LupoLab/solprop/blob/main/LICENSE), and the documentation is under
 [CC BY 4.0](https://github.com/LupoLab/solprop/blob/main/LICENSES/CC-BY-4.0.txt). Contributions are welcome: see
 [CONTRIBUTING.md](https://github.com/LupoLab/solprop/blob/main/CONTRIBUTING.md). If you use solprop in published work, please cite
-the repository and the version you used.
+its Zenodo record, [doi:10.5281/zenodo.23854248](https://doi.org/10.5281/zenodo.23854248), and the version you used.

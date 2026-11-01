@@ -103,7 +103,7 @@ def capillary_simulation(radius, modes, grid_kwargs):
 
 
 GRID = {
-    "lambda0": WAVELENGTH,
+    "wavelength": WAVELENGTH,
     "wavelength_limits": (700e-9, 920e-9),
     "trange": 200e-15,
 }
@@ -829,7 +829,7 @@ def test_the_beam_fibre_reference_takes_the_overlap_couple_computes():
         fwhm=100e-15,
         energy=1e-12,
         n_save=2,
-        lambda0=BEAM_WAVELENGTH,
+        wavelength=BEAM_WAVELENGTH,
         wavelength_limits=(900e-9, 1300e-9),
         trange=400e-15,
         noise=None,
@@ -1170,10 +1170,10 @@ def facet_port(contrast, v_centre):
         1e-4,
         provider=guide,
         grid=grid,
-        lambda0=wavelength,
+        wavelength=wavelength,
         energy=1e-12,
         fwhm=20e-15,
-        pulseshape="gauss",
+        shape="gauss",
         backend="numpy_ref",
         dz_max=5e-5,
         dz_init=5e-5,

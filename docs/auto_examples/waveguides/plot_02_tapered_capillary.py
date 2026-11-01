@@ -99,7 +99,7 @@ TAPER = PiecewiseLinear.from_stages(CORNERS, [100e-6, 100e-6, 60e-6, 60e-6])
 PRESSURE = 1.5
 """Helium pressure, bar."""
 
-PUMP = {"lambda0": 800e-9, "fwhm": 10e-15, "energy": 150e-6}
+PUMP = {"wavelength": 800e-9, "fwhm": 10e-15, "energy": 150e-6}
 """The pump: wavelength (m), duration (s) and energy (J)."""
 
 UV = (100e-9, 300e-9)
@@ -114,22 +114,26 @@ def propagate(radius, wall, backend="auto", energy=PUMP["energy"], taper_couplin
         # The wall's quasi-static ratio approaches its limit at the longest
         # wavelengths of the narrow section: the approximation named above, which
         # each run would repeat. An AdiabaticTaperWarning would name the comparison
-        # this example draws on purpose, so it is silenced too. The coherent
-        # wall's generator is resolved along z to a Chebyshev tail at the round-off
-        # floor of its samples, which it reports as a SolpropWarning.
-        for category in (
-            GrazingIncidenceWarning,
-            AdiabaticTaperWarning,
-            SolpropWarning,
-        ):
+        # this example draws on purpose, so it is silenced too. On the taper the
+        # coupled flow's explicit residual sets an advisory step of about 0.2 mm,
+        # below the declared dz_max; the warning saying so is advisory and changes
+        # nothing in the run, so it is silenced by its message. Every other warning,
+        # the boundary monitor's included, is shown.
+        for category in (GrazingIncidenceWarning, AdiabaticTaperWarning):
             warnings.simplefilter("ignore", category)
+        warnings.filterwarnings(
+            "ignore",
+            message=r"the (coherent wall|taper coupling)'s explicit residual is the "
+            "limiting explicit term",
+            category=SolpropWarning,
+        )
         return prop_capillary(
             radius,
             LENGTH,
             "He",
             PRESSURE,
             wavelength_limits=(90e-9, 3e-6),
-            trange=250e-15,
+            trange=450e-15,
             modes=4,
             wall=wall,
             taper_coupling=taper_coupling,
@@ -137,7 +141,7 @@ def propagate(radius, wall, backend="auto", energy=PUMP["energy"], taper_couplin
             n_save=200,
             progress="none",
             backend=backend,
-            lambda0=PUMP["lambda0"],
+            wavelength=PUMP["wavelength"],
             fwhm=PUMP["fwhm"],
             energy=energy,
             # The nanojoule runs compare linear transport, where a one-photon seed would

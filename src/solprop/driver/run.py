@@ -791,9 +791,9 @@ def field_retention(
     >>> from solprop.driver import Simulation
     >>> from solprop.driver.run import field_retention
     >>> simulation = Simulation.from_gnlse(
-    ...     0.11, 0.01, [0.0, 0.0, -1.183e-26], lambda0=835e-9,
+    ...     0.11, 0.01, [0.0, 0.0, -1.183e-26], wavelength=835e-9,
     ...     wavelength_limits=(500e-9, 2e-6), trange=1e-12,
-    ...     width=100e-15, peak_power=9.8, pulseshape="sech", n_save=3,
+    ...     width=100e-15, peak_power=9.8, shape="sech", n_save=3,
     ... )
     >>> field_retention(simulation.translate(), "planes", [-1]).field_planes
     (2,)
@@ -950,7 +950,7 @@ def _open_run(
     Returns
     -------
     CheckpointOutput or None
-        Supported checkpoint interface for schema 10 or newer.
+        The handler's checkpoint interface, or ``None`` for a handler without one.
     """
     executed = backend.metadata()
     if binding is not None:
@@ -960,11 +960,7 @@ def _open_run(
     output.open(
         dataclasses.replace(metadata, backend=BackendRecord.from_metadata(executed))
     )
-    return (
-        output
-        if isinstance(output, CheckpointOutput) and metadata.schema_version >= 10
-        else None
-    )
+    return output if isinstance(output, CheckpointOutput) else None
 
 
 def open_run_record(
@@ -1352,7 +1348,7 @@ def _refuse_a_record_that_misnames_the_basis(
 
     The lowest of the whitelist's doors, and the one a caller reaches by building the
     pieces itself: ``run_problem(general_problem, backend, handler, metadata=...)``
-    with a record that carries no ``modal`` identity would write a schema-7 file that
+    with a record that carries no ``modal`` identity would write a file that
     :func:`solprop.output.capability.capability_of` reads as an **ordinary modal**
     run, and every legacy accessor would then be admitted on a three-component basis
     -- the one thing the whitelist exists to prevent. The two are required to agree

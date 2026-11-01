@@ -23,7 +23,7 @@ def constant_fill_m2():
         1.0,
         "He",
         1.2,
-        lambda0=800e-9,
+        wavelength=800e-9,
         grid=grid,
         fwhm=7.5e-15,
         energy=275e-6,

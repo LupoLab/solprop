@@ -10,7 +10,7 @@ For a terminal or a notebook, **not** for library code::
 
     sol.capillary_params(125e-6, "He", 1.0, energy=275e-6, fwhm=7.5e-15,
                          wavelength=800e-9)
-    run = sol.prop_capillary(125e-6, 1.0, "He", 1.0, lambda0=800e-9, ...)
+    run = sol.prop_capillary(125e-6, 1.0, "He", 1.0, wavelength=800e-9, ...)
     sol.prop_2d(run)
     sol.compress_taylor(run)
 
@@ -206,6 +206,7 @@ from solprop.pulses import (
     PlanarPulse,
     SechPulse,
     SpatialPulse,
+    TimeDataPulse,
 )
 from solprop.stepper import Multistep, RungeKutta
 from solprop.tools import (
@@ -315,6 +316,7 @@ __all__ = [
     "TabulatedHollowMode",
     "TabulatedMode",
     "TaylorPhase",
+    "TimeDataPulse",
     "TransferFunction",
     "TubeLattice",
     "VincettiMode",

@@ -3,9 +3,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 # Read the Docs: the manual, built from the locked environment with uv, exactly as
-# `poe docs` builds it (warnings are errors). The worked examples' output is committed
-# (docs/auto_examples/), so nothing long runs here; the tutorials execute as in every
-# normal build. The native package is not installed: the manual needs no compiled code.
+# `poe docs` builds it (warnings are errors). Every gallery's output is committed (the
+# lessons, tutorials and worked examples), so no propagation runs here. The native
+# package is not installed: the manual needs no compiled code.
 version: 2
 
 build:
@@ -22,20 +22,8 @@ build:
       - asdf global uv latest
     install:
       - UV_PROJECT_ENVIRONMENT=$READTHEDOCS_VIRTUALENV_PATH uv sync --frozen
-    # Some builds stall in the tutorials and are killed at Read the Docs' time limit
-    # (about 1500 s), which discards their output. A stalled attempt is stopped with
-    # SIGABRT, so faulthandler writes every thread's stack to the log (SIGKILL 15 s
-    # later if that does not end it), and is run once more: sphinx-gallery keeps the
-    # tutorials that finished, so the second attempt executes only the rest. Both
-    # limits together end the command before Read the Docs does, so the log survives.
-    # A failed build (warnings are errors) is not retried.
+    # Read the Docs stops a build at its time limit and discards its log; the script
+    # ends first and prints where a stalled build stopped (see its header).
     build:
       html:
-        - |
-          for limit in 700 600; do
-            PYTHONFAULTHANDLER=1 timeout -k 15 -s ABRT "$limit" "$READTHEDOCS_VIRTUALENV_PATH/bin/python" -m sphinx -b html -W -n --keep-going docs "$READTHEDOCS_OUTPUT/html" && exit 0
-            status=$?
-            [ "$status" -eq 124 ] || [ "$status" -eq 137 ] || exit "$status"
-            echo "sphinx-build stalled past $limit s (status $status); the stacks above show where"
-          done
-          exit 124
+        - bash docs/build-on-read-the-docs.sh "$READTHEDOCS_VIRTUALENV_PATH/bin/python" "$READTHEDOCS_OUTPUT/html"

@@ -281,7 +281,7 @@ from solprop.physdata import Mixture
 
 fill = Mixture.air(6.0, temperature=300.0)
 responses = responses_for(
-    fill, plasma={"N2": True, "O2": True}, raman=True, lambda0=800e-9
+    fill, plasma={"N2": True, "O2": True}, raman=True, wavelength=800e-9
 )
 ```
 
@@ -387,7 +387,7 @@ simulation = Simulation.from_capillary(
     15e-6,
     0.225,
     material,
-    lambda0=800e-9,
+    wavelength=800e-9,
     wavelength_limits=(300e-9, 2e-6),
     trange=200e-15,
     fwhm=30e-15,
@@ -451,9 +451,8 @@ It does not introduce a pressure parameter into an independent-profile operator.
 
 The output file records mixture labels, temperature, species model data, and path
 constructors or samples with breakpoints under `configuration["medium"]`. Capillary
-mode records carry the mixture rather than a gas and a pressure. Files of output schema
-4 or older, which do not record mixtures, remain readable; the material accessors
-refuse, by name, reconstruction data that those files did not store.
+mode records carry the mixture rather than a gas and a pressure. The material
+accessors refuse, by name, a run whose record carries no mixture reconstruction data.
 
 The processing functions preserve species and node axes, even when an axis has one
 entry:
@@ -482,8 +481,7 @@ Cartesian run, which has no modal weight, it is $|E|^2$, reconstructed by the in
 Hankel or Cartesian transform. The stored synthesis matrix has its temporal padding
 scale removed. No extra spectral or temporal window is applied. A mode-averaged run has
 one effective node, with fluence equal to pulse energy divided by effective area.
-Files of output schema 5 or older keep the vacuum-admittance functional $|E|^2$
-throughout. A finite radial Hankel transform is only approximately unitary: its physical
+A finite radial Hankel transform is only approximately unitary: its physical
 and spectral quadrature energies converge with radial resolution, rather than being
 bitwise equal on an arbitrary coarse grid.
 

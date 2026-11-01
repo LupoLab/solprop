@@ -143,7 +143,7 @@ at all and the only other path — the Kerr overlap — is eleven orders below i
        with warnings.catch_warnings():
            warnings.simplefilter("ignore")
            return prop_capillary(
-               50e-6, length, "He", 1.0, lambda0=800e-9, grid=grid,
+               50e-6, length, "He", 1.0, wavelength=800e-9, grid=grid,
                # A collar weak enough that twenty-micrometre steps are stable: an
                # absorber is an explicit term in the nonlinear scheme.
                absorber=absorber(grid, boundary_length=1e3),
@@ -419,7 +419,7 @@ and a walled *straight* bore $10^{-6}$.
        with warnings.catch_warnings():
            warnings.simplefilter("ignore")
            return prop_capillary(
-               taper, length, "He", 1.0, lambda0=800e-9, grid=grid,
+               taper, length, "He", 1.0, wavelength=800e-9, grid=grid,
                # A collar weak enough that twenty-micrometre steps are stable: an
                # absorber is an explicit term in the nonlinear scheme.
                absorber=absorber(grid, boundary_length=1e3),

@@ -61,10 +61,10 @@ from solprop.translate.modal_tables import generator_is_coupled, sample_modal_ta
 pytestmark = pytest.mark.filterwarnings("ignore::solprop.exceptions.BoundaryWarning")
 
 PULSE = {
-    "lambda0": 835e-9,
+    "wavelength": 835e-9,
     "fwhm": 20e-15,
     "energy": 1e-12,
-    "pulseshape": "gauss",
+    "shape": "gauss",
     "backend": "numpy_ref",
 }
 
@@ -334,7 +334,7 @@ def test_the_flow_moves_power_between_the_rotated_channels(
 def test_the_run_records_its_flow_and_a_run_without_one_does_not(
     rotated_run, plain, grid
 ):
-    """``modal.flow`` joins the schema-7 identity, and only where a flow exists.
+    """``modal.flow`` joins the modal identity, and only where a flow exists.
 
     A file written without a flow carries no ``flow`` key and still resumes,
     which is why the key is written conditionally rather than as ``None`` -- the
@@ -444,7 +444,7 @@ def test_zdw_is_withheld_on_a_split_block_and_admitted_on_the_plain_route(
     finally:
         handle.close()
     # A general record that publishes no list withholds nothing: the list is the
-    # only thing the file door reads, and every record since schema 7 carries one.
+    # only thing the file door reads, and every general record carries one.
     assert stored is not None and stored.modal is not None
     assert withheld_from(stored) == ("zdw",)
     unlisted = replace(stored, modal={**stored.modal, "accessors": "none"})

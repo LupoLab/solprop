@@ -82,7 +82,7 @@ soliton of
 order 2.6 with a fission length of 1.7 m, comparable
 to the fibre: it compresses once, strongly, and does not have room to fission.
 
-.. GENERATED FROM PYTHON SOURCE LINES 69-123
+.. GENERATED FROM PYTHON SOURCE LINES 69-120
 
 .. code-block:: Python
 
@@ -94,10 +94,7 @@ to the fibre: it compresses once, strongly, and does not have room to fission.
     import numpy as np
 
     from solprop.driver import prop_capillary
-    from solprop.exceptions import (
-        GrazingIncidenceWarning,
-        SolpropWarning,
-    )
+    from solprop.exceptions import GrazingIncidenceWarning
     from solprop.modes import CoherentWall
     from solprop.plotting import prop_2d, time_1d
     from solprop.processing import bandpass, energy, fwhm_t, get_power, grid_of
@@ -121,7 +118,7 @@ to the fibre: it compresses once, strongly, and does not have room to fission.
     *total* power a sub-femtosecond fringe rather than the pulse. Durations and peak
     powers below are of the pump band alone, through a band-pass."""
 
-    PUMP = {"lambda0": 800e-9, "fwhm": 10e-15, "energy": 250e-6}
+    PUMP = {"wavelength": 800e-9, "fwhm": 10e-15, "energy": 250e-6}
     """The pump: wavelength (m), duration (s) and energy (J)."""
 
     UV = (100e-9, 250e-9)
@@ -135,7 +132,7 @@ to the fibre: it compresses once, strongly, and does not have room to fission.
         2.0 * ENTRANCE / 3.0,
         energy=PUMP["energy"],
         fwhm=PUMP["fwhm"],
-        wavelength=PUMP["lambda0"],
+        wavelength=PUMP["wavelength"],
         shape="gauss",
     )
     print(design)
@@ -172,7 +169,7 @@ to the fibre: it compresses once, strongly, and does not have room to fission.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 124-136
+.. GENERATED FROM PYTHON SOURCE LINES 121-133
 
 The propagation
 ---------------
@@ -187,7 +184,7 @@ Nothing else is chosen: Kerr, third-harmonic generation and photoionisation
 (optmat's recommended rate for helium) are on by default, and the backend is the
 default ``"auto"``, which is the native build where one is installed.
 
-.. GENERATED FROM PYTHON SOURCE LINES 136-168
+.. GENERATED FROM PYTHON SOURCE LINES 133-164
 
 .. code-block:: Python
 
@@ -196,12 +193,11 @@ default ``"auto"``, which is the native build where one is installed.
     def propagate(pressure):
         """Propagate the pump through the capillary at one fill."""
         with warnings.catch_warnings():
-            # Two notices every run repeats, each one of the approximations named at
-            # the top: the wall's quasi-static ratio comes within a factor ten of its
-            # limit at the band's longest wavelengths; and the wall's generator is
-            # resolved along z to the round-off floor of its samples, which it reports.
-            for category in (GrazingIncidenceWarning, SolpropWarning):
-                warnings.simplefilter("ignore", category)
+            # A notice every run repeats, one of the approximations named at the top:
+            # the wall's quasi-static ratio comes within a factor ten of its limit at
+            # the band's longest wavelengths. Every other warning, the boundary
+            # monitor's included, is shown.
+            warnings.simplefilter("ignore", GrazingIncidenceWarning)
             return prop_capillary(
                 RADIUS,
                 LENGTH,
@@ -235,14 +231,18 @@ default ``"auto"``, which is the native build where one is installed.
       state:           closed
       planes:          201, 0 m to 2 m
       field per plane: 4 x 1 x 1601 (modes x components x omega)
-      statistics:      core_radius, density, electron_density, energy, fwhm_t, fwhm_t_out...
+      statistics:      core_radius, density, electron_density, energy, fwhm_t, fwhm_t_outer,
+                       omega0, peak_intensity, peak_ionisation_rate, peak_power,
+                       peak_power_total, plasma_boundary_level, plasma_undershoot,
+                       plasma_work_defect, pressure, quadrature_error, species_density, ...
       between planes:  none
-      run:             RunMetadata(multimode, field grid of 3200, 4 modes, native, 2026-1...
+      run:             RunMetadata(multimode, field grid of 3200, 4 modes, native,
+                       2026-10-31T14:01:06.648338+00:00)
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 169-176
+.. GENERATED FROM PYTHON SOURCE LINES 165-172
 
 The gradient run, as a propagation map: the spectrum along the fibre on the left,
 in decibels below its peak and summed over the four modes, and the power in time
@@ -252,7 +252,7 @@ pump's **third harmonic**, which the real-field Kerr term generates; it is
 strongest in the higher modes, where it is closer to phase matching, and it stays
 at the 1e-4 level.
 
-.. GENERATED FROM PYTHON SOURCE LINES 176-188
+.. GENERATED FROM PYTHON SOURCE LINES 172-184
 
 .. code-block:: Python
 
@@ -280,7 +280,7 @@ at the 1e-4 level.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 189-198
+.. GENERATED FROM PYTHON SOURCE LINES 185-194
 
 Compression along the fibre
 ---------------------------
@@ -292,7 +292,7 @@ the constant fill is still compressing when the fibre ends. The ripple on the
 peak power is the beat between ``HE_11`` and the small part of the pulse in the
 higher modes.
 
-.. GENERATED FROM PYTHON SOURCE LINES 198-224
+.. GENERATED FROM PYTHON SOURCE LINES 194-220
 
 .. code-block:: Python
 
@@ -341,7 +341,7 @@ higher modes.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 225-230
+.. GENERATED FROM PYTHON SOURCE LINES 221-226
 
 The exit pulse
 --------------
@@ -349,7 +349,7 @@ The power in time at the exit of each fibre, beside the input: both deliver a
 single dominant peak about 2 fs wide on a small pedestal, the pedestal being the
 part of the pulse self-phase modulation did not bring into phase.
 
-.. GENERATED FROM PYTHON SOURCE LINES 230-243
+.. GENERATED FROM PYTHON SOURCE LINES 226-239
 
 .. code-block:: Python
 
@@ -378,14 +378,14 @@ part of the pulse self-phase modulation did not bring into phase.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 244-248
+.. GENERATED FROM PYTHON SOURCE LINES 240-244
 
 ``time_1d`` draws the same exit pulse for each mode, with its width marked: the
 compressed pulse is almost entirely in ``HE_11``; the higher modes hold the part
 of it that the Kerr overlap between the modes moved there, three orders of
 magnitude weaker.
 
-.. GENERATED FROM PYTHON SOURCE LINES 248-253
+.. GENERATED FROM PYTHON SOURCE LINES 244-249
 
 .. code-block:: Python
 
@@ -406,7 +406,7 @@ magnitude weaker.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 254-259
+.. GENERATED FROM PYTHON SOURCE LINES 250-255
 
 Where the energy went
 ---------------------
@@ -414,7 +414,7 @@ The energy in each mode at the exit, and in the ultraviolet band. The
 ultraviolet is counted with a band-pass,
 :func:`solprop.processing.spectra.bandpass`, on the run's own grid.
 
-.. GENERATED FROM PYTHON SOURCE LINES 259-268
+.. GENERATED FROM PYTHON SOURCE LINES 255-264
 
 .. code-block:: Python
 
@@ -443,7 +443,7 @@ ultraviolet is counted with a band-pass,
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 269-277
+.. GENERATED FROM PYTHON SOURCE LINES 265-273
 
 Choosing the entrance pressure
 ------------------------------
@@ -454,7 +454,7 @@ axis (a gradient's mean is two thirds of its entrance pressure). Too little gas
 and the pulse has not finished compressing at the exit; too much and it has
 compressed, fissioned and broadened again before it leaves.
 
-.. GENERATED FROM PYTHON SOURCE LINES 277-304
+.. GENERATED FROM PYTHON SOURCE LINES 273-300
 
 .. code-block:: Python
 
@@ -514,13 +514,13 @@ compressed, fissioned and broadened again before it leaves.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 305-308
+.. GENERATED FROM PYTHON SOURCE LINES 301-304
 
 Runtime and reproducibility
 ---------------------------
 Fourteen complete two-metre runs of four coupled modes.
 
-.. GENERATED FROM PYTHON SOURCE LINES 308-315
+.. GENERATED FROM PYTHON SOURCE LINES 304-311
 
 .. code-block:: Python
 
@@ -539,12 +539,12 @@ Fourteen complete two-metre runs of four coupled modes.
 
  .. code-block:: none
 
-    452 s; backend native, 16 threads
+    111 s; backend native, 18 threads
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 316-322
+.. GENERATED FROM PYTHON SOURCE LINES 312-318
 
 Related reading
 ---------------
@@ -556,7 +556,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (7 minutes 31.972 seconds)
+   **Total running time of the script:** (1 minutes 50.556 seconds)
 
 
 .. _sphx_glr_download_auto_examples_waveguides_plot_01_gradient_compressor.py:

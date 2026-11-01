@@ -46,7 +46,7 @@ CASES: dict[str, dict[str, Any]] = {
     # inside argon's 189.4 nm band edge.
     "argon": {
         "arguments": (50e-6, 2e-3, "Ar", ARGON_PRESSURE),
-        "lambda0": 400e-9,
+        "wavelength": 400e-9,
         "pulses": [
             GaussianPulse(wavelength=400e-9, fwhm=30e-15, energy=10e-6),
             GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=10e-6),
@@ -58,7 +58,7 @@ CASES: dict[str, dict[str, Any]] = {
     # 1 bar, about 0.2 rad of nonlinear phase.
     "near-infrared": {
         "arguments": (50e-6, 2e-2, "Ar", 1.0),
-        "lambda0": 800e-9,
+        "wavelength": 800e-9,
         "fwhm": 30e-15,
         "energy": 20e-6,
         "plasma": False,
@@ -69,7 +69,7 @@ CASES: dict[str, dict[str, Any]] = {
     # size (two modes), over its first 2 mm.
     "helium": {
         "arguments": (125e-6, 2e-3, "He", 1.2),
-        "lambda0": 800e-9,
+        "wavelength": 800e-9,
         "fwhm": 7.5e-15,
         "energy": 275e-6,
         "modes": 2,
@@ -92,7 +92,7 @@ def run(case: str, policy: str, **overrides: Any):
     radius, length, gas, pressure = keywords.pop("arguments")
     grid = FieldGrid.from_limits(
         length,
-        keywords["lambda0"],
+        keywords["wavelength"],
         keywords.pop("wavelength_limits"),
         keywords.pop("trange"),
     )
@@ -200,7 +200,7 @@ def test_without_dispersion_a_dispersive_run_is_the_carrier_run(
     to 1e-3.
     """
     gas = CASES[case]["arguments"][2]
-    flat = flat_model(gas, CASES[case]["lambda0"])
+    flat = flat_model(gas, CASES[case]["wavelength"])
     monkeypatch.setattr(OptmatKerr, "dispersive_model", lambda self: flat)
     got = exit_field(run(case, policy))
     expected = exit_field(runs[case, "carrier-kerr"])

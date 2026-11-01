@@ -93,7 +93,7 @@ def capillary(modes: int, trange: float, *, envelope: bool) -> Simulation:
         length,
         "Ar",
         1.0,
-        lambda0=800e-9,
+        wavelength=800e-9,
         wavelength_limits=(300e-9, 2e-6),
         trange=trange,
         envelope=envelope,

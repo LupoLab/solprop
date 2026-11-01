@@ -33,7 +33,7 @@ from solprop.output.schema import (
     PlaneStore,
     StepLimits,
     StepperRecord,
-    _hashed_stepper,
+    _example_metadata,
 )
 from solprop.stats import PLASMA_INTEGRATION_STATISTICS
 from solprop.stepper import DOPRI5, PIController, RungeKutta
@@ -184,7 +184,7 @@ def test_statistics_at_interpolated_planes_match_the_reference(backend):
             0.02,
             "He",
             1.0,
-            lambda0=800e-9,
+            wavelength=800e-9,
             fwhm=6e-15,
             energy=1e-4,
             trange=60e-15,
@@ -292,7 +292,7 @@ def capillary(**extra):
         0.02,
         "He",
         1.0,
-        lambda0=800e-9,
+        wavelength=800e-9,
         fwhm=10e-15,
         energy=1e-6,
         trange=100e-15,
@@ -375,11 +375,13 @@ def test_an_interpolated_plane_is_resumed_only_on_request(tmp_path, dense):
     capillary(backend="numpy_ref", **dense).run(path, resume=True, progress="none")
 
 
-def test_interpolation_enters_the_resume_key_at_schema_eleven():
+def test_interpolation_enters_the_resume_key():
     control = PIController(rtol=1e-6, atol=0.0)
     old = StepperRecord.from_settings(DOPRI5, control, limits=StepLimits())
     new = StepperRecord.from_settings(
         DOPRI5, control, limits=StepLimits(interpolate_planes=True)
     )
-    assert _hashed_stepper(old, 10) == _hashed_stepper(new, 10)
-    assert _hashed_stepper(old, 11) != _hashed_stepper(new, 11)
+    one = dataclasses.replace(_example_metadata(), stepper=old)
+    two = dataclasses.replace(one, stepper=new)
+    assert one.configuration_hash() != two.configuration_hash()
+    assert one.differences(two) == ("stepper.limits.interpolate_planes",)

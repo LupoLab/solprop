@@ -1690,7 +1690,7 @@ Two names of :mod:`solprop.processing.modal` are deliberately absent.
 it is the absent embedded coarse rule and not the basis -- a general guide's node rule
 has no embedded pair to difference, so such a run has no transverse-resolution alarm,
 which is a known limitation -- and it sits
-inside the schema-7 resume key, so publishing it here would promise a statistic the
+inside the run's resume key, so publishing it here would promise a statistic the
 same record refuses. ``channel_amplitudes`` takes two arrays and a table rather than
 an opened handler, so no door ever asks the gate about it; it is in
 ``solprop.output.capability._GENERAL_ONLY`` all the same, so that the one
@@ -1762,7 +1762,7 @@ refuses one: whoever owns the real reason refuses it
 instead. ``quadrature_error`` is refused on a general guide by the run loop, because a
 provider's node rule carries no embedded coarse rule to difference --
 a statement about the rule, not about the basis -- and it is deliberately not in
-:data:`GENERAL_MODAL_ACCESSORS`, so no schema-7 record publishes as admitted a name the
+:data:`GENERAL_MODAL_ACCESSORS`, so no run record publishes as admitted a name the
 same record's run refuses.
 """
 

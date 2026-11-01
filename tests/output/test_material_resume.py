@@ -2,13 +2,12 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Output schema 8: the material manifest on record, and resume refused when it moves.
+"""The material manifest on record, and resume refused when it moves.
 
 Each record is a capillary's metadata built without propagating; a file holds one
 plane, which is all a resume check reads.
 """
 
-import dataclasses
 import json
 from typing import Any
 
@@ -27,7 +26,7 @@ from solprop.output.hdf5 import check_cache, resume
 from solprop.output.scan import PointResult, ScanWriter
 from solprop.output.schema import SCHEMA_VERSION, RunMetadata, SavedPlane
 from solprop.physdata import _optmat
-from solprop.physdata.selection import MaterialManifest, MaterialSelection
+from solprop.physdata.selection import MaterialSelection
 
 pytestmark = pytest.mark.filterwarnings(
     "ignore::solprop.exceptions.MaterialRangeWarning"
@@ -47,7 +46,7 @@ def metadata(materials: MaterialSelection | None = SELECTION) -> Any:
         LENGTH,
         "Ar",
         1.0,
-        lambda0=800e-9,
+        wavelength=800e-9,
         grid=grid,
         absorber=absorber(grid, boundary_length=1.0),
         fwhm=30e-15,
@@ -76,7 +75,7 @@ def selected():
 
 
 def test_the_current_schema_carries_the_manifest_through_memory_and_json(selected):
-    assert SCHEMA_VERSION == 28 == selected.schema_version
+    assert SCHEMA_VERSION == 2 == selected.schema_version
     memory = MemoryOutput()
     memory.open(selected)
     stored: Any = memory.metadata
@@ -90,7 +89,7 @@ def test_the_current_schema_carries_the_manifest_through_memory_and_json(selecte
     assert "dilute_scaling" not in selected.hashed()["materials"]
 
 
-def test_schema_eight_round_trips_through_hdf5_and_resumes(tmp_path, selected):
+def test_the_manifest_round_trips_through_hdf5_and_resumes(tmp_path, selected):
     path = written(tmp_path / "run.h5", selected)
     stored: Any = open_file(path).metadata
     assert stored.materials == selected.materials
@@ -128,53 +127,6 @@ def test_a_changed_optmat_version_refuses_resume(tmp_path, selected, monkeypatch
         check_cache(path, metadata())
 
 
-def test_a_schema_seven_file_is_refused_by_its_resume_key(tmp_path, selected):
-    # A schema-7 record carried no manifest (SEP 3 Phase 4b: the registry run that once
-    # stood for it is deleted, so the empty manifest is written directly).
-    legacy = dataclasses.replace(
-        selected, schema_version=7, quadrature=None, materials=MaterialManifest()
-    )
-    path = written(tmp_path / "old.h5", legacy)
-    # It still reads, and its stamped digest still verifies.
-    stored: Any = open_file(path).metadata
-    assert stored.schema_version == 7
-    with pytest.raises(OutputError, match=r"different run.*schema_version"):
-        check_cache(path, selected)
-
-
-def test_a_schema_eight_file_is_refused_by_its_resume_key(tmp_path, selected):
-    # Schema 9 (SEP 13) put the stepping method in the resume key; a schema-8 digest
-    # omits it, so the two cannot be compared.
-    legacy = dataclasses.replace(selected, schema_version=8, quadrature=None)
-    path = written(tmp_path / "old.h5", legacy)
-    stored: Any = open_file(path).metadata
-    assert stored.schema_version == 8
-    with pytest.raises(OutputError, match=r"different run.*schema_version"):
-        check_cache(path, selected)
-
-
-def test_a_schema_nine_file_is_refused_by_its_resume_key(tmp_path, selected):
-    # Schema 10 (SEP 14) put the interval cap and the start-up rule in the resume key
-    # when their defaults changed; a schema-9 run was stepped under the old ones.
-    legacy = dataclasses.replace(selected, schema_version=9, quadrature=None)
-    path = written(tmp_path / "old.h5", legacy)
-    stored: Any = open_file(path).metadata
-    assert stored.schema_version == 9
-    with pytest.raises(OutputError, match=r"different run.*schema_version"):
-        check_cache(path, selected)
-
-
-def test_a_manifest_needs_schema_eight(selected):
-    with pytest.raises(OutputError, match="requires output schema 8"):
-        dataclasses.replace(selected, schema_version=7, quadrature=None)
-    # Below 8 the hashed record has no materials entry at all.
-    empty = MaterialManifest()
-    legacy = dataclasses.replace(
-        selected, schema_version=7, quadrature=None, materials=empty
-    )
-    assert "materials" not in legacy.hashed()
-
-
 def test_a_malformed_stored_manifest_is_refused_on_reading(selected):
     document = json.loads(selected.to_json())
     record = next(iter(document["materials"]["records"].values()))
@@ -199,7 +151,7 @@ def run_metadata(gas: str, materials: MaterialSelection, **changes: Any) -> Any:
         LENGTH,
         gas,
         1.0,
-        lambda0=800e-9,
+        wavelength=800e-9,
         grid=grid,
         absorber=absorber(grid, boundary_length=1.0),
         fwhm=30e-15,
@@ -250,13 +202,3 @@ def test_a_choice_the_run_does_not_use_does_not_refuse_resume(tmp_path):
     other = run_metadata("Ar", MaterialSelection(ionisation="ppt_ilkov"))
     assert other.configuration_hash() == base.configuration_hash()
     assert check_cache(written(tmp_path / "run.h5", base), other)
-
-
-def test_a_schema_ten_file_is_refused_by_its_resume_key(tmp_path, selected):
-    # Schema 11 (SEP 14 phase 3) put interpolated and step planes in the resume key.
-    legacy = dataclasses.replace(selected, schema_version=10, quadrature=None)
-    path = written(tmp_path / "old.h5", legacy)
-    stored: Any = open_file(path).metadata
-    assert stored.schema_version == 10
-    with pytest.raises(OutputError, match=r"different run.*schema_version"):
-        check_cache(path, selected)

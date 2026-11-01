@@ -45,7 +45,7 @@ EPS = np.finfo(float).eps
 
 def capillary(length=2e-3, n_save=3, **changes):
     arguments = {
-        "lambda0": 800e-9,
+        "wavelength": 800e-9,
         "wavelength_limits": (400e-9, 1.6e-6),
         "trange": 200e-15,
         "fwhm": 20e-15,
@@ -125,12 +125,12 @@ def test_a_selection_names_one_stored_plane_or_is_refused(capillary_run):
         field_plane(output, 5)
 
 
-def test_a_file_without_the_schema_24_record_is_refused(capillary_run):
+def test_a_record_without_its_plane_reference_is_refused(capillary_run):
     _, output = capillary_run
-    older = MemoryOutput()
-    older.open(dataclasses.replace(output.metadata, schema_version=23, reference=None))
-    with pytest.raises(ProcessingError, match="schema 23"):
-        field_plane(older)
+    bare = MemoryOutput()
+    bare.open(dataclasses.replace(output.metadata, reference=None))
+    with pytest.raises(ProcessingError, match="no plane-reference record"):
+        field_plane(bare)
     empty = MemoryOutput()
     with pytest.raises(ProcessingError, match="run record"):
         field_plane(empty)
@@ -142,7 +142,7 @@ def test_the_record_survives_a_file(capillary_run, tmp_path):
     simulation.run(path, progress="none")
     with open_file(path) as stored:
         assert stored.metadata is not None and memory.metadata is not None
-        assert stored.metadata.schema_version == 28
+        assert stored.metadata.schema_version == 2
         assert stored.metadata.reference == memory.metadata.reference
         assert (
             stored.metadata.configuration_hash() == memory.metadata.configuration_hash()
@@ -242,7 +242,7 @@ def general_run():
         length,
         provider=guide,
         grid=grid,
-        lambda0=wavelength,
+        wavelength=wavelength,
         fwhm=30e-15,
         energy=1e-12,
         dz_max=length / 2,

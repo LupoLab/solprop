@@ -1,0 +1,1885 @@
+{
+ "C": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "float"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.constants",
+   "module_short": "solprop.constants",
+   "name": "C"
+  }
+ ],
+ "FAMILIES": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "dict"
+  }
+ ],
+ "FieldGrid.from_limits": [
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.grid",
+   "module_short": "solprop.grid",
+   "name": "FieldGrid.from_limits"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "FieldGrid.from_limits"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.grid",
+   "module_short": "solprop.grid",
+   "name": "TimeGrid.from_limits"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "TimeGrid.from_limits"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop._display",
+   "module_short": "solprop._display",
+   "name": "Displayed.from_limits"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "Displayed.from_limits"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.grid.FieldGrid",
+   "module_short": "solprop.grid.FieldGrid",
+   "name": "from_limits"
+  }
+ ],
+ "FixedSchedule": [
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.stepper.schedule",
+   "module_short": "solprop.stepper",
+   "name": "FixedSchedule"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.stepper",
+   "module_short": "solprop.stepper",
+   "name": "FixedSchedule"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "FixedSchedule"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.stepper",
+   "module_short": "solprop.stepper",
+   "name": "FixedSchedule"
+  }
+ ],
+ "GRID": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.grid",
+   "module_short": "solprop.grid",
+   "name": "FieldGrid"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "FieldGrid"
+  }
+ ],
+ "GRID.omega": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ndarray"
+  }
+ ],
+ "LENGTH": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "float"
+  }
+ ],
+ "MaterialSelection": [
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.physdata.selection",
+   "module_short": "solprop.physdata",
+   "name": "MaterialSelection"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.physdata",
+   "module_short": "solprop.physdata",
+   "name": "MaterialSelection"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "MaterialSelection"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.physdata",
+   "module_short": "solprop.physdata",
+   "name": "MaterialSelection"
+  }
+ ],
+ "OptmatRate": [
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.nonlinear.optmat_rates",
+   "module_short": "solprop.nonlinear.optmat_rates",
+   "name": "OptmatRate"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.nonlinear",
+   "module_short": "solprop.nonlinear",
+   "name": "OptmatRate"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "OptmatRate"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.nonlinear.optmat_rates",
+   "module_short": "solprop.nonlinear.optmat_rates",
+   "name": "OptmatRate"
+  }
+ ],
+ "SOLID_OBJECTS": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "tuple"
+  }
+ ],
+ "SellmeierGlass": [
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.physdata.glasses",
+   "module_short": "solprop.physdata",
+   "name": "SellmeierGlass"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.physdata",
+   "module_short": "solprop.physdata",
+   "name": "SellmeierGlass"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "SellmeierGlass"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.physdata.glasses",
+   "module_short": "solprop.physdata",
+   "name": "GlassIndex"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.physdata",
+   "module_short": "solprop.physdata",
+   "name": "GlassIndex"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "GlassIndex"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "abc",
+   "module_short": "abc",
+   "name": "ABC"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.physdata",
+   "module_short": "solprop.physdata",
+   "name": "SellmeierGlass"
+  }
+ ],
+ "absorber": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "function"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.boundaries",
+   "module_short": "solprop.boundaries",
+   "name": "absorber"
+  }
+ ],
+ "argon": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.physdata.species",
+   "module_short": "solprop.physdata",
+   "name": "Species"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.physdata",
+   "module_short": "solprop.physdata",
+   "name": "Species"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "Species"
+  }
+ ],
+ "argon.material_records": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.physdata.species",
+   "module_short": "solprop.physdata",
+   "name": "Species.material_records"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.physdata",
+   "module_short": "solprop.physdata",
+   "name": "Species.material_records"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "Species.material_records"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop._display",
+   "module_short": "solprop._display",
+   "name": "Displayed.material_records"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "Displayed.material_records"
+  }
+ ],
+ "ax": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.axes._axes",
+   "module_short": "matplotlib.axes",
+   "name": "Axes"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.axes",
+   "module_short": "matplotlib.axes",
+   "name": "Axes"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib",
+   "module_short": "matplotlib",
+   "name": "Axes"
+  }
+ ],
+ "ax.legend": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.axes._axes",
+   "module_short": "matplotlib.axes",
+   "name": "Axes.legend"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.axes",
+   "module_short": "matplotlib.axes",
+   "name": "Axes.legend"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib",
+   "module_short": "matplotlib",
+   "name": "Axes.legend"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.axes._base",
+   "module_short": "matplotlib.axes._base",
+   "name": "_AxesBase.legend"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.axes",
+   "module_short": "matplotlib.axes",
+   "name": "_AxesBase.legend"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib",
+   "module_short": "matplotlib",
+   "name": "_AxesBase.legend"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.artist",
+   "module_short": "matplotlib.artist",
+   "name": "Artist.legend"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib",
+   "module_short": "matplotlib",
+   "name": "Artist.legend"
+  }
+ ],
+ "ax.plot": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.axes._axes",
+   "module_short": "matplotlib.axes",
+   "name": "Axes.plot"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.axes",
+   "module_short": "matplotlib.axes",
+   "name": "Axes.plot"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib",
+   "module_short": "matplotlib",
+   "name": "Axes.plot"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.axes._base",
+   "module_short": "matplotlib.axes._base",
+   "name": "_AxesBase.plot"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.axes",
+   "module_short": "matplotlib.axes",
+   "name": "_AxesBase.plot"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib",
+   "module_short": "matplotlib",
+   "name": "_AxesBase.plot"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.artist",
+   "module_short": "matplotlib.artist",
+   "name": "Artist.plot"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib",
+   "module_short": "matplotlib",
+   "name": "Artist.plot"
+  }
+ ],
+ "ax.set_xlabel": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.axes._axes",
+   "module_short": "matplotlib.axes",
+   "name": "Axes.set_xlabel"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.axes",
+   "module_short": "matplotlib.axes",
+   "name": "Axes.set_xlabel"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib",
+   "module_short": "matplotlib",
+   "name": "Axes.set_xlabel"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.axes._base",
+   "module_short": "matplotlib.axes._base",
+   "name": "_AxesBase.set_xlabel"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.axes",
+   "module_short": "matplotlib.axes",
+   "name": "_AxesBase.set_xlabel"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib",
+   "module_short": "matplotlib",
+   "name": "_AxesBase.set_xlabel"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.artist",
+   "module_short": "matplotlib.artist",
+   "name": "Artist.set_xlabel"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib",
+   "module_short": "matplotlib",
+   "name": "Artist.set_xlabel"
+  }
+ ],
+ "ax.set_ylabel": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.axes._axes",
+   "module_short": "matplotlib.axes",
+   "name": "Axes.set_ylabel"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.axes",
+   "module_short": "matplotlib.axes",
+   "name": "Axes.set_ylabel"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib",
+   "module_short": "matplotlib",
+   "name": "Axes.set_ylabel"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.axes._base",
+   "module_short": "matplotlib.axes._base",
+   "name": "_AxesBase.set_ylabel"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.axes",
+   "module_short": "matplotlib.axes",
+   "name": "_AxesBase.set_ylabel"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib",
+   "module_short": "matplotlib",
+   "name": "_AxesBase.set_ylabel"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.artist",
+   "module_short": "matplotlib.artist",
+   "name": "Artist.set_ylabel"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib",
+   "module_short": "matplotlib",
+   "name": "Artist.set_ylabel"
+  }
+ ],
+ "ax.set_ylim": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.axes._axes",
+   "module_short": "matplotlib.axes",
+   "name": "Axes.set_ylim"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.axes",
+   "module_short": "matplotlib.axes",
+   "name": "Axes.set_ylim"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib",
+   "module_short": "matplotlib",
+   "name": "Axes.set_ylim"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.axes._base",
+   "module_short": "matplotlib.axes._base",
+   "name": "_AxesBase.set_ylim"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.axes",
+   "module_short": "matplotlib.axes",
+   "name": "_AxesBase.set_ylim"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib",
+   "module_short": "matplotlib",
+   "name": "_AxesBase.set_ylim"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.artist",
+   "module_short": "matplotlib.artist",
+   "name": "Artist.set_ylim"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib",
+   "module_short": "matplotlib",
+   "name": "Artist.set_ylim"
+  }
+ ],
+ "band": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ndarray"
+  }
+ ],
+ "change": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "float64"
+  }
+ ],
+ "curated": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "optmat.gas.ionisation_rates",
+   "module_short": "optmat.gas.ionisation_rates",
+   "name": "IonisationRateModel"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "optmat.gas",
+   "module_short": "optmat.gas",
+   "name": "IonisationRateModel"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "optmat",
+   "module_short": "optmat",
+   "name": "IonisationRateModel"
+  }
+ ],
+ "curated.identity.digest": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "str"
+  }
+ ],
+ "curated.with_parameters": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "optmat.gas.ionisation_rates",
+   "module_short": "optmat.gas.ionisation_rates",
+   "name": "IonisationRateModel.with_parameters"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "optmat.gas",
+   "module_short": "optmat.gas",
+   "name": "IonisationRateModel.with_parameters"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "optmat",
+   "module_short": "optmat",
+   "name": "IonisationRateModel.with_parameters"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "optmat.identity",
+   "module_short": "optmat.identity",
+   "name": "Identified.with_parameters"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "optmat",
+   "module_short": "optmat",
+   "name": "Identified.with_parameters"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "abc",
+   "module_short": "abc",
+   "name": "ABC.with_parameters"
+  }
+ ],
+ "decibels": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "function"
+  }
+ ],
+ "doubled": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "optmat.gas.ionisation_rates",
+   "module_short": "optmat.gas.ionisation_rates",
+   "name": "IonisationRateModel"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "optmat.gas",
+   "module_short": "optmat.gas",
+   "name": "IonisationRateModel"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "optmat",
+   "module_short": "optmat",
+   "name": "IonisationRateModel"
+  }
+ ],
+ "doubled.identity": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "optmat.identity",
+   "module_short": "optmat.identity",
+   "name": "ModelIdentity"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "optmat",
+   "module_short": "optmat",
+   "name": "ModelIdentity"
+  }
+ ],
+ "exit_values": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "function"
+  }
+ ],
+ "field": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ndarray"
+  }
+ ],
+ "fig": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.figure",
+   "module_short": "matplotlib.figure",
+   "name": "Figure"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib",
+   "module_short": "matplotlib",
+   "name": "Figure"
+  }
+ ],
+ "fig.tight_layout": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.figure",
+   "module_short": "matplotlib.figure",
+   "name": "Figure.tight_layout"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib",
+   "module_short": "matplotlib",
+   "name": "Figure.tight_layout"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.figure",
+   "module_short": "matplotlib.figure",
+   "name": "FigureBase.tight_layout"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib",
+   "module_short": "matplotlib",
+   "name": "FigureBase.tight_layout"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.artist",
+   "module_short": "matplotlib.artist",
+   "name": "Artist.tight_layout"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib",
+   "module_short": "matplotlib",
+   "name": "Artist.tight_layout"
+  }
+ ],
+ "fraction": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "float"
+  }
+ ],
+ "fused_silica": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "function"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.physdata",
+   "module_short": "solprop.physdata",
+   "name": "fused_silica"
+  }
+ ],
+ "identity": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "optmat.identity",
+   "module_short": "optmat.identity",
+   "name": "ModelIdentity"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "optmat",
+   "module_short": "optmat",
+   "name": "ModelIdentity"
+  }
+ ],
+ "identity.base": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "str"
+  }
+ ],
+ "identity.modified": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "tuple"
+  }
+ ],
+ "identity.status": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "str"
+  }
+ ],
+ "ionisation_rate_model": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "function"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "optmat.gas.ionisation_rates",
+   "module_short": "optmat.gas.ionisation_rates",
+   "name": "ionisation_rate_model"
+  }
+ ],
+ "item": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.physdata.selection",
+   "module_short": "solprop.physdata",
+   "name": "MaterialRecord"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.physdata",
+   "module_short": "solprop.physdata",
+   "name": "MaterialRecord"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "MaterialRecord"
+  }
+ ],
+ "item.digest": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "str"
+  }
+ ],
+ "item.kind": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "str"
+  }
+ ],
+ "item.name": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "str"
+  }
+ ],
+ "item.status": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "str"
+  }
+ ],
+ "label": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "str"
+  }
+ ],
+ "malitson": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.physdata.glasses",
+   "module_short": "solprop.physdata",
+   "name": "SellmeierGlass"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.physdata",
+   "module_short": "solprop.physdata",
+   "name": "SellmeierGlass"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "SellmeierGlass"
+  }
+ ],
+ "np.abs": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ufunc"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "abs"
+  }
+ ],
+ "np.array": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "builtin_function_or_method"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "array"
+  }
+ ],
+ "np.ascontiguousarray": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "builtin_function_or_method"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ascontiguousarray"
+  }
+ ],
+ "np.complex128": [
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "complex128"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "complexfloating"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "complex"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "inexact"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "number"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "generic"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "complex128"
+  }
+ ],
+ "np.full": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "function"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "full"
+  }
+ ],
+ "np.linalg.norm": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "_ArrayFunctionDispatcher"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy.linalg",
+   "module_short": "numpy.linalg",
+   "name": "norm"
+  }
+ ],
+ "np.log10": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ufunc"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "log10"
+  }
+ ],
+ "np.max": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "_ArrayFunctionDispatcher"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "max"
+  }
+ ],
+ "np.pi": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "float"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "pi"
+  }
+ ],
+ "np.sum": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "_ArrayFunctionDispatcher"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "sum"
+  }
+ ],
+ "omega": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ndarray"
+  }
+ ],
+ "output": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.output.memory",
+   "module_short": "solprop.output",
+   "name": "MemoryOutput"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.output",
+   "module_short": "solprop.output",
+   "name": "MemoryOutput"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "MemoryOutput"
+  }
+ ],
+ "output.metadata.materials": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.output.memory",
+   "module_short": "solprop.output",
+   "name": "MemoryOutput.metadata"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.output",
+   "module_short": "solprop.output",
+   "name": "MemoryOutput.metadata"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "MemoryOutput.metadata"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.output.schema",
+   "module_short": "solprop.output",
+   "name": "PlaneStore.metadata"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.output",
+   "module_short": "solprop.output",
+   "name": "PlaneStore.metadata"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "PlaneStore.metadata"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop._display",
+   "module_short": "solprop._display",
+   "name": "Displayed.metadata"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "Displayed.metadata"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "abc",
+   "module_short": "abc",
+   "name": "ABC.metadata"
+  }
+ ],
+ "output.planes": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.output.memory",
+   "module_short": "solprop.output",
+   "name": "MemoryOutput.planes"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.output",
+   "module_short": "solprop.output",
+   "name": "MemoryOutput.planes"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "MemoryOutput.planes"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.output.schema",
+   "module_short": "solprop.output.schema",
+   "name": "PlaneStore.planes"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.output",
+   "module_short": "solprop.output",
+   "name": "PlaneStore.planes"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "PlaneStore.planes"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop._display",
+   "module_short": "solprop._display",
+   "name": "Displayed.planes"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "Displayed.planes"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "abc",
+   "module_short": "abc",
+   "name": "ABC.planes"
+  }
+ ],
+ "peak": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "float64"
+  }
+ ],
+ "perf_counter": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "builtin_function_or_method"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "time",
+   "module_short": "time",
+   "name": "perf_counter"
+  }
+ ],
+ "plt.show": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "function"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.pyplot",
+   "module_short": "matplotlib.pyplot",
+   "name": "show"
+  }
+ ],
+ "plt.subplots": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "function"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.pyplot",
+   "module_short": "matplotlib.pyplot",
+   "name": "subplots"
+  }
+ ],
+ "power": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "float"
+  }
+ ],
+ "prop_capillary": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "function"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.driver",
+   "module_short": "solprop.driver",
+   "name": "prop_capillary"
+  }
+ ],
+ "raman_status": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "functools",
+   "module_short": "functools",
+   "name": "_lru_cache_wrapper"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.nonlinear.optmat_raman",
+   "module_short": "solprop.nonlinear.optmat_raman",
+   "name": "raman_status"
+  }
+ ],
+ "rate": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.nonlinear.optmat_rates",
+   "module_short": "solprop.nonlinear.optmat_rates",
+   "name": "OptmatRate"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.nonlinear",
+   "module_short": "solprop.nonlinear",
+   "name": "OptmatRate"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "OptmatRate"
+  }
+ ],
+ "rate.maximum_field": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.nonlinear.optmat_rates",
+   "module_short": "solprop.nonlinear.optmat_rates",
+   "name": "OptmatRate.maximum_field"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.nonlinear",
+   "module_short": "solprop.nonlinear",
+   "name": "OptmatRate.maximum_field"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "OptmatRate.maximum_field"
+  }
+ ],
+ "rate.optmat_model.identity.name": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.nonlinear.optmat_rates",
+   "module_short": "solprop.nonlinear.optmat_rates",
+   "name": "OptmatRate.optmat_model"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.nonlinear",
+   "module_short": "solprop.nonlinear",
+   "name": "OptmatRate.optmat_model"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "OptmatRate.optmat_model"
+  }
+ ],
+ "rate.status": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.nonlinear.optmat_rates",
+   "module_short": "solprop.nonlinear.optmat_rates",
+   "name": "OptmatRate.status"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.nonlinear",
+   "module_short": "solprop.nonlinear",
+   "name": "OptmatRate.status"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "OptmatRate.status"
+  }
+ ],
+ "rate.threshold": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.nonlinear.optmat_rates",
+   "module_short": "solprop.nonlinear.optmat_rates",
+   "name": "OptmatRate.threshold"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.nonlinear",
+   "module_short": "solprop.nonlinear",
+   "name": "OptmatRate.threshold"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "OptmatRate.threshold"
+  }
+ ],
+ "rate.uncertainty_factor": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.nonlinear.optmat_rates",
+   "module_short": "solprop.nonlinear.optmat_rates",
+   "name": "OptmatRate.uncertainty_factor"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.nonlinear",
+   "module_short": "solprop.nonlinear",
+   "name": "OptmatRate.uncertainty_factor"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "OptmatRate.uncertainty_factor"
+  }
+ ],
+ "reference": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ndarray"
+  }
+ ],
+ "reference.ravel": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "builtin_function_or_method"
+  }
+ ],
+ "reference_fraction": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "float"
+  }
+ ],
+ "reference_power": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "float"
+  }
+ ],
+ "run": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "function"
+  }
+ ],
+ "runs": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "dict"
+  }
+ ],
+ "runs.items": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "builtin_function_or_method"
+  }
+ ],
+ "silica": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.physdata.glasses",
+   "module_short": "solprop.physdata",
+   "name": "OptmatGlass"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.physdata",
+   "module_short": "solprop.physdata",
+   "name": "OptmatGlass"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "OptmatGlass"
+  }
+ ],
+ "silica.material_records": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.physdata.glasses",
+   "module_short": "solprop.physdata",
+   "name": "OptmatGlass.material_records"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.physdata",
+   "module_short": "solprop.physdata",
+   "name": "OptmatGlass.material_records"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "OptmatGlass.material_records"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.physdata.glasses",
+   "module_short": "solprop.physdata.glasses",
+   "name": "GlassIndex.material_records"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.physdata",
+   "module_short": "solprop.physdata",
+   "name": "GlassIndex.material_records"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "GlassIndex.material_records"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "abc",
+   "module_short": "abc",
+   "name": "ABC.material_records"
+  }
+ ],
+ "species": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "function"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.physdata",
+   "module_short": "solprop.physdata",
+   "name": "species"
+  }
+ ],
+ "spectrum": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ndarray"
+  }
+ ],
+ "spectrum.ravel": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "builtin_function_or_method"
+  }
+ ],
+ "started": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "float"
+  }
+ ],
+ "touched": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "list"
+  }
+ ],
+ "used": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "function"
+  }
+ ],
+ "warnings.catch_warnings": [
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "_py_warnings",
+   "module_short": "_py_warnings",
+   "name": "catch_warnings"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "warnings",
+   "module_short": "warnings",
+   "name": "catch_warnings"
+  }
+ ],
+ "warnings.simplefilter": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "function"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "warnings",
+   "module_short": "warnings",
+   "name": "simplefilter"
+  }
+ ],
+ "wavelength": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ndarray"
+  }
+ ]
+}

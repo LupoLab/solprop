@@ -14,9 +14,13 @@ authors:
     orcid: "https://orcid.org/0000-0002-8009-3547"
 # version and date-released are those of the latest release, set by the release
 # commit; tests/test_release_metadata.py checks them against CHANGELOG.md.
+version: 0.1.0
+date-released: "2026-10-31"
 license: GPL-3.0-or-later
 url: "https://solprop.readthedocs.io/"
 repository-code: "https://github.com/LupoLab/solprop"
+# Zenodo's concept DOI, which names every release; each release has its own DOI too.
+doi: 10.5281/zenodo.23854248
 keywords:
   - nonlinear optics
   - ultrafast optics

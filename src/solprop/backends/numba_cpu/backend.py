@@ -121,9 +121,9 @@ from solprop.translate.coupled import metric_at
 from solprop.translate.linop import power_weight_at
 from solprop.translate.plasma_source import _BENCHMARK_GATED
 from solprop.translate.problem import (
+    KERNEL_SCHEMA_VERSION,
     MAX_N_COMPONENTS,
     MAX_N_POL,
-    SCHEMA_VERSION,
     KernelProblem,
 )
 from solprop.translate.responses import ResponseStage
@@ -3409,6 +3409,7 @@ class NumbaCpuBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         noise: NoiseRealisation | None,
         *,
         z: float = 0.0,
+        resume: bool = False,
     ) -> None:
         """Load a state, and forget the stage the step before it left behind.
 
@@ -3420,8 +3421,11 @@ class NumbaCpuBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
             The realisation, or ``None`` to take the contract's.
         z : float, optional
             Where the state belongs, m. A positive value is a resume.
+        resume : bool, optional
+            Whether `field` came back from a saved plane, and so never takes the
+            ``input`` draw.
         """
-        super().set_initial(field, noise, z=z)
+        super().set_initial(field, noise, z=z, resume=resume)
         # A state that was handed in is not the state any stage was evaluated at, so
         # the first-same-as-last identity is broken until a step has been taken, and
         # so is what the last column evaluation left behind for the statistics.
@@ -5174,10 +5178,11 @@ def _refuse_unsupported(problem: KernelProblem) -> None:
     BackendError
         Naming what is unsupported.
     """
-    if problem.schema_version != SCHEMA_VERSION:
+    if problem.schema_version != KERNEL_SCHEMA_VERSION:
         msg = (
-            f"this backend implements kernel contract version {SCHEMA_VERSION} and "
-            f"the problem declares version {problem.schema_version}"
+            "this backend implements kernel contract version "
+            f"{KERNEL_SCHEMA_VERSION} and the problem declares version "
+            f"{problem.schema_version}"
         )
         raise BackendError(msg)
     if problem.precision.single:

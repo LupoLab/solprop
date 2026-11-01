@@ -55,7 +55,7 @@ def keywords(length=0.01, trange=60e-15, **overrides) -> dict[str, Any]:
         length,
     )
     return {
-        "lambda0": 800e-9,
+        "wavelength": 800e-9,
         "grid": grid,
         "fwhm": 20e-15,
         "energy": 1e-8,

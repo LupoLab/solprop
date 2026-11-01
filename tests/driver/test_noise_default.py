@@ -29,12 +29,12 @@ from solprop.stepper import PIController
 pytestmark = pytest.mark.filterwarnings("ignore::solprop.exceptions.BoundaryWarning")
 
 GNLSE = {
-    "lambda0": 835e-9,
+    "wavelength": 835e-9,
     "wavelength_limits": (500e-9, 2e-6),
     "trange": 1e-12,
     "width": 100e-15,
     "peak_power": 9.8,
-    "pulseshape": "sech",
+    "shape": "sech",
     "n_save": 3,
     "backend": "numpy_ref",
 }
@@ -96,7 +96,7 @@ def test_the_capillary_and_radial_routes_default_to_input_noise():
         0.01,
         "He",
         1.0,
-        lambda0=800e-9,
+        wavelength=800e-9,
         fwhm=30e-15,
         energy=1e-6,
         wavelength_limits=(400e-9, 2e-6),
@@ -140,7 +140,7 @@ def test_the_resolution_survives_the_stored_record():
 
 def test_a_record_without_a_resolution_reads_as_not_recorded():
     document = json.loads(_gnlse(seed=7).metadata().to_json())
-    del document["noise_resolution"]
+    document["noise_resolution"] = None
     assert RunMetadata.from_json(json.dumps(document)).noise_resolution is None
 
 

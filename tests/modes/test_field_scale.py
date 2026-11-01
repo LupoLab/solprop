@@ -26,7 +26,7 @@ from scipy.special import j0, j1, jn_zeros
 
 from rate_oracles import adk_oracle
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.exceptions import MaterialRangeWarning, ModeError, OutputError
+from solprop.exceptions import MaterialRangeWarning, ModeError
 from solprop.grid import FieldGrid
 from solprop.modes import MarcatiliMode, transverse_quadrature
 from solprop.modes.quadrature import (
@@ -374,7 +374,7 @@ def capillary_simulation(radial_rule, n_r):
             0.01,
             "He",
             1.0,
-            lambda0=800e-9,
+            wavelength=800e-9,
             fwhm=10e-15,
             energy=1e-6,
             modes=1,
@@ -416,15 +416,6 @@ def test_the_one_node_rule_is_named_as_the_effective_area_special_case():
     assert metadata.simulation_kind == "multimode"
     assert metadata.quadrature is not None
     assert metadata.quadrature["effective_area_node"] is True
-
-
-def test_a_record_older_than_schema_17_carries_no_quadrature():
-    """Missing means "not recorded", never a field-scale rule."""
-    metadata = capillary_simulation("gauss_kronrod", 32).metadata()
-    legacy = dataclasses.replace(metadata, schema_version=16, quadrature=None)
-    assert "quadrature" not in legacy.hashed()
-    with pytest.raises(OutputError, match="requires output schema 17"):
-        dataclasses.replace(metadata, schema_version=16)
 
 
 # ------------------------------------------------------------ the rule's own guards

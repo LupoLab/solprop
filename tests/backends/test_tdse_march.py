@@ -94,7 +94,7 @@ def march_problem(request):
         1e-5,
         "He",
         0.1,
-        lambda0=800e-9,
+        wavelength=800e-9,
         wavelength_limits=(400e-9, 1.6e-6),
         trange=60e-15,
         fwhm=2e-15,

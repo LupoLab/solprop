@@ -194,10 +194,13 @@ void leave_fftw_team(int /*saved*/) noexcept {}
 namespace {
 // Whether the build's BLAS is an OpenMP OpenBLAS (`register_openmp_blas`), how many of
 // the calling thread's scopes hold it at one thread, and the thread's OpenMP default
-// width before the outermost of them.
+// width before the outermost of them (an OpenMP build only: Clang refuses the unused
+// variable in a device build under -Werror).
 std::atomic<bool> openmp_blas{false};
 thread_local int blas_holds = 0;
+#if defined(KOKKOS_ENABLE_OPENMP)
 thread_local int blas_saved_default = 0;
+#endif
 
 // An OpenMP OpenBLAS runs a call serially when the caller's OpenMP default width
 // (`omp_get_max_threads`) is one, before it reads its own count, so the hold sets only

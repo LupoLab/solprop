@@ -143,7 +143,7 @@ def _four_modes_over_a_metre_and_a_half(trange, modes):
         1.5,
         "He",
         (0.8, 0.1),
-        lambda0=800e-9,
+        wavelength=800e-9,
         wavelength_limits=(90e-9, 4e-6),
         trange=trange,
         fwhm=7.5e-15,
@@ -178,7 +178,7 @@ def test_a_window_whose_collar_holds_the_walk_off_is_not_warned_about(trange, mo
 def keywords(**overrides):
     """Return the cheap capillary's keywords, with any of them replaced."""
     return {
-        "lambda0": LAMBDA0,
+        "wavelength": LAMBDA0,
         "wavelength_limits": (200e-9, 2e-6),
         "trange": 100e-15,
         "fwhm": 10e-15,
@@ -494,8 +494,8 @@ def test_a_run_with_no_nonlinearity_is_refused():
 #
 # The keywords milestone M4's target asks for, in solprop's names. Luna's call is
 #
-#     prop_capillary(16e-6, 1.5, :H2, 40.0; lambda0=515e-9,
-#                    pulses=Pulses.GaussPulse(lambda0, tau_fwhm=400e-15, energy=10e-6),
+#     prop_capillary(16e-6, 1.5, :H2, 40.0; λ0=515e-9,
+#                    pulses=Pulses.GaussPulse(λ0, tau_fwhm=400e-15, energy=10e-6),
 #                    lambda_lims=(170e-9, 4e-6), trange=4e-12, loss=false, modes=6)
 #
 # and every keyword of it already existed here except one: Luna turns the Raman response
@@ -508,7 +508,7 @@ CTC = {
     "radius": 16e-6,
     "gas": "H2",
     "pressure": 40.0,
-    "lambda0": 515e-9,
+    "wavelength": 515e-9,
     "wavelength_limits": (170e-9, 4e-6),
     "trange": 4e-12,
     "fwhm": 400e-15,
@@ -1399,7 +1399,7 @@ def undepleted_solprop(*, kerr, energy):
         OVERLAP_PROVENANCE["gas"],
         UNDEPLETED["pressure"],
         grid=grid,
-        lambda0=OVERLAP_PROVENANCE["lambda0"],
+        wavelength=OVERLAP_PROVENANCE["lambda0"],
         fwhm=UNDEPLETED["fwhm"],
         energy=energy,
         modes=2,
@@ -1754,7 +1754,7 @@ def witness_inputs(grid, n_modes):
     """
     return {
         "model": "full",
-        "pulseshape": "gauss",
+        "shape": "gauss",
         "kerr": True,
         "thg": True,
         "n_r": 32 if n_modes <= 4 else 48,
@@ -2225,7 +2225,7 @@ def witness_run(
         # The witnesses were made by Luna's cumulative trapezoid (SEP 18).
         plasma_integration=None if plasma is False else "trapezoid",
         grid=grid,
-        lambda0=WITNESS["lambda0"],
+        wavelength=WITNESS["lambda0"],
         fwhm=WITNESS["tau_fwhm"],
         # Luna's nominal energy is its *vacuum* amplitude's, so the pulse its archive
         # was made with carries w_bar times as much true energy -- 1.0000357455 here.
@@ -2846,7 +2846,7 @@ def fixed_ladder(counts, *, stop, band, pressure=None, **overrides):
             REDUCED["length"],
             fill,
             grid=grid,
-            lambda0=WITNESS["lambda0"],
+            wavelength=WITNESS["lambda0"],
             fwhm=WITNESS["tau_fwhm"],
             energy=WITNESS["energy"],
             modes=REDUCED["modes"],
@@ -3119,7 +3119,7 @@ def ctc_run(
             # Raman constants and the potential-only ADK rate Luna's own runs use.
             luna_hydrogen_fill(case["pressure"], CTC_WITNESS["temperature_k"]),
             grid=grid,
-            lambda0=CTC_WITNESS["lambda0"],
+            wavelength=CTC_WITNESS["lambda0"],
             fwhm=CTC_WITNESS["tau_fwhm"],
             # As in `witness_run`: Luna's nominal energy is its vacuum amplitude's, and
             # 40 bar of hydrogen in a 16 um core makes w_bar 1.0049222310, so
@@ -3181,7 +3181,7 @@ def ctc_field_range(case):
             case["length"],
             luna_hydrogen_fill(case["pressure"], CTC_WITNESS["temperature_k"]),
             grid=grid,
-            lambda0=CTC_WITNESS["lambda0"],
+            wavelength=CTC_WITNESS["lambda0"],
             fwhm=CTC_WITNESS["tau_fwhm"],
             energy=CTC_WITNESS["energy"],
             modes=case["modes"],
@@ -3551,7 +3551,7 @@ def reduced_m2_simulation(**overrides):
             # The witnesses were made by Luna's cumulative trapezoid (SEP 18).
             plasma_integration=None if plasma is False else "trapezoid",
             grid=grid,
-            lambda0=WITNESS["lambda0"],
+            wavelength=WITNESS["lambda0"],
             fwhm=WITNESS["tau_fwhm"],
             energy=WITNESS["energy"],
             modes=case["modes"],

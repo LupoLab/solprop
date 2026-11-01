@@ -102,7 +102,7 @@ records the absolute launch, the TDSE identity, the outcome and any terminal che
 beside the step limits and the dense and step-plane policies. The full-band sensitivity to
 the window and the atomic cut error are unresolved
 ([TDSE accuracy and limitations](../guide/media/tdse.md#accuracy-and-limitations)). The
-current versions are kernel schema 36 and saved-output schema 25
+kernel and saved-output schemas are versioned independently
 ([kernel contract](kernel-contract.md)).
 
 **haCC helium** ([SEP 20](seps/archive/sep-0020-hacc-helium-tdse.md)). The same route carries a second atomic model, the
@@ -527,7 +527,7 @@ class Backend(Protocol):
     name: str
     max_batch: int
 
-    def set_initial(self, field, noise, *, z: float = 0.0) -> None: ...
+    def set_initial(self, field, noise, *, z=0.0, resume=False) -> None: ...
     def set_progress(self, reporter) -> None: ...  # an observer, never an input
     def propagate_to(self, z: float) -> StepSummary: ...  # shared step loop
     def observe(self, *, field: bool = True) -> Observation: ...  # host arrays only

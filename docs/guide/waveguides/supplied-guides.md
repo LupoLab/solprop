@@ -24,7 +24,7 @@ output = prop_waveguide(
     0.001,
     "Ar",
     5.0,
-    lambda0=800e-9,
+    wavelength=800e-9,
     wavelength_limits=(450e-9, 1200e-9),
     trange=100e-15,
     fwhm=30e-15,
@@ -93,7 +93,7 @@ output = prop_waveguide(
     length,
     provider=guide,
     grid=grid,
-    lambda0=835e-9,
+    wavelength=835e-9,
     fwhm=40e-15,
     energy=4e-11,
     n_save=2,
@@ -127,8 +127,8 @@ alone. `backend="auto"` selects `native` where it is installed.
 It **writes and resumes an HDF5 file**: the file carries the channel labels, the
 provider, sampling, table and metric identities and the accessors the basis admits, so
 a resume against a changed guide, table, material or channel order is refused by the
-field that moved, and a file written at an output schema before 7 is never resumed into
-one ([output](../results/resuming.md#what-a-general-modal-runs-key-holds)). A scan point writes one
+field that moved ([output](../results/resuming.md#what-a-general-modal-runs-key-holds)).
+A scan point writes one
 too. A **batch** member may be a general modal run, under a narrower admission rule than
 an ordinary fibre batch's ([scans and batches](../workflows/scans.md#fixed-schedule-batches)): the
 members of a group share the guide, the table, the gauge, the materials and one explicit

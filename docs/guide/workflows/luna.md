@@ -21,7 +21,7 @@ keywords in Python spelling and every quantity in SI units (pressures stay in ba
 
 | Luna | solprop |
 |---|---|
-| `λ0`, `τfwhm`, `τw`, `ϕ`, `λlims`, `saveN`, `shotnoise` | `lambda0`, `fwhm`, `width`, `phases`, `wavelength_limits`, `n_save`, the default `noise="input"`, with a `seed` |
+| `λ0`, `τfwhm`, `τw`, `ϕ`, `λlims`, `saveN`, `shotnoise` | `wavelength`, `fwhm`, `width`, `phases`, `wavelength_limits`, `n_save`, the default `noise="input"`, with a `seed` |
 | `pulses=[Pulses.GaussPulse(...), ...]` | `pulses=[GaussianPulse(...), ...]` ({class}`~solprop.pulses.PulseSum`) |
 | `modes=:HE11` (mode-averaged), `modes=1`, `modes=4` | `mode_average=True`, `modes=1`, `modes=4`, or a list of mode objects; solprop's default is the resolved `modes=1` |
 | `Plotting.prop_2D`, `time_1D`, `spec_1D` | `prop_2d`, `time_1d`, `spec_1d` |
@@ -216,7 +216,7 @@ the `"modified"` noise model is advanced by the unitary part of the linear propa
 along z, not held constant; the generator is seeded explicitly and the seed recorded;
 one draw has the same shape for single-mode and multimode runs.
 
-**Pulses.** A measured pulse (`DataPulse`) keeps its own time origin; a continuous wave
+**Pulses.** A measured pulse (`DataPulse`, `TimeDataPulse`) keeps its own time origin; a continuous wave
 (`CWPulse`) is built in one pass on either grid and is seeded; envelopes are validated.
 
 **Launching a beam into a guide.** Luna's `GaussBeamPulse` takes one scalar overlap of

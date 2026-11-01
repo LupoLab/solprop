@@ -5,6 +5,7 @@
 """Tests for the two output handlers: what they store, and how they resume."""
 
 import dataclasses
+import json
 import signal
 import subprocess
 import sys
@@ -1061,43 +1062,6 @@ def test_a_run_that_recorded_no_channel_reads_back_empty(grid, metadata, tmp_pat
             assert handler["step_stats/counts"].tolist() == [0]
 
 
-def test_a_file_older_than_the_channel_reads_back_empty(grid, metadata, tmp_path):
-    """A schema-2 file has no group at all, and the reader must not fall over it."""
-    path = tmp_path / "old.h5"
-    with HDF5Output(path) as handler:
-        handler.open(metadata)
-        handler.save(make_plane(grid, 0))
-    with h5py.File(path, "r+") as file:
-        del file["step_stats"]
-    with hdf5_module.open_file(path) as stored:
-        assert stored.step_stat_names == ()
-        assert stored["step_stats/z"].size == 0
-    # And it still resumes as far as the reader is concerned: what refuses such a file
-    # is the configuration hash, which carries the schema version, not the reader.
-    state = hdf5_module.resume(path)
-    assert state.plane.step_stats.n_rows == 0
-
-
-def test_appending_to_a_file_older_than_the_channel_is_the_hash_s_refusal(
-    grid, schedule, metadata, tmp_path
-):
-    """Continuing a schema-2 file opens it without the group and refuses by its hash.
-
-    The handler adopts the groups the file has and skips the one it lacks, so the
-    refusal is the readable one naming the schema version, not a missing group.
-    """
-    path = tmp_path / "old.h5"
-    with HDF5Output(path) as handler:
-        handler.open(make_metadata(grid, schedule, schema_version=2))
-        handler.save(make_plane(grid, 0))
-    with h5py.File(path, "r+") as file:
-        del file["step_stats"]
-    continued = HDF5Output(path, append=True)
-    with pytest.raises(OutputError, match="schema_version"):
-        continued.open(metadata)
-    continued.close()
-
-
 def test_a_plane_with_an_empty_channel_keeps_the_columns_aligned(grid, metadata):
     """Every column gets one piece per plane, so one cumulative sum locates them all.
 
@@ -1222,10 +1186,45 @@ def test_a_plane_whose_channel_changes_its_statistics_is_refused(grid, metadata)
         memory.save(spoiled)
 
 
-def test_the_schema_version_is_twelve_for_integrated_run_records(metadata):
-    """Combined launch, TDSE, step-limit and saved-plane policies version the file."""
-    assert SCHEMA_VERSION == 28
-    assert metadata.schema_version == 28
+def test_a_run_record_declares_the_current_output_schema(metadata):
+    """Schema 2 is schema 1, the first released layout, plus a recorded field."""
+    assert SCHEMA_VERSION == 2
+    assert metadata.schema_version == 2
+
+
+@pytest.mark.parametrize("declared", [1, 10, 28, SCHEMA_VERSION + 1])
+def test_a_file_of_another_output_schema_is_refused_by_name(
+    grid, metadata, tmp_path, declared
+):
+    """A development file or one from a later release is not read, at any door.
+
+    The file is a current one whose record is restamped with another version, so the
+    refusal is the version's and not that of some field the layout lacks.
+    """
+    path = tmp_path / "other.h5"
+    with HDF5Output(path) as handler:
+        handler.open(metadata)
+        handler.save(make_plane(grid, 0))
+    with h5py.File(path, "r+") as file:
+        text = item(file, "meta", "json")[()].decode("utf-8")
+        document = json.loads(text)
+        document["schema_version"] = declared
+        del file["meta/json"]
+        file.create_dataset(
+            "meta/json", data=json.dumps(document), dtype=h5py.string_dtype()
+        )
+        file.attrs["schema_version"] = declared
+    refusal = rf"schema_version {declared}.*reads output schema 2 only"
+    with pytest.raises(OutputError, match=refusal):
+        hdf5_module.open_file(path)
+    with pytest.raises(OutputError, match=refusal):
+        hdf5_module.resume(path)
+    with pytest.raises(OutputError, match=refusal):
+        hdf5_module.check_cache(path, metadata)
+    continued = HDF5Output(path, append=True)
+    with pytest.raises(OutputError, match=refusal):
+        continued.open(metadata)
+    continued.close()
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Windows has no SIGKILL")
@@ -1251,9 +1250,9 @@ class Killer(NullReporter):
             os.kill(os.getpid(), signal.SIGKILL)
 
 prop_gnlse(
-    gamma=0.11, length=1e-3, betas=[0.0, 0.0, -11.83e-27], lambda0=835e-9,
+    gamma=0.11, length=1e-3, betas=[0.0, 0.0, -11.83e-27], wavelength=835e-9,
     wavelength_limits=(500e-9, 2e-6), trange=1e-12, width=100e-15,
-    peak_power=9.8, pulseshape="sech", shock=False, n_save=7,
+    peak_power=9.8, shape="sech", shock=False, n_save=7,
     output={str(path)!r}, progress=Killer(),
 )
 """

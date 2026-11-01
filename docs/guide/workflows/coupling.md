@@ -48,8 +48,8 @@ with ω the absolute frequency. τ is the absolute time of the record's $t = 0$ 
 carrier phase; `plane.absolute()` applies them. Keeping the pair as numbers, rather
 than shifting the samples, means that a long path never translates a femtosecond pulse
 out of its window. Each run records its frame integral, so any saved plane's reference
-is rebuilt from the file alone (output schema 24,
-[provenance](../results/provenance.md#the-metadata-schema)).
+is rebuilt from the file alone
+([provenance](../results/provenance.md#the-metadata-schema)).
 
 ## Reading a plane back
 
@@ -66,7 +66,7 @@ simulation = Simulation.from_capillary(
     1e-3,
     "Ar",
     1.0,
-    lambda0=800e-9,
+    wavelength=800e-9,
     wavelength_limits=(400e-9, 1.6e-6),
     trange=200e-15,
     fwhm=20e-15,
@@ -152,7 +152,7 @@ second = Simulation.from_capillary(
     1e-3,
     "Ar",
     1.0,
-    lambda0=800e-9,
+    wavelength=800e-9,
     wavelength_limits=(400e-9, 1.6e-6),
     trange=200e-15,
     fwhm=20e-15,
@@ -342,7 +342,7 @@ capillary = Simulation.from_capillary(
     1e-3,
     "Ar",
     1.0,
-    lambda0=800e-9,
+    wavelength=800e-9,
     wavelength_limits=(400e-9, 1.6e-6),
     trange=200e-15,
     fwhm=20e-15,
@@ -390,7 +390,7 @@ wider = Simulation.from_capillary(
     1e-3,
     "Ar",
     1.0,
-    lambda0=800e-9,
+    wavelength=800e-9,
     wavelength_limits=(400e-9, 1.6e-6),
     trange=200e-15,
     fwhm=20e-15,
@@ -455,7 +455,7 @@ def fibre(radius):
         1e-3,
         fibre=mode,
         n2=2.6e-20,
-        lambda0=1064e-9,
+        wavelength=1064e-9,
         wavelength_limits=(900e-9, 1300e-9),
         trange=400e-15,
         fwhm=100e-15,
@@ -702,7 +702,7 @@ receiving = Simulation.from_capillary(
     1e-3,
     "Ar",
     1.0,
-    lambda0=800e-9,
+    wavelength=800e-9,
     wavelength_limits=(400e-9, 1.6e-6),
     trange=200e-15,
     fwhm=20e-15,

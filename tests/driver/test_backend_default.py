@@ -103,10 +103,10 @@ def test_public_interfaces_share_the_default_and_preserve_explicit_choices(
                 0.11,
                 0.001,
                 [0.0, 0.0, -1.183e-26],
-                lambda0=835e-9,
+                wavelength=835e-9,
                 grid=narrow_grid,
                 width=100e-15,
-                pulseshape="sech",
+                shape="sech",
                 peak_power=1.0,
                 **{"noise": None, **keywords},
             )
@@ -120,7 +120,7 @@ def test_public_interfaces_share_the_default_and_preserve_explicit_choices(
                 0.001,
                 "He",
                 1.0,
-                lambda0=835e-9,
+                wavelength=835e-9,
                 grid=narrow_grid,
                 fwhm=30e-15,
                 energy=1e-9,
@@ -174,7 +174,7 @@ def test_auto_runs_a_z_table_taper_on_the_native_cpu_build():
         # A 2 mm dz_max is above the coupled flow's advisory step, which says so.
         warnings.filterwarnings("ignore", message=".*explicit residual is the limit")
         arguments = {
-            "lambda0": 800e-9,
+            "wavelength": 800e-9,
             "fwhm": 10e-15,
             "energy": 1e-9,
             # The former grid, on which the expansion does not resolve.

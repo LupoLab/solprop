@@ -1,0 +1,1807 @@
+# SEP 42 — Resuming by what matters to the run
+
+| | |
+|---|---|
+| **SEP** | 42 |
+| **Title** | Resuming by what matters to the run |
+| **Author** | John Travers |
+| **Drafting agent** | Opus 5.5 |
+| **Status** | Accepted |
+| **Review status** | Reviewed |
+| **Reviewers** | John Travers (human); Opus 5.5 (AI) |
+| **Type** | Change |
+| **Created** | 2026-10-31 |
+| **Resolution** | Accepted 2026-11-01 by John Travers, after the maintainer's human review, two AI reviews and the responses to them, and decisions Q1–Q7 (Part III) ([LupoLab/solprop#73](https://github.com/LupoLab/solprop/pull/73)). |
+| **Requires** | — |
+| **Supersedes** | — |
+| **Superseded-by** | — |
+| **Implementation** | Not started |
+| **Manual pages** | — |
+
+## Part I — Proposal
+
+### 1. Abstract
+
+Today a file resumes only when the rebuilt run's configuration hash equals the stored one,
+exactly. That is stricter than continuing the run needs. A release that adds a field, a
+newer optmat with the same numbers, a looser tolerance, or a platform whose mathematics
+library rounds differently in the last bit each refuses a resume of the same physics. This
+SEP replaces hash equality as the resume gate with a comparison of the two records path by
+path. A short table sorts every recorded path into one of four classes:
+
+- **layout:** what gives the stored arrays their meaning; it must agree, with no override;
+- **compared (the default):** physics and launch parameters; it must agree, unless the user
+  forces the resume;
+- **numerics:** how accurately the run steps; it may change while there is something left to
+  compute, and the change is recorded;
+- **ignored:** provenance, and launch realisations whose parameters are compared.
+
+Numbers agree per element within a rounding-level tolerance, and a path one record lacks is
+a difference unless a table declares its neutral value. optmat models are compared by the
+digest of their numbers. `resume="force"` continues in the same file whenever the layout
+agrees and the arrays fit, restarts the Adams history, and leaves a mark that later sessions
+and readers respect. The output schema is bumped only for a change an older reader would
+misread.
+
+Success means:
+
+- a run resumes after an upgrade, an optmat release with the same numbers or a move to
+  another platform, unless the physics changed;
+- an unfinished run resumes with a changed `rtol` or integrator, and the file says which
+  session stepped how;
+- every refusal names what changed, and a change of physics is never continued unasked;
+- the compatibility code is one table of classes and one table of neutral values and
+  renames, and the rest is small edits to existing code.
+
+### 2. Motivation and scope
+
+A resume should succeed whenever continuing the stored state with the requested problem
+gives the run the user asked for, and be refused, with a reason, when it would not. The
+present gate departs from that in four ways, each of which a user meets in ordinary work.
+
+- **A field added in a release breaks every earlier file.** A run record holds every field
+  of every dataclass it serialises, at its default too (ADR-051). A release that adds a
+  field to `PIController`, a pulse, a response or a mode moves every configuration hash and
+  bumps the output schema, though the new field's default may reproduce the old behaviour
+  exactly. The roadmap's *A resume-compatibility policy before 1.0* asked what to do about
+  it.
+- **The material manifest is compared by version.** The resume key covers the optmat
+  version, and each model's name, status, status reason and sources. An optmat release that
+  changes no number a run uses still refuses its resume.
+- **Numbers are compared bit for bit.** The record holds numbers computed with the
+  platform's mathematics library and FFTs: the launch field, the noise spectrum, the mixture
+  tables, the absorber rates, an ionisation threshold found by bisection. SEP 25 gave up
+  bitwise agreement across platforms, and `tests/record_numbers.py` already compares these
+  numbers to a bound, but the resume key did not follow. So nothing guarantees that a run
+  started on one machine resumes on another.
+- **Accuracy settings count as physics.** A run stopped part-way under `rtol=1e-6` cannot be
+  finished under `rtol=1e-5`, nor with another integrator, though either continuation is
+  well defined. The boundary check's budget left the key for the same reason (SEP 21).
+
+And there is no way to insist. A long run stranded by a corrected optmat model, or by a
+release that moved a derived table, can only continue in a new file through `with_input`,
+which restarts the call ledgers and refuses modified noise and fixed schedules.
+
+In scope:
+
+- the classification of recorded paths and the comparison rules;
+- reading a stored record that an earlier or later release wrote;
+- what a session holds after continuing, and the code a continuation meets behind the gate;
+- `resume="force"`;
+- scans' reuse of finished points;
+- the rule for when the output schema is bumped.
+
+Out of scope:
+
+- **Continuing a finished run to a longer length.** The longer run differs from the stored
+  one in hundreds of length-dependent paths, its absorber depends on the length, and the
+  file's record cannot describe planes beyond its own. It needs its own proposal, after the
+  recipes of SEP 41 (accepted). `with_input` from the last plane already continues a
+  finished run into a new file. [#141](https://github.com/LupoLab/solprop/issues/141) holds
+  the work.
+- **Reading files of another output schema.** ADR-058 stands: a file is read only at its own
+  schema. This SEP makes bumps rare; it adds no readers for old layouts.
+- **Bitwise reproduction of a resumed run.** A resume agrees with an uninterrupted run to
+  the bounds SEP 25 set, as today.
+- **The size of the run record.** The roadmap's *Large arrays in the run record* is
+  unchanged.
+
+### 3. Context
+
+The resume key is `RunMetadata.configuration_hash()` (`solprop/output/schema.py`), a SHA-256
+of the canonical JSON of `RunMetadata.hashed()`. That holds the schema version and
+simulation kind; the grid, modes, spatial and modal records, quadrature and power
+convention; the configuration (medium, guide, pulse, launch field, responses, profiles,
+absorber, save planes, statistics, precision and derived tables); the noise; the stepper
+record; the material manifest's identities and policies; the launch position and the TDSE
+descriptor. Kept out are the wall-clock time, package versions, git provenance, backend
+record and boundary check ([resuming](../../guide/results/resuming.md#the-resume-key)).
+
+`check_cache` (`solprop/output/hdf5.py`) is the gate. These places test the hash too, and §5
+says what happens to each:
+
+| Where | What it asks | Under this SEP |
+|---|---|---|
+| `check_cache` | may this file be continued? | the comparison |
+| `HDF5Output` opening in append mode | does the file hold this run? | adopts the file's record once the driver's gate has passed; used directly, the comparison |
+| `_stored_metadata`, stamp against record | is the file intact? | exact, against the stored text |
+| `_validate_metadata` (`output/scan.py`) | is a scan row intact? | exact, against the stored text |
+| `resolve_metadata_write` | is a second write the same run? | exact |
+| `HDF5Output.reopen`, snapshots, the TDSE archive context | has the session's file changed? | exact, against the adopted record |
+| the scan drivers' finished-point check | is this point done? | the comparison, numerics held to agreement |
+| `Queue` and `Slurm` at collection, and the queue manifest | is this the declared scan? | exact, unchanged |
+| processing's `source=` check | did this simulation write this output? | the comparison |
+
+Every route to a stored record goes through `RunMetadata.from_json`, which rebuilds
+`GridRecord`, `ModeRecord`, `StepperRecord`, `NoiseRecord` and others through `_rebuild`. A
+field the class no longer has is an unexpected keyword, a required field that is absent is
+missing, and a defaulted field that is absent is filled in, after which the digest no longer
+matches the file's stamp. Any of these refuses before a hash is compared.
+
+Two earlier rulings relaxed the gate for particular cases: a realisation drawn without a
+seed is drawn again from the file's seed (`Simulation._adopt_recorded_seed`), and the
+boundary check's budget is outside the key. A session's backend and provider facts already
+go into `RunOutcome.execution`, and earlier sessions' into `previous_executions`.
+
+`tests/output/test_record_stability.py` and `tests/record_numbers.py` already pin run
+records: the structure by an exact hash, and the numbers to `RECORD_RTOL = 1e-11`, a bound
+chosen from the largest departure a change of libm, BLAS or compiler can make.
+
+The relevant decisions:
+
+- **ADR-051:** no compatibility with earlier configurations; every field is recorded at its
+  default; a file of another schema is never resumed.
+- **ADR-058:** the 0.x releases may break the resume key if the changelog says so; a file of
+  another schema is refused everywhere; a resume-compatibility policy is to be decided
+  before 1.0.
+- **SEP 25:** no bitwise reproducibility anywhere; bounds instead.
+- **SEP 14:** an interpolated plane resumes only with `resume="interpolated"`.
+
+This SEP answers the roadmap item *A resume-compatibility policy before 1.0*. It chooses
+neither option the item named; §10 says why.
+
+**Open issues.** From a keyword search of this SEP's subjects against the open issues,
+reading those that matched. It fixes none in full.
+
+- **To resolve before 0.2.0:** [#131](https://github.com/LupoLab/solprop/issues/131).
+  `ScanOutput` reads scans of another output schema, so §9's statement that 0.1.0 files stay
+  refused holds for scan files only once that is fixed.
+- **It changes, or meets the same code as:**
+  - [#80](https://github.com/LupoLab/solprop/issues/80): the outcome record is rewritten at
+    every plane, and §5.3's `resume` entry joins it, which is why that entry is kept short.
+  - [#128](https://github.com/LupoLab/solprop/issues/128): what a resume restores of the
+    boundary monitor, in the same first execution record that §5.3 writes to.
+  - [#129](https://github.com/LupoLab/solprop/issues/129): a failed native trial's
+    checkpoint holds the prediction, which the gate cannot tell from a sound state.
+  - [#87](https://github.com/LupoLab/solprop/issues/87): a record of which default applied.
+    Its new fields need $N$ entries if they land after this SEP.
+  - [#125](https://github.com/LupoLab/solprop/issues/125): a scan built from one cached
+    simulation refuses on a rerun because its noise differs. §5.7's comparison does not
+    change that.
+  - [#109](https://github.com/LupoLab/solprop/issues/109) and
+    [#110](https://github.com/LupoLab/solprop/issues/110): refactors of
+    `driver/simulation.py`, `backends/multistep.py` and the step loops.
+
+### 4. Theory
+
+**Records as trees.** A record is the parsed JSON of `hashed()`. A path is a tuple of
+components: mapping keys and list indices, never a dotted string, because a key may contain
+a dot. A leaf is any value that is not a plain mapping or list, and these tagged mappings
+are leaves too:
+
+| Tag | Meaning | Agreement |
+|---|---|---|
+| `__ndarray__`, with `__imaginary__` when complex | an array | numeric, below |
+| `__complex__` | a complex scalar | numeric, below |
+| `__enum__` | an enumeration member | exact |
+| `ArrayDigest` | the SHA-256 of a large array | exact |
+| `__callable__`, `__repr__`, marked `reproducible: false` | a repr, unstable across processes | exact, with the reason in the refusal |
+
+A list of numbers is compared number by number, like an array. Differences in a list or an
+array are reported as one entry with a count.
+
+**Normalisation.** Two steps run before the walk, because neither is table data. Model
+records are re-keyed from `material:kind:name` to `(material, kind, digest)` and solids from
+`(material, axis, model)` to `(material, axis, digest)`, with a solid's `model` leaf
+dropped, so that a renamed model is the same model. And a subtree whose `__class__` begins
+with `optmat.` is dropped, because the manifest records its digest.
+
+**Classes.** A table $T$ maps path patterns to classes. A pattern is a tuple of components,
+with `*` matching one component (a list index included), `**` any number, and braces listing
+alternatives. A row matches a leaf when its pattern matches the leaf's path or an ancestor
+of it, so a row classifies a whole subtree: `spatial.axes` covers `spatial.axes[0]`. The
+first row that matches decides, and an unmatched path is compared, so a field nobody has
+classified is held to agreement: the safe error is a refusal.
+
+$$
+c(p) \in \{\text{layout},\ \text{compared},\ \text{numerics},\ \text{ignored}\}.
+$$
+
+**Agreement of leaves.** Strings, booleans, integers, `None`, enumerations and digests agree
+when equal. An integer and a float, such as `pressure=1` and `1.0`, compare as numbers.
+Floating-point numbers and arrays of the same shape agree when, for every element,
+
+$$
+|a_i - b_i| \le \varepsilon \max(|a_i|, |b_i|), \qquad \varepsilon = 10^{-11},
+$$
+
+with complex values measured by modulus, NaN agreeing only with NaN in the same place and an
+infinity only with the same infinity. The test is per element because the elements of an
+array may be different quantities: the dispersion coefficients `[β2, β3, β4]` span 18 orders
+of magnitude, and a scale taken from the array's largest element would let β3 double and β4
+change sign. A few arrays have tails of rounding, which a per-element test would judge
+against themselves. Only the paths $T$ marks **tail** add a floor, taken from the array:
+$|a_i - b_i| \le \varepsilon \max_j(|a_j|, |b_j|)$.
+
+$\varepsilon$ is `RECORD_RTOL`, one constant shared with the tests. It rests on a
+measurement: the largest departure among the record's numbers is the ionisation threshold,
+found by bisection to a relative bracket of $10^{-12}$. It is far below any stepper
+tolerance in use and any change a user makes on purpose. Continuing with numbers that agree
+to $\varepsilon$ perturbs the solution at about the order of the rounding the march makes
+itself, which is the kind of difference SEP 25 bounds rather than forbids.
+
+**Exact paths.** A few numbers cannot take a tolerance, because the driver does exact
+arithmetic on them. A resume finds its plane by `searchsorted` on the save planes and lands
+on them, so a save plane moved by $10^{-13}$ fails later with an unrelated error. $T$ marks
+them **exact**: `configuration.save_planes`, `initial_z` and `grid.length`. Plain arithmetic
+on a user's number makes them bit-identical across platforms, so nothing is lost.
+
+**Absent paths.** A path present in one record and absent from the other is a difference,
+unless a table $N$ gives its neutral value: the value that reproduces the behaviour of the
+code before the path existed. With an entry, the absent side reads as that value and the
+comparison goes on. The table holds one line per field that a release declared neutral.
+Every new recorded field therefore needs a decision, and the frozen records of §7 fail until
+someone makes it. The field's default is deliberately not consulted: a new field that
+changes what runs compute would agree with itself through its own default, and resolving a
+stored `__class__` would import a module a file names.
+
+A default changed deliberately needs no entry. The earlier record holds the old value, which
+the comparison sees as a change of physics, and so it should. $N$ also has a short section
+of class renames, for a class moved between modules.
+
+**Materials.** After normalisation a model is identified by `(material, kind, digest)`.
+optmat's digest is the SHA-256 of the model's canonical record, which identifies its
+numbers, and it leaves out status, status reason and the override fields, so `modified` and
+`base` stay compared. Two optmat versions that give a model the same digest give the run the
+same numbers.
+
+**Work left.** A file has work left when its next plane is not past the last save plane,
+counting a checkpoint that is still owed its plane. That is decided by position and not by
+status, so a file killed after its last plane has none, though its status reads `running`.
+
+**Verdict.** For stored record $S$ and requested record $R$, with equal digests a fast path
+meaning no differences:
+
+| The file and the differences | `resume=True`, work left | `resume=True`, no work left | `resume="force"` |
+|---|---|---|---|
+| none, or only rounding and neutral | continues | nothing to do, if every session ran under these numerics; otherwise refused, as in the next row | as `resume=True`, and accepts an interpolated last plane |
+| numerics | continues, recorded | refused: nothing would be computed | as `resume=True`, and accepts an interpolated last plane |
+| compared | refused | refused | continues if there is work left, marked and with the Adams history restarted; otherwise refused |
+| layout, or the arrays do not fit (§5.5) | refused | refused | refused |
+| the file already has a forced session | refused, naming the position | returned, with a warning | continues if there is work left |
+
+A complete file with changed numerics is refused rather than returned, because the user
+asked for something the file does not hold: a tightened `rtol` must not hand back the loose
+result. The remedy is a new file. The stored record alone cannot show this, because it
+describes only the first session: a file started at `rtol=1e-6` and finished at `1e-5` still
+matches the original script. So on a file with no work left the requested numerics are also
+compared with each session's, which the `resume` entries of §5.3 give. An unfinished file
+with a mixed history just continues, recorded as usual. A scan's point has one session, so
+§5.7 does not meet this. A last plane that kept no field without a checkpoint, and a file
+with no plane, are still refused by name after the comparison, as they are today.
+
+**Numerical changes on continuing.** With the controller held to $\text{rtol}_1$ on $[0,
+z_r]$ and $\text{rtol}_2$ on $[z_r, L]$, the continued run is a concatenation of two
+adaptive integrations from one state, and its local error is bounded on each segment by that
+segment's tolerance. So the whole run is no better than the looser of the two. That is a
+statement about accuracy, not identity, and it is recorded, not refused.
+
+### 5. Proposed interface
+
+#### 5.1 The comparison
+
+A new module `solprop.output.compatibility` holds $T$, $N$ and the comparison. `RunMetadata`
+gains one method:
+
+```text
+comparison = stored.compare(requested)     # RecordComparison
+comparison.continues                       # bool, for resume=True
+comparison.layout                          # tuple of PathChange
+comparison.refused                         # tuple of PathChange (compared paths)
+comparison.numerics                        # tuple of PathChange (recorded)
+comparison.neutral                         # tuple of paths read through N
+comparison.summary()                       # the refusal or report text
+```
+
+`PathChange` holds the path and both values, with arrays and lists summarised by shape and
+largest difference. `summary()` groups elements as `summarise_differences` does, because a
+pressure change moves about 500 paths: it names every part of the record that changed, with
+its first entries and a count of the rest. `differences` and `summarise_differences` stay,
+for displays that want every difference.
+
+`check_cache(path, metadata)` keeps its signature and returns `True` or raises `OutputError`
+with `comparison.summary()`. It wraps an internal function that returns the comparison,
+which the driver's `_open_output` uses for the record of §5.3. `_open_output` also makes the
+checks that need the file's state: work left, and a forced session. The refusal names the
+models whose digests changed, and for a callable says that its repr changes between
+processes and to pass an object that carries its data.
+
+#### 5.2 The class table
+
+In order; the first row that matches decides, and an unmatched path is compared.
+
+| Pattern | Class | How, and why |
+|---|---|---|
+| `simulation_kind`, `power_convention` | layout | exact |
+| `initial_z`, `grid.length`, `configuration.save_planes` | layout | exact, §4 |
+| `grid.**` | layout | the stored arrays' axes |
+| `modes`' length, `modes[*].label.{family, azimuthal_order, radial_order, parity, handedness}` | layout | which mode each row of the state is; a mode's model and data are compared |
+| `spatial.{kind, shape, axes, axis_names, axis_units, spectral_axes, spectral_axis_names, spectral_axis_units, column_order, physical_field_units, stored_field_units, spatial_weights, spectral_weights, forward_scale, inverse_scale}` | layout | the transverse axes and transforms; flux plans and absorber rates are compared |
+| `modal.{basis, n_channels, n_components, channels}` | layout | the basis's structure; the guide, tables and responses are compared |
+| `quadrature.{radial_rule, kind, full, requested_n_r, n_r, n_theta, n_nodes, embedded_rule}` | layout | the rule and its counts, which per-node statistics are shaped by; the nodes and weights are compared |
+| `noise.model`, and whether `noise` is present | layout | a stored state carries input noise; modified noise adds a source at every step, and noise phases are saved per plane |
+| `configuration.precision` | layout | a decision, not a fact about the file (Q7): a run is not resumed in the other precision |
+| `tdse.**` | layout | compared as text, so numbers inside `configuration_json` are exact. A safe refusal on a route CI cannot run: a snapshot binds to the descriptor |
+| `stepper.**`, `configuration.propagator_mode` | numerics | how accurately, not what |
+| `configuration.initial`, where `configuration.pulse` is present | ignored | realised from a compared pulse on a compared grid; the stored field supersedes it |
+| `configuration.initial` otherwise | compared, tail | an array launch: this is its only record |
+| `noise.spectrum`, where `noise.seed` is set and `noise.model` is `input` | ignored | drawn from a compared model and seed, and carried by the stored field |
+| `noise.spectrum` otherwise | compared, tail | a realisation passed in has no other record, and modified noise is injected at every step |
+| `configuration.absorber.{spectral_rate, temporal_rate, temporal_rate_fine}`, `spatial.absorber_rate` | compared, tail | rates with rounding tails |
+| `materials.optmat_version` | ignored | provenance |
+| `materials.records.*.{name, status, status_reason, sources, optmat_version}` | ignored | provenance; the digest identifies the numbers |
+| `materials.policies.ionisation[*].{model, status}`, `**.cladding.source` | ignored | a model's name and status, outside the manifest's records |
+| `**.citation` | ignored | a citation string, which may carry a file's hash and the optmat release |
+
+`with_input` drops `configuration.pulse` for an array launch, so that condition is what
+separates a launch built from parameters from one that is only an array. The unseeded-noise
+ruling is kept, and a passed-in realisation is still never replaced. A launch that differs
+in its parameters is refused: the stored field does supersede it, but a script that changed
+its pulse and kept its output path is more likely a mistake than a wish to continue the old
+run.
+
+Phase 1 checks `modal.channels` for measured numbers before it stays a layout row. The table
+is data, reviewed like code. A test asserts that every row matches a path in at least one
+route's record, so a stale row is noticed.
+
+#### 5.3 What a session holds after continuing
+
+After a continuation **the output handler holds the file's record**. The driver still passes
+the requested record to `run_problem`, because the run summary, the versions and the git
+provenance are facts about this session. In append mode the handler keeps the stored record
+as its own, whatever it is offered, once `_open_output` has passed the gate. So
+`output.metadata` is the file's, and the exact checks of §3 compare a file with its own
+record and hold: `suspend`, `reopen` and snapshots work after a tolerant resume. The TDSE
+archive context takes the stored hash. `HDF5Output(append=True).open(...)` used directly has
+passed no gate, so it compares, and refuses compared paths.
+
+The requested problem is what steps. The file's stored record is never rewritten: it
+describes the run as first written, and the executions say how each session continued it.
+
+A continuation with differences gains a `resume` entry in that session's
+`RunOutcome.execution`, which `run_problem` takes as a parameter and writes with the first
+execution record, before any step:
+
+```text
+{"from_z": 0.0412, "from_plane": 82, "forced": false,
+ "numerics": {"stepper.controller.rtol": [1e-06, 1e-05]},
+ "compared": "",
+ "neutral": ["stepper.controller.new_field"]}
+```
+
+`compared` is `summary()`'s grouped text with its count, not every path. The outcome is
+rewritten at each plane, and a full list of an argon-to-helium change is 255 kB, which over
+500 planes would add 100 MB to the file. `previous_executions` keeps the entry with the
+session. A non-finite value, such as the default `dz_max`, is written as text, because
+`RunOutcome` refuses non-finite numbers.
+
+#### 5.4 Reading a stored record
+
+The stored record reaches the comparison as it was written.
+
+- `from_json` keeps the raw hashed part. A record read from a file digests to its own stamp
+  and compares by its own text, whatever today's code would write, so the stamp check and
+  `_validate_metadata` still mean "the file is intact".
+- Rebuilding a dataclass for reading drops fields the class no longer has, and fills an
+  absent field from $N$, or from the field's default where it has one. The rebuilt object is
+  for reading only and the comparison never sees it. An absent required field with no $N$
+  entry refuses, by path.
+
+A file from a newer release of the same schema can therefore be read. It resumes only if the
+comparison allows it.
+
+#### 5.5 Forcing a resume
+
+`resume="force"` on `Simulation.run` and the `prop_*` routes continues in the same file
+whenever the layout agrees, the arrays fit and there is work left, whatever the compared
+paths say. It is for a user who knows why the records differ: a corrected optmat model on a
+long run, a release that moved a derived table, a change of physics they mean. `resume` now
+checks its value, so a mistyped word is a `ValueError`. Scans have no `resume`, so a scan
+never forces.
+
+- **The arrays must fit.** After `_prime`, when there are compared differences and it is not
+  a TDSE run, the driver compares `backend.stats(spec)` with the shapes of the file's
+  `stats/*`, before stepping and before anything is written. A statistic's names and shape
+  follow the responses and the species, so force cannot change the number of species or turn
+  plasma on or off. Without this check such a run computes a whole segment and then fails at
+  its first save, with a raw error, leaving a checkpoint from the other physics. A prototype
+  of the check reported a mixture, plasma off, `n_r` and two modes by name, and left an
+  identical continuation unchanged.
+- **The Adams history restarts.** A session with a compared difference does not restore the
+  snapshot, and warns that the physics changed. The state comes from the stored plane,
+  reweighted by the requested problem, and the ledgers stay cumulative. Restoring it would
+  be wrong: a capillary forced from 1 to 2 bar at `rtol=1e-6` reached an error of
+  $1.3\times10^{-4}$ with the snapshot, and $4.9\times10^{-8}$ starting afresh, because the
+  snapshot's state was divided by the old $\sqrt{\operatorname{Re} n_{\rm eff}}$ and its
+  energy jumped at the join.
+- **It warns at once.** Each forced continuation warns, listing `summary()`, because the
+  word stays in a script after the reason for it has gone. A changed launch has no effect,
+  because the stored field is what continues, so the warning says so when a launch parameter
+  differs.
+- **It marks the file.** The §5.3 entry carries `"forced": true`, and is written before any
+  step, so a stopped or failed force leaves its mark. One helper reads "this file was
+  forced, at these positions" from the execution records, and which numerics each session
+  ran. No annotation is added.
+- **The mark is respected:**
+  - `resume=True` refuses a file with a forced session and names the position, and on a file
+    with no work left returns it with a warning. Otherwise the original script would
+    continue the file with nothing said, because the stored record still matches it: a
+    stopped force then read densities of `[2.47, 2.47, 2.47, 4.95, 2.47]e25` under a record
+    claiming one physics.
+  - `field_plane` refuses a plane beyond the forced position, because it exports a reference
+    frame and a hash that do not describe that plane, and a downstream run would record them
+    as its parent.
+  - `source=` is refused on those planes, whichever simulation is given.
+  - The peak-field report takes only the planes the session wrote.
+  - The public `open_file` warns once, naming the position. Internal callers do not.
+
+`stats/*` stay correct, because the requested problem wrote them. Anything rebuilt from the
+record does not, such as `get_power_weight`, which was $2.6\times10^{-4}$ off after that
+pressure change. The manual says so. Storing the requested record beside the first would be
+bigger than the problem, since records reach tens of MB.
+
+`with_input` stays the way to record a changed physics properly in its own file. What force
+adds is the same file, cumulative ledgers, and modified noise and fixed schedules; what it
+costs is a record that stops describing the later planes. The manual says which to use when:
+anything that will be coupled onward or processed from the record takes `with_input`.
+
+#### 5.6 The numerics behind the gate
+
+The continuation meets these, which phase 1 changes:
+
+- **Call ledgers.** A run that goes from `Multistep` to `RungeKutta` is refused today by
+  `_validate_resume` and by `restore_call_ledgers`, because a logical call ledger requires
+  Adams integration. The charged ledger stays on as provenance in `previous_executions` and
+  is not installed in a Runge–Kutta march. The reverse direction already works. A TDSE run
+  admits only `Multistep`, so it never meets this.
+- **Adams history.** `AdamsMarch._refusal` compares the snapshot's `repr` of the method, so
+  raising `max_calls` or changing `safety` restarts at order one although the history is
+  still valid. A snapshot gains an attribute `history_key`, holding only the fields that
+  define the history, and the check compares that. An absent key means "start afresh", which
+  is safe and needs no schema bump (§5.8). A change of those fields restarts the march, with
+  the warning it gives today. With the check bypassed, raising `max_calls` continued the
+  history with an error no worse than starting afresh, on both a GNLSE and a capillary run.
+  A forced session never restores a snapshot (§5.5).
+- **Interpolated planes.** `_open_output` refuses an interpolated last plane only when the
+  requested run is dense. With `interpolate_planes` now free to change, the test drops
+  `dense and`, because `_interpolated` reads the file. Otherwise a run stored densely and
+  resumed sparsely would continue silently from a state the march never passed through.
+
+#### 5.7 Scans
+
+A finished point is reused when its stored record and the point's new record differ only in
+rounding, neutral values or ignored paths. Numerics are held to agreement here: tightening
+`rtol` is the commonest reason to rerun a scan, and a done point has nothing left to
+continue. A scan with changed numerics writes to a new file.
+
+The worker keeps its digest check. A mismatch already returns a `conflict` result carrying
+the new record, and the parent, which holds the scan file, compares it with the stored one
+and treats a pass as `skipped`. So `_Job` is unchanged, and the common case costs nothing.
+
+`Queue` and `Slurm` keep exact identity: their manifest hashes the builder's code and
+refuses a change, and their per-point checks stay exact. The manual says so.
+
+#### 5.8 The output schema
+
+`schema_version` stays in the record and in the configuration hash, but leaves the
+comparison. A resume needs the stored file's schema to equal the current one, as
+`_refuse_schema` already requires, checked before the comparison.
+
+The schema is bumped only for a change an older reader would misread or that cannot be
+appended to:
+
+- a dataset renamed, re-laid or given new units, or an attribute changing meaning;
+- anything added inside `stats`, `step_history` or `step_stats`, or anything grown per
+  plane.
+
+It is not bumped for a new field in the JSON record, a root attribute, or a top-level group
+written once. Those are the additions readers already tolerate (an unknown top-level group
+and root attribute were measured to read and resume), and a new top-level group is what SEP
+41's `recipe` group needs.
+
+The rule goes into `docs/guide/results/output.md`, which today says a new field "bumps the
+output schema", and a new ADR. The ADR narrows ADR-051's "a file of another output schema is
+never resumed, through its resume key" to the schema precondition, and replaces its "no
+field is left out to keep an earlier record's hash" with the neutral-value rule. Fields are
+still recorded in full.
+
+#### 5.9 Example
+
+```text
+sim = Simulation.from_capillary(..., rtol=1e-6)
+sim.run("run.h5")                   # stopped at z = 41 mm
+
+# after upgrading solprop and optmat, with no physics change:
+sim = Simulation.from_capillary(..., rtol=1e-5)
+sim.run("run.h5", resume=True)
+# WARNING resuming run.h5 at z = 0.0412 m with changed numerics:
+#   stepper.controller.rtol 1e-06 -> 1e-05
+
+sim = Simulation.from_capillary(..., pressure=1.2)
+sim.run("run.h5", resume=True)
+# OutputError: run.h5 cannot be resumed; these compared values differ:
+#   configuration: medium.shared_pressure.values (201 elements, largest 0.2),
+#   profiles.pressure.value 1.0 -> 1.2, ... and 518 more
+#   To change the physics, launch a new segment from a saved plane; to
+#   continue in this file regardless, pass resume="force".
+
+sim.run("run.h5", resume="force")
+# WARNING forcing a resume of run.h5 at z = 0.0412 m; these compared values differ:
+#   configuration: medium.shared_pressure.values (201 elements, largest 0.2), ...
+#   The Adams history starts afresh. From here the file's record does not describe
+#   its planes: stats/* hold, and anything rebuilt from the record does not.
+```
+
+### 6. Implementation strategies
+
+**Where the classification lives.** One table of path patterns is recommended over
+annotating fields with `dataclasses.field(metadata=...)`. It covers configuration keys,
+which are not dataclass fields, and optmat's classes, which solprop does not own, and it
+keeps every compatibility decision in one reviewable place.
+
+**Layer.** The work belongs to the output layer, with small edits in the driver and
+processing, and one in each of `backends/driver.py` and `backends/multistep.py` (§5.6). The
+kernel contract and `KERNEL_SCHEMA_VERSION` do not change.
+
+**Layout: paths or arrays.** Path rows state what the stored arrays mean, which nothing else
+guards: a moved time axis of the same length would fail nowhere. Whether the arrays fit is
+tested on the arrays (§5.5), because a proxy in the record has holes and leaves no special
+form for counting species.
+
+**Cost.** The walk is linear in the record's size: a prototype took 0.04 s on a 28.6 MB
+record, against 0.28 s for today's canonical JSON and SHA-256. The digest fast path keeps
+processing's per-plane `source=` check as cheap as it is.
+
+**Retention.** Each $N$ entry names the release that added it, and is deleted with that
+release's frozen records (Q3).
+
+**Earlier workarounds.** The conditional records in `metadata_for` (`transverse_measure`,
+`plasma_integration`, `quiet_collar`, `evanescent_rate`) stay as they are. Both records lack
+them in the ordinary case, so they cost nothing. Writing them unconditionally later would
+need $N$ entries, and is not proposed.
+
+**New dependencies.** None.
+
+### 7. Verification and validation
+
+The tests are P (structural) and R (rounding) class (`docs/dev/testing.md` §3), and T for
+the resumed-run envelope. Nothing here changes a computed field. Unless it says otherwise, a
+test goes through a real file and `check_cache`, not a hand-built record.
+
+- **Frozen records.** `tests/output/test_record_stability.py` already pins each case's
+  structure and numbers against today's build. It gains, per case and for a capillary and a
+  GNLSE route, the whole record of a release, never regenerated. The first set is 0.2.0's,
+  the release this SEP ships in (§9), captured from the tree that is tagged;
+  `docs/dev/releasing.md` gains the step for later releases, by checking out the tag. Until
+  that tag, phase 1's set is captured from its own tree, and work landing before the tag may
+  refresh it, as SEP 40's will; it stops changing at the tag.
+  - Each must compare as continuing with the current build, on every CI platform. A fixture
+    captured once and compared on all platforms is the real cross-platform check.
+  - A new recorded field fails until it has an $N$ entry, which is what enforces the rule.
+  - An optmat data revision moves a digest and is a correct refusal, not a solprop
+    regression, and it also moves the arrays built from that data, such as
+    `configuration.mixture_processing.cross_section_m2`. So a case whose manifest digests
+    moved is compared by structure alone, which logs the digests, and the new-field check
+    still applies. A case with no optmat data, such as a plain GNLSE, is always compared in
+    full, so a solprop regression cannot hide behind an optmat update.
+    `test_record_stability`'s docstring changes to match.
+- **Another release's file.** Files with the stamp an earlier build would write, each of
+  them: lacking a defaulted `StepLimits` field, lacking a required `GridRecord` field,
+  lacking a top-level entry, and holding an unknown field. With an $N$ entry the first three
+  continue, and without one they refuse by path.
+- **Tolerance.** The mixed-scale case: `betas` with β3 doubled and β4's sign flipped
+  refuses. A 4-ulp change of `lambda0`, `trange`, `energy` or `fwhm` continues on the
+  capillary with one and two modes and on the radial route. A named tail agrees where its
+  per-element test would not. NaN, infinity, complex and integer-against-float cases.
+- **Exact paths.** A length moved by $10^{-13}$ refuses by name, rather than failing later.
+- **Materials.** On a real route's record: a changed optmat version, model name or status
+  with the same digests continues, a renamed solid included, and a changed model number
+  moves a manifest digest and refuses, naming the model. So dropping the `optmat.` subtrees
+  hides nothing.
+- **Launch.** A changed pulse energy refuses. `with_input(spectrum*1.5)` and a different
+  passed-in realisation refuse. An unseeded rerun continues. A different modified-noise
+  realisation refuses.
+- **Numerics.** A capillary run stopped part-way resumes with a changed `rtol`, and with
+  `RungeKutta()` after a ledger was written. The `resume` entry records both, a non-finite
+  value included, and the resumed run agrees with an uninterrupted run at the looser
+  tolerance, to the T-class envelope `testing.md` uses for resumed runs. Raising `max_calls`
+  keeps the Adams history.
+- **Complete files.** A complete file with a tightened `rtol` refuses, and one with only
+  neutral differences has nothing to do. A file started at `rtol=1e-6` and finished at
+  `1e-5` refuses the original script's `resume=True`, and refuses `1e-5` too, because
+  neither ran the whole file.
+- **Session identity.** `suspend` and `reopen` after a tolerant resume work, and
+  `output.metadata` is the file's. A snapshot on a TDSE run after a tolerant resume, where
+  the provider is available.
+- **Interpolated planes.** A file stored with `interpolate_planes=True` that ends on an
+  interpolated plane refuses under `False`. An ordinary non-dense run never trips the test.
+- **Force.**
+  - A changed pressure under `resume="force"` continues, warns, records the entry before any
+    step, and agrees with a restart from the stored plane, with the Adams history not
+    restored.
+  - A layout change refuses, including HE11 to HE12 and a change of noise presence; so do a
+    file with no work left, a change of species count and plasma turned off, before anything
+    is computed or written.
+  - A radial pressure change and a capillary radius change continue under force.
+  - After a stopped or failed force, `resume=True` refuses, and names the position;
+    `resume="force"` continues. A complete forced file is returned with a warning.
+  - `field_plane` and `source=` refuse planes beyond the position, and the peak-field report
+    leaves out earlier planes. `open_file` warns once, and an internal call does not.
+  - A file killed after its last plane has no work left.
+  - An entry's size stays bounded over many planes.
+  - A mistyped `resume` value is a `ValueError`.
+- **Scans.** A rerun whose points differ only in rounding or a neutral value skips them, and
+  one with changed numerics or physics is a conflict.
+- **Schema rule.** A file with an unknown top-level group and root attribute is read and
+  resumed. Adding a dataset in `stats` is covered by the rule, not by tolerance.
+- **The table.** Every row matches a path in at least one route's record. A row covers the
+  leaves beneath it: a moved `spatial.axes[0]` is layout, and a changed
+  `materials.records.*.sources[0]` is ignored.
+
+Not exercised by CI: a real pair of files from two platforms beyond the frozen records; the
+queue and Slurm executors, whose identity does not change; and a forced TDSE run, which
+`tdse.**` refuses when the descriptor differs. Phase 1 should also try force from an Adams
+snapshot above order 2, and on the Cartesian, line, planar and non-general waveguide routes,
+which neither review ran.
+
+### 8. Documentation
+
+- **`docs/guide/results/resuming.md`:** "The resume key" becomes "What a resume compares":
+  the classes and table, the tolerance, neutral values, materials by digest, the numerics
+  record, forcing, and which of `force` and `with_input` to use when, with an example
+  refusal and an example continuation. "Noise drawn without a seed" stays.
+- **`docs/guide/results/run-access.md`:** the paragraph on `check_cache`.
+- **`docs/guide/results/output.md`:** when the schema is bumped; "every field is recorded"
+  keeps its first half.
+- **`docs/dev/contributing.md`:** a new recorded field needs a decision, and how to add an
+  $N$ entry and refresh frozen records at a release.
+- **Docstrings:** `RunMetadata.compare`, `RecordComparison`, `PathChange`, `check_cache`,
+  `resume` on `Simulation.run` and the six `prop_*` routes in `driver/interface.py`, and the
+  resume-key paragraphs of `output/schema.py` and `output/hdf5.py`.
+- **ADR:** a new ADR for the policy, narrowing ADR-051 and answering ADR-058's open policy.
+- **Roadmap:** *A resume-compatibility policy before 1.0* goes. Continuing a finished run to
+  a longer length, which this SEP gives back, is
+  [#141](https://github.com/LupoLab/solprop/issues/141).
+- **SEP 41:** its §3, §5.2 and §9 describe the resume gate and the schema as they stand
+  today, and follow this SEP when it is accepted.
+
+### 9. Compatibility and impact
+
+- **Behaviour:** resumes that were refused now continue where the run is unchanged, or with
+  a warning where numerics changed. Nothing that continued before is refused, because equal
+  hashes mean no differences. The `dense and` edit affects only a non-dense file ending on
+  an interpolated plane, which an ordinary run cannot produce; §7 tests it.
+- **Breaking changes:** none to the API; `resume` gains a value, and `check_cache`'s refusal
+  text changes.
+- **Output schema:** unchanged by this SEP. The `resume` entry goes into the free-form
+  `RunOutcome.execution`, and `history_key` is an optional attribute of a snapshot.
+- **Files already written:** the output schema is 2 on `main`, from the `DataPulse` phase
+  fix, and no release carries it yet. 0.1.0 files stay refused by their schema.
+- **Older readers:** 0.2.0 is tagged after this SEP lands, so every released reader of
+  schema 2 knows these rules, and 0.1.0 refuses schema 2 by its version. Without that order,
+  a reader from before this SEP would see a forced file's record match the original script
+  and continue it silently, which §5.8's own rule would answer with a bump. Should the order
+  change, this SEP bumps the schema. A later change to what force records bumps it too.
+- **`KERNEL_SCHEMA_VERSION`:** unchanged.
+- **The configuration hash:** unchanged. It is still stamped in every file, and it is the
+  exact identity §3 lists.
+- **Validated results:** unaffected, since no computed field changes.
+- **Luna.jl:** no difference to record.
+
+### 10. Alternatives considered
+
+- **Hash with the stored file's own rules.** One hashing function per released record
+  layout. This is a growing set of versioned hashers, the compatibility code the maintainer
+  wants to avoid, and it still compares bit for bit and still refuses numerics changes.
+- **Reintroduce omit-at-default.** Hashes stay stable when fields are added, but not when
+  they are removed or a default changes, and the record stops stating every value used,
+  which ADR-051 chose for good reason.
+- **Read an absent field as its current default.** Less to write per field, but a new field
+  that changes the physics agrees with itself and continues silently, and a test built on
+  the same rule cannot catch it. An explicit table is less code and keeps the refusal as the
+  safe error.
+- **Scale the tolerance by the array's largest element.** Simpler, but it lets real changes
+  in dispersion coefficients through (§4).
+- **Ignore the launch altogether.** The stored field supersedes it, but a mistaken resume
+  would continue the wrong run silently. Only realisations whose parameters are compared are
+  ignored.
+- **No override.** `with_input` covers a deliberate change of physics, but it splits the run
+  across files, restarts the ledgers and refuses modified noise and fixed schedules. For a
+  long run stranded by a change that does not matter to the user, the same file is what is
+  wanted. A forced run restarts the history too, so this is a narrower gain than it first
+  looks, at the cost of one class, a shape check and one helper that readers consult.
+- **An annotation for forced resumes.** `interpolated_resumes` is written on the success
+  path alone, so a stopped force would leave no mark, and that is where the mark matters.
+  The execution records are written before any step, and already exist.
+- **Store the requested record beside the first after a force.** Readers could then be
+  right, but records reach tens of MB, and this is a rare path.
+- **Ask for numerics changes to be opted into.** A value for a choice users make on purpose.
+  A warning and a record serve as well.
+- **Continue a finished run to a longer length here.** Moved to its own proposal (§2).
+
+### 11. Phases
+
+Both phases go on one branch, `feature/sep-0042-tolerant-resume`, with one pull request
+opened at Final (SEP 0).
+
+1. **Comparison and resume.**
+   - **Deliverables:** `solprop.output.compatibility` with $T$, $N$, normalisation and
+     `RunMetadata.compare`; `from_json` keeping the raw record and tolerating absent and
+     unknown fields; `check_cache`, append mode and `source=` on the comparison; the handler
+     adopting the file's record; the `resume` entry; the ledger, history and
+     interpolated-plane edits; `resume="force"` with its shape check, its restart, its
+     warnings and the readers that respect it; the frozen records; the manual and the ADR.
+   - **Verifies:** §7 except scans and the schema rule.
+2. **Scans and the schema rule.**
+   - **Deliverables:** the parent's comparison on a digest conflict in `Local`, `Pool` and
+     `Batch`; the bump rule in `output.md` and `contributing.md`.
+   - **Verifies:** the scan and schema tests of §7.
+
+0.2.0 is tagged after phase 2 is merged, and after SEP 40, which changes the free-space
+records and defaults and goes into the same release. The first frozen records are captured
+from that tree (§7, §9).
+
+### 12. Open questions
+
+- **Q1. The tolerance.** Per element at $10^{-11}$, with an array-scale floor only on named
+  tails (recommended); or the array-scale test at $10^{-12}$ the first draft proposed, which
+  the review showed passes real physics changes. **Decision (John Travers, 2026-11-01):** as
+  now recommended.
+- **Q2. The launch realisations.** Ignore `configuration.initial` and `noise.spectrum` only
+  where compared parameters made them (recommended); or always, as the first draft proposed,
+  which hides array launches. **Decision (John Travers, 2026-11-01):** as now recommended.
+- **Q3. How long neutral and rename entries live.** For the release that adds them and the
+  next minor release, then deleted with the frozen records they serve (recommended); or
+  until 1.0. **Decision (John Travers, 2026-11-01):** as recommended.
+- **Q4. Scans and numerics.** A finished point whose numerics differ is a conflict
+  (recommended, §5.7); or it is reused and counted, as the first draft proposed, which hands
+  back loose results after a tightened `rtol`. **Decision (John Travers, 2026-11-01):** as
+  now recommended.
+- **Q5. A force override.** Add `resume="force"`, limited by the layout class and recorded
+  in the file (recommended, §5.5); or none, with `with_input` the only route. **Decision
+  (John Travers, 2026-11-01):** as recommended; forcing is sometimes useful. Its limits were
+  then tightened by the supplementary review (§5.5).
+- **Q6. Opting into numerics changes.** Allow them on `resume=True` with a warning and the
+  execution record (recommended), or require a new value of `resume`. **Decision (John
+  Travers, 2026-11-01):** as recommended.
+- **Q7. Precision.** Keep `configuration.precision` from changing (recommended), or make it
+  numerics. **Decision (John Travers, 2026-11-01):** as recommended; it is layout, so
+  `force` does not change it either.
+
+### 13. References
+
+1. solprop, [Resuming a calculation and checking
+   compatibility](../../guide/results/resuming.md).
+2. solprop, [Output: the schema version](../../guide/results/output.md#the-schema-version).
+3. solprop, [Starting from a saved interior field](../../guide/results/interior-launch.md).
+4. solprop, [Design decisions](../decisions.md): ADR-051 and ADR-058.
+5. solprop, [SEP 25 — Rounding-level
+   reproducibility](archive/sep-0025-rounding-level-reproducibility.md).
+
+## Part II — Implementation record
+
+## Part III — History
+
+- 2026-10-31: Drafted.
+- 2026-11-01: AI review (Opus 5.5).
+- 2026-11-01: Opus 5.5 (drafting agent) answered R1–R24 and revised Part I (response below):
+  a layout class, a per-element tolerance with named tails, an explicit table of neutral
+  values, stored records read as written, the session adopting the file's record,
+  `resume="force"`, and no phase 3. Maintainer decisions on Q3, Q6 and Q7 recorded; Q1, Q2,
+  Q4 and Q5 ask again, because the review reopened them or the maintainer asked.
+- 2026-11-01: Maintainer decisions (John Travers) on Q1, Q2, Q4 and Q5, as now recommended
+  (§12), `resume="force"` included.
+- 2026-11-01: Supplementary AI review of the layout class and force (Opus 5.5).
+- 2026-11-01: Opus 5.5 (drafting agent) answered F1–F17 and revised Part I (response below):
+  a forced session restarts the Adams history and marks the file so that later sessions and
+  readers respect it, layout names structural values only, whether the arrays fit is tested on
+  the arrays, and the handler rather than the driver adopts the file's record.
+- 2026-11-01: Human review (John Travers). Accepted by John Travers; Part I frozen.
+- 2026-11-01: Part I amended before the acceptance pull request merged, for five review comments on it (below), with the maintainer's agreement. 0.2.0 is held until this SEP and SEP 40 land.
+- 2026-11-01: Tracking issue: [#142](https://github.com/LupoLab/solprop/issues/142). Brought to the standard of ADR-062 before the pull request
+  merged: §3 lists the open issues, and the work this SEP gives back moved from the roadmap to
+  [#141](https://github.com/LupoLab/solprop/issues/141).
+
+### AI review — 2026-11-01 (Opus 5.5)
+
+The whole of Part I was read against SEP 0's acceptance criteria and the code on this
+branch. Part I is not edited. Most of the points below rest on measurements, made on
+macOS arm64 with `numba_cpu` on the capillary, GNLSE and radial routes, using very short
+runs. They used a prototype of §4's comparison over `hashed()` trees. To exercise what
+happens behind the gate, the prototype patched `RunMetadata.configuration_hash` to leave
+out `stepper`, or to be constant. A point says when it rests on reading alone. No real
+cross-platform pair of records was compared.
+
+**Summary.** The direction is right and serves the maintainer's aim, and the numerics
+class held up well: nothing in `stepper.**` turned out to be physics. But the draft
+fails both ways in places. It would continue some runs it must refuse (R1, R2, R4), and
+it would refuse the runs that are its main purpose, before the comparison is ever
+reached (R3). Most of the other points are code a continuation meets behind the gate,
+which the draft does not mention. Several fixes make the design smaller (R23).
+
+#### Blockers
+
+**R1 (blocker; §4, §7, Q1). The array-maximum scale lets real changes in physics
+through.** The scale of §4 is the array's largest element, on the stated ground that a
+spectrum's tail should be judged against the array. That is wrong for an array whose
+entries are different quantities.
+
+- **Measured:** `Simulation.from_gnlse` with
+  `betas = [0, 0, -1.183e-26, 8.1e-41, -9.5e-44]`, against the same run with β3 doubled
+  and β4's sign flipped. The largest relative difference by §4's rule is $6.8\times
+  10^{-15}$, so the comparison **continues**, with no compared path refused. The
+  coefficients are an array leaf whether the caller passes a list or an array:
+  `configuration.gnlse.mode.dispersion.betas`, `modes[0].configuration.dispersion.betas`
+  and their `dispersion_derivative` twins.
+- **Why it matters:** this is the GNLSE route's ordinary input. A resume after an edit to
+  the dispersion would continue silently under different physics, which today's hash
+  refuses and which §2 says must be refused.
+- **Inconsistent treatment:** the same kind of quantity is judged two ways according to
+  how it happens to be recorded. `configuration.medium.shared_pressure.values` and
+  `...density.values` are JSON lists, tested scalar by scalar.
+  `configuration.mixture_processing.density_m-3` is an array, tested against its maximum.
+
+*Recommendation:* make the default per element, $|a_i-b_i| \le \varepsilon \max(|a_i|,
+|b_i|)$. Allow an array-scale floor only on paths the table names as having tails. The
+measurement supports this: under a 4-ulp change of `lambda0`, `trange`, `energy` or
+`fwhm`, the only arrays over $10^{-12}$ per element were `configuration.initial` (ignored
+anyway) and `configuration.absorber.temporal_rate_fine` ($1.35\times10^{-11}$, a tail).
+Do not copy the floor in `tests/record_numbers.py` to every array. At order $10^{-16}$ of
+the peak it still hides β4 above. §7 needs a mixed-scale test, for which this `betas`
+case is ready-made.
+
+**R2 (blocker; §4, §6, §7). Reading an absent field as its current default assumes every
+new field is neutral, and the frozen-record test cannot catch one that is not.** §4 says
+that the safe error is a refusal, but for absent paths the rule does the opposite: $\nu(p)$
+falls back on the field's default.
+
+Suppose a developer adds `some_term: bool = True` to a response, changing what new runs
+compute. The stored record lacks the field, $\nu$ reads `True`, the new build records
+`True`, and the two agree. The run continues under new physics with only an INFO line.
+§6's guard does not help: "A change that adds a field with a non-neutral default fails
+the test" is false, because the frozen fixture is compared through the same rule. It
+fails only if the developer has already declared a different `neutral`, and that is the
+very mistake it was meant to catch. This was established by reading the rule, since no
+comparer exists yet.
+
+The generic rule has further problems:
+
+- **Trust:** resolving a `__class__` string from a stored file to read a default means
+  importing a module named by file content. SEP 41 treats received files as an exposure.
+- **Fields that do not fit:** required fields have no default (`GridRecord.dt_fine`, for
+  example). A field that `__post_init__` normalises records something other than its
+  default. `init=False` and `record=False` fields need handling too.
+- **Another package:** optmat dataclasses are in the record (R11), and the convention
+  cannot bind them.
+
+*Recommendation:* an absent path is a difference unless the table $N$ lists it, with its
+neutral value. Drop `metadata["neutral"]` and the default lookup. The frozen fixtures
+then enforce the convention for real: every new recorded field fails the test until a
+developer decides, with one line, that it is neutral. That is less machinery, needs no
+import and keeps the refusal as the safe error.
+
+**R3 (blocker; §1, §6, §9). The stored record never reaches the comparison.** §6 calls
+the comparer "a recursive walk over two parsed records", but every route to a stored
+record goes through `RunMetadata.from_json` and `_stored_metadata`, and the draft mentions
+neither. Files were edited to look as an earlier or later release would have written
+them, with the stamp the earlier code would have computed:
+
+| Stored record | Result of `check_cache` today |
+|---|---|
+| lacks `stepper.limits.step_planes` (a defaulted field) | `is inconsistent`: `_rebuild` fills the default, the digest moves and the stamp check fails (`output/hdf5.py:1733`) |
+| lacks `noise.spectral_convention` | the same |
+| lacks `grid.dt_fine` | `missing or malformed`: required field (`output/schema.py:590`) |
+| lacks top-level `quadrature` | `missing or malformed`: `document["quadrature"]` (`output/schema.py:2979`) |
+| has an extra `stepper.limits.old_knob` | `missing or malformed`: unexpected keyword |
+| lacks `stepper.controller.region`, or `configuration.shock` | reaches the hash comparison, since these are kept as plain mappings |
+
+So the draft's first motivation, "a field added in a release", dies before `compare` for
+`StepLimits`, `GridRecord`, `ModeRecord` and `NoiseRecord` and for any new top-level
+entry. "Files written by 0.1.0 benefit at once" (§9) is false until this is fixed. The
+same applies wherever `from_json` is used: `_adopt_state`, `_write_metadata`, `reopen`,
+`_adopt_recorded_seed`, `open_file`, and `_validate_metadata` in `output/scan.py:144`.
+§7's neutral-value tests would pass on hand-built records and miss all of this.
+
+*Recommendation:* add to Part I and to phase 1:
+- `compare` works on the raw parsed JSON, and `RunMetadata` is not rebuilt for the gate;
+- `from_json` becomes tolerant, through $N$, of absent and unknown fields, and keeps the
+  raw `hashed` part so that a stored record still digests to its own stamp, rather than
+  to what today's code would write;
+- §7 gets a test through a real file with a stamp from "earlier" code.
+
+**R4 (blocker; §5.2, §10, Q2). Ignoring the realised launch hides a changed launch whenever
+no parameters describe it, and the stored field does not supersede modified noise.** §5.2
+says "A resume whose launch differs is refused", and §10 rejects ignoring the launch
+because it "lets a mistaken resume continue the wrong run silently". That holds only for a
+launch built from pulse parameters.
+
+- **Array launches, measured:** `sim.with_input(spectrum, initial_z=0.05, noise=None)`
+  against the same call with `spectrum * 1.5`. No path differs other than the ignored
+  `configuration.initial`, so the comparison continues. The same applies to
+  `from_radial(initial=<array>)` and to any launch above `INLINE_ARRAY_LIMIT`, by reading:
+  the launch array is the only record of the launch.
+- **Passed-in noise, by reading:** `noise.spectrum` is ignored and `noise.seed` is `None`
+  for a realisation passed in without a seed, so a different realisation continues.
+  `docs/guide/results/resuming.md:90` promises the opposite, and §5.2 says that passage
+  stays.
+- **Modified noise, by reading:** under `model="modified"` the realisation is a source
+  injected at every step (`solprop/noise.py:9`), and a resume uses the *requested* run's
+  (`backends/driver.py:1208`). So "the stored field supersedes both" (Q2) is false there,
+  and a NumPy generator change alters the rest of the run. That may be acceptable as a
+  fresh realisation, but it is a noise change and has to be said and recorded.
+
+*Recommendation:* `configuration.initial` and `noise.spectrum` are ignored only where the
+parameters that made them are recorded and compared (a pulse in `configuration.pulse`, a
+non-null seed). Otherwise they are compared, within the tolerance, and bitwise for an
+`ArrayDigest`. For modified noise, record the path as a numerics change, or compare it
+under tolerance and say what a generator change does.
+
+#### Significant
+
+**R5 (significant; §4, Q1). $\varepsilon = 10^{-12}$ is tighter than the repository's own
+measured bound on the same numbers, and the argument for it is not a measurement.**
+`tests/record_numbers.py:23` sets `RECORD_RTOL = 1e-11` for "each number in a run record".
+Its stated reason is that the largest departure a change of libm, BLAS or compiler can
+make is the threshold field's, "found by bisection to a relative bracket of 1e-12". That
+field is in compared paths (`materials.policies.ionisation[].threshold.field`). §4's "short
+chains of operations" misses this, and $\varepsilon$ sits on the bracket. So the tolerance
+could still refuse a run moved between platforms, which is one of the SEP's four aims.
+
+Numbers inside strings escape the tolerance altogether: strings must be equal, and
+`tdse.configuration_json` and its `identity` (`translate/tdse.py:797-801`) carry floats
+as text. Whether any of those floats varies with the platform was not checked. Nor was the
+material digest fully checked: it changed for a 4-ulp `lambda0`, apparently because the rate
+model binds its wavelength, and a literal input is the same on every platform, but whether
+any digest takes in a libm-computed number is open.
+
+*Recommendation:* use `1e-11` and share one constant with the tests, stating why. Add a
+real cross-platform check to §7. The frozen fixtures, captured once and compared on every
+CI platform, would be that check if §7 says so. State the TDSE descriptor's position
+explicitly.
+
+**R6 (significant; §4, §5.2). `configuration.save_planes` cannot be tolerant, because the
+driver does exact arithmetic on it.** `_validate_resume` runs `np.searchsorted(save_planes,
+state.plane.z, side="right")` (`driver/simulation.py:7189`), and the run lands on the
+requested planes. A requested length moved by a relative $10^{-13}$ passes §4, then
+measured:
+
+| Stored file | Planes | Result |
+|---|---|---|
+| stopped | $+10^{-13}$ | `DriverError`: checkpoint next_save_index disagrees with its absolute position |
+| stopped | $-10^{-13}$ | continues correctly |
+| complete | $+10^{-13}$ | `ConvergenceError`: step control asked for $2\times10^{-15}$ m, below `dz_min` |
+| complete | $-10^{-13}$ | `DriverError`: resume position lies outside the declared interval |
+
+Planes built by plain arithmetic should be bit-identical across platforms, so little is
+lost by exactness.
+
+*Recommendation:* compare `configuration.save_planes`, `initial_z` and `grid.length`
+exactly, with a table column or class for it. Alternatively, resolve the requested planes
+to the stored ones before the driver sees them, which is more code. `grid.length` moved
+in the same probe and also feeds `dz_*` and the absorber.
+
+**R7 (significant; §4, §7). A change from Multistep to Runge–Kutta is refused behind the
+gate.** With the gate relaxed, measured: `DriverError: a logical call ledger requires Adams
+integration` (`driver/simulation.py:7221`). `restore_call_ledgers` also refuses it
+(`backends/driver.py:974`). §7's numerics test and §1's "changed `rtol` or integrator"
+would both fail, and §6 says no backend code changes. With the ledger cleared by
+hand, the run completes (measured). The reverse direction, Runge–Kutta to Multistep,
+already works (measured).
+
+*Recommendation:* Part I must say what happens to the charged-call ledger across a method
+change. It should be kept as provenance beside the session's own and not installed in a
+Runge–Kutta march. List both call sites in phase 1.
+
+**R8 (significant; §3, §5.2). Making `interpolate_planes` numerics opens a hole in SEP
+14's rule.** `_open_output` refuses an interpolated last plane only when the *requested*
+run is dense: `if dense and resume != "interpolated" and _interpolated(state)`
+(`driver/simulation.py:7781`). Today's hash keeps the two the same. Measured with a
+relaxed gate: stored `interpolate_planes=True`, stopped on an interpolated plane, and
+resumed with `False` continues silently from a state the march never passed through. The
+`True` to `True` control refuses as it should. §3 cites the rule as standing.
+
+*Recommendation:* drop `dense and` from that test, since `_interpolated` already reads the
+file; add a test.
+
+**R9 (significant; §2, §5.4, Q4). A finished run or point with changed numerics is not a
+continuation.** §2's test is whether continuing "gives the run the user asked for". With
+a relaxed gate, measured: a complete file at `rtol=1e-5`, run with `rtol=1e-9` and
+`resume=True`, does no work (219 attempts before and after; `driver/simulation.py:2965`)
+and returns the old result. The only sign would be a warning saying "resuming ... with
+changed numerics". Before, this was a refusal naming the field.
+
+Q4's scan rule does the same for a whole dataset. Tightening `rtol` is the commonest
+reason to rerun a scan, and it would now return the loose results and count them in a
+closing line. This is partly a judgement.
+
+*Recommendation:* numerics may differ only where there is something left to compute. A
+complete file or a done point with numerics changes should refuse, naming the paths and
+the remedy (a new file), or at the least say plainly that nothing was computed. Neutral
+values and rounding differences may still reuse.
+
+**R10 (significant; §2, §5.4). The session holds the requested record, so the "exact"
+integrity checks the draft keeps will fail on any tolerant resume.** §2 keeps snapshot and
+suspend checks at exact hash equality, on the ground that they compare a file "with the
+session that is writing it". But `PlaneStore.open` sets `self._metadata = metadata` after
+appending (`output/schema.py:3852`), so that session holds the requested record, and
+`reopen` compares the file's hash with it (`output/hdf5.py:1030`).
+
+- **Measured:** with the append check relaxed, a handler with `rtol=1e-5` over a file at
+  `1e-7`, then `suspend()` and `reopen()`, raises `suspended optical checkpoint changed`.
+  Snapshots go through that pair (`output/snapshots.py:431`).
+- **By reading, on a TDSE run:** the archive context stores the requested hash as
+  `optical_configuration_hash` (`driver/simulation.py:7458`), and a snapshot checks it
+  against the file's (`output/snapshots.py:816`). So `rtol` changed on a TDSE run makes
+  its snapshots fail. Not run: it needs the TDSE provider.
+- `run_problem` and the writer also receive the requested record, so `output.metadata`
+  would differ from the file's.
+
+*Recommendation:* state once that after a continuation the session's identity is the
+file's record: append mode adopts it, and the driver uses it for `_require_metadata`,
+for the archive context and for `metadata=`. The numerics stay in the execution record.
+This also gives §5.4's "keep the file's record" a defined meaning.
+
+**R11 (significant; §1, §2, §4, §5.2). Materials by digest does not reach the copies of
+the models elsewhere in the record.** The table handles `materials.*`, but the record also
+holds the optmat objects themselves under compared paths. Measured on a capillary: 72
+`optmat.*` dataclass nodes outside `materials`, such as `FittedModel`,
+`UniversalDispersionModel` and `Term`.
+
+- **Compared leaves:** `modes[0].configuration.cladding.model.status`, `.status_reason`,
+  `.name`, `.covariance`, `.reduced_chi2` and `.record`, plus the solprop wrapper's
+  `cladding.source` (`fit/SiO2`) and `Species.name`. 19 `status`, `status_reason`, `source`
+  or `record` leaves alone.
+- **In the manifest:** `materials.policies.ionisation[].model` and `.status`, and the
+  `materials.solids` key, which embeds the model name.
+- **Consequence:** an optmat release that revises a status, a status reason or a model
+  name still refuses, against §2's second motivation. §7's materials test would pass only
+  on a synthetic manifest. A field optmat adds to a class, or a class optmat moves, refuses
+  too, or needs $N$ entries for another package.
+- **What is right:** the version alone is handled, because `optmat_version` appears only
+  in the manifest and in citations, the same set that `without_optmat_release` in
+  `tests/test_display.py:615` neutralises (measured on the capillary).
+- **Not checked:** §5.2's list ignores `reference_temperature`; whether it is inside the
+  digest was not established.
+
+*Recommendation:* add a rule on the class: a subtree whose `__class__` begins with
+`optmat.` is ignored, because `Simulation.material_manifest` records its digest. Add a test
+that a model change moves a manifest digest. Add rows for the wrapper's `name` and `source`
+leaves and the policies' `model` and `status`. Test against a real route's record.
+
+**R12 (significant; §3, §5.4). The scan rule does not fit the drivers, and §5.4 misses the
+queue.**
+
+- `_Job` carries only the digest (`driver/_scan_run.py:65`, `:708`), and the check runs in
+  the worker. Comparing records means reading `staged/<i>` and sending or re-reading a
+  record of up to tens of MB per point. Doing the check in the parent is simpler, after a
+  fast path on equal digests.
+- `Queue` and `Slurm` never take this path: their jobs have no cached digest
+  (`:779`). A changed builder is refused outright at `prepare`
+  (`driver/executors/queue.py:416-423`), and its key hashes the builder's code (`:129`).
+  So a numerics edit reuses points on `Local`/`Pool`/`Batch` and is refused on `Queue`.
+  Per-point hash checks at collection (`:679`, `:696`) stay exact.
+- `commit` returns early on `"skipped"` (`output/scan.py:375`), so the row keeps its
+  stored hash, which §5.4 wants, but the summary count needs a new status or a return
+  value.
+
+*Recommendation:* name the queue's behaviour in §5.4, and decide whether it changes. If it
+does not, say that a queue scan keeps exact identity.
+
+**R13 (significant; §5.5, §8). "Readers ignore groups and attributes they do not know" is
+true only at the top level.** Measured: an unknown top-level group and root attribute
+read and resume correctly, which supports SEP 41's `recipe` group. An unknown dataset in
+`stats/` refuses (`plane 3 reports statistics ...`). One in `step_history/` fails with a
+raw `TypeError: Only chunked datasets can be resized`. An older build would also append
+to a newer file and leave any newer per-plane dataset short.
+
+The rule also contradicts text the draft leaves standing: `docs/guide/results/output.md:337`
+("moves the configuration hash and bumps the output schema"), the docstring and purpose of
+`tests/output/test_record_stability.py`, and SEP 41's §3 and §9.
+
+*Recommendation:* limit "no bump" to root attributes and top-level groups, written once
+and not extended per plane. Anything inside `stats`, `step_history` or `step_stats`, or
+grown per plane, bumps. Add the three places above to §8.
+
+**R14 (significant; §5.6, §7, §11). Phase 3 is not coherent as written, and I recommend
+moving it to its own SEP.**
+
+- **The gate is empty.** "The stored record compares as continuing against the requested
+  run rebuilt at the stored length" compares the stored run with its own recipe, so it
+  always passes. Nothing compares the *longer* run with the stored one on the stored
+  interval, and the longer run is what continues. A gradient `pressure=(0.8, 0.1)` with
+  `length` replaced is a different profile on the stored interval (measured:
+  `...density.breakpoints_m[1]` moves from 0.1 to 0.2).
+- **The table entry cannot do it.** A length change from 0.1 m to 0.2 m at constant
+  pressure moves 524 compared paths (measured): the density and pressure tables' `z_m`, the
+  mixture tables and the absorber. `**.span` matches `configuration.profiles.core_radius.span`,
+  but also `materials.policies.ionisation[].energy_loss.span`, which is a field range.
+- **The absorber depends on the length.** `configuration.absorber.reference_length` and its
+  rates move with the length (0.005 to 0.01, measured), so §7's "continued from 5 mm
+  agrees with a 10 mm run" compares runs with different absorbers on the first 5 mm. The
+  agreement is plausible but unmeasured.
+- **The file's record cannot describe the extension.** §5.3 says it is never rewritten,
+  but `configuration.save_planes` and `reference.basis` hold the planned planes.
+  `reference_at` raises outside the frame record's span (`coupling/plane.py:605`), and
+  a plane beyond the record gets an identity no port matches
+  (`processing/planes.py:226`). Extended planes could not be exchanged.
+- **Dependencies are misstated.** `solprop resume` and `Recipe.from_output` are SEP 41's
+  phase 2, not its "recipe core". The header says **Requires** —. SEP 41 §5.2 has
+  `solprop resume` check that "its hash equals the stored one", which conflicts with this
+  SEP's gate. SEP 41 Q4 recommends "no in this SEP; extending a finished run is its own
+  question", which does not rule this out, but neither SEP has been changed to match.
+  Only recipe-written files could be extended, not any script-written or 0.1.0 file.
+- **An alternative already exists.** `with_input` from the last plane continues a finished
+  run into a new file today, with no machinery.
+
+*Recommendation:* close this SEP at phase 2, and leave extension as a roadmap item on
+SEP 41. If it stays, Part I must define the on-interval comparison and the record of an
+extended file, and **Requires** must name SEP 41.
+
+**R15 (significant; §6, §7). The verification would pass over most of the above, and the
+fixtures need more thought.**
+
+- §7's tolerance test perturbs "a compared array" uniformly (R1), the neutral tests would
+  use hand-edited records (R3), and the materials test a synthetic manifest (R11). None
+  goes through a file of "another release". §7 has no test of an interpolated last plane,
+  of a complete file with changed numerics, of suspend and reopen, or of an integrator
+  change after the ledger is written.
+- `tests/output/test_record_stability.py` and `tests/record_numbers.py` already pin records,
+  with their structure exact and their numbers to a bound. §6 proposes a second mechanism
+  without saying how they relate.
+- Frozen records "compared with a fresh build" go red on any optmat revision of a model the
+  routes use, since the digest moves. Say whether that is intended, as `without_optmat_release`
+  says it is not for the existing pins, or what refreshes them.
+- "Captured from the 0.1.0 release": the `v0.1.0` tag exists but is not an ancestor of this
+  draft's branch, which predates the route keyword rename. The fixtures must be built by
+  checking out the tag, not from the branch. The measurements in this review were made on
+  the branch.
+
+*Recommendation:* extend the existing pins rather than add a second mechanism. Add the
+tests named here.
+
+#### Minor
+
+**R16 (minor; §5.3). The numerics record can crash the run.** `RunOutcome` refuses
+non-finite values (`output/schema.py:1861`), and `StepLimits.dz_max` defaults to `inf`
+(`:1212`). Measured: `RunOutcome(..., execution={"resume": {"numerics":
+{"stepper.limits.dz_max": [inf, 0.01]}}})` raises `OutputError`. A change from the default
+would fail at the first outcome written. Encode non-finite values as text.
+
+**R17 (minor; §5.1, §5.3). `check_cache` keeps its signature and returns a `bool`**, so the
+comparison §5.3 needs is lost and the driver must compare again or receive it another way.
+A small internal function returning the comparison, wrapped by `check_cache`, does it.
+`compare` should also take the fast path on equal digests, particularly for processing's
+`source=` check, which runs per plane where today's digest is cached.
+
+**R18 (minor; §4, §5.2). The tree and pattern definitions are under-specified.**
+- "The first matching pattern wins" and "the deepest node that matches decides" are two
+  different rules.
+- The `except` of the `materials.records` row is not in §4's syntax.
+- Whether `modes[0]` is one component is not stated, yet `**.citation` has to cross it.
+- Tags beyond `__ndarray__` are not covered: `__imaginary__`, `__enum__`, `__complex__`,
+  `__callable__`, `reproducible`.
+- A mixed integer and float leaf (`pressure=1` against `1.0`) is not covered.
+- Dotted strings are ambiguous: a record key can hold a dot (measured:
+  `He:ionisation_rate:rate/default/He@1030.5nm`). Match on tuples of components.
+- `materials.records` is keyed by `material:kind:name` (`physdata/selection.py:876`), so
+  "compared as a set keyed by digest" is a re-keying the walk must special-case, as must
+  the species' digest lists, and neither is table data.
+
+**R19 (minor; §6). "Their absence is now neutral by the generic rule" is wrong for most of
+the conditional records.** `transverse_measure`, `plasma_integration`, `quiet_collar` and
+`evanescent_rate` are keys of the route's `configuration` mapping, not dataclass fields,
+so they would need $N$ entries. No harm follows if they stay conditional, as §6 proposes,
+because both records lack them. But the sentence is misleading about what a later clean-up
+costs.
+
+**R20 (minor; §4, §11; partly a judgement). The history rule largely exists.**
+`AdamsMarch._refusal` already refuses a snapshot whose method representation differs
+(`backends/multistep.py:3046`). Measured: order and formulation changes restart with
+`the Adams history starts afresh`, so phase 1's "history dropped on a method change" is
+almost no work. It is a warning, though, not "exactly as `resume_history=False`", which
+only logs. The representation also includes `max_calls`, `safety` and `max_growth`, so
+raising a call budget, a use this SEP newly permits, restarts the history at order one
+although the history is still valid. Consider comparing only the fields that affect
+history.
+
+**R21 (minor; §3, §8). The inventories are incomplete.** §3's list of hash tests omits the
+stamp check (`output/hdf5.py:1733`), `_validate_metadata` (`output/scan.py:144`), the queue's
+checks, `reopen`, and the snapshot and TDSE archive checks. §8 omits
+`docs/guide/results/run-access.md:113`, the "Cache and resume" paragraph of
+`output/hdf5.py`, the resume-key paragraph of `output/schema.py`, and SEP 41's §3 text.
+
+**R22 (minor; §2; a judgement). Callables.** A callable is recorded by `repr`, which by
+`metadata_for`'s own docstring makes the digest unstable across processes. So a script
+with a callable profile can never resume, then or now, and the refusal gives no reason.
+The draft says nothing about this. Given "trying hard", at least a refusal that says so
+would help. Not exercised on a route.
+
+**R23 (minor; §1, §6; a judgement). A simpler shape for the same result.** "Compatibility
+code is confined to one table" no longer holds once R3, R6, R7, R8 and R10 are counted.
+Those are mostly small edits to existing code rather than compatibility layers. The draft
+can be smaller where it matters to the maintainer: one explicit $N$ and no default lookup,
+field metadata or imports (R2); one class-prefix rule for optmat (R11); no phase 3 (R14).
+That reaches the first half of the aim, resuming wherever the physics is unchanged, with
+less of what the second half asks to avoid.
+
+**R24 (minor; §5.7). The example does not match the record.** A pressure change gives about
+520 refused paths on a capillary (measured), `configuration.medium.shared_pressure.values[i]`
+being a list and not an array of "201 elements". So the summary must group list elements
+too, as `summarise_differences` does, and "names every such path" (§4) needs softening.
+
+#### Open questions
+
+My view of each, beyond the points above:
+
+- **Q1:** per element at $10^{-11}$ (R1, R5).
+- **Q2:** conditional on a recorded parameter (R4).
+- **Q3:** no objection.
+- **Q4:** no, not by default (R9).
+- **Q5, Q6, Q7:** agree with the recommendations.
+
+#### Checked and found correct
+
+- §9's "Nothing that continued before is refused now" holds at the gate: equal hashes
+  mean bit-equal leaves, and the prototype refuses nothing for an identical record. The
+  risk lies in the other direction (R1, R2, R4).
+- The numerics class holds. `rtol`, `RungeKutta()`, formulation, order, `interpolate_planes`
+  and `step_planes` each moved only `stepper.*` on the capillary record. `auto` to
+  `recompute` resumed on GNLSE with the history kept.
+- Step plane changes in both directions appended correctly. `fields="planes"` beside
+  `step_planes` is refused by name. A schedule added to an adaptive file landed and ran.
+- Rounding at the inputs: 4-ulp changes refused nothing by §4's rule, on the capillary with
+  one and two modes and on radial, except the digest noted in R5.
+- `modal`'s measured quantities are already quantised (`translate/general.py:1784-1794`) and
+  the plasma certificate is already outside the record (`driver/simulation.py:1346`), so no
+  rounding-level residual was found in a compared path. The general modal route was read,
+  not run.
+- optmat's digest excludes `status`, `status_reason`, `modified` and `base`, so keeping
+  `modified` and `base` compared is right.
+- A file of another schema is refused first, by `_refuse_schema`, as §5.5 requires.
+- `ArrayDigest` appears only under `configuration.initial` (`driver/simulation.py:2617`).
+- $10^{-12}$ is about 4500 ulp. §6's cost holds: on a 28.6 MB record, the prototype's walk
+  took 0.04 s against 0.28 s for canonical JSON and SHA-256.
+
+**Not checked:** a real pair of records from two platforms; the TDSE, general modal,
+Cartesian and planar routes' records, or any run of them; a queue or Slurm scan, which
+were read only; and anything of SEP 41 beyond its text, since it has no code.
+
+### Response to review — 2026-11-01 (Opus 5.5, drafting agent)
+
+R1, R3, R7 and R8 were re-checked against the code before this response: R1 by the
+arithmetic ($6.8\times10^{-15}$ for the review's `betas`), R3 by reading `_rebuild` and the
+stamp check, R7 and R8 by reading `_validate_resume` and `_open_output`. Part I is revised
+as follows. All 24 points are taken, except as stated in points 5, 9 and 12.
+
+1. **R1 taken.** The test is per element (§4). Only rows $T$ marks **tail** add an
+   array-scale floor, namely the array launch, a passed-in noise spectrum and the absorber's
+   rates. §7 has the `betas` case. The FFT-bound floor of `tests/record_numbers.py` is not
+   copied, since it would hide β4.
+2. **R2 taken.** An absent path is a difference unless $N$ lists it. The default lookup,
+   field metadata and imports are gone (§4, §10).
+3. **R3 taken.** `from_json` keeps the raw hashed part and tolerates absent and unknown
+   fields, and the comparison works on the raw record (§5.4). §7 goes through real files
+   with the stamp an earlier build would write. §9's claim about 0.1.0 files is withdrawn,
+   for the further reason in point 15.
+4. **R4 taken.** `configuration.initial` is ignored only where `configuration.pulse` is
+   present, and `noise.spectrum` only for seeded input noise (§5.2). `with_input` removes
+   the pulse record for an array launch (`driver/simulation.py`, `with_input`), which is
+   what makes the condition safe. Modified noise is compared, not recorded as numerics,
+   because it acts at every step.
+5. **R5 taken, with one limit.** $\varepsilon = 10^{-11}$ is `RECORD_RTOL`, shared with the
+   tests. The TDSE descriptor is stated as compared text (§5.2), and frozen records on every
+   CI platform are the cross-platform check. Whether a digest ever takes in a libm-computed
+   number remains open, and those frozen records would show it. They do not cover a TDSE
+   record, because CI has no provider.
+6. **R6 taken.** `save_planes`, `initial_z` and `grid.length` are exact (§4), so a moved
+   length refuses by name rather than failing later.
+7. **R7 taken.** The ledger is kept as provenance across a change to Runge–Kutta and is not
+   installed (§5.6). Phase 1 edits both call sites, and §6 now names the backend edits.
+8. **R8 taken.** `dense and` goes (§5.6), with a test both ways.
+9. **R9 taken for files and for scans, as a refusal.** A complete file with changed numerics
+   is refused with the remedy (§4). Neutral and rounding differences still reuse. For a
+   scan, a done point with changed numerics is a conflict (§5.7). This reverses the first
+   draft's Q4, which the maintainer had agreed, so Q4 asks again.
+10. **R10 taken.** After a continuation the session's identity is the file's record (§5.3),
+    which defines "keep the file's record" and leaves the exact checks valid.
+11. **R11 taken.** Subtrees whose `__class__` begins with `optmat.` are dropped in
+    normalisation, with rows for the wrapper's `source` and the policies' `model` and
+    `status`, and a test on a real route that a changed number moves a digest (§4, §5.2,
+    §7). `reference_temperature` stays compared until phase 1 establishes whether the digest
+    covers it.
+12. **R12 taken, by a smaller route than the one suggested.** The worker's check stays as it
+    is, because a `conflict` result already carries the new record, and the parent compares
+    only then (§5.7). `_Job` does not change, and no record travels in the common case.
+    Queue and Slurm keep exact identity, stated in §3 and §5.7. No summary count is needed
+    now that numerics are not reused.
+13. **R13 taken.** "No bump" is limited to record fields, root attributes and top-level
+    groups written once (§5.8), and §8 lists the places that contradict the rule.
+14. **R14 taken.** Phase 3 is out; §2 says why, and the roadmap keeps the item. The SEP
+    closes at phase 2 and needs nothing from SEP 41. SEP 41's Q4 decision text moves with
+    it.
+15. **R15 taken.** The frozen records extend `test_record_stability` rather than adding a
+    second mechanism, an optmat data revision is a tolerated difference there, and §7 gains
+    the missing tests. Fixtures come from a tag, checked out. Since the review, the
+    `DataPulse` phase fix has taken the output schema to 2 on its way to main, so 0.1.0
+    records would be refused by schema: the fixtures come from the latest release when phase
+    1 lands.
+16. **R16 taken.** Non-finite values are written as text (§5.3).
+17. **R17 taken.** `check_cache` wraps an internal function that returns the comparison, and
+    `compare` takes the digest fast path (§4, §5.1).
+18. **R18 taken.** Paths are tuples, the first matching row decides, the tags are listed,
+    integers against floats are stated, and re-keying is a normalisation step and not table
+    data (§4).
+19. **R19 taken.** §6 no longer says the conditional records are neutral by a generic rule.
+20. **R20 taken.** §5.6 says the history check compares only the fields that define the
+    history, so a raised call budget keeps it.
+21. **R21 taken.** §3 is now a full table of what tests the hash and what becomes of it, and
+    §8 lists the further pages and docstrings.
+22. **R22 taken.** A callable stays compared, because its repr is all the record holds, and
+    the refusal now gives the reason and the remedy (§4, §5.1). `resume="force"` also gets
+    past it.
+23. **R23 taken.** §1 now claims less about where the compatibility code sits and the design
+    is smaller, as the point suggests: one table $N$, one class-prefix rule, no phase 3.
+    `resume="force"` adds one class and one annotation, for the reason in the next
+    paragraph.
+24. **R24 taken.** Reports group elements, and "names every path" is softened to what
+    `summary()` does (§5.1, §5.9).
+
+**Where this departs from the review.** The review agreed with the first draft's Q5, no
+override. The maintainer asked what that would exclude, noting that forcing is sometimes
+useful, and the answer was: every compared difference, with `with_input` the only way on, at
+the cost of a split file and restarted ledgers. So §5.5 adds `resume="force"`, limited by a
+new layout class, and the maintainer confirmed it (Q5). The layout class is new since the review and
+has not itself been reviewed.
+
+**Still unmeasured,** as the review says: a real pair of files from two platforms; the TDSE,
+general modal and planar records; and queue and Slurm scans.
+
+### Supplementary AI review — 2026-11-01 (Opus 5.5): layout class and force
+
+This covers what the first review did not see: the `layout` rows of §5.2, `resume="force"`
+(§4's verdict table, §5.3, §5.5, §7), and how they meet §4's exact paths, §5.3's adoption
+and §5.6. Part I is not edited.
+
+**How it was measured.** macOS arm64, `numba_cpu` (`numpy_ref` on the general modal route
+and for single precision), very short runs. Force was emulated by patching
+`RunMetadata.configuration_hash` to a constant, so the gate and append mode pass as they
+would under force. No comparer exists yet: §5.2's verdict on a change was read off the
+leaves that moved between two real records. Unless a point says otherwise, the session
+held the requested record, not the adopted one. A point says when it rests on reading
+alone.
+
+**Summary.** The class is needed and most of its rows are right: no loader would refuse a
+moved time axis, and the checks that do exist fire only after a segment has been computed.
+Force is a reasonable answer to "it is sometimes useful to force things". But as written a
+forced run continues from the old physics' internal state (F1), and because the stored
+record never changes, the file then accepts the original script silently (F2). The class
+is also both too strict and too loose: on the free-space and general modal routes it
+refuses the very changes §5.5 names, and a capillary's radius (F3), and it misses species count and noise presence
+(F4). Most of the fixes make the design smaller (F17).
+
+#### Blockers
+
+**F1 (blocker; §5.5, §5.6, §7). A forced run installs the old march: its state, its history
+and its step.** `_continue_march` (`src/solprop/driver/simulation.py:3313`) restores any
+snapshot that passes `AdamsMarch._refusal` (`src/solprop/backends/multistep.py:3027`), and
+none of those checks concerns physics. §5.6 narrows the check further and says nothing
+about a forced change. So under a changed pressure or gas the log says, at INFO, "continuing
+the Adams history". `load` also replaces the field `_prime` has just loaded with the
+snapshot's own state (`src/solprop/backends/multistep.py:3012`). That state was divided by the old
+$\sqrt{\operatorname{Re} n_{\rm eff}}$, while the plane is divided by the new one.
+
+Measured against a restart from the stored plane at `rtol=1e-9`, with all runs at
+`rtol=1e-6`; "scale removed" takes out the best-fit complex factor:
+
+| Change at the stop | With the snapshot: raw / scale removed | Starting afresh: raw / scale removed |
+|---|---|---|
+| capillary, 1 to 2 bar, stopped at a plane | $1.29\times10^{-4}$ / $1.80\times10^{-6}$ | $4.9\times10^{-8}$ / $4.9\times10^{-8}$ |
+| capillary, 1 to 1.05 bar, budget stop | $6.48\times10^{-6}$ / $6.2\times10^{-7}$ | $8.9\times10^{-8}$ / $8.4\times10^{-8}$ |
+| capillary, Kerr off, budget stop | $1.09\times10^{-7}$ / the same | $6.7\times10^{-8}$ / the same |
+| GNLSE, $\gamma$ doubled | $5.69\times10^{-7}$ / the same | $5.66\times10^{-7}$ / the same |
+| GNLSE, $\beta_2$ doubled | $8.77\times10^{-7}$ / the same | $8.76\times10^{-7}$ / the same |
+| capillary, no change (control) | $7.3\times10^{-8}$ / $6.4\times10^{-8}$ | $7.5\times10^{-8}$ / $6.6\times10^{-8}$ |
+
+Three things follow:
+
+- **The state is the larger error.** At 2 bar the raw error is 100 times `rtol`, and
+  is half the change in the power weight, which was measured at $2.57\times10^{-4}$ (F6). The
+  record shows it: $E/E_0$ at the next plane is 0.998487
+  with the snapshot and 0.998230 without, so the forced session gains $2.6\times10^{-4}$ of
+  energy at the join.
+- **The stale history is mostly caught.** The first trial failed the error test up to three
+  times, and the controller shrank from there, so the GNLSE rows show no loss. This is less
+  reassuring than it looks: the stored order was 1 at a plane stop and at most 2 at a budget
+  stop, so a high-order history was never exercised, and a small change passes with no
+  rejection at all. The error control is the only protection, and it was not designed for a
+  discontinuous right-hand side.
+- **Nobody is told.** No warning, and no test in §7.
+
+*Recommendation:* in `_continue_march`, a session with a compared difference does not
+restore the snapshot, and warns "the Adams history starts afresh: the physics changed". This
+is one condition. The ledgers stay cumulative, and the state comes from the plane with the
+requested weight. Say so in §5.5 and §5.6, and add to §7 a forced pressure change that
+agrees with a restart. This also changes the case for force: §2 and §10 count against
+`with_input` that it "restarts the Adams history". A forced run should too, which leaves the
+same file, the cumulative ledgers, and modified noise and schedules as what force adds.
+
+**F2 (blocker; §1, §4, §5.3, §5.5). The stored record never changes, so the original script
+continues a forced file with no differences at all.** §5.3 keeps the first session's record
+for good, and `resume=True` compares against it. Measured on a capillary, with the density
+of each plane from `stats/density`:
+
+- **Force stopped, then the original script.** 1 bar to $z_1$, forced to 2 bar, interrupted
+  after one plane, then `resume=True` at 1 bar. It continues with nothing said, and the
+  density reads `[2.47, 2.47, 2.47, 4.95, 2.47]e25`. That is three segments of two physics
+  under a record claiming one.
+- **A forced run that fails.** Argon to an argon and helium mixture fails at the save (F4).
+  The file then holds a terminal checkpoint at the next plane's position, computed under the
+  mixture, at status `failed`, with no plane saved. `resume=True` with the original argon
+  script continues from that state to `complete`.
+- **A complete forced file.** The original script with `resume=True` has "nothing to do", as
+  §4's first row says, and returns it, so a mixed file is handed back as the run asked for.
+
+§1 promises that "a change of physics is never continued unasked". The first two are
+exactly that, and the warning on `open_file` comes too late or not at all (F7).
+
+*Recommendation:* a file with a forced session in its execution records is continued only by
+`resume="force"`. `resume=True` refuses and names the position; on a complete file it
+returns the file with a warning. That is one check and one row in §4's table. It covers a
+failed force too, because the first `_record_execution` is written before any step
+(`src/solprop/driver/run.py`, in `run_problem`). A force refused at `_prime` writes nothing, because the handler
+has not been opened (by reading; an envelope grid's refusal there left the file's counts and
+status as they were).
+
+#### Significant
+
+**F3 (significant; §1, §5.2, §5.5; partly a judgement). `spatial.**` and `modal.**` refuse
+what force exists for, on those routes.** §5.5 says a layout difference means "the stored
+state cannot be loaded and the file's arrays would not fit". Both rows hold physics:
+
+- **Radial.** Pressure 1 to 1.2 bar and argon to helium each move
+  `spatial.flux_plan.k_squared`, the only `spatial` leaf they move. So §5.5's lead uses, a
+  corrected optmat model or "a change of physics they mean", are refused with no override on
+  any material change that moves the index. `spatial.absorber_rate` and `spatial.window` are
+  in the same row. With the gate relaxed both runs load, continue and complete. The Cartesian
+  record has the same keys; it was not run.
+- **General modal.** `chi3` moves `modal.responses.chi3` and `modal.guide.regions`. A core
+  radius moves `modal.guide`, `modal.metric` and `modal.tables`, among others. With the gate
+  relaxed both complete on a step-index guide.
+- **Capillary.** Pressure and gas move no layout leaf, so force works there, but a radius moves
+  `quadrature.nodes` and `quadrature.weights`, which refuses. With the gate relaxed that run
+  completes too. What the per-plane statistics need is the node count, not the positions.
+
+So on the free-space and general routes force can change almost nothing, whereas on the
+capillary it can change the gas and the pressure but not the radius. That is not what the
+maintainer asked for, and it is a surprising difference between routes. Separately,
+`spatial.absorber_rate` has no **tail** treatment here although its `configuration.absorber`
+twin does, because the first row decides. Whether its
+tail exceeds $\varepsilon$ across platforms was not measured; a refusal there would have no
+override.
+
+*Recommendation:* name the structural leaves and let the rest fall through to compared:
+`spatial.{kind, shape, axes, axis_names, axis_units, spectral_axes, spectral_axis_names,
+spectral_axis_units, column_order, physical_field_units, stored_field_units, spatial_weights,
+spectral_weights, forward_scale, inverse_scale}` and `modal.{basis, n_channels, n_components,
+channels}`, and `quadrature`'s rule and counts without `nodes` and `weights`. The content of
+`modal.channels` should be checked for measured numbers first.
+`_check_accessors` stays as it is.
+
+**F4 (significant; §4, §5.2, §5.5, §7). With every layout row agreeing, a forced run can
+still fail, late and with a raw error.** The class is a proxy for "the arrays fit", and the
+proxy has holes:
+
+| Change, all layout rows equal | Result with the gate relaxed |
+|---|---|
+| argon to argon and helium | `TypeError: Can't broadcast (2, 33) -> (1, 33)` from h5py at the first save, after stepping to it |
+| `noise=None` to input, or back | `OutputError: plane 3 carries a noise phase, unlike those before it`, at the first save |
+| radial array launch, one to two components | `BackendError` on the state's shape at `_prime`, before the file is opened; `spatial.shape` omits it |
+
+The first two compute a whole segment, then leave status `failed` and a checkpoint from the
+other physics (F2). Input to modified noise goes through with no error (measured), and is worse: by reading
+`set_initial`, the stored state carries a realisation and the source adds another, or the reverse,
+while `noise.model` in the kept record tells processing the wrong story.
+
+The existing checks do not make the class redundant, because they run too late. Two modes
+over one *broadcast* at `_prime` and fail only at `_check_layout`
+(`src/solprop/output/schema.py:4254`), after a segment. A moved time axis of the same length
+would not fail at all, by reading: nothing behind the gate compares an axis.
+
+*Recommendation:* keep path rows for what is about meaning (`grid.**`, exact paths, mode
+identity, `simulation_kind`, `noise.model` including its absence). For "the arrays fit", test
+the arrays. After `_prime`, and only when there are compared differences, compare
+`backend.stats(spec)` with the file's `stats/*` shapes. A
+prototype in a wrapper around `_prime` reported the mixture, plasma off, `n_r` and two modes
+by name, and left an identical continuation unchanged to 0.0. That replaces the
+`configuration.statistics.**` row and leaves no special form for counting species. Applied to the real records, these changes move no layout leaf: the mixture, `noise=None`, and
+HE12 of F9. The check would have to skip a TDSE run, whose statistics may charge the provider (not checked). §7's force
+test should include a species-count change and a noise-presence change.
+
+**F5 (significant; §3, §5.3). "The driver uses it for the writer" cannot pass the file's
+record to `run_problem` as it stands.** `run_problem` has one `metadata` argument, and it
+feeds `_open_run`, `_refuse_unrunnable`, `_announce` and the snapshots' `provenance`.
+
+- **The printed summary breaks.** `run_summary` fed a record from `from_json` prints the
+  serialised form: measured `pressure: {'__class__': 'solprop.profiles.Constant', ...}` and
+  `responses: dict`, and the old values under force. It is also stored, because `_announce`
+  appends it to `RUN_SUMMARY_ANNOTATION` (`src/solprop/driver/run.py:685`). This meets every
+  tolerant resume, including §5.9's.
+- **Session facts come from the record.** `provenance=metadata` (`src/solprop/driver/run.py:578`) reads `versions`
+  and `git`, and the archive context reads `versions`
+  (`src/solprop/driver/simulation.py`, `_open_tdse_archive`). The file's values there would
+  be the first session's.
+- **The replace.** `_open_run` calls `dataclasses.replace(metadata, backend=...)`
+  (`src/solprop/driver/run.py:961`). Under §5.4 the raw hashed part must survive that, or the session's hash is
+  recomputed and the exact checks of §3 fail.
+- **The append check.** §3 makes append mode's test the comparison, so `output.open(requested)`
+  would refuse a forced run. `PlaneStore.open` already has a `force` keyword with another
+  meaning: replace the record.
+
+*Recommendation:* keep passing the requested record to `run_problem`, and have the handler
+adopt: in append mode `open` keeps the stored record as `self._metadata`
+(`src/solprop/output/schema.py:3852`) whatever it was offered, the gate having been passed in
+`_open_output`. A direct `HDF5Output(append=True).open(...)` compares, and refuses compared
+paths. Only the archive's `optical_configuration_hash` needs the stored record. The summary
+then shows what steps, which is what a reader of a forced session needs.
+
+**F6 (significant; §5.5; partly a judgement). A warning on `open_file` is not enough for what
+reads the record.** What each reader does with a file forced from 1 to 2 bar halfway:
+
+| Reader | Result |
+|---|---|
+| `stats/*` | correct: the requested problem wrote them (`stats/pressure` reads `[1, 1, 1, 2, 2]`) |
+| `get_power_weight` | $2.57\times10^{-4}$ wrong at the last plane, against a pure 2 bar run, silently |
+| `field_plane` | `reference.delay` from the old frame: 8.7 fs from a pure 2 bar run, so about 4 fs from the mixed truth (an inference). Provenance stamps the file's hash, which does not describe the plane |
+| `_peak_field_reports` | argon to helium: maximises the rate over every plane, then inverts it through the *new* model. Reported `He`, peak rate $1.1\times10^{-7}$ (an argon plane's), largest field $7.8\times10^{9}$ V/m; the helium planes' rate was $3\times10^{-26}$. Written to `material_peak_fields`, and able to raise `MaterialRangeWarning` |
+| `source=` | by reading: the simulation that stepped the later planes is refused, and the one that did not is accepted, and then applies its tables to all planes |
+| `metadata.reference` | outside `hashed()` (`src/solprop/output/schema.py:2716`), so no comparison or entry names it |
+
+`field_plane` matters most, because it exports: a coupled run downstream records a parent
+hash in its lineage (`src/solprop/processing/planes.py:521`) that does not describe the plane
+it started from, and nothing downstream warns.
+
+*Recommendation:* `field_plane` refuses a plane beyond a forced position, and `source=` is
+refused on those planes, whichever simulation is given. The peak-field report takes only the
+planes the session wrote. The `open_file` warning names the readers it does not protect. The
+manual says: `stats/*` hold, while anything rebuilt from the record does not. Storing the
+requested record beside the first would be bigger than the problem (records reach tens of MB)
+and I do not recommend it.
+
+**F7 (significant; §5.5; over-built). The annotation is written too late, and duplicates the
+execution record.** `resume="interpolated"` writes its annotation after `_close_run`, on the
+success path alone (`src/solprop/driver/simulation.py:3060`). `forced_resumes` is modelled on it,
+and §5.5 records an interpolated last plane under force in the same way. Measured: an interrupted `resume="interpolated"` leaves planes beyond the position and
+no `interpolated_resumes`. A stopped or failed forced session, which is where F2 bites, would
+leave no annotation, so `open_file` would not warn.
+
+The §5.3 entry goes through `_record_execution` before the first step, and survives into
+`previous_executions` (`src/solprop/output/schema.py:3554`). `_adopt_state` already reads the outcome
+(`src/solprop/output/hdf5.py:1066`).
+
+*Recommendation:* drop `forced_resumes` and `FORCED_RESUMES_ANNOTATION`, and derive "this file
+was forced, at these positions" from the execution records, in one helper used by `open_file`,
+F2's check and F6's. That is one concept fewer. If it stays, write it next to `_announce`. The
+existing `interpolated_resumes` has the same gap, independently of this SEP.
+
+**F8 (significant; §5.3, §5.5). "Every difference" in an entry rewritten at every plane grows
+the file.** `_record_execution` rewrites the outcome at each plane, and `src/solprop/driver/run.py:1291` already
+trims the monitor's rows from it for this reason. Measured on a capillary with values cut to 24
+characters: a pressure change is 520 leaves and 45 kB, and argon to helium is 2014 leaves and 255
+kB. A 115 kB entry on 42 planes added 4.9 MB to a 1.2 MB file, 1.02 times entry times planes. So
+at 255 kB and 500 planes it is over 100 MB, and `previous_executions` then keeps a copy per
+session.
+
+*Recommendation:* `numerics` in full, since it is short, and `compared` as `summary()`'s grouped
+text with its count. Either that, or the full list only in the closing record.
+
+**F9 (significant; §5.2; partly a judgement). `modes[*].kind` does not name the basis.** It reads
+correctly on the real record, as a class path: `solprop.modes.capillary.MarcatiliMode`. But that
+is the same for HE11, HE12 and HE13, and for a coherent wall; the general route's is always
+`solprop.modes.guide.ProviderChannelMode`; GNLSE's is `solprop.nonlinear.gnlse.SpecifiedMode`.
+Measured: HE11 to HE12 has equal length and equal `kind`, passes layout, and with the gate
+relaxed continues to `complete`, HE11's amplitudes now read as HE12's. Meanwhile a change of mode
+class with the same label refuses, and needs a rename entry if a class merely moves. The row's
+reason, "the state's basis", is the wrong way round on both counts.
+
+*Recommendation:* `modes`' length and `modes[*].label.{family, azimuthal_order, radial_order,
+parity, handedness}`, which is what identifies a row (on GNLSE it reads `specified`). Drop
+`kind`, leaving it compared, so a corrected mode model can be forced.
+
+#### Minor
+
+**F10 (minor; §5.2). The `tdse.**` reason is only partly right.** Reading only, since no provider
+was available. An archive is continued by its run UUID alone
+(`src/solprop/output/tdse_archive.py:944`). The ledgers are counts: `_validate_resume` compares
+totals and `AtomicCallLedger.from_record` takes no descriptor. The real binding is a snapshot's
+check of `descriptor_identity` and `optical_configuration_hash`
+(`src/solprop/output/snapshots.py:816`). The state itself would load. Keeping the row is still
+reasonable, as a safe refusal for a route CI cannot run, but it should say that. Note the cost:
+numbers inside `configuration_json` are exact, in the class with no override, so if R5's open
+question ever bites, a TDSE run could not be moved between platforms even by force.
+
+**F11 (minor; §1, §5.2, §5.5). Precision and statistics are not layout by the stated definition.**
+Measured on `numpy_ref` with `RungeKutta`: single to double and double to single both continue
+and complete, with `field` stored as `complex128` either way. Q7's decision stands, as a decision
+and not a fact about the file, so §5.5's "cannot be loaded" should read "or is not ours to change".
+Statistic names are true layout: plasma off fails at the first save (measured). Since names follow
+the responses, force cannot turn plasma on or off, and §5.5 should say so. `period` and
+`energy_windows` sit under the same row; neither was tested, and F4's check would settle them.
+
+**F12 (minor; §4, §5.5). The verdict table has gaps.**
+- "Complete" is undefined. `_completed` requires status `complete`. A file killed after its last
+  plane reads `running`, and measured under a forced pressure change it "continues", computes
+  nothing and becomes `complete`, flagged as forced with no plane after the position. §5.5 says
+  "something left to compute". Define it by `next_plane == len(save_planes)`, keeping the case of a
+  checkpoint owed its plane.
+- Row one's and row two's "as `resume=True`" contradict §5.5's "also accepts an interpolated last
+  plane", when there is nothing compared to force.
+- A field-free last plane without a checkpoint and a file with no plane are refused by name after
+  the comparison (`_validate_resume`, `resume`), by reading. One sentence says so.
+- `check_cache` keeps its signature, but "a complete file with numerics refuses" needs the file's
+  completion and the problem's planes, and it has only the metadata. §5.1 should say where it
+  happens.
+
+**F13 (minor; §5.5, §5.9; a judgement). Accidental force and proportion.** `"force"` is a word
+nobody types by accident, but it stays in a script, after which every later edit continues. That
+is acceptable only if each forced continuation warns then, listing `summary()`. §5.5 and §5.9
+specify that for numerics only. Two consequences the manual must state:
+- a changed launch under force has no effect at all, because `_prime` loads the stored field, so a
+  user who forces a new `energy` gets the old pulse and a flag;
+- `open_file` is also called inside a run (`src/solprop/driver/simulation.py:10315`, `src/solprop/output/snapshots.py:718`,
+  `src/solprop/driver/_scan_run.py:328`), and the package's tests run with warnings as errors, so the warning
+  belongs in the public reader's path and not on these.
+
+**F14 (minor; §5.5, §8). The doors.** `resume` is typed in `Simulation.run` and six `prop_*`
+routes (`src/solprop/driver/interface.py`), each with a docstring paragraph; §8 lists only the
+first. Its value is never validated: `if resume` and `resume != "interpolated"`, so
+`resume="forced"` acts as `True`. That fails safe, but a `ValueError` costs one line.
+`run_problem` takes `start_plane`, not `resume`, and the scan drivers have no `resume` at all, so
+"a scan never forces" holds by construction. Seven `_record_execution` calls must carry the entry;
+`run_problem` needs a parameter for it.
+
+**F15 (minor; §5.6). "Compares only the fields that define the history" needs a stored key.**
+`MarchSnapshot.method` is a `repr` string (`src/solprop/backends/multistep.py:2953`, `src/solprop/output/hdf5.py:205`), so the check must
+either parse a repr of ten fields or store something new. An attribute `history_key`, absent
+meaning "start afresh", is safe and needs no bump under §5.8. The idea itself holds: with the
+method check bypassed, raising `max_calls` continued the history on both routes, and the error
+was no worse than starting afresh ($5.4\times10^{-7}$ against $6.5\times10^{-7}$ on GNLSE,
+$9.6\times10^{-8}$ against $9.6\times10^{-8}$ on the capillary).
+
+**F16 (minor; §5.2; outside this SEP). The noise is not "used only at the launch" in one case.** A
+file holding only its entrance plane resumes at `initial_z`, and `set_initial` adds `noise0`
+(`src/solprop/backends/driver.py:1206`) to a stored field that already carries it. Measured with
+today's `resume=True`: state minus loaded field equals `noise0` to $7\times10^{-11}$ of a norm of
+17. This is not caused by this SEP, but §5.2's reason leans on the opposite, and a fix is one
+condition.
+
+**F17 (minor; a judgement). A simpler shape for the same result.** I would keep a class, because
+axes and plane positions have no other guard. With the fixes above it gets smaller: no annotation
+(F7), and a shape check on real arrays in place of the statistics rows (F4). `spatial` and `modal`
+become named leaves (F3), and `kind` goes (F9). The rest is the single condition of F1, and the
+check of F2. That serves both of the maintainer's aims better than the current table: more runs
+can be forced, and there are fewer special forms to keep.
+
+#### Checked and found correct
+
+- **Rows that earn their place.** `grid.**`: an envelope against a field grid fails only as a raw
+  `ValueError` at `_prime`. `modes`' length: see F4. `simulation_kind`: mode-averaged against
+  multimode. `quadrature`'s counts on the capillary: `n_r` and the rule change `species_ionisation`'s
+  shape, so that part of the row is right (F3 has the rest), though its reason is the per-node
+  statistic rather than the state's basis. A run without those statistics was not tried.
+- **Exact paths.** Processing locates planes by exact position (`_plane_indices`,
+  `src/solprop/processing/mixtures.py:414`), and `_recorded_basis` by the planned planes, so a
+  changed plane list really cannot use the kept record.
+- **Plasma and Raman state.** Argon to nitrogen with Raman, and Kerr off, continue and complete. By
+  reading `_write_march` and the checkpoint, nothing of a response is stored outside the march's
+  rows, so F1's fix covers it.
+- **File states.** Budget-exhausted and failed files with terminal checkpoints continue under the
+  relaxed gate, measured; the ledgers' checks in `_validate_resume` are not bypassed, by reading.
+- **§5.6's `dense and`.** `_interpolated` was false on ordinary stopped and complete files with
+  `Multistep`, `RungeKutta`, `step_planes=5` and a tighter `rtol`, with and without the checkpoint,
+  so dropping it trips nothing there.
+- **The session's outcome.** `RunOutcome.execution` takes an extra entry (measured through
+  `record_outcome`), and `previous_executions` keeps it on each new session. The annotation
+  mechanism is real, and the boundary monitor reads only its earlier execution record, never the
+  run record (`src/solprop/monitor.py:578`), so it behaves under force.
+- **`step_planes`.** `get_power_weight` refuses off-record planes by name both on a fresh
+  `step_planes` run and on one resumed with it, so adoption adds no new failure there.
+- **Combining force with an interpolated plane** is mechanically sound: an interpolated stop has no
+  snapshot, by reading `AdamsMarch.snapshot`. It bundles SEP 14's consent into a broader one, which
+  I think is acceptable provided F7 is fixed.
+
+**Not checked:** any TDSE run, since there was no provider (descriptor and archive read only); resumes
+on the Cartesian, line and planar routes, or a non-general waveguide; a snapshot of order above 2,
+so F1's history result is limited to orders 1 and 2; a real comparer or the full adoption of §5.3,
+except that `run_summary` was fed a stored record; `source=` in a run; queue and Slurm scans; a real
+pair of files from two platforms; and `src/solprop/driver/_scan_run.py`'s custom-path files with a forced file behind
+them.
+
+### Response to the supplementary review — 2026-11-01 (Opus 5.5, drafting agent)
+
+F1, F2, F9 and F16 were re-checked against the code before this response: F1 and F2 by reading
+`_prime`, `_continue_march` and `AdamsMarch.load`, F9 on a real record, F16 by reading
+`set_initial`. The measured figures quoted in Part I are the reviewer's, taken with force
+emulated by a constant hash, since no comparer exists. All 17 points are taken, except as stated
+in points 5 and 16.
+
+1. **F1 taken.** A session with a compared difference does not restore the snapshot, and warns
+   (§5.5, §4's table). §2 and §10 no longer count the history against `with_input`, and §10 says
+   the gain from force is narrower than the first revision claimed. It remains worth having for
+   the same file, cumulative ledgers, and modified noise and schedules, which the maintainer
+   asked for.
+2. **F2 taken.** A file with a forced session continues only under force (§4's table, §5.5). The
+   entry is written before any step, so a failed force counts.
+3. **F3 taken.** `spatial`, `modal` and `quadrature` now name their structural values (§5.2), so
+   force works on the radial and general routes and for a capillary radius. `spatial.absorber_rate`
+   joins the tail row. `modal.channels` is checked in phase 1, as the point asks.
+4. **F4 taken.** `noise.model` and its presence are layout, and §5.5's shape check replaces the
+   `configuration.statistics` row. The check runs only with compared differences, and skips TDSE.
+5. **F5 taken, by the point's own recommendation.** The driver passes the requested record and the
+   handler adopts (§5.3, §3). This corrects the first response's point 10, which had the driver pass
+   the file's record, and the summary now shows what steps. How `_open_output` tells the handler the
+   gate has passed, against a direct call that must still compare, is left to phase 1.
+6. **F6 taken.** `field_plane` and `source=` refuse planes beyond the position, the peak-field report
+   takes the session's planes, and the manual says what holds (§5.5).
+7. **F7 taken.** No annotation; one helper reads the execution records. The same gap in
+   `interpolated_resumes` is separate work, and I would not widen this SEP for it.
+8. **F8 taken.** `compared` is `summary()`'s text (§5.3).
+9. **F9 taken.** Modes are identified by their label fields, and `kind` is compared, so a corrected
+   mode model can be forced (§5.2).
+10. **F10 taken.** The `tdse.**` row gives the narrower reason, and its cost is stated.
+11. **F11 taken.** Precision's row says it is a decision, and §5.5 says force cannot change the species
+    count or turn plasma on or off.
+12. **F12 taken.** "Work left" is defined by position (§4), the table is corrected, the refusals after
+    the comparison are stated, and §5.1 says where the file's state is checked.
+13. **F13 taken.** Each forced continuation warns with the summary, a changed launch is said to have no
+    effect, and the warning belongs to the public `open_file` (§5.5).
+14. **F14 taken.** §8 names the routes, `resume` checks its value, and §5.3 says `run_problem` takes the
+    entry.
+15. **F15 taken.** A snapshot gains `history_key` (§5.6).
+16. **F16 not taken here.** It is a bug in released code, independent of this SEP, and is being fixed on
+    its own branch. §5.2's reason for ignoring `noise.spectrum` no longer says "used only at the launch",
+    which that case contradicts, but relies on the fix: a resumed field is never given the draw again.
+17. **F17 taken.** The result is the smaller shape it describes.
+
+**Still unmeasured:** a real comparer, since none exists; a snapshot above order 2 under force; force on
+the Cartesian, line, planar and non-general waveguide routes; any TDSE run. §7 assigns what can be tried
+to phase 1.
+
+### Amendment after review of the acceptance pull request — 2026-11-01 (Opus 5.5, drafting agent)
+
+Five comments from Copilot's review of the acceptance pull request, each checked against the text and the code, and taken
+before the pull request merged:
+
+1. **Solids.** They are keyed by `(material, axis, model)` and hold a `model` leaf, so §4's re-keying did not cover a renamed
+   solid. §4 now normalises them separately.
+2. **Rows and descendants.** §4 matched a row against a leaf's exact path, so `spatial.axes[0]` fell through to compared, and
+   force could have accepted a moved axis. A row now covers its subtree.
+3. **Mixed numerics.** A file finished at a looser `rtol` still matched the original script, which would have got "nothing to
+   do". §4 now compares the request with each session's numerics on a file with no work left.
+4. **Frozen records and optmat.** A data revision moves arrays outside `materials` too. A case whose digests moved is now compared
+   by structure alone, and a case with no optmat data always in full.
+5. **Older readers.** A reader from before this SEP would have continued a forced file. The comment proposed a schema boundary or
+   a coordinated release, and the maintainer chose the release: 0.2.0, the first to carry schema 2, is held until this SEP lands, so
+   no released reader of schema 2 lacks these rules (§9). This also fixes where the first frozen records come from.
+
+The maintainer then also held 0.2.0 for SEP 40, so one release carries all the breaks. That changes when the first
+frozen records are captured (§7, §11), not the reasoning of point 5.

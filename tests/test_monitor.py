@@ -72,7 +72,7 @@ def walker(
     omega0 = 2 * np.pi * C / 1e-6
     offset = drift / (BETA2 * LENGTH)
     simulation = Simulation.from_gnlse(
-        1e-30, LENGTH, [0.0, 0.0, BETA2], lambda0=1e-6, grid=grid,
+        1e-30, LENGTH, [0.0, 0.0, BETA2], wavelength=1e-6, grid=grid,
         pulses=[GaussianPulse(
             wavelength=2 * np.pi * C / (omega0 + offset), fwhm=200e-15,
             peak_power=peak_power,
@@ -188,7 +188,7 @@ def test_a_single_precision_split_reads_the_physical_removal() -> None:
     omega0 = 2 * np.pi * C / 1e-6
     offset = 0.65 * TRANGE / (BETA2 * LENGTH)
     simulation = Simulation.from_gnlse(
-        1e-9 / peak_power, LENGTH, [0.0, 0.0, BETA2], lambda0=1e-6, grid=grid,
+        1e-9 / peak_power, LENGTH, [0.0, 0.0, BETA2], wavelength=1e-6, grid=grid,
         pulses=[GaussianPulse(
             wavelength=2 * np.pi * C / (omega0 + offset), fwhm=200e-15,
             peak_power=peak_power,
@@ -221,7 +221,7 @@ def test_a_deep_collar_reads_no_removal_from_residue(backend: str) -> None:
     if backend not in available():
         pytest.skip(f"{backend} is not installed")
     simulation = Simulation.from_capillary(
-        125e-6, 1e-3, "Ar", 1.0, lambda0=800e-9, wavelength_limits=(300e-9, 2e-6),
+        125e-6, 1e-3, "Ar", 1.0, wavelength=800e-9, wavelength_limits=(300e-9, 2e-6),
         trange=400e-15, fwhm=30e-15, energy=10e-6, mode_average=True, noise=None,
         n_save=2, backend=backend, integrator=RungeKutta(),
         schedule=FixedSchedule.uniform(0.0, 1e-3, 1e-4),
@@ -318,9 +318,9 @@ def test_the_file_grows_linearly_with_its_planes(tmp_path: Path) -> None:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", BoundaryWarning)
             prop_gnlse(
-                0.11, 0.05, [0.0, 0.0, -1.183e-26], lambda0=835e-9,
+                0.11, 0.05, [0.0, 0.0, -1.183e-26], wavelength=835e-9,
                 wavelength_limits=(500e-9, 2e-6), trange=1e-12, width=100e-15,
-                peak_power=9.8, pulseshape="sech", n_save=n_save, seed=1,
+                peak_power=9.8, shape="sech", n_save=n_save, seed=1,
                 progress="none", output=path, backend="numpy_ref",
             )  # fmt: skip
         per_plane.append(path.stat().st_size / n_save)
@@ -476,7 +476,7 @@ def _walking_point(point: ScanPoint) -> Simulation:
     offset = cast("float", point.values["drift"]) * trange / (BETA2 * LENGTH)
     planes = [0.5, 1.0]
     return Simulation.from_gnlse(
-        1e-30, LENGTH, [0.0, 0.0, BETA2], lambda0=1e-6, grid=grid,
+        1e-30, LENGTH, [0.0, 0.0, BETA2], wavelength=1e-6, grid=grid,
         pulses=[GaussianPulse(
             wavelength=2 * np.pi * C / (omega0 + offset), fwhm=200e-15,
             peak_power=1.0,
@@ -986,7 +986,8 @@ def test_a_resting_collar_frees_the_adams_order() -> None:
     # shared rtol of 1e-6 (measured 3.3e-7).
     def capillary(check: BoundaryCheck) -> Output:
         simulation = Simulation.from_capillary(
-            125e-6, 0.02, "He", 1.0, lambda0=800e-9, wavelength_limits=(150e-9, 2e-6),
+            125e-6, 0.02, "He", 1.0, wavelength=800e-9,
+            wavelength_limits=(150e-9, 2e-6),
             trange=200e-15, fwhm=10e-15, energy=100e-6, mode_average=True, n_save=2,
             noise=None,
         )  # fmt: skip

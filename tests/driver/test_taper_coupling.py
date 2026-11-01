@@ -280,7 +280,7 @@ def test_a_supplied_set_couples_through_from_waveguide_and_a_provider_refuses_it
     """
     modes = [MarcatiliMode(taper(), "He", 1.0, m=m, loss=False) for m in (1, 2)]
     arguments = {
-        "lambda0": 800e-9,
+        "wavelength": 800e-9,
         "grid": GRID,
         "absorber": WEAK_COLLAR,
         "fwhm": 30e-15,
@@ -308,7 +308,7 @@ def test_a_supplied_set_couples_through_from_waveguide_and_a_provider_refuses_it
             (),
             LENGTH,
             provider=split_guide(general_grid()),
-            lambda0=835e-9,
+            wavelength=835e-9,
             taper_coupling=False,
             noise=None,
         )
@@ -352,7 +352,7 @@ def slow_taper(*, taper_coupling=True, steps=STEPS):
         length,
         "He",
         0.0,
-        lambda0=800e-9,
+        wavelength=800e-9,
         grid=grid,
         absorber=absorber(grid, boundary_length=1.0e3),
         fwhm=30e-15,

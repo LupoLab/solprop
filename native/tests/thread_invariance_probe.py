@@ -51,7 +51,7 @@ with warnings.catch_warnings():
         LENGTH,
         "Ar",
         1.0,
-        lambda0=800e-9,
+        wavelength=800e-9,
         wavelength_limits=(250e-9, 1.5e-6),
         trange=100e-15,
         fwhm=15e-15,

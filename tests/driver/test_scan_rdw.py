@@ -36,7 +36,7 @@ def build_rdw(point, rtol=WAVEGUIDE_RTOL):
             case["length"],
             "He",
             (float(point.values["pressure"]), 0.05),
-            lambda0=WITNESS["lambda0"],
+            wavelength=WITNESS["lambda0"],
             wavelength_limits=(case["lambda_min"], case["lambda_max"]),
             trange=case["trange"],
             fwhm=WITNESS["tau_fwhm"],

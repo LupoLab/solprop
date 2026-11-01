@@ -86,7 +86,7 @@ Molecular hydrogen carries its rotational and vibrational Raman response by defa
         2.0,
         "H2",
         5.0,
-        lambda0=1030e-9,
+        wavelength=1030e-9,
         fwhm=40e-15,
         energy=4e-6,
         loss=False,
@@ -231,7 +231,7 @@ Runtime and reproducibility
 
  .. code-block:: none
 
-    206 s; backend native
+    95 s; backend native
 
 
 
@@ -239,7 +239,7 @@ Runtime and reproducibility
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (3 minutes 25.526 seconds)
+   **Total running time of the script:** (1 minutes 34.689 seconds)
 
 
 .. _sphx_glr_download_auto_examples_processes_plot_05_raman_self_frequency_shift.py:

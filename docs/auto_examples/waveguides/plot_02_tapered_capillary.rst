@@ -78,7 +78,7 @@ The taper is a :class:`~solprop.profiles.PiecewiseLinear` profile of the core
 radius. Its corners are where the linear operator's intervals begin and end, and
 the adaptive stepper lands on each of them.
 
-.. GENERATED FROM PYTHON SOURCE LINES 65-156
+.. GENERATED FROM PYTHON SOURCE LINES 65-160
 
 .. code-block:: Python
 
@@ -119,7 +119,7 @@ the adaptive stepper lands on each of them.
     PRESSURE = 1.5
     """Helium pressure, bar."""
 
-    PUMP = {"lambda0": 800e-9, "fwhm": 10e-15, "energy": 150e-6}
+    PUMP = {"wavelength": 800e-9, "fwhm": 10e-15, "energy": 150e-6}
     """The pump: wavelength (m), duration (s) and energy (J)."""
 
     UV = (100e-9, 300e-9)
@@ -134,22 +134,26 @@ the adaptive stepper lands on each of them.
             # The wall's quasi-static ratio approaches its limit at the longest
             # wavelengths of the narrow section: the approximation named above, which
             # each run would repeat. An AdiabaticTaperWarning would name the comparison
-            # this example draws on purpose, so it is silenced too. The coherent
-            # wall's generator is resolved along z to a Chebyshev tail at the round-off
-            # floor of its samples, which it reports as a SolpropWarning.
-            for category in (
-                GrazingIncidenceWarning,
-                AdiabaticTaperWarning,
-                SolpropWarning,
-            ):
+            # this example draws on purpose, so it is silenced too. On the taper the
+            # coupled flow's explicit residual sets an advisory step of about 0.2 mm,
+            # below the declared dz_max; the warning saying so is advisory and changes
+            # nothing in the run, so it is silenced by its message. Every other warning,
+            # the boundary monitor's included, is shown.
+            for category in (GrazingIncidenceWarning, AdiabaticTaperWarning):
                 warnings.simplefilter("ignore", category)
+            warnings.filterwarnings(
+                "ignore",
+                message=r"the (coherent wall|taper coupling)'s explicit residual is the "
+                "limiting explicit term",
+                category=SolpropWarning,
+            )
             return prop_capillary(
                 radius,
                 LENGTH,
                 "He",
                 PRESSURE,
                 wavelength_limits=(90e-9, 3e-6),
-                trange=250e-15,
+                trange=450e-15,
                 modes=4,
                 wall=wall,
                 taper_coupling=taper_coupling,
@@ -157,7 +161,7 @@ the adaptive stepper lands on each of them.
                 n_save=200,
                 progress="none",
                 backend=backend,
-                lambda0=PUMP["lambda0"],
+                wavelength=PUMP["wavelength"],
                 fwhm=PUMP["fwhm"],
                 energy=energy,
                 # The nanojoule runs compare linear transport, where a one-photon seed would
@@ -180,7 +184,7 @@ the adaptive stepper lands on each of them.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 157-165
+.. GENERATED FROM PYTHON SOURCE LINES 161-169
 
 The linear conversion
 ---------------------
@@ -191,7 +195,7 @@ table, which every CPU backend runs (the native backend evaluates it in its own
 kernels at each step's positions), so the default backend runs it too. The coupled
 runs, with or without the wall, carry the taper in the coupled flow instead.
 
-.. GENERATED FROM PYTHON SOURCE LINES 165-221
+.. GENERATED FROM PYTHON SOURCE LINES 169-225
 
 .. code-block:: Python
 
@@ -264,26 +268,26 @@ runs, with or without the wall, carry the taper in the coupled flow instead.
 
  .. code-block:: none
 
-    coherent wall        HE_14 near the corner: z = 0.6734 m 3.60e-07, z = 0.6985 m 4.58e-07, z = 0.7236 m 1.52e-06
-    no wall (coupled)    HE_14 near the corner: z = 0.6734 m 4.40e-07, z = 0.6985 m 3.34e-07, z = 0.7236 m 1.53e-07
-    no wall (adiabatic)  HE_14 near the corner: z = 0.6734 m 9.60e-20, z = 0.6985 m 8.80e-20, z = 0.7236 m 7.32e-20
-    coherent wall        z = 0.5 m HE_12 2.67e-05, HE_13 5.56e-06, HE_14 1.13e-06
-    coherent wall        z = 0.71 m HE_12 1.71e-04, HE_13 7.73e-06, HE_14 1.49e-06
+    coherent wall        HE_14 near the corner: z = 0.6734 m 3.61e-07, z = 0.6985 m 4.60e-07, z = 0.7236 m 1.52e-06
+    no wall (coupled)    HE_14 near the corner: z = 0.6734 m 4.40e-07, z = 0.6985 m 3.35e-07, z = 0.7236 m 1.61e-07
+    no wall (adiabatic)  HE_14 near the corner: z = 0.6734 m 9.60e-20, z = 0.6985 m 8.80e-20, z = 0.7236 m 7.31e-20
+    coherent wall        z = 0.5 m HE_12 2.67e-05, HE_13 5.56e-06, HE_14 1.15e-06
+    coherent wall        z = 0.71 m HE_12 1.71e-04, HE_13 7.76e-06, HE_14 1.49e-06
     no wall (coupled)    z = 0.5 m HE_12 2.50e-05, HE_13 7.25e-06, HE_14 2.77e-06
-    no wall (coupled)    z = 0.71 m HE_12 1.28e-04, HE_13 3.01e-06, HE_14 2.51e-07
+    no wall (coupled)    z = 0.71 m HE_12 1.28e-04, HE_13 3.01e-06, HE_14 2.54e-07
     no wall (adiabatic)  z = 0.5 m HE_12 4.05e-14, HE_13 2.75e-15, HE_14 1.40e-19
     no wall (adiabatic)  z = 0.71 m HE_12 1.54e-14, HE_13 1.71e-15, HE_14 7.48e-20
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 222-225
+.. GENERATED FROM PYTHON SOURCE LINES 226-229
 
 The nonlinear runs
 ------------------
 The same fibre at 150 uJ, with and without the wall, and the straight bore.
 
-.. GENERATED FROM PYTHON SOURCE LINES 225-233
+.. GENERATED FROM PYTHON SOURCE LINES 229-237
 
 .. code-block:: Python
 
@@ -302,14 +306,14 @@ The same fibre at 150 uJ, with and without the wall, and the straight bore.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 234-238
+.. GENERATED FROM PYTHON SOURCE LINES 238-242
 
 What the record says about the flow: how many frozen sections the run was cut
 into, the Chebyshev degree along z the wall's generator was resolved at, whether
 the connection was carried (it is, because the radius varies), the advisory step,
 and the worst of the three validity ratios over the whole run.
 
-.. GENERATED FROM PYTHON SOURCE LINES 238-244
+.. GENERATED FROM PYTHON SOURCE LINES 242-248
 
 .. code-block:: Python
 
@@ -331,19 +335,19 @@ and the worst of the three validity ratios over the whole run.
     n_sections     4
     n_deg          17
     connection     True
-    advisory_step  0.000176201
-    quasi_static   0.0923
+    advisory_step  0.000170045
+    quasi_static   0.0944
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 245-248
+.. GENERATED FROM PYTHON SOURCE LINES 249-252
 
 The walled taper's propagation map, summed over the modes. The spectrum broadens
 slowly along the straight section and explodes at the end of the taper, where the
 pulse compresses and the dispersive wave appears near 130 nm.
 
-.. GENERATED FROM PYTHON SOURCE LINES 248-260
+.. GENERATED FROM PYTHON SOURCE LINES 252-264
 
 .. code-block:: Python
 
@@ -371,14 +375,14 @@ pulse compresses and the dispersive wave appears near 130 nm.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 261-265
+.. GENERATED FROM PYTHON SOURCE LINES 265-269
 
 Compression along the fibre
 ---------------------------
 The peak of the total power: the taper compresses the pulse earlier than the
 straight bore does, because it squeezes the same energy into a smaller area.
 
-.. GENERATED FROM PYTHON SOURCE LINES 265-285
+.. GENERATED FROM PYTHON SOURCE LINES 269-289
 
 .. code-block:: Python
 
@@ -422,7 +426,7 @@ straight bore does, because it squeezes the same energy into a smaller area.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 286-294
+.. GENERATED FROM PYTHON SOURCE LINES 290-298
 
 Mode conversion at full energy
 ------------------------------
@@ -433,7 +437,7 @@ moves more; against that, the taper's own conversion -- the linear figure above 
 is visible only in ``HE_14``, which the wall and the connection hold an order of
 magnitude above the adiabatic run before the taper and through it.
 
-.. GENERATED FROM PYTHON SOURCE LINES 294-317
+.. GENERATED FROM PYTHON SOURCE LINES 298-321
 
 .. code-block:: Python
 
@@ -472,13 +476,13 @@ magnitude above the adiabatic run before the taper and through it.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 318-321
+.. GENERATED FROM PYTHON SOURCE LINES 322-325
 
 The same numbers at two places: just after the transition (z = 0.71 m), before
 the pulse has compressed, where the difference is the connection alone, and at
 the exit.
 
-.. GENERATED FROM PYTHON SOURCE LINES 321-332
+.. GENERATED FROM PYTHON SOURCE LINES 325-336
 
 .. code-block:: Python
 
@@ -503,13 +507,13 @@ the exit.
 
     taper, coherent wall        z = 0.71 m HE_11 5.86e-01, HE_12 2.66e-03, HE_13 1.29e-03, HE_14 1.06e-04
     taper, coherent wall        exit      HE_11 2.68e-01, HE_12 8.63e-03, HE_13 1.76e-03, HE_14 2.07e-04
-    taper, no wall (adiabatic)  z = 0.71 m HE_11 5.89e-01, HE_12 2.30e-03, HE_13 1.22e-03, HE_14 9.58e-05
-    taper, no wall (adiabatic)  exit      HE_11 2.67e-01, HE_12 8.68e-03, HE_13 1.70e-03, HE_14 1.95e-04
+    taper, no wall (adiabatic)  z = 0.71 m HE_11 5.89e-01, HE_12 2.30e-03, HE_13 1.22e-03, HE_14 9.57e-05
+    taper, no wall (adiabatic)  exit      HE_11 2.67e-01, HE_12 8.67e-03, HE_13 1.70e-03, HE_14 1.94e-04
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 333-338
+.. GENERATED FROM PYTHON SOURCE LINES 337-342
 
 The dispersive wave
 -------------------
@@ -517,7 +521,7 @@ The exit spectra, summed over the modes. The narrower core pushes the dispersive
 wave further into the ultraviolet than the straight bore does, and the energy in
 the ultraviolet band is printed below.
 
-.. GENERATED FROM PYTHON SOURCE LINES 338-360
+.. GENERATED FROM PYTHON SOURCE LINES 342-364
 
 .. code-block:: Python
 
@@ -556,20 +560,20 @@ the ultraviolet band is printed below.
 
  .. code-block:: none
 
-    taper, coherent wall            transmitted 0.279; 100-300 nm 14.03 uJ (9.35%)
-    taper, no wall (adiabatic)      transmitted 0.278; 100-300 nm 13.74 uJ (9.16%)
-    straight 100 um, coherent wall  transmitted 0.705; 100-300 nm 16.91 uJ (11.27%)
+    taper, coherent wall            transmitted 0.279; 100-300 nm 13.99 uJ (9.32%)
+    taper, no wall (adiabatic)      transmitted 0.278; 100-300 nm 13.69 uJ (9.13%)
+    straight 100 um, coherent wall  transmitted 0.705; 100-300 nm 16.66 uJ (11.11%)
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 361-364
+.. GENERATED FROM PYTHON SOURCE LINES 365-368
 
 Runtime and reproducibility
 ---------------------------
 Six complete one-metre runs of four coupled modes: three linear, three nonlinear.
 
-.. GENERATED FROM PYTHON SOURCE LINES 364-371
+.. GENERATED FROM PYTHON SOURCE LINES 368-375
 
 .. code-block:: Python
 
@@ -588,12 +592,12 @@ Six complete one-metre runs of four coupled modes: three linear, three nonlinear
 
  .. code-block:: none
 
-    88 s; backend native, 16 threads
+    52 s; backend native, 18 threads
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 372-379
+.. GENERATED FROM PYTHON SOURCE LINES 376-383
 
 Related reading
 ---------------
@@ -606,7 +610,7 @@ For a paced introduction to propagation, start with the
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (1 minutes 28.144 seconds)
+   **Total running time of the script:** (0 minutes 52.127 seconds)
 
 
 .. _sphx_glr_download_auto_examples_waveguides_plot_02_tapered_capillary.py:

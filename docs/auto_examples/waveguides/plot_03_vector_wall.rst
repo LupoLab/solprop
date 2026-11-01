@@ -85,7 +85,7 @@ package's spelling of the ``EH`` family. The "impedance-averaged" curve is what 
 wall with one impedance gives the transverse families: the hybrid cladding term in
 place of each one's own, which puts ``TE_01`` and ``TM_01`` on one curve.
 
-.. GENERATED FROM PYTHON SOURCE LINES 72-158
+.. GENERATED FROM PYTHON SOURCE LINES 72-155
 
 .. code-block:: Python
 
@@ -98,10 +98,7 @@ place of each one's own, which puts ``TE_01`` and ``TM_01`` on one curve.
 
     from solprop.constants import C
     from solprop.driver import prop_capillary
-    from solprop.exceptions import (
-        GrazingIncidenceWarning,
-        SolpropWarning,
-    )
+    from solprop.exceptions import GrazingIncidenceWarning
     from solprop.modes import CoherentWall, MarcatiliMode, vector_wall_operator
     from solprop.processing import energy, fwhm_t, get_power
     from solprop.processing import peak_power as peak_power_of
@@ -115,7 +112,7 @@ place of each one's own, which puts ``TE_01`` and ``TM_01`` on one curve.
     PRESSURE = 3.0
     """Helium pressure, bar."""
 
-    PUMP = {"lambda0": 800e-9, "fwhm": 15e-15, "energy": 300e-6}
+    PUMP = {"wavelength": 800e-9, "fwhm": 15e-15, "energy": 300e-6}
     """The pump: wavelength (m), duration (s) and energy (J)."""
 
     started = time.perf_counter()
@@ -196,7 +193,7 @@ place of each one's own, which puts ``TE_01`` and ``TM_01`` on one curve.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 159-166
+.. GENERATED FROM PYTHON SOURCE LINES 156-163
 
 Radial against azimuthal polarisation
 -------------------------------------
@@ -206,7 +203,7 @@ its own. The pulse enters the first channel of the set. ``TE_0m`` and ``TM_0m`` 
 not couple through the wall (the ``nu = 0`` block is diagonal in the two
 families), so the two families are two independent runs rather than one.
 
-.. GENERATED FROM PYTHON SOURCE LINES 166-241
+.. GENERATED FROM PYTHON SOURCE LINES 163-237
 
 .. code-block:: Python
 
@@ -216,17 +213,16 @@ families), so the two families are two independent runs rather than one.
         """Propagate the pump through the metre of helium-filled bore."""
         with warnings.catch_warnings():
             # The wall's quasi-static ratio is marginal at the band's longest
-            # wavelengths, and the wall's generator is resolved along z to its samples'
-            # round-off floor. Both are named above, and every run would repeat them.
-            for category in (GrazingIncidenceWarning, SolpropWarning):
-                warnings.simplefilter("ignore", category)
+            # wavelengths: named above, and every run would repeat it. Every other
+            # warning, the boundary monitor's included, is shown.
+            warnings.simplefilter("ignore", GrazingIncidenceWarning)
             return prop_capillary(
                 RADIUS,
                 LENGTH,
                 "He",
                 PRESSURE,
                 wavelength_limits=(90e-9, 3e-6),
-                trange=250e-15,
+                trange=400e-15,
                 modes=modes,
                 wall=wall,
                 dz_max=2e-3,
@@ -317,7 +313,7 @@ families), so the two families are two independent runs rather than one.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 242-252
+.. GENERATED FROM PYTHON SOURCE LINES 238-248
 
 The anisotropy converts HE_11 into EH_11
 ----------------------------------------
@@ -330,7 +326,7 @@ the boundary; the Kerr overlap can move energy between them, but only from a
 nonzero seed, which the launch does not contain. ``HE_12``, in the same family
 as the launch, fills through the Kerr overlap in both runs alike.
 
-.. GENERATED FROM PYTHON SOURCE LINES 252-291
+.. GENERATED FROM PYTHON SOURCE LINES 248-287
 
 .. code-block:: Python
 
@@ -386,19 +382,19 @@ as the launch, fills through the Kerr overlap in both runs alike.
 
  .. code-block:: none
 
-    vector wall: HE_11 6.71e-01, HE_12 1.98e-02, EH_11 5.76e-07, EH_12 2.01e-07
-    no wall    : HE_11 6.58e-01, HE_12 1.95e-02, EH_11 1.63e-12, EH_12 1.64e-12
+    vector wall: HE_11 6.71e-01, HE_12 1.98e-02, EH_11 5.76e-07, EH_12 2.08e-07
+    no wall    : HE_11 6.58e-01, HE_12 1.95e-02, EH_11 2.54e-12, EH_12 2.17e-12
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 292-295
+.. GENERATED FROM PYTHON SOURCE LINES 288-291
 
 Runtime and reproducibility
 ---------------------------
 Four complete one-metre runs of three or four coupled modes.
 
-.. GENERATED FROM PYTHON SOURCE LINES 295-302
+.. GENERATED FROM PYTHON SOURCE LINES 291-298
 
 .. code-block:: Python
 
@@ -417,12 +413,12 @@ Four complete one-metre runs of three or four coupled modes.
 
  .. code-block:: none
 
-    1301 s; backend native, 16 threads
+    187 s; backend native, 18 threads
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 303-309
+.. GENERATED FROM PYTHON SOURCE LINES 299-305
 
 Related reading
 ---------------
@@ -434,7 +430,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (21 minutes 41.401 seconds)
+   **Total running time of the script:** (3 minutes 6.803 seconds)
 
 
 .. _sphx_glr_download_auto_examples_waveguides_plot_03_vector_wall.py:

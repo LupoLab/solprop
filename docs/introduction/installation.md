@@ -122,7 +122,7 @@ run = prop_gnlse(
     0.0,
     1e-3,
     [0.0, 0.0, 0.0],
-    lambda0=800e-9,
+    wavelength=800e-9,
     fwhm=50e-15,
     energy=1e-9,
     trange=400e-15,

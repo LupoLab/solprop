@@ -279,7 +279,7 @@ for length in lengths:
         length,
         provider=guide,
         grid=grid,
-        lambda0=WAVELENGTH,
+        wavelength=WAVELENGTH,
         fwhm=100e-15,
         energy=1e-12,
         dz_max=min(DZ_MAX, length / 10.0),
@@ -301,7 +301,7 @@ problem = Simulation.from_waveguide(
     lengths[-1],
     provider=linear_runs[lengths[-1]][0],
     grid=grid,
-    lambda0=WAVELENGTH,
+    wavelength=WAVELENGTH,
     fwhm=100e-15,
     energy=1e-12,
     dz_max=DZ_MAX,
@@ -476,7 +476,7 @@ fig.tight_layout()
 LENGTH = 15e-3
 CORNER = 5e-3
 WINDOW = (0.93e-6, 1.15e-6)
-PULSE = {"lambda0": WAVELENGTH, "fwhm": 200e-15, "peak_power": 4e5}
+PULSE = {"wavelength": WAVELENGTH, "fwhm": 200e-15, "peak_power": 4e5}
 path = PiecewiseLinear(
     np.array([0.0, CORNER, LENGTH]), np.array([ENTRANCE, WAIST, WAIST])
 )

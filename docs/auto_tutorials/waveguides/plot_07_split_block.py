@@ -1,0 +1,248 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+r"""
+A declared basis of a split pair: two bases, one answer
+=======================================================
+
+A guide's channels arrive in whatever basis its provider solved them in. Any unitary
+combination of a block is as good a basis, but ``U^H diag(beta) U`` is diagonal only
+where the block's propagation constants are equal, and every "degenerate" group of a
+real guide is split by something. Declare a basis over a **split** pair and the
+rotated channel amplitudes beat. The general modal route propagates the
+full coupled linear operator in that basis; see :doc:`/guide/waveguides/modal-bases`.
+
+The pair here is the retained half of the weak-guidance ``LP_11`` group of a
+step-index core of 6 um radius: ``TE_01`` and ``TM_01``, degenerate under weak guidance
+and split by the vector correction, by 120 1/m at 835 nm -- 1.1e-5 of their own
+propagation constants. An equal-weight rotation of them puts the whole splitting in the
+leaf's off-diagonal: ``|G_01|`` is half the splitting, about 60 1/m at 835 nm.
+
+What this example checks:
+
+* **the two bases agree on one launch.** A pure rotated channel is the superposition
+  ``U[:, 0]`` of the provider's own channels, so the plain basis reproduces the same
+  physical launch as a combination of two of its own runs; carried back through
+  ``U^H`` it must be the rotated run. The two share no execution path below the guide
+  -- one is a coupled matrix flow, the other two diagonal exponentials -- and agree
+  to ``8.4e-6`` in each channel's modulus and ``2.1e-5`` rad in the phase between
+  them, inside the grid's declared window;
+* **the flow moves power.** Over a millimetre a launch into one rotated channel
+  arrives with ``3.8e-3`` of it in the other, which is ``sin^2(|G_01| z)`` of the
+  block's own off-diagonal to about one per cent -- the grid's temporal-window
+  absorber, a convolution in frequency, attenuates the two channels' different
+  spectra differently, and contributes to the difference. Agreement is assessed at
+  finite
+  frequency, interpolation and stepping resolution.
+
+**The approximation, in one sentence:** none is added to the propagation -- the
+coupled flow is the same linear physics in other coordinates -- but a rotated
+channel's ``neff`` is the block's **mean** propagation constant, which is what the
+surrogate area and the labels need and is *not* what the channel propagates with,
+because it beats. This per-channel index is a surrogate, and a known limitation of a
+coupled block; for the same reason the route withholds ``zdw`` on one.
+"""
+
+import matplotlib.pyplot as plt
+import numpy as np
+
+from solprop.constants import C
+from solprop.driver import Simulation
+from solprop.grid import FieldGrid
+from solprop.modes import IndexMaterial, MaterialRegion, ModalGuide, StepIndexMode
+from solprop.modes.guide import ChannelBasis
+from solprop.modes.protocol import ChannelLabel
+
+# %%
+# The guide, twice
+# ----------------
+#
+# A 6 um silica-like core in a 1.40 cladding, and its two ``LP_11`` members of
+# azimuthal order zero. Both regions are linear -- this example is about the linear
+# flow, and a guide whose regions declare no response skips the source pass
+# entirely. The knots cover the grid's whole *active* band, which is about twice the
+# declared one; seventeen of them, because the splitting is a small difference of
+# two large propagation constants and reproducing it between the knots costs more
+# of them than reproducing either.
+length = 1e-3
+grid = FieldGrid.from_limits(length, 835e-9, (815e-9, 860e-9), 60e-15)
+core, cladding = IndexMaterial(1.45), IndexMaterial(1.40)
+pair = tuple(
+    StepIndexMode(
+        6e-6,
+        core=1.45,
+        cladding=1.40,
+        profile_wavelength=835e-9,
+        kind=kind,
+        n=0,
+        m=1,
+        parity="even",
+    )
+    for kind in ("TE", "TM")
+)
+regions = (
+    MaterialRegion("core", 0.0, pair[0].core_radius, core),
+    MaterialRegion("cladding", pair[0].core_radius, None, cladding),
+)
+provider = ModalGuide.from_step_index(
+    pair, core=core, cladding=cladding, regions=regions
+).field_provider
+
+root = 1.0 / np.sqrt(2.0)
+basis = ChannelBasis(
+    np.array([[root, -root], [root, root]], dtype=complex),  # a quarter turn
+    ((0, 1),),  # the block it acts in
+    (
+        ChannelLabel("LP", 1, 1, "even", None, "LP1,1:even"),
+        ChannelLabel("LP", 1, 1, "odd", None, "LP1,1:odd"),
+    ),
+    "lp11(0,1)",
+)
+active = grid.omega[grid.active_mask]
+knots = np.linspace(0.99 * float(active[0]), 1.01 * float(active[-1]), 17)
+nodes = provider.node_rule(0.99 * float(active[0]), n_r=24)
+rotated, plain = (
+    ModalGuide.from_provider(
+        provider, knots, nodes=nodes, degenerate_blocks=((0, 1),), basis=declared
+    )
+    for declared in (basis, None)
+)
+
+omega0 = np.array([float(grid.omega0)])
+for name, guide in (("provider's own", plain), ("rotated", rotated)):
+    indices = [
+        float(np.real(mode.neff(omega0)[0])) for mode in guide.mode_collection.modes
+    ]
+    print(f"{name:15s} channels' neff: " + ", ".join(f"{one:.12f}" for one in indices))
+
+# %%
+# The rotated channels report one and the same ``neff``: the block's mean, which is
+# not a propagation constant of either.
+#
+# Three runs of a millimetre in ten steps on ``numpy_ref`` (``numba_cpu`` and the
+# native backend execute the leaf too): the rotated guide launched into its first
+# channel, and the plain guide launched into each of its two.
+steps = 10
+pulse = {
+    "noise": None,  # a 1 pJ linear launch: the lesson is noiseless
+    "wavelength": 835e-9,
+    "fwhm": 20e-15,
+    "energy": 1e-12,
+    "shape": "gauss",
+    "backend": "numpy_ref",
+    "n_save": 11,
+    "dz_max": length / steps,
+    "dz_init": length / steps,
+}
+
+
+def simulation(guide, channel):
+    """Return a one-millimetre simulation of `guide` launched into `channel`."""
+    return Simulation.from_waveguide(
+        (), length, provider=guide, grid=grid, channel=channel, **pulse
+    )
+
+
+turned = simulation(rotated, 0)
+problem = turned.translate()
+turned_out = turned.run()
+plain_out = [simulation(plain, channel).run() for channel in (0, 1)]
+flow = turned_out.metadata.modal["flow"]
+print(
+    flow["model"],
+    flow["section_methods"],
+    f"largest coupling {flow['largest_coupling']}",
+)
+
+# %%
+# The comparison, plane by plane, inside the declared 815--860 nm window: outside it
+# the grid carries the absorbing collar, which two guides with different index tables
+# carry differently, and the same comparison reads 1e-3 there.
+low, high = (2.0 * np.pi * C / one for one in (860e-9, 815e-9))
+window = (grid.omega >= low) & (grid.omega <= high)
+matrix = basis.transform
+block = problem.linear.coupled_flow.generator[0, 0]
+z = np.array([plane.z for plane in turned_out.planes()])
+
+
+def both_bases(index):
+    """Return plane `index` of the rotated run and of the plain runs carried by U^H."""
+    here = turned_out.planes()[index].field[:, 0, :]
+    exits = [one.planes()[index].field[:, 0, :] for one in plain_out]
+    carried = matrix.conj().T @ (matrix[0, 0] * exits[0] + matrix[1, 0] * exits[1])
+    return here, carried
+
+
+def other_share(state):
+    """Return the share of each window bin's power in the second rotated channel."""
+    power = np.abs(state[:, window]) ** 2
+    return power[1] / power.sum(axis=0)
+
+
+pairs = [both_bases(index) for index in range(z.size)]
+shares = np.array([other_share(here) for here, _ in pairs])
+carried_shares = np.array([other_share(carried) for _, carried in pairs])
+
+here, carried = pairs[-1]
+modulus = max(
+    float(
+        np.max(np.abs(np.abs(here[row, window]) / np.abs(carried[row, window]) - 1.0))
+    )
+    for row in (0, 1)
+)
+phase = float(
+    np.max(
+        np.abs(
+            np.angle(
+                (here[1, window] / here[0, window])
+                / (carried[1, window] / carried[0, window])
+            )
+        )
+    )
+)
+print(f"two bases at the exit: modulus {modulus:.2e}, relative phase {phase:.2e} rad")
+coupling = np.abs(block[0, 1, window])
+print(
+    "share in the other rotated channel at 1 mm: "
+    + ", ".join(f"{one:.4e}" for one in shares[-1])
+    + "; sin^2(|G_01| L): "
+    + ", ".join(f"{one:.4e}" for one in np.sin(coupling * length) ** 2)
+)
+
+fig, ax = plt.subplots(figsize=(6.4, 3.6), constrained_layout=True)
+fine = np.linspace(0.0, length, 101)
+for column in range(shares.shape[1]):
+    wavelength = 2.0 * np.pi * C / grid.omega[window][column] * 1e9
+    ax.plot(
+        fine * 1e3,
+        np.sin(coupling[column] * fine) ** 2,
+        "--",
+        color=f"C{column}",
+        linewidth=0.8,
+        label=rf"$\sin^2(|G_{{01}}|z)$ at {wavelength:.0f} nm",
+    )
+    ax.plot(
+        z * 1e3,
+        shares[:, column],
+        "o",
+        color=f"C{column}",
+        label=f"rotated basis, {wavelength:.0f} nm",
+    )
+    ax.plot(z * 1e3, carried_shares[:, column], "x", color="k", markersize=5)
+ax.plot([], [], "x", color="k", label="provider's basis, carried through U^H")
+ax.set(
+    xlabel="z (mm)",
+    ylabel="Share in the other rotated channel",
+    title="A split pair in a rotated basis beats; both bases say so",
+)
+ax.legend(fontsize="small", frameon=False)
+plt.show()
+
+# %%
+# Related reading
+# ---------------
+# Continue with :doc:`/guide/waveguides/modal-bases` for the model, options and limits,
+# and :doc:`/guide/numerics/accuracy` for convergence checks.
+# For a paced propagation lesson, return to
+# :doc:`/introduction/lessons/plot_02_soliton`.

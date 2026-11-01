@@ -83,7 +83,7 @@ def base():
         125e-6,
         0.002,
         mixture,
-        lambda0=800e-9,
+        wavelength=800e-9,
         wavelength_limits=(200e-9, 1.5e-6),
         trange=200e-15,
         fwhm=7.5e-15,
@@ -330,8 +330,8 @@ keeping incomplete numerical arrays masked.
 One controller owns the collected HDF5 file. Each successful payload is validated,
 staged and flushed before the point is marked `done`. Reruns validate matching
 configuration hashes and skip completed points. A completed point whose rebuilt run has
-another hash is refused, naming the fields that changed. Since output schema 8 that
-hash includes the point's material manifest: a point resolves its materials, under
+another hash is refused, naming the fields that changed. That hash includes the
+point's material manifest: a point resolves its materials, under
 its `materials=` selection or the default one, from its own objects, so its optmat identities,
 policies and the optmat version are frozen for that run and do not depend on what
 another point resolved, and a rerun with another model, policy or optmat version is

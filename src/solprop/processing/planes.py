@@ -6,7 +6,7 @@
 
 :func:`field_plane` turns a stored plane into a
 :class:`solprop.coupling.plane.FieldPlane`: its native coefficients exactly as stored,
-the reference rebuilt from the run's schema-24 plane-reference record, the medium's
+the reference rebuilt from the run's plane-reference record, the medium's
 metric at the plane's own position, the path certificate and the provenance.
 It is the extraction half of plane exchange; the manual page is
 ``docs/guide/workflows/coupling.md``.
@@ -263,7 +263,7 @@ def _spatial_metric(
     """
     spatial = cast("Mapping[str, object]", metadata.spatial)
     if "flux_plan" not in spatial:
-        msg = "this spatial output carries no plane measure (output schema 23)"
+        msg = "this spatial output carries no plane measure (flux_plan, SEP 34)"
         raise ProcessingError(msg)
     plan = flux_from_record(cast("Mapping[str, object]", spatial["flux_plan"]))
     admittance = axial_admittance(plan.at(z), grid.omega, slice(None))
@@ -429,7 +429,7 @@ def field_plane(
     """Read one saved plane of a run as a :class:`~solprop.coupling.plane.FieldPlane`.
 
     The samples are the stored optics-convention spectrum, unchanged. The reference
-    is rebuilt from the run's plane-reference record (output schema 24) at the
+    is rebuilt from the run's plane-reference record (SEP 31) at the
     plane's stored position; the metric is the run's own at that position -- the
     axial admittance of a spatial plane (SEP 34), the identity for ordinary
     true-power coefficients, a general basis's Gram; the path certificate is the
@@ -441,7 +441,7 @@ def field_plane(
     Parameters
     ----------
     output : solprop.output.schema.Output
-        An opened memory or HDF5 output of output schema 24.
+        An opened memory or HDF5 output whose record carries its plane reference.
     plane : int, optional
         Index of the saved plane, negative from the end; default the last.
     z : float or None, optional
@@ -463,7 +463,7 @@ def field_plane(
     Raises
     ------
     ProcessingError
-        If the output predates schema 24 or holds no record, both `plane` and `z`
+        If the output holds no record or no plane reference, both `plane` and `z`
         are given, the selection names no stored plane, the run is planar or used
         the modified noise model, or `source` is not the run that wrote it.
 
@@ -472,9 +472,9 @@ def field_plane(
     >>> from solprop.driver import Simulation
     >>> from solprop.processing import field_plane
     >>> simulation = Simulation.from_gnlse(
-    ...     0.11, 0.01, [0.0, 0.0, -1.183e-26], lambda0=835e-9,
+    ...     0.11, 0.01, [0.0, 0.0, -1.183e-26], wavelength=835e-9,
     ...     wavelength_limits=(500e-9, 2e-6), trange=1.2e-12,
-    ...     width=100e-15, peak_power=9.8, pulseshape="sech", n_save=3,
+    ...     width=100e-15, peak_power=9.8, shape="sech", n_save=3,
     ... )
     >>> plane = field_plane(simulation.run())
     >>> plane.kind, plane.geometry.z, plane.units
@@ -484,11 +484,10 @@ def field_plane(
     if metadata is None:
         msg = "field_plane needs an opened output holding its run record"
         raise ProcessingError(msg)
-    if metadata.schema_version < 24 or metadata.reference is None:
+    if metadata.reference is None:
         msg = (
-            f"this output was written at schema {metadata.schema_version} and carries "
-            "no plane-reference record (output schema 24, SEP 31): its planes "
-            "cannot be exchanged"
+            "this output's record carries no plane-reference record (SEP 31): its "
+            "planes cannot be exchanged"
         )
         raise ProcessingError(msg)
     if metadata.noise is not None and metadata.noise.model == "modified":

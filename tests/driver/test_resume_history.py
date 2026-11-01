@@ -419,7 +419,7 @@ def test_a_snapshot_taken_elsewhere_is_not_returned(tmp_path):
         (lambda group: group.attrs.__delitem__("method"), "method"),
         (lambda group: group.__delitem__("slots"), "slots"),
         (lambda group: group.attrs.__setitem__("identities", "not json"), "Expecting"),
-        # A snapshot written before output schema 28 has no collar flag (SEP 39).
+        # A snapshot without its collar flag (SEP 39) cannot set the next step.
         (lambda group: group.attrs.__delitem__("collar_was_quiet"), "collar_was_quiet"),
     ],
 )

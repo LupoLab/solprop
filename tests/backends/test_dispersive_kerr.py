@@ -78,7 +78,7 @@ def capillary(
     """Return a short single-mode argon capillary under an electronic policy."""
     # The keywords of one entry point, of as many types as it takes.
     arguments: dict[str, Any] = {
-        "lambda0": 800e-9,
+        "wavelength": 800e-9,
         "wavelength_limits": (150e-9, 4e-6),
         "trange": 150e-15,
         "fwhm": 10e-15,

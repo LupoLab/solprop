@@ -2,10 +2,12 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Run records stay what they were when output schema 21 was set (SEP 22 section 7).
+"""Run records stay what they were when they were pinned (SEP 22 section 7).
 
 Every field of a recorded dataclass is recorded, at its default too, so a change that
-moves one of these records is deliberate and bumps the output schema. Each is pinned as
+moves one of these records is deliberate and bumps the output schema. The records were
+first pinned before five later changes, which the projection in :func:`split` takes
+back out, so that the pins still hold everything else. Each is pinned as
 SEP 25 pins a record: its structure -- keys, strings, integers, flags and where every
 number sits -- by an exact SHA-256 (identity metadata, class P), and its numbers, stored
 beside this test, to ``RECORD_RTOL`` (``tests/record_numbers.py``). What an optmat
@@ -15,6 +17,7 @@ release writes into a record is neutralised first, as for the printed run record
 
 import dataclasses
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
@@ -40,17 +43,17 @@ from test_display import without_optmat_release
 STORED = Path(__file__).with_suffix("")
 
 SKELETONS = {
-    "modal": "f81a10cfb4969e578ed09ac42255ab3003295475850c16f4204309a02e0d2db1",
-    "radial": "fa2e78353328afe69b47f800782cecb3d660baef42b1fd630b7a4c7feac17236",
-    "cartesian": "decacacf83d15b89d6b1497fe8fa889f160b1caba5a4b1def2ae2701536d6532",
+    "modal": "77a845cabf424c75bce9080a2ce2464e2d399b8709502303d842733d411ee36a",
+    "radial": "747f15eb378a23d77da9807c04141fdd8a0b803e1dadf2f38f540ce78e2d171b",
+    "cartesian": "c568de28b432c181884e8dffa90961a1381452e755d33ff7af3e709f419afd46",
     "cartesian_absorber": (
-        "6a3b572aac3b8cb755e272dd89dafaa0e87dc6c4d80656059d434d5ab59f9430"
+        "ff33b91195c081c33e5e3bcfd6d0541790da91f62e69c582d6e3482ab6ec57c3"
     ),
     "custom_absorber": (
-        "6a3b572aac3b8cb755e272dd89dafaa0e87dc6c4d80656059d434d5ab59f9430"
+        "ff33b91195c081c33e5e3bcfd6d0541790da91f62e69c582d6e3482ab6ec57c3"
     ),
 }
-"""The structure of each record at output schema 21."""
+"""The structure of each record, as :func:`split` projects it."""
 
 
 def spatial(kind: str) -> Simulation:
@@ -106,13 +109,13 @@ def build(kind: str) -> Simulation:
             0.11,
             0.01,
             [0.0, 0.0, -1.183e-26],
-            lambda0=835e-9,
+            wavelength=835e-9,
             grid=EnvelopeGrid.from_limits(
                 0.01, 835e-9, (500e-9, 2e-6), 1e-12, **LEGACY_GRID
             ),
             width=100e-15,
             peak_power=9.8,
-            pulseshape="sech",
+            shape="sech",
             n_save=3,
             backend="numpy_ref",
             absorber=False,
@@ -126,46 +129,40 @@ def build(kind: str) -> Simulation:
 
 def split(kind: str):
     metadata = build(kind).metadata()
-    assert metadata.schema_version == SCHEMA_VERSION == 28
-    # SEP 27 changes the global resume boundary, not these non-plasma records.
-    # SEP 34 adds the plane measure to the spatial record (output schema 23); the
-    # schema-21 projection leaves it out, and everything else must be unchanged.
-    spatial = (
-        None
-        if metadata.spatial is None
-        else {
+    assert metadata.schema_version == SCHEMA_VERSION == 2
+    # The projection works on the hashed record, since a record without the later
+    # additions is not one a run can hold.
+    hashed: dict[str, Any] = metadata.hashed()
+    # Output schema 2 adds a field only to `DataPulse`, which none of these runs holds;
+    # the projection takes the number back, and everything else must be unchanged.
+    hashed["schema_version"] = 1
+    # SEP 34 adds the plane measure to the spatial record; the projection leaves it
+    # out, and everything else must be unchanged.
+    if hashed["spatial"] is not None:
+        hashed["spatial"] = {
             key: value
-            for key, value in metadata.spatial.items()
+            for key, value in hashed["spatial"].items()
             if key not in ("flux_model", "flux_plan")
         }
-    )
-    # SEP 33 records every run's precision in its configuration (output schema 25);
-    # the schema-21 projection leaves it out too.
-    configuration = {
+    # SEP 33 records every run's precision in its configuration; the projection
+    # leaves it out too.
+    hashed["configuration"] = {
         key: value
-        for key, value in metadata.configuration.items()
+        for key, value in hashed["configuration"].items()
         if key != "precision"
     }
     # SEP 35 names the carrier frame in every Multistep's representation, at its
     # default too (no output layout change); the projection leaves the default out.
-    assert metadata.stepper is not None
-    assert metadata.stepper.method is not None
-    stepper = dataclasses.replace(
-        metadata.stepper,
-        method=metadata.stepper.method.replace(", carrier_frame='off'", ""),
-    )
-    historical = dataclasses.replace(
-        metadata,
-        schema_version=21,
-        spatial=spatial,
-        configuration=configuration,
-        stepper=stepper,
-    )
-    # SEP 21 records the absorber's spatial flag (output schema 27), and the runs that
-    # declared none record the bare boundaries that stand for it; the schema-21
-    # projection takes both back.
+    method = hashed["stepper"]["method"]
+    assert isinstance(method, str)
+    hashed["stepper"] = {
+        **hashed["stepper"],
+        "method": method.replace(", carrier_frame='off'", ""),
+    }
+    # SEP 21 records the absorber's spatial flag, and the runs that declared none
+    # record the bare boundaries that stand for it; the projection takes both back.
     hashed = without_sep21_absorber(
-        historical.hashed(),
+        hashed,
         bare=kind in ("modal", "radial", "cartesian"),
         spatial=kind != "modal",
     )
@@ -173,7 +170,7 @@ def split(kind: str):
 
 
 @pytest.mark.parametrize("kind", sorted(SKELETONS))
-def test_a_record_of_schema_21_is_what_it_was(kind):
+def test_a_pinned_record_is_what_it_was(kind):
     skeleton, numbers, floors = split(kind)
     assert skeleton_hash(skeleton) == SKELETONS[kind], kind
     assert_record_numbers(numbers, floors, STORED / f"{kind}.npz")

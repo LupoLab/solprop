@@ -33,7 +33,7 @@ run = prop_capillary(
     4.2,
     "He",
     fill,
-    lambda0=800e-9,
+    wavelength=800e-9,
     fwhm=6e-15,
     energy=1e-3,
     trange=60e-15,
@@ -592,7 +592,7 @@ a rounding difference changes an adaptive step, as one occasionally does. solpro
 not promise identical bits ([SEP 25](../../dev/seps/archive/sep-0025-rounding-level-reproducibility.md)). That is what makes a run
 with a minutes-long source cheap to continue ([ADR-046](../../dev/decisions.md)). The
 native backend keeps its history resident and copies it to the host only for the
-snapshot. Without a snapshot -- `resume_history=False`, a file written before, or one
+snapshot. Without a snapshot -- `resume_history=False`, an unreadable one, or one
 the resuming backend cannot continue (a frozen-residual coupled flow's history crosses
 only between `numpy_ref` and `numba_cpu`) -- the history restarts at order one and the
 startup call is charged again, and the resumed run agrees with the uninterrupted one to

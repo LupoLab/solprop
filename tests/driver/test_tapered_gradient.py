@@ -56,7 +56,7 @@ def _build(radius, pressure, vacuum_end, **overrides):
             LENGTH,
             "Ar",
             pressure,
-            lambda0=800e-9,
+            wavelength=800e-9,
             fwhm=30e-15,
             energy=10e-6,
             wavelength_limits=(300e-9, 2e-6),

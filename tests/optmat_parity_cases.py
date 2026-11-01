@@ -151,7 +151,7 @@ def _capillary(
     grid = kind.from_limits(length, WAVELENGTH, (300e-9, 3e-6), window)
     options: dict[str, Any] = {
         "pressure": 1.0,
-        "lambda0": WAVELENGTH,
+        "wavelength": WAVELENGTH,
         "grid": grid,
         "absorber": absorber(grid, boundary_length=1.0),
         "fwhm": 30e-15,
@@ -285,12 +285,12 @@ def _build(name: str, changes: dict[str, Any]) -> Case:  # noqa: PLR0911 - one b
             0.11,
             1e-3,
             [0.0, 0.0, -1.183e-26],
-            lambda0=835e-9,
+            wavelength=835e-9,
             wavelength_limits=(500e-9, 2e-6),
             trange=1e-12,
             width=50e-15,
             peak_power=1e3,
-            pulseshape="sech",
+            shape="sech",
             shock=False,
             schedule=FixedSchedule(np.full(STEPS, 1e-3 / STEPS)),
             n_save=3,

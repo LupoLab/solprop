@@ -89,7 +89,7 @@ Any status ──► Superseded (by a later SEP)
 | Draft | Written and under discussion; may change freely | `seps/` | yes, under drafts |
 | Accepted | Agreed by the maintainers; waiting to be picked up | `seps/` | yes |
 | In progress | Being implemented; at least one phase has started | `seps/` | yes |
-| Final | Implemented on every backend, tested and documented | `seps/archive/` | no |
+| Final | Implemented on the Tier 1 backends, tested and documented | `seps/archive/` | no |
 | Deferred | Not pursued for now; may return to Draft | `seps/` | no |
 | Rejected | Decided against; the reasons are recorded in the SEP | `seps/archive/` | no |
 | Withdrawn | Abandoned by its author | `seps/archive/` | no |
@@ -225,8 +225,9 @@ another on the branch.
 A SEP becomes `Final` when:
 
 - every phase is merged and reported;
-- the functionality runs on every backend (`numpy_ref`, `numba_cpu` and the native CPU
-  build), with parity tests — or the accepted SEP records a justified exception, which
+- the functionality runs on the Tier 1 backends (`numpy_ref` and the native CPU build;
+  [ADR-061](../decisions.md)), with parity tests, and on `numba_cpu` or `mlx` too where
+  the accepted SEP says so — or the accepted SEP records a justified exception, which
   then has a roadmap item;
 - the manual documents it, and each manual page it produced ends with a link to the SEP;
 - the open questions left are moved to the roadmap or to issues, and named in the last
@@ -274,15 +275,16 @@ and compares options; it is not a line-by-line plan, which belongs to the implem
 ### Implementation rules
 
 - **Backends in order.** A feature is implemented first on `numpy_ref`, the oracle, with
-  its tests and its manual page; then on `numba_cpu`; then on the native CPU build in
-  `native/`. Device (GPU) qualification follows the standing policy of
-  [backends.md](../backends.md), later and in one pass.
+  its tests and its manual page; then on the native CPU build in `native/`. Device (GPU)
+  qualification follows the standing policy of [backends.md](../backends.md), later and
+  in one pass. `numba_cpu` (Tier 2) and `mlx` (Tier 3) take the feature only where the
+  SEP says so ([ADR-061](../decisions.md)); the SEP weighs who would run it there.
 - **Parity, eventually.** Until a backend implements the feature it refuses the problem by
   name, with an error saying which backend does support it; it never falls back silently.
-  A SEP is Final only when all backends agree within tolerances derived from summation
-  bounds, as for every other feature ([testing.md](../testing.md)).
+  A SEP is Final only when the backends that run the feature agree within tolerances
+  derived from summation bounds, as for every other feature ([testing.md](../testing.md)).
 - **The seam.** A change to the kernel problem, the stage bundles or the protected driver
-  surface bumps `SCHEMA_VERSION`, as `AGENTS.md` requires; the SEP says in which phase.
+  surface bumps `KERNEL_SCHEMA_VERSION`, as `AGENTS.md` requires; the SEP says in which phase.
 - **Tests.** Unit, invariant, convergence and parity tests as [testing.md](../testing.md)
   sets out, against the analytic and independent references the SEP names; every
   tolerance justified in a comment.

@@ -82,7 +82,7 @@ The run
         1.0,
         "Ne",
         1.5,
-        lambda0=800e-9,
+        wavelength=800e-9,
         pulses=[pump, seed],
         trange=800e-15,
         wavelength_limits=(200e-9, 3e-6),
@@ -201,7 +201,7 @@ Runtime and reproducibility
 
  .. code-block:: none
 
-    9 s; backend native
+    3 s; backend native
 
 
 
@@ -209,7 +209,7 @@ Runtime and reproducibility
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 9.457 seconds)
+   **Total running time of the script:** (0 minutes 2.918 seconds)
 
 
 .. _sphx_glr_download_auto_examples_processes_plot_04_cross_phase_modulation.py:

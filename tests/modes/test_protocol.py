@@ -116,7 +116,7 @@ def test_a_channel_label_refuses_what_it_cannot_name(fields, message):
 
 
 def test_a_channel_label_comes_back_from_the_mapping_it_went_out_as():
-    # The round trip a provider identity and output schema 7 need: the mapping has
+    # The round trip a provider identity and the run record need: the mapping has
     # been through JSON, so every value arrives as an ordinary Python object.
     for label in (
         ChannelLabel("HE", 1, 2, "odd", "left", "HE1,2:odd"),

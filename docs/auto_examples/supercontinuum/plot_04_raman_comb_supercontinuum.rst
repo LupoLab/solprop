@@ -58,7 +58,7 @@ nitrogen-filled hollow-core anti-resonant fiber
 <https://arxiv.org/abs/2011.01656>`_; its gas and pump conditions differ
 from this hydrogen calculation.
 
-.. GENERATED FROM PYTHON SOURCE LINES 48-53
+.. GENERATED FROM PYTHON SOURCE LINES 48-60
 
 Set up and run the model
 ------------------------
@@ -66,7 +66,14 @@ Set up and run the model
 ``mode_average=True`` selects mode averaging. ``modes=1`` on its own, the default,
 would select a resolved single mode, which is a different nonlinear approximation.
 
-.. GENERATED FROM PYTHON SOURCE LINES 53-89
+The temporal collar takes about 1.5e-5 of the launch energy over the 40 cm, above
+what the boundary monitor allows by default (the square of its 1e-3 budget). A wider
+grid keeps little of this light: a 6 or 8 ps window lowers it only to 5.7e-6, and a
+band from 110 nm to 8 um leaves it unchanged. The run accepts it explicitly:
+``BoundaryCheck(budget=5e-3)`` lets the collar take up to 2.5e-5 of the energy before
+the monitor warns.
+
+.. GENERATED FROM PYTHON SOURCE LINES 60-98
 
 .. code-block:: Python
 
@@ -78,6 +85,7 @@ would select a resolved single mode, which is a different nonlinear approximatio
 
     from solprop.driver import prop_capillary
     from solprop.exceptions import MaterialRangeWarning
+    from solprop.monitor import BoundaryCheck
     from solprop.plotting import prop_2d, spec_1d
 
     started = time.perf_counter()
@@ -88,7 +96,7 @@ would select a resolved single mode, which is a different nonlinear approximatio
             0.4,
             "H2",
             40.0,
-            lambda0=515e-9,
+            wavelength=515e-9,
             fwhm=400e-15,
             energy=10e-6,
             loss=False,
@@ -100,6 +108,7 @@ would select a resolved single mode, which is a different nonlinear approximatio
             seed=0,
             n_save=201,
             mode_average=True,
+            boundary_check=BoundaryCheck(budget=5e-3),
             progress="none",
         )
     assert run.metadata.simulation_kind == "mode_averaged"
@@ -119,12 +128,12 @@ would select a resolved single mode, which is a different nonlinear approximatio
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 90-92
+.. GENERATED FROM PYTHON SOURCE LINES 99-101
 
 Spectral and temporal evolution
 -------------------------------
 
-.. GENERATED FROM PYTHON SOURCE LINES 92-106
+.. GENERATED FROM PYTHON SOURCE LINES 101-115
 
 .. code-block:: Python
 
@@ -154,14 +163,14 @@ Spectral and temporal evolution
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 107-111
+.. GENERATED FROM PYTHON SOURCE LINES 116-120
 
 The comb and the continuum
 --------------------------
 The four positions lie within the 0.4 m calculation. Compare peak locations as
 well as their broadening: a logarithmic plot can make weak features prominent.
 
-.. GENERATED FROM PYTHON SOURCE LINES 111-120
+.. GENERATED FROM PYTHON SOURCE LINES 120-129
 
 .. code-block:: Python
 
@@ -192,7 +201,7 @@ well as their broadening: a logarithmic plot can make weak features prominent.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 121-132
+.. GENERATED FROM PYTHON SOURCE LINES 130-141
 
 The early slices retain conspicuous discrete peaks. By 0.4 m, broadened
 components overlap across much of the visible and near infrared, with weaker
@@ -206,7 +215,7 @@ A quantitative noise study needs repeated independent seeds, as in the MI
 ensemble. For sampling and material checks see :doc:`/guide/setup/grids` and
 :doc:`/guide/media/materials`.
 
-.. GENERATED FROM PYTHON SOURCE LINES 132-134
+.. GENERATED FROM PYTHON SOURCE LINES 141-143
 
 .. code-block:: Python
 
@@ -220,7 +229,7 @@ ensemble. For sampling and material checks see :doc:`/guide/setup/grids` and
 
  .. code-block:: none
 
-    133 s; backend native
+    54 s; backend native
 
 
 
@@ -228,7 +237,7 @@ ensemble. For sampling and material checks see :doc:`/guide/setup/grids` and
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (2 minutes 13.327 seconds)
+   **Total running time of the script:** (0 minutes 53.890 seconds)
 
 
 .. _sphx_glr_download_auto_examples_supercontinuum_plot_04_raman_comb_supercontinuum.py:

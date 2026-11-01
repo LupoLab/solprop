@@ -10,6 +10,7 @@ import time
 import warnings
 from dataclasses import replace
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
@@ -25,7 +26,7 @@ from solprop import _display, tools
 from solprop.coupling import AdmissionItem, CouplingReport
 from solprop.driver import Simulation, SimulationSettings
 from solprop.driver.scan import Scan
-from solprop.exceptions import MaterialRangeWarning, ModeError, OutputError
+from solprop.exceptions import MaterialRangeWarning, ModeError
 from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid, RadialGrid
 from solprop.modes import (
     CoherentWall,
@@ -54,7 +55,7 @@ from solprop.nonlinear.raman import SilicaTensorResponse
 from solprop.optics import Chain, ChirpedMirror, Material, TaylorPhase
 from solprop.output.hdf5 import open_file, resume
 from solprop.output.schema import StepHistory
-from solprop.physdata import MaterialManifest, Mixture, calcium_fluoride, species
+from solprop.physdata import Mixture, calcium_fluoride, species
 from solprop.physdata.mixtures import Component
 from solprop.processing import compression
 from solprop.processing._examples import example_grid, example_output
@@ -74,6 +75,7 @@ from solprop.pulses import (
     SechPulse,
     ShapedPulse,
     SpatialPulse,
+    TimeDataPulse,
 )
 from solprop.spatial import SpatialMedium
 from solprop.stepper import PIController, RungeKutta
@@ -116,7 +118,7 @@ def simulation():
         0.1,
         "He",
         1.0,
-        lambda0=800e-9,
+        wavelength=800e-9,
         # The grid the record's literals below were taken on.
         grid=FieldGrid.from_limits(0.1, 800e-9, (200e-9, 2e-6), 300e-15, **LEGACY_GRID),
         fwhm=10e-15,
@@ -361,6 +363,11 @@ def build_examples(folder):
     data = DataPulse(
         omega=np.linspace(2e15, 3e15, 512), spectrum=np.ones(512, complex), energy=1e-6
     )
+    time_data = TimeDataPulse(
+        t=np.linspace(-100e-15, 100e-15, 512),
+        field=np.cos(2.35e15 * np.linspace(-100e-15, 100e-15, 512)),
+        energy=1e-6,
+    )
     lattice = TubeLattice(180e-9, 9e-6, 6)
     table = index_table()
     mirror = ChirpedMirror.lookup("PC70").bounces(4)
@@ -374,6 +381,7 @@ def build_examples(folder):
         "SechPulse": SechPulse(wavelength=1030e-9, width=20e-15, peak_power=1e6),
         "CustomPulse": CustomPulse(wavelength=800e-9, energy=1e-6, shape_fn=flat_top),
         "DataPulse": data,
+        "TimeDataPulse": time_data,
         "CWPulse": CWPulse(wavelength=1064e-9, average_power=10.0, bandwidth=1e-9),
         "SpatialPulse": SpatialPulse(gaussian, 100e-6),
         "MarcatiliMode": MarcatiliMode(125e-6, "He", 1.2),
@@ -462,6 +470,7 @@ NAMES = sorted(
         "SechPulse",
         "CustomPulse",
         "DataPulse",
+        "TimeDataPulse",
         "CWPulse",
         "SpatialPulse",
         "MarcatiliMode",
@@ -638,68 +647,57 @@ def without_optmat_release(value: object, *, materials: bool = False) -> object:
     return value
 
 
+RUN_RECORD_SKELETON = "5593ac1b5b5119b54c39de2d2f60da0a5b6f04610f61fce8eedd0a9d9c6a6fc4"
+"""The structure of the example run's record, as the projection below takes it."""
+
+
 def test_the_run_record_is_what_it_was_before_the_printing(examples):
     # The run record, without what an optmat release writes into it, is what it was
-    # when the printing was added. Output schema 6 adds the power convention and the
-    # factored power weight to what is hashed, schema 7 the channel labels and the
-    # general modal identity, schema 8 the material manifest, schema 9 the stepping
-    # method, schema 10 the interval cap and the start-up rule, schema 11 interpolated
-    # and step planes. Every built-in material is optmat's since SEP 3, so the manifest
-    # is never empty here, and a record carrying one has no older schema: below 8 the
-    # manifest would be outside the resume key.
+    # when the printing was added, less what was added to the record since, which
+    # the projection here takes back out: the launch position, the TDSE descriptor,
+    # the transverse quadrature, the norm's region in the controller, the
+    # interaction formulation's name in an Adams method's representation, the
+    # held-current identity, whose record and hash
+    # separation have their own held-source contract test, the precision, which its
+    # own resume test separates (SEP 33), and the absorber's spatial flag (SEP 21).
+    # Every built-in material is optmat's since SEP 3, so the manifest is never
+    # empty here.
     #
     # Since the pin to optmat 0.8.0 the optmat version, the citations and the
     # manifest's model digests are neutralised (without_optmat_release), so that only a
     # change to solprop's record, or to a number in it, fails here. The record was a
-    # single SHA-256 literal per schema until SEP 25; that hash also covered the last
-    # bits of its derived numbers, which a platform's libm moves. Its structure is
-    # still hashed exactly (identity metadata); its numbers are stored beside this test
-    # and compared to RECORD_RTOL. Both were recorded from the state the former
-    # literals certified; the literals were re-recorded at output schema 21, which
-    # records every dataclass field at its default too.
+    # single SHA-256 literal until SEP 25; that hash also covered the last bits of its
+    # derived numbers, which a platform's libm moves. Its structure is still hashed
+    # exactly (identity metadata); its numbers are stored beside this test and
+    # compared to RECORD_RTOL.
     metadata = quiet(examples["Simulation"].metadata)
     assert not metadata.materials.empty
-    for schema in (5, 7):
-        with pytest.raises(OutputError, match="requires output schema 8"):
-            replace(
-                metadata, schema_version=schema, quadrature=None
-            ).configuration_hash()
-    literals = {
-        11: "a8fc917e8b825754e8aa38a01d0d9249c34e6c8093501e9c06b96a404d2b0db8",
-        10: "2266cc52fc3f5ae76c5e77303ed61af034563da132ae63e0bfe7447b764f1e2d",
-        9: "3604e39fa502e6cd8299d00f0b31906338da5f924434b6bdddefcd30a508afba",
-        8: "f33ef97965fd144e5274756173e9a02ac81f1f23183c6270ec1f1f62bbaf789e",
+    hashed: dict[str, Any] = metadata.hashed()
+    # Output schema 2 adds a field only to `DataPulse`, which this run does not hold.
+    hashed["schema_version"] = 1
+    for later in ("initial_z", "tdse", "quadrature"):
+        del hashed[later]
+    hashed["configuration"] = {
+        key: value
+        for key, value in hashed["configuration"].items()
+        if key not in ("plasma_source", "precision")
     }
-    numbers, floors = {}, {}
-    for schema, literal in literals.items():
-        # Keep the historical projection: schema 22 adds the held-current identity,
-        # whose record and hash separation have their own held-source contract test,
-        # and schema 26 the precision, which its own resume test separates (SEP 33).
-        configuration = {
-            key: value
-            for key, value in metadata.configuration.items()
-            if key not in ("plasma_source", "precision")
-        }
-        record = replace(
-            metadata,
-            schema_version=schema,
-            quadrature=None,
-            configuration=configuration,
+    stepper = dict(hashed["stepper"])
+    stepper["controller"] = {
+        key: value for key, value in stepper["controller"].items() if key != "region"
+    }
+    if isinstance(stepper["method"], str):
+        stepper["method"] = stepper["method"].replace(
+            ", formulation='interaction'", "", 1
         )
-        # SEP 21 records the absorber's spatial flag (output schema 27).
-        skeleton, values, floor = record_skeleton(
-            without_optmat_release(without_sep21_absorber(record.hashed()))
-        )
-        assert skeleton_hash(skeleton) == literal, schema
-        numbers[schema] = np.asarray(values, dtype=float)
-        floors[schema] = np.asarray(floor, dtype=float)
-    # The older schemas hash a subset of the same record, so their numbers are the
-    # same values, copied: exact.
-    for schema in (8, 9, 10):
-        assert np.array_equal(numbers[schema], numbers[11]), schema
+    hashed["stepper"] = stepper
+    skeleton, values, floor = record_skeleton(
+        without_optmat_release(without_sep21_absorber(hashed))
+    )
+    assert skeleton_hash(skeleton) == RUN_RECORD_SKELETON
     assert_record_numbers(
-        numbers[11],
-        floors[11],
+        values,
+        floor,
         Path(__file__).with_suffix("")
         / "test_the_run_record_is_what_it_was_before_the_printing.npz",
     )
@@ -707,14 +705,9 @@ def test_the_run_record_is_what_it_was_before_the_printing(examples):
 
 def test_the_run_record_names_its_power_convention(examples):
     # The amplitude label is part of what a file means, so the block prints it beside
-    # the spectral convention; a schema-5 record (which carries no material manifest)
-    # reads back as the vacuum label.
+    # the spectral convention and the output schema.
     metadata = quiet(examples["Simulation"].metadata)
-    assert "optics spectra, poynting amplitudes, schema 28" in str(metadata)
-    older = replace(
-        metadata, schema_version=5, quadrature=None, materials=MaterialManifest()
-    )
-    assert "vacuum amplitudes, schema 5" in str(older)
+    assert "optics spectra, poynting amplitudes, schema 2" in str(metadata)
 
 
 def test_a_mode_built_over_a_mixture_names_its_fill():

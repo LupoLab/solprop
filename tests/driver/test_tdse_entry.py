@@ -60,7 +60,7 @@ def _sae():
 
 def _capillary(**changes):
     values = {
-        "lambda0": 800e-9,
+        "wavelength": 800e-9,
         "wavelength_limits": (400e-9, 1.6e-6),
         "trange": 60e-15,
         "fwhm": 6e-15,
@@ -235,7 +235,7 @@ def test_without_tdse_a_representative_call_is_unchanged():
             0.05,
             "He",
             (0.005, 0.15),
-            lambda0=800e-9,
+            wavelength=800e-9,
             wavelength_limits=(9e-8, 1.6e-6),
             trange=60e-15,
             fwhm=10e-15,
@@ -285,7 +285,7 @@ def test_prop_capillary_forwards_the_tdse_keywords(monkeypatch):
             _LENGTH,
             "He",
             0.1,
-            lambda0=800e-9,
+            wavelength=800e-9,
             wavelength_limits=(400e-9, 1.6e-6),
             trange=60e-15,
             fwhm=6e-15,

@@ -5,7 +5,6 @@
 """Preserve terminal states and accounting independently of regular observations."""
 
 import dataclasses
-import json
 
 import h5py
 import numpy as np
@@ -24,7 +23,6 @@ from solprop.output import (
     open_file,
     resume,
 )
-from solprop.output.hdf5 import check_cache
 from solprop.output.schema import (
     StepStats,
     _example_metadata,
@@ -151,25 +149,6 @@ def test_checkpoint_can_exist_before_first_regular_save(metadata, tmp_path):
     assert state.checkpoint is not None
 
 
-def test_old_non_tdse_metadata_keeps_its_hash_and_readability(metadata, tmp_path):
-    older = dataclasses.replace(metadata, schema_version=9)
-    text = json.loads(older.to_json())
-    assert "initial_z" not in text and "tdse" not in text
-    restored = RunMetadata.from_json(json.dumps(text))
-    assert restored.configuration_hash() == older.configuration_hash()
-    assert restored.initial_z == 0 and restored.tdse is None
-    path = tmp_path / "legacy.h5"
-    with HDF5Output(path) as handler:
-        handler.open(older)
-        handler.save(plane(metadata, 0.0))
-        with pytest.raises(OutputError, match="schema 10"):
-            handler.record_outcome(RunOutcome("running", 0.0))
-    with open_file(path) as stored:
-        assert stored.outcome is None and stored.terminal_checkpoint is None
-        assert stored.metadata is not None
-        assert stored.metadata.configuration_hash() == older.configuration_hash()
-
-
 def test_scientific_launch_and_tdse_identity_control_resume(metadata):
     changed = dataclasses.replace(metadata, initial_z=0.1)
     assert changed.configuration_hash() != metadata.configuration_hash()
@@ -273,12 +252,6 @@ def test_outcome_revalidates_unknown_status_without_test_only_literal_check():
     object.__setattr__(outcome, "status", "unclassified")
     with pytest.raises(OutputError, match="unknown run outcome"):
         outcome.__post_init__()
-
-
-@pytest.mark.parametrize("changes", [{"initial_z": 0.1}, {"tdse": {"model": "helium"}}])
-def test_legacy_metadata_refuses_new_scientific_identity_fields(metadata, changes):
-    with pytest.raises(OutputError, match="schema 10"):
-        dataclasses.replace(metadata, schema_version=9, **changes)
 
 
 def test_checkpoint_must_match_regular_field_layout(metadata):
@@ -409,29 +382,3 @@ def test_storage_hook_can_clear_checkpoint_without_rewriting_outcome(
     with open_file(path) as stored:
         assert stored.terminal_checkpoint is None
         assert stored.outcome == outcome
-
-
-@pytest.mark.parametrize("interpolate_planes", [False, True])
-def test_schema_eleven_reads_but_refuses_combined_layout_resume(
-    metadata, tmp_path, interpolate_planes
-):
-    historical = dataclasses.replace(
-        metadata,
-        schema_version=11,
-        stepper=dataclasses.replace(
-            metadata.stepper,
-            limits=dataclasses.replace(
-                metadata.stepper.limits, interpolate_planes=interpolate_planes
-            ),
-        ),
-    )
-    path = tmp_path / "schema-eleven.h5"
-    with HDF5Output(path) as output:
-        output.open(historical)
-        output.save(plane(historical, 0.0))
-    state = resume(path)
-    assert state.metadata.configuration_hash() == historical.configuration_hash()
-    assert state.metadata.stepper.limits.interpolate_planes is interpolate_planes
-    assert check_cache(path, historical)
-    with pytest.raises(OutputError, match=r"different run.*schema_version"):
-        check_cache(path, metadata)

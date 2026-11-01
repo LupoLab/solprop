@@ -70,7 +70,7 @@ def _simulation(basis=None, *, limit=1000, **changes):
         consistency=changes.pop("consistency", TDSEConsistency()),
     )
     values = {
-        "lambda0": 800e-9,
+        "wavelength": 800e-9,
         "wavelength_limits": (400e-9, 1.6e-6),
         "trange": 40e-15,
         "fwhm": 6e-15,
@@ -112,7 +112,7 @@ def test_hacc_run_records_model_window_consistency_and_ledger(fake, cache, windo
     simulation = _simulation(atomic_window=window)
     output = _run(simulation)
     assert output.metadata is not None
-    assert output.metadata.schema_version == SCHEMA_VERSION == 28
+    assert output.metadata.schema_version == SCHEMA_VERSION == 2
     descriptor = json.loads(plain(output.metadata.tdse)["configuration_json"])
     assert descriptor["schema"] == "solprop.tdse-descriptor.v5"
     assert descriptor["response"]["model"] == "hacc"

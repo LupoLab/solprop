@@ -114,8 +114,8 @@ def ledger_of(march):
 
 
 def test_the_record_names_the_formulation():
-    # repr(Multistep()) is hashed into every Adams run's record (output schema 9); since
-    # schema 15 it names the formulation, the default exponential one included.
+    # repr(Multistep()) is hashed into every Adams run's record, and it names the
+    # formulation, the default exponential one included.
     assert repr(Multistep()) == (
         "Multistep(order=5, variable_order=True, max_calls=None, interval_cap=False, "
         "equal_approach=True, max_growth=2.0, min_factor=0.2, safety=0.8, "
@@ -539,7 +539,7 @@ def test_a_schedule_past_the_methods_collar_limit_is_refused(method):
             0.01,
             "He",
             1.0,
-            lambda0=800e-9,
+            wavelength=800e-9,
             fwhm=10e-15,
             energy=1e-9,
             trange=100e-15,

@@ -193,7 +193,7 @@ def capillary(
     it.
     """
     arguments = {
-        "lambda0": 800e-9,
+        "wavelength": 800e-9,
         "grid": GRID,
         "absorber": WEAK_COLLAR,
         "fwhm": 30e-15,
@@ -230,7 +230,7 @@ def run_capillary(
     of which `Simulation.translate` reaches.
     """
     arguments = {
-        "lambda0": 800e-9,
+        "wavelength": 800e-9,
         "grid": GRID,
         "absorber": WEAK_COLLAR,
         "fwhm": 30e-15,
@@ -484,10 +484,10 @@ def test_the_route_keeps_the_carrier_mode_independent_and_the_weight_per_channel
         assert_allclose(weights[index, 0, band], expected, rtol=1e-14)
 
 
-def test_the_route_records_its_flow_on_the_schema_seven_identity():
+def test_the_route_records_its_flow_on_the_modal_identity():
     """`modal.flow` carries the method, the ratios and the certificate, as scalars.
 
-    A new key entry, not a new output schema: the capability stays `modal`, because a
+    A key entry of the modal identity: the capability stays `modal`, because a
     coupled flow through a basis does not change the basis, and nothing already
     written reads differently.
     """
@@ -499,7 +499,7 @@ def test_the_route_records_its_flow_on_the_schema_seven_identity():
     assert record["residual_norm_bound"] == 0.0
     assert record["radius"] == RADIUS
     assert 0.0 < float(cast("float", record["quasi_static"])) < 0.25
-    assert metadata.schema_version == 28
+    assert metadata.schema_version == 2
     assert capability_of(metadata) == "modal"
     assert "mean impedance coherent wall" in str(metadata)
     # Nothing that is not a scalar reaches the resume key.
@@ -659,7 +659,7 @@ def test_a_tube_lattice_is_refused_rather_than_given_the_bare_capillary_wall():
             LENGTH,
             "Ar",
             10.0,
-            lambda0=800e-9,
+            wavelength=800e-9,
             grid=GRID,
             absorber=WEAK_COLLAR,
             fwhm=30e-15,
@@ -843,7 +843,7 @@ def test_a_wall_declared_on_another_route_is_refused_by_name():
         GENERAL_Z_END,
         provider=general_guide(grid=grid),
         grid=grid,
-        lambda0=835e-9,
+        wavelength=835e-9,
         fwhm=20e-15,
         energy=1e-12,
         backend="numpy_ref",
@@ -1342,7 +1342,7 @@ def test_the_flow_record_survives_a_file_and_a_resume_checks_it(tmp_path):
             "He",
             1.0,
             wall=CoherentWall(),
-            lambda0=800e-9,
+            wavelength=800e-9,
             grid=GRID,
             absorber=WEAK_COLLAR,
             fwhm=30e-15,
@@ -1384,7 +1384,7 @@ def legacy_capillary_keywords(backend):
     rounding to move: a run is the recorded run's discrete march.
     """
     return {
-        "lambda0": 800e-9,
+        "wavelength": 800e-9,
         "grid": GRID,
         "absorber": WEAK_COLLAR,
         "fwhm": 30e-15,
@@ -1411,12 +1411,12 @@ def legacy_gnlse_keywords(backend):
         LEGACY_LENGTH, 835e-9, (500e-9, 2e-6), 1e-12, **LEGACY_GRID
     )
     return {
-        "lambda0": 835e-9,
+        "wavelength": 835e-9,
         "grid": grid,
         "absorber": bare_absorber(grid),
         "width": 100e-15,
         "peak_power": 9.8,
-        "pulseshape": "sech",
+        "shape": "sech",
         "n_save": 2,
         "backend": backend,
         "dz_max": LEGACY_LENGTH / STEPS,
@@ -1554,7 +1554,7 @@ def varying(
 ):
     """Return the varying-guide qualification case, with or without a wall."""
     arguments = {
-        "lambda0": 800e-9,
+        "wavelength": 800e-9,
         "grid": GRID,
         "absorber": WEAK_COLLAR,
         "fwhm": 30e-15,
@@ -2246,7 +2246,7 @@ def test_prop_capillary_runs_a_varying_wall_end_to_end_and_records_its_flow():
             "He",
             1.0,
             wall=CoherentWall(),
-            lambda0=800e-9,
+            wavelength=800e-9,
             grid=GRID,
             absorber=WEAK_COLLAR,
             fwhm=30e-15,
@@ -2279,7 +2279,7 @@ def test_prop_capillary_runs_a_varying_wall_end_to_end_and_records_its_flow():
             LENGTH,
             "He",
             1.0,
-            lambda0=800e-9,
+            wavelength=800e-9,
             grid=GRID,
             absorber=WEAK_COLLAR,
             fwhm=30e-15,
@@ -2457,7 +2457,7 @@ def test_the_varying_wall_route_is_pinned_to_its_recorded_answer(ndarrays_regres
             "He",
             1.0,
             wall=CoherentWall(),
-            lambda0=800e-9,
+            wavelength=800e-9,
             grid=GRID,
             absorber=WEAK_COLLAR,
             fwhm=30e-15,
@@ -2982,7 +2982,7 @@ def _vector_taper_run(**overrides) -> MemoryOutput:
     """Run the vector wall on the qualification taper through `prop_capillary`."""
     arguments = {
         "wall": VECTOR_WALL,
-        "lambda0": 800e-9,
+        "wavelength": 800e-9,
         "grid": GRID,
         "absorber": WEAK_COLLAR,
         "fwhm": 30e-15,
@@ -3055,7 +3055,7 @@ def test_prop_capillary_runs_a_vector_wall_on_a_taper_end_to_end_and_is_pinned(
                 "He",
                 1.0,
                 wall=CoherentWall(),
-                lambda0=800e-9,
+                wavelength=800e-9,
                 grid=GRID,
                 absorber=WEAK_COLLAR,
                 fwhm=30e-15,
@@ -3792,7 +3792,7 @@ def test_prop_capillary_runs_a_cf4_wall_end_to_end_and_records_its_guards():
     1.72e-7 at the declared step, named as the asymptotic estimator it is.
     """
     arguments = {
-        "lambda0": 800e-9,
+        "wavelength": 800e-9,
         "grid": GRID,
         "absorber": WEAK_COLLAR,
         "fwhm": 30e-15,
@@ -3934,7 +3934,7 @@ def _taper_note_bore(count: int) -> Simulation:
         length,
         "He",
         0.0,
-        lambda0=wavelength,
+        wavelength=wavelength,
         grid=grid,
         absorber=absorber(grid, boundary_length=1e9),
         fwhm=30e-15,

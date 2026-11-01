@@ -217,7 +217,7 @@ def example_output(
 
 
 def example_general_output(n_z: int = 3) -> MemoryOutput:
-    """Return a synthetic **general modal** run, for the schema-7 accessors.
+    """Return a synthetic **general modal** run, for the general modal accessors.
 
     The same closed-form dispersion as :func:`example_output`, with the record of a
     general modal guide bolted on: one labelled channel, a table, metric and guide
@@ -372,7 +372,7 @@ def example_general_run() -> tuple[MemoryOutput, ModalTransformTables, ModalGuid
         length,
         provider=guide,
         grid=grid,
-        lambda0=wavelength,
+        wavelength=wavelength,
         fwhm=30e-15,
         energy=1e-12,
         dz_max=length / 2,

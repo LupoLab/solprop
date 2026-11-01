@@ -50,6 +50,13 @@ from this hydrogen calculation.
 # ``prop_capillary`` assembles the material and pulse choices, and
 # ``mode_average=True`` selects mode averaging. ``modes=1`` on its own, the default,
 # would select a resolved single mode, which is a different nonlinear approximation.
+#
+# The temporal collar takes about 1.5e-5 of the launch energy over the 40 cm, above
+# what the boundary monitor allows by default (the square of its 1e-3 budget). A wider
+# grid keeps little of this light: a 6 or 8 ps window lowers it only to 5.7e-6, and a
+# band from 110 nm to 8 um leaves it unchanged. The run accepts it explicitly:
+# ``BoundaryCheck(budget=5e-3)`` lets the collar take up to 2.5e-5 of the energy before
+# the monitor warns.
 
 import time
 import warnings
@@ -58,6 +65,7 @@ import matplotlib.pyplot as plt
 
 from solprop.driver import prop_capillary
 from solprop.exceptions import MaterialRangeWarning
+from solprop.monitor import BoundaryCheck
 from solprop.plotting import prop_2d, spec_1d
 
 started = time.perf_counter()
@@ -68,7 +76,7 @@ with warnings.catch_warnings():
         0.4,
         "H2",
         40.0,
-        lambda0=515e-9,
+        wavelength=515e-9,
         fwhm=400e-15,
         energy=10e-6,
         loss=False,
@@ -80,6 +88,7 @@ with warnings.catch_warnings():
         seed=0,
         n_save=201,
         mode_average=True,
+        boundary_check=BoundaryCheck(budget=5e-3),
         progress="none",
     )
 assert run.metadata.simulation_kind == "mode_averaged"

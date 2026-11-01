@@ -88,7 +88,7 @@ The run
         3.0,
         "He",
         2.0,
-        lambda0=800e-9,
+        wavelength=800e-9,
         fwhm=10e-15,
         energy=88e-6,
         trange=400e-15,
@@ -204,7 +204,7 @@ Runtime and reproducibility
 
  .. code-block:: none
 
-    20 s; backend native
+    3 s; backend native
 
 
 
@@ -212,7 +212,7 @@ Runtime and reproducibility
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 20.282 seconds)
+   **Total running time of the script:** (0 minutes 3.327 seconds)
 
 
 .. _sphx_glr_download_auto_examples_processes_plot_02_soliton_self_compression.py:

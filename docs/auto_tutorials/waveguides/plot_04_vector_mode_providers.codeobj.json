@@ -1,0 +1,991 @@
+{
+ "C": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "float"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.constants",
+   "module_short": "solprop.constants",
+   "name": "C"
+  }
+ ],
+ "GradedIndexProvider": [
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.modes.graded_index",
+   "module_short": "solprop.modes",
+   "name": "GradedIndexProvider"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.modes",
+   "module_short": "solprop.modes",
+   "name": "GradedIndexProvider"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "GradedIndexProvider"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop._display",
+   "module_short": "solprop._display",
+   "name": "Displayed"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "Displayed"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.modes",
+   "module_short": "solprop.modes",
+   "name": "GradedIndexProvider"
+  }
+ ],
+ "IndexMaterial": [
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.modes.material",
+   "module_short": "solprop.modes",
+   "name": "IndexMaterial"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.modes",
+   "module_short": "solprop.modes",
+   "name": "IndexMaterial"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "IndexMaterial"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.modes",
+   "module_short": "solprop.modes",
+   "name": "IndexMaterial"
+  }
+ ],
+ "ModalGuide.from_step_index": [
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.modes.guide",
+   "module_short": "solprop.modes",
+   "name": "ModalGuide.from_step_index"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.modes",
+   "module_short": "solprop.modes",
+   "name": "ModalGuide.from_step_index"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "ModalGuide.from_step_index"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop._display",
+   "module_short": "solprop._display",
+   "name": "Displayed.from_step_index"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "Displayed.from_step_index"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.modes.ModalGuide",
+   "module_short": "solprop.modes.ModalGuide",
+   "name": "from_step_index"
+  }
+ ],
+ "PowerLawPermittivity": [
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.modes.graded_index",
+   "module_short": "solprop.modes",
+   "name": "PowerLawPermittivity"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.modes",
+   "module_short": "solprop.modes",
+   "name": "PowerLawPermittivity"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "PowerLawPermittivity"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.modes",
+   "module_short": "solprop.modes",
+   "name": "PowerLawPermittivity"
+  }
+ ],
+ "StepIndexMode": [
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.modes.stepindex",
+   "module_short": "solprop.modes",
+   "name": "StepIndexMode"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.modes",
+   "module_short": "solprop.modes",
+   "name": "StepIndexMode"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "StepIndexMode"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop._display",
+   "module_short": "solprop._display",
+   "name": "Displayed"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "Displayed"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.modes",
+   "module_short": "solprop.modes",
+   "name": "StepIndexMode"
+  }
+ ],
+ "ax": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.axes._axes",
+   "module_short": "matplotlib.axes",
+   "name": "Axes"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.axes",
+   "module_short": "matplotlib.axes",
+   "name": "Axes"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib",
+   "module_short": "matplotlib",
+   "name": "Axes"
+  }
+ ],
+ "ax.axvline": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.axes._axes",
+   "module_short": "matplotlib.axes",
+   "name": "Axes.axvline"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.axes",
+   "module_short": "matplotlib.axes",
+   "name": "Axes.axvline"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib",
+   "module_short": "matplotlib",
+   "name": "Axes.axvline"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.axes._base",
+   "module_short": "matplotlib.axes._base",
+   "name": "_AxesBase.axvline"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.axes",
+   "module_short": "matplotlib.axes",
+   "name": "_AxesBase.axvline"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib",
+   "module_short": "matplotlib",
+   "name": "_AxesBase.axvline"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.artist",
+   "module_short": "matplotlib.artist",
+   "name": "Artist.axvline"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib",
+   "module_short": "matplotlib",
+   "name": "Artist.axvline"
+  }
+ ],
+ "ax.plot": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.axes._axes",
+   "module_short": "matplotlib.axes",
+   "name": "Axes.plot"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.axes",
+   "module_short": "matplotlib.axes",
+   "name": "Axes.plot"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib",
+   "module_short": "matplotlib",
+   "name": "Axes.plot"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.axes._base",
+   "module_short": "matplotlib.axes._base",
+   "name": "_AxesBase.plot"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.axes",
+   "module_short": "matplotlib.axes",
+   "name": "_AxesBase.plot"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib",
+   "module_short": "matplotlib",
+   "name": "_AxesBase.plot"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.artist",
+   "module_short": "matplotlib.artist",
+   "name": "Artist.plot"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib",
+   "module_short": "matplotlib",
+   "name": "Artist.plot"
+  }
+ ],
+ "ax.set": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.axes._axes",
+   "module_short": "matplotlib.axes",
+   "name": "Axes.set"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.axes",
+   "module_short": "matplotlib.axes",
+   "name": "Axes.set"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib",
+   "module_short": "matplotlib",
+   "name": "Axes.set"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.axes._base",
+   "module_short": "matplotlib.axes._base",
+   "name": "_AxesBase.set"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.axes",
+   "module_short": "matplotlib.axes",
+   "name": "_AxesBase.set"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib",
+   "module_short": "matplotlib",
+   "name": "_AxesBase.set"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.artist",
+   "module_short": "matplotlib.artist",
+   "name": "Artist.set"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib",
+   "module_short": "matplotlib",
+   "name": "Artist.set"
+  }
+ ],
+ "axes": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ndarray"
+  }
+ ],
+ "electric": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ndarray"
+  }
+ ],
+ "electric.max": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "builtin_function_or_method"
+  }
+ ],
+ "fig": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.figure",
+   "module_short": "matplotlib.figure",
+   "name": "Figure"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib",
+   "module_short": "matplotlib",
+   "name": "Figure"
+  }
+ ],
+ "grin": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.modes.graded_index",
+   "module_short": "solprop.modes",
+   "name": "GradedIndexProvider"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.modes",
+   "module_short": "solprop.modes",
+   "name": "GradedIndexProvider"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "GradedIndexProvider"
+  }
+ ],
+ "grin.node_rule": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.modes.graded_index",
+   "module_short": "solprop.modes",
+   "name": "GradedIndexProvider.node_rule"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.modes",
+   "module_short": "solprop.modes",
+   "name": "GradedIndexProvider.node_rule"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "GradedIndexProvider.node_rule"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop._display",
+   "module_short": "solprop._display",
+   "name": "Displayed.node_rule"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "Displayed.node_rule"
+  }
+ ],
+ "grin.solve": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.modes.graded_index",
+   "module_short": "solprop.modes",
+   "name": "GradedIndexProvider.solve"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.modes",
+   "module_short": "solprop.modes",
+   "name": "GradedIndexProvider.solve"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "GradedIndexProvider.solve"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop._display",
+   "module_short": "solprop._display",
+   "name": "Displayed.solve"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "Displayed.solve"
+  }
+ ],
+ "grin_fields": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.modes.vector",
+   "module_short": "solprop.modes",
+   "name": "ModalSample"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.modes",
+   "module_short": "solprop.modes",
+   "name": "ModalSample"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "ModalSample"
+  }
+ ],
+ "grin_nodes": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.modes.vector",
+   "module_short": "solprop.modes",
+   "name": "ModalNodeRule"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.modes",
+   "module_short": "solprop.modes",
+   "name": "ModalNodeRule"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "ModalNodeRule"
+  }
+ ],
+ "longitudinal": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ndarray"
+  }
+ ],
+ "longitudinal.reshape": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "builtin_function_or_method"
+  }
+ ],
+ "mode": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.modes.stepindex",
+   "module_short": "solprop.modes",
+   "name": "StepIndexMode"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.modes",
+   "module_short": "solprop.modes",
+   "name": "StepIndexMode"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "StepIndexMode"
+  }
+ ],
+ "n_theta": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "int"
+  }
+ ],
+ "nodes": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.modes.vector",
+   "module_short": "solprop.modes",
+   "name": "ModalNodeRule"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.modes",
+   "module_short": "solprop.modes",
+   "name": "ModalNodeRule"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "ModalNodeRule"
+  }
+ ],
+ "nodes.identity": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "dict"
+  }
+ ],
+ "nodes.xy": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ndarray"
+  }
+ ],
+ "np.hypot": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ufunc"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "hypot"
+  }
+ ],
+ "np.pi": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "float"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "pi"
+  }
+ ],
+ "np.sqrt": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ufunc"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "sqrt"
+  }
+ ],
+ "np.sum": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "_ArrayFunctionDispatcher"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "sum"
+  }
+ ],
+ "omega": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "float"
+  }
+ ],
+ "plt.show": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "function"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.pyplot",
+   "module_short": "matplotlib.pyplot",
+   "name": "show"
+  }
+ ],
+ "plt.subplots": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "function"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.pyplot",
+   "module_short": "matplotlib.pyplot",
+   "name": "subplots"
+  }
+ ],
+ "radial": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ndarray"
+  }
+ ],
+ "radius": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "float"
+  }
+ ],
+ "sample": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.modes.vector",
+   "module_short": "solprop.modes",
+   "name": "ModalSample"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.modes",
+   "module_short": "solprop.modes",
+   "name": "ModalSample"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "ModalSample"
+  }
+ ],
+ "sample.electric": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ndarray"
+  }
+ ],
+ "step": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.modes.guide",
+   "module_short": "solprop.modes",
+   "name": "StepIndexProvider"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.modes",
+   "module_short": "solprop.modes",
+   "name": "StepIndexProvider"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "StepIndexProvider"
+  }
+ ],
+ "step.node_rule": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.modes.guide",
+   "module_short": "solprop.modes",
+   "name": "StepIndexProvider.node_rule"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.modes",
+   "module_short": "solprop.modes",
+   "name": "StepIndexProvider.node_rule"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "StepIndexProvider.node_rule"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop._display",
+   "module_short": "solprop._display",
+   "name": "Displayed.node_rule"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "Displayed.node_rule"
+  }
+ ],
+ "step.solve": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.modes.guide",
+   "module_short": "solprop.modes",
+   "name": "StepIndexProvider.solve"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.modes",
+   "module_short": "solprop.modes",
+   "name": "StepIndexProvider.solve"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "StepIndexProvider.solve"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop._display",
+   "module_short": "solprop._display",
+   "name": "Displayed.solve"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "Displayed.solve"
+  }
+ ],
+ "step_fields": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.modes.vector",
+   "module_short": "solprop.modes",
+   "name": "ModalSample"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.modes",
+   "module_short": "solprop.modes",
+   "name": "ModalSample"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "ModalSample"
+  }
+ ],
+ "step_nodes": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.modes.vector",
+   "module_short": "solprop.modes",
+   "name": "ModalNodeRule"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.modes",
+   "module_short": "solprop.modes",
+   "name": "ModalNodeRule"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "ModalNodeRule"
+  }
+ ],
+ "title": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "str"
+  }
+ ]
+}

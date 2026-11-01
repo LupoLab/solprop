@@ -371,7 +371,7 @@ keep the launched energy to about 1e-6 in every run.
             length,
             provider=guide,
             grid=grid,
-            lambda0=WAVELENGTH,
+            wavelength=WAVELENGTH,
             fwhm=100e-15,
             energy=1e-12,
             dz_max=min(DZ_MAX, length / 10.0),
@@ -393,7 +393,7 @@ keep the launched energy to about 1e-6 in every run.
         lengths[-1],
         provider=linear_runs[lengths[-1]][0],
         grid=grid,
-        lambda0=WAVELENGTH,
+        wavelength=WAVELENGTH,
         fwhm=100e-15,
         energy=1e-12,
         dz_max=DZ_MAX,
@@ -649,7 +649,7 @@ the Gaussian-beam estimate (printed), which matters below.
     LENGTH = 15e-3
     CORNER = 5e-3
     WINDOW = (0.93e-6, 1.15e-6)
-    PULSE = {"lambda0": WAVELENGTH, "fwhm": 200e-15, "peak_power": 4e5}
+    PULSE = {"wavelength": WAVELENGTH, "fwhm": 200e-15, "peak_power": 4e5}
     path = PiecewiseLinear(
         np.array([0.0, CORNER, LENGTH]), np.array([ENTRANCE, WAIST, WAIST])
     )
@@ -926,7 +926,7 @@ Twelve guides, eight linear runs on the moving guide and four nonlinear runs.
 
  .. code-block:: none
 
-    232 s; backend native, 18 threads
+    247 s; backend native, 18 threads
 
 
 
@@ -943,7 +943,7 @@ For a paced introduction to propagation, start with the
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (3 minutes 52.235 seconds)
+   **Total running time of the script:** (4 minutes 6.956 seconds)
 
 
 .. _sphx_glr_download_auto_examples_waveguides_plot_05_moving_solid_guide.py:

@@ -985,7 +985,7 @@ def check_consistency(
     execution : TDSEExecution
         Device, memory limit and explicit call budget of the check.
     reference_wavelength : float
-        Carrier wavelength of the protocol pulse in m (the run's lambda0).
+        Carrier wavelength of the protocol pulse in m (the run's wavelength).
     refresh : bool, optional
         Recompute and overwrite an existing cache entry.
     tdse_archive : solprop.output.TDSEArchive or None, optional

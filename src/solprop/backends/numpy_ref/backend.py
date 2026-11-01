@@ -108,8 +108,8 @@ from solprop.translate.linop import power_weight_at
 from solprop.translate.modal import DEFAULT_NODE_BUDGET
 from solprop.translate.plasma_source import _BENCHMARK_GATED
 from solprop.translate.problem import (
+    KERNEL_SCHEMA_VERSION,
     MAX_N_POL,
-    SCHEMA_VERSION,
     KernelProblem,
 )
 from solprop.translate.spatial import separable_values
@@ -1206,6 +1206,7 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         noise: NoiseRealisation | None,
         *,
         z: float = 0.0,
+        resume: bool = False,
     ) -> None:
         """Load a state; an Adams march restarts its history from it.
 
@@ -1220,8 +1221,11 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
             the history afresh unless
             :meth:`~solprop.backends.driver.StepDriver.restore_march` then continues
             it.
+        resume : bool, optional
+            Whether `field` came back from a saved plane, and so never takes the
+            ``input`` draw.
         """
-        super().set_initial(field, noise, z=z)
+        super().set_initial(field, noise, z=z, resume=resume)
         # The entrance plane's quadrature_error is read before any march: the alarm
         # of a previous run on this backend is not its (SEP 22 section 4.7).
         self._alarm = math.nan
@@ -2862,10 +2866,11 @@ def _refuse_unsupported(problem: KernelProblem) -> None:
     BackendError
         Naming what is unsupported.
     """
-    if problem.schema_version != SCHEMA_VERSION:
+    if problem.schema_version != KERNEL_SCHEMA_VERSION:
         msg = (
-            f"this backend implements kernel contract version {SCHEMA_VERSION} and "
-            f"the problem declares version {problem.schema_version}"
+            "this backend implements kernel contract version "
+            f"{KERNEL_SCHEMA_VERSION} and the problem declares version "
+            f"{problem.schema_version}"
         )
         raise BackendError(msg)
     refuse_general_leaves(problem, "numpy_ref", admits=_GENERAL_LEAVES)
