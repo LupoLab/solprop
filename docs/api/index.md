@@ -27,6 +27,8 @@ In scripts and library code, import from the home modules listed below.
 | {mod}`solprop.boundaries` | absorbing boundaries in time and frequency |
 | {mod}`solprop.stepper` | the Runge–Kutta tableaux, the low-call Adams methods (`multistep`), the step-size controller and fixed step schedules (`FixedSchedule`) |
 | {mod}`solprop.noise` | shot-noise realisations |
+| {mod}`solprop.recipe` | recipes: a run written as TOML (`Recipe`, with `check`, `build`, `run`, `save` and `to_python`), the parameter metadata a front end reads (`parameters`), and the quantity parser and formatter (`solprop.recipe.quantity`) ([recipes and the command line](../guide/setup/recipes.md)) |
+| {mod}`solprop.driver.defaults` | the route defaults in one table (`ROUTE_DEFAULTS`): integrators, tolerances, noise and collar schemes, and the functions that resolve them |
 | {mod}`solprop.driver.scan`, {mod}`solprop.driver.executors` | parameter scans and where their points run ([scans and executors](scans.md)) |
 
 **The physics**
@@ -65,6 +67,7 @@ In scripts and library code, import from the home modules listed below.
 | {mod}`solprop.sol` | the interactive namespace |
 | {mod}`solprop.log`, {mod}`solprop.driver.summary` | logging and progress reporting (`configure_logging`), and the summary a run shows before its first step |
 | {mod}`solprop.exceptions` | every error and warning solprop raises, under `SolpropError` and `SolpropWarning` |
+| {mod}`solprop.cli` | the `solprop` command: run, check and export a recipe, and launch a scan |
 | {mod}`solprop.scan` | the command-line launcher of a scan script |
 
 **Internals.** {mod}`solprop.translate` turns the physics objects into the kernel problem

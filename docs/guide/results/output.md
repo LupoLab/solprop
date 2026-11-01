@@ -271,6 +271,18 @@ handler["step_stats/energy"]      # (n_rows, n_modes, n_pol); empty without a ch
 handler.fields(convention="fft")  # the internal arrays, exactly as they went in
 ```
 
+### The writer-lock sidecar
+
+Each HDF5 output keeps a file beside it, `run.h5.writer.lock` for `run.h5`, and so does a
+TDSE archive and a snapshot store. A writer holds an advisory lock on it while it owns
+the file: optical writes, the annotations written to a closed file, archive writes and
+snapshot publication all take it, and a second writer fails at once instead of
+interleaving with the first. The sidecar **persists by design**, after the run too:
+removing a lock file after releasing its lock races with a second writer that has just
+opened it, so it is never removed. Its existence alone does not mean a writer is running;
+the lock does. Do not delete these files to get past a refusal, and leave them out of
+what you copy or show: a front end hides them.
+
 ## Step history
 
 Every attempt the stepper made is recorded: its position, its length, its scaled error
@@ -474,11 +486,9 @@ without a published manifest, including a hidden `.snapshot-*` directory, is
 incomplete. Never resume in a published directory: use
 {py:func}`~solprop.output.snapshots.restore_snapshot` to create writable working files.
 
-Optical writes, closed-file annotations, archive writes and snapshot-store ownership
-all use persistent `.writer.lock` sidecars. Competing writers fail immediately.
-The locks remain held while HDF5 handles are closed; sidecar existence by itself does
-not mean a writer is running. Do not remove these files to bypass ownership. Use a
-filesystem that supports advisory locking and atomic directory rename.
+The writers keep their [writer-lock sidecars](#the-writer-lock-sidecar) held across the
+pause, while the HDF5 handles are closed. Use a filesystem that supports advisory locking
+and atomic directory rename.
 
 ### Bounded external transport
 
