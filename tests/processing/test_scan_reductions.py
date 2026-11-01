@@ -5,6 +5,7 @@
 """Check reduction contracts and the spatial statistics adapters."""
 
 import dataclasses
+import json
 from typing import cast
 
 import h5py
@@ -13,7 +14,7 @@ import pytest
 
 from solprop.driver import Simulation
 from solprop.driver.scan import Scan, run_scan
-from solprop.exceptions import ProcessingError
+from solprop.exceptions import OutputError, ProcessingError
 from solprop.grid import FieldGrid
 from solprop.output.memory import MemoryOutput
 from solprop.output.scan import PointResult, ScanWriter
@@ -135,6 +136,48 @@ def test_scan_reader_requires_supported_schema_and_known_axes(tmp_path):
     ScanWriter(other, Scan("valid", x=[1]), {}).close()
     with pytest.raises(ProcessingError, match="unknown scan variable"):
         scans.ScanOutput(other).where(missing=1)
+
+
+def build_gnlse_point(point):
+    return Simulation.from_gnlse(
+        0.11,
+        0.002,
+        [0.0, 0.0, -1.183e-26],
+        wavelength=835e-9,
+        wavelength_limits=(500e-9, 2e-6),
+        trange=1e-12,
+        width=100e-15,
+        peak_power=1,
+        shape="sech",
+        n_save=2,
+        backend="numpy_ref",
+    )
+
+
+@pytest.mark.medium
+@pytest.mark.filterwarnings("ignore")
+def test_scan_reader_refuses_records_of_another_output_schema_by_name(tmp_path):
+    # The reproduction of #131: the scan container's own version stayed 1 through
+    # the output schema reset, so a scan whose run records declare another output
+    # schema was read as this release's layout.
+    path = tmp_path / "scan.h5"
+    run_scan(
+        Scan("demo", power=[5.0, 6.0], base_seed=1),
+        build_gnlse_point,
+        output=path,
+        reductions=[scans.peak_power()],
+        progress="none",
+    )
+    with h5py.File(path, "r+") as file:
+        for group in ("staged/0", "staged/1"):
+            record = json.loads(str(file[group].attrs["metadata_refs"]))
+            record["schema_version"] = 28
+            file[group].attrs["metadata_refs"] = json.dumps(record)
+    with pytest.raises(
+        OutputError,
+        match=r"scan point 0: this record declares output schema_version 28",
+    ):
+        scans.ScanOutput(path)
 
 
 def build_field_point(point):

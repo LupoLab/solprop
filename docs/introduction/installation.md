@@ -5,10 +5,11 @@ Python 3.15 is not yet supported: solprop-native, pyFFTW and h5py publish no whe
 for it yet, so an installation there falls back to building them from source, which
 usually fails.
 
-On the four platforms with prebuilt wheels, install solprop together with its
-compiled native backend, the fastest way to run it; elsewhere, solprop's included CPU
-backends run every model, and the native backend can be built from source and added
-later without changing the physical model. The installation commands
+Install solprop together with its compiled native backend, the fastest way to run it
+and the one to use by default; the four platforms below have prebuilt wheels. Elsewhere,
+build the native backend from source. solprop's included CPU backends run every model in
+the meantime, more slowly, and adding the native backend later does not change the
+physical model. The installation commands
 bring in the dependencies: NumPy, SciPy, Matplotlib, h5py, Numba, pyFFTW (FFTW
 transforms for the Numba backend), [optmat](https://github.com/LupoLab/optmat) with its
 `gas` extra (the
@@ -71,7 +72,8 @@ maintainers know such processors are in use.
 the compiled Numba CPU backend (see [Choosing a backend](../guide/performance/backends.md)),
 which run every model; consult [backend support](../guide/performance/backends.md) when
 choosing a representation or response, since some combinations require a particular
-backend. The native backend can then be built from source.
+backend. `backend="auto"` then uses `numba_cpu`, the slower fallback, and warns that it
+has done so. Build the native backend from source to run at full speed.
 
 **GPUs and source builds.** For an NVIDIA GPU (CUDA) or an AMD GPU (HIP), and on any
 platform without a wheel, build the native backend from source:
@@ -100,8 +102,8 @@ print("backends:", available(), "- auto means", resolve_name("auto"))
 ```
 
 `available()` lists the backends that are installed and `resolve_name("auto")` names the
-one a run uses by default: `native` when the native backend is installed. The first run
-of the `numba_cpu` backend compiles its
+one a run uses by default, which should be `native`. If it says `numba_cpu`, solprop also
+warns, saying why and how to fix it. The first run of the `numba_cpu` backend compiles its
 kernels. This can make the first calculation slower than subsequent runs; many
 compiled kernels are cached on disk. Measure performance after that initial setup.
 

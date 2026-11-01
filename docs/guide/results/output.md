@@ -313,8 +313,10 @@ that of 0.1.0; schema 2 adds `spectral_phase` to the record of a
 wherever it is opened, read or resumed: files written by an earlier release or by
 development versions of solprop, which declared output schemas up to 28, are not read,
 and nor is a file from a later release. Read such a file with the solprop version that
-wrote it. The schema version is inside the resume key too
-([the resume key](resuming.md#the-resume-key)).
+wrote it. A scan file is refused the same way, by the output schema each point's run
+record declares, whether it is read or resumed; its own `scan_schema_version` versions
+the scan container, not the records in it, and is still 1. The schema version is inside
+the resume key too ([the resume key](resuming.md#the-resume-key)).
 
 Every run records its `precision` (`"double"` or `"single"`,
 [single precision](../performance/single-precision.md)) in its configuration, so a run

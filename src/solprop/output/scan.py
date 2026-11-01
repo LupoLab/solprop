@@ -23,7 +23,7 @@ from solprop.driver._scan_model import Scan
 from solprop.exceptions import OutputError, ProcessingError
 from solprop.output._scan_lock import read_scan, write_scan
 from solprop.output.hdf5 import _dataset, _group
-from solprop.output.schema import RunMetadata, serialise
+from solprop.output.schema import RunMetadata, _refuse_schema, serialise
 
 __all__ = ["PointResult", "ScanWriter", "grid_values", "read_point", "validate_result"]
 
@@ -236,6 +236,9 @@ class ScanWriter:
             self.file = h5py.File(self.path, "a")
             self._session.callback(self.file.close)
             if "scan_schema_version" in self.file.attrs:
+                # The schema first: a scan of another release is refused by the
+                # output schema its records declare, not by its axes.
+                _refuse_other_schemas(self.file)
                 if self.file.attrs.get("identity") != _hash(description):
                     raise OutputError(
                         "scan axes, root seed or retention contract changed"
@@ -769,6 +772,63 @@ def _expand(file: h5py.File, value: object) -> object:
     return value
 
 
+def _refuse_point_schema(file: h5py.File, index: int, document: object) -> None:
+    """Refuse one point's stored run record if it declares another output schema.
+
+    Parameters
+    ----------
+    file : h5py.File
+        Open scan file holding the point's common metadata records.
+    index : int
+        Global point index, named in the refusal.
+    document : object
+        The point's parsed ``metadata_refs``.
+
+    Raises
+    ------
+    OutputError
+        If the record declares an output schema other than
+        :data:`~solprop.output.schema.SCHEMA_VERSION`, in the words a run file is
+        refused with, after the point's index.
+    """
+    declared = document.get("schema_version") if isinstance(document, dict) else None
+    try:
+        _refuse_schema(_expand(file, declared))
+    except OutputError as error:
+        raise OutputError(f"scan point {index}: {error}") from None
+
+
+def _refuse_other_schemas(file: h5py.File) -> None:
+    """Refuse a scan file whose stored run records declare another output schema.
+
+    The scan's own ``scan_schema_version`` versions its container; the output schema
+    is declared by each point's run record, done or failed, and a record of any schema
+    but this release's is refused by name, as a run file is (ADR-058).
+
+    Parameters
+    ----------
+    file : h5py.File
+        Open scan file.
+
+    Raises
+    ------
+    OutputError
+        If any staged point's record declares another output schema.
+    """
+    accepted: set[str] = set()
+    for name, group in _group(file, "staged").items():
+        document = json.loads(str(group.attrs["metadata_refs"]))
+        declared = (
+            document.get("schema_version") if isinstance(document, dict) else None
+        )
+        # Records are content-addressed, so every point of one release shares the
+        # same reference and the common record is read once.
+        key = json.dumps(declared, sort_keys=True)
+        if key not in accepted:
+            _refuse_point_schema(file, int(name), document)
+            accepted.add(key)
+
+
 def read_point(path: Path, index: int) -> Mapping[str, object]:
     """Read committed point data without exposing unfinished arrays.
 
@@ -788,6 +848,9 @@ def read_point(path: Path, index: int) -> Mapping[str, object]:
     ------
     ProcessingError
         If the index is outside the scan.
+    OutputError
+        If the point's run record declares an output schema other than this
+        release's.
     """
     with read_scan(path) as file:
         if not 0 <= index < len(_dataset(file, "points/index")):
@@ -802,9 +865,9 @@ def read_point(path: Path, index: int) -> Mapping[str, object]:
         }
         if state in ("done", "failed") and f"staged/{index}" in file:
             group = _group(file, f"staged/{index}")
-            result["metadata"] = _expand(
-                file, json.loads(str(group.attrs["metadata_refs"]))
-            )
+            document = json.loads(str(group.attrs["metadata_refs"]))
+            _refuse_point_schema(file, index, document)
+            result["metadata"] = _expand(file, document)
             result["reductions"] = json.loads(str(group.attrs["reductions"]))
         if state == "done":
             group = _group(file, f"staged/{index}")

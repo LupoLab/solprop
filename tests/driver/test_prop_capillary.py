@@ -3609,6 +3609,9 @@ def test_the_statistics_channel_costs_under_a_quarter_of_a_step(
                 sys.executable,
                 "-W",
                 "error",
+                # The later option wins; a lane without solprop-native runs on `auto`.
+                "-W",
+                "ignore:solprop-native is not installed",
                 str(Path(__file__).parents[1] / "statistics_cost_probe.py"),
                 str(report),
                 selection,

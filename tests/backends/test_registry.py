@@ -294,8 +294,60 @@ def install_native(
         "find_spec",
         lambda name: spec if name == "solprop_native" else real_find_spec(name),
     )
-    monkeypatch.setattr(registry, "_warned_baseline_fallback", False)
+    monkeypatch.setattr(registry, "_warned_native_fallback", False)
     return package
+
+
+def hide_native(monkeypatch):
+    """Make solprop-native absent, whatever this lane has installed."""
+    real_find_spec = importlib.util.find_spec
+    monkeypatch.setattr(
+        importlib.util,
+        "find_spec",
+        lambda name: None if name == "solprop_native" else real_find_spec(name),
+    )
+    monkeypatch.setattr(registry, "_warned_native_fallback", False)
+
+
+def test_auto_warns_once_when_the_native_backend_is_not_installed(monkeypatch):
+    hide_native(monkeypatch)
+    with pytest.warns(SolpropWarning) as caught:
+        assert resolve_name() == "numba_cpu"
+    assert len(caught) == 1
+    message = str(caught[0].message)
+    assert "solprop-native is not installed" in message
+    assert "slower fallback" in message
+    assert 'pip install "solprop[native]"' in message
+    assert "building-native.html" in message
+    assert 'pass backend="numba_cpu"' in message
+    # It names the caller's file, not solprop's (under the session's type hook the
+    # nearest frame outside the package is jaxtyping's wrapper, not this file).
+    assert not caught[0].filename.startswith(registry._PACKAGE_FILES)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert resolve_name() == "numba_cpu"
+
+
+def test_the_warning_names_the_line_that_built_the_settings(monkeypatch):
+    """The usual route is the settings dataclass; its generated __init__ is skipped."""
+    hide_native(monkeypatch)
+    with pytest.warns(SolpropWarning, match="not installed") as caught:
+        settings = SimulationSettings(
+            controller=PIController(rtol=1e-8, atol=1e-14),
+            save_planes=[1e-3],
+            dz_max=1e-3,
+            dz_init=1e-3,
+        )
+    assert settings.backend == "numba_cpu"
+    assert not caught[0].filename.startswith(registry._PACKAGE_FILES)
+
+
+@pytest.mark.parametrize("name", ["numba_cpu", "numpy_ref", "native"])
+def test_an_explicit_backend_never_warns_of_the_fallback(monkeypatch, name):
+    hide_native(monkeypatch)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert resolve_name(name) == name
 
 
 def test_auto_falls_back_below_the_native_baseline_and_warns_once(
@@ -315,6 +367,7 @@ def test_auto_falls_back_below_the_native_baseline_and_warns_once(
         "building-native.html" in message
     )
     assert "https://github.com/LupoLab/solprop/issues" in message
+    assert 'pass backend="numba_cpu"' in message
     # Once per process; the package itself was never imported.
     with warnings.catch_warnings():
         warnings.simplefilter("error")
@@ -421,7 +474,7 @@ def test_auto_runs_the_native_package_s_own_check(monkeypatch, tmp_path):
     with pytest.warns(SolpropWarning) as caught:
         assert resolve_name() == "numba_cpu"
     assert "lacks abm, avx2, bmi1, bmi2, f16c, fma, movbe" in str(caught[0].message)
-    monkeypatch.setattr(registry, "_warned_baseline_fallback", False)
+    monkeypatch.setattr(registry, "_warned_native_fallback", False)
     sandy_bridge.add(40)
     assert resolve_name() == "native"
 

@@ -14,12 +14,14 @@ extra to install.
 The native backend is a second distribution, ``solprop-native``, built from ``native/``
 in this repository and installed with the ``native`` extra; probing availability does
 not import it. Automatic selection prefers it when installed and otherwise chooses Numba
-CPU.
+CPU, the slower Tier 2 fallback, with a :class:`~solprop.exceptions.SolpropWarning`,
+once per process: a run on the fallback should be a choice, so an explicit
+``backend="numba_cpu"`` does not warn.
 Import, compatibility and construction errors remain visible; they never trigger a
 fallback to different arithmetic, with one exception. A distribution build of
 solprop-native is compiled for a CPU baseline, and on a processor below it automatic
-selection chooses Numba CPU with a :class:`~solprop.exceptions.SolpropWarning`, once per
-process. It finds that out without importing the package: it loads the package's own
+selection chooses Numba CPU with the same warning, saying why.
+It finds that out without importing the package: it loads the package's own
 pure-Python processor check (``solprop_native/_cpu.py``) by path and runs it, so the
 check that refuses the import and the one that chooses the fallback are one code. An
 explicit ``backend="native"`` still raises the package's refusal.
@@ -32,7 +34,7 @@ from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
-from typing import cast
+from typing import Final, cast
 
 from solprop.backends.protocol import Backend, BatchBackend
 from solprop.exceptions import BackendError, SolpropWarning
@@ -255,8 +257,9 @@ def resolve_name(name: str = "auto") -> str:
     Warns
     -----
     SolpropWarning
-        Once per process, when ``"auto"`` passes over an installed native build
-        because this processor lacks features of its CPU baseline.
+        Once per process, when ``"auto"`` chooses ``"numba_cpu"``: solprop-native is
+        not installed, or this processor lacks features of the installed build's CPU
+        baseline. Naming ``"numba_cpu"`` explicitly does not warn.
 
     Examples
     --------
@@ -266,6 +269,7 @@ def resolve_name(name: str = "auto") -> str:
     if name != "auto":
         return name
     if not _satisfied(BACKENDS["native"]):
+        _warn_native_missing()
         return "numba_cpu"
     shortfall = _native_baseline_shortfall()
     if shortfall is None:
@@ -282,7 +286,20 @@ _NATIVE_BUILD_GUIDE = (
 _ISSUES = "https://github.com/LupoLab/solprop/issues"
 """Where users report problems, and processors below the native wheels' baseline."""
 
-_warned_baseline_fallback = False
+_FALLBACK_NOTE = (
+    "To choose numba_cpu deliberately and silence this warning, "
+    'pass backend="numba_cpu"'
+)
+"""How a user who wants the fallback says so; both warnings end with it."""
+
+_PACKAGE_FILES: Final = (str(Path(__file__).resolve().parents[1]), "<string>")
+"""Frames a warning skips, so that it names the caller's line and not solprop's.
+
+``"<string>"`` is the generated ``__init__`` of the settings dataclass, the usual route
+here.
+"""
+
+_warned_native_fallback = False
 
 
 def _native_baseline_shortfall() -> tuple[str, tuple[str, ...]] | None:
@@ -333,6 +350,22 @@ def _baseline_probe(source: Path) -> ModuleType:
     return module
 
 
+def _warn_native_missing() -> None:
+    """Warn, once per process, that automatic selection found no solprop-native."""
+    global _warned_native_fallback  # noqa: PLW0603 - once per process, by design
+    if _warned_native_fallback:
+        return
+    _warned_native_fallback = True
+    logger.info("backend='auto' chooses numba_cpu: solprop-native is not installed")
+    msg = (
+        'solprop-native is not installed, so backend="auto" is using numba_cpu, a '
+        "slower fallback backend. For the fastest runs install the native backend: "
+        'pip install "solprop[native]", or where no wheel exists build it from source '
+        f"({_NATIVE_BUILD_GUIDE}). {_FALLBACK_NOTE}"
+    )
+    warnings.warn(msg, SolpropWarning, skip_file_prefixes=_PACKAGE_FILES)
+
+
 def _warn_baseline_fallback(baseline: str, missing: tuple[str, ...]) -> None:
     """Warn, once per process, that automatic selection passed over solprop-native.
 
@@ -343,10 +376,10 @@ def _warn_baseline_fallback(baseline: str, missing: tuple[str, ...]) -> None:
     missing : tuple of str
         The baseline's features this processor lacks.
     """
-    global _warned_baseline_fallback  # noqa: PLW0603 - once per process, by design
-    if _warned_baseline_fallback:
+    global _warned_native_fallback  # noqa: PLW0603 - once per process, by design
+    if _warned_native_fallback:
         return
-    _warned_baseline_fallback = True
+    _warned_native_fallback = True
     logger.info(
         "backend='auto' chooses numba_cpu: this processor is below solprop-native's "
         "%s baseline",
@@ -354,12 +387,14 @@ def _warn_baseline_fallback(baseline: str, missing: tuple[str, ...]) -> None:
     )
     msg = (
         f"this processor lacks {', '.join(missing)}, required by the installed "
-        f"solprop-native build (CPU baseline {baseline}), so solprop is using the "
-        "numba_cpu backend instead. To use the native backend on this machine, build "
-        f"solprop-native from source for it ({_NATIVE_BUILD_GUIDE}). Please also open "
-        f"an issue at {_ISSUES} so that the maintainers know such processors are in use"
+        f"solprop-native build (CPU baseline {baseline}), so solprop is using "
+        "numba_cpu, a slower fallback backend, instead. To use the native backend on "
+        "this machine, build solprop-native from source for it "
+        f"({_NATIVE_BUILD_GUIDE}). "
+        f"Please also open an issue at {_ISSUES} so that the maintainers know such "
+        f"processors are in use. {_FALLBACK_NOTE}"
     )
-    warnings.warn(msg, SolpropWarning, stacklevel=3)
+    warnings.warn(msg, SolpropWarning, skip_file_prefixes=_PACKAGE_FILES)
 
 
 def available_device_memory(name: str) -> int | None:
@@ -410,7 +445,7 @@ def select(
     ----------
     name : str
         The backend's registry name, for example ``"numpy_ref"``, or ``"auto"``
-        to prefer the installed native backend and otherwise use Numba CPU.
+        to prefer the installed native backend and otherwise warn and use Numba CPU.
     problem : solprop.translate.problem.KernelProblem
         The problem to step. The backend validates it again.
     grid : solprop.grid.TimeGrid, optional
