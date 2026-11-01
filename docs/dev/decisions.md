@@ -12,7 +12,7 @@ itself lives in [architecture.md](architecture.md), [stepper.md](stepper.md),
 
 **Reading the records.** Each record states the decision as it stands, with the
 measurements that justified it. Where a later record changes part of an earlier one, both
-say so. For open work see [roadmap.md](roadmap.md); for what each backend executes and how
+say so. For open work see the [issues](https://github.com/LupoLab/solprop/issues); for what each backend executes and how
 it is qualified, [backends.md](backends.md); for the current seam,
 [kernel-contract.md](kernel-contract.md).
 
@@ -1109,8 +1109,7 @@ Withdrawn (development-process record, not a design decision).
   of the GPU tests (`pytest -m gpu`) against the oracle, not by the strict-helper
   argument. Round-to-nearest intrinsics in the protected helpers on devices (CUDA's
   `__dmul_rn` and `__dadd_rn`, Clang's contraction pragma on HIP), with a device test
-  that a protected block does not fuse, are on the [roadmap](roadmap.md), after the
-  first release.
+  that a protected block does not fuse, are [#358](https://github.com/LupoLab/solprop/issues/358).
 
 ## ADR-050 — A replay-only low-storage march, accepted in place, with no estimate
 
@@ -1162,7 +1161,8 @@ Withdrawn (development-process record, not a design decision).
 - **Status:** accepted; withdraws the source filter of
   [SEP 12](seps/archive/sep-0012-tdse-nonlinear-response.md) and
   [SEP 26](seps/archive/sep-0026-edge-free-tdse-source.md); one exception added on
-  2026-10-28 (`collar_placement="inside"`)
+  2026-10-28 (`collar_placement="inside"`); its rules on resuming and on recorded fields
+  narrowed by ADR-063
 - **Context:** before a first release there are no external output files to keep. An
   option or reader whose only purpose is to reproduce an earlier form of a configuration
   or record is a second code path to test and document, with no scientific use.
@@ -1187,8 +1187,10 @@ Withdrawn (development-process record, not a design decision).
   no scientific use of it was found.
 - **Consequences:** an unwindowed native SAE run's lattice must pass the certificate. A
   change that moves an identity bumps the version it moves and adds no compatibility
-  layer; a resume-compatibility policy is decided before 1.0 (ADR-058;
-  [SEP 42](seps/sep-0042-tolerant-resume.md)).
+  layer. ADR-063 sets the resume-compatibility policy: a file of another output schema
+  is still never resumed, but by that precondition rather than through the resume key,
+  and a field added to a record carries a neutral value rather than refusing every
+  earlier file.
 
 ## ADR-052 — One thread budget per process, which every pool stays within
 
@@ -1495,7 +1497,7 @@ Withdrawn (development-process record, not a design decision).
     pulse stays clear, it saved 6 to 9 % per step on `numba_cpu` and `native`.
   - On runs whose steps exceed the check interval, such as a short capillary under the
     exponential Adams march, the cap removes the gain. A per-step check that would lift
-    the cap is on the roadmap.
+    the cap is [#224](https://github.com/LupoLab/solprop/issues/224).
   - The monitor's record counts `collar_left_out_checks`.
 
 ## ADR-058 — The 0.x releases are unstable; the first output schema is 1
@@ -1519,13 +1521,13 @@ Withdrawn (development-process record, not a design decision).
 - **Why:** breaking costs nothing before anyone depends on the package, and a promise
   made now would freeze seams already known to need work.
 - **Consequences:** a released version cannot read a development output file; keep an
-  older install for those. [SEP 42](seps/sep-0042-tolerant-resume.md) sets the
-  resume-compatibility policy.
+  older install for those. ADR-063 sets the resume-compatibility policy
+  ([SEP 42](seps/archive/sep-0042-tolerant-resume.md)).
 
 ## ADR-059 — Host vector maths on SLEEF for the native CPU kernels on x86-64
 
-- **Status:** proposed with the change that makes it; the maintainers asked for SLEEF to
-  be evaluated and adopted if it paid (2026-10-28)
+- **Status:** accepted 2026-11-01, having shipped in the 0.1.0 wheels; the maintainers
+  asked for SLEEF to be evaluated and adopted if it paid (2026-10-28)
 - **Context:** a profile of the native exponential Adams trial found glibc's scalar
   `exp`, `cos` and `sin` about two thirds of its predict pass on a pressure-gradient
   helium case on an AMD EPYC 7763. A survey of the native CPU backend with Valgrind's
@@ -1589,7 +1591,7 @@ Withdrawn (development-process record, not a design decision).
     the C++ compiler's version.
   - Measured end to end (interleaved fresh processes, the tracking cases): see the
     [benchmark entry](benchmarks.md#host-vector-maths).
-  - Open, on the roadmap: SLEEF on Linux aarch64, AVX-512 against AVX2 end to end, and
+  - Open, in [#339](https://github.com/LupoLab/solprop/issues/339) and [#338](https://github.com/LupoLab/solprop/issues/338): SLEEF on Linux aarch64, AVX-512 against AVX2 end to end, and
     the kernels still per element (the trapezoid and envelope plasma columns, the Adams
     corrector and dense observation, the separable stage propagators).
 
@@ -1678,10 +1680,9 @@ Withdrawn (development-process record, not a design decision).
     `testing`), a `priority: high`, `priority: medium` or `priority: low` label, and an
     `area:` label where one fits, so that they can be filtered. `CONTRIBUTING.md` says
     how to write and label one.
-  - New open work goes in an issue. The roadmap takes no new items.
-  - The roadmap's existing items are not moved in one pass. An item leaves the page when
-    an issue, or a SEP that covers it in full (SEP 0), takes it over, in the same change,
-    and the page goes when none is left.
+  - Open work goes in an issue. The roadmap takes no items.
+  - The roadmap's existing items moved to issues on 2026-11-01. The page goes when its SEP
+    lists move.
   - Work a SEP gives back, by narrowing or by being rejected, deferred or withdrawn, goes
     in an issue, not back on the page.
   - Each SEP has a tracking issue, labelled `sep`, open until the SEP is `Final`,
@@ -1691,6 +1692,51 @@ Withdrawn (development-process record, not a design decision).
   - The roadmap's lists of accepted and draft SEPs stay for now: they are status lists,
     which `tests/test_seps.py` checks against the SEPs.
 - **Consequences:**
-  - Until the page is gone, what is planned is the issues and the roadmap together: check
-    both before starting something or reporting it as missing.
+  - What is planned is the issues: check them before starting something or reporting it as
+    missing.
   - A SEP's open questions at `Final` go to issues (SEP 0).
+
+## ADR-063 — A resume compares records by what matters to the run
+
+- **Status:** accepted (maintainer, 2026-11-01, with
+  [SEP 42](seps/archive/sep-0042-tolerant-resume.md)); narrows ADR-051 and sets the policy
+  ADR-058 left open
+- **Context:** a file resumed only when the rebuilt run's configuration hash equalled
+  the stored one. A release that added a field, an optmat release with the same numbers,
+  a looser tolerance or another platform's mathematics library each refused a resume of
+  the same physics, and there was no way to insist.
+- **Decision:**
+  - A resume compares the stored and requested records path by path. A table sorts each
+    recorded path into **layout** (it must agree, with no override), **compared** (the
+    default for any unclassified path; it must agree unless the resume is forced),
+    **numerics** (it may change while there is work left, and is recorded) or
+    **ignored** (provenance, and realisations whose parameters are compared). The table
+    is `solprop.output.compatibility.CLASS_TABLE`, reviewed like code.
+  - Numbers agree per element to `RECORD_RTOL` = 1e-11 of the larger, with an
+    array-scale floor only on named tails; the save planes, the length and the launch
+    position are exact. optmat models are compared by the digest of their numbers.
+  - A path one record lacks is a difference unless a release declares its neutral value
+    in `NEUTRAL_VALUES`; a field's default is never consulted. An entry lives for the
+    release that adds it and the next minor release, and goes with the frozen records it
+    serves. Every field is still recorded, at its default too (ADR-051).
+  - A stored record is read and compared as it was written. A file of another output
+    schema is refused before the comparison, as ADR-058 requires.
+  - A finished file is returned only when every session ran under the requested
+    numerics. `resume="force"` continues across compared differences while the layout
+    agrees, the statistics fit and work is left; it restarts the Adams history, marks the
+    file in its execution record, and later sessions and readers respect the mark.
+  - The output schema is bumped only for a change an older reader would misread or could
+    not append to: a dataset renamed, re-laid or given new units, an attribute that
+    changes meaning, anything added inside `stats`, `step_history` or `step_stats`, or
+    anything grown per plane. A new field of the JSON record, a root attribute or a
+    top-level group written once does not bump it.
+  - The exact identities stay exact: the file's stamp, a scan row, a suspended writer, a
+    snapshot, and the Queue and Slurm executors' manifests and per-point checks.
+- **Why:** continue a run whenever the stored state and the requested problem give the
+  run asked for, and refuse with a reason otherwise, with the compatibility code one
+  table of classes and one table of neutral values rather than versioned hashers.
+- **Consequences:** a new recorded field needs a decision, which the frozen records of
+  `tests/output/test_record_stability.py` enforce; each release adds its frozen records
+  from its tag (`docs/dev/releasing.md`). 0.2.0, the first release of output schema 2,
+  is tagged after SEP 42, so that every released reader of schema 2 knows these rules; a
+  later change to what force records bumps the schema.

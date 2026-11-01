@@ -1085,7 +1085,7 @@ def test_a_snapshot_continues_only_under_its_own_policy():
     finally:
         second.close()
     assert_within(resumed, continued, max(steps, 1) * 512 * EPS, what="resumed history")
-    # Under another policy, or before this SEP (the representation differs): refused.
+    # Under another policy, or another order (the history key differs): refused.
     for method in (OFF, Multistep(carrier_frame="scalar", order=4)):
         other = dataclasses.replace(
             problem, stepper=dataclasses.replace(problem.stepper, integrator=method)
@@ -1096,7 +1096,7 @@ def test_a_snapshot_continues_only_under_its_own_policy():
             reason = backend.restore_march(stored)
         finally:
             backend.close()
-        assert reason is not None and "carrier_frame='scalar'" in reason
+        assert reason is not None and "scalar-frame" in reason
 
 
 # --- the parity rounding budget -------------------------------------------------------

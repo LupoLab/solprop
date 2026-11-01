@@ -233,5 +233,5 @@ def test_changing_the_electronic_law_changes_the_resume_key(tmp_path, first, sec
     assert one.configuration_hash() != two.configuration_hash()
     path = written(tmp_path / "run.h5", one)
     assert check_cache(path, capillary(**first).metadata())
-    with pytest.raises(OutputError, match=r"materials\.policies\.electronic"):
+    with pytest.raises(OutputError, match=r"materials: .*policies\.electronic"):
         check_cache(path, two)

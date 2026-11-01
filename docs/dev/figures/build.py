@@ -781,6 +781,7 @@ MODULES = {
             "output/",
             (
                 "schema",
+                "compatibility",
                 "capability",
                 "memory",
                 "hdf5",

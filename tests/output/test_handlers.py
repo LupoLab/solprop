@@ -702,7 +702,7 @@ def test_check_cache_refuses_a_changed_configuration_by_name(grid, schedule, tmp
     handler.close()
     changed = make_metadata(grid, schedule, configuration={"gamma": 0.22})
     with pytest.raises(
-        OutputError, match=r"these fields changed: configuration\.gamma"
+        OutputError, match=r"these compared values differ: configuration: gamma"
     ):
         check_cache(tmp_path / "run.h5", changed)
 
@@ -807,7 +807,8 @@ def test_an_appending_handler_refuses_a_different_run(grid, schedule, tmp_path):
     handler.close()
     again = HDF5Output(path, append=True)
     with pytest.raises(
-        OutputError, match=r"cannot be appended to; these fields changed: configuration"
+        OutputError,
+        match=r"cannot be appended to; these compared values differ: configuration",
     ):
         again.open(make_metadata(grid, schedule, configuration={"gamma": 0.22}))
     again.close()

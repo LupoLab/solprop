@@ -602,7 +602,25 @@ def test_interior_launch_refuses_modified_noise_before_realisation():
     assert admitted.model == "input"
 
 
-@pytest.mark.parametrize("case", ["outside", "field", "logical", "cap", "atomic"])
+def test_a_logical_ledger_continues_under_another_integrator():
+    # The charged ledger stays with the earlier execution as provenance and is not
+    # installed in a Runge-Kutta march (SEP 42 section 5.6).
+    simulation = tiny_simulation(max_calls=None)
+    problem = simulation.translate()
+    problem = dataclasses.replace(
+        problem, stepper=dataclasses.replace(problem.stepper, integrator=None)
+    )
+    saved = SavedPlane(z=5e-6, field=simulation._field0)
+    outcome = RunOutcome(
+        "failed", saved.z, logical_calls=dataclasses.asdict(CallLedger(startup=2))
+    )
+    state = ResumeState(
+        simulation.metadata(), saved, 1, StepHistory.empty(), outcome=outcome
+    )
+    assert simulation_module._validate_resume(problem, state, None) == 0
+
+
+@pytest.mark.parametrize("case", ["outside", "field", "cap", "atomic"])
 def test_resume_rejects_incompatible_state_before_backend_allocation(case):
     simulation = tiny_simulation(max_calls=1 if case == "cap" else None)
     problem = simulation.translate()
@@ -614,15 +632,11 @@ def test_resume_rejects_incompatible_state_before_backend_allocation(case):
     elif case == "field":
         saved = dataclasses.replace(saved, field=np.full_like(saved.field, np.nan))
         message = "finite stored field"
-    elif case in ("logical", "cap"):
+    elif case == "cap":
         outcome = RunOutcome(
             "failed", saved.z, logical_calls=dataclasses.asdict(CallLedger(startup=2))
         )
-        if case == "logical":
-            problem = dataclasses.replace(
-                problem, stepper=dataclasses.replace(problem.stepper, integrator=None)
-            )
-        message = "Adams integration" if case == "logical" else "below previously"
+        message = "below previously"
     else:
         outcome = RunOutcome(
             "failed",

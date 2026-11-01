@@ -6,7 +6,7 @@ repeats an experiment without knowing its result. Each entry gives the result in
 two lines and, where they are summarised, links to its measurements in
 [benchmarks](benchmarks.md#indicative-results) or to
 [SEP 29](seps/archive/sep-0029-compiled-backend-distribution.md). The open items are in the
-[roadmap](roadmap.md), under "Performance and backends".
+[issues](https://github.com/LupoLab/solprop/issues?q=is%3Aopen+label%3Aperformance+label%3A%22area%3A+native%22).
 
 Timings follow the [benchmark rules](benchmarks.md#rules). They are short, bounded
 windows: fresh processes, same machine, interleaved arms. Results are compared within
@@ -306,27 +306,27 @@ time divided by the native backend's: above 1, the native backend is faster.
 
 ## Open
 
-These are in the [roadmap](roadmap.md):
-- **Windows re-measurement** of all the above on the single-runtime wheel.
+Each has an issue:
+- **Windows re-measurement** of all the above on the single-runtime wheel ([#327](https://github.com/LupoLab/solprop/issues/327)).
 - **Thread thresholds on Windows and linux-aarch64**, which take the x86-64 Linux values
-  unmeasured.
-- **The TE/TM wall's complex GEMM** at one thread.
-- **FFTW planning policy per transform shape**: measure against estimate, and wider codelets.
+  unmeasured ([#328](https://github.com/LupoLab/solprop/issues/328)).
+- **The TE/TM wall's complex GEMM** at one thread ([#331](https://github.com/LupoLab/solprop/issues/331)).
+- **FFTW planning policy per transform shape**: measure against estimate, and wider codelets ([#332](https://github.com/LupoLab/solprop/issues/332)).
 - **Compiler-target comparisons with identical libraries**: v3, v4 or a processor-specific
   target against v2. On an 18-core AVX-512 server, v4 gave 7–14 % over v3 on the general
-  route only.
-- **Explicit SIMD** in the general-modal response and in synthesis and projection.
+  route only ([#334](https://github.com/LupoLab/solprop/issues/334)).
+- **Explicit SIMD** in the general-modal response and in synthesis and projection ([#335](https://github.com/LupoLab/solprop/issues/335)).
   - An assessment found enough custom arithmetic outside FFTW and BLAS for this to be a
     credible experiment on AVX-512 x86-64 and arm64.
   - It found no evidence yet that it beats the current loops.
   - First compare compiler targets, then prototype at most one or two kernels.
   - A broad conversion to SIMD types is not justified.
-- **Selective run-time kernel dispatch** (SEP 29 §6.2).
-- **Value-safe floating-point options** (`-fno-math-errno`, `-fno-trapping-math`), a
-  subnormal count on long runs, and reduced precision: the roadmap's item on
-  floating-point options.
+- **Selective run-time kernel dispatch** (SEP 29 §6.2, [#337](https://github.com/LupoLab/solprop/issues/337)).
+- **A subnormal count on long runs** ([#340](https://github.com/LupoLab/solprop/issues/340)) and **reduced precision** ([#342](https://github.com/LupoLab/solprop/issues/342)).
+  The value-safe flags (`-fno-math-errno`, `-fno-trapping-math`) were measured together in
+  [#59](https://github.com/LupoLab/solprop/pull/59), with no net gain; [#334](https://github.com/LupoLab/solprop/issues/334) keeps that record.
 - **Vector maths in the remaining per-element kernels** (ADR-059): the trapezoid and
   envelope plasma columns, whose dependent recurrences need a batched rate pass first,
   the Adams corrector and dense observation, and the separable stage propagators; and
-  SLEEF on Linux aarch64 and AVX-512 against AVX2, unmeasured end to end. The roadmap's
-  item on vector maths.
+  SLEEF on Linux aarch64 and AVX-512 against AVX2, unmeasured end to end
+  ([#338](https://github.com/LupoLab/solprop/issues/338), [#339](https://github.com/LupoLab/solprop/issues/339)).

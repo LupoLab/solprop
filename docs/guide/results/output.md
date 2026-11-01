@@ -315,8 +315,9 @@ development versions of solprop, which declared output schemas up to 28, are not
 and nor is a file from a later release. Read such a file with the solprop version that
 wrote it. A scan file is refused the same way, by the output schema each point's run
 record declares, whether it is read or resumed; its own `scan_schema_version` versions
-the scan container, not the records in it, and is still 1. The schema version is inside
-the resume key too ([the resume key](resuming.md#the-resume-key)).
+the scan container, not the records in it, and is still 1. A resume needs the file's
+schema to be this one, and checks that before it compares the records
+([what a resume compares](resuming.md#what-a-resume-compares)).
 
 Every run records its `precision` (`"double"` or `"single"`,
 [single precision](../performance/single-precision.md)) in its configuration, so a run
@@ -333,18 +334,30 @@ How a run resumes from its last plane depends on what that plane is:
 - **A dense run resumes from an interpolated plane only on request.** Its planes, but
   the end and the hard kinks, are interpolated inside steps, not states the march
   passed through. A plane is interpolated when no accepted step of the run ends on it.
-  When the file's last plane is one, `resume=True` is refused, with either stepper;
-  `resume="interpolated"` continues afresh from it and
+  When the file's last plane is one, `resume=True` is refused, with either stepper and
+  whatever `interpolate_planes` the resuming run asks for;
+  `resume="interpolated"` (or `"force"`) continues afresh from it and
   appends its position to the annotation `interpolated_resumes`
   (`INTERPOLATED_RESUMES_ANNOTATION`), outside the configuration hash.
 
 **Every field is recorded.** A record holds every field of every dataclass it
 serialises, at its default too, so a change that adds a field to a recorded dataclass
-moves the configuration hash and bumps the output schema. The test suite pins the
+moves the configuration hash. A resume compares the records path by path, so the new
+field refuses a resume of an earlier file unless a release declares its neutral value,
+the value that reproduces the code before it existed
+([what a resume compares](resuming.md#what-a-resume-compares)). The test suite pins the
 records of a modal, a radial and two Cartesian runs, and of a custom absorber at its
-defaults, so that such a change is deliberate. An array input of more than 2²⁰
-elements is recorded by the SHA-256 of its bytes, with its dtype and shape
-(`ArrayDigest`), rather than inline.
+defaults, and keeps each release's whole records, so that such a change is deliberate.
+An array input of more than 2²⁰ elements is recorded by the SHA-256 of its bytes, with
+its dtype and shape (`ArrayDigest`), rather than inline.
+
+**When the schema is bumped.** Only for a change an older reader would misread, or
+could not append to: a dataset renamed, re-laid or given new units; an attribute that
+changes meaning; anything added inside `stats`, `step_history` or `step_stats`; or
+anything grown per plane. A new field of the JSON run record, a new root attribute or a
+new top-level group written once does not bump it: readers already tolerate them, and a
+resume decides by comparing the records (ADR-063,
+[SEP 42](../../dev/seps/archive/sep-0042-tolerant-resume.md)).
 
 ## A worked example
 

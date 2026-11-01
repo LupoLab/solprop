@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
-     width="1200" height="1686.0" viewBox="0 0 1200 1686.0">
+     width="1200" height="1610.0" viewBox="0 0 1200 1610.0">
 <defs>
 </defs>
 <style>
@@ -69,7 +69,7 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 .edge-x { stroke: var(--x-edge); }
 .ink-x { fill: var(--x-edge); }
 </style>
-<rect x="0" y="0" width="1200" height="1686.0" class="ground" />
+<rect x="0" y="0" width="1200" height="1610.0" class="ground" />
 <text x="32" y="44.0" font-size="21" class="bold">The layers of solprop, and every module in each</text>
 <text x="32" y="64.0" font-size="12" class="dim">Bands and colours from architecture.md §3 and decisions.md ADR-001; modules from src/solprop. Arrows point from the layer that imports to the layer it imports.</text>
 <rect x="32" y="75.5" width="16" height="16" rx="7" ry="7" class="fill-p" />
@@ -84,13 +84,13 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 <text x="214" y="87.5" font-size="12" class="bold ink-x">X</text>
 <rect x="232" y="75.5" width="16" height="16" rx="7" ry="7" class="planned" />
 <text x="254" y="87.5" font-size="12" class="dim">unwritten candidate, not scheduled (architecture.md §4)</text>
-<rect x="32" y="113.5" width="1010.0" height="411.5" rx="7" ry="7" class="plain" />
-<rect x="46" y="302.25" width="34" height="34" rx="7" ry="7" class="fill-p" />
-<text x="63" y="325.25" font-size="19" class="bold mid ink-p">P</text>
-<text x="90" y="309.5" font-size="15" class="bold ink-p">physics / convenience</text>
-<text x="90" y="327.0" font-size="12" class="dim">may import</text>
-<text x="168" y="327.0" font-size="12" class="dim">numpy, scipy, stdlib</text>
-<text x="168" y="342.5" font-size="12" class="dim">other P modules</text>
+<rect x="32" y="113.5" width="1010.0" height="335.5" rx="7" ry="7" class="plain" />
+<rect x="46" y="264.25" width="34" height="34" rx="7" ry="7" class="fill-p" />
+<text x="63" y="287.25" font-size="19" class="bold mid ink-p">P</text>
+<text x="90" y="271.5" font-size="15" class="bold ink-p">physics / convenience</text>
+<text x="90" y="289.0" font-size="12" class="dim">may import</text>
+<text x="168" y="289.0" font-size="12" class="dim">numpy, scipy, stdlib</text>
+<text x="168" y="304.5" font-size="12" class="dim">other P modules</text>
 <rect x="307.0" y="126.5" width="119.00000000000001" height="35.0" rx="7" ry="7" class="fill-p" />
 <text x="317.0" y="148.5" font-size="15" class="bold ink-p">constants.py</text>
 <rect x="436.0" y="126.5" width="102.5" height="35.0" rx="7" ry="7" class="fill-p" />
@@ -115,181 +115,177 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 <text x="758.75" y="193.5" font-size="15" class="bold ink-p">linear.py</text>
 <rect x="853.0" y="171.5" width="127.25000000000001" height="35.0" rx="7" ry="7" class="fill-p" />
 <text x="863.0" y="193.5" font-size="15" class="bold ink-p">boundaries.py</text>
-<rect x="307.0" y="216.5" width="176.75" height="35.0" rx="7" ry="7" class="fill-p" />
-<text x="317.0" y="238.5" font-size="15" class="bold ink-p">spatial_absorber.py</text>
-<rect x="493.75" y="216.5" width="102.5" height="35.0" rx="7" ry="7" class="fill-p" />
-<text x="503.75" y="238.5" font-size="15" class="bold ink-p">monitor.py</text>
-<rect x="606.25" y="216.5" width="193.25" height="35.0" rx="7" ry="7" class="fill-p" />
-<text x="616.25" y="238.5" font-size="15" class="bold ink-p">transverse_monitor.py</text>
-<rect x="809.5" y="216.5" width="143.75" height="35.0" rx="7" ry="7" class="fill-p" />
-<text x="819.5" y="238.5" font-size="15" class="bold ink-p">polarisation.py</text>
-<rect x="307.0" y="261.5" width="94.25" height="112.5" rx="7" ry="7" class="fill-p" />
-<text x="317.0" y="283.5" font-size="15" class="bold ink-p">optics.py</text>
-<rect x="411.25" y="261.5" width="86.0" height="112.5" rx="7" ry="7" class="fill-p" />
-<text x="421.25" y="283.5" font-size="15" class="bold ink-p">tools.py</text>
-<rect x="507.25" y="261.5" width="224.60000000000002" height="112.5" rx="7" ry="7" class="fill-p" />
-<text x="517.25" y="283.5" font-size="15" class="bold ink-p">coupling/</text>
-<text x="517.25" y="299.0" font-size="12" class="dim">plane · port · remap · models</text>
-<text x="517.25" y="314.5" font-size="12" class="dim">coupler · outcouple · envelopes</text>
-<text x="517.25" y="330.0" font-size="12" class="dim">transport · elements</text>
-<rect x="741.85" y="261.5" width="218.00000000000003" height="112.5" rx="7" ry="7" class="fill-p" />
-<text x="751.85" y="283.5" font-size="15" class="bold ink-p">physdata/</text>
-<text x="751.85" y="299.0" font-size="12" class="dim">sellmeier · equation_of_state</text>
-<text x="751.85" y="314.5" font-size="12" class="dim">gases · glasses · metals</text>
-<text x="751.85" y="330.0" font-size="12" class="dim">nonlinear_data · raman_types</text>
-<text x="751.85" y="345.5" font-size="12" class="dim">species · mixtures · transport</text>
-<text x="751.85" y="361.0" font-size="12" class="dim">selection</text>
-<rect x="307.0" y="384.0" width="237.8" height="128.0" rx="7" ry="7" class="fill-p" />
-<text x="317.0" y="406.0" font-size="15" class="bold ink-p">modes/</text>
-<text x="317.0" y="421.5" font-size="12" class="dim">protocol · base · capillary</text>
-<text x="317.0" y="437.0" font-size="12" class="dim">antiresonant · tabulated · fill</text>
-<text x="317.0" y="452.5" font-size="12" class="dim">stepindex · material · vector</text>
-<text x="317.0" y="468.0" font-size="12" class="dim">guide · graded_index · connection</text>
-<text x="317.0" y="483.5" font-size="12" class="dim">rectangular · slab · collection</text>
-<text x="317.0" y="499.0" font-size="12" class="dim">quadrature</text>
-<rect x="554.8" y="384.0" width="218.00000000000003" height="128.0" rx="7" ry="7" class="fill-p" />
-<text x="564.8" y="406.0" font-size="15" class="bold ink-p">nonlinear/</text>
-<text x="564.8" y="421.5" font-size="12" class="dim">responses · ionisation</text>
-<text x="564.8" y="437.0" font-size="12" class="dim">optmat_rates · envelope_plasma</text>
-<text x="564.8" y="452.5" font-size="12" class="dim">raman · gnlse · normalisation</text>
-<text x="564.8" y="468.0" font-size="12" class="dim">mixtures · optmat_raman · tdse</text>
-<rect x="32" y="571.0" width="1010.0" height="200.5" rx="7" ry="7" class="plain" />
-<rect x="46" y="654.25" width="34" height="34" rx="7" ry="7" class="fill-t" />
-<text x="63" y="677.25" font-size="19" class="bold mid ink-t">T</text>
-<text x="90" y="669.25" font-size="15" class="bold ink-t">translation</text>
-<text x="90" y="686.75" font-size="12" class="dim">may import</text>
-<text x="168" y="686.75" font-size="12" class="dim">P, numpy, scipy</text>
-<rect x="307.0" y="584.0" width="251.00000000000003" height="174.5" rx="7" ry="7" class="fill-t" />
-<text x="317.0" y="606.0" font-size="15" class="bold ink-t">translate/</text>
-<text x="317.0" y="621.5" font-size="12" class="dim">problem · stage · linop · expansion</text>
-<text x="317.0" y="637.0" font-size="12" class="dim">chebyshev · modal · modal_tables</text>
-<text x="317.0" y="652.5" font-size="12" class="dim">modal_path · coupled · general</text>
-<text x="317.0" y="668.0" font-size="12" class="dim">radial · free · planar · spatial</text>
-<text x="317.0" y="683.5" font-size="12" class="dim">transverse · collar_check · flux</text>
-<text x="317.0" y="699.0" font-size="12" class="dim">coupling · responses · ionisation</text>
-<text x="317.0" y="714.5" font-size="12" class="dim">plasma_integration · plasma_source</text>
-<text x="317.0" y="730.0" font-size="12" class="dim">envelope_plasma · raman · masks</text>
-<text x="317.0" y="745.5" font-size="12" class="dim">precision · tdse · tdse_source</text>
-<rect x="32" y="817.5" width="1010.0" height="307.5" rx="7" ry="7" class="plain" />
-<rect x="46" y="954.25" width="34" height="34" rx="7" ry="7" class="fill-b" />
-<text x="63" y="977.25" font-size="19" class="bold mid ink-b">B</text>
-<text x="90" y="961.5" font-size="15" class="bold ink-b">backends</text>
-<text x="90" y="979.0" font-size="12" class="dim">may import</text>
-<text x="168" y="979.0" font-size="12" class="dim">numpy, numba</text>
-<text x="168" y="994.5" font-size="12" class="dim">pyfftw; the native package in native/</text>
-<rect x="307.0" y="830.5" width="231.20000000000002" height="112.5" rx="7" ry="7" class="fill-b" />
-<text x="317.0" y="852.5" font-size="15" class="bold ink-b">backends/</text>
-<text x="317.0" y="868.0" font-size="12" class="dim">protocol · registry · driver</text>
-<text x="317.0" y="883.5" font-size="12" class="dim">batch · bodies · spatial</text>
-<text x="317.0" y="899.0" font-size="12" class="dim">populations · memory · multistep</text>
-<text x="317.0" y="914.5" font-size="12" class="dim">multistep_general · adams_core</text>
-<text x="317.0" y="930.0" font-size="12" class="dim">exponential · low_storage</text>
-<rect x="548.2" y="830.5" width="224.60000000000002" height="112.5" rx="7" ry="7" class="fill-b" />
-<text x="558.2" y="852.5" font-size="15" class="bold ink-b">backends/numpy_ref/</text>
-<text x="558.2" y="868.0" font-size="12" class="dim">backend · batch · passes</text>
-<text x="558.2" y="883.5" font-size="12" class="dim">transforms · single · admission</text>
-<text x="558.2" y="899.0" font-size="12" class="dim">envelope_plasma · general_modal</text>
-<text x="558.2" y="914.5" font-size="12" class="dim">tdse</text>
-<rect x="782.8000000000001" y="830.5" width="178.4" height="112.5" rx="7" ry="7" class="fill-b" />
-<text x="792.8000000000001" y="852.5" font-size="15" class="bold ink-b">backends/mlx_gpu/</text>
-<text x="792.8000000000001" y="868.0" font-size="12" class="dim">backend · batch · passes</text>
-<text x="792.8000000000001" y="883.5" font-size="12" class="dim">arithmetic · envelope</text>
-<rect x="307.0" y="953.0" width="244.4" height="159.0" rx="7" ry="7" class="fill-b" />
-<text x="317.0" y="975.0" font-size="15" class="bold ink-b">backends/numba_cpu/</text>
-<text x="317.0" y="990.5" font-size="12" class="dim">backend · batch · kernels</text>
-<text x="317.0" y="1006.0" font-size="12" class="dim">envelope_plasma · general_modal</text>
-<text x="317.0" y="1021.5" font-size="12" class="dim">coupled_flow · field_plasma · fft</text>
-<text x="317.0" y="1037.0" font-size="12" class="dim">openmp · spatial · planar · tables</text>
-<text x="317.0" y="1052.5" font-size="12" class="dim">multistep · dispersive</text>
-<text x="317.0" y="1068.0" font-size="12" class="dim">dispersive_spatial</text>
-<text x="317.0" y="1083.5" font-size="12" class="dim">dispersive_general · low_storage</text>
-<text x="317.0" y="1099.0" font-size="12" class="dim">pass_timers</text>
-<rect x="32" y="1171.0" width="1010.0" height="230.0" rx="7" ry="7" class="plain" />
-<rect x="46" y="1269.0" width="34" height="34" rx="7" ry="7" class="fill-d" />
-<text x="63" y="1292.0" font-size="19" class="bold mid ink-d">D</text>
-<text x="90" y="1276.25" font-size="15" class="bold ink-d">driver</text>
-<text x="90" y="1293.75" font-size="12" class="dim">may import</text>
-<text x="168" y="1293.75" font-size="12" class="dim">P, T</text>
-<text x="168" y="1309.25" font-size="12" class="dim">B through the seam, h5py</text>
-<rect x="307.0" y="1184.0" width="69.5" height="81.5" rx="7" ry="7" class="fill-d" />
-<text x="317.0" y="1206.0" font-size="15" class="bold ink-d">log.py</text>
-<rect x="386.5" y="1184.0" width="86.0" height="81.5" rx="7" ry="7" class="fill-d" />
-<text x="396.5" y="1206.0" font-size="15" class="bold ink-d">stats.py</text>
-<rect x="482.5" y="1184.0" width="251.00000000000003" height="81.5" rx="7" ry="7" class="fill-d" />
-<text x="492.5" y="1206.0" font-size="15" class="bold ink-d">stepper/</text>
-<text x="492.5" y="1221.5" font-size="12" class="dim">tableau · runge_kutta · multistep</text>
-<text x="492.5" y="1237.0" font-size="12" class="dim">low_storage · controller · schedule</text>
-<rect x="743.5" y="1184.0" width="251.00000000000003" height="81.5" rx="7" ry="7" class="fill-d" />
-<text x="753.5" y="1206.0" font-size="15" class="bold ink-d">output/</text>
-<text x="753.5" y="1221.5" font-size="12" class="dim">schema · capability · memory · hdf5</text>
-<text x="753.5" y="1237.0" font-size="12" class="dim">tdse_archive · snapshots · scan</text>
-<text x="753.5" y="1252.5" font-size="12" class="dim">scan_artifacts</text>
-<rect x="307.0" y="1275.5" width="77.75" height="112.5" rx="7" ry="7" class="fill-d" />
-<text x="317.0" y="1297.5" font-size="15" class="bold ink-d">scan.py</text>
-<rect x="394.75" y="1275.5" width="204.8" height="112.5" rx="7" ry="7" class="fill-d" />
-<text x="404.75" y="1297.5" font-size="15" class="bold ink-d">driver/executors/</text>
-<text x="404.75" y="1313.0" font-size="12" class="dim">local · pool · queue · slurm</text>
-<text x="404.75" y="1328.5" font-size="12" class="dim">batch</text>
-<rect x="609.55" y="1275.5" width="224.60000000000002" height="112.5" rx="7" ry="7" class="fill-d" />
-<text x="619.55" y="1297.5" font-size="15" class="bold ink-d">driver/</text>
-<text x="619.55" y="1313.0" font-size="12" class="dim">simulation · run · summary</text>
-<text x="619.55" y="1328.5" font-size="12" class="dim">interface · scaffold · mixtures</text>
-<text x="619.55" y="1344.0" font-size="12" class="dim">material_output · tdse</text>
-<text x="619.55" y="1359.5" font-size="12" class="dim">tdse_consistency · scan · batch</text>
-<text x="619.55" y="1375.0" font-size="12" class="dim">memory</text>
-<rect x="32" y="1447.0" width="1010.0" height="107.5" rx="7" ry="7" class="plain" />
-<rect x="46" y="1483.75" width="34" height="34" rx="7" ry="7" class="fill-x" />
-<text x="63" y="1506.75" font-size="19" class="bold mid ink-x">X</text>
-<text x="90" y="1483.25" font-size="15" class="bold ink-x">processing / plotting</text>
-<text x="90" y="1500.75" font-size="12" class="dim">may import</text>
-<text x="168" y="1500.75" font-size="12" class="dim">numpy, scipy</text>
-<text x="168" y="1516.25" font-size="12" class="dim">matplotlib, D (outputs)</text>
-<text x="168" y="1531.75" font-size="12" class="dim">T (table identities)</text>
-<rect x="307.0" y="1460.0" width="244.4" height="81.5" rx="7" ry="7" class="fill-x" />
-<text x="317.0" y="1482.0" font-size="15" class="bold ink-x">processing/</text>
-<text x="317.0" y="1497.5" font-size="12" class="dim">axes · fields · spectra · time</text>
-<text x="317.0" y="1513.0" font-size="12" class="dim">coherence · compression · mixtures</text>
-<text x="317.0" y="1528.5" font-size="12" class="dim">modal · planes · scans</text>
-<rect x="561.4" y="1460.0" width="178.4" height="81.5" rx="7" ry="7" class="fill-x" />
-<text x="571.4" y="1482.0" font-size="15" class="bold ink-x">plotting/</text>
-<text x="571.4" y="1497.5" font-size="12" class="dim">propagation · statistics</text>
-<text x="571.4" y="1513.0" font-size="12" class="dim">spectrograms · style</text>
-<rect x="749.8" y="1460.0" width="69.5" height="81.5" rx="7" ry="7" class="fill-x" />
-<text x="759.8" y="1482.0" font-size="15" class="bold ink-x">sol.py</text>
-<rect x="829.3" y="1460.0" width="110.75000000000001" height="81.5" rx="7" ry="7" class="planned" />
-<text x="839.3" y="1482.0" font-size="15" class="bold dim">processing/</text>
-<text x="839.3" y="1497.5" font-size="12" class="dim">windows</text>
-<path d="M326.0,566.0 L326.0,530.0" class="arrow" />
-<path d="M326.0,530.0 L329.6,539.0 L322.4,539.0 Z" class="head" />
-<text x="338.0" y="552.0" font-size="12" class="dim">T → P   physics objects</text>
-<path d="M334.0,812.5 L334.0,776.5" class="arrow" />
-<path d="M334.0,776.5 L337.6,785.5 L330.4,785.5 Z" class="head" />
-<text x="346.0" y="798.5" font-size="12" class="dim">B → T   delta_phi, prefactor_at, the stage bundle</text>
-<path d="M342.0,1166.0 L342.0,1130.0" class="arrow" />
-<path d="M342.0,1130.0 L345.6,1139.0 L338.4,1139.0 Z" class="head" />
-<text x="354.0" y="1152.0" font-size="12" class="dim">D → B   backends.select, then the seam</text>
-<path d="M350.0,1442.0 L350.0,1406.0" class="arrow" />
-<path d="M350.0,1406.0 L353.6,1415.0 L346.4,1415.0 Z" class="head" />
-<text x="362.0" y="1428.0" font-size="12" class="dim">X → D   a saved run, through the Output protocol</text>
-<path d="M1046.0,1286.0 L1068.0,1286.0 L1068.0,671.25 L1048.0,671.25" class="arrow" />
-<path d="M1048.0,671.25 L1057.0,667.65 L1057.0,674.85 Z" class="head" />
-<rect x="1059.0" y="969.625" width="18" height="18" rx="7" ry="7" class="card" />
-<text x="1068.0" y="982.625" font-size="12" class="bold mid dim">1</text>
-<path d="M1046.0,1286.0 L1100.0,1286.0 L1100.0,319.25 L1048.0,319.25" class="arrow" />
-<path d="M1048.0,319.25 L1057.0,315.65 L1057.0,322.85 Z" class="head" />
-<rect x="1091.0" y="793.625" width="18" height="18" rx="7" ry="7" class="card" />
-<text x="1100.0" y="806.625" font-size="12" class="bold mid dim">2</text>
-<path d="M1046.0,971.25 L1132.0,971.25 L1132.0,319.25 L1048.0,319.25" class="arrow" />
-<path d="M1048.0,319.25 L1057.0,315.65 L1057.0,322.85 Z" class="head" />
-<rect x="1123.0" y="636.25" width="18" height="18" rx="7" ry="7" class="card" />
-<text x="1132.0" y="649.25" font-size="12" class="bold mid dim">3</text>
-<path d="M1046.0,1500.75 L1164.0,1500.75 L1164.0,671.25 L1048.0,671.25" class="arrow" />
-<path d="M1048.0,671.25 L1057.0,667.65 L1057.0,674.85 Z" class="head" />
-<rect x="1155.0" y="1077.0" width="18" height="18" rx="7" ry="7" class="card" />
-<text x="1164.0" y="1090.0" font-size="12" class="bold mid dim">4</text>
-<text x="32" y="1592.0" font-size="12" class="dim">1   Simulation calls translate.assemble</text>
-<text x="32" y="1607.5" font-size="12" class="dim">2   the driver builds the grid, the modes, the pulse and the responses</text>
-<text x="32" y="1623.0" font-size="12" class="dim">3   the statistics path: a backend is handed grid, modes and profiles at construction: the one import of P that architecture.md §3 allows B, types and constants, never a physics object</text>
-<text x="32" y="1638.5" font-size="12" class="dim">4   processing.modal takes the run's own ModalTransformTables beside the handler: a general modal file records what its reference is and not the arrays, so the reference is rebuilt in T and read in X</text>
-<text x="32" y="1654.0" font-size="12" class="dim">The package-wide modules carry no layer letter:  __init__.py  ·  exceptions.py</text>
+<rect x="307.0" y="216.5" width="102.5" height="81.5" rx="7" ry="7" class="fill-p" />
+<text x="317.0" y="238.5" font-size="15" class="bold ink-p">monitor.py</text>
+<rect x="419.5" y="216.5" width="143.75" height="81.5" rx="7" ry="7" class="fill-p" />
+<text x="429.5" y="238.5" font-size="15" class="bold ink-p">polarisation.py</text>
+<rect x="573.25" y="216.5" width="94.25" height="81.5" rx="7" ry="7" class="fill-p" />
+<text x="583.25" y="238.5" font-size="15" class="bold ink-p">optics.py</text>
+<rect x="677.5" y="216.5" width="86.0" height="81.5" rx="7" ry="7" class="fill-p" />
+<text x="687.5" y="238.5" font-size="15" class="bold ink-p">tools.py</text>
+<rect x="773.5" y="216.5" width="224.60000000000002" height="81.5" rx="7" ry="7" class="fill-p" />
+<text x="783.5" y="238.5" font-size="15" class="bold ink-p">coupling/</text>
+<text x="783.5" y="254.0" font-size="12" class="dim">plane · port · remap · models</text>
+<text x="783.5" y="269.5" font-size="12" class="dim">coupler · outcouple · envelopes</text>
+<text x="783.5" y="285.0" font-size="12" class="dim">transport · elements</text>
+<rect x="307.0" y="308.0" width="218.00000000000003" height="128.0" rx="7" ry="7" class="fill-p" />
+<text x="317.0" y="330.0" font-size="15" class="bold ink-p">physdata/</text>
+<text x="317.0" y="345.5" font-size="12" class="dim">sellmeier · equation_of_state</text>
+<text x="317.0" y="361.0" font-size="12" class="dim">gases · glasses · metals</text>
+<text x="317.0" y="376.5" font-size="12" class="dim">nonlinear_data · raman_types</text>
+<text x="317.0" y="392.0" font-size="12" class="dim">species · mixtures · transport</text>
+<text x="317.0" y="407.5" font-size="12" class="dim">selection</text>
+<rect x="535.0" y="308.0" width="237.8" height="128.0" rx="7" ry="7" class="fill-p" />
+<text x="545.0" y="330.0" font-size="15" class="bold ink-p">modes/</text>
+<text x="545.0" y="345.5" font-size="12" class="dim">protocol · base · capillary</text>
+<text x="545.0" y="361.0" font-size="12" class="dim">antiresonant · tabulated · fill</text>
+<text x="545.0" y="376.5" font-size="12" class="dim">stepindex · material · vector</text>
+<text x="545.0" y="392.0" font-size="12" class="dim">guide · graded_index · connection</text>
+<text x="545.0" y="407.5" font-size="12" class="dim">rectangular · slab · collection</text>
+<text x="545.0" y="423.0" font-size="12" class="dim">quadrature</text>
+<rect x="782.8" y="308.0" width="218.00000000000003" height="128.0" rx="7" ry="7" class="fill-p" />
+<text x="792.8" y="330.0" font-size="15" class="bold ink-p">nonlinear/</text>
+<text x="792.8" y="345.5" font-size="12" class="dim">responses · ionisation</text>
+<text x="792.8" y="361.0" font-size="12" class="dim">optmat_rates · envelope_plasma</text>
+<text x="792.8" y="376.5" font-size="12" class="dim">raman · gnlse · normalisation</text>
+<text x="792.8" y="392.0" font-size="12" class="dim">mixtures · optmat_raman · tdse</text>
+<rect x="32" y="495.0" width="1010.0" height="200.5" rx="7" ry="7" class="plain" />
+<rect x="46" y="578.25" width="34" height="34" rx="7" ry="7" class="fill-t" />
+<text x="63" y="601.25" font-size="19" class="bold mid ink-t">T</text>
+<text x="90" y="593.25" font-size="15" class="bold ink-t">translation</text>
+<text x="90" y="610.75" font-size="12" class="dim">may import</text>
+<text x="168" y="610.75" font-size="12" class="dim">P, numpy, scipy</text>
+<rect x="307.0" y="508.0" width="251.00000000000003" height="174.5" rx="7" ry="7" class="fill-t" />
+<text x="317.0" y="530.0" font-size="15" class="bold ink-t">translate/</text>
+<text x="317.0" y="545.5" font-size="12" class="dim">problem · stage · linop · expansion</text>
+<text x="317.0" y="561.0" font-size="12" class="dim">chebyshev · modal · modal_tables</text>
+<text x="317.0" y="576.5" font-size="12" class="dim">modal_path · coupled · general</text>
+<text x="317.0" y="592.0" font-size="12" class="dim">radial · free · planar · spatial</text>
+<text x="317.0" y="607.5" font-size="12" class="dim">flux · coupling · responses</text>
+<text x="317.0" y="623.0" font-size="12" class="dim">ionisation · plasma_integration</text>
+<text x="317.0" y="638.5" font-size="12" class="dim">plasma_source · envelope_plasma</text>
+<text x="317.0" y="654.0" font-size="12" class="dim">raman · masks · precision · tdse</text>
+<text x="317.0" y="669.5" font-size="12" class="dim">tdse_source</text>
+<rect x="32" y="741.5" width="1010.0" height="307.5" rx="7" ry="7" class="plain" />
+<rect x="46" y="878.25" width="34" height="34" rx="7" ry="7" class="fill-b" />
+<text x="63" y="901.25" font-size="19" class="bold mid ink-b">B</text>
+<text x="90" y="885.5" font-size="15" class="bold ink-b">backends</text>
+<text x="90" y="903.0" font-size="12" class="dim">may import</text>
+<text x="168" y="903.0" font-size="12" class="dim">numpy, numba</text>
+<text x="168" y="918.5" font-size="12" class="dim">pyfftw; the native package in native/</text>
+<rect x="307.0" y="754.5" width="231.20000000000002" height="112.5" rx="7" ry="7" class="fill-b" />
+<text x="317.0" y="776.5" font-size="15" class="bold ink-b">backends/</text>
+<text x="317.0" y="792.0" font-size="12" class="dim">protocol · registry · driver</text>
+<text x="317.0" y="807.5" font-size="12" class="dim">batch · bodies · spatial</text>
+<text x="317.0" y="823.0" font-size="12" class="dim">populations · memory · multistep</text>
+<text x="317.0" y="838.5" font-size="12" class="dim">multistep_general · adams_core</text>
+<text x="317.0" y="854.0" font-size="12" class="dim">exponential · low_storage</text>
+<rect x="548.2" y="754.5" width="224.60000000000002" height="112.5" rx="7" ry="7" class="fill-b" />
+<text x="558.2" y="776.5" font-size="15" class="bold ink-b">backends/numpy_ref/</text>
+<text x="558.2" y="792.0" font-size="12" class="dim">backend · batch · passes</text>
+<text x="558.2" y="807.5" font-size="12" class="dim">transforms · single · admission</text>
+<text x="558.2" y="823.0" font-size="12" class="dim">envelope_plasma · general_modal</text>
+<text x="558.2" y="838.5" font-size="12" class="dim">tdse</text>
+<rect x="782.8000000000001" y="754.5" width="178.4" height="112.5" rx="7" ry="7" class="fill-b" />
+<text x="792.8000000000001" y="776.5" font-size="15" class="bold ink-b">backends/mlx_gpu/</text>
+<text x="792.8000000000001" y="792.0" font-size="12" class="dim">backend · batch · passes</text>
+<text x="792.8000000000001" y="807.5" font-size="12" class="dim">arithmetic · envelope</text>
+<rect x="307.0" y="877.0" width="244.4" height="159.0" rx="7" ry="7" class="fill-b" />
+<text x="317.0" y="899.0" font-size="15" class="bold ink-b">backends/numba_cpu/</text>
+<text x="317.0" y="914.5" font-size="12" class="dim">backend · batch · kernels</text>
+<text x="317.0" y="930.0" font-size="12" class="dim">envelope_plasma · general_modal</text>
+<text x="317.0" y="945.5" font-size="12" class="dim">coupled_flow · field_plasma · fft</text>
+<text x="317.0" y="961.0" font-size="12" class="dim">openmp · spatial · planar · tables</text>
+<text x="317.0" y="976.5" font-size="12" class="dim">multistep · dispersive</text>
+<text x="317.0" y="992.0" font-size="12" class="dim">dispersive_spatial</text>
+<text x="317.0" y="1007.5" font-size="12" class="dim">dispersive_general · low_storage</text>
+<text x="317.0" y="1023.0" font-size="12" class="dim">pass_timers</text>
+<rect x="32" y="1095.0" width="1010.0" height="230.0" rx="7" ry="7" class="plain" />
+<rect x="46" y="1193.0" width="34" height="34" rx="7" ry="7" class="fill-d" />
+<text x="63" y="1216.0" font-size="19" class="bold mid ink-d">D</text>
+<text x="90" y="1200.25" font-size="15" class="bold ink-d">driver</text>
+<text x="90" y="1217.75" font-size="12" class="dim">may import</text>
+<text x="168" y="1217.75" font-size="12" class="dim">P, T</text>
+<text x="168" y="1233.25" font-size="12" class="dim">B through the seam, h5py</text>
+<rect x="307.0" y="1108.0" width="69.5" height="81.5" rx="7" ry="7" class="fill-d" />
+<text x="317.0" y="1130.0" font-size="15" class="bold ink-d">log.py</text>
+<rect x="386.5" y="1108.0" width="86.0" height="81.5" rx="7" ry="7" class="fill-d" />
+<text x="396.5" y="1130.0" font-size="15" class="bold ink-d">stats.py</text>
+<rect x="482.5" y="1108.0" width="251.00000000000003" height="81.5" rx="7" ry="7" class="fill-d" />
+<text x="492.5" y="1130.0" font-size="15" class="bold ink-d">stepper/</text>
+<text x="492.5" y="1145.5" font-size="12" class="dim">tableau · runge_kutta · multistep</text>
+<text x="492.5" y="1161.0" font-size="12" class="dim">low_storage · controller · schedule</text>
+<rect x="743.5" y="1108.0" width="251.00000000000003" height="81.5" rx="7" ry="7" class="fill-d" />
+<text x="753.5" y="1130.0" font-size="15" class="bold ink-d">output/</text>
+<text x="753.5" y="1145.5" font-size="12" class="dim">schema · compatibility · capability</text>
+<text x="753.5" y="1161.0" font-size="12" class="dim">memory · hdf5 · tdse_archive</text>
+<text x="753.5" y="1176.5" font-size="12" class="dim">snapshots · scan · scan_artifacts</text>
+<rect x="307.0" y="1199.5" width="77.75" height="112.5" rx="7" ry="7" class="fill-d" />
+<text x="317.0" y="1221.5" font-size="15" class="bold ink-d">scan.py</text>
+<rect x="394.75" y="1199.5" width="204.8" height="112.5" rx="7" ry="7" class="fill-d" />
+<text x="404.75" y="1221.5" font-size="15" class="bold ink-d">driver/executors/</text>
+<text x="404.75" y="1237.0" font-size="12" class="dim">local · pool · queue · slurm</text>
+<text x="404.75" y="1252.5" font-size="12" class="dim">batch</text>
+<rect x="609.55" y="1199.5" width="224.60000000000002" height="112.5" rx="7" ry="7" class="fill-d" />
+<text x="619.55" y="1221.5" font-size="15" class="bold ink-d">driver/</text>
+<text x="619.55" y="1237.0" font-size="12" class="dim">simulation · run · summary</text>
+<text x="619.55" y="1252.5" font-size="12" class="dim">interface · scaffold · mixtures</text>
+<text x="619.55" y="1268.0" font-size="12" class="dim">material_output · tdse</text>
+<text x="619.55" y="1283.5" font-size="12" class="dim">tdse_consistency · scan · batch</text>
+<text x="619.55" y="1299.0" font-size="12" class="dim">memory</text>
+<rect x="32" y="1371.0" width="1010.0" height="107.5" rx="7" ry="7" class="plain" />
+<rect x="46" y="1407.75" width="34" height="34" rx="7" ry="7" class="fill-x" />
+<text x="63" y="1430.75" font-size="19" class="bold mid ink-x">X</text>
+<text x="90" y="1407.25" font-size="15" class="bold ink-x">processing / plotting</text>
+<text x="90" y="1424.75" font-size="12" class="dim">may import</text>
+<text x="168" y="1424.75" font-size="12" class="dim">numpy, scipy</text>
+<text x="168" y="1440.25" font-size="12" class="dim">matplotlib, D (outputs)</text>
+<text x="168" y="1455.75" font-size="12" class="dim">T (table identities)</text>
+<rect x="307.0" y="1384.0" width="244.4" height="81.5" rx="7" ry="7" class="fill-x" />
+<text x="317.0" y="1406.0" font-size="15" class="bold ink-x">processing/</text>
+<text x="317.0" y="1421.5" font-size="12" class="dim">axes · fields · spectra · time</text>
+<text x="317.0" y="1437.0" font-size="12" class="dim">coherence · compression · mixtures</text>
+<text x="317.0" y="1452.5" font-size="12" class="dim">modal · planes · scans</text>
+<rect x="561.4" y="1384.0" width="178.4" height="81.5" rx="7" ry="7" class="fill-x" />
+<text x="571.4" y="1406.0" font-size="15" class="bold ink-x">plotting/</text>
+<text x="571.4" y="1421.5" font-size="12" class="dim">propagation · statistics</text>
+<text x="571.4" y="1437.0" font-size="12" class="dim">spectrograms · style</text>
+<rect x="749.8" y="1384.0" width="69.5" height="81.5" rx="7" ry="7" class="fill-x" />
+<text x="759.8" y="1406.0" font-size="15" class="bold ink-x">sol.py</text>
+<rect x="829.3" y="1384.0" width="110.75000000000001" height="81.5" rx="7" ry="7" class="planned" />
+<text x="839.3" y="1406.0" font-size="15" class="bold dim">processing/</text>
+<text x="839.3" y="1421.5" font-size="12" class="dim">windows</text>
+<path d="M326.0,490.0 L326.0,454.0" class="arrow" />
+<path d="M326.0,454.0 L329.6,463.0 L322.4,463.0 Z" class="head" />
+<text x="338.0" y="476.0" font-size="12" class="dim">T → P   physics objects</text>
+<path d="M334.0,736.5 L334.0,700.5" class="arrow" />
+<path d="M334.0,700.5 L337.6,709.5 L330.4,709.5 Z" class="head" />
+<text x="346.0" y="722.5" font-size="12" class="dim">B → T   delta_phi, prefactor_at, the stage bundle</text>
+<path d="M342.0,1090.0 L342.0,1054.0" class="arrow" />
+<path d="M342.0,1054.0 L345.6,1063.0 L338.4,1063.0 Z" class="head" />
+<text x="354.0" y="1076.0" font-size="12" class="dim">D → B   backends.select, then the seam</text>
+<path d="M350.0,1366.0 L350.0,1330.0" class="arrow" />
+<path d="M350.0,1330.0 L353.6,1339.0 L346.4,1339.0 Z" class="head" />
+<text x="362.0" y="1352.0" font-size="12" class="dim">X → D   a saved run, through the Output protocol</text>
+<path d="M1046.0,1210.0 L1068.0,1210.0 L1068.0,595.25 L1048.0,595.25" class="arrow" />
+<path d="M1048.0,595.25 L1057.0,591.65 L1057.0,598.85 Z" class="head" />
+<rect x="1059.0" y="893.625" width="18" height="18" rx="7" ry="7" class="card" />
+<text x="1068.0" y="906.625" font-size="12" class="bold mid dim">1</text>
+<path d="M1046.0,1210.0 L1100.0,1210.0 L1100.0,281.25 L1048.0,281.25" class="arrow" />
+<path d="M1048.0,281.25 L1057.0,277.65 L1057.0,284.85 Z" class="head" />
+<rect x="1091.0" y="736.625" width="18" height="18" rx="7" ry="7" class="card" />
+<text x="1100.0" y="749.625" font-size="12" class="bold mid dim">2</text>
+<path d="M1046.0,895.25 L1132.0,895.25 L1132.0,281.25 L1048.0,281.25" class="arrow" />
+<path d="M1048.0,281.25 L1057.0,277.65 L1057.0,284.85 Z" class="head" />
+<rect x="1123.0" y="579.25" width="18" height="18" rx="7" ry="7" class="card" />
+<text x="1132.0" y="592.25" font-size="12" class="bold mid dim">3</text>
+<path d="M1046.0,1424.75 L1164.0,1424.75 L1164.0,595.25 L1048.0,595.25" class="arrow" />
+<path d="M1048.0,595.25 L1057.0,591.65 L1057.0,598.85 Z" class="head" />
+<rect x="1155.0" y="1001.0" width="18" height="18" rx="7" ry="7" class="card" />
+<text x="1164.0" y="1014.0" font-size="12" class="bold mid dim">4</text>
+<text x="32" y="1516.0" font-size="12" class="dim">1   Simulation calls translate.assemble</text>
+<text x="32" y="1531.5" font-size="12" class="dim">2   the driver builds the grid, the modes, the pulse and the responses</text>
+<text x="32" y="1547.0" font-size="12" class="dim">3   the statistics path: a backend is handed grid, modes and profiles at construction: the one import of P that architecture.md §3 allows B, types and constants, never a physics object</text>
+<text x="32" y="1562.5" font-size="12" class="dim">4   processing.modal takes the run's own ModalTransformTables beside the handler: a general modal file records what its reference is and not the arrays, so the reference is rebuilt in T and read in X</text>
+<text x="32" y="1578.0" font-size="12" class="dim">The package-wide modules carry no layer letter:  __init__.py  ·  exceptions.py</text>
 </svg>
