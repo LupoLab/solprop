@@ -2316,7 +2316,7 @@ def planar_hybrid() -> drawsvg.Drawing:
             "The same plates, a = 63.5 µm, to scale in x; y schematic. The slab "
             "rule's nodes in x",
             f"({grid.x.size} here) on every one of {grid.n_y} periodic y samples, "
-            "the outer rows in the collar.",
+            "the outer rows in the room for a collar.",
         ),
     )
     section = Section(170.0, 212.0, 105.0 / (half_gap + plate))
@@ -2386,7 +2386,7 @@ def planar_hybrid() -> drawsvg.Drawing:
             section.cy - 0.5 * (grid.radius_y + outer) * per_metre,
         ),
         (LABEL_X + 30, 150),
-        ("periodic + absorbing", "collar in y (applied)"),
+        ("periodic in y; a collar", "there on request"),
     )
     _label(
         drawing,
@@ -2452,10 +2452,10 @@ def radial_free() -> drawsvg.Drawing:
         500,
         "Radial free space",
         (
-            "RadialGrid(1 mm, 24): the order-zero QDHT samples at the zeros of J₀, and "
-            "a Planck",
-            "collar occupies the outer tenth. A Gaussian beam of 0.3 mm waist on the "
-            "nodes.",
+            "RadialGrid(R, 24, collar_fraction=0.1): the order-zero QDHT samples at "
+            "the zeros of J₀;",
+            "the outer tenth is room outside R for a collar on request. A Gaussian "
+            "beam of 0.3 mm waist.",
         ),
     )
     section = Section(CORE_CX, CORE_CY + 5, CORE_PX / radius)
@@ -2494,8 +2494,9 @@ def radial_free() -> drawsvg.Drawing:
         ),
         (LABEL_X, 152),
         (
-            "absorbing collar, outer 10 %",
-            "a rate in every stage, not a mask",
+            "room outside R: a collar",
+            "there on request, a rate",
+            "in every stage",
         ),
     )
     _label(
@@ -2563,9 +2564,9 @@ def cartesian_free() -> drawsvg.Drawing:
         500,
         "Cartesian free space",
         (
-            "FreeGrid(0.3 mm, 16, 0.2 mm, 12): a periodic box whose extra tenth on "
-            "each side is",
-            "the absorbing collar, sampled by the FFT, with x fastest in the "
+            "FreeGrid(0.3 mm, 16, 0.2 mm, 12, collar_fraction=0.1): a periodic box "
+            "whose extra tenth",
+            "on each side is room for a collar on request; x is fastest in the "
             "flattened columns.",
         ),
     )
@@ -2635,7 +2636,7 @@ def cartesian_free() -> drawsvg.Drawing:
         (section.px(outer_x), section.py(-0.4 * grid.radius_y)),
         (LABEL_X + 20, 92),
         (
-            "periodic + absorbing collar",
+            "periodic; room outside",
             "half-width radius × (1 + 0.1)",  # noqa: RUF001 - the glyph is what the figure prints
         ),
     )
@@ -2644,7 +2645,7 @@ def cartesian_free() -> drawsvg.Drawing:
         (section.px(0.5 * grid.radius_x), section.py(-1.05 * grid.radius_y)),
         (LABEL_X + 20, 138),
         (
-            "collar: product of two Planck",
+            "a requested collar: two Planck",
             "windows; dim nodes are in it",
         ),
     )
@@ -2777,8 +2778,8 @@ def line_free() -> drawsvg.Drawing:
         (section.px(outer), section.cy - 40),
         (LABEL_X + 20, 92),
         (
-            "periodic + absorbing collar",
-            "in x only; no y collar",
+            "periodic; a collar in x on",
+            "request, none in y",
         ),
     )
     _label(

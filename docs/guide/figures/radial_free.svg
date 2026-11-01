@@ -85,8 +85,8 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 </style>
 <rect x="0" y="0" width="560" height="500" class="ground" />
 <text x="20.0" y="26.0" font-size="15" class="bold">Radial free space</text>
-<text x="20.0" y="44.0" font-size="11" class="dim">RadialGrid(1 mm, 24): the order-zero QDHT samples at the zeros of J₀, and a Planck</text>
-<text x="20.0" y="58.0" font-size="11" class="dim">collar occupies the outer tenth. A Gaussian beam of 0.3 mm waist on the nodes.</text>
+<text x="20.0" y="44.0" font-size="11" class="dim">RadialGrid(R, 24, collar_fraction=0.1): the order-zero QDHT samples at the zeros of J₀;</text>
+<text x="20.0" y="58.0" font-size="11" class="dim">the outer tenth is room outside R for a collar on request. A Gaussian beam of 0.3 mm waist.</text>
 <circle cx="170.0" cy="210.0" r="118.0" class="gas" />
 <path d="M288.0,210.0 A118.0,118.0,0,1,0,52.0,210.0 A118.0,118.0,0,1,0,288.0,210.0 Z M277.27,210.0 A107.27,107.27,0,1,0,62.73,210.0 A107.27,107.27,0,1,0,277.27,210.0 Z" class="collar" fill-rule="evenodd" />
 <circle cx="170.0" cy="210.0" r="3.65" class="ring" />
@@ -156,8 +156,9 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 <text x="330.0" y="120.0" font-size="11" class="dim">α_i the zeros of J₀</text>
 <circle cx="90.35" cy="289.65" r="2.2" class="node-dim" />
 <path d="M90.35,289.65 L325.0,148.0" class="leader" />
-<text x="330.0" y="152.0" font-size="12.5" class="">absorbing collar, outer 10 %</text>
-<text x="330.0" y="166.0" font-size="11" class="dim">a rate in every stage, not a mask</text>
+<text x="330.0" y="152.0" font-size="12.5" class="">room outside R: a collar</text>
+<text x="330.0" y="166.0" font-size="11" class="dim">there on request, a rate</text>
+<text x="330.0" y="180.0" font-size="11" class="dim">in every stage</text>
 <text x="330.0" y="200.0" font-size="12.5" class="">each Cartesian component</text>
 <text x="330.0" y="214.0" font-size="11" class="dim">cylindrically symmetric;</text>
 <text x="330.0" y="228.0" font-size="11" class="dim">a gas may vary along z</text>
