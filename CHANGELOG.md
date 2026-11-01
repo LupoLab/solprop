@@ -105,6 +105,18 @@ All notable changes to solprop are recorded here. The format follows
 
 - A gallery page re-run on its own keeps its `MaterialRangeWarning`: the docs build's
   import of `solprop.sol` silenced it for every script after.
+- A scan derived from one cached simulation, the scans guide's own recipe, now gives every
+  point its own noise seed. `with_input(noise="keep")` and `with_mixture` keep the ability
+  to draw unseeded noise again, and the draw replaces only the initial noise of the shared
+  translation. Before, such points shared the base's draw, depended on the worker under
+  `Pool`, could not be rerun in a new process and failed under `base_seed`. Resuming a
+  derived, unseeded run now takes the file's seed, as a constructor's does, instead of
+  being refused.
+- One object returned by a scan builder for every point no longer collapses a noise
+  ensemble under `Batch`, where every member ran on the last point's noise while the file
+  recorded each point's own seed. The draw now goes on a copy, and the builder's object is
+  left as it is. A file written by such a scan holds the wrong noise for its recorded
+  seeds and a rerun does not detect it: run those points again.
 - A scan file whose points' run records declare another output schema, a 0.1.0 scan
   among them, is refused by name, in the words a run file is refused with, when it is
   read (`ScanOutput`, `read_point`) or resumed or collected (`run_scan`, a queue's
