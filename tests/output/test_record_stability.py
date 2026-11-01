@@ -15,10 +15,11 @@ field a later change adds or removes fails until it has a neutral value
 (:data:`solprop.output.compatibility.NEUTRAL_VALUES`), which is what enforces that rule.
 An optmat data revision moves a model's digest and the arrays built from its data; a
 case whose digests moved is then compared by structure alone, and logs them. A case
-with no optmat data, such as the GNLSE one, is always compared in full. The first set is
-the one that ships with 0.2.0; until that release is tagged it is refreshed with
-:func:`write_frozen`, and afterwards a release adds its own set by checking out its tag
-(``docs/dev/releasing.md``).
+with no optmat data, such as the GNLSE one, is always compared in full. Each release's
+set is a folder of ``frozen/``. The first is 0.2.0's: until that release is tagged it
+is refreshed with :func:`write_frozen`, and afterwards each release adds its own folder
+from a checkout of its tag (``docs/dev/releasing.md``). A folder goes, with the neutral
+values that name its release, once the next minor release after it is out (ADR-063).
 
 **Pinned skeletons.** The records were
 first pinned before five later changes, which the projection in :func:`split` takes
@@ -61,6 +62,8 @@ from test_display import without_optmat_release
 
 STORED = Path(__file__).with_suffix("")
 FROZEN = STORED / "frozen"
+FROZEN_RELEASES = tuple(sorted(path.name for path in FROZEN.iterdir() if path.is_dir()))
+"""The releases whose records are frozen: one folder each."""
 
 FROZEN_CASES = (
     "capillary",
@@ -285,9 +288,10 @@ def write_stored() -> None:  # pragma: no cover - run by hand to set the records
 # ------------------------------------------------------------------ frozen records
 
 
-def frozen(kind: str) -> RunMetadata:
+def frozen(release: str, kind: str) -> RunMetadata:
     """Return the frozen record of one case, as the release wrote it."""
-    with gzip.open(FROZEN / f"{kind}.json.gz", "rt", encoding="utf-8") as stored:
+    path = FROZEN / release / f"{kind}.json.gz"
+    with gzip.open(path, "rt", encoding="utf-8") as stored:
         return RunMetadata.from_json(stored.read())
 
 
@@ -302,8 +306,9 @@ def digests(metadata: RunMetadata) -> set[str]:
 
 
 @pytest.mark.parametrize("kind", FROZEN_CASES)
-def test_a_frozen_record_continues_with_this_build(kind):
-    stored = frozen(kind)
+@pytest.mark.parametrize("release", FROZEN_RELEASES)
+def test_a_frozen_record_continues_with_this_build(release, kind):
+    stored = frozen(release, kind)
     current = build(kind).metadata()
     comparison = stored.compare(current)
     changes = (*comparison.layout, *comparison.refused, *comparison.numerics)
@@ -324,7 +329,7 @@ def test_a_frozen_record_continues_with_this_build(kind):
             for change in changes
         ), comparison.summary()
         return
-    assert comparison.continues, f"{kind}: {comparison.summary()}"
+    assert comparison.continues, f"{release} {kind}: {comparison.summary()}"
 
 
 def route_records() -> list[dict[str, Any]]:
@@ -381,9 +386,14 @@ def test_every_row_of_the_class_table_matches_a_recorded_path():
     assert not stale, stale
 
 
-def write_frozen() -> None:  # pragma: no cover - run by hand until 0.2.0 is tagged
-    """Write each case's whole record, as this build writes it."""
-    FROZEN.mkdir(exist_ok=True)
+def write_frozen(release: str) -> None:  # pragma: no cover - run by hand at a release
+    """Write each case's whole record, as this build writes it, under `release`.
+
+    Run from a checkout of the release's tag (``docs/dev/releasing.md``); 0.2.0's set is
+    refreshed from the tree until that release is tagged.
+    """
+    folder = FROZEN / release
+    folder.mkdir(parents=True, exist_ok=True)
     for kind in FROZEN_CASES:
-        with gzip.open(FROZEN / f"{kind}.json.gz", "wt", encoding="utf-8") as out:
+        with gzip.open(folder / f"{kind}.json.gz", "wt", encoding="utf-8") as out:
             out.write(build(kind).metadata().to_json())

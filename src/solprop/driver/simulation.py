@@ -340,7 +340,7 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-type ResumeChoice = bool | Literal["interpolated", "force"]
+type _ResumeChoice = bool | Literal["interpolated", "force"]
 """What ``resume`` takes: no, yes, from an interpolated plane, or across compared
 differences (SEP 42 section 5.5)."""
 
@@ -2870,7 +2870,7 @@ class Simulation(Displayed):
         *,
         progress: ProgressReporter | ProgressChoice | None = None,
         progress_period: float = DEFAULT_PROGRESS_PERIOD,
-        resume: ResumeChoice = False,
+        resume: _ResumeChoice = False,
         memory_budget: int | str | None = None,
         tdse_archive: TDSEArchive | None = None,
         snapshots: SnapshotController | None = None,
@@ -7784,7 +7784,7 @@ def _open_output(
     output: Output | Path | str | None,
     metadata: RunMetadata,
     *,
-    resume: ResumeChoice,
+    resume: _ResumeChoice,
 ) -> tuple[Output, ResumeState | None, RecordComparison | None]:
     """Choose the handler a run writes to, and read what a resumed file holds.
 
@@ -8041,7 +8041,7 @@ def _check_forced_shapes(
         raise OutputError(msg)
 
 
-def _refuse_interpolated(path: Path, state: ResumeState, resume: ResumeChoice) -> None:
+def _refuse_interpolated(path: Path, state: ResumeState, resume: _ResumeChoice) -> None:
     """Refuse to continue from a plane interpolated inside a step, unless accepted.
 
     An interpolated plane is not a state the march passed through, so a run restarted
@@ -8079,7 +8079,7 @@ def _resume_decision(
     state: ResumeState,
     next_plane: int,
     comparison: RecordComparison,
-    resume: ResumeChoice,
+    resume: _ResumeChoice,
 ) -> _Continuation | None:
     """Decide what a resume of a file does, once the records' layouts agree.
 

@@ -1162,7 +1162,8 @@ Withdrawn (development-process record, not a design decision).
 - **Status:** accepted; withdraws the source filter of
   [SEP 12](seps/archive/sep-0012-tdse-nonlinear-response.md) and
   [SEP 26](seps/archive/sep-0026-edge-free-tdse-source.md); one exception added on
-  2026-10-28 (`collar_placement="inside"`)
+  2026-10-28 (`collar_placement="inside"`); its rules on resuming and on recorded fields
+  narrowed by ADR-063
 - **Context:** before a first release there are no external output files to keep. An
   option or reader whose only purpose is to reproduce an earlier form of a configuration
   or record is a second code path to test and document, with no scientific use.
@@ -1187,8 +1188,10 @@ Withdrawn (development-process record, not a design decision).
   no scientific use of it was found.
 - **Consequences:** an unwindowed native SAE run's lattice must pass the certificate. A
   change that moves an identity bumps the version it moves and adds no compatibility
-  layer; a resume-compatibility policy is decided before 1.0 (ADR-058;
-  [SEP 42](seps/sep-0042-tolerant-resume.md)).
+  layer. ADR-063 sets the resume-compatibility policy: a file of another output schema
+  is still never resumed, but by that precondition rather than through the resume key,
+  and a field added to a record carries a neutral value rather than refusing every
+  earlier file.
 
 ## ADR-052 — One thread budget per process, which every pool stays within
 
@@ -1519,8 +1522,8 @@ Withdrawn (development-process record, not a design decision).
 - **Why:** breaking costs nothing before anyone depends on the package, and a promise
   made now would freeze seams already known to need work.
 - **Consequences:** a released version cannot read a development output file; keep an
-  older install for those. [SEP 42](seps/sep-0042-tolerant-resume.md) sets the
-  resume-compatibility policy.
+  older install for those. ADR-063 sets the resume-compatibility policy
+  ([SEP 42](seps/sep-0042-tolerant-resume.md)).
 
 ## ADR-059 — Host vector maths on SLEEF for the native CPU kernels on x86-64
 
@@ -1694,3 +1697,48 @@ Withdrawn (development-process record, not a design decision).
   - Until the page is gone, what is planned is the issues and the roadmap together: check
     both before starting something or reporting it as missing.
   - A SEP's open questions at `Final` go to issues (SEP 0).
+
+## ADR-063 — A resume compares records by what matters to the run
+
+- **Status:** accepted (maintainer, 2026-11-01, with
+  [SEP 42](seps/sep-0042-tolerant-resume.md)); narrows ADR-051 and sets the policy
+  ADR-058 left open
+- **Context:** a file resumed only when the rebuilt run's configuration hash equalled
+  the stored one. A release that added a field, an optmat release with the same numbers,
+  a looser tolerance or another platform's mathematics library each refused a resume of
+  the same physics, and there was no way to insist.
+- **Decision:**
+  - A resume compares the stored and requested records path by path. A table sorts each
+    recorded path into **layout** (it must agree, with no override), **compared** (the
+    default for any unclassified path; it must agree unless the resume is forced),
+    **numerics** (it may change while there is work left, and is recorded) or
+    **ignored** (provenance, and realisations whose parameters are compared). The table
+    is `solprop.output.compatibility.CLASS_TABLE`, reviewed like code.
+  - Numbers agree per element to `RECORD_RTOL` = 1e-11 of the larger, with an
+    array-scale floor only on named tails; the save planes, the length and the launch
+    position are exact. optmat models are compared by the digest of their numbers.
+  - A path one record lacks is a difference unless a release declares its neutral value
+    in `NEUTRAL_VALUES`; a field's default is never consulted. An entry lives for the
+    release that adds it and the next minor release, and goes with the frozen records it
+    serves. Every field is still recorded, at its default too (ADR-051).
+  - A stored record is read and compared as it was written. A file of another output
+    schema is refused before the comparison, as ADR-058 requires.
+  - A finished file is returned only when every session ran under the requested
+    numerics. `resume="force"` continues across compared differences while the layout
+    agrees, the statistics fit and work is left; it restarts the Adams history, marks the
+    file in its execution record, and later sessions and readers respect the mark.
+  - The output schema is bumped only for a change an older reader would misread or could
+    not append to: a dataset renamed, re-laid or given new units, an attribute that
+    changes meaning, anything added inside `stats`, `step_history` or `step_stats`, or
+    anything grown per plane. A new field of the JSON record, a root attribute or a
+    top-level group written once does not bump it.
+  - The exact identities stay exact: the file's stamp, a scan row, a suspended writer, a
+    snapshot, and the Queue and Slurm executors' manifests and per-point checks.
+- **Why:** continue a run whenever the stored state and the requested problem give the
+  run asked for, and refuse with a reason otherwise, with the compatibility code one
+  table of classes and one table of neutral values rather than versioned hashers.
+- **Consequences:** a new recorded field needs a decision, which the frozen records of
+  `tests/output/test_record_stability.py` enforce; each release adds its frozen records
+  from its tag (`docs/dev/releasing.md`). 0.2.0, the first release of output schema 2,
+  is tagged after SEP 42, so that every released reader of schema 2 knows these rules; a
+  later change to what force records bumps the schema.

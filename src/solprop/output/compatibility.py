@@ -44,6 +44,8 @@ from typing import Final
 
 import numpy as np
 
+from solprop.modes.material import JsonValue
+
 __all__ = [
     "CLASS_RENAMES",
     "CLASS_TABLE",
@@ -53,18 +55,17 @@ __all__ = [
     "PathChange",
     "PathClass",
     "RecordComparison",
+    "RecordPath",
     "Row",
     "classify",
     "compare_records",
     "dotted",
     "neutral_value",
+    "record_paths",
 ]
 
-type JsonValue = (
-    bool | int | float | str | list[JsonValue] | dict[str, JsonValue] | None
-)
-type Component = str | int
-type RecordPath = tuple[Component, ...]
+type RecordPath = tuple[str | int, ...]
+"""A path into a run record: mapping keys and list indices, never a dotted string."""
 
 RECORD_RTOL: Final = 1e-11
 """How far apart two recorded numbers may be and still agree, relative to the larger.
@@ -169,7 +170,7 @@ def _pattern(text: str) -> tuple[PatternComponent, ...]:
     return tuple(components)
 
 
-def _component_matches(pattern: PatternComponent, component: Component) -> bool:
+def _component_matches(pattern: PatternComponent, component: str | int) -> bool:
     """Say whether one pattern component matches one path component.
 
     Parameters
@@ -194,7 +195,7 @@ def _component_matches(pattern: PatternComponent, component: Component) -> bool:
 
 
 def _prefix_matches(
-    pattern: Sequence[PatternComponent], path: Sequence[Component]
+    pattern: Sequence[PatternComponent], path: Sequence[str | int]
 ) -> bool:
     """Say whether a pattern matches a path or one of its ancestors.
 
@@ -221,7 +222,7 @@ def _prefix_matches(
 
 
 def _full_matches(
-    pattern: Sequence[PatternComponent], path: Sequence[Component]
+    pattern: Sequence[PatternComponent], path: Sequence[str | int]
 ) -> bool:
     """Say whether a pattern matches a path exactly, not only an ancestor of it.
 
@@ -247,7 +248,7 @@ def _full_matches(
     return _component_matches(head, path[0]) and _full_matches(rest, path[1:])
 
 
-def _lookup(record: JsonValue, path: Sequence[Component]) -> tuple[bool, JsonValue]:
+def _lookup(record: JsonValue, path: Sequence[str | int]) -> tuple[bool, JsonValue]:
     """Return whether a record holds a path, and the value there.
 
     Parameters
@@ -316,7 +317,8 @@ class Row:
     Attributes
     ----------
     pattern : str
-        The written pattern (:func:`_pattern`).
+        The written pattern: components separated by ``.``, ``*`` for one
+        component, ``**`` for any number and ``{a,b}`` for alternatives.
     kind : PathClass
         The class of the paths it matches.
     reason : str
@@ -341,7 +343,7 @@ class Row:
     when: Callable[[JsonValue], bool] | None = None
 
     @property
-    def components(self) -> tuple[PatternComponent, ...]:
+    def components(self) -> tuple[object, ...]:
         """Return the parsed pattern.
 
         Returns
@@ -529,7 +531,7 @@ class Neutral:
     Attributes
     ----------
     pattern : str
-        The path, as a pattern (:func:`_pattern`).
+        The path, as a pattern written as :class:`Row`'s.
     value : object
         The value an absent path reads as, in its serialised form.
     release : str
@@ -564,7 +566,7 @@ _NEUTRAL_PARSED: Final = tuple(
 )
 
 
-def neutral_value(path: Sequence[Component]) -> tuple[bool, JsonValue]:
+def neutral_value(path: Sequence[str | int]) -> tuple[bool, JsonValue]:
     """Return the neutral value of a recorded path, if a release declared one.
 
     Parameters
@@ -591,7 +593,7 @@ def neutral_value(path: Sequence[Component]) -> tuple[bool, JsonValue]:
 
 
 def classify(
-    path: Sequence[Component],
+    path: Sequence[str | int],
     stored: JsonValue = None,
     requested: JsonValue = None,
 ) -> Row | None:
@@ -625,7 +627,7 @@ def classify(
     return None
 
 
-def dotted(path: Sequence[Component]) -> str:
+def dotted(path: Sequence[str | int]) -> str:
     """Return a path as one readable string, keys joined by dots and indices bracketed.
 
     Parameters

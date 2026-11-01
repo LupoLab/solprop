@@ -2099,9 +2099,10 @@ class MarchSnapshot:  # numpydoc ignore=PR02
         holds the first step after it returns to its stable step (SEP 39 section
         6.5.9).
     history_key : str or None
-        What defines the history (:attr:`solprop.stepper.Multistep.history_key`),
-        which the resuming method's must equal; ``None`` for a snapshot that names
-        none, which starts the history afresh (SEP 42 section 5.6).
+        What defines the history
+        (:attr:`solprop.stepper.multistep.Multistep.history_key`), which the resuming
+        method's must equal; ``None`` for a snapshot that names none, which starts the
+        history afresh (SEP 42 section 5.6).
 
     Raises
     ------

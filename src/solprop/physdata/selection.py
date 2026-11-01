@@ -49,6 +49,7 @@ __all__ = [
     "ModelChoice",
     "ModelIdentityLike",
     "OptmatModel",
+    "hashed_document",
 ]
 
 STATUSES: Final[tuple[str, ...]] = (

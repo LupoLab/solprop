@@ -15,7 +15,7 @@
 | **Requires** | — |
 | **Supersedes** | — |
 | **Superseded-by** | — |
-| **Implementation** | In progress: John Travers, with Opus 5.5, on `feature/sep-0042-tolerant-resume`; phase 1 started 2026-11-01 |
+| **Implementation** | In progress: John Travers, with Opus 5.5, on `feature/sep-0042-tolerant-resume`; phase 1 complete 2026-11-01, phase 2 next |
 | **Manual pages** | — |
 
 ## Part I — Proposal
@@ -800,6 +800,136 @@ from that tree (§7, §9).
 
 ## Part II — Implementation record
 
+### Phase 1 — report
+
+**Scope.**
+
+- Phase 1, the comparison and resume, 2026-11-01.
+- Opus 5.5 (AI) for John Travers, on `feature/sep-0042-tolerant-resume`: c3d620d (the
+  comparison and the raw record), a19febf (the gate and force), 9bf42e6 (the numerics
+  behind the gate), 754e55e (the readers of a forced file), bf714ae (frozen records),
+  07e4fba (manual and docstrings), and the commit adding the ADR and this report. `main`
+  was merged in once, at 11cd808.
+
+**Delivered.**
+
+- **The comparison** (`src/solprop/output/compatibility.py`): `CLASS_TABLE` (the rows of
+  §5.2 in order, with `exact`, `tail`, subtree and conditional rows), `NEUTRAL_VALUES`
+  (empty) and `CLASS_RENAMES` (empty), the normalisation of §4, per-element agreement to
+  `RECORD_RTOL`, `PathChange`, `RecordComparison` (`continues`, `identical`,
+  `numerics_record`, `compared_summary`, `summary`) and `compare_records`.
+  `RunMetadata.compare` adds the digest fast path.
+- **Records read as written** (`output/schema.py`, `physdata/selection.py`): `from_json`
+  keeps the stored hashed part, and `hashed()` and `configuration_hash()` use it, so a
+  stored record digests to its own stamp; `_rebuild` and `StepperRecord.from_record`
+  drop unknown fields and fill absent ones from `N` or a default, refusing a required one
+  by path; `hashed_document` takes the manifest's hashed part from the stored text.
+- **The gate** (`output/hdf5.py`, `driver/simulation.py`, `driver/run.py`):
+  `check_cache` on the comparison, with a refusal that names what differs and the
+  remedy; `_open_output` refuses the layout, and compared values unless forced;
+  `_resume_decision` applies §4's verdict, with work left by position (`_work_left`
+  replaces `_completed`); `RunOutcome.resumes` and `forced_positions` read the entries;
+  `run_problem(resume_record=...)` writes the entry through `PlaneStore.record_resume`
+  with every execution record of the session; `HDF5Output(..., gated=True)` adopts the
+  file's record, and compares when used directly; the TDSE archive context takes the
+  stored hash.
+- **The numerics behind the gate**: a logical ledger crosses into Runge–Kutta
+  (`_validate_resume`, `StepDriver.restore_call_ledgers`); `Multistep.history_key`,
+  `MarchSnapshot.history_key` and its HDF5 attribute, compared by `AdamsMarch._refusal`;
+  the interpolated-plane test reads the file.
+- **Force**: `resume="force"` with its `ValueError` for other values, the shape check
+  (`_check_forced_shapes`), the restart, the warnings, the mark, and the readers:
+  `field_plane` (and so `source=`), the peak-field report, and the public `open_file`;
+  `_scan_run` and `snapshots` read through the read-only handler, quietly.
+- **Tests**: `tests/output/test_compatibility.py`, `tests/driver/test_tolerant_resume.py`,
+  `tests/driver/test_force_resume.py`; frozen records and the table check in
+  `tests/output/test_record_stability.py` (fixtures in
+  `tests/output/test_record_stability/frozen/0.2.0/`); refusal texts and changed
+  behaviour updated in `test_handlers`, `test_resume`, `test_modal_resume`,
+  `test_material_resume`, `test_material_manifest`, `test_moving_guide`, `test_schema`,
+  `test_resume_history`, `test_initial_z_and_checkpoint` and `test_dense_output`.
+- **Documentation**: `docs/guide/results/resuming.md` ("What a resume compares"),
+  `run-access.md`, `output.md`, `docs/guide/workflows/luna.md`, `docs/dev/releasing.md`
+  (the frozen records at a release), ADR-063, the changelog, and the docstrings §8
+  names.
+
+**Deviations from the proposal.**
+
+1. **The interpolated-plane refusal applies only with work left.** §5.6 drops `dense and`;
+   tested on every file, a finished TDSE file whose last plane counts as interpolated was
+   refused, though a finished file continues from nothing. The test now runs in
+   `_resume_decision` once work is known to be left.
+2. **An optmat subtree becomes a marker, not nothing.** §4 drops it; a marker keeps a
+   swap between an optmat object and a solprop one visible, and hides as much.
+3. **Frozen records are kept per release**, in `frozen/<release>/`, so that each release
+   adds a folder and one goes with its neutral values (Q3).
+4. **The warnings of a continuation are given once it is sure to go ahead**: a forced
+   session warns after its statistics are found to fit, so that a refusal is not
+   preceded by "forcing a resume".
+5. **The T-class test of a changed tolerance** compares runs resumed from 1e-8 to 1e-9 and
+   back with the uninterrupted run at 1e-8, the looser: 2.2e-11 and 2.6e-10 against an
+   envelope of 5.1e-10, on `numpy_ref`. Loosening to 1e-7 is not tested this way, because
+   the uninterrupted run at 1e-7 lands at 3.7e-11 from the reference, nearer than the run
+   at 1e-8, so its envelope does not describe a trajectory restarted at the join, which
+   lands at 9e-9, inside its tolerance. The GNLSE default is Runge–Kutta, so no history
+   is involved in that measurement.
+
+**Decisions.**
+
+- How the handler learns that the gate passed (left open by F5): a keyword,
+  `HDF5Output(path, append=True, gated=True)`, set by `_open_output` alone.
+- How `run_problem` writes the entry: `PlaneStore.record_resume`, so every execution
+  record the session writes carries it, including those of the failure and abandoned-step
+  paths, without threading it through each.
+- `history_key` holds the formulation, the carrier frame and the highest order:
+  `Multistep.name` without the variable-order marker. A `ComparisonMultistep` keys on its
+  whole representation.
+- The layout rows for the mode count and the noise's presence classify only a difference
+  at the path itself (`subtree=False`).
+- `summary()` gives one line per class, and names a model whose numbers changed by
+  material, kind and digest; a refusal touching the manifest adds that models are
+  compared by digest and policies as recorded.
+- §5.2's check of `modal.channels`: the entries are mode labels (strings and integers,
+  `ChannelLabel.as_mapping`), no measured number, so the row stays layout.
+- `reference_temperature` stays compared: optmat's digest is that of the model's
+  `identity_record`, and comparing the field as well costs nothing.
+- ADR-063 records the policy and the schema rule; ADR-051 and ADR-058 point to it.
+
+**Verification.**
+
+- On this branch, macOS arm64: ruff, basedpyright and the docstring lint clean on the
+  changed files; the modules above, plus `tests/processing`, `tests/coupling`, the
+  snapshot, TDSE-archive, interrupt, scan and checkpoint modules, 1842 tests, passed on
+  `numpy_ref` and `numba_cpu` where they parametrise. No full gate, slow or coverage lane
+  was run (`AGENTS.md`).
+- **Force on every non-general route**, a probe outside the suite: the GNLSE,
+  mode-averaged, envelope, multimode, coherent-wall and taper-coupled capillaries, and the
+  radial, Cartesian, line and hybrid planar routes of `tests/capability_routes.py`, each
+  stopped at its entrance and forced with Kerr or pressure raised by a tenth, continued
+  to completion, warned and were marked. (The probe's own wrapper could not scale the
+  gradient capillary's pressure sequence; the GNLSE change it applied was none, and
+  `test_tolerant_resume.py` forces the GNLSE's `gamma`.)
+- **Force from an Adams snapshot above order two**: a GNLSE run at `rtol=1e-12` stopped
+  with an order-3 snapshot, forced to another `gamma`, started afresh and completed.
+
+**Sources checked.** None: no physical constant, coefficient or citation is added.
+
+**Limitations.**
+
+- No TDSE run under the comparison or force: `tdse.**` is layout and compared as text,
+  and CI has no provider.
+- The frozen records are this tree's, refreshed until 0.2.0 is tagged; no real pair of
+  files from two platforms beyond them.
+- The general modal routes were not probed under force.
+
+**Open questions.** None new.
+
+**Handoff.** Phase 2: in `ScanWriter.commit` (`output/scan.py`), a `conflict` result
+compares the stored record with the result's, numerics held to agreement
+(`RecordComparison.identical`), and treats a pass as `skipped`; the worker and `_Job`
+stay as they are. The schema rule goes into `output.md` and `contributing.md`, and
+`docs/guide/workflows/scans.md` (lines on exact reuse, and Queue and Slurm) follows.
+
 ## Part III — History
 
 - 2026-10-31: Drafted.
@@ -822,6 +952,7 @@ from that tree (§7, §9).
   merged: §3 lists the open issues, and the work this SEP gives back moved from the roadmap to
   [#141](https://github.com/LupoLab/solprop/issues/141).
 - 2026-11-01: In progress. Phase 1 started on `feature/sep-0042-tolerant-resume` (John Travers, with Opus 5.5).
+- 2026-11-01: Phase 1 complete (Part II); ADR-063 added.
 
 ### AI review — 2026-11-01 (Opus 5.5)
 

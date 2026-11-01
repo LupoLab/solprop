@@ -122,7 +122,7 @@ tolerance than it started with matches neither. Write a new file instead. A run 
 from the Adams integrator to Runge--Kutta keeps its charged call ledger in the earlier
 execution record, and an Adams history continues across a changed call budget or safety
 factor, since only the formulation, the carrier frame and the highest order define it
-({py:attr}`~solprop.stepper.Multistep.history_key`).
+({py:attr}`~solprop.stepper.multistep.Multistep.history_key`).
 
 ### Forcing a resume
 
@@ -152,18 +152,18 @@ sim.run("run.h5", resume="force")
   requested problem wrote them; anything rebuilt from the record does not.
 - The mark is respected. `resume=True` refuses a forced file with work left, naming the
   position, and returns a finished one with a warning; only `resume="force"` continues
-  it. {py:func}`~solprop.processing.field_plane` refuses a plane beyond the position,
+  it. {py:func}`~solprop.processing.planes.field_plane` refuses a plane beyond the position,
   `source=` included. The peak-field report reads only the forced session's planes.
   {py:func}`~solprop.output.hdf5.open_file` warns once.
 - A mistyped value of `resume` is a `ValueError`; scans have no `resume` and never
   force.
 
-**Force or a new segment.** {py:meth}`~solprop.driver.Simulation.with_input` from the
+**Force or a new segment.** {py:meth}`~solprop.driver.simulation.Simulation.with_input` from the
 last plane records a changed physics properly, in its own file, and that file can be
 coupled onward and processed from its record. Force keeps the same file, cumulative
 call ledgers, modified noise and fixed schedules, at the cost of a record that stops
 describing the later planes. Anything that will be coupled onward or processed from the
-record takes {py:meth}`~solprop.driver.Simulation.with_input`
+record takes {py:meth}`~solprop.driver.simulation.Simulation.with_input`
 ([starting from a saved interior field](interior-launch.md)).
 
 ### The resume key
