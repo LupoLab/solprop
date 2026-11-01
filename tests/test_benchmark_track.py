@@ -404,8 +404,20 @@ def test_a_device_plan_runs_each_case_once_and_its_rows_stand_apart():
             "device,Card Series\ncard0,AMD Instinct MI300X\n",
             "AMD Instinct MI300X",
         ),
+        (
+            None,
+            "device,Card Series,Card Model,Subsystem ID\n"
+            "card0,AMD Radeon Graphics,0x74b9,0x74a5\n",
+            "AMD MI325X",
+        ),
+        (
+            None,
+            "device,Card Series,Card Model\ncard0,AMD Radeon Graphics,0x1234\n",
+            None,
+        ),
         (None, None, None),
-        ("", "device,Card Model\ncard0,0x74a5\n", None),
+        ("", "device,Card Model\ncard0,0x74a5\n", "AMD MI325X"),
+        ("", "device,Card Model\ncard0,0x1234\n", None),
     ],
 )
 def test_the_gpu_is_named_from_the_vendor_query(nvidia, amd, model):

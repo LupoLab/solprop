@@ -143,11 +143,18 @@ def allocation_details() -> Record:
     return result
 
 
+# AMD Instinct parts by PCI device or subsystem ID, for ROCm releases whose Card Series
+# is the generic "AMD Radeon Graphics" (ROCm 10 on a cloud MI325X, which also
+# exposes the virtual-function ID 0x74b9 as its Card Model).
+_AMD_PARTS = {"0x74a1": "MI300X", "0x74a5": "MI325X", "0x74b9": "MI325X"}
+
+
 def gpu_model(nvidia: str | None, amd: str | None) -> str | None:
     """Name the first visible GPU from ``nvidia-smi`` or ``rocm-smi`` output.
 
     `nvidia` is ``nvidia-smi --query-gpu=name --format=csv,noheader``; `amd` is
-    ``rocm-smi --showproductname --csv``, whose ``Card Series`` column names the part.
+    ``rocm-smi --showproductname --csv``, whose ``Card Series`` column names the part,
+    or, where it is generic, its ``Card Model`` or ``Subsystem ID``.
     """
     for line in (nvidia or "").splitlines():
         if line.strip():
@@ -155,10 +162,15 @@ def gpu_model(nvidia: str | None, amd: str | None) -> str | None:
     lines = [line for line in (amd or "").splitlines() if line.strip()]
     if len(lines) > 1:
         header = [cell.strip() for cell in lines[0].split(",")]
-        if "Card Series" in header:
-            value = lines[1].split(",")[header.index("Card Series")].strip()
-            if value:
-                return value if value.startswith("AMD") else f"AMD {value}"
+        cells = dict(
+            zip(header, (cell.strip() for cell in lines[1].split(",")), strict=False)
+        )
+        value = cells.get("Card Series", "")
+        if not value or value == "AMD Radeon Graphics":
+            ids = (cells.get(key, "").lower() for key in ("Card Model", "Subsystem ID"))
+            value = next((_AMD_PARTS[i] for i in ids if i in _AMD_PARTS), "")
+        if value:
+            return value if value.startswith("AMD") else f"AMD {value}"
     return None
 
 

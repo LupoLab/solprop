@@ -7,6 +7,13 @@ All notable changes to solprop are recorded here. The format follows
 
 ## Unreleased
 
+### Added
+
+- The first performance-history rows (`benchmarks/history/`), recorded at 0.1.0 on
+  six CPU and three GPU hardware sets; `docs/dev/benchmarking.md` lists how each is
+  run. The benchmark harness names an AMD GPU from its PCI IDs where ROCm reports only
+  "AMD Radeon Graphics".
+
 ### Changed
 
 - The README, `CITATION.cff` and the citing page name solprop's Zenodo DOI,
