@@ -560,12 +560,40 @@ It does not predict the number of adaptive steps, which depends on the physics.
 
 #### 5.12 S12 — measured-pulse loaders
 
-`solprop.pulses.load_spectrum(path, *, wavelength_unit, columns, phase=None)` reads a
-delimited text file of wavelength (or frequency) and intensity, optionally with phase, and
-returns a `DataPulse` with the Jacobian applied when converting between wavelength and
-frequency densities. `load_retrieval(path, format=...)` reads common pulse-retrieval
-outputs (time or frequency amplitude and phase) into a `DataPulse`; the supported formats
-are listed in the manual and each has a test file.
+`solprop.pulses.load_spectrum(path, *, energy, axis="frequency", axis_unit="Hz",
+columns=(0, 1, 2), phase_convention="optics", ...)` reads a whitespace- or comma-delimited
+text file and returns a `DataPulse`. The default layout is the usual output of a
+measurement and retrieval, the same three columns Luna.jl's `DataPulse` documents:
+
+1. frequency in Hz;
+2. spectral power density, in arbitrary units, because `energy` sets the scale;
+3. spectral phase in radians; the column is optional, and a file without it has a flat
+   phase.
+
+`axis="wavelength"` applies the Jacobian between wavelength and frequency densities, and
+`columns` picks other columns. A descending axis is sorted. `phase_convention="fft"` reads
+the opposite sign: solprop's interface uses the optics convention (conventions.md §2), so
+a delay $\tau$ is $+\omega\tau$ here, while a file written for Luna.jl holds the FFT
+convention, in which the same delay is $-\omega\tau$.
+
+The phase needs care when it is regridded:
+
+- **It is interpolated as given.** A cubic spline runs through the file's unwrapped phase,
+  not through a phase re-derived from the complex spectrum. Wrapping an unwrapped phase and
+  unwrapping it again cannot recover a change of more than $\pi$ between samples. Today
+  `DataPulse.from_spectral_density` does exactly that: for a Gaussian spectrum with
+  20 000 fs² of group-delay dispersion, sampled every 0.4 nm at 800 nm, the spectrum built
+  on the grid differs from one built from densely sampled data by 13.5 %, and by 100 % at
+  1.6 nm, against $3\times10^{-10}$ and $8\times10^{-8}$ for a spline through the given
+  phase. So S12 changes `DataPulse` to keep the given phase.
+- **A wrapped column is recognised.** A column whose values all lie within a range of
+  $2\pi$ is taken as wrapped and unwrapped; any other is taken as unwrapped and left alone.
+- **The noise floor does not steer the unwrapping.** A wrapped phase is unwrapped only over
+  samples above a small fraction of the peak power, and held at the nearest such sample
+  beyond them, where the measured phase means nothing.
+
+Tool-specific export formats are left until someone needs one; the `columns` keyword and
+`DataPulse.from_time` already cover most of them. There is no `load_retrieval`.
 
 #### 5.13 S13 — geometry drawings in the library
 
@@ -674,10 +702,10 @@ Before a run, a front end shows what a recipe will build without building the ru
   is already long, the type checker and the runtime array-shape checks would see the
   annotations, and the documentation renderer shows them. A table beside each function,
   checked against the signature by a test, costs less and changes no signature.
-- **TOML reading and writing.** `tomllib` (standard library) reads. Writing needs either a
-  small dependency (`tomli-w`) or a writer in `solprop.recipe` for the subset recipes use
-  (tables, arrays of tables, strings, numbers, booleans, inline tables). The subset writer is
-  about a hundred lines and avoids a dependency; recommended.
+- **TOML reading and writing.** `tomllib` (standard library) reads, and `tomli-w` writes
+  (Q6). It is pure Python with no dependencies of its own, MIT-licensed, and its wheel is
+  about 7 kB. It joins the core table of `docs/dev/dependencies.md`. It writes no comments,
+  which a written recipe does not need: the authored text is stored verbatim (§5.2).
 - **Unit parsing.** A small parser in `solprop.recipe` with a fixed table of SI prefixes,
   the units the keywords use and their dimensions, converting with `decimal`; no
   dependency on a units library.
@@ -840,8 +868,10 @@ against the branch; the order puts what it needs first.
 
 - **Q1.** Recipe values: accept both quantity strings and SI numbers, and write quantity
   strings (recommended), or SI numbers only?
+  **Decision (John Travers, 2026-11-01):** as recommended.
 - **Q2.** Should `[recipe] route` be required, or inferred from the keywords present
   (recommended: required; inference is fragile between `capillary` and `waveguide`)?
+  **Decision (John Travers, 2026-11-01):** as recommended.
 - **Q3.** S14's open rows: align the `atol` defaults, and give `prop_gnlse` the gas-route
   `raman` default semantics? Each is a change of default. Recommended: keep both and
   document them as deliberate; if either is to change, change it in a minor release
@@ -851,15 +881,27 @@ against the branch; the order puts what it needs first.
   longer `length`), refusing only when the hash differs in more than the run's end?
   Recommended: no in this SEP; extending a finished run is its own question. A changed
   grid is always a new run.
+  **Decision (John Travers, 2026-11-01):** as recommended; extending a finished run goes
+  to the resume-compatibility proposal, SEP 42 (in draft), whose last phase needs this
+  SEP's recipes.
 - **Q5.** Which pulse-retrieval formats does `load_retrieval` support first?
+  **Decision (John Travers, 2026-11-01):** the usual three columns of frequency in Hz,
+  spectral power density and spectral phase, as Luna.jl's `DataPulse` takes, with care over
+  the phase when regridding. §5.12 now specifies this, through `load_spectrum` alone.
 - **Q6.** Is `tomli-w` acceptable as a dependency instead of a subset writer?
+  **Decision (John Travers, 2026-11-01):** yes, take the dependency; it is light, and
+  there is no reason to rewrite it.
 - **Q7.** Should the metadata include a recommended display unit per keyword (fs for
   durations, µm for radii), or is that left to front ends? Recommended: include it, so
   that recipes written by any front end use the same quantity strings.
+  **Decision (John Travers, 2026-11-01):** as recommended.
 - **Q8.** If S5 or S6 cannot record its launch through existing records, is one
   output-schema bump in phase 4 acceptable (listed under ADR-058), or should the feature
   wait for the resume-compatibility policy of 1.0? Recommended: the bump, made once and
   in the same minor release as any other schema change.
+  **Decision (John Travers, 2026-11-01):** avoid the bump through SEP 42 (in draft), under
+  which an additive record field moves neither the schema nor a resume; failing that, one
+  bump as recommended.
 
 ### 13. References
 
@@ -892,6 +934,9 @@ against the branch; the order puts what it needs first.
   without a schema change, parameter paths and pins in format 1, a lazy and
   failure-isolated plane observer, result capabilities (S16), a portable stop and
   resumability query (S17), previews (S18), and one branch and one pull request.
+- 2026-11-01: Maintainer decisions (John Travers) on Q1, Q2, Q4–Q8 (§12); Q3 is still
+  open. Part I revised for Q5 and Q6: one `load_spectrum` with the usual three-column
+  layout and the phase rules, and `tomli-w` to write TOML.
 
 ### AI review, 2026-10-31
 
