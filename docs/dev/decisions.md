@@ -1676,7 +1676,8 @@ Withdrawn (development-process record, not a design decision).
   - GitHub issues become the single record of what is planned and when. Each carries a
     type label (`bug`, `performance`, `enhancement`, `documentation`, `refactor`,
     `testing`), a `priority: high`, `priority: medium` or `priority: low` label, and an
-    `area:` label where one fits, so that they can be filtered.
+    `area:` label where one fits, so that they can be filtered. `CONTRIBUTING.md` says
+    how to write and label one.
   - New open work goes in an issue. The roadmap takes no new items.
   - The roadmap's existing items are not moved in one pass. An item leaves the page when
     an issue, or a SEP that covers it in full (SEP 0), takes it over, in the same change,

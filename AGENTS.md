@@ -31,7 +31,7 @@ rather than style, ask rather than guess.
 | Backends | In tiers (ADR-061). Tier 1, the core: the NumPy reference (`numpy_ref`, the oracle) and the native backend (`native`, the `solprop-native` distribution built from `native/`: preferred when installed, and the GPU path). Tier 2, mature: Numba CPU (`numba_cpu`, in-tree). Tier 3, experimental: `mlx` (single precision on Apple GPUs) |
 | Materials | [optmat](https://github.com/LupoLab/optmat), the curated optical-materials package |
 | Design docs | `docs/dev/` — architecture, conventions, stepper, algorithms, backends, kernel contract, decisions, roadmap, open questions, testing, accuracy, benchmarks, benchmarking, dependencies, tooling |
-| Planned work | [GitHub issues](https://github.com/LupoLab/solprop/issues): new open work goes in an issue, not on the roadmap, which takes no new items and is being moved there (ADR-062) |
+| Planned work | [GitHub issues](https://github.com/LupoLab/solprop/issues): new open work goes in an issue, not on the roadmap, which takes no new items and is being moved there (ADR-062). [`CONTRIBUTING.md`](CONTRIBUTING.md) says how to write an issue and how to label an issue or a pull request |
 | Enhancement proposals | `docs/dev/seps/` — SEPs for major changes; process in SEP 0 (`sep-0000-process.md`), form in `template.md` |
 
 ---

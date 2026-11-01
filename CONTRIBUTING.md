@@ -18,6 +18,66 @@ you compared against (a paper, an independent code, an analytic limit) and at wh
 parameters. Differences from Luna.jl that are deliberate are listed in the manual page
 [Noteworthy differences from Luna](docs/guide/workflows/luna.md); check it first.
 
+That is all a report needs. A maintainer fills in the rest.
+
+## Writing an issue
+
+Planned work lives in [GitHub issues](https://github.com/LupoLab/solprop/issues), not on
+the roadmap, which takes no new items (ADR-062). So an issue for planned work, written by
+a person or an agent, has to let someone pick up the task from its text alone.
+[#76](https://github.com/LupoLab/solprop/issues/76) and
+[#77](https://github.com/LupoLab/solprop/issues/77) are examples.
+
+Search the open issues first, and the [roadmap](docs/dev/roadmap.md) until it is gone.
+Write one issue per coherent piece of work, not one per finding or per file. A major
+change starts as a SEP, which has a tracking issue of its own
+([SEP 0](docs/dev/seps/sep-0000-process.md)).
+
+Use these sections, leaving out any that do not apply:
+
+- **What happens**, or what is missing, so that someone new to this code can follow it.
+- **Why it matters:** what a user or a developer gets wrong or pays for today.
+- **Reproduction.** For a bug, the smallest script that shows it, which you have run,
+  with its output. For a performance issue, the numbers, the machine, the build and the
+  command.
+- **Context:** links to what a reader needs, namely the code, the manual, SEPs, ADRs, pull
+  requests and other issues. Link code as a permalink to a commit (press `y` on a file's
+  page on GitHub), and say which commit you checked against.
+- **To do:** checkboxes that are actions, not restated symptoms. Name what must not change
+  or break. Check that a suggested fix would work before writing it down.
+- **Done when:** what someone can check to know it is finished, with a tolerance and a
+  machine for a measurement. A criterion should cover every box, and one that no pull
+  request can show should say what stands in for it.
+
+Be exact about what you know:
+
+- Say what you ran and what you only read ("read, not run"), and label a suspicion as one.
+- Give a measurement its machine, width and date, and a count its scope ("273 lines under
+  `src/` and `native/src/`").
+- Mark a choice that is not the contributor's with **Needs a decision:**, saying who
+  decides and what you recommend. A physics judgement, a changed default and a changed
+  public signature are the maintainers' ([`AGENTS.md`](AGENTS.md)).
+- Issues are public, so leave out local paths, private notes and nicknames for machines.
+  Name hardware by its model.
+
+### Labels
+
+Issues are filtered by [label](https://github.com/LupoLab/solprop/labels), so an issue
+carries:
+
+- one **type**, or two if it really is both: `bug` (wrong behaviour or a wrong result),
+  `performance` (slower or larger than it should be, with no wrong result), `enhancement`
+  (a new feature or a request), `documentation`, `refactor` (no change in behaviour) or
+  `testing` (tests, test tiers and CI coverage);
+- one **priority**: `priority: high` (wrong results, wrong public statements or a user's
+  first contact), `priority: medium` (real work that should not wait long) or
+  `priority: low` (worth doing, no hurry);
+- an **area** where one fits, such as `area: native` or `area: boundaries`;
+- `sep` on a SEP's tracking issue, and `good first issue` if it needs no physics judgement
+  and no special hardware.
+
+If you cannot set labels, suggest them in the text and a maintainer will.
+
 ## Setting up
 
 solprop uses [uv](https://docs.astral.sh/uv/) and Python 3.14:
@@ -66,7 +126,9 @@ A change that touches `native/` runs `poe check-all` and follows the native rule
    new or edited SEP, needs only the
    [documentation checks](docs/dev/testing.md#documentation-only-changes).
 5. Open a pull request describing what changed, why, and how it was verified. Say plainly
-   what you assumed, skipped or could not make pass. CI runs on every pull request: the
+   what you assumed, skipped or could not make pass. Link the issue it closes
+   (`Closes #N`), and give it a label or two: its type and, where one fits, its area, as
+   for an issue. If you cannot set labels, a maintainer will. CI runs on every pull request: the
    gate's checks and the default lane on Linux (with coverage) and macOS, the slow lane on
    both, the default lane on Windows, at the lowest supported dependency versions, and
    with the native CPU backend.
