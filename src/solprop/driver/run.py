@@ -452,7 +452,7 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
     _retain(output, retention, problem.shape[1:])
     reached, missing_current_save = _resume_position(output, checkpoint_output, problem)
     # Read before this execution's first record replaces the earlier one's.
-    resumed, monitored = _earlier_execution(output, checkpoint_output)
+    resumed, monitored, unwatched = _earlier_execution(output, checkpoint_output)
     _announce(
         problem,
         metadata,
@@ -510,6 +510,7 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
                 boundary_monitor.resume(
                     monitored,
                     plane=output.n_saved > 0 and float(output["z"][-1]) == reached,
+                    unwatched=unwatched,
                 )
             attach(boundary_monitor)
         index = start_plane
@@ -899,8 +900,8 @@ def _resume_position(
 
 def _earlier_execution(
     output: Output, checkpoint_output: CheckpointOutput | None
-) -> tuple[bool, Mapping[str, object] | None]:
-    """Return whether this execution resumes another, and that one's monitor record.
+) -> tuple[bool, Mapping[str, object] | None, tuple[tuple[float, float], ...]]:
+    """Return whether this execution resumes another, and the monitor record to go on.
 
     Parameters
     ----------
@@ -914,15 +915,49 @@ def _earlier_execution(
     resumed : bool
         Whether the handler holds an earlier execution's planes or outcome.
     record : collections.abc.Mapping or None
-        That execution's boundary-monitor record, or ``None`` without one.
+        The latest earlier execution's boundary-monitor record, searching back past
+        executions that kept none, or ``None`` when none did.
+    unwatched : tuple of tuple of float
+        The stretches, ``(start, end)`` in m, that executions after that record ran
+        without a monitor; from the launch when no execution kept one.
     """
     outcome = None if checkpoint_output is None else checkpoint_output.outcome
     resumed = output.n_saved > 0 or outcome is not None
-    execution = None if outcome is None else outcome.execution
-    record = None if execution is None else execution.get("boundary_monitor")
-    if not isinstance(record, Mapping):
-        return resumed, None
-    return resumed, cast("Mapping[str, object]", record)
+    if outcome is None:
+        return resumed, None, ()
+    # Earliest first: each earlier execution's closing record, then the latest.
+    chain: list[tuple[float, Mapping[str, object]]] = []
+    for previous in outcome.previous_executions:
+        execution = previous.get("execution")
+        reached = previous.get("z")
+        chain.append(
+            (
+                float(reached) if isinstance(reached, int | float) else 0.0,
+                cast("Mapping[str, object]", execution)
+                if isinstance(execution, Mapping)
+                else {},
+            )
+        )
+    chain.append((float(outcome.z), outcome.execution))
+    # The latest record that holds a monitor; executions after it ran unwatched,
+    # each from where the one before it stopped to where it stopped itself, which is
+    # where the next resumed. A hard kill before the monitor is attached
+    # leaves a record without one and an empty stretch, and is passed over.
+    found = -1
+    for index in range(len(chain) - 1, -1, -1):
+        if isinstance(chain[index][1].get("boundary_monitor"), Mapping):
+            found = index
+            break
+    unwatched: list[tuple[float, float]] = []
+    start = 0.0 if found < 0 else chain[found][0]
+    for reached, _ in chain[found + 1 :]:
+        if reached > start:
+            unwatched.append((start, reached))
+        start = max(start, reached)
+    if found < 0:
+        return resumed, None, tuple(unwatched)
+    record = cast("Mapping[str, object]", chain[found][1]["boundary_monitor"])
+    return resumed, record, tuple(unwatched)
 
 
 def _open_run(

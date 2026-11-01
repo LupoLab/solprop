@@ -113,6 +113,10 @@ class PointResult:
         Attempted propagation steps.
     n_rejected : int
         Rejected propagation steps.
+    boundary_monitor : collections.abc.Mapping or None
+        The point's closing boundary-monitor record, without its per-plane rows
+        (:meth:`solprop.monitor.BoundaryMonitor.summary`), for a done or failed point
+        that was watched; ``None`` otherwise.
     """
 
     index: int
@@ -125,6 +129,7 @@ class PointResult:
     wall_time: float = 0.0
     n_steps: int = 0
     n_rejected: int = 0
+    boundary_monitor: Mapping[str, object] | None = None
 
 
 def _validate_metadata(result: PointResult) -> None:
@@ -463,6 +468,14 @@ class ScanWriter:
         )
         point.attrs["metadata_refs"] = _json(references)
         point.attrs["reductions"] = _json(dict(result.reductions))
+        if result.boundary_monitor is not None:
+            point.attrs["boundary_monitor"] = _json(
+                {
+                    name: value
+                    for name, value in result.boundary_monitor.items()
+                    if name != "planes"
+                }
+            )
         units = {
             f"reduced/{name}": record.get("units")
             for name, record in result.reductions.items()
@@ -782,7 +795,9 @@ def read_point(path: Path, index: int) -> Mapping[str, object]:
     Returns
     -------
     collections.abc.Mapping
-        Status, traceback, metadata and flat array paths.
+        Status, traceback, metadata and flat array paths; for a done or failed
+        point that was watched, its closing ``boundary_monitor`` record without the
+        per-plane rows.
 
     Raises
     ------
@@ -806,6 +821,10 @@ def read_point(path: Path, index: int) -> Mapping[str, object]:
                 file, json.loads(str(group.attrs["metadata_refs"]))
             )
             result["reductions"] = json.loads(str(group.attrs["reductions"]))
+            if "boundary_monitor" in group.attrs:
+                result["boundary_monitor"] = json.loads(
+                    str(group.attrs["boundary_monitor"])
+                )
         if state == "done":
             group = _group(file, f"staged/{index}")
             group.visititems(

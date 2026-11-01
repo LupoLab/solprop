@@ -186,7 +186,13 @@ unchanged. General modal runs may be batched under a narrower rule
 Each member watches its own time window, as the point would run alone
 ([watching the window's edges](../numerics/boundaries.md#watching-the-windows-edges)):
 a point whose light reaches an edge is stopped and recorded as failed with its
-`BoundaryError`, and the other members of its batch go on.
+`BoundaryError`, and the other members of its batch go on. Under an `"error"` warnings
+filter a `BoundaryWarning` fails its own point in the same way, and only that point.
+
+Every executor keeps each watched point's closing monitor record, done or failed, without
+its per-plane rows: `read_point(path, index)["boundary_monitor"]`. It is the record a run
+of the point alone would close with (the removed fraction, the guard maxima, where the run
+stopped), and the scan's schema is unchanged by it.
 
 Memory admission probes the selected backend and keeps 20 % host headroom. It
 records baseline and probe RSS, workspace and output estimates, shared table

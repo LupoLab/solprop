@@ -439,9 +439,10 @@ noise the floor alone fills the collar far above the threshold, so the option on
 on noise-free runs; on a 2 cm noise-free GNLSE Raman/shock run whose pulse stays clear it
 saved 6 to 9 % per step on `numba_cpu` and `native` (Apple M5 Max). It is off by default
 because a run cannot know in advance whether its light stays clear, and an omission
-judged too early is an error nothing reports (ADR-057). It applies to binary64 modal
-stages with the in-stage scheme; the split scheme, the low-storage march, the general
-modal route, coupled flows, a radial real-space collar and single precision always keep
+judged too early is an error nothing reports (ADR-057). It applies to binary64 modal and
+radial stages with the in-stage scheme; the split scheme, the low-storage march, the
+general modal route, coupled flows, a real-space collar, single precision, and the
+Cartesian, line and planar routes, whose stages keep the term regardless, always keep
 the collar. The record's `collar_left_out_checks` counts the checks that found it out.
 
 **Above the shot-noise floor.** Input noise, on by default, puts one photon per mode across
@@ -449,10 +450,12 @@ the whole window, guards and collar included. Light below that floor cannot be t
 the vacuum, so the monitor judges what lies above it: from each region's energy it
 subtracts three times the floor's expected share (the floor is uniform in time on
 average, and three times its expectation clears its fluctuation in a narrow guard), and
-from the collar's removal rate the floor's expected removal. A weak launch is therefore
-not stopped for its own noise, while light well above the floor that reaches an edge
-still is. Light that arrives at an edge weaker than the vacuum's own share of it is not
-reported.
+from the collar's removal the floor's expected removal, up to the floor itself: the
+input noise puts one floor in at the launch and never adds to it, so the floor cannot
+lose more than that, however long the run. A weak launch is therefore not stopped for its
+own noise, while light well above the floor that reaches an edge still is. Light that
+arrives at an edge, or leaves through the collar, weaker than the vacuum's own share of
+it is not reported.
 
 What the monitor saw is kept in the run's execution record, under `boundary_monitor`: the
 launch occupancies, the largest guard and collar occupancies and where the guards peaked,
@@ -482,10 +485,16 @@ host to be watched.
 A resumed run continues the record: the state it resumes from is checked by the first
 step, not judged as a launch, so a run stopped at an edge can be resumed under a relaxed
 check (the check is not part of the resume key; the quiet-collar opt-in is). The totals,
-the launch occupancies and the rows of a closing record are restored, so the removed
-fraction and the guard maxima continue against the original launch, and `resumed_at`
-lists where the run was resumed. A run killed without a closing record restores its
-totals, and its rows start again at the resume.
+the launch occupancies, the quiet collar's state and the rows of a closing record are
+restored, so the removed fraction and the guard maxima continue against the original
+launch, and `resumed_at` lists where the run was resumed. A run killed without a closing
+record restores its totals, and its rows start again at the resume. The record continues
+from the latest execution that kept one: an execution killed before its monitor started,
+or run with `boundary_check=None`, is passed over, and the stretch it ran unwatched is
+listed under `unwatched` as `[start, end]` in metres, because what left the window there
+is unknown rather than zero. The record also keeps the signed removal (`removed_signed`)
+and the floor's expected removal (`floor_removed_fraction`), so that a resume continues
+from the same numbers the whole run would hold.
 
 `SimulationSettings(boundary_check=None)`, or `boundary_check=None` on any `prop_*`
 function or `Simulation.from_*` constructor, watches nothing; a `BoundaryCheck` with a

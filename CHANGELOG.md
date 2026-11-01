@@ -40,6 +40,25 @@ All notable changes to solprop are recorded here. The format follows
 
 ### Fixed
 
+- Under input noise, the boundary monitor subtracts at most one floor from the collar's
+  removal: the floor is put in once at the launch and cannot lose more. It subtracted
+  the floor's rate over the whole run, about 37 floors under the default collar, so a
+  removal of a few 1e-3 read as zero, with no warning, and the split scheme's subtraction
+  grew with the number of steps ([#126](https://github.com/LupoLab/solprop/issues/126)).
+- A resumed run's monitor record continues from the latest execution that kept one: a
+  second hard kill before the monitor started, or an execution with
+  `boundary_check=None`, no longer restarts the totals, and the stretch run unwatched is
+  listed under `unwatched`. The signed removal is kept and restored, so a stop and
+  resume reads as the whole run; the quiet collar's state is restored; and a resume on a
+  held row no longer counts the resumed state in the next row's guard maxima
+  ([#128](https://github.com/LupoLab/solprop/issues/128)).
+- `BoundaryCheck(quiet_collar=True)` no longer records the collar as left out on the
+  Cartesian, line and planar routes, whose stages keep it, or caps their steps for
+  nothing ([#94](https://github.com/LupoLab/solprop/issues/94)).
+- A scan point keeps its closing boundary-monitor record, without the per-plane rows,
+  under every executor (`read_point(...)["boundary_monitor"]`); a batched point no longer
+  stores the launch's zeros; and a `BoundaryWarning` raised as an error fails its own
+  batched point alone, as under `Local` ([#132](https://github.com/LupoLab/solprop/issues/132)).
 - The native backend's HIP build compiles again under its default
   warnings-as-errors: ROCm's Clang refused a thread-local variable that only an OpenMP
   build uses (0.1.0 needed `-DSOLPROP_NATIVE_WARNINGS_AS_ERRORS=OFF`).

@@ -54,7 +54,7 @@ BETA2 = 2e-26
 pulse, about 1.4 m, keeps it compact over the metre."""
 
 
-def walker(
+def walker(  # noqa: PLR0913 - the issues' reproductions vary each
     drift: float,
     *,
     check: BoundaryCheck | None = None,
@@ -62,6 +62,10 @@ def walker(
     trange: float = TRANGE,
     peak_power: float = 1.0,
     noise: bool = False,
+    n_save: int = 3,
+    gamma: float = 1e-30,
+    integrator: Multistep | RungeKutta | None = None,
+    absorber_scheme: str | None = None,
 ) -> Simulation:
     """Return a linear pulse whose group delay walks ``drift`` seconds over the fibre.
 
@@ -71,14 +75,19 @@ def walker(
     grid = EnvelopeGrid.from_limits(LENGTH, 1e-6, (0.8e-6, 1.25e-6), trange)
     omega0 = 2 * np.pi * C / 1e-6
     offset = drift / (BETA2 * LENGTH)
+    extra: dict[str, Any] = {}
+    if integrator is not None:
+        extra["integrator"] = integrator
+    if absorber_scheme is not None:
+        extra["absorber_scheme"] = absorber_scheme
     simulation = Simulation.from_gnlse(
-        1e-30, LENGTH, [0.0, 0.0, BETA2], wavelength=1e-6, grid=grid,
+        gamma, LENGTH, [0.0, 0.0, BETA2], wavelength=1e-6, grid=grid,
         pulses=[GaussianPulse(
             wavelength=2 * np.pi * C / (omega0 + offset), fwhm=200e-15,
             peak_power=peak_power,
         )],
         noise="input" if noise else None, seed=7 if noise else None,
-        raman=False, shock=False, n_save=3, backend=backend,
+        raman=False, shock=False, n_save=n_save, backend=backend, **extra,
     )  # fmt: skip
     import dataclasses  # noqa: PLC0415
 
@@ -435,7 +444,12 @@ def test_a_running_record_restores_the_totals_without_rows() -> None:
         for name, value in first.summary().items()
         if name not in ("planes", "resumed_at")
     }
-    running |= {"removed_fraction": 0.25, "steps": 7}
+    running |= {
+        "removed_fraction": 0.25,
+        "removed_signed": 0.25,
+        "raw_removed_fraction": 0.25,
+        "steps": 7,
+    }
     monitor = BoundaryMonitor.build(grid, None, BoundaryCheck())
     monitor.resume(running, plane=False)
     monitor.launch(monitor.energies(spectrum), 0.5)
@@ -447,6 +461,48 @@ def test_a_running_record_restores_the_totals_without_rows() -> None:
     planes = summary["planes"]
     assert isinstance(planes, dict)
     assert planes["z"] == []
+
+
+def test_a_record_from_before_the_signed_removal_still_resumes() -> None:
+    # A record that predates `removed_signed` and `floor_removed_fraction` gives the
+    # floor's expectation back as the raw removal less the reported one.
+    grid, spectrum = _two_pulses(0.0, 0.95)
+    first = BoundaryMonitor.build(grid, None, BoundaryCheck())
+    first.launch(first.energies(spectrum), 0.0)
+    old = {
+        name: value
+        for name, value in first.summary().items()
+        if name
+        not in (
+            "planes",
+            "removed_signed",
+            "floor_removed_fraction",
+            "quiet_checks",
+            "collar_quiet",
+            "unwatched",
+        )
+    }
+    old |= {"removed_fraction": 0.25, "raw_removed_fraction": 0.25}
+    monitor = BoundaryMonitor.build(grid, None, BoundaryCheck())
+    monitor.resume(old, plane=False)
+    monitor.launch(monitor.energies(spectrum), 0.5)
+    summary = monitor.summary()
+    assert summary["removed_fraction"] == 0.25
+    assert summary["floor_removed_fraction"] == 0.0
+    assert summary["unwatched"] == []
+
+
+def test_a_resume_lists_the_stretches_run_without_a_monitor() -> None:
+    # An execution with `boundary_check=None` between two watched ones: the totals
+    # continue from before it, and its stretch is listed as unknown.
+    grid, spectrum = _two_pulses(0.0, 0.95)
+    first = BoundaryMonitor.build(grid, None, BoundaryCheck())
+    first.launch(first.energies(spectrum), 0.0)
+    record = first.summary() | {"unwatched": [[0.1, 0.2]]}
+    monitor = BoundaryMonitor.build(grid, None, BoundaryCheck())
+    monitor.resume(record, plane=False, unwatched=[(0.4, 0.7), (0.7, 0.7)])
+    monitor.launch(monitor.energies(spectrum), 0.7)
+    assert monitor.summary()["unwatched"] == [[0.1, 0.2], [0.4, 0.7]]
 
 
 def test_only_the_quiet_collar_is_part_of_the_resume_key() -> None:
@@ -1004,3 +1060,316 @@ def test_a_resting_collar_frees_the_adams_order() -> None:
     assert max(orders["freed"]) >= 4
     a, b = _exit(freed), _exit(held)
     assert np.linalg.norm(a - b) <= 1e-5 * np.linalg.norm(b)
+
+
+# What a monitor's resume restores.
+
+_RELAXED = BoundaryCheck(budget=1.0, stop_factor=1.0)
+
+
+class _CrashAtPlane(NullReporter):
+    """Raise at the `n`-th saved plane, leaving a closing record behind."""
+
+    def __init__(self, n: int) -> None:
+        self.n, self.seen = n, 0
+
+    def plane(self, z: float, summary: object) -> None:
+        del z, summary
+        self.seen += 1
+        if self.seen == self.n:
+            raise _CrashError
+
+
+def _interrupted(build: Any, path: Path, plane: int) -> None:
+    """Run `build()` to its `plane`-th plane, crash, and resume it to the end."""
+    with pytest.raises(_CrashError):
+        build().run(path, progress=_CrashAtPlane(plane))
+    build().run(path, resume=True, progress="none")
+
+
+def test_two_hard_kills_keep_the_whole_run_s_totals(tmp_path: Path) -> None:
+    # The second execution is killed before it reaches a plane, so its only record
+    # is the one written before its monitor was attached; the third continues from
+    # the first's totals.
+    import os  # noqa: PLC0415
+    import subprocess  # noqa: PLC0415
+    import sys  # noqa: PLC0415
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", BoundaryWarning)
+        whole = record_of(
+            walker(0.65 * TRANGE, check=_RELAXED, n_save=6).run(progress="none")
+        )
+    root = Path(__file__).resolve().parents[1]
+    path = tmp_path / "killed.h5"
+    for stage in ("first", "second", "third"):
+        subprocess.run(
+            [sys.executable, "-m", "tests.monitor_worker", stage, str(path)],
+            cwd=root,
+            env={
+                **os.environ,
+                "PYTHONPATH": os.pathsep.join([str(root), str(root / "tests")]),
+            },
+            check=False,
+            capture_output=True,
+        )
+    record, executions = _file_record(path)
+    assert executions == 3
+    assert record["removed_fraction"] == pytest.approx(
+        whole["removed_fraction"], abs=1e-6
+    )
+    assert record["unwatched"] == []
+
+
+def test_a_stretch_without_a_monitor_keeps_the_totals_and_is_listed(
+    tmp_path: Path,
+) -> None:
+    # A middle execution with `boundary_check=None`: the record continues from the
+    # first's totals and lists the middle stretch as unwatched.
+    path = tmp_path / "run.h5"
+
+    def build(check: BoundaryCheck | None) -> Simulation:
+        simulation = walker(0.65 * TRANGE, check=_RELAXED, n_save=6)
+        simulation.settings = dataclasses.replace(
+            simulation.settings, boundary_check=check
+        )
+        return simulation
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", BoundaryWarning)
+        with pytest.raises(_CrashError):
+            build(_RELAXED).run(path, progress=_CrashAtPlane(2))
+        with pytest.raises(_CrashError):
+            build(None).run(path, resume=True, progress=_CrashAtPlane(3))
+        build(_RELAXED).run(path, resume=True, progress="none")
+    record, executions = _file_record(path)
+    outcome = resume(path).outcome
+    assert outcome is not None
+    first_end, middle_end = (
+        float(cast("float", one["z"])) for one in outcome.previous_executions
+    )
+    assert executions == 3
+    assert 0.0 < first_end < middle_end
+    assert record["unwatched"] == [[first_end, middle_end]]
+    assert record["resumed_at"] == [middle_end]
+    assert record["launch_energy"] is not None
+
+
+def test_under_input_noise_a_resume_reads_the_whole_run_s_removal(
+    tmp_path: Path,
+) -> None:
+    # The floor's share is subtracted once, whatever the run's length, and the
+    # signed total survives a resume, so a stop and resume reads as the whole run
+    # does, with the same warnings.
+    check = BoundaryCheck(budget=1e-3, stop_factor=1e3)
+
+    def build() -> Simulation:
+        return walker(0.22 * TRANGE, check=check, noise=True, n_save=11)
+
+    def run(path: Path | None, *, interrupted: bool) -> tuple[float, int]:
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always", BoundaryWarning)
+            if interrupted:
+                assert path is not None
+                _interrupted(build, path, 5)
+                record, _ = _file_record(path)
+            else:
+                record = record_of(build().run(progress="none"))
+        warned = sum("temporal collar removed" in str(one.message) for one in caught)
+        return float(record["removed_fraction"]), warned
+
+    whole, whole_warned = run(None, interrupted=False)
+    resumed, resumed_warned = run(tmp_path / "run.h5", interrupted=True)
+    assert resumed == pytest.approx(whole, abs=1e-6)
+    assert resumed_warned == whole_warned
+
+
+def test_a_resume_on_a_held_row_starts_the_next_row_s_guard_afresh() -> None:
+    # Resumed at a plane whose row the record holds, the resumed state's occupancy
+    # belongs to that row, not the next: the next row holds only what the checks
+    # after the plane read.
+    grid, high = _two_pulses(1e-2, 0.95)
+    _, low = _two_pulses(1e-4, 0.95)
+    first = BoundaryMonitor.build(grid, None, _RELAXED)
+    first.launch(first.energies(low), 0.0)
+    first.step(first.energies(high), 0.5)
+    first.plane(0.5)
+    monitor = BoundaryMonitor.build(grid, None, _RELAXED)
+    monitor.resume(first.summary(), plane=True)
+    monitor.launch(monitor.energies(high), 0.5)
+    monitor.step(monitor.energies(low), 0.6)
+    monitor.plane(0.6)
+    rows = cast("dict[str, list[float]]", monitor.summary()["planes"])
+    assert rows["z"] == [0.0, 0.5, 0.6]
+    assert rows["guard_high"][2] < 0.1 * rows["guard_high"][1]
+
+
+def record_of_rows(run: Output) -> dict[str, list[float]]:
+    """Return a finished run's per-plane monitor rows."""
+    assert isinstance(run, PlaneStore)
+    record = _monitor_record(run.outcome)
+    assert record is not None
+    return record["planes"]
+
+
+def test_a_quiet_collar_resumes_on_the_whole_run_s_steps(tmp_path: Path) -> None:
+    # The quiet count is restored, so the collar stays out across the resume and the
+    # first resumed step is not held to the collar's stable step.
+    def build() -> Simulation:
+        return walker(
+            0.0,
+            check=BoundaryCheck(quiet_collar=True),
+            trange=3 * TRANGE,
+            gamma=0.02,
+            peak_power=3e2,
+            n_save=6,
+            integrator=Multistep(),
+        )
+
+    from solprop.output.hdf5 import open_file  # noqa: PLC0415
+
+    whole_path, path = tmp_path / "whole.h5", tmp_path / "run.h5"
+    build().run(whole_path, progress="none")
+    _interrupted(build, path, 3)
+    with open_file(whole_path) as whole, open_file(path) as resumed:
+        assert np.array_equal(
+            np.asarray(whole["step_history/h"]), np.asarray(resumed["step_history/h"])
+        )
+
+
+# The floor loses at most itself.
+
+
+def test_with_noise_a_pulse_entering_the_collar_is_reported() -> None:
+    # The floor's expectation is subtracted only up to one floor: a small removal by
+    # a pulse walking into the collar reads as the whole field's less one floor, and
+    # warns, as it does without noise.
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always", BoundaryWarning)
+        run = walker(0.18 * TRANGE, noise=True, n_save=11).run(progress="none")
+    record = record_of(run)
+    expected = record["raw_removed_fraction"] - record["noise_floor"]
+    assert expected > 1e-3
+    assert record["removed_fraction"] == pytest.approx(expected, rel=1e-9)
+    assert any("temporal collar removed" in str(one.message) for one in caught)
+
+
+def test_with_noise_a_pulse_clear_of_the_collar_reads_no_removal() -> None:
+    # The floor alone loses about two thirds of itself: below one floor, nothing is
+    # reported and nothing warns.
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always", BoundaryWarning)
+        run = walker(0.0, noise=True, trange=3 * TRANGE, n_save=11).run(progress="none")
+    record = record_of(run)
+    assert 0.0 < record["raw_removed_fraction"] < record["noise_floor"]
+    assert record["removed_fraction"] == 0.0
+    assert not [one for one in caught if "removed" in str(one.message)]
+
+
+# Routes whose stages keep the collar never rest it.
+
+
+@pytest.mark.parametrize("route", ["planar", "cartesian", "line"])
+def test_a_quiet_collar_option_changes_nothing_where_the_stages_keep_it(
+    route: str,
+) -> None:
+    import sys  # noqa: PLC0415
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from capability_routes import LENGTH as ROUTE_LENGTH  # noqa: PLC0415
+    from capability_routes import ROUTES  # noqa: PLC0415
+
+    runs = []
+    for quiet in (False, True):
+        simulation = ROUTES[route](None)
+        simulation.settings = dataclasses.replace(
+            simulation.settings,
+            backend="numpy_ref",
+            absorber_scheme="nonlinear",
+            integrator=RungeKutta(),
+            boundary_check=BoundaryCheck(
+                budget=1.0, stop_factor=1.0, quiet_collar=quiet
+            ),
+            schedule=FixedSchedule.uniform(
+                0.0, ROUTE_LENGTH, ROUTE_LENGTH / 200, save_planes=[ROUTE_LENGTH]
+            ),
+        )
+        output = simulation.run(progress="none")
+        assert isinstance(output, PlaneStore)
+        record = _monitor_record(output.outcome)
+        assert record is not None
+        runs.append((np.asarray(output["field"][-1]), record))
+    (plain, plain_record), (opted, record) = runs
+    assert record["collar_left_out_checks"] == 0
+    assert np.array_equal(plain, opted)
+    assert record["removed_fraction"] == plain_record["removed_fraction"]
+
+
+# A scan point keeps its closing record, and fails on its own warning.
+
+
+def _walking_watched_point(point: ScanPoint) -> Simulation:
+    """Return a watched, fixed-schedule scan point whose pulse walks ``drift``."""
+    trange = 3 * TRANGE
+    grid = EnvelopeGrid.from_limits(LENGTH, 1e-6, (0.8e-6, 1.25e-6), trange)
+    omega0 = 2 * np.pi * C / 1e-6
+    offset = cast("float", point.values["drift"]) * trange / (BETA2 * LENGTH)
+    planes = [0.5, 1.0]
+    return Simulation.from_gnlse(
+        1e-30, LENGTH, [0.0, 0.0, BETA2], wavelength=1e-6, grid=grid,
+        pulses=[GaussianPulse(
+            wavelength=2 * np.pi * C / (omega0 + offset), fwhm=200e-15,
+            peak_power=1.0,
+        )],
+        noise=None, raman=False, shock=False, save_planes=planes,
+        schedule=FixedSchedule.uniform(0.0, LENGTH, LENGTH / 100, save_planes=planes),
+        integrator=RungeKutta(), backend="numpy_ref",
+    )  # fmt: skip
+
+
+def test_a_scan_point_keeps_its_closing_monitor_record(tmp_path: Path) -> None:
+    scan = Scan("walk", drift=[0.0, 0.4, 1.2])
+    for name, executor in (("local", Local()), ("batch", Batch(3))):
+        path = tmp_path / f"{name}.h5"
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", BoundaryWarning)
+            run_scan(
+                scan,
+                _walking_watched_point,
+                executor=executor,
+                output=path,
+                progress="none",
+            )
+        for index in range(3):
+            found = read_point(path, index)
+            backend = cast("dict[str, Any]", found["metadata"])["backend"]
+            assert "boundary_monitor" not in backend.get("settings", {}), name
+            record = cast("dict[str, Any]", found["boundary_monitor"])
+            assert "planes" not in record, name
+            assert record["steps"] > 0, name
+        stopped = cast("dict[str, Any]", read_point(path, 2)["boundary_monitor"])
+        assert stopped["guard_high_max"] > 0.0 or stopped["guard_low_max"] > 0.0
+
+
+def test_a_warning_raised_as_an_error_fails_its_own_point_alone(
+    tmp_path: Path,
+) -> None:
+    scan = Scan("walk", drift=[0.0, 0.4, 1.2])
+    statuses = {}
+    for name, executor in (("local", Local()), ("batch", Batch(3))):
+        path = tmp_path / f"{name}.h5"
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", BoundaryWarning)
+            output = run_scan(
+                scan,
+                _walking_watched_point,
+                executor=executor,
+                output=path,
+                progress="none",
+            )
+        statuses[name] = output.status.tolist()
+        assert statuses[name][0] == "done", name
+        for index in (1, 2):
+            if statuses[name][index] == "failed":
+                assert "Boundary" in str(read_point(path, index)["error"]), name
+    assert statuses["batch"] == statuses["local"]

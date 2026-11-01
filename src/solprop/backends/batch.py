@@ -11,7 +11,7 @@ not amortise GPU kernel launches and is not a device-batching performance claim.
 
 import copy
 import functools
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from contextlib import ExitStack
 from typing import cast
 
@@ -21,7 +21,7 @@ from jaxtyping import Complex
 from solprop.backends.driver import StepDriver, replay_tolerance
 from solprop.backends.multistep import AdamsMarch
 from solprop.backends.protocol import Backend, Observation
-from solprop.exceptions import BackendError, BoundaryError
+from solprop.exceptions import BackendError, BoundaryError, BoundaryWarning
 from solprop.monitor import BoundaryMonitor
 from solprop.stats import StatsSpec
 from solprop.stepper.schedule import FixedSchedule
@@ -99,7 +99,10 @@ class LockstepRunner(StepDriver[tuple[object, ...]]):
         self.max_batch = len(self._members)
         self._state = tuple(member._require_state() for member in self._members)
         self._member_norms: tuple[float, ...] = ()
-        self._stops: list[BoundaryError | None] = [None] * len(self._members)
+        self._stops: list[BoundaryError | BoundaryWarning | None] = [None] * len(
+            self._members
+        )
+        self._records: list[Mapping[str, object] | None] = [None] * len(self._members)
 
     def _apply_mask(
         self, state: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]
@@ -287,22 +290,46 @@ class LockstepRunner(StepDriver[tuple[object, ...]]):
                 self._watched(index, functools.partial(member.attach_monitor, monitor))
 
     @property
-    def member_stops(self) -> tuple[BoundaryError | None, ...]:
+    def member_stops(self) -> tuple[BoundaryError | BoundaryWarning | None, ...]:
         """Return what stopped each member's watch, in member order.
 
         Returns
         -------
         tuple
-            The :class:`~solprop.exceptions.BoundaryError` that stopped a member, or
-            ``None`` for one still watched or never watched.
+            The :class:`~solprop.exceptions.BoundaryError` that stopped a member, the
+            :class:`~solprop.exceptions.BoundaryWarning` raised as an error for it
+            under an ``"error"`` warnings filter, or ``None`` for one still watched
+            or never watched.
         """
         return tuple(self._stops)
 
+    @property
+    def member_records(self) -> tuple[Mapping[str, object] | None, ...]:
+        """Return each member's monitor record, as it closed, in member order.
+
+        A stopped member's is its record at the stop; a watched one's is read now.
+
+        Returns
+        -------
+        tuple
+            The :meth:`~solprop.monitor.BoundaryMonitor.summary` of each member, or
+            ``None`` for one never watched.
+        """
+        return tuple(
+            record if member._monitor is None else member._monitor.summary()
+            for member, record in zip(self._members, self._records, strict=True)
+        )
+
     def finish_monitors(self) -> None:
-        """Report each still-watched member's removed fraction at the run's end."""
-        for member in self._members:
-            if member._monitor is not None:
-                member._monitor.finish()
+        """Report each still-watched member's removed fraction at the run's end.
+
+        A warning raised as an error fails that member alone (:attr:`member_stops`),
+        as a run of it alone would fail.
+        """
+        for index, member in enumerate(self._members):
+            monitor = member._monitor
+            if monitor is not None:
+                self._watched(index, monitor.finish)
 
     def _watched(self, index: int, call: Callable[[], None]) -> None:
         """Make one member's monitor call; a stop ends that member's watch alone.
@@ -320,8 +347,10 @@ class LockstepRunner(StepDriver[tuple[object, ...]]):
         member = self._members[index]
         try:
             call()
-        except BoundaryError as error:
+        except (BoundaryError, BoundaryWarning) as error:
             self._stops[index] = error
+            if member._monitor is not None:
+                self._records[index] = member._monitor.summary()
             member._monitor = None
             # The member's backend stops reading for it, a split's removal included.
             member._bind_monitor(None)

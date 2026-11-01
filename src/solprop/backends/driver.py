@@ -2031,10 +2031,12 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
     def _collar_can_rest(self) -> bool:
         """Return whether this run's stages may leave a quiet temporal collar out.
 
-        One rule for every backend: a binary64 modal stage with the in-stage
-        (``"nonlinear"``) scheme and a temporal collar alone. The low-storage march,
-        coupled flows, the general modal route, a radial real-space collar sharing
-        the term and single precision keep the collar in every stage (SEP 21 D15).
+        One rule for every backend: a binary64 modal or radial stage with the
+        in-stage (``"nonlinear"``) scheme and a temporal collar alone. The
+        low-storage march, coupled flows, the general modal route, a real-space
+        collar sharing the term, single precision, and the Cartesian, line and
+        planar routes, whose stages keep the term whatever the monitor says, keep
+        the collar in every stage (SEP 21 D15).
 
         Returns
         -------
@@ -2044,10 +2046,8 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         problem = self._problem
         responses = problem.responses
         geometry = problem.transform.geometry
-        real_space = (
-            geometry is not None
-            and geometry.kind == "radial"
-            and bool(np.any(geometry.absorber_rate))
+        resting_geometry = geometry is None or (
+            geometry.kind == "radial" and not np.any(geometry.absorber_rate)
         )
         return (
             self._low_storage is None
@@ -2056,7 +2056,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             and problem.linear.coupled_flow is None
             and problem.transform.modal_tables is None
             and not problem.precision.single
-            and not real_space
+            and resting_geometry
         )
 
     def _collar_changed(self) -> None:  # noqa: B027 - optional by design

@@ -61,7 +61,7 @@ import dataclasses
 import logging
 import math
 import warnings
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import cast
 
@@ -286,7 +286,9 @@ class BoundaryMonitor:
     _raw_removed: float = field(default=0.0, init=False)
     _raw_last: tuple[float, float] | None = field(default=None, init=False)
     _last: tuple[float, float] | None = field(default=None, init=False)
-    _removed: float = field(default=0.0, init=False)
+    _floor_removed: float = field(default=0.0, init=False)
+    _unwatched: list[list[float]] = field(default_factory=list, init=False)
+    _restored_quiet: tuple[int, bool] | None = field(default=None, init=False)
     _guard_max: list[float] = field(default_factory=lambda: [0.0, 0.0], init=False)
     _guard_at: list[float] = field(
         default_factory=lambda: [math.nan, math.nan], init=False
@@ -559,10 +561,12 @@ class BoundaryMonitor:
             self._last = (z, 0.0)
             self._raw_last = (z, 0.0)
             self._settle(None)
+            self._restore_quiet()
             return
         above = self._above(regions)
         shares = above / total
         self._settle(shares, float(regions[2]) / total)
+        self._restore_quiet()
         self._last = (z, float(above[3]) / self._launch)
         self._raw_last = (z, float(regions[3]) / self._launch)
         self._collar_now = float(shares[2])
@@ -575,7 +579,13 @@ class BoundaryMonitor:
         self._plane_row(z)
         self._judge(shares, None)
 
-    def resume(self, record: Mapping[str, object] | None, *, plane: bool) -> None:
+    def resume(
+        self,
+        record: Mapping[str, object] | None,
+        *,
+        plane: bool,
+        unwatched: Sequence[tuple[float, float]] = (),
+    ) -> None:
         """Continue the record of the executions a resumed run follows (SEP 21).
 
         Called before :meth:`launch`, which then records the resumed state without
@@ -596,9 +606,24 @@ class BoundaryMonitor:
         plane : bool
             Whether the run resumes at a saved plane, whose row is then recorded
             unless the restored rows hold it.
+        unwatched : collections.abc.Sequence of tuple of float, optional
+            Stretches, ``(start, end)`` in m, that executions after `record`'s ran
+            without a monitor. Their removal is unknown rather than zero: the totals
+            continue from `record`, and the stretches are listed in the record
+            (``unwatched``).
         """
         self._resuming = True
         self._resume_plane = plane
+        if record is not None:
+            listed = record.get("unwatched")
+            if isinstance(listed, list):
+                self._unwatched = [
+                    [float(one) for one in cast("list[float]", stretch)]
+                    for stretch in cast("list[object]", listed)
+                ]
+        self._unwatched.extend(
+            [float(start), float(end)] for start, end in unwatched if end > start
+        )
         if record is None:
             return
         launch = _number(record, "launch_energy")
@@ -619,8 +644,21 @@ class BoundaryMonitor:
             _number(record, "guard_high_at"),
         ]
         self._collar_max = _number(record, "collar_max", 0.0)
-        self._removed = _number(record, "removed_fraction", 0.0)
         self._raw_removed = _number(record, "raw_removed_fraction", 0.0)
+        # The floor's expected removal, uncapped; a record from before it was kept
+        # gives it back from the signed or the reported removal.
+        judged = _number(record, "removed_signed", math.nan)
+        if not math.isfinite(judged):
+            judged = _number(record, "removed_fraction", 0.0)
+        self._floor_removed = _number(
+            record, "floor_removed_fraction", self._raw_removed - judged
+        )
+        quiet_checks = _number(record, "quiet_checks", math.nan)
+        if math.isfinite(quiet_checks):
+            self._restored_quiet = (
+                int(quiet_checks),
+                bool(record.get("collar_quiet", False)),
+            )
         self._raw_guard_max = _number(record, "raw_guard_max", 0.0)
         self._steps = int(_number(record, "steps", 0.0))
         self._skipped = int(_number(record, "skipped", 0.0))
@@ -662,9 +700,8 @@ class BoundaryMonitor:
         if self.split and self._launch > 0.0:
             # What the split took at every accepted step since the previous reading,
             # checked or not, and however little of the light is left.
-            removed = float(energies.removed)
-            self._raw_removed += removed / self._launch
-            self._removed += (removed - self._floor_taken) / self._launch
+            self._raw_removed += float(energies.removed) / self._launch
+            self._floor_removed += self._floor_taken / self._launch
         self._floor_taken = 0.0
         if not total > _FLOOR * self._launch:
             # Nothing was launched, or nothing is left: no light to judge.
@@ -681,6 +718,11 @@ class BoundaryMonitor:
         integrate = not (self.split or self._left_out)
         if integrate:
             self._raw_removed += 0.5 * (z - previous_z) * (previous_rate + raw_rate)
+            # The floor's expected removal over the same stretch, at its constant
+            # expected rate; what is judged subtracts at most one floor (`removed`).
+            self._floor_removed += (
+                (z - previous_z) * float(self._floor_regions[3]) / self._launch
+            )
         self._raw_last = (z, raw_rate)
         self._raw_guard_max = max(
             self._raw_guard_max, float(max(regions[0], regions[1])) / total
@@ -688,12 +730,9 @@ class BoundaryMonitor:
         above = self._above(regions)
         shares = above / total
         self._settle(shares, float(regions[2]) / total)
-        # The removal rate as a fraction of the launch energy per metre.
-        rate = float(above[3]) / self._launch
-        if self._last is not None and integrate:
-            previous_z, previous_rate = self._last
-            self._removed += 0.5 * (z - previous_z) * (previous_rate + rate)
-        self._last = (z, rate)
+        # The removal rate above the floor's, as a fraction of the launch energy per
+        # metre, kept with the position of this check.
+        self._last = (z, float(above[3]) / self._launch)
         self._collar_max = max(self._collar_max, float(shares[2]))
         self._collar_now = float(shares[2])
         for edge in (0, 1):
@@ -898,6 +937,35 @@ class BoundaryMonitor:
         """
         self._left_out = left_out
 
+    @property
+    def removed(self) -> float:
+        """Return the collar's removal of the launched signal, above the floor's share.
+
+        The whole field's removal (``raw_removed_fraction``) less what the input
+        noise's floor is expected to lose, which is at most the floor itself: the
+        input model puts one floor in at the launch and never adds to it.
+        Signed; the record and the warning read it clipped at zero.
+
+        Returns
+        -------
+        float
+            A fraction of the launch energy.
+        """
+        floor = self._floor / self._launch if self._launch > 0.0 else 0.0
+        return self._raw_removed - min(self._floor_removed, floor)
+
+    def _restore_quiet(self) -> None:
+        """Put back a resumed record's quiet count, which the launch's settle bumped.
+
+        The resumed state is the one the earlier execution checked at its last plane,
+        so its count already holds that check.
+        """
+        if self._restored_quiet is None:
+            return
+        self._quiet_run, quiet = self._restored_quiet
+        self._quiet = self.check.quiet_collar and quiet
+        self._restored_quiet = None
+
     def _plane_row(self, z: float) -> None:
         """Append one saved plane's row and start the next plane's guard maxima.
 
@@ -908,12 +976,15 @@ class BoundaryMonitor:
         """
         row = self._planes
         if row["z"] and row["z"][-1] == z:
+            # A held row (a resume landing on a recorded plane): the next row's guard
+            # maxima still start here.
+            self._since = [0.0, 0.0]
             return
         row["z"].append(z)
         row["collar_occupancy"].append(self._collar_now)
         row["guard_low"].append(self._since[0])
         row["guard_high"].append(self._since[1])
-        row["removed_fraction"].append(max(self._removed, 0.0))
+        row["removed_fraction"].append(max(self.removed, 0.0))
         self._since = [0.0, 0.0]
 
     def plane(self, z: float) -> None:
@@ -930,7 +1001,12 @@ class BoundaryMonitor:
         """
         self._plane_row(z)
 
-    def summary(self) -> dict[str, float | list[float] | dict[str, list[float]] | None]:
+    def summary(
+        self,
+    ) -> dict[
+        str,
+        float | bool | list[float] | list[list[float]] | dict[str, list[float]] | None,
+    ]:
         """Return the record of the run so far, for its execution record.
 
         Returns
@@ -954,8 +1030,13 @@ class BoundaryMonitor:
             ``planes``, one row per saved plane from the launch on: ``z``, the
             ``collar_occupancy`` there, each guard's largest occupancy since the
             previous plane (``guard_low``, ``guard_high``) and the
-            ``removed_fraction`` so far. A resumed run continues all of these
-            (:meth:`resume`).
+            ``removed_fraction`` so far. For a resume to continue from:
+            ``removed_signed``, the removal unclipped (:attr:`removed`);
+            ``floor_removed_fraction``, the floor's expected removal, uncapped;
+            ``quiet_checks`` and ``collar_quiet``, the quiet collar's count and flag.
+            ``unwatched`` lists the stretches, ``[start, end]`` in m, that an
+            execution ran without a monitor, whose removal is unknown. A resumed run
+            continues all of these (:meth:`resume`).
         """
 
         def finite(value: float) -> float | None:
@@ -985,7 +1066,12 @@ class BoundaryMonitor:
             "guard_low_at": finite(self._guard_at[0]),
             "guard_high_at": finite(self._guard_at[1]),
             "collar_max": self._collar_max,
-            "removed_fraction": max(self._removed, 0.0),
+            "removed_fraction": max(self.removed, 0.0),
+            "removed_signed": self.removed,
+            "floor_removed_fraction": self._floor_removed,
+            "quiet_checks": self._quiet_run,
+            "collar_quiet": self._quiet,
+            "unwatched": [list(stretch) for stretch in self._unwatched],
             "steps": self._steps,
             "skipped": self._skipped,
             "noise_floor": self._floor / self._launch if self._launch > 0.0 else 0.0,
@@ -1000,7 +1086,7 @@ class BoundaryMonitor:
 
         Logged always; warns when its square root exceeds the budget.
         """
-        removed = max(self._removed, 0.0)
+        removed = max(self.removed, 0.0)
         logger.info(
             "the temporal collar removed %.3e of the launch energy; the guards peaked "
             "at %.2e (low) and %.2e (high)",
