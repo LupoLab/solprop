@@ -28,6 +28,12 @@ All notable changes to solprop are recorded here. The format follows
 - The native backend's HIP build compiles again under its default
   warnings-as-errors: ROCm's Clang refused a thread-local variable that only an OpenMP
   build uses (0.1.0 needed `-DSOLPROP_NATIVE_WARNINGS_AS_ERRORS=OFF`).
+- `DataPulse.from_spectral_density` interpolates the phase it is given. It used to wrap
+  the phase into the complex spectrum and unwrap it again, which cannot follow a change
+  of more than pi between samples, so a strongly chirped pulse was built wrongly with no
+  warning: 20 000 fs² of group-delay dispersion on a 0.4 nm axis at 800 nm came out 13.5 %
+  away from the converged spectrum, on a 1.6 nm axis 100 %. A `DataPulse` given a complex
+  `spectrum` still unwraps it, and its docstring states that limit.
 
 ## [0.1.0] - 2026-10-31
 

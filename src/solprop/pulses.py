@@ -1878,6 +1878,55 @@ class CustomPulse(ShapedPulse):
 # --- pulses from measured data --------------------------------------------------------
 
 
+def _checked_spectral_phase(
+    spectral_phase: Float[np.ndarray, " n_data_phase"],
+    spectrum: Complex[np.ndarray, " n_data"],
+) -> Float[np.ndarray, " n_data"]:
+    """Return a read-only copy of a spectrum's given phase, once it is known to match.
+
+    A pulse holds its phase twice, modulo ``2 pi`` in the spectrum and as given here,
+    and ``build`` reads the magnitude from one and the phase from the other. Refusing a
+    disagreement keeps a ``dataclasses.replace`` of ``spectrum`` from silently keeping
+    the old phase.
+
+    Parameters
+    ----------
+    spectral_phase : numpy.ndarray
+        The given phase, rad.
+    spectrum : numpy.ndarray
+        The complex spectrum it belongs to, shape ``(n_data,)``.
+
+    Returns
+    -------
+    numpy.ndarray
+        The phase as a read-only float array, shape ``(n_data,)``.
+
+    Raises
+    ------
+    PulseError
+        If the phase differs from the spectrum in length, or is not its phase.
+    """
+    angle = np.array(spectral_phase, dtype=np.float64).reshape(-1)
+    if angle.size != spectrum.size:
+        msg = (
+            f"spectrum and spectral_phase must have the same length, got "
+            f"{spectrum.size} and {angle.size}"
+        )
+        raise PulseError(msg)
+    magnitude = np.abs(spectrum)
+    # The same phase taken through the exponential and back, so a few rounding units of
+    # the magnitude; a NaN or infinite phase fails the comparison too.
+    if not np.all(
+        np.abs(spectrum * np.exp(-1j * angle) - magnitude) <= 1e-12 * magnitude
+    ):
+        msg = (
+            "spectral_phase must be finite and equal the phase of spectrum modulo 2 pi"
+        )
+        raise PulseError(msg)
+    angle.setflags(write=False)
+    return angle
+
+
 @dataclass(frozen=True, eq=False, kw_only=True)
 class DataPulse(Displayed):
     """A pulse from a measured complex spectrum, interpolated onto the grid.
@@ -1888,10 +1937,18 @@ class DataPulse(Displayed):
     it therefore goes through :func:`solprop.fourier.spectrum_to_internal`, which
     carries the half-window origin shift as well as the conjugation.
 
-    Magnitude and unwrapped phase are interpolated separately with a cubic B-spline,
-    never the complex spectrum itself, whose real and imaginary parts oscillate. Outside
-    the data's own frequency range the spectrum is zero, and the grid's spectral collar
-    is applied so that nothing is left sitting on the window edge.
+    Magnitude and phase are interpolated separately with a cubic B-spline, never the
+    complex spectrum itself, whose real and imaginary parts oscillate. Outside the
+    data's own frequency range the spectrum is zero, and the grid's spectral collar is
+    applied so that nothing is left sitting on the window edge.
+
+    The phase interpolated is ``spectral_phase`` when the pulse holds one, as
+    :meth:`from_spectral_density` makes it, however fast that phase varies. Otherwise
+    it is ``numpy.unwrap(numpy.angle(spectrum))``, which cannot tell a phase change of
+    more than pi between neighbouring samples from a smaller one of the other sign: such
+    a spectrum, of a strongly chirped pulse or one far from ``t = 0`` on a coarse axis,
+    is built with the wrong phase and without any warning. Give that phase through
+    :meth:`from_spectral_density`, or sample it more finely.
 
     Attributes
     ----------
@@ -1901,6 +1958,10 @@ class DataPulse(Displayed):
     spectrum : numpy.ndarray
         Measured complex spectrum on ``omega``, shape ``(n_data,)``, optics convention,
         arbitrary units.
+    spectral_phase : numpy.ndarray or None
+        Optics-convention phase of ``spectrum``, unwrapped, rad, shape ``(n_data,)``,
+        interpolated as it stands. It must agree with ``spectrum`` modulo ``2 pi``.
+        ``None``, the default, recovers the phase from ``spectrum`` by unwrapping it.
     energy : float
         Pulse energy to scale to, J.
     phase : array_like
@@ -1916,8 +1977,9 @@ class DataPulse(Displayed):
     Raises
     ------
     PulseError
-        If the two arrays disagree in length, are too short to interpolate, are not
-        finite, or ``omega`` is not strictly increasing and positive.
+        If the arrays disagree in length, are too short to interpolate, are not finite,
+        ``omega`` is not strictly increasing and positive, or ``spectral_phase`` is not
+        the phase of ``spectrum``.
 
     Examples
     --------
@@ -1935,18 +1997,20 @@ class DataPulse(Displayed):
     omega: Float[np.ndarray, " n_data"]
     spectrum: Complex[np.ndarray, " n_data_spectrum"]
     energy: float
+    spectral_phase: Float[np.ndarray, " n_data_phase"] | None = None
     phase: Sequence[float] | np.ndarray = ()
     t0: float = 0.0
     wavelength: float | None = None
 
     def __post_init__(self) -> None:
-        """Validate the tabulated data and adopt read-only copies of both arrays.
+        """Validate the tabulated data and adopt read-only copies of the arrays.
 
         Raises
         ------
         PulseError
             If the arrays disagree in length, are shorter than a cubic spline needs, are
-            not finite, or ``omega`` is not strictly increasing and positive.
+            not finite, ``omega`` is not strictly increasing and positive, or
+            ``spectral_phase`` is not the phase of ``spectrum``.
         """
         omega = np.array(self.omega, dtype=np.float64).reshape(-1)
         spectrum = np.array(self.spectrum, dtype=np.complex128).reshape(-1)
@@ -1976,6 +2040,12 @@ class DataPulse(Displayed):
         object.__setattr__(self, "omega", omega)
         object.__setattr__(self, "spectrum", spectrum)
         object.__setattr__(self, "phase", _frozen_phase(self.phase))
+        if self.spectral_phase is not None:
+            object.__setattr__(
+                self,
+                "spectral_phase",
+                _checked_spectral_phase(self.spectral_phase, spectrum),
+            )
 
     @property
     def reference_wavelength(self) -> float:
@@ -2099,7 +2169,12 @@ class DataPulse(Displayed):
                 active.max(),
             )
         magnitude = make_interp_spline(self.omega, np.abs(self.spectrum), k=3)
-        angle = make_interp_spline(self.omega, np.unwrap(np.angle(self.spectrum)), k=3)
+        given = self.spectral_phase
+        angle = make_interp_spline(
+            self.omega,
+            np.unwrap(np.angle(self.spectrum)) if given is None else given,
+            k=3,
+        )
         optics = np.zeros(grid.n_omega, dtype=np.complex128)
         wanted = grid.omega[inside]
         optics[inside] = np.clip(magnitude(wanted), 0.0, None) * np.exp(
@@ -2130,7 +2205,9 @@ class DataPulse(Displayed):
         """Build a pulse from a spectral power density and an unwrapped spectral phase.
 
         This is the form a spectrometer and a phase retrieval give. Negative densities,
-        which fits and baseline subtraction can produce, are clipped to zero.
+        which fits and baseline subtraction can produce, are clipped to zero. The pulse
+        keeps the phase as given and :meth:`build` interpolates it directly, so it may
+        change by any amount between samples, provided a cubic spline resolves it.
 
         Parameters
         ----------
@@ -2139,8 +2216,8 @@ class DataPulse(Displayed):
         intensity : numpy.ndarray
             Spectral power density on ``omega``, arbitrary units, shape ``(n_data,)``.
         spectral_phase : numpy.ndarray
-            Unwrapped optics-convention spectral phase on ``omega``, rad, shape
-            ``(n_data,)``.
+            Continuous (unwrapped) optics-convention spectral phase on ``omega``, rad,
+            shape ``(n_data,)``.
         energy : float
             Pulse energy to scale to, J.
         phase : array_like, optional
@@ -2153,7 +2230,8 @@ class DataPulse(Displayed):
         Returns
         -------
         DataPulse
-            The pulse, with ``spectrum = sqrt(intensity) exp(i spectral_phase)``.
+            The pulse, with ``spectrum = sqrt(intensity) exp(i spectral_phase)`` and the
+            phase held as ``spectral_phase``.
 
         Raises
         ------
@@ -2183,6 +2261,7 @@ class DataPulse(Displayed):
         return cls(
             omega=np.asarray(omega, dtype=np.float64).reshape(-1),
             spectrum=spectrum,
+            spectral_phase=angle,
             energy=energy,
             phase=phase,
             t0=t0,

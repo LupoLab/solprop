@@ -172,10 +172,15 @@ DataPulse.from_spectral_density(omega, intensity, spectral_phase, energy=1e-6)
 DataPulse.from_time(t, measured_field, energy=1e-6)
 ```
 
-The magnitude and the *unwrapped* phase are interpolated separately with a cubic
-B-spline. Interpolating the complex spectrum itself would be wrong: its real and
-imaginary parts oscillate at the pulse's arrival time, and no smooth interpolant follows
-them. Outside the data's own frequency range the built spectrum is exactly zero, the
+The magnitude and the phase are interpolated separately with a cubic B-spline.
+Interpolating the complex spectrum itself would be wrong: its real and imaginary parts
+oscillate at the pulse's arrival time, and no smooth interpolant follows them.
+`from_spectral_density` keeps the phase it is given, in the pulse's `spectral_phase`,
+and that phase is interpolated as it stands. A complex `spectrum` holds its phase only
+modulo $2\pi$, so it is unwrapped first, and unwrapping cannot follow a change of more
+than $\pi$ between neighbouring samples: 20 000 fs² of group-delay dispersion on a 1.6 nm
+axis at 800 nm is built quite wrongly, and with no warning. Give a measured phase through
+`from_spectral_density`. Outside the data's own frequency range the built spectrum is exactly zero, the
 grid's spectral collar is applied so that nothing is left sitting on the window edge, and
 a warning is logged when the grid's active band reaches past the data.
 

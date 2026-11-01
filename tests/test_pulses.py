@@ -4,6 +4,8 @@
 
 """Tests for the pulse builders: exact scaling, parity and the sign of the phase."""
 
+import dataclasses
+import json
 import logging
 import math
 
@@ -17,6 +19,7 @@ from solprop import fourier
 from solprop.constants import C
 from solprop.exceptions import PulseError
 from solprop.grid import EnvelopeGrid, FieldGrid, TimeGrid
+from solprop.output.schema import serialise
 from solprop.pulses import (
     CustomPulse,
     CWPulse,
@@ -450,6 +453,130 @@ def test_a_data_pulse_defaults_its_reference_to_the_spectral_centre_of_mass():
         omega, intensity, angle, energy=ENERGY, wavelength=1030e-9
     )
     assert given.reference_wavelength == 1030e-9
+
+
+def chirped_pulse(n_data, group_delay_dispersion=20000e-30):
+    """A Gaussian spectrum at 800 nm with the given dispersion, over +-20 % in omega."""
+    omega_p = 2.0 * np.pi * C / WAVELENGTH
+    omega = np.linspace(0.8 * omega_p, 1.2 * omega_p, n_data)
+    intensity = np.exp(-(((omega - omega_p) / (0.03 * omega_p)) ** 2))
+    angle = 0.5 * group_delay_dispersion * (omega - omega_p) ** 2
+    return omega, intensity, angle
+
+
+def relative_l2(values, reference):
+    return np.linalg.norm(values - reference) / np.linalg.norm(reference)
+
+
+@pytest.fixture(scope="module")
+def chirped_grid():
+    return EnvelopeGrid.from_limits(0.01, WAVELENGTH, (600e-9, 1.1e-6), 4e-12)
+
+
+@pytest.fixture(scope="module")
+def chirped_reference(chirped_grid):
+    # At 40001 points the phase changes by far less than pi per sample at any distance
+    # from the carrier, so that this reference is the same by either route.
+    omega, intensity, angle = chirped_pulse(40001)
+    pulse = DataPulse.from_spectral_density(omega, intensity, angle, energy=ENERGY)
+    return pulse.build(chirped_grid)[0, 0]
+
+
+@pytest.mark.parametrize(
+    ("n_data", "tolerance"),
+    # The spline's h**4 error, measured as 3e-10 and 8e-8 (four times the spacing, 266
+    # times the error), with a factor of about three in hand. Unwrapping the wrapped
+    # phase of the same data gives 13.5 % and 100 %.
+    [(801, 1e-9), (201, 2.5e-7)],
+)
+def test_a_given_phase_is_interpolated_however_fast_it_varies(
+    n_data, tolerance, chirped_grid, chirped_reference
+):
+    omega, intensity, angle = chirped_pulse(n_data)
+    # The test's own premise: this phase is too fast to recover from the wrapped one.
+    assert np.abs(np.diff(angle)).max() > 3.0 * np.pi
+    pulse = DataPulse.from_spectral_density(omega, intensity, angle, energy=ENERGY)
+    built = pulse.build(chirped_grid)[0, 0]
+    assert relative_l2(built, chirped_reference) < tolerance
+
+
+def test_a_complex_spectrum_is_unwrapped_and_says_what_that_costs(
+    chirped_grid, chirped_reference
+):
+    omega, intensity, angle = chirped_pulse(801)
+    spectrum = np.sqrt(intensity) * np.exp(1j * angle)
+    direct = DataPulse(omega=omega, spectrum=spectrum, energy=ENERGY)
+    assert direct.spectral_phase is None
+    built = direct.build(chirped_grid)[0, 0]
+    # The limitation the docstring states: the same data, wrapped, is wrong by 13.5 %.
+    assert relative_l2(built, chirped_reference) > 0.1
+    # Exact: unwrapping is the whole of what this route does differently.
+    unwrapped = DataPulse(
+        omega=omega,
+        spectrum=spectrum,
+        spectral_phase=np.unwrap(np.angle(spectrum)),
+        energy=ENERGY,
+    )
+    assert np.array_equal(built, unwrapped.build(chirped_grid)[0, 0])
+
+
+def test_a_slow_phase_builds_the_same_by_either_route(chirped_grid):
+    omega, intensity, _ = chirped_pulse(801)
+    angle = 1e-12 * (omega - 2.0 * np.pi * C / WAVELENGTH)
+    assert np.abs(np.diff(angle)).max() < np.pi
+    given = DataPulse.from_spectral_density(omega, intensity, angle, energy=ENERGY)
+    direct = DataPulse(omega=omega, spectrum=given.spectrum, energy=ENERGY)
+    # Unwrapping returns the given phase less a whole number of turns, to rounding:
+    # measured as 6e-13 on this phase of about 500 rad.
+    assert (
+        relative_l2(direct.build(chirped_grid)[0, 0], given.build(chirped_grid)[0, 0])
+        < 1e-11
+    )
+
+
+def test_a_data_pulse_records_the_phase_it_was_given():
+    omega, intensity, angle = chirped_pulse(201)
+    pulse = DataPulse.from_spectral_density(omega, intensity, angle, energy=ENERGY)
+    # Through JSON, as a run's record is stored.
+    record = json.loads(json.dumps(serialise(pulse)))
+    assert record["spectral_phase"]["__ndarray__"] == angle.tolist()
+    assert isinstance(pulse.spectral_phase, np.ndarray)
+    assert not pulse.spectral_phase.flags.writeable
+    # Whole turns at the samples leave the spectrum as it was but make another phase:
+    # the two pulses build differently, so they may not share a record.
+    turned = angle + 2.0 * np.pi * np.arange(angle.size)
+    other = DataPulse.from_spectral_density(omega, intensity, turned, energy=ENERGY)
+    assert serialise(other) != serialise(pulse)
+    direct = DataPulse(omega=omega, spectrum=pulse.spectrum, energy=ENERGY)
+    assert json.loads(json.dumps(serialise(direct)))["spectral_phase"] is None
+
+
+@pytest.mark.parametrize(
+    ("spectral_phase", "message"),
+    [
+        (np.zeros(7), "spectrum and spectral_phase must have the same length"),
+        (np.full(8, np.nan), "must be finite and equal the phase of spectrum"),
+        (np.full(8, 0.1), "must be finite and equal the phase of spectrum"),
+    ],
+)
+def test_a_spectral_phase_must_be_the_phase_of_the_spectrum(spectral_phase, message):
+    omega = np.linspace(1e15, 3e15, 8)
+    with pytest.raises(PulseError, match=message):
+        DataPulse(
+            omega=omega,
+            spectrum=np.ones(8, complex),
+            spectral_phase=spectral_phase,
+            energy=ENERGY,
+        )
+
+
+def test_replacing_the_spectrum_alone_does_not_keep_the_old_phase():
+    omega = np.linspace(1e15, 3e15, 8)
+    pulse = DataPulse.from_spectral_density(
+        omega, np.ones(8), np.zeros(8), energy=ENERGY
+    )
+    with pytest.raises(PulseError, match="equal the phase of spectrum"):
+        dataclasses.replace(pulse, spectrum=np.full(8, 1j))
 
 
 def test_a_data_pulse_from_a_time_record_matches_the_pulse_it_recorded(field_grid):
