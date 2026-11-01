@@ -195,7 +195,7 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-KERNEL_SCHEMA_VERSION = 39
+KERNEL_SCHEMA_VERSION = 40
 """Version of the kernel contract this module implements.
 
 Incremented on every change to the field list of ``docs/dev/kernel-contract.md``. A
@@ -452,6 +452,10 @@ number its algorithm reads, and the driver's protected surface gains
 attempt and of an accepted step on which the driver has no work, beside the frozen
 ``_take_step_stats``, ``_natural_stop`` and ``_natural_stop_due``; no ``KernelProblem``
 field or stage bundle moves.
+
+Version 40 gives ``StepDriver.set_initial`` its ``resume`` keyword: a stored field never
+takes the ``input`` draw again, at the launch position included, where a file holding
+only its launch plane resumes. No ``KernelProblem`` field or stage bundle moves.
 """
 
 DEFAULT_COMPONENTS = ("x",)
@@ -1078,7 +1082,7 @@ class KernelProblem:
     ...     dz_max=0.1, dz_init=1e-3, shock=False, prefactor_index=1.0, density=1.0,
     ... )
     >>> problem.shape, problem.grid_kind, problem.schema_version
-    ((1, 1, 1, 3072), 'envelope', 39)
+    ((1, 1, 1, 3072), 'envelope', 40)
     """
 
     schema_version: int
@@ -6397,7 +6401,7 @@ def debug_summary(problem: KernelProblem) -> str:
     ...     width=100e-15, peak_power=9.8, shape="sech", n_save=3,
     ... )
     >>> print(debug_summary(simulation.translate()).splitlines()[0])
-    kernel problem schema 39: envelope grid, route modal
+    kernel problem schema 40: envelope grid, route modal
     """
     linear, transform = problem.linear, problem.transform
     tables, metric = transform.modal_tables, linear.modal_metric
