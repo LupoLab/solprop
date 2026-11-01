@@ -216,7 +216,7 @@ the `"modified"` noise model is advanced by the unitary part of the linear propa
 along z, not held constant; the generator is seeded explicitly and the seed recorded;
 one draw has the same shape for single-mode and multimode runs.
 
-**Pulses.** A measured pulse (`DataPulse`) keeps its own time origin; a continuous wave
+**Pulses.** A measured pulse (`DataPulse`, `TimeDataPulse`) keeps its own time origin; a continuous wave
 (`CWPulse`) is built in one pass on either grid and is seeded; envelopes are validated.
 
 **Launching a beam into a guide.** Luna's `GaussBeamPulse` takes one scalar overlap of

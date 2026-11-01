@@ -75,6 +75,7 @@ from solprop.pulses import (
     SechPulse,
     ShapedPulse,
     SpatialPulse,
+    TimeDataPulse,
 )
 from solprop.spatial import SpatialMedium
 from solprop.stepper import PIController, RungeKutta
@@ -362,6 +363,11 @@ def build_examples(folder):
     data = DataPulse(
         omega=np.linspace(2e15, 3e15, 512), spectrum=np.ones(512, complex), energy=1e-6
     )
+    time_data = TimeDataPulse(
+        t=np.linspace(-100e-15, 100e-15, 512),
+        field=np.cos(2.35e15 * np.linspace(-100e-15, 100e-15, 512)),
+        energy=1e-6,
+    )
     lattice = TubeLattice(180e-9, 9e-6, 6)
     table = index_table()
     mirror = ChirpedMirror.lookup("PC70").bounces(4)
@@ -375,6 +381,7 @@ def build_examples(folder):
         "SechPulse": SechPulse(wavelength=1030e-9, width=20e-15, peak_power=1e6),
         "CustomPulse": CustomPulse(wavelength=800e-9, energy=1e-6, shape_fn=flat_top),
         "DataPulse": data,
+        "TimeDataPulse": time_data,
         "CWPulse": CWPulse(wavelength=1064e-9, average_power=10.0, bandwidth=1e-9),
         "SpatialPulse": SpatialPulse(gaussian, 100e-6),
         "MarcatiliMode": MarcatiliMode(125e-6, "He", 1.2),
@@ -463,6 +470,7 @@ NAMES = sorted(
         "SechPulse",
         "CustomPulse",
         "DataPulse",
+        "TimeDataPulse",
         "CWPulse",
         "SpatialPulse",
         "MarcatiliMode",
@@ -665,6 +673,8 @@ def test_the_run_record_is_what_it_was_before_the_printing(examples):
     metadata = quiet(examples["Simulation"].metadata)
     assert not metadata.materials.empty
     hashed: dict[str, Any] = metadata.hashed()
+    # Output schema 2 adds a field only to `DataPulse`, which this run does not hold.
+    hashed["schema_version"] = 1
     for later in ("initial_z", "tdse", "quadrature"):
         del hashed[later]
     hashed["configuration"] = {
@@ -697,7 +707,7 @@ def test_the_run_record_names_its_power_convention(examples):
     # The amplitude label is part of what a file means, so the block prints it beside
     # the spectral convention and the output schema.
     metadata = quiet(examples["Simulation"].metadata)
-    assert "optics spectra, poynting amplitudes, schema 1" in str(metadata)
+    assert "optics spectra, poynting amplitudes, schema 2" in str(metadata)
 
 
 def test_a_mode_built_over_a_mixture_names_its_fill():

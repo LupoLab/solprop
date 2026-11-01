@@ -307,11 +307,13 @@ it with `open_tdse_archive` ([the TDSE response](../media/tdse.md#the-raw-respon
 ## The schema version
 
 Every file records its `schema_version`; this release writes and reads output
-schema **1** (`solprop.output.SCHEMA_VERSION`), the first released layout. A file of
-any other schema is refused by name wherever it is opened, read or resumed: files
-written by development versions of solprop, which declared output schemas up to 28,
-are not read, and nor is a file from a later release. Read such a file with the
-solprop version that wrote it. The schema version is inside the resume key too
+schema **2** (`solprop.output.SCHEMA_VERSION`). Schema 1 was the first released layout,
+that of 0.1.0; schema 2 adds `spectral_phase` to the record of a
+{py:class}`~solprop.pulses.DataPulse`. A file of any other schema is refused by name
+wherever it is opened, read or resumed: files written by an earlier release or by
+development versions of solprop, which declared output schemas up to 28, are not read,
+and nor is a file from a later release. Read such a file with the solprop version that
+wrote it. The schema version is inside the resume key too
 ([the resume key](resuming.md#the-resume-key)).
 
 Every run records its `precision` (`"double"` or `"single"`,
