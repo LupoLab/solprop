@@ -19,13 +19,17 @@ from solprop import _process
 from solprop.backends import registry
 from solprop.backends.numba_cpu import fft
 from solprop.constants import C
-from solprop.coupling import CouplingModel, FieldPlane, couple, coupler
+from solprop.coupling import CouplingModel, FieldPlane, PlaneGeometry, couple, coupler
 from solprop.driver import Simulation
 from solprop.exceptions import ModeError
+from solprop.grid import RadialGrid
+from solprop.hankel import QDHT
 from solprop.modes import graded_index
 from solprop.modes.graded_index import GradedIndexProvider, PowerLawPermittivity
 from solprop.modes.guide import ModalGuide
 from solprop.modes.material import IndexMaterial
+from solprop.pulses import GaussianPulse, SpatialPulse
+from solprop.spatial import SpatialMedium
 from solprop.translate import general
 
 
@@ -431,6 +435,38 @@ def test_general_route_tables_are_built_inside_the_translation_hold(monkeypatch,
     )
     assert route.n_modes == 1
     assert observed == [[1, 1]]
+    assert widths(pools) == [32, 32]
+
+
+@pytest.mark.parametrize("measure", ["index", "medium"])
+def test_incident_plane_hankel_transform_holds_the_pool(
+    monkeypatch, pools, simulation, measure
+):
+    # An incident launch builds its plane before couple(), including this dense
+    # radial transform. Holding only couple() misses the construction product.
+    original = QDHT._apply
+    observed = []
+
+    def held_transform(*args, **kwargs):
+        observed.append(widths(pools))
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(QDHT, "_apply", held_transform)
+    grid = simulation.grid
+    pulse = SpatialPulse(
+        GaussianPulse(wavelength=835e-9, fwhm=30e-15, energy=1e-6), 30e-6
+    )
+    plane = FieldPlane.from_pulse(
+        pulse,
+        grid,
+        PlaneGeometry(0.0),
+        space=RadialGrid(150e-6, 48),
+        index=np.ones(grid.n_omega) if measure == "index" else None,
+        medium=SpatialMedium() if measure == "medium" else None,
+    )
+    assert observed and all(value == [1, 1] for value in observed)
+    assert plane.samples.shape == (48, 1, grid.n_omega)
+    assert np.all(np.isfinite(plane.samples))
     assert widths(pools) == [32, 32]
 
 
