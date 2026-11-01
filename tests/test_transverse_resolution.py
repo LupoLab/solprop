@@ -243,8 +243,8 @@ def test_a_backend_that_does_not_read_the_edge_refuses_a_collar(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # SEP 40 section 6: a requested collar is refused by name where its return
-    # monitor is not carried (the mlx backend, which no CI runner has); numba_cpu
-    # stands in for it with its reading switched off.
+    # monitor is not carried. Every solprop backend carries it; numba_cpu with its
+    # reading switched off stands in for one that does not.
     from solprop.backends.numba_cpu import NumbaCpuBackend  # noqa: PLC0415
     from solprop.exceptions import BackendError  # noqa: PLC0415
 

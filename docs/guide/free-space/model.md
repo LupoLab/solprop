@@ -192,7 +192,7 @@ more. A fixed schedule cannot be held to it, and reports itself as `coarse`.
 Every run reports a `transverse_status` in its monitor record and says at the start what
 it will be able to report: `clear` (read at the spacing, below the warning), `warned`,
 `stopped`, `insensitive` (the input noise's allowance exceeds the warning), `coarse`,
-`unwatched` (the backend does not read the edge: `mlx`; the CPU backends do) or `off`
+`unwatched` (a backend that does not read the edge; all of solprop's own do) or `off`
 (`boundary_check=None`). Only `clear` is a clean verdict.
 
 **The safety ramp.** Every free-space run also carries a transverse-wavenumber ramp on the

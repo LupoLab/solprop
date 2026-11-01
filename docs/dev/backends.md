@@ -432,15 +432,15 @@ as one; its end-of-plane log is retired, and the boundary monitor's transverse e
 A backend whose `StepDriver.reads_transverse_edge` is set hands the monitor's
 `TransverseEdge` its observed field at the edge's reads, at saved planes, and with a
 requested collar at every committed step; the read spacing is a ceiling on the step.
-`numpy_ref`, `numba_cpu` and `native` set it; `numba_cpu` keeps its state on the host
-and steps from there, under the driver's ceiling. The native Adams march takes the edge's next read as
-the call's `read_at` bound: an adaptive step does not pass it, and the call returns once
-a committed step reaches it, so the host reads the state there; a replay is not capped
-and returns at its first step past the read. With a collar the host step is one, so the
-march returns at every committed step. A native device build reads the edge the same
-way, copying its state to the host at each read; it is compiled, not qualified on a
-device. mlx reports `unwatched` and refuses a requested
-collar by name until its device qualification. The edge's reductions run on the
+Every solprop backend sets it; `numba_cpu` keeps its state on the host and steps from
+there, under the driver's ceiling, as mlx does from its widened device state. The native
+Adams march takes the edge's next read as the call's `read_at` bound: an adaptive step
+does not pass it, and the call returns once a committed step reaches it, so the host
+reads the state there; a replay is not capped and returns at its first step past the
+read. With a collar the host step is one, so the march returns at every committed step.
+A native device build reads the edge the same way, copying its state to the host at each
+read; it is compiled, not qualified on a device. A backend that does not set it reports
+`unwatched` and refuses a requested collar by name. The edge's reductions run on the
 host copy of the field; moving them into the native memory space is left to the cost
 measurement of SEP 40 section 7.7.
 
@@ -1803,7 +1803,8 @@ each stage and each running integral is evaluated as it is formed.
 graph the backend keeps, and bounds MLX's measured peak; on the spatial routes a stage
 also holds the transverse transforms' copies and the reference's in-place passes as
 separate arrays, measured at up to 18 fine-grid columns per column on the Cartesian
-route and 6 on the radial one (`memory._MLX_TRANSIENT_COLUMNS`), and with the envelope
+route and 9 on the radial one, whose operator carries SEP 40's safety ramp
+(`memory._MLX_TRANSIENT_COLUMNS`), and with the envelope
 plasma the device's own arrays per node sample (drive, loss and current; rate,
 exposure, populations, flag and scan scratch per channel). On MLX's CPU device, which CI
 uses where no Metal GPU is present, the kernels are replaced by MLX operations (the
