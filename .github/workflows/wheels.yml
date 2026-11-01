@@ -12,6 +12,15 @@ name: Wheels
 # runs when the wheel recipe changes, weekly, by hand and on a release tag.
 on:
   workflow_dispatch:
+    inputs:
+      published_version:
+        description: Check this published version only; leave empty to build wheels
+        default: ""
+        type: string
+      readme_example:
+        description: Also run the published release's full README example
+        default: false
+        type: boolean
   schedule:
     - cron: "17 3 * * 1" # Mondays 03:17 UTC
   push:
@@ -28,7 +37,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}${{ inputs.published_version != '' && format('-published-{0}', inputs.published_version) || '' }}
   cancel-in-progress: true
 
 env:
@@ -39,6 +48,7 @@ jobs:
   # One wheel per platform: cibuildwheel builds the dependencies (before-all), the
   # distribution wheel, repairs it and smoke-tests it in its own environment.
   build:
+    if: github.event_name != 'workflow_dispatch' || inputs.published_version == ''
     name: build (${{ matrix.id }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 180
@@ -323,3 +333,16 @@ jobs:
       - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
         with:
           packages-dir: dist
+
+  published-install:
+    needs: [publish-native, publish]
+    uses: ./.github/workflows/published-install.yml
+    with:
+      version: ${{ github.ref_name }}
+
+  qualify-published:
+    if: github.event_name == 'workflow_dispatch' && inputs.published_version != ''
+    uses: ./.github/workflows/published-install.yml
+    with:
+      version: ${{ inputs.published_version }}
+      readme_example: ${{ inputs.readme_example }}
