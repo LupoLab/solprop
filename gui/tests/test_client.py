@@ -48,6 +48,29 @@ def test_the_kernel_client_delivers_the_latest_reply():
     assert all(reply.value != 2 for reply in replies)  # superseded or stale
 
 
+def test_a_reply_that_arrives_while_closing_is_not_delivered():
+    replies: list[Reply] = []
+    client = KernelClient(replies.append, target=targets.echo_kernel)
+    client._closing = True  # as close() sets it, before the pipe is shut
+    client.request("echo", {"x": 1})
+    client._reader.join(60)
+    assert replies == [] and not client._reader.is_alive()
+    client.close()
+
+
+def test_the_reader_may_close_its_own_client():
+    closed = threading.Event()
+    holder: list[KernelClient] = []
+
+    def on_reply(_reply: Reply) -> None:
+        holder[0].close()  # from the reader thread: it does not wait for itself
+        closed.set()
+
+    holder.append(KernelClient(on_reply, target=targets.echo_kernel))
+    holder[0].request("echo", {"x": 1})
+    assert closed.wait(60) and not holder[0].alive
+
+
 def test_a_kernel_that_ends_is_reported_once():
     lost = threading.Event()
     client = KernelClient(

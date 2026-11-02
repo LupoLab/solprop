@@ -1106,6 +1106,8 @@ class MainWindow(QMainWindow):
             event.ignore()
             return
         self.settings.setValue("workspace", str(self.run_panel.workspace))
+        self.check_timer.stop()
+        self.autosave.stop()
         self.bridge.close()
         event.accept()
 

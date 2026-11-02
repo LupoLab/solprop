@@ -206,6 +206,8 @@ class KernelClient:
             except EOFError, OSError, TypeError:
                 # TypeError: close() released the handle while recv() waited on it.
                 break
+            if self._closing:
+                break  # the window is going: it takes no more replies
             if self.filter.accepts(reply):
                 self._on_reply(reply)
         if not self._closing and self._on_lost is not None:
@@ -225,6 +227,10 @@ class KernelClient:
         if self._process.is_alive():
             self._process.terminate()
             self._process.join(timeout)
+        # The reader may be handing over a reply that arrived as the pipe closed: it
+        # is done before the window, which receives it, can go.
+        if self._reader is not threading.current_thread():
+            self._reader.join(timeout)
 
 
 class RunClient:
