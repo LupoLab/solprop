@@ -72,6 +72,15 @@ def test_the_explorer_draws_modes_sweeps_and_a_table(qtbot: QtBot, tmp_path: Pat
     view.set_rdw(2.5e-7)
     view.set_rdw(2.5e-7)  # the same: not drawn again
     assert view.rdw == 2.5e-7
+    figures = []
+    view.figure_wanted.connect(figures.append)
+    view.export_figure(str(tmp_path / "modes.pdf"))
+    spec = figures[-1]["spec"]
+    assert figures[-1]["path"].endswith("modes.pdf") and not spec["logy"]
+    assert [curve["label"] for curve in spec["curves"]] == ["HE1,1", "HE1,2"]
+    marks = {line["label"]: line for line in spec["lines"]}
+    assert marks["RDW"]["x"] == pytest.approx(250.0) and marks["RDW"]["style"] == "--"
+    assert "pump" in marks and spec["xlabel"] == "Wavelength (nm)"
     assert view.labels() == ["HE1,1", "HE1,2"]
     shot(view, tmp_path, "explorer")
     hit = view.lookup(1000.0, 0.0)
@@ -300,6 +309,12 @@ def test_the_zdw_chart_draws_its_contours(qtbot: QtBot, tmp_path: Path):
     view.show_chart(chart)
     assert len(view.curves) == 2 and "600 nm" in view.status.text()
     shot(view, tmp_path, "zdw-chart")
+    figures = []
+    view.figure_wanted.connect(figures.append)
+    view.export_figure(str(tmp_path / "chart.svg"))
+    spec = figures[-1]["spec"]
+    assert spec["logy"] and spec["points"][0]["y"] == pytest.approx(1.0)
+    assert np.isnan(spec["curves"][1]["y"][0])  # the gap, as given
     hit = view.lookup(137.5, np.log10(1.5))
     assert hit is not None and "600 nm" in hit[2]
     assert view.lookup(25.0, 0.0) is not None  # the gap is passed over
@@ -428,6 +443,11 @@ def test_the_window_designs_charts_and_moves_along(qtbot: QtBot, tmp_path: Path)
     window.chart.wavelengths.setText("500 nm")
     window.chart.draw_button.click()
     qtbot.waitUntil(lambda: len(window.chart.curves) == 1, timeout=WAIT_MS)
+    window.chart.export_figure(str(tmp_path / "chart.pdf"))
+    qtbot.waitUntil((tmp_path / "chart.pdf").exists, timeout=WAIT_MS)
+    qtbot.waitUntil(
+        lambda: "Wrote" in window.statusBar().currentMessage(), timeout=WAIT_MS
+    )
     window._show_tool("chart", _failed())
     assert "No chart" in window.chart.status.text()
 

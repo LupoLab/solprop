@@ -45,7 +45,13 @@ from solprop_gui.registry.explore import (
 )
 from solprop_gui.registry.pages import label
 from solprop_gui.ui.quantity import QuantityField
-from solprop_gui.views.plotting import PALETTE, HoverLayout, colormap
+from solprop_gui.views.plotting import (
+    PALETTE,
+    HoverLayout,
+    choose_figure,
+    colormap,
+    figure_spec,
+)
 from solprop_gui.views.splitter import GripSplitter
 
 __all__ = ["Curve", "ExplorerView"]
@@ -76,10 +82,13 @@ class ExplorerView(QWidget):
         position: the window asks again.
     design_wanted : Signal
         Emitted when the user asks for the design tool.
+    figure_wanted : Signal
+        Emitted with a figure's ``path`` and ``spec`` when the user exports one.
     """
 
     sweep_changed = Signal()
     design_wanted = Signal()
+    figure_wanted = Signal(object)
 
     def __init__(self, parent: QWidget | None = None) -> None:  # noqa: PLR0915 - a layout
         """Make the controls and the empty plot."""
@@ -120,8 +129,12 @@ class ExplorerView(QWidget):
         self.apply.setObjectName("sweep-apply")
         self.apply.clicked.connect(self.sweep_changed)
         self.export_button = QToolButton()
-        self.export_button.setText("Export CSV…")
-        self.export_button.clicked.connect(self.choose_export)
+        self.export_button.setText("Export")
+        self.export_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        export_menu = QMenu(self)
+        export_menu.addAction("Curves as CSV…", self.choose_export)
+        export_menu.addAction("Figure (PNG, SVG, PDF)…", self.choose_figure)
+        self.export_button.setMenu(export_menu)
         self.design_button = QToolButton()
         self.design_button.setText("Design…")
         self.design_button.setObjectName("explorer-design")
@@ -459,6 +472,22 @@ class ExplorerView(QWidget):
         return best
 
     # ------------------------------------------------------------------ export
+
+    def choose_figure(self) -> None:  # pragma: no cover - a modal dialog
+        """Ask where to write the figure, and ask for it."""
+        path = choose_figure(self, "modes.pdf")
+        if path:
+            self.export_figure(path)
+
+    def export_figure(self, path: str) -> None:
+        """Ask for the plot as a figure.
+
+        Parameters
+        ----------
+        path : str
+            The file.
+        """
+        self.figure_wanted.emit({"path": path, "spec": figure_spec(self.plot)})
 
     def choose_export(self) -> None:
         """Ask where to write the curves, and write them."""

@@ -201,3 +201,30 @@ def test_the_modes_along_a_gradient():
     halfway = ask("modes", {"text": gradient, "z": "2.5 cm"})["sets"][0]
     assert halfway["z"] == pytest.approx(0.025)
     assert halfway["modes"][0]["zdw"] < entrance["modes"][0]["zdw"]  # less gas
+
+
+def test_a_figure_is_drawn_from_a_views_description(tmp_path: Path):
+    x = np.linspace(1.0, 2.0, 5)
+    pen = {"colour": "#1f77b4", "style": "-", "width": 1.2}
+    spec = {
+        "xlabel": "Radius (µm)",
+        "ylabel": "Pressure (bar)",
+        "logx": True,
+        "logy": True,
+        "curves": [
+            {"x": x, "y": x**2, "label": "ZDW 400 nm", **pen},
+            {"x": x, "y": x, "label": "", **pen},
+        ],
+        "lines": [
+            {"x": 1.5, "label": "pump", **pen},
+            {"x": 1.2, "label": "", **pen},
+            {"y": 2.0, "label": "", **pen},
+        ],
+        "points": [{"x": 1.5, "y": 2.0, "label": "setup", "colour": "#c62828"}],
+    }
+    for name, head in (("f.pdf", b"%PDF"), ("f.svg", b"<?xml"), ("f.png", b"\x89PNG")):
+        written = Path(ask("figure", {"path": str(tmp_path / name), "spec": spec}))
+        assert written.read_bytes().startswith(head)
+    bare = {"curves": [{"x": x, "y": x, "label": "", **pen}]}
+    other = ask("figure", {"path": str(tmp_path / "f.tif"), "spec": bare})
+    assert other.endswith("f.png")  # another kind is written as PNG

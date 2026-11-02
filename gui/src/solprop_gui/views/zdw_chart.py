@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QPushButton,
     QSpinBox,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -31,7 +32,7 @@ from solprop.recipe.quantity import Unit, parse_quantity
 
 from solprop_gui.registry.explore import sweep_values
 from solprop_gui.ui.quantity import RangeField
-from solprop_gui.views.plotting import HoverLayout, colormap
+from solprop_gui.views.plotting import HoverLayout, choose_figure, colormap, figure_spec
 
 __all__ = ["ZdwChartView"]
 
@@ -55,9 +56,12 @@ class ZdwChartView(QWidget):
     chart_wanted : Signal
         Emitted with the request's ``radii`` and ``wavelengths`` when the user asks
         for the chart.
+    figure_wanted : Signal
+        Emitted with a figure's ``path`` and ``spec`` when the user exports one.
     """
 
     chart_wanted = Signal(object)
+    figure_wanted = Signal(object)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         """Make the controls and the empty plot."""
@@ -76,6 +80,9 @@ class ZdwChartView(QWidget):
             "zero-dispersion wavelengths, e.g. 400, 600 nm"
         )
         self.wavelengths.returnPressed.connect(self.ask)
+        self.figure_button = QToolButton()
+        self.figure_button.setText("Export figure…")
+        self.figure_button.clicked.connect(self.choose_figure)
         self.draw_button = QPushButton("Chart")
         self.draw_button.setObjectName("chart-draw")
         self.draw_button.clicked.connect(self.ask)
@@ -94,6 +101,7 @@ class ZdwChartView(QWidget):
         controls.addWidget(QLabel("ZDW"))
         controls.addWidget(self.wavelengths, 1)
         controls.addWidget(self.draw_button)
+        controls.addWidget(self.figure_button)
 
         self.plots = HoverLayout()
         self.plot = self.plots.add_plot(0, 0, "")
@@ -110,6 +118,22 @@ class ZdwChartView(QWidget):
         layout.addLayout(controls)
         layout.addWidget(self.status)
         layout.addWidget(self.plots, 1)
+
+    def choose_figure(self) -> None:  # pragma: no cover - a modal dialog
+        """Ask where to write the figure, and ask for it."""
+        path = choose_figure(self, "zdw-chart.pdf")
+        if path:
+            self.export_figure(path)
+
+    def export_figure(self, path: str) -> None:
+        """Ask for the chart as a figure.
+
+        Parameters
+        ----------
+        path : str
+            The file.
+        """
+        self.figure_wanted.emit({"path": path, "spec": figure_spec(self.plot)})
 
     def request(self) -> dict[str, object] | None:
         """Return the chart's request, or say why it cannot be made.

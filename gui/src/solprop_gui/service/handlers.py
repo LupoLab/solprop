@@ -27,6 +27,7 @@ from solprop.recipe.quantity import Unit, format_quantity
 from solprop.tools import capillary_params, lambda_rdw_all
 
 from solprop_gui.service.design import DESIGN_HANDLERS, pin_targets
+from solprop_gui.service.figures import FIGURE_HANDLERS
 from solprop_gui.service.reduce import Display, Reducer, stats_row
 
 __all__ = ["HANDLERS"]
@@ -382,7 +383,8 @@ def _capillary_design(recipe: Recipe, energy: float) -> dict[str, float]:
         if params.beta2 < 0
         else ()
     )
-    numbers.update({"rdw": float(root) for root in roots[:1]})
+    for root in roots[:1]:  # the shortest
+        numbers["rdw"] = float(root)
     return numbers
 
 
@@ -698,5 +700,6 @@ HANDLERS: dict[str, Callable[[Payload], object]] = {
     "summarise": summarise,
     "to_python": to_python,
     **DESIGN_HANDLERS,
+    **FIGURE_HANDLERS,
 }
 """The handlers, by request kind."""

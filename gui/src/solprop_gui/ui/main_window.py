@@ -210,6 +210,8 @@ class MainWindow(QMainWindow):
         self.design_dialog: DesignDialog | None = None
         self.chart = ZdwChartView()
         self.chart.chart_wanted.connect(self.request_chart)
+        for view in (self.explorer, self.chart):
+            view.figure_wanted.connect(self.request_figure)
         self.views.addTab(self.explorer, "Dispersion")
         self.views.addTab(self.chart, "ZDW chart")
         self.views.addTab(self.run_panel.view, "Live run")
@@ -660,7 +662,7 @@ class MainWindow(QMainWindow):
             self._show_modes(reply)
         elif purpose.startswith("roots-"):
             self._show_roots(purpose.removeprefix("roots-"), reply)
-        elif purpose in ("chart", "design"):
+        elif purpose in ("chart", "design", "figure"):
             self._show_tool(purpose, reply)
         elif purpose in ("to_python", "export"):
             self.code = str(value) if reply.ok else f"# {reply.error}"
@@ -671,17 +673,21 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(f"{purpose}: {reply.error}", 10_000)
 
     def _show_tool(self, purpose: str, reply: Reply) -> None:
-        """Show a design tool's reply: the ZDW chart, or the design dialog's solution.
+        """Show a tool's reply: the ZDW chart, the design's solution, a figure written.
 
         Parameters
         ----------
         purpose : str
-            ``"chart"`` or ``"design"``.
+            ``"chart"``, ``"design"`` or ``"figure"``.
         reply : solprop_gui.service.messages.Reply
             The reply.
         """
         value = reply.value if reply.ok and isinstance(reply.value, dict) else None
-        if purpose == "chart":
+        if purpose == "figure":
+            # A failure is announced with every other one, below the routing.
+            if reply.ok:
+                self.statusBar().showMessage(f"Wrote {reply.value}", 10_000)
+        elif purpose == "chart":
             if value is None:
                 self.chart.show_error(f"No chart: {reply.error}")
             else:
@@ -1171,6 +1177,17 @@ class MainWindow(QMainWindow):
             return
         payload = {"text": self.model.to_text(), "base": self.base, **request}
         self._ask_kernel("zdw_chart", payload, "chart")
+
+    def request_figure(self, figure: Mapping[str, object]) -> None:
+        """Ask the kernel to draw a view's figure and write it.
+
+        Parameters
+        ----------
+        figure : Mapping
+            Its ``path`` and ``spec``.
+        """
+        self.statusBar().showMessage(f"Writing {figure['path']}…", 10_000)
+        self._ask_kernel("figure", dict(figure), "figure")
 
     def solve_design(self, pins: Mapping[str, object]) -> None:
         """Ask the kernel to solve the design tool's pins.

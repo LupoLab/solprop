@@ -10,10 +10,13 @@ so it never leaves it, and gone when the mouse leaves the plots.
 """
 
 from collections.abc import Callable
+from typing import Final
 
 import numpy as np
 import pyqtgraph as pg
-from PySide6.QtCore import QEvent, QPointF
+from PySide6.QtCore import QEvent, QPointF, Qt
+from PySide6.QtGui import QPen
+from PySide6.QtWidgets import QFileDialog, QWidget
 
 __all__ = [
     "BLUE",
@@ -21,9 +24,14 @@ __all__ = [
     "HoverLayout",
     "Lookup",
     "Readout",
+    "choose_figure",
     "colormap",
     "curve_lookup",
+    "figure_spec",
 ]
+
+FIGURE_FILTER = "PNG image (*.png);;SVG drawing (*.svg);;PDF document (*.pdf)"
+"""The figure formats offered, for a file dialog."""
 
 pg.setConfigOptions(antialias=True, background="w", foreground="k")
 
@@ -233,3 +241,124 @@ class HoverLayout(pg.GraphicsLayoutWidget):
         for _, _, readout in self.targets:
             readout.hide()
         super().leaveEvent(ev)
+
+
+_DASHES: Final = {
+    Qt.PenStyle.SolidLine: "-",
+    Qt.PenStyle.DashLine: "--",
+    Qt.PenStyle.DotLine: ":",
+    Qt.PenStyle.DashDotLine: "-.",
+}
+"""Qt's pen styles as Matplotlib's line styles."""
+
+
+def _pen(pen: object) -> dict[str, object]:
+    """Return a pen as Matplotlib's line keywords.
+
+    Parameters
+    ----------
+    pen : object
+        The pen, or what :func:`pyqtgraph.mkPen` makes one from.
+
+    Returns
+    -------
+    dict
+        ``colour`` (``#rrggbb``), ``style`` and ``width`` (points).
+    """
+    qpen = pen if isinstance(pen, QPen) else pg.mkPen(pen)
+    return {
+        "colour": qpen.color().name(),
+        "style": _DASHES.get(qpen.style(), "-"),
+        "width": max(qpen.widthF(), 1.0) * 0.75,
+    }
+
+
+def figure_spec(plot: pg.PlotItem) -> dict[str, object]:
+    """Describe what a plot shows, as plain data a figure can be drawn from.
+
+    The curves (as given, before a log axis maps them), the marker lines and the
+    marked points, the axis titles and the log axes: what the kernel's ``figure``
+    request draws with Matplotlib, so an exported figure is the view's.
+
+    Parameters
+    ----------
+    plot : pyqtgraph.PlotItem
+        The plot.
+
+    Returns
+    -------
+    dict
+        ``xlabel``, ``ylabel``, ``logx``, ``logy``, ``curves`` (each ``x``, ``y``,
+        ``label`` and its pen), ``lines`` (each ``x`` or ``y``, ``label`` and pen)
+        and ``points`` (each ``x``, ``y``, ``label``, ``colour``).
+    """
+    logx = bool(plot.getAxis("bottom").logMode)
+    logy = bool(plot.getAxis("left").logMode)
+    curves: list[dict[str, object]] = []
+    lines: list[dict[str, object]] = []
+    points: list[dict[str, object]] = []
+    for item in plot.items:
+        if isinstance(item, pg.PlotDataItem):
+            x, y = item.getOriginalDataset()
+            if x is None or y is None:
+                continue
+            curves.append(
+                {
+                    "x": np.asarray(x, dtype=float),
+                    "y": np.asarray(y, dtype=float),
+                    "label": item.name() or "",
+                    **_pen(item.opts["pen"]),
+                }
+            )
+        elif isinstance(item, pg.InfiniteLine):
+            vertical = abs(item.angle % 180 - 90) < 1e-9
+            value = float(item.value())  # pyright: ignore[reportArgumentType]
+            if logx if vertical else logy:
+                value = 10.0**value
+            marker = getattr(item, "label", None)  # set only for a labelled line
+            label = marker.format if marker is not None else ""
+            line = {"label": label, **_pen(item.pen)}
+            line["x" if vertical else "y"] = value
+            lines.append(line)
+        elif isinstance(item, pg.ScatterPlotItem):
+            for spot in item.points():
+                position = spot.pos()
+                x, y = float(position.x()), float(position.y())
+                points.append(
+                    {
+                        "x": 10.0**x if logx else x,
+                        "y": 10.0**y if logy else y,
+                        "label": item.name() or "",
+                        "colour": spot.pen().color().name(),
+                    }
+                )
+    return {
+        "xlabel": plot.getAxis("bottom").labelText,
+        "ylabel": plot.getAxis("left").labelText,
+        "logx": logx,
+        "logy": logy,
+        "curves": curves,
+        "lines": lines,
+        "points": points,
+    }
+
+
+def choose_figure(parent: QWidget, name: str) -> str | None:  # pragma: no cover - modal
+    """Ask where to write a figure.
+
+    Parameters
+    ----------
+    parent : PySide6.QtWidgets.QWidget
+        The dialog's owner.
+    name : str
+        The file name offered.
+
+    Returns
+    -------
+    str or None
+        The file chosen, or ``None`` when the dialog is cancelled.
+    """
+    chosen, _ = QFileDialog.getSaveFileName(
+        parent, "Export figure", name, FIGURE_FILTER
+    )
+    return chosen or None
