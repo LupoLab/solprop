@@ -14,11 +14,11 @@ that runs them —
 - on an **NVIDIA GPU** with CUDA (cuFFT and cuBLAS), or an **AMD GPU** with HIP (rocFFT
   and rocBLAS).
 
-It is the backend to use by default. With it installed, `backend="auto"` — the default of
-every entry point — selects it. You never need it for correctness: without it solprop runs
-everything on `numpy_ref`, which is unthreaded and roughly 6 to 40 times slower than
-threaded native ([which backend to use](backends.md#which-backend-to-use)), and
-`backend="auto"` warns when it lands there.
+It is the backend to use, and a required dependency: `pip install solprop` installs it, and
+`backend="auto"` — the default of every entry point — selects it. `numpy_ref`, which is
+unthreaded and roughly 6 to 40 times slower than threaded native
+([which backend to use](backends.md#which-backend-to-use)), remains the numerical
+reference, and runs [the few features native does not](backends.md#features-that-run-on-the-reference-backend).
 
 ## What it runs
 
@@ -59,26 +59,25 @@ mismatch starts the history afresh and says why. Other histories cross between b
 Separately, the `cf4` section method of a coupled flow (`CoherentWall(method="cf4")`)
 runs on `numpy_ref` only, with the Runge–Kutta march; the native backend does not run it.
 The planar guide resolved in y is built into the GPU builds but has not been qualified
-on a device. solprop never falls back silently: an import failure, an incompatible build
-or a refused problem raises, naming the backend to use instead. The fallback is
-announced: when the native backend is not installed, or on a processor below every
-installed build's CPU baseline, `backend="auto"` uses `numpy_ref` with a warning
+on a device. solprop has no fallback: an import failure, an incompatible build, a processor
+below the build's baseline or a refused problem raises, naming what to do instead
 ([choosing a backend](backends.md)).
 
 ## Installing
 
-The native backend is solprop's `native` extra, which requires `solprop-native` at
-solprop's own version:
+The native backend is a required dependency of solprop, at solprop's own version, so there
+is no extra:
 
 ```sh
-pip install "solprop[native]"
+pip install solprop
 ```
 
 Precompiled wheels serve macOS on Apple silicon (osx-arm64), Linux on x86-64 (linux-64),
 Linux on aarch64 (linux-aarch64), Windows on x86-64 (win-64) and Windows on Arm
-(win-arm64). They are the **distribution** build: compiled for a CPU baseline (x86-64-v3
-with x86-64-v2 beside it, any Apple silicon Mac, Neoverse N1; [processor requirements](../../introduction/installation.md)) and carrying a BLAS that shares the backend's threads. Elsewhere, and for
-an NVIDIA or AMD GPU, build the package from source. A source build can also be the
+(win-arm64), and solprop runs where they install ([installation](../../introduction/installation.md)). They are the **distribution** build: compiled for a CPU baseline (x86-64-v3
+with x86-64-v2 beside it, any Apple silicon Mac, Neoverse N1; [processor requirements](../../introduction/installation.md)) and carrying a BLAS that shares the backend's threads. A
+source build is the way past a wheel's limits: an NVIDIA or AMD GPU, or a platform or
+processor no wheel serves, where it may work, with no support promise. It can also be the
 **local** profile, compiled for the machine that runs it with its own vendor BLAS, which
 is a few per cent faster than the wheel on the measured cases. A third profile,
 **reference**, is for development checks only and is noticeably slower. The profiles
@@ -118,17 +117,18 @@ With logging on (`solprop.configure_logging("INFO")`) every run logs
 `Using native backend`, and the backend and its settings are recorded in the output file
 (`run.metadata.backend`).
 
-**Working on solprop and its native backend.** In a development checkout, one command
+**Working on solprop and its native backend.** In a development checkout, a plain sync
 builds the native package from `native/` and installs it editable into the repository's
 environment beside solprop:
 
 ```sh
-uv sync --extra native
+uv sync
 ```
 
-A plain `uv sync` leaves it out, and removes a copy installed by hand. The editable
-install does not rebuild itself: run `uv sync --extra native --reinstall-package
-solprop-native` after a native change. `uv run poe check-native` runs the native gate
+It needs a C++20 compiler; a contributor to the Python or the documentation can do without
+one ([contributing](../../dev/contributing.md)). The editable install does not rebuild
+itself: run `uv sync --reinstall-package solprop-native` after a native change.
+`uv run poe check-native` runs the native gate
 and `uv run poe check-all` both gates. A build stays valid across solprop changes until
 solprop's kernel schema (`KERNEL_SCHEMA_VERSION`) changes or `check_build()` names a
 member the installed solprop lacks. Running solprop's test lanes against the build is described in
@@ -169,6 +169,33 @@ planes. Things to know:
 - **Time your own problem first.** Run ten steps on the device and on the CPU before
   committing to either for a long campaign.
 
+### A job that must run on a device
+
+A new release replaces a source build with that release's CPU wheel, with no message,
+because solprop requires the native backend at its own version
+([upgrading a source build](building-native.md#upgrading-a-source-build)). So a GPU job says
+where it must run, and a job that lost its GPU build stops before it starts:
+
+```sh
+SOLPROP_REQUIRE_DEVICE=cuda python my_run.py
+```
+
+| `SOLPROP_REQUIRE_DEVICE` | meaning |
+|---|---|
+| unset or empty | no requirement, the default for every CPU user |
+| `cuda` | the run must execute on a CUDA build that sees a device |
+| `hip` | the run must execute on a HIP build that sees a device |
+| `any` | the run must execute on a device build of either kind |
+| anything else | raises a `BackendError` naming the accepted values |
+
+It is an environment setting with no keyword, and scan workers inherit it. It is checked at
+backend selection, before any state is allocated or a step taken, by reading the build's
+`build_info().device_backend` and `device_count`, never a version label. It refuses, with a
+`BackendError`, a CPU build, the wrong device backend and a device build that sees no device.
+It also refuses `numpy_ref` and `mlx`, by name or through `backend="auto"` for a TDSE or
+single-precision run, because such a run would not meet the job's requirement; unset it for
+such a run.
+
 ## Threads on the CPU build
 
 The CPU build uses the process's thread budget by default: the CPUs in its affinity
@@ -191,8 +218,15 @@ large run, for a scan of many runs and on a cluster.
 
 - **`ImportError`, a schema mismatch, or `check_build()` naming a missing member.** The
   installed solprop-native does not fit the installed solprop; install both at the same
-  version (`pip install --force-reinstall "solprop[native]"`, or both from one checkout
+  version (`pip install --force-reinstall solprop`, or both from one checkout
   as in [Building the native backend](building-native.md)).
+- **`backend="auto"` refuses.** The message says why: the native package is missing, the
+  processor is below the build's baseline, or its features could not be read
+  ([installation](../../introduction/installation.md)). A contributor's lightweight setup has
+  no native package, so name `backend="numpy_ref"` there.
+- **A job stops at `SOLPROP_REQUIRE_DEVICE`.** The installed build isn't the device build the
+  job asked for, or it sees no device. A new release replaces a source build, so
+  [rebuild it](building-native.md#upgrading-a-source-build), or check the job's allocation.
 - **"refuses this problem".** The message names what was refused and which backend runs
   it; pass that backend explicitly.
 - **A `RuntimeError` on macOS about `pyfftw`, or a crash or hang.** Two OpenMP runtimes
@@ -209,4 +243,5 @@ large run, for a scan of many runs and on a cluster.
 
 The native backend's place in this repository and its
 precompiled wheels were proposed and carried out by
-[SEP 29](../../dev/seps/archive/sep-0029-compiled-backend-distribution.md).
+[SEP 29](../../dev/seps/archive/sep-0029-compiled-backend-distribution.md), and
+[SEP 43](../../dev/seps/sep-0043-retire-numba-cpu.md) made it a required dependency.

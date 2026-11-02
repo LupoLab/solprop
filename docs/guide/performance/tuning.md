@@ -36,10 +36,10 @@ The backend decides which pools exist at all (see [Choosing a backend](backends.
 | native CPU (`native`) | OpenMP kernels, FFTW (modal and spatial transforms), the Raman convolution transforms (Kokkos-FFT over FFTW, with selected macOS shapes on Accelerate's vDSP), a vendor BLAS | uses every CPU in the process's affinity mask unless told otherwise |
 | native GPU (`native`, CUDA or HIP build) | the device | CPU pools are irrelevant; one device per process |
 
-`backend="auto"` chooses the native backend when `solprop-native` is installed and
-otherwise warns and uses `numpy_ref`. The largest single gain is installing the native
-backend at all; a **locally built** one ([The native backend](native.md)) goes a little
-further, since it links a vendor BLAS and compiles for the
+`backend="auto"` chooses the native backend, a required dependency, and has no fallback
+([which backend a run uses](backends.md#which-backend-a-run-uses)). A **locally built** one
+([The native backend](native.md)) goes a little further than the wheel, since it links a
+vendor BLAS and compiles for the
 machine's own instruction set; [which backend to use](backends.md#which-backend-to-use)
 compares the backends by problem.
 
@@ -366,8 +366,7 @@ SOLPROP_NATIVE_THREADS=8 OMP_PROC_BIND=spread OMP_PLACES=cores OMP_WAIT_POLICY=p
     python my_run.py
 ```
 
-Without the native backend, `numpy_ref` runs on one thread apart from its matrix products,
-and no setting changes that.
+`numpy_ref` runs on one thread apart from its matrix products, and no setting changes that.
 
 **How far a single run scales.** A single-mode fibre on a few thousand time samples
 gains little beyond two to four threads: its transforms are short and each step is
@@ -427,7 +426,20 @@ each run a `Pool` inside their allocation; it respects `SLURM_CPUS_PER_TASK`, an
 backend uses one device per process, chosen with `CUDA_VISIBLE_DEVICES` or
 `HIP_VISIBLE_DEVICES`. Small problems are limited by kernel-launch latency and often run
 faster on the CPU: run them with the CPU wheel in a second environment. Run independent problems in
-separate processes to use several devices. See [The native backend](native.md).
+separate processes to use several devices. A job set up for a device names the requirement,
+and stops before it starts if the environment has lost its GPU build
+([a job that must run on a device](native.md#a-job-that-must-run-on-a-device)):
+
+```sh
+CUDA_VISIBLE_DEVICES=0 SOLPROP_REQUIRE_DEVICE=cuda python my_run.py
+```
+
+See [The native backend](native.md).
+
+**A processor without AVX2.** An x86-64 wheel loads its x86-64-v2 build there, which takes
+about 20 to 25 % longer by geometric mean; `solprop_native.build_info()` reports which build
+is loaded, and `SOLPROP_NATIVE_CPU_VARIANT=x86-64-v2` asks for that build on a faster
+processor, for comparisons ([The native backend](native.md#installing)).
 
 **Memory.** Large multimode and general modal problems can be limited by memory before
 threads; `SOLPROP_MEMORY_BUDGET` and the admission check are described in

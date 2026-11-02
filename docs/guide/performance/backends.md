@@ -7,58 +7,45 @@ and tables of its linear operator, its nonlinear responses and its transforms �
 every backend executes that same problem. The backends differ in speed, in where they
 run and in the representations they support. Choose a backend that supports the full
 configuration; a faster backend does not select a different physical model. Use the
-native backend unless you have a reason not to; `numpy_ref`, unthreaded and far slower,
-is what is left where it cannot run.
+native backend, which `"auto"` selects; `mlx` and `numpy_ref` are for the cases below.
 
 | backend | what it is | use it for |
 |---|---|---|
-| `numpy_ref` | plain NumPy, the **reference**: every other backend is tested against it. It is unthreaded, and roughly 6 to 40 times slower than threaded native | checking a result; the few representations only it runs (`CoherentWall(method="cf4")`, with `integrator=RungeKutta()`); where the native backend cannot run: `"auto"` uses it, with a warning, when `solprop-native` is not installed or the processor is below every build's baseline. Also problems a GPU build refuses or runs slowly, in a process that has only that build |
-| `native` | the [native backend](native.md), the optional solprop-native distribution built from the repository's `native/` directory: OpenMP, FFTW and a vendor BLAS on a CPU, or CUDA/HIP on a GPU | **the one to use**: the default when installed |
+| `native` | the [native backend](native.md), the solprop-native distribution built from the repository's `native/` directory and a required dependency of solprop: OpenMP, FFTW and a vendor BLAS on a CPU, or CUDA/HIP on a GPU | **the one to use**: what `"auto"` selects |
 | `mlx` | the Apple-silicon GPU through Apple's MLX, in **single precision only** ([single precision](single-precision.md)); the `mlx` extra, macOS on Apple silicon; **experimental** in this release | `precision="single"` capillary and fibre runs on a Mac, where it is the `"auto"` choice; it refuses `precision="double"` |
+| `numpy_ref` | plain NumPy, the numerical **reference**: every other backend is tested against it. It is unthreaded, and roughly 6 to 40 times slower than threaded native | checking a result, and [the features native does not run](#features-that-run-on-the-reference-backend). Also problems a GPU build refuses or runs slowly, in a process that has only that build |
 
-**Tiers.** `numpy_ref` and `native` are the core backends: new features land on both,
-and they come first for testing and development (the few features one of them refuses
-are named below and in their chapters). `mlx` is experimental
-([backends, §10](../../dev/backends.md); [ADR-061 and ADR-064](../../dev/decisions.md)).
+## Which backend a run uses
 
-`backend="auto"`, the default of every entry point, is `"native"` when `solprop_native`
-is installed. Without it, `"auto"` chooses `"numpy_ref"` and emits a `SolpropWarning` once
-per process, stating the cost and how to install the native backend, and the run records
-`numpy_ref` as its backend. To use `numpy_ref` deliberately and silence the warning, pass
-`backend="numpy_ref"`. Under `precision="single"`, `"auto"` is `"mlx"` when MLX and a Metal
-GPU are present, and refused otherwise.
+`backend="auto"`, the default of every entry point, and an explicit name select as follows.
+The right-hand columns say what happens on this machine; where native isn't consulted they
+repeat the first:
 
-With the native backend installed, `"auto"` **never falls back** but in one case: if it
-cannot import, fails its compatibility check or refuses the problem, the
-error is raised, naming what was refused, and you choose another backend explicitly.
-The one exception is a processor below every installed native build's CPU baseline (an
-x86-64 processor without SSE4.2 under a wheel, for example; see
-[installation](../../introduction/installation.md)): there `"auto"` chooses `"numpy_ref"`,
-with the same warning naming the missing features. `backend="native"` raises instead.
+| request | native usable | processor below the floor, or its features unreadable | native fails to load | no native package |
+|---|---|---|---|---|
+| double precision, `auto` | `native` | refuses, naming the missing features or the failed check | the load's own error, unchanged | refuses, saying how to install it |
+| `native` by name | `native` | as above | as above | as above |
+| TDSE response, `auto` | `numpy_ref`; native isn't consulted | the same | the same | the same |
+| single precision, `auto` | `mlx` with a Metal device, otherwise refuses; native isn't consulted | the same | the same | the same |
+| `numpy_ref` by name | runs; native isn't consulted | the same | the same | the same |
+| `mlx` by name | runs where MLX is installed; native isn't consulted | the same | the same | the same |
 
-**The removed `numba_cpu` backend.** solprop once had a third double-precision backend,
-`numba_cpu`. Naming it now raises {py:class}`~solprop.exceptions.BackendError`, naming
-`native` and `numpy_ref`, so a script that selects it needs `backend="native"`, or no
-`backend=` at all. Output and snapshots that record `numba_cpu` as their backend still
-load. Its settings are gone too: `SOLPROP_NUMBA_THREADS`, `SOLPROP_NUMBA_REGIME`,
-`SOLPROP_FFTW_THREADS`, `SOLPROP_TRANSVERSE_FFTW_THREADS`, `SOLPROP_PASS_TIMERS`,
-`NUMBA_DISABLE_JIT` and `NUMBA_NUM_THREADS` no longer do anything.
+`"auto"` has no fallback. These cases stay distinct, so an import failure is never reported
+as an unsupported platform, and a problem the chosen backend refuses is refused, naming what
+was refused and what runs it, for you to choose explicitly. Which platforms and processors
+have a native build is on the [installation page](../../introduction/installation.md). The
+run records the backend it used, and the `SOLPROP_REQUIRE_DEVICE` setting makes a GPU job
+stop rather than run anywhere else ([a job that must run on a
+device](native.md#a-job-that-must-run-on-a-device)).
 
-**Where the native backend does not reach.** Intel macOS, ppc64le, Arm below Neoverse N1
-and Windows before 10 version 2004 have no native wheel that runs and use `numpy_ref`,
-where it installs ([installation](../../introduction/installation.md)).
-
-Important unsupported combinations include `CoherentWall(method="cf4")`, which only
-`numpy_ref` runs, with the Runge–Kutta march. A GPU build of the native backend also refuses
+A GPU build of the native backend also refuses
 a problem whose linear operator or nonlinear prefactor varies along z in a way
 that could not be expanded in the medium's parameters and had to be tabulated along z
 instead: the adiabatic opt-out `taper_coupling=False` of a multimode capillary taper
 whose expansion does not resolve (a kinked radius profile, for instance), or a gas
 mixture of three or more species on independent density paths. The refusal leads with
 what runs it: a CPU build of the native backend, in a second environment, or
-`backend="numpy_ref"`. The
-[TDSE response](../media/tdse.md) currently requires `numpy_ref`;
-select it explicitly rather than relying on automatic backend choice.
+`backend="numpy_ref"`.
 
 `Multistep()` ([the Adams integrator](../numerics/adams.md)) and `RungeKutta()`, each
 the default of some interfaces
@@ -93,6 +80,46 @@ for the scope and measurements of the existing checks.
 **Speed and GPUs.** How to install the native backend, build it for a GPU and run on a
 device is on [The native backend](native.md); thread counts, OpenMP and BLAS settings,
 and what to use for scans are on [Performance tuning](tuning.md).
+
+## Features that run on the reference backend
+
+`numpy_ref` is the numerical reference, and it is also the supported way to run these
+features, which native does not run yet. Each is a limit of native, and each stays
+supported on the supported platforms:
+
+| feature | reached by | tracked by |
+|---|---|---|
+| the [TDSE response](../media/tdse.md) | `auto` or by name | |
+| `CoherentWall(method="cf4")`, and a coupled flow with a CF4 section, with `integrator=RungeKutta()` | by name | [#304](https://github.com/LupoLab/solprop/issues/304) |
+| [single precision](single-precision.md) away from Apple silicon | by name | [#342](https://github.com/LupoLab/solprop/issues/342) |
+| a general-route delayed response outside what native contracts, the two delayed channels of the silica tensor Raman model on three components | by name | |
+
+The TDSE row's `auto` is that of the entry points; `SimulationSettings` built by hand with
+`tdse_execution` [names the backend](../results/interior-launch.md). Running `numpy_ref` by
+name on an unsupported platform may keep working, without a support promise. The list is not
+a general waiver: a new feature still lands on both `numpy_ref` and `native`
+([SEP 0](../../dev/seps/sep-0000-process.md)), and joins the list only as an accepted
+exception.
+
+## The removed `numba_cpu` backend
+
+solprop once had a third double-precision backend, `numba_cpu`, and 0.1.0 is the last
+release with it. Naming it now raises {py:class}`~solprop.exceptions.BackendError`, naming
+`native` and `numpy_ref`, so a script or recipe that selects it needs `backend="native"`, or
+no `backend=` at all. Output, snapshots and a scan's execution metadata that record
+`numba_cpu` still load, and keep saying so: the record is not rewritten.
+
+The backend is an execution resource, so changing it does not change a run's identity. A
+run can continue on `native` or `numpy_ref`, with its script's or recipe's backend changed
+deliberately, through the normal [resume](../results/resuming.md) checks; the original
+execution record stays and the new one is added. Adams history crosses to the new backend,
+except a frozen-residual coupled flow's: a host engine's history continues on `numpy_ref`,
+and on native starts afresh and says why. Anything refused is recovered with
+`solprop==0.1.0`.
+
+Its settings are gone too: `SOLPROP_NUMBA_THREADS`, `SOLPROP_NUMBA_REGIME`,
+`SOLPROP_FFTW_THREADS`, `SOLPROP_TRANSVERSE_FFTW_THREADS`, `SOLPROP_PASS_TIMERS`,
+`NUMBA_DISABLE_JIT` and `NUMBA_NUM_THREADS` no longer do anything.
 
 ## Which backend to use
 

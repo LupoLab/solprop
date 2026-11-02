@@ -90,16 +90,17 @@ prop_2d(run, "wavelength")
 
 ## Fast CPUs and GPUs: the native backend
 
-**Use the native backend.** solprop-native, built from
+solprop-native, built from
 [`native/`](https://github.com/LupoLab/solprop/tree/main/native) in this repository, is
-the backend solprop is developed and run on: C++ kernels built with
+the backend solprop runs on: C++ kernels built with
 [Kokkos](https://kokkos.org), using OpenMP, FFTW and a vendor BLAS on multi-core CPUs, or
-CUDA and HIP on NVIDIA and AMD GPUs. Once it is installed, solprop uses it automatically;
-your scripts do not change.
+CUDA and HIP on NVIDIA and AMD GPUs. It is a required dependency, so `pip install solprop`
+installs it and solprop uses it automatically; your scripts do not change.
 
-Without it, solprop falls back to `numpy_ref`, the plain NumPy reference that the native
-backend is tested against, and warns that it has done so. `numpy_ref` is correct and
-tested, but it is unthreaded and roughly 6 to 40 times slower than threaded native
+`numpy_ref`, the plain NumPy backend that native is tested against, is the numerical
+reference. It is unthreaded and roughly 6 to 40 times slower than threaded native, so it
+is for checking a result and for the few supported features native does not run yet, the
+TDSE response among them
 ([which backend to use](https://solprop.readthedocs.io/en/latest/guide/performance/backends.html#which-backend-to-use)). See
 [The native backend](https://solprop.readthedocs.io/en/latest/guide/performance/native.html) and
 [Performance tuning](https://solprop.readthedocs.io/en/latest/guide/performance/tuning.html).
@@ -107,19 +108,19 @@ tested, but it is unthreaded and roughly 6 to 40 times slower than threaded nati
 ## Installation
 
 solprop needs Python 3.14 (3.15 is not yet supported: some dependencies have no wheels
-for it) and runs on Linux, macOS and Windows:
+for it) and runs on Linux, macOS and Windows, wherever its native backend installs:
 
 ```sh
-pip install "solprop[native]"   # the default: with the compiled native backend
-pip install solprop             # no wheel for your platform: the far slower reference backend
+pip install solprop
 ```
 
-The `native` extra installs a precompiled wheel of the native backend, the fastest way to
-run solprop, on macOS on Apple silicon (osx-arm64), Linux on x86-64 (linux-64), Linux on
-aarch64 (linux-aarch64), Windows on x86-64 (win-64) and Windows on Arm (win-arm64). On other platforms, and for GPUs,
-build it from source (below) rather than stay on the fallback.
-[Installation](https://solprop.readthedocs.io/en/latest/introduction/installation.html) covers environment checks and a
-first run.
+This installs a precompiled wheel of the native backend, with no extra, on macOS on Apple
+silicon (osx-arm64), Linux on x86-64 (linux-64), Linux on aarch64 (linux-aarch64), Windows
+on x86-64 (win-64) and Windows on Arm (win-arm64). On any other platform the installer
+reports that it found no matching distribution:
+[Installation](https://solprop.readthedocs.io/en/latest/introduction/installation.html) explains that error and how to
+report the platform, and covers environment checks and a first run. For GPUs, build the
+native backend from source (below).
 
 ## Building from source
 
