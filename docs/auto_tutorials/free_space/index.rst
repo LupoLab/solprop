@@ -80,7 +80,7 @@ For the full filament and crossing-beam lessons, begin with the
 
 .. raw:: html
 
-    <div class="sphx-glr-thumbcontainer" tooltip="The hybrid planar transform: the slab modes of a 127 um argon-filled gap (Akturk et al. 2009) in x, and a periodic, collared y axis. Unlike the slab uniform in y of sphx_glr_auto_tutorials_waveguides_plot_08_planar.py, the beam here has a finite height, so the run integrates over y and reports energy in J, and the model can describe diffraction, whole-beam self-focusing and modulational instability in y, subject to the retained modes, grid, boundary and response assumptions. A 1 mJ, 100 fs pulse (the incident beam&#x27;s physical energy in the argon fill), Gaussian in both directions (``w_x = 0.735a`` projected onto TE1, TE3 and TE5; w_y = 0.5 mm), propagates 10 cm with the Kerr effect under the step controller; the run takes seconds on numpy_ref, the reference backend. The native backend executes the geometry too.">
+    <div class="sphx-glr-thumbcontainer" tooltip="The hybrid planar transform: the slab modes of a 127 um argon-filled gap (Akturk et al. 2009) in x, and a periodic, collared y axis. Unlike the slab uniform in y of sphx_glr_auto_tutorials_waveguides_plot_08_planar.py, the beam here has a finite height, so the run integrates over y and reports energy in J, and the model can describe diffraction, whole-beam self-focusing and modulational instability in y, subject to the retained modes, grid, boundary and response assumptions. A 1 mJ, 100 fs pulse (the incident beam&#x27;s physical energy in the argon fill), Gaussian in both directions (``w_x = 0.735a`` projected onto TE1, TE3 and TE5; w_y = 0.5 mm), propagates 10 cm with the Kerr effect under the step controller; the run takes seconds.">
 
 .. only:: html
 

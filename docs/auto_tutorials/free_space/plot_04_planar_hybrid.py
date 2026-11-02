@@ -16,8 +16,7 @@ subject to the retained modes, grid, boundary and response assumptions. A 1 mJ, 
 pulse (the incident beam's physical energy in the argon fill),
 Gaussian in both directions (``w_x = 0.735a`` projected onto TE1, TE3 and TE5;
 ``w_y = 0.5 mm``), propagates 10 cm with the Kerr effect under the step controller;
-the run takes seconds on ``numpy_ref``, the reference backend. The native backend
-executes the geometry too.
+the run takes seconds.
 """
 
 from time import perf_counter
@@ -74,7 +73,6 @@ settings = SimulationSettings(
     dz_init=1e-3,
     absorber=absorber(grid, boundary_length=1.0),
     stats=default_spec("free"),
-    backend="numpy_ref",
 )
 output = prop_planar(
     grid,
@@ -111,7 +109,7 @@ radius = np.ravel(output["stats/beam_radius"])[-1]
 print(f"1/e^2 half-width in y at the exit: {radius * 1e3:.3f} mm")
 
 # %%
-print(f"ran in {perf_counter() - started:.1f} s on numpy_ref")
+print(f"ran in {perf_counter() - started:.1f} s")
 
 # %%
 # Related reading

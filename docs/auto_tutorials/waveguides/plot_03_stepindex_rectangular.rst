@@ -132,7 +132,7 @@ The mode itself is the fibre of a mode-averaged GNLSE run. Its window is kept
 narrow on purpose (above): the supercontinuum's radiation leaves it, which the
 boundary monitor would otherwise stop the run for, so the check is off.
 
-.. GENERATED FROM PYTHON SOURCE LINES 84-128
+.. GENERATED FROM PYTHON SOURCE LINES 84-127
 
 .. code-block:: Python
 
@@ -154,7 +154,6 @@ boundary monitor would otherwise stop the run for, so the check is off.
         dz_max=0.001,
         dz_init=1.5e-5,
         n_save=2,
-        backend="numpy_ref",
         progress="none",
         noise=None,
         boundary_check=None,
@@ -198,11 +197,11 @@ boundary monitor would otherwise stop the run for, so the check is off.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 129-130
+.. GENERATED FROM PYTHON SOURCE LINES 128-129
 
 Rectangular x/y partners have separate propagation constants and losses.
 
-.. GENERATED FROM PYTHON SOURCE LINES 130-169
+.. GENERATED FROM PYTHON SOURCE LINES 129-167
 
 .. code-block:: Python
 
@@ -238,7 +237,6 @@ Rectangular x/y partners have separate propagation constants and losses.
         n_theta=12,
         n_save=2,
         stats=StatsSpec(names=("energy",)),
-        backend="numpy_ref",
         progress="none",
         noise=None,
     )
@@ -260,12 +258,12 @@ Rectangular x/y partners have separate propagation constants and losses.
 
     GrazingIncidenceWarning: RectMode(x11, 100 um x 20 um, Ar 5 bar, loss=True): the first-order wall-pair model reaches lambda |q| / (2 pi a) = 0.179 at 2332 nm, above the 0.1 it is valid to; its neglected terms are second order in that ratio. Narrow the band towards shorter wavelengths, widen the guide, or keep lower orders
     Rectangular transmitted energy: 9.954503e-09 J
-    Complete step-index/rectangular example: 8.345 s
+    Complete step-index/rectangular example: 14.419 s
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 170-176
+.. GENERATED FROM PYTHON SOURCE LINES 168-174
 
 Related reading
 ---------------
@@ -277,7 +275,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 8.377 seconds)
+   **Total running time of the script:** (0 minutes 14.501 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_waveguides_plot_03_stepindex_rectangular.py:

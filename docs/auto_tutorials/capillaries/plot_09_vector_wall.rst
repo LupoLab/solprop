@@ -175,7 +175,7 @@ Ten fixed steps of 20 um, launched into ``HE_11``, with the vector wall and with
 the ordinary incoherent loss. The scalar block cannot carry this set at all -- it
 spans two families -- and is refused by name.
 
-.. GENERATED FROM PYTHON SOURCE LINES 122-183
+.. GENERATED FROM PYTHON SOURCE LINES 122-182
 
 .. code-block:: Python
 
@@ -201,7 +201,6 @@ spans two families -- and is refused by name.
                 energy=1e-9,
                 modes=modes,
                 n_save=11,
-                backend="numpy_ref",
                 wall=wall,
                 schedule=FixedSchedule(np.full(steps, length / steps)),
                 dz_max=length / steps,
@@ -254,13 +253,13 @@ spans two families -- and is refused by name.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 184-187
+.. GENERATED FROM PYTHON SOURCE LINES 183-186
 
 The conversion is the anisotropy's. Moving the cladding index from 1.45 to 1.2099
 shrinks ``delta``, the half-difference of the two impedances, by a factor 1.54;
 a coupling through ``delta`` must shrink the ``EH_11`` share by that squared.
 
-.. GENERATED FROM PYTHON SOURCE LINES 187-228
+.. GENERATED FROM PYTHON SOURCE LINES 186-227
 
 .. code-block:: Python
 
@@ -325,7 +324,7 @@ a coupling through ``delta`` must shrink the ``EH_11`` share by that squared.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 229-235
+.. GENERATED FROM PYTHON SOURCE LINES 228-234
 
 Related reading
 ---------------
@@ -337,7 +336,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 1.625 seconds)
+   **Total running time of the script:** (0 minutes 4.825 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_capillaries_plot_09_vector_wall.py:

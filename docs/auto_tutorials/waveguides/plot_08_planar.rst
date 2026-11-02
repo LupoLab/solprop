@@ -129,7 +129,7 @@ Ten fixed steps of 1 cm. The run's metadata records that it is per unit width,
 and the statistics are labelled in uJ/m and W/m. Markers keep the isolated
 quadrature diagnostic visible when it has only one recorded value.
 
-.. GENERATED FROM PYTHON SOURCE LINES 79-108
+.. GENERATED FROM PYTHON SOURCE LINES 79-107
 
 .. code-block:: Python
 
@@ -151,7 +151,6 @@ quadrature diagnostic visible when it has only one recorded value.
         dz_max=0.01,
         dz_init=0.01,
         schedule=FixedSchedule(np.full(10, 0.01)),
-        backend="numpy_ref",
         noise=None,
     )
     # The driver places a pulse in the first mode; the projected launch is the same
@@ -194,11 +193,11 @@ quadrature diagnostic visible when it has only one recorded value.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 109-111
+.. GENERATED FROM PYTHON SOURCE LINES 108-110
 
 .. code-block:: Python
 
-    print(f"ran in {perf_counter() - started:.1f} s on numpy_ref")
+    print(f"ran in {perf_counter() - started:.1f} s")
 
 
 
@@ -208,12 +207,12 @@ quadrature diagnostic visible when it has only one recorded value.
 
  .. code-block:: none
 
-    ran in 1.2 s on numpy_ref
+    ran in 2.0 s
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 112-118
+.. GENERATED FROM PYTHON SOURCE LINES 111-117
 
 Related reading
 ---------------
@@ -225,7 +224,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 1.236 seconds)
+   **Total running time of the script:** (0 minutes 2.026 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_waveguides_plot_08_planar.py:
