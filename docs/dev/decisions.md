@@ -1466,9 +1466,19 @@ Withdrawn (development-process record, not a design decision).
       engine's included), and read at the next check; not read back from the state
       after the split, whose deep-collar residue `e^{αh}` multiplied into removals above
       the launch energy;
+    - under the split scheme the guards are judged on the power each accepted step's
+      split finds, taken halfway through its factor, `P e^{−αh/2}` (the symmetric
+      splitting's state at the step's end), summed by the same finish: the state after
+      the split hid a pulse walking out, and the state before it stopped one 40 %
+      early ([#127](https://github.com/LupoLab/solprop/issues/127), 2026-11-02);
+    - under the split scheme no adaptive step walks more than half the collar's width,
+      `h ≤ 0.5 w / max|dτ/dz|` beside `dz_max`, the rate read from the operator at the
+      reference frequency over every column and over the requested band on the frame's
+      column, and a fixed schedule past the limit is refused
+      ([#149](https://github.com/LupoLab/solprop/issues/149), 2026-11-02);
     - the monitor's reading is the backend's: at a check each backend reduces the
       state's energy and its four weighted energies where the state lives, and only
-      those five numbers and the split's removal reach the host; `numpy_ref`'s host
+      those five numbers and the split's sums reach the host; `numpy_ref`'s host
       reduction is the reference, and the input-noise floor is read on the host once,
       at the launch (2026-10-28);
     - the record continues across a resume: no launch check, the totals, launch

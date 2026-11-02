@@ -145,6 +145,33 @@ better at, and why it stays selectable.
 The two agree to first order in the step and differ at second, by `(αh/2)²/2` — which is
 what the tests assert, and what would be false if the factor of one half were dropped.
 
+**The split's crossing limit.** The split damps the collar once per accepted step, at the
+step's end. A step whose group-delay walk-off exceeds the collar's width carries light
+through the collar and round the periodic window into the interior, where the factor
+does not touch it; on a nearly linear stretch the error estimate sees nothing, and a
+low-source run's steps grow long. So under `absorber_scheme="split_step"` translation
+holds an adaptive run's `dz_max` to
+
+$$ h \le c\,\frac{w}{\max |\mathrm{d}\tau/\mathrm{d}z|}, \qquad c = 0.5, $$
+
+with `w` the collar's width and `dτ/dz = ∂(β − β_frame)/∂ω` the group-delay walk-off
+against the frame ({py:func}`solprop.boundaries.split_crossing_step`,
+{py:data}`solprop.boundaries.SPLIT_CROSSING`), and refuses a fixed schedule whose longest
+step exceeds the limit, with a `TranslationError` that names it. The rate is read from
+the translated operator ({py:func}`solprop.translate.linop.walk_off_rate`) over two sets
+of bins: every mode or transverse column at the reference frequency, the spread the
+modal walk-off warning reads, and the frame's own column — the first mode, or the column
+of smallest transverse wavenumber — over the requested band, where a pulse off the
+reference wavelength walks. A transverse column's group delay `k k′/k_z` diverges
+towards its cutoff, so taking every column over the whole band would bound the step by
+the red edge of the outermost columns: on the 256-node radial filament of the benchmark
+suite that limit is 4.7e-5 m over the active band and 1.9e-4 m over the requested one,
+against accepted steps up to 9.6e-4 m, while the two sets above give 1.2e-3 m. On a
+linear GNLSE pulse walking one window per metre, the limit takes `Multistep` from 14
+steps of up to 0.3 m, which left 0.12 of the launch wrapped into the window, to 95
+steps of 0.011 m, which leave 3e-4, the share a 1423 fs window should still hold. The
+in-stage scheme absorbs inside every stage and has no such limit.
+
 ## Geometry, and the collar that is not one
 
 The collar geometry comes from the grid: the spectral collar rises over `[ω_min/2, ω_min]`
@@ -395,7 +422,8 @@ a scheme or interpolate their planes, which the split refuses: on the spatial ca
 performance-tracking suite the in-stage collar took 1.2 to 4.6 times the steps of the
 split one, at equal or worse accuracy inside the requested window
 ([SEP 21](../../dev/seps/archive/sep-0021-absorbing-boundaries.md)). The split is unconditionally
-stable, so a fixed schedule on a spatial route keeps its collar.
+stable, so a fixed schedule on a spatial route keeps its collar, within the split's
+[crossing limit](#the-two-temporal-schemes).
 
 On a spatial grid an absorber given explicitly also switches on the real-space transverse
 collar ([free-space propagation](../free-space/model.md#spatial-collar-and-statistics)).
@@ -476,6 +504,17 @@ each accepted step's split takes of the power it finds, `P(1 − e^{−αh})`, s
 is exact on every step, checked or not. Read back from the state the split leaves, the
 same removal would multiply whatever the band mask left deep in the collar by `e^{αh}`,
 into removals larger than the launch and false warnings.
+
+The same finish keeps the energy and the guards' energies of that power taken halfway
+through the split's factor, `P e^{−αh/2}`, and under the split the guards are judged on
+them. The state the split leaves has its guards, deep in the collar, damped by `e^{−αh}`,
+about `e^{−10}` at an adaptive step, so a pulse walking out showed nothing there and ran
+to the end of its fibre; the state before the split holds what walked into the guard
+during the step unabsorbed, and stopped the same pulse 40 % early. Half the factor is
+the symmetric (Strang) splitting's state at the step's end, second order in the step
+where the one-sided split is first. On a GNLSE pulse walking out of its window, the
+split's stop falls within 1 % of the in-stage scheme's at every `dz_max` from adaptive to
+2.5e-4 m, and a radial one's within 6 %.
 
 A check reads five numbers of the state, its energy and the four weighted energies above,
 and each backend forms them where the state lives: on the GPU for `mlx` and a device build
