@@ -41,7 +41,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Final, Literal, Protocol, cast
 
 import numpy as np
-from jaxtyping import Complex, Float
+from jaxtyping import Complex, Float, Shaped
 from scipy.special import j0, jn_zeros
 
 import solprop.driver.tdse as tdse_runtime
@@ -8469,9 +8469,7 @@ def _built(
     return _frozen_build(np.asarray(build(grid)))
 
 
-def _frozen_build(
-    built: Complex[np.ndarray, "*shape"],
-) -> Complex[np.ndarray, "*shape"]:
+def _frozen_build(built: Shaped[np.ndarray, "*shape"]) -> Complex[np.ndarray, "*shape"]:
     """Return a spectrum the simulation made for itself, complex128 and read-only.
 
     Frozen, it is the simulation's own, and the translated problem holds it rather than
