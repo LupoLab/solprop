@@ -1746,25 +1746,34 @@ Withdrawn (development-process record, not a design decision).
 
 ## ADR-064 — `numba_cpu` is retired: no Tier 2, and the documentation lane runs on the wheel
 
-- **Status:** proposed, with [SEP 43](seps/sep-0043-retire-numba-cpu.md), which the
-  maintainer has yet to accept; supersedes ADR-061's Tier 2 and its statement that the
-  documentation build installs no native backend, changes the fallback of ADR-029, and
-  ends ADR-023
+- **Status:** accepted, with [SEP 43](seps/sep-0043-retire-numba-cpu.md); supersedes
+  ADR-061's Tier 2 and its statement that the documentation build installs no native
+  backend, removes the fallback of ADR-029, and ends ADR-023
 - **Context:** every test, route and kernel of `numba_cpu` was a second copy of what
   `native` does. In the 0.1.0 history it took 1.5 to 2.8 times as long as native by
-  geometric mean, at the same step counts, with no configuration in which it won. Its
-  remaining value was reach, and a second x86-64-v2 build in the x86-64 wheels and a Windows
-  on Arm wheel replace most of that (SEP 43 §3, §6.1, §6.2). 0.1.0 was unannounced, so a
-  freeze or a feedback period would have protected no one.
+  geometric mean, with no winning configuration among the 22 measured on three machines,
+  though with no rows on Windows or Linux aarch64, or for scans (#314). Its remaining value
+  was reach, and a second x86-64-v2 build in the x86-64 wheels and a Windows on Arm wheel
+  replace most of that (SEP 43 §3, §6.1, §6.2). 0.1.0 was unannounced and has no known
+  users, so a freeze or a feedback period would have protected nobody we know of.
 - **Decision:**
   - The `numba_cpu` backend and the `numba` and `pyfftw` dependencies go, with no
     deprecation cycle. Tier 2 is empty: Tier 1 is `numpy_ref` and `native`, and Tier 3 is
     `mlx`. ADR-061's other rules stand.
-  - `backend="auto"` picks `native` when it is installed and the processor meets a build's
-    baseline. Otherwise it picks `numpy_ref` and warns, stating the cost: unthreaded, and
-    roughly 6 to 40 times slower than threaded native (SEP 43 Q1).
-  - `backend="numba_cpu"` raises `BackendError`, naming `native` and `numpy_ref`. Output and
-    snapshots that record it still load: a recorded name is not a request.
+  - `numba_cpu` goes before 0.2, so 0.1.0 is the last release with it.
+  - solprop-native is a required dependency, pinned to solprop's version in the built
+    metadata, with no extra, and solprop is supported where it installs. On any other
+    platform the installer's resolution error is the answer.
+  - `backend="auto"` is `native`, with no fallback: it refuses with no native package or
+    below the processor floor. A TDSE response resolves to `numpy_ref`, and single precision
+    to `mlx`, as before (SEP 43 §5).
+  - `numpy_ref` is the numerical reference, and the executor of the supported features that
+    native doesn't run yet (SEP 43 §5). That list isn't a waiver of SEP 0's parity rule.
+  - `backend="numba_cpu"` raises `BackendError`, naming `native` and `numpy_ref`. An output
+    or snapshot of the current schema that records it still loads, and may continue on
+    another backend: a recorded name is not a request.
+  - The processor check reads `/proc/cpuinfo` on Linux, then NumPy's features, and refuses
+    if neither answers; it never assumes a build is safe.
   - CI's documentation lane runs on the wheel `native-wheel` builds, which now runs for
     documentation-only changes too, on Linux. A lesson or tutorial may use anything `native`
     runs. Read the Docs stays free of native: it executes no gallery script, since all
@@ -1772,14 +1781,20 @@ Withdrawn (development-process record, not a design decision).
 - **Why:** development and test time goes to the backends that decide correctness and that
   production runs on; the seam stops paying for a third implementation.
 - **Consequences:**
-  - Intel macOS, ppc64le, Arm below Neoverse N1 and Windows before 10 version 2004 use
-    `numpy_ref` where it installs. So does x86-64 below x86-64-v2, where NumPy's own baseline
-    may refuse it. A process with a GPU build has no compiled CPU backend: a CPU run there
-    needs a second environment with the CPU wheel, or `numpy_ref`.
+  - Intel macOS, ppc64le, musl, older glibc, macOS before 14, Arm below Neoverse N1 and
+    Windows before 10 version 2004 are unsupported, by choice. A process with a GPU build has
+    no compiled CPU backend: a CPU run there needs a second environment with the CPU wheel,
+    or `numpy_ref`.
   - `SOLPROP_NUMBA_THREADS`, `SOLPROP_NUMBA_REGIME`, `SOLPROP_FFTW_THREADS`,
     `SOLPROP_TRANSVERSE_FFTW_THREADS`, `SOLPROP_PASS_TIMERS`, `NUMBA_DISABLE_JIT` and
     `NUMBA_NUM_THREADS` go. `SOLPROP_FFTW_PLAN`, `SOLPROP_FFTW_WISDOM`,
     `SOLPROP_BLAS_THREADS` and `SOLPROP_THREADS` stay: the native backend reads them.
-  - A compiler-free `uv sync` gets `numpy_ref`; `poe fetch-wheel` installs the wheel CI built.
+  - A plain `uv sync` in a checkout compiles native, since anyone there is developing.
+    `uv run --no-project tools/setup_light.py` sets up with no native package and no
+    compiler, for Python and documentation contributors, and `poe fetch-wheel` installs CI's
+    wheel only if it fits the tree.
+  - An exact pin means a new release replaces a source or GPU build with that release's CPU
+    wheel. Released source builds take a local version label, and a GPU job can set
+    `SOLPROP_REQUIRE_DEVICE`, which reads the actual build.
   - Records keep the rows `numba_cpu` wrote, as evidence of what it measured. Records of
     decisions that name it, this log's included, stay as written.
