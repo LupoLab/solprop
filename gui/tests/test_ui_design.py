@@ -388,9 +388,10 @@ def test_the_window_explores_pins_and_launches(qtbot: QtBot, tmp_path: Path):
         timeout=WAIT_MS,
     )
     window.set_model(
-        RecipeModel(MULTIMODE.replace('route = "capillary"', 'route = "gnlse"')),
+        RecipeModel(MULTIMODE.replace('route = "capillary"', 'route = "free"')),
         base=None,
     )
+    assert "no modes to explore" in window.explorer.status.text()
     window.request_modes(force=True)
     assert "no modes to explore" in window.explorer.status.text()
     window.close()

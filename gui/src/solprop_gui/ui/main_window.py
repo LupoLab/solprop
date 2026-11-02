@@ -52,6 +52,7 @@ from solprop_gui.model.workspace import DEFAULT_WORKSPACE, list_runs
 from solprop_gui.registry.explore import design_keywords, design_lines
 from solprop_gui.registry.pages import PAGES
 from solprop_gui.registry.routes import CARDS, EXPLORER_SETUP, GUIDED, card, card_of
+from solprop_gui.registry.units import si
 from solprop_gui.service.messages import Reply
 from solprop_gui.ui.bridge import ServiceBridge
 from solprop_gui.ui.design_tool import DesignDialog
@@ -789,6 +790,11 @@ class MainWindow(QMainWindow):
         self.base = base
         self._modes_revision = None
         self.explorer.set_route(model.route)
+        if model.route not in GUIDED:
+            # The last setup's modes are not this one's.
+            self.explorer.show_error(
+                f"The {model.route} route has no modes to explore."
+            )
         self.undo.clear()
         self.issues = []
         route = model.route
@@ -983,11 +989,11 @@ class MainWindow(QMainWindow):
         if summary is None:
             lines.append(f"<i>No summary: {error}</i>")
         else:
-            energy = float(summary["energy"]) * 1e6  # pyright: ignore[reportArgumentType]
-            peak = float(summary["peak_power"]) / 1e9  # pyright: ignore[reportArgumentType]
+            energy = float(summary["energy"])  # pyright: ignore[reportArgumentType]
+            peak = float(summary["peak_power"])  # pyright: ignore[reportArgumentType]
             per = "/m" if summary.get("per_width") else ""
-            lines.append(f"Energy {energy:.4g} µJ{per}")
-            lines.append(f"Peak power {peak:.4g} GW{per}")
+            lines.append(f"Energy {si(energy, 'J')}{per}")
+            lines.append(f"Peak power {si(peak, 'W')}{per}")
             design = summary.get("design") or {}
             if isinstance(design, dict) and design:
                 lines += design_lines(design)

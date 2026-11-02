@@ -117,9 +117,12 @@ def test_every_label_names_a_keyword_of_a_route():
     # The registry's labels must not drift from solprop's keywords (design 12.1).
     from solprop_gui.registry.pages import LABELS  # noqa: PLC0415 - only here
 
-    keywords = {
-        entry["name"] for entry in ask("describe", {"route": "capillary"})["parameters"]
-    }
+    keywords: set[str] = set()
+    for route in ("capillary", "waveguide", "gnlse"):
+        described = ask("describe", {"route": route})
+        keywords |= {entry["name"] for entry in described["parameters"]}
+        for entries in described["types"].values():
+            keywords |= {entry["name"] for entry in entries}
     assert set(LABELS) <= keywords
 
 

@@ -254,7 +254,7 @@ def card_of(route: str, build: dict[str, object]) -> RouteCard | None:
     return None
 
 
-GUIDED: Final = frozenset({"capillary", "waveguide", "planar"})
+GUIDED: Final = frozenset({"capillary", "waveguide", "planar", "gnlse"})
 """The routes with a mode set for the explorer to show (``Recipe.modes``)."""
 
 EXPLORER_SETUP: Final = """\

@@ -38,6 +38,7 @@ from solprop_gui.registry.explore import (
     QUANTITIES,
     SWEEPS,
     axis_values,
+    offered,
     quantity_values,
     sweep_values,
     table_rows,
@@ -102,6 +103,7 @@ class ExplorerView(QWidget):
         self.hidden: set[str] = set()
         self.curves: list[Curve] = []
 
+        self.quantities = QUANTITIES
         self.quantity = QComboBox()
         self.quantity.setObjectName("explorer-quantity")
         for quantity in QUANTITIES:
@@ -217,6 +219,14 @@ class ExplorerView(QWidget):
         route : str
             The route.
         """
+        shown = self.quantity.currentData()
+        self.quantities = offered(route)
+        self.quantity.blockSignals(True)
+        self.quantity.clear()
+        for quantity in self.quantities:
+            self.quantity.addItem(quantity.title, quantity.key)
+        self.quantity.setCurrentIndex(max(self.quantity.findData(shown), 0))
+        self.quantity.blockSignals(False)
         current = self.sweep_name.currentData()
         self.sweep_name.clear()
         self.sweep_name.addItem("no sweep", None)
@@ -338,7 +348,7 @@ class ExplorerView(QWidget):
         self.plot.clear()
         self.legend.clear()
         self.curves = []
-        quantity = QUANTITIES[max(self.quantity.currentIndex(), 0)]
+        quantity = self.quantities[max(self.quantity.currentIndex(), 0)]
         axis = AXES[max(self.axis.currentIndex(), 0)].key
         self.plot.setLabel("bottom", AXES[max(self.axis.currentIndex(), 0)].title)
         self.plot.setLabel("left", quantity.title)
@@ -440,14 +450,14 @@ class ExplorerView(QWidget):
             self.table.setColumnCount(0)
             return
         rows = table_rows(self.sets, self.pump)
-        self.table.setColumnCount(1 + len(QUANTITIES))
+        self.table.setColumnCount(1 + len(self.quantities))
         self.table.setHorizontalHeaderLabels(
-            [f"At {self.pump * 1e9:.4g} nm"] + [q.title for q in QUANTITIES]
+            [f"At {self.pump * 1e9:.4g} nm"] + [q.title for q in self.quantities]
         )
         self.table.setRowCount(len(rows))
         for row, values in enumerate(rows):
             self.table.setItem(row, 0, QTableWidgetItem(str(values["label"])))
-            for column, quantity in enumerate(QUANTITIES, start=1):
+            for column, quantity in enumerate(self.quantities, start=1):
                 value = values[quantity.key]
                 digits = 8 if quantity.key == "group_index" else 5
                 text = "" if value is None else f"{value:.{digits}g}"
@@ -511,7 +521,7 @@ class ExplorerView(QWidget):
         path : str or pathlib.Path
             The file.
         """
-        quantity = QUANTITIES[max(self.quantity.currentIndex(), 0)].title
+        quantity = self.quantities[max(self.quantity.currentIndex(), 0)].title
         axis = AXES[max(self.axis.currentIndex(), 0)].title
         columns: list[Sequence[object]] = []
         header: list[str] = []

@@ -14,7 +14,7 @@ from typing import Final
 
 from solprop.recipe.quantity import Unit
 
-__all__ = ["CHOICES", "pretty", "unit_choices"]
+__all__ = ["CHOICES", "pretty", "si", "unit_choices"]
 
 CHOICES: Final = (
     ("nm", "um", "mm", "cm", "m"),
@@ -25,6 +25,12 @@ CHOICES: Final = (
     ("Hz", "GHz", "THz", "PHz"),
     ("W/cm^2", "W/m^2"),
     ("K",),
+    # The Taylor coefficients of a dispersion, order by order (the GNLSE's betas).
+    ("1/mm", "1/m"),
+    ("fs/mm", "ps/m", "s/m"),
+    ("fs^2/mm", "ps^2/km", "ps^2/m", "s^2/m"),
+    ("fs^3/mm", "ps^3/km", "ps^3/m", "s^3/m"),
+    ("fs^4/mm", "ps^4/km", "ps^4/m", "s^4/m"),
 )
 """The units offered, by dimension, smallest first."""
 
@@ -49,8 +55,10 @@ def unit_choices(unit: str, display: str | None = None) -> tuple[str, ...]:
     --------
     >>> unit_choices("m", "um")
     ('nm', 'um', 'mm', 'cm', 'm')
-    >>> unit_choices("s^2/m", "fs^2/mm")
-    ('fs^2/mm',)
+    >>> unit_choices("s^2/m", "ps^2/km")
+    ('fs^2/mm', 'ps^2/km', 'ps^2/m', 's^2/m')
+    >>> unit_choices("m^3", "m^3")
+    ('m^3',)
     """
     dimension = Unit(unit).dimension
     shown = display or unit
@@ -80,3 +88,48 @@ def pretty(unit: str) -> str:
     """
     text = unit.replace("^2", "²").replace("^3", "³").replace("^-1", "⁻¹")
     return "µ" + text[1:] if text.startswith("u") else text
+
+
+_PREFIXES: Final = (
+    (1e12, "T"),
+    (1e9, "G"),
+    (1e6, "M"),
+    (1e3, "k"),
+    (1.0, ""),
+    (1e-3, "m"),
+    (1e-6, "µ"),
+    (1e-9, "n"),
+    (1e-12, "p"),
+    (1e-15, "f"),
+)
+"""The SI prefixes a summary number may take, largest first."""
+
+
+def si(value: float, unit: str, digits: int = 4) -> str:
+    """Return a number with the SI prefix that keeps it between 1 and 1000.
+
+    Parameters
+    ----------
+    value : float
+        The number, in `unit`.
+    unit : str
+        Its unit, unprefixed (``"J"``, ``"W"``).
+    digits : int, optional
+        The significant digits shown.
+
+    Returns
+    -------
+    str
+        ``"<number> <prefix><unit>"``.
+
+    Examples
+    --------
+    >>> si(1.936e-11, "J"), si(96.79, "W"), si(9.4e9, "W"), si(0.0, "J")
+    ('19.36 pJ', '96.79 W', '9.4 GW', '0 J')
+    """
+    size = abs(value)
+    scale, prefix = next(
+        ((s, p) for s, p in _PREFIXES if size >= s),
+        (1.0, "") if size == 0 else _PREFIXES[-1],
+    )
+    return f"{value / scale:.{digits}g} {prefix}{unit}"

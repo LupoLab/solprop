@@ -42,6 +42,7 @@ from solprop_gui.help.guide import guide_url
 from solprop_gui.model.recipe import MISSING
 from solprop_gui.model.values import FieldError, inline, read_value
 from solprop_gui.registry.pages import label
+from solprop_gui.ui.betas import BetasField
 from solprop_gui.ui.launch import LaunchField, launch_rows
 from solprop_gui.ui.objects import Catalog, ObjectField, ObjectListField
 from solprop_gui.ui.pin import PinField
@@ -61,6 +62,7 @@ _MODE_TITLES = {
     "table": "table",
     "object": "type",
     "objects": "list",
+    "betas": "Taylor",
     "text": "as text",
     "pin": "pinned",
 }
@@ -92,8 +94,8 @@ def modes_of(
     Returns
     -------
     list of str
-        Of ``"choice"``, ``"number"``, ``"range"``, ``"object"``, ``"objects"`` and
-        ``"text"``.
+        Of ``"choice"``, ``"number"``, ``"range"``, ``"object"``, ``"objects"``,
+        ``"betas"`` and ``"text"``.
 
     Examples
     --------
@@ -107,6 +109,8 @@ def modes_of(
     ['objects']
     >>> modes_of([{"kind": "boolean"}])
     ['choice']
+    >>> modes_of([{"kind": "array", "elements": "betas"}])
+    ['betas']
     """
     modes: list[str] = []
     for form in forms:
@@ -120,11 +124,13 @@ def modes_of(
             mode = "range"
         elif kind == "object" and catalog and any(t in catalog for t in types):  # pyright: ignore[reportGeneralTypeIssues]
             mode = "objects" if name in OBJECT_LISTS else "object"
+        elif kind == "array" and form.get("elements") == "betas":
+            mode = "betas"
         else:
             mode = "text"
         if mode not in modes:
             modes.append(mode)
-    order = ("choice", "number", "range", "object", "objects", "text")
+    order = ("choice", "number", "range", "object", "objects", "betas", "text")
     return sorted(modes, key=order.index)
 
 
@@ -152,7 +158,7 @@ class ParameterRow(QWidget):
 
     edited = Signal(str, str, object)
 
-    def __init__(  # noqa: PLR0915 - one widget per form
+    def __init__(  # noqa: PLR0912, PLR0915 - one widget per form
         self,
         meta: Mapping[str, object],
         table: str = "build",
@@ -234,6 +240,11 @@ class ParameterRow(QWidget):
                 self.objects = ObjectListField(types, self.catalog, make_row)
                 self.objects.changed.connect(self._emit)
                 self.editors["objects"] = self.objects
+        if "betas" in self.modes:
+            self.betas = BetasField()
+            self.betas.changed.connect(self._emit)
+            self.betas.refused.connect(lambda reason: self.set_issue(reason, "error"))
+            self.editors["betas"] = self.betas
         if "text" in self.modes or not self.modes:
             if "text" not in self.modes:
                 self.modes.append("text")
@@ -420,6 +431,8 @@ class ParameterRow(QWidget):
             return self.object.fits(value)
         if mode == "objects":
             return self.objects.fits(value)
+        if mode == "betas":
+            return self.betas.fits(value)
         if mode == "number":
             return isinstance(value, int | float | str) and not isinstance(value, bool)
         if mode == "range":
@@ -625,6 +638,8 @@ class ParameterRow(QWidget):
                 self.object.set_value(None if unset else value)
             elif mode == "objects":
                 self.objects.set_value(None if unset else value)
+            elif mode == "betas":
+                self.betas.set_value(None if unset else value)
             elif mode == "pin":
                 pass  # the pin shows its own entry (set_pin)
             else:

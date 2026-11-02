@@ -122,7 +122,7 @@ def test_a_row_offers_its_types_and_falls_back_to_text(qtbot: QtBot):
     single.set_per_width(True)
     assert "per metre of y" in single.label.text()
     single.set_per_width(False)
-    assert single.label.text() == "Lattice"
+    assert single.label.text() == "Tube lattice"
 
 
 def _route(window: MainWindow, route: str) -> bool:
@@ -173,3 +173,37 @@ def test_the_guided_cards_start_from_solprop_s_examples(qtbot: QtBot, tmp_path: 
     window.new_from_card("capillary-averaged")  # a blank card, as before
     qtbot.waitUntil(lambda: _route(window, "capillary"), timeout=WAIT_MS)
     window.close()
+
+
+def test_the_taylor_coefficients_are_one_row_per_order(qtbot: QtBot):
+    from solprop_gui.ui.betas import BetasField  # noqa: PLC0415 - only here
+
+    field = BetasField()
+    qtbot.addWidget(field)
+    seen = []
+    field.changed.connect(seen.append)
+    refused = []
+    field.refused.connect(refused.append)
+    field.set_value([0, 0, "-0.01183 ps^2/m"])
+    assert len(field.fields) == 3 and field.fields[2].unit() == "ps^2/m"
+    leave(field.fields[2].number, "-20")
+    assert seen[-1] == [0, 0, "-20 ps^2/m"]
+    field.add_order()
+    assert seen[-1] == [0, 0, "-20 ps^2/m", 0]
+    assert field.fields[3].unit() == "ps^3/km"
+    field.remove_order()
+    field.remove_order()
+    assert seen[-1] == [0, 0]
+    field.fields[1].number.setText("x")
+    field._changed()
+    assert refused and "x" in refused[-1]
+    field.set_value(None)
+    assert field.fields == [] and field.value() is None
+    field.remove_order()  # none left: nothing to remove
+    assert not BetasField.fits([True]) and BetasField.fits([0, "1 ps/m"])
+    row = ParameterRow(
+        {"name": "betas", "forms": [{"kind": "array", "elements": "betas"}]}
+    )
+    qtbot.addWidget(row)
+    row.set_value([0, 0, "-1 ps^2/km"])
+    assert row.stack.currentWidget() is row.betas

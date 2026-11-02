@@ -91,8 +91,8 @@ def test_a_sweep_over_a_pinned_keyword_replaces_the_pin():
 
 
 def test_a_route_without_modes_or_a_pump_says_so():
-    soliton = Recipe.example("soliton").to_text()
-    reply = ask("modes", {"text": soliton})
+    beam = Recipe.example("cartesian_beam").to_text()
+    reply = ask("modes", {"text": beam})
     assert "builds no mode set" in reply["sets"][0]["error"]
     no_pump = ask("modes", {"text": TINY.replace('wavelength = "800 nm"\n', "")})
     assert no_pump["pump"] is None and "wavelength" in no_pump["sets"][0]["error"]

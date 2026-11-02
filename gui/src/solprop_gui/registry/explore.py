@@ -32,6 +32,7 @@ __all__ = [
     "axis_values",
     "design_keywords",
     "design_lines",
+    "offered",
     "quantity_values",
     "sweep_values",
     "table_rows",
@@ -77,6 +78,35 @@ QUANTITIES: Final = (
     Quantity("mismatch", "Phase mismatch Δβ (1/cm)", "phase_mismatch", 1e-2),
 )
 """The quantities, in the order the explorer offers them."""
+
+_ABSENT: Final = {"gnlse": frozenset({"neff", "group_index", "aeff", "gamma"})}
+"""The quantities a route's modes do not carry: a GNLSE fibre given by its Taylor
+coefficients has no absolute index or group delay, and its area and nonlinear
+coefficient are not a mode's but the recipe's ``gamma``."""
+
+
+def offered(route: str) -> tuple[Quantity, ...]:
+    """Return the quantities the explorer offers on a route.
+
+    Parameters
+    ----------
+    route : str
+        The route.
+
+    Returns
+    -------
+    tuple of Quantity
+        :data:`QUANTITIES` less those the route's modes do not carry.
+
+    Examples
+    --------
+    >>> len(offered("capillary")) == len(QUANTITIES)
+    True
+    >>> [q.key for q in offered("gnlse")][:2]
+    ['beta2', 'dispersion']
+    """
+    absent = _ABSENT.get(route, frozenset())
+    return tuple(q for q in QUANTITIES if q.key not in absent)
 
 
 @dataclass(frozen=True)

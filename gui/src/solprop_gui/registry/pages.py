@@ -119,6 +119,13 @@ LABELS: Final = {
     "save_planes": "Save positions",
     "rtol": "Relative tolerance",
     "seed": "Noise seed",
+    "betas": "Dispersion (Taylor coefficients)",
+    "loss_db_per_m": "Loss (dB/m)",
+    "gamma": "Nonlinear coefficient γ",  # noqa: RUF001 - gamma
+    "lattice": "Tube lattice",
+    "half_width_x": "Half-width in x",
+    "half_width_y": "Half-width in y",
+    "half_gap": "Half gap",
 }
 """Labels for keywords whose names do not read well on their own."""
 
