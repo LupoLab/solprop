@@ -219,7 +219,7 @@ solprop.spatial.spatial_energy; the run's own beam statistics are energy. ...
 ```
 
 A spectral reader on a radial, Cartesian or line file points to the `spectral_energy` of
-the plane {py:func}`~solprop.processing.field_plane` reads, or to
+the plane {py:func}`~solprop.processing.planes.field_plane` reads, or to
 {py:func}`~solprop.spatial.on_axis_spectrum`; on a planar file, whose planes
 `field_plane` does not read, no spatial functional gives the spectrum yet, and the
 refusal says so. `time_1d` is refused for a field too, since it would label a column's
