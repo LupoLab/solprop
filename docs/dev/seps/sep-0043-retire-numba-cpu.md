@@ -107,7 +107,7 @@ agree to rounding-level bounds, and adaptive runs within an accuracy envelope.
 
 ### 5. Proposed interface
 
-- `backend="numba_cpu"` raises a `ValueError` naming `native` and `numpy_ref`, and the
+- `backend="numba_cpu"` raises a `BackendError` naming `native` and `numpy_ref`, and the
   release that removed it, in place of today's unknown-backend message. Old output and snapshots that record `numba_cpu` as their
   backend still load.
 - `backend="auto"` picks `native` when it is installed and the processor is at or above
@@ -117,7 +117,7 @@ agree to rounding-level bounds, and adaptive runs within an accuracy envelope.
   x86-64-v2` asks for the lower build, for tests and comparisons; a higher build than the
   processor runs is refused by name, as an unknown name is. `solprop_native.build_info()`
   and the benchmark build string report which build is loaded.
-- `SOLPROP_NUMBA_*`, `SOLPROP_FFTW_PLAN` and `SOLPROP_PASS_TIMERS` go. Native has Kokkos
+- `SOLPROP_NUMBA_*` and `SOLPROP_PASS_TIMERS` go; `SOLPROP_FFTW_PLAN` stays, since native reads it. Native has Kokkos
   regions for what the pass timers measured.
 
 ### 6. Implementation strategies
