@@ -34,6 +34,7 @@ from typing import Any, cast
 import numpy as np
 import pytest
 
+from solprop.boundaries import absorber
 from solprop.driver import Simulation, SimulationSettings
 from solprop.exceptions import BoundaryError, BoundaryWarning
 from solprop.grid import EnvelopeGrid, LineGrid
@@ -136,6 +137,10 @@ def packet_run(
         backend="numpy_ref",
         schedule=schedule,
         boundary_check=check,
+        # The frame follows the tilted packet, so the time window's collar is not what
+        # these runs read; the split collar's crossing limit would hold their steps to
+        # the walk-off of the columns the packet leaves empty.
+        absorber=absorber(grid, temporal=False),
     )
     return Simulation.from_free(
         grid,
