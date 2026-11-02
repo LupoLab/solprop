@@ -6,7 +6,7 @@
 | **Title** | Retire `numba_cpu` |
 | **Author** | John C. Travers |
 | **Drafting agent** | Claude Opus 5.5 (2026-11-02) |
-| **Status** | Accepted |
+| **Status** | In progress |
 | **Review status** | Reviewed |
 | **Reviewers** | John C. Travers (human); GPT-6 (AI) |
 | **Type** | Change |
@@ -15,7 +15,7 @@
 | **Requires** | SEP 29 (compiled backend distribution; final) |
 | **Supersedes** | — |
 | **Superseded-by** | — |
-| **Implementation** | — |
+| **Implementation** | In progress from 2026-11-02: John C. Travers, with Opus 5.5, on `feature/sep-0043-retire-numba-cpu`, [#415](https://github.com/LupoLab/solprop/pull/415) |
 | **Manual pages** | — |
 
 ## Part I — Proposal
@@ -911,6 +911,7 @@ lets the linked OpenBLAS use, and the lowest Windows hardware admitted.
 - 2026-11-02: The maintainer settled how the processor is read on Linux: `/proc/cpuinfo`, then NumPy's
   features, then a refusal (§6.1, R8).
 - 2026-11-02: Accepted by John C. Travers. Part I is frozen.
+- 2026-11-02: Implementation started on `feature/sep-0043-retire-numba-cpu`, taking in #394, #398 and #401.
 
 ### AI review — 2026-11-02
 

@@ -15,6 +15,7 @@ believed only when it is not that collapse.
 """
 
 import functools
+import contextlib
 import os
 import platform
 import sys
