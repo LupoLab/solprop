@@ -154,6 +154,7 @@ from solprop.translate.responses import (
     CompiledResponses,
     ResponseStage,
     compile_responses,
+    declares_harmonic_carrier,
     dispersive_regions,
     response_kinks,
     unlanded_kinks,
@@ -5982,6 +5983,40 @@ def _stepper_settings(
     )
 
 
+def _refuse_carrier_removing_frame(frame: Frame | None, harmonic: bool) -> None:
+    """Refuse a frame that removes ``beta_0`` beside the third harmonic's carrier.
+
+    Removing ``beta_0``, and measuring the delay from ``omega_0`` with it, takes a
+    constant phase rate out of the envelope that the harmonic term's
+    ``A**3 exp(2 i omega_0 t)`` does not share, so the harmonic would be driven with a
+    spurious mismatch (:class:`solprop.linear.Frame`,
+    :func:`solprop.linear.frame_origin`).
+
+    Parameters
+    ----------
+    frame : solprop.linear.Frame or None
+        The frame the caller gave, or ``None`` for the co-moving one.
+    harmonic : bool
+        Whether the declared responses compile the harmonic carrier
+        (:func:`solprop.translate.responses.declares_harmonic_carrier`).
+
+    Raises
+    ------
+    TranslationError
+        Naming ``subtract_beta0``, if `frame` removes ``beta_0`` beside the harmonic.
+    """
+    if frame is not None and frame.subtract_beta0 and harmonic:
+        msg = (
+            "a frame with subtract_beta0=True was given beside a third-harmonic term "
+            "on an envelope grid: the harmonic's exp(2i omega0 t) carrier is tied to "
+            "the whole carrier phase, so removing beta_0 would drive it with a "
+            "spurious phase mismatch. Give "
+            "Frame(omega0, subtract_beta0=False), or leave frame=None for "
+            "Frame.comoving, which keeps beta_0 here"
+        )
+        raise TranslationError(msg)
+
+
 @host_blas()
 def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a run
     grid: TimeGrid,
@@ -6075,7 +6110,9 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
     frame : solprop.linear.Frame or None, optional
         The co-moving frame. ``None`` builds
         :meth:`solprop.linear.Frame.comoving` for the grid, keeping ``beta_0`` when a
-        third-harmonic Kerr term is present on an envelope grid.
+        third-harmonic term is present on an envelope grid
+        (:func:`solprop.translate.responses.declares_harmonic_carrier`). A frame given
+        with ``subtract_beta0=True`` beside that term is refused.
     loss : solprop.linear.LossPolicy, optional
         What to do with an attenuation too large to represent.
     absorber : solprop.boundaries.Absorber or None, optional
@@ -6225,8 +6262,9 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
     Raises
     ------
     TranslationError
-        If a response cannot be compiled, an argument is out of range, or the assembled
-        problem fails :meth:`KernelProblem.validate`.
+        If a response cannot be compiled, an argument is out of range, a frame that
+        removes ``beta_0`` is given beside a third-harmonic term on an envelope grid,
+        or the assembled problem fails :meth:`KernelProblem.validate`.
 
     Examples
     --------
@@ -6324,8 +6362,9 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
         raise TranslationError(msg)
     _refuse_planes_at_jumps(medium, planes)
 
-    thg = any(getattr(one, "thg", False) for one in responses)
-    working_frame = frame if frame is not None else Frame.comoving(grid, thg=thg)
+    harmonic = declares_harmonic_carrier(responses, grid)
+    _refuse_carrier_removing_frame(frame, harmonic)
+    working_frame = frame if frame is not None else Frame.comoving(grid, thg=harmonic)
     build = _Assembly(
         quadrature=quadrature,
         components=components,
@@ -6421,6 +6460,11 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
             reuse_prefactor=None if reuse is None else reuse.prefactor_expansion,
             reuse_raman=None if reuse is None else reuse.raman_undamped,
         )
+    # The frame above was chosen from the declared responses; the operator it wrote is
+    # only right if the compiled pass agrees on whether it carries the harmonic.
+    assert compiled.harmonic_carrier == harmonic, (
+        "declares_harmonic_carrier disagrees with the compiled harmonic carrier"
+    )
     # SEP 6, section 4.10: classified once, at translation, on the whole active band;
     # a field reaching beyond a gas's support is logged here and never refused.
     dispersive_regions(responses, grid, vector=transform.n_pol * n_pol > 1)

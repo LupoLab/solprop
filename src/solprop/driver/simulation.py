@@ -341,7 +341,7 @@ from solprop.translate.problem import (
     TranslationReuse,
     assemble,
 )
-from solprop.translate.responses import KerrForm
+from solprop.translate.responses import KerrForm, declares_harmonic_carrier
 from solprop.translate.tdse import AtomicCallLedger, TDSEBinding, refine_response_grid
 from solprop.translate.tdse_source import TDSE_UNAVAILABLE_STATISTICS
 from solprop.translate.transverse import (
@@ -1658,8 +1658,10 @@ def _plane_reference_record(
     """
     # The co-moving frame keeps the carrier phase exactly when a harmonic term is
     # present, and then measures its delay from zero frequency (`frame_origin`).
+    # `assemble` chose it from the declared responses and checked that choice against
+    # the compiled carrier, so reading the compiled one here records the same frame.
     if frame is None:
-        frame = Frame.comoving(grid, thg=problem.grids.carrier_2w0 is not None)
+        frame = Frame.comoving(grid, thg=problem.responses.harmonic_carrier)
     coupling = configuration.get("coupling")
     origin: object = PlaneReference().record()
     parent: object = None
@@ -2168,7 +2170,7 @@ class Simulation(Displayed):
                 raise DriverError(msg)
             if self.frame is None:
                 self.frame = Frame.comoving(
-                    grid, thg=any(bool(getattr(one, "thg", False)) for one in responses)
+                    grid, thg=declares_harmonic_carrier(responses, grid)
                 )
             self._field0 = initial.build(
                 grid, spatial_grid, medium=medium, z=initial_z, frame=self.frame
@@ -4259,10 +4261,7 @@ class Simulation(Displayed):
         chosen_frame = frame
         if chosen_frame is None:
             chosen_frame = Frame.comoving(
-                grid,
-                thg=any(
-                    bool(getattr(response, "thg", False)) for response in responses
-                ),
+                grid, thg=declares_harmonic_carrier(responses, grid)
             )
         settings = _spatial_default(
             _bounded(
@@ -4358,10 +4357,7 @@ class Simulation(Displayed):
         chosen_frame = frame
         if chosen_frame is None:
             chosen_frame = Frame.comoving(
-                grid,
-                thg=any(
-                    bool(getattr(response, "thg", False)) for response in responses
-                ),
+                grid, thg=declares_harmonic_carrier(responses, grid)
             )
         if isinstance(medium.material, Mixture) and settings.stats is None:
             base = default_spec("radial" if isinstance(space, RadialGrid) else "free")

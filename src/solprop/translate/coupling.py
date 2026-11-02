@@ -72,8 +72,10 @@ def frame_record(
     linear : solprop.translate.linop.LinearOperator
         The contract's linear operator.
     frequency_origin : float
-        :math:`\omega_o` in rad/s: the frame's reference frequency on an envelope
-        grid, zero on a field grid.
+        :math:`\omega_o` in rad/s, as :func:`solprop.linear.frame_origin` returns
+        it: the frame's reference frequency on an envelope grid whose frame removes
+        :math:`\beta_0`, and zero on a field grid or on an envelope grid that keeps
+        :math:`\beta_0` (one with a third-harmonic term).
 
     Returns
     -------

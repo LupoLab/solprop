@@ -622,10 +622,12 @@ def reference_at(record: Mapping[str, object], z: float) -> PlaneReference:
     launched from another), and ``frame``, the antiderivatives
     :math:`\Phi_0(z)=\int_0^z\beta_0` and :math:`T(z)=\int_0^z\beta_1` of the terms
     its linear operator removed, with the frequency origin :math:`\omega_o` of the
-    linear term (the reference frequency on an envelope grid, zero on a field
-    grid). Then :math:`\phi = \phi_0 + \Phi_0 - \omega_oT` and
-    :math:`\tau = \tau_0 + T`. A record without a frame (an operator supplied
-    directly) leaves both terms uncalibrated.
+    linear term (:func:`solprop.linear.frame_origin`: the reference frequency on
+    an envelope grid whose frame removes :math:`\beta_0`, and zero on a field grid
+    or on an envelope grid that keeps :math:`\beta_0`). Then
+    :math:`\phi = \phi_0 + \Phi_0 - \omega_oT` and :math:`\tau = \tau_0 + T`. A
+    record without a frame (an operator supplied directly) leaves both terms
+    uncalibrated.
 
     Parameters
     ----------
