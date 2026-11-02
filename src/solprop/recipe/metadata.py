@@ -19,7 +19,7 @@ wording are its own.
 
 import dataclasses
 import inspect
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Final, Literal
@@ -31,6 +31,7 @@ from solprop.driver.defaults import (
     resolve_noise,
 )
 from solprop.exceptions import DriverError
+from solprop.modes.slab import SlabMode
 
 if TYPE_CHECKING:
     from solprop.driver.simulation import Simulation
@@ -253,20 +254,53 @@ def _precision(values: Mapping[str, object]) -> str:
     return "single" if values.get("precision") == "single" else "double"
 
 
-def _capillary_row(values: Mapping[str, object]) -> str:
-    """Return the defaults-table row a capillary recipe reads.
+_SLAB_TYPES: Final = ("SlabMode", "ModeCollection.slab")
+"""The registered types that make a waveguide's mode set a slab set."""
+
+
+def _is_slab(value: object) -> bool:
+    """Return whether a ``modes`` value, as a recipe or a script gives it, holds a slab.
 
     Parameters
     ----------
+    value : object
+        A table with a ``type``, a list of them, or the mode objects themselves.
+
+    Returns
+    -------
+    bool
+        True when any element is a slab mode or a collection of them.
+    """
+    if isinstance(value, Mapping):
+        return value.get("type") in _SLAB_TYPES
+    if isinstance(value, SlabMode):
+        return True
+    if isinstance(value, Sequence) and not isinstance(value, str):
+        return any(_is_slab(item) for item in value)
+    return False
+
+
+def _row(route: str, values: Mapping[str, object]) -> str:
+    """Return the defaults-table row a recipe reads.
+
+    Parameters
+    ----------
+    route : str
+        The keyword route.
     values : collections.abc.Mapping
         The recipe's values.
 
     Returns
     -------
     str
-        ``"capillary tdse"`` beside a TDSE response, else ``"capillary"``.
+        ``"capillary tdse"`` for a capillary beside a TDSE response, and
+        ``"waveguide slab"`` for a waveguide of slab modes; the route otherwise.
     """
-    return "capillary" if values.get("tdse") is None else "capillary tdse"
+    if route == "capillary" and values.get("tdse") is not None:
+        return "capillary tdse"
+    if route == "waveguide" and _is_slab(values.get("modes")):
+        return "waveguide slab"
+    return route
 
 
 def _rtol(route: str) -> Resolver:
@@ -296,7 +330,7 @@ def _rtol(route: str) -> Resolver:
         Resolution
             The tolerance and its rule.
         """
-        row = _capillary_row(values) if route == "capillary" else route
+        row = _row(route, values)
         precision = _precision(values)
         return Resolution(
             default_rtol(row, precision),
@@ -334,7 +368,7 @@ def _integrator(route: str) -> Resolver:
         Resolution
             The integrator and its rule.
         """
-        row = _capillary_row(values) if route == "capillary" else route
+        row = _row(route, values)
         precision = _precision(values)
         rule = (
             "single precision steps with RungeKutta()"
@@ -373,7 +407,7 @@ def _noise(route: str) -> Resolver:
         Resolution
             The model (``None`` for none) and the reason.
         """
-        row = _capillary_row(values) if route == "capillary" else route
+        row = _row(route, values)
         model, resolution = resolve_noise(row, "default", None, _precision(values))
         return Resolution(
             model, resolution.reason or "one photon per mode on the input"
@@ -456,6 +490,23 @@ def _step_planes(values: Mapping[str, object]) -> Resolution:
         1 if tdse else 0,
         "every step is saved beside a TDSE response, none otherwise",
     )
+
+
+def _requested_planes(values: Mapping[str, object]) -> Resolution:
+    """Return the ``step_planes`` default of the GNLSE and the waveguide.
+
+    Parameters
+    ----------
+    values : collections.abc.Mapping
+        The recipe's values.
+
+    Returns
+    -------
+    Resolution
+        0: the requested planes only.
+    """
+    del values
+    return Resolution(0, "the requested planes only")
 
 
 def _raman(values: Mapping[str, object]) -> Resolution:
@@ -584,11 +635,11 @@ _PLANES_PAGE: Final = "guide/numerics/solver.md"
 
 
 def _shared(route: str) -> tuple[Parameter, ...]:
-    """Return the keywords the GNLSE and capillary routes share, with the route's rules.
+    """Return the keywords the keyword routes share, with the route's rules.
 
     Parameters
     ----------
-    route : {'gnlse', 'capillary'}
+    route : {'gnlse', 'capillary', 'waveguide'}
         The route.
 
     Returns
@@ -700,6 +751,15 @@ def _shared(route: str) -> tuple[Parameter, ...]:
             "advanced",
             "Several pulses, in place of the single-pulse keywords.",
             "guide/setup/pulses.md#several-pulses-at-once",
+        ),
+        Parameter(
+            "launch",
+            (Form("mapping"), Form("array")),
+            "input",
+            "advanced",
+            "The modes the pulse is launched into: a share (and a phase) per mode "
+            "label, or one such table per pulse.",
+            "guide/setup/pulses.md#launching-into-chosen-modes",
         ),
         Parameter(
             "noise",
@@ -862,6 +922,14 @@ def _shared(route: str) -> tuple[Parameter, ...]:
             "Which optmat models the run's materials take.",
             _MATERIALS_PAGE,
         ),
+        Parameter(
+            "polarisation_taper",
+            (_BOOLEAN,),
+            "numerics",
+            "advanced",
+            "Taper the nonlinear polarisation in the spectral collar too.",
+            _BOUNDARY_PAGE,
+        ),
     )
 
 
@@ -955,17 +1023,11 @@ def _gnlse() -> tuple[Parameter, ...]:
             (Form("integer", minimum=0),),
             "output",
             "advanced",
-            "Also save every k-th accepted step; 0 saves the requested planes only.",
+            "Also save every k-th accepted step; none and 0 save the requested planes "
+            "only.",
             _PLANES_PAGE,
             resolvable=True,
-        ),
-        Parameter(
-            "polarisation_taper",
-            (_BOOLEAN,),
-            "numerics",
-            "advanced",
-            "Taper the nonlinear polarisation in the spectral collar too.",
-            _BOUNDARY_PAGE,
+            resolver=_requested_planes,
         ),
     )
 
@@ -1057,7 +1119,7 @@ def _capillary() -> tuple[Parameter, ...]:
             "modes",
             (
                 Form("integer", minimum=1),
-                Form("object", types=("MarcatiliMode",), recipe=False),
+                Form("object", types=("MarcatiliMode",)),
             ),
             "geometry",
             "basic",
@@ -1297,6 +1359,143 @@ def _capillary() -> tuple[Parameter, ...]:
     )
 
 
+_MODE_TYPES: Final = ("MarcatiliMode", "RectMode", "SlabMode", "ModeCollection.slab")
+"""The registered supplied modes: geometry, cladding and loss, rebound to the fill."""
+
+
+def _waveguide() -> tuple[Parameter, ...]:
+    """Return the waveguide route's own keywords.
+
+    The fill, the responses and the transverse rule are the capillary's entries
+    (:func:`_route_entries`); these are the ones the waveguide has alone or reads
+    differently.
+
+    Returns
+    -------
+    tuple of Parameter
+        The entries not shared with the capillary.
+    """
+    supplied = "guide/waveguides/supplied-guides.md"
+    provider = f"{supplied}#a-guide-instead-of-a-fill"
+    general = "guide/waveguides/general-modal.md"
+    beam = "guide/workflows/coupling.md#a-beam-into-a-general-modal-guide"
+    rule = "guide/waveguides/mode-sets.md#the-transverse-quadrature"
+    return (
+        Parameter(
+            "modes",
+            (
+                Form("object", types=_MODE_TYPES),
+                Form("object", types=("Mode",), recipe=False),
+            ),
+            "geometry",
+            "basic",
+            "The supplied gas-filled modes, or a slab collection; empty beside a "
+            "provider.",
+            f"{supplied}#supplied-gas-filled-waveguides",
+        ),
+        Parameter(
+            "provider",
+            (Form("object", types=("ModalGuide",), recipe=False),),
+            "geometry",
+            "advanced",
+            "A guide that solves its own fields, in place of modes and a fill.",
+            provider,
+        ),
+        Parameter(
+            "channel",
+            (Form("integer", minimum=0), Form("string")),
+            "input",
+            "advanced",
+            "The channel a provider's pulse enters, by index or display label.",
+            provider,
+        ),
+        Parameter(
+            "incident",
+            (Form("object", types=("SpatialPulse",), recipe=False),),
+            "input",
+            "advanced",
+            "An incident beam coupled into a provider's channels.",
+            beam,
+        ),
+        Parameter(
+            "coupling",
+            (Form("object", types=("CouplingModel",), recipe=False),),
+            "input",
+            "advanced",
+            "The model an incident beam is coupled under.",
+            beam,
+        ),
+        Parameter(
+            "kerr_form",
+            (Form("choice", choices=("real", "analytic")),),
+            "nonlinear",
+            "advanced",
+            "The cubic a provider's material regions respond with.",
+            provider,
+        ),
+        Parameter(
+            "observable_rtol",
+            (Form("number", minimum=0.0),),
+            "numerics",
+            "advanced",
+            "Accuracy of a provider run's observables; only the solver's own, none.",
+            f"{general}#declared-refused-recorded",
+        ),
+        Parameter(
+            "observable_atol",
+            (Form("number", minimum=0.0),),
+            "numerics",
+            "advanced",
+            "Accuracy of a provider run's observables; only the solver's own, none.",
+            f"{general}#declared-refused-recorded",
+        ),
+        Parameter(
+            "n_r",
+            (Form("integer", minimum=1),),
+            "numerics",
+            "advanced",
+            "Radial nodes, or the x-axis nodes of a Cartesian or slab rule.",
+            rule,
+        ),
+        Parameter(
+            "n_theta",
+            (Form("integer", minimum=1),),
+            "numerics",
+            "advanced",
+            "Azimuthal nodes, or the y-axis nodes of a Cartesian rule.",
+            rule,
+        ),
+        Parameter(
+            "polarisation",
+            (Form("string"), Form("number")),
+            "input",
+            "advanced",
+            "Refused: the waveguide route is scalar.",
+            "guide/setup/polarisation.md",
+        ),
+        Parameter(
+            "memory_budget",
+            (Form("integer", minimum=0), Form("string")),
+            "numerics",
+            "advanced",
+            "Memory a provider's tables are admitted against at build, in bytes or "
+            "as a size.",
+            "guide/performance/resources.md#memory",
+        ),
+        Parameter(
+            "step_planes",
+            (Form("integer", minimum=0),),
+            "output",
+            "advanced",
+            "Also save every k-th accepted step; none and 0 save the requested planes "
+            "only.",
+            _PLANES_PAGE,
+            resolvable=True,
+            resolver=_requested_planes,
+        ),
+    )
+
+
 _EXECUTION: Final = (
     Parameter(
         "fields",
@@ -1338,19 +1537,30 @@ _EXECUTION: Final = (
 def _route_entries(route: str) -> tuple[Parameter, ...]:
     """Return a route's entries, the shared ones overridden by the route's own.
 
+    The waveguide takes the capillary's entries for the fill, the responses and the
+    rule, under its own; an entry the route's constructor does not name is dropped by
+    :func:`parameters`.
+
     Parameters
     ----------
-    route : {'gnlse', 'capillary'}
+    route : {'gnlse', 'capillary', 'waveguide'}
         The route, already checked by :func:`surface`.
 
     Returns
     -------
     tuple of Parameter
-        The entries, without defaults.
+        The entries, without defaults, the first of each name winning.
     """
-    own = _gnlse() if route == "gnlse" else _capillary()
-    names = {entry.name for entry in own}
-    return (*own, *(entry for entry in _shared(route) if entry.name not in names))
+    layers = {
+        "gnlse": (_gnlse(),),
+        "capillary": (_capillary(),),
+        "waveguide": (_waveguide(), _capillary()),
+    }[route]
+    entries: dict[str, Parameter] = {}
+    for layer in (*layers, _shared(route)):
+        for entry in layer:
+            entries.setdefault(entry.name, entry)
+    return tuple(entries.values())
 
 
 def surface(route: str) -> "Callable[..., Simulation]":  # noqa: UP037 - run time
@@ -1358,13 +1568,14 @@ def surface(route: str) -> "Callable[..., Simulation]":  # noqa: UP037 - run tim
 
     Parameters
     ----------
-    route : {'gnlse', 'capillary'}
+    route : {'gnlse', 'capillary', 'waveguide'}
         The route.
 
     Returns
     -------
     callable
-        ``Simulation.from_gnlse`` or ``Simulation.from_capillary``.
+        ``Simulation.from_gnlse``, ``Simulation.from_capillary`` or
+        ``Simulation.from_waveguide``.
 
     Raises
     ------
@@ -1379,11 +1590,18 @@ def surface(route: str) -> "Callable[..., Simulation]":  # noqa: UP037 - run tim
     """
     from solprop.driver.simulation import Simulation  # noqa: PLC0415 - layer D
 
-    builders = {"gnlse": Simulation.from_gnlse, "capillary": Simulation.from_capillary}
+    builders = {
+        "gnlse": Simulation.from_gnlse,
+        "capillary": Simulation.from_capillary,
+        "waveguide": Simulation.from_waveguide,
+    }
     try:
         return builders[route]
     except KeyError:
-        msg = f"no recipe surface for route {route!r}; the routes are gnlse, capillary"
+        msg = (
+            f"no recipe surface for route {route!r}; the routes are gnlse, "
+            "capillary, waveguide"
+        )
         raise DriverError(msg) from None
 
 
@@ -1392,7 +1610,7 @@ def parameters(route: str) -> Mapping[str, Parameter]:
 
     Parameters
     ----------
-    route : {'gnlse', 'capillary', 'execution'}
+    route : {'gnlse', 'capillary', 'waveguide', 'execution'}
         A keyword route, or ``"execution"`` for the ``[execution]`` table's keys.
 
     Returns

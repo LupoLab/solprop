@@ -32,7 +32,10 @@ import numpy as np
 from solprop.boundaries import absorber
 from solprop.grid import EnvelopeGrid, FieldGrid, TimeGrid
 from solprop.modes.antiresonant import TubeLattice
-from solprop.modes.capillary import CoherentWall
+from solprop.modes.capillary import CoherentWall, MarcatiliMode
+from solprop.modes.collection import ModeCollection
+from solprop.modes.rectangular import RectMode
+from solprop.modes.slab import SlabMode
 from solprop.monitor import BoundaryCheck
 from solprop.physdata.mixtures import Mixture
 from solprop.physdata.selection import MaterialSelection
@@ -127,6 +130,10 @@ class Factory:
     data_file : str or None
         The keyword a ``{file, sha256}`` reference fills with the file's text, for a
         loader such as ``load_spectrum``; ``None`` otherwise.
+    omitted : tuple of str
+        Keywords of the target that a recipe may not give, so that they are not part
+        of the format: ``RungeKutta``'s ``tableau``, and a mode's own fill, which the
+        route replaces with its own.
 
     Examples
     --------
@@ -140,6 +147,7 @@ class Factory:
     units: Mapping[str, UnitSpec] = field(default_factory=dict)
     context: tuple[Context, ...] = ()
     data_file: str | None = None
+    omitted: tuple[str, ...] = ()
 
 
 def _pressure_pair(index: int) -> Unit:
@@ -186,6 +194,14 @@ _GRADIENT_UNITS: Final[Mapping[str, UnitSpec]] = {
     "positions": "m",
     "pressures": "bar",
 }
+_MODE_FILL: Final = ("gas", "pressure", "temperature", "susceptibility", "mixture")
+"""A mode's own fill, which a recipe does not give.
+
+The waveguide and capillary routes rebind every supplied mode to the route's fill
+(``with_mixture``), keeping only its geometry, cladding and loss, so the fill a mode
+was built with never reaches the run: in a recipe the fill is the route's keywords.
+"""
+
 _FILL_UNITS: Final[Mapping[str, UnitSpec]] = {
     "pressure": "bar",
     "temperature": "K",
@@ -235,22 +251,45 @@ REGISTRY: Final[Mapping[str, Factory]] = {
         ),
         Factory("FixedSchedule", FixedSchedule, {"steps": "m", "z_start": "m"}),
         Factory("Multistep", Multistep),
-        Factory("RungeKutta", RungeKutta),
+        Factory("RungeKutta", RungeKutta, omitted=("tableau",)),
         Factory("LowStorageRungeKutta", LowStorageRungeKutta),
         Factory("absorber", absorber, {"boundary_length": "m"}, context=("grid",)),
         Factory(
             "TubeLattice", TubeLattice, {"wall_thickness": "m", "tube_radius": "m"}
         ),
         Factory("CoherentWall", CoherentWall),
+        Factory(
+            "MarcatiliMode",
+            MarcatiliMode,
+            {"radius": "m", "phi": "rad"},
+            omitted=_MODE_FILL,
+        ),
+        Factory(
+            "RectMode",
+            RectMode,
+            {"half_width_x": "m", "half_width_y": "m"},
+            omitted=_MODE_FILL,
+        ),
+        Factory("SlabMode", SlabMode, {"half_gap": "m"}, omitted=_MODE_FILL),
+        Factory(
+            "ModeCollection.slab",
+            ModeCollection.slab,
+            {"half_gap": "m"},
+            omitted=_MODE_FILL,
+        ),
         Factory("MaterialSelection", MaterialSelection, {"carrier_wavelength": "m"}),
     )
 }
 """The types a recipe may name, keyed by the ``type`` it writes (SEP 41 section 5.1).
 
-The documented user-facing types of the ``gnlse`` and ``capillary`` routes. Every
-keyword of an entry is part of recipe format 1, so the registry starts small: adding an
-entry later is additive, removing one is not. ``RungeKutta`` takes no ``tableau`` in a
-recipe, whose default is the only one the interfaces document.
+The documented user-facing types of the ``gnlse``, ``capillary`` and ``waveguide``
+routes. Every keyword of an entry is part of recipe format 1, so the registry starts
+small: adding an entry later is additive, removing one is not. ``RungeKutta`` takes no
+``tableau`` in a recipe, whose default is the only one the interfaces document. The
+supplied modes (``MarcatiliMode``, ``RectMode``, ``SlabMode`` and
+``ModeCollection.slab``) take their geometry, cladding and loss and not their fill,
+which the route sets. A guide built from a provider has no table form: its knots and
+node rule are derived from the run's grid and the provider's own method.
 """
 
 _ELEMENTS: Final[Mapping[str, Callable[[int], Unit]]] = {
@@ -607,17 +646,17 @@ def _keywords(factory: Factory) -> frozenset[str]:
     Returns
     -------
     frozenset of str
-        Its signature's names, less its context and its data-file keyword.
+        Its signature's names, less its context, its data-file keyword and what it
+        omits.
     """
     import inspect  # noqa: PLC0415 - only here
 
     names = set(inspect.signature(factory.target).parameters)
     names -= set(factory.context)
+    names -= set(factory.omitted)
     names.discard("self")
     if factory.data_file is not None:
         names.discard(factory.data_file)
-    if factory.name == "RungeKutta":
-        names.discard("tableau")
     return frozenset(names)
 
 

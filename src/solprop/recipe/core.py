@@ -63,8 +63,8 @@ __all__ = [
     "resume_file",
 ]
 
-ROUTES: Final = ("gnlse", "capillary")
-"""The routes a recipe of format 1 describes in this release (SEP 41, phase 1)."""
+ROUTES: Final = ("gnlse", "capillary", "waveguide")
+"""The routes a recipe of format 1 describes in this release (SEP 41)."""
 
 _EXAMPLES: Final = "examples"
 """The package directory that holds the example recipes."""
@@ -247,7 +247,7 @@ class Recipe:
 
         Parameters
         ----------
-        route : {'gnlse', 'capillary'}
+        route : {'gnlse', 'capillary', 'waveguide'}
             The route.
         title : str or None, optional
             The recipe's title.

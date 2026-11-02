@@ -107,9 +107,11 @@ def _used(
     values["step_planes"] = int(settings.step_planes)
     planes = np.asarray(settings.save_planes, dtype=float)
     values["save_planes"] = planes.tolist()
-    capillary = simulation.configuration.get("capillary")
-    if isinstance(capillary, Mapping):
-        temperature = capillary.get("temperature")
+    # A hollow guide's record holds the temperature its fill was built at.
+    configuration = simulation.configuration
+    guide = configuration.get("capillary", configuration.get("waveguide"))
+    if isinstance(guide, Mapping):
+        temperature = guide.get("temperature")
         if isinstance(temperature, float):
             values["temperature"] = temperature
         values["raman"] = any(
@@ -152,7 +154,9 @@ def resolved_document(
     build = document["build"]
     table = parameters(recipe.route)
     for name, value in _used(recipe, simulation).items():
-        if table[name].resolvable and name not in build:
+        # A value the route has no keyword for (the waveguide's step_planes) is left.
+        entry = table.get(name)
+        if entry is not None and entry.resolvable and name not in build:
             build[name] = value
     if "save_planes" in build:
         # The planes n_save stood for are now written out.

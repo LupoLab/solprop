@@ -7,7 +7,7 @@ Python script it stands for. The same file runs from a script, from the `solprop
 command, from a batch job or from a front end, and a recipe and the call it stands for
 build the same simulation, configuration hash included.
 
-Recipes describe the `gnlse` and `capillary` routes in this release; the waveguide and
+Recipes describe the `gnlse`, `capillary` and `waveguide` routes in this release; the
 free-space routes follow. They are specified in
 [SEP 41](../../dev/seps/sep-0041-recipes-and-front-ends.md).
 
@@ -51,8 +51,9 @@ level, so a keyword added to solprop later can never collide with the format:
 | `[scan]` | a scan over parameter paths (a later release) |
 
 The names in `[build]` are the keywords of
-{py:meth}`~solprop.driver.simulation.Simulation.from_capillary` and
-{py:meth}`~solprop.driver.simulation.Simulation.from_gnlse`, with their meanings and
+{py:meth}`~solprop.driver.simulation.Simulation.from_capillary`,
+{py:meth}`~solprop.driver.simulation.Simulation.from_gnlse` and
+{py:meth}`~solprop.driver.simulation.Simulation.from_waveguide`, with their meanings and
 defaults. A keyword left out takes solprop's default when the recipe is built, so a recipe
 follows solprop's improvements; the output records what ran. Keys that choose files,
 terminals or resume behaviour (`output`, `progress`, `progress_period`, `resume`,
@@ -87,8 +88,40 @@ supplies them. An unknown key is refused with the nearest valid one.
   grids (`EnvelopeGrid.from_limits`, `FieldGrid.from_limits`), `StatsSpec`,
   `BoundaryCheck`, `FixedSchedule.uniform`, the integrators (`Multistep`, `RungeKutta`,
   `LowStorageRungeKutta`), `absorber` (built on the route's grid), `TubeLattice`,
-  `CoherentWall` and `MaterialSelection`. A recipe never imports a module or evaluates
-  code.
+  `CoherentWall`, `MaterialSelection` and the supplied modes (`MarcatiliMode`,
+  `RectMode`, `SlabMode`, `ModeCollection.slab`). A recipe never imports a module or
+  evaluates code.
+
+**Supplied modes.** On the `waveguide` route, and for the capillary's `modes`, a mode is
+a table of its geometry, cladding and loss. Its fill is the route's `gas`, `pressure` and
+`temperature`, which every supplied mode is rebound to, so a mode table names none: the
+planar guide of [hollow planar waveguides](../waveguides/planar.md), per metre of y, is
+
+```text
+[recipe]
+format = 1
+route = "waveguide"
+
+[build]
+modes = { type = "ModeCollection.slab", half_gap = "63.5 um", orders = [1, 3, 5] }
+length = "10 cm"
+gas = "Ar"
+pressure = "1 bar"
+wavelength = "800 nm"
+wavelength_limits = ["650 nm", "1000 nm"]
+trange = "1.2 ps"
+fwhm = "100 fs"
+energy = 0.5      # J per metre of y, on a slab set
+envelope = true
+plasma = false
+raman = false
+```
+
+and a list of tables gives the modes one by one, `modes = [{type = "RectMode",
+half_width_x = "50 um", half_width_y = "10 um", polarisation = "y"}]`. A guide that
+solves its own fields (`provider`, the [general modal route](../waveguides/general-modal.md))
+has no table form: its knots and node rule are taken from the run's grid and the
+provider, so it is written in Python.
 
 **Parameter paths** name a value inside the recipe: the keyword, then `.name` for a
 keyword of an object, `[i]` for an element of a list and `["key"]` for a key of a mapping,
@@ -125,7 +158,8 @@ costs a translation, a fraction of a second on the capillary example.
 
 **What a recipe cannot hold**: a callable (a `beta` function, a loss curve), a type that is
 not registered (a mode or a tabulated index as the GNLSE `fibre`, `CustomPulse`, a TDSE
-response), and an array given to `Simulation.with_input`. `to_python()` is the way out:
+response, a material object as a mode's cladding, a guide built from a provider and the
+incident beam coupled into one), and an array given to `Simulation.with_input`. `to_python()` is the way out:
 export the recipe and edit the script.
 
 **A grid to start from.** {py:func}`solprop.grid.suggest` proposes `wavelength_limits`
@@ -281,4 +315,6 @@ cleanly on Ctrl-C, writing the state, and `solprop resume` continues it
 
 `Recipe.examples()` lists the recipes solprop ships, each the run of a gallery example,
 and tested to build that example's configuration hash. A front end starts a new setup
-from one of them.
+from one of them. The `gnlse` and `capillary` routes have examples; the `waveguide` route
+has none yet, because its gallery scripts build guides from providers or launch through
+`Simulation.with_input`, which no recipe holds.

@@ -13,17 +13,25 @@ from pathlib import Path
 import pytest
 
 from solprop.driver import Simulation
-from solprop.driver.interface import prop_capillary, prop_gnlse
+from solprop.driver.interface import prop_capillary, prop_gnlse, prop_waveguide
 from solprop.driver.simulation import SimulationSettings
 from solprop.exceptions import DriverError
+from solprop.modes import MarcatiliMode, ModeCollection
 from solprop.recipe import metadata
 from solprop.recipe.document import EXECUTION_KEYS, REFUSED_BUILD_KEYS
 from solprop.recipe.quantity import Unit
 
-ROUTES = ("gnlse", "capillary")
+ROUTES = ("gnlse", "capillary", "waveguide")
 DOCS = Path(__file__).resolve().parents[2] / "docs"
-BUILDERS = {"gnlse": Simulation.from_gnlse, "capillary": Simulation.from_capillary}
-PROPS = {"gnlse": prop_gnlse, "capillary": prop_capillary}
+BUILDERS = {
+    "gnlse": Simulation.from_gnlse,
+    "capillary": Simulation.from_capillary,
+    "waveguide": Simulation.from_waveguide,
+}
+PROPS = {"gnlse": prop_gnlse, "capillary": prop_capillary, "waveguide": prop_waveguide}
+# from_waveguide's memory_budget admits a guide's tables at build; prop_waveguide has
+# none, so the export writes such a recipe through Simulation.from_waveguide.
+BUILD_ONLY = {"gnlse": set(), "capillary": set(), "waveguide": {"memory_budget"}}
 
 
 def _resolve(table, name, values):
@@ -53,7 +61,7 @@ def test_the_table_names_every_keyword_of_the_constructor(route):
 def test_the_prop_function_adds_only_the_keywords_a_recipe_refuses(route):
     built = set(inspect.signature(BUILDERS[route]).parameters)
     prop = set(inspect.signature(PROPS[route]).parameters)
-    assert built <= prop
+    assert built - prop == BUILD_ONLY[route]
     assert prop - built <= set(REFUSED_BUILD_KEYS)
 
 
@@ -193,9 +201,22 @@ def test_the_resolvers_say_what_the_build_resolves(precision):
     capillary = Simulation.from_capillary(
         125e-6, 0.1, "He", 1.0, **CAPILLARY, precision=precision
     )
-    for route, simulation in (("gnlse", gnlse), ("capillary", capillary)):
+    hollow = [MarcatiliMode(125e-6)]
+    waveguide = Simulation.from_waveguide(
+        hollow, 0.1, "He", 1.0, **CAPILLARY, precision=precision
+    )
+    slab = ModeCollection.slab(50e-6, (1,))
+    planar = Simulation.from_waveguide(
+        slab, 0.1, "Ar", 1.0, **CAPILLARY, precision=precision
+    )
+    for route, simulation, modes in (
+        ("gnlse", gnlse, None),
+        ("capillary", capillary, None),
+        ("waveguide", waveguide, hollow),
+        ("waveguide", planar, slab),
+    ):
         table = metadata.parameters(route)
-        values = {"precision": precision}
+        values = {"precision": precision, "modes": modes}
         settings = simulation.settings
         controller = settings.controller
         assert controller is not None

@@ -11,12 +11,13 @@ built must have the configuration hash of the recipe's build: the same physics, 
 included. The recipe's Python export, run in a fresh interpreter, must build that
 simulation too, with the same execution settings, which the hash does not cover.
 
-A gallery script that calls the GNLSE or capillary route and has no recipe is listed in
+A gallery script that calls a route a recipe describes and has no recipe is listed in
 :data:`NO_RECIPE` with the reason, and the list is checked against the gallery so that
 it stays true when a script is added or changed.
 
-The default lane builds one example of each route (:data:`DEFAULT_LANE`); the slow lane
-builds them all. The comparisons are of digests, so they are exact; no tolerance enters,
+The default lane builds one example of each route that has one (:data:`DEFAULT_LANE`);
+no gallery script on the waveguide route has a recipe yet. The slow lane builds them
+all. The comparisons are of digests, so they are exact; no tolerance enters,
 and the examples carry the scripts' seeds. Warnings are
 not what these tests are about: several scripts warn by design (a gas index asked for
 beyond its fitted range, a coherent wall near its quasi-static limit) or silence their
@@ -51,7 +52,14 @@ GALLERY: Final = ("docs/introduction/tutorials", "docs/tutorials", "docs/example
 """The gallery directories, whose scripts the examples mirror."""
 
 ROUTE_CALLS: Final = frozenset(
-    {"prop_gnlse", "prop_capillary", "from_gnlse", "from_capillary"}
+    {
+        "prop_gnlse",
+        "prop_capillary",
+        "prop_waveguide",
+        "from_gnlse",
+        "from_capillary",
+        "from_waveguide",
+    }
 )
 """The calls that put a script on a route a recipe of format 1 describes."""
 
@@ -66,7 +74,10 @@ recipes leave the seed out too, and each build would draw a different one; with 
 operating system's entropy replaced by this constant, both draw the same.
 """
 
-_MARCATILI_MODES: Final = "modes is a list of MarcatiliMode objects, not registered"
+_PROVIDER: Final = (
+    "the guide is a ModalGuide built from a provider at knots taken from the grid, on "
+    "the provider's own node rule: a provider has no table form"
+)
 _PHASE_MATCHING: Final = (
     "the pressure is a numerical phase-matching root (brentq on the HE11 mismatch): "
     "no pin target expresses it, and a literal would freeze a float the platform's "
@@ -75,15 +86,16 @@ _PHASE_MATCHING: Final = (
 
 NO_RECIPE: Final[dict[str, str]] = {
     "docs/examples/processes/plot_08_duv_fwm_dispersive_kerr.py": _PHASE_MATCHING,
-    "docs/examples/waveguides/plot_03_vector_wall.py": _MARCATILI_MODES,
+    "docs/examples/waveguides/plot_04_graded_index_multimode.py": (
+        f"{_PROVIDER}; the core's permittivity is a class of the script's own, and the "
+        "launch an incident beam"
+    ),
     "docs/examples/waveguides/plot_05_moving_solid_guide.py": (
-        "the GNLSE call takes fibre=SpecifiedMode, not registered, and the script's "
-        "other runs are on the waveguide route"
+        f"{_PROVIDER}, on a radius path; the GNLSE call takes fibre=SpecifiedMode"
     ),
     "docs/tutorials/basics/plot_05_pressure_energy_scan.py": (
         "each scan point is built with Simulation.with_mixture and with_input"
     ),
-    "docs/tutorials/capillaries/plot_09_vector_wall.py": _MARCATILI_MODES,
     "docs/tutorials/capillaries/plot_11_dispersive_kerr.py": _PHASE_MATCHING,
     "docs/tutorials/free_space/plot_08_radial_capillary_coupling.py": (
         "the capillary is launched with Simulation.with_input from a coupled "
@@ -94,14 +106,24 @@ NO_RECIPE: Final[dict[str, str]] = {
         "IndexTable, neither registered"
     ),
     "docs/tutorials/waveguides/plot_03_stepindex_rectangular.py": (
-        "the GNLSE call takes fibre=StepIndexMode, not registered"
+        "the GNLSE call takes fibre=StepIndexMode, not registered, and the "
+        "rectangular guide's cladding is aluminium(), a material with no table form"
     ),
     "docs/tutorials/waveguides/plot_05_general_modal.py": (
-        "the GNLSE calls take a mode channel as fibre, not registered, and the "
-        "script's first runs are on the waveguide route"
+        f"{_PROVIDER}; the GNLSE calls take a mode channel as fibre, not registered"
+    ),
+    "docs/tutorials/waveguides/plot_06_graded_index.py": (
+        f"{_PROVIDER}, and the run is launched with Simulation.with_input"
+    ),
+    "docs/tutorials/waveguides/plot_07_split_block.py": (
+        f"{_PROVIDER}, and declares a ChannelBasis"
+    ),
+    "docs/tutorials/waveguides/plot_08_planar.py": (
+        "the slab modes are launched with Simulation.with_input, at shares from "
+        "gaussian_coupling"
     ),
 }
-"""Each gallery script on the GNLSE or capillary route without a recipe, and why."""
+"""Each gallery script on a route a recipe describes without a recipe, and why."""
 
 
 DEFAULT_LANE: Final = frozenset({"overview", "soliton"})

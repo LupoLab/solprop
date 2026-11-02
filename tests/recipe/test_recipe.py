@@ -12,6 +12,7 @@ import subprocess
 import sys
 import textwrap
 import warnings
+from typing import Any, cast
 
 import numpy as np
 import pytest
@@ -251,6 +252,25 @@ def test_a_registered_object_is_built_from_its_table():
         ({"type": "Linear", "start": 1.0, "end": 0.0, "length": "1 m"}, "Linear"),
         ({"type": "Mixture.air", "pressure": 1.0}, "Mixture"),
         ({"type": "Mixture.partial_pressures", "pressures": {"He": 1.0}}, "Mixture"),
+        (
+            {"type": "MarcatiliMode", "radius": "125 um", "kind": "TE", "n": 0},
+            "MarcatiliMode",
+        ),
+        (
+            {
+                "type": "RectMode",
+                "half_width_x": "50 um",
+                "half_width_y": "10 um",
+                "polarisation": "y",
+                "cladding": {"re": 1.45, "im": 0.0},
+            },
+            "RectMode",
+        ),
+        ({"type": "SlabMode", "half_gap": "63.5 um", "order": 3}, "SlabMode"),
+        (
+            {"type": "ModeCollection.slab", "half_gap": "63.5 um", "orders": [1, 3]},
+            "ModeCollection",
+        ),
     ],
 )
 def test_each_registered_type_builds_from_a_table(table, expected):
@@ -427,8 +447,22 @@ def test_the_command_line_forwards_scan(monkeypatch):
     assert calls == [["script.py", "--local"]]
 
 
+def test_a_mode_takes_its_geometry_and_not_the_fill_the_route_sets():
+    with pytest.raises(RecipeError, match="expected one of") as caught:
+        build_object(
+            {"type": "MarcatiliMode", "radius": "125 um", "gas": "He"},
+            BuildContext(),
+            "modes[0]",
+        )
+    assert caught.value.parameter == "modes[0]"
+    for name in ("MarcatiliMode", "RectMode", "SlabMode", "ModeCollection.slab"):
+        assert "pressure" in REGISTRY[name].omitted, name
+    with pytest.raises(RecipeError, match="tableau"):
+        build_object({"type": "RungeKutta", "tableau": "dopri5"}, BuildContext(), "x")
+
+
 def test_every_object_form_names_registered_types():
-    for route in ("gnlse", "capillary"):
+    for route in ("gnlse", "capillary", "waveguide"):
         for entry in parameters(route).values():
             for form in entry.forms:
                 if form.kind == "object" and form.recipe:
@@ -455,3 +489,21 @@ def test_a_signal_stops_the_command_s_run_through_its_flag(
     assert seen == {"stopped": True}
     assert "solprop resume" in capsys.readouterr().err
     assert signal.getsignal(signal.SIGINT) is before
+
+
+def test_a_launch_table_builds_the_call_s_launch():
+    document = Recipe.example("rdw").to_dict()
+    launch = {"HE1,1": 0.9, "HE1,2": {"share": 0.1, "phase": 1.57}}
+    document["build"]["launch"] = launch
+    recipe = Recipe.from_dict(document)
+    assert recipe.get('launch["HE1,2"].share') == 0.1
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        built = recipe.build()
+        keywords: dict[str, Any] = recipe.keywords()
+        direct = Simulation.from_capillary(**keywords)
+        assert built.metadata().configuration_hash() == (
+            direct.metadata().configuration_hash()
+        )
+    record = cast("dict[str, Any]", built.configuration["modal_launch"])
+    assert record["pulses"][0]["shares"] == [0.9, 0.1]
