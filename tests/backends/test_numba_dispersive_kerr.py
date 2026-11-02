@@ -170,7 +170,7 @@ def radial(
         grid = EnvelopeGrid.from_limits(1e-4, 800e-9, (300e-9, 2e-6), 100e-15, thg=True)
     else:
         grid = FieldGrid.from_limits(1e-4, 800e-9, (400e-9, 2e-6), 100e-15)
-    space = RadialGrid(4e-4, 16, window_factor=0.0)
+    space = RadialGrid(4e-4, 16, collar_fraction=0.0)
     pulse = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-6), 1e-4
     )

@@ -64,7 +64,7 @@ propagation constants converge at second order in the element count.
 # The fibre
 # ---------
 # The core law is fused silica's Sellmeier fit (Malitson's, optmat's absolute
-# ``malitson_1965/sellmeier`` reached by its former name) on the axis, scaled by
+# ``malitson_1965/sellmeier``) on the axis, scaled by
 # the parabola; the cladding is the same glass scaled by ``1 - 2 Delta``, written as
 # a small permittivity law of our own -- anything with ``permittivity``,
 # ``omega_domain`` and ``identity`` is one

@@ -65,7 +65,7 @@ def line_case(request):
     space = LineGrid(
         3e-4 if family.endswith("collar") else 4e-4,
         24,
-        window_factor=0.3 if family.endswith("collar") else 0.0,
+        collar_fraction=0.3 if family.endswith("collar") else 0.0,
     )
     # Energy per metre of y: 1e-7 J over the plane's 80 um beam is about 1e-3 J/m
     # over the same beam in x, the same peak intensity to a factor of order one.

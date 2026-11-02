@@ -53,7 +53,7 @@ import numpy as np
 from matplotlib.patches import Circle
 from scipy import integrate
 
-from solprop.boundaries import TransverseCollar, absorber, custom_absorber
+from solprop.boundaries import SpatialAbsorber, absorber, custom_absorber
 from solprop.constants import C
 from solprop.driver import SimulationSettings, prop_free
 from solprop.grid import EnvelopeGrid, FreeGrid
@@ -82,7 +82,7 @@ FWHM = 50e-15
 ANGLE = 0.010
 K0 = 2 * np.pi * INDEX / WAVELENGTH * np.sin(ANGLE)
 grid = EnvelopeGrid.from_limits(LENGTH, WAVELENGTH, (740e-9, 870e-9), 300e-15)
-space = FreeGrid(0.4e-3, 224, 0.4e-3, 64, window_factor=0.0)
+space = FreeGrid(0.4e-3, 224, 0.4e-3, 64, collar_fraction=0.0)
 k_max = float(np.max(np.abs(space.k_x)))
 print(f"K0/k_max = {K0 / k_max:.2f}; grid {space.n_x} x {space.n_y} x {grid.n_omega}")
 
@@ -196,7 +196,7 @@ settings = SimulationSettings(
         period=1,
     ),
     absorber=band,
-    transverse_absorber=TransverseCollar(2e4),
+    spatial_absorber=SpatialAbsorber(real_space=False),
     fields="planes",
     field_planes=(-1,),
 )

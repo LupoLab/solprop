@@ -275,7 +275,7 @@ def test_a_gaussian_beam_diffracts_as_paraxial_optics_says():
     grid = EnvelopeGrid.from_limits(
         rayleigh, wavelength, (780e-9, 820e-9), 2e-12, thg=False
     )
-    space = FreeGrid(1.5e-3, 128, 1.5e-3, 128, window_factor=0)
+    space = FreeGrid(1.5e-3, 128, 1.5e-3, 128, collar_fraction=0)
     settings = SimulationSettings(
         controller=PIController(rtol=1e-6, atol=0.0),
         save_planes=[rayleigh],

@@ -2626,8 +2626,8 @@ class CWPulse(Displayed):
     in the time window by construction and needs no apodisation; the average power is
     then realised in one pass over the flat part of the temporal window, rather than by
     alternating between a fixed spectral magnitude and a windowed field until the two
-    agree. The single pass trades a slightly perturbed spectral shape for an exact power
-    and a bounded cost.
+    agree. The single pass gives the requested spectral shape and the requested power
+    at a bounded cost.
 
     Attributes
     ----------

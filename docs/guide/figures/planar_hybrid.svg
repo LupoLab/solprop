@@ -86,7 +86,7 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 <rect x="0" y="0" width="560" height="470" class="ground" />
 <text x="20.0" y="26.0" font-size="15" class="bold">Planar guides resolved in y</text>
 <text x="20.0" y="44.0" font-size="11" class="dim">The same plates, a = 63.5 µm, to scale in x; y schematic. The slab rule's nodes in x</text>
-<text x="20.0" y="58.0" font-size="11" class="dim">(24 here) on every one of 12 periodic y samples, the outer rows in the collar.</text>
+<text x="20.0" y="58.0" font-size="11" class="dim">(24 here) on every one of 12 periodic y samples, the outer rows in the room for a collar.</text>
 <rect x="65.0" y="128.0" width="21.13" height="168.0" rx="0" ry="0" class="glass" />
 <rect x="253.87" y="128.0" width="21.13" height="168.0" rx="0" ry="0" class="glass" />
 <rect x="86.13" y="128.0" width="167.74" height="168.0" rx="0" ry="0" class="collar" />
@@ -400,8 +400,8 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 <text x="360.0" y="124.0" font-size="11" class="dim">κ_p²(ω) in the square below</text>
 <circle cx="186.77" cy="138.89" r="2.2" class="node-dim" />
 <path d="M186.77,138.89 L355.0,146.0" class="leader" />
-<text x="360.0" y="150.0" font-size="12.5" class="">periodic + absorbing</text>
-<text x="360.0" y="164.0" font-size="11" class="dim">collar in y (applied)</text>
+<text x="360.0" y="150.0" font-size="12.5" class="">periodic in y; a collar</text>
+<text x="360.0" y="164.0" font-size="11" class="dim">there on request</text>
 <text x="360.0" y="196.0" font-size="12.5" class="">columns (p, k_y), p fastest</text>
 <text x="360.0" y="210.0" font-size="11" class="dim">k_z² = k²ε − κ_p² − k_y²:</text>
 <text x="360.0" y="224.0" font-size="11" class="dim">exact (non-paraxial) in y</text>

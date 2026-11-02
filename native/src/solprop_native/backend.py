@@ -285,6 +285,9 @@ class NativeBackend(StepDriver[_core.State]):
     solprop's registry admits them on this backend by this attribute and refuses
     them, by name, on a build without it.
     """
+    reads_transverse_edge = True
+    """The transverse edge is read on the host from the native state (solprop SEP 40
+    section 5.3); the Adams march stops at each read."""
 
     def __init__(
         self,
@@ -2606,9 +2609,22 @@ class _NativeAdamsMarch(AdamsMarch):
             steps.append(every - backend._natural_count % every)
         monitor = backend._monitor
         checked = None
+        read_at = None
+        spacing = 0.0
         if monitor is not None:
             steps.append(monitor.steps_to_check())
             checked = monitor.checked_at
+            # The transverse edge is read on the host (solprop SEP 40 section 5.3):
+            # steps are capped at its spacing, the march returns before a step
+            # would carry past its next read, and a collar's current is taken at
+            # every committed step.
+            edge = getattr(monitor, "transverse", None)
+            if edge is not None:
+                if edge.every_step:
+                    steps.append(1)
+                if math.isfinite(edge.next_read):
+                    read_at = float(edge.next_read)
+                    spacing = float(edge.ceiling(backend._z))
         return {
             "target": float(target),
             "quiet": bool(backend._collar_quiet),
@@ -2617,6 +2633,8 @@ class _NativeAdamsMarch(AdamsMarch):
             "first_check": False,
             "check_interval": 0.0 if monitor is None else float(monitor.interval),
             "last_check": 0.0 if checked is None else float(checked),
+            "read_at": read_at,
+            "read_spacing": spacing,
             "max_attempts": self.MAX_ATTEMPTS,
             "max_seconds": self.MAX_SECONDS,
             "replay": slack is not None,

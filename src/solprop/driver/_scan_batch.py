@@ -9,7 +9,7 @@ import logging
 import math
 import time
 import traceback
-from collections.abc import Iterable, Iterator, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from contextlib import ExitStack
 from dataclasses import dataclass
 from itertools import batched
@@ -283,6 +283,7 @@ def _run(group: Sequence[_Prepared], work: _Work) -> Iterator[PointResult]:
     captures: list[_Capture] = []
     results: list[PointResult] = []
     errors = [""] * len(group)
+    records: Sequence[Mapping[str, object] | None] = [None] * len(group)
 
     def failed(index: int, error: str) -> PointResult:
         """Retain available provenance when one member fails.
@@ -319,6 +320,7 @@ def _run(group: Sequence[_Prepared], work: _Work) -> Iterator[PointResult]:
             wall_time=time.perf_counter() - started,
             n_steps=0 if capture is None else capture.steps,
             n_rejected=0 if capture is None else capture.rejected,
+            boundary_monitor=records[index],
         )
 
     try:
@@ -332,7 +334,14 @@ def _run(group: Sequence[_Prepared], work: _Work) -> Iterator[PointResult]:
                 [member.simulation._boundary_monitor() for member in group]
             )
             _stopped(runner, errors)
-            for member, backend in zip(group, runner.member_metadata(), strict=True):
+            for member, attached in zip(group, runner.member_metadata(), strict=True):
+                # The monitors were attached first, so the record holds the launch's
+                # zeros; the point keeps the closing record instead.
+                backend = {
+                    name: value
+                    for name, value in attached.items()
+                    if name != "boundary_monitor"
+                }
                 scratch = cleanup.enter_context(
                     TemporaryDirectory(prefix="solprop-batch-")
                 )
@@ -369,6 +378,9 @@ def _run(group: Sequence[_Prepared], work: _Work) -> Iterator[PointResult]:
                     [member.simulation.translate() for member in group],
                 )
             runner.finish_monitors()
+            # A warning raised as an error at the end fails its member alone.
+            _stopped(runner, errors)
+            records = runner.member_records
             for index, (member, capture, error) in enumerate(
                 zip(group, captures, errors, strict=True)
             ):
@@ -397,6 +409,7 @@ def _run(group: Sequence[_Prepared], work: _Work) -> Iterator[PointResult]:
                             wall_time=time.perf_counter() - started,
                             n_steps=capture.steps,
                             n_rejected=capture.rejected,
+                            boundary_monitor=records[index],
                         )
                     )
                 except Exception:

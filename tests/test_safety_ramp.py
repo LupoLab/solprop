@@ -1,31 +1,30 @@
-# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
-#
-# SPDX-License-Identifier: GPL-3.0-or-later
-
 """The k-perp safety ramp, the attenuation search and the physical evanescent rate.
 
-SEP 22 sections 4.3 to 4.5. The profile is checked point by point (exact zeros, its
-strength at the grid's edge, its slope and its column order); the sorted search and
-the rate bounds against a brute-force maximum over every column.
+SEP 22 sections 4.3 to 4.5 and SEP 40 section 4.4. The safety ramp's profile, as
+translation resolves it, is checked point by point (exact zeros, its strength at the
+grid's edge, its slope and its column order); the sorted search and the rate bounds
+against a brute-force maximum over every column.
 """
-
-import math
 
 import numpy as np
 import pytest
 
 from bounds import gamma
-from solprop.boundaries import TransverseCollar, transverse_collar_rate
+from solprop.boundaries import SpatialAbsorber
 from solprop.exceptions import GridError, TranslationError
 from solprop.grid import EnvelopeGrid, FreeGrid, LineGrid, RadialGrid
+from solprop.linear import Frame
 from solprop.modes import PlanarGrid, SlabMode
 from solprop.spatial import (
     EVANESCENT_RATE,
+    SpatialDispersion,
     SpatialMedium,
     attenuation_extremes,
     physical_evanescent_rate,
 )
+from solprop.spatial_absorber import SpatialAbsorberDesign
 from solprop.translate.spatial import SeparableOperator, rate_bounds, separable_values
+from solprop.translate.transverse import resolve_transverse
 
 
 def ramp(rho: np.ndarray, fraction: float) -> np.ndarray:
@@ -36,22 +35,33 @@ def ramp(rho: np.ndarray, fraction: float) -> np.ndarray:
     return out
 
 
+def resolved(space: FreeGrid, fraction: float = 0.1) -> SpatialAbsorberDesign:
+    """The safety ramp a vacuum run on `space` resolves, ramp alone, no launch."""
+    grid = EnvelopeGrid.from_limits(1e-4, 800e-9, (700e-9, 950e-9), 200e-15)
+    dispersion = SpatialDispersion(SpatialMedium(), grid, Frame.comoving(grid))
+    launch = np.zeros((1, space.n_columns, 1, grid.n_omega), complex)
+    specification = SpatialAbsorber(real_space=False, safety_fraction=fraction)
+    return resolve_transverse(specification, space, dispersion, launch, grid.length)
+
+
 def test_the_ramp_is_zero_inside_and_its_strength_at_the_edge():
     space = FreeGrid(1e-4, 40, 2e-4, 24)
-    collar = TransverseCollar(strength=3e4, fraction=0.25)
-    rate = transverse_collar_rate(space, collar)
+    design = resolved(space, 0.25)
+    rate, strength = design.ramp_rate, design.ramp_strength
     rho_x = np.abs(space.k_x) / np.max(np.abs(space.k_x))
     rho_y = np.abs(space.k_y) / np.max(np.abs(space.k_y))
     # Column ix + n_x*iy, the max-norm of the two axes.
     rho = np.maximum(rho_x[None, :], rho_y[:, None]).reshape(-1)
     # One cosine and a few products: a handful of roundings of the strength.
     np.testing.assert_allclose(
-        rate, collar.strength * ramp(rho, 0.25), rtol=0, atol=gamma(8) * 3e4
+        rate, strength * ramp(rho, 0.25), rtol=0, atol=gamma(8) * strength
     )
     assert np.all(rate[rho <= 0.75] == 0.0)  # exactly zero inside: a structural zero
     edge = np.flatnonzero(rho == 1.0)
-    assert edge.size and np.all(rate[edge] == collar.strength)
-    assert rate.min() >= 0.0 and rate.max() == collar.strength
+    assert edge.size and np.all(rate[edge] == strength)
+    assert rate.min() >= 0.0 and rate.max() == strength
+    # The strength is the larger of the two axes' designs.
+    assert strength == max(design.notes["ramp_strengths"])  # pyright: ignore[reportArgumentType]
 
 
 def test_the_ramp_rises_with_a_continuous_slope_through_its_midpoint():
@@ -67,32 +77,25 @@ def test_the_ramp_rises_with_a_continuous_slope_through_its_midpoint():
     assert np.max(slope) == pytest.approx(np.pi / (2 * fraction), rel=1e-3)
     # The module's profile is the same function.
     space = LineGrid(1e-4, 400)
-    rate = transverse_collar_rate(space, TransverseCollar(1.0, fraction))
+    design = resolved(space, fraction)
     expected = ramp(np.abs(space.k_x) / np.max(np.abs(space.k_x)), fraction)
-    np.testing.assert_allclose(rate, expected, rtol=0, atol=gamma(8))
+    np.testing.assert_allclose(
+        design.ramp_rate / design.ramp_strength, expected, rtol=0, atol=gamma(8)
+    )
 
 
-def test_a_line_takes_its_collar_from_k_x_alone():
+def test_a_line_takes_its_ramp_from_k_x_alone():
     space = LineGrid(1e-4, 40)
-    rate = transverse_collar_rate(space, TransverseCollar(2.0))
-    assert rate.shape == (40,)
-    # m = 19 of 20 is rho = 0.95, the ramp's midpoint for the default fraction.
+    design = resolved(space)
+    assert design.ramp_rate.shape == (40,)
+    assert len(design.kappa_s) == 1
+    # m = 19 of 20 is rho = 0.95, the ramp's midpoint for the default fraction. Its
+    # argument (|k| - k_s) / (k_max - k_s) subtracts, losing k_max / (k_max - k_s) =
+    # 1 / 0.1 of the roundings of |k|.
     index = int(np.argmin(np.abs(space.k_x - 19 * space.k_x[1])))
-    assert rate[index] == pytest.approx(1.0, rel=gamma(8))
-
-
-@pytest.mark.parametrize(
-    ("strength", "fraction"),
-    [(-1.0, 0.1), (math.inf, 0.1), (1.0, 0.0), (1.0, 1.0), (1.0, math.nan)],
-)
-def test_an_invalid_collar_is_refused(strength, fraction):
-    with pytest.raises(GridError, match="TransverseCollar"):
-        TransverseCollar(strength, fraction)
-
-
-def test_a_collar_is_refused_off_the_cartesian_grids():
-    with pytest.raises(GridError, match="radial kind is not periodic"):
-        transverse_collar_rate(RadialGrid(1e-4, 16), TransverseCollar(1.0))
+    assert design.ramp_rate[index] == pytest.approx(
+        0.5 * design.ramp_strength, rel=gamma(8) / 0.1
+    )
 
 
 def brute_extremes(square, transverse):
@@ -183,8 +186,6 @@ def test_the_transverse_rate_is_refused_where_it_is_not_a_rate():
         separable(kperp_rate=np.array([0.0, -1.0, 0.0, 0.0, 0.0]))
     with pytest.raises(TranslationError, match="one nonnegative rate"):
         separable(kperp_rate=np.zeros(3))
-    with pytest.raises(TranslationError, match="hybrid planar kind"):
-        separable(kappa_sq=np.zeros((1, 4), complex), kperp_rate=np.ones(5))
     # Absent, it is held as exact zeros.
     absent = separable(kperp_rate=None).kperp_rate
     assert absent is not None and np.array_equal(absent, np.zeros(5))

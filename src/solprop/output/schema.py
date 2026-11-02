@@ -2713,6 +2713,13 @@ class RunMetadata(Displayed):
         ``configuration["coupling"]``. Every run records one; ``None`` on a record
         built without it, as by hand, whose planes cannot be exchanged
         (:func:`solprop.processing.planes.field_plane`).
+    transverse : collections.abc.Mapping or None
+        A free-space run's resolved transverse boundary (SEP 40), as
+        :meth:`solprop.spatial_absorber.SpatialAbsorberDesign.record` writes it: the
+        safety ramp's start and strength, and a collar's strength, band, threshold
+        and step limit. Derived numbers, so outside the hash; the specification is in
+        ``configuration["spatial_absorber"]`` where one was given. ``None`` without
+        a transverse boundary.
 
     Examples
     --------
@@ -2755,6 +2762,7 @@ class RunMetadata(Displayed):
     tdse: Mapping[str, object] | None = None
     quadrature: Mapping[str, object] | None = None
     reference: Mapping[str, object] | None = None
+    transverse: Mapping[str, object] | None = None
     noise_resolution: NoiseResolution | None = None
     _stored: dict[str, JsonValue] | None = dataclasses.field(
         default=None, init=False, repr=False, compare=False, metadata={"record": False}
@@ -2829,7 +2837,14 @@ class RunMetadata(Displayed):
         object.__setattr__(self, "modes", tuple(self.modes))
         object.__setattr__(self, "configuration", dict(self.configuration))
         object.__setattr__(self, "versions", dict(self.versions))
-        for name in ("spatial", "modal", "reference", "tdse", "quadrature"):
+        for name in (
+            "spatial",
+            "modal",
+            "reference",
+            "tdse",
+            "quadrature",
+            "transverse",
+        ):
             value = getattr(self, name)
             if value is not None:
                 object.__setattr__(self, name, dict(value))
@@ -3161,6 +3176,9 @@ class RunMetadata(Displayed):
         # Derived from the hashed problem, so stored beside the key, not in it: a
         # resume on another build may evaluate the frame to a different last bit.
         document["reference"] = serialise(self.reference)
+        # The transverse boundary's derived values (SEP 40), from a root-finder:
+        # beside the key, so that a resume on another build is not refused.
+        document["transverse"] = serialise(self.transverse)
         # How the model was chosen, beside the key: the resolved model is in the
         # hashed noise record already, and a request is not part of the physics.
         document["noise_resolution"] = serialise(self.noise_resolution)
@@ -3254,6 +3272,7 @@ class RunMetadata(Displayed):
                 tdse=stored("tdse"),
                 quadrature=stored("quadrature"),
                 reference=stored("reference"),
+                transverse=stored("transverse"),
                 noise_resolution=None
                 if resolution is None
                 else _rebuild(NoiseResolution, resolution),
