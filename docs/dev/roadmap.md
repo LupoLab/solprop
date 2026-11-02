@@ -105,3 +105,9 @@ The [SEP index](seps/index.md) lists every proposal and its current status.
   monitor that judges returning light, and a signed removal ledger. Perfectly matched
   layers, adaptive transverse windows, the escaped transverse field and a flux-weighted
   spatial ledger remain open.
+- [SEP 43 — Retire `numba_cpu`](seps/sep-0043-retire-numba-cpu.md):
+  native covers what only Numba reaches in practice, with an x86-64-v2 build in the Linux
+  and Windows wheels and a Windows on Arm wheel; documentation and CI lanes move to the
+  wheel; `numba_cpu`, `numba` and `pyfftw` go, with no deprecation cycle. One stable-ABI
+  wheel serves Python 3.14 and 3.15. Intel macOS, ppc64le and Arm below Neoverse N1 fall
+  back to `numpy_ref`.
