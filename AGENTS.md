@@ -27,9 +27,9 @@ rather than style, ask rather than guess.
 | Packages | `solprop` (`src/solprop/`) and the native backend `solprop-native` (`native/`, its own rules in [`native/AGENTS.md`](native/AGENTS.md)): one repository, two distributions, one version |
 | Purpose | Ultrafast nonlinear pulse propagation (UPPE and GNLSE; field and envelope; single-mode, multimode and general modal guides; radial, Cartesian, planar and line free space) |
 | Python | 3.14 — equal to `requires-python` in `pyproject.toml` |
-| Platforms | Linux, macOS and Windows for `numpy_ref`; solprop-native as wheels for osx-arm64, linux-64, linux-aarch64, win-64 and win-arm64, from source on Linux and macOS (GPU builds on Linux); the Queue and Slurm scan executors POSIX-only |
+| Platforms | solprop runs where solprop-native installs: wheels for osx-arm64, linux-64, linux-aarch64, win-64 and win-arm64; from source on Linux and macOS (GPU builds on Linux), with no support promise elsewhere; the Queue and Slurm scan executors POSIX-only |
 | Type checker | `basedpyright`, pinned exactly in the dev group |
-| Backends | In tiers (ADR-061, ADR-064). Tier 1, the core: the NumPy reference (`numpy_ref`, the oracle) and the native backend (`native`, the `solprop-native` distribution built from `native/`: preferred when installed, and the GPU path). Tier 3, experimental: `mlx` (single precision on Apple GPUs). `numba_cpu` is retired: naming it raises `BackendError` |
+| Backends | The native backend (`native`, the `solprop-native` distribution built from `native/`, a required dependency): what `auto` selects, with no fallback, and the GPU path. The NumPy reference (`numpy_ref`, the oracle): the numerical reference, and the executor of the short list of supported features in SEP 43 §5. `mlx`: experimental, single precision on Apple GPUs. `numba_cpu` is retired: naming it raises `BackendError` |
 | Materials | [optmat](https://github.com/LupoLab/optmat), the curated optical-materials package |
 | Design docs | `docs/dev/` — architecture, conventions, stepper, algorithms, backends, kernel contract, decisions, roadmap, open questions, testing, accuracy, benchmarks, benchmarking, dependencies, tooling |
 | Planned work | [GitHub issues](https://github.com/LupoLab/solprop/issues): open work goes in an issue, not on the roadmap, which lists only SEPs (ADR-062). [`CONTRIBUTING.md`](CONTRIBUTING.md) says how to write an issue and how to label an issue or a pull request |
@@ -41,7 +41,7 @@ rather than style, ask rather than guess.
 
 | Task | Command |
 |---|---|
-| Sync environment | `uv sync`; `uv sync --extra native` also builds and installs the native backend from `native/` (editable). A plain `uv sync` removes it, leaving `numpy_ref`; `uv sync --inexact` keeps a hand-installed one or Pyroraptor; `uv run poe fetch-wheel` installs the wheel CI built, with no compiler |
+| Sync environment | `uv sync` builds and installs the native backend from `native/` (editable), and needs a C++20 compiler; `uv sync --inexact` keeps a hand-installed Pyroraptor. `uv run --no-project tools/setup_light.py` is the lightweight setup, with no native package and no compiler: then `UV_NO_SYNC=1` or an activated environment, and `SOLPROP_TEST_BACKEND=numpy_ref`. It supports the reference backend and the lint, type, test and documentation checks; `auto` refuses there, and a native change needs a native build. `uv run poe fetch-wheel` installs the wheel CI built, with no compiler, and refuses one that doesn't fit this tree (`docs/dev/contributing.md`) |
 | Full gate (see below) | `uv run poe check` |
 | Native gate | `uv run poe check-native` (`native/scripts/check.sh`); `uv run poe check-all` runs both gates |
 | Lint with autofix | `uv run ruff check --fix .` |
@@ -118,8 +118,8 @@ test modules that directly exercise the code it changed (`uv run pytest -n auto
 pull request, a draft from the start of implementation. After a CI failure, rerun the
 failing modules locally, fix, and push; never the whole lane.
 
-**Qualification scope.** A change is qualified on `numpy_ref` and, when it
-is installed, the native **CPU** build; GPU builds are exercised separately with
+**Qualification scope.** A change is qualified on `numpy_ref` and the native
+**CPU** build; GPU builds are exercised separately with
 `pytest -m gpu` on a machine that has a device. **No test, lane or timing runs a
 full-length propagation** (a 0.2 m multimode capillary, a metre of fibre): qualify and
 benchmark on about ten steps, or on a fibre short enough to finish in seconds. Two
@@ -214,7 +214,7 @@ The long form is [SEP 0](docs/dev/seps/sep-0000-process.md); the index is
   that needs no run has `[skip ci]` in its head commit's message. The branch may start on
   top of an open pull request's branch when pull requests are stacked behind CI. Within
   each phase: `numpy_ref` first with its tests and manual page, then native CPU in
-  `native/`; `mlx` only where the SEP says so (the tiers, below). A
+  `native/`; `mlx` only where the SEP says so (the backend rules, below). A
   backend without the feature refuses it by name, never falls back silently; `Final`
   needs parity on `numpy_ref` and native CPU, or an exception written into the accepted
   SEP.
@@ -313,11 +313,10 @@ no blanket `# noqa`). What is left to judgement:
 
 The long form is [`backends.md`](docs/dev/backends.md).
 
-- **Tiers** (ADR-061, ADR-064, `backends.md §10`) set where development goes. Tier 1,
-  `numpy_ref` and `native`: every new feature lands on both, and they come first for
-  testing and development. Tier 3, `mlx`: experimental;
-  keep it runnable and correct, add nothing as part of other work. A backend without a
-  feature refuses it by name.
+- **Where features land** (ADR-061, ADR-064, `backends.md §10`). `numpy_ref` and `native`:
+  every new feature lands on both, and they come first for testing and development.
+  `mlx`: experimental; keep it runnable and correct, add nothing as part of other work. A
+  backend without a feature refuses it by name.
 - The **NumPy reference backend is the oracle**. Every other backend is validated against
   it (one linear application, one nonlinear evaluation, one step, eight steps, each
   statistic, a full run) with tolerances derived from summation bounds and asserted `> 0`.

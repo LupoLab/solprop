@@ -4,7 +4,7 @@ Everything that touches the propagated state during a run is reached through one
 only the backends know how the state is laid out, transformed and stepped. This document
 fixes the seam, the reference backend, compiled execution and the native backend (built
 from `native/`), the threading model, the memory ledger and admission, which backend runs
-what, and the tiers that set where new features land (§10). Which
+what, and what each backend is for and where new features land (§10). Which
 backend to choose for a run is the user guide's
 [Choosing a backend](../guide/performance/backends.md). Decisions: ADR-002, ADR-003,
 ADR-013, ADR-020, ADR-023, ADR-061, ADR-064.
@@ -13,17 +13,18 @@ ADR-013, ADR-020, ADR-023, ADR-061, ADR-064.
 
 Public simulation settings default to `backend="auto"`. `resolve_name` probes the
 native package without importing it, resolves to `"native"` if it is installed and the
-processor is at or above a build's baseline, and otherwise to `"numpy_ref"`, and stores
-that name before execution or worker transfer. Choosing `"numpy_ref"` this way emits a
-`SolpropWarning` once per process, because a run on that fallback should be a choice: the
-reference backend is unthreaded and roughly 6 to 40 times slower than threaded native. The
-warning says why and how to install the native backend. Explicit names are preserved and
-do not warn, so `backend="numpy_ref"` is silent and `backend="native"` on a processor below
-the baseline raises the package's refusal; the warning fires only on
-resolution, so workers holding a stored name stay quiet. `select` also accepts `"auto"` and
-logs the actual backend at INFO after
-successful construction. Import, schema, device and unsupported-problem errors never
-cause fallback: the processor baseline is the one exception, and the registry finds it out
+processor is at or above a build's baseline, and otherwise raises `BackendError`, saying what
+to do; it stores that name before execution or worker transfer. `auto` has no fallback.
+Native being installed is a packaging policy ([SEP 43](seps/sep-0043-retire-numba-cpu.md) §5),
+so a run does not have to prove that native could execute here, and nothing loads a runtime to
+enforce it. Two requests resolve before the registry and never consult native: a TDSE
+response's `auto` is `numpy_ref`, and single precision's is `mlx` with a Metal device and
+refused otherwise. Explicit names are preserved, so `backend="numpy_ref"` runs where native is
+absent and `backend="native"` on a processor below the baseline raises the package's refusal.
+`select` also accepts `"auto"`, checks `SOLPROP_REQUIRE_DEVICE` against the actual build before
+anything is allocated, and logs the actual backend at INFO after
+successful construction. Import, schema, device and unsupported-problem errors stay visible and
+stay distinct, and the registry finds the processor baseline out
 by running the package's own pure-Python check by path, without importing the package. This
 selection policy changes no kernel-contract member (ADR-029).
 
@@ -68,8 +69,8 @@ buffers, layout and plans are private; the state is never a parameter of `propag
 reference to the stated bound. Selection is by name (`backends.select(name, problem)`);
 availability is detected with `importlib.util.find_spec` (importing an accelerator package
 can initialise a device runtime), never cached; an unknown name raises `ValueError` listing
-what is usable, a known name whose dependencies are missing raises `ImportError` naming the
-extra to install, and a removed name keeps a tombstone (`REMOVED_BACKENDS`):
+what is usable, a known name whose dependencies are missing raises `ImportError` saying
+what to install, and a removed name keeps a tombstone (`REMOVED_BACKENDS`):
 `backend="numba_cpu"` raises `BackendError` naming `native` and `numpy_ref`, wherever a
 requested name is resolved. A recorded name is not a request, so old output and snapshots
 that record it still load. `metadata()` says what the execution *was* — the name, the
@@ -252,8 +253,11 @@ threading beyond what `scipy.fft` does with `workers=1`. It exists to be read an
 every step of the anatomy in [architecture.md §8](architecture.md) is a named function with a
 docstring stating the formula. It is slow (tens of separate array operations per stage) and
 that is acceptable; it is the reference against which every other backend is validated, and
-the backend that runs wherever NumPy and SciPy install. `backend="auto"` falls back to it
-where `native` cannot run (§1).
+the supported executor of the short list of features `native` does not run yet: the TDSE
+response, CF4 coupled-flow sections, single precision away from Apple silicon and a delayed
+response outside what native contracts
+([the list](../guide/performance/backends.md#features-that-run-on-the-reference-backend)).
+A new feature joins the list only as an accepted exception (§10).
 
 **The fused-pass route.** `backends/numpy_ref/passes.py` holds one pure
 function per numbered line of [architecture.md §8](architecture.md) — `stage_input`,
@@ -489,7 +493,7 @@ once-per-run FFTW planning and the output's planes.
 
 The adapter `native/src/solprop_native/backend.py` and the engine `native/src/general.cpp`
 over the shared step loop of `backends/driver.py`. The public default is `"auto"`: the
-installed native backend first, otherwise `numpy_ref` with a warning (§1, ADR-029).
+native backend, with no fallback (§1, ADR-029).
 `numpy_ref` stays selectable by name.
 
 **Three response families** (`FieldFamily`, `include/solprop_native/core.hpp`), which is
@@ -783,7 +787,7 @@ and only the low-storage march holds flows (§8).
 - Coverage lane: the native wheel with `SOLPROP_TEST_BACKEND=native`, measuring solprop's
   Python.
 - `no-native` lane: no native package, a few default-lane modules on `numpy_ref`, which checks
-  `auto`'s warning and a real run on the fallback.
+  `auto`'s refusal and a real run on `numpy_ref` by name.
 - The `docs`, `slow` and `oldest` lanes install the CI-built wheel.
 - Validation ladder per backend: one linear application, one nonlinear evaluation, one step,
   eight steps, each statistic, a full save interval, a full run.
@@ -1159,9 +1163,9 @@ one.
 
 `solprop-native` is selected lazily as `backend="native"`. It lives in `native/`, outside
 `src/solprop`, and is the repository's second distribution: one checkout, one uv workspace
-and lockfile, one version from the repository's tags, and solprop's `native` extra pins it
-to that version. `uv sync --extra native` builds it editable into the development
-environment; `uv run poe check-native` is its gate. There is no other GPU backend: GPU
+and lockfile, one version from the repository's tags, and a required dependency of solprop,
+pinned to that version in the built metadata. A plain `uv sync` builds it editable into the
+development environment; `uv run poe check-native` is its gate. There is no other GPU backend: GPU
 runs use the native backend's CUDA or HIP build, and the build determines whether the
 backend runs on the CPU (OpenMP) or a device. How to build it is
 [Building the native backend](../guide/performance/building-native.md); the native rules are in
@@ -1515,15 +1519,16 @@ the other two builds. `DISTRIBUTION` is the build for wheels that run on other m
 (ADR-034): it compiles for a CPU baseline, `x86-64-v3` on x86-64, `apple-m1` on Apple
 silicon and `neoverse-n1` on Linux aarch64, which the package checks against the
 processor before it loads the extension (`solprop_native/_cpu.py`: `/proc/cpuinfo` on
-Linux, `IsProcessorFeaturePresent` on Windows). The x86-64 wheels hold a second extension
+Linux, then NumPy's `__cpu_features__` on x86-64, and a refusal if neither answers;
+`IsProcessorFeaturePresent` on Windows). The x86-64 wheels hold a second extension
 at `x86-64-v2`, built by `native/ci/build_variant.py`: `select_variant` takes the first
 build the processor meets and registers it as `solprop_native._core`, and
 `SOLPROP_NATIVE_CPU_VARIANT` names a lower one, for tests and comparisons. On a processor
 below a wheel's floor,
-`resolve_name("auto")` chooses `numpy_ref` with a warning, once per process; it loads
+`resolve_name("auto")` raises the package's refusal as a `BackendError`; it loads
 that pure-Python check by path and runs it, so it neither imports the package nor
-starts its runtime, and the refusal and the fallback are one check. An explicit
-`"native"` raises the refusal. It links Accelerate on macOS; on Linux an
+starts its runtime, and the two refusals are one check. An explicit
+`"native"` raises the refusal at import. It links Accelerate on macOS; on Linux an
 OpenBLAS 0.3.34 that the build compiles with OpenMP and the extension's own compiler, so
 that BLAS and Kokkos share one OpenMP runtime and one thread pool (selecting its kernels at
 run time; `solprop_`-prefixed symbols, through KokkosKernels' `F77_BLAS_MANGLE`); in the
@@ -1834,24 +1839,24 @@ modal, radial, Cartesian, line and planar routes under both integration rules. U
 it is built but not executed in qualification, so the table's CUDA entries for field
 plasma do not cover it. The far-field statistics' device pass is not qualified (§3.13).
 
-## 10. Tiers, and what to use
+## 10. What each backend is for
 
-The backends are ranked in tiers (ADR-061; ADR-064 supersedes its Tier 2 and its statement
-that the documentation build installs no native backend). A tier sets where development goes,
-not what a backend may run: every backend keeps what it runs, correct and in parity
-with the reference, and refuses the rest by name.
+These rules set where development goes, not what a backend may run (ADR-061; ADR-064 retired
+`numba_cpu` and superseded the statement that the documentation build installs no native
+backend). Every backend keeps what it runs, correct and in parity with the reference, and
+refuses the rest by name.
 
-| tier | backends | role | new features |
-|---|---|---|---|
-| 1, the core | `numpy_ref`, `native` | the reference for correctness and for developing an algorithm; production at speed | every one, on both: the native CPU build first, device builds in one qualification pass later; first for testing and development |
-| 2 | none | empty since ADR-064 | — |
-| 3, experimental | `mlx` | testing and development; kept runnable and correct | only by work proposed for it |
+| backend | role | new features |
+|---|---|---|
+| `native` | production at speed, on the CPU and on a device; what `auto` selects | every one: the CPU build first, device builds in one qualification pass later; first for testing and development |
+| `numpy_ref` | the numerical reference, for correctness and for developing an algorithm, and the executor of [the listed features](../guide/performance/backends.md#features-that-run-on-the-reference-backend) | every one; first for testing and development |
+| `mlx`, experimental | single precision on Apple GPUs; testing and development; kept runnable and correct | only by work proposed for it |
 
-A SEP is final when its feature runs on both Tier 1 backends with parity tests
-([SEP 0](seps/sep-0000-process.md)). A backend moves between tiers by a new decision
-record, and a new backend starts in Tier 3. `backend="auto"` is `numpy_ref`, with a
-warning, where the native backend is not installed or the processor is below its wheel's
-baseline (§1). The CI `docs` lane installs the native wheel, so a lesson or tutorial may
+A SEP is final when its feature runs on both `numpy_ref` and `native` with parity tests
+([SEP 0](seps/sep-0000-process.md)), or an accepted exception adds it to the list. A backend's
+role changes by a new decision record, and a new backend starts as experimental. `backend="auto"`
+is `native`, and refuses where the native package is missing or the processor is below its
+wheel's baseline (§1). The CI `docs` lane installs the native wheel, so a lesson or tutorial may
 use anything `native` runs; Read the Docs executes no gallery script, because all gallery
 output is committed, and installs no native backend.
 
