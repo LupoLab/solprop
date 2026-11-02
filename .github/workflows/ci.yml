@@ -220,7 +220,7 @@ jobs:
           retention-days: 14
 
   # The default lane on macOS and Windows with the native CPU backend installed, as a
-  # user installs solprop[native]: backend="auto" and the driver tests select it, and
+  # user installs solprop: backend="auto" and the driver tests select it, and
   # the parity tests compare it with numpy_ref. Each lane is split into
   # shards of whole modules (SOLPROP_TEST_SHARD, tests/shards.py) run as parallel jobs,
   # without the runtime type checks, which the coverage lane runs (ADR-053).

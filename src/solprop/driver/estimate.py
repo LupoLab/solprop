@@ -195,11 +195,11 @@ def estimate(
         rhs = statistics.median(timings) / stages
         reported = backend.metadata()
         # Each backend names its own: native "thread_count"; numpy_ref runs on one
-        # thread and names none. "numba_threads" was the retired numba_cpu's.
+        # thread and names none.
         threads = next(
             (
                 reported[key]
-                for key in ("thread_count", "numba_threads", "threads")
+                for key in ("thread_count", "threads")
                 if reported.get(key) is not None
             ),
             1,

@@ -92,7 +92,6 @@ supported on the supported platforms:
 | the [TDSE response](../media/tdse.md) | `auto` or by name | |
 | `CoherentWall(method="cf4")`, and a coupled flow with a CF4 section, with `integrator=RungeKutta()` | by name | [#304](https://github.com/LupoLab/solprop/issues/304) |
 | [single precision](single-precision.md) away from Apple silicon | by name | [#342](https://github.com/LupoLab/solprop/issues/342) |
-| a general-route delayed response outside what native contracts, the two delayed channels of the silica tensor Raman model on three components | by name | |
 
 The TDSE row's `auto` is that of the entry points; `SimulationSettings` built by hand with
 `tdse_execution` [names the backend](../results/interior-launch.md). Running `numpy_ref` by

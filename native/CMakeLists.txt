@@ -99,7 +99,9 @@ elseif(NOT SOLPROP_NATIVE_ENABLE_CUDA AND
   message(FATAL_ERROR
     "Linux CPU builds require GCC 14 or newer; found ${CMAKE_CXX_COMPILER_VERSION}. "
     "On Ubuntu 24.04 or Debian, install it with 'sudo apt install g++-14' and build "
-    "with CXX=g++-14 (a CMake cache that recorded another compiler must be removed).")
+    "with CXX=g++-14 (a CMake cache that recorded another compiler must be removed). "
+    "In a checkout, a contributor with no compiler can run "
+    "'uv run --no-project tools/setup_light.py' instead.")
 endif()
 
 if(NOT APPLE AND NOT SOLPROP_NATIVE_ENABLE_CUDA AND
