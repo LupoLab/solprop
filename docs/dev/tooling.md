@@ -206,7 +206,7 @@ jaxtyping hook) run in the coverage lane only; the other test lanes set
 `SOLPROP_TEST_TYPECHECK=0` (ADR-053).
 
 - **static** (Linux): `uv lock --check`, ruff (lint and format check), `poe types`,
-  `poe docstrings`, `poe spell`, `poe reuse`.
+  `poe docstrings`, `poe spell`, `poe reuse`, `poe changelog-check`.
 - **docs** (Linux): `poe docs`, with the wheel installed, so a lesson or tutorial on
   `backend="auto"` runs on `native`.
 - **native-wheel** (Linux x86-64, macOS arm64, Windows x64, Windows on Arm): this tree's `native/` built
@@ -241,6 +241,14 @@ jaxtyping hook) run in the coverage lane only; the other test lanes set
   or was cancelled. It is the check the `main` ruleset requires, beside the Read the
   Docs build: which lanes run depends on the change, and a skipped matrix job reports
   its unexpanded name, so no fixed list of job names suits every pull request.
+
+The release-note collector (`tools/release_notes.py`) uses only the standard library.
+`poe changelog-check` validates filenames, categories, entry text and the Unreleased
+structure; `poe changelog-preview` prints the assembled changelog without changing files.
+Fragments are Markdown, so a change confined to fragments takes the documentation lanes.
+The [rolling release PR](releasing.md#the-rolling-release-pr) keeps unrelated
+implementation PRs from editing the same changelog lines. This prevents those conflicts;
+it does not reuse a previous commit's CI result or bypass required checks.
 
 `.github/workflows/wheels.yml` builds the native release wheels (Linux x86-64 and
 aarch64, macOS arm64, Windows x64 and Arm) on pull requests that change the wheel recipe

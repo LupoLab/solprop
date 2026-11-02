@@ -80,7 +80,7 @@ EXCLUDED = {
         "field_plane",
     },
     # Two type aliases.
-    "tools": {"Fill", "PulseShape"},
+    "tools": {"DesignBuild", "DesignTarget", "Fill", "PulseShape", "RootChoice"},
     # A type alias, and the two array-level functions under the elements: the session
     # applies an element with `transfer=` or `apply_transfer`, never with these.
     "optics": {"Medium", "stored_factor", "taylor_phase"},

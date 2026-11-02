@@ -85,9 +85,10 @@ The full gate, `uv run poe check`, runs in this order (CI runs the same steps):
 5. `numpydoc lint` — every public docstring validates.
 6. `codespell` — no misspellings.
 7. `reuse lint` — every file states its copyright and licence.
-8. `poe test` — fast and medium tiers, doctests included, under xdist with one thread
+8. `poe changelog-check` — release-note fragments and changelog structure validate.
+9. `poe test` — fast and medium tiers, doctests included, under xdist with one thread
    per worker.
-9. `sphinx-build -W -n --keep-going` — docs build clean.
+10. `sphinx-build -W -n --keep-going` — docs build clean.
 
 Report what passed, failed or remains deferred. The
 coverage lane requires 100 % of statements and branches of the whole package
@@ -135,7 +136,9 @@ Do not declare work finished while any required check fails. If a check genuinel
 pass, say so explicitly and explain why — never suppress a check to make the gate green.
 
 New functionality is not done until it is **tested**, **documented in the manual** as
-well as in docstrings, and recorded in `CHANGELOG.md`. Any physical constant,
+well as in docstrings, and recorded in a `changelog.d/` fragment
+([format](changelog.d/README.md)). The rolling release PR collects these into
+`CHANGELOG.md`; implementation PRs do not edit that shared file. Any physical constant,
 coefficient, citation, reference state or validity range you transcribe is cited to its
 primary source in the docstring or the data file; say in your summary what you verified
 against that source and what you could not.
@@ -220,7 +223,7 @@ The long form is [SEP 0](docs/dev/seps/sep-0000-process.md); the index is
   run, sources checked and not checked, limitations, numbered open questions and a
   handoff.
 - **Finishing.** At `Final`, the manual pages the SEP produced link to it, its open
-  questions move to issues, its tracking issue closes, and the `CHANGELOG.md` line cites
+  questions move to issues, its tracking issue closes, and its release-note fragment cites
   it.
 
 ---
@@ -351,7 +354,7 @@ The long form is [`backends.md`](docs/dev/backends.md).
 - **`KERNEL_SCHEMA_VERSION` versions the whole seam** (the `KernelProblem` fields, the
   protected `StepDriver` surface and the stage bundles of `translate/stage.py`, frozen in
   `tests/backends/test_driver.py`). Changing any of them bumps the version, rewrites the
-  literal in the same commit and adds a changelog line.
+  literal in the same commit and adds a release-note fragment.
 - Every hot-path change comes with a benchmark ledger entry
   ([`benchmarks.md`](docs/dev/benchmarks.md)), measured with `python -m benchmarks ab`
   on about ten steps or a short `ab --length` window; report the window measured and
@@ -441,8 +444,12 @@ The long form is [`testing.md`](docs/dev/testing.md).
 - The user guide under `docs/guide/` is tested: every `python` block runs in
   `tests/test_guide_snippets.py` (compiled in the default lane, run in the slow lane);
   keep snippets to seconds and fence illustration as `sh` or `text`.
-- Keep `README.md` and the introduction current; record notable changes in
-  `CHANGELOG.md` (Keep a Changelog) under `Unreleased`.
+- Keep `README.md` and the introduction current; record notable changes in a unique
+  `changelog.d/<slug>.<category>.md` fragment. No issue is needed just for a fragment.
+  Only the rolling release PR normally edits `CHANGELOG.md` (Keep a Changelog): it
+  collects the fragments under `Unreleased` after merges. Edit the source fragments,
+  not the generated draft; mark the release PR ready before making release edits
+  ([releasing](docs/dev/releasing.md#the-rolling-release-pr)).
 - The build passes with `-W -n --keep-going`.
 - Design documents under `docs/dev/` describe the code as it is: a change that alters
   the design updates them in the same branch. A design problem found while working is

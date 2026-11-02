@@ -765,6 +765,7 @@ MODULES = {
                 "snapshots",
                 "scan",
                 "scan_artifacts",
+                "resumable",
             ),
         ),
         Module("scan.py"),
@@ -784,8 +785,28 @@ MODULES = {
                 "scan",
                 "batch",
                 "memory",
+                "defaults",
+                "estimate",
+                "plane_view",
             ),
         ),
+        Module(
+            "recipe/",
+            (
+                "core",
+                "document",
+                "errors",
+                "export",
+                "metadata",
+                "paths",
+                "pins",
+                "preview",
+                "provenance",
+                "quantity",
+                "registry",
+            ),
+        ),
+        Module("cli.py"),
     ),
     "X": (
         Module(
@@ -805,9 +826,10 @@ MODULES = {
         ),
         Module(
             "plotting/",
-            ("propagation", "statistics", "spectrograms", "style"),
+            ("propagation", "statistics", "spectrograms", "style", "geometry"),
         ),
         Module("sol.py"),
+        Module("capabilities.py"),
     ),
 }
 """Every module of the package, in its layer's band. All of these exist."""

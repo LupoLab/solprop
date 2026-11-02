@@ -150,6 +150,20 @@ problem, and caches them. It is the one numerical construction kept in P: it yie
 nodes and weights for T to fold into the transform, and no compiled code, per-stage
 evaluation or hot loop enters P with it.
 
+**Construction's host resources.** The private process policy in `_process` holds
+NumPy's and SciPy's controllable BLAS pools at one thread (or `SOLPROP_BLAS_THREADS`
+under ADR-052) around guide construction, standalone graded-index solves, translation
+and coupling. These coarse scopes change no physical algorithm. They restore the
+previous limits after the last nested or overlapping scope exits, since the limits
+are process-wide. Construction and the Numba and native adapters share one private
+lease coordinator: each library takes the smallest active request, even when owners
+start and finish in different orders, and only the last release restores its original
+width. Native's adapter supplies the lease hook explicitly; the standalone native
+package keeps its local hold and imports no solprop code. Construction excludes the
+native backend's own BLAS and does not import a backend; an already loaded native
+package supplies its library identity through `build_info`. See the
+[BLAS guide](../guide/performance/tuning.md#blas-and-vendor-libraries).
+
 **The X → T edges.** `solprop.processing.modal` imports
 `solprop.translate.modal_tables.ModalTransformTables` and
 `solprop.translate.general.guide_identity`, and that is inherent to the output schema
@@ -710,7 +724,10 @@ kernel -- the default is instead a `BarReporter`: a `LogReporter` whose
 periodic event redraws a `tqdm` bar carrying the same content and the same measured ETA,
 with the plane line demoted to `DEBUG`; redirected or captured output always gets the
 lines. A reporter that implements `interrupted` (`InterruptibleReporter`) is told when
-the loop raises, before the error propagates, so a bar can give the terminal back. A bar
+the loop raises, before the error propagates, so a bar can give the terminal back. One
+that implements `observe_plane` (`PlaneObserver`, SEP 41) is shown each committed plane
+as a lazy view, and is detached if it fails; a scan reports to a `ScanReporter`, whose
+`point_reporter` may watch each point's run, relayed from a pool's workers. A bar
 writes the summary and the closing line to its stream unless a console handler would
 print them, because without a handler a record reaches nobody.
 

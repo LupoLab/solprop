@@ -258,6 +258,31 @@ power the beam keeps its $\operatorname{sech}^2$ profile over three diffraction 
 at half of it, the beam diffracts.
 ```
 
+### Displacing and tilting a beam
+
+On a Cartesian grid a beam can be launched off the axis and at an angle:
+`displacement=(d_x, d_y)` in metres and `tilt=(theta_x, theta_y)` in radians, as
+{class}`~solprop.coupling.elements.Alignment` defines them. The tilt is a phase screen
+$\exp[\mathrm{i}\,k(\omega)(x\sin\theta_x + y\sin\theta_y)]$, with $k(\omega)$
+the launch medium's wave number, so every frequency leaves at the same angle; both apply
+at the launch plane, after `propz`, and the energy is set after them:
+
+```python
+off_axis = SpatialPulse(
+    GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-9),
+    waist=40e-6,
+    displacement=(50e-6, 0.0),  # centred 50 um towards +x
+    tilt=(2e-3, 0.0),  # propagating 2 mrad towards +x
+)
+aimed = prop_free(grid, box, argon, [], off_axis, settings=settings, progress="none")
+```
+
+The launch is refused when the tilted beam's transverse wave numbers reach the grid's
+band, when the moved beam is not negligible at the window's edge, or when the tilt's
+pulse-front delay across the beam is more than half the time window. A radial grid has
+no direction to move along, a line grid has no y, and a planar beam has its own
+`offset_x`; to misalign a beam into a guide, use `Alignment`.
+
 ## Reading the output
 
 A free-space run writes the same output as any other, with the spatial axes, weights and
@@ -306,3 +331,6 @@ on the model page under
 A saved plane of a free-space run is a coherent field plane that can be transported
 through lenses, apertures and free space or coupled into a capillary or fibre
 ([coupling simulations](../workflows/coupling.md)). The [crossing-beam lesson](../../introduction/lessons/plot_04_crossing_beams.rst) shows how to launch a custom coherent array. The [radial filament lesson](../../introduction/lessons/plot_03_filament.rst) connects fluence, peak intensity and plasma. Refine the spatial grid and temporal bandwidth independently before interpreting either example quantitatively.
+
+A beam's displacement and tilt were proposed and carried out by
+[SEP 41](../../dev/seps/archive/sep-0041-recipes-and-front-ends.md).

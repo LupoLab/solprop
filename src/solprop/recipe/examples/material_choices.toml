@@ -1,0 +1,28 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Ten fixed steps of a short argon capillary with plasma, on optmat's default
+# materials: the material-choices tutorial's first run.
+# mirrors: docs/tutorials/basics/plot_06_material_choices.py
+
+[recipe]
+format = 1
+route = "capillary"
+title = "Ten fixed steps in argon"
+
+[build]
+radius = "50 um"
+length = "0.4 mm"
+gas = "Ar"
+pressure = "1 bar"
+wavelength = "800 nm"
+grid = { type = "FieldGrid.from_limits", length = "0.4 mm", reference_wavelength = "800 nm", wavelength_limits = ["160 nm", "4000 nm"], trange = "600 fs" }
+absorber = { type = "absorber", boundary_length = 1.0 }  # the reference length, m
+fwhm = "30 fs"
+energy = "100 uJ"
+plasma = true
+schedule = { type = "FixedSchedule", steps = [4e-05, 4e-05, 4e-05, 4e-05, 4e-05, 4e-05, 4e-05, 4e-05, 4e-05, 4e-05] }
+n_save = 2
+backend = "numpy_ref"
+seed = 20261027

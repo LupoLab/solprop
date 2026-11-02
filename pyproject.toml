@@ -50,7 +50,13 @@ dependencies = [
     # 0.3.11: the oldest release the `oldest` CI job has tested.
     "jaxtyping>=0.3.11",
     "tqdm>=4.67",
+    # Writes recipes (SEP 41); 1.0, the first release, already writes every form a recipe
+    # uses (nested tables, arrays of inline tables, quoted keys) back through tomllib.
+    "tomli-w>=1.0",
 ]
+
+[project.scripts]
+solprop = "solprop.cli:main"
 
 [project.urls]
 Homepage = "https://solprop.readthedocs.io/"
@@ -142,6 +148,8 @@ include = [
     "/tests",
     "/docs",
     "/benchmarks",
+    "/tools",
+    "/changelog.d",
     "/LICENSES",
     "/CHANGELOG.md",
     "/CITATION.cff",
@@ -244,7 +252,7 @@ max-args = 6                      # forces a config dataclass past this
 
 # -------------------------------------------------------------------------- type check
 [tool.basedpyright]               # basedpyright also reads [tool.pyright]
-include = ["src", "tests", "benchmarks"]
+include = ["src", "tests", "benchmarks", "tools"]
 exclude = ["tests/oracles"]
 typeCheckingMode = "standard"     # "strict" once the baseline is clean
 pythonVersion = "3.14"
@@ -286,6 +294,9 @@ markers = [
     "benchmark: run by no lane at all; each says in its docstring how to run it by hand",
 ]
 xfail_strict = true
+# A test that hangs dumps every thread's traceback after fifteen minutes, so a lane
+# that times out in CI says where (no default-lane test comes near this).
+faulthandler_timeout = 900
 
 # ---------------------------------------------------------------------------- coverage
 [tool.coverage.run]
@@ -326,6 +337,9 @@ types      = "basedpyright"
 docstrings = "python -m numpydoc lint src/solprop/*.py src/solprop/**/*.py docs/dev/figures/build.py docs/guide/figures/geometries.py docs/primer/figures/primer_figures.py"
 spell      = "codespell"
 reuse      = "reuse lint"
+changelog-check = "python -m tools.release_notes check"
+changelog-preview = "python -m tools.release_notes preview"
+changelog-collect = "python -m tools.release_notes collect"
 test-medium = "pytest -m medium --durations=0"   # the tier timed against its 60 s budget
 docs       = "sphinx-build -b html -W -n --keep-going docs docs/_build/html"
 # Python rather than `rm -rf`, so the task also runs on Windows.
@@ -414,7 +428,7 @@ args = [{ name = "SOLPROP_RUN_EXAMPLES", positional = true, default = "stale", h
 help = "Execute the stale gallery scripts and refresh their committed output (slow)."
 
 [tool.poe.tasks.check]
-sequence = ["lint-fix", "fmt", "lint", "types", "docstrings", "spell", "reuse", "test", "docs"]
+sequence = ["lint-fix", "fmt", "lint", "types", "docstrings", "spell", "reuse", "changelog-check", "test", "docs"]
 help = "The definition-of-done gate, in order."
 
 # The native package's gate: its lint and strict types, C++ format, clang-tidy, the

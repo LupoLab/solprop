@@ -356,9 +356,13 @@ class PIController:  # numpydoc ignore=PR02
     def __post_init__(self) -> None:
         """Validate the settings and adopt a read-only copy of the weights."""
         if self.rtol <= 0.0:
-            raise StepperError(f"rtol must be positive, got {self.rtol}")
+            raise StepperError(
+                f"rtol must be positive, got {self.rtol}", parameter="rtol"
+            )
         if self.atol < 0.0:
-            raise StepperError(f"atol must be non-negative, got {self.atol}")
+            raise StepperError(
+                f"atol must be non-negative, got {self.atol}", parameter="atol"
+            )
         if not 0.0 < self.safety <= 1.0:
             raise StepperError(f"safety must lie in (0, 1], got {self.safety}")
         if not 0.0 < self.min_factor < 1.0 < self.max_factor:

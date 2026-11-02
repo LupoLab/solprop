@@ -432,6 +432,16 @@ alone ([output](../results/output.md#statistics-only-planes-which-planes-keep-th
 They are execution settings, outside the configuration hash, and may change after
 translation.
 
+## What a run will cost
+
+`simulation.estimate()` answers before a run: the state's shape, the persistent memory
+admitted against the budget before anything is allocated (a run that would be refused is
+reported, not attempted), the output's size for the planes and fields it keeps, the cost
+of one right-hand-side evaluation on its backend, timed after an untimed warm-up that
+takes the compilation and transform planning (reported as `setup`), and the integrator's
+evaluations per step, with their total for a replayed schedule. It does not predict the
+number of adaptive steps, which the physics decides.
+
 ## Many inputs, one backend: the runner
 
 A large problem pays for its backend before it takes a step: about fifteen copies of the

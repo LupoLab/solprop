@@ -2585,14 +2585,14 @@ def problem_from(  # noqa: PLR0913 - the GNLSE's parameters, each named in ADR-0
     """
     if (gamma is None) == (n2 is None):
         msg = "give exactly one of gamma and n2"
-        raise ModeError(msg)
+        raise ModeError(msg, parameter=("gamma", "n2"))
     selection = MaterialSelection() if selection is None else selection
     if isinstance(n2, str) and n2 != "recommended":
         msg = (
             f"n2={n2!r}: the one name n2 takes is 'recommended', fused silica's total "
             "n2 from optmat's silica bundle at the carrier; otherwise give n2 in m^2/W"
         )
-        raise ModeError(msg)
+        raise ModeError(msg, parameter="n2")
     bundle = (
         SilicaBundle.resolve(selection.raman) if raman or isinstance(n2, str) else None
     )
@@ -2601,17 +2601,17 @@ def problem_from(  # noqa: PLR0913 - the GNLSE's parameters, each named in ADR-0
     fraction, origin = _held_back_fraction(raman, raman_fraction, bundle)
     if not 0.0 <= fraction <= 1.0:
         msg = f"raman_fraction must lie in [0, 1], got {raman_fraction!r}"
-        raise ModeError(msg)
+        raise ModeError(msg, parameter="raman_fraction")
     if not aeff > 0.0:
         msg = f"aeff must be positive, got {aeff!r}"
-        raise ModeError(msg)
+        raise ModeError(msg, parameter="aeff")
     if raman and fraction == 0.0:
         msg = (
             "raman=True with raman_fraction=0 declares a Raman response that carries "
             "none of the nonlinearity; call with raman=False instead, which gives the "
             "whole of gamma to the Kerr term"
         )
-        raise ModeError(msg)
+        raise ModeError(msg, parameter=("raman", "raman_fraction"))
 
     mode = SpecifiedMode.from_taylor(
         betas, omega_ref, loss=attenuation_from_db(loss_db_per_m), aeff=aeff

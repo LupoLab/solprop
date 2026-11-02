@@ -724,7 +724,7 @@ def test_both_cpu_backends_refuse_a_general_name_on_an_ordinary_run(backend):
     """The whitelist's backend door, on a run that carries no general identity.
 
     A caller may build a backend and ask it for statistics directly, without the
-    run loop's admission; both CPU backends check, and the message is the one the
+    run loop's admission; every CPU backend checks, and the message is the one the
     loop would have given.
     """
     if backend == "native":

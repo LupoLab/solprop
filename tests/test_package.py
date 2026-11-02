@@ -4,8 +4,10 @@
 
 import logging
 import pkgutil
+import runpy
 import subprocess
 import sys
+import typing
 
 import numpy as np
 import pytest
@@ -26,6 +28,18 @@ HEAVY_MODULES = (
 def test_version_is_a_string():
     assert isinstance(solprop.__version__, str)
     assert solprop.__version__
+
+
+def test_python_m_solprop_is_the_command_line(monkeypatch, capsys):
+    # runpy warns when the module was imported before; run it as `python -m` would.
+    monkeypatch.delitem(sys.modules, "solprop.__main__", raising=False)
+    monkeypatch.setattr(sys, "argv", ["solprop", "--help"])
+    runpy.run_module("solprop.__main__")  # imported, not run: it does nothing
+    assert capsys.readouterr().out == ""
+    with pytest.raises(SystemExit) as caught:
+        runpy.run_module("solprop", run_name="__main__")
+    assert caught.value.code == 0
+    assert "usage: solprop" in capsys.readouterr().out
 
 
 def test_package_logger_has_null_handler():
@@ -97,6 +111,13 @@ def test_every_submodule_is_an_attribute_loaded_on_first_use():
 def test_exception_hierarchy_roots_at_solprop_error():
     for name in exceptions.__all__:
         cls = getattr(exceptions, name)
+        if isinstance(cls, typing.TypeAliasType):
+            # ParameterPath, the type of an error's parameter, is not an error.
+            continue
+        if cls is exceptions.StopRequested:
+            # A stop the caller asked for, not an error, and no Exception either.
+            assert not issubclass(cls, Exception)
+            continue
         if cls is exceptions.RunTerminated:
             # A stop, not an error: an `except Exception` must not swallow it.
             assert issubclass(cls, SystemExit) and not issubclass(cls, Exception)

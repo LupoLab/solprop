@@ -34,7 +34,8 @@ machine it runs on.
 A wheel may carry its extension compiled for more than one baseline: the x86-64 wheels
 hold an x86-64-v3 and an x86-64-v2 build. ``_cpu_baseline.txt`` then names the lowest,
 the wheel's floor, and ``_cpu_variants.txt`` lists each build, best first, as a baseline
-and a module stem. :func:`select_variant` takes the first the processor meets;
+and a module stem. :func:`select_variant` takes the first the processor meets and logs,
+at INFO, which features put a better build out of reach;
 ``SOLPROP_NATIVE_CPU_VARIANT`` names a lower one, for tests and comparisons.
 
 The module is pure Python and imports nothing from the package, so solprop's
@@ -44,6 +45,7 @@ importing the package or starting its runtime (``solprop.backends.registry``).
 
 from __future__ import annotations
 
+import logging
 import os
 import sys
 from pathlib import Path
@@ -68,6 +70,8 @@ __all__ = [
     "select_variant",
     "windows_features",
 ]
+
+_LOGGER = logging.getLogger(__name__)
 
 BASELINE_RECORD = "_cpu_baseline.txt"
 VARIANTS_RECORD = "_cpu_variants.txt"
@@ -403,12 +407,23 @@ def select_variant(
         )
     system = sys.platform if platform is None else platform
     best = len(variants) - 1
+    out_of_reach: list[tuple[str, list[str]]] = []
     for index, (baseline, _) in enumerate(variants):
         flags = _processor_features(baseline, system, cpuinfo, feature_query)
-        if flags is None or not missing_features(baseline, flags):
+        missing = [] if flags is None else missing_features(baseline, flags)
+        if not missing:
             best = index
             break
+        out_of_reach.append((baseline, missing))
     if not request:
+        for baseline, missing in out_of_reach[:best]:
+            _LOGGER.info(
+                "loading the %s build, which runs longer: this processor reports "
+                "no %s, which the %s build needs",
+                names[best],
+                ", ".join(missing),
+                baseline,
+            )
         return variants[best][1]
     chosen = names.index(request)
     if chosen < best:

@@ -795,7 +795,7 @@ def test_both_backends_check_the_whitelist_before_the_spatial_branch(name):
     `numpy_ref` consulted the whitelist **after** its spatial early return, so a
     radial problem asked for `physical_energy` reached `collect_spatial` and was
     answered from a geometry that carries no certified flux metric and no stored
-    E/H reference at all. Both backends now check first, which is also where the
+    E/H reference at all. Every CPU backend now checks first, which is also where the
     four-door claim of `solprop.output.capability` is true.
     """
     if name == "native":

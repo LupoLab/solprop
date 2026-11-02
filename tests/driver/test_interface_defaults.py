@@ -10,6 +10,7 @@ Every route in both precisions, through its ``Simulation.from_*`` constructor an
 
 import dataclasses
 import inspect
+import json
 from typing import TypedDict
 
 import pytest
@@ -17,6 +18,16 @@ import pytest
 from driver.test_tdse_entry import _capillary, _sae
 from modal_provider_cases import GENERAL_Z_END, general_grid, general_guide
 from solprop.driver import Simulation, SimulationSettings, interface
+from solprop.driver.defaults import (
+    ROUTE_DEFAULTS,
+    SINGLE_PRECISION_NOISE,
+    default_integrator,
+    default_rtol,
+    default_scheme,
+    resolve_noise,
+    route_defaults,
+    rtol_in_precision,
+)
 from solprop.driver.simulation import (
     CAPILLARY_RTOL,
     DEFAULT_RTOL,
@@ -29,7 +40,6 @@ from solprop.driver.simulation import (
     TDSE_NOISE,
     WAVEGUIDE_RTOL,
     _admit_tdse_execution,
-    _default_rtol,
 )
 from solprop.exceptions import DriverError, SolpropWarning
 from solprop.grid import EnvelopeGrid, FreeGrid, LineGrid, RadialGrid
@@ -39,7 +49,7 @@ from solprop.monitor import DEFAULT_BOUNDARY_CHECK, BoundaryCheck
 from solprop.nonlinear.responses import KerrResponse
 from solprop.nonlinear.tdse import TDSEExecution
 from solprop.output.memory import MemoryOutput
-from solprop.output.schema import NoiseResolution
+from solprop.output.schema import DefaultsResolution, NoiseResolution, RunMetadata
 from solprop.physdata import gamma3
 from solprop.pulses import GaussianPulse, PlanarPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
@@ -411,13 +421,13 @@ def test_a_copy_in_the_other_precision_takes_the_route_s_default(route):
 
 
 def test_the_single_precision_tolerance_rule():
-    assert [_default_rtol(rtol, "single") for rtol in (1e-8, 1e-7, 1e-6)] == [
+    assert [rtol_in_precision(rtol, "single") for rtol in (1e-8, 1e-7, 1e-6)] == [
         SINGLE_RTOL_FLOOR
     ] * 3
-    assert [_default_rtol(rtol, "single") for rtol in (1e-5, 1e-4, 1e-3)] == [
+    assert [rtol_in_precision(rtol, "single") for rtol in (1e-5, 1e-4, 1e-3)] == [
         SINGLE_RTOL_CAP
     ] * 3
-    assert _default_rtol(1e-4, "double") == 1e-4
+    assert rtol_in_precision(1e-4, "double") == 1e-4
     # An explicit tolerance is the caller's, above the cap included.
     simulation = Simulation.from_waveguide(
         *WAVEGUIDE_ARGS, rtol=1e-4, **PULSE, **WINDOW, **SINGLE
@@ -595,3 +605,190 @@ def test_a_spatial_keyword_and_settings_naming_two_checks_are_refused():
         boundary_check=None,
     )
     assert same.settings.boundary_check is None
+
+
+# --- one table of route defaults -------------------------------------------------
+
+
+# The table's rows the DEFAULTS matrix above measures through the constructors, so the
+# table and what each route resolves to cannot drift apart.
+TABLE_ROWS = {
+    "gnlse": "gnlse",
+    "capillary": "capillary",
+    "capillary modes=2": "capillary",
+    "capillary mode_average": "capillary",
+    "capillary envelope": "capillary",
+    "waveguide": "waveguide",
+    "waveguide mode_average": "waveguide",
+    "waveguide general": "waveguide",
+    "radial": "radial",
+    "free cartesian": "free",
+    "free line": "free",
+    "planar": "planar",
+}
+
+
+@pytest.mark.parametrize("route", list(DEFAULTS))
+def test_the_table_holds_what_every_route_resolves(route):
+    row = route_defaults(TABLE_ROWS[route])
+    integrator, double_rtol, single_rtol = DEFAULTS[route]
+    assert row.integrator == integrator.__name__
+    assert row.rtol == double_rtol
+    assert default_rtol(TABLE_ROWS[route], "single") == single_rtol
+    assert type(default_integrator(TABLE_ROWS[route], "double")) is integrator
+    assert type(default_integrator(TABLE_ROWS[route], "single")) is RungeKutta
+
+
+def test_every_row_of_the_table_is_measured_or_a_named_variant():
+    assert set(ROUTE_DEFAULTS) == {
+        *TABLE_ROWS.values(),
+        "capillary tdse",
+        "waveguide slab",
+    }
+    assert route_defaults("capillary tdse").noise_reason == TDSE_NOISE
+    assert route_defaults("waveguide slab").noise == "unmeasured"
+    with pytest.raises(DriverError, match="no route defaults for 'fibre'"):
+        route_defaults("fibre")
+
+
+@pytest.mark.parametrize(
+    ("route", "precision", "model", "reason"),
+    [
+        ("gnlse", "double", "input", None),
+        ("capillary", "double", "input", None),
+        ("capillary tdse", "double", None, TDSE_NOISE),
+        ("waveguide slab", "double", None, SLAB_NOISE),
+        ("radial", "double", "input", None),
+        ("free", "double", None, FREE_NOISE),
+        ("planar", "double", None, route_defaults("planar").noise_reason),
+        *((route, "single", None, SINGLE_PRECISION_NOISE) for route in ROUTE_DEFAULTS),
+    ],
+)
+def test_every_route_and_precision_resolves_its_default_noise(
+    route, precision, model, reason
+):
+    resolved, resolution = resolve_noise(route, "default", None, precision)
+    assert resolved == model
+    assert resolution == NoiseResolution("default", model, reason)
+
+
+def test_a_model_is_refused_where_no_photon_measure_is_declared():
+    for route in ("waveguide slab", "planar"):
+        with pytest.raises(DriverError, match="pass noise=None"):
+            resolve_noise(route, "input", None, "double")
+    assert resolve_noise("free", "input", None, "double")[0] == "input"
+
+
+@pytest.mark.parametrize(
+    ("route", "interpolate", "scheme"),
+    [
+        (None, False, "nonlinear"),
+        ("gnlse", False, "nonlinear"),
+        ("radial", False, "split_step"),
+        ("free", False, "split_step"),
+        ("planar", True, "nonlinear"),
+    ],
+)
+def test_each_route_applies_its_collar_by_its_scheme(route, interpolate, scheme):
+    assert default_scheme(route, interpolate_planes=interpolate) == scheme
+
+
+def _gnlse_settings(**keywords):
+    return Simulation.from_gnlse(*GNLSE_ARGS, **GNLSE, **keywords).settings
+
+
+def _control(settings):
+    """Return the settings' controller, which the keyword routes always give."""
+    assert settings.controller is not None
+    return settings.controller
+
+
+def test_a_default_tolerance_is_resolved_again_in_the_other_precision():
+    double = _gnlse_settings(backend="numpy_ref")
+    assert double.controller_defaulted
+    assert _control(double).rtol == DEFAULT_RTOL
+    single = dataclasses.replace(double, precision="single")
+    # 1e-7 would be refused under single precision; the copy takes that default.
+    assert _control(single).rtol == SINGLE_RTOL_FLOOR
+    assert _control(single).atol == _control(double).atol
+    assert single.controller_defaulted
+    back = dataclasses.replace(single, precision="double")
+    assert _control(back).rtol == DEFAULT_RTOL
+
+
+def test_a_named_tolerance_is_kept_in_the_other_precision():
+    named = _gnlse_settings(backend="numpy_ref", rtol=1e-5)
+    assert not named.controller_defaulted
+    assert _control(dataclasses.replace(named, precision="single")).rtol == 1e-5
+    replaced = dataclasses.replace(
+        named, controller=PIController(rtol=1e-4, atol=1e-14)
+    )
+    assert not replaced.controller_defaulted
+
+
+def test_a_copy_in_single_precision_resolves_auto_again(monkeypatch):
+    double = _gnlse_settings()
+    monkeypatch.setattr("solprop.driver.simulation.metal_available", lambda: True)
+    assert dataclasses.replace(double, precision="single").backend == "mlx"
+    monkeypatch.setattr("solprop.driver.simulation.metal_available", lambda: False)
+    # Without a Metal device, single precision's "auto" is refused by design.
+    with pytest.raises(DriverError, match="backend='auto' resolves to the mlx"):
+        dataclasses.replace(double, precision="single")
+    # A named backend is not resolved again: binary32 refuses it by name.
+    named = _gnlse_settings(backend="numpy_ref")
+    assert dataclasses.replace(named, precision="single").backend == "numpy_ref"
+
+
+def test_the_stepping_defaults_are_recorded_and_read_back():
+    simulation = Simulation.from_gnlse(*GNLSE_ARGS, **GNLSE, backend="numpy_ref")
+    record = simulation.metadata().defaults
+    assert record == DefaultsResolution(
+        "gnlse", ("integrator", "rtol", "absorber_scheme")
+    )
+    assert RunMetadata.from_json(simulation.metadata().to_json()).defaults == record
+    named = Simulation.from_gnlse(
+        *GNLSE_ARGS,
+        **GNLSE,
+        backend="numpy_ref",
+        rtol=1e-6,
+        integrator=Multistep(),
+        absorber_scheme="nonlinear",
+    )
+    assert named.metadata().defaults == DefaultsResolution("gnlse", ())
+
+
+def test_a_record_written_before_the_defaults_were_recorded_reads():
+    simulation = Simulation.from_gnlse(*GNLSE_ARGS, **GNLSE, backend="numpy_ref")
+    document = json.loads(simulation.metadata().to_json())
+    del document["defaults"]
+    assert RunMetadata.from_json(json.dumps(document)).defaults is None
+
+
+def test_the_displays_say_which_values_are_defaults():
+    settings = _gnlse_settings(backend="numpy_ref")
+    text = str(settings)
+    assert "RungeKutta (gnlse default)" in text
+    assert "atol 1e-14 (gnlse default)" in text
+    assert "nonlinear scheme (default)" in text
+    free = _spatial(FreeGrid(3e-4, 8, 3e-4, 8), noise="default")
+    # The block wraps long rows, so compare the words.
+    assert f"none ({FREE_NOISE})" in " ".join(str(free).split())
+    assert "split_step scheme (default)" in str(free.settings)
+
+
+def test_an_incident_launch_records_a_default_noise_as_default():
+    simulation = Simulation.from_gnlse(*GNLSE_ARGS, **{**GNLSE, "noise": "default"})
+    launched = simulation.with_input(simulation._field0, noise=simulation.noise)
+    assert launched.noise_resolution == simulation.noise_resolution
+    assert launched.noise_resolution.requested == "default"
+
+
+def test_an_interior_launch_keeps_the_single_precision_reason():
+    single = Simulation.from_gnlse(
+        *GNLSE_ARGS,
+        **{**GNLSE, "noise": "default"},
+        precision="single",
+        backend="numpy_ref",
+    )
+    moved = single.with_input(single._field0, initial_z=0.001)
+    assert moved.noise_resolution.reason == SINGLE_PRECISION_NOISE

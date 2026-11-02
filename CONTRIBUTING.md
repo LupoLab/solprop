@@ -147,7 +147,10 @@ A change that touches `native/` runs `poe check-all` and follows the native rule
    alike. The design is described under [`docs/dev/`](docs/dev/index.md); start with
    `architecture.md` and `conventions.md`.
 4. Keep the diff to the task. Add tests with the code, document new functionality in the
-   manual as well as in docstrings, and add a line to `CHANGELOG.md` under `Unreleased`.
+   manual as well as in docstrings, and add a release-note fragment under `changelog.d/`
+   for a notable change. Use a unique change slug or PR number; no separate issue is
+   needed for the fragment. Follow [the fragment format](changelog.d/README.md).
+   Leave `CHANGELOG.md` to the rolling release PR, which collects fragments after merges.
 5. Run fast checks and directly affected tests while you work. The full gate
    (`uv run poe check`) and the slow and coverage lanes run in CI on the pull request, so
    you need not run them locally first. A change to the documentation alone, including a
@@ -176,8 +179,8 @@ A pull request is ready to merge when:
 - Every numerical tolerance in a test is justified in a comment; every new dependency has
   been agreed (`docs/dev/dependencies.md`); the conventions of `docs/dev/conventions.md`
   are followed.
-- The manual page, docstrings and changelog line are present; a worked example that was
-  edited has been re-run (`uv run poe docs-examples <name>`).
+- The manual page, docstrings and release-note fragment are present; a worked example
+  that was edited has been re-run (`uv run poe docs-examples <name>`).
 - Backend changes update the memory ledger and the equivalence tests; a hot-path change
   records a benchmark (`docs/dev/benchmarks.md`).
 - No full-length propagation runs in a test, benchmark or qualification lane.

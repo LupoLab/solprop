@@ -9,10 +9,6 @@ All notable changes to solprop are recorded here. The format follows
 
 ### Added
 
-- A `solprop-native` wheel for Windows on Arm (`win-arm64`), and an x86-64-v2 build beside
-  the x86-64-v3 one in the Linux and Windows x86-64 wheels, chosen at import, so processors
-  without AVX2 now run the native backend. The v2 build runs about 20 to 25 % longer by
-  geometric mean. `SOLPROP_NATIVE_CPU_VARIANT=x86-64-v2` asks for it (SEP 43).
 - The first performance-history rows (`benchmarks/history/`), recorded at 0.1.0 on
   six CPU and three GPU hardware sets, with numba runs beside the native ones on three
   of them; `docs/dev/benchmarking.md` lists how each is run. The history takes any
@@ -20,6 +16,86 @@ All notable changes to solprop are recorded here. The format follows
   history recorded no longer makes the next run in that checkout dirty. The benchmark
   harness names an AMD GPU from its PCI IDs where ROCm reports only
   "AMD Radeon Graphics".
+- One table of the route defaults, `solprop.driver.defaults.ROUTE_DEFAULTS`, with the
+  functions that resolve each default (`default_rtol`, `default_integrator`,
+  `default_controller`, `default_scheme`, `resolve_noise`); the run record's new
+  `defaults` entry (`DefaultsResolution`), the start-of-run summary and the settings'
+  display say which of the integrator, `rtol` and the collar scheme took the route's
+  default, and the summary names a Multistep carrier frame
+  ([#87](https://github.com/LupoLab/solprop/issues/87)).
+- Recipes ([SEP 41](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0041-recipes-and-front-ends.html)):
+  `solprop.recipe.Recipe` reads a TOML description of a `gnlse` or `capillary` run, with
+  quantities in their units (`"125 um"`, `"1.2 bar"`), checks it (`check()`, each issue
+  at its parameter path), builds and runs it, saves it and exports it as the Python
+  script it stands for (`to_python()`). `solprop.recipe.parameters` gives each
+  keyword's forms, units, display unit, default rule and manual section. The `solprop`
+  command (also `python -m solprop`) runs, checks and exports recipes, and forwards
+  `solprop scan`. Example recipes ship with the package (`Recipe.examples()`). Errors
+  and warnings that concern a value carry its `parameter`; writing TOML takes the
+  `tomli-w` dependency. `solprop.grid.suggest` proposes `wavelength_limits` and
+  `trange` from the input pulses, as a starting point. A run built from a recipe records
+  it in a top-level `recipe` group of its output, as written and as resolved (the recipe
+  that rebuilds the run); `Simulation.run(stop=...)` takes a flag that stops the run,
+  writes its state and returns, and `solprop run` stops cleanly on Ctrl-C. `solprop resume`
+  and `solprop.recipe.resume_file` continue a run from its file alone, and
+  `solprop.output.resumability` says whether a file can continue, from where and with
+  which `resume=`, whether it can rebuild itself, and, on request, what the gate would
+  compare. `run_scan(stop=)` takes the same flag: Local and Pool stop the point in
+  flight, Pool through a message on the worker pipe, Batch between groups; a stopped
+  point is not committed and a rerun computes it; Queue and Slurm refuse it.
+  `run_scan(progress=)` accepts a `solprop.log.ScanReporter` (and a
+  `WatchingScanReporter` for each point's run, relayed from Pool workers). A recipe's
+  `[scan]` table gives `Recipe.scan()`, ready for `run_scan`. `Simulation.estimate()`
+  reports a run's memory (admitted before anything is allocated), output size and the
+  cost of one right-hand-side evaluation; `solprop.capabilities.output` says what a
+  results file can give: its basis, which quantities are physical fluxes, which planes
+  keep fields, which operations its readers refuse and why. A reporter that implements
+  `observe_plane` (`solprop.log.PlaneObserver`) is shown each saved plane as a lazy
+  view, whose spectrum, field, power and spectral density come from the processing
+  functions, fetched from a device only on request; a failing observer is detached and
+  the run completes. See [recipes and the command line](https://solprop.readthedocs.io/en/latest/guide/setup/recipes.html).
+- Design solvers for any guide ([SEP 41](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0041-recipes-and-front-ends.html)):
+  `solprop.tools.solve_parameter` finds every value of a guide or fill parameter
+  (a radius, a pressure, a core size, a wall thickness) that meets a target, `ZDW`,
+  `RDW` or `SolitonOrder`, discarding sign changes through a wall resonance, and
+  returns them as `DesignRoots` with the attainable range when there is none.
+  `tools.radius_zdw` inverts `zdw` in the radius; `tools.soliton_peak_power` and
+  `tools.pulse_energy` give the pulse for a soliton order. A recipe's `[pins]` table
+  sets a value from such a target (`Recipe.resolve()`, `Recipe.pin_roots()`), solved at
+  each build and each scan point and recorded with the run. `Recipe.modes()` and
+  `Recipe.preview_input()` preview the mode set and the launched pulse before a run.
+  `solprop.capabilities.route` lists a route's keywords, their values and the rules
+  that couple them, each refusal naming its rule (`SolpropError.rule`), and
+  `solprop.capabilities.species` what a gas admits: its ionisation models with their
+  status, its Raman response, and its data ranges.
+- `solprop.pulses.load_spectrum` reads a measured spectrum from a text file (frequency
+  or wavelength, power density, and an optional phase) into a `DataPulse`. A wrapped
+  phase column is unwrapped only where the power is above a noise floor, a phase in
+  the FFT sign convention of a Luna.jl file is read with `phase_convention="fft"`, and
+  a wrapped column sampled too coarsely to unwrap is warned on
+  ([SEP 41](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0041-recipes-and-front-ends.html)).
+- `prop_capillary`, `prop_waveguide` and their `Simulation` constructors take `launch=`,
+  which puts each pulse into chosen modes with a share and an optional phase:
+  `launch={"HE1,1": 0.9, "HE1,2": {"share": 0.1, "phase": 1.57}}`, or a list with one
+  mapping per pulse of `pulses=`. Modes are named as `channel=` names them; the shares
+  are energy fractions, and on a guide that declares a change of basis a coordinate
+  split scaled to the pulse's energy under the flux metric. The run records the launch
+  as `configuration["modal_launch"]`, which a resume compares; a run without one
+  records nothing and resumes as before
+  ([SEP 41](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0041-recipes-and-front-ends.html)).
+- `SpatialPulse` takes `displacement=(d_x, d_y)` and `tilt=(theta_x, theta_y)`, as
+  `coupling.Alignment` defines them, applied at the launch plane on a Cartesian grid
+  with the energy set after them; a tilt the grid's band, window or time window cannot
+  carry is refused, and so is either on a radial grid, a y component on a line grid, a
+  `PlanarPulse` and a guide's incident beam. A record without them continues as an
+  unmoved beam
+  ([SEP 41](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0041-recipes-and-front-ends.html)).
+- `prop_waveguide` and `Simulation.from_waveguide` take `interpolate_planes` and
+  `step_planes`, and `prop_capillary`, `prop_waveguide` and their constructors take
+  `polarisation_taper`, as `prop_gnlse` does; `step_planes` defaults to `None` on
+  every interface that takes it, which on `prop_gnlse` behaves as its `0` did. The
+  guide lists the deliberate differences between the routes' keywords
+  ([SEP 41](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0041-recipes-and-front-ends.html)).
 
 - `Simulation.from_radial`, `from_free` and `from_planar` take `absorber` and
   `absorber_scheme`, as `prop_radial`, `prop_free` and `prop_planar` and the modal
@@ -32,9 +108,32 @@ All notable changes to solprop are recorded here. The format follows
   and readers respect the mark (SEP 42, ADR-063). `RunMetadata.compare` and
   `solprop.output.compatibility` hold the comparison; `RunOutcome.resumes` and
   `RunOutcome.forced_positions` read back how each session continued its file.
+- Cross-section drawings in the library
+  ([SEP 41](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0041-recipes-and-front-ends.html)): `solprop.plotting.geometry.outline`
+  gives the outline of a capillary, antiresonant, step-index, graded-index, rectangular
+  or planar guide, or of a radial, Cartesian, line or planar grid, as shapes in metres;
+  `draw(ax, guide, palette=...)` paints it in Matplotlib, and `thumbnail(route,
+  representation, size)` makes a small figure of a route for a front end's picker. Colours
+  come from an explicit `Palette` (`LIGHT`, `DARK`). The user guide's cross-section
+  figures draw their outlines from it.
+- Recipes on the free-space routes
+  ([SEP 41](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0041-recipes-and-front-ends.html)):
+  `radial`, `free` and `planar` recipes write the grids, medium, responses, beam and
+  settings as tables of registered types (`RadialGrid`, `FreeGrid`, `LineGrid`,
+  `PlanarGrid`, `SpatialMedium`, `KerrResponse` with `gamma3`,
+  `EnvelopePlasmaResponse`, `PlasmaResponse`, `OptmatRate`, `SpatialPulse`,
+  `PlanarPulse`, `SimulationSettings`, `PIController`, `default_spec`,
+  `SpatialAbsorber`), the absorber under `settings`; the Cartesian and planar
+  tutorials and the planar compressor ship as examples; `Recipe.preview_input()` gives a
+  free-space beam's power, energy and fluence at the launch plane, and `Recipe.modes()`
+  the planar route's slab channels.
 
 ### Changed
 
+- `solprop.recipe` loads its names on first use (PEP 562), as `solprop` itself does, so
+  `solprop.recipe.quantity`, `paths`, `document` and `errors` import without the driver,
+  the backends, h5py or SciPy: about 40 ms rather than half a second, for a front end
+  that parses quantities in a process that never runs a simulation.
 - A run asking for the `zdw` statistic is no longer stopped when its band holds no
   zero-dispersion point: the plane records `nan` with a warning. A direct `stats.zdw`
   call still raises, now `NoZeroDispersionError`, a `ModeError`.
@@ -59,18 +158,13 @@ All notable changes to solprop are recorded here. The format follows
   value or provenance, and refuses one whose numerics or physics changed, naming what;
   the `Queue` and `Slurm` executors keep exact identity (SEP 42). The output schema is
   bumped only for a change an older reader would misread (ADR-063).
-- `backend="auto"` without `solprop-native`, or on a processor below every build's
-  baseline, now uses `numpy_ref` and warns, once per process, stating the cost: it is
-  unthreaded and roughly 6 to 40 times slower than threaded native, and the warning says how
-  to install the native backend. An explicit `backend="numpy_ref"` does not warn. The README
-  and manual recommend the native backend by default, and say that only GPU builds refuse
-  z-tabulated problems (SEP 43, ADR-064).
-- CI's documentation lane executes the lessons and tutorials on the native wheel, and a lesson
-  may use anything `native` runs; Read the Docs still executes none. `poe fetch-wheel`
-  installs the wheel CI built, for a contributor without a compiler, whose plain `uv sync`
-  now gets `numpy_ref` (SEP 43, ADR-064).
-- pyFFTW no longer stands in the way of Python 3.15. h5py still has no 3.15 wheel, so 3.14
-  remains the supported version.
+- `backend="auto"` now warns, once per process, whenever it chooses `numba_cpu`: when
+  `solprop-native` is not installed as well as on a processor below its wheel's baseline.
+  The warning says how to install the native backend; an explicit `backend="numba_cpu"`
+  does not warn. The README and manual now recommend the native backend by default and
+  describe `numba_cpu` as its slower fallback, with the 0.1.0 measurements. They no longer
+  advise `numba_cpu` for scans of one-thread workers, which the history does not support,
+  and they now say that only GPU builds refuse z-tabulated problems.
 - Planned work has moved to [GitHub issues](https://github.com/LupoLab/solprop/issues),
   labelled by type, priority and area: the roadmap now lists only SEPs (ADR-062). Issue
   templates and `CONTRIBUTING.md`
@@ -149,22 +243,6 @@ All notable changes to solprop are recorded here. The format follows
   amplitude −0.9, came out 85 % wrong with no warning. The class evaluates the record's
   transform exactly at the grid's frequencies, 3e-12 from the direct sum on that case,
   less its mean: a baseline is an offset of the instrument, not part of the field.
-
-### Removed
-
-- The `numba_cpu` backend, and the `numba` and `pyfftw` dependencies (SEP 43, ADR-064).
-  `backend="numba_cpu"` raises `BackendError`, naming `native` and `numpy_ref`: install
-  `solprop[native]` and pass `backend="native"`, or no `backend=` at all. Output and snapshots
-  that record `numba_cpu` still load.
-- The settings that only it read: `SOLPROP_NUMBA_THREADS`, `SOLPROP_NUMBA_REGIME`,
-  `SOLPROP_FFTW_THREADS`, `SOLPROP_TRANSVERSE_FFTW_THREADS`, `SOLPROP_PASS_TIMERS`,
-  `NUMBA_DISABLE_JIT` and `NUMBA_NUM_THREADS`. Drop them from job scripts; they now do
-  nothing. For the native backend's pools use `SOLPROP_THREADS` and `SOLPROP_NATIVE_THREADS`.
-  `SOLPROP_FFTW_PLAN`, `SOLPROP_FFTW_WISDOM` and `SOLPROP_BLAS_THREADS` stay.
-- Compiled CPU support for Intel macOS, ppc64le, Arm below Neoverse N1 and Windows before 10
-  version 2004, and for x86-64 below x86-64-v2. These use `numpy_ref` where it installs;
-  NumPy's own baseline may refuse x86-64 below v2. In a process with a GPU build, a CPU run now
-  needs a second environment with the CPU wheel, or `numpy_ref`.
 
 ### Fixed
 

@@ -248,7 +248,8 @@ of the published artefacts, for example); being documentation alone, it runs onl
 documentation checks in CI. The commit that sets `Final` fills in **Manual pages**,
 moves the file with `git mv` to `docs/dev/seps/archive/`, moves its index row to the
 archived table and its toctree entry to the archive index, fixes the relative links the
-move breaks, removes its roadmap link, and cites the SEP in the `CHANGELOG.md` line.
+move breaks, removes its roadmap link, and cites the SEP in its `changelog.d/`
+release-note fragment, collected by the [rolling release PR](../releasing.md#the-rolling-release-pr).
 
 A Final SEP is a historical record. It is not updated to follow later changes to the code;
 the manual and the design pages describe current behaviour. Only errata and a
@@ -336,7 +337,7 @@ assumption that had to be invented are all said plainly.
 | Design pages (`docs/dev/`) | How the code is built, as it is now |
 | [Issues](https://github.com/LupoLab/solprop/issues) | Planned work (ADR-062) |
 | [Roadmap](../roadmap.md) | Accepted and draft SEPs |
-| `CHANGELOG.md` | What changed in each release, citing the SEP |
+| `changelog.d/`, collected into `CHANGELOG.md` by the release PR | What changed in each release, citing the SEP |
 
 The theory of a SEP moves into the manual when it is implemented: the manual page carries
 the derivation in its current form, and the SEP remains the record of the proposal.

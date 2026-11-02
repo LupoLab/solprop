@@ -9,7 +9,9 @@ run: the false-colour propagation maps, the time- and spectral-domain slices, th
 along the fibre, the statistics panels and the spectrogram. Every function takes an
 :class:`~solprop.output.schema.Output`, returns figures and never calls
 :func:`~matplotlib.pyplot.show`, so a script decides for itself whether to save or to
-display. The manual page is ``docs/guide/results/plotting.md``.
+display. The manual page is ``docs/guide/results/plotting.md``. The cross-section of a
+guide or a free-space grid, drawn from the guide rather than from a run, is in
+:mod:`solprop.plotting.geometry`.
 
 Display units are fixed across the package: z in centimetres,
 time in femtoseconds, wavelength in nanometres, frequency in petahertz, angular
