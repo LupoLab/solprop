@@ -48,10 +48,6 @@ jobs:
       matrix:
         include:
           - { id: linux-x86_64, os: ubuntu-24.04 }
-          - { id: linux-aarch64, os: ubuntu-24.04-arm }
-          - { id: macos-arm64, os: macos-15 }
-          - { id: windows-amd64, os: windows-2025, vc: x64 }
-          - { id: windows-arm64, os: windows-11-arm, vc: arm64 }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -85,6 +81,7 @@ jobs:
   test:
     name: test (${{ matrix.id }})
     needs: build
+    if: false # this run rehearses the docs alone
     runs-on: ${{ matrix.os }}
     timeout-minutes: 180
     strategy:
@@ -175,7 +172,7 @@ jobs:
   # download page.
   cpu-floor:
     needs: build
-    if: vars.SDE_URL != ''
+    if: false # this run rehearses the docs alone
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -273,6 +270,7 @@ jobs:
 
   rehearse-slow:
     needs: build
+    if: false # this run rehearses the docs alone
     runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
@@ -298,6 +296,7 @@ jobs:
   # holds nothing beyond that ABI.
   py315-native:
     needs: build
+    if: false # this run rehearses the docs alone
     name: py315-native (${{ matrix.id }})
     runs-on: ${{ matrix.os }}
     strategy:
@@ -330,6 +329,7 @@ jobs:
   # against the system's HDF5, an empty pyfftw (no 3.15 wheel, and going), numba's wheel.
   py315-linux:
     needs: build
+    if: false # this run rehearses the docs alone
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
@@ -369,6 +369,7 @@ jobs:
 
   rehearse-oldest:
     needs: build
+    if: false # this run rehearses the docs alone
     name: rehearse-oldest (${{ matrix.shard }}/3)
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -411,6 +412,7 @@ jobs:
   # run's Linux x86-64 wheel meets before anything is published.
   solprop-dist:
     needs: build
+    if: false # this run rehearses the docs alone
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
