@@ -27,9 +27,12 @@ This SEP removes the `numba_cpu` backend and solprop's dependencies on `numba` a
 wheels to the processors and platforms that only Numba reaches in practice: x86-64
 processors below AVX2, on Linux and Windows, and Windows on Arm. The documentation build
 and the continuous integration lanes that run on `numba_cpu` today move to the native
-wheel. Success means: the native suite is green on all of those targets, a Numba-free
-install imports and runs on `auto`, `native` and `numpy_ref`, the coverage gate holds
-without Numba's paths, and no result changes beyond the accuracy bounds of §7.
+wheel. `solprop-native` becomes a required dependency: solprop is supported where native
+installs, `numpy_ref` is a development tool and no longer a fallback, and any other
+platform refuses to run, with a message asking the user to report it. Success means: the
+native suite is green on all of those targets, a Numba-free install imports and runs on
+`auto`, `native` and `numpy_ref`, a platform without native gets that message, the coverage
+gate holds without Numba's paths, and no result changes beyond the accuracy bounds of §7.
 
 ### 2. Motivation and scope
 
@@ -49,15 +52,20 @@ one, and this SEP does without them (§9).
 - moving the `docs`, `slow`, `oldest` and coverage lanes to the native wheel;
 - replacing the Numba-compiled helpers that every backend shares (SEP 29 R2);
 - removing the backend, `numba`, `pyfftw`, and the tests and golden files only they use;
-- a single stable-ABI native wheel for Python 3.14 and 3.15, measured first.
+- a single stable-ABI native wheel for Python 3.14 and 3.15, measured first;
+- making `solprop-native` a required dependency, with a refusal on platforms it does not
+  reach (§6.7);
+- rewriting the README, installation page, guide and messages to say so (§8).
 
 **Out of scope:**
 
 - any further performance work on `numba_cpu`: [#104][104], [#305][305], [#306][306] and
   [#308][308] close as not planned when this SEP is accepted;
-- wheels for Intel macOS, ppc64le or musl, and processors below x86-64-v2 or Neoverse N1;
+- wheels for Intel macOS, ppc64le or musl, and processors below x86-64-v2 or Neoverse N1,
+  all of which become unsupported (§9);
 - GPU wheels ([#317][317]) and CUDA or HIP source builds, which are unchanged;
-- changes to `numpy_ref` or to any numerics.
+- changes to `numpy_ref`'s arithmetic or to any numerics. Its documented role does change
+  (§6.7).
 
 ### 3. Context
 
@@ -84,10 +92,10 @@ platforms, from PyPI and conda-forge on 2026-11-01:
 | Target | Numba | solprop on it today | After this SEP |
 |---|---|---|---|
 | Windows on Arm | PyPI wheel | Blocked: pyFFTW has no wheel | Native wheel |
-| Intel macOS | conda-forge only | solprop is not on conda-forge | `numpy_ref` where it installs |
-| ppc64le | conda-forge only | solprop is not on conda-forge | `numpy_ref` where it installs |
+| Intel macOS | conda-forge only | solprop is not on conda-forge | Unsupported |
+| ppc64le | conda-forge only | solprop is not on conda-forge | Unsupported |
 | x86-64 below AVX2 | Compiles for the host | Runs on `numba_cpu` | Native x86-64-v2 build |
-| Arm below Neoverse N1 | Compiles for the host | Runs on `numba_cpu` | `numpy_ref`, documented as dropped |
+| Arm below Neoverse N1 | Compiles for the host | Runs on `numba_cpu` | Unsupported |
 
 Numba's real advantage is that it has no fixed processor baseline. A second build at
 x86-64-v2 removes most of that advantage at a measured cost (§6.1).
@@ -110,9 +118,15 @@ agree to rounding-level bounds, and adaptive runs within an accuracy envelope.
 - `backend="numba_cpu"` raises a `BackendError` naming `native` and `numpy_ref`, and the
   release that removed it, in place of today's unknown-backend message. Old output and snapshots that record `numba_cpu` as their
   backend still load.
-- `backend="auto"` picks `native` when it is installed and the processor is at or above
-  the wheel's floor. Otherwise it picks `numpy_ref` and warns, stating the cost: 6 to 40
-  times slower than threaded native (Q1).
+- `pip install solprop` installs native, with no extra. There is no fallback backend:
+  `backend="auto"` picks `native`, and where native can't run, `auto` and `native` raise a
+  `BackendError` that gives the platform details and asks the user to report them (§6.7).
+  This covers a platform with no wheel, a processor below the wheel's floor, and a native
+  package that isn't installed.
+- `import solprop` still works everywhere it installs, so results can be read on any
+  machine.
+- `backend="numpy_ref"` stays available by name, as a development and validation tool.
+  `backend="mlx"` stays an opt-in extra and a named choice on Apple silicon.
 - The x86-64 wheels hold both builds and choose at import. `SOLPROP_NATIVE_CPU_VARIANT=
   x86-64-v2` asks for the lower build, for tests and comparisons; a higher build than the
   processor runs is refused by name, as an unknown name is. `solprop_native.build_info()`
@@ -172,7 +186,7 @@ Moving these lanes was rehearsed on today's tree before anything was removed (Pa
 | `slow` | `numba_cpu` | CI-built wheel, `SOLPROP_TEST_BACKEND=native` | 164 passed, 1 skipped, 22.5 min on the default runner, including the statistics cost budget |
 | `oldest` | `numba_cpu` | Lowest dependencies, wheel installed `--no-deps` | All 3 shards green |
 | `coverage` | Native wheel, driver tests on `numba_cpu` | Native wheel, driver tests on `native` at the removal, when the gate can pass | Report-only on the whole default lane: 99.87 % of what stays, with 44 lines and 32 branches missed (Part II) |
-| New: `no-native` | — | No native package, a few default-lane modules on `numpy_ref`; checks `auto`'s warning and a real run | Measured locally: 193 passed in 23 s |
+| New: `no-native` | — | No native package, a few default-lane modules on `numpy_ref`; checks `auto`'s refusal and a real run on `numpy_ref` by name | Measured locally, before `auto` refused: 193 passed in 23 s |
 
 **The wheel on documentation-only changes.** `native-wheel` runs only when `lanes == full`
 today, and `docs` runs on documentation-only changes as well, so `native-wheel` must run
@@ -183,7 +197,8 @@ building it: such a merge runs no lanes, so it leaves no cache for other pull re
 
 **Read the Docs stays free of native.** It executes no gallery script, because all gallery
 output is committed (`.readthedocs.yaml`, `docs/conf.py`). It needs only a clean build after
-the removal.
+the removal, and its `uv sync --frozen` installs no native package under the workspace
+override of §6.7.
 
 **What ADR-061 said.** Its consequence "the documentation build installs no native backend:
 a lesson or tutorial of a feature that `numba_cpu` does not run names `numpy_ref`" no
@@ -197,9 +212,10 @@ output. `poe docs-examples` runs both on `native` on the 4-core runner: `plot_11
 and `plot_05` in 884 s, which is a one-off cost when that script changes. The removal
 compares their regenerated figures and printed values with the committed ones.
 
-**Plain `uv sync`.** Without Numba, a compiler-free `uv sync` gets `numpy_ref`. A new
-`poe fetch-wheel` installs the wheel CI built for the newest commit in the checkout's
-history, using `gh`. That wheel's artifact retention grows from 3 to 14 days to match.
+**Plain `uv sync`.** A compiler-free `uv sync` installs no native package (§6.7), so `auto`
+refuses there and work on `numpy_ref` names it. A new `poe fetch-wheel` installs the wheel CI
+built for the newest commit in the checkout's history, using `gh`. That wheel's artifact
+retention grows from 3 to 14 days to match.
 
 #### 6.6 Python 3.15
 
@@ -223,11 +239,82 @@ solprop's own support needs three more things:
 
 This does not block the removal, and the removal clears Numba and pyFFTW out of its way.
 
-#### 6.7 Layer, contract and cost
+#### 6.7 Native as a required dependency
+
+This is the maintainer's decision of 2026-11-02, and it replaces the fallback that earlier
+drafts proposed. solprop's supported platforms are exactly the ones native reaches.
+
+**The dependency.** `solprop-native==<version>` moves from the `native` extra into
+`dependencies`, pinned by `hatch_build.py` as the extra is today, with no environment
+markers. Markers could not express the limit in any case: they can't see the C library or
+the macOS version.
+
+**The fallback wheel.** A failure at install can't say what we want. `solprop` is a pure
+Python wheel and native has no sdist, so no solprop code runs during `pip install`, and pip
+reports only:
+
+```text
+ERROR: No matching distribution found for solprop-native==1.0
+```
+
+So each release also publishes a small `py3-none-any` wheel of `solprop-native` at the same
+version. Installers rank it below every platform wheel, so they take it only when none
+matches: musl, an older glibc or macOS, Intel macOS, ppc64le, and so on (Part II). It holds
+only the message: importing it raises the refusal, and `solprop.backends.registry` recognises
+it without importing it. A source build installed over it replaces it. Where another
+dependency has no wheel for the platform, the installer fails on that one first and the
+message is never reached.
+
+**The refusal.** `auto` and `native` raise it on selection, and not at `import solprop`,
+because the documentation build, `numpy_ref` by name and reading results on an unsupported
+laptop all need the import. It states why (no matching wheel, the missing processor features,
+or no native package) and prints a prefilled GitHub issue link:
+
+```text
+solprop does not run on this platform: no solprop-native wheel matches it.
+  system: Darwin 24.1.0, machine: x86_64, Python: 3.14.7, solprop: 0.3.0
+Please report this platform, so that we can consider supporting it:
+  https://github.com/LupoLab/solprop/issues/new?title=...&body=...
+```
+
+The link carries the operating system, architecture, C library, Python and solprop versions,
+and any missing processor features, and no host or user names. Nothing is sent: the user
+reads the issue and submits it. For a processor below the floor or an unusual system, the
+message also points to [building native from source](../../guide/performance/building-native.md).
+
+**A release gate.** The fallback wheel would hide a missing platform wheel: if a release
+lacks, say, the Windows on Arm wheel, those users silently get the refusal. `publish-native`
+therefore checks that every platform wheel and the fallback are present before uploading
+anything.
+
+**The workspace.** A required workspace member builds from source, and after a sync that
+skips it, a plain `uv run` builds it again (Part II). `[tool.uv]` has no setting to skip a
+package, and `uv run` has no flag for it. An override does the job, and doesn't reach the
+published metadata:
+
+```toml
+[tool.uv]
+override-dependencies = ["solprop-native; extra == 'native'"]
+```
+
+A plain `uv sync` then stays compiler-free, as do the 12 `uv sync` lines of the workflows and
+the Read the Docs install, and `uv sync --extra native` still builds native. The extra stays
+as this development switch only, and user documentation stops mentioning it. The cost is that
+a contributor's plain environment differs from an installed one: `auto` refuses there, so
+tests name their backend through `SOLPROP_TEST_BACKEND` (Q4).
+
+**`numpy_ref` and `mlx`.** `numpy_ref` remains the reference that every backend is tested
+against, and it stops being described as a way to run solprop. A few features run only on it
+today, which limits how far that can go at once (Q3). `mlx` is unchanged: its platforms are
+within native's, native is installed beside it, and loads only if selected.
+
+#### 6.8 Layer, contract and cost
 
 This is a backend and packaging change. `KERNEL_SCHEMA_VERSION` does not change, and no
 kernel changes. Wheels grow, Linux from 16.5 to 19.2 MB and Windows from 5.2 to 9.7 MB. The Windows on Arm
-wheel is 4.7 MB. solprop drops two runtime dependencies. In the release wheels run, the
+wheel is 4.7 MB. solprop drops two runtime dependencies, so a default Linux x86-64 install
+downloads native's 19.2 MB in place of about 64 MB for Numba and llvmlite (PyPI, 2026-11-02),
+and everyone gets the fast backend. In the release wheels run, the
 Windows on Arm build takes about 15 minutes and its default lane about 30. The x86-64
 builds stay within the 19 to 30 minutes that they vary over on the hosted runners (22 on
 each in a recent run without the second build). The forced-v2 lanes add about 50 minutes
@@ -243,6 +330,12 @@ each, and they run only in that workflow, not in `ci.yml`.
 | v2's cost is acceptable | Tracking set, Xeon Gold 6240 and EPYC 7763, interleaved fresh processes; native v2 against Numba compiled for Nehalem | v2 is not slower than Numba at v2 |
 | Windows v2's BLAS | Coupled TE/TM at one thread and the radial real GEMM, which failed under OpenBLAS's run-time selection on Windows | Green with v2 forced |
 | Numba-free install | Fresh environment with no `numba` or `pyfftw`: import, and a short run on `auto`, `native`, `numpy_ref` | Runs |
+| Required dependency | `pip install solprop` and `uv pip install solprop` from the release's files on each wheel platform, with no extra; `auto` is `native` | Exact |
+| The fallback wheel | pip and uv choose it for tags no platform wheel matches, and never over one that matches; a source build replaces it | Exact |
+| The refusal | No wheel, below the floor, and no native package each raise on `auto` and `native` with a working issue link; `import solprop` and `numpy_ref` by name still work | Exact |
+| The release gate | `publish-native` stops when a platform wheel is missing, tested by removing one | Exact |
+| The workspace | Plain `uv sync` and `uv run` build nothing and install no native; `uv sync --extra native` builds it; the built wheel's metadata has the pinned requirement | Exact |
+| The new policy in the documentation | A search of the README, `docs/introduction`, `docs/guide` and the messages finds no fallback, no `solprop[native]`, and `numpy_ref` only as §8 allows | Exact |
 | Coverage | The 100 % gate on `solprop`, without Numba's paths | Holds, or the gaps are reported rather than the gate lowered |
 | No regressions | `python -m benchmarks track` on the final tree against history; ledger entry | Same step counts |
 | Removal is complete | A search finds Numba only in Final SEPs, convergence provenance and the tombstone | Exact |
@@ -250,11 +343,38 @@ each, and they run only in that workflow, not in `ci.yml`.
 
 ### 8. Documentation
 
-`introduction/installation.md` and `guide/performance/backends.md` state the targets
-and the dropped ones; `guide/performance/native.md` the two builds and the setting;
-`dev/backends.md`, `dev/tooling.md`, `AGENTS.md`, `native/AGENTS.md`, `dev/testing.md` and
-the guide pages that name `numba_cpu` lose it; `CHANGELOG.md` records the removal. Final
-SEPs stay as history.
+The documentation has to describe the new position throughout: **solprop runs where native
+installs, and `numpy_ref` is for development.** That is more than removing `numba_cpu`.
+
+**For users:**
+
+- `README.md`: the install block becomes `pip install solprop`. "Fast CPUs and GPUs" loses
+  the fallback paragraph, the `numba_cpu` tier and the line for a platform with no wheel.
+- `introduction/installation.md`: the platform and processor tables become the definition of
+  what is supported. It says what happens elsewhere and how to report it, and that no extra
+  is needed.
+- `guide/performance/backends.md`: `native` is the backend, `mlx` the special case on Apple
+  silicon, `numpy_ref` the development reference. No tiers or fallback.
+- `guide/performance/native.md`, `building-native.md` and `tuning.md`, and `native/README.md`:
+  the two builds and the setting, a source build as the way past a wheel's limits, no extra
+  and no fallback, and the warning on replacing a GPU build (Q5).
+- The other guide pages: about 50 files under `docs/guide` name `numpy_ref`. Each is reworded
+  so that it reads as a development tool, except where Q3 keeps it as the only route.
+- Tutorials: 11 of the 82 gallery scripts pass `backend="numpy_ref"`. Each moves to `native`
+  where native runs it, and its committed output is regenerated and compared, as §6.5
+  describes. The time this takes isn't measured yet.
+- Messages: the strings in `solprop` and `solprop_native` that offer `numpy_ref` or
+  `solprop[native]`, including the refusals in `driver/simulation.py`, `backends/registry.py`
+  and `CpuBaselineError`, follow the same wording.
+
+**For contributors:** `CONTRIBUTING.md`, `AGENTS.md`, `native/AGENTS.md`, `dev/contributing.md`,
+`dev/testing.md`, `dev/tooling.md`, `dev/backends.md`, `dev/benchmarking.md`,
+`dev/dependencies.md` and `dev/releasing.md` lose `numba_cpu` and state what a plain `uv sync`
+gives, what `--extra native` adds, and the fallback wheel's place in a release. The comments in
+`pyproject.toml` and `hatch_build.py` follow.
+
+A fragment in `changelog.d/` records the removal and the required dependency as a breaking
+change. Final SEPs stay as history.
 
 ### 9. Compatibility and impact
 
@@ -268,15 +388,20 @@ recorded as the maintainer's decision.
 
 | Who | Before | After |
 |---|---|---|
-| Arm below Neoverse N1, Windows before version 2004, Intel macOS, ppc64le | `numba_cpu` where Numba installs | `numpy_ref` where it installs |
+| Arm below Neoverse N1, Windows before version 2004, Intel macOS, ppc64le, musl, older glibc, macOS before 14 | `numba_cpu` where Numba installs | Unsupported: `auto` refuses and asks for a report. `numpy_ref` by name remains for development where it installs, and a source build of native where it compiles |
 | x86-64 below x86-64-v2 (Intel before 2008, AMD before 2011) | Nothing from wheels: NumPy 2.5.2's own baseline is `X86_V2`, so `numba_cpu` can't import it either | Unchanged. Native's v2 build sits at NumPy's floor |
-| Any CPU inside a GPU build | `numba_cpu` in process | A second environment with the CPU wheel, or `numpy_ref` in process |
+| Any CPU inside a GPU build | `numba_cpu` in process | A second environment with the CPU wheel; `numpy_ref` in process for development |
+| A plain `pip install solprop` on a wheel platform | `numba_cpu`, with a warning | `native` |
 | x86-64 below AVX2 | Numba compiled for the host | Native v2, in 0.44 to 0.51 of Numba's time |
 
 **Other effects.**
 
 - A script that names `numba_cpu` fails with a message that says what to use. Its output
   files still load.
+- `pip install "solprop[native]"` goes on working, since the extra stays for the workspace
+  (§6.7).
+- Each solprop release now requires its native wheels, including for a change that touches
+  only Python, because of the exact pin. They are already released together (SEP 29).
 - Validated results are unaffected: `numba_cpu` was never the reference.
 - No difference from Luna.jl.
 - `KERNEL_SCHEMA_VERSION` and the output schema do not change.
@@ -295,6 +420,20 @@ recorded as the maintainer's decision.
   Windows v2, as it was already kept for local builds in SEP 29 (it has no aarch64 or macOS
   builds). Bundling it means a large binary, Intel's licence, and a third BLAS in the
   distribution matrix while Windows on Arm still needs OpenBLAS. Rejected by the maintainer.
+- **`auto` falls back to `numpy_ref` with a warning.** Earlier drafts proposed this, and it
+  keeps first-run scripts working. It also leaves a supported-looking path that is 6 to 40
+  times slower than threaded native, and it hides the platforms worth knowing about. Rejected
+  by the maintainer.
+- **Native as an extra, or a dependency with environment markers.** An extra leaves the default
+  install without the backend solprop is built around. Markers can't see the C library or the
+  macOS version, so those systems would still fail in the resolver with no message.
+- **A required dependency and no fallback wheel.** The simplest packaging, but the user gets
+  the installer's error and no way to report the platform. uv's does list the available
+  platforms; pip's says only that no distribution was found.
+- **Refusing at `import solprop`.** It would break the documentation build, `numpy_ref` by name
+  and reading results on an unsupported machine.
+- **Sending the platform report automatically.** Nothing leaves the user's machine unless they
+  submit it.
 - **Leave Windows v2 out until someone asks.** Considered first. The fixed `NEHALEM`
   OpenBLAS costs one more dependency build and passes the suite, so the exception is not
   worth keeping.
@@ -312,24 +451,47 @@ and revertible.
    `construction_s` gate. Comparisons with Numba retargeted, with Numba still present.
 3. **Removal**, `feature/sep-0043-retire-numba-cpu`, one revertible pull request. Delete the
    backend, `backends/bodies.py`, `_numba_cache.py`, the tests and golden files. Registry
-   tombstone. Remove the dependencies and regenerate `uv.lock`. Documentation. New ADR
-   superseding ADR-061's Tier 2 and its statement on the documentation build. `CHANGELOG.md`.
+   tombstone. Remove the dependencies and regenerate `uv.lock`. The required dependency, the
+   fallback wheel, the refusal and the release gate of §6.7. Documentation, as §8 lists. New ADR
+   superseding ADR-061's Tier 2 and its statement on the documentation build. A changelog
+   fragment.
 4. **Python 3.15.** The stable-ABI wheels and a Linux 3.15 lane. May land before phase 3.
 
 Whether phase 3 merges before or after the 0.2 cut is the maintainer's call. 0.2 is meant
-to be the last release with `numba_cpu`.
+to be the last release with `numba_cpu`. The required dependency lands with the removal and not
+before, since until then `numba_cpu` is still the fallback. A plain install on Windows on Arm
+therefore has neither pyFFTW nor native until phase 3, and `auto` picks `numba_cpu` and fails
+with an `ImportError`. Installing `solprop[native]` avoids that.
 
 ### 12. Open questions
 
-- **Q1. What `auto` does without native.** Recommended: `numpy_ref` with a warning that
-  states the cost. An error would be more honest about 6 to 40 times, and would break
-  every first-run script on a platform with no wheel.
-- **Q2. Whether native becomes a default dependency on wheel platforms.** Plain
-  `pip install solprop` would otherwise land on `numpy_ref`, which is the wrong first
-  impression. Recommended: yes, through environment markers on the wheel platforms. It
-  conflicts with a compiler-free `uv sync` in the workspace, since a workspace member would
-  then build from source, so it needs a uv source override to the published wheel or a
-  dependency group. To settle before phase 3.
+- **Q1. What `auto` does without native. Settled 2026-11-02:** it refuses (§6.7).
+- **Q2. Whether native becomes a default dependency. Settled 2026-11-02:** it is required on
+  every platform, with no markers (§6.7).
+- **Q3. How far `numpy_ref` can be development-only while some features run only on it.** These
+  run nowhere else today, so as things stand they would be unavailable to users:
+
+  | Feature | State today |
+  |---|---|
+  | The TDSE response | Requires `numpy_ref`; `auto` resolves to it for a TDSE response |
+  | `CoherentWall(method="cf4")`, and a coupled flow with a CF4 section | `numpy_ref` only, with the Runge–Kutta march |
+  | Single precision away from Apple silicon | `numpy_ref` or `mlx`; native refuses it |
+  | The general route's delayed response beyond six terms on three components | `numpy_ref` only (Part II) |
+
+  Recommended: these stay available on `numpy_ref` by name, each documented as a known
+  exception and worded as a limit of native, and `auto` stops resolving to it. The rest of the
+  documentation treats `numpy_ref` as a development tool, and closing the gaps in native is
+  separate work. The alternative is to refuse these features to users until native has them,
+  which would remove TDSE from the documented features.
+- **Q4. What a contributor's plain environment holds.** Recommended: the workspace override of
+  §6.7, so that `uv sync` stays compiler-free on every platform, including Windows, for which
+  the build guide has no instructions. The alternative is a plain `uv sync` that builds native,
+  which matches an installed environment and adds a compiler and a build to every first sync
+  and every lane. To settle before phase 3.
+- **Q5. Source builds beside the exact pin.** A GPU build is a source build at solprop's version.
+  `pip install -U solprop` would probably replace it with the CPU wheel of the new version (not
+  tested). Recommended: a warning in `building-native.md`, and a check in `check_build` that
+  reports a CPU wheel where a GPU build was expected, if a real case shows it's needed.
 
 ### 13. References
 
@@ -424,6 +586,31 @@ Issues and pull requests of the solprop repository:
   EPYC: geometric mean 1.0017, same steps. The same wheel on CPython 3.15.2 over 3.14.7, with the
   same NumPy and SciPy, on the Xeon: geometric mean 1.0004, same steps, fields at or below
   1.3e-10.
+- **The required dependency, a design probe (2026-11-02):** fake wheels in a local index, with
+  each platform simulated by its tags, on pip 26.2.2 and uv 0.12.7. Neither PyPI nor those
+  machines were involved, so §7's checks remain to be done.
+
+  | Platform | Wheel chosen, with a fallback wheel present |
+  |---|---|
+  | Linux x86-64 and aarch64, glibc 2.28 | Platform wheel |
+  | Windows x64 and Arm | Platform wheel |
+  | macOS 14 and 15 on arm64 | Platform wheel |
+  | glibc 2.17, musl, Intel macOS, macOS 13 on arm64 | Fallback |
+  | ppc64le (pip only) | Fallback |
+
+  Without the fallback wheel, pip reports "No matching distribution found", and uv that the
+  requirements are unsatisfiable, with a hint listing the platforms that have wheels.
+
+  In a trial of the workspace from `main` with `solprop-native` added to `dependencies`: a plain
+  `uv sync` would install it from `native/`. `--no-install-package solprop-native` skips it, and
+  `import solprop` then works. A later plain `uv run` still tries to build it, which failed on
+  this machine without the build toolchain in its environment. `UV_NO_SYNC=1` avoids that, and a
+  `no-install-package` key in `[tool.uv]` had no effect. With the override of §6.7, a plain
+  `uv sync` lists no native package, `uv sync --extra native` lists it, and the built wheel's
+  metadata keeps `Requires-Dist: solprop-native`. A plain `uv run` built nothing with an
+  impossible marker in the override, the same mechanism; it wasn't run separately with the
+  `extra` form. Pinning the required dependency in `hatch_build.py` wasn't tried: hatch doesn't
+  allow a field to be both listed statically and marked dynamic, so the list may have to move.
 - **Deviations from the first plan:** the builds sit side by side as `_core` and `_core_v2`
   rather than in subdirectories; the Windows on Arm core keeps the generic Armv8-A baseline,
   so it needs no `PF_ARM_*` check.
@@ -436,3 +623,6 @@ Issues and pull requests of the solprop repository:
 ## Part III — History
 
 - 2026-11-02: Drafted. Tracking issue [#392](https://github.com/LupoLab/solprop/issues/392).
+- 2026-11-02: The maintainer settled Q1 and Q2: native is a required dependency, a platform
+  without it is unsupported and refuses with a request to report it, `numpy_ref` is a
+  development tool and `mlx` stays a special backend. §6.7, §8 and Q3 to Q5 added.
