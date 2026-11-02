@@ -110,6 +110,14 @@ def test_a_tilt_matches_alignment_s_screen_on_the_same_beam():
     )
 
 
+def test_a_line_beam_moves_along_x():
+    grid, space, medium = _grid(), LineGrid(4e-4, 64), SpatialMedium()
+    moved = _beam(displacement=(5e-5, 0.0)).build(grid, space, medium=medium)
+    fluence = np.sum(np.abs(np.fft.ifft(moved, axis=0)) ** 2, axis=(1, 2))
+    step = space.x[1] - space.x[0]
+    assert space.x[np.argmax(fluence)] == pytest.approx(5e-5, abs=step)
+
+
 def test_an_unmoved_beam_is_built_as_before():
     grid, space, medium = _grid(), _space(), SpatialMedium()
     assert np.array_equal(

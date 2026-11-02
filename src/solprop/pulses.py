@@ -179,8 +179,9 @@ class SpatialPulse(Displayed):
 
     Notes
     -----
-    Displacement and tilt are those of :class:`solprop.coupling.Alignment`, applied at
-    the launch plane after `propz`: the tilt multiplies the field by
+    Displacement and tilt are those of
+    :class:`solprop.coupling.elements.Alignment`, applied at the launch plane after
+    `propz`: the tilt multiplies the field by
     ``exp(i k(omega) (x sin(theta_x) + y sin(theta_y)))``, ``k`` the launch medium's
     real wave number, so every frequency leaves at the same angle, and the displacement
     shifts the field exactly in the periodic Cartesian representation. The energy or
@@ -617,6 +618,8 @@ class _Aligner:
             ("x", beam.tilt[0], space.k_x),
             ("y", beam.tilt[1], space.k_y),
         ):
+            if not angle:
+                continue
             reach = float(np.max(wavenumber)) * abs(math.sin(angle))
             if reach >= float(np.max(np.abs(k))):
                 msg = (
@@ -684,8 +687,9 @@ class _Aligner:
         edge = _edge(space.x, space.radius_x)[None, :]
         if not isinstance(space, LineGrid):
             edge = edge | _edge(space.y, space.radius_y)[:, None]
+        # A built beam has fluence: its Jones vector and its profile are nonzero.
         peak = float(np.max(fluence))
-        if peak > 0 and float(np.max(fluence[np.broadcast_to(edge, fluence.shape)])) > (
+        if float(np.max(fluence[np.broadcast_to(edge, fluence.shape)])) > (
             _EDGE_FLUENCE * peak
         ):
             msg = (

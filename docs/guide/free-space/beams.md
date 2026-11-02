@@ -262,7 +262,7 @@ at half of it, the beam diffracts.
 
 On a Cartesian grid a beam can be launched off the axis and at an angle:
 `displacement=(d_x, d_y)` in metres and `tilt=(theta_x, theta_y)` in radians, as
-{class}`~solprop.coupling.Alignment` defines them. The tilt is a phase screen
+{class}`~solprop.coupling.elements.Alignment` defines them. The tilt is a phase screen
 $\exp[\mathrm{i}\,k(\omega)(x\sin\theta_x + y\sin\theta_y)]$, with $k(\omega)$
 the launch medium's wave number, so every frequency leaves at the same angle; both apply
 at the launch plane, after `propz`, and the energy is set after them:
