@@ -34,6 +34,7 @@ from solprop.recipe.quantity import Unit, parse_quantity
 if TYPE_CHECKING:
     from solprop.driver.simulation import Simulation
     from solprop.modes.base import Mode
+    from solprop.physdata.mixtures import Mixture
     from solprop.recipe.core import Recipe
     from solprop.tools import DesignRoots, DesignTarget, RootChoice
 
@@ -279,9 +280,10 @@ def _is_pulse_path(steps: tuple[object, ...]) -> bool:
     bool
         For ``energy``, ``peak_power`` or ``pulses[i].energy`` and the like.
     """
+    # A path starts with a keyword (parse_path), so names[0] is that keyword.
     names = [step.name for step in steps if isinstance(step, Attribute)]
     if len(steps) == 1:
-        return names == [names[0]] and names[0] in PULSE_PINS
+        return names[0] in PULSE_PINS
     return (
         len(steps) == 3
         and names[0] == "pulses"
@@ -721,8 +723,6 @@ def _build(route: str, keywords: Mapping[str, object], path: str) -> "Simulation
     try:
         return surface(route)(**keywords)
     except SolpropError as error:
-        if isinstance(error, RecipeError):
-            raise
         msg = f"the route does not build while the pin is solved: {error}"
         raise RecipeError(msg, path=path) from error
 
@@ -782,17 +782,11 @@ def _gamma(mode: "Mode", wavelength: float) -> float:  # noqa: UP037 - run time
     float
         ``gamma`` in rad/(W m).
 
-    Raises
-    ------
-    RecipeError
-        If the mode carries no fill.
     """
     from solprop.tools import _fill_n2, nonlinear_coefficient  # noqa: PLC0415
 
-    mixture = getattr(mode, "mixture", None)
-    if mixture is None:
-        msg = "a nonlinear target needs a filled mode"
-        raise RecipeError(msg)
+    # The capillary and waveguide routes bind every mode to their fill.
+    mixture = cast("Mixture", getattr(mode, "mixture", None))
     return nonlinear_coefficient(mode, _fill_n2(mixture, wavelength)[0], wavelength)
 
 

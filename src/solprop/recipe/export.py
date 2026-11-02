@@ -281,9 +281,10 @@ class _Pinned:
         Returns
         -------
         bool
-            Whether any solver call is written.
+            Whether any line is written: a solver call, or the comment of a pin
+            written at its value.
         """
-        return bool(self.keywords)
+        return bool(self.lines)
 
 
 def _pins(

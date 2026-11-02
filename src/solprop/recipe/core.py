@@ -564,7 +564,7 @@ class Recipe:
         """
         issues: list[RecipeIssue] = []
         context = self._context()
-        for name, value in self._document["build"].items():
+        for name, value in _with_pulse_placeholders(self._document).items():
             try:
                 self._decode(name, value, _deferred(context))
             except RecipeError as error:
@@ -1341,6 +1341,36 @@ def _renamed(value: object, names: Mapping[str, str]) -> object:
     if isinstance(value, list):
         return [_renamed(item, names) for item in value]
     return value
+
+
+def _with_pulse_placeholders(document: Document) -> dict[str, object]:
+    """Return ``[build]`` with each pulse pin at its placeholder, for decoding.
+
+    A pulse in ``pulses`` whose energy is pinned cannot be built without one, and the
+    pin is solved only after the values are checked.
+
+    Parameters
+    ----------
+    document : dict
+        The recipe's tables.
+
+    Returns
+    -------
+    dict
+        The ``[build]`` table, unchanged where no pulse pin is unset.
+    """
+    from solprop.recipe.pins import PULSE_PINS  # noqa: PLC0415 - cycle
+
+    build = document["build"]
+    for path in document.get("pins", {}):
+        steps = parse_path(path)
+        name = format_path(steps[-1:]).lstrip(".")
+        if len(steps) > 1 and name in PULSE_PINS:
+            try:
+                build = set_path(build, steps, _placeholder(path))
+            except RecipeError:
+                continue  # the pin's own check names what is wrong with it
+    return build
 
 
 def _placeholder(path: str) -> float:

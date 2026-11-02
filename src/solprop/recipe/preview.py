@@ -192,10 +192,10 @@ def preview_input(recipe: "Recipe") -> InputPreview:  # noqa: UP037 - run time
     from solprop.output.schema import SavedPlane  # noqa: PLC0415
 
     quiet = recipe.resolve()
+    # Every route a recipe describes takes noise and its seed.
     build = quiet._document["build"]
-    if "noise" in quiet._table():
-        build["noise"] = "none"
-        build.pop("seed", None)
+    build["noise"] = "none"
+    build.pop("seed", None)
     simulation = quiet.build()
     problem = simulation.translate()
     plane = SavedPlane(

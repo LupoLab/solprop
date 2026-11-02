@@ -14,13 +14,16 @@ import pytest
 from solprop.modes import MarcatiliMode
 from solprop.modes.base import beta2
 from solprop.recipe import Recipe, RecipeError
-from solprop.tools import _fill_n2 as fill_n2
+from solprop.recipe.pins import solve_pin, solve_pulse
 from solprop.tools import (
+    ZDW,
     nonlinear_coefficient,
+    pressure_rdw,
     pressure_zdw,
     pulse_peak_power,
     soliton_order,
 )
+from solprop.tools import _fill_n2 as fill_n2
 
 ZDW_PIN = {
     "target": "zdw",
@@ -214,3 +217,138 @@ def test_the_export_solves_the_pins_before_the_route_s_call(tmp_path):
         warnings.simplefilter("ignore")
         expected = quiet_build(recipe).metadata().configuration_hash()
     assert result.stdout.splitlines()[-1] == expected
+
+
+@pytest.mark.parametrize(
+    ("pin", "match"),
+    [
+        ("zdw", "a pin is a table"),
+        ({"target": "zdw", "search": ["0.1 bar", "1 bar"]}, "needs 'wavelength'"),
+        ({**ZDW_PIN, "wavelength": True}, "expected a number"),
+        ({**ZDW_PIN, "wavelength": [1]}, "expected a number or a quantity"),
+        ({**ZDW_PIN, "wavelength": float("inf")}, "finite"),
+        ({**ZDW_PIN, "search": ["1 bar"]}, r"search is \[low, high\]"),
+        ({**ZDW_PIN, "search": ["2 bar", "1 bar"]}, "low < high"),
+        ({**ZDW_PIN, "root": True}, "root is"),
+        (
+            {"target": "rdw", "rdw": "200 nm", "fwhm": "10 fs", "search": [1, 2]},
+            "fwhm goes with its peak_power",
+        ),
+        (
+            {"target": "rdw", "rdw": "200 nm", "shape": 1, "search": [1, 2]},
+            "is a string",
+        ),
+    ],
+)
+def test_a_malformed_guide_pin_is_refused_on_its_path(pin, match):
+    recipe = pinned({"pressure": pin}, drop=("pressure",))
+    with pytest.raises(RecipeError, match=match) as caught:
+        recipe.resolve()
+    assert caught.value.path == "pressure"
+
+
+def test_an_order_is_a_plain_number():
+    recipe = pinned({"energy": {**ORDER_PIN, "order": "four"}}, drop=("energy",))
+    with pytest.raises(RecipeError, match="expected a number"):
+        recipe.resolve()
+
+
+def test_an_rdw_pin_reproduces_pressure_rdw():
+    pin = {"target": "rdw", "rdw": "200 nm", "search": ["0.01 bar", "20 bar"]}
+    recipe = pinned({"pressure": pin}, drop=("pressure",))
+    expected = pressure_rdw(125e-6, "He", 200e-9, 800e-9)
+    assert recipe.resolve().get("pressure") == pytest.approx(expected, rel=1e-6)
+
+
+def test_a_root_index_chooses_among_the_roots():
+    recipe = pinned({"pressure": {**ZDW_PIN, "root": 0}}, drop=("pressure",))
+    assert recipe.resolve().get("pressure") == pytest.approx(
+        pressure_zdw(125e-6, "He", 500e-9), rel=1e-7
+    )
+
+
+def test_a_soliton_order_in_normal_dispersion_is_refused():
+    recipe = pinned({"energy": ORDER_PIN}, drop=("energy",), pressure="20 bar")
+    with pytest.raises(RecipeError, match="normal"):
+        recipe.resolve()
+
+
+def test_a_sech_pulse_s_peak_power_is_pinned():
+    recipe = pinned(
+        {"peak_power": ORDER_PIN}, drop=("energy",), shape="sech", width="6 fs"
+    )
+    del_fwhm = recipe.to_dict()
+    del del_fwhm["build"]["fwhm"]
+    recipe = Recipe.from_dict(del_fwhm)
+    sech = recipe.resolve()
+    gauss = pinned({"peak_power": ORDER_PIN}, drop=("energy",)).resolve()
+    assert isinstance(sech.get("peak_power"), float)
+    assert sech.get("peak_power") != pytest.approx(gauss.get("peak_power"))
+
+
+def test_a_pulse_in_the_list_is_pinned():
+    document = Recipe.example("soliton_self_compression").to_dict()
+    build = document["build"]
+    for name in ("energy", "fwhm"):
+        del build[name]
+    build["pulses"] = [
+        {"type": "GaussianPulse", "wavelength": "800 nm", "fwhm": "10 fs"}
+    ]
+    document["pins"] = {"pulses[0].energy": ORDER_PIN}
+    recipe = Recipe.from_dict(document)
+    alone = pinned({"energy": ORDER_PIN}, drop=("energy",)).resolve().get("energy")
+    assert recipe.resolve().get("pulses[0].energy") == pytest.approx(alone)
+    assert recipe.check() == []
+    assert "solved when exported" in recipe.to_python()
+
+
+def test_a_pulse_the_order_is_not_defined_for_is_refused():
+    with pytest.raises(RecipeError, match="sech or Gaussian"):
+        solve_pulse("capillary", {"pulses": [object()]}, "pulses[0].energy", 4.0)
+    document = Recipe.example("soliton_self_compression").to_dict()
+    build = document["build"]
+    for name in ("energy", "fwhm"):
+        del build[name]
+    build["pulses"] = [
+        {"type": "GaussianPulse", "wavelength": "800 nm", "fwhm": "10 fs", "m": 2}
+    ]
+    document["pins"] = {"pulses[0].energy": ORDER_PIN}
+    with pytest.raises(RecipeError, match="super-Gaussian") as caught:
+        Recipe.from_dict(document).resolve()
+    assert caught.value.path == "pulses[0].energy"
+
+
+def test_a_route_that_does_not_build_is_refused_on_the_pin():
+    recipe = pinned({"pressure": ZDW_PIN}, drop=("pressure", "trange"))
+    with pytest.raises(RecipeError, match="does not build while the pin is solved"):
+        recipe.resolve()
+    with pytest.raises(RecipeError, match="cannot pin"):
+        solve_pin("gnlse", {}, "pressure", ZDW(500e-9), (0.1, 1.0))
+
+
+def test_an_rdw_pin_with_its_pulse_exports_its_solver_call(tmp_path):
+    pin = {
+        "target": "rdw",
+        "rdw": "200 nm",
+        "peak_power": "1 GW",
+        "fwhm": "10 fs",
+        "shape": "gauss",
+        "search": ["0.01 bar", "20 bar"],
+    }
+    recipe = pinned({"pressure": pin}, drop=("pressure",))
+    expected = pressure_rdw(
+        125e-6, "He", 200e-9, 800e-9, peak_power=1e9, fwhm=10e-15, shape="gauss"
+    )
+    assert recipe.resolve().get("pressure") == pytest.approx(expected, rel=1e-6)
+    script = recipe.to_python()
+    assert "RDW(keywords['wavelength'], 2e-07, peak_power=1000000000.0" in script
+    path = tmp_path / "rdw.py"
+    path.write_text(_PROBE + script)
+    result = subprocess.run(
+        [sys.executable, str(path)],
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=tmp_path,
+    )
+    assert result.returncode == 0, result.stderr

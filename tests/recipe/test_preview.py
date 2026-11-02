@@ -84,3 +84,10 @@ def test_a_preview_solves_the_pins_first():
     solved = recipe.resolve().get("energy")
     assert isinstance(solved, float)
     assert recipe.preview_input().energy == pytest.approx(solved, rel=1e-4)
+
+
+def test_a_mode_without_a_zero_in_the_band_has_none():
+    document = Recipe.example("rdw").to_dict()
+    document["build"]["wavelength_limits"] = ["700 nm", "900 nm"]
+    preview = Recipe.from_dict(document).modes()
+    assert preview.modes[0].zdw is None
