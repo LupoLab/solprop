@@ -9,6 +9,8 @@ All notable changes to solprop are recorded here. The format follows
 
 ### Added
 
+- `solprop-native` wheels use CPython's stable ABI, so one wheel serves Python 3.14 and
+  later (SEP 43). solprop itself still needs pyFFTW and h5py wheels on 3.15.
 - A `solprop-native` wheel for Windows on Arm (`win-arm64`), and an x86-64-v2 build beside
   the x86-64-v3 one in the Linux and Windows x86-64 wheels, chosen at import, so processors
   without AVX2 now run the native backend. The v2 build runs about 20 to 25 % longer by
