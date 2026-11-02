@@ -249,8 +249,8 @@ Then, for every release:
    accepts a file identical to one it holds. It refuses different files under a name it
    has seen, so a release that needs a change takes a new version.
 3. Wait for `published-install`, which starts after both publish jobs succeed. On
-   Linux x86-64, Linux aarch64, macOS arm64, Windows x64 and Windows on Arm it creates a fresh CPython
-   3.14 environment outside the checkout and uses pip to resolve and install
+   Linux x86-64, Linux aarch64, macOS arm64, Windows x64 and Windows on Arm it creates a
+   fresh CPython 3.14 environment outside the checkout and uses pip to resolve and install
    `solprop[native]==X.Y.Z` from PyPI. It checks both distributions' versions,
    `pip check` and that `backend="auto"` resolves to `native`. It uses no local
    distribution, dependency lock or cached environment. Its per-platform artifacts
