@@ -1543,6 +1543,7 @@ dependencies = [
     { name = "numpy" },
     { name = "optmat", extra = ["gas"] },
     { name = "scipy" },
+    { name = "solprop-native" },
     { name = "threadpoolctl" },
     { name = "tomli-w" },
     { name = "tqdm" },
@@ -1551,9 +1552,6 @@ dependencies = [
 [package.optional-dependencies]
 mlx = [
     { name = "mlx", marker = "platform_machine == 'arm64' and sys_platform == 'darwin'" },
-]
-native = [
-    { name = "solprop-native" },
 ]
 
 [package.dev-dependencies]
@@ -1596,12 +1594,12 @@ requires-dist = [
     { name = "numpy", specifier = ">=2.5" },
     { name = "optmat", extras = ["gas"], specifier = ">=0.9.1" },
     { name = "scipy", specifier = ">=1.18" },
-    { name = "solprop-native", marker = "extra == 'native'", editable = "native" },
+    { name = "solprop-native", editable = "native" },
     { name = "threadpoolctl", specifier = ">=3.1" },
     { name = "tomli-w", specifier = ">=1.0" },
     { name = "tqdm", specifier = ">=4.67" },
 ]
-provides-extras = ["mlx", "native"]
+provides-extras = ["mlx"]
 
 [package.metadata.requires-dev]
 dev = [

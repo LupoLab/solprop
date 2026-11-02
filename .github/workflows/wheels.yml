@@ -41,6 +41,10 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  # solprop-native is a required workspace member, so a plain `uv sync` or `uv run` builds
+  # it. These lanes use CI's wheel or need no native package, so each `uv sync` skips it
+  # and this stops a later `uv run` from building it (`uv sync` ignores this setting).
+  UV_NO_SYNC: "1"
   # FFTW's measured planning is slow and machine-specific; CI plans by estimate.
   SOLPROP_FFTW_PLAN: estimate
 
@@ -128,7 +132,7 @@ jobs:
       - run: uv python install 3.14
       # solprop and its test tools, without the native extra; then the wheel, which a
       # later plain `uv sync` or `uv run` would remove (hence --no-sync below).
-      - run: uv sync --locked
+      - run: uv sync --locked --no-install-package solprop-native
       - run: uv pip install --no-deps wheelhouse/*.whl
       - name: Smoke test
         run: |
@@ -185,7 +189,7 @@ jobs:
           name: wheel-linux-x86_64
           path: wheelhouse
       - run: uv python install 3.14
-      - run: uv sync --locked
+      - run: uv sync --locked --no-install-package solprop-native
       - run: uv pip install --no-deps wheelhouse/*.whl
       - name: Fetch Intel SDE
         env:

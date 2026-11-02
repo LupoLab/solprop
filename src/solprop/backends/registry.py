@@ -22,11 +22,12 @@ visible, and they never trigger different arithmetic.
 
 import importlib.util
 import logging
+import os
 from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
-from typing import cast
+from typing import Final, cast
 
 from solprop.backends.protocol import Backend, BatchBackend
 from solprop.exceptions import BackendError
@@ -43,6 +44,7 @@ __all__ = [
     "BACKENDS",
     "FAR_FIELD_BACKENDS",
     "REMOVED_BACKENDS",
+    "REQUIRE_DEVICE_SETTING",
     "SINGLE_ONLY",
     "BackendEntry",
     "available",
@@ -278,6 +280,17 @@ def resolve_name(name: str = "auto") -> str:
     raise BackendError(str(refusal)) from refusal
 
 
+_NATIVE_BUILD_GUIDE: Final = (
+    "https://solprop.readthedocs.io/en/latest/guide/performance/building-native.html"
+)
+"""The manual's page on building solprop-native from source."""
+
+REQUIRE_DEVICE_SETTING: Final = "SOLPROP_REQUIRE_DEVICE"
+"""Where a run must execute: ``cuda``, ``hip`` or ``any``; unset for no requirement."""
+
+_REQUIRED_DEVICES: Final = {"cuda": {"cuda"}, "hip": {"hip"}, "any": {"cuda", "hip"}}
+"""The device backends each value of the setting accepts."""
+
 _NATIVE_MISSING = (
     'backend="auto" needs the native backend, and solprop-native is not installed. '
     "Install it with pip install solprop, or with uv sync in a checkout "
@@ -286,6 +299,60 @@ _NATIVE_MISSING = (
     'backend="numpy_ref"'
 )
 """Why ``"auto"`` refuses with no native package (SEP 43 section 5)."""
+
+
+def _check_required_device(name: str) -> None:
+    """Refuse a run that wouldn't meet :data:`REQUIRE_DEVICE_SETTING` (SEP 43).
+
+    This reads the actual build, never a version label, and runs before any state is
+    allocated: a job set up for a GPU should stop, not run for days on a CPU wheel that
+    replaced its build.
+
+    Parameters
+    ----------
+    name : str
+        The resolved backend name.
+
+    Raises
+    ------
+    BackendError
+        If the value isn't an accepted one, or the backend or build doesn't meet it.
+    """
+    value = os.environ.get(REQUIRE_DEVICE_SETTING, "").strip()
+    if not value:
+        return
+    accepted = _REQUIRED_DEVICES.get(value)
+    if accepted is None:
+        names = ", ".join(sorted(_REQUIRED_DEVICES))
+        msg = f"{REQUIRE_DEVICE_SETTING}={value!r}: use one of {names}, or unset it"
+        raise BackendError(msg)
+    unset = f"unset {REQUIRE_DEVICE_SETTING} to run it anyway"
+    if name != "native":
+        msg = (
+            f"{REQUIRE_DEVICE_SETTING}={value} requires a native device build, and "
+            f"this run is on {name}; {unset}"
+        )
+        raise BackendError(msg)
+    if not _satisfied(BACKENDS["native"]):
+        return  # select() goes on to say that the package is missing
+    import solprop_native  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+
+    info = solprop_native.build_info()
+    if info.device_backend not in accepted:
+        msg = (
+            f"{REQUIRE_DEVICE_SETTING}={value} requires a device build, and the "
+            f"installed solprop-native has device backend {info.device_backend!r}, "
+            f"version {solprop_native.__version__}. A new release replaces a source "
+            f"build with the CPU wheel, so rebuild it ({_NATIVE_BUILD_GUIDE}), or "
+            f"{unset}"
+        )
+        raise BackendError(msg)
+    if info.device_count < 1:
+        msg = (
+            f"{REQUIRE_DEVICE_SETTING}={value}: the {info.device_backend} build sees no "
+            f"device; check the job's allocation, or {unset}"
+        )
+        raise BackendError(msg)
 
 
 def _native_baseline_shortfall() -> ImportError | None:
@@ -418,6 +485,7 @@ def select(
     ['mlx', 'native', 'numpy_ref']
     """
     name = resolve_name(name)
+    _check_required_device(name)
     if _BENCHMARK_GATED.get() and name != "numpy_ref":
         raise BackendError("the gated plasma benchmark requires numpy_ref")
     if (problem.tdse is not None or tdse_binding is not None) and name != "numpy_ref":
@@ -437,8 +505,7 @@ def select(
             if importlib.util.find_spec(module) is None
         )
         install = (
-            "solprop[native], or build solprop-native from native/ in the solprop "
-            "repository"
+            "solprop, or build solprop-native from native/ in the solprop repository"
             if name == "native"
             else " or ".join(f"solprop[{extra}]" for extra in entry.extras)
         )

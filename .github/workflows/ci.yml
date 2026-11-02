@@ -17,6 +17,10 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  # solprop-native is a required workspace member, so a plain `uv sync` or `uv run` builds
+  # it. These lanes use CI's wheel or need no native package, so each `uv sync` skips it
+  # and this stops a later `uv run` from building it (`uv sync` ignores this setting).
+  UV_NO_SYNC: "1"
   # FFTW's measured planning is slow and machine-specific; CI plans by estimate.
   SOLPROP_FFTW_PLAN: estimate
 
@@ -81,7 +85,7 @@ jobs:
         with:
           enable-cache: true
       - run: uv python install 3.14
-      - run: uv sync --locked
+      - run: uv sync --locked --no-install-package solprop-native
       # The test modules that open a documentation file (the SEP structure, the guide's
       # snippets, the accuracy page, the catalogues, the kernel contract, the figures).
       - name: The tests that read the documentation
@@ -104,7 +108,7 @@ jobs:
         with:
           enable-cache: true
       - run: uv python install 3.14
-      - run: uv sync --locked
+      - run: uv sync --locked --no-install-package solprop-native
       - run: uv lock --check
       - run: uv run ruff check .
       - run: uv run ruff format --check .
@@ -135,7 +139,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes libfftw3-dev
       - run: uv python install 3.14
-      - run: uv sync --locked
+      - run: uv sync --locked --no-install-package solprop-native
       - run: uv pip install --no-deps wheelhouse/*.whl
       - run: >-
           uv run --no-sync python -c "from solprop.backends.registry import resolve_name;
@@ -259,7 +263,7 @@ jobs:
       # The wheel goes in after the sync, which would remove it (hence --no-sync below).
       # On macOS the sync adds the mlx extra: the mlx backend's tests (SEP 33),
       # including its custom kernels, run here on the hosted runner's Metal GPU.
-      - run: uv sync --locked ${{ runner.os == 'macOS' && '--extra mlx' || '' }}
+      - run: uv sync --locked --no-install-package solprop-native ${{ runner.os == 'macOS' && '--extra mlx' || '' }}
       - run: uv pip install --no-deps wheelhouse/*.whl
       - run: >-
           uv run --no-sync python -c "from solprop.backends.registry import resolve_name;
@@ -305,7 +309,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes libfftw3-dev
       - run: uv python install 3.14
-      - run: uv sync --locked
+      - run: uv sync --locked --no-install-package solprop-native
       - run: uv pip install --no-deps wheelhouse/*.whl
       - run: uv run --no-sync poe test-slow
 
@@ -331,7 +335,7 @@ jobs:
           name: native-wheel-macos-arm64
           path: wheelhouse
       - run: uv python install 3.14
-      - run: uv sync --locked
+      - run: uv sync --locked --no-install-package solprop-native
       - run: uv pip install --no-deps wheelhouse/*.whl
       - run: uv run --no-sync poe test-slow-functional
 
@@ -370,7 +374,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes libfftw3-dev
       - run: uv python install 3.14
-      - run: uv sync --locked
+      - run: uv sync --locked --no-install-package solprop-native
       - run: uv pip install --no-deps wheelhouse/*.whl
       - name: Add swap
         run: |
@@ -417,7 +421,7 @@ jobs:
           path: coverage-data
           merge-multiple: true
       - run: uv python install 3.14
-      - run: uv sync --locked
+      - run: uv sync --locked --no-install-package solprop-native
       - run: uv run --no-sync poe cov-report
       - if: ${{ !cancelled() }}
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
@@ -461,7 +465,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes libfftw3-dev
       - run: uv venv --python 3.14
-      - run: uv pip install --resolution lowest-direct -e .
+      # The dependency is pinned to this commit, whose wheel isn't on an index; the
+      # next line installs CI's wheel, from this commit or the last to touch native/.
+      - run: printf 'solprop-native; sys_platform == "never"\n' > no-native-override.txt
+      - run: uv pip install --no-sources --overrides no-native-override.txt --resolution lowest-direct -e .
       - run: uv pip install --no-deps wheelhouse/*.whl
       - run: >-
           uv pip install "pytest<9.2" pytest-xdist pytest-randomly pytest-regressions
@@ -488,7 +495,7 @@ jobs:
         with:
           enable-cache: true
       - run: uv python install 3.14
-      - run: uv sync --locked
+      - run: uv sync --locked --no-install-package solprop-native
       - run: >-
           uv run --no-sync poe test tests/driver/test_without_native.py
           tests/backends/test_registry.py tests/driver/test_backend_default.py

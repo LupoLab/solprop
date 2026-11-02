@@ -259,7 +259,7 @@ def test_a_known_name_without_its_extra_names_the_extra(
     problem = linear_problem(narrow_grid, save_planes=[LENGTH])
     with pytest.raises(
         ImportError,
-        match=r"install solprop\[native\], or build solprop-native from native/",
+        match=r"install solprop, or build solprop-native from native/",
     ):
         select("native", problem)
 
@@ -484,3 +484,71 @@ def test_a_build_without_a_check_or_record_keeps_native(monkeypatch, tmp_path):
     assert resolve_name() == "native"
     (package / "_cpu.py").unlink()
     assert resolve_name() == "native"
+
+
+# SOLPROP_REQUIRE_DEVICE (SEP 43 section 5): checked at selection, on the actual build.
+
+
+def fake_build(monkeypatch, backend, count):
+    """Make ``solprop_native`` report a build, without a device to run it on."""
+    fake = types.ModuleType("solprop_native")
+    fake.__version__ = "0.3.0+cuda"
+    fake.build_info = lambda: types.SimpleNamespace(
+        device_backend=backend, device_count=count
+    )
+    spec = importlib.machinery.ModuleSpec("solprop_native", None)
+    real_find_spec = importlib.util.find_spec
+    monkeypatch.setattr(
+        importlib.util,
+        "find_spec",
+        lambda name: spec if name == "solprop_native" else real_find_spec(name),
+    )
+    monkeypatch.setitem(sys.modules, "solprop_native", fake)
+
+
+@pytest.mark.parametrize(
+    ("value", "backend", "count", "message"),
+    [
+        ("cuda", "none", 0, "device backend 'none'"),
+        ("hip", "cuda", 1, "device backend 'cuda'"),
+        ("any", "none", 0, "device backend 'none'"),
+        ("cuda", "cuda", 0, "sees no device"),
+        ("gpu", "cuda", 1, "use one of any, cuda, hip"),
+    ],
+)
+def test_a_required_device_refuses_what_does_not_meet_it(
+    monkeypatch, value, backend, count, message
+):
+    fake_build(monkeypatch, backend, count)
+    monkeypatch.setenv(registry.REQUIRE_DEVICE_SETTING, value)
+    with pytest.raises(BackendError, match=message):
+        registry._check_required_device("native")
+
+
+@pytest.mark.parametrize(
+    ("value", "backend"),
+    [("cuda", "cuda"), ("hip", "hip"), ("any", "hip"), ("", "none")],
+)
+def test_a_required_device_passes_what_meets_it(monkeypatch, value, backend):
+    fake_build(monkeypatch, backend, 1 if backend != "none" else 0)
+    monkeypatch.setenv(registry.REQUIRE_DEVICE_SETTING, value)
+    registry._check_required_device("native")
+
+
+@pytest.mark.parametrize("name", ["numpy_ref", "mlx"])
+def test_a_required_device_refuses_the_other_backends_by_name(monkeypatch, name):
+    monkeypatch.setenv(registry.REQUIRE_DEVICE_SETTING, "any")
+    with pytest.raises(BackendError, match=f"this run is on {name}"):
+        registry._check_required_device(name)
+
+
+def test_a_required_device_is_refused_before_anything_is_constructed(
+    linear_problem, narrow_grid, monkeypatch
+):
+    monkeypatch.setenv(registry.REQUIRE_DEVICE_SETTING, "cuda")
+    built = []
+    monkeypatch.setattr(registry, "_construct", lambda *a, **k: built.append(a))
+    problem = linear_problem(narrow_grid, save_planes=[LENGTH])
+    with pytest.raises(BackendError, match="this run is on numpy_ref"):
+        select("numpy_ref", problem, grid=narrow_grid)
+    assert not built

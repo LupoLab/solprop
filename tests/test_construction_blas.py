@@ -4,6 +4,7 @@
 
 """Host construction borrows BLAS pools and restores the previous owner."""
 
+import os
 from concurrent.futures import ThreadPoolExecutor
 from threading import Event
 from types import SimpleNamespace
@@ -475,7 +476,9 @@ def test_construction_beside_a_live_backend_restores_its_pools(
         controller = threadpoolctl.ThreadpoolController().select(user_api="blas")
         before = {one.filepath: one.num_threads for one in controller.lib_controllers}
         native = _process.sys.modules.get("solprop_native")
-        own = "" if native is None else native.build_info().blas_library
+        own = (
+            "" if native is None else os.path.realpath(native.build_info().blas_library)
+        )
         monkeypatch.setenv("SOLPROP_BLAS_THREADS", "2")
         monkeypatch.setattr(
             _process, "thread_budget", lambda: _process.ThreadBudget(2, "test")
@@ -486,7 +489,7 @@ def test_construction_beside_a_live_backend_restores_its_pools(
             }
             assert during == {
                 path: width
-                if path == own
+                if os.path.realpath(path) == own
                 else 2
                 if name == "numpy_ref"
                 else min(width, 2)

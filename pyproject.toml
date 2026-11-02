@@ -16,7 +16,7 @@ authors = [
     { name = "Christian Brahms" },
 ]
 requires-python = ">=3.14"
-# The `native` extra pins solprop-native to this version (hatch_build.py).
+# hatch_build.py pins solprop-native to this version in the built metadata.
 dynamic = ["version", "optional-dependencies"]
 classifiers = [
     # 0.x: the interfaces may still change between minor releases.
@@ -30,6 +30,10 @@ classifiers = [
 # Windows and provides the APIs solprop uses, unless a comment names a stricter reason;
 # the `oldest` CI job tests them (docs/dev/dependencies.md).
 dependencies = [
+    # The backend solprop runs on (SEP 43), with no extra and no markers. This bare name
+    # is what uv resolves to the workspace member below; built metadata has the exact
+    # version, and a platform with no wheel gets the installer's resolution error.
+    "solprop-native",
     # 2.5: under 2.3 and 2.4 the free-space reference runs produce NaN (cause not yet
     # identified; docs/dev/dependencies.md).
     "numpy>=2.5",
@@ -65,12 +69,9 @@ Source = "https://github.com/LupoLab/solprop"
 Issues = "https://github.com/LupoLab/solprop/issues"
 Changelog = "https://github.com/LupoLab/solprop/blob/main/CHANGELOG.md"
 
-# The native backend is the `native` extra, pinned to solprop's own version by
-# hatch_build.py: `pip install solprop[native]`. Its distribution, solprop-native, is
-# built from native/ in this repository. Until it is published, the TDSE provider
-# Pyroraptor is installed separately (docs/guide/media/tdse.md). The `mlx` extra, also
-# written by hatch_build.py, installs MLX for the Apple-GPU backend on macOS on Apple
-# silicon (SEP 33): `pip install solprop[mlx]`.
+# The `mlx` extra, pinned by hatch_build.py, is the Apple-GPU backend, on macOS on Apple
+# silicon (SEP 33): `pip install solprop[mlx]`. Until it is published, the TDSE provider
+# Pyroraptor is installed separately (docs/guide/media/tdse.md).
 
 [dependency-groups]
 dev = [
@@ -178,9 +179,9 @@ exclude = [
 ]
 
 # --------------------------------------------------------------------------- uv workspace
-# One lock for both distributions. `uv sync --extra native` builds and installs the
-# native package from native/ (editable); a plain `uv sync` leaves it out and removes
-# a copy installed by hand.
+# One lock for both distributions. `uv sync` builds and installs the native package
+# from native/ (editable), since anyone in a checkout is developing (SEP 43). The
+# lightweight setup, tools/setup_light.py, is for contributors with no compiler.
 [tool.uv.workspace]
 members = ["native"]
 
