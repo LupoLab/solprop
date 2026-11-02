@@ -36,6 +36,7 @@ Proposals that are active, in draft, accepted, in progress or deferred.
 | [21](archive/sep-0021-absorbing-boundaries.md) | Temporal boundaries: wider windows, absorption and the escaped field | Final | Change |
 | [32](sep-0032-raman-maxwell-bloch.md) | Raman Maxwell–Bloch dynamics | Draft | Feature |
 | [41](sep-0041-recipes-and-front-ends.md) | Recipes, and the hooks a front end needs | Accepted | Change |
+| [43](sep-0043-retire-numba-cpu.md) | Retire `numba_cpu` | Draft | Change |
 
 SEP 13, the standalone numerical prerequisite for SEP 12, SEP 14, which carried it to
 the compiled backends, and SEP 16, which unified the multistep family and made it the
@@ -96,6 +97,7 @@ sep-0011-finite-density-gas-index
 sep-0017-gas-two-photon-ionisation
 sep-0032-raman-maxwell-bloch
 sep-0041-recipes-and-front-ends
+sep-0043-retire-numba-cpu
 template
 archive/index
 ```
