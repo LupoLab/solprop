@@ -34,6 +34,10 @@ All notable changes to solprop are recorded here. The format follows
 - A run asking for the `zdw` statistic is no longer stopped when its band holds no
   zero-dispersion point: the plane records `nan` with a warning. A direct `stats.zdw`
   call still raises, now `NoZeroDispersionError`, a `ModeError`.
+- Corrected the mixtures guide on spatial fluence and on who refuses a z table, three worked
+  examples' prose, how `ReferenceState.temperature` reads where a source declares none, and
+  what the antiresonant guide claims for the dispersion width's fit to the finite-element
+  solutions.
 - A resume compares the stored and requested run records path by path instead of
   requiring equal configuration hashes (SEP 42, ADR-063). The layout and the physics
   must agree, numbers to 1e-11 per element, so a run resumes after an upgrade that adds
