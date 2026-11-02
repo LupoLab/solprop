@@ -673,8 +673,7 @@ def test_the_run_record_is_what_it_was_before_the_printing(examples):
     metadata = quiet(examples["Simulation"].metadata)
     assert not metadata.materials.empty
     hashed: dict[str, Any] = metadata.hashed()
-    # Output schema 2 adds a field only to `DataPulse`, which this run does not hold,
-    # and schema 3 changes the outcome, not the run record.
+    # Output schema 2 adds a field only to `DataPulse`, which this run does not hold.
     hashed["schema_version"] = 1
     for later in ("initial_z", "tdse", "quadrature"):
         del hashed[later]
@@ -708,7 +707,7 @@ def test_the_run_record_names_its_power_convention(examples):
     # The amplitude label is part of what a file means, so the block prints it beside
     # the spectral convention and the output schema.
     metadata = quiet(examples["Simulation"].metadata)
-    assert "optics spectra, poynting amplitudes, schema 3" in str(metadata)
+    assert "optics spectra, poynting amplitudes, schema 2" in str(metadata)
 
 
 def test_a_mode_built_over_a_mixture_names_its_fill():

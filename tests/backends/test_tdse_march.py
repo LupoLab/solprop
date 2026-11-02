@@ -366,7 +366,7 @@ def test_logical_ledger_schema_mismatch_is_refused(change):
     "orders",
     [
         ((1, 1),),
-        [1],
+        [1, [1, 1]],
         [[1]],
         [[1, 1, 1]],
         [(1, 1)],
@@ -383,6 +383,26 @@ def test_logical_ledger_restoration_refuses_invalid_predictor_orders(orders):
     record = CallLedger().to_record()
     record["orders"] = orders
     with pytest.raises(BackendError, match=r"orders must be \[order, count\] pairs"):
+        CallLedger.from_record(record)
+
+
+@pytest.mark.parametrize("orders", [[1], [1, 2, 3, 3, 4, 5, 5, 5], [0], [True, 2]])
+def test_a_flat_list_of_orders_is_refused_by_name(orders):
+    """An earlier development build of the same output schema wrote one order a step.
+
+    Read as pairs it would be refused for its shape alone, or, were the decoder
+    lenient, misread; the refusal says where such a record came from instead.
+    """
+    record = CallLedger(accepted_steps=len(orders)).to_record()
+    record["orders"] = orders
+    flat = all(type(one) is int for one in orders)
+    match = (
+        r"flat form an earlier development build wrote.*rerun the case, or read it "
+        r"with that build"
+        if flat
+        else r"orders must be \[order, count\] pairs"
+    )
+    with pytest.raises(BackendError, match=match):
         CallLedger.from_record(record)
 
 

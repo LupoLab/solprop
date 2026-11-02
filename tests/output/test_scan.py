@@ -24,7 +24,7 @@ from solprop.output._file_lock import lock, unlock
 from solprop.output._scan_lock import lock_path, read_scan
 from solprop.output.hdf5 import _dataset, _group
 from solprop.output.scan import PointResult, ScanWriter, _hash, _json, read_point
-from solprop.output.schema import SCHEMA_VERSION, _example_metadata
+from solprop.output.schema import _example_metadata
 from solprop.processing.scans import ScanOutput
 from solprop.processing.scans import open as open_scan
 
@@ -298,7 +298,7 @@ def test_scan_of_another_output_schema_is_refused_by_every_route(tmp_path):
         status = np.asarray(_dataset(file, "points/status").asstr()[...])
     assert status.tolist() == ["done", "failed", "todo"]
     # The point of this release's schema is still read alone.
-    assert cast(Mapping, read_point(path, 0)["metadata"])["schema_version"] == 3
+    assert cast(Mapping, read_point(path, 0)["metadata"])["schema_version"] == 2
 
 
 def test_scan_of_this_output_schema_reads_as_before(tmp_path):
@@ -308,7 +308,7 @@ def test_scan_of_this_output_schema_reads_as_before(tmp_path):
     writer.commit(result(0))
     writer.commit(result(1))
     writer.close()
-    _declare_schema(path, 0, SCHEMA_VERSION)
+    _declare_schema(path, 0, 2)
     reader = ScanOutput(path)
     assert reader.status.tolist() == ["done", "done"]
     assert reader.as_grid("stats/energy").shape == (2, 3, 2)

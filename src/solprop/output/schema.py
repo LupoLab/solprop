@@ -138,18 +138,17 @@ _ELEMENT_INDICES = re.compile(r"(?:\[\d+\])+$")
 _ARRAY_PART = re.compile(r"\.__(?:ndarray|imaginary)__$")
 """The key of an array record's real or imaginary part, dropped from its stem."""
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 2
 """Version of the saved-output layout; incremented when a stored field changes meaning.
 
 Schema 1 is the first released layout, 0.1.0's: the record types of this module, written
 by :class:`solprop.output.memory.MemoryOutput` and
 :class:`solprop.output.hdf5.HDF5Output` as ``docs/guide/results/output.md`` describes
-them. Schema 2 records ``DataPulse.spectral_phase``, and schema 3 run-length encodes a
-Multistep run's predictor orders in its outcome (``CallLedger.to_record``). A record
-that declares any other version is refused by name (:class:`RunMetadata`): files
-written by an earlier release or by development versions of solprop, which declared
-output schemas up to 28, are not read, and nor is a file from a later release. Read
-such a file with the solprop version that wrote it.
+them. Schema 2 records ``DataPulse.spectral_phase``. A record that declares any other
+version is refused by name (:class:`RunMetadata`): files written by an earlier release
+or by development versions of solprop, which declared output schemas up to 28, are not
+read, and nor is a file from a later release. Read such a file with the solprop version
+that wrote it.
 """
 
 INLINE_ARRAY_LIMIT = 2**20

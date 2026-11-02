@@ -243,8 +243,22 @@ def _decoded_orders(runs: object) -> list[int]:
     Raises
     ------
     BackendError
-        If ``runs`` is not a list of such pairs.
+        If ``runs`` is not a list of such pairs, naming the flat list of orders an
+        earlier development build wrote under the same output schema.
     """
+    if (
+        isinstance(runs, list)
+        and runs
+        and all(isinstance(one, int) and not isinstance(one, bool) for one in runs)
+    ):
+        # Development builds between two releases share the output schema, and
+        # those before the encoding wrote one order per step (#80). Read as pairs,
+        # such a list would be refused for its shape alone; it is named instead.
+        raise BackendError(
+            "the record's predictor orders are in the flat form an earlier "
+            "development build wrote, one order per step, not the [order, count] "
+            "pairs this build reads: rerun the case, or read it with that build"
+        )
     if not isinstance(runs, list) or not all(
         isinstance(run, list)
         and len(run) == 2

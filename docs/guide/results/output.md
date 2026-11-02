@@ -356,11 +356,9 @@ it with `open_tdse_archive` ([the TDSE response](../media/tdse.md#the-raw-respon
 ## The schema version
 
 Every file records its `schema_version`; this release writes and reads output
-schema **3** (`solprop.output.SCHEMA_VERSION`). Schema 1 was the first released layout,
+schema **2** (`solprop.output.SCHEMA_VERSION`). Schema 1 was the first released layout,
 that of 0.1.0; schema 2 adds `spectral_phase` to the record of a
-{py:class}`~solprop.pulses.DataPulse`, and schema 3 run-length encodes a Multistep
-run's predictor orders in `/meta/outcome`, as `[order, count]` pairs
-(`CallLedger.to_record`). A file of any other schema is refused by name
+{py:class}`~solprop.pulses.DataPulse`. A file of any other schema is refused by name
 wherever it is opened, read or resumed: files written by an earlier release or by
 development versions of solprop, which declared output schemas up to 28, are not read,
 and nor is a file from a later release. Read such a file with the solprop version that
@@ -409,6 +407,14 @@ anything grown per plane. A new field of the JSON run record, a new root attribu
 new top-level group written once does not bump it: readers already tolerate them, and a
 resume decides by comparing the records (ADR-063,
 [SEP 42](../../dev/seps/archive/sep-0042-tolerant-resume.md)).
+
+**How often.** At most once between two releases. The first such change after a
+release bumps the schema; every later one before the next release folds into that
+version, which the next release is the first to write. Development builds between two
+releases are therefore not compatible with one another: a file written by an earlier
+build of the same schema may be refused, by name where the difference is known (a
+Multistep run's predictor orders, which are now recorded as `[order, count]` pairs,
+were one integer per step before), and is read with the build that wrote it.
 
 ## A worked example
 

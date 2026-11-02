@@ -314,7 +314,7 @@ def test_the_run_records_its_measure_and_labels_per_unit_width():
     back = RunMetadata.from_json(metadata.to_json())
     assert back.transverse_measure == "per_unit_width"
     assert back.configuration_hash() == metadata.configuration_hash()
-    assert json.loads(metadata.to_json())["schema_version"] == 3
+    assert json.loads(metadata.to_json())["schema_version"] == 2
     units = transverse_units(output)
     assert (units.power, units.energy, units.intensity) == ("W/m", "J/m", "W/m^2")
     figures = plot_stats(output)
