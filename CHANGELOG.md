@@ -9,6 +9,10 @@ All notable changes to solprop are recorded here. The format follows
 
 ### Added
 
+- The desktop front end's distribution, `solprop-gui`, built from `gui/` in this
+  repository and installed with `pip install "solprop[gui]"` at solprop's own version.
+  Only its skeleton is in place: the `solprop-gui` command opens a placeholder window.
+  Its design is `docs/dev/gui/design.md`.
 - The first performance-history rows (`benchmarks/history/`), recorded at 0.1.0 on
   six CPU and three GPU hardware sets, with numba runs beside the native ones on three
   of them; `docs/dev/benchmarking.md` lists how each is run. The history takes any

@@ -215,6 +215,11 @@ against `src/solprop` by `tests/test_structure_figures.py`.
 repository at solprop's own version and installed through the `native` extra. It depends
 on the versioned seam; solprop does not depend on its native build.
 
+`solprop-gui`, the desktop front end, is the third, built from `gui/` at solprop's
+version and installed through the `gui` extra ([its design](gui/design.md)). It sits
+above every layer here and uses only solprop's public interface, running it in child
+processes; nothing in solprop imports it.
+
 `driver/scaffold.py` is an independent fixed-step IP-RK4 reference used by tests and
 its tutorial; it is not the production stepper. It propagates a `GnlseProblem`
 directly, without a contract, a backend or an output handler, which is what makes it a
