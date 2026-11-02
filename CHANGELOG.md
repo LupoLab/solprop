@@ -130,6 +130,10 @@ All notable changes to solprop are recorded here. The format follows
 
 ### Changed
 
+- `solprop.recipe` loads its names on first use (PEP 562), as `solprop` itself does, so
+  `solprop.recipe.quantity`, `paths`, `document` and `errors` import without the driver,
+  the backends, h5py or SciPy: about 40 ms rather than half a second, for a front end
+  that parses quantities in a process that never runs a simulation.
 - A run asking for the `zdw` statistic is no longer stopped when its band holds no
   zero-dispersion point: the plane records `nan` with a warning. A direct `stats.zdw`
   call still raises, now `NoZeroDispersionError`, a `ModeError`.
