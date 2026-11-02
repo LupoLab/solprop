@@ -31,6 +31,7 @@ from solprop.coupling.models import CouplingModel
 from solprop.driver.simulation import (
     DEFAULT_ATOL,
     WAVEGUIDE_ATOL,
+    ModalLaunch,
     NoiseSetting,
     Simulation,
     SimulationSettings,
@@ -450,7 +451,7 @@ def prop_gnlse(  # noqa: PLR0913 - the interface's keyword surface
     schedule: FixedSchedule | None = None,
     integrator: Multistep | RungeKutta | LowStorageRungeKutta | None = None,
     interpolate_planes: bool = False,
-    step_planes: int = 0,
+    step_planes: int | None = None,
     save_planes: Sequence[float] | np.ndarray | None = None,
     n_save: int | None = None,
     stats: StatsSpec | None = None,
@@ -614,10 +615,10 @@ def prop_gnlse(  # noqa: PLR0913 - the interface's keyword surface
         Observe the save planes inside accepted steps instead of landing on them
         (SEP 14): through the Adams march's own polynomial, or DOPRI5's continuous
         extension with ``RungeKutta()``. Default ``False``.
-    step_planes : int, optional
+    step_planes : int or None, optional
         Also save the end of every `step_planes`-th accepted step, the
         march's own positions, beside the requested planes (SEP 14);
-        ``0``, the default, saves the requested planes only.
+        ``None``, the default, and ``0`` save the requested planes only.
     save_planes : array_like, optional
         Positions along the fibre to save at, m, increasing and positive; the plane at
         ``z = 0`` is saved as well. Give this or `n_save`.
@@ -808,6 +809,7 @@ def prop_capillary(  # noqa: PLR0913 - the interface's keyword surface
     peak_power: float | None = None,
     phases: Sequence[float] | np.ndarray = (),
     pulses: Sequence[Pulse] | None = None,
+    launch: ModalLaunch | None = None,
     modes: int | Sequence[Mode] = 1,
     mode_average: bool = False,
     lattice: TubeLattice | None = None,
@@ -844,6 +846,7 @@ def prop_capillary(  # noqa: PLR0913 - the interface's keyword surface
     save_planes: Sequence[float] | np.ndarray | None = None,
     n_save: int | None = None,
     stats: StatsSpec | None = None,
+    polarisation_taper: bool = False,
     node_budget: int = DEFAULT_NODE_BUDGET,
     backend: str = "auto",
     precision: PrecisionName = "double",
@@ -943,6 +946,16 @@ def prop_capillary(  # noqa: PLR0913 - the interface's keyword surface
         single-pulse keywords `fwhm`, `width`, `shape`, `energy`,
         `peak_power` and `phases`, which must then be left unset; `wavelength` still
         sets the grid's reference wavelength.
+    launch : mapping, sequence of mapping, or None, optional
+        Launch the input into chosen modes (SEP 41, S5): a mapping from a mode's
+        display label or index to its share, or to ``{"share": s, "phase": phi}``
+        with the phase in radians (optics convention), as
+        ``{"HE1,1": 0.9, "HE1,2": {"share": 0.1, "phase": 1.57}}``; or a list of such
+        mappings, one for each pulse in `pulses`. The shares are energy fractions,
+        normalised to one for each pulse, and the launch is recorded as
+        ``configuration["modal_launch"]`` (see
+        :meth:`~solprop.driver.simulation.Simulation.from_capillary`). ``None``, the
+        default, puts the input in the first mode.
     modes : int or sequence of Mode, optional
         How many HE_1m modes to propagate, or the mode set itself. A set is checked for
         orthonormality. Supplied sets may include TabulatedHollowMode or TabulatedMode
@@ -1118,6 +1131,10 @@ def prop_capillary(  # noqa: PLR0913 - the interface's keyword surface
         :func:`solprop.stats.default_spec` with the profiles, for a multimode run or,
         under ``mode_average=True``, a mode-averaged one without the quadrature
         estimate, plus every statistic only a backend can compute.
+    polarisation_taper : bool, optional
+        Whether the spectral collar tapers the nonlinear polarisation. Default
+        ``False``: the taper costs a systematic error of the size of the field's
+        content in the collar, and the rate absorber acts either way.
     node_budget : int, optional
         Bytes of node-chunk buffers the response pass may hold.
     backend : str, optional
@@ -1236,6 +1253,7 @@ def prop_capillary(  # noqa: PLR0913 - the interface's keyword surface
         peak_power=peak_power,
         phases=phases,
         pulses=pulses,
+        launch=launch,
         modes=modes,
         mode_average=mode_average,
         lattice=lattice,
@@ -1272,6 +1290,7 @@ def prop_capillary(  # noqa: PLR0913 - the interface's keyword surface
         save_planes=save_planes,
         n_save=n_save,
         stats=stats,
+        polarisation_taper=polarisation_taper,
         node_budget=node_budget,
         backend=backend,
         precision=precision,
@@ -1329,6 +1348,7 @@ def prop_waveguide(  # noqa: PLR0913 - the interface's keyword surface
     peak_power: float | None = None,
     phases: Sequence[float] | np.ndarray = (),
     pulses: Sequence[Pulse] | None = None,
+    launch: ModalLaunch | None = None,
     susceptibility: GasSusceptibility | None = None,
     temperature: float | ZProfile | None = None,
     kerr: bool = True,
@@ -1353,9 +1373,12 @@ def prop_waveguide(  # noqa: PLR0913 - the interface's keyword surface
     dz_init: float | None = None,
     schedule: FixedSchedule | None = None,
     integrator: Multistep | RungeKutta | LowStorageRungeKutta | None = None,
+    interpolate_planes: bool = False,
+    step_planes: int | None = None,
     save_planes: Sequence[float] | np.ndarray | None = None,
     n_save: int | None = None,
     stats: StatsSpec | None = None,
+    polarisation_taper: bool = False,
     node_budget: int = DEFAULT_NODE_BUDGET,
     backend: str = "auto",
     precision: PrecisionName = "double",
@@ -1475,6 +1498,16 @@ def prop_waveguide(  # noqa: PLR0913 - the interface's keyword surface
         single-pulse keywords `fwhm`, `width`, `shape`, `energy`,
         `peak_power` and `phases`, which must then be left unset; `wavelength` still
         sets the grid's reference wavelength.
+    launch : mapping, sequence of mapping, or None, optional
+        Launch the input into chosen modes or channels (SEP 41, S5): a mapping from a
+        display label or index, resolved as `channel` resolves it, to a share, or to
+        ``{"share": s, "phase": phi}`` with the phase in radians (optics convention);
+        or a list of such mappings, one for each pulse in `pulses`. The shares are
+        energy fractions on a basis whose flux metric is the identity, and a
+        coordinate split on a guide that declares a change of basis (see
+        :meth:`~solprop.driver.simulation.Simulation.from_waveguide`). Refused beside
+        `channel`, `incident` and `coupling`. ``None``, the default, puts the input
+        in the first mode or in `channel`.
     susceptibility : GasSusceptibility or None, optional
         A gas susceptibility replacing the one `gas` selects, for a comparison
         against another code's refractive data. Refused for a fraction mapping
@@ -1598,6 +1631,14 @@ def prop_waveguide(  # noqa: PLR0913 - the interface's keyword surface
         every route of this interface admits. ``Multistep()`` is the low-call
         exponential Adams method, and ``LowStorageRungeKutta()`` replays `schedule` in
         three registers.
+    interpolate_planes : bool, optional
+        Observe the save planes inside accepted steps instead of landing on them
+        (SEP 14): through the Adams march's own polynomial, or DOPRI5's continuous
+        extension with ``RungeKutta()``. Default ``False``.
+    step_planes : int or None, optional
+        Also save the end of every `step_planes`-th accepted step, the
+        march's own positions, beside the requested planes (SEP 14); ``None``, the
+        default, and ``0`` save the requested planes only.
     save_planes : sequence of float or None, optional
         Positions to save at, m. Give this or `n_save`.
     n_save : int or None, optional
@@ -1607,6 +1648,10 @@ def prop_waveguide(  # noqa: PLR0913 - the interface's keyword surface
         :func:`solprop.stats.default_spec` with the profiles, for a multimode run or,
         under ``mode_average=True``, a mode-averaged one without the quadrature
         estimate, plus every statistic only a backend can compute.
+    polarisation_taper : bool, optional
+        Whether the spectral collar tapers the nonlinear polarisation. Default
+        ``False``: the taper costs a systematic error of the size of the field's
+        content in the collar, and the rate absorber acts either way.
     node_budget : int, optional
         Bytes of node-chunk buffers the response pass may hold.
     backend : str, optional
@@ -1687,6 +1732,7 @@ def prop_waveguide(  # noqa: PLR0913 - the interface's keyword surface
         peak_power=peak_power,
         phases=phases,
         pulses=pulses,
+        launch=launch,
         susceptibility=susceptibility,
         temperature=temperature,
         kerr=kerr,
@@ -1711,9 +1757,12 @@ def prop_waveguide(  # noqa: PLR0913 - the interface's keyword surface
         dz_init=dz_init,
         schedule=schedule,
         integrator=integrator,
+        interpolate_planes=interpolate_planes,
+        step_planes=step_planes,
         save_planes=save_planes,
         n_save=n_save,
         stats=stats,
+        polarisation_taper=polarisation_taper,
         node_budget=node_budget,
         backend=backend,
         precision=precision,

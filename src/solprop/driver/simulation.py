@@ -73,6 +73,7 @@ from solprop.coupling import (
     space_record,
 )
 from solprop.driver import tdse_consistency
+from solprop.driver._launch import launch_pulse, refuse_beside
 from solprop.driver.defaults import (
     CAPILLARY_RTOL,
     DEFAULT_ATOL,
@@ -296,6 +297,7 @@ from solprop.stepper.schedule import FixedSchedule
 from solprop.stepper.tableau import DOPRI5
 from solprop.translate.coupled import (
     CF4_GROWTH_LIMIT,
+    metric_at,
     taper_identity,
     wall_identity,
 )
@@ -363,6 +365,7 @@ __all__ = [
     "TDSE_NOISE",
     "WAVEGUIDE_ATOL",
     "WAVEGUIDE_RTOL",
+    "ModalLaunch",
     "NoiseModel",
     "NoiseSetting",
     "RecipeSource",
@@ -455,6 +458,17 @@ NoiseSetting = Literal["default", "input", "modified"] | None
 A model, ``None`` for a noiseless run, or ``"default"``, the keyword's default, which
 resolves to ``"input"`` wherever the run can carry noise and to none where it cannot,
 recording which in the run's :class:`~solprop.output.schema.NoiseResolution`.
+"""
+
+ModalLaunch = (
+    Mapping[str | int, float | Mapping[str, float]]
+    | Sequence[Mapping[str | int, float | Mapping[str, float]]]
+)
+"""What a modal constructor's ``launch`` keyword takes (SEP 41, S5).
+
+A mapping from a mode's display label or index to its share, or to
+``{"share": s, "phase": phi}`` with the phase in radians; or a list of such mappings,
+one for each input pulse (``docs/guide/setup/pulses.md``).
 """
 
 
@@ -2683,6 +2697,9 @@ class Simulation(Displayed):
         # coupling that launched this run.
         recorded.pop("launch", None)
         recorded.pop("coupling", None)
+        # Nor does a modal launch describe a replacement input, which is placed as
+        # given.
+        recorded.pop("modal_launch", None)
         # A constructor's pulse recipe must never describe a replacement spectrum.
         # Arrays carry their exact input in metadata, without an inferred recipe.
         if "pulse" in recorded:
@@ -4347,7 +4364,7 @@ class Simulation(Displayed):
         schedule: FixedSchedule | None = None,
         integrator: Multistep | RungeKutta | LowStorageRungeKutta | None = None,
         interpolate_planes: bool = False,
-        step_planes: int = 0,
+        step_planes: int | None = None,
         save_planes: Sequence[float] | np.ndarray | None = None,
         n_save: int | None = None,
         stats: StatsSpec | None = None,
@@ -4472,10 +4489,10 @@ class Simulation(Displayed):
             Observe the save planes inside accepted steps instead of landing on them
             (SEP 14): through the Adams march's own polynomial, or DOPRI5's
             continuous extension with ``RungeKutta()``. Default ``False``.
-        step_planes : int, optional
+        step_planes : int or None, optional
             Also save the end of every `step_planes`-th accepted step, the
             march's own positions, beside the requested planes (SEP 14);
-            ``0``, the default, saves the requested planes only.
+            ``None``, the default, and ``0`` save the requested planes only.
         save_planes : array_like, optional
             Positions to save at, m. Give this or `n_save`.
         n_save : int, optional
@@ -4589,7 +4606,7 @@ class Simulation(Displayed):
             schedule=schedule,
             integrator=integrator,
             interpolate_planes=interpolate_planes,
-            step_planes=step_planes,
+            step_planes=0 if step_planes is None else step_planes,
             density=1.0,
             shock=shock,
             prefactor_index=mapping.prefactor_index,
@@ -4642,6 +4659,7 @@ class Simulation(Displayed):
         peak_power: float | None = None,
         phases: Sequence[float] | np.ndarray = (),
         pulses: Sequence[Pulse] | None = None,
+        launch: ModalLaunch | None = None,
         modes: int | Sequence[Mode] = 1,
         mode_average: bool = False,
         lattice: TubeLattice | None = None,
@@ -4684,6 +4702,7 @@ class Simulation(Displayed):
         save_planes: Sequence[float] | np.ndarray | None = None,
         n_save: int | None = None,
         stats: StatsSpec | None = None,
+        polarisation_taper: bool = False,
         node_budget: int = DEFAULT_NODE_BUDGET,
         backend: str = "auto",
         precision: PrecisionName = "double",
@@ -4775,6 +4794,17 @@ class Simulation(Displayed):
             single-pulse keywords `fwhm`, `width`, `shape`, `energy`,
             `peak_power` and `phases`, which must then be left unset; `wavelength` still
             sets the grid's reference wavelength.
+        launch : mapping, sequence of mapping, or None, optional
+            Launch the input into chosen modes (SEP 41, S5): a mapping from a mode's
+            display label or index to its share, or to ``{"share": s, "phase": phi}``
+            with the phase in radians (optics convention), as
+            ``{"HE1,1": 0.9, "HE1,2": {"share": 0.1, "phase": 1.57}}``; or a list of
+            such mappings, one for each pulse in `pulses`. A label may leave out a
+            parity the set carries once (``"HE1,1"`` for ``"HE1,1:even"``). The shares
+            are energy fractions, normalised to one for each pulse, and the launch is
+            recorded as ``configuration["modal_launch"]``
+            (``docs/guide/setup/pulses.md``). ``None``, the default, puts the input in
+            the first mode.
         modes : int or sequence of Mode, optional
             How many HE_1m modes to propagate, or the mode set itself. A set is checked
             for orthonormality. Supplied sets may include TabulatedHollowMode or
@@ -4957,6 +4987,12 @@ class Simulation(Displayed):
             :func:`solprop.stats.default_spec` for a multimode run with the profiles,
             or for a mode-averaged one under `mode_average`, plus every statistic
             only a backend can compute.
+        polarisation_taper : bool, optional
+            Whether the spectral collar tapers the nonlinear polarisation as well as
+            absorbing the field through the linear operator. Default ``False``: the
+            taper costs a systematic error of the size of the field's content in the
+            collar, and the rate absorber acts either way
+            (``docs/guide/numerics/boundaries.md``).
         node_budget : int, optional
             Bytes of node-chunk buffers the response pass may hold.
         backend : str, optional
@@ -5039,6 +5075,7 @@ class Simulation(Displayed):
             peak_power=peak_power,
             phases=phases,
             pulses=pulses,
+            launch=launch,
             modes=modes,
             mode_average=mode_average,
             lattice=lattice,
@@ -5075,6 +5112,7 @@ class Simulation(Displayed):
             save_planes=save_planes,
             n_save=n_save,
             stats=stats,
+            polarisation_taper=polarisation_taper,
             node_budget=node_budget,
             backend=backend,
             precision=precision,
@@ -5114,6 +5152,7 @@ class Simulation(Displayed):
         peak_power: float | None = None,
         phases: Sequence[float] | np.ndarray = (),
         pulses: Sequence[Pulse] | None = None,
+        launch: ModalLaunch | None = None,
         susceptibility: GasSusceptibility | None = None,
         temperature: float | ZProfile | None = None,
         kerr: bool = True,
@@ -5144,9 +5183,12 @@ class Simulation(Displayed):
         dz_init: float | None = None,
         schedule: FixedSchedule | None = None,
         integrator: Multistep | RungeKutta | LowStorageRungeKutta | None = None,
+        interpolate_planes: bool = False,
+        step_planes: int | None = None,
         save_planes: Sequence[float] | np.ndarray | None = None,
         n_save: int | None = None,
         stats: StatsSpec | None = None,
+        polarisation_taper: bool = False,
         node_budget: int = DEFAULT_NODE_BUDGET,
         backend: str = "auto",
         precision: PrecisionName = "double",
@@ -5317,6 +5359,21 @@ class Simulation(Displayed):
             single-pulse keywords `fwhm`, `width`, `shape`, `energy`,
             `peak_power` and `phases`, which must then be left unset; `wavelength` still
             sets the grid's reference wavelength.
+        launch : mapping, sequence of mapping, or None, optional
+            Launch the input into chosen modes or channels (SEP 41, S5): a mapping
+            from a display label or index, resolved as `channel` resolves it, to a
+            share, or to ``{"share": s, "phase": phi}`` with the phase in radians
+            (optics convention), as ``{"HE1,1": 0.9, "HE1,2": {"share": 0.1,
+            "phase": 1.57}}``; or a list of such mappings, one for each pulse in
+            `pulses`. A label may leave out a parity the set carries once, and one
+            that leaves a parity open between two rows is refused. On a basis whose
+            flux metric is the identity the shares are energy fractions, normalised to
+            one for each pulse; on a guide that declares a change of basis they are
+            relative amplitudes squared, scaled so that the flux-metric energy is the
+            pulse's, a coordinate split. The launch is recorded as
+            ``configuration["modal_launch"]`` (``docs/guide/setup/pulses.md``).
+            Refused beside `channel`, `incident` and `coupling`. ``None``, the
+            default, puts the input in the first mode or in `channel`.
         susceptibility : GasSusceptibility or None, optional
             A gas susceptibility replacing the one `gas` selects, for a comparison
             against another code's refractive data. Refused for a fraction mapping
@@ -5438,6 +5495,14 @@ class Simulation(Displayed):
             ``None``, the default, takes ``RungeKutta()``, the interaction-picture
             DOPRI5 march (SEP 37). ``Multistep()`` is the low-call exponential Adams
             method. ``LowStorageRungeKutta()`` replays `schedule` in three registers.
+        interpolate_planes : bool, optional
+            Observe the save planes inside accepted steps instead of landing on them
+            (SEP 14): through the Adams march's own polynomial, or DOPRI5's
+            continuous extension with ``RungeKutta()``. Default ``False``.
+        step_planes : int or None, optional
+            Also save the end of every `step_planes`-th accepted step, the
+            march's own positions, beside the requested planes (SEP 14); ``None``,
+            the default, and ``0`` save the requested planes only.
         save_planes : sequence of float or None, optional
             Positions to save at, m. Give this or `n_save`.
         n_save : int or None, optional
@@ -5447,6 +5512,12 @@ class Simulation(Displayed):
             :func:`solprop.stats.default_spec` for a multimode run with the profiles,
             or for a mode-averaged one under `mode_average`, plus every statistic
             only a backend can compute.
+        polarisation_taper : bool, optional
+            Whether the spectral collar tapers the nonlinear polarisation as well as
+            absorbing the field through the linear operator. Default ``False``: the
+            taper costs a systematic error of the size of the field's content in the
+            collar, and the rate absorber acts either way
+            (``docs/guide/numerics/boundaries.md``).
         node_budget : int, optional
             Bytes of node-chunk buffers the response pass may hold.
         backend : str, optional
@@ -5525,6 +5596,7 @@ class Simulation(Displayed):
                 peak_power=peak_power,
                 phases=phases,
                 pulses=pulses,
+                launch=launch,
                 susceptibility=susceptibility,
                 temperature=temperature,
                 kerr=kerr,
@@ -5549,9 +5621,12 @@ class Simulation(Displayed):
                 dz_init=dz_init,
                 schedule=schedule,
                 integrator=integrator,
+                interpolate_planes=interpolate_planes,
+                step_planes=step_planes,
                 save_planes=save_planes,
                 n_save=n_save,
                 stats=stats,
+                polarisation_taper=polarisation_taper,
                 node_budget=node_budget,
                 backend=backend,
                 precision=precision,
@@ -5605,6 +5680,7 @@ class Simulation(Displayed):
             peak_power=peak_power,
             phases=phases,
             pulses=pulses,
+            launch=launch,
             susceptibility=susceptibility,
             temperature=temperature,
             kerr=kerr,
@@ -5628,10 +5704,13 @@ class Simulation(Displayed):
             dz_init=dz_init,
             schedule=schedule,
             integrator=integrator,
+            interpolate_planes=interpolate_planes,
+            step_planes=step_planes,
             route="waveguide",
             save_planes=save_planes,
             n_save=n_save,
             stats=stats,
+            polarisation_taper=polarisation_taper,
             node_budget=node_budget,
             backend=backend,
             precision=precision,
@@ -5682,6 +5761,10 @@ class Simulation(Displayed):
         memory_budget: int | str | None,
         materials: MaterialSelection | None = None,
         integrator: Multistep | RungeKutta | LowStorageRungeKutta | None = None,
+        launch: ModalLaunch | None = None,
+        interpolate_planes: bool = False,
+        step_planes: int | None = None,
+        polarisation_taper: bool = False,
         **refused: object,
     ) -> "Simulation":  # noqa: UP037 - beartype resolves it while the body still runs
         """Build a general modal run from a guide that solves its own fields.
@@ -5751,6 +5834,17 @@ class Simulation(Displayed):
         integrator : Multistep, RungeKutta or LowStorageRungeKutta, optional
             The method that steps the run; ``None`` takes ``Multistep()``, and
             ``LowStorageRungeKutta()`` replays `schedule` in three registers.
+        launch : mapping, sequence of mapping, or None, optional
+            The channels each pulse enters, with their shares and phases, as
+            :meth:`from_waveguide` documents it; refused beside `channel`,
+            `incident` and `coupling`.
+        interpolate_planes : bool, optional
+            Observe the save planes inside accepted steps instead of landing on them.
+        step_planes : int or None, optional
+            Also save the end of every `step_planes`-th accepted step; ``None`` is
+            ``0``.
+        polarisation_taper : bool, optional
+            Whether the spectral collar tapers the nonlinear polarisation.
         **refused : object
             Every gas-filled keyword; each is refused by name when it is set.
 
@@ -5811,6 +5905,7 @@ class Simulation(Displayed):
             )
             raise DriverError(msg)
         planes = _save_planes(length, save_planes, n_save)
+        refuse_beside(launch, channel=channel, incident=incident, coupling=coupling)
         pulse = _general_pulse(
             incident,
             channel,
@@ -5868,14 +5963,27 @@ class Simulation(Displayed):
                 "neither"
             )
             raise DriverError(msg)
+        launched: dict[str, object] | None = None
         if beam is not None:
             # Checked before the port is built: a guide whose first region is off the
             # axis has no core for a beam to enter through.
             _core_index(provider.regions, working)
             # The launch is the coupling's, installed through `with_input` below.
             field0 = np.zeros((len(channels), 1, working.n_omega), dtype=np.complex128)
-        else:
+        elif launch is None:
             field0 = _in_channel(built, provider, channel)
+        else:
+            # A declared change of basis carries a dense flux metric, under which the
+            # shares are a coordinate split; in the provider's own coordinates the
+            # metric is the identity and they are energy fractions (SEP 41, S5).
+            field0, launched = launch_pulse(
+                # No beam, so the input is the shaped pulse.
+                cast("Pulse", pulse),
+                launch,
+                working,
+                provider.mode_collection.channel_labels,
+                metric=metric_at(route.metric_tables, 0.0),
+            )
         boundary, scheme = _boundary(absorber, absorber_scheme, working)
         controller, default = _keyword_controller("waveguide", rtol, atol, precision)
         settings = SimulationSettings(
@@ -5888,6 +5996,8 @@ class Simulation(Displayed):
             auto_init=dz_init is None,
             schedule=schedule,
             integrator=integrator,
+            interpolate_planes=interpolate_planes,
+            step_planes=0 if step_planes is None else step_planes,
             absorber=boundary,
             absorber_scheme=scheme,
             boundary_check=boundary_check,
@@ -5896,6 +6006,7 @@ class Simulation(Displayed):
             # selection, the density path and the index override are all refused
             # by the translation layer and are not settings of this run.
             stats=_general_stats() if stats is None else stats,
+            polarisation_taper=polarisation_taper,
             backend=backend,
             precision=precision,
         )
@@ -5916,6 +6027,7 @@ class Simulation(Displayed):
                     "provider": dict(provider.identity),
                 },
                 **({} if beam is not None else {"pulse": pulse}),
+                **({} if launched is None else {"modal_launch": launched}),
             },
             general=route,
             guide=provider,
@@ -5949,6 +6061,7 @@ class Simulation(Displayed):
         peak_power: float | None = None,
         phases: Sequence[float] | np.ndarray = (),
         pulses: Sequence[Pulse] | None = None,
+        launch: ModalLaunch | None = None,
         modes: int | Sequence[Mode] = 1,
         mode_average: bool = False,
         lattice: TubeLattice | None = None,
@@ -5992,6 +6105,7 @@ class Simulation(Displayed):
         save_planes: Sequence[float] | np.ndarray | None = None,
         n_save: int | None = None,
         stats: StatsSpec | None = None,
+        polarisation_taper: bool = False,
         node_budget: int = DEFAULT_NODE_BUDGET,
         backend: str = "auto",
         precision: PrecisionName = "double",
@@ -6085,6 +6199,10 @@ class Simulation(Displayed):
             single-pulse keywords `fwhm`, `width`, `shape`, `energy`,
             `peak_power` and `phases`, which must then be left unset; `wavelength` still
             sets the grid's reference wavelength.
+        launch : mapping, sequence of mapping, or None, optional
+            The modes each pulse enters, with their shares and phases, as
+            :meth:`from_capillary` documents it; ``None`` puts the input in the
+            first mode.
         modes : int or sequence of Mode, optional
             How many HE_1m modes to propagate, or the mode set itself. A set is checked
             for orthonormality. The own HE_1m set is synthesised along x; a supplied set
@@ -6265,6 +6383,8 @@ class Simulation(Displayed):
             :func:`solprop.stats.default_spec` for a multimode run with the profiles,
             or for a mode-averaged one under `mode_average`, plus every statistic
             only a backend can compute.
+        polarisation_taper : bool, optional
+            Whether the spectral collar tapers the nonlinear polarisation.
         node_budget : int, optional
             Bytes of node-chunk buffers the response pass may hold.
         backend : str, optional
@@ -6519,7 +6639,7 @@ class Simulation(Displayed):
             phases=phases,
             pulses=pulses,
         )
-        field0 = _in_lowest_mode(pulse.build(working), len(mode_set))
+        field0, launched = _hollow_input(pulse, launch, working, mode_set.modes)
         ionising = any(
             isinstance(one, PlasmaResponse | EnvelopePlasmaResponse)
             for one in responses
@@ -6587,6 +6707,7 @@ class Simulation(Displayed):
                     with_plasma=False, mixture=mixture, averaged=rule is None
                 )
             ),
+            polarisation_taper=polarisation_taper,
             backend=backend,
             precision=precision,
             tdse_execution=None if atomic is None else atomic.execution,
@@ -6627,6 +6748,7 @@ class Simulation(Displayed):
                     }
                 ),
                 "pulse": pulse,
+                **({} if launched is None else {"modal_launch": launched}),
                 **({} if atomic is None else {"tdse_entry": atomic.record}),
             },
         )
@@ -11063,6 +11185,41 @@ def _incident_launch(
     # without a seed may still be drawn again from a recorded one.
     launched._noise_redraw = simulation._noise_redraw
     return launched
+
+
+def _hollow_input(
+    pulse: Pulse,
+    launch: ModalLaunch | None,
+    grid: TimeGrid,
+    modes: Sequence[Mode],
+) -> tuple[Complex[np.ndarray, "n_modes n_pol n_omega"], dict[str, object] | None]:
+    """Return a hollow guide's initial state, and its launch record if it has one.
+
+    Parameters
+    ----------
+    pulse : solprop.pulses.Pulse
+        The input.
+    launch : mapping, sequence of mapping, or None
+        The ``launch`` keyword; ``None`` puts the input in the first mode.
+    grid : solprop.grid.TimeGrid
+        The run's grid.
+    modes : sequence of solprop.modes.protocol.Mode
+        The mode set, in row order.
+
+    Returns
+    -------
+    numpy.ndarray
+        The state, shape ``(n_modes, n_pol, n_omega)``.
+    dict or None
+        ``configuration["modal_launch"]``, or ``None`` without a launch.
+    """
+    if launch is None:
+        return _in_lowest_mode(pulse.build(grid), len(modes)), None
+    # A hollow guide's modes are orthonormal in true power, so the shares are energy
+    # fractions (SEP 41, S5).
+    return launch_pulse(
+        pulse, launch, grid, tuple(mode.channel_label for mode in modes)
+    )
 
 
 def _in_lowest_mode(

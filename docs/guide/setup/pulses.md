@@ -366,6 +366,67 @@ the same way. The worked examples on
 and on [cross-phase modulation in the deep ultraviolet](../../auto_examples/processes/plot_04_cross_phase_modulation)
 use this.
 
+## Launching into chosen modes
+
+A pulse given by keywords enters the first mode of a multimode run, and the others fill
+through the nonlinearity. `launch=` puts it into chosen modes instead, on
+`prop_capillary`, `prop_waveguide` and their `Simulation` constructors
+([SEP 41](../../dev/seps/sep-0041-recipes-and-front-ends.md)): a mapping from a mode to
+its share, or to a share and a phase in radians.
+
+```python
+import warnings
+
+from solprop.driver import Simulation
+from solprop.exceptions import MaterialRangeWarning
+
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore", MaterialRangeWarning)
+    simulation = Simulation.from_capillary(
+        125e-6, 0.1, "He", 1.0, wavelength=800e-9,
+        wavelength_limits=(300e-9, 3e-6), trange=100e-15,
+        fwhm=10e-15, energy=5e-6, modes=3, plasma=False, n_r=16, n_save=2,
+        launch={"HE1,1": 0.9, "HE1,2": {"share": 0.1, "phase": 1.57}},
+    )
+simulation.configuration["modal_launch"]
+# {'split': 'energy', 'pulses': [{'labels': ['HE1,1:even', 'HE1,2:even'],
+#   'shares': [0.9, 0.1], 'phases': [0.0, 1.57]}]}
+```
+
+- **Modes** are named as `channel=` names a general guide's channels: by display label
+  (`"HE1,1:even"`) or by index. A label may leave out a parity that the set carries
+  once, so `"HE1,1"` is `"HE1,1:even"` in a capillary; in a set that carries both
+  polarisations it is refused, naming both. A mode the set does not have is refused,
+  naming those it has.
+- **Shares** are energy fractions, normalised to one, so `{"HE1,1": 9, "HE1,2": 1}` is
+  the launch above, and each mode carries its share of the pulse's energy.
+- **The phase** is in the optics convention ([conventions](../../dev/conventions.md)): a
+  mode's spectrum is the pulse's times $e^{i\phi}$, so the phase adds to the pulse's
+  carrier-envelope phase in that mode. It sets the relative phase of the modes where
+  they overlap, which decides how they beat.
+- **Several pulses.** One mapping launches every pulse of `pulses=` the same way; a list
+  of mappings, one per pulse, launches each into its own modes, so a pump can enter the
+  fundamental and a seed a higher mode:
+  `launch=[{"HE1,1": 1.0}, {"HE1,2": 1.0}]`.
+- **Beside the other launches.** `launch=` generalises `channel=`, so the two are not
+  given together; nor is `launch=` given beside `incident=` and `coupling=`, which
+  compute the launch from a beam. An array is launched with `Simulation.with_input`,
+  which also drops the launch record, since the array replaces it.
+
+**On a general modal basis.** A guide in its provider's own coordinates is orthonormal
+in true power, and the shares are energy fractions there too. A guide that declares a
+change of basis ([general modal guides](../waveguides/general-modal.md)) carries a flux
+metric $W$ whose cross terms make the energy $a^\dagger W a$ of the coefficients depend
+on their relative phases. There the shares are relative amplitudes squared: the
+coefficients point where the shares and phases say, and are scaled so that their
+flux-metric energy is the pulse's. The per-mode split is then a coordinate one, not an
+energy split, and the record says so with `"split": "coordinate"`.
+
+**The record.** The run records each pulse's labels, normalised shares and phases as
+`configuration["modal_launch"]`, which a resume compares
+([resuming](../results/resuming.md)), so a file written with one launch is not continued
+with another. A run with no launch records no entry and reads as before.
+
 ## Transverse beams
 
 The builders above describe a pulse in time. For the spatially resolved geometries a

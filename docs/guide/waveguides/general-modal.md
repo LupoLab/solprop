@@ -113,6 +113,15 @@ Poynting flux, so a channel amplitude already is a true-power amplitude in $\sqr
 and no $\sqrt{\operatorname{Re}n_{\rm eff}}$ conversion happens anywhere on this route.
 The launched energy is the pulse's, to the last bit.
 
+`launch=` spreads the pulse over several channels instead, each with a share and a phase
+(`launch={"HE1,1:even": 0.5, "HE1,1:odd": {"share": 0.5, "phase": 1.57}}`), naming
+channels as `channel=` does and refused beside it
+([launching into chosen modes](../setup/pulses.md#launching-into-chosen-modes)). In the
+provider's own coordinates the shares are energy fractions. On a guide that declares a
+change of basis they are a coordinate split: the coefficients are scaled so that their
+energy under the basis's flux metric is the pulse's, and the run records
+`"split": "coordinate"` in `configuration["modal_launch"]`.
+
 **`incident=` launches an incident beam instead.** Where `channel=` names one channel,
 `incident=` takes a {class}`~solprop.pulses.SpatialPulse` — a Gaussian or super-Gaussian
 beam carrying its own temporal pulse — and launches what the guide's channels capture of

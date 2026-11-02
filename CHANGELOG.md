@@ -74,6 +74,21 @@ All notable changes to solprop are recorded here. The format follows
   the FFT sign convention of a Luna.jl file is read with `phase_convention="fft"`, and
   a wrapped column sampled too coarsely to unwrap is warned on
   ([SEP 41](https://solprop.readthedocs.io/en/latest/dev/seps/sep-0041-recipes-and-front-ends.html)).
+- `prop_capillary`, `prop_waveguide` and their `Simulation` constructors take `launch=`,
+  which puts each pulse into chosen modes with a share and an optional phase:
+  `launch={"HE1,1": 0.9, "HE1,2": {"share": 0.1, "phase": 1.57}}`, or a list with one
+  mapping per pulse of `pulses=`. Modes are named as `channel=` names them; the shares
+  are energy fractions, and on a guide that declares a change of basis a coordinate
+  split scaled to the pulse's energy under the flux metric. The run records the launch
+  as `configuration["modal_launch"]`, which a resume compares; a run without one
+  records nothing and resumes as before
+  ([SEP 41](https://solprop.readthedocs.io/en/latest/dev/seps/sep-0041-recipes-and-front-ends.html)).
+- `prop_waveguide` and `Simulation.from_waveguide` take `interpolate_planes` and
+  `step_planes`, and `prop_capillary`, `prop_waveguide` and their constructors take
+  `polarisation_taper`, as `prop_gnlse` does; `step_planes` defaults to `None` on
+  every interface that takes it, which on `prop_gnlse` behaves as its `0` did. The
+  guide lists the deliberate differences between the routes' keywords
+  ([SEP 41](https://solprop.readthedocs.io/en/latest/dev/seps/sep-0041-recipes-and-front-ends.html)).
 
 - `Simulation.from_radial`, `from_free` and `from_planar` take `absorber` and
   `absorber_scheme`, as `prop_radial`, `prop_free` and `prop_planar` and the modal

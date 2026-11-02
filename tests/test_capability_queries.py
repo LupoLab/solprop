@@ -32,10 +32,10 @@ from solprop.modes.antiresonant import TubeLattice
 from solprop.physdata import Gas, Mixture
 from solprop.physdata import species as built_in
 from solprop.physdata.selection import STATUSES
+from solprop.recipe.core import ROUTES
 from solprop.recipe.metadata import parameters
 from solprop.stepper import LowStorageRungeKutta
 
-ROUTES = ("gnlse", "capillary")
 SOURCE = Path(solprop.__file__).parent
 
 # ------------------------------------------------------------------- the routes

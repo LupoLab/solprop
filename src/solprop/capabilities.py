@@ -330,6 +330,8 @@ class Rule:
 _BOTH: Final = ("gnlse", "capillary")
 _GNLSE: Final = ("gnlse",)
 _CAPILLARY: Final = ("capillary",)
+_WAVEGUIDE: Final = ("waveguide",)
+_MODAL: Final = ("capillary", "waveguide")
 
 _RULES: Final = (
     # The grid, the input pulse and the saved planes, on both routes.
@@ -365,6 +367,25 @@ _RULES: Final = (
         ("energy", "peak_power"),
         "An input pulse takes exactly one of energy and peak_power.",
         _BOTH,
+    ),
+    Rule(
+        "launch-per-pulse",
+        ("launch", "pulses"),
+        "launch= is one mapping for every pulse, or a list of one mapping per pulse.",
+        _MODAL,
+    ),
+    Rule(
+        "launch-or-channel",
+        ("launch", "channel"),
+        "launch= generalises channel=, so a run names its modes with one of them.",
+        _WAVEGUIDE,
+    ),
+    Rule(
+        "launch-or-incident",
+        ("launch", "incident", "coupling"),
+        "An incident beam coupled under a model computes its own launch, so it is "
+        "not given beside launch=.",
+        _WAVEGUIDE,
     ),
     Rule(
         "save-planes-or-n-save",
@@ -674,7 +695,7 @@ def route(name: str) -> RouteCapabilities:
     Parameters
     ----------
     name : str
-        A route with parameter metadata: ``"gnlse"`` or ``"capillary"``.
+        A route with parameter metadata (:data:`solprop.recipe.core.ROUTES`).
 
     Returns
     -------

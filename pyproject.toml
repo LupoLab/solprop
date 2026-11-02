@@ -286,6 +286,9 @@ markers = [
     "benchmark: run by no lane at all; each says in its docstring how to run it by hand",
 ]
 xfail_strict = true
+# A test that hangs dumps every thread's traceback after fifteen minutes, so a lane
+# that times out in CI says where (no default-lane test comes near this).
+faulthandler_timeout = 900
 
 # ---------------------------------------------------------------------------- coverage
 [tool.coverage.run]
