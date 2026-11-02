@@ -199,8 +199,7 @@ building it: such a merge runs no lanes, so it leaves no cache for other pull re
 
 **Read the Docs stays free of native.** It executes no gallery script, because all gallery
 output is committed (`.readthedocs.yaml`, `docs/conf.py`). It needs only a clean build after
-the removal, and its `uv sync --frozen` installs no native package under the workspace
-override of §6.7.
+the removal, and its install gains `--no-install-package solprop-native` (§6.7).
 
 **What ADR-061 said.** Its consequence "the documentation build installs no native backend:
 a lesson or tutorial of a feature that `numba_cpu` does not run names `numpy_ref`" no
@@ -214,10 +213,9 @@ output. `poe docs-examples` runs both on `native` on the 4-core runner: `plot_11
 and `plot_05` in 884 s, which is a one-off cost when that script changes. The removal
 compares their regenerated figures and printed values with the committed ones.
 
-**Plain `uv sync`.** A compiler-free `uv sync` installs no native package (§6.7), so `auto`
-refuses there and work on `numpy_ref` names it. A new `poe fetch-wheel` installs the wheel CI
-built for the newest commit in the checkout's history, using `gh`. That wheel's artifact
-retention grows from 3 to 14 days to match.
+**Plain `uv sync`.** In a checkout it builds native (§6.7). A new `poe fetch-wheel` installs
+the wheel CI built for the newest commit in the checkout's history, using `gh`, for anyone who
+would rather not compile. That wheel's artifact retention grows from 3 to 14 days to match.
 
 #### 6.6 Python 3.15
 
@@ -289,21 +287,20 @@ lacks, say, the Windows on Arm wheel, those users silently get the refusal. `pub
 therefore checks that every platform wheel and the fallback are present before uploading
 anything.
 
-**The workspace.** A required workspace member builds from source, and after a sync that
-skips it, a plain `uv run` builds it again (Part II). `[tool.uv]` has no setting to skip a
-package, and `uv run` has no flag for it. An override does the job, and doesn't reach the
-published metadata:
+**The workspace.** Anyone working in a checkout is developing, so a plain `uv sync` compiles
+native, which `native/` being a required workspace member gives without further configuration.
+That gives the same packages as an install, with native built from source. `uv sync --extra
+native` goes, with the extra. A first sync in a fresh worktree took 104 s at 12 jobs, with FFTW and
+OpenBLAS already built on the machine (Part II), and a machine without the C++ toolchain stops
+with CMake's message naming the compiler to install.
 
-```toml
-[tool.uv]
-override-dependencies = ["solprop-native; extra == 'native'"]
-```
-
-A plain `uv sync` then stays compiler-free, as do the 12 `uv sync` lines of the workflows and
-the Read the Docs install, and `uv sync --extra native` still builds native. The extra stays
-as this development switch only, and user documentation stops mentioning it. The cost is that
-a contributor's plain environment differs from an installed one: `auto` refuses there, so
-tests name their backend through `SOLPROP_TEST_BACKEND` (Q4).
+Automation that needs no local build opts out in two places, because `uv sync` ignores
+`UV_NO_SYNC` and `uv run` has no flag to skip a package: `uv sync --no-install-package
+solprop-native`, and `UV_NO_SYNC=1` so that a later `uv run` doesn't build it. That covers the
+lanes in `ci.yml` and `wheels.yml`, which use CI's wheel or need no native, and `cuda.yml`, which
+installs its own build. Read the Docs only needs the first. `poe fetch-wheel` follows the same
+route on a machine without a compiler, such as Windows, for which the build guide has no
+instructions.
 
 **`numpy_ref` and `mlx`.** Every supported install has native, whichever backend a run uses.
 `numpy_ref` remains the reference that every backend is tested against, and it stops being
@@ -337,7 +334,7 @@ each, and they run only in that workflow, not in `ci.yml`.
 | The fallback wheel | pip and uv choose it for tags no platform wheel matches, and never over one that matches; a source build replaces it | Exact |
 | The refusal | No wheel, below the floor, and no native package each raise on `auto` and `native` with a working issue link; `import solprop` and `numpy_ref` by name still work | Exact |
 | The release gate | `publish-native` stops when a platform wheel is missing, tested by removing one | Exact |
-| The workspace | Plain `uv sync` and `uv run` build nothing and install no native; `uv sync --extra native` builds it; the built wheel's metadata has the pinned requirement | Exact |
+| The workspace | Plain `uv sync` in a fresh checkout builds native and `auto` is `native`; `--no-install-package` with `UV_NO_SYNC=1` builds nothing; the built wheel's metadata has the pinned requirement | Exact |
 | The new policy in the documentation | A search of the README, `docs/introduction`, `docs/guide` and the messages finds no fallback, no `solprop[native]`, and `numpy_ref` only as §8 allows | Exact |
 | Coverage | The 100 % gate on `solprop`, without Numba's paths | Holds, or the gaps are reported rather than the gate lowered |
 | No regressions | `python -m benchmarks track` on the final tree against history; ledger entry | Same step counts |
@@ -373,8 +370,9 @@ installs, and `numpy_ref` is for development.** That is more than removing `numb
 
 **For contributors:** `CONTRIBUTING.md`, `AGENTS.md`, `native/AGENTS.md`, `dev/contributing.md`,
 `dev/testing.md`, `dev/tooling.md`, `dev/backends.md`, `dev/benchmarking.md`,
-`dev/dependencies.md` and `dev/releasing.md` lose `numba_cpu` and state what a plain `uv sync`
-gives, what `--extra native` adds, and the fallback wheel's place in a release. The comments in
+`dev/dependencies.md` and `dev/releasing.md` lose `numba_cpu` and `--extra native`, and state
+that a plain `uv sync` compiles native, how `poe fetch-wheel` avoids that, and the fallback
+wheel's place in a release. The comments in
 `pyproject.toml` and `hatch_build.py` follow.
 
 A fragment in `changelog.d/` records the removal and the required dependency as a breaking
@@ -402,8 +400,8 @@ recorded as the maintainer's decision.
 
 - A script that names `numba_cpu` fails with a message that says what to use. Its output
   files still load.
-- `pip install "solprop[native]"` goes on working, since the extra stays for the workspace
-  (§6.7).
+- The `native` extra goes. Installers ignore an unknown extra with a warning, so
+  `pip install "solprop[native]"` should still install solprop and native.
 - Each solprop release now requires its native wheels, including for a change that touches
   only Python, because of the exact pin. They are already released together (SEP 29).
 - Validated results are unaffected: `numba_cpu` was never the reference.
@@ -465,7 +463,7 @@ Whether phase 3 merges before or after the 0.2 cut is the maintainer's call. 0.2
 to be the last release with `numba_cpu`. The required dependency lands with the removal and not
 before, since until then `numba_cpu` is still the fallback. A plain install on Windows on Arm
 therefore has neither pyFFTW nor native until phase 3, and `auto` picks `numba_cpu` and fails
-with an `ImportError`. Installing `solprop[native]` avoids that.
+with an `ImportError`. Installing `solprop[native]` avoids that until the extra goes.
 
 ### 12. Open questions
 
@@ -483,21 +481,14 @@ with an `ImportError`. Installing `solprop[native]` avoids that.
   | Single precision away from Apple silicon | `numpy_ref`; native refuses it and `mlx` needs Apple silicon |
   | The general route's delayed response beyond six terms on three components | `numpy_ref` only (Part II) |
 
-- **Q4. What a contributor's plain environment holds.** This concerns a repository checkout
-  only: users install from PyPI and get the wheel. A plain `uv sync` can't install a wheel,
-  because a checkout's version has none on PyPI and a released wheel isn't the matching pair.
-  Recommended: the workspace override of §6.7. A plain `uv sync` then holds no native package and
-  needs no compiler on any platform, including Windows, for which the build guide has no
-  instructions. `poe fetch-wheel` adds CI's wheel for the commit, and `uv sync --extra native`
-  builds. The alternative is a plain `uv sync` that builds native, which matches an installed
-  environment and adds a compiler and a build to every first sync and every lane. To settle
-  before phase 3.
-- **Q5. Source builds beside the exact pin.** A GPU or local build is a source build at solprop's
-  version. Reinstalling or upgrading at that version keeps it; a new release replaces it with
-  that release's CPU wheel, with no message (Part II). The results stay correct, but the run moves
-  to the CPU. Python has no finished standard for this: Wheel Variants (PEP 817) is still a draft.
-  Recommended: source builds carry a PEP 440 local label (`0.3.0+cuda`), which satisfies the pin
-  and shows in `pip list`; `building-native.md` says that upgrading a source build means
+- **Q4. What `uv sync` does in a checkout. Settled 2026-11-02:** it compiles native. Anyone in a
+  checkout is developing, and users install wheels from PyPI (§6.7).
+- **Q5. Source builds beside the exact pin. Settled 2026-11-02.** A GPU or local build is a source
+  build at solprop's version. Reinstalling or upgrading at that version keeps it; a new release
+  replaces it with that release's CPU wheel, with no message (Part II). The results stay correct,
+  but the run moves to the CPU. Python has no finished standard for this: Wheel Variants (PEP 817)
+  is still a draft. So source builds carry a PEP 440 local label (`0.3.0+cuda`), which satisfies
+  the pin and shows in `pip list`; `building-native.md` says that upgrading a source build means
   rebuilding it from the new tag; and an optional setting makes a run refuse a CPU-only build, for
   GPU environments that want the guarantee. GPU wheels ([#317][317]) remain out of scope.
 
@@ -609,16 +600,15 @@ Issues and pull requests of the solprop repository:
   Without the fallback wheel, pip reports "No matching distribution found", and uv that the
   requirements are unsatisfiable, with a hint listing the platforms that have wheels.
 
-  In a trial of the workspace from `main` with `solprop-native` added to `dependencies`: a plain
-  `uv sync` would install it from `native/`. `--no-install-package solprop-native` skips it, and
-  `import solprop` then works. A later plain `uv run` still tries to build it, which failed on
-  this machine without the build toolchain in its environment. `UV_NO_SYNC=1` avoids that, and a
-  `no-install-package` key in `[tool.uv]` had no effect. With the override of §6.7, a plain
-  `uv sync` lists no native package, `uv sync --extra native` lists it, and the built wheel's
-  metadata keeps `Requires-Dist: solprop-native`. A plain `uv run` built nothing with an
-  impossible marker in the override, the same mechanism; it wasn't run separately with the
-  `extra` form. Pinning the required dependency in `hatch_build.py` wasn't tried: hatch doesn't
-  allow a field to be both listed statically and marked dynamic, so the list may have to move.
+  In a trial of the workspace from `main` with `solprop-native` added to `dependencies`, on the
+  Xeon Gold 6240 with GCC 16.2: a first plain `uv sync` in a fresh worktree built native in 104 s at
+  12 jobs, against FFTW and OpenBLAS already built on the machine; a second took under a second;
+  and `uv run` then used it, with `auto` resolving to `native`. Without the toolchain in its
+  environment, the sync stopped at CMake's message naming the compiler. After a sync with
+  `--no-install-package solprop-native`, a plain `uv run` tried to build it, `UV_NO_SYNC=1` avoided
+  that, and `uv sync` ignored `UV_NO_SYNC`. Pinning the required dependency in `hatch_build.py`
+  wasn't tried: hatch doesn't allow a field to be both listed statically and marked dynamic, so the
+  list may have to move.
 - **Source builds beside the pin, a design probe (2026-11-02):** fake wheels again, pip 26.2.2 and
   uv 0.12.7, with the installed build standing for a GPU build:
 
@@ -645,4 +635,5 @@ Issues and pull requests of the solprop repository:
   without it is unsupported and refuses with a request to report it, `numpy_ref` is a
   development tool and `mlx` stays a special backend. §6.7, §8 and Q3 to Q5 added. Q3 then
   settled: features that run only on `numpy_ref` stay there, and every supported install has
-  native.
+  native. Q4 and Q5 then settled: a plain `uv sync` in a checkout compiles native, and source builds
+  are labelled, rebuilt on upgrade and can opt into refusing a CPU-only build.
