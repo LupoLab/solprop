@@ -7,8 +7,8 @@
 | **Author** | John C. Travers |
 | **Drafting agent** | Claude Opus 5.5 (2026-11-02) |
 | **Status** | Draft |
-| **Review status** | Not reviewed |
-| **Reviewers** | — |
+| **Review status** | In review |
+| **Reviewers** | GPT-6 (AI) |
 | **Type** | Change |
 | **Created** | 2026-11-02 |
 | **Resolution** | — |
@@ -637,3 +637,335 @@ Issues and pull requests of the solprop repository:
   settled: features that run only on `numpy_ref` stay there, and every supported install has
   native. Q4 and Q5 then settled: a plain `uv sync` in a checkout compiles native, and source builds
   are labelled, rebuilt on upgrade and can opt into refusing a CPU-only build.
+
+### AI review — 2026-11-02
+
+**Reviewer:** GPT-6 (AI). Reviewed the whole proposal at
+[`023a5351`](https://github.com/LupoLab/solprop/commit/023a53519fc4ee9033e334cb792ad8ea4e29ccca),
+including Q1–Q5, against the architecture, conventions, SEP 0, SEP 25, SEP 29,
+the registry and simulation entry points, shared helpers, packaging and workflows,
+and representative tests. Related work read includes
+[#395](https://github.com/LupoLab/solprop/pull/395),
+[#398](https://github.com/LupoLab/solprop/pull/398),
+[#399](https://github.com/LupoLab/solprop/pull/399) and the issues linked below.
+This is a review, not acceptance or an implementation report. Part I and Part II
+have not been edited; only the review metadata and this subsection were added.
+
+**Assessment.** I support retiring `numba_cpu`. Removing a second compiled CPU
+implementation reduces the cost of every future seam change, and the reference/native
+pair is a sound long-term architecture. Two x86 builds preserve performance on newer
+processors without making older ones pay for a source build. The lack of an announced
+user base is a reasonable reason to shorten deprecation, provided the final release
+and migration guarantees are explicit. I would not make retaining Numba the remedy
+for the questions below.
+
+I also support native in the ordinary installation and a refusal instead of an
+automatic slow fallback. However, retiring Numba, limiting the support matrix,
+publishing a refusal-only wheel, and compiling native for every contributor are
+separate decisions. The last two introduce maintenance and usability costs that the
+speed measurements do not answer. My principal recommendations are to preserve a
+clearly documented role for reference-only science, reconsider the refusal-only
+wheel, and make the packaging and qualification contracts precise before acceptance.
+
+**Evidence and limits.** The code and workflow review is read-only. Small local
+probes checked version matching, wheel replacement and the CPU selector; their
+results are recorded with the relevant items. No native wheel, GPU build, long
+propagation or timing series was rebuilt or rerun for this review. The spike's
+numbers are evidence reported by its author, not independently reproduced here.
+The external sources checked were the official Python, PyPA, pip, uv, nanobind and
+OpenBLAS documentation. The review's probes used CPython 3.14.5; the wheel probe
+used uv 0.13.6, not pip. All R items below remain open for the author/maintainer to
+answer in a separate response, as SEP 0 requires. High priority means a contract or gate
+to settle before acceptance; medium priority may be explicitly assigned to a phase.
+
+1. **R1 — High: define support and automatic selection together (§5, §6.7, §8,
+   Q1–Q3).** The unconditional statements that `auto` picks native and refuses
+   without it conflict with retaining today's TDSE behaviour: `_tdse_entry` in
+   `driver/simulation.py` changes `auto` to `numpy_ref` before the registry sees it.
+   There is a second exception: `_single_backend` selects `mlx` for single precision
+   when available. Neither case is an accidental fallback. Conversely, CF4 and the
+   larger general delayed response need an explicit reference choice.
+
+   **Recommendation/question:** write one selection table covering ordinary double
+   precision, TDSE, single precision, explicit reference and explicit MLX, with a
+   real native wheel, the stub, and no native package. Is native installation merely
+   the supported packaging policy, or must every TDSE/MLX/reference run prove that
+   native could execute on this machine? I recommend the former, with the two
+   existing `auto` exceptions stated explicitly and the development escape hatch
+   kept. Do not load a CPU or GPU runtime just to enforce an installation policy.
+   Describe `numpy_ref` as the reference and the supported executor for the listed
+   exceptions, rather than implying that TDSE science is now an unsupported
+   development activity. Also preserve the rule that future features need native
+   parity or an explicit accepted exception; Q3 should not become a general waiver.
+
+2. **R2 — High: the refusal-only wheel needs an installed-state contract, or should
+   be deferred (§6.7, §7, Q2).** Wheel preference only answers a fresh resolution.
+   In a disposable local-index probe, I installed a pure-Python stub at version 1.0,
+   then added a compatible platform wheel at the same version. `uv pip install
+   --upgrade` left the stub installed; `--reinstall` selected the platform wheel.
+   This models a partial mirror, a newly added wheel, or a system whose compatibility
+   changes. The package manager sees a satisfied version, not an unavailable backend.
+   A local label helps identify a source build, but does not solve stub recovery.
+   The [pip install reference](https://pip.pypa.io/en/stable/cli/pip_install/)
+   likewise distinguishes upgrade from forced reinstallation; pip was not probed here.
+
+   **Recommendation/question:** is a nicer first-run error worth a permanent second
+   meaning of “solprop-native is installed”? My preference is to defer the stub,
+   keep the required real dependency and document resolver failures, while providing
+   a deliberate lightweight setup for development/result reading. If the stub stays,
+   specify and test fresh install, same-version recovery, upgrade, source-build
+   replacement, a partial wheel index, and normal project lock/sync with pip and uv.
+   Give the stub and platform wheels consistent dependency metadata, a stable
+   non-importing capability marker, and an exact recovery command. `available()`
+   and diagnostic tools must not report the stub as an executable backend.
+
+3. **R3 — High: cached ancestor wheels and the exact version pin do not yet form a
+   coherent contributor workflow (§6.5, §6.7, Q4–Q5).** CI keys its wheel cache on
+   native sources; `fetch-wheel` in #398 selects an ancestor artifact and warns if
+   native changed. A Python-only commit still changes the VCS-derived package
+   version, so that ancestor wheel does not satisfy the new required exact pin.
+   A local version label in the requirement is also matched exactly: the probe
+   accepted `0.3.0+cuda` for `==0.3.0`, but rejected a different development version
+   and a `.cuda` suffix added to an already locally labelled development pin.
+   This follows [PyPA's version-matching rules](https://packaging.python.org/en/latest/specifications/version-specifiers/#version-matching).
+   Skipping synchronization avoids a rebuild; it does not make mismatched metadata
+   consistent. Furthermore, `native/` being unchanged alone does not certify the
+   current Python adapter contract or the seam it consumes.
+
+   **Recommendation/question:** define an explicit development exception, or require
+   an artifact compatible with the current version and contract. Test a Python-only
+   commit, a seam change, a native change, a dirty checkout, and an expired artifact.
+   Specify what subsequent `uv run`, `uv sync` and a dependency check do. Reject an
+   incompatible artifact rather than merely warning; retain its true build identity.
+   Do not relabel an old binary to pretend it was built from the current commit.
+   Exercise the real metadata hook, wheel and sdist, since Part II says the dynamic
+   dependency metadata was not tried. Document how a released source build and a
+   development build each receive their labels.
+
+4. **R4 — High: turn Q5's GPU safeguard into a specified interface (§5, §7, Q5).**
+   “An optional setting” does not yet tell an implementer what must be checked or a
+   user how to protect a GPU job. An upgrade replacing a CUDA/HIP build with the CPU
+   wheel can turn a short allocation into a much longer one; correct fields alone
+   do not preserve the user's execution request. The CPU-only second environment
+   in §9 is also a real workflow cost, since a GPU build and the CPU build do not
+   have identical admission limits (for example
+   [#363](https://github.com/LupoLab/solprop/issues/363)).
+
+   **Recommendation/question:** name the setting, its accepted values and precedence,
+   and require checking the actual build's execution space before allocating or
+   propagating. A version suffix is provenance, not evidence of a usable GPU.
+   State whether a missing device, the wrong device backend and an explicit
+   `numpy_ref` run are refused. I favour an opt-in execution requirement, enabled
+   in the documented GPU environment/job recipe, over changing every CPU user's
+   default. Add real labelled-build install/upgrade tests to §7; the fake-wheel
+   resolver probe does not test the SCM label or runtime guard.
+
+5. **R5 — High: replace step-count equality with numerical acceptance criteria
+   (§4, §7, Part II accuracy discussion).** “Same step counts” cannot establish no
+   regression: equal counts can hide wrong fields, and harmless rounding can change
+   adaptive decisions. Requiring the same step sequence across v2/v3 or interpreters
+   conflicts with SEP 25. “About 1e-10” also leaves the norm, normalization, zero
+   handling and whether it is a rounding or accuracy claim unspecified. A similar
+   difference between two ABI builds demonstrates variability, not that either
+   result is sufficiently accurate.
+
+   **Recommendation/question:** use matched discrete computations for predeclared
+   rounding budgets, and adaptive runs against a tighter/stored converged reference
+   for per-case accuracy envelopes. Define the field and observable metrics and
+   their units before comparison. Keep actual work counts as diagnostics and exact
+   accounting, not an equality gate. Give performance its own measured criterion;
+   the final tracking comparison needs times, spread and construction cost as well
+   as step counts. Existing spike results can remain exploratory evidence, with
+   any unexplained excess identified as an open qualification item.
+
+6. **R6 — High: retire test implementations only after mapping their obligations
+   (§6.4, §7, phase 2).** A `test_numba_*` filename does not establish that its
+   numerical witness is disposable. For example, `test_numba_band_bounds.py`
+   contains an operand-based absolute plasma error budget, including cancellation
+   and pre-ionisation; several other modules cover hard-mask zeros, reductions and
+   thread-sensitive invariants. Some may already have native equivalents, but the
+   proposal gives no mapping. A high Python coverage percentage cannot identify a
+   lost stress input or independent bound.
+
+   **Recommendation/question:** make phase 2 deliver a compact inventory: each
+   retiring test family/witness maps to a surviving reference/native test or has a
+   reason that it exercises only a deleted implementation. Preserve scientific
+   invariants, pathological inputs and independently derived bounds, while dropping
+   Numba cache/dispatcher mechanics. Retargeting all comparisons mechanically to
+   `numpy_ref` must not turn one into a comparison of an implementation with itself.
+   Keep historical convergence and benchmark readers able to read retired names.
+
+7. **R7 — High: qualify the wheel as the only production path, including absence
+   and unexpected skips (§6.5, §7, §9).**
+   [#313](https://github.com/LupoLab/solprop/issues/313) records unqualified minimum
+   systems and native tests that may silently skip. The spike's failure attribution
+   is useful, but an empty `pyfftw` and `-k "not numba"` are not the final supported
+   install. Removing the alternative makes a packaging/runtime failure a complete
+   production outage on that platform.
+
+   **Recommendation/question:** make removal conditional on the final default suite
+   on all five wheel platforms without the rehearsal filters, forced v2 where
+   applicable, the planned slow lanes, no unexpected native
+   skips, and fresh outside-checkout installs that actually propagate. Include a
+   small compiler-free smoke run at each declared minimum OS, or explicitly narrow
+   the support claim and assign the remaining qualification to #313. Treat a stub,
+   an absent package, a below-floor CPU and a broken shared-library load as distinct
+   cases; do not convert arbitrary import failures into “unsupported platform”.
+   Importing, reading a saved result and running the reference by name must be
+   exercised in the final no-native/stub environments, not just `import solprop`.
+
+8. **R8 — High: certify the whole binary's CPU floor and fail safely when probing
+   fails (§6.1–6.2, §7).** A direct probe of this revision's `_cpu.py`, with v3/v2
+   records and an absent Linux cpuinfo file, returned no baseline shortfall and
+   selected `_core` (v3). On a lower processor that can reach an illegal instruction
+   instead of the promised refusal. This existing selector path is now tracked in
+   [#443](https://github.com/LupoLab/solprop/issues/443); no native execution was
+   performed in this review. Also, a generic Armv8-A core does not alone
+   prove the Windows Arm wheel needs no check: it statically links OpenBLAS built
+   with `TARGET=NEOVERSEN1`, `DYNAMIC_ARCH=OFF`. OpenBLAS's
+   [build documentation](https://www.openmathlib.org/OpenBLAS/docs/build_system/)
+   treats the target as a CPU architecture choice.
+
+   **Recommendation/question:** specify what happens when CPU capabilities cannot
+   be established; I recommend refusal before loading rather than assuming the
+   highest variant is safe. Add missing/malformed probe cases. For Windows Arm,
+   record the instruction requirements of the linked libraries and the minimum
+   admitted Windows hardware, then justify the absent check or add one/lower the
+   target. This review does not establish that the Arm wheel actually uses an
+   unsupported instruction; it identifies a missing whole-wheel justification.
+
+9. **R9 — Medium: distinguish Python coverage from assurance of the sole compiled
+   implementation (§6.4–6.5, §7).** Removing `bodies.py` and its interpreted coverage
+   pass shrinks the measured Python code while production execution moves further
+   into C++. [#324](https://github.com/LupoLab/solprop/issues/324) records that native
+   test-suite source coverage has not been measured. Keeping Python's 100 % is good,
+   but it does not answer which C++ capabilities the surviving tests reach.
+
+   **Recommendation/question:** retain the Python gate and native sanitizer/tests,
+   and commission one informational native coverage run over the migrated suite,
+   or explicitly defer that evidence to #324 with an owner/phase. No arbitrary C++
+   percentage is requested. The useful deliverable is an account of unexercised
+   capabilities and the surviving analytic/parity checks. Keep `numpy_ref` independent:
+   block imports of native, Numba and pyFFTW when testing its helper and run paths.
+   Native being a dependency must not make the oracle call the code it validates.
+
+10. **R10 — Medium: define the helper cost gate and retain its arithmetic contract
+    (§6.3, §6.8, phase 2).** `construction_s` is named as a gate without a case set,
+    baseline, allowable increase or treatment of measurement noise. Shared helpers
+    also serve stages, dense evaluation and the Python march. Native supplies its
+    own `Helpers`, but a construction-only measurement cannot establish that every
+    affected call is outside propagation. “No kernel changes” does not remove the
+    need to qualify changes to protected coefficient evaluation.
+
+    **Recommendation/question:** list which callers switch implementation and which
+    retain native helpers; time short table-heavy construction, host-march and
+    reference cases. Set an absolute/relative budget appropriate to each. Keep the
+    strict operation order of compensated sums, small-argument formulae and basis
+    construction. Any vectorization proposed after a failure needs its own
+    conditioning/rounding argument, not only a timing win. The oracle must remain
+    usable for validation even though its speed is not the production target.
+
+11. **R11 — Medium: specify migration beyond opening an old file (§5, §9, §7).**
+    “Old output and snapshots ... still load” does not settle continuing a run whose
+    recipe/settings name `numba_cpu`, restoring Adams history, replaying a schedule,
+    or reading a scan's historical execution metadata. These are distinct from
+    loading a field, particularly after SEP 41 and SEP 42. The backend setting is
+    mutable as an execution resource, so a deliberate override is plausible without
+    changing scientific provenance, but it needs a documented path and tests.
+
+    **Recommendation/question:** state whether old Numba runs are readable only or
+    resumable on native/reference, and show the explicit backend override. Test a
+    historical output, snapshot, recipe and short adaptive continuation, preserving
+    the original execution record and appending the new one. Use SEP 42's normal
+    compatibility checks and accuracy envelope; do not silently rewrite the backend
+    name or bypass those checks. If any continuation is intentionally unsupported,
+    document the refusal and the pinned-release recovery.
+
+12. **R12 — Medium: Q4 should distinguish native development from Python/docs
+    contribution (§6.5, §6.7, §8).** I agree a native developer should build the local
+    tree. “Anyone in a checkout is developing” does not imply that a documentation
+    author, a Python-only contributor or an offline researcher has a C++ toolchain,
+    FFTW/OpenBLAS and GitHub artifact access. The 104 s measurement had the libraries
+    prebuilt; it is not first-install cost. The checkout/network limitation is
+    already tracked by [#312](https://github.com/LupoLab/solprop/issues/312).
+
+    **Recommendation/question:** keep the default source build if desired, but make
+    a reliable lightweight contributor setup a first-class documented command,
+    rather than leaving it as two automation settings. Validate it with no compiler
+    and no native import, and explain its limits. Fix R3 before recommending
+    `fetch-wheel` as the alternative. State explicitly whether archive/offline
+    builds remain deferred to #312; required native increases their importance for
+    scientific reproducibility, although they need not block this retirement.
+
+13. **R13 — Medium: make phase completion, evidence and rollback current and
+    enforceable (§3, §7, §9, §11, Part II).** Part II says nothing has merged, but
+    #395 is merged and its code is in the reviewed tree. #398 has a full CI result
+    distinct from the spike, and #399 has a real 3.15 source-build result. The
+    proposal still treats all of this as one unmerged rehearsal. “Coverage holds,
+    or gaps are reported” also reads as permission to finish below the mandatory
+    gate, and the multiple-PR plan needs an explicit SEP 0 interpretation rather
+    than relying on a tooling exemption to cover all future phases.
+
+    **Recommendation/question:** record what is already delivered with commit/CI
+    links, which exact remaining PRs are prerequisites, and which measurements apply
+    to which artifact. Require all mandatory gates to pass before removal/Final;
+    reporting a failure is a phase report, not a substitute for passing. Keep
+    remaining implementation phases on the agreed branch unless a specific
+    standalone exception is recorded. Decide the last Numba release: “whether
+    phase 3 merges before or after 0.2” is ambiguous beside “0.2 is the last release
+    with Numba”. Pinning an existing release is an immediate rollback; reverting
+    source after publication requires a new tested release. Before Numba's last
+    release, retain enough qualification for it despite moving the CI lanes.
+
+14. **R14 — Medium: separate stable-ABI compatibility from Python support (§6.6,
+    §7, phase 4).** The ABI strategy is sensible and nanobind
+    [documents it](https://nanobind.readthedocs.io/en/latest/packaging.html).
+    An ABI audit and extension import do not qualify the Python adapter, solprop,
+    NumPy/SciPy/h5py and the TDSE provider together. Nor does `cp314-abi3` establish
+    free-threaded support: Python
+    [distinguishes the ABIs](https://docs.python.org/3/c-api/stable.html).
+
+    **Recommendation/question:** say explicitly that these are ordinary CPython
+    wheels, define the tested interpreter set and keep future-version compatibility
+    separate from a support promise. Include a short actual run on 3.15 on each
+    platform, plus the planned Linux suite without fake dependencies. Name whether
+    h5py source installation makes 3.15 provisionally supported or remains a
+    qualification lane. Keep this phase independent of removal if needed; do not
+    delay retiring Numba just to advertise another Python version.
+
+15. **R15 — Medium: retain external-library coexistence checks (§2, §6.4, §8).**
+    Removing pyFFTW from solprop's dependencies removes one common collision, but
+    another package in a notebook can still import it before native. The native
+    initializer currently refuses that order on macOS, as
+    [#315](https://github.com/LupoLab/solprop/issues/315) records. Removing every
+    pyFFTW-related test or suggesting that this problem has disappeared would lose
+    a still-relevant guard now that native is the standard path.
+
+    **Recommendation/question:** keep a dedicated coexistence environment with the
+    relevant external packages installed, while keeping production dependencies
+    Numba/pyFFTW-free. Preserve the documented refusal until safety is demonstrated,
+    update its retired-backend advice, and distinguish it from an unsupported CPU.
+    Also retain shared host BLAS/resource management: removing Numba does not remove
+    NumPy/SciPy construction or third-party thread pools.
+
+16. **R16 — Medium: qualify the reach and speed argument, and reconcile related
+    work (§2–3, §8–10).** The reported speed advantage is persuasive for the measured
+    configurations. It is not evidence about every route/platform: #316 itself
+    notes the busy Apple timings and points to
+    [#314](https://github.com/LupoLab/solprop/issues/314) for missing Windows,
+    aarch64 and scan comparisons. Likewise, solprop not being distributed on
+    conda-forge does not itself prevent installing its Python package into an
+    environment containing conda-forge Numba/pyFFTW. Dropping those systems may
+    still be the right support decision; it should be described as a choice.
+
+    **Recommendation/question:** retain the decision to retire, but bound the claims
+    to the measurements and distinguish unavailable wheels from unsupported use.
+    Say “no known users” if that is the evidence, rather than inferring zero users
+    from no announcement. Audit open work that still names Numba: close only work
+    specific to the retired implementation, retain shared physics/performance
+    obligations, and link the existing reference-only gaps such as
+    [#304](https://github.com/LupoLab/solprop/issues/304). I would keep established
+    introductory examples using `auto` where they teach no backend-specific feature;
+    reserve explicit native selection for examples that need its capabilities or
+    performance. This reduces future documentation churn without reintroducing a
+    fallback.
