@@ -40,7 +40,9 @@ dependencies = [
     "h5py>=3.15",
     # 0.67: the first release that supports NumPy 2.5.
     "numba>=0.67",
-    "pyfftw>=0.15.1",
+    # numba_cpu's transforms; pyFFTW publishes no Windows on Arm wheel, and there
+    # backend="auto" means the native backend.
+    "pyfftw>=0.15.1; sys_platform != 'win32' or platform_machine != 'ARM64'",
     # Every built-in material model (SEP 3): gases with their equation of state and
     # transport, solids, Raman responses and ionisation rates.
     "optmat[gas]>=0.9.1",

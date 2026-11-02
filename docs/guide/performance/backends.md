@@ -34,7 +34,7 @@ With the native backend installed, `"auto"` **never falls back** but in one case
 cannot import, fails its compatibility check or refuses the problem, the
 error is raised, naming what was refused, and you choose another backend explicitly.
 The one exception is a processor below the installed native build's CPU baseline (an
-x86-64 processor without AVX2 under a wheel, for example; see
+x86-64 processor without SSE4.2 under a wheel, for example; see
 [installation](../../introduction/installation.md)): there `"auto"` chooses `"numba_cpu"`,
 with the same warning naming the missing features. `backend="native"` raises instead.
 

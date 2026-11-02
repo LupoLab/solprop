@@ -22,17 +22,23 @@ also runs by hand.
 
 ## The wheels
 
-| | Linux x86-64 | Linux aarch64 | macOS arm64 | Windows x64 |
-|---|---|---|---|---|
-| CI runner | `ubuntu-24.04` | `ubuntu-24.04-arm` | `macos-15` | `windows-2025` |
-| build environment | `manylinux_2_28` container, GCC 14 | `manylinux_2_28` container, GCC 14 | Homebrew's Clang, deployment target 14.0 (macOS Sonoma) | Clang on the MSVC ABI (MSVC STL and CRT, `/MD`) |
-| CPU baseline | x86-64-v3 | Neoverse N1 | Apple M1 | x86-64-v3 |
-| host execution space | Kokkos OpenMP | Kokkos OpenMP | Kokkos OpenMP | Kokkos OpenMP |
-| OpenMP runtime | GCC's `libgomp` | GCC's `libgomp` | LLVM `libomp`, built for the target | LLVM `libomp` from the LLVM installation |
-| BLAS | OpenBLAS 0.3.34, OpenMP, `DYNAMIC_ARCH`, `solprop_` prefix (built by the configure step) | the same | Accelerate | OpenBLAS 0.3.34, OpenMP, one fixed Haswell target (no `DYNAMIC_ARCH`), static |
-| FFTW 3.3.11 | shared, SSE2 and AVX codelets | shared, cycle counter, NEON codelets | shared, cycle counter, NEON codelets | static, SSE2 and AVX codelets |
-| vector maths (ADR-059) | SLEEF 3.9.0, AVX2, static | the system libm | the system libm | SLEEF 3.9.0, AVX2, static |
-| repair | `auditwheel` | `auditwheel` | `delocate` | `delvewheel` (mangled names) |
+| | Linux x86-64 | Linux aarch64 | macOS arm64 | Windows x64 | Windows Arm |
+|---|---|---|---|---|---|
+| CI runner | `ubuntu-24.04` | `ubuntu-24.04-arm` | `macos-15` | `windows-2025` | `windows-11-arm` |
+| build environment | `manylinux_2_28` container, GCC 14 | `manylinux_2_28` container, GCC 14 | Homebrew's Clang, deployment target 14.0 (macOS Sonoma) | Clang on the MSVC ABI (MSVC STL and CRT, `/MD`) | the same |
+| CPU baseline | x86-64-v3 and x86-64-v2 | Neoverse N1 | Apple M1 | x86-64-v3 and x86-64-v2 | Armv8-A, the compiler's default |
+| host execution space | Kokkos OpenMP | Kokkos OpenMP | Kokkos OpenMP | Kokkos OpenMP | Kokkos OpenMP |
+| OpenMP runtime | GCC's `libgomp` | GCC's `libgomp` | LLVM `libomp`, built for the target | LLVM `libomp` from the LLVM installation | the same |
+| BLAS | OpenBLAS 0.3.34, OpenMP, `DYNAMIC_ARCH`, `solprop_` prefix (built by the configure step) | the same | Accelerate | OpenBLAS 0.3.34, OpenMP, one fixed target per build (Haswell, Nehalem; no `DYNAMIC_ARCH`), static | OpenBLAS 0.3.34, OpenMP, Neoverse N1 target, static |
+| FFTW 3.3.11 | shared, SSE2 and AVX codelets | shared, cycle counter, NEON codelets | shared, cycle counter, NEON codelets | static, SSE2 and AVX codelets | static, cycle counter, NEON codelets |
+| vector maths (ADR-059) | SLEEF 3.9.0, static, AVX2 in the v3 build and SSE2 in the v2 | the system libm | the system libm | SLEEF 3.9.0, static, AVX2 in the v3 build and SSE2 in the v2 | the system libm |
+| repair | `auditwheel` | `auditwheel` | `delocate` | `delvewheel` (mangled names) | `delvewheel` (mangled names) |
+
+An x86-64 wheel holds two extensions, `_core` at x86-64-v3 and `_core_v2` at x86-64-v2, and
+the package loads the best one the processor runs (`solprop_native/_cpu.py`). The setting
+`SOLPROP_NATIVE_CPU_VARIANT=x86-64-v2` asks for the lower one. `native/ci/build_variant.py`
+builds the second before the wheel and `native/ci/merge_variant.py` adds it before the
+repair, which then treats both alike. On Linux both link one OpenBLAS.
 
 Every bundled library runs on the same OpenMP runtime as Kokkos, so a process holds one
 thread pool for the backend. The wheel carries the licence text of every library compiled
@@ -63,8 +69,8 @@ target, CMake arguments and `delocate` check.
 uvx cibuildwheel --platform linux --output-dir wheelhouse native
 ```
 
-**Windows x64**, from a Visual Studio developer prompt (the x64 MSVC tools and SDK in
-the environment), with LLVM, CMake and Ninja installed:
+**Windows x64 or on Arm**, from a Visual Studio developer prompt (that architecture's
+MSVC tools and SDK in the environment), with LLVM, CMake and Ninja installed:
 
 ```sh
 uvx cibuildwheel --platform windows --output-dir wheelhouse native
@@ -88,13 +94,16 @@ checkout and run, in order:
    pool started, and a short propagation run on the native backend, on `numba_cpu` and on
    the native backend again in the same process;
 4. `uv run --no-sync poe test` with `SOLPROP_TEST_BACKEND=native`: solprop's default
-   lane on the native backend.
+   lane on the native backend. It runs a second time on Linux and on Windows x64 with the
+   x86-64-v2 build forced. On Windows on Arm the test job does not run yet, since the suite
+   imports `numba_cpu` and pyFFTW has no wheel there (SEP 43); the build job's smoke test
+   qualifies that wheel.
 
 On Linux x86-64, the `cpu-floor` job runs the wheel under Intel's Software Development
-Emulator: the smoke test on a Haswell (x86-64-v3); a refusal before any native code runs
-on a Nehalem (x86-64-v2, no AVX) and a Sandy Bridge (AVX without AVX2, FMA or BMI), naming
-the missing features; and, on the Sandy Bridge, `backend="auto"` resolving to
-`numba_cpu` with its one warning. It runs when the repository variables `SDE_URL` and
+Emulator: the smoke test on a Haswell, which loads the x86-64-v3 build; a Nehalem (no AVX)
+and a Sandy Bridge (AVX without AVX2, FMA or BMI), which load the x86-64-v2 build, with
+`backend="auto"` resolving to `native` and no warning; and a refusal before any native code
+runs on a Penryn (no SSE4.2). It runs when the repository variables `SDE_URL` and
 `SDE_SHA256` name an SDE release. The other platforms' checks (Windows through
 `IsProcessorFeaturePresent`, Linux aarch64 through `/proc/cpuinfo`'s `Features`) are
 unit-tested with stand-in processors in `native/tests/test_cpu_baseline.py`; no CI job

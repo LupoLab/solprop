@@ -24,9 +24,10 @@ pip install "solprop[native]"
 ```
 
 installs the precompiled wheel on macOS on Apple silicon (osx-arm64), Linux on x86-64
-(linux-64), Linux on aarch64 (linux-aarch64) and Windows on x86-64 (win-64); the x86-64
-wheels need an x86-64-v3 processor (AVX2: Intel Haswell or AMD Excavator and newer), the
-aarch64 wheel a Neoverse N1 or newer. Elsewhere,
+(linux-64), Linux on aarch64 (linux-aarch64), Windows on x86-64 (win-64) and Windows on Arm
+(win-arm64); the x86-64 wheels need an x86-64-v2 processor (Intel Nehalem or AMD Bulldozer
+and newer) and run faster on x86-64-v3 (AVX2), the aarch64 wheel needs a Neoverse N1 or
+newer. Elsewhere,
 and for NVIDIA (CUDA) or AMD (HIP) GPUs, build it from source. The documentation
 covers both:
 

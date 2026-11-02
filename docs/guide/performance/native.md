@@ -77,9 +77,9 @@ pip install "solprop[native]"
 ```
 
 Precompiled wheels serve macOS on Apple silicon (osx-arm64), Linux on x86-64 (linux-64),
-Linux on aarch64 (linux-aarch64) and Windows on x86-64 (win-64). They are the
-**distribution** build: compiled for a CPU baseline (x86-64-v3, any Apple silicon Mac,
-Neoverse N1; [processor requirements](../../introduction/installation.md)) and carrying a BLAS that shares the backend's threads. Elsewhere, and for
+Linux on aarch64 (linux-aarch64), Windows on x86-64 (win-64) and Windows on Arm
+(win-arm64). They are the **distribution** build: compiled for a CPU baseline (x86-64-v3
+with x86-64-v2 beside it, any Apple silicon Mac, Neoverse N1; [processor requirements](../../introduction/installation.md)) and carrying a BLAS that shares the backend's threads. Elsewhere, and for
 an NVIDIA or AMD GPU, build the package from source. A source build can also be the
 **local** profile, compiled for the machine that runs it with its own vendor BLAS, which
 is a few per cent faster than the wheel on the measured cases. A third profile,
