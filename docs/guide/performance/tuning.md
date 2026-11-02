@@ -428,7 +428,9 @@ run = prop_capillary(
     backend="native",
 )
 settings = run.metadata.backend.settings
-print({key: settings[key] for key in ("runtime_threads", "thread_count", "fftw_threads")})
+print(
+    {key: settings[key] for key in ("runtime_threads", "thread_count", "fftw_threads")}
+)
 ```
 
 The same record also carries `raman_fft_threads`, `blas_library` and the build profile;
