@@ -436,6 +436,10 @@ help = "The definition-of-done gate, in order."
 cmd = "bash native/scripts/check.sh"
 help = "The native package's gate (C++ and its Python adapter)."
 
+[tool.poe.tasks.fetch-wheel]
+cmd = "python native/scripts/fetch_wheel.py"
+help = "Install the native wheel CI built for this checkout; needs `gh`, and no compiler."
+
 [tool.poe.tasks.check-all]
 sequence = ["check", "check-native"]
 help = "The repository's whole gate: solprop's, then the native package's."
