@@ -2929,24 +2929,40 @@ def _crossing_clamped(
     return dz_max, min(dz_init, dz_max)
 
 
-def _split_crossing_clamped(
-    compiled: CompiledResponses,
-    linear: LinearOperator,
-    grid: TimeGrid,
-    bounds: tuple[float, float],
-    schedule: FixedSchedule | None,
-) -> tuple[float, float]:
-    """Return the step bounds held to the split temporal collar's crossing limit.
+@dataclass(frozen=True)
+class _SplitCrossing:
+    """The split temporal collar's crossing limit and what sets it.
+
+    Attributes
+    ----------
+    limit : float
+        The longest step, m.
+    width : float
+        The collar's width at its narrower edge, s.
+    rate : float
+        The fastest walk-off against the frame, s/m.
+    """
+
+    limit: float
+    width: float
+    rate: float
+
+
+def _split_crossing(
+    compiled: CompiledResponses, linear: LinearOperator, grid: TimeGrid
+) -> _SplitCrossing | None:
+    """Return the split temporal collar's crossing limit, or ``None`` without one.
 
     Under the ``"split_step"`` scheme the collar damps the state once per accepted
     step, so a step whose walk-off exceeds the collar's width can carry light through
     it and round the periodic window, undamped, where on a linear stretch the error
-    estimate sees nothing. No adaptive step walks more than
+    estimate sees nothing. No step may walk more than
     :data:`~solprop.boundaries.SPLIT_CROSSING` of the collar
     (:func:`~solprop.boundaries.split_crossing_step`, with the rate of
-    :func:`~solprop.translate.linop.walk_off_rate`), and a fixed schedule past that
-    limit is refused, as SEP 40 section 4.7 does for the transverse collar. The
-    in-stage scheme, and a run without a temporal collar, keep their bounds.
+    :func:`~solprop.translate.linop.walk_off_rate`): an adaptive run's ``dz_max`` is
+    held to it, and a fixed schedule past it refused (:func:`_refuse_split_crossing`),
+    as SEP 40 section 4.7 does for the transverse collar. The in-stage scheme, and a
+    run without a temporal collar, have no such limit.
 
     Parameters
     ----------
@@ -2956,44 +2972,81 @@ def _split_crossing_clamped(
         The linear operator, whose group delays walk.
     grid : solprop.grid.TimeGrid
         The grid, with the collar and the requested band.
-    bounds : tuple of float
-        The largest and the first step, m.
+
+    Returns
+    -------
+    _SplitCrossing or None
+        The limit, or ``None`` when none applies.
+    """
+    if compiled.absorber_scheme != "split_step" or compiled.temporal_absorber is None:
+        return None
+    # A nonzero temporal rate lies in a collar of nonzero width.
+    width = min(grid.t_collar.width_low, grid.t_collar.width_high)
+    rate = walk_off_rate(linear, grid.omega, grid.omega0, grid.inband_mask)
+    return _SplitCrossing(split_crossing_step(rate, width), width, rate)
+
+
+def _split_clamped(
+    crossing: _SplitCrossing | None,
+    schedule: FixedSchedule | None,
+    dz_max: float,
+    dz_init: float,
+) -> tuple[float, float]:
+    """Return an adaptive run's step bounds held to the split's crossing limit.
+
+    Parameters
+    ----------
+    crossing : _SplitCrossing or None
+        The limit (:func:`_split_crossing`).
     schedule : solprop.stepper.schedule.FixedSchedule or None
-        A fixed schedule to replay, or ``None`` for an adaptive run.
+        The schedule to replay, which keeps its bounds, or ``None``.
+    dz_max : float
+        The requested largest step, m.
+    dz_init : float
+        The requested first step, m.
 
     Returns
     -------
     tuple
         The largest step and the first step, m.
+    """
+    if crossing is None or schedule is not None:
+        return dz_max, dz_init
+    dz_max = min(dz_max, crossing.limit)
+    return dz_max, min(dz_init, dz_max)
+
+
+def _refuse_split_crossing(
+    crossing: _SplitCrossing | None, schedule: FixedSchedule | None
+) -> None:
+    """Refuse a fixed schedule whose longest step exceeds the split's crossing limit.
+
+    Parameters
+    ----------
+    crossing : _SplitCrossing or None
+        The limit (:func:`_split_crossing`).
+    schedule : solprop.stepper.schedule.FixedSchedule or None
+        The schedule to replay, or ``None`` for an adaptive run.
 
     Raises
     ------
     TranslationError
-        If the fixed schedule's longest step exceeds the limit.
+        Naming the limit, the collar's width and the rate.
     """
-    dz_max, dz_init = bounds
-    if compiled.absorber_scheme != "split_step" or compiled.temporal_absorber is None:
-        return dz_max, dz_init
-    width = min(grid.t_collar.width_low, grid.t_collar.width_high)
-    if not width > 0.0:
-        return dz_max, dz_init
-    rate = walk_off_rate(linear, grid.omega, grid.omega0, grid.inband_mask)
-    limit = split_crossing_step(rate, width)
-    if schedule is not None:
-        longest = float(np.max(schedule.steps))
-        if longest > limit:
-            msg = (
-                f"the fixed schedule's longest step {longest:.3e} m exceeds the split "
-                f"temporal collar's crossing limit {limit:.3e} m, {SPLIT_CROSSING:g} "
-                f"of the collar's {width:.3e} s width over the fastest walk-off "
-                f"{rate:.3e} s/m: a step that long could carry light through the "
-                "collar and round the window undamped. Take shorter steps, an "
-                'adaptive run, which the limit holds, or absorber_scheme="nonlinear"'
-            )
-            raise TranslationError(msg)
-        return dz_max, dz_init
-    dz_max = min(dz_max, limit)
-    return dz_max, min(dz_init, dz_max)
+    if crossing is None or schedule is None:
+        return
+    longest = float(np.max(schedule.steps))
+    if longest > crossing.limit:
+        msg = (
+            f"the fixed schedule's longest step {longest:.3e} m exceeds the split "
+            f"temporal collar's crossing limit {crossing.limit:.3e} m, "
+            f"{SPLIT_CROSSING:g} of the collar's {crossing.width:.3e} s width over "
+            f"the fastest walk-off {crossing.rate:.3e} s/m: a step that long could "
+            "carry light through the collar and round the window undamped. Take "
+            "shorter steps, an adaptive run, which the limit holds, or "
+            'absorber_scheme="nonlinear"'
+        )
+        raise TranslationError(msg)
 
 
 def _transverse_design(
@@ -6526,9 +6579,8 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
     dz_max, dz_init = _crossing_clamped(
         design, dz_max, dz_init, single=precision.single
     )
-    dz_max, dz_init = _split_crossing_clamped(
-        compiled, linear, grid, (dz_max, dz_init), schedule
-    )
+    crossing = _split_crossing(compiled, linear, grid)
+    dz_max, dz_init = _split_clamped(crossing, schedule, dz_max, dz_init)
     settings = _stepper_settings(
         linear,
         tableau=tableau,
@@ -6572,6 +6624,8 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
         transverse=design,
     )
     _validated(problem)
+    # After validation: a schedule the stability or transverse checks refuse names them.
+    _refuse_split_crossing(crossing, schedule)
     logger.debug(
         "kernel problem: %s grid, shape %s, %d Phi intervals (%.3f MB), %d save "
         "planes, %d hard kinks, flags %s",

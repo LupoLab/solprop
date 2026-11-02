@@ -58,6 +58,7 @@ from solprop.spatial import SpatialMedium
 from solprop.stepper.multistep import Multistep
 from solprop.stepper.runge_kutta import RungeKutta
 from solprop.stepper.schedule import FixedSchedule
+from solprop.translate.masks import AbsorberScheme
 
 LENGTH = 1.0
 TRANGE = 1e-12
@@ -222,7 +223,7 @@ def _split(
     return simulation
 
 
-def _radial_walker(backend: str, scheme: str, dz_max: float) -> Simulation:
+def _radial_walker(backend: str, scheme: AbsorberScheme, dz_max: float) -> Simulation:
     """Return a 1 pJ radial pulse at 1150 nm whose group delay walks out of 400 fs."""
     grid = FieldGrid.from_limits(1.0, 800e-9, (500e-9, 1.3e-6), 400e-15)
     return Simulation.from_radial(

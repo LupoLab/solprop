@@ -139,8 +139,9 @@ def test_the_scaled_suite_collar_is_the_full_case_s_design_scaled() -> None:
     assert float(np.max(geometry.absorber_rate)) == pytest.approx(
         design.alpha0, rel=1e-6
     )
-    # The crossing limit holds an adaptive run's longest step.
-    assert problem.stepper.dz_max == pytest.approx(design.crossing_step)
+    # The crossing limit holds an adaptive run's longest step; on this fine grid the
+    # split temporal collar's own crossing limit holds it shorter still.
+    assert problem.stepper.dz_max <= design.crossing_step
     assert design.crossing_step < LENGTH
 
 

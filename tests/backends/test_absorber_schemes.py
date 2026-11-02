@@ -223,7 +223,7 @@ def test_a_schedule_too_long_for_an_in_stage_collar_is_refused_before_the_run(gr
     only where the field is negligible and an enormous derivative on an empty bin
     scores nothing in the error norm. A replayed schedule cannot, so `assemble`
     refuses it, naming the limit; the split factor integrates the same term exactly
-    and has no such limit.
+    and has no such limit, but holds its steps to the collar's crossing limit instead.
     """
     rate = absorber(grid, boundary_N=BOUNDARY_N).temporal_rate
     limit = stable_step(rate)
@@ -231,11 +231,14 @@ def test_a_schedule_too_long_for_an_in_stage_collar_is_refused_before_the_run(gr
     too_few = max(int(LENGTH / limit) // 2, 1)
     with pytest.raises(TranslationError, match=f"only up to {limit:.3e} m"):
         biting_case(grid, "nonlinear", too_few)
-    # Steps inside the limit are accepted, and the same too-long schedule under the
-    # split factor is unconditionally stable; neither says anything.
+    # Steps inside the limit are accepted, and say nothing.
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         biting_case(grid, "nonlinear", math.ceil(LENGTH / limit))
+    # The split factor is unconditionally stable, but a step that walks past half its
+    # collar could carry light round the window undamped: the same schedule is refused
+    # by that limit, 7.1e-3 m here, rather than by stability.
+    with pytest.raises(TranslationError, match="crossing limit"):
         biting_case(grid, "split_step", too_few)
 
 
@@ -328,6 +331,9 @@ def test_a_collar_with_no_response_is_still_absorbed(grid, backend_class):
 
 BAND_LENGTH = 2e-3  # m
 BAND_STEPS = 5
+SOLITON_STEPS = 16
+"""Fixed steps of the envelope soliton under the split: within the collar's crossing
+limit, 7.1e-3 m, where five steps of its length are not."""
 
 
 def capillary_in_its_collar(scheme):
@@ -357,8 +363,8 @@ def capillary_in_its_collar(scheme):
 
 
 def soliton_in_its_collar(grid, scheme):
-    """The envelope soliton of :func:`biting_case`, on five fixed steps."""
-    return grid, biting_case(grid, scheme, BAND_STEPS), LENGTH
+    """The envelope soliton of :func:`biting_case`, on :data:`SOLITON_STEPS` steps."""
+    return grid, biting_case(grid, scheme, SOLITON_STEPS), LENGTH
 
 
 @pytest.mark.parametrize("kind", ["field", "envelope"])

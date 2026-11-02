@@ -33,7 +33,7 @@ from solprop.spatial import SpatialMedium
 from solprop.stepper.multistep import Multistep
 from solprop.stepper.runge_kutta import RungeKutta
 from solprop.stepper.schedule import FixedSchedule
-from solprop.translate.linop import walk_off_rate
+from solprop.translate.linop import constant_phi, walk_off_rate
 from solprop.translate.masks import AbsorberScheme
 
 BACKENDS = ["numpy_ref", "numba_cpu", "native"]
@@ -159,3 +159,10 @@ def test_a_fixed_schedule_within_the_limit_runs() -> None:
 
 def test_nothing_walking_sets_no_limit() -> None:
     assert math.isinf(split_crossing_step(0.0, 1e-13))
+
+
+def test_a_reference_at_the_axis_edge_reads_no_rate() -> None:
+    # No centred difference reaches it.
+    omega = np.linspace(1.0e15, 3.0e15, 11)
+    table = constant_phi(-1j * BETA2 * omega**2, 1.0)
+    assert walk_off_rate(table, omega, float(omega[0]), np.ones(11, dtype=bool)) == 0.0
