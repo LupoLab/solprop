@@ -383,9 +383,19 @@ from solprop.exceptions import MaterialRangeWarning
 with warnings.catch_warnings():
     warnings.simplefilter("ignore", MaterialRangeWarning)
     simulation = Simulation.from_capillary(
-        125e-6, 0.1, "He", 1.0, wavelength=800e-9,
-        wavelength_limits=(300e-9, 3e-6), trange=100e-15,
-        fwhm=10e-15, energy=5e-6, modes=3, plasma=False, n_r=16, n_save=2,
+        125e-6,
+        0.1,
+        "He",
+        1.0,
+        wavelength=800e-9,
+        wavelength_limits=(300e-9, 3e-6),
+        trange=100e-15,
+        fwhm=10e-15,
+        energy=5e-6,
+        modes=3,
+        plasma=False,
+        n_r=16,
+        n_save=2,
         launch={"HE1,1": 0.9, "HE1,2": {"share": 0.1, "phase": 1.57}},
     )
 simulation.configuration["modal_launch"]

@@ -45,6 +45,7 @@ __all__ = [
     "Pin",
     "PinStage",
     "design_target",
+    "placeholder",
     "read_pins",
     "solve_pin",
     "solve_pulse",
@@ -781,7 +782,6 @@ def _gamma(mode: "Mode", wavelength: float) -> float:  # noqa: UP037 - run time
     -------
     float
         ``gamma`` in rad/(W m).
-
     """
     from solprop.tools import _fill_n2, nonlinear_coefficient  # noqa: PLC0415
 
