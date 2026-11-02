@@ -6,12 +6,12 @@
 | **Title** | Retire `numba_cpu` |
 | **Author** | John C. Travers |
 | **Drafting agent** | Claude Opus 5.5 (2026-11-02) |
-| **Status** | Draft |
-| **Review status** | In review |
-| **Reviewers** | GPT-6 (AI) |
+| **Status** | Accepted |
+| **Review status** | Reviewed |
+| **Reviewers** | John C. Travers (human); GPT-6 (AI) |
 | **Type** | Change |
 | **Created** | 2026-11-02 |
-| **Resolution** | — |
+| **Resolution** | Accepted 2026-11-02 by John C. Travers, after the maintainer's human review, GPT-6's AI review and the response to it; [#393](https://github.com/LupoLab/solprop/pull/393) |
 | **Requires** | SEP 29 (compiled backend distribution; final) |
 | **Supersedes** | — |
 | **Superseded-by** | — |
@@ -910,6 +910,7 @@ lets the linked OpenBLAS use, and the lowest Windows hardware admitted.
   lightweight setup, `SOLPROP_REQUIRE_DEVICE`, numerical acceptance criteria, and §11's phases.
 - 2026-11-02: The maintainer settled how the processor is read on Linux: `/proc/cpuinfo`, then NumPy's
   features, then a refusal (§6.1, R8).
+- 2026-11-02: Accepted by John C. Travers. Part I is frozen.
 
 ### AI review — 2026-11-02
 

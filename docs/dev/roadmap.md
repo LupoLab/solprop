@@ -34,6 +34,11 @@ being implemented.
   identifies a new material contract. Ne/Xe, mixtures, mode-averaged and multimode
   routes, bound response and other geometries remain follow-up work; the first route is
   a single-mode capillary with node quadrature.
+- [SEP 43 — Retire `numba_cpu`](seps/sep-0043-retire-numba-cpu.md):
+  `numba_cpu`, `numba` and `pyfftw` go before 0.2, with no deprecation cycle, and
+  solprop-native becomes a required dependency, so solprop is supported where it installs.
+  `numpy_ref` stays the numerical reference and the executor of a listed set of features.
+  Documentation and CI lanes move to the wheel.
 
 ## Draft enhancement proposals
 
@@ -89,9 +94,3 @@ The [SEP index](seps/index.md) lists every proposal and its current status.
   subtraction, a weak-response limit and local temporal integration. Its ensemble,
   data and integration questions must be settled before acceptance; shared-level
   ladders, vector saturation and repeated-window histories remain future work.
-- [SEP 43 — Retire `numba_cpu`](seps/sep-0043-retire-numba-cpu.md):
-  native covers what only Numba reaches in practice, with an x86-64-v2 build in the Linux
-  and Windows wheels and a Windows on Arm wheel; documentation and CI lanes move to the
-  wheel; `numba_cpu`, `numba` and `pyfftw` go, with no deprecation cycle. One stable-ABI
-  wheel serves Python 3.14 and 3.15. Intel macOS, ppc64le and Arm below Neoverse N1 fall
-  back to `numpy_ref`.
