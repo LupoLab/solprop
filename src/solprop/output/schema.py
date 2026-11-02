@@ -42,6 +42,7 @@ compared as it was written.
 The manual page is ``docs/guide/results/output.md``.
 """
 
+import copy
 import dataclasses
 import functools
 import hashlib
@@ -137,17 +138,18 @@ _ELEMENT_INDICES = re.compile(r"(?:\[\d+\])+$")
 _ARRAY_PART = re.compile(r"\.__(?:ndarray|imaginary)__$")
 """The key of an array record's real or imaginary part, dropped from its stem."""
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 """Version of the saved-output layout; incremented when a stored field changes meaning.
 
 Schema 1 is the first released layout, 0.1.0's: the record types of this module, written
 by :class:`solprop.output.memory.MemoryOutput` and
 :class:`solprop.output.hdf5.HDF5Output` as ``docs/guide/results/output.md`` describes
-them. Schema 2 records ``DataPulse.spectral_phase``. A record that declares any other
-version is refused by name (:class:`RunMetadata`): files written by an earlier release
-or by development versions of solprop, which declared output schemas up to 28, are not
-read, and nor is a file from a later release. Read such a file with the solprop version
-that wrote it.
+them. Schema 2 records ``DataPulse.spectral_phase``, and schema 3 run-length encodes a
+Multistep run's predictor orders in its outcome (``CallLedger.to_record``). A record
+that declares any other version is refused by name (:class:`RunMetadata`): files
+written by an earlier release or by development versions of solprop, which declared
+output schemas up to 28, are not read, and nor is a file from a later release. Read
+such a file with the solprop version that wrote it.
 """
 
 INLINE_ARRAY_LIMIT = 2**20
@@ -1978,12 +1980,25 @@ class RunOutcome:
             raise OutputError(f"unknown run outcome {self.status!r}")
         if not np.isfinite(self.z) or self.z < 0:
             raise OutputError("run outcome z must be finite and nonnegative")
+        # One JSON round trip validates and copies every part: the record is built
+        # at every saved plane, and one per part and per amended copy, nine a plane,
+        # were about 5 % of a short capillary run on MemoryOutput.
+        owned = _outcome_record(
+            {
+                "logical_calls": dict(self.logical_calls),
+                "atomic_calls": dict(self.atomic_calls),
+                "execution": dict(self.execution),
+                "previous_executions": [
+                    dict(record) for record in self.previous_executions
+                ],
+            }
+        )
         for name in ("logical_calls", "atomic_calls", "execution"):
-            object.__setattr__(self, name, _outcome_record(getattr(self, name)))
+            object.__setattr__(self, name, owned[name])
         object.__setattr__(
             self,
             "previous_executions",
-            tuple(_outcome_record(record) for record in self.previous_executions),
+            tuple(cast("list[dict[str, object]]", owned["previous_executions"])),
         )
 
     @property
@@ -2034,6 +2049,40 @@ class RunOutcome:
             for entry in self.resumes
             if entry.get("forced")
         )
+
+
+def _amended_outcome(
+    outcome: RunOutcome,
+    *,
+    execution: Mapping[str, object] | None = None,
+    previous_executions: tuple[Mapping[str, object], ...] | None = None,
+) -> RunOutcome:
+    """Return a copy of an outcome with parts a store has already validated.
+
+    :func:`dataclasses.replace` would validate the whole record again; the store's
+    own parts -- its session's resume entry and its earlier closing records -- were
+    validated when it took them, so a saved plane validates its record once.
+
+    Parameters
+    ----------
+    outcome : RunOutcome
+        The validated outcome.
+    execution : collections.abc.Mapping or None, optional
+        Its execution record with the store's resume entry, owned by the store.
+    previous_executions : tuple of collections.abc.Mapping or None, optional
+        The store's closing records of earlier executions.
+
+    Returns
+    -------
+    RunOutcome
+        The amended copy; the parts not given are shared with `outcome`.
+    """
+    amended = copy.copy(outcome)
+    if execution is not None:
+        object.__setattr__(amended, "execution", execution)
+    if previous_executions is not None:
+        object.__setattr__(amended, "previous_executions", previous_executions)
+    return amended
 
 
 def _outcome_record(record: Mapping[str, object]) -> dict[str, object]:
@@ -3965,7 +4014,7 @@ class PlaneStore(Displayed, ABC):
         entry : collections.abc.Mapping
             The entry: finite JSON values.
         """
-        self._session_resume = dict(entry)
+        self._session_resume = _outcome_record(entry)
 
     def record_recipe(self, record: RecipeRecord) -> None:
         """Record the recipe the run was built from, unless one is recorded already.
@@ -4027,7 +4076,7 @@ class PlaneStore(Displayed, ABC):
         self._check_usable()
         self._require_metadata()
         if self._session_resume is not None:
-            outcome = dataclasses.replace(
+            outcome = _amended_outcome(
                 outcome, execution={**outcome.execution, "resume": self._session_resume}
             )
         previous = self._outcome
@@ -4039,7 +4088,7 @@ class PlaneStore(Displayed, ABC):
                 closing = dataclasses.asdict(previous)
                 closing.pop("previous_executions")
                 history = (*history, closing)
-            outcome = dataclasses.replace(outcome, previous_executions=history)
+            outcome = _amended_outcome(outcome, previous_executions=history)
         if checkpoint is not None:
             if checkpoint.plane.z != outcome.z:
                 raise OutputError("checkpoint and outcome positions must agree")

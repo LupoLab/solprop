@@ -132,7 +132,9 @@ class CallLedger:
     dense_observations : int
         Save planes observed by interpolation instead of a landing; none costs a call.
     orders : list of int
-        The predictor order of every accepted step.
+        The predictor order of every accepted step. Its record
+        (:meth:`to_record`) run-length encodes it, as ``[order, count]`` pairs: a
+        run's order settles, and the record is rewritten at every saved plane.
     """
 
     startup: int = 0
@@ -146,6 +148,33 @@ class CallLedger:
     dense_observations: int = 0
     orders: list[int] = field(default_factory=list)
 
+    def to_record(self) -> dict[str, object]:
+        """Return the ledger as its run record holds it, the orders run-length encoded.
+
+        Returns
+        -------
+        dict
+            Every counter by name, and ``orders`` as ``[order, count]`` pairs, in
+            step order, no two neighbours of the same order.
+
+        Examples
+        --------
+        >>> from solprop.backends.multistep import CallLedger
+        >>> CallLedger(accepted_steps=5, orders=[1, 2, 2, 3, 3]).to_record()["orders"]
+        [[1, 1], [2, 2], [3, 2]]
+        """
+        runs: list[list[int]] = []
+        for order in self.orders:
+            if runs and runs[-1][0] == order:
+                runs[-1][1] += 1
+            else:
+                runs.append([order, 1])
+        record: dict[str, object] = {
+            one.name: getattr(self, one.name) for one in fields(self)
+        }
+        record["orders"] = runs
+        return record
+
     @classmethod
     def from_record(cls, record: Mapping[str, object]) -> "CallLedger":  # noqa: UP037 - runtime hook
         """Restore validated cumulative counts without restoring numerical history.
@@ -153,31 +182,33 @@ class CallLedger:
         Parameters
         ----------
         record : mapping
-            Persisted counter fields and accepted predictor orders.
+            Persisted counter fields and accepted predictor orders, as
+            :meth:`to_record` writes them.
 
         Returns
         -------
         CallLedger
-            Independently owned counters.
+            Independently owned counters, the orders decoded step by step.
 
         Raises
         ------
         BackendError
-            If a counter is absent, unknown, negative or not an integer.
+            If a counter is absent, unknown, negative or not an integer, or an order
+            run is not a pair of positive integers.
+
+        Examples
+        --------
+        >>> from solprop.backends.multistep import CallLedger
+        >>> ledger = CallLedger(accepted_steps=3, orders=[1, 2, 2])
+        >>> CallLedger.from_record(ledger.to_record()) == ledger
+        True
         """
         if set(record) != {one.name for one in fields(cls)}:
             raise BackendError("logical call ledger fields do not match this schema")
         ledger = cls()
         for name, value in record.items():
             if name == "orders":
-                if not isinstance(value, list) or not all(
-                    isinstance(one, int) and not isinstance(one, bool) and one > 0
-                    for one in value
-                ):
-                    raise BackendError(
-                        "logical call ledger orders must be positive integers"
-                    )
-                ledger.orders = list(value)
+                ledger.orders = _decoded_orders(value)
             elif not isinstance(value, int) or isinstance(value, bool) or value < 0:
                 raise BackendError(f"invalid logical call counter {name}")
             else:
@@ -194,6 +225,40 @@ class CallLedger:
             Startup, predictor and corrected evaluations together.
         """
         return self.startup + self.predictor + self.corrected
+
+
+def _decoded_orders(runs: object) -> list[int]:
+    """Return the order of every accepted step from its run-length record.
+
+    Parameters
+    ----------
+    runs : object
+        The record's ``orders``: ``[order, count]`` pairs of positive integers.
+
+    Returns
+    -------
+    list of int
+        The orders, one per accepted step.
+
+    Raises
+    ------
+    BackendError
+        If ``runs`` is not a list of such pairs.
+    """
+    if not isinstance(runs, list) or not all(
+        isinstance(run, list)
+        and len(run) == 2
+        and all(
+            isinstance(one, int) and not isinstance(one, bool) and one > 0
+            for one in run
+        )
+        for run in runs
+    ):
+        raise BackendError(
+            "logical call ledger orders must be [order, count] pairs of positive "
+            "integers"
+        )
+    return [order for order, count in runs for _ in range(count)]
 
 
 @dataclass

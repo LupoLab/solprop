@@ -301,7 +301,7 @@ def test_ordinary_resume_without_outcome_restores_plane_and_starts_fresh_ledgers
             problem.initial.field0[..., problem.grids.active_mask],
         )
         assert np.all(observed.require_field()[..., ~problem.grids.active_mask] == 0)
-        assert backend.metadata()["response_calls"] == dataclasses.asdict(CallLedger())
+        assert backend.metadata()["response_calls"] == CallLedger().to_record()
     finally:
         backend.close()
 
@@ -463,7 +463,7 @@ def write_atomic_state(
         RunOutcome(
             "complete" if complete else "failed",
             z,
-            logical_calls=dataclasses.asdict(CallLedger(startup=1, predictor=1)),
+            logical_calls=CallLedger(startup=1, predictor=1).to_record(),
             atomic_calls={}
             if missing_ledger
             else dataclasses.asdict(AtomicCallLedger(4, 2, 0, 2, 0, 0)),
@@ -612,7 +612,7 @@ def test_a_logical_ledger_continues_under_another_integrator():
     )
     saved = SavedPlane(z=5e-6, field=simulation._field0)
     outcome = RunOutcome(
-        "failed", saved.z, logical_calls=dataclasses.asdict(CallLedger(startup=2))
+        "failed", saved.z, logical_calls=CallLedger(startup=2).to_record()
     )
     state = ResumeState(
         simulation.metadata(), saved, 1, StepHistory.empty(), outcome=outcome
@@ -634,7 +634,7 @@ def test_resume_rejects_incompatible_state_before_backend_allocation(case):
         message = "finite stored field"
     elif case == "cap":
         outcome = RunOutcome(
-            "failed", saved.z, logical_calls=dataclasses.asdict(CallLedger(startup=2))
+            "failed", saved.z, logical_calls=CallLedger(startup=2).to_record()
         )
         message = "below previously"
     else:

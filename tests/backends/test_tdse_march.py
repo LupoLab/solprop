@@ -5,6 +5,9 @@
 """Check transactional Adams/atomic budgets through a manufactured host binding."""
 
 import dataclasses
+import itertools
+import json
+from typing import cast
 
 import numpy as np
 import pytest
@@ -308,7 +311,7 @@ def test_reference_rk_restoration_requires_the_matching_response_path(
     problem = linear_problem(narrow_grid, save_planes=[1e-5], dz_init=1e-6)
     backend = NumpyRefBackend(problem, grid=narrow_grid)
     try:
-        logical = dataclasses.asdict(CallLedger()) if kind == "logical" else {}
+        logical = CallLedger().to_record() if kind == "logical" else {}
         atomic = (
             dataclasses.asdict(AtomicCallLedger(4, 0, 0, 0, 0, 0))
             if kind == "atomic"
@@ -328,9 +331,9 @@ def test_reference_rk_restoration_requires_the_matching_response_path(
 def test_backend_restores_atomic_charges_without_numerical_history(march_problem):
     """Resume owns a fresh Adams history and keeps every previously charged call."""
     backend, binding = opened_backend(march_problem, 8)
-    logical = dataclasses.asdict(
-        CallLedger(startup=1, predictor=1, accepted_steps=1, orders=[1])
-    )
+    logical = CallLedger(
+        startup=1, predictor=1, accepted_steps=1, orders=[1]
+    ).to_record()
     atomic = dataclasses.asdict(AtomicCallLedger(8, 4, 2, 2, 0, 0))
     initial = backend.observe().require_field().copy()
     try:
@@ -341,7 +344,7 @@ def test_backend_restores_atomic_charges_without_numerical_history(march_problem
         assert backend._adams._history == []
         assert backend._adams._order == 1
         assert_array_equal(backend.observe().require_field(), initial)
-        logical["orders"].append(3)
+        cast("list[list[int]]", logical["orders"]).append([3, 1])
         assert backend._adams.ledger.orders == [1]
     finally:
         backend.close()
@@ -350,7 +353,7 @@ def test_backend_restores_atomic_charges_without_numerical_history(march_problem
 @pytest.mark.parametrize("change", ["missing", "unknown"])
 def test_logical_ledger_schema_mismatch_is_refused(change):
     """An old or unrecognized record cannot silently discard cumulative charges."""
-    record = dataclasses.asdict(CallLedger())
+    record = CallLedger().to_record()
     if change == "missing":
         del record["startup"]
     else:
@@ -359,19 +362,49 @@ def test_logical_ledger_schema_mismatch_is_refused(change):
         CallLedger.from_record(record)
 
 
-@pytest.mark.parametrize("orders", [(1,), [0], [-1], [True], [1.5]])
+@pytest.mark.parametrize(
+    "orders",
+    [
+        ((1, 1),),
+        [1],
+        [[1]],
+        [[1, 1, 1]],
+        [(1, 1)],
+        [[0, 1]],
+        [[1, 0]],
+        [[-1, 1]],
+        [[True, 1]],
+        [[1, True]],
+        [[1.5, 1]],
+    ],
+)
 def test_logical_ledger_restoration_refuses_invalid_predictor_orders(orders):
-    """Persisted orders must be a list of positive integer orders, never booleans."""
-    record = dataclasses.asdict(CallLedger())
+    """Persisted orders are [order, count] pairs of positive integers, not booleans."""
+    record = CallLedger().to_record()
     record["orders"] = orders
-    with pytest.raises(BackendError, match="orders must be positive integers"):
+    with pytest.raises(BackendError, match=r"orders must be \[order, count\] pairs"):
         CallLedger.from_record(record)
+
+
+@pytest.mark.parametrize(
+    "orders", [[], [1], [1, 1, 1], [1, 2, 3, 4, 5, 5, 5, 4, 5], [3, 1, 3]]
+)
+def test_the_ledger_record_run_length_encodes_its_orders_losslessly(orders):
+    """The record holds one pair per run of equal orders and decodes step by step."""
+    ledger = CallLedger(accepted_steps=len(orders), orders=list(orders))
+    record = ledger.to_record()
+    runs = cast("list[list[int]]", record["orders"])
+    assert sum(count for _, count in runs) == len(orders)
+    assert all(a[0] != b[0] for a, b in itertools.pairwise(runs))
+    restored = CallLedger.from_record(json.loads(json.dumps(record)))
+    assert restored == ledger
+    assert restored.orders is not ledger.orders
 
 
 @pytest.mark.parametrize("count", [-1, True, 0.5])
 def test_logical_ledger_restoration_refuses_invalid_charged_counts(count):
     """A persisted charge is a nonnegative integer count."""
-    record = dataclasses.asdict(CallLedger())
+    record = CallLedger().to_record()
     record["startup"] = count
     with pytest.raises(BackendError, match="invalid logical call counter startup"):
         CallLedger.from_record(record)
