@@ -197,8 +197,10 @@ large run, for a scan of many runs and on a cluster.
   wrong order); see [Performance tuning](tuning.md#blas-and-vendor-libraries).
 - **Slower than expected.** Check `python -m solprop_native`: a `reference` profile, no
   vendor BLAS (`blas_backend` `none`) or a generic architecture (neither
-  `native_arch_enabled` nor a `cpu_baseline`) each cost a large factor. Then see
-  [Performance tuning](tuning.md).
+  `native_arch_enabled` nor a `cpu_baseline`) each cost a large factor. A `cpu_baseline`
+  of `x86-64-v2` runs about 20 to 25 % longer; if the processor should run x86-64-v3, a
+  virtual machine may be hiding a feature, and the `solprop_native._cpu` logger names it
+  at INFO when the package is imported. Then see [Performance tuning](tuning.md).
 
 The native backend's place in this repository, its parity with `numba_cpu` and its
 precompiled wheels were proposed and carried out by
