@@ -395,6 +395,12 @@ Issues and pull requests of the solprop repository:
   CPU minutes. Its 3 failures and 144 errors are from the copied tree having no git history
   and the node's allocation, and none comes from `numpy_ref`. That is too large for one more
   lane of every change, so `no-native` holds a few modules.
+- **What native doesn't reach** (found while rewriting the documentation in phase 3, from
+  reading the code, not by running each): the general route's delayed response is limited
+  to six terms on three components, beyond which a problem runs only on `numpy_ref`; Adams
+  beside a coupled flow falls back to the slower Python march above 16 channels or off the
+  eigenbasis route, with a `HostMarchWarning`; and native has no separate override for its
+  transverse FFT threads.
 - **Cost of v2** (the tracking set, 22 configurations, length 1.0, 3 rounds, fresh processes
   interleaved, 16 threads pinned to one socket; every configuration took the same steps):
 
