@@ -107,14 +107,41 @@ hollow planar run is **per unit width** in y, so its powers are in W/m and its e
 and densities per metre too; {py:func}`~solprop.processing.axes.transverse_units` reads
 which from the record, and the plots label accordingly.
 
-```{note}
-{py:func}`~solprop.processing.fields.get_power`,
-{py:func}`~solprop.processing.fields.get_spectral_density` and
-{py:func}`~solprop.processing.time.energy` read a radial, Cartesian or planar file as if it
-were modal instead of refusing it, and the numbers they give there are not energies or
-powers. Use the spatial functionals of
-[power and intensity](power-and-intensity.md#spatial-geometries) for those files; the
-scan reductions built on these accessors already refuse spatial runs by name.
+**A spatial file is refused by these readers.** A radial, Cartesian, line or planar
+file stores a field sample or a slab amplitude in each column, not a modal amplitude in
+the square root of watts, so {py:func}`~solprop.processing.fields.get_power`,
+{py:func}`~solprop.processing.fields.get_spectral_density`, the metrics below and the
+propagation plots refuse it by name, with an {py:class}`~solprop.exceptions.OutputError`
+that names the spatial functional to use instead
+([which names a basis admits](statistics.md#spatial-files-and-the-modal-readers)), as
+the scan reductions do. `get_spectrum`, `get_field` and `get_phase` return the stored
+columns and read every file. On such a file the beam's energy, power and spectrum come
+from a saved plane and its measure:
+
+```python
+import numpy as np
+
+from solprop.driver import Simulation, SimulationSettings
+from solprop.grid import FieldGrid, RadialGrid
+from solprop.pulses import GaussianPulse, SpatialPulse
+from solprop.spatial import SpatialFlux, SpatialMedium, spatial_energy, spatial_power
+from solprop.stepper import PIController
+
+grid = FieldGrid.from_limits(1e-3, 800e-9, (600e-9, 1.2e-6), 400e-15)
+space = RadialGrid(6e-4, 16)
+medium = SpatialMedium("Ar", 1.0)
+pulse = SpatialPulse(GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=3e-9), 6e-5)
+settings = SimulationSettings(
+    controller=PIController(rtol=1e-8, atol=1e-14), save_planes=[1e-3],
+    dz_init=5e-4, dz_max=5e-4, backend="numpy_ref", spatial_absorber=False,
+)
+run = Simulation.from_radial(
+    grid, space, medium, [], pulse, settings=settings, noise=None
+).run(progress="none")
+plane = list(run.planes())[-1]
+flux = SpatialFlux.resolve(grid, space, medium, z=plane.z)
+print(f"{spatial_energy(plane.field, flux):.4e} J")
+print(f"{np.max(spatial_power(plane.field, flux)):.4e} W")
 ```
 
 **Gas-mixture runs** additionally provide `species_ionisation`,

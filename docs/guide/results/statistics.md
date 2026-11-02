@@ -150,11 +150,12 @@ capability does not admit is refused by name
 ({py:mod}`solprop.output.capability`). The gate is applied at **four** doors: at
 {py:class}`~solprop.stats.StatsSpec` admission in the run loop, in each backend's
 `stats`, in the accessors of {py:mod}`solprop.processing.modal`, and in the
-modal-amplitude processing functions {py:func}`~solprop.processing.time.energy` and
-{py:func}`~solprop.processing.time.peak_power`. The
+modal-amplitude processing functions such as {py:func}`~solprop.processing.time.energy`
+and {py:func}`~solprop.processing.time.peak_power`. The
 last two see only the stored record, and `peak_power(modes="sum")` is
 `peak_power_total`, so without that door the number the other three refuse would come
-back through a different import.
+back through a different import. The same door refuses a spatial file's columns read as
+modes ([below](#spatial-files-and-the-modal-readers)).
 
 ```{eval-rst}
 .. list-table::
@@ -180,7 +181,10 @@ back through a different import.
        replacement. The same thirteen are the ``accessors`` list a general modal record
        publishes, so a file says what it admits.
    * - ``spatial``
-     - A radial or Cartesian beam, unchanged, and the general names refused.
+     - A radial, Cartesian, line or planar beam: every statistic unchanged (its
+       ``energy`` is the beam's axial flux), and the general names refused. The
+       processing and plotting readers that read each column as a mode are refused
+       by name ([below](#spatial-files-and-the-modal-readers)).
 ```
 
 The refusal names the basis and what to use instead, and never redefines the old name:
@@ -191,6 +195,31 @@ analytic_flux or reconstructed E/H with an explicit detector definition. A gener
 guide resolves E_x, E_y and E_z at its own quadrature nodes, and its coordinate
 quantities are not additive, so the old name is refused rather than redefined
 ```
+
+### Spatial files and the modal readers
+
+The processing readers were written for a mode axis of true-power amplitudes in
+$\sqrt{\mathrm W}$. A radial or Cartesian column is a field sample in V m or V/m, and a
+planar column a slab amplitude per $y$ frequency, so $|a|^2$ summed over the columns is
+neither a power nor an energy: a 3 nJ launch would read back as about 5e-15 J. On a
+spatial file the readers that form it refuse by name, at the same door, and name the
+[spatial functional](../free-space/flux.md#using-the-measure) to use instead:
+`energy`, `peak_power`, `get_power`, `get_spectral_density`, `fwhm_t`, `fwhm_f`,
+`time_bandwidth`, `arrival_time`, the two autocorrelations and `coherence_time`, the
+plots `prop_2d`, `time_1d`, `spec_1d` and `plot_energy`, and a plane observer's
+`power` and `spectral_density`
+({py:data}`~solprop.output.capability.COLUMN_READINGS`). The refusal follows the scan
+reductions' wording:
+
+```{code-block} text
+energy measures modal amplitudes and this is a radial run, whose columns are not: use
+solprop.spatial.spatial_energy (planar_mode_energy per slab mode), or the run's own
+spatial statistics (energy, peak_intensity, on_axis_intensity, beam_radius). ...
+```
+
+The run's statistics are not affected: `stats/energy` of a spatial run is the beam's
+energy, from the same functional. `get_spectrum`, `get_field` and `get_phase` return the
+stored columns as they are, in the file's own units, and read every file.
 
 **The two scalar general names are not indexed by channel, and that is the point.** `physical_energy`
 is the
