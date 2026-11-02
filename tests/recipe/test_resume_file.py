@@ -15,7 +15,7 @@ from solprop.cli import main
 from solprop.driver.simulation import Simulation
 from solprop.exceptions import DriverError, OutputError
 from solprop.log import NullReporter
-from solprop.output import resumability
+from solprop.output import SCHEMA_VERSION, resumability
 from solprop.output import resumable as resumable_module
 from solprop.output._writer_lock import WriterLock
 from solprop.output.hdf5 import open_file
@@ -148,7 +148,7 @@ def test_a_file_of_another_schema_is_named(tmp_path):
 def test_a_failure_before_any_plane_leaves_nothing_to_continue(tmp_path):
     path = tmp_path / "empty.h5"
     with h5py.File(path, "w") as file:
-        file.attrs["schema_version"] = 2
+        file.attrs["schema_version"] = SCHEMA_VERSION
     answer = resumability(path)
     assert not answer.resumable
     assert answer.reason is not None and "no state" in answer.reason
