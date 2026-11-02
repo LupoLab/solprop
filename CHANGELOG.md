@@ -83,6 +83,13 @@ All notable changes to solprop are recorded here. The format follows
   as `configuration["modal_launch"]`, which a resume compares; a run without one
   records nothing and resumes as before
   ([SEP 41](https://solprop.readthedocs.io/en/latest/dev/seps/sep-0041-recipes-and-front-ends.html)).
+- `SpatialPulse` takes `displacement=(d_x, d_y)` and `tilt=(theta_x, theta_y)`, as
+  `coupling.Alignment` defines them, applied at the launch plane on a Cartesian grid
+  with the energy set after them; a tilt the grid's band, window or time window cannot
+  carry is refused, and so is either on a radial grid, a y component on a line grid, a
+  `PlanarPulse` and a guide's incident beam. A record without them continues as an
+  unmoved beam
+  ([SEP 41](https://solprop.readthedocs.io/en/latest/dev/seps/sep-0041-recipes-and-front-ends.html)).
 - `prop_waveguide` and `Simulation.from_waveguide` take `interpolate_planes` and
   `step_planes`, and `prop_capillary`, `prop_waveguide` and their constructors take
   `polarisation_taper`, as `prop_gnlse` does; `step_planes` defaults to `None` on

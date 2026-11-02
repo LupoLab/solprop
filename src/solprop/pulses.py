@@ -35,7 +35,7 @@ import warnings
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal, Protocol, runtime_checkable
+from typing import Final, Literal, Protocol, runtime_checkable
 
 import numpy as np
 from jaxtyping import Complex, Float, Inexact
@@ -45,7 +45,7 @@ from solprop import fourier
 from solprop._display import Displayed, engineering, line, phase_text, summarise
 from solprop.constants import EPS0, C
 from solprop.exceptions import PulseError, SolpropWarning
-from solprop.grid import FreeGrid, RadialGrid, TimeGrid
+from solprop.grid import FreeGrid, LineGrid, RadialGrid, TimeGrid
 from solprop.linear import Frame
 from solprop.modes.slab import PlanarGrid, gaussian_projection
 from solprop.optics import taylor_phase
@@ -165,11 +165,31 @@ class SpatialPulse(Displayed):
     jones : tuple of complex
         One scalar component or two optics-convention Cartesian components (x, y).
         The vector is normalised to unit squared magnitude. Default is scalar.
+    displacement : tuple of float
+        ``(d_x, d_y)`` in m, finite: the beam's centre at the launch plane. A positive
+        value moves it towards +x (+y). Default none.
+    tilt : tuple of float
+        ``(theta_x, theta_y)`` in rad, each below pi/2 in magnitude: a positive tilt
+        makes the beam propagate towards +x (+y). Default none.
 
     Raises
     ------
     PulseError
-        If the waist, order, distance or Jones vector is invalid.
+        If the waist, order, distance, Jones vector, displacement or tilt is invalid.
+
+    Notes
+    -----
+    Displacement and tilt are those of :class:`solprop.coupling.Alignment`, applied at
+    the launch plane after `propz`: the tilt multiplies the field by
+    ``exp(i k(omega) (x sin(theta_x) + y sin(theta_y)))``, ``k`` the launch medium's
+    real wave number, so every frequency leaves at the same angle, and the displacement
+    shifts the field exactly in the periodic Cartesian representation. The energy or
+    peak power is set after both. They are applied on a
+    :class:`~solprop.grid.FreeGrid` only: a radial grid has no direction to move
+    along, a line grid no y, and a :class:`PlanarPulse` has its own `offset_x`. A
+    tilted beam's transverse wave numbers must lie inside the grid's band, the moved
+    beam must be negligible at the window's edges, and its pulse-front delay across
+    the beam must fit in half the time window; otherwise :meth:`build` refuses it.
     """
 
     temporal: Pulse
@@ -177,6 +197,8 @@ class SpatialPulse(Displayed):
     order: int = 1
     propz: float = 0.0
     jones: tuple[complex, ...] = (1.0 + 0.0j,)
+    displacement: tuple[float, float] = (0.0, 0.0)
+    tilt: tuple[float, float] = (0.0, 0.0)
 
     def __post_init__(self) -> None:
         """Validate the beam specification before sampling any grids."""
@@ -202,6 +224,25 @@ class SpatialPulse(Displayed):
                 "with nonzero intensity"
             )
             raise PulseError(msg)
+        for name in ("displacement", "tilt"):
+            pair = getattr(self, name)
+            if len(pair) != 2 or not all(math.isfinite(value) for value in pair):
+                msg = f"spatial {name} must be two finite values (x, y)"
+                raise PulseError(msg)
+        if any(abs(angle) >= math.pi / 2 for angle in self.tilt):
+            msg = f"spatial tilt must be below pi/2 in magnitude, got {self.tilt!r}"
+            raise PulseError(msg)
+
+    @property
+    def aligned(self) -> bool:
+        """Return whether the beam is displaced or tilted.
+
+        Returns
+        -------
+        bool
+            True when either has a nonzero component.
+        """
+        return any(self.displacement) or any(self.tilt)
 
     def __repr__(self) -> str:
         """Return a one-line description: the beam around its temporal pulse.
@@ -228,13 +269,19 @@ class SpatialPulse(Displayed):
         tuple
             The title and ``(key, value)`` rows.
         """
-        return "SpatialPulse: a super-Gaussian beam carrying a temporal pulse", [
+        rows: list[tuple[str, object]] = [
             ("waist", f"{engineering(self.waist, 'm')} (1/e^2 intensity radius)"),
             ("order", self.order),
             ("launched", f"{engineering(self.propz, 'm')} from the waist"),
             ("components", len(self.jones)),
-            ("temporal", str(self.temporal)),
         ]
+        if any(self.displacement):
+            x, y = (engineering(value, "m") for value in self.displacement)
+            rows.append(("displacement", f"({x}, {y})"))
+        if any(self.tilt):
+            rows.append(("tilt", f"({self.tilt[0]:g}, {self.tilt[1]:g}) rad"))
+        rows.append(("temporal", str(self.temporal)))
+        return "SpatialPulse: a super-Gaussian beam carrying a temporal pulse", rows
 
     def build(
         self,
@@ -284,7 +331,8 @@ class SpatialPulse(Displayed):
         PulseError
             If the grid is a planar one, the temporal pulse is not scalar, the beam
             has no propagating content or more than rounding-level nonpropagating
-            content, or launch pre-propagation would overflow the field.
+            content, launch pre-propagation would overflow the field, or a
+            displacement or tilt is refused (see the class notes).
         """
         if isinstance(space, PlanarGrid):
             msg = (
@@ -292,6 +340,7 @@ class SpatialPulse(Displayed):
                 "PlanarPulse(temporal, waist_y, waist_x=...), not a SpatialPulse"
             )
             raise PulseError(msg)
+        aligner = _Aligner.of(self, grid, space, medium, plane_sample(medium, z, side))
         flux = SpatialFlux.resolve(grid, space, medium, z=z, side=side)
         profile = self._profile(space.r)
         spectrum = (
@@ -330,6 +379,8 @@ class SpatialPulse(Displayed):
                     msg = "spatial pre-propagation would overflow the field"
                     raise PulseError(msg)
                 field = field * np.exp(exponent)[:, None, :]
+            if aligner is not None:
+                field = aligner.apply(field)
             field = _hard_masked(field, live, space.spectral_weights, grid)
             total += _normalised(member, temporal, field, flux, grid)
         # Each member is a finite field scaled by the finite factor of a finite,
@@ -405,6 +456,12 @@ class SpatialPulse(Displayed):
                 "modes; a guide's incident beam is a SpatialPulse"
             )
             raise PulseError(msg)
+        if self.aligned:
+            msg = (
+                "a beam launched into a guide is centred on its axis: misalign it with "
+                "coupling.Alignment, not the beam's displacement or tilt"
+            )
+            raise PulseError(msg)
         if self.propz != 0:
             msg = (
                 f"this beam is launched {self.propz!r} m from its waist, and carrying "
@@ -478,6 +535,185 @@ class SpatialPulse(Displayed):
         limit = _GAUSS_EXPONENT_CLIP ** (1 / (2 * self.order))
         scaled = np.minimum(radius, self.waist * limit) / self.waist
         return np.exp(-(scaled ** (2 * self.order)))
+
+
+_EDGE_FLUENCE: Final = 1e-6
+"""Largest fluence a moved beam may keep at the window's edge, relative to its peak."""
+
+
+@dataclass(frozen=True, eq=False)
+class _Aligner:
+    """A beam's displacement and tilt on a Cartesian grid (SEP 41, S6).
+
+    Attributes
+    ----------
+    space : solprop.grid.FreeGrid
+        The grid.
+    displacement, tilt : tuple of float
+        As the beam gives them.
+    wavenumber : numpy.ndarray
+        The launch medium's real wave number at each bin, rad/m; zero off the band.
+    """
+
+    space: FreeGrid
+    displacement: tuple[float, float]
+    tilt: tuple[float, float]
+    wavenumber: Float[np.ndarray, " n_omega"]
+
+    @classmethod
+    def of(
+        cls,
+        beam: SpatialPulse,
+        grid: TimeGrid,
+        space: RadialGrid | FreeGrid,
+        medium: SpatialMedium,
+        at: float,
+    ) -> "_Aligner | None":  # noqa: UP037 - the class itself
+        """Return a beam's aligner, refusing what the launch cannot carry.
+
+        Parameters
+        ----------
+        beam : SpatialPulse
+            The beam.
+        grid : solprop.grid.TimeGrid
+            The temporal grid.
+        space : solprop.grid.RadialGrid or solprop.grid.FreeGrid
+            The transverse grid.
+        medium : solprop.spatial.SpatialMedium
+            The launch medium.
+        at : float
+            Where the medium is evaluated, m.
+
+        Returns
+        -------
+        _Aligner or None
+            ``None`` for a beam neither displaced nor tilted.
+
+        Raises
+        ------
+        PulseError
+            On a radial grid, a y component on a line grid, a tilt outside the grid's
+            band, or a pulse-front delay longer than the time window.
+        """
+        if not beam.aligned:
+            return None
+        if isinstance(space, RadialGrid):
+            msg = (
+                "displacement and tilt break cylindrical symmetry: launch the beam on "
+                "a Cartesian FreeGrid"
+            )
+            raise PulseError(msg)
+        if isinstance(space, LineGrid) and (beam.displacement[1] or beam.tilt[1]):
+            msg = (
+                "a line grid is uniform in y: its beam takes no y displacement or tilt"
+            )
+            raise PulseError(msg)
+        band = grid.active_mask & (grid.omega > 0)
+        wavenumber = np.zeros(grid.n_omega)
+        wavenumber[band] = (
+            np.real(medium.index(grid.omega[band], at)) * grid.omega[band] / C
+        )
+        for axis, angle, k in (
+            ("x", beam.tilt[0], space.k_x),
+            ("y", beam.tilt[1], space.k_y),
+        ):
+            reach = float(np.max(wavenumber)) * abs(math.sin(angle))
+            if reach >= float(np.max(np.abs(k))):
+                msg = (
+                    f"a tilt of {angle:g} rad in {axis} reaches {reach:.4g} rad/m, at "
+                    f"or beyond the grid's transverse band ({np.max(np.abs(k)):.4g} "
+                    f"rad/m): refine the grid in {axis} or tilt less"
+                )
+                raise PulseError(msg)
+        # The beam's width where its intensity falls to the edge's fluence.
+        width = (
+            2 * beam.waist * (math.log(1 / _EDGE_FLUENCE) / 2) ** (1 / (2 * beam.order))
+        )
+        slope = math.hypot(math.sin(beam.tilt[0]), math.sin(beam.tilt[1]))
+        delay = width * slope * float(np.max(wavenumber)) / float(np.max(grid.omega))
+        span = float(grid.t[-1] - grid.t[0])
+        if delay > span / 2:
+            msg = (
+                f"the tilt delays the pulse front by {delay:.3g} s across the beam, "
+                f"more than half the time window ({span:.3g} s): widen the window or "
+                "tilt less"
+            )
+            raise PulseError(msg)
+        return cls(space, beam.displacement, beam.tilt, wavenumber)
+
+    def apply(
+        self, field: Complex[np.ndarray, "n_nodes n_pol n_omega"]
+    ) -> Complex[np.ndarray, "n_nodes n_pol n_omega"]:
+        """Tilt, then displace, a launch spectrum; refuse one that reaches the edge.
+
+        Parameters
+        ----------
+        field : numpy.ndarray
+            The Cartesian DFT spectrum, shape ``(n_nodes, n_pol, n_omega)``.
+
+        Returns
+        -------
+        numpy.ndarray
+            The moved spectrum.
+
+        Raises
+        ------
+        PulseError
+            If the moved beam is not negligible at the window's edges.
+        """
+        space = self.space
+        cube = field.reshape(space.n_y, space.n_x, *field.shape[1:])
+        if any(self.tilt):
+            real = np.fft.ifft2(cube, axes=(0, 1))
+            projection = space.x[None, :] * math.sin(self.tilt[0]) + space.y[
+                :, None
+            ] * math.sin(self.tilt[1])
+            screen = np.exp(
+                1j * projection[:, :, None] * self.wavenumber[None, None, :]
+            )
+            cube = np.fft.fft2(real * screen[:, :, None, :], axes=(0, 1))
+        shift = np.exp(
+            -1j
+            * (
+                space.k_y[:, None] * self.displacement[1]
+                + space.k_x[None, :] * self.displacement[0]
+            )
+        )
+        cube = cube * shift[:, :, None, None]
+        fluence = np.sum(np.abs(np.fft.ifft2(cube, axes=(0, 1))) ** 2, axis=(2, 3))
+        edge = _edge(space.x, space.radius_x)[None, :]
+        if not isinstance(space, LineGrid):
+            edge = edge | _edge(space.y, space.radius_y)[:, None]
+        peak = float(np.max(fluence))
+        if peak > 0 and float(np.max(fluence[np.broadcast_to(edge, fluence.shape)])) > (
+            _EDGE_FLUENCE * peak
+        ):
+            msg = (
+                f"the beam, displaced by {self.displacement} m and tilted by "
+                f"{self.tilt} rad, reaches the window's edge: keep it inside the "
+                "window or widen the grid"
+            )
+            raise PulseError(msg)
+        return cube.reshape(field.shape)
+
+
+def _edge(axis: Float[np.ndarray, " n"], radius: float) -> np.ndarray:
+    """Return the samples of an axis at or beyond its window's half-width.
+
+    Parameters
+    ----------
+    axis : numpy.ndarray
+        The centred axis, m.
+    radius : float
+        The requested half-width, m; the outermost samples when none reach it.
+
+    Returns
+    -------
+    numpy.ndarray
+        Boolean mask, shape ``(n,)``.
+    """
+    reach = np.abs(axis)
+    return reach >= min(radius, float(np.max(reach)))
 
 
 @dataclass(frozen=True, eq=False)
@@ -591,6 +827,12 @@ class PlanarPulse(SpatialPulse):
         _check_positive("waist_x", self.waist_x)
         if not math.isfinite(self.offset_x):
             msg = "planar offset_x must be finite"
+            raise PulseError(msg)
+        if self.aligned:
+            msg = (
+                "a planar beam is placed by offset_x across the gap and is periodic "
+                "along y: displacement and tilt apply on a FreeGrid only"
+            )
             raise PulseError(msg)
         if self.propz != 0:
             msg = (

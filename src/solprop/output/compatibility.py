@@ -551,6 +551,9 @@ NEUTRAL_VALUES: Final[tuple[Neutral, ...]] = (
     # A run launched into chosen modes records them (SEP 41, S5); every earlier run put
     # its pulse in the first mode, which is what no launch means.
     Neutral("configuration.modal_launch", None, "0.2.0"),
+    # A free-space beam records its displacement and tilt (SEP 41, S6); every earlier
+    # beam was launched centred and untilted.
+    Neutral("configuration.{initial,pulse}.{displacement,tilt}", [0.0, 0.0], "0.2.0"),
 )
 """One entry per recorded path a release declared neutral (SEP 42 section 4).
 
