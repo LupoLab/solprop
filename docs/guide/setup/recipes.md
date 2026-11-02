@@ -340,7 +340,14 @@ rtol = parameters("capillary")["rtol"]
 print(rtol.resolver({"precision": "single"}))  # the capillary's tolerance in binary32
 ```
 
-A test holds the table to the constructors' signatures, so it cannot drift from them.
+The same call takes a registered type's name for the keywords of its table, so a second
+pulse, a pressure gradient, a mode or a free-space grid is described as a route keyword is:
+`parameters("GaussianPulse")["fwhm"]` has the unit `s`, the display unit `fs` and the
+summary a front end's field shows. A type's table leaves out what the type receives from
+the route (the absorber's time grid) and the keywords a recipe may not give.
+
+A test holds the tables to the constructors' signatures and to the registry's units, so
+they cannot drift from them.
 
 ## What a route and a species admit
 

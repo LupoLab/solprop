@@ -16,7 +16,7 @@ A gallery script that calls a route a recipe describes and has no recipe is list
 it stays true when a script is added or changed.
 
 The default lane builds one example of each route that has one (:data:`DEFAULT_LANE`);
-no gallery script on the waveguide or the radial route has a recipe yet. The slow lane
+no gallery script on the radial route has a recipe yet. The slow lane
 builds them all. The comparisons are of digests, so they are exact; no tolerance enters,
 and the examples carry the scripts' seeds. Warnings are
 not what these tests are about: several scripts warn by design (a gas index asked for
@@ -160,7 +160,9 @@ NO_RECIPE: Final[dict[str, str]] = {
 """Each gallery script on a route a recipe describes without a recipe, and why."""
 
 
-DEFAULT_LANE: Final = frozenset({"overview", "soliton", "cartesian_beam"})
+DEFAULT_LANE: Final = frozenset(
+    {"overview", "soliton", "cartesian_beam", "hollow_rectangular"}
+)
 """The examples the default lane builds, one per route: each in about a second.
 
 Building every example costs a translation per build, three per example, about two

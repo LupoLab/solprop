@@ -22,16 +22,56 @@ started and puts it back after.
 import contextlib
 import functools
 import os
+import platform
 import sys
 import threading
+import warnings
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+# NumPy's OpenBLAS on Windows on Arm crashes or hangs in small linear solves when one of
+# these sizes it at load. threadpoolctl reaches the same widths safely once it's loaded.
+LOAD_TIME_BLAS_VARIABLES = (
+    "OMP_NUM_THREADS",
+    "OPENBLAS_NUM_THREADS",
+    "GOTO_NUM_THREADS",
+)
+
 _BLAS_LOCK = threading.RLock()
 _BLAS_USERS: set[object] = set()
 _BLAS_LIMITS = contextlib.ExitStack()
+
+
+def sizes_blas_after_load() -> bool:
+    """Say whether BLAS must be sized after it loads, not by the environment.
+
+    Returns
+    -------
+    bool
+        True on native Windows on Arm.
+    """
+    return sys.platform == "win32" and platform.machine() == "ARM64"
+
+
+def _warn_of_load_time_blas_width() -> None:
+    """Warn of a width that NumPy's linear solves can't survive on this platform."""
+    if not sizes_blas_after_load():
+        return
+    for name in LOAD_TIME_BLAS_VARIABLES:
+        value = os.environ.get(name, "").strip()
+        # Measured: 1 and 2 fail at sizes 23 to 31, and 3 at size 31.
+        if value.isdecimal() and 1 <= int(value) <= 3:
+            warnings.warn(
+                f"{name}={value} can crash or hang NumPy's linear solves on Windows "
+                "on Arm, so unset it: solprop limits these libraries itself",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+
+
+_warn_of_load_time_blas_width()
 
 
 @dataclass(frozen=True)

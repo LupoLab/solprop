@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import ctypes
+import logging
 from collections.abc import Callable
 from pathlib import Path
 
@@ -242,6 +243,133 @@ def test_an_installed_record_matches_the_build() -> None:
     record = Path(native.__file__).parent / _cpu.BASELINE_RECORD
     if not record.exists():
         pytest.skip("no installed CPU-baseline record (editable install)")
-    assert (
-        record.read_text(encoding="utf-8").strip() == native.build_info().cpu_baseline
+    # A wheel with two builds records its floor there, and lists the one loaded.
+    package = Path(native.__file__).parent
+    variants = [baseline for baseline, _ in _cpu.read_variants(package)]
+    floor = record.read_text(encoding="utf-8").strip()
+    assert native.build_info().cpu_baseline in (variants or [floor])
+    assert floor == (variants[-1] if variants else native.build_info().cpu_baseline)
+
+
+def variants_package(tmp_path: Path, floor: str = "x86-64-v2") -> Path:
+    (tmp_path / _cpu.BASELINE_RECORD).write_text(floor + "\n", encoding="utf-8")
+    (tmp_path / _cpu.VARIANTS_RECORD).write_text(
+        "x86-64-v3 _core\nx86-64-v2 _core_v2\n", encoding="utf-8"
     )
+    return tmp_path
+
+
+@pytest.mark.parametrize(
+    ("flags", "stem"), [(V3_FLAGS, "_core"), (V2_FLAGS, "_core_v2")]
+)
+def test_a_processor_gets_the_best_build_it_runs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, flags: str, stem: str
+) -> None:
+    monkeypatch.delenv(_cpu.VARIANT_SETTING, raising=False)
+    info = tmp_path / "cpuinfo"
+    info.write_text(cpuinfo(flags), encoding="utf-8")
+    package = variants_package(tmp_path)
+    assert _cpu.select_variant(package, platform="linux", cpuinfo=info) == stem
+
+
+def test_windows_chooses_from_kernel32(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv(_cpu.VARIANT_SETTING, raising=False)
+    package = variants_package(tmp_path)
+    for present, stem in ((PF_HASWELL, "_core"), (PF_SANDY_BRIDGE, "_core_v2")):
+
+        def query(present: frozenset[int] = present) -> Callable[[int], object]:
+            return lambda constant: constant in present
+
+        assert (
+            _cpu.select_variant(package, platform="win32", feature_query=query) == stem
+        )
+
+
+def test_a_lower_build_chosen_for_the_processor_names_what_is_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    monkeypatch.delenv(_cpu.VARIANT_SETTING, raising=False)
+    info = tmp_path / "cpuinfo"
+    # One flag short of x86-64-v3: a hypervisor hiding MOVBE, say.
+    info.write_text(cpuinfo(V3_FLAGS.replace(" movbe", "")), encoding="utf-8")
+    package = variants_package(tmp_path)
+    with caplog.at_level(logging.INFO, logger=_cpu.__name__):
+        assert (
+            _cpu.select_variant(package, platform="linux", cpuinfo=info) == "_core_v2"
+        )
+    assert [record.levelname for record in caplog.records] == ["INFO"]
+    message = caplog.messages[0]
+    assert "x86-64-v2 build" in message
+    assert "no movbe" in message
+    assert "x86-64-v3 build" in message
+
+
+def test_windows_names_what_is_missing_too(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    monkeypatch.delenv(_cpu.VARIANT_SETTING, raising=False)
+    package = variants_package(tmp_path)
+
+    def query() -> Callable[[int], object]:
+        return lambda constant: constant in PF_SANDY_BRIDGE
+
+    with caplog.at_level(logging.INFO, logger=_cpu.__name__):
+        assert (
+            _cpu.select_variant(package, platform="win32", feature_query=query)
+            == "_core_v2"
+        )
+    assert "avx2" in caplog.messages[0]
+
+
+def test_nothing_is_logged_unless_the_processor_chose_a_lower_build(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    monkeypatch.delenv(_cpu.VARIANT_SETTING, raising=False)
+    info = tmp_path / "cpuinfo"
+    package = variants_package(tmp_path)
+    with caplog.at_level(logging.INFO, logger=_cpu.__name__):
+        info.write_text(cpuinfo(V3_FLAGS), encoding="utf-8")
+        assert _cpu.select_variant(package, platform="linux", cpuinfo=info) == "_core"
+        # Asked for, on a processor that runs better: the caller knows.
+        assert (
+            _cpu.select_variant(
+                package, requested="x86-64-v2", platform="linux", cpuinfo=info
+            )
+            == "_core_v2"
+        )
+        # A processor that cannot be asked gets the best build, with nothing to name.
+        absent = tmp_path / "absent"
+        assert _cpu.select_variant(package, platform="linux", cpuinfo=absent) == "_core"
+    assert caplog.messages == []
+
+
+def test_the_setting_may_only_ask_for_a_lower_build(tmp_path: Path) -> None:
+    info = tmp_path / "cpuinfo"
+    package = variants_package(tmp_path)
+    info.write_text(cpuinfo(V3_FLAGS), encoding="utf-8")
+    assert (
+        _cpu.select_variant(
+            package, requested="x86-64-v2", platform="linux", cpuinfo=info
+        )
+        == "_core_v2"
+    )
+    info.write_text(cpuinfo(V2_FLAGS), encoding="utf-8")
+    with pytest.raises(ValueError, match="runs only x86-64-v2"):
+        _cpu.select_variant(
+            package, requested="x86-64-v3", platform="linux", cpuinfo=info
+        )
+    with pytest.raises(ValueError, match="holds x86-64-v3, x86-64-v2"):
+        _cpu.select_variant(
+            package, requested="x86-64-v4", platform="linux", cpuinfo=info
+        )
+
+
+def test_a_package_with_one_extension_has_no_choice(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv(_cpu.VARIANT_SETTING, raising=False)
+    assert _cpu.select_variant(tmp_path) == "_core"
+    with pytest.raises(ValueError, match="holds one extension"):
+        _cpu.select_variant(tmp_path, requested="x86-64-v2")
