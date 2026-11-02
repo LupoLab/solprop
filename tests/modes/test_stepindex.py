@@ -12,6 +12,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import cast
 
+import mpmath
 import numpy as np
 import pytest
 from hypothesis import given, settings
@@ -26,6 +27,7 @@ from solprop.exceptions import ModeError
 from solprop.modes import StepIndexMode, stepindex
 from solprop.modes.base import beta2, zdw
 from solprop.modes.stepindex import (
+    _MAX_V,
     PROFILE_MIN_W,
     _characteristic,
     _cutoff,
@@ -718,14 +720,12 @@ def test_stepindex_resolves_two_roots_in_last_cutoff_interval():
     assert 2e-7 < v - he[1] < 4e-7
 
 
-def test_stepindex_refinement_exhausts_its_levels_and_reports_short(
-    monkeypatch, caplog
-):
-    # A refinement that can never recover the missing root walks every level and
-    # reports the count short rather than misaligned: the helper is wrapped to drop
-    # the family's highest root on every call, which is the unresolvable case of a
-    # near-cutoff root made deterministic (the real one needs V within 0.027 of a
-    # cutoff).
+def test_stepindex_unrecoverable_root_reports_short(monkeypatch, caplog):
+    # A root that neither the product scan nor the family's own factor can
+    # bracket is reported short rather than misaligned: the scan helper is
+    # wrapped to drop the family's highest root and the factor made sign-definite,
+    # which is the unresolvable case of a near-cutoff root made deterministic (the
+    # real one needs V within 0.027 of a cutoff).
     real = stepindex._refined_roots
 
     def short(nodes, values, v, ratio, n, kind):
@@ -734,11 +734,51 @@ def test_stepindex_refinement_exhausts_its_levels_and_reports_short(
         return found
 
     monkeypatch.setattr(stepindex, "_refined_roots", short)
+    monkeypatch.setattr(stepindex, "_branch", lambda u, v, ratio, n, kind: u + 1.0)
     ratio = (1.45 / 1.47) ** 2
     with caplog.at_level(logging.DEBUG, logger="solprop.modes.stepindex"):
         roots = _roots(6.0, ratio, 1, "HE")
     assert len(roots) == len(_cutoffs(6.0, ratio, 1, "HE")) - 1
     assert "found 1 of 2 roots" in caplog.text
+
+
+def test_stepindex_lost_root_is_recovered_by_its_own_factor(monkeypatch):
+    # The factor brackets the root the product scan dropped, and the recovered
+    # value is the product's own root to rounding: the two equations are one.
+    ratio = (1.45 / 1.47) ** 2
+    exact = _roots(6.0, ratio, 1, "HE")
+    real = stepindex._refined_roots
+
+    def short(nodes, values, v, ratio, n, kind):
+        found = real(nodes, values, v, ratio, n, kind)
+        found[kind] = found[kind][1:]
+        return found
+
+    monkeypatch.setattr(stepindex, "_refined_roots", short)
+    # 4 ulp is the bracketing tolerance of both root solves.
+    assert_allclose(
+        _roots(6.0, ratio, 1, "HE"), exact, rtol=4 * np.finfo(float).eps, atol=0
+    )
+
+
+def test_stepindex_ambiguous_recovery_is_refused(monkeypatch):
+    # An empty cutoff interval with more than one candidate is left empty, so the
+    # alignment check refuses instead of guessing which candidate is the root.
+    real = stepindex._refined_roots
+
+    def short(nodes, values, v, ratio, n, kind):
+        found = real(nodes, values, v, ratio, n, kind)
+        found[kind] = found[kind][1:]
+        return found
+
+    monkeypatch.setattr(stepindex, "_refined_roots", short)
+    monkeypatch.setattr(
+        stepindex,
+        "_branch",
+        lambda u, v, ratio, n, kind: (u - 0.5) * (u - 1.0) * (u - 1.5),
+    )
+    with pytest.raises(ModeError, match="do not align"):
+        _roots(6.0, (1.45 / 1.47) ** 2, 1, "HE")
 
 
 def test_stepindex_misaligned_roots_are_refused(monkeypatch):
@@ -747,3 +787,207 @@ def test_stepindex_misaligned_roots_are_refused(monkeypatch):
     monkeypatch.setattr(stepindex, "_cutoffs", lambda v, ratio, n, kind: [0.0])
     with pytest.raises(ModeError, match="do not align"):
         _roots(6.0, (1.45 / 1.47) ** 2, 1, "HE")
+
+
+# The large-V regressions: the core index of a numerical aperture of 0.22 over
+# 1.45, as in the reproduction of the scan's failure, and an air-clad strand.
+_NA_RATIO = (1.45 / (1.45 + 0.22**2 / 2.9)) ** 2
+_AIR_RATIO = (1.0 / 1.45) ** 2
+
+
+def _assert_complete(v, ratio, n, kind):
+    """Assert that the scan finds one aligned root per exact cutoff below V."""
+    cutoffs = _cutoffs(v, ratio, n, cast("_Kind", kind))
+    roots = _roots(v, ratio, n, cast("_Kind", kind))
+    if cutoffs and v - cutoffs[-1] < 0.03:
+        # A root born within 0.03 of V may sit within float64 rounding of V
+        # (test_stepindex_counts_every_family_just_above_a_shared_cutoff).
+        assert len(roots) >= len(cutoffs) - 1
+    else:
+        assert len(roots) == len(cutoffs)
+
+
+@pytest.mark.parametrize(
+    "radius,wavelength",
+    [
+        (25e-6, 1030e-9),
+        (50e-6, 1030e-9),
+        (100e-6, 1030e-9),
+        (300e-6, 1030e-9),
+        (300e-6, 250e-9),
+        (300e-6, 256e-9),
+    ],
+)
+def test_stepindex_large_core_fibres_build(radius, wavelength):
+    # The reproduction's fibres, V from 34 to 1663: the scan lost close HE/EH
+    # pairs from V of about 26 and kv underflowed from a cladding argument of
+    # about 698. Warnings are errors in this suite, so an invalid division fails.
+    one = StepIndexMode.from_numerical_aperture(
+        radius, 0.22, profile_wavelength=wavelength
+    )
+    omega = np.asarray([2 * math.pi * C / wavelength])
+    index = np.real(one.neff(omega)[0])
+    cladding = float(np.real(fused_silica().index(omega)[0]))
+    assert cladding < index < cladding + 0.22**2 / (2 * cladding)
+    assert np.isfinite(one.aeff()) and one.aeff() > 0
+
+
+def test_stepindex_scan_is_complete_where_it_was_intermittent():
+    # The reproduction refused 303 of 3700 values of V from 3 to 40, the lowest
+    # at 26.01, where n = 1 pairs first come closer than the scan spacing.
+    for v in np.arange(26.0, 40.0, 0.1):
+        for kind in ("HE", "EH"):
+            _assert_complete(float(v), _NA_RATIO, 1, kind)
+
+
+@pytest.mark.medium
+@pytest.mark.parametrize("ratio", [_NA_RATIO, _AIR_RATIO])
+def test_stepindex_scan_is_complete_over_v(ratio):
+    for v in np.arange(26.0, 700.0, 37.3):
+        for n in (1, 2, 3):
+            for kind in ("HE", "EH"):
+                _assert_complete(float(v), ratio, n, kind)
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("ratio", [_NA_RATIO, _AIR_RATIO])
+def test_stepindex_scan_is_complete_up_to_the_largest_v(ratio):
+    # The whole qualified range, ending at the limit itself: three times the
+    # reproduction's spacing of 1.37 below the old kv limit, then a geometric
+    # ladder (about 15 s for each contrast).
+    for v in np.concatenate(
+        (np.arange(5.0, 700.0, 4.11), np.geomspace(700.0, _MAX_V, 12))
+    ):
+        for n in (1, 2, 3):
+            for kind in ("HE", "EH"):
+                _assert_complete(float(v), ratio, n, kind)
+
+
+def test_stepindex_refuses_above_the_largest_v():
+    with pytest.raises(ModeError, match="exceeds 5000, the largest V"):
+        _roots(_MAX_V * (1 + 1e-12), _NA_RATIO, 1, "HE")
+    radius = 1.01 * _MAX_V * 1030e-9 / (2 * math.pi * math.sqrt(1.45**2 - 1))
+    with pytest.raises(ModeError, match="the largest V"):
+        StepIndexMode(radius, core=1.45, cladding=1.0, profile_wavelength=1030e-9)
+
+
+def _textbook(u, v, ratio, n, kind):
+    """Evaluate the unreduced eigenvalue equation in mpmath, poles and all."""
+    w = mpmath.sqrt(v * v - u * u)
+    a = mpmath.besselj(n, u, derivative=1) / (u * mpmath.besselj(n, u))
+    b = -(mpmath.besselk(abs(n - 1), w) + mpmath.besselk(n + 1, w)) / (
+        2 * w * mpmath.besselk(n, w)
+    )
+    if kind == "TE":
+        return a + b
+    if kind == "TM":
+        return a + ratio * b
+    coupling = n**2 * (1 / u**2 + 1 / w**2) * (1 / u**2 + ratio / w**2)
+    return (a + b) * (a + ratio * b) - coupling, a, b, coupling
+
+
+def _textbook_root_equation(v, ratio, n, kind):
+    """Return the unreduced equation as a function of u alone, for findroot."""
+
+    def equation(u):
+        value = _textbook(u, v, ratio, n, kind)
+        return value[0] if isinstance(value, tuple) else value
+
+    return equation
+
+
+def _textbook_cutoff(kind, n, m, ratio):
+    """Return an exact cutoff from mpmath's own Bessel zeros."""
+    if kind in ("TE", "TM"):
+        return mpmath.besseljzero(0, m)
+    if kind == "EH":
+        return mpmath.besseljzero(n, m)
+    if n == 1:
+        return mpmath.mpf(0) if m == 1 else mpmath.besseljzero(1, m - 1)
+    contrast = (1 - ratio) / (1 + ratio)
+    return mpmath.findroot(
+        lambda x: mpmath.besselj(n - 2, x) + contrast * mpmath.besselj(n, x),
+        (mpmath.besseljzero(n - 2, m), mpmath.besseljzero(n - 1, m)),
+        solver="anderson",
+    )
+
+
+@pytest.mark.medium
+@pytest.mark.parametrize(
+    "v,core,cladding",
+    [
+        (1663.16847702954, 1.45 + 0.22**2 / 2.9, 1.45),
+        (4990.0, 1.45 + 0.22**2 / 2.9, 1.45),
+    ],
+)
+def test_stepindex_large_v_against_a_textbook_mpmath_solve(v, core, cladding):
+    # An independent reference: the unreduced equation (J_n'/(u J_n) + K_n'/(w K_n))
+    # (J_n'/(u J_n) + ratio K_n'/(w K_n)) = n**2 (1/u**2 + 1/w**2)(1/u**2 + ratio/w**2)
+    # with its poles, mpmath's Bessel functions at 40 digits, its own root solver,
+    # and the radial order and family assigned from mpmath's own cutoffs and the
+    # quadratic's two branches. The modes checked are the first order, two more
+    # and, for the hybrids, the root with the closest partner of the other family,
+    # which the product scan alone loses.
+    ratio_f = (cladding / core) ** 2
+    with mpmath.workdps(40):
+        ratio = mpmath.mpf(cladding) ** 2 / mpmath.mpf(core) ** 2
+        exact_v = mpmath.mpf(v)
+        scale = exact_v / mpmath.sqrt(mpmath.mpf(core) ** 2 - mpmath.mpf(cladding) ** 2)
+        for kind, n in (
+            ("HE", 1),
+            ("EH", 1),
+            ("HE", 2),
+            ("EH", 2),
+            ("HE", 3),
+            ("TE", 0),
+            ("TM", 0),
+        ):
+            roots = np.asarray(_roots(v, ratio_f, n, cast("_Kind", kind)))
+            # Roots with u <= 0.8 V keep w >= 0.6 V, where mpmath's besselk takes
+            # its asymptotic branch; at w of a few tens its series takes about
+            # 0.1 s a call (measured 0.12 s at w = 39), too slow for this tier.
+            reach = int(np.count_nonzero(roots <= 0.8 * v))
+            orders = {1, reach // 2, reach}
+            if kind in ("HE", "EH"):
+                partner = np.asarray(
+                    _roots(v, ratio_f, n, "EH" if kind == "HE" else "HE")
+                )
+                gaps = np.abs(roots[:reach, None] - partner[None, :]).min(axis=1)
+                orders.add(int(np.argmin(gaps)) + 1)
+                # The closest pair in range is one the product scan loses.
+                assert gaps.min() < 0.1
+            for m in sorted(orders):
+                found = float(roots[m - 1])
+
+                equation = _textbook_root_equation(exact_v, ratio, n, kind)
+                # The float64 root is within a few ulp, far inside 1e-11 and far
+                # from its partner, which is at least 4e-4 away at these V.
+                half = mpmath.mpf(found) * mpmath.mpf("1e-11")
+                bracket = (mpmath.mpf(found) - half, mpmath.mpf(found) + half)
+                assert equation(bracket[0]) * equation(bracket[1]) < 0
+                reference = mpmath.findroot(equation, bracket, solver="anderson")
+                if kind in ("HE", "EH"):
+                    _, a, b, coupling = _textbook(reference, exact_v, ratio, n, kind)
+                    radical = mpmath.sqrt(((1 - ratio) * b / 2) ** 2 + coupling)
+                    branches = {
+                        "HE": -(1 + ratio) * b / 2 - radical,
+                        "EH": -(1 + ratio) * b / 2 + radical,
+                    }
+                    assert min(branches, key=lambda one: abs(a - branches[one])) == kind
+                assert _textbook_cutoff(kind, n, m, ratio) < reference
+                assert reference <= min(
+                    _textbook_cutoff(kind, n, m + 1, ratio), exact_v
+                )
+                index = math.sqrt(
+                    core**2 - (found * math.sqrt(core**2 - cladding**2) / v) ** 2
+                )
+                expected = mpmath.sqrt(mpmath.mpf(core) ** 2 - (reference / scale) ** 2)
+                # The scalar solves stop within 4 ulp of the root (xtol and
+                # rtol), so 8 machine epsilons bound u and the index derived
+                # from it; measured worst 1.6 and 1.1 epsilons.
+                assert_allclose(
+                    found, float(reference), rtol=8 * np.finfo(float).eps, atol=0
+                )
+                assert_allclose(
+                    index, float(expected), rtol=8 * np.finfo(float).eps, atol=0
+                )

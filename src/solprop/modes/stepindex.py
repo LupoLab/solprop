@@ -24,7 +24,7 @@ from jaxtyping import Complex, Float
 from numpy.typing import ArrayLike
 from scipy.integrate import quad
 from scipy.optimize import brentq
-from scipy.special import jn_zeros, jv, jvp, kv, kvp
+from scipy.special import jn_zeros, jv, jvp, kve
 
 from solprop._display import Displayed, engineering, line
 from solprop.constants import EPS0, C
@@ -49,15 +49,46 @@ logger = logging.getLogger(__name__)
 _Kind = Literal["HE", "EH", "TE", "TM"]
 _Loss = Callable[[Float[np.ndarray, " n_omega"]], Float[np.ndarray, " n_omega"]]
 _EPS = np.finfo(float).eps
-_ROOT_REFINEMENTS = 6
-"""Halvings of the suspect scan intervals allowed while a root count is short.
+_MAX_V = 5000.0
+"""Largest fibre frequency V at which the root scan runs.
 
-Six levels divide every equal-sign interval of the coarse scan into 64, so a
-pair of roots further apart than about 1.6e-3 in u is separated. A closer pair
-is within about 1e-3 of its shared cutoff, where the newborn root's guidance is
-below what float64 resolves; the scan then reports a short count, and the
-alignment check still refuses to mislabel anything.
+Every root of the mode's azimuthal order, about V/pi of them, is solved at each
+frequency to assign the radial order, so the cost grows linearly with V: about
+0.1 s a frequency at V = 5000 on an Apple M5 Max (2026-11-02), a minute for a
+512-point band. Resolution is not what sets the limit: with each family's own
+factor bracketing the roots the product loses (:func:`_recovered`), every count
+was complete and aligned at each V tried up to 20000 (six values from 1663, three
+contrasts, n = 0 to 3), and the closest pair of the two families was still
+3.4e-4 apart at V = 20000. The limit is where the
+scan is qualified, against a 40-digit solve of the unreduced equation and by
+complete counts over V (``tests/modes/test_stepindex.py``), and where a band
+still costs a minute rather than several.
 """
+
+
+def _log_slope(
+    n: int, w: Float[np.ndarray, "*shape"] | float
+) -> Float[np.ndarray, "*shape"]:
+    """Return the logarithmic derivative K_n'(w)/K_n(w) from scaled Bessel functions.
+
+    ``K_n' = -(K_(n-1) + K_(n+1))/2``, and every ratio of modified Bessel functions
+    of one argument is formed from ``kve``, which carries the factor ``exp(w)``
+    that cancels in the ratio. The unscaled ``kv`` underflows to zero from an
+    argument of about 700, where the ratio is still finite.
+
+    Parameters
+    ----------
+    n : int
+        Non-negative azimuthal order.
+    w : float or numpy.ndarray
+        Positive dimensionless cladding decay parameter.
+
+    Returns
+    -------
+    numpy.ndarray
+        The logarithmic derivative, negative, with the shape of `w`.
+    """
+    return np.asarray(-(kve(abs(n - 1), w) + kve(n + 1, w)) / (2 * kve(n, w)))
 
 
 def _characteristic(
@@ -91,13 +122,13 @@ def _characteristic(
     bessel = jv(n, u)
     if kind in ("TE", "TM"):
         first = u * w**2 * jvp(n, u)
-        second = u**2 * w * bessel * kvp(n, w) / kv(n, w)
+        second = u**2 * w * bessel * _log_slope(n, w)
         return np.asarray(first + (1.0 if kind == "TE" else ratio) * second)
     # Expand with J_n'=n J_n/u-J_(n+1), K_n'=-n K_n/w-K_(n-1).
     # Cancelling the endpoint factors symbolically prevents rounding in two
     # nearly equal products from manufacturing roots at u=0 or w=0.
     h = jv(n + 1, u) / u
-    k = kv(n - 1, w) / (w * kv(n, w))
+    k = kve(n - 1, w) / (w * kve(n, w))
     return np.asarray(
         -2 * n**2 * (1 + ratio) * bessel**2
         - n * h * bessel * (2 * w**2 - (1 + ratio) * u**2)
@@ -138,8 +169,10 @@ def _partials(
     and a test ties them together at three roots.
     """
     bessel, slope, curvature = float(jv(n, u)), float(jvp(n, u)), float(jvp(n, u, 2))
-    logarithmic = float(kvp(n, w) / kv(n, w))
-    dlogarithmic = float(kvp(n, w, 2) / kv(n, w)) - logarithmic**2
+    logarithmic = float(_log_slope(n, w))
+    # K_n'' = (K_(n-2) + 2 K_n + K_(n+2))/4, scaled like the first derivative.
+    curvature_k = (kve(abs(n - 2), w) + 2 * kve(n, w) + kve(n + 2, w)) / (4 * kve(n, w))
+    dlogarithmic = float(curvature_k) - logarithmic**2
     first = u * w**2 * slope
     second = u**2 * w * bessel * logarithmic
     first_u, first_w = w**2 * (slope + u * curvature), 2 * u * w * slope
@@ -186,7 +219,7 @@ def _family(u: float, v: float, ratio: float, n: int) -> _Kind:
     """
     w = math.sqrt((v - u) * (v + u))
     a = float(jvp(n, u) / (u * jv(n, u)))
-    b = float(kvp(n, w) / (w * kv(n, w)))
+    b = float(_log_slope(n, w)) / w
     centre = a + (1.0 + ratio) * b / 2.0
     radical = math.sqrt(
         ((1.0 - ratio) * b / 2.0) ** 2
@@ -196,8 +229,33 @@ def _family(u: float, v: float, ratio: float, n: int) -> _Kind:
 
 
 @cache
+def _zero_block(order: int, size: int) -> Float[np.ndarray, " n_zeros"]:
+    """Cache one block of the first zeros of one Bessel order.
+
+    Parameters
+    ----------
+    order : int
+        Non-negative Bessel order.
+    size : int
+        Positive number of zeros, a power of two.
+
+    Returns
+    -------
+    numpy.ndarray
+        The first `size` zeros of J_order, dimensionless, read-only.
+    """
+    block = jn_zeros(order, size)
+    block.flags.writeable = False
+    return block
+
+
 def _zeros(order: int, count: int) -> Float[np.ndarray, " n_zeros"]:
-    """Cache the first zeros of one Bessel order.
+    """Return the first zeros of one Bessel order from a cached block.
+
+    The cutoffs ask for every prefix length up to the mode count, about V/pi, so
+    one cache entry per length would cost quadratically in V. ``jn_zeros``
+    returns the same leading zeros, bit for bit, whatever count it is asked for,
+    so a block rounded up to a power of two is computed once and sliced.
 
     Parameters
     ----------
@@ -209,9 +267,9 @@ def _zeros(order: int, count: int) -> Float[np.ndarray, " n_zeros"]:
     Returns
     -------
     numpy.ndarray
-        The first `count` zeros of J_order, dimensionless.
+        The first `count` zeros of J_order, dimensionless, read-only.
     """
-    return jn_zeros(order, count)
+    return _zero_block(order, max(64, 1 << (count - 1).bit_length()))[:count]
 
 
 @cache
@@ -329,35 +387,124 @@ def _refined_roots(
     return found
 
 
-def _missing_region(
-    roots: list[float], expected: list[float], v: float
-) -> tuple[float, float]:
-    """Return the interval in u that must contain the lowest missing root.
+def _branch(
+    u: Float[np.ndarray, "*shape"] | float, v: float, ratio: float, n: int, kind: _Kind
+) -> Float[np.ndarray, "*shape"]:
+    """Evaluate the one factor of the hybrid product that vanishes on one family.
 
-    Every root sits between its own cutoff and the next. If the found
-    roots align with the cutoffs from the bottom, the missing ones are above the
-    next cutoff; where alignment first fails, a root of that order is missing
-    between its cutoff and the root that took its place.
+    With ``x = J_n'/(u J_n)``, ``b = K_n'/(w K_n)`` and ``R`` the radical of
+    :func:`_family`, the hybrid product is ``u**2 w**2`` times
+    ``(J_n'/u - J_n x_HE)(J_n'/u - J_n x_EH)``, where ``x_HE = -(1 + ratio) b/2 - R``
+    and ``x_EH = -(1 + ratio) b/2 + R``. Each factor is pole-free, has the roots
+    of its own family only, and so has one root per cutoff interval: two roots of
+    different families, however close, are two separate sign changes here,
+    while in the product they cancel inside one scan interval.
+
+    The HE factor is written with ``R - (1 + ratio) b/2`` rationalised, so that the
+    terms in ``1/w**4`` that cancel near cutoff are cancelled symbolically.
 
     Parameters
     ----------
-    roots : list of float
-        Roots found so far, in increasing order.
-    expected : list of float
-        The family's exact cutoffs below V, in increasing order.
+    u : float or numpy.ndarray
+        Dimensionless core transverse frequencies, strictly between zero and V.
     v : float
         Positive dimensionless fibre frequency V.
+    ratio : float
+        Squared real cladding/core index ratio, between zero and one.
+    n : int
+        Positive azimuthal order.
+    kind : str
+        HE or EH family.
 
     Returns
     -------
-    tuple of float
-        Lower and upper bound in u of the region to sample more finely.
+    numpy.ndarray
+        The family's factor at each u, with the shape of `u`; only its sign and
+        its roots are used.
     """
-    limits = [*expected, v]
-    for order, root in enumerate(roots):
-        if not limits[order] < root <= limits[order + 1]:
-            return expected[order], root
-    return expected[len(roots)], v
+    w = np.sqrt((v - u) * (v + u))
+    bessel = jv(n, u)
+    slope = n * bessel / u**2 - jv(n + 1, u) / u
+    # -b = n/w**2 + K_(n-1)/(w K_n) > 0, from K_n' = -n K_n/w - K_(n-1).
+    k = kve(n - 1, w) / (w * kve(n, w))
+    minus_b = n / w**2 + k
+    radical = np.sqrt(
+        ((1 - ratio) * minus_b / 2) ** 2
+        + n**2 * (1 / u**2 + 1 / w**2) * (1 / u**2 + ratio / w**2)
+    )
+    total = radical + (1 + ratio) * minus_b / 2
+    if kind == "EH":
+        return np.asarray(slope - bessel * total)
+    # R**2 - ((1 + ratio) b/2)**2 with the n**2 ratio/w**4 terms cancelled.
+    difference = (
+        n**2 / u**4
+        + n**2 * (1 + ratio) / (u**2 * w**2)
+        - 2 * ratio * n * k / w**2
+        - ratio * k**2
+    )
+    return np.asarray(slope + bessel * difference / total)
+
+
+def _recovered(
+    nodes: Float[np.ndarray, " n_nodes"],
+    roots: list[float],
+    expected: list[float],
+    scan: tuple[float, float, int, _Kind],
+) -> list[float]:
+    """Add the hybrid roots the product scan lost, one per empty cutoff interval.
+
+    A root of one family and a root of the other closer together than the scan
+    spacing are two sign changes of the product in one interval, which cancel.
+    Each family's own factor (:func:`_branch`) changes sign there once, so it
+    brackets the lost root wherever the product cannot. Only cutoff intervals
+    holding no root yet are filled, and only by a single candidate, so a root
+    the product found is never replaced and the alignment check that follows
+    still sees every root's radial order.
+
+    Parameters
+    ----------
+    nodes : numpy.ndarray
+        Increasing scan nodes in (0, V), dimensionless.
+    roots : list of float
+        The family's roots found by the product scan, in increasing order.
+    expected : list of float
+        The family's exact cutoffs below V, in increasing order.
+    scan : tuple
+        V, the squared index ratio, the azimuthal order n and the family (HE or EH).
+
+    Returns
+    -------
+    list of float
+        The roots with the recovered ones added, in increasing order.
+    """
+    v, ratio, n, kind = scan
+    limits = np.asarray([*expected, v])
+    occupied = np.searchsorted(limits, roots, side="left") - 1
+    empty = np.setdiff1d(np.arange(len(expected)), occupied)
+    # The factor is evaluated only on the scan intervals that meet an empty
+    # cutoff interval, which is all a lost root can be in.
+    member = np.isin(np.searchsorted(limits, nodes, side="left") - 1, empty)
+    intervals = np.flatnonzero(member[:-1] | member[1:])
+    factor = np.ones_like(nodes)
+    touched = np.union1d(intervals, intervals + 1)
+    factor[touched] = _branch(nodes[touched], v, ratio, n, kind)
+    changes = intervals[
+        np.signbit(factor[intervals]) != np.signbit(factor[intervals + 1])
+    ]
+    candidates: dict[int, list[float]] = {}
+    for index in changes:
+        root = brentq(
+            lambda one: float(_branch(one, v, ratio, n, kind)),
+            float(nodes[index]),
+            float(nodes[index + 1]),
+            xtol=4 * math.ulp(float(nodes[index + 1])),
+            rtol=4 * _EPS,
+        )
+        order = int(np.searchsorted(limits, root, side="left")) - 1
+        if order in empty:
+            candidates.setdefault(order, []).append(root)
+    found = [one[0] for one in candidates.values() if len(one) == 1]
+    return sorted([*roots, *found])
 
 
 def _roots(v: float, ratio: float, n: int, kind: _Kind) -> list[float]:
@@ -368,9 +515,13 @@ def _roots(v: float, ratio: float, n: int, kind: _Kind) -> list[float]:
     cutoffs, because two roots can share one interval: ``J_(-1) = -J_1`` makes
     HE_(1,m+1) and EH_(1,m) emerge from the same cutoff ``j_(1,m)``, both as
     roots of the same n = 1 product, and their two sign changes then cancel.
-    While the count is short of the cutoff count, every interval whose endpoints
-    share a sign -- the only place a cancelled pair can hide -- is sampled twice
-    as finely, up to :data:`_ROOT_REFINEMENTS` halvings.
+    The same happens away from any shared cutoff from V of about 26, where a
+    root of each family can be closer than the scan spacing (measured with a
+    numerical aperture of 0.22: 0.024 apart at V = 67, 1.3e-3 at V = 1663 and
+    4.8e-4 at V = 4990, nearest V). While a hybrid family's count is short or
+    misaligned, each cutoff interval holding none of its roots is searched with
+    the family's own factor of the product (:func:`_recovered`), which has no
+    partner root to cancel against, and every root so found is kept.
 
     What is then checked is alignment, which is stronger than the count: the
     i-th root must lie between the i-th and (i+1)-th cutoff, so every returned
@@ -381,9 +532,9 @@ def _roots(v: float, ratio: float, n: int, kind: _Kind) -> list[float]:
 
     Parameters
     ----------
-    v : float or numpy.ndarray
-        Positive dimensionless fibre frequency V, matching u in shape.
-    ratio : float or numpy.ndarray
+    v : float
+        Positive dimensionless fibre frequency V, at most :data:`_MAX_V`.
+    ratio : float
         Squared real cladding/core index ratio, between zero and one.
     n : int
         Non-negative azimuthal order.
@@ -398,8 +549,16 @@ def _roots(v: float, ratio: float, n: int, kind: _Kind) -> list[float]:
     Raises
     ------
     ModeError
-        If the refined roots do not align one for one with the family's cutoffs.
+        If V exceeds :data:`_MAX_V`, or if the roots do not align one for one with
+        the family's cutoffs.
     """
+    if v > _MAX_V:
+        raise ModeError(
+            f"V={v:.16g} exceeds {_MAX_V:g}, the largest V the step-index root "
+            "scan supports: it solves every root of the mode's azimuthal order, "
+            "about V/pi of them, to assign the radial order, at a cost that grows "
+            "linearly with V, and it is qualified only up to that limit"
+        )
     # Endpoints exclude the trivial factors at u=0 and w=0, which are not
     # guided modes.
     edge = 32 * _EPS
@@ -412,41 +571,31 @@ def _roots(v: float, ratio: float, n: int, kind: _Kind) -> list[float]:
         nodes, np.full_like(nodes, v), np.full_like(nodes, ratio), n, kind
     )
     roots = _refined_roots(nodes, values, v, ratio, n, kind)[kind]
-    if len(roots) < len(expected):
-        # Only now is the equal-sign bookkeeping worth its cost: the scan has
-        # missed a pair whose two sign changes cancelled inside one interval.
-        # The cutoffs say where: the missing root of the lowest unfilled order
-        # lies between that order's cutoff and either the root that displaced
-        # it or V, so only the equal-sign intervals meeting that region are
-        # sampled more finely.
-        equal = np.flatnonzero(np.signbit(values[:-1]) == np.signbit(values[1:]))
-        for level in range(1, _ROOT_REFINEMENTS + 1):
-            if len(roots) >= len(expected):
-                break
-            low, high = _missing_region(roots, expected, v)
-            selected = equal[(nodes[equal + 1] > low) & (nodes[equal] < high)]
-            if not selected.size:
-                break
-            step = (nodes[selected + 1] - nodes[selected]) / 2**level
-            extra = (
-                nodes[selected, None] + step[:, None] * np.arange(1, 2**level)
-            ).ravel()
-            dense = np.unique(np.concatenate((nodes, extra)))
-            roots = _refined_roots(
-                dense,
-                _characteristic(
-                    dense, np.full_like(dense, v), np.full_like(dense, ratio), n, kind
-                ),
-                v,
-                ratio,
-                n,
-                kind,
-            )[kind]
     limits = [*expected, v]
-    if len(roots) > len(expected) or any(
-        not limits[order] < root <= limits[order + 1]
-        for order, root in enumerate(roots)
-    ):
+
+    def aligned(found: list[float]) -> bool:
+        """Say whether every root lies between its own cutoff and the next.
+
+        Parameters
+        ----------
+        found : list of float
+            Roots in increasing order.
+
+        Returns
+        -------
+        bool
+            True when the i-th root is in the i-th cutoff interval for every i.
+        """
+        return len(found) <= len(expected) and all(
+            limits[order] < root <= limits[order + 1]
+            for order, root in enumerate(found)
+        )
+
+    if kind in ("HE", "EH") and (len(roots) < len(expected) or not aligned(roots)):
+        # Only now is the second factor worth its cost: the scan has lost at
+        # least one pair whose two sign changes cancelled inside one interval.
+        roots = _recovered(nodes, roots, expected, (v, ratio, n, kind))
+    if not aligned(roots):
         raise ModeError(
             f"the {kind} scan found {len(roots)} roots at V={v:.16g} that do not "
             f"align with the {len(expected)} exact cutoffs below V: the radial "
@@ -1237,7 +1386,7 @@ class StepIndexMode(Displayed):
                 "integral resolves. Freeze the profile nearer the guided band."
             )
         a = float(jvp(self.n, u) / (u * jv(self.n, u)))
-        b = float(kvp(self.n, w) / (w * kv(self.n, w)))
+        b = float(_log_slope(self.n, w)) / w
         f2 = self.n * (1 / u**2 + 1 / w**2) / (a + b) if self.n else 0.0
         return _Profile(radius, u, w, (cladding / core) ** 2, f2)
 
@@ -1405,7 +1554,14 @@ class StepIndexMode(Displayed):
             # match at the boundary; the arbitrary core boundary amplitude is 1.
             amplitude = np.empty_like(radius)
             amplitude[inside] = jv(1, profile.u * radius[inside]) / jv(1, profile.u)
-            amplitude[~inside] = kv(1, profile.w * radius[~inside]) / kv(1, profile.w)
+            # K_1(w r)/K_1(w) from scaled functions: exp(-w (r - 1)) carries the
+            # decay that would otherwise underflow both kv values at large w.
+            outside = radius[~inside]
+            amplitude[~inside] = (
+                kve(1, profile.w * outside)
+                / kve(1, profile.w)
+                * np.exp(-profile.w * (outside - 1))
+            )
             if self.kind == "TE":
                 tangential = amplitude
             else:
@@ -1416,9 +1572,17 @@ class StepIndexMode(Displayed):
         upper = jv(self.n + 1, profile.u * radius[inside])
         radial[inside] = -(first * lower + second * upper) / jv(self.n, profile.u)
         tangential[inside] = -(first * lower - second * upper) / jv(self.n, profile.u)
-        lower = kv(self.n - 1, profile.w * radius[~inside])
-        upper = kv(self.n + 1, profile.w * radius[~inside])
-        factor = -profile.u / (profile.w * kv(self.n, profile.w))
+        # The exterior coefficients are K_(n -+ 1)(w r)/K_n(w); with scaled
+        # functions the ratio needs the explicit exp(-w (r - 1)) of its two
+        # arguments, which is what keeps it finite where kv underflows.
+        outside = radius[~inside]
+        lower = kve(self.n - 1, profile.w * outside)
+        upper = kve(self.n + 1, profile.w * outside)
+        factor = (
+            -profile.u
+            / (profile.w * kve(self.n, profile.w))
+            * np.exp(-profile.w * (outside - 1))
+        )
         radial[~inside] = factor * (first * lower - second * upper)
         tangential[~inside] = factor * (first * lower + second * upper)
         return radial, tangential
