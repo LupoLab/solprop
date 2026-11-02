@@ -106,8 +106,7 @@ class _Writer:
                 )
                 return f"[{items}]"
             return repr(decode(value, unit, BuildContext(), path))
-        if value == NONE:
-            return "None"
+        # "none" says None for a keyword only; inside a table it is read as it stands.
         return repr(decode(value, unit, BuildContext(), path))
 
     def factory(self, table: Mapping[str, object], path: str) -> str:

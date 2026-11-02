@@ -138,3 +138,28 @@ def test_a_scan_from_a_script_records_no_recipe(tmp_path):
     run_scan(scan.scan, scan.build, output=path, progress="none")
     with pytest.raises(RecipeError, match="written from a script"):
         Recipe.from_output(path)
+
+
+def test_a_seed_axis_seeds_each_point_s_noise():
+    document = _with_scan({"name": "seeds", "seed": [11, 12]}).to_dict()
+    document["build"]["noise"] = "input"
+    scan = Recipe.from_dict(document).scan()
+    point = scan.scan.point(1)
+    assert point.seed == 12
+    simulation = scan.build(point)
+    assert simulation.noise is not None
+    assert simulation.noise.seed == 12
+
+
+def test_an_axis_on_a_list_element_takes_its_values_in_si():
+    recipe = _with_scan({"name": "limits", "wavelength_limits[1]": [2e-6, 3e-6]})
+    recipe.set("noise", "none")  # the point's seed would draw noise the build does not
+    scan = recipe.scan()
+    assert scan.scan.variables["wavelength_limits[1]"].tolist() == [2e-6, 3e-6]
+    expected = Recipe.loads(TEXT)
+    expected.set("noise", "none")
+    expected.set("wavelength_limits[1]", "3 um")
+    simulation = scan.build(scan.scan.point(1))
+    assert simulation.metadata().configuration_hash() == (
+        expected.build().metadata().configuration_hash()
+    )

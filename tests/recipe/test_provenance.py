@@ -12,13 +12,16 @@ import warnings
 import numpy as np
 import pytest
 
+from solprop.driver.simulation import SimulationSettings
 from solprop.exceptions import MaterialRangeWarning, SolpropWarning
 from solprop.log import NullReporter
 from solprop.output import MemoryOutput
 from solprop.output.hdf5 import open_file
 from solprop.physdata.mixtures import Mixture
-from solprop.recipe import Recipe, parameters, provenance
+from solprop.recipe import Recipe, parameters, provenance, resume_file
 from solprop.recipe.document import parse_text
+from solprop.recipe.registry import BuildContext, build_object
+from solprop.stats import ApertureSet, StatsSpec
 
 pytestmark = [
     pytest.mark.filterwarnings("ignore::solprop.exceptions.BoundaryWarning"),
@@ -63,6 +66,92 @@ def test_each_resolvable_keyword_written_back_keeps_the_hash(name):
         if key == "save_planes":
             one["build"].pop("n_save", None)
         assert _hash(Recipe.from_dict(one).build()) == _hash(simulation), key
+
+
+def _soliton_with_execution(table):
+    document = Recipe.example("soliton").to_dict()
+    document["execution"] = table
+    return Recipe.from_dict(document)
+
+
+@pytest.mark.parametrize(
+    ("name", "path", "value"),
+    [
+        # An integrator other than its type's default stays as authored, and the
+        # route's default, an object, is not written in its place.
+        ("soliton", "integrator", {"type": "Multistep", "order": 4}),
+        # A temperature profile has no single temperature to write back.
+        (
+            "overview",
+            "temperature",
+            {
+                "type": "PiecewiseLinear",
+                "positions": ["0 m", "0.02 m"],
+                "values": [290.0, 300.0],
+            },
+        ),
+    ],
+)
+def test_an_authored_object_is_kept_and_rebuilds_the_run(name, path, value):
+    recipe = Recipe.example(name)
+    recipe.set(path, value)
+    simulation, document = _resolved(recipe)
+    assert document["build"][path] == value
+    assert _hash(Recipe.from_dict(document).build()) == _hash(simulation)
+
+
+def test_resume_history_is_resolved_into_the_execution_table():
+    recipe = _soliton_with_execution({"resume_history": True})
+    simulation, document = _resolved(recipe)
+    assert document["execution"]["resume_history"] is True
+    rebuilt = Recipe.from_dict(document).build()
+    assert rebuilt.settings.resume_history is True
+    assert _hash(rebuilt) == _hash(simulation)
+
+
+def test_a_statistics_selection_is_written_as_the_table_that_builds_it():
+    spec = StatsSpec(
+        names=("energy", "energy_window", "region_spectrum"),
+        energy_windows=np.array([[1.0e15, 2.0e15]]),
+        periodic=("energy",),
+        period=3,
+        spectral_regions=np.array([[-1.0, 1.0, -1.0, 1.0]]),
+    )
+    table = provenance._stats_table(spec)
+    assert table is not None
+    built = build_object(table, BuildContext(), "stats")
+    assert isinstance(built, StatsSpec)
+    assert (built.names, built.periodic, built.period) == (
+        spec.names,
+        spec.periodic,
+        spec.period,
+    )
+    np.testing.assert_array_equal(built.energy_windows, spec.energy_windows)
+    np.testing.assert_array_equal(built.spectral_regions, spec.spectral_regions)
+    # Far-field apertures have no table, so such a selection is not written back.
+    apertures = ApertureSet(centres=[[0.0, 0.0]], diameters=[1e-3], distances=[1.0])
+    assert provenance._stats_table(StatsSpec(("energy",), apertures=apertures)) is None
+
+
+def test_settings_without_a_controller_or_statistics_leave_them_to_the_rules():
+    # Settings made without a route carry neither; every recipe route sets both.
+    recipe = Recipe.example("soliton")
+    simulation = recipe.build()
+    settings = simulation.settings
+    simulation._settings = SimulationSettings(
+        save_planes=settings.save_planes,
+        dz_max=settings.dz_max,
+        dz_init=settings.dz_init,
+    )
+    assert simulation.settings.controller is None
+    assert simulation.settings.stats is None
+    values = provenance._used(recipe, simulation)
+    table = parameters("gnlse")
+    rule = table["rtol"].resolver
+    assert rule is not None
+    assert values["rtol"] == rule(recipe.to_dict()["build"]).value
+    assert values["atol"] == table["atol"].default
+    assert "stats" not in values
 
 
 def test_the_keywords_left_to_the_build_would_move_the_record():
@@ -214,3 +303,54 @@ def test_a_file_written_from_a_script_has_no_recipe(tmp_path):
     simulation.run(tmp_path / "script.h5", progress="none")
     with open_file(tmp_path / "script.h5") as handler:
         assert handler.recipe is None
+
+
+def test_an_embedded_data_file_rebuilds_the_run_without_the_original(tmp_path):
+    source = tmp_path / "source"
+    source.mkdir()
+    recipe, spectrum = _measured(source)
+    path = tmp_path / "measured.h5"
+    flag = threading.Event()
+
+    class Stop(NullReporter):
+        def plane(self, z, summary):
+            flag.set()
+
+    recipe.run(path, progress=Stop(), stop=flag)
+    stamp = _hash(recipe.build())
+    spectrum.unlink()
+    # The run continues from its file alone, the spectrum read from the output.
+    resume_file(path, progress="none")
+    with open_file(path) as handler:
+        assert handler.outcome is not None and handler.outcome.status == "complete"
+    # Saved elsewhere, the recipe writes the embedded file beside it under its name.
+    copy = tmp_path / "copy" / "measured.toml"
+    copy.parent.mkdir()
+    Recipe.from_output(path).save(copy)
+    (written,) = (entry for entry in copy.parent.iterdir() if entry != copy)
+    assert written.name == "file-0.csv"
+    assert 'file = "file-0.csv"' in copy.read_text()
+    assert _hash(Recipe.load(copy).build()) == stamp
+
+
+def test_a_data_file_kept_by_reference_stays_a_reference(tmp_path, monkeypatch):
+    source = tmp_path / "source"
+    source.mkdir()
+    recipe, _ = _measured(source)
+    monkeypatch.setattr(provenance, "EMBED_LIMIT", 10)
+    path = tmp_path / "referred.h5"
+    flag = threading.Event()
+
+    class Stop(NullReporter):
+        def plane(self, z, summary):
+            flag.set()
+
+    recipe.run(path, progress=Stop(), stop=flag)
+    copy = tmp_path / "copy" / "referred.toml"
+    copy.parent.mkdir()
+    Recipe.from_output(path).save(copy)
+    assert list(copy.parent.iterdir()) == [copy]
+    assert 'file = "spectrum.csv"' in copy.read_text()
+    (issue,) = Recipe.load(copy).check()
+    assert issue.severity == "error"
+    assert issue.parameter == "pulses[0]"

@@ -19,6 +19,7 @@ from solprop.recipe.document import (
     REFUSED_BUILD_KEYS,
     TABLES,
     DataFile,
+    checked_bytes,
     decode_array,
     decode_complex,
     decode_data_file,
@@ -450,6 +451,17 @@ def test_decode_data_file_refuses_other_tables(value):
     with pytest.raises(RecipeError, match="is a table") as caught:
         decode_data_file(value, path="betas")
     assert caught.value.path == "betas"
+
+
+def test_embedded_bytes_are_checked_against_the_recorded_digest():
+    data = b"0.0,1.0\n"
+    reference = DataFile("spectrum.csv", sha256_digest(data))
+    assert checked_bytes(data, reference, path="pulses[0]") is data
+    with pytest.raises(
+        RecipeError, match=r"embedded data file 'spectrum\.csv'"
+    ) as caught:
+        checked_bytes(b"changed", reference, path="pulses[0]")
+    assert caught.value.path == "pulses[0]"
 
 
 def test_decode_data_file_bad_digest_names_the_path():

@@ -4,6 +4,7 @@
 
 """Resuming from a file alone, and what a file allows (SEP 41, S2 and S17)."""
 
+import dataclasses
 import threading
 
 import h5py
@@ -12,8 +13,10 @@ import pytest
 
 from solprop.cli import main
 from solprop.driver.simulation import Simulation
+from solprop.exceptions import DriverError, OutputError
 from solprop.log import NullReporter
 from solprop.output import resumability
+from solprop.output import resumable as resumable_module
 from solprop.output._writer_lock import WriterLock
 from solprop.output.hdf5 import open_file
 from solprop.recipe import Recipe, RecipeError, resume_file
@@ -211,3 +214,62 @@ def test_a_received_file_does_not_choose_its_own_budget(tmp_path, monkeypatch):
     assert isinstance(seen["budget"], int)
     resume_file(tmp_path / "budget.h5", memory_budget="warn:1 TiB", progress="none")
     assert seen["budget"] == "warn:1 TiB"
+
+
+def test_a_file_that_is_not_hdf5_is_refused(tmp_path):
+    path = tmp_path / "notes.h5"
+    path.write_text("not an HDF5 file")
+    with pytest.raises(OutputError, match=r"cannot read .*notes\.h5"):
+        resumability(path)
+
+
+def test_a_last_plane_without_a_field_and_no_checkpoint_cannot_continue(
+    tmp_path, monkeypatch
+):
+    path = tmp_path / "fieldless.h5"
+    _stopped(path)
+    original = resumable_module.resume
+
+    def fieldless(where):
+        state = original(where)
+        plane = dataclasses.replace(state.plane, field=None, noise_phase=None)
+        return dataclasses.replace(state, plane=plane, checkpoint=None)
+
+    monkeypatch.setattr(resumable_module, "resume", fieldless)
+    answer = resumability(path)
+    assert not answer.resumable
+    assert answer.reason == (
+        "its last plane kept no field and no terminal checkpoint follows it"
+    )
+
+
+def test_the_gate_reports_a_rebuild_that_is_refused(tmp_path, monkeypatch):
+    path = tmp_path / "refused.h5"
+    _stopped(path)
+
+    def refuse(self):
+        msg = "the fill is no longer available"
+        raise DriverError(msg)
+
+    monkeypatch.setattr(Recipe, "build", refuse)
+    answer = resumability(path, gate=True)
+    assert answer.resumable
+    assert answer.comparison is None
+    assert answer.gate_error is not None
+    assert "the fill is no longer available" in answer.gate_error
+
+
+def test_a_node_budget_given_to_the_resume_reaches_the_rebuild(tmp_path, monkeypatch):
+    path = tmp_path / "capillary.h5"
+    _stopped(path, Recipe.example("overview"))
+    seen = []
+    original = Recipe.build
+
+    def build(self):
+        seen.append(self.to_dict()["build"].get("node_budget"))
+        return original(self)
+
+    monkeypatch.setattr(Recipe, "build", build)
+    resume_file(path, node_budget=2**26, progress="none")
+    assert seen == [2**26]
+    assert _last_field(path)[1].status == "complete"  # type: ignore[union-attr]

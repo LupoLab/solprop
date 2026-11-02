@@ -743,4 +743,32 @@ def decode_keyword(entry: Parameter, value: object, context: BuildContext) -> ob
             "hold; use the Python export (Recipe.to_python)"
         )
         raise RecipeError(msg, path=entry.name)
-    return decode(value, unit_of(entry, value), context, entry.name)
+    unit = unit_of(entry, value)
+    if unit is None and _numeric_rows(entry, value):
+        msg = f"{entry.name} takes one row of numbers, not a list of rows"
+        raise RecipeError(msg, path=entry.name)
+    return decode(value, unit, context, entry.name)
+
+
+def _numeric_rows(entry: Parameter, value: object) -> bool:
+    """Return whether a value is a list of rows for a keyword of numeric arrays.
+
+    Parameters
+    ----------
+    entry : Parameter
+        The keyword's metadata.
+    value : object
+        The value as TOML read it.
+
+    Returns
+    -------
+    bool
+        True when the value is a list of lists and the keyword has an array form
+        whose elements carry units; such a value matched none of its forms.
+    """
+    rows = isinstance(value, list) and bool(value) and isinstance(value[0], list)
+    return rows and any(
+        form.kind in ("pair", "array")
+        and (form.unit is not None or form.elements is not None)
+        for form in entry.forms
+    )

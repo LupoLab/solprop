@@ -158,9 +158,9 @@ def resolved_document(
         entry = table.get(name)
         if entry is not None and entry.resolvable and name not in build:
             build[name] = value
-    if "save_planes" in build:
-        # The planes n_save stood for are now written out.
-        build.pop("n_save", None)
+    # save_planes is resolvable on every route, so the planes n_save stood for are now
+    # written out.
+    build.pop("n_save", None)
     noise = simulation.noise
     if noise is not None and noise.seed is not None and "seed" not in build:
         build["seed"] = encode_integer(int(noise.seed))

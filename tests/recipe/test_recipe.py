@@ -19,14 +19,17 @@ import pytest
 from solprop.cli import main
 from solprop.driver import Simulation
 from solprop.exceptions import MaterialRangeWarning
+from solprop.profiles import PiecewiseLinear
 from solprop.pulses import DataPulse, SechPulse
 from solprop.recipe import Recipe, RecipeError, RecipeIssue, parameters
 from solprop.recipe.registry import (
     REGISTRY,
     BuildContext,
     build_object,
+    coerce,
     decode,
     decode_keyword,
+    unit_of,
 )
 from solprop.stepper import Multistep
 
@@ -142,6 +145,11 @@ def test_from_keywords_takes_plain_values_and_refuses_objects():
         Recipe.from_keywords("gnlse", **GNLSE_CALL, beta=lambda omega: omega)
     complex_value = Recipe.from_keywords("capillary", cladding=1.45 + 0.01j)
     assert complex_value.get("cladding") == {"re": 1.45, "im": 0.01}
+    absorber = {"type": "absorber", "boundary_N": 30}
+    table = Recipe.from_keywords("gnlse", **GNLSE_CALL, absorber=absorber)
+    assert table.get("absorber") == absorber
+    written = Recipe.loads(GNLSE + 'absorber = {type = "absorber", boundary_N = 30}\n')
+    assert _hash(table.build()) == _hash(written.build())
 
 
 def test_execution_settings_reach_the_settings_and_the_run(recipe):
@@ -351,6 +359,77 @@ def test_decode_reads_quantities_complex_numbers_mappings_and_pairs():
         decode(list(range(10_001)), None, context, "save_planes")
     with pytest.raises(RecipeError, match="Python export"):
         decode_keyword(table["tdse"], {"type": "x"}, context)
+    # A value that is neither a number nor a string is passed on as it stands.
+    assert decode(None, "m", context, "x") is None
+
+
+def test_a_list_reaches_an_array_parameter_as_an_array():
+    positions = coerce(PiecewiseLinear, "positions", [0.0, 0.1])
+    assert isinstance(positions, np.ndarray)
+    assert positions.dtype == np.float64
+    assert coerce(PiecewiseLinear, "positions", 0.1) == 0.1
+    profile = build_object(
+        {"type": "PiecewiseLinear", "positions": ["0 mm", "10 mm"], "values": [1, 0]},
+        BuildContext(),
+        "pressure",
+    )
+    assert isinstance(profile, PiecewiseLinear)
+    np.testing.assert_array_equal(profile.positions, [0.0, 0.01])
+
+
+def test_a_two_row_list_finds_no_form_of_a_one_row_keyword():
+    betas = parameters("gnlse")["betas"]
+    assert callable(unit_of(betas, [0, 0, "-0.01183 ps^2/m"]))
+    assert unit_of(betas, [[0, 0, "-0.01183 ps^2/m"]]) is None
+    pressure = parameters("capillary")["pressure"]
+    assert callable(unit_of(pressure, [["0 m", "1 m"], ["1 bar", "0 bar"]]))
+    assert unit_of(pressure, ["1 bar", "0 bar"]) == "bar"
+
+
+@pytest.mark.parametrize(
+    ("name", "key"),
+    [("low_call_stepping", "pressure"), ("coherent_wall_taper", "radius")],
+)
+def test_a_canonical_save_keeps_rows_and_tables_as_written(name, key, tmp_path):
+    # The (z, p) rows take a unit each, which no display unit spells; a profile is a
+    # table of its own.
+    recipe = Recipe.example(name)
+    authored = recipe.get(key)
+    recipe.set("length", recipe.get("length"))  # edited: saved canonically
+    path = tmp_path / "edited.toml"
+    recipe.save(path)
+    again = Recipe.load(path)
+    assert again.get(key) == authored
+    assert [issue for issue in again.check() if issue.severity == "error"] == []
+    assert again == recipe
+
+
+def test_a_none_a_keyword_does_not_take_is_written_for_check_to_name():
+    document = Recipe.loads(GNLSE).to_dict()
+    document["build"]["fwhm"] = "none"
+    recipe = Recipe.from_dict(document)
+    assert 'fwhm = "none"' in recipe.to_text()
+    (issue,) = recipe.check()
+    assert issue.parameter == "fwhm"
+    assert "'none' is not a quantity" in issue.message
+
+
+def test_check_names_rows_given_to_a_one_row_keyword():
+    rows = 'betas = [[0, 0, "-0.01183 ps^2/m"]]'
+    bad = Recipe.loads(GNLSE.replace('betas = [0, 0, "-0.01183 ps^2/m"]', rows))
+    (issue,) = bad.check()
+    assert issue.parameter == "betas"
+    assert "one row of numbers" in issue.message
+
+
+def test_check_names_the_keyword_of_a_table_its_constructor_refuses():
+    document = Recipe.example("cross_phase_modulation").to_dict()
+    first = cast("list[dict[str, object]]", document["build"]["pulses"])[0]
+    first.pop("energy", None)
+    first.pop("peak_power", None)
+    (issue,) = Recipe.from_dict(document).check()
+    assert issue.parameter == "pulses"
+    assert issue.severity == "error"
 
 
 def test_check_reports_each_value_at_its_path(recipe):
@@ -418,6 +497,83 @@ def test_the_export_is_a_script_that_builds_the_same_run(recipe, tmp_path):
             list(built.settings.field_planes),
         ]
     assert "output='run.h5'" in recipe.to_python("run.h5")
+
+
+_HASH_PROBE = textwrap.dedent(
+    """\
+    from solprop.driver.simulation import Simulation
+
+    def run(self, *args, **kwargs):
+        print(self.metadata().configuration_hash(), kwargs.get("memory_budget", "-"))
+        raise SystemExit(0)
+
+    Simulation.run = run
+    """
+)
+
+
+def _data_file(path, data):
+    path.write_bytes(data)
+    return {"file": path.name, "sha256": hashlib.sha256(data).hexdigest()}
+
+
+def _exported_recipe(kind, tmp_path):
+    if kind == "data files":
+        # An array and a measured spectrum read from files beside the recipe.
+        values = tmp_path / "betas.npy"
+        np.save(values, np.array([0.0, 0.0, -1.183e-26]))
+        frequency = np.linspace(315e12, 405e12, 200)
+        power = np.exp(-(((frequency - 359e12) / 10e12) ** 2))
+        np.savetxt(
+            tmp_path / "spectrum.csv",
+            np.column_stack([frequency, power]),
+            delimiter=",",
+        )
+        text = GNLSE + '\n[execution]\nmemory_budget = "none"\n'
+        document = Recipe.loads(text).to_dict()
+        build = document["build"]
+        build["betas"] = _data_file(values, values.read_bytes())
+        for key in ("width", "peak_power", "shape"):
+            del build[key]
+        spectrum = tmp_path / "spectrum.csv"
+        build["pulses"] = [
+            {
+                "type": "load_spectrum",
+                **_data_file(spectrum, spectrum.read_bytes()),
+                "energy": "1 pJ",
+            }
+        ]
+        return Recipe(document, base=tmp_path)
+    # A fill given as a plain table of fractions.
+    recipe = Recipe.example("overview")
+    recipe.set("gas", {"He": 0.5, "Ne": 0.5})
+    return recipe
+
+
+@pytest.mark.parametrize("kind", ["data files", "a plain table"])
+def test_the_export_writes_data_files_and_plain_tables(kind, tmp_path):
+    recipe = _exported_recipe(kind, tmp_path)
+    script = recipe.to_python()
+    if kind == "data files":
+        assert "numpy.load('betas.npy', allow_pickle=False)" in script
+        assert "load_spectrum('spectrum.csv'," in script
+        assert "memory_budget=None" in script
+    else:
+        assert "gas={'He': 0.5, 'Ne': 0.5}" in script
+    path = tmp_path / "export.py"
+    path.write_text(_HASH_PROBE + script)
+    result = subprocess.run(
+        [sys.executable, str(path)],
+        capture_output=True,
+        text=True,
+        check=True,
+        cwd=tmp_path,
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", MaterialRangeWarning)
+        built = recipe.build()
+    budget = "None" if kind == "data files" else "-"
+    assert result.stdout.split() == [_hash(built), budget]
 
 
 def test_the_command_line_checks_exports_and_runs(tmp_path, capsys):

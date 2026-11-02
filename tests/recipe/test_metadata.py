@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 from solprop.driver import Simulation
+from solprop.driver.defaults import default_rtol
 from solprop.driver.interface import prop_capillary, prop_gnlse, prop_waveguide
 from solprop.driver.simulation import SimulationSettings
 from solprop.exceptions import DriverError
@@ -238,6 +239,27 @@ def test_the_capillary_s_rules_follow_the_envelope_and_the_tdse():
     assert _resolve(table, "raman", {}).value is None
     assert _resolve(table, "absorber_scheme", {}).value == "nonlinear"
     assert "one photon" in _resolve(table, "noise", {}).rule
+
+
+def test_a_capillary_beside_a_tdse_reads_its_own_defaults_row():
+    table = metadata.parameters("capillary")
+    resolution = _resolve(table, "rtol", {"tdse": object()})
+    assert resolution.value == default_rtol("capillary tdse", "double")
+    assert "the capillary tdse route's default" in resolution.rule
+    assert "the capillary route's default" in _resolve(table, "rtol", {}).rule
+
+
+@pytest.mark.parametrize("route", ["gnlse", "waveguide"])
+def test_step_planes_saves_the_requested_planes_only_without_a_tdse(route):
+    resolution = _resolve(metadata.parameters(route), "step_planes", {})
+    assert resolution.value == 0
+    assert resolution.rule == "the requested planes only"
+
+
+def test_a_required_keyword_says_so():
+    entry = metadata.parameters("gnlse")["gamma"]
+    assert entry.default is metadata.REQUIRED
+    assert repr(entry.default) == "REQUIRED"
 
 
 def test_a_route_without_metadata_is_refused():

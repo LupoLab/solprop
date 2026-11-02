@@ -67,6 +67,28 @@ def test_a_pinned_pressure_is_pressure_zdw_where_it_has_one_root():
     assert "pins" not in resolved.to_dict()
 
 
+def test_the_roots_of_a_path_that_is_not_pinned_are_refused():
+    recipe = pinned({"pressure": ZDW_PIN}, drop=("pressure",))
+    with pytest.raises(RecipeError, match="this path is not pinned") as caught:
+        recipe.pin_roots("energy")
+    assert caught.value.path == "energy"
+
+
+def test_a_pin_beside_a_value_on_the_grid_is_solved_on_the_route_s_grid():
+    # The absorber is built on the grid, so the pin's probe builds the route first;
+    # it moves neither the guide's dispersion nor the pulse's order.
+    absorber = {"type": "absorber", "boundary_N": 30}
+    guide = pinned({"pressure": ZDW_PIN}, drop=("pressure",), absorber=absorber)
+    assert guide.resolve().get("pressure") == pytest.approx(
+        pressure_zdw(125e-6, "He", 500e-9), rel=1e-7
+    )
+    pulse = pinned({"energy": ORDER_PIN}, drop=("energy",), absorber=absorber)
+    alone = pinned({"energy": ORDER_PIN}, drop=("energy",))
+    assert pulse.resolve().get("energy") == pytest.approx(
+        alone.resolve().get("energy"), rel=1e-12
+    )
+
+
 def test_a_soliton_order_pin_gives_the_order_on_the_launch_mode():
     recipe = pinned({"energy": ORDER_PIN}, drop=("energy",))
     simulation = quiet_build(recipe)
@@ -300,6 +322,26 @@ def test_a_pulse_in_the_list_is_pinned():
     assert recipe.resolve().get("pulses[0].energy") == pytest.approx(alone)
     assert recipe.check() == []
     assert "solved when exported" in recipe.to_python()
+
+
+def test_a_pin_on_a_pulse_the_list_does_not_hold_is_named_by_the_pin():
+    document = Recipe.example("soliton_self_compression").to_dict()
+    build = document["build"]
+    for name in ("energy", "fwhm"):
+        del build[name]
+    build["pulses"] = [
+        {
+            "type": "GaussianPulse",
+            "wavelength": "800 nm",
+            "fwhm": "10 fs",
+            "energy": 1e-6,
+        }
+    ]
+    document["pins"] = {"pulses[3].energy": ORDER_PIN}
+    recipe = Recipe.from_dict(document)
+    (issue,) = recipe.check()
+    assert issue.parameter == "pulses[3]"
+    assert "pulses has 1 elements, so no [3]" in issue.message
 
 
 def test_a_pulse_the_order_is_not_defined_for_is_refused():

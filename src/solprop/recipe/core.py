@@ -16,7 +16,7 @@ import dataclasses
 import importlib.resources
 import math
 import warnings
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Final, Literal, cast
@@ -567,8 +567,9 @@ class Recipe:
         for name, value in _with_pulse_placeholders(self._document).items():
             try:
                 self._decode(name, value, _deferred(context))
-            except RecipeError as error:
-                issues.append(_issue(error))
+            except SolpropError as error:
+                # An object built from a table refuses by its own argument's name.
+                issues.append(_issue(error, name))
         pinned = set(self._document.get("pins", {}))
         missing = [
             name
@@ -584,7 +585,7 @@ class Recipe:
             return issues
         try:
             resolved = self.resolve()
-        except RecipeError as error:
+        except SolpropError as error:
             return [_issue(error)]
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always", SolpropWarning)
@@ -1177,18 +1178,6 @@ class Recipe:
 
         return script(self, output)
 
-    def _values(self) -> Iterator[tuple[str, object, object]]:
-        """Yield each build keyword, its value as written and as decoded.
-
-        Yields
-        ------
-        tuple
-            The keyword, the value as written and the decoded value.
-        """
-        context = self._context()
-        for name, value in self._document["build"].items():
-            yield name, value, self._decode(name, value, _deferred(context))
-
 
 def _deferred(context: BuildContext) -> BuildContext:
     """Return a context for checking values built on the grid before it exists.
@@ -1232,21 +1221,26 @@ def _needs_grid(value: object) -> bool:
     return False
 
 
-def _issue(error: SolpropError) -> RecipeIssue:
+def _issue(error: SolpropError, keyword: str | None = None) -> RecipeIssue:
     """Return the issue a refusal makes.
 
     Parameters
     ----------
     error : solprop.exceptions.SolpropError
         The refusal.
+    keyword : str or None, optional
+        The build keyword whose value was refused, named when the refusal names no
+        recipe path of its own.
 
     Returns
     -------
     RecipeIssue
         Its message, parameter and rule, as an error.
     """
-    message = error.message if isinstance(error, RecipeError) else str(error)
-    return RecipeIssue(message, error.parameter, "error", error.rule)
+    if isinstance(error, RecipeError):
+        return RecipeIssue(error.message, error.parameter, "error", error.rule)
+    parameter = keyword if keyword is not None else error.parameter
+    return RecipeIssue(str(error), parameter, "error", error.rule)
 
 
 def _plain(value: object, path: str) -> object:
@@ -1301,13 +1295,16 @@ def _canonical(entry: Parameter, value: object) -> object:
     -------
     object
         A quantity string in the display unit for a number of a keyword that has
-        one, element by element for a list; anything else as it stands.
+        one, element by element for a list; a two-row list and anything else as it
+        stands.
     """
     unit = next((form.unit for form in entry.forms if form.unit is not None), None)
     if entry.display is None or unit is None:
         return value
     if isinstance(value, list):
-        return [_canonical(entry, item) for item in value]
+        # The rows of a two-row form, (z, p), each take their own unit.
+        rows = any(isinstance(item, list) for item in value)
+        return value if rows else [_canonical(entry, item) for item in value]
     if isinstance(value, bool) or not isinstance(value, int | float | str):
         return value
     if isinstance(value, str) and value == NONE:

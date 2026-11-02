@@ -1646,13 +1646,14 @@ def parameters(route: str) -> Mapping[str, Parameter]:
         return MappingProxyType(out)
     signature = inspect.signature(surface(route))
     entries = {entry.name: entry for entry in _route_entries(route)}
-    ordered = {}
-    for name, parameter in signature.parameters.items():
-        if name in entries:
-            default = (
-                REQUIRED
-                if parameter.default is inspect.Parameter.empty
-                else parameter.default
-            )
-            ordered[name] = dataclasses.replace(entries[name], default=default)
+    # Every keyword of the constructor has an entry, as the metadata tests check.
+    ordered = {
+        name: dataclasses.replace(
+            entries[name],
+            default=REQUIRED
+            if parameter.default is inspect.Parameter.empty
+            else parameter.default,
+        )
+        for name, parameter in signature.parameters.items()
+    }
     return MappingProxyType(ordered)
