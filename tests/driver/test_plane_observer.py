@@ -16,7 +16,7 @@ from solprop.exceptions import DriverError, SolpropWarning
 from solprop.grid import EnvelopeGrid
 from solprop.log import NullReporter, PlaneObserver
 from solprop.output.hdf5 import open_file
-from solprop.processing import get_spectrum
+from solprop.processing import get_spectral_density, get_spectrum
 from solprop.stepper import FixedSchedule, RungeKutta
 
 pytestmark = pytest.mark.filterwarnings("ignore::solprop.exceptions.BoundaryWarning")
@@ -41,6 +41,7 @@ class Watcher(NullReporter):
     def __init__(self, *, flag=None, stop_after=None):
         self.z = []
         self.spectra = []
+        self.densities = []
         self.fields = []
         self.views = []
         self.flag = flag
@@ -49,6 +50,7 @@ class Watcher(NullReporter):
     def observe_plane(self, z, plane):
         self.z.append(z)
         self.spectra.append(np.array(plane.spectrum()[1]))
+        self.densities.append(np.array(plane.spectral_density()[1]))
         self.fields.append(np.array(plane.field()[1]))
         self.views.append(plane)
         if self.flag is not None and len(self.z) == self.stop_after:
@@ -111,6 +113,8 @@ def test_the_observer_s_copy_is_the_file_s_plane_and_changes_nothing(
         for index, spectrum in enumerate(watcher.spectra):
             # The same processing function on the same plane (class P).
             assert np.array_equal(spectrum, get_spectrum(seen, plane=index)[1])
+            density = get_spectral_density(seen, plane=index)[1]
+            assert np.array_equal(watcher.densities[index], density)
         # Observing changes nothing the run computes (class R, bitwise here).
         assert np.array_equal(np.asarray(seen["field"]), np.asarray(quiet["field"]))
 

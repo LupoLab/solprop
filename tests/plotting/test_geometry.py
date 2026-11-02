@@ -95,6 +95,10 @@ GEOMETRIES = {
         lambda: PlanarGrid([_slab()], 1e-4, 4),
         ["wall", "wall", "collar", "medium"],
     ),
+    "planar_no_collar": (
+        lambda: PlanarGrid([_slab()], 1e-4, 4, window_factor=0.0),
+        ["wall", "wall", "medium"],
+    ),
     "radial": (lambda: RadialGrid(1e-3, 8), ["medium", "collar"]),
     "radial_no_collar": (lambda: RadialGrid(1e-3, 8, window_factor=0.0), ["medium"]),
     "free": (lambda: FreeGrid(3e-4, 4, 2e-4, 4), ["collar", "medium"]),

@@ -4,6 +4,7 @@
 
 import logging
 import pkgutil
+import runpy
 import subprocess
 import sys
 import typing
@@ -29,6 +30,18 @@ HEAVY_MODULES = (
 def test_version_is_a_string():
     assert isinstance(solprop.__version__, str)
     assert solprop.__version__
+
+
+def test_python_m_solprop_is_the_command_line(monkeypatch, capsys):
+    # runpy warns when the module was imported before; run it as `python -m` would.
+    monkeypatch.delitem(sys.modules, "solprop.__main__", raising=False)
+    monkeypatch.setattr(sys, "argv", ["solprop", "--help"])
+    runpy.run_module("solprop.__main__")  # imported, not run: it does nothing
+    assert capsys.readouterr().out == ""
+    with pytest.raises(SystemExit) as caught:
+        runpy.run_module("solprop", run_name="__main__")
+    assert caught.value.code == 0
+    assert "usage: solprop" in capsys.readouterr().out
 
 
 def test_package_logger_has_null_handler():

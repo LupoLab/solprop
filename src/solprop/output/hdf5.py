@@ -592,18 +592,17 @@ def read_recipe(file: h5py.File) -> RecipeRecord | None:
         return None
     group = _group(file, _RECIPE_KEY)
     files: dict[str, RecipeFile] = {}
-    if "files" in group:
-        stored = _group(group, "files")
-        for name in stored:
-            entry = stored[str(name)]
-            data = (
-                None
-                if not isinstance(entry, h5py.Dataset) or entry.shape is None
-                else bytes(np.asarray(entry[()], dtype=np.uint8))
-            )
-            files[str(name)] = RecipeFile(
-                _text(entry.attrs["path"]), _text(entry.attrs["sha256"]), data
-            )
+    stored = _group(group, "files")
+    for name in stored:
+        entry = _dataset(stored, str(name))
+        data = (
+            None
+            if entry.shape is None
+            else bytes(np.asarray(entry[()], dtype=np.uint8))
+        )
+        files[str(name)] = RecipeFile(
+            _text(entry.attrs["path"]), _text(entry.attrs["sha256"]), data
+        )
     return RecipeRecord(
         int(cast("int", group.attrs["format"])),
         _text(_dataset(group, "authored")[()]),

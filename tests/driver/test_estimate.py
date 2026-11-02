@@ -13,7 +13,7 @@ from solprop.backends.registry import available
 from solprop.driver.memory import admit_memory
 from solprop.exceptions import MaterialRangeWarning, SolpropWarning
 from solprop.recipe import Recipe
-from solprop.stepper import FixedSchedule
+from solprop.stepper import FixedSchedule, LowStorageRungeKutta
 
 
 def _built(name, backend):
@@ -85,6 +85,22 @@ def test_the_output_size_counts_only_the_retained_fields():
     every = simulation.estimate().output_bytes
     simulation.settings = dataclasses.replace(simulation.settings, fields="none")
     assert simulation.estimate().output_bytes < every
+
+
+def test_a_low_storage_run_takes_four_calls_a_step():
+    simulation = _built("soliton", "numpy_ref")
+    planes = list(simulation.settings.save_planes)
+    schedule = FixedSchedule.uniform(
+        0.0, planes[-1], planes[-1] / 200, save_planes=planes
+    )
+    # The recipe does not describe the schedule, so it is dropped, with a warning.
+    with pytest.warns(SolpropWarning, match="schedule, integrator changed"):
+        simulation.settings = dataclasses.replace(
+            simulation.settings, integrator=LowStorageRungeKutta(), schedule=schedule
+        )
+    estimate = simulation.estimate()
+    assert estimate.calls_per_step == 4
+    assert estimate.total_calls == schedule.steps.size * 4
 
 
 def test_an_adams_run_takes_one_call_and_a_schedule_counts_its_total():
