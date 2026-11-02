@@ -1151,7 +1151,7 @@ solprop changes section 21 names for it.
 |---|---|
 | M0 (done) | Prototypes: NiceGUI and Qt run-and-watch for `prop_capillary`. |
 | Scaffold (done) | The `gui/` distribution in solprop's repository: packaging and the `gui` extra, the layer rules and their tests, the `gui` CI job, this page. |
-| M1 Lifecycle | On the capillary, mode-averaged, only: main window, step bar, summary dock, service with kernel and worker, and the whole run lifecycle end to end — edit, validate, save, export, run, stop, reopen, resume and a simple compare of two runs — with the Overview results layout. It needs the lazy `solprop.recipe` (21.2). This exercises the architecture more than more forms would. |
+| M1 Lifecycle (in progress) | On the capillary, mode-averaged, only: main window, step bar, summary dock, service with kernel and worker, and the whole run lifecycle end to end — edit, validate, save, export, run, stop, reopen, resume and a simple compare of two runs — with the Overview results layout. It needs the lazy `solprop.recipe` (21.2). This exercises the architecture more than more forms would. |
 | M2 Explorer | The waveguide explorer, standalone and in the medium page; pinned pressure; multimode capillary. |
 | M3 Guided routes | Antiresonant, full-transverse capillary, GNLSE (Taylor, step-index, tables), rectangular, slab. |
 | M4 Results depth | All views of 11.3 under result capabilities, view specifications and export through `solprop.plotting`, richer compare. |
@@ -1378,9 +1378,9 @@ merged to `main` at `Final`.
 
 | | Change | Needed by |
 |---|---|---|
-| P1 | `solprop.recipe` imports lazily, so its quantity parser and writer, parameter paths and document load without the driver | M1 |
+| P1 | `solprop.recipe` imports lazily, so its quantity parser and writer, parameter paths and document load without the driver | M1; done ([#408](https://github.com/LupoLab/solprop/issues/408)) |
 | P2 | Per-keyword metadata for registered types: summary, level, default, range, manual anchor and display unit, held to the signatures as S9's is | M3, M5 |
-| P3 | A size-only estimate (shape, memory, output size) that builds no backend | M1, if not already possible |
+| P3 | A size-only estimate (shape, memory, output size) that builds no backend ([#410](https://github.com/LupoLab/solprop/issues/410)) | Not M1, whose estimate runs on request; a live figure in the summary later |
 | P4 | `ModeSetPreview` gains n_eff, β₁, β₃ and γ | M2 |
 | — | A waveguide example ([#402](https://github.com/LupoLab/solprop/issues/402)); metal claddings in recipes ([#403](https://github.com/LupoLab/solprop/issues/403)); a slab set's per-width units in the metadata ([#404](https://github.com/LupoLab/solprop/issues/404)) | M3 |
 | — | A radial example ([#405](https://github.com/LupoLab/solprop/issues/405)) | M5 |

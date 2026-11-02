@@ -7,7 +7,9 @@ same faster than a script would. It never becomes a dead end: every setup made i
 leaves as a solprop recipe file or a plain Python script, and every results file solprop
 writes can be opened in it.
 
-**It is in development: the window opens, but nothing can be set up in it yet.**
+**It is in development.** It offers the mode-averaged capillary so far: set it up,
+check it, run, stop and resume it with live views, and open and compare results files.
+Other routes follow, milestone by milestone (the design's "Phasing").
 
 The distribution is `solprop-gui` and the import package `solprop_gui`. It is built from
 the `gui/` directory of the [solprop repository](https://github.com/LupoLab/solprop) and
