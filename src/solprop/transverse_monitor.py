@@ -54,6 +54,9 @@ READS = 16
 NOISE_FACTOR = 8.0
 """Standard deviations of one noise reading the allowance takes (section 5.3)."""
 
+SMALL_TRANSFORM = 2**18
+"""Host transforms below this many elements run on one thread."""
+
 TransverseStatus = Literal[
     "clear", "warned", "stopped", "insensitive", "coarse", "unwatched", "off"
 ]
@@ -76,6 +79,28 @@ class _Face:
     name: str
     edge: np.ndarray
     clip: np.ndarray
+
+
+def _row_energy(rows: np.ndarray) -> Float[np.ndarray, " n_rows"]:
+    """Return each row's ``sum |E|^2`` of a two-dimensional complex array.
+
+    Double precision is summed as a real view by ``einsum``, without the temporaries
+    of ``abs(E)**2``; a read makes these sums many times a run (section 7.7).
+
+    Parameters
+    ----------
+    rows : numpy.ndarray
+        Complex rows.
+
+    Returns
+    -------
+    numpy.ndarray
+        The per-row sums.
+    """
+    if rows.dtype != np.complex128:
+        return np.sum(np.abs(rows) ** 2, axis=1)
+    flat = np.ascontiguousarray(rows).view(np.float64)
+    return np.einsum("ij,ij->i", flat, flat)
 
 
 def _axis_faces(
@@ -294,18 +319,44 @@ class TransverseEdge:
                     * hankel.matrix
                 )
             if not read:
-                return np.sum(np.abs(self._inverse @ flat) ** 2, axis=1)
+                return _row_energy(self._inverse @ flat)
             rows = self._rows_read()
             nodes = np.zeros(space.n_r)
-            nodes[rows] = np.sum(np.abs(self._inverse[rows] @ flat) ** 2, axis=1)
+            nodes[rows] = _row_energy(self._inverse[rows] @ flat)
             return nodes
         if isinstance(space, PlanarGrid):
             cube = flat.reshape(space.n_y, space.n_p, -1)
-            physical = scipy.fft.ifft(cube, axis=0, workers=self._workers)
-            return np.sum(np.abs(physical) ** 2, axis=(1, 2))
-        cube = flat.reshape(space.n_y, space.n_x, -1)
-        physical = scipy.fft.ifftn(cube, axes=(0, 1), workers=self._workers)
-        return np.sum(np.abs(physical) ** 2, axis=2).reshape(-1)
+            physical = scipy.fft.ifft(cube, axis=0, workers=self._fft_workers(cube))
+            physical = physical.reshape(space.n_y, -1)
+        else:
+            cube = flat.reshape(space.n_y, space.n_x, -1)
+            workers = self._fft_workers(cube)
+            physical = scipy.fft.ifftn(cube, axes=(0, 1), workers=workers)
+            physical = physical.reshape(space.n_y * space.n_x, -1)
+        if not read:
+            return _row_energy(physical)
+        rows = self._rows_read()
+        nodes = np.zeros(physical.shape[0])
+        nodes[rows] = _row_energy(physical[rows])
+        return nodes
+
+    def _fft_workers(self, cube: np.ndarray) -> int:
+        """Return the threads for one host transform of `cube`.
+
+        A small transform is faster on one thread than on a pool woken beside the
+        backend's own threads.
+
+        Parameters
+        ----------
+        cube : numpy.ndarray
+            The array transformed.
+
+        Returns
+        -------
+        int
+            The thread budget's threads, or 1 below ``2**18`` elements.
+        """
+        return self._workers if cube.size >= SMALL_TRANSFORM else 1
 
     def _rows_read(self) -> np.ndarray:
         """Return the nodes (or rows) a read uses: the faces' and a collar's.
@@ -355,7 +406,7 @@ class TransverseEdge:
         numpy.ndarray
             Weighted ``|E|^2``, scaled so that its sum is the node reduction's total.
         """
-        return self._columns * np.sum(np.abs(state) ** 2, axis=(1, 2))
+        return self._columns * _row_energy(state.reshape(state.shape[0], -1))
 
     # ------------------------------------------------------------------ the record
     def launch(  # noqa: PLR0915 - the launch, its noise and its judgements, in order
@@ -399,9 +450,9 @@ class TransverseEdge:
             self._last_z = z
             if noise is not None:
                 self._noise_columns = self._column_power(noise)
-            self._spacing_now = self._spacing(state)
-            self._next = z + self._spacing_now if reads else math.inf
             self._last_columns = self._column_power(state)
+            self._spacing_now = self._spacing(self._last_columns)
+            self._next = z + self._spacing_now if reads else math.inf
             self._last_rate = (z, self._collar_rate(nodes))
             if not reads:
                 self._status = "unwatched"
@@ -468,7 +519,8 @@ class TransverseEdge:
                     BoundaryWarning,
                     stacklevel=4,
                 )
-        spacing = self._spacing(state)
+        self._last_columns = self._column_power(state)
+        spacing = self._spacing(self._last_columns)
         self._spacing_now = spacing
         self._next = z + spacing
         if steps is not None and steps.size and float(np.max(steps)) > spacing:
@@ -482,7 +534,6 @@ class TransverseEdge:
                 BoundaryWarning,
                 stacklevel=4,
             )
-        self._last_columns = self._column_power(state)
         self._last_rate = (z, self._collar_rate(nodes))
         if self.every_step:
             self._launch_return(state, noise, weighted)
@@ -560,20 +611,19 @@ class TransverseEdge:
             return 0.0
         return float(np.sum(rate * self._weights * nodes)) / self._launch
 
-    def _spacing(self, state: Complex[np.ndarray, "n_modes n_pol n_omega"]) -> float:
+    def _spacing(self, columns: Float[np.ndarray, " n_columns"]) -> float:
         """Return the read spacing for the current spectrum, ``min(L/16, 4 g / v_q)``.
 
         Parameters
         ----------
-        state : numpy.ndarray
-            One member's spectral columns.
+        columns : numpy.ndarray
+            One member's column energies (:meth:`_column_power`).
 
         Returns
         -------
         float
             The spacing, m.
         """
-        columns = self._column_power(state)
         if self._noise_columns is not None:
             columns = np.maximum(columns - self._noise_columns, 0.0)
         order = np.argsort(self._kappa)
@@ -671,7 +721,7 @@ class TransverseEdge:
         self._last_rate = (z, rate)
         self._last_z = z
         self._last_columns = self._column_power(state)
-        self._spacing_now = self._spacing(state)
+        self._spacing_now = self._spacing(self._last_columns)
         self._next = z + self._spacing_now
         if self.design is not None and self.design.has_collar:
             # With a collar, outward flow is intended: recorded at INFO, never stopped.
