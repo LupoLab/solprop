@@ -592,3 +592,6 @@ A failed handle close retains writer ownership. Calling the writer's `close()`
 again retries cleanup, including after a failed post-run annotation. If archive
 creation fails before it can return a writer and its handle also cannot close,
 ownership remains held until process exit; the exception reports both failures.
+
+The recipe stored in a run's output and the result capabilities were proposed and
+carried out by [SEP 41](../../dev/seps/archive/sep-0041-recipes-and-front-ends.md).

@@ -600,3 +600,6 @@ the wave where the gas has thinned, and 147 nm is phase matched at 0.62 bar, the
 pressure that fill reaches three quarters of the way along. For a gradient, evaluate
 the tools at the pressure where you expect the fission, not at the entrance. The test
 suite checks this comparison against the run.
+
+The design solvers, `solve_parameter` and its targets, were proposed and carried out by
+[SEP 41](../../dev/seps/archive/sep-0041-recipes-and-front-ends.md).

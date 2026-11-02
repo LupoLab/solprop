@@ -309,3 +309,6 @@ largest error norm, wall time), never a field, and `step` is not sent at all, si
 called thousands of times a second. `Batch`, `Queue` and `Slurm` report only the points'
 boundaries, as their results are collected. The table per executor, and the scan's
 `stop=` flag, are in [watching and stopping a scan](../workflows/scans.md#watching-and-stopping-a-scan).
+
+The plane observer, the scan reporter and the cost estimate were proposed and carried
+out by [SEP 41](../../dev/seps/archive/sep-0041-recipes-and-front-ends.md).

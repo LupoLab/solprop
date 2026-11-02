@@ -23,7 +23,7 @@ All notable changes to solprop are recorded here. The format follows
   display say which of the integrator, `rtol` and the collar scheme took the route's
   default, and the summary names a Multistep carrier frame
   ([#87](https://github.com/LupoLab/solprop/issues/87)).
-- Recipes ([SEP 41](https://solprop.readthedocs.io/en/latest/dev/seps/sep-0041-recipes-and-front-ends.html)):
+- Recipes ([SEP 41](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0041-recipes-and-front-ends.html)):
   `solprop.recipe.Recipe` reads a TOML description of a `gnlse` or `capillary` run, with
   quantities in their units (`"125 um"`, `"1.2 bar"`), checks it (`check()`, each issue
   at its parameter path), builds and runs it, saves it and exports it as the Python
@@ -54,7 +54,7 @@ All notable changes to solprop are recorded here. The format follows
   view, whose spectrum, field, power and spectral density come from the processing
   functions, fetched from a device only on request; a failing observer is detached and
   the run completes. See [recipes and the command line](https://solprop.readthedocs.io/en/latest/guide/setup/recipes.html).
-- Design solvers for any guide ([SEP 41](https://solprop.readthedocs.io/en/latest/dev/seps/sep-0041-recipes-and-front-ends.html)):
+- Design solvers for any guide ([SEP 41](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0041-recipes-and-front-ends.html)):
   `solprop.tools.solve_parameter` finds every value of a guide or fill parameter
   (a radius, a pressure, a core size, a wall thickness) that meets a target, `ZDW`,
   `RDW` or `SolitonOrder`, discarding sign changes through a wall resonance, and
@@ -73,7 +73,7 @@ All notable changes to solprop are recorded here. The format follows
   phase column is unwrapped only where the power is above a noise floor, a phase in
   the FFT sign convention of a Luna.jl file is read with `phase_convention="fft"`, and
   a wrapped column sampled too coarsely to unwrap is warned on
-  ([SEP 41](https://solprop.readthedocs.io/en/latest/dev/seps/sep-0041-recipes-and-front-ends.html)).
+  ([SEP 41](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0041-recipes-and-front-ends.html)).
 - `prop_capillary`, `prop_waveguide` and their `Simulation` constructors take `launch=`,
   which puts each pulse into chosen modes with a share and an optional phase:
   `launch={"HE1,1": 0.9, "HE1,2": {"share": 0.1, "phase": 1.57}}`, or a list with one
@@ -82,20 +82,20 @@ All notable changes to solprop are recorded here. The format follows
   split scaled to the pulse's energy under the flux metric. The run records the launch
   as `configuration["modal_launch"]`, which a resume compares; a run without one
   records nothing and resumes as before
-  ([SEP 41](https://solprop.readthedocs.io/en/latest/dev/seps/sep-0041-recipes-and-front-ends.html)).
+  ([SEP 41](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0041-recipes-and-front-ends.html)).
 - `SpatialPulse` takes `displacement=(d_x, d_y)` and `tilt=(theta_x, theta_y)`, as
   `coupling.Alignment` defines them, applied at the launch plane on a Cartesian grid
   with the energy set after them; a tilt the grid's band, window or time window cannot
   carry is refused, and so is either on a radial grid, a y component on a line grid, a
   `PlanarPulse` and a guide's incident beam. A record without them continues as an
   unmoved beam
-  ([SEP 41](https://solprop.readthedocs.io/en/latest/dev/seps/sep-0041-recipes-and-front-ends.html)).
+  ([SEP 41](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0041-recipes-and-front-ends.html)).
 - `prop_waveguide` and `Simulation.from_waveguide` take `interpolate_planes` and
   `step_planes`, and `prop_capillary`, `prop_waveguide` and their constructors take
   `polarisation_taper`, as `prop_gnlse` does; `step_planes` defaults to `None` on
   every interface that takes it, which on `prop_gnlse` behaves as its `0` did. The
   guide lists the deliberate differences between the routes' keywords
-  ([SEP 41](https://solprop.readthedocs.io/en/latest/dev/seps/sep-0041-recipes-and-front-ends.html)).
+  ([SEP 41](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0041-recipes-and-front-ends.html)).
 
 - `Simulation.from_radial`, `from_free` and `from_planar` take `absorber` and
   `absorber_scheme`, as `prop_radial`, `prop_free` and `prop_planar` and the modal
@@ -109,7 +109,7 @@ All notable changes to solprop are recorded here. The format follows
   `solprop.output.compatibility` hold the comparison; `RunOutcome.resumes` and
   `RunOutcome.forced_positions` read back how each session continued its file.
 - Cross-section drawings in the library
-  ([SEP 41](https://solprop.readthedocs.io/en/latest/dev/seps/sep-0041-recipes-and-front-ends.html)): `solprop.plotting.geometry.outline`
+  ([SEP 41](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0041-recipes-and-front-ends.html)): `solprop.plotting.geometry.outline`
   gives the outline of a capillary, antiresonant, step-index, graded-index, rectangular
   or planar guide, or of a radial, Cartesian, line or planar grid, as shapes in metres;
   `draw(ax, guide, palette=...)` paints it in Matplotlib, and `thumbnail(route,
@@ -117,7 +117,7 @@ All notable changes to solprop are recorded here. The format follows
   come from an explicit `Palette` (`LIGHT`, `DARK`). The user guide's cross-section
   figures draw their outlines from it.
 - Recipes on the free-space routes
-  ([SEP 41](https://solprop.readthedocs.io/en/latest/dev/seps/sep-0041-recipes-and-front-ends.html)):
+  ([SEP 41](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0041-recipes-and-front-ends.html)):
   `radial`, `free` and `planar` recipes write the grids, medium, responses, beam and
   settings as tables of registered types (`RadialGrid`, `FreeGrid`, `LineGrid`,
   `PlanarGrid`, `SpatialMedium`, `KerrResponse` with `gamma3`,

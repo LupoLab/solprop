@@ -6,7 +6,7 @@
 | **Title** | Recipes, and the hooks a front end needs |
 | **Author** | John C. Travers |
 | **Drafting agent** | Claude Opus 5.5 (2026-10-31) |
-| **Status** | In progress |
+| **Status** | Final |
 | **Review status** | Reviewed |
 | **Reviewers** | John Travers (human); Opus 5.5 (AI); Codex (AI) |
 | **Type** | Change |
@@ -15,8 +15,8 @@
 | **Requires** | SEP 42 (resuming by what matters to the run; accepted) |
 | **Supersedes** | — |
 | **Superseded-by** | — |
-| **Implementation** | In progress: John Travers, with Opus 5.5, on `feature/sep-0041-recipes`; phase 1 started 2026-11-01 |
-| **Manual pages** | — |
+| **Implementation** | Complete 2026-11-02: John Travers, with Opus 5.5, on `feature/sep-0041-recipes` ([LupoLab/solprop#376](https://github.com/LupoLab/solprop/pull/376)) |
+| **Manual pages** | [Recipes](../../../guide/setup/recipes.md); [Pulses](../../../guide/setup/pulses.md); [Design tools](../../../guide/workflows/design-tools.md); [Scans](../../../guide/workflows/scans.md); [Progress](../../../guide/performance/progress.md); [Resuming](../../../guide/results/resuming.md); [Output](../../../guide/results/output.md); [Plotting](../../../guide/results/plotting.md); [Free-space beams](../../../guide/free-space/beams.md) |
 
 ## Part I — Proposal
 
@@ -66,9 +66,9 @@ the physics, the defaults and the rules; a front end holds only presentation**.
 
 The same gaps hurt script users. A results file does not record the call that made it, so a
 run can be resumed only by the script that started it (the [resume
-key](../../guide/results/resuming.md) checks a rebuilt simulation; it cannot rebuild one). A
+key](../../../guide/results/resuming.md) checks a rebuilt simulation; it cannot rebuild one). A
 batch job is a Python file per configuration. A scan's builder must be a module-level
-function for pool executors ([scans](../../guide/workflows/scans.md)), which a declarative
+function for pool executors ([scans](../../../guide/workflows/scans.md)), which a declarative
 description gives for free.
 
 **In scope** (the labels S1–S18 are used throughout):
@@ -108,7 +108,7 @@ description gives for free.
 ### 3. Context
 
 - **Entry points.** [`prop_gnlse`, `prop_capillary` and
-  `prop_waveguide`](../../guide/setup/running.md) take keywords. `prop_radial`, `prop_free`
+  `prop_waveguide`](../../../guide/setup/running.md) take keywords. `prop_radial`, `prop_free`
   and `prop_planar` take a `TimeGrid` first, then objects: `space`, `responses`, `initial`
   and the keyword `settings`, all three with an optional `frame`; `prop_radial` and
   `prop_free` also take a `medium`. Each has a `Simulation.from_*` constructor, so a
@@ -124,7 +124,7 @@ description gives for free.
 - **Names.** The route keywords name the reference wavelength `wavelength` and the pulse
   shape `shape`, as the pulse objects and `solprop.tools` do (since the 0.1.0 release
   preparation, PR #64).
-- **Progress.** [`ProgressReporter`](../../guide/performance/progress.md) is a
+- **Progress.** [`ProgressReporter`](../../../guide/performance/progress.md) is a
   `runtime_checkable` protocol with four calls (`started`, `step`, `plane`, `finished`),
   extended by optional protocols (`InterruptibleReporter.interrupted`,
   `SummarisingReporter.summary`) that a reporter may implement; `NullReporter` implements
@@ -145,7 +145,7 @@ description gives for free.
 - **Scans.** `run_scan(scan, build, executor=...)` already reports progress: `"auto"` gives
   an outer bar or one log line per finished point; the inner runs are quiet. A scan's
   builder must pass `point.seed`. `python -m solprop.scan` is the command-line entry point.
-- **Design tools.** [`solprop.tools`](../../guide/workflows/design-tools.md) has
+- **Design tools.** [`solprop.tools`](../../../guide/workflows/design-tools.md) has
   `pressure_zdw`, `pressure_rdw`, `capillary_design`, `soliton_params` and others, built on
   the Marcatili capillary; `pressure_rdw` also takes a `lattice` and builds a
   `VincettiMode`. `pressure_zdw` brackets once over pressure, inside a zero-dispersion
@@ -155,7 +155,7 @@ description gives for free.
 - **Modes.** `prop_waveguide` already selects a launch mode with `channel`, by index or
   display label (labels display as `HE1,1:even`), or computes a launch from an `incident`
   beam and a `coupling`. General modal bases measure physical energy with a flux metric that
-  has cross terms ([general modal](../../guide/waveguides/general-modal.md)).
+  has cross terms ([general modal](../../../guide/waveguides/general-modal.md)).
 - **Errors.** The builders raise `SolpropError` subclasses (`DriverError`,
   `TranslationError`, `ModeError`); `DriverError` is also a `RuntimeError`, not a
   `ValueError`. Most carry a message only; `ResponseBudgetError` carries `z`, `field` and
@@ -167,14 +167,14 @@ description gives for free.
   displacement or tilt; `solprop.coupling.Alignment(displacement, tilt, model_error)`
   applies them as a coupling step, with the tilt a phase screen in the medium's real wave
   number.
-- **Results.** The [processing](../../guide/results/processing.md) functions accept spatial
+- **Results.** The [processing](../../../guide/results/processing.md) functions accept spatial
   files but do not return physical powers from them; compression refuses spatial and general
   modal outputs; general modal reconstruction needs the guide and reference tables, of which
   a file may hold only the identities.
 - **Figures.** The geometry drawings in the user guide are generated by a docs script and
   styled with CSS custom properties, which only a browser renders.
 - **The writer lock.** The `*.writer.lock` sidecar is documented under snapshots in the
-  [output guide](../../guide/results/output.md).
+  [output guide](../../../guide/results/output.md).
 
 **Open issues.** From a keyword search of this SEP's subjects against the open issues,
 reading those that matched. It fixes none in full.
@@ -862,7 +862,7 @@ Before a run, a front end shows what a recipe will build without building the ru
 
 ### 7. Verification and validation
 
-The tolerance classes are those of the [testing policy](../testing.md#3-tolerance-policy).
+The tolerance classes are those of the [testing policy](../../testing.md#3-tolerance-policy).
 
 - **Recipe equivalence** (class P, configuration identity). For the examples of the user
   guide and gallery, a hand-written recipe builds a simulation with the same
@@ -943,15 +943,15 @@ The tolerance classes are those of the [testing policy](../testing.md#3-toleranc
   quantities, `None`, paths, objects, data files, pins, scans, `solprop run`, `check`,
   `export` and `resume`, with the capillary example above, and the examples that have no
   recipe, with why.
-- [Resuming](../../guide/results/resuming.md): resume from a file alone, `resumability`, the
+- [Resuming](../../../guide/results/resuming.md): resume from a file alone, `resumability`, the
   portable stop, and that resuming a received file runs its setup.
-- [Progress](../../guide/performance/progress.md): `PlaneObserver`, its failure policy and
+- [Progress](../../../guide/performance/progress.md): `PlaneObserver`, its failure policy and
   the coalescing pattern, how the boundary warning reaches a front end, `ScanReporter`.
-- [Pulses](../../guide/setup/pulses.md) and [beams](../../guide/free-space/beams.md):
+- [Pulses](../../../guide/setup/pulses.md) and [beams](../../../guide/free-space/beams.md):
   loaders, mode launch (and its meaning on general bases), displacement and tilt.
-- [Design tools](../../guide/workflows/design-tools.md): the general solver, `radius_zdw`
+- [Design tools](../../../guide/workflows/design-tools.md): the general solver, `radius_zdw`
   and pins.
-- [Output](../../guide/results/output.md): the recipe group, result capabilities and the
+- [Output](../../../guide/results/output.md): the recipe group, result capabilities and the
   writer-lock sidecar.
 - A table of route defaults (integrators, tolerances) with the reason for each difference.
 - Docstrings for every new name; a gallery example that loads a recipe, edits a value and
@@ -1518,6 +1518,83 @@ free-space half of phase 4 waits for SEP 40 on `main`.
 - **On a slab set**, a pulse's `energy` and `peak_power` are per metre of y, while the
   metadata's units are J and W; the guide says so.
 
+### Phase 4, free-space half, report (S1 on the object routes, S6, S18) — and completion
+
+Complete on 2026-11-02, after SEP 40 reached `main` and was merged into the branch
+(`dac1743`); commits `2c1bf57` and `5256885` (beam displacement and tilt) and `098a7e7`
+(recipes on the object routes). Checked as phase 1 was, with the free-space modules of
+SEP 40 run on the merge with the native build at kernel contract 41.
+
+**Delivered.**
+
+- **The merge with SEP 40.** The drawn outlines read `collar_fraction`, and a radial
+  grid's collar now lies outside its radius, out to `outer_radius`. SEP 40's copy of
+  the noise resolver was dropped for the route-defaults table, which it had not changed.
+- **Beam displacement and tilt (S6).** `SpatialPulse` takes `displacement=(d_x, d_y)` and
+  `tilt=(theta_x, theta_y)` with `coupling.Alignment`'s definitions. Both apply at the
+  launch plane after `propz`, on a `FreeGrid` or a `LineGrid`: the tilt is the screen
+  $\exp[\mathrm{i}k(\omega)(x\sin\theta_x + y\sin\theta_y)]$ with the launch medium's
+  real wave number, the displacement the exact spectral shift, and the energy is set after
+  both. Checked: the displacement is the shift `Alignment` applies; each frequency leaves
+  at the one angle (the spectral centroid gives the tilt to 1e-3); the screened field is
+  `Alignment`'s screen on the same beam up to the one real factor the renormalisation
+  makes, about $1 + \theta^2/4$; the energy after the screen is the pulse's to 1e-12; and
+  each refusal fires. The record gains the two fields, at zero too; the frozen 0.2.0
+  records continue through a neutral entry of zero.
+- **Recipes on `radial`, `free` and `planar`.** The constructor's arguments are `[build]`
+  tables under their own names (`grid`, `space`, `medium`, `responses`, `initial`,
+  `settings`), with `absorber` and `absorber_scheme` under `settings` as §5.1 asks, and
+  SEP 40's `spatial_absorber` as a table or `false`. Registered: the four spatial grids
+  (with `collar_fraction`), `SpatialMedium`, `KerrResponse` with optmat's `gamma3`,
+  `EnvelopePlasmaResponse`, `PlasmaResponse`, `OptmatRate`, `SpatialPulse`,
+  `PlanarPulse`, `SimulationSettings` (its physical fields; `[execution]` keeps its
+  four), `PIController`, `default_spec` and `SpatialAbsorber`. Three examples
+  (`cartesian_beam`, `planar_hybrid`, `planar_compressor`) build the hash of the script
+  they mirror and export to it.
+- **Previews (S18, free space).** `preview_input` gives the beam's power, fluence and
+  energy on the launch plane, measured in the medium there with `solprop.spatial`'s
+  functions, and equal to the run's noise-free entrance plane; `modes()` covers the
+  planar route's slab channels.
+
+**Deviations and decisions.**
+
+- **S6's record.** §5.6 names "two fields of `configuration.pulse`": the beam is recorded
+  where each route records it, `configuration.initial` on the free-space routes and
+  `configuration.pulse` on a coupled run, and the neutral entry covers both.
+- **S6's thresholds**, which §4 states without numbers: a tilt is refused when
+  $k(\omega)|\sin\theta|$ reaches the largest transverse wave number of a tilted axis; a
+  moved beam when its fluence at or beyond the window's requested half-width exceeds 1e-6
+  of its peak; and a pulse-front delay across the beam's 1e-6 width above half the time
+  window. `Alignment`'s `model_error` budget does not apply, as §5.6 says.
+- **A `PlanarPulse` refuses displacement and tilt.** §5.6 applies them on a Cartesian
+  grid; the planar beam is placed across the gap by its own `offset_x` and is periodic
+  in y. A guide's incident beam refuses them too, as §5.6 says of
+  `prop_waveguide(incident=...)`.
+- **`Simulation.from_radial`, `from_free` and `from_planar` take `absorber` and
+  `absorber_scheme` themselves** since SEP 40, which §5.1 predates. A recipe still gives
+  them under `settings` and is refused, naming that, at the top level.
+- **Slab modes take their fill on the planar route** only (`Factory.fill`, set by the
+  route's build context); the waveguide rebinds every mode to its own fill and refuses one.
+- **Pins are refused on the object routes**, which have no guide or launch mode to solve
+  a target on; **their resolved recipe** writes back only the drawn seed, since their
+  values are tables, not resolvable keywords.
+- **The export writes a tuple-typed parameter as a tuple** on every route, as a script
+  would (`wavelength_limits=(...)`).
+- **No radial example.** No radial gallery script can be written as a recipe: each
+  builds its beam as an array or computes its energy from material functions, which a
+  literal would freeze. The route is tested against the guide's calls ([#405](https://github.com/LupoLab/solprop/issues/405)).
+
+**Completion.** Every phase is merged on the branch and reported. Recipes and the hooks sit
+above translation and run on every backend; the observer, the estimate and the stop are
+tested on `numpy_ref`, `numba_cpu` and the native build. The manual documents the work,
+and each page it produced ends with a link to this SEP. No open question remains (Q1–Q12
+are decided); the follow-ups are issues: a waveguide example
+([#402](https://github.com/LupoLab/solprop/issues/402)), metal claddings in recipes
+([#403](https://github.com/LupoLab/solprop/issues/403)), a slab set's per-width units in
+the metadata ([#404](https://github.com/LupoLab/solprop/issues/404)), a radial example
+([#405](https://github.com/LupoLab/solprop/issues/405)) and `get_power` on a spatial
+output ([#406](https://github.com/LupoLab/solprop/issues/406)).
+
 ## Part III — History
 
 - 2026-10-31: Drafted, from the requirements of a desktop front end under design.
@@ -1552,6 +1629,8 @@ free-space half of phase 4 waits for SEP 40 on `main`.
   the maintainer ordered.
 - 2026-11-01: In progress. Phases 1–3 started on `feature/sep-0041-recipes` (John Travers, with
   Opus 5.5), ahead of SEP 42's phase 1 (Part II).
+- 2026-11-02: Final. Every phase reported in Part II; follow-ups opened as #402–#406; the
+  SEP moved to the archive (John Travers, with Opus 5.5).
 
 ### AI review, 2026-10-31
 
@@ -1858,7 +1937,7 @@ not repeat R1–R20 or change Part I, the proposal status or the earlier review.
 1. **C1 — major: expose result capabilities as well as setup capabilities (sections
    2, 5.3 and 5.8; additional to R18).** A front end needs to know which quantities
    can be reconstructed from a particular file, not only which options a route
-   accepts. The [processing guide](../../guide/results/processing.md) warns that
+   accepts. The [processing guide](../../../guide/results/processing.md) warns that
    `get_power` and `get_spectral_density` accept spatial files but do not return
    physical powers or energies there. Compression refuses spatial and general modal
    outputs. General modal reconstruction requires the matching guide and reference
@@ -1888,7 +1967,7 @@ not repeat R1–R20 or change Part I, the proposal status or the earlier review.
    physical energy uses a flux metric with cross terms. A set of coordinate fractions
    normalized to one does not establish the advertised physical energy allocation;
    relative phases can affect the total. The existing
-   [general modal processing contract](../../guide/waveguides/general-modal.md)
+   [general modal processing contract](../../../guide/waveguides/general-modal.md)
    distinguishes coordinate quantities from physical flux. **Recommendation:**
    explicitly restrict `launch` fractions to bases where this interpretation holds,
    or define a coordinate-amplitude specification normalized using the actual flux
@@ -1902,7 +1981,7 @@ not repeat R1–R20 or change Part I, the proposal status or the earlier review.
    ([`os.kill`](https://docs.python.org/3.14/library/os.html#os.kill)). A front end
    cannot infer resumability from a process exit or from `n_saved` alone. Some
    failures have no checkpoint, and interpolated checkpoints need an explicit policy
-   ([resuming](../../guide/results/resuming.md)). **Recommendation:** specify either
+   ([resuming](../../../guide/results/resuming.md)). **Recommendation:** specify either
    a supported portable cancellation hook respecting commit boundaries or the tested
    platform mechanisms a front end must use. Expose enough recovery information to
    explain whether resume is available. Keep front-end execution states distinct
@@ -1926,14 +2005,14 @@ not repeat R1–R20 or change Part I, the proposal status or the earlier review.
 - **R3, unseeded resume: the resume blocker is addressed at this revision.**
   `Simulation._adopt_recorded_seed` in `src/solprop/driver/simulation.py` reuses a file's
   seed when the caller supplied none; the behaviour is now documented in
-  [resuming](../../guide/results/resuming.md#noise-drawn-without-a-seed). The earlier
+  [resuming](../../../guide/results/resuming.md#noise-drawn-without-a-seed). The earlier
   probe remains evidence about the revision it tested. Independent builds used in
   recipe-equivalence tests still need controlled seeds; this does not remove R7's
   requirement for resolved provenance or settle every scan-builder detail.
 - **R19, comparison policy: change the comparison class, not just its tolerance.**
   Section 7 asks for resumed versus uninterrupted agreement to rounding and bitwise
   agreement between independent runs with and without an observer. The current
-  [testing policy](../testing.md#3-tolerance-policy) puts ordinary resumed versus
+  [testing policy](../../testing.md#3-tolerance-policy) puts ordinary resumed versus
   uninterrupted runs in class T, with an accuracy envelope against a tighter or
   stored converged reference. A rounding comparison requires matched discrete
   methods and histories; independent propagation runs do not require bitwise

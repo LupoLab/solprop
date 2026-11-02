@@ -371,7 +371,7 @@ use this.
 A pulse given by keywords enters the first mode of a multimode run, and the others fill
 through the nonlinearity. `launch=` puts it into chosen modes instead, on
 `prop_capillary`, `prop_waveguide` and their `Simulation` constructors
-([SEP 41](../../dev/seps/sep-0041-recipes-and-front-ends.md)): a mapping from a mode to
+([SEP 41](../../dev/seps/archive/sep-0041-recipes-and-front-ends.md)): a mapping from a mode to
 its share, or to a share and a phase in radians.
 
 ```python
@@ -472,3 +472,6 @@ Where solprop's choices differ from Luna.jl's, the differences are listed in
 ## Related calculations
 
 For a complete launch and analysis, follow the [RDW lesson](../../introduction/lessons/plot_01_rdw.rst) or [soliton lesson](../../introduction/lessons/plot_02_soliton.rst). [Polarisation](polarisation.md) extends the launch to vector fields; [beam setup](../free-space/beams.md) adds a transverse profile.
+
+Measured-spectrum loading with `load_spectrum` and the launch into chosen modes were
+proposed and carried out by [SEP 41](../../dev/seps/archive/sep-0041-recipes-and-front-ends.md).

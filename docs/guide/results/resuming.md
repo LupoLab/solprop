@@ -542,3 +542,6 @@ Independent resumed computations meet the repository's accuracy-envelope policy;
 stored copies, history arrays and structural identifiers remain exact.
 
 The design is [SEP 42](../../dev/seps/archive/sep-0042-tolerant-resume.md).
+
+Resuming a run from its file and the recipe it records were proposed and carried out by
+[SEP 41](../../dev/seps/archive/sep-0041-recipes-and-front-ends.md).

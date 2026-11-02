@@ -10,7 +10,7 @@ build the same simulation, configuration hash included.
 Recipes describe the keyword routes `gnlse`, `capillary` and `waveguide`, and the
 free-space routes `radial`, `free` and `planar`, whose keywords are objects
 ([below](#free-space-routes)). They are specified in
-[SEP 41](../../dev/seps/sep-0041-recipes-and-front-ends.md).
+[SEP 41](../../dev/seps/archive/sep-0041-recipes-and-front-ends.md).
 
 ## A recipe
 
@@ -398,3 +398,6 @@ its reason, in the test that holds the examples to the gallery, so the list stay
 
 So the `radial` route has no example yet; its calls are tested against the free-space
 guide's.
+
+This page documents the functionality proposed and implemented by
+[SEP 41](../../dev/seps/archive/sep-0041-recipes-and-front-ends.md).

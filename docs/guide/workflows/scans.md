@@ -333,7 +333,7 @@ for one being retried), and a rerun of the same call computes them, skipping the
 complete ones as usual. `run_scan` returns normally after a stop, logs at `INFO` that the
 caller's flag stopped it with the counts of collected and stopped points, and tells a
 scan reporter `"stopped"` for each stopped point; a watched point's reporter is told
-through `interrupted`, with a `StopRequested` error that carries the caller's flag. The design is [SEP 41](../../dev/seps/sep-0041-recipes-and-front-ends.md),
+through `interrupted`, with a `StopRequested` error that carries the caller's flag. The design is [SEP 41](../../dev/seps/archive/sep-0041-recipes-and-front-ends.md),
 S4 and S17.
 
 ## Noise and repeatability
@@ -542,3 +542,6 @@ recursively. Without a durable mode, `--workers`, `--threads`, `--memory-limit` 
 `--fresh` select `Pool`; `--local` selects `Local` and rejects process resource controls.
 Slurm memory uses `--mem`, while a direct `Pool` or queue accepts `--memory-limit` in
 bytes.
+
+Scan progress, the stop flag and scans from a recipe were proposed and carried out by
+[SEP 41](../../dev/seps/archive/sep-0041-recipes-and-front-ends.md).
