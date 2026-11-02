@@ -361,7 +361,7 @@ that turns both soft collars off on the fibre entry points is
 ### The transverse boundary
 
 The collars above act on time and frequency. A free-space run's transverse boundary is
-its own ([SEP 40](../../dev/seps/sep-0040-transverse-absorbing-boundaries.md)): a wall or a
+its own ([SEP 40](../../dev/seps/archive/sep-0040-transverse-absorbing-boundaries.md)): a wall or a
 wrap at the grid's outer size, a safety ramp in the transverse **wavenumber** on every
 geometry, which rides the linear operator exactly like the spectral rate, the monitor's
 transverse edge, and, on request, a designed real-space collar,
@@ -498,7 +498,7 @@ and the floor's expected removal (`floor_removed_fraction`), so that a resume co
 from the same numbers the whole run would hold.
 
 On a free-space run the monitor also watches the **transverse edge**
-([SEP 40](../../dev/seps/sep-0040-transverse-absorbing-boundaries.md)): the energy in the
+([SEP 40](../../dev/seps/archive/sep-0040-transverse-absorbing-boundaries.md)): the energy in the
 outer 5 % of the grid's outer size above its launch value with no collar, and what
 returns with a requested one, at `BoundaryCheck`'s levels or its own `transverse_budget`,
 which relaxes the transverse edge without relaxing time. Its reads are spaced as a ceiling

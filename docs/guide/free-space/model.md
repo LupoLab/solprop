@@ -165,7 +165,7 @@ this way.
 A free-space grid has a hard edge: the radial transform holds the field at zero at its
 outer radius, and the Cartesian, line and planar grids are periodic, so light that
 reaches the edge is reflected or wraps round into the aperture, and the answer is wrong.
-solprop's answer, from [SEP 40](../../dev/seps/sep-0040-transverse-absorbing-boundaries.md),
+solprop's answer, from [SEP 40](../../dev/seps/archive/sep-0040-transverse-absorbing-boundaries.md),
 is **room first, detection always, and absorption only for declared fast light**.
 
 **Room first.** The grids take `collar_fraction`, the room outside the requested size,

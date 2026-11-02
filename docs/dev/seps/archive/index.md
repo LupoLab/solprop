@@ -35,5 +35,6 @@ sep-0036-native-reduced-precision
 sep-0037-noise-and-stepper-defaults
 sep-0038-performance-tracking
 sep-0039-native-adams-march
+sep-0040-transverse-absorbing-boundaries
 sep-0042-tolerant-resume
 ```

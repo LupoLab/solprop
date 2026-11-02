@@ -43,7 +43,7 @@ in the field, so no multiple of $K$ bounds their products, and only refinement j
 the grid.
 
 Every free-space run carries a **safety ramp** in $k_\perp$
-([SEP 40](../../dev/seps/sep-0040-transverse-absorbing-boundaries.md)). With
+([SEP 40](../../dev/seps/archive/sep-0040-transverse-absorbing-boundaries.md)). With
 $\rho=\max(|k_x|/k_{x,\max},|k_y|/k_{y,\max})$ its power rate is $\alpha_s P(\rho)$, zero
 for $\rho\le1-f_s$ and rising as a raised cosine to $\alpha_s$ at the grid's largest
 wavenumber, with $f_s = 0.1$ by default; on a {py:class}`~solprop.grid.LineGrid` it acts on

@@ -66,7 +66,7 @@ All notable changes to solprop are recorded here. The format follows
 ### Changed (breaking)
 
 - A free-space run's transverse boundary is a `SpatialAbsorber`
-  ([SEP 40](docs/dev/seps/sep-0040-transverse-absorbing-boundaries.md)), given as
+  ([SEP 40](docs/dev/seps/archive/sep-0040-transverse-absorbing-boundaries.md)), given as
   `SimulationSettings.spatial_absorber` or the `spatial_absorber` keyword of
   `prop_radial`, `prop_free`, `prop_planar` and their `Simulation.from_*` builders. By
   default every radial, Cartesian, line and planar run carries a designed safety ramp on
@@ -80,7 +80,7 @@ All notable changes to solprop are recorded here. The format follows
   real-space rate. Kernel schema 41.
 - Every spatial grid takes `collar_fraction` in place of `window_factor`, default 0, and
   puts the room it asks for **outside** the requested size on every geometry
-  ([SEP 40](docs/dev/seps/sep-0040-transverse-absorbing-boundaries.md)). `RadialGrid`'s
+  ([SEP 40](docs/dev/seps/archive/sep-0040-transverse-absorbing-boundaries.md)). `RadialGrid`'s
   `radius` is now the requested aperture, the Dirichlet boundary is at
   `outer_radius = radius * (1 + collar_fraction)`, and `n_r` counts every sample; the
   transform, the nodes and the effective area use the outer radius. Fractions of 1 and
@@ -90,7 +90,7 @@ All notable changes to solprop are recorded here. The format follows
   spacing.
 - A free-space run whose light reaches its transverse boundary now warns or stops,
   where it used to log and carry on
-  ([SEP 40](docs/dev/seps/sep-0040-transverse-absorbing-boundaries.md)). The boundary
+  ([SEP 40](docs/dev/seps/archive/sep-0040-transverse-absorbing-boundaries.md)). The boundary
   monitor reads the outer 5 % of the grid on every backend. It warns above 1e-6 of the
   launch energy and stops at 1e-4, naming a size and a sample count to try, and
   `BoundaryCheck.transverse_budget` sets those levels apart from the time window's. The
@@ -368,7 +368,7 @@ Nothing was released before 0.1.0. For scripts and files from a development chec
   (an absorber given to a spatial run, `Absorber.spatial`) removes only part of the light that reaches it, at a large cost
   in steps, and the boundary monitor watches the time window only. Size the transverse
   window so that the light stays clear of its edge.
-  [SEP 40](https://solprop.readthedocs.io/en/latest/dev/seps/sep-0040-transverse-absorbing-boundaries.html)
+  [SEP 40](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0040-transverse-absorbing-boundaries.html)
   (a draft) rebuilds these boundaries.
 - **A run is resumed by the release that wrote it.** A run's configuration hash covers
   every recorded field, so a release that adds one changes every hash, and within 0.x

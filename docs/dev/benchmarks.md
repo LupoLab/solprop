@@ -690,6 +690,46 @@ Cartesian 128² 1.28 → 1.06. The unmonitored path is unchanged:
 `python -m benchmarks ab` at one thread on the same node gives 1.000 (GNLSE soliton),
 1.005 (radial filament) and 1.005 (Kerr beam) for the three cases above.
 
+### The transverse edge and a requested collar
+
+[SEP 40](seps/archive/sep-0040-transverse-absorbing-boundaries.md) puts a k⊥ safety ramp
+and reads of the transverse edge on every free-space run by default, and builds a real-space
+collar on request. The default's cost was measured as the monitor's was above, with each case
+built by the harness's builder and run four ways in the same process:
+
+- with neither the ramp nor reads;
+- with the ramp alone;
+- with reads alone;
+- with both.
+
+The four were interleaved, six rounds each. The setup: a Xeon Gold 6240, one socket,
+18 threads, GCC 16.
+
+| case | steps (no reads → reads) | both, native | both, `numba_cpu` |
+|---|---:|---:|---:|
+| line | 27 → 28 | +14.0 % | +6.4 % |
+| planar | 40 → 40 | 0.0 % | −1.1 % |
+| radial filament 256 | 127 → 127 | +2.2 % | −0.1 % |
+| Cartesian filament 128, half length (its light reaches the edge) | 40 → 41 | +10.5 % | +2.6 % |
+
+The ramp alone costs nothing measurable. Reading costs in two ways. The read ceiling,
+`min(L/16, 4g/v_q)`, adds a step on the line and Cartesian cases. Each read also has a
+host cost: about 1 ms on the line case's 0.2 s run, and about 180 ms on the native
+Cartesian filament. Both are open in [#396](https://github.com/LupoLab/solprop/issues/396).
+
+A requested collar was measured on the suite's `spatial_absorber` case, a 0.9 P_cr argon
+beam over 8 cm with 64 samples across its 3e-4 m aperture. The table gives the field error
+on the aperture against a bare wall at 8 R:
+
+| transverse room | wall | error | translate | run, native | run, `numba_cpu` |
+|---|---|---:|---:|---:|---:|
+| 3 R | bare | 1.2e-7 | — | 0.22 s | 1.24 s |
+| 3.6 R | collar, f = 2.6 | 2.3e-6 | 6.4 s | 0.74 s | 2.27 s |
+| 4.5 R | collar, f = 3.5 | 5.0e-7 | 8.2 s | 1.08 s | 2.24 s |
+
+Most of a collar's cost is its design check at translation. That check also raised the
+process's peak memory from 0.45 to 0.68 GB. The SEP's phase 3 report has the full tables.
+
 ### Host vector maths
 
 The native CPU kernels' transcendentals in vector passes (ADR-059) against the parent

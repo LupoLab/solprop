@@ -54,7 +54,7 @@ READS = 16
 NOISE_FACTOR = 8.0
 """Standard deviations of one noise reading the allowance takes (section 5.3)."""
 
-SMALL_TRANSFORM = 2**18
+_SMALL_TRANSFORM = 2**18
 """Host transforms below this many elements run on one thread."""
 
 TransverseStatus = Literal[
@@ -356,7 +356,7 @@ class TransverseEdge:
         int
             The thread budget's threads, or 1 below ``2**18`` elements.
         """
-        return self._workers if cube.size >= SMALL_TRANSFORM else 1
+        return self._workers if cube.size >= _SMALL_TRANSFORM else 1
 
     def _rows_read(self) -> np.ndarray:
         """Return the nodes (or rows) a read uses: the faces' and a collar's.

@@ -6,17 +6,17 @@
 | **Title** | Transverse absorbing boundaries for free-space propagation |
 | **Author** | John Travers |
 | **Drafting agent** | Opus 5.5 |
-| **Status** | In progress |
+| **Status** | Final |
 | **Review status** | Reviewed |
 | **Reviewers** | John Travers (human); GPT-6 (AI); Opus 5.5 (AI) |
 | **Type** | Change |
 | **Created** | 2026-10-31 |
 | **Resolution** | Accepted 2026-10-31 by John Travers; returned to Draft 2026-11-01, because phase 0 changed the design (Part II, Part III); accepted again 2026-11-01 by John Travers, in [pull request #71](https://github.com/LupoLab/solprop/pull/71). |
-| **Requires** | [SEP 21](archive/sep-0021-absorbing-boundaries.md), [SEP 22](archive/sep-0022-memory-lean-spatial-execution.md), [SEP 34](archive/sep-0034-medium-flux.md) |
+| **Requires** | [SEP 21](sep-0021-absorbing-boundaries.md), [SEP 22](sep-0022-memory-lean-spatial-execution.md), [SEP 34](sep-0034-medium-flux.md) |
 | **Supersedes** | — |
 | **Superseded-by** | — |
-| **Implementation** | Opus 5.5 (AI) for John Travers, branch `feature/sep-0040-transverse-boundaries`: phases 0–2 complete (Part II); phase 3 (`numba_cpu`, requalification) next |
-| **Manual pages** | — |
+| **Implementation** | Complete 2026-11-02: Opus 5.5 (AI) for John Travers, on `feature/sep-0040-transverse-boundaries`; phases 0–3 (Part II) |
+| **Manual pages** | [Free-space model: transverse boundaries](../../../guide/free-space/model.md), [boundaries](../../../guide/numerics/boundaries.md), [Cartesian](../../../guide/free-space/cartesian.md), [grids](../../../guide/setup/grids.md), [spatial decompositions](../../../guide/setup/spatial-decompositions.md), [Luna](../../../guide/workflows/luna.md) |
 
 ## Part I — Proposal
 
@@ -80,7 +80,7 @@ allows in the 0.x releases; each is listed under "Changed (breaking)" in the cha
   0.3 mm) is the standing witness.
 - *Cartesian runs of thin nonlinear plates with non-collinear beams.* An example is
   pump–probe four-wave mixing in a thin silica plate, where the grid is sized by the
-  one-half rule ([grid sizing](../../guide/free-space/cartesian.md#grid-sizing-and-the-transverse-safety-ramp))
+  one-half rule ([grid sizing](../../../guide/free-space/cartesian.md#grid-sizing-and-the-transverse-safety-ramp))
   and the far-field statistics of SEP 23 are the observable. Products generated at large
   angles must leave the box, not fold back onto the beam. Weak legitimate sidebands
   inside the aperture must not be damped on the way there.
@@ -210,7 +210,7 @@ to, and which declares that light.
 ### 3. Context
 
 **Today's real-space collar.** Every spatial grid carries a Planck-taper window `W`
-([free-space model](../../guide/free-space/model.md#spatial-collar-and-statistics)):
+([free-space model](../../../guide/free-space/model.md#spatial-collar-and-statistics)):
 
 - `RadialGrid(radius, n_r, window_factor=0.1)` puts the taper over the outer tenth
   *of the given radius*, from $0.9R$ to $R$, where the quasi-discrete Hankel transform
@@ -244,7 +244,7 @@ radial grid, plus the temporal collar's rate under the in-stage temporal scheme.
 
 **Default off.** `prop_radial`, `prop_free` and `prop_planar` build the temporal and
 spectral collar with `Absorber.spatial=False`, so the real-space collar is inert
-([which runs carry one](../../guide/numerics/boundaries.md#which-runs-carry-one-and-how-to-change-it)).
+([which runs carry one](../../../guide/numerics/boundaries.md#which-runs-carry-one-and-how-to-change-it)).
 An absorber given explicitly switches it on. Without it the radial field reflects off the
 Dirichlet wall and the Cartesian field wraps. At each saved plane the backend driver
 (`solprop.backends.driver`) logs a warning when the field norm in the collar region
@@ -340,7 +340,7 @@ reading those that matched. It fixes none in full.
 
 ### 4. Theory
 
-Conventions are those of [conventions.md](../conventions.md). $\alpha$ is a **power**
+Conventions are those of [conventions.md](../../conventions.md). $\alpha$ is a **power**
 absorption coefficient: power falls as $e^{-\alpha z}$, the field as $e^{-\alpha z/2}$, and
 the linear operator carries $-\alpha/2$. Attenuations $\Gamma$ are in **field** nepers, and
 reflection coefficients $r$ are field amplitudes; powers are their squares.
@@ -555,7 +555,7 @@ design therefore orders three wavenumbers, $\kappa_\mathrm{lo} < \kappa_p \le \k
 - **the numerical safety band**, $\kappa \ge \kappa_s$: the outer fraction $f_s$ of the
   grid's largest wavenumber on each axis, $f_s = 0.1$ by default as today. Content there is
   removed by the $k_\perp$ ramp wherever it is. The grid's one-half sizing rule
-  ([Cartesian](../../guide/free-space/cartesian.md#grid-sizing-and-the-transverse-safety-ramp))
+  ([Cartesian](../../../guide/free-space/cartesian.md#grid-sizing-and-the-transverse-safety-ramp))
   keeps Kerr products below it. It says nothing of plasma and ionisation sources, whose products no
   multiple of the bandwidth bounds, so the monitor judges what the ramp removes (§5.3). Physical light
   launched here is judged before the first step, because the ramp would erase it (§5.3).
@@ -1123,7 +1123,7 @@ $2\times10^5$ m⁻¹), the limit is about 7 mm in binary64 and 1 mm in binary32.
 **Folding the rate into the linear operator** is exact but not affordable. In the radial
 basis, $F\,\mathrm{diag}(\alpha)\,B$ is dense and does not commute with the diagonal linear
 operator. The cumulative operator would become a per-frequency matrix exponential, breaking
-the diagonal contract of [kernel-contract.md](../kernel-contract.md) §3.
+the diagonal contract of [kernel-contract.md](../../kernel-contract.md) §3.
 
 **The safety ramp** is a per-column rate in the linear operator, existing on the Cartesian
 route. It is lifted to the radial ($k_r$) and planar ($k_y$ per mode) columns, with its
@@ -1148,7 +1148,7 @@ on for every run, and `backend="auto"` can resolve to `numba_cpu`.
   the host at a read, with the transfers and scratch counted under §7.7. Where a build cannot, the run
   is `unwatched` (§5.3): it warns before the first step, and cannot report `clear`. They may refuse a
   requested collar by name. Device qualification follows the standing policy
-  ([backends.md](../backends.md)).
+  ([backends.md](../../backends.md)).
 
 **Cost to be measured, not assumed (§7.7).**
 
@@ -1163,7 +1163,7 @@ on for every run, and `backend="auto"` can resolve to `numba_cpu`.
 
 Scratch is reused from the stage buffers where the backend already holds a physical-space
 volume. Any additional buffer is listed in the memory ledger
-([backends.md](../backends.md) §8).
+([backends.md](../../backends.md) §8).
 
 **No new dependencies.**
 
@@ -1293,7 +1293,7 @@ transforms and the code's.
 #### 7.7 Invariants, ledger and cost
 
 - **The default changes nothing short of the edge.** A run whose light stays away from the edge
-  takes the same steps as today's, within the accuracy envelope of [testing.md](../testing.md) §3,
+  takes the same steps as today's, within the accuracy envelope of [testing.md](../../testing.md) §3,
   and agrees with today's field within that envelope, on a launch with no content in the ramp's band,
   unless the read spacing's ceiling binds. It does not bind on the recorded suite runs. It binds on a
   low-source run, whose steps are longer than the ceiling, and the step counts there are reported.
@@ -1311,10 +1311,10 @@ transforms and the code's.
 - **Independence of $L$.** The resolved operator is the same for $L$ and $2L$; this is
   checked directly. Propagations to a common plane are compared on a matched fixed schedule,
   where they must agree to rounding. Adaptive runs are compared within the accuracy envelope
-  of [testing.md](../testing.md) §3, not against `rtol`.
+  of [testing.md](../../testing.md) §3, not against `rtol`.
 - **Parity.** `numpy_ref` and the native CPU build on matched schedules and histories, and
   `numba_cpu` for the parts it carries, within the summation-bound tolerances of
-  [testing.md](../testing.md).
+  [testing.md](../../testing.md).
 - **Qualification matrix.**
   - *Routes:* radial, square and anisotropic Cartesian, line, and planar with one and two
     modes.
@@ -1341,11 +1341,11 @@ transforms and the code's.
   If the limit cannot be met, the trade returns to the maintainer (§6).
 - **A requested collar's cost.** Steps, wall time and memory on the suite's spatial cases against today,
   at matched accuracy, at several collar widths at fixed physical resolution, kept apart from the
-  default's. A ledger entry in [benchmarks.md](../benchmarks.md).
+  default's. A ledger entry in [benchmarks.md](../../benchmarks.md).
 
 ### 8. Documentation
 
-- [Free-space model](../../guide/free-space/model.md): *Spatial collar and statistics* is
+- [Free-space model](../../../guide/free-space/model.md): *Spatial collar and statistics* is
   rewritten as *Transverse boundaries*. It covers:
   - room first: why a wall farther out beats a collar for a slow beam, and how to size the grid;
   - what the monitor judges, what a stop means, and how to act on its message;
@@ -1361,16 +1361,16 @@ transforms and the code's.
     names;
   - the step limit and the ledger;
   - a worked example.
-- [Boundaries](../../guide/numerics/boundaries.md): links the transverse boundary from
+- [Boundaries](../../../guide/numerics/boundaries.md): links the transverse boundary from
   *Which runs carry one*, and updates the spatial row.
-- [Cartesian](../../guide/free-space/cartesian.md): *Grid sizing and the transverse safety
+- [Cartesian](../../../guide/free-space/cartesian.md): *Grid sizing and the transverse safety
   ramp* is updated for the safety band and the anisotropic box.
-- [Grids](../../guide/setup/grids.md) and
-  [spatial decompositions](../../guide/setup/spatial-decompositions.md): `collar_fraction`,
+- [Grids](../../../guide/setup/grids.md) and
+  [spatial decompositions](../../../guide/setup/spatial-decompositions.md): `collar_fraction`,
   the placement, and the planar ramp.
 - A gallery tutorial: *Is my transverse window big enough?*, the spatial companion of the
   temporal one, built on the suite case's stop and the protected-signal witness.
-- [Differences from Luna](../../guide/workflows/luna.md): Luna.jl's free-space routes apply
+- [Differences from Luna](../../../guide/workflows/luna.md): Luna.jl's free-space routes apply
   no transverse absorber, so a radial run reflects from its outer radius and a Cartesian one
   wraps. So does solprop by default, but it detects that and stops, and offers a designed
   absorber on request.
@@ -2402,6 +2402,123 @@ refused by name; the devices; §7.7's 2 % overhead limit on Linux, which also de
 deviation 1; the suite and tracking cases; the new tutorial; the regenerated galleries
 and geometry figure; §7's remaining measurements.
 
+### Phase 3 — report (2026-11-02)
+
+Phase 3 brings `numba_cpu` and mlx along, requalifies the suite and the galleries, and
+measures §7.7's limit.
+
+**Delivered.**
+
+- *§6 on every backend.* `numba_cpu` and mlx set `reads_transverse_edge`. Both step from
+  the host, under the driver's read ceiling; mlx reads its state widened to binary64. No
+  solprop backend now runs the default `unwatched`, and each carries a requested collar.
+  The parity tests (`tests/backends/test_transverse_backends.py`) run native and
+  `numba_cpu` against `numpy_ref`, and mlx against `numpy_ref`'s single-precision path.
+  They check the re-review's packet and the scaled miss (the same stop, the same reads)
+  and a radial collar (fields to 1e-10 in binary64, 1e-5 in binary32).
+- *The read ceiling, as §5.3 states it.* Phase 1 made each step land on the next read.
+  On a Xeon Gold 6240 that cost 10–35 % more steps on the suite's line and planar cases. A step
+  is now capped at the spacing, and the edge is read at the last committed position from
+  which the next proposal would pass the next read. Reads stay at most a spacing apart,
+  and the steps between them are not shortened. The native Adams march carries this as a
+  `read_spacing` bound beside `read_at`, and every read witness holds.
+- *The suite.* `spatial_absorber` requests a collar at f = 2.6 on 230 samples
+  (revision 2). The radial filaments move from 1 mm to 1.5 mm at the same spacing (384
+  and 768 nodes, revision 2), by the maintainer's decision. On 1 mm the edge stopped them
+  at 2.9 cm, asking for at least 1.36 mm; on 1.5 mm they read clear, at 3e-7. The
+  Cartesian filaments stop the same way at 2.0 cm. Enlarging their box would multiply
+  the columns by about 6, so that is left to
+  [#389](https://github.com/LupoLab/solprop/issues/389).
+- *The tutorial* *Is my transverse window big enough?*
+  (`tutorials/free_space/plot_09_transverse_window`). It runs the scaled suite beam:
+  stopped as configured, walls at two and three radii, a wall at eight radii as the
+  check, and a requested collar. Field errors: 1e-1, 4e-5, 5.5e-8 and 1.7e-6. For this
+  beam the wider bare wall is the better choice, and the tutorial says so.
+- *The galleries* are regenerated, and the geometry figures say what the room outside the
+  aperture is for. Two galleries were under-resolved, and the ramp's ledger caught both:
+  - The low-storage line beam needs 128 samples. On 64 the ramp's ledger stops it, and
+    its weak band read 3.2e-4 against 2.1e-4 converged.
+  - The four-wave-mixing scan's deliberately coarse grid now shows the stop before it is
+    run relaxed.
+- *mlx's memory estimate.* The ramp gave the radial operator a rate, and with it MLX's
+  measured peak on the 32-node beam varied up to 7.8 MB, against the six-column estimate
+  of 7.2 MB. The radial transient count is nine.
+
+**§7.7, the default's overhead** (Xeon Gold 6240, socket 0, 18 threads; same process,
+interleaved; medians of six rounds, three for the Cartesian filament, which is timed
+over half its length because it reaches its edge at 2.0 cm). Each column is the run time
+over a run with neither the ramp nor reads.
+
+| Backend | Case | Steps (no reads → reads) | Reads | Status | Ramp | Edge | Both | Run (s) |
+|---|---|---|---|---|---|---|---|---|
+| native | line | 27 → 28 | 19 | clear | −0.1 % | +14.4 % | +14.0 % | 0.20 |
+| native | planar | 40 → 40 | 24 | clear | −9.9 % | +10.8 % | 0.0 % | 0.15 |
+| native | radial filament 256 | 127 → 127 | 19 | clear | +0.1 % | +2.1 % | +2.2 % | 1.69 |
+| native | Cartesian filament 128 | 40 → 41 | 20 | warned | +0.6 % | +10.1 % | +10.5 % | 48.9 |
+| `numba_cpu` | line | 27 → 28 | 19 | clear | +0.2 % | +5.9 % | +6.4 % | 0.80 |
+| `numba_cpu` | planar | 40 → 40 | 24 | clear | −1.5 % | +0.9 % | −1.1 % | 0.61 |
+| `numba_cpu` | radial filament 256 | 127 → 127 | 19 | clear | 0.0 % | −0.2 % | −0.1 % | 12.7 |
+| `numba_cpu` | Cartesian filament 128 | 40 → 41 | 20 | warned | +0.4 % | +3.0 % | +2.6 % | 144 |
+
+The ramp costs nothing measurable; the planar runs' ±10 % is the spread of a 0.15 s
+run. The radial filament and the planar case meet the 2 % limit, within the spread. The
+line case misses it on both backends, by one step and by reads of about 1 ms in a 0.2 s
+run. Each read on the native Cartesian filament costs about 180 ms. The read's own pieces
+cost about 70 ms there: an 18-thread transform in 12 ms and the sums in 9 ms. That
+filament is not clean, because its light reaches the edge, so it is reported apart.
+Neither miss holds back Final, by the maintainer's decision; both are left to
+[#396](https://github.com/LupoLab/solprop/issues/396).
+
+**A requested collar's cost** (the `spatial_absorber` case, 8 cm, 64 samples over the
+3e-4 m aperture; field error on the aperture against a bare wall at 8 R).
+
+| Transverse room | Wall | Status | Steps | Field error | Translate (s) | Run, native (s) | Run, `numba_cpu` (s) |
+|---|---|---|---|---|---|---|---|
+| 2 R | bare | warned | 41 | 4.0e-5 | — | 0.17 | 0.83 |
+| 3 R | bare | clear | 41 | 1.2e-7 | — | 0.22 | 1.24 |
+| 4 R | bare | clear | 41 | 7.1e-8 | — | 0.28 | 1.59 |
+| 3 R | collar, f = 2.0 | clear | 43 | 1.3e-5 | 5.2 | 0.62 | 1.76 |
+| 3.6 R | collar, f = 2.6 (the suite's) | clear | 42 | 2.3e-6 | 6.4 | 0.74 | 2.27 |
+| 4.5 R | collar, f = 3.5 | clear | 41 | 5.0e-7 | 8.2 | 1.08 | 2.24 |
+| 8 R | bare (the reference) | clear | 41 | — | — | 0.79 | 7.09 |
+
+The design check dominates a collar's cost. It takes 5–8 s at translation, against
+runs of a second or less, and it raised the process's peak memory from 0.45 to 0.68 GB.
+In the march the collar costs its in-stage pass and one or two crossing-limited steps.
+On this beam a bare wall at 3 R is both cheaper and more accurate than any collar, as
+the tutorial shows. A collar is for declared fast content that a bare wall would need
+far more room to hold.
+
+**Deviations.**
+
+1. *§7.7's limit is missed on the line route,* as the table shows, and on the native
+   Cartesian filament, which is not clean. Before this phase's last two changes, reading
+   cost 10–17 % on the native line and Cartesian cases. Then a read synthesised the whole
+   field on the host, with `abs(E)**2` temporaries. A read now synthesises only the rows
+   it uses: the faces, and a collar's. It sums `|E|^2` as a real view, computes the column
+   energies once, and runs small transforms on one thread. On an Apple M5 Max this made the
+   Cartesian reads four times cheaper. The rest is left to
+   [#396](https://github.com/LupoLab/solprop/issues/396).
+2. Phase 2's deviation 1 stands: the edge's reductions run on the host copy of the field.
+   The device builds' transfers are left to
+   [#385](https://github.com/LupoLab/solprop/issues/385).
+
+**Left to issues.**
+
+- [#385](https://github.com/LupoLab/solprop/issues/385): the device qualification.
+- [#386](https://github.com/LupoLab/solprop/issues/386): §7's remaining measurements: the
+  design check's cost at production sizes, the fixed-schedule limits under `Multistep`
+  and the low-storage march, the noise allowance on full grids, the anisotropic box.
+- [#387](https://github.com/LupoLab/solprop/issues/387): weak colours and generated
+  signals in the design check.
+- [#388](https://github.com/LupoLab/solprop/issues/388): the inward current's nonlinear
+  qualification.
+- [#389](https://github.com/LupoLab/solprop/issues/389): the Cartesian filament cases.
+- [#396](https://github.com/LupoLab/solprop/issues/396): the default's overhead on the line
+  route and the native Cartesian reads.
+- [#144](https://github.com/LupoLab/solprop/issues/144) and
+  [#145](https://github.com/LupoLab/solprop/issues/145), as before.
+
 ## Part III — History
 
 - 2026-10-31: Drafted, from SEP 21's finding R4 and decision D9, and a linear probe of the
@@ -2468,6 +2585,15 @@ and geometry figure; §7's remaining measurements.
   asks. SEP 42's implementation runs alongside, and this SEP meets it as Part II's handoff says.
 - 2026-11-01: Phase 1 complete on `numpy_ref` (Part II's report). Q8 decided by the maintainer: the safety
   ramp's removal stops a run at ten budgets. CI runs on #71 from here.
+
+- 2026-11-01: `main` merged in again after SEP 42 landed. Phase 2 complete on native CPU
+  (Part II's report).
+
+- 2026-11-02: Phase 3 complete (Part II's report). The maintainer decided the radial
+  filament cases' revision 2 and that §7.7's limit, where missed, is recorded with an
+  issue rather than holding the SEP; the line route and the native Cartesian reads miss
+  it ([#396](https://github.com/LupoLab/solprop/issues/396)). Status `Final`; moved
+  to the archive.
 
 ### AI review — 2026-10-31 (GPT-6)
 

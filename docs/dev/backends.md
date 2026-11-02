@@ -428,7 +428,7 @@ refuse a fluence negative beyond its rounding budget. The helper
 as one; its end-of-plane log is retired, and the boundary monitor's transverse edge
 (SEP 40) judges the boundary instead. A backend whose own statistics do not apply this measure refuses the schema.
 
-**The transverse edge is read on the host** ([SEP 40](seps/sep-0040-transverse-absorbing-boundaries.md)).
+**The transverse edge is read on the host** ([SEP 40](seps/archive/sep-0040-transverse-absorbing-boundaries.md)).
 A backend whose `StepDriver.reads_transverse_edge` is set hands the monitor's
 `TransverseEdge` its observed field at the edge's reads, at saved planes, and with a
 requested collar at every committed step. The read spacing is a ceiling on the step, and
