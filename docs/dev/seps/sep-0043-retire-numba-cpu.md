@@ -212,12 +212,25 @@ complex results and an access violation (`native/ci/build-deps-windows.ps1`).
 
 **When the processor can't be asked.** Today, a missing `/proc/cpuinfo` makes `select_variant`
 choose the v3 build and `baseline_shortfall` return nothing ([#443][443]), so a lower processor
-could reach an illegal instruction instead of the promised refusal. A wheel with a recorded
-baseline now refuses before loading when the features can't be established: a file that is
-missing, unreadable or has no features line, or a failed feature query on Windows. Naming a build
-with `SOLPROP_NATIVE_CPU_VARIANT` is the deliberate way past that refusal, on the user's word
-about their processor. A source build, which records no checked baseline, is unaffected. This is a
-standalone fix, needed whatever happens to this SEP.
+could reach an illegal instruction instead of the promised refusal. Windows x64 doesn't have this
+gap: `IsProcessorFeaturePresent` is in `kernel32`, and it stays the check there, with its known
+limits. On Linux, a wheel with a recorded baseline now asks in this order:
+
+1. **`/proc/cpuinfo`,** as today.
+2. **NumPy's `__cpu_features__`,** if that file is missing, unreadable or has no features line. It
+   comes from NumPy's own `cpuid` and `xgetbv` checks, and has `X86_V2` and `X86_V3` directly. It is
+   imported only at this point, because `_cpu.py` otherwise imports nothing.
+3. **Refuse, before loading,** if neither answers. A wrong guess would be an illegal instruction
+   with no Python error, and with two independent checks this should rarely be reached.
+
+The name is private, which is acceptable for a fallback. A test fails loudly if NumPy moves it, and
+at run time a missing name is simply no answer. `NPY_DISABLE_CPU_FEATURES` can only lower the build
+chosen or lead to the refusal. On Linux aarch64 this helps less: NumPy's names cover only part of
+Neoverse N1's list, with no atomics, CRC32 or RCpc, so there a missing `/proc/cpuinfo` refuses.
+
+On x86-64, naming a build with `SOLPROP_NATIVE_CPU_VARIANT` is the deliberate way past that refusal,
+on the user's word about their processor. A source build, which records no checked baseline, is
+unaffected. This is a standalone fix, needed whatever happens to this SEP.
 
 The alternatives are in §10. Measured cost and correctness are in §7 and Part II.
 
@@ -490,7 +503,7 @@ and a harmless rounding difference can change an adaptive decision.
 | Selection follows §5's table | Each row and column, with a real wheel and no native package, plus a below-floor processor and a forced load failure; messages stay distinct | Exact |
 | No package in practice | With no native package: import, read a saved result, run `numpy_ref` by name | Runs |
 | v2 selection | Intel SDE: Haswell gets v3; Nehalem and Sandy Bridge get v2 and `resolve_name() == "native"`; Penryn is refused with status 1 and no emulator error | Exact |
-| Unreadable processors | Missing and malformed `/proc/cpuinfo`, and a failed Windows query, refuse before loading ([#443][443]); a named variant goes past that | Exact |
+| Unreadable processors | With `/proc/cpuinfo` masked under Intel SDE, Haswell gets v3 and Nehalem v2 from NumPy's answer, and Penryn is refused. Missing and malformed files, with NumPy's name also unavailable, refuse before loading ([#443][443]), and a named x86-64 variant goes past that. A test fails if NumPy moves the name | Exact |
 | Windows on Arm's floor | The new check's cases, and the recorded instruction requirements | Exact |
 | v2 is correct | Default lane with v2 forced (class R); the tracking set against its reference (class T) | Class bounds |
 | v2's cost is acceptable | Tracking set, Xeon Gold 6240 and EPYC 7763, interleaved fresh processes; native v2 against Numba compiled for Nehalem | v2 is not slower than Numba at v2 |
@@ -642,6 +655,13 @@ their titles, except where noted:
   and reading results on an unsupported machine.
 - **Sending the platform report automatically.** Nothing leaves the user's machine unless they
   submit it.
+- **Other ways to read the processor when `/proc/cpuinfo` can't be read.** Defaulting to v3 risks an
+  illegal instruction with no Python error. `numpy.show_runtime()` is the public view of NumPy's
+  features, but it prints and returns nothing, so it would mean parsing text meant for reading, and
+  it lists only dispatch targets. A small C probe, built for the lower baseline, avoids a private
+  name at the cost of a compiled file in all five wheels for a rare case; `_core` can't check for
+  itself, being built for v3. A third-party library such as pytorch/cpuinfo adds a dependency for
+  one check.
 - **Leave Windows v2 out until someone asks.** Considered first. The fixed `NEHALEM`
   OpenBLAS costs one more dependency build and passes the suite, so the exception is not
   worth keeping.
@@ -851,6 +871,7 @@ lets the linked OpenBLAS use, and the lowest Windows hardware admitted.
   | First plain `uv sync` in a fresh worktree, 12 jobs, with FFTW and OpenBLAS already built | 104 s. A second sync took under a second, and `uv run` then found `auto` is `native` |
   | The same with no C++ toolchain in the environment | Stops at CMake's message naming the compiler |
   | `uv sync --no-install-package solprop-native`, with no compiler or CMake on `PATH` | No native package; 493 tests passed, 6 skipped on a sample of modules; `poe types` clean, 270 s. Numba was still present, and the documentation build wasn't tried |
+  | NumPy's `__cpu_features__` on 2.4.4, 2.5.0 and 2.5.2, on this Xeon | `X86_V2` and `X86_V3` present and true. With `NPY_DISABLE_CPU_FEATURES=X86_V3`, false. This machine supports both, so the masked SDE run of §7 is the real test, and Windows wasn't run |
   | A plain `uv run` after that sync | Tries to build native, and `UV_NO_SYNC=1` avoids it. `uv sync` ignores `UV_NO_SYNC`, and `uv run` has no flag to skip a package |
   | A real `SETUPTOOLS_SCM_PRETEND_VERSION_FOR_SOLPROP_NATIVE=0.3.0+cuda` build | `solprop_native-0.3.0+cuda-*.whl`, version `0.3.0+cuda`, accepted by `==0.3.0`, 105 s. It was a CPU build, and reported `device_backend` `none`, `device_count` 0 and its true commit |
 
@@ -887,6 +908,8 @@ lets the linked OpenBLAS use, and the lowest Windows hardware admitted.
 - 2026-11-02: AI review by GPT-6, with the maintainer's decisions on R1, R2, R12 and R13. Part I
   revised in response: no refusal-only wheel, removal before 0.2, a selection table, the
   lightweight setup, `SOLPROP_REQUIRE_DEVICE`, numerical acceptance criteria, and §11's phases.
+- 2026-11-02: The maintainer settled how the processor is read on Linux: `/proc/cpuinfo`, then NumPy's
+  features, then a refusal (§6.1, R8).
 
 ### AI review — 2026-11-02
 
@@ -1098,6 +1121,10 @@ to settle before acceptance; medium priority may be explicitly assigned to a pha
    target. This review does not establish that the Arm wheel actually uses an
    unsupported instruction; it identifies a missing whole-wheel justification.
 
+   **Maintainer decision — 2026-11-02 (John C. Travers):** on Linux, read `/proc/cpuinfo`, then
+   NumPy's `__cpu_features__` if that fails, and refuse if neither answers. Windows x64 keeps its
+   current query, and Windows on Arm gains a `PF_ARM_*` query.
+
 9. **R9 — Medium: distinguish Python coverage from assurance of the sole compiled
    implementation (§6.4–6.5, §7).** Removing `bodies.py` and its interpreted coverage
    pass shrinks the measured Python code while production execution moves further
@@ -1300,9 +1327,11 @@ marked **phase** are qualification assigned to a phase, and are not yet done.
    the claim narrowing and #313 keeping the remainder where a machine isn't available. §5 keeps the
    failure cases distinct, and §7 exercises the no-package case. The refusal-only case fell away with R2.
    **Phase 3.**
-8. **R8 taken.** §6.1 refuses before loading when features can't be established, with a named variant
-   as the deliberate way past. I added that so a restricted environment isn't left with no route. §6.2
-   drops the statement that no check is needed, adds one for Windows on Arm, and replaces the
+8. **R8 taken, as the maintainer decided.** §6.1 asks `/proc/cpuinfo`, then NumPy's dict, and refuses
+   before loading if neither answers. Windows x64's query can't realistically fail, so it isn't part of
+   that order. §10 records the alternatives. I kept a named variant as the deliberate way past on x86-64,
+   so a restricted environment has a route; Linux aarch64 has a single build, so it has none. §6.2 drops
+   the statement that no check is needed, adds a `PF_ARM_*` query for Windows on Arm, and replaces the
    installation page's claim. As the review says, this doesn't establish that the wheel uses an
    unsupported instruction. Both are **standalone fixes** before the removal, under #443.
 9. **R9 taken, choosing the run over deferral.** §6.4 keeps Python's gate and commissions one
