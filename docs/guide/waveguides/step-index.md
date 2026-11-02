@@ -85,10 +85,18 @@ roots are classified by the vanishing branch and radial order counts downward fr
 the highest effective index. The scan is then held to the family's exact cutoffs,
 because two roots can share one interval: $J_{-1}=-J_1$ puts HE$_{1,m+1}$ and
 EH$_{1,m}$ at the same cutoff $j_{1,m}$, as roots of the same $n=1$ product, and
-their two sign changes cancel. While a count is short of the cutoff count, the
-equal-sign intervals meeting the region the cutoffs localise the missing root to
-are sampled twice as finely, up to six halvings; the $i$-th root must then lie
-between the $i$-th and $(i+1)$-th cutoff, and a root whose radial order cannot be
+their two sign changes cancel. From $V$ of about 26 the same happens away from any
+shared cutoff: a root of each family comes closer than the scan spacing (with a
+numerical aperture of 0.22, 0.024 apart at $V=67$ and $4.8\times10^{-4}$ at
+$V=4990$). The hybrid product factorises as
+$G\propto(J_n'/u-J_nx_{\mathrm{HE}})(J_n'/u-J_nx_{\mathrm{EH}})$, where
+$x_{\mathrm{HE}}$ and $x_{\mathrm{EH}}$ are the two roots of the equation above as a
+quadratic in $A$, and each factor is pole-free with the roots of one family only.
+While a hybrid family's count is short of the cutoff count, each cutoff interval
+holding none of its roots is bracketed with that family's own factor, which has no
+partner root to cancel against, and every root so found is kept. The $i$-th root
+must then lie between the $i$-th and $(i+1)$-th cutoff, and a root whose radial
+order cannot be
 assigned raises `ModeError` rather than being returned. A missing
 guided root raises `ModeError` with its $V$, cutoff and mode. No pole filter or
 dispersion spline is used. Because the denominators are cleared before the scan, the
@@ -156,10 +164,22 @@ single-mode propagation; several channels need the general modal route and its
 power-orthogonal metric
 ([full electric and magnetic mode fields](vector-fields.md#full-electric-and-magnetic-mode-fields)).
 
-**Large V is not supported yet.** The characteristic equation and its derivatives use
-the unscaled modified Bessel functions `kv` and `kvp`, which both underflow to zero at
-large cladding arguments (about 1600 and above) although their ratio is finite. Such a
-fibre — a 300 µm core of NA 0.22 at 250 nm, for example — fails at construction: the
-division warns as invalid and the root scan raises a
-{class}`~solprop.exceptions.ModeError`, since the radial order of its roots cannot be
-assigned.
+**Large V.** Every root of the mode's azimuthal order, about $V/\pi$ of them, is
+solved at each frequency so that its radial order can be assigned, and the cost grows
+linearly with $V$: about 0.1 s a frequency at $V=5000$ (Apple M5 Max). The modified
+Bessel functions enter only as ratios at one argument, or with an explicit factor
+$e^{-w(r/a-1)}$ in the exterior field, and are taken from the exponentially scaled
+`kve`, since `kv` itself underflows to zero from an argument of about 700. Up to
+$V=5000$ the scan is qualified: its roots agree with a 40-digit mpmath solve of the
+unreduced equation above, with radial order and family assigned independently, within 2
+machine epsilons in $u$, and it finds every root at each $V$ of a sweep to 5000 for
+$n$ from 1 to 3 at two index contrasts. Above $V=5000$ construction raises
+{class}`~solprop.exceptions.ModeError` and says why. A core of 300 µm radius and
+numerical aperture 0.22 at 250 nm ($V\approx1660$) builds in about a tenth of a
+second:
+
+```python
+from solprop.modes import StepIndexMode
+
+large = StepIndexMode.from_numerical_aperture(300e-6, 0.22, profile_wavelength=250e-9)
+```
