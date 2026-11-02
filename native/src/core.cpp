@@ -694,7 +694,9 @@ public:
   RealView absorber_coarse_, fine_time_real_, projected_real_, absorber_real_;
   RealView coarse_time_real_, tableau_, stage_phi_delta_, stage_phi_at_;
   RealView monitor_weights_;
-  Kokkos::View<double, Layout, MemorySpace> monitor_removed_, monitor_split_sum_;
+  Kokkos::View<double, Layout, MemorySpace> monitor_removed_;
+  // One split's sums, and the last accepted step's, which a reading returns.
+  Kokkos::View<SplitSums, MemorySpace> monitor_split_sum_, monitor_found_;
   RealView stage_prefactor_, stage_density_, stage_taper_;
   ByteView active_mask_, norm_mask_;
   IndexView crop_index_;
@@ -890,38 +892,55 @@ void Workspace::plan_coarse_inverse() {
 
 // What one split takes of the power it finds, `sum P (1 - exp(-alpha h))`, added to
 // the run's accumulator in the memory space (solprop SEP 21, ADR-057): the monitor's
-// reading drains it at a check, so every accepted step is counted, checked or not.
+// reading drains it at a check, so every accepted step is counted, checked or not. The
+// same pass keeps `sum P'` and the guards' sums of `P' = P exp(-alpha h / 2)`, the
+// power found halfway through the split's factor, which the monitor judges the guards
+// on: the symmetric splitting's state at the step's end.
 void Workspace::add_split_removal(const double dz) {
   const auto rate = absorber_coarse_;
+  const auto weights = monitor_weights_;
   const double weight = monitor_column_weight_;
-  const Kokkos::RangePolicy<ExecutionSpace> samples(execution_space_, 0, problem_.n_t);
+  const auto n_t = problem_.n_t;
+  const Kokkos::RangePolicy<ExecutionSpace> samples(execution_space_, 0, n_t);
   if (problem_.family == FieldFamily::envelope) {
     const auto time = coarse_time_complex_;
     launch::parallel_reduce(
         "solprop_native.monitor.split_removal_complex", samples,
-        KOKKOS_LAMBDA(const std::size_t index, double& update) {
+        KOKKOS_LAMBDA(const std::size_t index, SplitSums& update) {
           const Complex value = time(index);
-          update += weight *
-                    (value.real() * value.real() + value.imag() * value.imag()) *
-                    -Kokkos::expm1(-rate(index) * dz);
+          const double power =
+              weight * (value.real() * value.real() + value.imag() * value.imag());
+          update.values[0] += power * -Kokkos::expm1(-rate(index) * dz);
+          const double found = Kokkos::exp(-0.5 * rate(index) * dz) * power;
+          update.values[1] += found;
+          update.values[2] += weights(index) * found;
+          update.values[3] += weights(n_t + index) * found;
         },
-        monitor_split_sum_);
+        Kokkos::Sum<SplitSums, MemorySpace>(monitor_split_sum_));
   } else {
     const auto time = coarse_time_real_;
     launch::parallel_reduce(
         "solprop_native.monitor.split_removal_real", samples,
-        KOKKOS_LAMBDA(const std::size_t index, double& update) {
-          update +=
-              weight * time(index) * time(index) * -Kokkos::expm1(-rate(index) * dz);
+        KOKKOS_LAMBDA(const std::size_t index, SplitSums& update) {
+          const double power = weight * time(index) * time(index);
+          update.values[0] += power * -Kokkos::expm1(-rate(index) * dz);
+          const double found = Kokkos::exp(-0.5 * rate(index) * dz) * power;
+          update.values[1] += found;
+          update.values[2] += weights(index) * found;
+          update.values[3] += weights(n_t + index) * found;
         },
-        monitor_split_sum_);
+        Kokkos::Sum<SplitSums, MemorySpace>(monitor_split_sum_));
   }
   const auto removed = monitor_removed_;
   const auto split = monitor_split_sum_;
+  const auto found = monitor_found_;
   launch::parallel_for(
       "solprop_native.monitor.split_removal_add",
       Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, 1),
-      KOKKOS_LAMBDA(const std::size_t) { removed() += split(); });
+      KOKKOS_LAMBDA(const std::size_t) {
+        removed() += split().values[0];
+        found() = split();
+      });
 }
 
 // Bind solprop's boundary monitor (SEP 21): its four time weights, row-major `(4,
@@ -939,13 +958,16 @@ void Workspace::bind_monitor(const std::vector<double>& weights,
     monitor_removed_ =
         Kokkos::View<double, Layout, MemorySpace>("solprop_native.monitor.removed");
     monitor_split_sum_ =
-        Kokkos::View<double, Layout, MemorySpace>("solprop_native.monitor.split_sum");
+        Kokkos::View<SplitSums, MemorySpace>("solprop_native.monitor.split_sum");
+    monitor_found_ =
+        Kokkos::View<SplitSums, MemorySpace>("solprop_native.monitor.split_found");
     if (!coarse_inverse_complex_plan_ && !coarse_inverse_real_plan_)
       plan_coarse_inverse();
   }
   copy_vector(execution_space_, monitor_weights_, weights);
   monitor_column_weight_ = column_weights.empty() ? 1.0 : column_weights[0];
   Kokkos::deep_copy(execution_space_, monitor_removed_, 0.0);
+  Kokkos::deep_copy(execution_space_, monitor_found_, SplitSums{});
   execution_space_.fence("solprop_native monitor bind");
   monitor_bound_ = true;
 }
@@ -1002,15 +1024,18 @@ std::vector<double> Workspace::monitor_reading() {
         Kokkos::Sum<MonitorSums>(sums));
   }
   double removed = 0.0;
+  SplitSums found;
   if (problem_.split_step_absorber) {
     execution_space_.fence("solprop_native monitor reading");
     removed =
         Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace{}, monitor_removed_)();
+    found = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace{}, monitor_found_)();
     Kokkos::deep_copy(execution_space_, monitor_removed_, 0.0);
   }
   execution_space_.fence("solprop_native monitor reading");
-  return {sums.values[0], sums.values[1], sums.values[2],
-          sums.values[3], sums.values[4], removed};
+  return {sums.values[0],  sums.values[1],  sums.values[2],
+          sums.values[3],  sums.values[4],  removed,
+          found.values[1], found.values[2], found.values[3]};
 }
 
 void Workspace::reuse_fsal() {
@@ -1425,8 +1450,8 @@ std::map<std::string, std::size_t> Workspace::memory_ledger() const {
       {"coarse_time", coarse_time_real_.size() * real_bytes +
                           coarse_time_complex_.size() * complex_bytes},
       {"monitor_weights",
-       (monitor_weights_.size() + monitor_removed_.size() + monitor_split_sum_.size()) *
-           real_bytes},
+       (monitor_weights_.size() + monitor_removed_.size()) * real_bytes +
+           (monitor_split_sum_.size() + monitor_found_.size()) * sizeof(SplitSums)},
       {"fixed_terms", (problem_.n_phi_terms + problem_.n_prefactor_terms) *
                           problem_.n_omega * complex_bytes},
       {"masks_and_transform_data",
@@ -1488,6 +1513,7 @@ void Workspace::close() noexcept {
   monitor_weights_ = {};
   monitor_removed_ = {};
   monitor_split_sum_ = {};
+  monitor_found_ = {};
   partials_ = {};
   omega_window_ = {};
   time_window_ = {};

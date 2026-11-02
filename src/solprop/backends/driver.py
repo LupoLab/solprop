@@ -453,7 +453,8 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         transform pair for a result nobody reads. While a monitor of that scheme is
         attached, a backend's split also adds what it takes to the monitor's next
         reading (:attr:`_split_removed`, :meth:`_boundary_energies`), at every
-        accepted step.
+        accepted step, and keeps the energies of the power it found
+        (:attr:`_split_found`), which the guards are judged on.
 
         Parameters
         ----------
@@ -1873,6 +1874,12 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
     a host backend's :meth:`_finish` adds to it while a monitor of that scheme is
     attached (:attr:`_split_monitor`), and :meth:`_boundary_energies` drains it."""
 
+    _split_found: Float[np.ndarray, " 3"] | None = None
+    """The energy and the guards' energies of the power the last accepted step's split
+    found (:attr:`solprop.monitor.BoundaryEnergies.found`), which the monitor judges
+    the guards on: set by a host backend's :meth:`_finish` with :attr:`_split_removed`,
+    and ``None`` before the first such step."""
+
     reads_transverse_edge: bool = False
     """Whether this backend reads a free-space run's transverse edge on the host
     (SEP 40 section 5.3). A backend that does not leaves the run ``unwatched``, and
@@ -1982,6 +1989,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         """
         del monitor
         self._split_removed = 0.0
+        self._split_found = None
 
     @property
     def _split_monitor(self) -> BoundaryMonitor | None:
@@ -1999,8 +2007,9 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         """Return the boundary monitor's reading of a state (SEP 21, ADR-057).
 
         The state's energy and its four weighted energies
-        (:class:`solprop.monitor.BoundaryEnergies`), and what the split collar took at
-        the accepted steps since the previous reading, which this drains. The default
+        (:class:`solprop.monitor.BoundaryEnergies`), what the split collar took at
+        the accepted steps since the previous reading, which this drains, and the
+        energies of the power the last step's split found. The default
         reduces on the host (:meth:`solprop.monitor.BoundaryMonitor.energies`), the
         reference; a backend whose state lives elsewhere reduces it there and returns
         the five numbers, without a copy of the field.
@@ -2025,7 +2034,9 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             raise BackendError(f"{self.name}: no boundary monitor is attached")
         removed, self._split_removed = self._split_removed, 0.0
         return dataclasses.replace(
-            monitor.energies(self._observed_field(state)), removed=removed
+            monitor.energies(self._observed_field(state)),
+            removed=removed,
+            found=self._split_found,
         )
 
     def _check_boundaries(self, monitor: BoundaryMonitor) -> None:

@@ -81,6 +81,18 @@ struct MonitorSums {
   }
 };
 
+/** What a split-step collar's finish reads of the power it finds (solprop SEP 21,
+    ADR-057), one reduction value: the energy it takes, then the energy, the low
+    guard's and the high guard's, which the monitor judges the guards on. */
+struct SplitSums {
+  Kokkos::Array<double, 4> values{};
+  KOKKOS_INLINE_FUNCTION SplitSums& operator+=(const SplitSums& other) {
+    for (std::size_t slot = 0; slot < 4; ++slot)
+      values[slot] += other.values[slot];
+    return *this;
+  }
+};
+
 using ComplexView = Kokkos::View<Complex*, Layout, MemorySpace>;
 using ConstComplexView = Kokkos::View<const Complex*, Layout, MemorySpace>;
 using RealView = Kokkos::View<double*, Layout, MemorySpace>;
@@ -721,14 +733,16 @@ public:
    * Bind solprop's boundary monitor (SEP 21): its four time weights, row-major
    * `(4, n_t)`, and its columns' quadrature by mode (empty for unit weights). From
    * here on each split-step finish adds what it takes to an accumulator, which
-   * `monitor_reading` drains.
+   * `monitor_reading` drains, and keeps the energies of the power it found.
    */
   void bind_monitor(const std::vector<double>& weights,
                     const std::vector<double>& column_weights);
   void unbind_monitor() noexcept;
   /**
    * The bound monitor's reading of the accepted state: `sum_t P`, the four weighted
-   * sums `sum_t w_k P`, and what the split collar took since the last reading.
+   * sums `sum_t w_k P`, what the split collar took since the last reading, and
+   * `sum_t P` and the two guards' sums of the power the last step's split found
+   * (zeros before the first such step).
    */
   [[nodiscard]] std::vector<double> monitor_reading();
   [[nodiscard]] std::vector<Complex> field_to_host() const;
@@ -944,4 +958,7 @@ void multiply_phase(const ExecutionSpace& execution_space, ConstComplexView valu
 
 template <> struct Kokkos::reduction_identity<solprop_native::MonitorSums> {
   KOKKOS_FUNCTION static solprop_native::MonitorSums sum() { return {}; }
+};
+template <> struct Kokkos::reduction_identity<solprop_native::SplitSums> {
+  KOKKOS_FUNCTION static solprop_native::SplitSums sum() { return {}; }
 };

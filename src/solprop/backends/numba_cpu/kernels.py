@@ -57,6 +57,7 @@ __all__ = [
     "BAND_STATS_ROWS",
     "BOUNDARY_SUMS",
     "HOST",
+    "SPLIT_SUMS",
     "ColumnSpec",
     "accept_and_partials",
     "accept_and_partials_parallel",
@@ -556,6 +557,11 @@ BOUNDARY_SUMS = 5
 """The sums the boundary monitor reads per row: the energy and its four weighted
 energies (:class:`solprop.monitor.BoundaryEnergies`)."""
 
+SPLIT_SUMS = 4
+"""The sums a split-step collar's finish forms per row for the monitor: what it takes,
+then the energy and the two guards' energies of what it finds, after half the split
+(:meth:`solprop.monitor.BoundaryMonitor.split_sums`)."""
+
 
 @njit(cache=True, nogil=True)
 @no_type_check
@@ -627,15 +633,19 @@ boundary_partials_parallel = njit(cache=False, nogil=True, parallel=True)(
 def removal_partials(
     samples: Inexact[np.ndarray, "n_rows n_t"],
     row_weights: Float[np.ndarray, " n_weighted"],
+    weights: Float[np.ndarray, "four n_t"],
     taken: Float[np.ndarray, " n_t"],
+    half: Float[np.ndarray, " n_t"],
     partials: Float[np.ndarray, " n_partials"],
 ) -> None:
-    """Sum what a split-step collar takes of each row, one partial per row.
+    """Sum what a split-step collar takes of each row, and what it finds there.
 
     ``sum_t (1 - exp(-alpha(t) h)) |x(t)|^2`` of the rows the split is about to
-    damp, each times the row's quadrature weight
-    (:meth:`solprop.monitor.BoundaryMonitor.split_removal`). The row loop is a
-    ``prange``: :func:`removal_partials_parallel` is the same body compiled parallel.
+    damp, then the energy and the low and high guards' energies of the same rows
+    after half the split, ``exp(-alpha(t) h / 2) |x(t)|^2``, each times the row's
+    quadrature weight (:meth:`solprop.monitor.BoundaryMonitor.split_sums`). The row
+    loop is a ``prange``: :func:`removal_partials_parallel` is the same body compiled
+    parallel.
 
     Parameters
     ----------
@@ -644,19 +654,39 @@ def removal_partials(
         envelope grid, shape ``(n_rows, n_t)``.
     row_weights : numpy.ndarray
         Each row's quadrature weight, shape ``(n_rows,)``, or empty for unit weights.
+    weights : numpy.ndarray
+        The monitor's four weight rows, shape ``(4, n_t)``, of which the guards'
+        (the first two) are read.
     taken : numpy.ndarray
         ``1 - exp(-alpha(t) h)`` on the coarse time axis, shape ``(n_t,)``.
+    half : numpy.ndarray
+        ``exp(-alpha(t) h / 2)``, half the split's power factor, shape ``(n_t,)``.
     partials : numpy.ndarray
-        Written with one sum per row; at least ``n_rows`` long.
+        Written with :data:`SPLIT_SUMS` sums per row, row by row: the energy taken,
+        then the energy, the low guard's and the high guard's after half the split.
+        At least ``SPLIT_SUMS * n_rows`` long.
     """
     n_rows, n_t = samples.shape
     weighted = row_weights.shape[0] > 0
     for row in prange(n_rows):
+        removed = 0.0
         total = 0.0
+        low = 0.0
+        high = 0.0
         for k in range(n_t):
             value = samples[row, k]
-            total += taken[k] * (value.real * value.real + value.imag * value.imag)
-        partials[row] = (row_weights[row] if weighted else 1.0) * total
+            power = value.real * value.real + value.imag * value.imag
+            removed += taken[k] * power
+            found = half[k] * power
+            total += found
+            low += weights[0, k] * found
+            high += weights[1, k] * found
+        scale = row_weights[row] if weighted else 1.0
+        base = SPLIT_SUMS * row
+        partials[base] = scale * removed
+        partials[base + 1] = scale * total
+        partials[base + 2] = scale * low
+        partials[base + 3] = scale * high
 
 
 removal_partials_parallel = njit(cache=False, nogil=True, parallel=True)(

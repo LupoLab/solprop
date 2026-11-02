@@ -224,6 +224,11 @@ class MlxBackend(NumpySingleBackend):
     rule-6 exponent and its scaled sum (:meth:`_device_removal`), folded into
     :attr:`_split_removed` at the next synchronisation (:meth:`_synchronised`)."""
 
+    _pending_found: tuple[mx.array, ...] = ()
+    """The energy and the guards' energies of what the last accepted step's split found,
+    not yet read: device scalars with their rule-6 exponent (:meth:`_device_removal`),
+    restored into :attr:`_split_found` at the next synchronisation."""
+
     def __init__(
         self,
         problem: KernelProblem,
@@ -434,8 +439,9 @@ class MlxBackend(NumpySingleBackend):
         """Mask the accepted state, apply a split-step collar, and check it is finite.
 
         While a boundary monitor of the ``"split_step"`` scheme is attached, what the
-        split takes is reduced on the device from the time samples it forms anyway,
-        and read with the next synchronisation (:meth:`_synchronised`).
+        split takes, and the energies of what it finds, are reduced on the device from
+        the time samples it forms anyway, and read with the next synchronisation
+        (:meth:`_synchronised`).
 
         Parameters
         ----------
@@ -464,7 +470,8 @@ class MlxBackend(NumpySingleBackend):
             change = mx.array(np.expm1(-0.5 * rate * dz).astype(np.float32))
             samples = self._time_samples(finished)
             if self._split_monitor is not None:
-                self._pending_removal += self._device_removal(samples, change)
+                removal, self._pending_found = self._device_removal(samples, change)
+                self._pending_removal += removal
             time = samples * change
             if self._kind == "field":
                 finished = finished + mx.fft.rfft(time, axis=-1) * self._active
@@ -527,8 +534,10 @@ class MlxBackend(NumpySingleBackend):
 
     def _device_removal(
         self, samples: mx.array, change: mx.array
-    ) -> tuple[mx.array, ...]:
-        """Return what one split takes of the samples it damps, lazily, scaled.
+    ) -> tuple[tuple[mx.array, ...], tuple[mx.array, ...]]:
+        """Return what one split takes of the samples it damps, and what it finds.
+
+        Lazily, and scaled as :meth:`_scaled_density` scales them.
 
         Parameters
         ----------
@@ -539,15 +548,25 @@ class MlxBackend(NumpySingleBackend):
 
         Returns
         -------
-        tuple of mlx.core.array
+        removal : tuple of mlx.core.array
             The scaling's power of two and ``sum_t (1 - exp(-alpha h)) P(t)`` of the
-            scaled density (:meth:`_scaled_density`).
+            scaled density.
+        found : tuple of mlx.core.array
+            The same power of two, then ``sum_t P'(t)`` and the low and high guards'
+            weighted sums of ``P' = P exp(-alpha h / 2)``, halfway through the
+            split's factor, each guard with its narrowed weight row's exponent.
         """
+        weights = self._monitor_weights
+        assert weights is not None  # bound with the monitor that asks for this
         # 1 - exp(-alpha h) = -c (2 + c) with c = exp(-alpha h / 2) - 1, which the
         # split already holds: a product of two accurate factors, no cancellation.
         taken = -change * (2.0 + change)
         power, density = self._scaled_density(samples)
-        return power, mx.sum(density * taken)
+        # Half the split's power factor is its field factor, 1 + c.
+        n_t = self._problem.grids.n_t
+        density_t = mx.sum(density.reshape(-1, n_t), axis=0) * (1.0 + change)
+        guards = mx.sum(weights[:2] * density_t[None, :], axis=1)
+        return (power, mx.sum(density * taken)), (power, mx.sum(density_t), guards)
 
     def _synchronised(self, values: list[mx.array]) -> np.ndarray:
         """Read device values and the split's pending removals in one synchronisation.
@@ -568,10 +587,24 @@ class MlxBackend(NumpySingleBackend):
             ``values`` flattened and concatenated, binary64.
         """
         pending, self._pending_removal = self._pending_removal, ()
-        flat = [value.reshape(-1) for value in (*values, *pending)]
+        found, self._pending_found = self._pending_found, ()
+        flat = [value.reshape(-1) for value in (*values, *found, *pending)]
         read = np.array(mx.concatenate(flat), dtype=np.float64)
         count = sum(int(value.size) for value in values)
-        for power, taken in read[count:].reshape(-1, 2):
+        removals = count
+        if found:
+            power, total, low, high = (float(one) for one in read[count : count + 4])
+            own = self._column_exponent
+            low_row, high_row = self._monitor_exponents[:2]
+            self._split_found = self.scale**2 * np.array(
+                [
+                    _restored(total, power, own),
+                    _restored(low, power, own + low_row),
+                    _restored(high, power, own + high_row),
+                ]
+            )
+            removals += 4
+        for power, taken in read[removals:].reshape(-1, 2):
             # The state is a / s, so its power is s**2 times the scaled one's.
             restored = _restored(float(taken), float(power), self._column_exponent)
             self._split_removed += restored * self.scale**2
@@ -590,6 +623,7 @@ class MlxBackend(NumpySingleBackend):
         """
         super()._bind_monitor(monitor)
         self._pending_removal = ()
+        self._pending_found = ()
         if monitor is None:
             self._monitor_weights = self._monitor_columns = None
             return
@@ -646,7 +680,7 @@ class MlxBackend(NumpySingleBackend):
             ]
         )
         removed, self._split_removed = self._split_removed, 0.0
-        return BoundaryEnergies(total, regions_host, removed)
+        return BoundaryEnergies(total, regions_host, removed, self._split_found)
 
     # The trial step.
 

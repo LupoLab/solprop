@@ -8,8 +8,9 @@ A check reads five numbers of the state where the state lives
 (``StepDriver._boundary_energies``): its energy and its four weighted energies, the
 low and high guards, the collar's ``1 - W`` and its rate. Under the ``"split_step"``
 scheme the backend's own finish adds what each accepted step's collar takes, and the
-reading drains the sum. ``numpy_ref`` forms both on the host
-(:meth:`solprop.monitor.BoundaryMonitor.energies`, ``split_removal``), the oracle every
+reading drains the sum, beside the energies of what the last step's split found.
+``numpy_ref`` forms both on the host
+(:meth:`solprop.monitor.BoundaryMonitor.energies`, ``split_sums``), the oracle every
 other backend is held to here, on each route's tiny case
 (``tests/capability_routes.py``) launched with a copy of its pulse near the window's
 edge, so that every region holds light.
@@ -221,7 +222,12 @@ def _check_split(backend: str, route: str, march: str) -> None:
     bound = ladder_bound(
         backend, 1e3 * _rounding(simulation), simulation.grid.n_t, 8 * STEPS
     )
-    for name in ("raw_removed_fraction", "removed_fraction", "collar_max"):
+    # The guards are judged on what each step's split found (`split_sums`): the copy's
+    # tail puts 3e-15 to 5e-12 of the energy there, whose samples' rounding is a
+    # relative 1e-8 of it at most, far inside the bound.
+    assert theirs["guard_high_max"] > 1e-15
+    names = ("raw_removed_fraction", "removed_fraction", "collar_max", "guard_high_max")
+    for name in names:
         assert ours[name] == pytest.approx(theirs[name], rel=bound), name
     assert ours["steps"] == theirs["steps"]
 

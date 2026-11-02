@@ -1100,15 +1100,21 @@ class NativeBackend(StepDriver[_core.State]):
     def _boundary_energies(self, state: _core.State) -> BoundaryEnergies:
         """Reduce the monitor's five numbers where the state lives (solprop SEP 21).
 
-        Only they and the split's removal since the last reading cross to the host.
+        Only they, the split's removal since the last reading and the energies of
+        what the last step's split found cross to the host.
         """
         if state is not self._native_state:
             raise BackendError("the monitored state does not belong to this backend")
         if self._monitor is None:
             raise BackendError(f"{self.name}: no boundary monitor is attached")
         reading = np.asarray(state.monitor_reading(), dtype=np.float64).reshape(-1)
+        # Zeros until the first accepted step's split, which the monitor passes over.
+        found = reading[6:9].copy() if self._monitor.split else None
         return BoundaryEnergies(
-            float(reading[0]), reading[1:5].copy(), removed=float(reading[5])
+            float(reading[0]),
+            reading[1:5].copy(),
+            removed=float(reading[5]),
+            found=found,
         )
 
     def _finish(self, state: _core.State, dz: float) -> _core.State:

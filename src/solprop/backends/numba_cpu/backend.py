@@ -2690,8 +2690,9 @@ class NumbaCpuBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         """Apply the once-per-accepted-step boundary treatments to a kept step.
 
         While a boundary monitor of the ``"split_step"`` scheme is attached, what the
-        split takes is added to its next reading (:meth:`_boundary_energies`), from
-        the time samples the split forms anyway.
+        split takes is added to its next reading (:meth:`_boundary_energies`), and
+        the energies of what it finds kept for it, from the time samples the split
+        forms anyway.
 
         Parameters
         ----------
@@ -2805,7 +2806,8 @@ class NumbaCpuBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         Each chunk goes to time through the coarse pair, is damped and comes back.
         With ``taken``, what the split takes of each chunk is read from its time
         samples before the damping (:func:`kernels.removal_partials`) and added to
-        :attr:`_split_removed`, in the stored state's units.
+        :attr:`_split_removed`, and the energies of what it finds there become
+        :attr:`_split_found`, in the stored state's units.
 
         Parameters
         ----------
@@ -2828,7 +2830,7 @@ class NumbaCpuBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         scale = 1.0 / self._problem.grids.n_t
         _, removal = self._monitor_kernels
         partials = self._monitor_partials
-        removed = 0.0
+        sums = np.zeros(kernels.SPLIT_SUMS)
         for first in range(0, n_rows, chunk):
             last = min(first + chunk, n_rows)
             count = last - first
@@ -2842,15 +2844,24 @@ class NumbaCpuBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
                 removal(
                     samples[:count],
                     row_weights[first:last] if row_weights.size else row_weights,
+                    self._monitor_weights,
                     taken,
+                    # The field's factor, exp(-alpha h / 2), is half the split's
+                    # power factor: the found energies' weight.
+                    damping,
                     partials,
                 )
-                removed += float(partials[:count].sum())
+                sums += (
+                    partials[: kernels.SPLIT_SUMS * count]
+                    .reshape(count, kernels.SPLIT_SUMS)
+                    .sum(axis=0)
+                )
             np.multiply(samples, damping, out=samples)
             plans.absorber_to_frequency.execute()
             rows[first:last] = spectrum[:count]
         if taken is not None:
-            self._split_removed += parseval * removed
+            self._split_removed += parseval * float(sums[0])
+            self._split_found = parseval * sums[1:]
 
     def _bind_monitor(self, monitor: BoundaryMonitor | None) -> None:
         """Prepare to read a boundary monitor's energies, or stop reading them.
@@ -2975,7 +2986,7 @@ class NumbaCpuBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
                 .sum(axis=0)
             )
         removed, self._split_removed = self._split_removed, 0.0
-        return BoundaryEnergies(float(sums[0]), sums[1:], removed)
+        return BoundaryEnergies(float(sums[0]), sums[1:], removed, self._split_found)
 
     # --- the tables the stage reads ---------------------------------------------
 

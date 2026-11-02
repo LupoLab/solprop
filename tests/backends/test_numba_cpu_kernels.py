@@ -967,9 +967,9 @@ def test_write_temporal_absorber_overwrites_with_the_real_part_of_a_view():
 def test_the_boundary_partials_are_the_monitor_s_sums(
     complex_samples: bool, weighted: bool, threaded: bool
 ) -> None:
-    # Each row's energy and four weighted energies, and what a split takes of it,
-    # against the same sums in NumPy: positive terms, so the bound is gamma of the
-    # row's length, relative to each sum.
+    # Each row's energy and four weighted energies, and what a split takes of it and
+    # finds in it, against the same sums in NumPy: positive terms, so the bound is
+    # gamma of the row's length, relative to each sum.
     rng = np.random.default_rng(21)
     rows, n_t = 5, 64
     samples = rng.standard_normal((rows, n_t))
@@ -993,6 +993,15 @@ def test_the_boundary_partials_are_the_monitor_s_sums(
     )
     # Nothing past the rows is written.
     assert np.isnan(partials[-1])
-    taken_partials = np.empty(rows)
-    removal(samples, row_weights, taken, taken_partials)
-    np.testing.assert_allclose(taken_partials, scale * (power @ taken), rtol=gamma(n_t))
+    half = rng.random(n_t)
+    taken_partials = np.full(kernels.SPLIT_SUMS * rows + 1, np.nan)
+    removal(samples, row_weights, weights, taken, half, taken_partials)
+    found = np.column_stack(
+        [power @ taken, power @ half, (power * half) @ weights[:2].T]
+    )
+    np.testing.assert_allclose(
+        taken_partials[:-1].reshape(rows, kernels.SPLIT_SUMS),
+        found * scale[:, None],
+        rtol=gamma(n_t),
+    )
+    assert np.isnan(taken_partials[-1])
