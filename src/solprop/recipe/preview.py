@@ -41,11 +41,12 @@ __all__ = [
     "preview_input",
 ]
 
-GUIDED = ("capillary", "waveguide", "planar")
+GUIDED = ("capillary", "waveguide", "planar", "gnlse")
 """The routes with a mode set to preview.
 
 The planar route's mode set is its grid's slab channels in x, the modes the beam is
-projected onto, at ``k_y = 0``.
+projected onto, at ``k_y = 0``; the GNLSE's is its one specified mode, from its Taylor
+coefficients or its fibre, without a fill (so without ``gamma`` over the band).
 """
 
 
@@ -293,9 +294,11 @@ def _pump(
         The pump wavelength in m (``None`` without a numeric ``wavelength``), and
         the keywords :func:`solprop.tools.phase_mismatch` takes for the nonlinear
         term (``peak_power``, ``gamma``, ``fwhm``, ``shape``), empty for the linear
-        condition.
+        condition. The nonlinear coefficient is the recipe's ``gamma`` where it
+        gives one (the GNLSE), else the launch mode's fill's.
     """
     from solprop.modes.base import beta2  # noqa: PLC0415 - layer above
+    from solprop.physdata.mixtures import Mixture  # noqa: PLC0415
     from solprop.recipe.pins import _gamma as launch_gamma  # noqa: PLC0415
     from solprop.recipe.pins import _route_pulse  # noqa: PLC0415
     from solprop.tools import SolitonOrder  # noqa: PLC0415
@@ -308,7 +311,13 @@ def _pump(
         # The order is a placeholder: the target reads the pulse's numbers and
         # refuses the pulses they are not defined for.
         target = SolitonOrder(1.0, _route_pulse(keywords))  # type: ignore[arg-type]
-        gamma = launch_gamma(soliton, pump)
+        given = keywords.get("gamma")
+        if isinstance(given, int | float) and not isinstance(given, bool):
+            gamma = float(given)
+        elif isinstance(getattr(soliton, "mixture", None), Mixture):
+            gamma = launch_gamma(soliton, pump)
+        else:
+            return pump, {}  # no nonlinear coefficient: the linear condition
     except KeyError, TypeError, ValueError, ToolsError:
         # No width or size, a shape without design numbers, or no Kerr data.
         return pump, {}

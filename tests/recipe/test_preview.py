@@ -92,7 +92,21 @@ def test_the_mode_preview_is_taken_where_asked():
 
 def test_a_route_without_modes_has_no_mode_preview():
     with pytest.raises(RecipeError, match="builds no mode set"):
-        Recipe.example("soliton").modes()
+        Recipe.example("cartesian_beam").modes()
+
+
+def test_the_gnlse_s_mode_is_its_specified_one():
+    recipe = Recipe.example("soliton")
+    (mode,) = recipe.modes().modes
+    assert mode.gamma is None  # no fill
+    beta2_given = -0.01183e-24  # ps^2/m, the recipe's
+    assert mode.beta2 == pytest.approx(beta2_given, rel=1e-9)
+    # Phase-matched with the recipe's own gamma; a pure beta2 has no wave to match.
+    assert recipe.modes().nonlinear and mode.rdw == ()
+    # A mode with no fill, and no gamma given: no coefficient, the linear condition.
+    unfilled = recipe.build().modes[0]
+    pulse = {"wavelength": 8e-7, "fwhm": 1e-14, "energy": 1e-6, "shape": "sech"}
+    assert _pump(pulse, unfilled) == (8e-7, {})
 
 
 @pytest.mark.parametrize(

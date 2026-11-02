@@ -271,7 +271,8 @@ call it and write its values in `[build]`.
 ## Previews
 
 Before a run, `recipe.modes()` returns the mode set a guided route builds (the
-`capillary` and `waveguide` routes, and the slab channels of the `planar` route), at the
+`capillary` and `waveguide` routes, the slab channels of the `planar` route and the
+`gnlse` route's one specified mode, without a fill), at the
 launch position or at `z`: each mode's label, its effective index (`neff_minus_one`),
 `beta`, `beta1`, `beta2`, `beta3` and loss over the grid's band, its effective area (a
 slab mode's effective width), its nonlinear coefficient `gamma` where its fill has Kerr
