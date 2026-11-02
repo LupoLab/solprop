@@ -31,8 +31,8 @@ So activate the environment and run tools directly, or set UV_NO_SYNC=1 for `uv 
     SOLPROP_TEST_BACKEND=numpy_ref uv run poe test
 
 backend="auto" refuses here, so scripts name backend="numpy_ref". Tests take
-SOLPROP_TEST_BACKEND=numpy_ref, and tests that need native skip. A change to native/ needs
-a native build and its qualification: run `uv sync` with a C++20 compiler.
+SOLPROP_TEST_BACKEND=numpy_ref, and tests that need native skip. A change to native/
+needs a native build and its qualification: run `uv sync` with a C++20 compiler.
 """
 
 

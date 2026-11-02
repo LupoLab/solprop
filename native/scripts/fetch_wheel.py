@@ -9,8 +9,8 @@ this checkout's history, and installs it without its dependencies if it fits thi
 nothing in ``native/`` or in the solprop modules ``solprop_native`` imports may differ
 from that commit, committed or not (SEP 43 section 6.7). It needs the ``gh`` command,
 logged in. The wheel keeps its own version and build record, so ``uv pip check``
-reports the pin as unmet, deliberately. Run solprop with ``uv run --no-sync`` afterwards,
-because a sync builds native in its place.
+reports the pin as unmet, deliberately. Run solprop with ``uv run --no-sync``
+afterwards, because a sync builds native in its place.
 """
 
 import ast

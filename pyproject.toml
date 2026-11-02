@@ -242,6 +242,7 @@ max-args = 6                      # forces a config dataclass past this
 [tool.ruff.lint.per-file-ignores]
 "tests/**"          = ["D", "ANN", "PLR2004", "ARG"]   # dummies implement protocols with unused args
 "benchmarks/**"     = ["D", "ANN", "T20"]
+"tools/setup_light.py" = ["T20"]                     # it tells a contributor what to do
 # Independent oracles that tests compare against: research code, held to the benchmark
 # rules rather than the package's.
 "tests/oracles/**"   = ["D", "ANN", "T20", "PLR2004", "ARG"]
@@ -359,6 +360,11 @@ help = "Plan the tracking run; pass track, ab, history or list options (SEP 38).
 # native backend sizes every pool within; SOLPROP_NATIVE_THREADS is its own cap
 # (OMP_NUM_THREADS does not set it). The statistics-cost check runs alone and keeps the
 # full budget.
+[tool.poe.tasks.test-windows-arm]
+cmd = "pytest -n auto --dist loadgroup"
+env = { PYTHONUTF8 = "1", SOLPROP_THREADS = "1", SOLPROP_NATIVE_THREADS = "1" }
+help = "The default lane on Windows on Arm, where small BLAS thread variables crash NumPy; tests/conftest.py limits the pools after they load."
+
 [tool.poe.tasks.test]
 cmd = "pytest -n auto --dist loadgroup"
 env = { PYTHONUTF8 = "1", SOLPROP_THREADS = "1", SOLPROP_NATIVE_THREADS = "1", VECLIB_MAXIMUM_THREADS = "1", OPENBLAS_NUM_THREADS = "1", MKL_NUM_THREADS = "1", OMP_NUM_THREADS = "1" }

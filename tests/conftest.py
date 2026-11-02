@@ -53,11 +53,18 @@ import convergence_records  # noqa: E402 - `tests/` reaches sys.path with this f
 import shards  # noqa: E402 - test helper beside conftest
 import solprop  # noqa: E402, F401 - imported after the hook so the package is checked too
 from distribution import remember_nodeid  # noqa: E402 - test helper beside conftest
-from solprop.backends import (
-    memory,
-    registry,
-)
+from solprop import _process  # noqa: E402 - needs the hook above
+from solprop.backends import memory, registry  # noqa: E402 - needs the hook above
 from solprop.driver import simulation  # noqa: E402 - needs the hook above
+
+# NumPy's OpenBLAS on Windows on Arm crashes or hangs in small linear solves when a
+# thread variable sizes it at load (solprop._process), so that lane's task sets none,
+# and the pools are limited here once they are loaded, for the other lanes' one thread.
+if _process.sizes_blas_after_load():
+    import scipy.linalg  # noqa: F401
+    import threadpoolctl
+
+    threadpoolctl.threadpool_limits(1, user_api="blas")
 
 
 @pytest.fixture(autouse=True)

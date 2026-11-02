@@ -349,8 +349,8 @@ def _check_required_device(name: str) -> None:
         raise BackendError(msg)
     if info.device_count < 1:
         msg = (
-            f"{REQUIRE_DEVICE_SETTING}={value}: the {info.device_backend} build sees no "
-            f"device; check the job's allocation, or {unset}"
+            f"{REQUIRE_DEVICE_SETTING}={value}: the {info.device_backend} build sees "
+            f"no device; check the job's allocation, or {unset}"
         )
         raise BackendError(msg)
 

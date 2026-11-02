@@ -150,6 +150,14 @@ jobs:
           "
       - name: Coexistence with NumPy and SciPy
         run: uv run --no-sync python -I native/ci/coexistence.py
+      # pyFFTW and Numba as a notebook's other packages would load them, in an environment
+      # of their own: solprop doesn't depend on them. pyFFTW has no Windows on Arm wheel.
+      - name: Coexistence with pyFFTW and Numba as outside packages
+        run: |
+          uv venv --python 3.14 ../coexist
+          uv pip install --python ../coexist --no-sources --find-links wheelhouse . \
+            ${{ matrix.id != 'windows-arm64' && 'pyfftw numba' || 'numba' }}
+          uv run --no-project --python ../coexist python -I native/ci/coexistence.py
       # The default lane's peak memory with four test workers is at the edge of a 16 GB
       # runner (the aarch64 runner shut down mid-suite, as CI's did): swap on Linux and
       # three workers, as in CI's native-suite job.
@@ -168,7 +176,7 @@ jobs:
           # The runtime type checks run in ci.yml's coverage lane (ADR-053); here they
           # would more than double the lane's time without checking anything new.
           SOLPROP_TEST_TYPECHECK: "0"
-        run: uv run --no-sync poe test
+        run: uv run --no-sync poe ${{ matrix.id == 'windows-arm64' && 'test-windows-arm' || 'test' }}
 
   # The x86-64 wheel's CPU floor under Intel's emulator: a Haswell (x86-64-v3) runs its
   # best build, a Nehalem (x86-64-v2: no AVX) and a Sandy Bridge (AVX without AVX2, FMA
@@ -252,13 +260,37 @@ jobs:
           # never an instruction the emulated processor lacks.
           test "$status" -eq 1
           ! grep -q "SDE-ERROR" refusal.log
+      # With /proc/cpuinfo unreadable the check asks NumPy, whose CPUID SDE emulates, and
+      # a file that says nothing is the same as none (SEP 43 section 6.1).
+      - name: With nothing in /proc/cpuinfo, NumPy's answer chooses the build
+        run: |
+          : > cpuinfo-empty
+          sudo mount --bind cpuinfo-empty /proc/cpuinfo
+          status=0
+          for pair in hsw:x86-64-v3 nhm:x86-64-v2 snb:x86-64-v2; do
+            sde/sde64 -${pair%:*} -chip_check_zcnt 1 -- .venv/bin/python -I -c "
+          import solprop_native
+          baseline = solprop_native.build_info().cpu_baseline
+          print(baseline)
+          assert baseline == '${pair#*:}', baseline
+          " || status=1
+          done
+          set +e
+          sde/sde64 -pnr -chip_check_zcnt 1 -- .venv/bin/python -I -c "import solprop_native" > refusal.log 2>&1
+          refused=$?
+          set -e
+          sudo umount /proc/cpuinfo
+          cat refusal.log
+          test "$status" -eq 0
+          test "$refused" -eq 1
+          ! grep -q "SDE-ERROR" refusal.log
 
   # solprop's own distributions (pure Python): sdist and wheel, each then installed from
   # the file in a fresh environment, outside the checkout, and given the installation
   # page's check (docs/introduction/installation.md). It imports at the files' version,
-  # which on a release tag is the tag's; `backend="auto"` resolves to numpy_ref for the
-  # wheel alone and to native with the `native` extra, whose pin (hatch_build.py) this
-  # run's Linux x86-64 wheel meets before anything is published.
+  # which on a release tag is the tag's. Native is a required dependency, whose pin
+  # (hatch_build.py) this run's Linux x86-64 wheel meets before anything is published, so
+  # `backend="auto"` resolves to native and a short run finishes and saves.
   solprop-dist:
     needs: build
     runs-on: ubuntu-24.04
@@ -285,17 +317,36 @@ jobs:
           WHEELHOUSE: ${{ github.workspace }}/wheelhouse
           CHECK: |
             import sys
+            import tempfile
+            from pathlib import Path
 
             import optmat
 
             import solprop
             from solprop.backends.registry import available, resolve_name
+            from solprop.driver import prop_gnlse
 
             version, backend = sys.argv[1:]
             print("solprop", solprop.__version__, "with optmat", optmat.__version__)
             print("backends:", available(), "- auto means", resolve_name("auto"))
             assert solprop.__version__ == version, f"expected solprop {version}"
             assert resolve_name("auto") == backend, f"expected auto to mean {backend}"
+            with tempfile.TemporaryDirectory() as directory:
+                path = Path(directory) / "run.h5"
+                prop_gnlse(
+                    0.11,
+                    1e-4,
+                    [0.0, 0.0, -11.83e-27],
+                    wavelength=835e-9,
+                    wavelength_limits=(500e-9, 2e-6),
+                    trange=1e-12,
+                    fwhm=50e-15,
+                    peak_power=1e3,
+                    shape="sech",
+                    output=path,
+                    progress="none",
+                )
+                assert path.stat().st_size > 0
         run: |
           sdist=$(echo "$DIST"/solprop-*.tar.gz)
           wheel=$(echo "$DIST"/solprop-*.whl)
@@ -310,9 +361,8 @@ jobs:
             uv pip install --python "$1/bin/python" --find-links "$WHEELHOUSE" "$2"
             "$1/bin/python" -I -c "$CHECK" "$version" "$3"
           }
-          check wheel "$wheel" numpy_ref
-          check wheel-native "${wheel}[native]" native
-          check sdist-native "${sdist}[native]" native
+          check wheel "$wheel" native
+          check sdist "$sdist" native
 
   # Trusted publishing to PyPI on a release tag, one job and GitHub environment per
   # project (PyPI ties a pending trusted publisher to one project name per workflow and

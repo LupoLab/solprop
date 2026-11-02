@@ -273,7 +273,7 @@ jobs:
         run: >-
           uv run --no-sync python -c "import mlx.core as mx;
           assert mx.metal.is_available(), 'The macOS test lane requires Metal for MLX'"
-      - run: uv run --no-sync poe test --junitxml=junit.xml
+      - run: uv run --no-sync poe ${{ matrix.platform.id == 'windows-arm64' && 'test-windows-arm' || 'test' }} --junitxml=junit.xml
       # The timings tests/shards.py rewrites the shard weights from.
       - if: ${{ !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
