@@ -475,6 +475,8 @@ help = "Type-check the front end against its own configuration."
 
 [tool.poe.tasks.gui-docstrings]
 cmd = "python -m numpydoc lint gui/src/solprop_gui/*.py gui/src/solprop_gui/**/*.py gui/hatch_build.py"
+# numpydoc reads the sources in the locale's encoding: UTF-8 on every platform.
+env = { PYTHONUTF8 = "1" }
 help = "Validate the front end's public docstrings."
 
 [tool.poe.tasks.gui-test]
