@@ -1473,7 +1473,7 @@ def _keep(
             if explicit:
                 what = "an atom" if kind == "atom" else "not a gas optmat curates"
                 msg = f"{label} ({name}) has no molecular Raman response: it is {what}"
-                raise MaterialError(msg)
+                raise MaterialError(msg, rule="raman-needs-molecule")
             continue
         options = chosen[label]
         if keep.setdefault(name, options) != options:

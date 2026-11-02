@@ -28,7 +28,7 @@ from spatial_records import record_metric
 @pytest.mark.parametrize("size", [48, 96, 192])
 def test_cartesian_widths_of_shifted_gaussian_converge(size, request):
     waist, radius = 80e-6, 400e-6
-    space = FreeGrid(radius, size, 1.2 * radius, size + 8, window_factor=0)
+    space = FreeGrid(radius, size, 1.2 * radius, size + 8, collar_fraction=0)
     x0, y0 = 0.13 * radius, -0.11 * radius
     profile = np.exp(
         -2 * ((space.x[None, :] - x0) ** 2 + (space.y[:, None] - y0) ** 2) / waist**2
@@ -68,7 +68,7 @@ def test_cartesian_widths_of_shifted_gaussian_converge(size, request):
 
 
 def test_cartesian_second_moment_uses_centroid_and_both_axes(request):
-    space = FreeGrid(1.0, 12, 1.5, 16, window_factor=0)
+    space = FreeGrid(1.0, 12, 1.5, 16, collar_fraction=0)
     profile = np.zeros((space.n_y, space.n_x))
     profile[5, 4], profile[5, 8], profile[9, 4], profile[9, 8] = 1, 1, 1, 1
     expected = math.sqrt(
@@ -96,7 +96,7 @@ def test_cartesian_second_moment_uses_centroid_and_both_axes(request):
     "change", ["complex", "shape", "negative", "nonfinite", "axis"]
 )
 def test_cartesian_widths_refuse_invalid_data(change):
-    space = FreeGrid(1, 8, 2, 6, window_factor=0)
+    space = FreeGrid(1, 8, 2, 6, collar_fraction=0)
     x, profile = space.x, np.ones(space.n_columns)
     if change == "complex":
         profile = profile.astype(complex)
@@ -114,7 +114,7 @@ def test_cartesian_widths_refuse_invalid_data(change):
 
 def test_cartesian_fluence_integrates_to_beam_energy(request):
     grid = EnvelopeGrid.from_limits(1e-3, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False)
-    space = FreeGrid(3e-4, 32, 4e-4, 40, window_factor=0)
+    space = FreeGrid(3e-4, 32, 4e-4, 40, collar_fraction=0)
     pulse = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=3e-9),
         80e-6,
@@ -143,7 +143,7 @@ def test_cartesian_fluence_integrates_to_beam_energy(request):
 @pytest.mark.parametrize("size", [48, 96])
 def test_line_widths_of_a_shifted_gaussian(size):
     waist, radius = 80e-6, 400e-6
-    line = LineGrid(radius, size, window_factor=0)
+    line = LineGrid(radius, size, collar_fraction=0)
     x0 = 0.13 * radius
     profile = np.exp(-2 * (line.x - x0) ** 2 / waist**2)
     dx = line.x[1] - line.x[0]
@@ -164,7 +164,7 @@ def test_line_widths_of_a_shifted_gaussian(size):
 
 
 def test_line_widths_of_empty_and_edge_profiles():
-    line = LineGrid(1.0, 8, window_factor=0)
+    line = LineGrid(1.0, 8, collar_fraction=0)
     assert all(
         math.isnan(one) for one in cartesian_fluence_widths(line.x, line.y, np.zeros(8))
     )

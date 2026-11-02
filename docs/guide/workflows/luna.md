@@ -64,6 +64,12 @@ Four conventions change what the numbers mean:
   Luna's energy and intensity for the same field; to start from the same field, scale the
   energy by $n_0$. Local intensities are signed fluxes, and the field that drives
   ionisation is reported separately. See [energy and flux in a medium](../free-space/flux.md).
+- **Free-space boundaries are watched, and absorbed only on request.** Luna.jl's
+  free-space routes apply no transverse absorber, so a radial run reflects from its outer
+  radius and a Cartesian one wraps. So does solprop by default, but it detects light
+  reaching the edge and stops the run, naming a size to try, carries a safety ramp at the
+  grid's highest transverse wavenumbers, and offers a designed real-space collar on
+  request ([transverse boundaries](../free-space/model.md#transverse-boundaries)).
 - **The unrotated `HE_1m` mode is polarised along x**; Luna's is polarised along y. The
   two are the two members of the degenerate pair, a quarter turn apart
   ($\phi_\text{solprop} = \pi/(2n) - \phi_\text{Luna}$ for a family of order $n$).

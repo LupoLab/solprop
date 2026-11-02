@@ -6,10 +6,10 @@
 
 Class R throughout: both sides replay the same fixed schedule with the same method in
 binary32, and the bounds are the oracle tests' own formulas. On the Metal GPU every
-protected operation runs through its custom kernel; on MLX's CPU device, which
-continuous integration uses when the runner exposes no Metal device, the graph code
-runs and the kernels' tests are skipped. The local GPU lane is the whole module on the
-Metal device.
+protected operation runs through its custom kernel. Continuous integration's macOS
+default lane requires Metal and runs those kernels. On MLX's CPU device, available for
+local tests, the graph code runs and the kernels' tests are skipped. The local GPU lane
+is the whole module on the Metal device.
 """
 
 import dataclasses
@@ -275,7 +275,7 @@ def test_a_gaussian_beam_diffracts_as_paraxial_optics_says():
     grid = EnvelopeGrid.from_limits(
         rayleigh, wavelength, (780e-9, 820e-9), 2e-12, thg=False
     )
-    space = FreeGrid(1.5e-3, 128, 1.5e-3, 128, window_factor=0)
+    space = FreeGrid(1.5e-3, 128, 1.5e-3, 128, collar_fraction=0)
     settings = SimulationSettings(
         controller=PIController(rtol=1e-6, atol=0.0),
         save_planes=[rayleigh],

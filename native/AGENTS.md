@@ -203,7 +203,9 @@ Read the files, tests, callers and build configuration before editing, and prese
 unrelated work. Write small commits with imperative subjects under 72 characters and
 stage explicit paths. Build directories, wheels, fetched dependency trees, profiler
 traces and local benchmark outputs are never committed. Record user-visible changes
-in the repository's `CHANGELOG.md`.
+in a repository-root `changelog.d/` fragment
+([format](../changelog.d/README.md)); the rolling release PR collects it into
+`CHANGELOG.md`.
 
 Code is `GPL-3.0-or-later` and documentation `CC-BY-4.0`. Every code file starts with
 the SPDX header that `uv run reuse annotate --copyright "John C. Travers and

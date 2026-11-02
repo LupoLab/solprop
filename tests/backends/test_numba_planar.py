@@ -353,7 +353,11 @@ def test_each_statistic_is_the_reference_s_on_the_same_state(cases, name):
         scale = np.max(np.abs(theirs[stat]))
         assert scale > 0, stat
         bound = seeds * response[stat] + scan
-        assert np.max(np.abs(ours[stat] - theirs[stat])) <= bound * scale, stat
+        # The ionised fraction is a share of one: its rounding is one unit roundoff
+        # absolute however small the share (Linux CI measured 2**-53 at a share of
+        # 1.7e-5 after SEP 40's ramp moved the final state).
+        floor = 2 * UNIT if stat == "species_ionisation" else 0.0
+        assert np.max(np.abs(ours[stat] - theirs[stat])) <= bound * scale + floor, stat
 
 
 @pytest.mark.medium
@@ -443,9 +447,10 @@ def test_prop_planar_runs_on_numba_as_on_the_reference():
     """``prop_planar(..., backend="numba_cpu")`` end to end: fields and statistics.
 
     Ten Kerr steps of the hybrid families' front-end launch through the user's door,
-    with the default collar (``window_factor = 0.1``) and the free-space statistics; the
-    saved plane agrees within the run's bound and the statistics within twice it
-    (squares of the field) plus their own reductions' ``gamma``, the Cartesian ladder's.
+    with no room outside the aperture (``collar_fraction = 0``, the default) and the
+    free-space statistics; the saved plane agrees within the run's bound and the
+    statistics within twice it (squares of the field) plus their own reductions'
+    ``gamma``, the Cartesian ladder's.
     """
     space = PlanarGrid(
         [SlabMode(HALF_GAP, "Ar", 1.0, order=p) for p in (1, 3)], 1.5e-3, 16
@@ -467,6 +472,9 @@ def test_prop_planar_runs_on_numba_as_on_the_reference():
             backend=backend,
             stats=default_spec("free"),
             absorber=bare_absorber(FRONT_GRID),
+            # The coarse case launches 4e-4 into the safety ramp's band, which
+            # would refuse it (SEP 40 section 5.3); the subject is backend parity.
+            spatial_absorber=False,
         )
         outputs[backend] = prop_planar(
             FRONT_GRID, space, responses, launch, settings=settings, progress="none"

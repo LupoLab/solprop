@@ -77,11 +77,13 @@ def cartesian(
     grid = EnvelopeGrid.from_limits(
         LENGTH, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False, **LEGACY_GRID
     )
-    space = FreeGrid(3e-4, 12, 4e-4, 12, window_factor=0.25)
+    space = FreeGrid(3e-4, 12, 4e-4, 12, collar_fraction=0.25)
     pulse = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=2e-6), 40e-6
     )
     settings = SimulationSettings(
+        # The coarse route launches into the safety ramp's band (SEP 40 section 5.3).
+        spatial_absorber=False,
         controller=PIController(rtol=rtol, atol=1e-14),
         save_planes=PLANES,
         dz_max=LENGTH,
@@ -499,35 +501,15 @@ def test_the_run_asks_the_backend_for_exactly_the_kept_fields(monkeypatch):
     assert asked == [True, False, False, False, True]
 
 
-def test_the_collar_diagnostic_is_skipped_on_field_free_planes_and_recorded(caplog):
-    simulation = keeping(cartesian("numpy_ref"), "none")
+def test_no_saved_plane_logs_the_retired_collar_diagnostic(caplog):
+    # SEP 40 section 5.3 retires the end-of-plane collar diagnostic: the boundary
+    # monitor's transverse edge judges the boundary instead.
+    simulation = keeping(cartesian("numpy_ref"), "all")
     with caplog.at_level(logging.INFO, logger="solprop.backends.numpy_ref.backend"):
         output = stored(simulation.run(progress="none"))
-    skipped = [
-        record for record in caplog.records if "collar diagnostic" in record.message
-    ]
-    # Logged once, at the first field-free plane; every one counted in the record.
-    assert len(skipped) == 1
+    assert not [r for r in caplog.records if "collar" in r.message]
     assert output.outcome is not None
-    assert output.outcome.execution["collar_diagnostic_skipped"] == len(PLANES) + 1
-    # A run that keeps every field evaluates it everywhere and records nothing.
-    kept = stored(keeping(cartesian("numpy_ref"), "all").run(progress="none"))
-    assert kept.outcome is not None
-    assert "collar_diagnostic_skipped" not in kept.outcome.execution
-
-
-def test_a_load_clears_the_skipped_diagnostic_count():
-    simulation = cartesian("numpy_ref")
-    problem = simulation.translate()
-    backend = NumpyRefBackend(problem, grid=simulation.grid)
-    try:
-        backend.set_initial(problem.initial.field0, None)
-        backend.observe(field=False)
-        assert backend.metadata()["collar_diagnostic_skipped"] == 1
-        backend.set_initial(problem.initial.field0, None)
-        assert "collar_diagnostic_skipped" not in backend.metadata()
-    finally:
-        backend.close()
+    assert "collar_diagnostic_skipped" not in output.outcome.execution
 
 
 def test_a_field_free_observation_relies_on_the_step_loop_for_finiteness():

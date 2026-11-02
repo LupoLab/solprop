@@ -3140,12 +3140,15 @@ class AdamsMarch:
             return
         targets = adams_core.targets(self._policy, target)
         while not reached(backend._z, target):
+            backend._poll_stop()
             self._afford()
             try:
                 if not self._history:
                     self._start()
                 proposal = self._collar_reentry(
-                    self._quiet_capped(self._capped(backend._proposal))
+                    backend._transverse_capped(
+                        self._quiet_capped(self._capped(backend._proposal))
+                    )
                 )
                 stop = landing(backend._z, proposal, targets)
                 dz, end, kink = adams_core.approach(
@@ -3201,6 +3204,7 @@ class AdamsMarch:
         while (
             backend._schedule_index < schedule.n_steps and backend._z < target - slack
         ):
+            backend._poll_stop()
             dz = float(schedule.steps[backend._schedule_index])
             end = float(edges[backend._schedule_index + 1])
             norm = self.replay_step(dz, end, slack)

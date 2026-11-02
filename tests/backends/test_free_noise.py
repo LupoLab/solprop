@@ -33,7 +33,7 @@ def test_cartesian_modified_noise_enters_the_rotated_nonlinear_field(
         else partial(EnvelopeGrid.from_limits, thg=False)
     )
     grid = constructor(length, 800e-9, (600e-9, 1.2e-6), 150e-15)
-    space = FreeGrid(3e-4, 9, 4e-4, 12, window_factor=0)
+    space = FreeGrid(3e-4, 9, 4e-4, 12, collar_fraction=0)
     noise = spatial_noise(
         SpatialFlux.resolve(grid, space, SpatialMedium()),
         np.random.default_rng(94),

@@ -1,0 +1,25 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# The photoionisation blue shift of a 30 fs pulse in a narrow argon-filled capillary.
+# mirrors: docs/examples/processes/plot_06_ionisation_blue_shift.py
+
+[recipe]
+format = 1
+route = "capillary"
+title = "Ionisation blue shift in argon"
+
+[build]
+radius = "13 um"
+length = "0.4 m"
+gas = "Ar"
+pressure = "1.7 bar"
+wavelength = "800 nm"
+fwhm = "30 fs"
+energy = "3 uJ"
+loss = false
+trange = "600 fs"
+wavelength_limits = ["300 nm", "4000 nm"]
+n_save = 301
+seed = 20261027

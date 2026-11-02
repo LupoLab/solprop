@@ -78,7 +78,9 @@ def as_gas(gas: Gas | str) -> Gas:
         return Gas(gas)
     except ValueError as exc:
         known = ", ".join(member.value for member in Gas)
-        raise MaterialError(f"unknown gas {gas!r}; solprop knows {known}") from exc
+        raise MaterialError(
+            f"unknown gas {gas!r}; solprop knows {known}", parameter="gas"
+        ) from exc
 
 
 #: The species whose particles are single atoms. Everything else in :class:`Gas` is

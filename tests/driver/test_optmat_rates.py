@@ -253,7 +253,7 @@ def test_a_new_input_is_checked_and_keeps_the_reference_field():
 
 def test_an_elliptical_free_space_input_warns_where_the_keldysh_parameter_is_large():
     grid = FieldGrid.from_limits(1e-3, WAVELENGTH, (600e-9, 1.2e-6), 150e-15)
-    space = FreeGrid(3e-4, 12, 4e-4, 16, window_factor=0)
+    space = FreeGrid(3e-4, 12, 4e-4, 16, collar_fraction=0)
     settings = SimulationSettings(
         controller=PIController(rtol=1e-8, atol=1e-14),
         save_planes=[grid.length],

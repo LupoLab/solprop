@@ -31,7 +31,9 @@ public-interface redesigns, and substantive contract changes require an accepted
 [enhancement proposal](seps/sep-0000-process.md). Other changes larger than a
 focused fix start with an agreed issue or written plan.
 
-Keep the manual, docstrings, tests, and changelog consistent with the behaviour.
+Keep the manual, docstrings, tests, and release-note fragments consistent with the
+behaviour. Add a unique `changelog.d/<slug>.<category>.md` fragment for a notable change;
+leave the shared changelog to the [rolling release PR](releasing.md#the-rolling-release-pr).
 Check physical claims against their primary sources and report uncertainties.
 Run fast checks and directly affected tests during development. Continuous
 integration runs the full gate on every pull request,

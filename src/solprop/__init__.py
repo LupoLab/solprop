@@ -37,6 +37,8 @@ _SUBMODULES: Final = (
     "adiabatic",
     "backends",
     "boundaries",
+    "capabilities",
+    "cli",
     "constants",
     "coupling",
     "driver",
@@ -59,13 +61,16 @@ _SUBMODULES: Final = (
     "processing",
     "profiles",
     "pulses",
+    "recipe",
     "scan",
     "sol",
     "spatial",
+    "spatial_absorber",
     "stats",
     "stepper",
     "tools",
     "translate",
+    "transverse_monitor",
 )
 """The submodules reachable as attributes; a test keeps it equal to what is on disk."""
 
