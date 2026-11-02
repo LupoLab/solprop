@@ -4,10 +4,10 @@
 
 """The release records agree: authors, the citation's version and date, typing markers.
 
-``CITATION.cff``, ``.zenodo.json`` and both distributions' ``pyproject.toml`` each name
-the authors, and a release commit moves the changelog's ``Unreleased`` section under
-its version and date (``docs/dev/releasing.md``); the citation must then carry the same
-two. The files are read as text: the citation's few keys need no YAML parser.
+``CITATION.cff``, ``.zenodo.json`` and the three distributions' ``pyproject.toml`` each
+name the authors, and a release commit moves the changelog's ``Unreleased`` section
+under its version and date (``docs/dev/releasing.md``); the citation must then carry the
+same two. The files are read as text: the citation's few keys need no YAML parser.
 """
 
 import json
@@ -37,7 +37,7 @@ def _project_authors(path: Path) -> list[str]:
 
 
 def test_every_record_names_the_same_authors():
-    """The citation, the archive record and both distributions agree, in order."""
+    """The citation, the archive record and the three distributions agree, in order."""
     citation = [
         f"{given} {family}"
         for family, given in re.findall(
@@ -53,6 +53,7 @@ def test_every_record_names_the_same_authors():
     assert archive == citation
     assert _project_authors(ROOT / "pyproject.toml") == citation
     assert _project_authors(ROOT / "native" / "pyproject.toml") == citation
+    assert _project_authors(ROOT / "gui" / "pyproject.toml") == citation
 
 
 def test_the_citation_names_the_latest_release():
@@ -65,7 +66,8 @@ def test_the_citation_names_the_latest_release():
     )
 
 
-def test_both_packages_declare_their_inline_types():
-    """Both packages ship ``py.typed`` (PEP 561), so checkers read their annotations."""
+def test_every_package_declares_its_inline_types():
+    """Each package ships ``py.typed`` (PEP 561), so checkers read its annotations."""
     assert (ROOT / "src" / "solprop" / "py.typed").is_file()
     assert (ROOT / "native" / "src" / "solprop_native" / "py.typed").is_file()
+    assert (ROOT / "gui" / "src" / "solprop_gui" / "py.typed").is_file()

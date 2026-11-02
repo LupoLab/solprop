@@ -2,8 +2,9 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-# The release wheels of solprop-native, built, repaired and qualified, and solprop's own
-# distributions, built and installed; on a release tag, once enabled, both published.
+# The release wheels of solprop-native, built, repaired and qualified, and the pure
+# Python distributions of solprop and solprop-gui, built and installed; on a release
+# tag, once enabled, published.
 # The recipe is docs/dev/releasing.md; cibuildwheel's configuration is in
 # native/pyproject.toml and the dependency scripts in native/ci/.
 name: Wheels
@@ -31,6 +32,9 @@ on:
       - "native/pyproject.toml"
       - "native/CMakeLists.txt"
       - "native/cmake/**"
+      - "gui/pyproject.toml"
+      - "gui/hatch_build.py"
+      - "hatch_build.py"
       - ".github/workflows/wheels.yml"
 
 permissions:
@@ -266,10 +270,16 @@ jobs:
       - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
       - run: uv python install 3.14
       - run: uv build --package solprop --out-dir dist
+      - run: uv build --package solprop-gui --out-dir dist-gui
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: solprop-dist
           path: dist/*
+          if-no-files-found: error
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: solprop-gui-dist
+          path: dist-gui/*
           if-no-files-found: error
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -310,6 +320,21 @@ jobs:
           check wheel "$wheel" numba_cpu
           check wheel-native "${wheel}[native]" native
           check sdist-native "${sdist}[native]" native
+      # The front end with solprop's `gui` extra, from these files: the two pins
+      # (hatch_build.py, gui/hatch_build.py) meet, and the command answers at the
+      # version without loading Qt.
+      - name: Install the front end and check it
+        working-directory: ${{ runner.temp }}
+        env:
+          DIST: ${{ github.workspace }}/dist
+          DIST_GUI: ${{ github.workspace }}/dist-gui
+        run: |
+          wheel=$(echo "$DIST"/solprop-*.whl)
+          version=$(basename "$(echo "$DIST"/solprop-*.tar.gz)" .tar.gz)
+          version=${version#solprop-}
+          uv venv --python 3.14 gui
+          uv pip install --python gui/bin/python --find-links "$DIST_GUI" "${wheel}[gui]"
+          test "$(gui/bin/solprop-gui --version)" = "$version"
 
   # Trusted publishing to PyPI on a release tag, one job and GitHub environment per
   # project (PyPI ties a pending trusted publisher to one project name per workflow and
@@ -320,7 +345,9 @@ jobs:
   # (hatch_build.py), so a failed native upload leaves no solprop release behind.
   # Guarded until the PyPI projects, their trusted publishers and both environments
   # exist and the repository variable PUBLISH is set to "true" (the pre-flight
-  # checklist in docs/dev/releasing.md).
+  # checklist in docs/dev/releasing.md). The front end, solprop-gui, is published from
+  # its own environment `pypi-gui` once PUBLISH_GUI is "true" too; until then
+  # `solprop[gui]` resolves only in the repository's workspace.
   publish-native:
     needs: [test, solprop-dist]
     if: vars.PUBLISH == 'true' && startsWith(github.ref, 'refs/tags/v')
@@ -355,6 +382,24 @@ jobs:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: solprop-dist
+          path: dist
+      - run: ls dist
+      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+        with:
+          packages-dir: dist
+
+  publish-gui:
+    needs: [solprop-dist, publish]
+    if: vars.PUBLISH == 'true' && vars.PUBLISH_GUI == 'true' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    environment:
+      name: pypi-gui
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: solprop-gui-dist
           path: dist
       - run: ls dist
       - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3

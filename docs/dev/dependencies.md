@@ -91,6 +91,23 @@ package index. Evaluated against glibc's `libmvec` (2 ulp, and reachable from GC
 through fast-math or hand-written vector declarations) and Intel's MKL (faster on Intel
 only, by at most 1.5 times, and a large dependency); see ADR-059.
 
+## The desktop front end (`gui` extra)
+
+`solprop-gui` is the repository's third distribution, built from `gui/` and installed
+through solprop's `gui` extra, which pins it to solprop's own version; it pins solprop
+the same way ([the front end's design](gui/design.md), D2). Its own dependencies, beside
+solprop's:
+
+| package | purpose | notes |
+|---|---|---|
+| PySide6-Essentials ≥ 6.10.1 | Qt for Python: the window, widgets and docks (LGPL-3.0, compatible with GPL-3.0-or-later) | 6.10.1 is the first release whose wheels admit CPython 3.14 (6.10.0 declares `<3.14`); Essentials holds the Qt modules the front end uses, about a third of the full PySide6 |
+| pyqtgraph ≥ 0.14 | the interactive plots (MIT) | 0.14 is the first release made after Qt 6.10 and CPython 3.14; 0.13.7 predates both and has not been tried, so the floor is lowered only with a lane that tests it |
+
+Only `solprop_gui.ui` and `solprop_gui.views` import them. Its test plugin, **pytest-qt ≥
+4.5**, is the dependency group `gui-test`, not part of `dev`: it refuses to start without a
+Qt binding, which would stop every pytest run of an environment without the front end.
+The `gui` CI job and `uv sync --extra gui --group gui-test` install both.
+
 ## Development
 
 The benchmark controller uses **psutil ≥ 7.1.0** for the CPU allocation, core
