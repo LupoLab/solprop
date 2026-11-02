@@ -1,0 +1,83 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+"""The window's clients, over real child processes."""
+
+import threading
+from pathlib import Path
+
+import targets
+from solprop_gui.service.client import KernelClient, ReplyFilter, RunClient
+from solprop_gui.service.messages import Event, Reply, Request
+from solprop_gui.service.worker import RunSpec
+
+
+def test_the_filter_drops_stale_and_superseded_replies():
+    wanted = ReplyFilter()
+    wanted.sent(Request("check", {}, 1, revision=1))
+    wanted.sent(Request("examples", {}, 2))
+    wanted.revision = 2
+    assert not wanted.accepts(Reply("check", 1, 1))  # an older revision
+    assert wanted.accepts(Reply("examples", 2, 0))  # about no recipe
+    assert not wanted.accepts(Reply("examples", 2, 0))  # answered already
+    wanted.sent(Request("x", {}, 3))
+    assert not wanted.accepts(Reply("x", 3, 0, superseded=True))
+
+
+def test_the_kernel_client_delivers_the_latest_reply():
+    replies: list[Reply] = []
+    done = threading.Event()
+
+    def on_reply(reply: Reply) -> None:
+        replies.append(reply)
+        if reply.value == 3:
+            done.set()
+
+    client = KernelClient(on_reply, target=targets.echo_kernel)
+    client.revision = 1
+    assert client.revision == 1
+    for x in (1, 2, 3):
+        client.request("echo", {"x": x}, revision=1)
+    assert done.wait(60)
+    assert client.alive
+    client.close()
+    assert [reply.value for reply in replies][-1] == 3
+    assert all(reply.value != 2 for reply in replies)  # superseded or stale
+
+
+def test_a_kernel_that_ends_is_reported_once():
+    lost = threading.Event()
+    client = KernelClient(
+        lambda _reply: None, on_lost=lost.set, target=targets.ending_kernel
+    )
+    assert lost.wait(60)
+    client.close()
+
+
+def test_a_kernel_that_will_not_end_is_terminated():
+    client = KernelClient(lambda _reply: None, target=targets.deaf_kernel)
+    client.close(timeout=0.5)
+    assert not client.alive
+
+
+def test_a_worker_that_ends_without_an_ending_is_lost(tmp_path: Path):
+    events: list[Event] = []
+    client = RunClient(
+        RunSpec("r", str(tmp_path)), events.append, target=targets.silent_worker
+    )
+    client.join(60)
+    assert [event.kind for event in events] == ["lost"]
+    assert events[0].data["exitcode"] == 0
+    assert not client.alive
+    assert not client.stop() and not client.subscribe(0)
+
+
+def test_a_killed_worker_is_lost(tmp_path: Path):
+    events: list[Event] = []
+    client = RunClient(
+        RunSpec("r", str(tmp_path)), events.append, target=targets.deaf_worker
+    )
+    client.kill()
+    client.join(60)
+    assert events[-1].kind == "lost" and events[-1].data["exitcode"] != 0

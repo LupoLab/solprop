@@ -254,7 +254,7 @@ def _listen(control: Connection, stop: threading.Event, observer: LiveObserver) 
     control : multiprocessing.connection.Connection
         The pipe from the window.
     stop : threading.Event
-        solprop's stop flag for the run.
+        The run's stop flag, solprop's.
     observer : LiveObserver
         The run's observer, whose rows a subscription replays.
     """
@@ -265,7 +265,7 @@ def _listen(control: Connection, stop: threading.Event, observer: LiveObserver) 
             return
         if request.kind == "stop":
             stop.set()
-        elif request.kind == "subscribe":
+        else:  # subscribe
             observer.replay(request.from_plane)
 
 

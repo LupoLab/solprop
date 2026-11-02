@@ -15,7 +15,7 @@ carries both back, so the window can drop a reply that a later edit made stale.
 """
 
 from dataclasses import dataclass, field
-from typing import Final, Literal
+from typing import Any, Final, Literal
 
 __all__ = [
     "PROTOCOL",
@@ -83,7 +83,7 @@ class Reply:
         The request's id.
     revision : int
         The request's revision.
-    value : object
+    value : Any
         The result, as plain data; ``None`` when the request failed.
     error : str or None
         Why it failed, in solprop's words; ``None`` when it succeeded.
@@ -102,7 +102,7 @@ class Reply:
     kind: str
     request_id: int
     revision: int
-    value: object = None
+    value: Any = None  # plain data, by contract
     error: str | None = None
     detail: str | None = None
     superseded: bool = False
@@ -141,7 +141,7 @@ class Event:
 
     run_id: str
     kind: str
-    data: dict[str, object] = field(default_factory=dict)
+    data: dict[str, Any] = field(default_factory=dict)  # plain data, by contract
 
     @property
     def terminal(self) -> bool:

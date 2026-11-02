@@ -37,6 +37,13 @@ class _Missing:
     """The value of a keyword the recipe does not set."""
 
     def __repr__(self) -> str:
+        """Return its name.
+
+        Returns
+        -------
+        str
+            ``MISSING``.
+        """
         return "MISSING"
 
 

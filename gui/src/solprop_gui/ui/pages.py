@@ -173,7 +173,7 @@ class ParameterPage(QWidget):
         Parameters
         ----------
         issues : Sequence of Mapping
-            solprop's issues: ``message``, ``parameter`` and ``severity``.
+            The issues solprop found: ``message``, ``parameter`` and ``severity``.
 
         Returns
         -------

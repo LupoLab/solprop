@@ -58,7 +58,19 @@ Confirm = Callable[[str, str], str]
 
 
 class _SetValue(QUndoCommand):
-    """Set, or unset, one value of the recipe; undone by setting the old one back."""
+    """Set, or unset, one value of the recipe; undone by setting the old one back.
+
+    Parameters
+    ----------
+    window : MainWindow
+        The window whose recipe it changes.
+    name : str
+        The keyword.
+    table : str
+        Its table.
+    values : tuple
+        The new value and the old one.
+    """
 
     def __init__(
         self,
