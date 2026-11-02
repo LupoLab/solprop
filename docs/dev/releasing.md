@@ -44,7 +44,7 @@ Every bundled library runs on the same OpenMP runtime as Kokkos, so a process ho
 thread pool for the backend. The wheel carries the licence text of every library compiled
 into it or copied in by the repair (`LICENSE-*.txt` beside the extension). One wheel, built
 on CPython 3.14 against the stable ABI (`cp314-abi3`), serves 3.14 and later; `abi3audit`
-and a load on 3.15 check it. Free-threaded CPython is not a target.
+and a load on 3.15 must pass before it is published. Free-threaded CPython is not a target.
 
 ## Building a wheel locally
 

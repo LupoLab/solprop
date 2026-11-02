@@ -352,7 +352,7 @@ jobs:
   # exist and the repository variable PUBLISH is set to "true" (the pre-flight
   # checklist in docs/dev/releasing.md).
   publish-native:
-    needs: [test, solprop-dist]
+    needs: [test, python-3-15, solprop-dist]
     if: vars.PUBLISH == 'true' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     environment:
