@@ -127,6 +127,10 @@ All notable changes to solprop are recorded here. The format follows
   tutorials and the planar compressor ship as examples; `Recipe.preview_input()` gives a
   free-space beam's power, energy and fluence at the launch plane, and `Recipe.modes()`
   the planar route's slab channels.
+- A published-install check after each PyPI release, on all four wheel platforms:
+  fresh CPython 3.14 environments resolve the native extra with pip and verify its
+  version, dependencies and default backend. The same check can be run by hand for a
+  named release, with an optional run of its tagged README example and retained logs.
 
 ### Changed
 
@@ -308,6 +312,13 @@ All notable changes to solprop are recorded here. The format follows
   run in continuous integration's macOS default lane. That lane now requires Metal,
   so losing the device fails the job rather than silently skipping the kernel tests.
   MLX coverage, runtime type checks and an explicit CPU-device pass remain absent.
+- Guide and incident-plane construction, kernel translation and coupling now limit
+  NumPy's and SciPy's controllable BLAS pools to one thread, or `SOLPROP_BLAS_THREADS`
+  within the process budget, and restore their previous limits afterwards. This
+  prevents the thousands of small graded-index eigensolves from occupying every CPU
+  before a backend starts.
+  Vendor thread defaults are overridden only during construction; the native
+  backend's own BLAS keeps its fitted width.
 
 ## [0.1.0] - 2026-10-31
 
