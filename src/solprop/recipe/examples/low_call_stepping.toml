@@ -1,0 +1,29 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# A centre-fed helium capillary under the Dormand-Prince stepper, the first of the
+# script's two integrators.
+# mirrors: docs/tutorials/capillaries/plot_10_low_call_stepping.py
+
+[recipe]
+format = 1
+route = "capillary"
+title = "A centre-fed capillary, Runge-Kutta"
+
+[build]
+radius = "256 um"
+length = "4.2 m"
+gas = "He"
+# (z, p): positions in metres, then pressures in bar; the steady flow between them.
+pressure = [[0.0, 2.1, 4.2], [0.0, 0.2, 0.0]]
+integrator = { type = "RungeKutta" }
+seed = 20261027
+wavelength = "800 nm"
+fwhm = "6 fs"
+energy = "1000 uJ"
+trange = "60 fs"
+wavelength_limits = ["90 nm", "1600 nm"]
+rtol = 1e-3
+n_save = 50
+backend = "numpy_ref"

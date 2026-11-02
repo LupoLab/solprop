@@ -1,0 +1,49 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# An 8.7 mJ, 43 fs pulse focused to a line between two plates 127 um apart, in argon at
+# 1.5 atm, through 21 cm with the Kerr effect: the clean run of the planar compressor,
+# the script's first. TE1 to TE7 in x, 1024 samples across 36 mm in y.
+# mirrors: docs/examples/waveguides/plot_06_planar_compressor.py
+
+[recipe]
+format = 1
+route = "planar"
+title = "A planar hollow-core compressor"
+
+[build]
+grid = { type = "EnvelopeGrid.from_limits", length = "0.21 m", reference_wavelength = "800 nm", wavelength_limits = ["450 nm", "1.6 um"], trange = "600 fs" }
+responses = [
+    { type = "KerrResponse", chi3 = { type = "gamma3", gas = "Ar", wavelength = "800 nm" }, thg = false },
+]
+
+[build.space]
+type = "PlanarGrid"
+modes = [
+    { type = "SlabMode", half_gap = "63.5 um", gas = "Ar", pressure = "1.519875 bar", order = 1 },
+    { type = "SlabMode", half_gap = "63.5 um", gas = "Ar", pressure = "1.519875 bar", order = 3 },
+    { type = "SlabMode", half_gap = "63.5 um", gas = "Ar", pressure = "1.519875 bar", order = 5 },
+    { type = "SlabMode", half_gap = "63.5 um", gas = "Ar", pressure = "1.519875 bar", order = 7 },
+]
+radius_y = "18 mm"
+n_y = 1024
+
+[build.initial]
+type = "PlanarPulse"
+temporal = { type = "GaussianPulse", wavelength = "800 nm", fwhm = "43 fs", energy = "8.7 mJ" }
+waist = "7.2 mm"
+waist_x = "50.2 um"
+
+[build.settings]
+type = "SimulationSettings"
+controller = { type = "PIController", rtol = 1e-6, atol = 1e-13 }
+save_planes = ["0.21 m"]
+dz_max = "5 mm"
+dz_init = "1 mm"
+
+# The default statistics of a free-space run, recorded at every step as well.
+[build.settings.stats]
+type = "StatsSpec"
+names = ["energy", "on_axis_intensity", "peak_intensity", "beam_radius", "fwhm_r", "on_axis_spectrum"]
+periodic = ["energy", "peak_intensity", "on_axis_intensity"]

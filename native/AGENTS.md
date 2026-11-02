@@ -180,7 +180,7 @@ short windows (about ten accepted steps, or a propagation that completes in seco
 and do not extrapolate them to a complete run. On a shared machine, compare builds
 only as interleaved runs in the same session. Never add native-architecture flags to
 a distributable build (build it with `SOLPROP_NATIVE_PROFILE=DISTRIBUTION`, whose
-documented CPU baseline, x86-64-v3, Neoverse N1 or Apple M1, the package checks before
+documented CPU baseline, x86-64-v3 or v2, Neoverse N1 or Apple M1, the package checks before
 it loads the extension, and whose BLAS runs on every such machine), and never tune the
 step-size controller to gain speed.
 
@@ -203,7 +203,9 @@ Read the files, tests, callers and build configuration before editing, and prese
 unrelated work. Write small commits with imperative subjects under 72 characters and
 stage explicit paths. Build directories, wheels, fetched dependency trees, profiler
 traces and local benchmark outputs are never committed. Record user-visible changes
-in the repository's `CHANGELOG.md`.
+in a repository-root `changelog.d/` fragment
+([format](../changelog.d/README.md)); the rolling release PR collects it into
+`CHANGELOG.md`.
 
 Code is `GPL-3.0-or-later` and documentation `CC-BY-4.0`. Every code file starts with
 the SPDX header that `uv run reuse annotate --copyright "John C. Travers and

@@ -1,0 +1,24 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Soliton self-compression of a 10 fs pulse in helium.
+# mirrors: docs/examples/processes/plot_02_soliton_self_compression.py
+
+[recipe]
+format = 1
+route = "capillary"
+title = "Soliton self-compression in helium"
+
+[build]
+radius = "125 um"
+length = "3 m"
+gas = "He"
+pressure = "2 bar"
+wavelength = "800 nm"
+fwhm = "10 fs"
+energy = "88 uJ"
+trange = "400 fs"
+wavelength_limits = ["130 nm", "4000 nm"]
+n_save = 301
+seed = 20261027

@@ -382,8 +382,25 @@ the native backend's, serves only small host-side products during a native run, 
 idle workers spin on the cores the native pool needs: while a native backend lives, every
 BLAS threadpoolctl finds other than the backend's own is held to one thread
 (`SOLPROP_BLAS_THREADS` sets another count), and the last backend to close gives the pools
-back. The run's metadata records what applied as `host_blas`. Otherwise a BLAS's own
-variables apply:
+back. The run's metadata records what applied as `host_blas`.
+
+Guide construction and coupling happen before a backend exists. They also hold the
+controllable host BLAS pools at one thread, or at `SOLPROP_BLAS_THREADS` within the
+process budget. The hold covers `ModalGuide.from_provider`, a standalone graded-index
+mode solve (including a node rule's tail certificate), `general_modal_route`, kernel
+assembly, `FieldPlane.from_pulse` and `couple`. The general modal route builds its
+large reference tables inside `Simulation.from_waveguide`, before kernel assembly;
+an incident launch builds its plane's radial transform before coupling.
+This overrides `OPENBLAS_NUM_THREADS` and the other vendor defaults for those calls,
+then restores the previous limits even if construction fails. A native backend's own
+BLAS keeps its fitted width. Nested or overlapping construction shares the first
+scope's hold. Construction and live backend holds share each library's ownership:
+the narrowest active request applies, and the last owner restores the original width,
+even if the calls start and finish in different orders. Separate processes, including
+scan workers, keep their own pools. Accelerate exposes no runtime
+thread control to threadpoolctl, so these scopes leave it unchanged.
+
+Outside a backend's lifetime and these construction scopes, a BLAS's own variables apply:
 
 | library | thread variable | notes |
 |---|---|---|
@@ -406,6 +423,16 @@ imports `pyfftw`, and raises an error otherwise. solprop imports `pyfftw` only w
 itself or runs `numba_cpu` before the native backend in the same process: put
 `import solprop_native` at the top of such a script. [Building the native backend](building-native.md#openmp-runtimes-and-pyfftw) explains
 how to build pyFFTW against the same FFTW when a binary wheel brings its own runtime.
+
+
+:::{warning}
+On Windows on Arm, setting `OMP_NUM_THREADS`, `OPENBLAS_NUM_THREADS` or `GOTO_NUM_THREADS`
+to a small number can crash or hang NumPy's own linear solves, with solprop not involved.
+On NumPy 2.5.2, widths 1 and 2 failed at matrix sizes 23 to 31, and width 3 at size 31.
+Leave them unset. solprop warns on import if it finds such a value. `threadpoolctl` limits
+were safe at the same sizes, so `Pool` workers on this platform use those instead of the
+variables.
+:::
 
 ## Recipes
 
@@ -463,6 +490,9 @@ SOLPROP_THREADS=1 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 \
 VECLIB_MAXIMUM_THREADS=1 OMP_WAIT_POLICY=passive OMP_PROC_BIND=false \
     python point.py
 ```
+
+On Windows on Arm, leave out `OMP_NUM_THREADS` and `OPENBLAS_NUM_THREADS`, for the reason
+under [BLAS and vendor libraries](#blas-and-vendor-libraries).
 
 On a multi-socket server, keep a multi-threaded run's threads within one socket
 (`OMP_PLACES=cores` with `OMP_PROC_BIND=close`, or `taskset`/`numactl`): crossing

@@ -6,6 +6,7 @@
 
 import importlib.util
 import sys
+import warnings
 from pathlib import Path
 
 import pytest
@@ -538,3 +539,46 @@ def test_physical_cores_ask_windows_and_trust_other_platforms(
         monkeypatch.setattr(module.sys, "platform", platform)
         monkeypatch.setattr(module, "_windows_cores", lambda cpus: 3)
         assert module.physical_cores((0, 1, 2, 3)) == expected
+
+
+@pytest.mark.parametrize(
+    ("system", "machine", "expected"),
+    [
+        ("win32", "ARM64", True),
+        ("win32", "AMD64", False),
+        ("linux", "aarch64", False),
+    ],
+)
+def test_only_windows_on_arm_sizes_blas_after_load(
+    monkeypatch, system, machine, expected
+):
+    monkeypatch.setattr(_process.sys, "platform", system)
+    monkeypatch.setattr(_process.platform, "machine", lambda: machine)
+    assert _process.sizes_blas_after_load() is expected
+
+
+@pytest.mark.parametrize(
+    ("value", "warned"),
+    [("1", True), ("2", True), ("3", True), ("4", False), ("0", False), ("x", False)],
+)
+def test_a_small_load_time_blas_width_warns_on_windows_on_arm(
+    monkeypatch, value, warned
+):
+    monkeypatch.setattr(_process, "sizes_blas_after_load", lambda: True)
+    monkeypatch.delenv("GOTO_NUM_THREADS", raising=False)
+    monkeypatch.delenv("OPENBLAS_NUM_THREADS", raising=False)
+    monkeypatch.setenv("OMP_NUM_THREADS", value)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        _process._warn_of_load_time_blas_width()
+    assert bool(caught) is warned
+    if warned:
+        assert f"OMP_NUM_THREADS={value}" in str(caught[0].message)
+
+
+def test_a_small_load_time_blas_width_is_fine_elsewhere(monkeypatch):
+    monkeypatch.setattr(_process, "sizes_blas_after_load", lambda: False)
+    monkeypatch.setenv("OMP_NUM_THREADS", "1")
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        _process._warn_of_load_time_blas_width()
