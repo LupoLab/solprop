@@ -14,7 +14,7 @@ interpolated at its centre. The reduction is for display only, and says so: expo
 """
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 
@@ -46,6 +46,31 @@ class Display:
     n_wavelength: int = 512
     time_range: tuple[float, float] | None = None
     n_time: int = 512
+
+    def within(self, keywords: Mapping[str, object]) -> Display:
+        """Return the display with the run's wavelength window where it has none.
+
+        Parameters
+        ----------
+        keywords : Mapping
+            The run's build keywords, in SI; ``wavelength_limits`` is read.
+
+        Returns
+        -------
+        Display
+            This display, its wavelength range taken from the keywords when it has
+            none and they give a pair.
+
+        Examples
+        --------
+        >>> Display().within({"wavelength_limits": (2e-7, 2e-6)}).wavelength_range
+        (2e-07, 2e-06)
+        """
+        limits = keywords.get("wavelength_limits")
+        if self.wavelength_range is not None or not isinstance(limits, tuple | list):
+            return self
+        low, high = (float(limit) for limit in limits)  # pyright: ignore[reportArgumentType]
+        return replace(self, wavelength_range=(min(low, high), max(low, high)))
 
 
 def bin_max(x: np.ndarray, y: np.ndarray, edges: np.ndarray) -> np.ndarray:

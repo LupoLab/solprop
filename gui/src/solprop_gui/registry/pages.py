@@ -1,0 +1,156 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+"""The setup pages, and the presentation the front end adds to solprop's metadata.
+
+solprop's parameter metadata says each keyword's group, level, unit, display unit,
+range, summary and manual anchor (SEP 41, S9). The front end adds only what is
+presentation (design 12.1): which page a group is shown on, and a label where the
+keyword's own name does not read well. A test holds every label to a real keyword.
+"""
+
+from dataclasses import dataclass
+from typing import Final
+
+__all__ = ["LABELS", "PAGES", "Page", "label", "page_of"]
+
+
+@dataclass(frozen=True)
+class Page:
+    """One step of the setup.
+
+    Attributes
+    ----------
+    key : str
+        Its identity.
+    title : str
+        Its title in the step bar.
+    groups : tuple of str
+        The metadata groups it shows.
+    help : str
+        What the page sets, in a sentence or two.
+    """
+
+    key: str
+    title: str
+    groups: tuple[str, ...]
+    help: str
+
+
+PAGES: Final = (
+    Page(
+        "geometry",
+        "Geometry",
+        ("geometry",),
+        "The waveguide: its kind, its size and its length, and the modes it carries.",
+    ),
+    Page(
+        "medium",
+        "Medium",
+        ("medium",),
+        "What fills the guide: the gas or mixture, its pressure and temperature, and "
+        "the guide's loss and cladding.",
+    ),
+    Page(
+        "nonlinear",
+        "Nonlinearity",
+        ("nonlinear",),
+        "The responses the run includes: the Kerr effect, photoionisation and the "
+        "plasma, and the molecular Raman response.",
+    ),
+    Page(
+        "input",
+        "Input and grid",
+        ("input", "grid"),
+        "The input pulse, its noise, and the time-frequency grid the run is held on.",
+    ),
+    Page(
+        "propagate",
+        "Propagate",
+        ("output", "numerics"),
+        "What the run saves, how it steps, and the run itself.",
+    ),
+    Page(
+        "results",
+        "Results",
+        (),
+        "The run's results: the spectrum and the power along the guide, and a "
+        "comparison of runs.",
+    ),
+)
+"""The steps, in order."""
+
+LABELS: Final = {
+    "radius": "Core radius",
+    "length": "Length",
+    "gas": "Gas",
+    "pressure": "Pressure",
+    "temperature": "Temperature",
+    "mode_average": "Mode-averaged",
+    "modes": "Modes",
+    "wavelength": "Central wavelength",
+    "wavelength_limits": "Wavelength window",
+    "trange": "Time window",
+    "fwhm": "Duration (FWHM)",
+    "energy": "Energy",
+    "peak_power": "Peak power",
+    "shape": "Shape",
+    "kerr": "Kerr effect",
+    "plasma": "Photoionisation and plasma",
+    "raman": "Raman response",
+    "loss": "Loss",
+    "n_save": "Saved planes",
+    "save_planes": "Save positions",
+    "rtol": "Relative tolerance",
+    "seed": "Noise seed",
+}
+"""Labels for keywords whose names do not read well on their own."""
+
+
+def label(name: str) -> str:
+    """Return a keyword's label.
+
+    Parameters
+    ----------
+    name : str
+        The keyword.
+
+    Returns
+    -------
+    str
+        Its label from :data:`LABELS`, or its name made readable.
+
+    Examples
+    --------
+    >>> label("fwhm"), label("dz_max")
+    ('Duration (FWHM)', 'Dz max')
+    """
+    if name in LABELS:
+        return LABELS[name]
+    text = name.replace("_", " ")
+    return text[:1].upper() + text[1:]
+
+
+def page_of(group: str) -> Page | None:
+    """Return the page a metadata group is shown on.
+
+    Parameters
+    ----------
+    group : str
+        The group.
+
+    Returns
+    -------
+    Page or None
+        The page, or ``None`` for a group no page shows.
+
+    Examples
+    --------
+    >>> page_of("grid").key
+    'input'
+    """
+    for page in PAGES:
+        if group in page.groups:
+            return page
+    return None

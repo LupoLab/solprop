@@ -11,6 +11,7 @@ arrays. None computes physics of its own; where solprop offers no call for a num
 the number is not shown.
 """
 
+import contextlib
 import math
 from collections.abc import Callable, Mapping
 from pathlib import Path
@@ -521,9 +522,13 @@ def overview(payload: Payload) -> dict[str, object]:
         wavelength_range=_pair(payload.get("wavelength_range")),
         time_range=_pair(payload.get("time_range")),
     )
+    caps = capabilities.output(path)
+    if caps.recipe:
+        with contextlib.suppress(SolpropError):  # else the file's own band
+            display = display.within(Recipe.from_output(path).keywords())
     reducer = Reducer(display)
     rows: list[dict[str, object]] = []
-    planes = capabilities.output(path).field_planes
+    planes = caps.field_planes
     with open_file(path) as handler:
         z = np.asarray(handler["z"])
         for index in planes:

@@ -31,7 +31,7 @@ from solprop.recipe import Recipe, resume_file
 
 from solprop_gui.service.messages import Control, Event
 from solprop_gui.service.outbox import Outbox
-from solprop_gui.service.reduce import Reducer, stats_row
+from solprop_gui.service.reduce import Display, Reducer, stats_row
 from solprop_gui.service.worker import LOG, OUTPUT, RECIPE, RunSpec
 
 __all__ = ["PROGRESS_PERIOD", "EventHandler", "LiveObserver", "execute"]
@@ -300,6 +300,33 @@ def _ending(output: Path, stopped: bool) -> tuple[str, dict[str, object]]:
     return "failed", data
 
 
+def _display(spec: RunSpec, output: Path) -> Display:
+    """Return the display bins of a run: the spec's, in the recipe's window.
+
+    Parameters
+    ----------
+    spec : solprop_gui.service.worker.RunSpec
+        The run.
+    output : pathlib.Path
+        Its results file, whose recipe a continued run reads.
+
+    Returns
+    -------
+    solprop_gui.service.reduce.Display
+        The display; the spec's own where the recipe gives no wavelength window or
+        cannot be read.
+    """
+    try:
+        if spec.recipe is not None:
+            base = Path(spec.base) if spec.base else None
+            recipe = Recipe.loads(spec.recipe, base=base)
+        else:
+            recipe = Recipe.from_output(output, resolved=True)
+        return spec.display.within(recipe.keywords())
+    except Exception:
+        return spec.display
+
+
 def execute(spec: RunSpec, events: Connection, control: Connection) -> None:
     """Run, or continue, one run and stream its events until its terminal one.
 
@@ -317,7 +344,7 @@ def execute(spec: RunSpec, events: Connection, control: Connection) -> None:
     output = folder / OUTPUT
     outbox = Outbox()
     stop = threading.Event()
-    observer = LiveObserver(spec.run_id, Reducer(spec.display), outbox)
+    observer = LiveObserver(spec.run_id, Reducer(_display(spec, output)), outbox)
     sender = threading.Thread(target=_send, args=(outbox, events), daemon=True)
     sender.start()
     threading.Thread(
