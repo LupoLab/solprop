@@ -50,6 +50,10 @@ version. It is a precompiled wheel on five platforms:
 With it installed, `backend="auto"` uses the native backend
 ([The native backend](../guide/performance/native.md) describes what it runs).
 
+On Windows on Arm, leave `OMP_NUM_THREADS`, `OPENBLAS_NUM_THREADS` and `GOTO_NUM_THREADS`
+unset: small values can crash or hang NumPy's own linear solves
+([BLAS and vendor libraries](../guide/performance/tuning.md#blas-and-vendor-libraries)).
+
 **Processor requirements.** The wheels are compiled for a minimum processor:
 
 | platform | minimum processor |
