@@ -480,7 +480,6 @@ simulation = Simulation.from_gnlse(
     width=100e-15,
     peak_power=9.8,
     shape="sech",
-    backend="numpy_ref",
     step_planes=1,
     dz_init=1e-4,
     dz_max=1e-4,

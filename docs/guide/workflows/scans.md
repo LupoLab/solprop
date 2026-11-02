@@ -50,11 +50,9 @@ Five executors, all in `solprop.driver.executors`, run the points:
 | `Queue(path)` | a durable queue on a shared filesystem, drained by one or more controllers |
 | `Slurm(script, ...)` | prepares a queue and submits a Slurm array job that drains it |
 
-A builder's omitted `backend` resolves to the native backend when it is installed and otherwise,
-with a warning, to the far slower `numpy_ref`, as described in
-[running a simulation](../performance/resources.md#backend-choice-and-scan-workers); every
-executor keeps that concrete choice, so name the backend in the builder when the workers
-may run on machines with different installations.
+A builder's omitted `backend` resolves to the native backend, as described in
+[running a simulation](../performance/resources.md#backend-choice-and-scan-workers), and
+every executor keeps that concrete choice.
 
 ## Reuse a translated simulation
 
@@ -160,7 +158,7 @@ from solprop.driver.executors import Batch
 from solprop.driver.scan import run_scan
 
 # The builder must return fibre simulations with an explicit fixed schedule.
-# It selects numpy_ref or native as usual.
+# It selects its backend as usual.
 result = run_scan(
     scan,
     build_fixed_point,

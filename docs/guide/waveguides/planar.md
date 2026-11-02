@@ -283,7 +283,6 @@ settings = SimulationSettings(
     save_planes=[0.1],
     dz_max=0.02,
     dz_init=0.02,
-    backend="numpy_ref",
 )
 simulation = Simulation.from_planar(grid, space, [], launch, settings=settings)
 print(simulation.translate().transform.geometry.kind, space.n_columns)

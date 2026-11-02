@@ -90,7 +90,6 @@ output = prop_waveguide(
     fwhm=40e-15,
     energy=4e-11,
     n_save=2,
-    backend="numpy_ref",
 )
 ```
 
@@ -467,7 +466,7 @@ delayed silica tensor Raman model beside it — over the reference's own three c
 Everything else is refused by name, at the entry point, again at the translation layer
 and again in the backend. Every backend admits through one list, the reference's, run
 under its own name, and nothing falls back: a leaf without a kernel is refused by its
-dotted name, and `backend="auto"`, which selects `native` where it is installed, runs a
+dotted name, and `backend="auto"`, which selects `native`, runs a
 general guide and a coupled flow there. `native` agrees with `numpy_ref` to a derived
 rounding bound. See [backends](../performance/backends.md) and [the native backend](../performance/native.md).
 

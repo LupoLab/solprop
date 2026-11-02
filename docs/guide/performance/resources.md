@@ -7,11 +7,9 @@ output cost. Choose an adequate model and resolution first, then select a
 
 ## Backend choice and scan workers
 
-`backend="auto"` resolves to the native backend when installed and otherwise, with a
-warning, to `numpy_ref`, which is unthreaded and roughly 6 to 40 times slower than threaded
-native. It does
-not silently retry another backend if the chosen one refuses a representation.
-Use an explicit name for a scan spanning machines with different installations.
+`backend="auto"` resolves to the native backend, and refuses if it is missing or the
+processor is below its minimum ([choosing a backend](backends.md#which-backend-a-run-uses)).
+It does not silently retry another backend if the chosen one refuses a representation.
 The resolved backend and runtime settings are recorded with the output.
 
 Thread and runtime settings must be in place before the relevant libraries load.
