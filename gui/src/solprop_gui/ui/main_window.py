@@ -708,8 +708,11 @@ class MainWindow(QMainWindow):
         key : str
             The card's key.
         """
-        if self._may_discard():
-            self.set_model(RecipeModel(card(key).blank("New setup")), base=None)
+        entry = card(key)
+        if entry.example is not None:
+            self.open_example(entry.example)
+        elif self._may_discard():
+            self.set_model(RecipeModel(entry.blank("New setup")), base=None)
 
     def open_example(self, name: str) -> None:
         """Start a setup from one of solprop's examples.
@@ -812,7 +815,7 @@ class MainWindow(QMainWindow):
             description = self.descriptions[route]
             for page in self.pages.values():
                 page.clear()
-                page.build(description["parameters"])  # pyright: ignore[reportArgumentType]
+                page.build(description["parameters"], catalog=description.get("types"))  # pyright: ignore[reportArgumentType]
                 page.build(description["execution"], table="execution")  # pyright: ignore[reportArgumentType]
             self._built_route = route
         self.show_values()
@@ -982,8 +985,9 @@ class MainWindow(QMainWindow):
         else:
             energy = float(summary["energy"]) * 1e6  # pyright: ignore[reportArgumentType]
             peak = float(summary["peak_power"]) / 1e9  # pyright: ignore[reportArgumentType]
-            lines.append(f"Energy {energy:.4g} µJ")
-            lines.append(f"Peak power {peak:.4g} GW")
+            per = "/m" if summary.get("per_width") else ""
+            lines.append(f"Energy {energy:.4g} µJ{per}")
+            lines.append(f"Peak power {peak:.4g} GW{per}")
             design = summary.get("design") or {}
             if isinstance(design, dict) and design:
                 lines += design_lines(design)
@@ -993,6 +997,7 @@ class MainWindow(QMainWindow):
             for page in self.pages.values():
                 page.show_resolved(resolved)  # pyright: ignore[reportArgumentType]
                 page.show_pinned(pinned)  # pyright: ignore[reportArgumentType]
+                page.show_per_width(bool(summary.get("per_width")))
         self.summary.setText("<br>".join(lines))
 
     def _go_to_issue(self, item: QListWidgetItem) -> None:

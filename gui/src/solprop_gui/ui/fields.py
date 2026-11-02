@@ -10,7 +10,10 @@ Each form the keyword takes that a widget can hold gets one:
 - a boolean or a choice is a list with solprop's default selected and marked;
 - a number is a number box, with the units of its dimension for a quantity;
 - a pair of quantities is two number boxes sharing one unit;
-- anything else (a table, a profile, an array) is a line of inline TOML.
+- a registered type (a lattice, a grid, a mode, a pulse) is that type's own rows,
+  under a picker of the types the keyword allows, and a list of them a column of such
+  editors;
+- anything else (a mapping, an array) is a line of inline TOML.
 
 Where a keyword takes several forms (a constant pressure or a gradient), a small
 picker chooses the form. The launch is a table of modes; a keyword solprop can pin to
@@ -40,10 +43,11 @@ from solprop_gui.model.recipe import MISSING
 from solprop_gui.model.values import FieldError, inline, read_value
 from solprop_gui.registry.pages import label
 from solprop_gui.ui.launch import LaunchField, launch_rows
+from solprop_gui.ui.objects import Catalog, ObjectField, ObjectListField
 from solprop_gui.ui.pin import PinField
 from solprop_gui.ui.quantity import QuantityField, RangeField
 
-__all__ = ["TABLE_KEYWORDS", "ParameterRow", "modes_of"]
+__all__ = ["OBJECT_LISTS", "TABLE_KEYWORDS", "ParameterRow", "modes_of"]
 
 _SEVERITY_STYLE = {
     "error": "color: #c62828;",
@@ -55,6 +59,8 @@ _MODE_TITLES = {
     "number": "value",
     "range": "from … to",
     "table": "table",
+    "object": "type",
+    "objects": "list",
     "text": "as text",
     "pin": "pinned",
 }
@@ -62,43 +68,63 @@ _MODE_TITLES = {
 TABLE_KEYWORDS = frozenset({"launch"})
 """Keywords edited as a table of modes (:class:`~solprop_gui.ui.launch.LaunchField`)."""
 
+OBJECT_LISTS = frozenset({"pulses", "modes", "responses"})
+"""Keywords whose registered types come as a list (or one table), not one table."""
 
-def modes_of(forms: Sequence[Mapping[str, object]]) -> list[str]:
+
+def modes_of(
+    forms: Sequence[Mapping[str, object]],
+    catalog: Catalog | None = None,
+    name: str = "",
+) -> list[str]:
     """Return the editors a keyword's forms call for, in order of preference.
 
     Parameters
     ----------
     forms : Sequence of Mapping
-        The keyword's forms: ``kind`` and ``unit``.
+        The keyword's forms: ``kind``, ``unit`` and ``types``.
+    catalog : Catalog or None, optional
+        The registered types the kernel described; an object form of none of them is
+        edited as text.
+    name : str, optional
+        The keyword, for whether its objects come as a list (:data:`OBJECT_LISTS`).
 
     Returns
     -------
     list of str
-        Of ``"choice"``, ``"number"``, ``"range"`` and ``"text"``; ``"text"`` is
-        there whenever a form needs it.
+        Of ``"choice"``, ``"number"``, ``"range"``, ``"object"``, ``"objects"`` and
+        ``"text"``.
 
     Examples
     --------
     >>> modes_of([{"kind": "number", "unit": "bar"}, {"kind": "pair", "unit": "bar"},
-    ...           {"kind": "object"}])
+    ...           {"kind": "object", "types": ["Linear"]}])
     ['number', 'range', 'text']
+    >>> modes_of([{"kind": "object", "types": ["Linear"]}], {"Linear": []})
+    ['object']
+    >>> modes_of([{"kind": "object", "types": ["SechPulse"]}], {"SechPulse": []},
+    ...          "pulses")
+    ['objects']
     >>> modes_of([{"kind": "boolean"}])
     ['choice']
     """
     modes: list[str] = []
     for form in forms:
         kind = form.get("kind")
+        types = form.get("types") or []
         if kind in ("boolean", "choice"):
             mode = "choice"
         elif kind in ("number", "integer"):
             mode = "number"
         elif kind == "pair" and form.get("unit") not in (None, "1"):
             mode = "range"
+        elif kind == "object" and catalog and any(t in catalog for t in types):  # pyright: ignore[reportGeneralTypeIssues]
+            mode = "objects" if name in OBJECT_LISTS else "object"
         else:
             mode = "text"
         if mode not in modes:
             modes.append(mode)
-    order = ("choice", "number", "range", "text")
+    order = ("choice", "number", "range", "object", "objects", "text")
     return sorted(modes, key=order.index)
 
 
@@ -110,9 +136,12 @@ class ParameterRow(QWidget):
     meta : Mapping
         The keyword's metadata, as the kernel's ``describe`` gives it.
     table : str, optional
-        The recipe table it belongs to: ``"build"`` or ``"execution"``.
+        The recipe table it belongs to: ``"build"`` or ``"execution"`` (``"object"``
+        for a keyword of a registered type's table).
     parent : PySide6.QtWidgets.QWidget or None, optional
         The owner.
+    catalog : Catalog or None, optional
+        The registered types the kernel described, for an object form's editor.
 
     Attributes
     ----------
@@ -128,10 +157,13 @@ class ParameterRow(QWidget):
         meta: Mapping[str, object],
         table: str = "build",
         parent: QWidget | None = None,
+        *,
+        catalog: Catalog | None = None,
     ) -> None:
         """Make the row's widgets from the metadata."""
         super().__init__(parent)
         self.meta = meta
+        self.catalog = catalog or {}
         self.name = str(meta["name"])
         self.table = table
         self.forms: list[Mapping[str, object]] = [
@@ -153,7 +185,7 @@ class ParameterRow(QWidget):
         self.issue.setWordWrap(True)
         self.issue.hide()
 
-        self.modes = modes_of(self.forms)
+        self.modes = modes_of(self.forms, self.catalog, self.name)
         self.stack = QStackedWidget()
         self.editors: dict[str, QWidget] = {}
         self.choices: list[object] = []
@@ -183,6 +215,25 @@ class ParameterRow(QWidget):
             self.range.changed.connect(self._emit)
             self.range.refused.connect(lambda reason: self.set_issue(reason, "error"))
             self.editors["range"] = self.range
+        if "object" in self.modes or "objects" in self.modes:
+            types = [
+                str(t)
+                for form in self.forms
+                if form.get("kind") == "object"
+                for t in form.get("types", [])  # pyright: ignore[reportGeneralTypeIssues]
+            ]
+
+            def make_row(child: Mapping[str, object]) -> QWidget:
+                return ParameterRow(child, "object", catalog=self.catalog)
+
+            if "object" in self.modes:
+                self.object = ObjectField(types, self.catalog, make_row)
+                self.object.changed.connect(self._emit)
+                self.editors["object"] = self.object
+            else:
+                self.objects = ObjectListField(types, self.catalog, make_row)
+                self.objects.changed.connect(self._emit)
+                self.editors["objects"] = self.objects
         if "text" in self.modes or not self.modes:
             if "text" not in self.modes:
                 self.modes.append("text")
@@ -344,7 +395,7 @@ class ParameterRow(QWidget):
 
     # ------------------------------------------------------------------ modes
 
-    def _fits(self, mode: str, value: object) -> bool:
+    def _fits(self, mode: str, value: object) -> bool:  # noqa: PLR0911 - one per editor
         """Return whether an editor can show a value.
 
         Parameters
@@ -365,6 +416,10 @@ class ParameterRow(QWidget):
             return False
         if mode == "table":
             return launch_rows(value) is not None
+        if mode == "object":
+            return self.object.fits(value)
+        if mode == "objects":
+            return self.objects.fits(value)
         if mode == "number":
             return isinstance(value, int | float | str) and not isinstance(value, bool)
         if mode == "range":
@@ -566,6 +621,10 @@ class ParameterRow(QWidget):
                 self.range.set_value(shown, fallback)
             elif mode == "table":
                 self.launch.set_value(None if unset else value)
+            elif mode == "object":
+                self.object.set_value(None if unset else value)
+            elif mode == "objects":
+                self.objects.set_value(None if unset else value)
             elif mode == "pin":
                 pass  # the pin shows its own entry (set_pin)
             else:
@@ -625,6 +684,17 @@ class ParameterRow(QWidget):
             self._fill_choices()
         mode = self.modes[self.mode.currentIndex()]
         self._show(self._value, mode)
+
+    def set_per_width(self, per_width: bool) -> None:
+        """Say in the label whether the value is per metre of y.
+
+        Parameters
+        ----------
+        per_width : bool
+            Whether it is, on a slab mode set.
+        """
+        title = label(self.name)
+        self.label.setText(f"{title} (per metre of y)" if per_width else title)
 
     def set_issue(self, message: str | None, severity: str = "error") -> None:
         """Show, or clear, the issue solprop or the field found.

@@ -25,8 +25,12 @@ from solprop_gui.model.recipe import MISSING, RecipeModel
 from solprop_gui.registry.pages import GROUP_TITLES, Page
 from solprop_gui.registry.routes import CARDS
 from solprop_gui.ui.fields import ParameterRow
+from solprop_gui.ui.objects import Catalog
 
-__all__ = ["ParameterPage", "Section", "StartPage", "issue_keyword"]
+__all__ = ["PER_WIDTH", "ParameterPage", "Section", "StartPage", "issue_keyword"]
+
+PER_WIDTH = ("energy", "peak_power")
+"""The keywords per metre of y on a slab set (solprop's ``PER_WIDTH_KEYWORDS``)."""
 
 
 def issue_keyword(parameter: object) -> list[str]:
@@ -200,6 +204,7 @@ class ParameterPage(QWidget):
         self,
         parameters: Iterable[Mapping[str, object]],
         table: str = "build",
+        catalog: Catalog | None = None,
     ) -> None:
         """Add a row for each keyword of the page's groups.
 
@@ -209,13 +214,15 @@ class ParameterPage(QWidget):
             The route's keyword metadata, in its order.
         table : str, optional
             The recipe table they belong to.
+        catalog : Catalog or None, optional
+            The registered types the keywords can name, for their own editors.
         """
         for meta in parameters:
             if meta.get("group") not in self.page.groups:
                 continue
             if not any(form.get("recipe", True) for form in meta.get("forms", [])):  # pyright: ignore[reportGeneralTypeIssues, reportAttributeAccessIssue]
                 continue
-            row = ParameterRow(meta, table)
+            row = ParameterRow(meta, table, catalog=catalog)
             row.edited.connect(self.edited)
             if row.pin_targets:
                 row.pin.roots_wanted.connect(
@@ -268,6 +275,18 @@ class ParameterPage(QWidget):
                 row.set_value(value)
             # An advanced keyword the recipe sets is shown: nothing set is hidden.
             row.setVisible(advanced or row.level == "basic" or row.is_set)
+
+    def show_per_width(self, per_width: bool) -> None:
+        """Say on the energy and the peak power whether they are per metre of y.
+
+        Parameters
+        ----------
+        per_width : bool
+            Whether the setup is a slab mode set, uniform in y.
+        """
+        for (name, _), row in self.rows.items():
+            if name in PER_WIDTH:
+                row.set_per_width(per_width)
 
     def show_pinned(self, pinned: Mapping[str, object]) -> None:
         """Show the values solprop solved the pins to.

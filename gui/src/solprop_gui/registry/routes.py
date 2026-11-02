@@ -47,6 +47,12 @@ class RouteCard:
         make a recipe the card's.
     reason : str or None
         Why it cannot be chosen yet; ``None`` when it can.
+    example : str or None
+        The solprop example a new setup from the card starts from
+        (``Recipe.example``), in place of a blank recipe of the preset.
+    marker : tuple of str
+        Keywords whose presence makes a recipe the card's, beside its preset (an
+        antiresonant fibre is a capillary with a ``lattice``).
 
     Examples
     --------
@@ -61,6 +67,8 @@ class RouteCard:
     preset: dict[str, object] = field(default_factory=dict)
     extra: dict[str, object] = field(default_factory=dict)
     reason: str | None = None
+    example: str | None = None
+    marker: tuple[str, ...] = ()
 
     @property
     def enabled(self) -> bool:
@@ -143,11 +151,28 @@ CARDS: Final = (
         {"modes": 4},
     ),
     RouteCard(
+        "antiresonant",
+        "Antiresonant fibre",
+        "A hollow core bounded by a ring of thin-walled tubes, gas-filled: the "
+        "capillary's modes with the lattice's loss and dispersion.",
+        "capillary",
+        example="antiresonant_fibre",
+        marker=("lattice",),
+    ),
+    RouteCard(
+        "waveguide",
+        "Hollow waveguide, supplied modes",
+        "A gas-filled guide given by its modes: a rectangular channel, a planar guide "
+        "per unit width (slab modes), or capillary modes of your choosing.",
+        "waveguide",
+        example="hollow_rectangular",
+    ),
+    RouteCard(
         "gnlse",
         "Fibre (GNLSE)",
         "A single-mode fibre given by its dispersion and nonlinear coefficient.",
         "gnlse",
-        reason=_LATER.format("M3"),
+        example="soliton",
     ),
     RouteCard(
         "free",
@@ -161,7 +186,7 @@ CARDS: Final = (
         "Planar waveguide",
         "A slab waveguide, its modes across and free space along.",
         "planar",
-        reason=_LATER.format("M3"),
+        reason=_LATER.format("M5"),
     ),
 )
 """The cards, in the order the page shows them."""
@@ -204,7 +229,8 @@ def card_of(route: str, build: dict[str, object]) -> RouteCard | None:
     Returns
     -------
     RouteCard or None
-        The first enabled card of that route whose preset values the recipe holds.
+        The enabled card of that route whose preset values and marker keywords the
+        recipe holds, the cards with markers tried first.
 
     Examples
     --------
@@ -212,14 +238,17 @@ def card_of(route: str, build: dict[str, object]) -> RouteCard | None:
     'capillary-averaged'
     >>> card_of("capillary", {"modes": 2}).key
     'capillary-modal'
+    >>> card_of("capillary", {"lattice": {"type": "TubeLattice"}}).key
+    'antiresonant'
     >>> card_of("planar", {}) is None
     True
     """
-    for entry in CARDS:
+    for entry in sorted(CARDS, key=lambda c: -len(c.marker)):
         if (
             entry.enabled
             and entry.route == route
             and all(build.get(k, IMPLIED.get(k)) == v for k, v in entry.preset.items())
+            and all(k in build for k in entry.marker)
         ):
             return entry
     return None

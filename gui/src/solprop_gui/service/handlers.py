@@ -22,8 +22,9 @@ from solprop.exceptions import SolpropError
 from solprop.output import Output, open_file, resumability
 from solprop.processing.fields import get_power, get_spectral_density
 from solprop.recipe import Parameter, Recipe, parameters
-from solprop.recipe.metadata import REQUIRED
+from solprop.recipe.metadata import REQUIRED, per_unit_width
 from solprop.recipe.quantity import Unit, format_quantity
+from solprop.recipe.registry import REGISTRY
 from solprop.tools import capillary_params, lambda_rdw_all
 
 from solprop_gui.service.design import DESIGN_HANDLERS, pin_targets
@@ -196,8 +197,10 @@ def describe(payload: Payload) -> dict[str, object]:
     -------
     dict
         ``parameters`` (the route's keywords in order), ``execution`` (the
-        ``[execution]`` table's), ``choices`` and ``rules``; each keyword carries
-        ``pins``, the design targets it can be pinned to (empty for most).
+        ``[execution]`` table's), ``choices``, ``rules`` and ``types``, the keywords
+        of every registered type the route's keywords can name, nested ones included
+        (:func:`_type_catalog`); each keyword carries ``pins``, the design targets it
+        can be pinned to (empty for most).
     """
     route = str(payload["route"])
     caps = capabilities.route(route)
@@ -207,6 +210,7 @@ def describe(payload: Payload) -> dict[str, object]:
         keyword["pins"] = targets.get(str(keyword["name"]), [])
     return {
         "route": route,
+        "types": _type_catalog(keywords),
         "parameters": keywords,
         "execution": [_parameter(entry) for entry in parameters("execution").values()],
         "choices": {name: list(values) for name, values in caps.choices.items()},
@@ -215,6 +219,38 @@ def describe(payload: Payload) -> dict[str, object]:
             for rule in caps.rules
         ],
     }
+
+
+def _type_catalog(
+    keywords: list[dict[str, object]],
+) -> dict[str, list[dict[str, object]]]:
+    """Return the keywords of every registered type a set of keywords can name.
+
+    Parameters
+    ----------
+    keywords : list of dict
+        Keywords as :func:`_parameter` describes them.
+
+    Returns
+    -------
+    dict
+        By type, its keywords described alike, for every type a recipe can write
+        that the keywords or those types' own keywords name.
+    """
+    catalog: dict[str, list[dict[str, object]]] = {}
+    waiting = [keywords]
+    while waiting:
+        for keyword in waiting.pop():
+            for form in keyword["forms"]:  # pyright: ignore[reportGeneralTypeIssues]
+                if form["kind"] != "object" or not form["recipe"]:
+                    continue
+                for name in form["types"]:
+                    if name in catalog or name not in REGISTRY:
+                        continue
+                    entries = [_parameter(e) for e in parameters(name).values()]
+                    catalog[name] = entries
+                    waiting.append(entries)
+    return catalog
 
 
 def check(payload: Payload) -> list[dict[str, object]]:
@@ -275,8 +311,9 @@ def summarise(payload: Payload) -> dict[str, object]:
     dict
         ``energy`` and ``peak_power`` (J, W), ``resolved`` (by keyword: the value
         and the rule's sentence), ``design`` (by name, SI; empty when not
-        available) with ``design_error`` saying why it is not, and ``pinned`` (by
-        pinned path, the solved value in its keyword's unit).
+        available) with ``design_error`` saying why it is not, ``pinned`` (by
+        pinned path, the solved value in its keyword's unit), and ``per_width``,
+        whether the energy and peak power are per metre of y (a slab mode set).
     """
     authored = _recipe(payload)
     recipe = authored.resolve()
@@ -304,6 +341,7 @@ def summarise(payload: Payload) -> dict[str, object]:
         "design": design,
         "design_error": design_error,
         "pinned": pinned,
+        "per_width": per_unit_width(recipe.route, build),
     }
 
 

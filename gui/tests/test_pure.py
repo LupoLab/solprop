@@ -205,12 +205,20 @@ def test_the_cards_are_presentation_over_routes():
     modal = card("capillary-modal")
     assert modal.enabled and "mode_average" not in modal.blank()
     assert "modes = 4" in modal.blank()
-    assert all(not entry.enabled for entry in CARDS if entry not in (averaged, modal))
+    enabled = {entry.key for entry in CARDS if entry.enabled}
+    assert enabled == {
+        "capillary-averaged",
+        "capillary-modal",
+        "antiresonant",
+        "waveguide",
+        "gnlse",
+    }
     with pytest.raises(KeyError):
         card("nope")
     assert card_of("capillary", {"mode_average": True}) is averaged
     assert card_of("capillary", {}) is modal  # solprop's default: multimode
-    assert card_of("gnlse", {}) is None
+    assert card_of("gnlse", {}) is card("gnlse")
+    assert card_of("free", {}) is None
 
 
 def test_a_cards_preset_values_are_written_as_toml():

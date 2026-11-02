@@ -17,7 +17,7 @@ from solprop.recipe.pins import TARGETS
 
 from conftest import TINY
 from solprop_gui.registry.explore import PIN_KEYS, PIN_SEARCH
-from solprop_gui.registry.routes import EXPLORER_SETUP, IMPLIED
+from solprop_gui.registry.routes import CARDS, EXPLORER_SETUP, IMPLIED, card_of
 from solprop_gui.service import handlers
 from solprop_gui.service.worker import RunSpec
 from test_service import Collector
@@ -232,3 +232,44 @@ def test_a_figure_is_drawn_from_a_views_description(tmp_path: Path):
     bare = {"curves": [{"x": x, "y": x, "label": "", **pen}]}
     other = ask("figure", {"path": str(tmp_path / "f.tif"), "spec": bare})
     assert other.endswith("f.png")  # another kind is written as PNG
+
+
+def test_each_card_s_example_is_solprop_s_and_the_card_s():
+    for entry in CARDS:
+        if entry.example is None:
+            continue
+        recipe = Recipe.example(entry.example)
+        assert recipe.route == entry.route
+        assert card_of(recipe.route, recipe.to_dict()["build"]) is entry, entry.key
+
+
+def test_a_route_s_description_carries_the_types_its_keywords_name():
+    described = ask("describe", {"route": "waveguide"})
+    types = described["types"]
+    assert {"RectMode", "SlabMode", "GaussianPulse", "Constant"} <= set(types)
+    rect = {entry["name"]: entry for entry in types["RectMode"]}
+    assert rect["half_width_x"]["display"] == "um" and rect["half_width_x"]["required"]
+    # Nested: a mode's radius path names the profiles, described too.
+    assert "PiecewiseLinear" in ask("describe", {"route": "capillary"})["types"]
+
+
+_RECT = '{ type = "RectMode", half_width_x = "125 um", half_width_y = "50 um" }'
+_SLAB_MODES = '{ type = "ModeCollection.slab", half_gap = "63.5 um", orders = [1, 3] }'
+SLAB = (
+    Recipe.example("hollow_rectangular")
+    .to_text()
+    .replace(f"modes = [{_RECT}]", f"modes = {_SLAB_MODES}")
+    .replace("n_theta = 12\n", "")  # a slab set is uniform in y: one y node
+)
+"""The waveguide example with a slab mode set in place of its rectangular mode."""
+
+
+def test_a_slab_set_s_energy_is_per_metre_of_y():
+    from solprop.recipe.metadata import PER_WIDTH_KEYWORDS  # noqa: PLC0415
+
+    from solprop_gui.ui.pages import PER_WIDTH  # noqa: PLC0415
+
+    assert PER_WIDTH == PER_WIDTH_KEYWORDS
+    assert "ModeCollection.slab" in SLAB
+    assert ask("summarise", {"text": SLAB})["per_width"]
+    assert not ask("summarise", {"text": TINY})["per_width"]
