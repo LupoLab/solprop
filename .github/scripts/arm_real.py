@@ -23,7 +23,7 @@ np.linalg.solve = noted
 n_r = int(sys.argv[1])
 backend = sys.argv[2]
 grid = EnvelopeGrid.from_limits(1e-4, 800e-9, (500e-9, 1.6e-6), 100e-15, thg=False)
-space = RadialGrid(4e-4, n_r, collar_fraction=1.0)
+space = RadialGrid(4e-4, n_r, collar_fraction=1.25)
 pulse = SpatialPulse(GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-9), 8e-5)
 settings = SimulationSettings(
     controller=PIController(rtol=1e-6, atol=1e-12),

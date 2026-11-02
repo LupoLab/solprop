@@ -36,5 +36,8 @@ elif sys.argv[2] == "right":
     row("env4-limit1", {"OPENBLAS_NUM_THREADS": "4"}, "limit", ["solve", "complex_solve", "inv"], band + usual)
     row("env1-stack64M", one, "thread", ["solve"], band)
     row("unset-stack64M", {}, "thread", ["solve"], band)
+elif sys.argv[2] == "widths":
+    for width in range(4, 13):
+        print(f"env{width} solve", " ".join(f"{n}={cell({'OPENBLAS_NUM_THREADS': str(width)}, 'plain', 'solve', n, 8)}" for n in range(2, 65)), flush=True)
 for how, text in errors.items():
     print("error", how, text.replace("\n", " | "), flush=True)
