@@ -6,8 +6,8 @@
 
 SEP 23 section 7, items 8 (the axial flux) and 9 (the absorbed power) on
 ``numpy_ref``, the backend-level refusals of item 12, the solprop-side admission that
-refuses the native backend until its native pass, and ``numba_cpu``'s statistics through
-the shared host pass of this phase.
+refuses the native backend until its native pass, the native statistics of a launch
+beside the reference's, and the slots and bands every pass shares.
 """
 
 import dataclasses
@@ -24,9 +24,17 @@ from backends.planar_cases import planar_case
 from bounds import assert_within, gamma
 from legacy_geometry import bare_absorber
 from solprop.backends import registry, select
+from solprop.backends import spatial as backend_spatial
 from solprop.backends.batch import LockstepRunner
 from solprop.backends.registry import statistics_refusal
-from solprop.backends.spatial import FarFieldTables, collect_spatial
+from solprop.backends.spatial import (
+    FarFieldLayout,
+    FarFieldTables,
+    collect_spatial,
+    far_field_bands,
+    far_field_layout,
+    far_field_partials,
+)
 from solprop.boundaries import TransverseCollar, absorber
 from solprop.constants import EPS0, C
 from solprop.driver import Simulation, SimulationSettings
@@ -118,10 +126,12 @@ def gaussian(waist, *, energy=1e-6):
     )
 
 
-# ----------------------------------------------- the host pass on both CPU backends
+# --------------------------------------------------------- the launch on both backends
 
 
-def test_numba_cpu_forms_the_far_field_statistics_through_the_reference_pass(grid):
+def test_native_forms_the_far_field_statistics_as_the_reference_does(grid):
+    if importlib.util.find_spec("solprop_native") is None:
+        pytest.skip("solprop-native is not installed")
     space = FreeGrid(3e-4, 24, 3e-4, 16, window_factor=0.1)
     simulation = free_simulation(
         grid,
@@ -130,19 +140,87 @@ def test_numba_cpu_forms_the_far_field_statistics_through_the_reference_pass(gri
         medium=SpatialMedium(1 + 1e-6j),
         absorber=absorber(grid),
     )
-    values = {
-        name: entrance(simulation, name)[0] for name in ("numpy_ref", "numba_cpu")
-    }
-    assert set(values["numba_cpu"]) == set(ALL_SIX)
+    values = {name: entrance(simulation, name)[0] for name in ("numpy_ref", "native")}
+    assert set(values["native"]) == set(ALL_SIX)
     for name in ALL_SIX:
-        # One host pass over the same state on both: the summation bound.
+        # One pass over the same state on both: the summation bound.
         assert_within(
-            values["numba_cpu"][name],
+            values["native"][name],
             values["numpy_ref"][name],
             gamma(4 * (space.n_columns + 16)),
             what=name,
         )
         assert values["numpy_ref"][name].shape[0] == 1  # the batch axis
+
+
+# ------------------------------------------------------------- the layout and bands
+
+
+def test_the_layout_takes_only_the_present_slots():
+    layout = far_field_layout(
+        (*ALL_SIX, "on_axis_spectrum"), n_apertures=3, n_regions=4, n_pol=2
+    )
+    # Each amplitude holds its electric sum and its magnetic closure, 4 n_pol slots.
+    assert layout == FarFieldLayout(
+        beam=0,
+        absorbed=1,
+        regions=5,
+        apertures=9,
+        stride=9,
+        collected=0,
+        amplitude=1,
+        axis=36,
+        n_slots=44,
+    )
+    assert layout is not None
+    assert layout.array().tolist() == [0, 1, 5, 9, 9, 0, 1, 36, 44]
+    alone = far_field_layout(
+        ("aperture_on_axis_spectrum",), n_apertures=2, n_regions=0, n_pol=1
+    )
+    assert alone is not None
+    assert (alone.apertures, alone.stride, alone.collected, alone.amplitude) == (
+        0,
+        4,
+        -1,
+        0,
+    )
+    assert far_field_layout(("energy",), n_apertures=0, n_regions=0, n_pol=1) is None
+    # A region request without regions takes no slot.
+    assert (
+        far_field_layout(("region_spectrum",), n_apertures=0, n_regions=0, n_pol=1)
+        is None
+    )
+
+
+def test_the_bands_follow_the_shapes_and_the_budget(monkeypatch):
+    assert far_field_bands(5, 7, 3, 10).tolist() == [0, 5, 10, 15, 20, 25, 30, 35]
+    assert far_field_bands(10, 1, 3, 10).tolist() == [0, 10]  # one block of a line
+    # A budget of two bands over seven rows: three and four rows.
+    monkeypatch.setattr(backend_spatial, "FAR_FIELD_BAND_BUDGET", 2 * 8 * 3 * 10)
+    assert far_field_bands(5, 7, 3, 10).tolist() == [0, 15, 35]
+    # A budget below one band's partials still takes one band.
+    monkeypatch.setattr(backend_spatial, "FAR_FIELD_BAND_BUDGET", 1)
+    assert far_field_bands(5, 7, 3, 10).tolist() == [0, 35]
+
+
+def test_a_radial_problem_takes_no_partials(grid):
+    radial = Simulation.from_radial(
+        grid,
+        RadialGrid(3e-4, 8),
+        SpatialMedium(),
+        [],
+        gaussian(1e-4, energy=1e-9),
+        settings=SimulationSettings(
+            controller=PIController(rtol=1e-6, atol=1e-14),
+            save_planes=[1e-4],
+            dz_max=1e-4,
+            dz_init=1e-4,
+            absorber=None,
+            backend="numpy_ref",
+        ),
+        noise=None,
+    ).translate()
+    assert far_field_partials(radial) == (0, 0)
 
 
 # -------------------------------------------------------------- item 8: axial flux
@@ -425,7 +503,8 @@ def test_radial_and_planar_geometry_are_refused_before_any_step(grid):
         select("numpy_ref", radial.translate(), grid=grid)
     planar_grid, _, problem = planar_case("kerr", steps=0)
     problem = dataclasses.replace(problem, stats_spec=spec)
-    for name in ("numpy_ref", "numba_cpu"):
+    native = importlib.util.find_spec("solprop_native") is not None
+    for name in ("numpy_ref", "native") if native else ("numpy_ref",):
         with pytest.raises(OutputError, match="hybrid planar"):
             select(name, problem, grid=planar_grid)
 
@@ -585,7 +664,6 @@ def test_a_run_records_every_far_field_statistic_at_every_plane(grid):
         dz_init=5e-5,
         absorber=absorber(grid),
         spec=far_spec((*ALL_SIX, "energy"), periodic=("absorbed_power",), period=1),
-        backend="numba_cpu",
     )
     output = simulation.run(progress="none")
     shapes = {

@@ -5,8 +5,9 @@
 """Each backend evaluates its stage tables and Adams bases with its own helpers.
 
 SEP 29 section 6.6 (R16): the NumPy reference never runs the native helpers or the
-Numba dispatchers behind the per-stage and per-step evaluations, and a native run never
-reaches those dispatchers, even with both backends run in one process. Each check
+Numba dispatchers behind the per-stage and per-step evaluations, and a native run
+reaches neither those dispatchers nor the plain forms, even with both backends run in
+one process. Each check
 translates a fresh problem, so that no table's kept rows from an earlier run stand in
 for a call, then replaces the forbidden implementations -- including translation's own
 one-point pass, which no backend's run needs -- by ones that raise, counts the allowed
@@ -142,6 +143,29 @@ def test_the_reference_runs_only_the_plain_forms(monkeypatch, integrator):
     assert adams > 0 or not integrator.startswith("adams"), tally
 
 
+def assert_native_helpers_ran(tally, integrator):
+    """Assert what a native run's helper tally shows of its march."""
+    assert tally["points"] > 0, tally
+    if integrator.startswith("adams"):
+        # A staged trial forms its tables in the native state from its nodes alone
+        # (SEP 39 phases 1 and 3), in either formulation: none crosses from the host.
+        assert tally["tables"] == 0, tally
+        return
+    adams = tally["basis"] + tally["tables"]
+    assert adams > 0 or not integrator.startswith("adams"), tally
+
+
+@pytest.mark.parametrize("integrator", INTEGRATORS)
+def test_native_runs_use_only_their_own_helpers(monkeypatch, integrator):
+    # Run the reference first in the same process, then forbid the plain forms.
+    propagate(NumpyRefBackend, translated(integrator))
+    prepared = translated(integrator)
+    forbid(monkeypatch, _helpers.PLAIN)
+    tally = count(monkeypatch, NATIVE)
+    propagate(native.NativeBackend, prepared)
+    assert_native_helpers_ran(tally, integrator)
+
+
 @pytest.mark.parametrize("integrator", INTEGRATORS)
 def test_native_runs_never_reach_the_numba_dispatchers(monkeypatch, integrator):
     # Run the reference first in the same process, then forbid everything but native.
@@ -151,14 +175,7 @@ def test_native_runs_never_reach_the_numba_dispatchers(monkeypatch, integrator):
     forbid(monkeypatch, _helpers.PLAIN)
     tally = count(monkeypatch, NATIVE)
     propagate(native.NativeBackend, prepared)
-    assert tally["points"] > 0, tally
-    if integrator.startswith("adams"):
-        # A staged trial forms its tables in the native state from its nodes alone
-        # (SEP 39 phases 1 and 3), in either formulation: none crosses from the host.
-        assert tally["tables"] == 0, tally
-        return
-    adams = tally["basis"] + tally["tables"]
-    assert adams > 0 or not integrator.startswith("adams"), tally
+    assert_native_helpers_ran(tally, integrator)
 
 
 def z_table(integrator):
@@ -187,6 +204,21 @@ def z_table(integrator):
     problem = simulation.translate()
     assert problem.linear.phi_representation == "table"
     return simulation, problem
+
+
+@pytest.mark.parametrize(
+    "integrator",
+    ["adams-exponential", "adams-interaction", "runge-kutta", "low-storage"],
+)
+def test_a_native_z_table_run_uses_only_its_own_helpers(monkeypatch, integrator):
+    # The exponential Adams march on a varying operator reads its compensation's rate
+    # from the native derivative table too, and the native march forms the trial's
+    # tables from the table's slots itself (SEP 39 phase 4): none crosses.
+    prepared = z_table(integrator)
+    forbid(monkeypatch, _helpers.PLAIN)
+    tally = count(monkeypatch, NATIVE)
+    propagate(native.NativeBackend, prepared)
+    assert tally["tables"] == 0, tally
 
 
 @pytest.mark.parametrize(

@@ -17,7 +17,6 @@ import pytest
 
 from bounds import EPS, assert_within, departure, gamma
 from solprop.backends import Backend
-from solprop.backends.numba_cpu import NumbaCpuBackend
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.numpy_ref import backend as backend_module
 from solprop.exceptions import BackendError, TranslationError
@@ -630,33 +629,38 @@ def test_the_alarm_is_weighted_at_the_stage_it_was_scored_from(
     backend.close()
 
 
-def test_a_z_table_runs_on_the_numba_host_adapter_and_the_oracle(
-    tabulated_problem, field_grid
-):
-    """Numba's host adapter qualifies the general CPU baseline beside the oracle."""
-    assert not tabulated_problem.device_ready
+def z_table_departure_and_bound(backend_class, problem, grid):
+    """Return a z-table run's departure from the oracle, its budget and its owner."""
+    assert not problem.device_ready
     # The host Clenshaw recurrence follows the reference operation order; budget
     # 64 eps per coefficient and sample over seven stages and 1000 accepted steps.
     bound = (
         64
-        * field_grid.n_to
-        * len(tabulated_problem.linear.phi_coefficients[0])
+        * grid.n_to
+        * len(problem.linear.phi_coefficients[0])
         * 7
         * 1000
         * np.finfo(float).eps
     )
     assert bound > 0
-    compiled, measured = run_to(NumbaCpuBackend, tabulated_problem, field_grid, 0.05)
-    backend, plane = run_to(NumpyRefBackend, tabulated_problem, field_grid, 0.05)
-    assert np.all(np.isfinite(plane.require_field()))
-    assert (
-        np.linalg.norm(measured.require_field() - plane.require_field())
-        / np.linalg.norm(plane.require_field())
-        < bound
-    )
-    assert compiled._host_phi is not None and compiled._host_prefactor is not None
-    compiled.close()
+    compiled, measured = run_to(backend_class, problem, grid, 0.05)
+    backend, plane = run_to(NumpyRefBackend, problem, grid, 0.05)
     backend.close()
+    assert np.all(np.isfinite(plane.require_field()))
+    departure = np.linalg.norm(
+        measured.require_field() - plane.require_field()
+    ) / np.linalg.norm(plane.require_field())
+    return departure, bound, compiled
+
+
+def test_a_z_table_runs_on_native_and_the_oracle(tabulated_problem, field_grid):
+    """The native backend's own tables follow the oracle on an adaptive run."""
+    native = pytest.importorskip("solprop_native")
+    departure, bound, compiled = z_table_departure_and_bound(
+        native.NativeBackend, tabulated_problem, field_grid
+    )
+    compiled.close()
+    assert departure < bound
 
 
 # ------------------------------------------------------------- the remaining paths

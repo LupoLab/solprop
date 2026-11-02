@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Compare production currents with independent carrier integration and exact work.
+"""Compare the reference's currents with independent carrier integration and exact work.
 
 The synthetic W = k omega0 (E/Eref)^4 law isolates envelope averaging from atomic
 rate accuracy. SI fields, times, current units and the internal FFT convention
@@ -17,8 +17,10 @@ from scipy import integrate
 
 from envelope_oracle_angular import order_record
 from mixture_cases import AnalyticRate
-from solprop.backends.bodies import RateArrays
-from solprop.backends.numba_cpu.envelope_plasma import make_source_column
+from solprop.backends.numpy_ref.envelope_plasma import (
+    _cycle_quantities,  # pyright: ignore[reportPrivateUsage]
+    _population,  # pyright: ignore[reportPrivateUsage]
+)
 from solprop.constants import CHARGE_MASS_RATIO, C
 from solprop.nonlinear import EnvelopePlasmaResponse
 from solprop.physdata import ionisation_potential
@@ -42,19 +44,22 @@ def compiled_cycle(depletion):
         maximum=1e30,
     )
     table = build_rate_table(rate, (1.0, 1e11), rtol=1e-7)
-    cycle = build_cycle_integrals(EnvelopePlasmaResponse("Ar", table), None)
-    arrays = [np.zeros((4, 512)) for _ in range(2)]
-    for level, rule in enumerate(cycle.rules):
-        arrays[0][level, : len(rule.nodes)] = rule.nodes
-        arrays[1][level, : len(rule.weights)] = rule.weights
-    for array in arrays:
-        array.setflags(write=False)
-    return RateArrays.of(cycle.rate), tuple(arrays)
+    return build_cycle_integrals(EnvelopePlasmaResponse("Ar", table), None)
 
 
-@cache
-def source_kernel():
-    return make_source_column(2, parallel=False)
+def reference_column(envelope, cycle, material, window):
+    """Return one node's two windowed sources and its ionised fraction at every sample.
+
+    What ``envelope_sources`` of the reference forms for a node; it does not return
+    the population's history, which this comparison reads. `material` is ``(density,
+    pre-ionisation, charge-mass ratio, ionisation potential, dt)``.
+    """
+    density, initial, charge_mass_ratio, potential, dt = material
+    rate, current = _cycle_quantities(envelope, cycle, loss=True)
+    fraction, survival = _population(rate, initial, dt)
+    drive = (charge_mass_ratio * density * fraction) * envelope * window
+    loss = (potential * density * survival) * current * window
+    return np.array([drive, loss]), fraction
 
 
 def source_window(radians, window_sigmas, width, collared):
@@ -91,22 +96,13 @@ def carrier_comparison(
         potential * density * survival * depletion * omega / 1e40 * field * square
     )
     real_drive = CHARGE_MASS_RATIO * density * fraction * field
-    source = np.zeros((2, 2, count), dtype=np.complex128)
-    histories, status = np.empty((5, 1, count)), np.zeros(1, dtype=np.int64)
     window = source_window(radians, window_sigmas, width, collared)
-    table, rules = compiled_cycle(depletion)
-    source_kernel()(
+    source, population = reference_column(
         envelope,
-        (source, histories, status),
-        table,
-        rules,
+        compiled_cycle(depletion),
         (density, 0.0, CHARGE_MASS_RATIO, potential, dt),
         window,
     )
-    if np.any(status):
-        raise AssertionError(
-            f"production angular refinement failed at {status.tolist()}"
-        )
     transform_size = count * padding
     frequency = (
         2 * np.pi * np.fft.fftfreq(transform_size, d=2 * np.pi / samples_per_cycle)
@@ -171,7 +167,7 @@ def carrier_comparison(
     work = integrate.trapezoid(
         np.sum((envelope.conj() * source[1]).real, axis=0) / 2, x=time
     )
-    work_target = potential * density * histories[3, 0, -1]
+    work_target = potential * density * population[-1]
     real_work = integrate.trapezoid(np.sum(field * real_loss, axis=0), x=time)
     return {
         "cycles_sigma": cycles,
@@ -195,7 +191,7 @@ def carrier_comparison(
         ),
         "production_loss_relative_error": source_error,
         "production_population_error": float(
-            np.max(np.abs(histories[3, 0] - analytic_fraction))
+            np.max(np.abs(population - analytic_fraction))
         ),
         "envelope_work_relative_error": float(abs(work - work_target) / work_target),
         "carrier_work_relative_error": float(
@@ -261,24 +257,16 @@ def mixture_work_convergence():
             ("He", 7e23, 0.35, 0.08),
         ):
             potential = ionisation_potential(species)
-            sources = np.zeros((2, *field.shape), dtype=np.complex128)
-            histories = np.empty((5, 1, radians.size))
-            status = np.zeros(1, dtype=np.int64)
-            table, rules = compiled_cycle(depletion)
             window = np.ones(radians.size)
             window.setflags(write=False)
-            source_kernel()(
+            sources, population = reference_column(
                 field,
-                (sources, histories, status),
-                table,
-                rules,
+                compiled_cycle(depletion),
                 (density, initial, CHARGE_MASS_RATIO, potential, dt),
                 window,
             )
-            if np.any(status):
-                raise AssertionError("mixture angular refinement failed")
             loss += sources[1]
-            newly_ionised = density * (histories[3, 0, -1] - initial)
+            newly_ionised = density * (population[-1] - initial)
             inventories.append(float(potential * newly_ionised))
             target += potential * newly_ionised
         work = integrate.trapezoid(

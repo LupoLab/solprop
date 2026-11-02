@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The NumPy z-table evaluator and the persistent host adapter agree."""
+"""The NumPy z-table evaluator and ``numba_cpu``'s persistent host adapter agree."""
 
 import numpy as np
 import pytest

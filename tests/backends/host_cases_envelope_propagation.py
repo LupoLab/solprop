@@ -8,9 +8,9 @@ import warnings
 
 import numpy as np
 
+from backends.host_cases_envelope_qualification import InstantaneousPolynomial
 from envelope_oracle_angular import order_record
-from envelope_oracle_qualification import InstantaneousPolynomial
-from solprop.backends.numba_cpu import NumbaCpuBackend
+from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.boundaries import absorber
 from solprop.constants import EPS0, C
 from solprop.exceptions import MaterialRangeWarning
@@ -27,7 +27,9 @@ from solprop.translate.ionisation import build_rate_table
 from solprop.translate.problem import assemble
 
 
-def propagate_pair(cycles, depletion, ratio, *, steps=8, oversampling=8):
+def propagate_pair(
+    cycles, depletion, ratio, *, steps=8, oversampling=8, backend_class=NumpyRefBackend
+):
     wavelength, length, area = 800e-9, 8e-6, 1e-8
     omega = 2 * np.pi * C / wavelength
     sigma = cycles * wavelength / C
@@ -78,14 +80,7 @@ def propagate_pair(cycles, depletion, ratio, *, steps=8, oversampling=8):
             absorber=absorber(grid, boundary_length=1e-3),
             stats_spec=StatsSpec(names=names),
         )
-        owner = NumbaCpuBackend(
-            problem,
-            grid=grid,
-            threads=1,
-            fftw_threads=1,
-            blas_threads=1,
-            plan_flag="estimate",
-        )
+        owner = backend_class(problem, grid=grid)
         try:
             owner.set_initial(problem.initial.field0, None)
             before = owner.stats(problem.stats_spec)
@@ -182,7 +177,7 @@ def propagation_studies():
     }
 
 
-def mixture_propagation(oversampling):
+def mixture_propagation(oversampling, *, backend_class=NumpyRefBackend):
     """Compare two independently depleting species through complete propagation."""
     fill = Mixture.fill({"Ar": 0.3, "He": 0.7}, 1.0)
     mode = MarcatiliMode(125e-6, mixture=fill, cladding=1.45, loss=False)
@@ -227,14 +222,7 @@ def mixture_propagation(oversampling):
                 stats_spec=StatsSpec(names=("energy", "species_ionisation")),
                 ionisation_field_range=(1.0, 1e11),
             )
-        owner = NumbaCpuBackend(
-            problem,
-            grid=grid,
-            threads=1,
-            fftw_threads=1,
-            blas_threads=1,
-            plan_flag="estimate",
-        )
+        owner = backend_class(problem, grid=grid)
         try:
             owner.set_initial(problem.initial.field0, None)
             before = owner.observe().require_field()

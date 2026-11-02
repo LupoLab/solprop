@@ -6,26 +6,23 @@
 
 solprop-native runs ``responses.dispersive_kerr`` on the Cartesian free-space and line
 routes and the hybrid planar route chunk by chunk (its ``SeparableDispersive``), and on
-the general modal route in the route's synthesis (``GeneralDispersive``), with the
-structure ``numba_cpu`` takes (``backends/numba_cpu/dispersive_spatial.py`` and
-``dispersive_general.py``). ``numpy_ref``, which applies the multipliers at every node,
-is the oracle and ``numba_cpu`` is checked beside it: one evaluation of the stage
-source, one Runge-Kutta step and ten steps of the default integrator, for both
-evaluators and the sectors each route admits, field and envelope grids where the route
-has both; a lone response and one beside Raman; a mixture; a general modal guide with
-a gas region beside a constant solid one; partial chunks; a coupled wall flow on the
-fused path, which slice 3a's native code still refused. Then what is the backend's
-own: repeatability, the thread count, the path the response takes and the memory
-ledger, which ``solprop.backends.memory.dispersive_memory`` predicts to the byte.
+the general modal route in the route's synthesis (``GeneralDispersive``).
+``numpy_ref``, which applies the multipliers at every node, is the oracle: one
+evaluation of the stage source, one Runge-Kutta step and ten steps of the default
+integrator, for both evaluators and the sectors each route admits, field and envelope
+grids where the route has both; a lone response and one beside Raman; a mixture; a
+general modal guide with a gas region beside a constant solid one; partial chunks; a
+coupled wall flow on the fused path, which slice 3a's native code still refused. Then
+what is the backend's own: repeatability, the thread count, the path the response
+takes and the memory ledger, which ``solprop.backends.memory.dispersive_memory``
+predicts to the byte.
 
-**The bounds are ``numba_cpu``'s** (``test_numba_dispersive_routes.py``'s
-``evaluation_bound``), derived from the transforms and node reductions both backends
-perform and counted for the reference's node-by-node arithmetic, before any run: the
-native response takes the same transforms per product (fewer when a lone symmetric
-response is the chunk's own polarisation) and the same sums over the slab rule, the
-modes and the nodes. Against ``numba_cpu`` the same bound holds, both compiled
-backends sitting inside it from the reference's side. Each test states what it
-measured.
+**The bounds are derived in ``dispersive_route_cases.py``** (its ``evaluation_bound``)
+from the transforms and node reductions of a compiled evaluation and counted for the
+reference's node-by-node arithmetic, before any run: the native response takes the
+same transforms per product (fewer when a lone symmetric response is the chunk's own
+polarisation) and the same sums over the slab rule, the modes and the nodes. Each test
+states what it measured.
 """
 
 import dataclasses
@@ -37,8 +34,7 @@ import numpy as np
 import pytest
 
 import flow_parity
-from backends.matched import fixed_order, native_thread_fields
-from backends.test_numba_dispersive_routes import (
+from backends.dispersive_route_cases import (
     ARGON,
     ARGON_FILL,
     CORE_CHI3,
@@ -58,13 +54,13 @@ from backends.test_numba_dispersive_routes import (
     source,
     strand,
 )
-from backends.test_numba_dispersive_routes import (
+from backends.dispersive_route_cases import (
     evaluation_bound as cpu_evaluation_bound,
 )
+from backends.matched import fixed_order, native_thread_fields
 from bounds import assert_within, dispersive_device_bound, step_evaluations
 from modal_provider_cases import GENERAL_Z_END
 from solprop.backends.memory import dispersive_memory
-from solprop.backends.numba_cpu import NumbaCpuBackend
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.driver import prop_capillary
 from solprop.modes import CoherentWall
@@ -92,7 +88,7 @@ PROBE = Path(__file__).parent / "native_dispersive_thread_probe.py"
 
 
 def evaluation_bound(problem: KernelProblem) -> float:
-    """``numba_cpu``'s bound, or on a device build the predeclared device envelope."""
+    """The CPU bound, or on a device build the predeclared device envelope."""
     return dispersive_device_bound(cpu_evaluation_bound(problem), problem)
 
 
@@ -112,31 +108,25 @@ DISPERSIVE_ROWS = (
 
 
 def assert_one_evaluation(problem: KernelProblem, grid: Any) -> float:
-    """One evaluation against the reference and ``numba_cpu``; return the larger."""
+    """One evaluation against the reference; return the departure."""
     ours = source(NativeBackend, problem, grid)
     bound = evaluation_bound(problem)
     assert bound > 0
-    measured = 0.0
-    for backend_class in (NumpyRefBackend, NumbaCpuBackend):
-        departure = disagreement(ours, source(backend_class, problem, grid))
-        assert departure < bound
-        measured = max(measured, departure)
-    return measured
+    departure = disagreement(ours, source(NumpyRefBackend, problem, grid))
+    assert departure < bound
+    return departure
 
 
 def assert_steps(problem: KernelProblem, grid: Any) -> float:
-    """A replayed window of fixed steps against both; return the larger departure."""
+    """A replayed window of fixed steps against the reference; return the departure."""
     ours, summary = run(NativeBackend, problem, grid)
     bound = summary.n_steps * step_evaluations(problem) * evaluation_bound(problem)
     assert bound > 0
-    measured = 0.0
-    for backend_class in (NumpyRefBackend, NumbaCpuBackend):
-        theirs, reference = run(backend_class, problem, grid)
-        assert summary.n_steps == reference.n_steps
-        departure = disagreement(ours, theirs)
-        assert departure < bound
-        measured = max(measured, departure)
-    return measured
+    theirs, reference = run(NumpyRefBackend, problem, grid)
+    assert summary.n_steps == reference.n_steps
+    departure = disagreement(ours, theirs)
+    assert departure < bound
+    return departure
 
 
 def path_of(problem: KernelProblem, grid: Any) -> dict[str, bool] | None:
@@ -161,14 +151,13 @@ def one_step(problem: KernelProblem, length: float) -> KernelProblem:
 
 
 def assert_one_step(problem: KernelProblem, grid: Any) -> None:
-    """Seven evaluations through the whole stage, against both backends."""
+    """Seven evaluations through the whole stage, against the reference."""
     ours, summary = run(NativeBackend, problem, grid)
     assert summary.n_steps == 1
     bound = step_evaluations(problem) * evaluation_bound(problem)
     assert bound > 0
-    for backend_class in (NumpyRefBackend, NumbaCpuBackend):
-        theirs, _ = run(backend_class, problem, grid)
-        assert disagreement(ours, theirs) < bound
+    theirs, _ = run(NumpyRefBackend, problem, grid)
+    assert disagreement(ours, theirs) < bound
 
 
 def route_case(route: str, evaluator: str) -> tuple[KernelProblem, Any]:
@@ -191,8 +180,7 @@ def route_case(route: str, evaluator: str) -> tuple[KernelProblem, Any]:
 def test_one_free_space_evaluation_matches_the_reference(line, case, evaluator):
     """The response alone on each chunk's columns, which are its nodes.
 
-    Measured 2.2-4.6 eps against the reference and 0.5-2.0 eps against
-    ``numba_cpu``, under bounds of 640-3100 eps.
+    Measured 2.2-4.6 eps against the reference, under bounds of 640-3100 eps.
     """
     grid = free_grid(**FREE_CASES[case])
     response = DispersiveKerrResponse(ARGON, evaluator, thg=FREE_CASES[case]["thg"])
@@ -212,7 +200,7 @@ def test_one_free_space_evaluation_matches_the_reference(line, case, evaluator):
 def test_one_free_space_evaluation_beside_raman_matches_the_reference(case, evaluator):
     """The column runs beside the response, whose spectra are added to the chunk's.
 
-    Measured 3.0-4.4 eps against the reference and 1.4-1.6 eps against ``numba_cpu``.
+    Measured 3.0-4.4 eps against the reference.
     """
     thg = FREE_CASES[case]["thg"]
     grid = free_grid(**FREE_CASES[case])
@@ -298,8 +286,7 @@ def test_free_space_chunks_accumulate_as_one(evaluator):
 def test_one_planar_evaluation_matches_the_reference(thg, evaluator):
     """The block's rows filtered, synthesised in x, multiplied and projected back.
 
-    Measured 3.4-5.8 eps against the reference and 1.1-3.0 eps against
-    ``numba_cpu``, under 1800-3500 eps.
+    Measured 3.4-5.8 eps against the reference, under 1800-3500 eps.
     """
     problem, grid = planar_problem([DispersiveKerrResponse(ARGON, evaluator, thg=thg)])
     assert_one_evaluation(problem, grid)
@@ -318,9 +305,8 @@ def test_one_planar_evaluation_beside_raman_matches_the_reference(thg, evaluator
 def test_a_planar_collar_leaves_the_lone_response_in_place(evaluator):
     """The in-stage collar is a pass of its own here, which packs the rows afresh.
 
-    So a lone symmetric response filters in place beside it, where ``numba_cpu``'s
-    one pass reads the bare rows after the material and filters into a buffer of its
-    own; the two agree all the same.
+    So a lone symmetric response filters in place beside it, and agrees with the
+    reference all the same.
     """
     problem, grid = planar_problem(
         [DispersiveKerrResponse(ARGON, evaluator)], absorbed=True
@@ -366,9 +352,8 @@ def test_one_planar_runge_kutta_step_matches_the_reference(evaluator):
     assert summary.n_steps == 1
     bound = step_evaluations(problem) * evaluation_bound(problem)
     assert bound > 0
-    for backend_class in (NumpyRefBackend, NumbaCpuBackend):
-        theirs, _ = run(backend_class, problem, grid)
-        assert disagreement(ours, theirs) < bound
+    theirs, _ = run(NumpyRefBackend, problem, grid)
+    assert disagreement(ours, theirs) < bound
 
 
 # --- the general modal route ---------------------------------------------------------
@@ -382,8 +367,7 @@ def test_one_general_evaluation_matches_the_reference(strand_case, form, evaluat
 
     Alone (a gas strand with a linear core) the response writes each chunk's source;
     beside the constant solid core it adds to the regional cubic's. Measured 0.5-1.6
-    eps against the reference and 0.3-0.8 eps against ``numba_cpu``, under 560-1090
-    eps.
+    eps against the reference, under 560-1090 eps.
     """
     gas, core = STRANDS[strand_case]
     problem, grid = general_problem(strand(gas, core=core), evaluator, form)
@@ -437,7 +421,7 @@ def test_a_coherent_wall_flow_beside_the_response_matches_the_reference(policy):
     """The flow carries each stage's input; the response is the fused path's.
 
     Slice 3a's native code refused the response beside a coupled flow, which
-    ``numpy_ref`` and ``numba_cpu`` admit; the stage source is the fused path's own,
+    ``numpy_ref`` admits; the stage source is the fused path's own,
     so the flow's ten-step bound holds. Measured 1.0e-15-1.1e-15 against a bound of
     2.2e-13, where the response moves the field from the carrier policy's by 2.2e-7.
     """

@@ -15,7 +15,7 @@ import pytest
 
 from legacy_geometry import LEGACY_GRID, bare_absorber
 from march_bounds import FIXED_ORDER, assert_points_matched
-from solprop.backends.numba_cpu import NumbaCpuBackend
+from solprop.backends.numpy_ref.backend import NumpyRefBackend
 from solprop.backends.numpy_ref.batch import NumpyBatchBackend
 from solprop.backends.registry import resolve_name
 from solprop.driver import Simulation, _scan_batch
@@ -131,7 +131,7 @@ def test_batch_refuses_memory_before_backend_construction(tmp_path, monkeypatch)
 
 def test_batch_refuses_mixed_backend_scan(tmp_path):
     def mixed(point):
-        return build(point, "numpy_ref" if point.index == 0 else "numba_cpu")
+        return build(point, "numpy_ref" if point.index == 0 else "native")
 
     scan = Scan("batch", base_seed=772, power=[1.0, 2.0])
     with pytest.raises(DriverError, match="mixed backends"):
@@ -149,7 +149,7 @@ def test_batch_device_budget_refuses_or_splits_before_group_allocation(
     tmp_path, monkeypatch, free_fraction
 ):
     monkeypatch.setattr(
-        NumbaCpuBackend,
+        NumpyRefBackend,
         "available_device_memory",
         lambda self: free_fraction * sum(self.memory_ledger().values()),
     )
@@ -160,13 +160,12 @@ def test_batch_device_budget_refuses_or_splits_before_group_allocation(
         "executor": executor,
         "progress": "none",
     }
-    builder = partial(build, backend="numba_cpu")
     if free_fraction == 0:
         with pytest.raises(DriverError, match="cannot fit one member"):
-            run_scan(scan, builder, **options)
+            run_scan(scan, build, **options)
         assert executor.budgets[0]["admitted"] == 0
     else:
-        result = run_scan(scan, builder, **options)
+        result = run_scan(scan, build, **options)
         assert result.status.tolist() == ["done"] * 3
         assert executor.budgets[0]["admitted"] == 1
         assert executor.budgets[0]["host_admitted"] == 3

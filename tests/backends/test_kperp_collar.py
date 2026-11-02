@@ -105,7 +105,7 @@ def test_the_rate_attenuates_each_column_exactly_over_the_run(schedule):
     assert np.max(np.abs(np.abs(end)[live] / expected[live] - 1)) <= bound
 
 
-@pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu"])
+@pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu", "native"])
 def test_the_rate_never_reaches_the_noise_phase(backend):
     from solprop.backends.registry import select  # noqa: PLC0415
 

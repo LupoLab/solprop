@@ -936,6 +936,26 @@ def test_a_degree_one_series_is_one_product_and_one_sum(compiled):
 
 @pytest.mark.parametrize("shape", [(), (18,), (3, 2)])
 @pytest.mark.parametrize("complex_valued", [False, True])
+def test_clenshaw_by_numpy_gives_the_series_values(shape, complex_valued, monkeypatch):
+    # The series summed directly, T_k(x) = cos(k arccos x), an independent evaluation,
+    # against the path a run on the native backend takes: chebval's own recurrence.
+    monkeypatch.delitem(sys.modules, "numba", raising=False)
+    rng = np.random.default_rng(7)
+    coefficients = rng.standard_normal((33, *shape))
+    if complex_valued:
+        coefficients = coefficients + 1j * rng.standard_normal(coefficients.shape)
+    bound = clenshaw_bound(coefficients)
+    orders = np.arange(coefficients.shape[0])
+    for x in rng.uniform(-1.0, 1.0, 16):
+        basis = np.cos(orders * np.arccos(x))
+        value = chebyshev.clenshaw(x, coefficients)
+        assert value.shape == shape
+        assert value.dtype == coefficients.dtype
+        assert np.all(np.abs(value - np.tensordot(basis, coefficients, 1)) <= bound)
+
+
+@pytest.mark.parametrize("shape", [(), (18,), (3, 2)])
+@pytest.mark.parametrize("complex_valued", [False, True])
 def test_clenshaw_before_numba_loads_gives_the_compiled_values(
     shape, complex_valued, monkeypatch
 ):

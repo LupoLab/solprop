@@ -18,134 +18,49 @@ A kernel test module: ``poe cov-kernels`` runs it with the compiler disabled.
 """
 
 import dataclasses
-import functools
 import math
 
 import numpy as np
 import pytest
 from numba import config, get_num_threads, set_num_threads
 
+from backends.far_field_cases import (
+    DISTANCE,
+    FINE,
+    WITH_AXIS,
+    assert_matches,
+    bound_for,
+    fine_space,
+    holes,
+    magnitudes,
+    random_field,
+    reference,
+    spec_of,
+    time_grid,
+)
 from bounds import assert_within, gamma
-from solprop import fourier
 from solprop.backends import select
 from solprop.backends import spatial as backend_spatial
 from solprop.backends.bodies import PLAIN
 from solprop.backends.memory import estimate_memory, far_field_memory
 from solprop.backends.numba_cpu.kernels import HOST
 from solprop.backends.numba_cpu.spatial import FarFieldPass
-from solprop.backends.spatial import (
-    FarFieldLayout,
-    far_field_bands,
-    far_field_layout,
-    far_field_partials,
-)
+from solprop.backends.spatial import far_field_partials
 from solprop.boundaries import TransverseCollar, absorber
-from solprop.constants import EPS0, C
+from solprop.constants import C
 from solprop.driver import Simulation, SimulationSettings
 from solprop.exceptions import BackendError
-from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid, LineGrid, RadialGrid
+from solprop.grid import FreeGrid, LineGrid, RadialGrid
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import (
     APERTURE_PROFILES,
-    FAR_FIELD_STATISTICS,
-    ApertureProfile,
     SpatialMedium,
     aperture_profile,
-    aperture_statistics,
     mask_plane_radius,
 )
-from solprop.stats import ApertureSet, ApertureWeighting, StatsSpec
+from solprop.stats import ApertureSet, StatsSpec
 from solprop.stepper import PIController, RungeKutta
-from solprop.translate.spatial import (
-    aperture_tables,
-    axial_admittance,
-    axial_factors,
-    longitudinal_root,
-)
-
-DISTANCE = 0.25
-"""Exit face to mask plane, m."""
-
-QUADRANTS = np.array(
-    [
-        [-np.inf, 0.0, -np.inf, 0.0],
-        [0.0, np.inf, -np.inf, 0.0],
-        [-np.inf, 0.0, 0.0, np.inf],
-        [0.0, np.inf, 0.0, np.inf],
-    ]
-)
-
-WITH_AXIS = (*FAR_FIELD_STATISTICS, "on_axis_spectrum")
-
-
-@functools.cache
-def time_grid(kind):
-    if kind == "envelope":
-        return EnvelopeGrid.from_limits(
-            1e-3, 800e-9, (700e-9, 900e-9), 100e-15, thg=False
-        )
-    return FieldGrid.from_limits(1e-3, 800e-9, (600e-9, 1.2e-6), 60e-15)
-
-
-def holes(
-    profile: ApertureProfile = "tanh",
-    weighting: ApertureWeighting = "amplitude",
-    *,
-    shared=False,
-    size=1.0,
-):
-    """Three apertures at the mask plane; `shared` gives them one centre.
-
-    `size` scales every length, so that the holes span several column images on a
-    finely sampled grid, whose images are far apart.
-    """
-    centres = (
-        [[0.5e-3, -0.3e-3]] * 3
-        if shared
-        else [[0.0, 0.0], [1.0e-3, 0.0], [-0.6e-3, 0.8e-3]]
-    )
-    edges = {
-        "hard": None,
-        "tanh": [1e-4, 1e-4, 1e-4],
-        "rcos": [1e-4, 1e-4, 1e-4],
-        "supergauss": [4.0, 6.0, 2.0],
-    }[profile]
-    lengths = size if profile in ("tanh", "rcos") else 1.0
-    return ApertureSet(
-        centres=size * np.array(centres),
-        diameters=size * np.array([2.0e-3, 1.0e-3, 1.6e-3]),
-        distances=[DISTANCE] * 3,
-        edges=None if edges is None else lengths * np.array(edges),
-        profile=profile,
-        weighting=weighting,
-    )
-
-
-FINE = 50.0
-"""The aperture scale on the finely sampled grid of :func:`fine_space`."""
-
-
-def fine_space():
-    """A quarter-micron grid: its outer columns are evanescent at every frequency.
-
-    Its column images lie some 6 cm apart in the mask plane at 800 nm, so the holes
-    are scaled by :data:`FINE` to span several of them.
-    """
-    return FreeGrid(1.5e-6, 12, 1.25e-6, 10, window_factor=0.1)
-
-
-def spec_of(apertures, names=FAR_FIELD_STATISTICS, regions=QUADRANTS):
-    return StatsSpec(names=tuple(names), apertures=apertures, spectral_regions=regions)
-
-
-def random_field(space, n_pol, grid, *, seed=7):
-    """A spectrum with content in every column, the evanescent ones among them."""
-    rng = np.random.default_rng(seed)
-    shape = (space.n_columns, n_pol, grid.n_omega)
-    field = 1e3 * (rng.standard_normal(shape) + 1j * rng.standard_normal(shape))
-    if grid.kind == "field":
-        field[..., 0] = field[..., -1] = 0.0  # a real signal's end bins
-    return field
+from solprop.translate.spatial import aperture_tables, longitudinal_root
 
 
 def problem_of(grid, space, field, spec, *, medium=None, collar=None):
@@ -169,70 +84,6 @@ def problem_of(grid, space, field, spec, *, medium=None, collar=None):
         noise=None,
     )
     return simulation.translate()
-
-
-def reference(names, grid, problem, field, tables):
-    """``numpy_ref``'s pass, with the on-axis spectrum of the contraction.
-
-    The on-axis spectrum pairs the coherent axis amplitude with its magnetic
-    closure, the same contraction of ``conj(eta) E`` (SEP 34).
-    """
-    names = tuple({name for name in names if name in FAR_FIELD_STATISTICS})
-    operator = problem.linear.separable
-    values = aperture_statistics(
-        names,
-        grid,
-        field,
-        tables,
-        axial=functools.partial(axial_factors, operator, grid.omega),
-    )
-    closing = np.conj(axial_admittance(operator, grid.omega, slice(None)))
-    axis = np.einsum("r,rpw->pw", tables.on_axis, field)
-    closure = np.einsum("r,rpw->pw", tables.on_axis, closing[:, None] * field)
-    factor = fourier.spectral_density(
-        np.ones(grid.n_omega, complex), grid.dt, kind=grid.kind
-    )
-    values["on_axis_spectrum"] = (
-        0.5 * EPS0 * C * factor * np.sum(np.real(axis * np.conj(closure)), axis=0)
-    )
-    return values
-
-
-def magnitudes(names, grid, problem, field, tables):
-    """The reference formed from ``|E|`` and ``|alpha|``: the sums of the magnitudes."""
-    absolute = dataclasses.replace(tables, on_axis=np.abs(tables.on_axis) + 0j)
-    names = (*names, "beam_spectrum")
-    return reference(names, grid, problem, np.abs(field) + 0j, absolute)
-
-
-def bound_for(magnitude, problem, name):
-    """The rounding bound of one statistic, elementwise, fixed before measuring.
-
-    Each value is a sum over the columns of up to 8 rounded operations per term, and
-    a squared modulus of a complex sum at most triples the relative bound: 3
-    gamma(8 n + 64) of the sum of the magnitudes. An aperture's weight adds the
-    transcendental routines' error (tanh, sin, exp: two ulps of one, an absolute
-    error, which a tail's cancellation in ``1 - tanh`` does not shrink): 8 eps of
-    the beam's magnitudes for ``W^p`` and 12 eps of the axis's for the squared
-    amplitude.
-    """
-    bound = 3 * gamma(8 * problem.shape[1] + 64) * np.abs(magnitude[name])
-    if name == "aperture_spectrum":
-        bound = bound + 8 * np.finfo(float).eps * magnitude["beam_spectrum"]
-    if name == "aperture_on_axis_spectrum":
-        bound = bound + 12 * np.finfo(float).eps * magnitude["on_axis_spectrum"]
-    return bound
-
-
-def assert_matches(actual, expected, magnitude, problem, names=WITH_AXIS):
-    for name in names:
-        assert_within(
-            actual[name],
-            expected[name],
-            bound_for(magnitude, problem, name),
-            elementwise=True,
-            what=name,
-        )
 
 
 # ----------------------------------------------------------------------- the bodies
@@ -315,54 +166,6 @@ def test_the_region_body_is_half_open_on_the_physical_wavevector():
         assert not family.region_member(0.0, -2.0, 0.0, math.inf, 0.0, 2.0)
         assert not family.region_member(-5.0, -5.0, -math.inf, 0.0, -math.inf, 0.0)
         assert family.region_member(5.0, 5.0, -math.inf, 0.0, -math.inf, 0.0)
-
-
-# ------------------------------------------------------------- the layout and bands
-
-
-def test_the_layout_takes_only_the_present_slots():
-    layout = far_field_layout(WITH_AXIS, n_apertures=3, n_regions=4, n_pol=2)
-    # Each amplitude holds its electric sum and its magnetic closure, 4 n_pol slots.
-    assert layout == FarFieldLayout(
-        beam=0,
-        absorbed=1,
-        regions=5,
-        apertures=9,
-        stride=9,
-        collected=0,
-        amplitude=1,
-        axis=36,
-        n_slots=44,
-    )
-    assert layout is not None
-    assert layout.array().tolist() == [0, 1, 5, 9, 9, 0, 1, 36, 44]
-    alone = far_field_layout(
-        ("aperture_on_axis_spectrum",), n_apertures=2, n_regions=0, n_pol=1
-    )
-    assert alone is not None
-    assert (alone.apertures, alone.stride, alone.collected, alone.amplitude) == (
-        0,
-        4,
-        -1,
-        0,
-    )
-    assert far_field_layout(("energy",), n_apertures=0, n_regions=0, n_pol=1) is None
-    # A region request without regions takes no slot.
-    assert (
-        far_field_layout(("region_spectrum",), n_apertures=0, n_regions=0, n_pol=1)
-        is None
-    )
-
-
-def test_the_bands_follow_the_shapes_and_the_budget(monkeypatch):
-    assert far_field_bands(5, 7, 3, 10).tolist() == [0, 5, 10, 15, 20, 25, 30, 35]
-    assert far_field_bands(10, 1, 3, 10).tolist() == [0, 10]  # one block of a line
-    # A budget of two bands over seven rows: three and four rows.
-    monkeypatch.setattr(backend_spatial, "FAR_FIELD_BAND_BUDGET", 2 * 8 * 3 * 10)
-    assert far_field_bands(5, 7, 3, 10).tolist() == [0, 15, 35]
-    # A budget below one band's partials still takes one band.
-    monkeypatch.setattr(backend_spatial, "FAR_FIELD_BAND_BUDGET", 1)
-    assert far_field_bands(5, 7, 3, 10).tolist() == [0, 35]
 
 
 # ------------------------------------------------------- item 10: against numpy_ref
@@ -762,3 +565,17 @@ def test_numba_cpu_folds_the_axis_statistics_into_the_pass():
             3 * gamma(8 * space.n_columns + 64) + 64 * np.finfo(float).eps,
             what=name,
         )
+
+
+def test_on_axis_intensity_is_read_from_the_pass_s_axis_slot():
+    # numba_cpu's pass folds on_axis_intensity into the W = 1 slot, so its partials and
+    # the estimate's row hold the axis amplitude and its closure, 4 n_pol slots.
+    grid = time_grid("envelope")
+    space = FreeGrid(3e-4, 12, 2.5e-4, 10, window_factor=0.1)
+    field = random_field(space, 2, grid)
+    spec = StatsSpec(names=("beam_spectrum", "on_axis_intensity"))
+    problem = problem_of(grid, space, field, spec)
+    _, n_bands = far_field_partials(problem)
+    assert far_field_memory(problem, "numba_cpu") == {
+        "statistics_partials": 8 * (n_bands + 1) * 9 * grid.n_omega
+    }

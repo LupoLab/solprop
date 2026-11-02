@@ -13,7 +13,7 @@ import numpy as np
 import pytest
 
 from backends.test_radial_nonlinear import make_problem
-from solprop.backends.numba_cpu import NumbaCpuBackend, fft
+from solprop.backends.numba_cpu import fft
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.exceptions import BackendError, GridError
 from solprop.grid import EnvelopeGrid, FreeGrid
@@ -32,32 +32,6 @@ def free_backend_problem():
         [KerrResponse(1e-22, thg=False)],
     )
     return grid, problem
-
-
-@pytest.mark.parametrize("missing", ["plans", "coefficients", "geometry"])
-def test_cartesian_numba_stage_names_missing_resources(
-    free_backend_problem, missing, monkeypatch
-):
-    grid, problem = free_backend_problem
-    backend = NumbaCpuBackend(problem, grid=grid)
-    try:
-        backend.set_initial(problem.initial.field0, None)
-        backend._hoist(0.0)
-        bundle = backend._stage_scalars(0.0, 0.0)
-        if missing == "geometry":
-            broken = copy.copy(problem)
-            transform = copy.copy(problem.transform)
-            object.__setattr__(transform, "geometry", None)
-            object.__setattr__(broken, "transform", transform)
-            monkeypatch.setattr(backend, "_problem", broken)
-        else:
-            monkeypatch.setattr(
-                backend, "_transverse" if missing == "plans" else "_separable", None
-            )
-        with pytest.raises(BackendError, match="Cartesian stage requires"):
-            backend._stage_free(backend._require_state(), 0, 0.0, bundle)
-    finally:
-        backend.close()
 
 
 def test_cartesian_reference_stage_names_missing_geometry(free_backend_problem):

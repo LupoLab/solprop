@@ -159,7 +159,7 @@ def run_until(simulation, path, *, after):
 # ------------------------------------------------------------------- the two runs
 
 
-@pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu"])
+@pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu", "native"])
 def test_a_replayed_schedule_resumed_matches_the_uninterrupted_run(
     build_simulation, tmp_path, backend
 ):
@@ -580,8 +580,9 @@ def test_a_run_continued_on_the_other_backend_is_the_same_run(
     What executed the run is recorded instead, outside the key, so the file
     still says which backend wrote which half.
     """
+    pytest.importorskip("solprop_native")
     whole = scheduled(build_simulation, backend="numpy_ref")
-    started = scheduled(build_simulation, backend="numba_cpu")
+    started = scheduled(build_simulation, backend="native")
     finished = scheduled(build_simulation, backend="numpy_ref")
     whole.run(tmp_path / "whole.h5")
     run_until(started, tmp_path / "mixed.h5", after=2)
@@ -598,7 +599,7 @@ def test_a_run_continued_on_the_other_backend_is_the_same_run(
     # a special case for this group; what matters here is that the resume key never
     # saw either name.
     with h5py.File(tmp_path / "mixed.h5", "r") as file:
-        assert file.attrs["backend"] == "numba_cpu"
+        assert file.attrs["backend"] == "native"
     assert (
         whole.metadata().configuration_hash() == started.metadata().configuration_hash()
     )

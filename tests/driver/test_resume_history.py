@@ -141,12 +141,21 @@ CASES = {
     "soliton-numba_cpu": lambda build, rtol=RTOL: soliton(
         build, "numba_cpu", rtol=rtol
     ),
+    "soliton-native": lambda build, rtol=RTOL: soliton(build, "native", rtol=rtol),
+    "interaction-numpy_ref": lambda build, rtol=RTOL: soliton(
+        build, "numpy_ref", integrator=INTERACTION, rtol=rtol
+    ),
     "interaction-numba_cpu": lambda build, rtol=RTOL: soliton(
         build, "numba_cpu", integrator=INTERACTION, rtol=rtol
     ),
+    "interaction-native": lambda build, rtol=RTOL: soliton(
+        build, "native", integrator=INTERACTION, rtol=rtol
+    ),
     "varying-numpy_ref": lambda _, rtol=RTOL: varying("numpy_ref", rtol),
     "varying-numba_cpu": lambda _, rtol=RTOL: varying("numba_cpu", rtol),
+    "varying-native": lambda _, rtol=RTOL: varying("native", rtol),
     "coupled-numpy_ref": lambda _, rtol=RTOL: coupled("numpy_ref", rtol),
+    "coupled-native": lambda _, rtol=RTOL: coupled("native", rtol),
 }
 
 
@@ -159,6 +168,8 @@ CASES = {
 def test_a_resumed_run_is_the_uninterrupted_one(
     build_simulation, tmp_path, case, caplog
 ):
+    if case.endswith("-native"):
+        pytest.importorskip("solprop_native")
     build = CASES[case](build_simulation)
     whole, part = tmp_path / "whole.h5", tmp_path / "part.h5"
     build().run(whole, progress="none")

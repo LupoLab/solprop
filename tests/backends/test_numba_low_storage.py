@@ -2,19 +2,19 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The low-storage march on the compiled backends against the reference: SEP 24 7.2.
+"""The low-storage march on ``numba_cpu`` against the reference: SEP 24 7.2.
 
 Phase 2 runs the march through ``numba_cpu``'s register kernels on every route the
-translation admits it on, and phase 3 through solprop-native's resident engine, whose
-parity runs here on every case when it is installed (:func:`compiled_backends`). Each
-case replays one schedule of at most ten steps on the reference and each compiled
-backend, and the states agree within a rounding bound fixed before the comparison (SEP
-25; :func:`parity_bound`): no agreement here is bitwise. The engine's own contracts --
-its ledger, the threads, the held plane -- are each backend's own module's.
+translation admits it on. Each case replays one schedule of at most ten steps on the
+reference and on ``numba_cpu``, and the states agree within a rounding bound fixed
+before the comparison (SEP 25; :func:`low_storage_cases.parity_bound`): no agreement
+here is bitwise. The engine's own contracts -- its ledger, the threads, the held plane
+-- are each backend's own module's; solprop-native's parity runs on the same cases in
+``test_native_low_storage.py``.
 """
 
 import dataclasses
-import itertools
+import functools
 import math
 import sys
 import warnings
@@ -24,18 +24,22 @@ import numpy as np
 import pytest
 from numba import get_num_threads, set_num_threads
 
-from backends.planar_cases import planar_case
-from backends.test_low_storage import (
-    ARGUMENT_FACTOR,
-    MARCH,
-    cartesian_march,
-    marched,
-    populated,
+from backends.low_storage_cases import (
+    STEPS,
+    parity_bound,
+    replay,
+    uniform,
+    varying_capillary,
+    with_mode,
 )
+from backends.low_storage_cases import assert_compiled as compiled_against_reference
+from backends.low_storage_cases import assert_parity as parity_against_reference
+from backends.planar_cases import planar_case
+from backends.test_low_storage import MARCH, cartesian_march, marched
 from backends.test_radial_nonlinear import CHI3, QuadraticRate
 from backends.test_radial_nonlinear import LENGTH as RADIAL_LENGTH
 from backends.test_radial_nonlinear import make_problem as radial_problem
-from bounds import EPS, assert_within, departure, step_budget
+from bounds import EPS, assert_within
 from general_parity import conditioning as general_conditioning
 from general_parity import nonlinear_scale, problem_for, scaled_case, source_bound
 from solprop.backends.bodies import FOLD_COMPLETE, FOLD_EXCHANGE, FOLD_SECOND
@@ -46,7 +50,6 @@ from solprop.backends.memory import (
 )
 from solprop.backends.numba_cpu import NumbaCpuBackend
 from solprop.backends.numba_cpu import low_storage as compiled
-from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.numpy_ref.backend import _general_maps
 from solprop.boundaries import absorber
 from solprop.constants import C
@@ -59,124 +62,13 @@ from solprop.nonlinear.raman import DampedOscillator, RamanResponse, undamped_de
 from solprop.nonlinear.responses import KerrResponse, PlasmaResponse
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialFlux, SpatialMedium
-from solprop.stepper import FixedSchedule
 from solprop.translate.ionisation import build_rate_table
-from solprop.translate.linop import delta_phi
 
-STEPS = 10
-"""The qualification scope's propagation (AGENTS.md): ten steps."""
+assert_compiled = functools.partial(compiled_against_reference, NumbaCpuBackend)
+"""Replay on the reference and ``numba_cpu``; assert it within the limit."""
 
-PRODUCTS = 32
-"""Roundings of one evaluation outside its transforms, with a margin: the input's add
-and scale, the prefactor, the window and the absorber's term, the fold's four products
-and adds, the flow's exponential (a few eps), and the response's own few per sample."""
-
-FFT_CONSTANT = 8
-"""Roundings per level of a transform pair, Higham's ``log2 n`` with a margin."""
-
-
-def parity_bound(problem, *, growth=2.0, transverse=1, depth=0):
-    """Return the relative bound two backends' replays of one schedule must meet.
-
-    Fixed before either is run, from the case's own sizes:
-
-    - **the steps' rounding**, ``growth N 4 (PRODUCTS + FFT_CONSTANT log2(n_to n_x n_y)
-      + depth) u``: four evaluations a step, each a temporal transform pair over
-      ``n_to`` samples, a transverse pair over the free kinds' ``n_x n_y`` columns, a
-      response whose cumulative sums have addition depth `depth` (the plasma's prefix
-      over ``n_to``), and the fold;
-    - **the flows' arguments**, section 4.5's ``c eps (N |D| h + |Phi(z_N)|)`` over the
-      bins holding a thousandth of the launch's peak, since the backends form
-      ``exp(h D / 2)`` from differently ordered exponents (the table on both, or the
-      separable body against the reference's propagator), carried by the same growth;
-      on the separable kinds the exponent is a principal root's, one ulp of ``k``
-      rather than of ``D``, so ``2 eps k_max L`` over the run (the planar ladder's
-      ``operator_bound``, ``tests/backends/test_numba_planar.py``).
-
-    `growth` is the stated assumption on how much the run amplifies a perturbation
-    over its ten steps (:func:`bounds.propagation_growth` of the nonlinear rate over
-    the run is below 2 in every case here).
-    """
-    schedule = problem.stepper.schedule
-    levels = math.log2(problem.grids.n_to) + math.log2(max(transverse, 1))
-    per_step = 4 * (PRODUCTS + FFT_CONSTANT * levels + depth)
-    rounding = step_budget(per_step, schedule.n_steps, growth)
-    edges = schedule.edges
-    swept = sum(
-        np.abs(delta_phi(problem.linear, float(a), float(b)))
-        for a, b in itertools.pairwise(edges)
-    )
-    final = np.abs(delta_phi(problem.linear, float(edges[0]), float(edges[-1])))
-    argument = EPS * ARGUMENT_FACTOR * np.broadcast_to(swept + final, problem.shape)
-    bins = populated([problem.initial.field0], 1e-3)
-    separable = problem.linear.separable
-    roots = (
-        0.0
-        if separable is None
-        else 2
-        * EPS
-        * math.sqrt(float(np.max(np.abs(separable.k_squared[separable.active]))))
-        * float(schedule.z_end - schedule.z_start)
-    )
-    return rounding + growth * (float(np.max(argument[bins])) + roots)
-
-
-def replay(backend_class, problem, grid, *, modes=None, noise=None, **options):
-    """Replay the problem's schedule through its planes; return the final state."""
-    backend = backend_class(problem, grid=grid, modes=modes, **options)
-    try:
-        backend.set_initial(problem.initial.field0, noise)
-        for plane in problem.stepper.save_planes:
-            backend.propagate_to(float(plane))
-        field = backend.observe().require_field().copy()
-        assert np.all(np.isfinite(field))
-        return field
-    finally:
-        backend.close()
-
-
-def compiled_backends():
-    """Return the compiled backends the march's parity runs on.
-
-    ``numba_cpu`` and, when solprop-native is installed, its CPU build (SEP 24 phase
-    3), each against ``numpy_ref``: both within one bound of the reference holds them
-    within twice it of each other.
-    """
-    try:
-        # The optional plugin extends the base NumPy/Numba qualification pair.
-        from solprop_native import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
-            NativeBackend,
-        )
-    except ImportError:
-        return (NumbaCpuBackend,)
-    return (NumbaCpuBackend, NativeBackend)
-
-
-def assert_compiled(problem, grid, limit, *, modes=None, noise=None, what="march"):
-    """Replay on the reference and every compiled backend; assert each within `limit`.
-
-    Returns the largest departure measured.
-    """
-    expected = replay(NumpyRefBackend, problem, grid, modes=modes, noise=noise)
-    worst = 0.0
-    for backend_class in compiled_backends():
-        got = replay(backend_class, problem, grid, modes=modes, noise=noise)
-        assert_within(
-            got, expected, limit, what=f"{backend_class.name} against numpy_ref, {what}"
-        )
-        worst = max(worst, departure(got, expected))
-    return worst
-
-
-def assert_parity(problem, grid, *, modes=None, noise=None, **bound):
-    """Replay on every backend and assert the states within :func:`parity_bound`."""
-    limit = parity_bound(problem, **bound)
-    return assert_compiled(problem, grid, limit, modes=modes, noise=noise), limit
-
-
-def uniform(length, steps=STEPS, **planes):
-    """Return a uniform schedule of `steps` steps over `length`."""
-    return FixedSchedule.uniform(0.0, length, length / steps * 1.0000001, **planes)
+assert_parity = functools.partial(parity_against_reference, NumbaCpuBackend)
+"""Replay on both backends and assert the states within the parity bound."""
 
 
 # --- the modal routes ---------------------------------------------------------------
@@ -225,46 +117,6 @@ def test_a_problem_without_a_response_agrees(linear_problem, narrow_grid, collar
         **extra,
     )
     assert_parity(problem, narrow_grid, growth=1.0)
-
-
-def with_mode(problem, mode):
-    """Return the problem with its propagator mode set."""
-    return dataclasses.replace(
-        problem,
-        stepper=dataclasses.replace(problem.stepper, propagator_mode=mode),
-    )
-
-
-def varying_capillary():
-    """Return a nitrogen gradient capillary with Raman and plasma under the march.
-
-    A varying operator: the tabulated flows are the step's ``P`` and ``Q``, and the
-    recomputed ones are formed in turn in one held scratch (SEP 24 section 4.3).
-    """
-    length = 0.02
-    return Simulation.from_capillary(
-        100e-6,
-        length,
-        "N2",
-        (1.0, 0.7),
-        wavelength=800e-9,
-        fwhm=10e-15,
-        energy=20e-6,
-        trange=150e-15,
-        wavelength_limits=(200e-9, 2e-6),
-        raman=True,
-        plasma=True,
-        noise=None,
-        n_save=2,
-        schedule=uniform(length),
-        dz_max=length / STEPS * 1.0000001,
-        dz_init=length / STEPS,
-        integrator=MARCH,
-        backend="numpy_ref",
-        # The in-stage collar would hold a step to 0.44 mm; the split-step one
-        # exercises the accepted step's own treatment instead.
-        absorber_scheme="split_step",
-    )
 
 
 @pytest.mark.medium
@@ -880,7 +732,7 @@ def test_a_linear_cartesian_beam_agrees():
 @pytest.mark.medium
 def test_the_dispersive_response_rides_the_cartesian_march():
     """SEP 6's dispersive response, begun once per pass, on the elided route."""
-    from backends.test_numba_dispersive_routes import (  # noqa: PLC0415
+    from backends.dispersive_route_cases import (  # noqa: PLC0415
         ARGON,
         evaluation_bound,
         free_grid,

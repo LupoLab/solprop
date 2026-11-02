@@ -12,7 +12,6 @@ from numpy.testing import assert_array_equal
 
 from solprop.backends import registry
 from solprop.backends.multistep import CallLedger
-from solprop.backends.numba_cpu import NumbaCpuBackend
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.driver import Simulation
 from solprop.exceptions import BackendError, ResponseBudgetError
@@ -238,11 +237,12 @@ def test_registry_refuses_tdse_before_constructing_a_backend(
         registry.select(backend_name, problem, grid=grid)
 
 
-def test_direct_numba_construction_refuses_tdse_before_allocating(march_problem):
+def test_direct_native_construction_refuses_tdse_before_allocating(march_problem):
     """The direct constructor enforces the same named refusal as the registry."""
+    native = pytest.importorskip("solprop_native")
     problem, grid = march_problem
-    with pytest.raises(BackendError, match="numba_cpu does not execute TDSE"):
-        NumbaCpuBackend(problem, grid=grid)
+    with pytest.raises(BackendError, match="native does not execute TDSE"):
+        native.NativeBackend(problem, grid=grid)
 
 
 def test_tdse_problem_requires_a_binding_even_at_the_direct_backend(march_problem):
@@ -280,10 +280,9 @@ def test_shared_rk_driver_refuses_persisted_response_budgets(
     narrow_grid, linear_problem, kind
 ):
     """A Runge-Kutta backend keeps no logical ledger and refuses an atomic one."""
+    native = pytest.importorskip("solprop_native")
     problem = linear_problem(narrow_grid, save_planes=[1e-5], dz_init=1e-6)
-    backend = NumbaCpuBackend(
-        problem, grid=narrow_grid, threads=1, fftw_threads=1, plan_flag="estimate"
-    )
+    backend = native.NativeBackend(problem, grid=narrow_grid)
     try:
         backend.restore_call_ledgers({}, None)
         logical = {"startup": 1} if kind == "logical" else {}

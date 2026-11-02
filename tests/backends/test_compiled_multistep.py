@@ -154,8 +154,10 @@ def test_the_settings_admit_the_compiled_backends():
         )
 
 
-@pytest.mark.parametrize("collar", [False, True], ids=["no collar", "in-stage collar"])
-def test_numba_marches_a_problem_without_responses(narrow_grid, linear_problem, collar):
+def assert_marches_without_responses(
+    backend_class, narrow_grid, linear_problem, collar
+):
+    """Assert a problem with no response marches as on the reference, to round-off."""
     # No nonlinear response: the source is zero, or the in-stage collar's term alone.
     extra = (
         {"absorber": absorber(narrow_grid), "absorber_scheme": "nonlinear"}
@@ -169,18 +171,31 @@ def test_numba_marches_a_problem_without_responses(narrow_grid, linear_problem, 
         **extra,
     )
     reference, _, _ = run(NumpyRefBackend, problem, narrow_grid)
-    field, _, _ = run(NumbaCpuBackend, problem, narrow_grid)
+    field, _, _ = run(backend_class, problem, narrow_grid)
     scale = np.max(np.abs(reference))
     np.testing.assert_allclose(field, reference, rtol=0, atol=1e-13 * scale)
 
 
-@pytest.mark.parametrize(
-    "route",
-    [{"thg": False, "plasma": False}, {"envelope": True, "plasma": True}],
-    ids=["analytic field", "envelope plasma"],
-)
-def test_numba_sources_the_analytic_field_and_the_envelope_plasma(route):
-    # The Adams source on numba_cpu through the stage pipeline's two other column
+@pytest.mark.parametrize("collar", [False, True], ids=["no collar", "in-stage collar"])
+def test_native_marches_a_problem_without_responses(
+    narrow_grid, linear_problem, collar
+):
+    native = pytest.importorskip("solprop_native")
+    assert_marches_without_responses(
+        native.NativeBackend, narrow_grid, linear_problem, collar
+    )
+
+
+ROUTES = {
+    "analytic field": {"thg": False, "plasma": False},
+    "envelope plasma": {"envelope": True, "plasma": True},
+}
+"""The stage pipeline's two other column families, for one evaluation of the source."""
+
+
+def assert_sources_the_reference(backend_class, route):
+    """Assert one Adams source evaluation of `backend_class` is the reference's."""
+    # The Adams source through the stage pipeline's two other column
     # families: the analytic signal of a field without THG, and the envelope with its
     # plasma assembly. One evaluation is compared, at a field that reaches into the
     # temporal collar: whole runs part by round-off in the discrete order choice.
@@ -210,8 +225,8 @@ def test_numba_sources_the_analytic_field_and_the_envelope_plasma(route):
     edge = np.roll(pulse, pulse.shape[-1] * 2 // 5, axis=-1)
     lab = np.fft.fft(pulse + 0.5 * edge, axis=-1)
     found = []
-    for backend_class in (NumpyRefBackend, NumbaCpuBackend):
-        backend = backend_class(problem, grid=simulation.grid, modes=simulation.modes)
+    for evaluating in (NumpyRefBackend, backend_class):
+        backend = evaluating(problem, grid=simulation.grid, modes=simulation.modes)
         backend.set_initial(start, None)
         source, back = backend._adams_source(lab, 0.0, 1e-3)
         found.append((np.array(source), np.array(back)))
@@ -225,8 +240,9 @@ def test_numba_sources_the_analytic_field_and_the_envelope_plasma(route):
     # comparison measures the grid more than the backend (8.3e-12 of the peak on the
     # grids before SEP 21, 3.6e-10 and 4.7e-10 on today's, for the same 4e-16 of the
     # term's own peak). Untransported, the two evaluations are one transform round
-    # trip apart: measured 5.9e-16 normwise on both grids, against the one-evaluation
-    # budget fft_bound(n_to), about 1e-12.
+    # trip apart: measured 8.2e-16 and 5.1e-16 normwise on native's two grids, and
+    # 5.9e-16 on numba_cpu's, against the one-evaluation budget fft_bound(n_to), about
+    # 1e-12.
     assert_within(
         source * back,
         reference * reference_back,
@@ -239,3 +255,9 @@ def test_numba_sources_the_analytic_field_and_the_envelope_plasma(route):
     exponent = np.abs(delta_phi(problem.linear, 1e-3, 0.0))
     bound = 16 * np.finfo(float).eps * (1 + float(np.max(exponent)))
     assert_within(back, reference_back, bound, what="propagator")
+
+
+@pytest.mark.parametrize("route", ROUTES)
+def test_native_sources_the_analytic_field_and_the_envelope_plasma(route):
+    native = pytest.importorskip("solprop_native")
+    assert_sources_the_reference(native.NativeBackend, ROUTES[route])

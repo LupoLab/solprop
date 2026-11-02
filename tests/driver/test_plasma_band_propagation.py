@@ -258,7 +258,7 @@ def test_native_runs_the_band_rule_and_records_its_diagnostics():
     assert float(np.max(np.asarray(output["stats/plasma_undershoot"]))) < 1e-2
 
 
-@pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu"])
+@pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu", "native"])
 def test_the_diagnostics_need_a_field_plasma_column(backend):
     simulation = build(
         plasma=False, backend=backend, stats=StatsSpec(names=("plasma_undershoot",))

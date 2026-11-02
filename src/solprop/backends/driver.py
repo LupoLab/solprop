@@ -1903,7 +1903,23 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         ----------
         monitor : solprop.monitor.BoundaryMonitor
             A monitor with nothing recorded.
+
+        Raises
+        ------
+        BackendError
+            If the monitor's weights do not match the grid, or its columns the state.
         """
+        n_t = self._problem.grids.n_t
+        _, n_modes, _, _ = self._problem.shape
+        columns = monitor.columns
+        given = None if columns is None else columns.shape
+        if monitor.weights.shape != (4, n_t) or given not in {None, (n_modes,)}:
+            msg = (
+                f"{self.name}: the boundary monitor's weights {monitor.weights.shape} "
+                f"or columns {given} do not match the grid's {n_t} samples and the "
+                f"state's {n_modes} modes"
+            )
+            raise BackendError(msg)
         self._monitor = monitor
         self._bind_monitor(monitor)
         # The noise draw is a host array already, read once.

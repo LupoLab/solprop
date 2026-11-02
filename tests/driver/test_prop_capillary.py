@@ -705,22 +705,23 @@ def test_oxygen_raman_propagates_through_both_cpu_backends():
         "n_r": 24,
     }
     reference = run(**options, raman=True, backend="numpy_ref")
-    compiled = run(**options, raman=True, backend="numba_cpu")
     without = run(**options, raman=False, backend="numpy_ref")
     scale = float(np.linalg.norm(reference.fields("fft")[-1]))
     assert scale > 0.0
+    # At this modest nonlinear exposure the Raman signal must be observable;
+    # this guards accidentally omitting it while passing a backend parity test.
+    assert (
+        np.linalg.norm(without.fields("fft")[-1] - reference.fields("fft")[-1]) / scale
+        > 1e-5
+    )
+    pytest.importorskip("solprop_native")
+    compiled = run(**options, raman=True, backend="native")
     assert np.all(np.isfinite(compiled.fields("fft")))
     # Same equations, independent execution backends: the 1e-9 bound allows
     # accumulated integration error at rtol=1e-10. Radial quadrature is resolved.
     assert (
         np.linalg.norm(compiled.fields("fft")[-1] - reference.fields("fft")[-1]) / scale
         < 1e-9
-    )
-    # At this modest nonlinear exposure the Raman signal must be observable;
-    # this guards accidentally omitting it while passing a backend parity test.
-    assert (
-        np.linalg.norm(without.fields("fft")[-1] - reference.fields("fft")[-1]) / scale
-        > 1e-5
     )
 
 
@@ -3268,26 +3269,26 @@ def test_the_seeded_reduced_ctc_case_forms_the_raman_cascade():
 
 
 @pytest.mark.slow
-def test_the_reduced_ctc_native_field_matches_fresh_numba(test_backend_name):
-    """The native backend against a fresh ``numba_cpu`` run, seeded by shot noise.
+def test_the_reduced_ctc_native_field_matches_fresh_numpy_ref(test_backend_name):
+    """The native backend against a fresh ``numpy_ref`` run, seeded by shot noise.
 
     Hydrogen's Raman gain amplifies whatever seeds the Stokes band. Noise-free, that is
-    each backend's own rounding: the two agree to 1.7e-15 at the first plane and only
-    to 6e-6 at the exit, where 5 % of the energy is Stokes light grown from it. Input
+    each backend's own rounding: the two agree to 7.9e-15 at the first plane and only
+    to 3.4e-6 at the exit, where 5 % of the energy is Stokes light grown from it. Input
     shot noise of a fixed seed is the same physical seed on both, about 1e9 times
     the rounding in amplitude, so the comparison at the exit measures the backends
-    again: 5.2e-11 at this seed (1.4e-10 at the next), at identical accepted steps
+    again: 9.0e-11 at this seed (4.4e-10 at the next), at identical accepted steps
     (4937), with 48 % of the energy in the Stokes band.
     """
     if test_backend_name != "native":
         pytest.skip("run with SOLPROP_TEST_BACKEND=native for the backend comparison")
     native = ctc_run(CTC_REDUCED, "REDUCED", backend="native", seed=CTC_SEED)
-    numba = ctc_run(CTC_REDUCED, "REDUCED", backend="numba_cpu", seed=CTC_SEED)
+    reference = ctc_run(CTC_REDUCED, "REDUCED", backend="numpy_ref", seed=CTC_SEED)
     assert int(np.sum(native["step_history/accepted"])) == int(
-        np.sum(numba["step_history/accepted"])
+        np.sum(reference["step_history/accepted"])
     )
     actual = native.fields("fft")[-1]
-    expected = numba.fields("fft")[-1]
+    expected = reference.fields("fft")[-1]
     relative_l2 = np.linalg.norm(actual - expected) / np.linalg.norm(expected)
     assert relative_l2 < 1e-9
 

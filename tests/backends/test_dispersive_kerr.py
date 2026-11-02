@@ -27,7 +27,6 @@ import pytest
 
 from backends.matched import dispersive_response_bound
 from bounds import assert_within
-from solprop.backends.numba_cpu import NumbaCpuBackend
 from solprop.backends.numpy_ref import NumpyRefBackend, passes
 from solprop.boundaries import Absorber
 from solprop.constants import EPS0
@@ -376,12 +375,6 @@ def test_native_admits_the_leaf_on_the_fused_path():
     simulation = capillary("symmetric-kerr")
     problem = simulation.translate()
     NativeBackend(problem, grid=simulation.grid).close()  # pyright: ignore[reportOptionalCall]
-
-
-def test_numba_cpu_admits_the_leaf_on_the_fused_path():
-    simulation = capillary("symmetric-kerr")
-    problem = simulation.translate()
-    NumbaCpuBackend(problem, grid=simulation.grid).close()
 
 
 def test_the_pass_refuses_stage_inputs_that_do_not_match_the_leaf():

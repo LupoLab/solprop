@@ -5,12 +5,12 @@
 """Exercise power-row refusals and the unit-index statistics boundary."""
 
 from dataclasses import dataclass, replace
+from typing import Any
 
 import numpy as np
 import pytest
 
-from solprop.backends.numba_cpu import NumbaCpuBackend
-from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends import available, select
 from solprop.driver import Simulation, SimulationSettings
 from solprop.exceptions import (
     BackendError,
@@ -268,12 +268,12 @@ def test_a_taper_with_a_floored_vacuum_end_translates():
         np.testing.assert_allclose(actual, expected, rtol=0.0, atol=bound)
 
 
-@pytest.mark.parametrize("backend_class", [NumpyRefBackend, NumbaCpuBackend])
+@pytest.mark.parametrize("name", ["numpy_ref", "numba_cpu", "native"])
 @pytest.mark.parametrize("with_modes", [False, True])
 @pytest.mark.filterwarnings("ignore::solprop.exceptions.MaterialRangeWarning")
-def test_unit_index_intensity_retains_the_vacuum_limit(
-    grid, launch, backend_class, with_modes
-):
+def test_unit_index_intensity_retains_the_vacuum_limit(grid, launch, name, with_modes):
+    if name not in available():
+        pytest.skip(f"the {name} backend is not installed")
     mode = MarcatiliMode(125e-6, "Ar", 1.0, cladding=1.45, loss=False)
     problem = assemble(
         grid,
@@ -286,7 +286,10 @@ def test_unit_index_intensity_retains_the_vacuum_limit(
         dz_max=grid.length,
         dz_init=grid.length,
     )
-    backend = backend_class(problem, grid=grid, modes=(mode,) if with_modes else None)
+    # A step driver that is also a closable backend: no one static type names both.
+    backend: Any = select(
+        name, problem, grid=grid, modes=(mode,) if with_modes else None
+    )
     spec = StatsSpec(names=("peak_intensity",))
     try:
         backend.set_initial(problem.initial.field0, None)

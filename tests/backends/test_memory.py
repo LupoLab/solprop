@@ -6,8 +6,8 @@
 
 :func:`solprop.backends.memory.estimate_memory` must equal what a constructed backend's
 :meth:`memory_ledger` holds, group by group and to the byte, on every case of
-``tests/memory_cases.py`` -- the route groups on all three backends, the ``base`` group
-on the reference whose rows it is.
+``tests/memory_cases.py`` -- the route groups on both backends, the ``base`` group on
+the reference whose rows it is.
 """
 
 import dataclasses
@@ -51,9 +51,7 @@ CASES = [
     for case in ("general", "raman", "wall", "te_tm", "taper", "split")
     for size in (0, 1)
 ]
-BACKENDS = [
-    name for name in ("numpy_ref", "numba_cpu", "native") if name in available()
-]
+BACKENDS = [name for name in ("numpy_ref", "native") if name in available()]
 ROUTE_GROUPS = tuple(group for group in MEMORY_GROUPS if group != "base")
 
 
@@ -103,7 +101,7 @@ def test_estimate_memory_equals_the_ledger_to_the_byte(problems, case, size, bac
     assert estimate.not_counted
 
 
-@pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu", "native"])
+@pytest.mark.parametrize("backend", ["numpy_ref", "native"])
 def test_estimate_memory_of_the_legacy_route_is_its_base(gnlse_problem, backend):
     estimate = estimate_memory(gnlse_problem, backend)
     assert estimate.total == estimate.groups["base"] > 0
@@ -158,7 +156,7 @@ def test_ledger_groups_sorts_every_route_row():
 
 
 def test_memory_estimate_orders_its_largest_groups():
-    estimate = MemoryEstimate("numba_cpu", {"base": 3, "general_maps": 7, "x": 0})
+    estimate = MemoryEstimate("native", {"base": 3, "general_maps": 7, "x": 0})
     assert estimate.largest(5) == (("general_maps", 7), ("base", 3))
     assert estimate.total == 10
 
@@ -205,14 +203,14 @@ def test_estimate_memory_counts_the_bins_formed_by_scaling_and_squaring(
         assert ledger["flow_fallback"] > 0
 
 
-@pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu"])
-def test_estimate_memory_of_a_moving_guide_equals_the_ledger_to_the_byte(backend):
+def test_estimate_memory_of_a_moving_guide_equals_the_ledger_to_the_byte():
     """The kinked graded-index taper: every coefficient of each map and the stage maps.
 
-    ``numpy_ref`` and ``numba_cpu`` hold the same map rows, the coefficients and the
-    two maps a stage evaluates, and every other route group by their own formulas;
-    Kokkos has its own test below.
+    ``numpy_ref`` holds the map rows, the coefficients and the two maps a stage
+    evaluates, and every other route group by its own formulas; Kokkos has its own test
+    below.
     """
+    backend = "numpy_ref"
     grid = grin_grid()
     simulation = build(grin_taper(kinked_radius(), kerr=True), grid)
     simulation.settings = dataclasses.replace(simulation.settings, absorber=None)
@@ -293,7 +291,7 @@ GUIDE_GROUPS = ("general_reference", "general_maps", "general_chunk")
 
 
 @pytest.mark.parametrize("moving", [False, True], ids=["snapshot", "moving"])
-@pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu", "native"])
+@pytest.mark.parametrize("backend", ["numpy_ref", "native"])
 def test_the_guide_estimate_equals_the_translated_one_to_the_byte(moving, backend):
     """The declared shape gives the route's three groups before anything is built.
 
@@ -365,15 +363,15 @@ def _adams_problem(case: str, formulation: str):
 @pytest.mark.parametrize(
     "case", ["gnlse", "capillary (pressure gradient)", "cartesian"]
 )
-@pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu", "native"])
+@pytest.mark.parametrize("backend", ["numpy_ref", "native"])
 @pytest.mark.parametrize("order", [1, 5, 6])
 @pytest.mark.parametrize("interpolate", [False, True])
 def test_the_adams_history_is_estimated_to_the_byte(
     backend, case, formulation, order, interpolate
 ):
     # SEP 16 phase 3b: the history's rows on every backend -- the host engine's store,
-    # a varying operator's state and rate rows, numba_cpu's moment scratch and
-    # the native backend's resident engine -- equal their construction-free estimate.
+    # a varying operator's state and rate rows and the native backend's resident
+    # engine -- equal their construction-free estimate.
     if backend not in available():
         pytest.skip(f"{backend} is not installed")
     simulation, problem = _adams_problem(case, formulation)
@@ -447,7 +445,7 @@ def test_a_controller_s_own_scale_is_not_held_in_the_native_engine():
 
 
 @pytest.mark.parametrize("case", ["scalar", "taper"])
-@pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu", "native"])
+@pytest.mark.parametrize("backend", ["numpy_ref", "native"])
 def test_the_coupled_adams_history_is_estimated_to_the_byte(backend, case):
     # SEP 16 phases 5 and 6: beside a coupled flow the exponential formulation's
     # history -- with a frozen-residual flow's compensation rows, and on ``native`` the
@@ -488,14 +486,14 @@ DISPERSIVE_CASES = {
 
 
 @pytest.mark.parametrize("case", sorted(DISPERSIVE_CASES))
-@pytest.mark.parametrize("backend", ["numba_cpu", "native"])
-def test_the_dispersive_buffers_are_estimated_to_the_byte(backend, case):
+def test_the_dispersive_buffers_are_estimated_to_the_byte(case):
     # SEP 6, Phase 2c's open question 3 (decided 2026-10-08): on the fused node path
-    # both compiled backends hold the response's filtered fields, node slots, products
+    # the native backend holds the response's filtered fields, node slots, products
     # and spectra by one rule, and the estimate counts them in `base`, row for row.
+    backend = "native"
     if backend not in available():
         pytest.skip(f"{backend} is not installed")
-    from backends.test_numba_dispersive_kerr import capillary  # noqa: PLC0415
+    from backends.dispersive_cases import capillary  # noqa: PLC0415
 
     policy, options = DISPERSIVE_CASES[case]
     simulation = capillary(policy, **options)
@@ -517,12 +515,12 @@ def test_the_dispersive_buffers_are_estimated_to_the_byte(backend, case):
     ] + sum(rows.values())
 
 
-@pytest.mark.parametrize("backend", ["numba_cpu", "native"])
-def test_chunked_dispersive_node_slots_are_estimated_to_the_byte(backend):
+def test_chunked_dispersive_node_slots_are_estimated_to_the_byte():
     # Five chunks of eight nodes: the node slots are a chunk's, the rest the columns'.
+    backend = "native"
     if backend not in available():
         pytest.skip(f"{backend} is not installed")
-    from backends.test_numba_dispersive_kerr import capillary  # noqa: PLC0415
+    from backends.dispersive_cases import capillary  # noqa: PLC0415
 
     simulation = capillary("gas-polynomial")
     problem = simulation.translate()
@@ -542,9 +540,9 @@ def test_chunked_dispersive_node_slots_are_estimated_to_the_byte(backend):
 
 
 def test_the_spatial_dispersive_buffers_are_the_admitted_ones():
-    # The Cartesian route counts, as the general route's chunk does, the buffers per
-    # node and component its node budget admits for the response; numba_cpu holds no
-    # more than that. Kokkos's own rows are held to its ledger to the byte
+    # The Cartesian route's node budget admits, as the general route's chunk does, the
+    # buffers per node and component the response takes; Kokkos's rows are no more than
+    # that, and are held to its ledger to the byte
     # (`test_native_dispersive_routes.py`, SEP 6 Phase 3b).
     from backends.test_dispersive_kerr_routes import (  # noqa: PLC0415
         ARGON,
@@ -560,10 +558,7 @@ def test_the_spatial_dispersive_buffers_are_the_admitted_ones():
     transform = problem.transform
     chunk = min(transform.node_chunk, transform.n_nodes)
     components = transform.n_pol * problem.shape[2]
-    rows = dispersive_memory(problem, "numba_cpu")
-    assert rows == {
-        "dispersive_node_buffers": 16 * chunk * components * buffers * grid.n_to
-    }
+    admitted = 16 * chunk * components * buffers * grid.n_to
     native = dispersive_memory(problem, "native")
     assert set(native) == {
         "dispersive_filtered_time",
@@ -580,7 +575,10 @@ def test_the_spatial_dispersive_buffers_are_the_admitted_ones():
         "dispersive_products": 3 * field,
         "dispersive_product_spectra": 3 * field,
     }
-    constructed = select("numba_cpu", problem, grid=grid)
+    assert 0 < sum(native.values()) <= admitted
+    if "native" not in available():
+        pytest.skip("native is not installed")
+    constructed = select("native", problem, grid=grid)
     try:
         ledger = constructed.memory_ledger()
     finally:
@@ -591,4 +589,4 @@ def test_the_spatial_dispersive_buffers_are_the_admitted_ones():
         if row.startswith("dispersive_")
         and row not in ("dispersive_multipliers", "dispersive_fft_plan_heap_growth")
     )
-    assert 0 < held <= rows["dispersive_node_buffers"]
+    assert 0 < held <= admitted
