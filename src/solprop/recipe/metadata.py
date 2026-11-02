@@ -37,7 +37,9 @@ if TYPE_CHECKING:
     from solprop.driver.simulation import Simulation
 
 __all__ = [
+    "OBJECT_ROUTES",
     "REQUIRED",
+    "SETTINGS_KEYWORDS",
     "ElementUnits",
     "Form",
     "FormKind",
@@ -104,6 +106,22 @@ class _Required:
 
 REQUIRED: Final = _Required()
 """The default :func:`parameters` records for a keyword the caller must give."""
+
+OBJECT_ROUTES: Final = ("radial", "free", "planar")
+"""The routes whose ``[build]`` keywords are objects: grids, medium, beam and settings.
+
+Their ``Simulation.from_*`` takes the time grid, the transverse grid, the medium, the
+responses and the beam positionally, and the stepping in a ``settings`` object; a
+recipe writes each as a table under its keyword's name.
+"""
+
+SETTINGS_KEYWORDS: Final = ("absorber", "absorber_scheme")
+"""Keywords of an object route's constructor that a recipe writes under ``settings``.
+
+``prop_radial``, ``prop_free`` and ``prop_planar`` apply them to their settings; a
+recipe holds the ``from_*`` form, so they are keywords of its ``settings`` table
+(SEP 41 section 5.1), and the route's table does not list them.
+"""
 
 
 @dataclass(frozen=True)
@@ -244,13 +262,17 @@ def _precision(values: Mapping[str, object]) -> str:
     Parameters
     ----------
     values : collections.abc.Mapping
-        The recipe's values.
+        The recipe's values; on an object route the precision is a keyword of its
+        ``settings`` table.
 
     Returns
     -------
     str
         ``"double"`` unless the recipe sets ``"single"``.
     """
+    settings = values.get("settings")
+    if isinstance(settings, Mapping):
+        values = settings
     return "single" if values.get("precision") == "single" else "double"
 
 
@@ -409,8 +431,9 @@ def _noise(route: str) -> Resolver:
         """
         row = _row(route, values)
         model, resolution = resolve_noise(row, "default", None, _precision(values))
+        per = "transverse column" if route in OBJECT_ROUTES else "mode"
         return Resolution(
-            model, resolution.reason or "one photon per mode on the input"
+            model, resolution.reason or f"one photon per {per} on the input"
         )
 
     return resolve
@@ -639,8 +662,8 @@ def _shared(route: str) -> tuple[Parameter, ...]:
 
     Parameters
     ----------
-    route : {'gnlse', 'capillary', 'waveguide'}
-        The route.
+    route : str
+        The route, one of :data:`solprop.recipe.core.ROUTES`.
 
     Returns
     -------
@@ -1230,7 +1253,7 @@ def _capillary() -> tuple[Parameter, ...]:
             "plasma",
             (
                 _BOOLEAN,
-                Form("object", types=("OptmatRate",), recipe=False),
+                Form("object", types=("OptmatRate",)),
                 Form("mapping"),
             ),
             "nonlinear",
@@ -1411,7 +1434,7 @@ def _waveguide() -> tuple[Parameter, ...]:
         ),
         Parameter(
             "incident",
-            (Form("object", types=("SpatialPulse",), recipe=False),),
+            (Form("object", types=("SpatialPulse",)),),
             "input",
             "advanced",
             "An incident beam coupled into a provider's channels.",
@@ -1496,6 +1519,116 @@ def _waveguide() -> tuple[Parameter, ...]:
     )
 
 
+_SPACES: Final[Mapping[str, tuple[str, ...]]] = {
+    "radial": ("RadialGrid",),
+    "free": ("FreeGrid", "LineGrid"),
+    "planar": ("PlanarGrid",),
+}
+"""The transverse grids each object route takes."""
+
+_RESPONSES: Final = (
+    "KerrResponse",
+    "EnvelopePlasmaResponse",
+    "PlasmaResponse",
+)
+"""The registered responses an object route's ``responses`` may list."""
+
+
+def _free_space(route: str) -> tuple[Parameter, ...]:
+    """Return an object route's own keywords.
+
+    The noise, seed, material selection and boundary check are the shared entries
+    (:func:`_route_entries`); the absorber and its scheme are keywords of the
+    ``settings`` table (:data:`SETTINGS_KEYWORDS`).
+
+    Parameters
+    ----------
+    route : {'radial', 'free', 'planar'}
+        The route.
+
+    Returns
+    -------
+    tuple of Parameter
+        The entries not shared with the keyword routes.
+    """
+    beams = "guide/free-space/beams.md"
+    planar = "guide/waveguides/planar.md#resolving-y"
+    space_page = planar if route == "planar" else f"{beams}#choosing-a-grid"
+    beam = (
+        Form("object", types=("PlanarPulse",))
+        if route == "planar"
+        else Form("object", types=("SpatialPulse",))
+    )
+    return (
+        Parameter(
+            "grid",
+            (_GRID,),
+            "grid",
+            "basic",
+            "The time grid: a field grid or an envelope grid.",
+            "guide/setup/grids.md",
+        ),
+        Parameter(
+            "space",
+            (Form("object", types=_SPACES[route]),),
+            "geometry",
+            "basic",
+            "The transverse grid, with the room outside it for a collar."
+            if route != "planar"
+            else "The slab modes in x, with their fill, and the y axis.",
+            space_page,
+        ),
+        Parameter(
+            "medium",
+            (Form("object", types=("SpatialMedium",)),),
+            "medium",
+            "basic",
+            "The bulk medium: a gas at a pressure, a constant index, or vacuum.",
+            f"{beams}#a-beam-in-argon",
+        ),
+        Parameter(
+            "responses",
+            (Form("object", types=_RESPONSES),),
+            "nonlinear",
+            "basic",
+            "The nonlinear responses; none is linear propagation.",
+            f"{beams}#ionisation-plasma-and-filamentation",
+        ),
+        Parameter(
+            "initial",
+            (beam, Form("array", recipe=False)),
+            "input",
+            "basic",
+            "The launched beam, or a built spectrum, which only Python carries.",
+            planar if route == "planar" else f"{beams}#a-beam-in-argon",
+        ),
+        Parameter(
+            "settings",
+            (Form("object", types=("SimulationSettings",)),),
+            "numerics",
+            "basic",
+            "Stepping, saved planes, statistics, absorber and backend.",
+            "guide/free-space/model.md#construct-and-run-a-beam",
+        ),
+        Parameter(
+            "frame",
+            (Form("object", types=("Frame",), recipe=False),),
+            "numerics",
+            "advanced",
+            "The moving frame; none follows the responses' choice.",
+            "guide/free-space/model.md#exact-longitudinal-operator",
+        ),
+        Parameter(
+            "spatial_absorber",
+            (Form("object", types=("SpatialAbsorber",)), _BOOLEAN),
+            "numerics",
+            "advanced",
+            "The transverse boundary: a designed collar, or false for no ramp.",
+            "guide/free-space/model.md#transverse-boundaries",
+        ),
+    )
+
+
 _EXECUTION: Final = (
     Parameter(
         "fields",
@@ -1543,7 +1676,7 @@ def _route_entries(route: str) -> tuple[Parameter, ...]:
 
     Parameters
     ----------
-    route : {'gnlse', 'capillary', 'waveguide'}
+    route : str
         The route, already checked by :func:`surface`.
 
     Returns
@@ -1555,6 +1688,9 @@ def _route_entries(route: str) -> tuple[Parameter, ...]:
         "gnlse": (_gnlse(),),
         "capillary": (_capillary(),),
         "waveguide": (_waveguide(), _capillary()),
+        "radial": (_free_space("radial"),),
+        "free": (_free_space("free"),),
+        "planar": (_free_space("planar"),),
     }[route]
     entries: dict[str, Parameter] = {}
     for layer in (*layers, _shared(route)):
@@ -1568,14 +1704,14 @@ def surface(route: str) -> "Callable[..., Simulation]":  # noqa: UP037 - run tim
 
     Parameters
     ----------
-    route : {'gnlse', 'capillary', 'waveguide'}
-        The route.
+    route : str
+        The route, one of :data:`solprop.recipe.core.ROUTES`.
 
     Returns
     -------
     callable
-        ``Simulation.from_gnlse``, ``Simulation.from_capillary`` or
-        ``Simulation.from_waveguide``.
+        The route's ``Simulation.from_*``: ``from_gnlse``, ``from_capillary``,
+        ``from_waveguide``, ``from_radial``, ``from_free`` or ``from_planar``.
 
     Raises
     ------
@@ -1594,13 +1730,16 @@ def surface(route: str) -> "Callable[..., Simulation]":  # noqa: UP037 - run tim
         "gnlse": Simulation.from_gnlse,
         "capillary": Simulation.from_capillary,
         "waveguide": Simulation.from_waveguide,
+        "radial": Simulation.from_radial,
+        "free": Simulation.from_free,
+        "planar": Simulation.from_planar,
     }
     try:
         return builders[route]
     except KeyError:
         msg = (
-            f"no recipe surface for route {route!r}; the routes are gnlse, "
-            "capillary, waveguide"
+            f"no recipe surface for route {route!r}; the routes are "
+            f"{', '.join(builders)}"
         )
         raise DriverError(msg) from None
 
@@ -1610,14 +1749,17 @@ def parameters(route: str) -> Mapping[str, Parameter]:
 
     Parameters
     ----------
-    route : {'gnlse', 'capillary', 'waveguide', 'execution'}
-        A keyword route, or ``"execution"`` for the ``[execution]`` table's keys.
+    route : str
+        A route of :data:`solprop.recipe.core.ROUTES`, or ``"execution"`` for the
+        ``[execution]`` table's keys.
 
     Returns
     -------
     collections.abc.Mapping
         :class:`Parameter` by keyword, in the constructor's order, each with the
-        default its signature declares (``REQUIRED`` where it has none).
+        default its signature declares (``REQUIRED`` where it has none). An object
+        route's table leaves out :data:`SETTINGS_KEYWORDS`, which a recipe writes
+        under ``settings``.
 
     Examples
     --------
@@ -1646,6 +1788,7 @@ def parameters(route: str) -> Mapping[str, Parameter]:
         return MappingProxyType(out)
     signature = inspect.signature(surface(route))
     entries = {entry.name: entry for entry in _route_entries(route)}
+    skipped = SETTINGS_KEYWORDS if route in OBJECT_ROUTES else ()
     # Every keyword of the constructor has an entry, as the metadata tests check.
     ordered = {
         name: dataclasses.replace(
@@ -1655,5 +1798,6 @@ def parameters(route: str) -> Mapping[str, Parameter]:
             else parameter.default,
         )
         for name, parameter in signature.parameters.items()
+        if name not in skipped
     }
     return MappingProxyType(ordered)

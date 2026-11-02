@@ -19,6 +19,7 @@ from solprop.recipe.registry import (
     REGISTRY,
     BuildContext,
     UnitSpec,
+    coerce,
     decode,
     decode_keyword,
     unit_of,
@@ -146,6 +147,12 @@ class _Writer:
             if key in ("type", "file", "sha256"):
                 continue
             rendered = self.expression(item, factory.units.get(key), f"{path}.{key}")
+            if isinstance(item, list) and isinstance(
+                coerce(factory.target, key, []), tuple
+            ):
+                # A parameter typed as a tuple is written as one, as by hand.
+                inner = rendered[1:-1]
+                rendered = f"({inner},)" if len(item) == 1 else f"({inner})"
             arguments.append(f"{key}={rendered}")
         return f"{factory.name}({', '.join(arguments)})"
 

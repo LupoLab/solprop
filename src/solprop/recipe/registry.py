@@ -9,7 +9,8 @@ A recipe names an object by a ``type`` key, which must be an entry of the fixed
 method or module function, with the units of its keywords declared and any **build
 context** it receives declared too. Format 1 defines one context, the route's time
 grid, so ``absorber = {type = "absorber"}`` builds
-``solprop.boundaries.absorber(grid)``.
+``solprop.boundaries.absorber(grid)``; on the free-space routes it is the ``grid``
+keyword itself, and the absorber is a keyword of the ``settings`` table.
 A recipe never imports a module or evaluates code: a type outside the registry is
 refused, and the Python export is the way out.
 
@@ -29,18 +30,36 @@ from typing import Final, Literal
 
 import numpy as np
 
-from solprop.boundaries import absorber
-from solprop.grid import EnvelopeGrid, FieldGrid, TimeGrid
+from solprop.boundaries import SpatialAbsorber, absorber
+from solprop.driver.simulation import SimulationSettings
+from solprop.grid import (
+    EnvelopeGrid,
+    FieldGrid,
+    FreeGrid,
+    LineGrid,
+    RadialGrid,
+    TimeGrid,
+)
 from solprop.modes.antiresonant import TubeLattice
 from solprop.modes.capillary import CoherentWall, MarcatiliMode
 from solprop.modes.collection import ModeCollection
 from solprop.modes.rectangular import RectMode
-from solprop.modes.slab import SlabMode
+from solprop.modes.slab import PlanarGrid, SlabMode
 from solprop.monitor import BoundaryCheck
+from solprop.nonlinear.envelope_plasma import EnvelopePlasmaResponse
+from solprop.nonlinear.optmat_rates import OptmatRate
+from solprop.nonlinear.responses import KerrResponse, PlasmaResponse
 from solprop.physdata.mixtures import Mixture
+from solprop.physdata.nonlinear_data import gamma3
 from solprop.physdata.selection import MaterialSelection
 from solprop.profiles import Constant, Linear, PiecewiseLinear, PressureGradient
-from solprop.pulses import GaussianPulse, SechPulse, load_spectrum
+from solprop.pulses import (
+    GaussianPulse,
+    PlanarPulse,
+    SechPulse,
+    SpatialPulse,
+    load_spectrum,
+)
 from solprop.recipe.document import (
     MAX_ARRAY_LENGTH,
     NONE,
@@ -56,8 +75,9 @@ from solprop.recipe.document import (
 from solprop.recipe.errors import RecipeError
 from solprop.recipe.metadata import Form, Parameter
 from solprop.recipe.quantity import Unit, beta_unit, parse_quantity, phase_unit
-from solprop.stats import StatsSpec
-from solprop.stepper import LowStorageRungeKutta, Multistep, RungeKutta
+from solprop.spatial import SpatialMedium
+from solprop.stats import StatsSpec, default_spec
+from solprop.stepper import LowStorageRungeKutta, Multistep, PIController, RungeKutta
 from solprop.stepper.schedule import FixedSchedule
 
 __all__ = [
@@ -74,7 +94,7 @@ __all__ = [
 ]
 
 Context = Literal["grid"]
-"""What a factory may be given besides its keywords: format 1 defines the grid."""
+"""What a factory may be given besides its keywords: format 1 defines the time grid."""
 
 UnitSpec = str | Callable[[int], Unit] | None
 """A keyword's unit: one unit string, a rule by element index, or none."""
@@ -97,6 +117,10 @@ class BuildContext:
     embedded : collections.abc.Mapping
         Data files held in memory by the name the recipe refers to them by, as a
         run's output embeds them (SEP 41, S2); read before the directory.
+    mode_fill : bool
+        Whether a supplied mode may name its own fill (:attr:`Factory.fill`): on the
+        planar route, whose slab channels carry the run's fill. The guided routes
+        rebind every supplied mode to their own fill, so there it may not.
 
     Examples
     --------
@@ -109,6 +133,7 @@ class BuildContext:
     allow_outside: bool = False
     grid: TimeGrid | None = None
     embedded: Mapping[str, bytes] = field(default_factory=dict)
+    mode_fill: bool = False
 
 
 @dataclass(frozen=True)
@@ -134,6 +159,10 @@ class Factory:
         Keywords of the target that a recipe may not give, so that they are not part
         of the format: ``RungeKutta``'s ``tableau``, and a mode's own fill, which the
         route replaces with its own.
+    fill : tuple of str
+        A mode's own fill keywords, which a recipe gives only where the context
+        allows a mode its fill (:attr:`BuildContext.mode_fill`): the slab channels of
+        the planar route, whose fill is the run's.
 
     Examples
     --------
@@ -148,6 +177,7 @@ class Factory:
     context: tuple[Context, ...] = ()
     data_file: str | None = None
     omitted: tuple[str, ...] = ()
+    fill: tuple[str, ...] = ()
 
 
 def _pressure_pair(index: int) -> Unit:
@@ -200,6 +230,51 @@ _MODE_FILL: Final = ("gas", "pressure", "temperature", "susceptibility", "mixtur
 The waveguide and capillary routes rebind every supplied mode to the route's fill
 (``with_mixture``), keeping only its geometry, cladding and loss, so the fill a mode
 was built with never reaches the run: in a recipe the fill is the route's keywords.
+"""
+
+_SLAB_FILL: Final = ("gas", "pressure", "temperature")
+"""A slab mode's own fill: the run's fill on the planar route, the route's elsewhere.
+
+The planar route takes its fill from its slab channels, so there a slab mode names its
+gas, pressure and temperature; the waveguide route rebinds every mode to its own fill
+and refuses them. A supplied susceptibility has no table form, and the planar route
+takes no mixture.
+"""
+
+_SLAB_UNITS: Final[Mapping[str, UnitSpec]] = {
+    "half_gap": "m",
+    "pressure": "bar",
+    "temperature": "K",
+}
+_BEAM_UNITS: Final[Mapping[str, UnitSpec]] = {
+    "waist": "m",
+    "propz": "m",
+    "displacement": "m",
+    "tilt": "rad",
+}
+_EXECUTION_FIELDS: Final = ("fields", "field_planes", "resume_history")
+"""The settings a recipe's ``[execution]`` table holds, and so no ``settings`` table."""
+
+_SETTINGS_OMITTED: Final = (
+    *_EXECUTION_FIELDS,
+    "auto_init",
+    "density",
+    "prefactor_index",
+    "quadrature",
+    "components",
+    "adiabatic_accuracy",
+    "tdse_execution",
+    "_default_integrator",
+    "_route",
+    "_default_controller",
+)
+"""The settings fields a ``SimulationSettings`` table does not take.
+
+The execution settings are ``[execution]``'s. The rest are not the free-space routes'
+to give: the start-up rule follows ``dz_init``, the
+density, prefactor index, transverse quadrature and components are set by a route's
+builder, an adiabatic budget and a TDSE's resources have no registered type, and the
+underscored fields are private.
 """
 
 _FILL_UNITS: Final[Mapping[str, UnitSpec]] = {
@@ -270,26 +345,94 @@ REGISTRY: Final[Mapping[str, Factory]] = {
             {"half_width_x": "m", "half_width_y": "m"},
             omitted=_MODE_FILL,
         ),
-        Factory("SlabMode", SlabMode, {"half_gap": "m"}, omitted=_MODE_FILL),
+        Factory(
+            "SlabMode",
+            SlabMode,
+            _SLAB_UNITS,
+            omitted=("susceptibility", "mixture"),
+            fill=_SLAB_FILL,
+        ),
         Factory(
             "ModeCollection.slab",
             ModeCollection.slab,
-            {"half_gap": "m"},
-            omitted=_MODE_FILL,
+            _SLAB_UNITS,
+            omitted=("susceptibility", "mixture"),
+            fill=_SLAB_FILL,
         ),
         Factory("MaterialSelection", MaterialSelection, {"carrier_wavelength": "m"}),
+        # The free-space routes: grids, medium, responses, beams and settings.
+        Factory("RadialGrid", RadialGrid, {"radius": "m"}),
+        Factory("FreeGrid", FreeGrid, {"radius_x": "m", "radius_y": "m"}),
+        Factory("LineGrid", LineGrid, {"radius_x": "m"}),
+        Factory("PlanarGrid", PlanarGrid, {"radius_y": "m"}),
+        Factory(
+            "SpatialMedium",
+            SpatialMedium,
+            {"pressure": "bar", "temperature": "K"},
+            omitted=("susceptibility",),
+        ),
+        Factory("KerrResponse", KerrResponse),
+        Factory("gamma3", gamma3, {"wavelength": "m"}),
+        Factory("EnvelopePlasmaResponse", EnvelopePlasmaResponse),
+        Factory("PlasmaResponse", PlasmaResponse),
+        Factory(
+            "OptmatRate",
+            OptmatRate,
+            {"wavelength": "m", "negligible_rate": "s^-1", "maximum": "s^-1"},
+        ),
+        Factory("SpatialPulse", SpatialPulse, _BEAM_UNITS),
+        Factory(
+            "PlanarPulse",
+            PlanarPulse,
+            {**_BEAM_UNITS, "waist_x": "m", "offset_x": "m"},
+        ),
+        Factory(
+            "SimulationSettings",
+            SimulationSettings,
+            {
+                "save_planes": "m",
+                "dz_max": "m",
+                "dz_init": "m",
+                "dz_min": "m",
+                "evanescent_rate": "m^-1",
+            },
+            omitted=_SETTINGS_OMITTED,
+        ),
+        Factory(
+            "PIController",
+            PIController,
+            omitted=("weights", "lag", "estimator_order"),
+        ),
+        Factory(
+            "SpatialAbsorber",
+            SpatialAbsorber,
+            {"kappa": "rad/m", "angle": "rad", "discard_above": "rad/m"},
+        ),
+        Factory("default_spec", default_spec),
     )
 }
 """The types a recipe may name, keyed by the ``type`` it writes (SEP 41 section 5.1).
 
-The documented user-facing types of the ``gnlse``, ``capillary`` and ``waveguide``
-routes. Every keyword of an entry is part of recipe format 1, so the registry starts
-small: adding an entry later is additive, removing one is not. ``RungeKutta`` takes no
-``tableau`` in a recipe, whose default is the only one the interfaces document. The
-supplied modes (``MarcatiliMode``, ``RectMode``, ``SlabMode`` and
-``ModeCollection.slab``) take their geometry, cladding and loss and not their fill,
-which the route sets. A guide built from a provider has no table form: its knots and
-node rule are derived from the run's grid and the provider's own method.
+The documented user-facing types of the ``gnlse``, ``capillary``, ``waveguide``,
+``radial``, ``free`` and ``planar`` routes. Every keyword of an entry is part of
+recipe format 1, so the registry starts small: adding an entry later is additive,
+removing one is not. ``RungeKutta`` takes no ``tableau`` in a recipe, whose default is
+the only one the interfaces document. The supplied modes (``MarcatiliMode``,
+``RectMode``, ``SlabMode`` and ``ModeCollection.slab``) take their geometry, cladding
+and loss and not their fill, which the route sets; on the planar route a slab mode's
+fill is the run's, so there it names one (:attr:`Factory.fill`). A guide built from a
+provider has no table form: its knots and node rule are derived from the run's grid
+and the provider's own method.
+
+The free-space routes register their grids (``RadialGrid``, ``FreeGrid``,
+``LineGrid``, ``PlanarGrid``), the medium (``SpatialMedium``, without a supplied
+susceptibility), the responses the free-space guide uses (``KerrResponse``, with
+``gamma3`` for optmat's coefficient of a gas, ``EnvelopePlasmaResponse``,
+``PlasmaResponse`` and ``OptmatRate``), the beams (``SpatialPulse``,
+``PlanarPulse``), their settings (``SimulationSettings`` without the execution
+settings, which are ``[execution]``'s, nor the fields a route's builder sets;
+``PIController`` without its per-bin weights, history lag and estimator order;
+``default_spec``) and the transverse boundary (``SpatialAbsorber``).
 """
 
 _ELEMENTS: Final[Mapping[str, Callable[[int], Unit]]] = {
@@ -539,6 +682,9 @@ def build_object(
         if key == factory.data_file:
             arguments[key] = item
             continue
+        if factory.target is SimulationSettings and key in _EXECUTION_FIELDS:
+            msg = f"{key} is set in the recipe's [execution] table, not in settings"
+            raise RecipeError(msg, path=f"{path}.{key}")
         if key not in accepted:
             raise unknown_key(
                 key,
@@ -546,6 +692,12 @@ def build_object(
                 where=f"the keywords of {factory.name}",
                 path=path,
             )
+        if key in factory.fill and not context.mode_fill:
+            msg = (
+                f"{key!r} is the route's: every supplied mode is rebound to the "
+                "route's gas, pressure and temperature, so a mode table names no fill"
+            )
+            raise RecipeError(msg, path=path)
         decoded = decode(item, factory.units.get(key), context, f"{path}.{key}")
         arguments[key] = coerce(factory.target, key, decoded)
     try:
@@ -737,7 +889,7 @@ def decode_keyword(entry: Parameter, value: object, context: BuildContext) -> ob
     if isinstance(value, str) and "integer" in kinds and "number" not in kinds:
         # An integer beyond 64 bits, such as a drawn seed, is written as a string.
         return decode_integer(value, path=entry.name)
-    if not any(form.recipe for form in entry.forms):
+    if not any(form.recipe for form in entry.forms) or _python_array(entry, value):
         msg = (
             f"{entry.name} takes a Python object or function that a recipe cannot "
             "hold; use the Python export (Recipe.to_python)"
@@ -748,6 +900,35 @@ def decode_keyword(entry: Parameter, value: object, context: BuildContext) -> ob
         msg = f"{entry.name} takes one row of numbers, not a list of rows"
         raise RecipeError(msg, path=entry.name)
     return decode(value, unit, context, entry.name)
+
+
+def _python_array(entry: Parameter, value: object) -> bool:
+    """Return whether a value is an array for a keyword whose array only Python holds.
+
+    An object route's ``initial`` takes a built spectrum as well as a beam: its array
+    form is marked as not a recipe's, so a list or a data file given there is refused
+    rather than passed on.
+
+    Parameters
+    ----------
+    entry : Parameter
+        The keyword's metadata.
+    value : object
+        The value as TOML read it.
+
+    Returns
+    -------
+    bool
+        True when the value is a list or a data-file reference and every array form
+        of the keyword is one a recipe cannot hold.
+    """
+    arrays = [form for form in entry.forms if form.kind in ("pair", "array")]
+    reference = isinstance(value, Mapping) and set(value) == {"file", "sha256"}
+    return (
+        bool(arrays)
+        and not any(form.recipe for form in arrays)
+        and (isinstance(value, list) or reference)
+    )
 
 
 def _numeric_rows(entry: Parameter, value: object) -> bool:

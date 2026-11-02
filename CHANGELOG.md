@@ -116,6 +116,17 @@ All notable changes to solprop are recorded here. The format follows
   representation, size)` makes a small figure of a route for a front end's picker. Colours
   come from an explicit `Palette` (`LIGHT`, `DARK`). The user guide's cross-section
   figures draw their outlines from it.
+- Recipes on the free-space routes
+  ([SEP 41](https://solprop.readthedocs.io/en/latest/dev/seps/sep-0041-recipes-and-front-ends.html)):
+  `radial`, `free` and `planar` recipes write the grids, medium, responses, beam and
+  settings as tables of registered types (`RadialGrid`, `FreeGrid`, `LineGrid`,
+  `PlanarGrid`, `SpatialMedium`, `KerrResponse` with `gamma3`,
+  `EnvelopePlasmaResponse`, `PlasmaResponse`, `OptmatRate`, `SpatialPulse`,
+  `PlanarPulse`, `SimulationSettings`, `PIController`, `default_spec`,
+  `SpatialAbsorber`), the absorber under `settings`; the Cartesian and planar
+  tutorials and the planar compressor ship as examples; `Recipe.preview_input()` gives a
+  free-space beam's power, energy and fluence at the launch plane, and `Recipe.modes()`
+  the planar route's slab channels.
 
 ### Changed
 

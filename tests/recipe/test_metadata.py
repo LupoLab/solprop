@@ -14,7 +14,14 @@ import pytest
 
 from solprop.driver import Simulation
 from solprop.driver.defaults import default_rtol
-from solprop.driver.interface import prop_capillary, prop_gnlse, prop_waveguide
+from solprop.driver.interface import (
+    prop_capillary,
+    prop_free,
+    prop_gnlse,
+    prop_planar,
+    prop_radial,
+    prop_waveguide,
+)
 from solprop.driver.simulation import SimulationSettings
 from solprop.exceptions import DriverError
 from solprop.modes import MarcatiliMode, ModeCollection
@@ -22,17 +29,27 @@ from solprop.recipe import metadata
 from solprop.recipe.document import EXECUTION_KEYS, REFUSED_BUILD_KEYS
 from solprop.recipe.quantity import Unit
 
-ROUTES = ("gnlse", "capillary", "waveguide")
+ROUTES = ("gnlse", "capillary", "waveguide", "radial", "free", "planar")
 DOCS = Path(__file__).resolve().parents[2] / "docs"
 BUILDERS = {
     "gnlse": Simulation.from_gnlse,
     "capillary": Simulation.from_capillary,
     "waveguide": Simulation.from_waveguide,
+    "radial": Simulation.from_radial,
+    "free": Simulation.from_free,
+    "planar": Simulation.from_planar,
 }
-PROPS = {"gnlse": prop_gnlse, "capillary": prop_capillary, "waveguide": prop_waveguide}
+PROPS = {
+    "gnlse": prop_gnlse,
+    "capillary": prop_capillary,
+    "waveguide": prop_waveguide,
+    "radial": prop_radial,
+    "free": prop_free,
+    "planar": prop_planar,
+}
 # from_waveguide's memory_budget admits a guide's tables at build; prop_waveguide has
 # none, so the export writes such a recipe through Simulation.from_waveguide.
-BUILD_ONLY = {"gnlse": set(), "capillary": set(), "waveguide": {"memory_budget"}}
+BUILD_ONLY = {route: set() for route in ROUTES} | {"waveguide": {"memory_budget"}}
 
 
 def _resolve(table, name, values):
@@ -55,7 +72,11 @@ def _accepts_none(function, name):
 @pytest.mark.parametrize("route", ROUTES)
 def test_the_table_names_every_keyword_of_the_constructor(route):
     signature = inspect.signature(BUILDERS[route])
-    assert list(metadata.parameters(route)) == list(signature.parameters)
+    # An object route's absorber and scheme are written under its settings.
+    skipped = metadata.SETTINGS_KEYWORDS if route in metadata.OBJECT_ROUTES else ()
+    expected = [name for name in signature.parameters if name not in skipped]
+    assert list(metadata.parameters(route)) == expected
+    assert set(skipped) <= set(signature.parameters)
 
 
 @pytest.mark.parametrize("route", ROUTES)
@@ -264,6 +285,6 @@ def test_a_required_keyword_says_so():
 
 def test_a_route_without_metadata_is_refused():
     with pytest.raises(DriverError, match="no recipe surface"):
-        metadata.parameters("radial")
-    with pytest.raises(DriverError, match="no recipe surface"):
-        metadata.surface("radial")
+        metadata.parameters("fibre")
+    with pytest.raises(DriverError, match="radial, free, planar"):
+        metadata.surface("fibre")

@@ -37,7 +37,14 @@ from solprop.recipe.document import (
     validate_document,
 )
 from solprop.recipe.errors import RecipeError
-from solprop.recipe.metadata import REQUIRED, Parameter, parameters, surface
+from solprop.recipe.metadata import (
+    OBJECT_ROUTES,
+    REQUIRED,
+    SETTINGS_KEYWORDS,
+    Parameter,
+    parameters,
+    surface,
+)
 from solprop.recipe.paths import format_path, get_path, parse_path, set_path
 from solprop.recipe.quantity import Unit, format_quantity, parse_quantity
 from solprop.recipe.registry import REGISTRY, BuildContext, coerce, decode_keyword
@@ -63,8 +70,13 @@ __all__ = [
     "resume_file",
 ]
 
-ROUTES: Final = ("gnlse", "capillary", "waveguide")
-"""The routes a recipe of format 1 describes in this release (SEP 41)."""
+ROUTES: Final = ("gnlse", "capillary", "waveguide", "radial", "free", "planar")
+"""The routes a recipe of format 1 describes (SEP 41).
+
+The keyword routes ``gnlse``, ``capillary`` and ``waveguide``, and the object routes
+(:data:`~solprop.recipe.metadata.OBJECT_ROUTES`), whose keywords are tables of grids,
+medium, responses, beam and settings.
+"""
 
 _EXAMPLES: Final = "examples"
 """The package directory that holds the example recipes."""
@@ -247,8 +259,8 @@ class Recipe:
 
         Parameters
         ----------
-        route : {'gnlse', 'capillary', 'waveguide'}
-            The route.
+        route : str
+            The route, one of :data:`ROUTES`.
         title : str or None, optional
             The recipe's title.
         **keywords : object
@@ -514,6 +526,12 @@ class Recipe:
         """
         table = self._table()
         for key in self._document["build"]:
+            if key in SETTINGS_KEYWORDS and self.route in OBJECT_ROUTES:
+                msg = (
+                    f"on the {self.route} route a recipe gives {key} in the settings "
+                    f"table, as settings.{key}"
+                )
+                raise RecipeError(msg, path=key)
             if key not in table:
                 raise unknown_key(
                     key,
@@ -624,9 +642,19 @@ class Recipe:
         dict
             Keyword arguments for the route's ``Simulation.from_*``.
         """
+        build = self._document["build"]
+        if grid is None and self.route in OBJECT_ROUTES and "grid" in build:
+            # The time grid is a keyword of its own here: what is built on it, the
+            # settings' absorber, is built on that grid, in one pass.
+            grid = cast(
+                "TimeGrid", self._decode("grid", build["grid"], self._context())
+            )
         context = self._context(grid)
         out: dict[str, object] = {}
-        for name, value in self._document["build"].items():
+        for name, value in build.items():
+            if name == "grid" and self.route in OBJECT_ROUTES:
+                out[name] = grid
+                continue
             if grid is None and _needs_grid(value):
                 continue
             out[name] = self._decode(name, value, context)
@@ -647,7 +675,9 @@ class Recipe:
             return self.resolve().build()
         builder = surface(self.route)
         simulation = builder(**self.keywords())
-        if any(_needs_grid(value) for value in self._document["build"].values()):
+        if self.route not in OBJECT_ROUTES and any(
+            _needs_grid(value) for value in self._document["build"].values()
+        ):
             simulation = builder(**self.keywords(grid=simulation._base_grid))
         execution = self._execution()
         changes = {
@@ -1130,6 +1160,8 @@ class Recipe:
             allow_outside=self._allow_outside,
             grid=grid,
             embedded=self._embedded,
+            # The planar route's slab channels carry the run's fill.
+            mode_fill=self.route == "planar",
         )
 
     def save(self, path: str | Path) -> None:

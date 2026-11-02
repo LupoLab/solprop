@@ -7,8 +7,9 @@ Python script it stands for. The same file runs from a script, from the `solprop
 command, from a batch job or from a front end, and a recipe and the call it stands for
 build the same simulation, configuration hash included.
 
-Recipes describe the `gnlse`, `capillary` and `waveguide` routes in this release; the
-free-space routes follow. They are specified in
+Recipes describe the keyword routes `gnlse`, `capillary` and `waveguide`, and the
+free-space routes `radial`, `free` and `planar`, whose keywords are objects
+([below](#free-space-routes)). They are specified in
 [SEP 41](../../dev/seps/sep-0041-recipes-and-front-ends.md).
 
 ## A recipe
@@ -52,8 +53,11 @@ level, so a keyword added to solprop later can never collide with the format:
 
 The names in `[build]` are the keywords of
 {py:meth}`~solprop.driver.simulation.Simulation.from_capillary`,
-{py:meth}`~solprop.driver.simulation.Simulation.from_gnlse` and
-{py:meth}`~solprop.driver.simulation.Simulation.from_waveguide`, with their meanings and
+{py:meth}`~solprop.driver.simulation.Simulation.from_gnlse`,
+{py:meth}`~solprop.driver.simulation.Simulation.from_waveguide`,
+{py:meth}`~solprop.driver.simulation.Simulation.from_radial`,
+{py:meth}`~solprop.driver.simulation.Simulation.from_free` and
+{py:meth}`~solprop.driver.simulation.Simulation.from_planar`, with their meanings and
 defaults. A keyword left out takes solprop's default when the recipe is built, so a recipe
 follows solprop's improvements; the output records what ran. Keys that choose files,
 terminals or resume behaviour (`output`, `progress`, `progress_period`, `resume`,
@@ -88,9 +92,14 @@ supplies them. An unknown key is refused with the nearest valid one.
   grids (`EnvelopeGrid.from_limits`, `FieldGrid.from_limits`), `StatsSpec`,
   `BoundaryCheck`, `FixedSchedule.uniform`, the integrators (`Multistep`, `RungeKutta`,
   `LowStorageRungeKutta`), `absorber` (built on the route's grid), `TubeLattice`,
-  `CoherentWall`, `MaterialSelection` and the supplied modes (`MarcatiliMode`,
-  `RectMode`, `SlabMode`, `ModeCollection.slab`). A recipe never imports a module or
-  evaluates code.
+  `CoherentWall`, `MaterialSelection`, the supplied modes (`MarcatiliMode`,
+  `RectMode`, `SlabMode`, `ModeCollection.slab`), and the free-space types: the grids
+  (`RadialGrid`, `FreeGrid`, `LineGrid`, `PlanarGrid`), `SpatialMedium`, the responses
+  (`KerrResponse`, with `gamma3` for optmat's coefficient of a gas,
+  `EnvelopePlasmaResponse`, `PlasmaResponse`, `OptmatRate`), the beams
+  (`SpatialPulse`, `PlanarPulse`), `SimulationSettings`, `PIController`,
+  `default_spec` and `SpatialAbsorber`. A recipe never imports a module or evaluates
+  code.
 
 **Supplied modes.** On the `waveguide` route, and for the capillary's `modes`, a mode is
 a table of its geometry, cladding and loss. Its fill is the route's `gas`, `pressure` and
@@ -130,6 +139,55 @@ as in `pressure`, `pulses[1].energy` or `betas[2]`. {py:meth}`Recipe.get
 them, and so does every error a recipe or a route raises about a value, in its
 `parameter` attribute.
 
+## Free-space routes
+
+On `radial`, `free` and `planar` the constructor takes objects, and a recipe writes each
+as a table under the keyword's name: `grid` (the time grid), `space` (the transverse
+grid), `medium` (not on `planar`, whose slab channels carry the fill), `responses`,
+`initial` (the beam) and `settings`. The
+[Cartesian tutorial](../../auto_tutorials/free_space/plot_02_cartesian.rst) is
+`Recipe.example("cartesian_beam")`:
+
+```text
+[recipe]
+format = 1
+route = "free"
+
+[build]
+grid = { type = "EnvelopeGrid.from_limits", length = "20 mm", reference_wavelength = "800 nm", wavelength_limits = ["400 nm", "2 um"], trange = "200 fs", thg = false }
+space = { type = "FreeGrid", radius_x = "6 mm", n_x = 32, radius_y = "7.5 mm", n_y = 40 }
+medium = { type = "SpatialMedium", material = "Ar", pressure = "4 bar" }
+responses = [
+    { type = "KerrResponse", chi3 = { type = "gamma3", gas = "Ar", wavelength = "800 nm" }, thg = false },
+]
+noise = "none"
+
+[build.initial]
+type = "SpatialPulse"
+temporal = { type = "GaussianPulse", wavelength = "800 nm", fwhm = "30 fs", energy = "1.5 nJ" }
+waist = "2 mm"
+
+[build.settings]
+type = "SimulationSettings"
+controller = { type = "PIController", rtol = 1e-6, atol = 1e-13 }
+save_planes = ["20 mm"]
+dz_init = "2 mm"
+dz_max = "2 mm"
+stats = { type = "StatsSpec", names = ["energy"] }
+```
+
+A recipe holds the `from_*` form, so the temporal absorber and its scheme are keywords
+of the `settings` table, `absorber = { type = "absorber" }` built on the `grid`, and not
+of `[build]`, although `prop_radial`, `prop_free` and `prop_planar` take them as
+keywords too. The settings table takes the stepping, the planes, the statistics, the
+absorber, the backend and the precision; `fields`, `field_planes` and `resume_history`
+stay in `[execution]`, and the fields a route's builder sets (the density, the
+transverse quadrature) are not the recipe's. On the `planar` route a slab mode names its
+fill, `{ type = "SlabMode", half_gap = "63.5 um", gas = "Ar", pressure = "1 bar" }`,
+because the fill of its channels is the run's; on the `waveguide` route the same
+keywords are refused, since every supplied mode is rebound to the route's fill. A
+launch built as an array, a `Frame` and a design pin have no table form on these routes.
+
 ## From Python
 
 ```python
@@ -156,11 +214,13 @@ on several values (a grid that does not cover the pulse, two conflicting keyword
 reported there, with the keywords concerned, and so is every warning solprop gives. It
 costs a translation, a fraction of a second on the capillary example.
 
-**What a recipe cannot hold**: a callable (a `beta` function, a loss curve), a type that is
-not registered (a mode or a tabulated index as the GNLSE `fibre`, `CustomPulse`, a TDSE
-response, a material object as a mode's cladding, a guide built from a provider and the
-incident beam coupled into one), and an array given to `Simulation.with_input`. `to_python()` is the way out:
-export the recipe and edit the script.
+**What a recipe cannot hold**: a callable (a `beta` function, a loss curve, a custom
+absorber's rate), a type that is not registered (a mode or a tabulated index as the
+GNLSE `fibre`, `CustomPulse`, a TDSE response, a material object as a mode's cladding or
+a medium, a guide built from a provider, an `ApertureSet`, a Raman or dispersive Kerr
+response on a free-space route), and an array: one given to `Simulation.with_input`, or
+a free-space launch built as a spectrum. `to_python()` is the way out: export the recipe
+and edit the script.
 
 **A grid to start from.** {py:func}`solprop.grid.suggest` proposes `wavelength_limits`
 and `trange` from the input pulses: a band ten input bandwidths wide each side of the
@@ -211,12 +271,17 @@ call it and write its values in `[build]`.
 ## Previews
 
 Before a run, `recipe.modes()` returns the mode set a guided route builds (the
-`capillary` and `waveguide` routes), at the launch position or at `z`: each mode's label,
-its `beta`, `beta2` and loss over the grid's band, its effective area and its
+`capillary` and `waveguide` routes, and the slab channels of the `planar` route), at the
+launch position or at `z`: each mode's label, its `beta`, `beta2` and loss over the
+grid's band, its effective area (a slab mode's effective width) and its
 zero-dispersion wavelength in the band. Its cost is the mode solve. `recipe.preview_input()`
 returns the input pulse on the run's grid as the launch sets it, without noise, so a
 preview draws nothing: its power in time, its spectrum, its energy and its peak power,
-read through the processing functions that read a run's file. Both solve the pins first.
+read through the processing functions that read a run's file. On a free-space route it
+gives the beam: the power and energy through the launch plane in the medium, and the
+fluence there on the transverse grid with its axes (`fluence`, and `axes` as `(r,)`,
+`(x,)` or `(y, x)`), measured as a saved plane is
+({py:func}`~solprop.spatial.spatial_fluence`). Both solve the pins first.
 
 ## Scans
 
@@ -315,6 +380,21 @@ cleanly on Ctrl-C, writing the state, and `solprop resume` continues it
 
 `Recipe.examples()` lists the recipes solprop ships, each the run of a gallery example,
 and tested to build that example's configuration hash. A front end starts a new setup
-from one of them. The `gnlse` and `capillary` routes have examples; the `waveguide` route
-has none yet, because its gallery scripts build guides from providers or launch through
-`Simulation.with_input`, which no recipe holds.
+from one of them. The `gnlse`, `capillary`, `free` and `planar` routes have examples
+(`cartesian_beam`, `planar_hybrid` and `planar_compressor` on the free-space routes).
+Each gallery script on a route a recipe describes that has no recipe is listed, with
+its reason, in the test that holds the examples to the gallery, so the list stays true:
+
+- the `waveguide` scripts, which build guides from providers, launch through
+  `Simulation.with_input` or clad a guide in a metal, and the tabulated-mode and
+  step-index tutorials, whose modes are not registered;
+- the radial tutorial, the filament and crossing-beam lessons, and the line,
+  low-storage, four-wave-mixing and far-field tutorials, which launch a beam built as
+  an array;
+- the transverse-window and capillary-coupling tutorials, whose beam energy is
+  computed from the material functions, which a literal in a recipe would freeze;
+- the two dispersive-Kerr scripts, whose pressure is a numerical phase-matching root,
+  and the pressure-and-energy scan, built with `with_mixture` and `with_input`.
+
+So the `radial` route has no example yet; its calls are tested against the free-space
+guide's.

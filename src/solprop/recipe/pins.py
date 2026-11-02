@@ -28,6 +28,7 @@ import numpy as np
 
 from solprop.exceptions import SolpropError
 from solprop.recipe.errors import RecipeError
+from solprop.recipe.metadata import OBJECT_ROUTES
 from solprop.recipe.paths import Attribute, Index, format_path, parse_path
 from solprop.recipe.quantity import Unit, parse_quantity
 
@@ -138,9 +139,16 @@ def read_pins(recipe: "Recipe") -> tuple[Pin, ...]:  # noqa: UP037 - run time
     RecipeError
         On the pinned path, if a pin sets a value the route cannot pin, an element
         of an array, a path also set literally, or a second guide or fill
-        parameter; or if its target, keys, search range or root do not read.
+        parameter; or if its target, keys, search range or root do not read. On
+        the object routes, which have no mode to solve a target on, any pin.
     """
     table = recipe.to_dict().get("pins", {})
+    if table and recipe.route in OBJECT_ROUTES:
+        msg = (
+            f"the {recipe.route} route has no guide or launch mode for a design "
+            "target: write the value in [build]"
+        )
+        raise RecipeError(msg, path=next(iter(table)))
     pins = [_read_pin(recipe, path, entry) for path, entry in table.items()]
     guide = [pin for pin in pins if pin.stage == "guide"]
     if len(guide) > 1:

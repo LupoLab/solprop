@@ -108,7 +108,7 @@ def test_rule_ids_are_short_kebab_case() -> None:
         assert RULES[identifier].id == identifier
 
 
-@pytest.mark.parametrize("name", ["execution", "free", "Capillary"])
+@pytest.mark.parametrize("name", ["execution", "fibre", "Capillary"])
 def test_a_route_without_metadata_is_refused_with_the_routes(name: str) -> None:
     with pytest.raises(DriverError, match="gnlse, capillary") as caught:
         route(name)

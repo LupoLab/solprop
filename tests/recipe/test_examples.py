@@ -16,8 +16,8 @@ A gallery script that calls a route a recipe describes and has no recipe is list
 it stays true when a script is added or changed.
 
 The default lane builds one example of each route that has one (:data:`DEFAULT_LANE`);
-no gallery script on the waveguide route has a recipe yet. The slow lane builds them
-all. The comparisons are of digests, so they are exact; no tolerance enters,
+no gallery script on the waveguide or the radial route has a recipe yet. The slow lane
+builds them all. The comparisons are of digests, so they are exact; no tolerance enters,
 and the examples carry the scripts' seeds. Warnings are
 not what these tests are about: several scripts warn by design (a gas index asked for
 beyond its fitted range, a coherent wall near its quasi-static limit) or silence their
@@ -56,9 +56,15 @@ ROUTE_CALLS: Final = frozenset(
         "prop_gnlse",
         "prop_capillary",
         "prop_waveguide",
+        "prop_radial",
+        "prop_free",
+        "prop_planar",
         "from_gnlse",
         "from_capillary",
         "from_waveguide",
+        "from_radial",
+        "from_free",
+        "from_planar",
     }
 )
 """The calls that put a script on a route a recipe of format 1 describes."""
@@ -84,6 +90,17 @@ _PHASE_MATCHING: Final = (
     "mathematics library can move in its last digit"
 )
 
+_ARRAY_LAUNCH: Final = (
+    "the beam is launched as an array the script builds (a transverse transform of a "
+    "field it writes down), which no recipe holds"
+)
+_COMPUTED_ENERGY: Final = (
+    "the beam's energy is computed from the material functions (the critical power, "
+    "the index and the Kerr coefficient through square roots and logarithms): a "
+    "literal would freeze a float the platform's mathematics library can move in its "
+    "last digit"
+)
+
 NO_RECIPE: Final[dict[str, str]] = {
     "docs/examples/processes/plot_08_duv_fwm_dispersive_kerr.py": _PHASE_MATCHING,
     "docs/examples/waveguides/plot_04_graded_index_multimode.py": (
@@ -97,10 +114,27 @@ NO_RECIPE: Final[dict[str, str]] = {
         "each scan point is built with Simulation.with_mixture and with_input"
     ),
     "docs/tutorials/capillaries/plot_11_dispersive_kerr.py": _PHASE_MATCHING,
-    "docs/tutorials/free_space/plot_08_radial_capillary_coupling.py": (
-        "the capillary is launched with Simulation.with_input from a coupled "
-        "free-space plane, and the script's first runs are radial free space"
+    "docs/introduction/tutorials/plot_03_filament.py": _ARRAY_LAUNCH,
+    "docs/introduction/tutorials/plot_04_crossing_beams.py": _ARRAY_LAUNCH,
+    "docs/tutorials/free_space/plot_01_radial.py": (
+        "the weak beam is built focused in vacuum and rescaled to its energy in the "
+        "argon, and the diagnostic beam is an array: neither has a table form"
     ),
+    "docs/tutorials/free_space/plot_03_line.py": _ARRAY_LAUNCH,
+    "docs/tutorials/free_space/plot_05_low_storage.py": _ARRAY_LAUNCH,
+    "docs/tutorials/free_space/plot_06_four_wave_mixing_scan.py": (
+        f"{_ARRAY_LAUNCH}; the absorber is a custom one built from a function, and "
+        "the delays are runs of one Simulation.runner"
+    ),
+    "docs/tutorials/free_space/plot_07_far_field_statistics.py": (
+        f"{_ARRAY_LAUNCH}; the absorber is a custom one built from a function, and "
+        "the statistics take an ApertureSet, not registered"
+    ),
+    "docs/tutorials/free_space/plot_08_radial_capillary_coupling.py": (
+        f"{_COMPUTED_ENERGY}; the capillary is launched with Simulation.with_input "
+        "from a coupled free-space plane"
+    ),
+    "docs/tutorials/free_space/plot_09_transverse_window.py": _COMPUTED_ENERGY,
     "docs/tutorials/waveguides/plot_02_tabulated_modes.py": (
         "the capillary takes TabulatedHollowMode objects and the GNLSE fibre an "
         "IndexTable, neither registered"
@@ -126,7 +160,7 @@ NO_RECIPE: Final[dict[str, str]] = {
 """Each gallery script on a route a recipe describes without a recipe, and why."""
 
 
-DEFAULT_LANE: Final = frozenset({"overview", "soliton"})
+DEFAULT_LANE: Final = frozenset({"overview", "soliton", "cartesian_beam"})
 """The examples the default lane builds, one per route: each in about a second.
 
 Building every example costs a translation per build, three per example, about two

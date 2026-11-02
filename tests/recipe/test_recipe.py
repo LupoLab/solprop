@@ -22,6 +22,7 @@ from solprop.exceptions import MaterialRangeWarning
 from solprop.profiles import PiecewiseLinear
 from solprop.pulses import DataPulse, SechPulse
 from solprop.recipe import Recipe, RecipeError, RecipeIssue, parameters
+from solprop.recipe.core import ROUTES
 from solprop.recipe.registry import (
     REGISTRY,
     BuildContext,
@@ -129,8 +130,8 @@ def test_get_and_set_take_paths_and_check_the_value(recipe):
 def test_unknown_keys_and_routes_are_refused():
     with pytest.raises(RecipeError, match="wavelengthx"):
         Recipe.loads(GNLSE.replace("wavelength =", "wavelengthx ="))
-    with pytest.raises(RecipeError, match="radial"):
-        Recipe.loads(GNLSE.replace('route = "gnlse"', 'route = "radial"'))
+    with pytest.raises(RecipeError, match="the routes a recipe describes"):
+        Recipe.loads(GNLSE.replace('route = "gnlse"', 'route = "fibre"'))
     with pytest.raises(RecipeError, match="output"):
         Recipe.loads(GNLSE + 'output = "run.h5"\n')
 
@@ -611,17 +612,33 @@ def test_a_mode_takes_its_geometry_and_not_the_fill_the_route_sets():
         )
     assert caught.value.parameter == "modes[0]"
     for name in ("MarcatiliMode", "RectMode", "SlabMode", "ModeCollection.slab"):
-        assert "pressure" in REGISTRY[name].omitted, name
+        # A slab's fill is the run's on the planar route, and refused elsewhere.
+        factory = REGISTRY[name]
+        assert "pressure" in factory.omitted + factory.fill, name
     with pytest.raises(RecipeError, match="tableau"):
         build_object({"type": "RungeKutta", "tableau": "dopri5"}, BuildContext(), "x")
 
 
 def test_every_object_form_names_registered_types():
-    for route in ("gnlse", "capillary", "waveguide"):
+    for route in ROUTES:
         for entry in parameters(route).values():
             for form in entry.forms:
                 if form.kind == "object" and form.recipe:
                     assert set(form.types) <= set(REGISTRY), (entry.name, form.types)
+                elif form.kind == "object":
+                    # A form only Python holds names no type a recipe could.
+                    assert set(form.types).isdisjoint(REGISTRY), (entry.name, form)
+
+
+def test_a_rate_table_is_a_capillary_s_plasma():
+    document = Recipe.example("rdw").to_dict()
+    document["build"]["plasma"] = {
+        "type": "OptmatRate",
+        "source": "He",
+        "wavelength": "800 nm",
+    }
+    keywords = Recipe.from_dict(document).keywords()
+    assert type(keywords["plasma"]).__name__ == "OptmatRate"
 
 
 def test_a_signal_stops_the_command_s_run_through_its_flag(

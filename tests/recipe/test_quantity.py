@@ -7,6 +7,7 @@
 # a script writes, and writing a double back reads back to the same double.
 
 import math
+import sys
 
 import pytest
 from hypothesis import given, settings
@@ -398,3 +399,11 @@ def test_format_quantity_reads_back_to_the_same_double(value, case):
     assert same_double(
         parse_quantity(format_quantity(value, unit, display), unit), value
     )
+
+
+def test_a_rounding_that_overflows_on_reading_back_takes_more_digits():
+    # The largest double in degrees: its roundings up to ten digits, such as
+    # "1.0300023e310 deg", read back beyond the largest double and are refused.
+    value = sys.float_info.max
+    text = format_quantity(value, RADIAN, "deg")
+    assert same_double(parse_quantity(text, RADIAN), value)
