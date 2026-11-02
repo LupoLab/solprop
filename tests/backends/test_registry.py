@@ -23,6 +23,7 @@ import types
 import warnings
 from pathlib import Path
 from types import ModuleType
+from typing import Any
 
 import pytest
 
@@ -491,7 +492,7 @@ def test_a_build_without_a_check_or_record_keeps_native(monkeypatch, tmp_path):
 
 def fake_build(monkeypatch, backend, count):
     """Make ``solprop_native`` report a build, without a device to run it on."""
-    fake = types.ModuleType("solprop_native")
+    fake: Any = types.ModuleType("solprop_native")
     fake.__version__ = "0.3.0+cuda"
     fake.build_info = lambda: types.SimpleNamespace(
         device_backend=backend, device_count=count

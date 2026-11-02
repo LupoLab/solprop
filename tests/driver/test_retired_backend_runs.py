@@ -13,6 +13,7 @@ tighter run (SEP 25), never to the original's steps.
 
 import shutil
 from pathlib import Path
+from typing import Any
 
 import h5py
 import numpy as np
@@ -72,12 +73,14 @@ def test_a_stopped_numba_run_continues_on_another_backend(tmp_path, backend):
     backend_available(backend)
     path = tmp_path / "continued.h5"
     shutil.copyfile(STOPPED, path)
-    with h5py.File(path) as file:
-        kept = file["field"][:3].copy()
+    with h5py.File(path) as handle:
+        file: Any = handle
+        kept = np.array(file["field"][:3])
     run(backend, path, resume=True)
-    with h5py.File(path) as file:
+    with h5py.File(path) as handle:
+        file: Any = handle
         assert file["z"][-1] == 2e-4
-        field = file["field"][:]
+        field = np.array(file["field"][:])
         # What the original run saved stays as it was written.
         np.testing.assert_array_equal(field[:3], kept)
     # Over every plane, not the last alone: this soliton's error at the last plane is

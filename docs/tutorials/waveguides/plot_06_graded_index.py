@@ -125,7 +125,6 @@ simulation = Simulation.from_waveguide(
     n_save=9,
     dz_max=length / 10,
     dz_init=length / 10,
-    backend="numpy_ref",
     noise=None,
     absorber=False,
     boundary_check=None,

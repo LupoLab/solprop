@@ -36,8 +36,8 @@ if platform.system() == "Darwin" and "pyfftw" in sys.modules:
     raise RuntimeError(
         "on macOS, import solprop_native before pyfftw; the reverse order is "
         "unsafe with wheels that bundle another OpenMP runtime. pyfftw is already "
-        "loaded in this process: restart Python and import solprop (or solprop_native) "
-        "before pyfftw or any package that imports it. backend='numpy_ref', the "
+        "loaded in this process: restart Python and import solprop_native before "
+        "pyfftw or any package that imports it. backend='numpy_ref', the "
         "reference, doesn't load solprop_native, and is unthreaded and far slower"
     )
 
