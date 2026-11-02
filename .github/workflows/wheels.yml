@@ -263,13 +263,13 @@ jobs:
       - run: uv sync --locked
       - run: uv pip install --no-deps wheelhouse/*.whl
       - run: uv run --no-sync python -c "from solprop.backends import resolve_name; assert resolve_name() == 'native'"
+      # Both scripts that named numba_cpu now name native: regenerate their committed
+      # output on it, as a contributor would, and then build as the lane does.
+      - run: /usr/bin/time -v uv run --no-sync poe docs-examples
+      - run: git status --short docs | head -30
       - run: /usr/bin/time -v uv run --no-sync poe docs
         env:
           SOLPROP_RUN_EXAMPLES: tutorials
-      - name: The example the tutorials lane leaves out
-        run: /usr/bin/time -v uv run --no-sync python docs/examples/waveguides/plot_05_moving_solid_guide.py
-        env:
-          MPLBACKEND: Agg
 
   rehearse-slow:
     needs: build
