@@ -323,6 +323,7 @@ All notable changes to solprop are recorded here. The format follows
   before a backend starts.
   Vendor thread defaults are overridden only during construction; the native
   backend's own BLAS keeps its fitted width.
+- On Windows on Arm, `Pool` scans no longer fail or hang in NumPy's linear solves. Workers now limit BLAS through `threadpoolctl` instead of thread variables, which crash or hang NumPy's OpenBLAS on that platform at small widths, and `import solprop` warns if such a value is set.
 
 ## [0.1.0] - 2026-10-31
 
