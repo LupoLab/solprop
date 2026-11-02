@@ -171,14 +171,15 @@ Moving these lanes was rehearsed on today's tree before anything was removed (Pa
 | `docs` (executes the lessons and tutorials) | `numba_cpu` | CI-built wheel | Passes under `-W`: 37 of 37 scripts, 5.3 min and 5.5 GB peak, against 8.4 min today |
 | `slow` | `numba_cpu` | CI-built wheel, `SOLPROP_TEST_BACKEND=native` | 164 passed, 1 skipped, 22.5 min on the default runner, including the statistics cost budget |
 | `oldest` | `numba_cpu` | Lowest dependencies, wheel installed `--no-deps` | All 3 shards green |
-| `coverage` | Native wheel, driver tests on `numba_cpu` | Native wheel, driver tests on `native`; a report-only rehearsal lists what goes unmeasured | Not yet run: phase 1 |
-| New: `numpy_ref` | — | No native package; checks `auto`'s warning and that solprop runs without it | Not yet run: phase 1 |
+| `coverage` | Native wheel, driver tests on `numba_cpu` | Native wheel, driver tests on `native` at the removal, when the gate can pass | Report-only on the whole default lane: 99.87 % of what stays, with 44 lines and 32 branches missed (Part II) |
+| New: `no-native` | — | No native package, a few default-lane modules on `numpy_ref`; checks `auto`'s warning and a real run | Measured locally: 193 passed in 23 s |
 
 **The wheel on documentation-only changes.** `native-wheel` runs only when `lanes == full`
 today, and `docs` runs on documentation-only changes as well, so `native-wheel` must run
-for those too. It is cached by the hash of the native sources, so nearly every run reuses
-a wheel. A cold Linux build takes 13 to 22 minutes, and it happens only after a change to
-`native/`, which runs the full lanes anyway.
+for those too, on Linux only. It is cached by the hash of the native sources, so nearly
+every run reuses a wheel. A cold Linux build takes 13 to 22 minutes. A documentation-only
+change pays that only when the last change to `native/` merged without a push to `main`
+building it: such a merge runs no lanes, so it leaves no cache for other pull requests.
 
 **Read the Docs stays free of native.** It executes no gallery script, because all gallery
 output is committed (`.readthedocs.yaml`, `docs/conf.py`). It needs only a clean build after
@@ -196,8 +197,9 @@ output. `poe docs-examples` runs both on `native` on the 4-core runner: `plot_11
 and `plot_05` in 884 s, which is a one-off cost when that script changes. The removal
 compares their regenerated figures and printed values with the committed ones.
 
-**Plain `uv sync`.** Without Numba, a compiler-free `uv sync` gets `numpy_ref`, plus
-`poe fetch-wheel` for a CI-built wheel. That wheel's artifact retention grows to match.
+**Plain `uv sync`.** Without Numba, a compiler-free `uv sync` gets `numpy_ref`. A new
+`poe fetch-wheel` installs the wheel CI built for the newest commit in the checkout's
+history, using `gh`. That wheel's artifact retention grows from 3 to 14 days to match.
 
 #### 6.6 Python 3.15
 
@@ -305,7 +307,7 @@ and revertible.
 
 1. **Wheels and lanes.** The spike's two builds and Windows on Arm, cleaned up, with
    `cpu-floor` extended. `docs`, `slow` and `oldest` on the wheel, `native-wheel` on
-   documentation-only changes, the `numpy_ref` lane, the coverage rehearsal.
+   documentation-only changes, the `no-native` lane.
 2. **Helpers and tests.** `helpers=NUMBA` to plain, with the import-blocked test and the
    `construction_s` gate. Comparisons with Numba retargeted, with Numba still present.
 3. **Removal**, `feature/sep-0043-retire-numba-cpu`, one revertible pull request. Delete the
@@ -381,6 +383,18 @@ Issues and pull requests of the solprop repository:
   collect. What remains reaches Numba only through tests with no `numba` in their names.
   These lanes will be exact once phase 2 retargets those tests.
 
+- **What Numba's retirement leaves untested** (report-only, EPYC 7763, the default lane on
+  the wheel with `SOLPROP_TEST_BACKEND=native`, an empty `pyfftw` and `-k "not numba"`,
+  coverage omitting `numba_cpu`, `bodies.py` and `_numba_cache.py`): 15,559 passed,
+  234 failed and 10 errors, all stopping at the empty `pyfftw`, in 31 modules. The numbers
+  match Windows on Arm's. 150 of the 244 are in three modules. Statement and branch
+  coverage was 99.87 %, missing 44 of 45,046 lines and 32 of 13,374 branches in 18 files.
+  The count is before phase 2 ports those tests.
+- **The default lane with no native package** (report-only, EPYC 7763, the driver tests on
+  `numpy_ref` and `-k "not numba"`): 14,355 passed in 4.1 min on 48 workers, about 85
+  CPU minutes. Its 3 failures and 144 errors are from the copied tree having no git history
+  and the node's allocation, and none comes from `numpy_ref`. That is too large for one more
+  lane of every change, so `no-native` holds a few modules.
 - **Cost of v2** (the tracking set, 22 configurations, length 1.0, 3 rounds, fresh processes
   interleaved, 16 threads pinned to one socket; every configuration took the same steps):
 
