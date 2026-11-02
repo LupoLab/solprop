@@ -311,7 +311,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         stage tables' Clenshaw rows and the Adams basis -- which the shared driver,
         march and engines pass down rather than choosing one (SEP 29 section 6.6).
         Each backend sets its own: ``PLAIN`` (the default) for the NumPy reference,
-        ``NUMBA`` for ``numba_cpu``, the C++ bindings for the native backend.
+        the C++ bindings for the native backend.
     """
 
     name: str = "driver"

@@ -361,9 +361,6 @@ def _threads(backend: str, execution: Mapping[str, object]) -> str:
         process = thread_budget()
         budget, source = process.threads, process.source
     limit = f"budget {budget} ({source})"
-    if "numba_threads" in execution:
-        kernel, fftw = execution["numba_threads"], execution.get("fftw_threads")
-        return f"{kernel} kernel, {fftw} FFTW; {limit}"
     if backend == "numpy_ref":
         # The reference steps in NumPy on one thread, whatever the budget allows.
         return f"1 (NumPy reference); {limit}"

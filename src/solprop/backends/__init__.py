@@ -4,7 +4,7 @@
 
 """Execution backends behind one seam.
 
-The NumPy reference, Numba CPU and native backend
+The NumPy reference and native backends
 (``docs/dev/backends.md``). This package exports the seam itself — the
 :class:`~solprop.backends.protocol.Backend` protocol and the record types it returns —
 and :mod:`solprop.backends.registry`, which selects a backend by name and says why one

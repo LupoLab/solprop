@@ -13,18 +13,23 @@ extra to install.
 
 The native backend is a second distribution, ``solprop-native``, built from ``native/``
 in this repository and installed with the ``native`` extra; probing availability does
-not import it. Automatic selection prefers it when installed and otherwise chooses Numba
-CPU, the slower Tier 2 fallback, with a :class:`~solprop.exceptions.SolpropWarning`,
-once per process: a run on the fallback should be a choice, so an explicit
-``backend="numba_cpu"`` does not warn.
+not import it. Automatic selection prefers it when installed and otherwise chooses the
+NumPy reference, which is unthreaded and far slower (``_AUTO_FALLBACK``, SEP 43 Q1),
+with a :class:`~solprop.exceptions.SolpropWarning`, once per process: a run on the
+fallback should be a choice, so an explicit ``backend="numpy_ref"`` does not warn.
 Import, compatibility and construction errors remain visible; they never trigger a
 fallback to different arithmetic, with one exception. A distribution build of
 solprop-native is compiled for a CPU baseline, and on a processor below it automatic
-selection chooses Numba CPU with the same warning, saying why.
+selection chooses the reference with the same warning, saying why.
 It finds that out without importing the package: it loads the package's own
 pure-Python processor check (``solprop_native/_cpu.py``) by path and runs it, so the
 check that refuses the import and the one that chooses the fallback are one code. An
 explicit ``backend="native"`` still raises the package's refusal.
+
+A backend that has been removed keeps a tombstone (:data:`REMOVED_BACKENDS`): naming it
+raises :class:`~solprop.exceptions.BackendError`, saying what to use, wherever a
+requested name is resolved. A recorded name is not a request: old output and snapshots
+that name a removed backend still load, and nothing here reads them.
 """
 
 import importlib.util
@@ -50,6 +55,7 @@ from solprop.translate.tdse import TDSEBinding
 __all__ = [
     "BACKENDS",
     "FAR_FIELD_BACKENDS",
+    "REMOVED_BACKENDS",
     "SINGLE_ONLY",
     "BackendEntry",
     "available",
@@ -83,24 +89,30 @@ class BackendEntry:
 
 BACKENDS: Mapping[str, BackendEntry] = {
     "numpy_ref": BackendEntry(requires=(), extras=()),
-    # numba and pyfftw are core dependencies, so this entry is always satisfied; it
-    # names them so that a wheel built without them says which one is missing rather
-    # than raising an ImportError from inside the backend.
-    "numba_cpu": BackendEntry(requires=("numba", "pyfftw"), extras=()),
     "native": BackendEntry(requires=("solprop_native",), extras=()),
     # Apple-silicon GPUs through MLX, single precision only (SEP 33).
     "mlx": BackendEntry(requires=("mlx",), extras=("mlx",)),
 }
 """The backends this package knows, by name."""
 
+REMOVED_BACKENDS: Mapping[str, str] = {
+    "numba_cpu": (
+        "the numba_cpu backend was removed in SEP 43: use backend='native', the "
+        "solprop-native package, or backend='numpy_ref', the reference, which is "
+        "unthreaded and far slower. Output and snapshots that record numba_cpu still "
+        "load"
+    ),
+}
+"""What to say about a backend that no longer exists, by the name it had."""
+
 SINGLE_ONLY: frozenset[str] = frozenset({"mlx"})
 """The backends that compute in binary32 only (SEP 33): Apple GPUs have no binary64."""
 
-FAR_FIELD_BACKENDS: tuple[str, ...] = ("numpy_ref", "numba_cpu", "native")
+FAR_FIELD_BACKENDS: tuple[str, ...] = ("numpy_ref", "native")
 """The backends that form the far-field statistics of SEP 23.
 
-``numpy_ref`` and ``numba_cpu`` always do; the native backend does from SEP 23's third
-phase, which a build declares by its backend's ``far_field_statistics`` attribute. An
+``numpy_ref`` always does; the native backend does from SEP 23's third phase, which a
+build declares by its backend's ``far_field_statistics`` attribute. An
 older build is refused them by name on this side of the seam
 (:func:`statistics_refusal`), before it is built.
 """
@@ -128,12 +140,12 @@ def statistics_refusal(name: str, names: Sequence[str]) -> str | None:
     Examples
     --------
     >>> from solprop.backends.registry import statistics_refusal
-    >>> statistics_refusal("numba_cpu", ["energy", "beam_spectrum"]) is None
+    >>> statistics_refusal("numpy_ref", ["energy", "beam_spectrum"]) is None
     True
     """
     asked = [one for one in names if one in FAR_FIELD_STATISTICS]
     # Single precision refuses the far-field statistics in validation (SEP 33).
-    if not asked or name in ("numpy_ref", "numba_cpu", "mlx"):
+    if not asked or name in ("numpy_ref", "mlx"):
         return None
     formed = _plugin_far_field(name)
     if formed is None:
@@ -144,7 +156,7 @@ def statistics_refusal(name: str, names: Sequence[str]) -> str | None:
     return (
         f"the installed {name!r} backend does not form the far-field statistics "
         f"{missing}; install a solprop-native build that does, or run them on "
-        "numpy_ref or numba_cpu"
+        "numpy_ref"
     )
 
 
@@ -245,7 +257,8 @@ def resolve_name(name: str = "auto") -> str:
     name : str, optional
         ``"auto"`` prefers ``"native"`` when ``solprop_native`` can be found and this
         processor meets the installed build's CPU baseline, otherwise
-        ``"numba_cpu"``. Explicit names pass through unchanged.
+        ``"numpy_ref"``. Other names pass through unchanged, but for a removed backend
+        (:data:`REMOVED_BACKENDS`).
 
     Returns
     -------
@@ -254,29 +267,49 @@ def resolve_name(name: str = "auto") -> str:
         not import a backend or initialize a native runtime. :func:`select` validates
         the name and constructs the backend; failures there never cause a fallback.
 
+    Raises
+    ------
+    BackendError
+        If ``name`` is a removed backend; the message says what to use instead.
+
     Warns
     -----
     SolpropWarning
-        Once per process, when ``"auto"`` chooses ``"numba_cpu"``: solprop-native is
+        Once per process, when ``"auto"`` chooses ``"numpy_ref"``: solprop-native is
         not installed, or this processor lacks features of the installed build's CPU
-        baseline. Naming ``"numba_cpu"`` explicitly does not warn.
+        baseline. Naming ``"numpy_ref"`` explicitly does not warn.
 
     Examples
     --------
     >>> resolve_name("numpy_ref")
     'numpy_ref'
     """
+    if name in REMOVED_BACKENDS:
+        raise BackendError(REMOVED_BACKENDS[name])
     if name != "auto":
         return name
     if not _satisfied(BACKENDS["native"]):
         _warn_native_missing()
-        return "numba_cpu"
+        return _AUTO_FALLBACK
     shortfall = _native_baseline_shortfall()
     if shortfall is None:
         return "native"
     _warn_baseline_fallback(*shortfall)
-    return "numba_cpu"
+    return _AUTO_FALLBACK
 
+
+_AUTO_FALLBACK: Final = "numpy_ref"
+"""What ``"auto"`` chooses without a usable native backend (SEP 43, Q1).
+
+The maintainer may change this default: a refusal instead would be plainer about the
+cost, and would break every first run on a platform with no wheel.
+"""
+
+_FALLBACK_COST = (
+    "the NumPy reference backend, which is unthreaded and far slower: roughly 6 to 40 "
+    "times slower than threaded native"
+)
+"""What the fallback costs, as both warnings state it (SEP 43 section 5)."""
 
 _NATIVE_BUILD_GUIDE = (
     "https://solprop.readthedocs.io/en/latest/guide/performance/building-native.html"
@@ -287,8 +320,8 @@ _ISSUES = "https://github.com/LupoLab/solprop/issues"
 """Where users report problems, and processors below the native wheels' baseline."""
 
 _FALLBACK_NOTE = (
-    "To choose numba_cpu deliberately and silence this warning, "
-    'pass backend="numba_cpu"'
+    "To choose numpy_ref deliberately and silence this warning, "
+    'pass backend="numpy_ref"'
 )
 """How a user who wants the fallback says so; both warnings end with it."""
 
@@ -356,10 +389,10 @@ def _warn_native_missing() -> None:
     if _warned_native_fallback:
         return
     _warned_native_fallback = True
-    logger.info("backend='auto' chooses numba_cpu: solprop-native is not installed")
+    logger.info("backend='auto' chooses numpy_ref: solprop-native is not installed")
     msg = (
-        'solprop-native is not installed, so backend="auto" is using numba_cpu, a '
-        "slower fallback backend. For the fastest runs install the native backend: "
+        'solprop-native is not installed, so backend="auto" is using '
+        f"{_FALLBACK_COST}. For the fastest runs install the native backend: "
         'pip install "solprop[native]", or where no wheel exists build it from source '
         f"({_NATIVE_BUILD_GUIDE}). {_FALLBACK_NOTE}"
     )
@@ -381,14 +414,14 @@ def _warn_baseline_fallback(baseline: str, missing: tuple[str, ...]) -> None:
         return
     _warned_native_fallback = True
     logger.info(
-        "backend='auto' chooses numba_cpu: this processor is below solprop-native's "
+        "backend='auto' chooses numpy_ref: this processor is below solprop-native's "
         "%s baseline",
         baseline,
     )
     msg = (
         f"this processor lacks {', '.join(missing)}, required by the installed "
         f"solprop-native build (CPU baseline {baseline}), so solprop is using "
-        "numba_cpu, a slower fallback backend, instead. To use the native backend on "
+        f"{_FALLBACK_COST}. To use the native backend on "
         "this machine, build solprop-native from source for it "
         f"({_NATIVE_BUILD_GUIDE}). "
         f"Please also open an issue at {_ISSUES} so that the maintainers know such "
@@ -445,7 +478,7 @@ def select(
     ----------
     name : str
         The backend's registry name, for example ``"numpy_ref"``, or ``"auto"``
-        to prefer the installed native backend and otherwise warn and use Numba CPU.
+        to prefer the installed native backend and otherwise warn and use ``numpy_ref``.
     problem : solprop.translate.problem.KernelProblem
         The problem to step. The backend validates it again.
     grid : solprop.grid.TimeGrid, optional
@@ -479,7 +512,7 @@ def select(
     --------
     >>> from solprop.backends.registry import BACKENDS
     >>> sorted(BACKENDS)
-    ['mlx', 'native', 'numba_cpu', 'numpy_ref']
+    ['mlx', 'native', 'numpy_ref']
     """
     name = resolve_name(name)
     if _BENCHMARK_GATED.get() and name != "numpy_ref":
@@ -564,15 +597,6 @@ def select_batch(owners: Sequence[Backend]) -> BatchBackend:
         )
 
         return MlxBatchRunner(cast(Sequence[MlxBackend], owners))
-    if name == "numba_cpu":
-        from solprop.backends.numba_cpu.backend import (  # noqa: PLC0415 - lazy backend
-            NumbaCpuBackend,
-        )
-        from solprop.backends.numba_cpu.batch import (  # noqa: PLC0415 - lazy backend
-            NumbaCpuBatchBackend,
-        )
-
-        return NumbaCpuBatchBackend(cast(Sequence[NumbaCpuBackend], owners))
     if name == "native":
         # The optional native package has its own strict type gate.
         from solprop_native import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
@@ -666,10 +690,6 @@ def _construct(
             profiles=profiles,
             tdse_binding=tdse_binding,
         )
-    if name == "numba_cpu":
-        from solprop.backends.numba_cpu import NumbaCpuBackend  # noqa: PLC0415
-
-        return NumbaCpuBackend(problem, grid=grid, modes=modes, profiles=profiles)
     if name == "native":
         from solprop_native import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
             NativeBackend,

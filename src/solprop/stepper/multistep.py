@@ -28,9 +28,7 @@ References
        ODE Solver", SIAM J. Sci. Stat. Comput. 10, 1038 (1989). doi:10.1137/0910062
 """
 
-import functools
-import inspect
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal
 
@@ -713,9 +711,9 @@ def _basis_rows(
     polynomial instead loses digits to the far nodes -- then either divided by its
     denominator (the monomial coefficients, ``integrate`` false) or integrated from 0
     to `upper` by Horner's rule and divided (the weights). The NumPy reference backend
-    runs it as written, ``numba_cpu`` compiled by :func:`_basis` and the native backend
-    its C++ transcription (``solprop._helpers``), each with these operations in this
-    order, so the values are the same bit for bit.
+    runs it as written and the native backend its C++ transcription
+    (``solprop._helpers``), each with these operations in this order, so the values are
+    the same bit for bit.
 
     Parameters
     ----------
@@ -766,28 +764,6 @@ def _basis_rows(
     return rows, weights
 
 
-@functools.cache
-def _basis() -> Callable[[np.ndarray, float, bool], tuple[np.ndarray, np.ndarray]]:
-    """Return :func:`_basis_rows` compiled.
-
-    Six to nine times faster than the Python loops, which were most of an exponential
-    trial's host work after the z tables. numba is imported here, at the first use, so
-    that importing solprop does not load it.
-
-    Returns
-    -------
-    collections.abc.Callable
-        The compiled function.
-    """
-    from solprop._numba_cache import njit  # noqa: PLC0415 - numba on first use
-
-    # The function itself, not a runtime type checker's wrapper around it (the test
-    # suite's import hook adds one), which numba can neither compile nor cache.
-    # Strict (SEP 25 section 4.2): the divided differences and integrated weights
-    # are the stable increments and defects, small differences of large products.
-    return njit(cache=True, strict=True)(inspect.unwrap(_basis_rows))
-
-
 def integrated_weights(
     nodes: Sequence[float] | Float[np.ndarray, " n_nodes"],
     upper: float = 1.0,
@@ -814,7 +790,7 @@ def integrated_weights(
         nodes are accepted positions and so distinct, skips it on every step.
     helpers : solprop._helpers.Helpers, optional
         The evaluating backend's implementation of the basis (SEP 29 section 6.6); the
-        shared Numba one by default, for callers outside a backend.
+        plain Python forms by default, for callers outside a backend.
 
     Returns
     -------

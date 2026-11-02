@@ -230,7 +230,7 @@ LINE_BLOCK = 64
 """Columns per unit of a line's far-field pass: a plane's unit is a whole row."""
 
 AXIS_FOLDED = frozenset({"on_axis_spectrum", "on_axis_intensity"})
-"""The axis statistics ``numba_cpu``'s far-field pass forms from its ``W = 1`` slot."""
+"""The axis statistics a far-field pass forms from a ``W = 1`` slot, by default."""
 
 AXIS_SPECTRUM_ONLY = frozenset({"on_axis_spectrum"})
 """The axis statistics Kokkos's far-field pass forms from its ``W = 1`` slot.
@@ -309,8 +309,8 @@ def far_field_layout(
     n_pol : int
         The state's polarisation components.
     axis_folded : collections.abc.Collection of str, optional
-        The axis statistics that read the ``W = 1`` slot: :data:`AXIS_FOLDED` on
-        ``numba_cpu`` (the default), :data:`AXIS_SPECTRUM_ONLY` on the native backend.
+        The axis statistics that read the ``W = 1`` slot: :data:`AXIS_FOLDED` by
+        default, :data:`AXIS_SPECTRUM_ONLY` on the native backend.
 
     Returns
     -------

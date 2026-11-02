@@ -30,7 +30,7 @@ The phi functions are evaluated by two algorithms, each where it is stable:
 
 Both are checked against augmented matrix exponentials and independent quadrature in
 ``tests/backends/test_exponential_weights.py``, on both sides of the join. This module
-is the reference the compiled backends' moment kernels are checked against.
+is the reference the native backend's moment kernels are checked against.
 
 References
 ----------

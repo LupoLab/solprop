@@ -17,25 +17,25 @@ and one simulation must not change another's arithmetic.
 
 A backend names its record in ``StepDriver.helpers`` and the shared driver, march and
 engines pass it down: ``numpy_ref`` takes :data:`PLAIN`, the uncompiled Python forms;
-``numba_cpu`` takes :data:`NUMBA`, the same functions compiled; the native backend
-takes its own record of C++ bindings, defined in its package. All three perform the
-same IEEE operations in the same order, strict (no contraction, no reassociation;
-SEP 25 section 4.2), so they agree to the last bit wherever their arithmetic is IEEE.
+the native backend takes its own record of C++ bindings, defined in its package. Both
+perform the same IEEE operations in the same order, strict (no contraction, no
+reassociation; SEP 25 section 4.2), so they agree to the last bit wherever their
+arithmetic is IEEE.
 A record may also form a whole exponential Adams trial's coefficient tables in one
 call (:attr:`Helpers.tables`), the composition of
 :func:`solprop.backends.multistep.trial_tables` over its own basis, which its
-resident engine reads every trial; the others compose them from the basis.
+resident engine reads every trial; a record without it composes them from the basis.
 
 Translation is not a backend's: it runs before any backend exists and builds the
 problem every backend receives, so it needs nothing compiled, and the shared functions'
 defaults are :data:`PLAIN` for callers outside a backend. Its one-point evaluation
 (:func:`solprop.translate.chebyshev.clenshaw`, and a table called without a record) is
-NumPy's until Numba is loaded. A z table's state-sized evaluation is not a stage scalar
-and stays on that shared pass.
+NumPy's. A z table's state-sized evaluation is not a stage scalar and stays on that
+shared pass.
 
-Like ``_display`` and ``_numba_cache``, this module imports nothing from the rest of
-the package at import time, so any layer may use it; each record imports its
-functions from where they live at the first evaluation.
+Like ``_display``, this module imports nothing from the rest of the package at import
+time, so any layer may use it; each record imports its functions from where they live
+at the first evaluation.
 """
 
 import functools
@@ -45,7 +45,6 @@ from dataclasses import dataclass, field
 import numpy as np
 
 __all__ = [
-    "NUMBA",
     "PLAIN",
     "BasisFunction",
     "Helpers",
@@ -99,9 +98,7 @@ class Helpers:
     """The per-stage and per-step evaluations of one backend.
 
     Each operation is loaded at its first use and kept: a record names its functions
-    without importing them, so constructing or importing one loads nothing (the Numba
-    record compiles at its first evaluation, exactly as the cached dispatchers it
-    holds always have).
+    without importing them, so constructing or importing one loads nothing.
 
     Attributes
     ----------
@@ -191,34 +188,5 @@ def _plain_basis() -> BasisFunction:
     return multistep._basis_rows
 
 
-def _numba_points() -> PointsFunction:
-    """Return the Chebyshev rows compiled by Numba.
-
-    Returns
-    -------
-    collections.abc.Callable
-        The cached dispatcher of :func:`solprop.translate.chebyshev._clenshaw_batch`.
-    """
-    from solprop.translate import chebyshev  # noqa: PLC0415 - numba on first use
-
-    return chebyshev._clenshaw_batch()
-
-
-def _numba_basis() -> BasisFunction:
-    """Return the Adams basis compiled by Numba.
-
-    Returns
-    -------
-    collections.abc.Callable
-        The cached dispatcher of :func:`solprop.stepper.multistep._basis`.
-    """
-    from solprop.stepper import multistep  # noqa: PLC0415 - numba on first use
-
-    return multistep._basis()
-
-
 PLAIN = Helpers("plain", _plain_points, _plain_basis)
 """The uncompiled Python forms: the NumPy reference's, and the shared default."""
-
-NUMBA = Helpers("numba", _numba_points, _numba_basis)
-"""The same forms compiled by Numba: ``numba_cpu``'s."""

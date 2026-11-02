@@ -80,7 +80,7 @@ jobs:
 
   # Each repaired wheel in a fresh environment beside solprop from this checkout: the
   # smoke test, the build record, solprop's default lane on the native backend and the
-  # coexistence check with NumPy, SciPy, pyFFTW and Numba.
+  # coexistence check with NumPy and SciPy.
   test:
     name: test (${{ matrix.id }})
     needs: build
@@ -94,8 +94,7 @@ jobs:
           - { id: linux-aarch64, os: ubuntu-24.04-arm }
           - { id: macos-arm64, os: macos-15 }
           - { id: windows-amd64, os: windows-2025 }
-          # Windows on Arm joins this list when numba_cpu goes (SEP 43): the suite imports
-          # it, and pyFFTW has no wheel there. Its build job smoke-tests the wheel.
+          - { id: windows-arm64, os: windows-11-arm }
           # The x86-64 wheels' second build, forced, on the same runners.
           - { id: linux-x86_64-v2, wheel: linux-x86_64, os: ubuntu-24.04, variant: x86-64-v2 }
           - { id: windows-amd64-v2, wheel: windows-amd64, os: windows-2025, variant: x86-64-v2 }
@@ -135,8 +134,8 @@ jobs:
           print(baseline)
           assert baseline == os.environ['SOLPROP_NATIVE_CPU_VARIANT'], baseline
           "
-      - name: Coexistence with NumPy, SciPy, pyFFTW and Numba
-        run: uv run --no-sync python -I native/ci/coexistence.py --bypass-guard
+      - name: Coexistence with NumPy and SciPy
+        run: uv run --no-sync python -I native/ci/coexistence.py
       # The default lane's peak memory with four test workers is at the edge of a 16 GB
       # runner (the aarch64 runner shut down mid-suite, as CI's did): swap on Linux and
       # three workers, as in CI's native-suite job.
@@ -235,7 +234,7 @@ jobs:
   # solprop's own distributions (pure Python): sdist and wheel, each then installed from
   # the file in a fresh environment, outside the checkout, and given the installation
   # page's check (docs/introduction/installation.md). It imports at the files' version,
-  # which on a release tag is the tag's; `backend="auto"` resolves to numba_cpu for the
+  # which on a release tag is the tag's; `backend="auto"` resolves to numpy_ref for the
   # wheel alone and to native with the `native` extra, whose pin (hatch_build.py) this
   # run's Linux x86-64 wheel meets before anything is published.
   solprop-dist:
@@ -289,7 +288,7 @@ jobs:
             uv pip install --python "$1/bin/python" --find-links "$WHEELHOUSE" "$2"
             "$1/bin/python" -I -c "$CHECK" "$version" "$3"
           }
-          check wheel "$wheel" numba_cpu
+          check wheel "$wheel" numpy_ref
           check wheel-native "${wheel}[native]" native
           check sdist-native "${sdist}[native]" native
 

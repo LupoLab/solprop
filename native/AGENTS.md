@@ -50,7 +50,7 @@ and scikit-build-core; GoogleTest is test-only. Adding any other dependency need
 
 Major changes follow solprop's enhancement proposal process (SEPs,
 [`docs/dev/seps/`](../docs/dev/seps/), SEP 0). A SEP is implemented `numpy_ref` first,
-then `numba_cpu`, then here. A phase that touches both halves is one branch named for
+then here. A phase that touches both halves is one branch named for
 the SEP (`feature/sep-NNNN-…`) and one pull request, whose commits cite the SEP number;
 its phase report — deviations, decisions, verification, open questions — is appended to
 the SEP. Until the native phase lands, the backend refuses the new problem by name.

@@ -17,11 +17,9 @@ The design, the evidence behind each choice and the traps that are silent are in
 """
 
 import functools
-import inspect
 import itertools
 import logging
 import math
-import sys
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Final
@@ -93,72 +91,10 @@ floor.
 """
 
 
-def _clenshaw_columns(x: float, c: np.ndarray, out: np.ndarray) -> None:
-    """Write NumPy's ``chebval`` of each column of `c` at `x` into `out`.
-
-    Operation for operation NumPy's Clenshaw recursion, so that compiled it gives the
-    same values bit for bit. Compiled by :func:`_clenshaw`; plain Python otherwise.
-
-    Parameters
-    ----------
-    x : float
-        Point in [-1, 1].
-    c : numpy.ndarray
-        Coefficients, shape ``(degree + 1, n_values)``, float64 or complex128.
-    out : numpy.ndarray
-        The values, shape ``(n_values,)``, of `c`'s dtype; overwritten.
-    """
-    n, m = c.shape
-    if n == 1:
-        for j in range(m):
-            out[j] = c[0, j] + 0.0 * x
-        return
-    if n == 2:
-        for j in range(m):
-            out[j] = c[0, j] + c[1, j] * x
-        return
-    x2 = 2 * x
-    for j in range(m):
-        c0 = c[n - 2, j]
-        c1 = c[n - 1, j]
-        for i in range(3, n + 1):
-            tmp = c0
-            c0 = c[n - i, j] - c1
-            c1 = tmp + c1 * x2
-        out[j] = c0 + c1 * x
-
-
-@functools.cache
-def _clenshaw() -> Callable[[float, np.ndarray, np.ndarray], None]:
-    """Return :func:`_clenshaw_columns` compiled.
-
-    Compiled, a degree-64 table of 18 values costs under a microsecond against NumPy's
-    36 µs, which was most of a trial's host work. numba is imported here, at the first
-    evaluation, so that importing solprop does not load it.
-
-    Returns
-    -------
-    collections.abc.Callable
-        The compiled evaluation.
-    """
-    from solprop._numba_cache import njit  # noqa: PLC0415 - numba on first use
-
-    # The function itself, not a runtime type checker's wrapper around it (the test
-    # suite's import hook adds one), which numba can neither compile nor cache.
-    # Strict (SEP 25 section 4.2): the tables it evaluates include the integrated
-    # weights whose difference is a stage's phase increment.
-    return njit(cache=True, strict=True)(inspect.unwrap(_clenshaw_columns))
-
-
 def clenshaw(
     x: float, coefficients: Inexact[np.ndarray, " n_deg *value"]
 ) -> Inexact[np.ndarray, " *value"]:
-    """Evaluate one interval's Chebyshev series at one point, as NumPy's ``chebval``.
-
-    The same values bit for bit, compiled: a degree-64 series of 18 values costs under a
-    microsecond against NumPy's 36 µs. Until numba is loaded NumPy evaluates instead:
-    a run on the native backend needs numba for nothing else, and importing it costs
-    more than a set-up's thousand NumPy evaluations.
+    """Evaluate one interval's Chebyshev series at one point with NumPy's ``chebval``.
 
     Parameters
     ----------
@@ -180,15 +116,10 @@ def clenshaw(
     >>> float(clenshaw(0.5, np.array([1.0, 2.0, 3.0])))
     0.5
     """
-    if "numba" not in sys.modules:
-        return np.asarray(chebyshev_basis.chebval(float(x), coefficients))
-    flat = np.ascontiguousarray(coefficients).reshape(coefficients.shape[0], -1)
-    value = np.empty(flat.shape[1], dtype=coefficients.dtype)
-    _clenshaw()(float(x), flat, value)
-    return value.reshape(coefficients.shape[1:])
+    return np.asarray(chebyshev_basis.chebval(float(x), coefficients))
 
 
-def _clenshaw_points(  # noqa: PLR0912 - one compiled loop, its cases inline
+def _clenshaw_points(  # noqa: PLR0912 - one loop, its cases inline
     z: np.ndarray,
     edges: np.ndarray,
     lower: float,
@@ -196,15 +127,13 @@ def _clenshaw_points(  # noqa: PLR0912 - one compiled loop, its cases inline
     c: np.ndarray,
     out: np.ndarray,
 ) -> int:
-    """Write :func:`_clenshaw_columns` at each of several positions into `out`'s rows.
+    """Write NumPy's ``chebval`` of each column at each of several positions into `out`.
 
     Position ``p`` takes the interval :meth:`PiecewiseChebyshev.interval_containing`
     takes, the same map onto ``[-1, 1]`` as :meth:`PiecewiseChebyshev.__call__` and
-    the recursion of :func:`_clenshaw_columns` operation for operation, so a batch of
-    positions gives the values of one call per position bit for bit. The NumPy
-    reference backend runs it as written, ``numba_cpu`` compiled by
-    :func:`_clenshaw_batch`, and the native backend runs its C++ transcription
-    (``solprop._helpers``).
+    the recursion of ``chebval`` operation for operation, so a batch of positions gives
+    the values of one call per position bit for bit. The NumPy reference backend runs it
+    as written and the native backend its C++ transcription (``solprop._helpers``).
 
     Parameters
     ----------
@@ -265,25 +194,6 @@ def _clenshaw_points(  # noqa: PLR0912 - one compiled loop, its cases inline
                 c1 = tmp + c1 * x2
             out[p, j] = c0 + c1 * xp
     return -1
-
-
-@functools.cache
-def _clenshaw_batch() -> Callable[
-    [np.ndarray, np.ndarray, float, float, np.ndarray, np.ndarray], int
-]:
-    """Return :func:`_clenshaw_points` compiled.
-
-    Returns
-    -------
-    collections.abc.Callable
-        The compiled evaluation.
-    """
-    from solprop._numba_cache import njit  # noqa: PLC0415 - numba on first use
-
-    # Strict, as _clenshaw_columns is: the stage bundles it serves must equal the
-    # one-point reads operation for operation, and include the integrated weights whose
-    # difference is a stage's phase increment (SEP 25 section 4.2).
-    return njit(cache=True, strict=True)(inspect.unwrap(_clenshaw_points))
 
 
 _RECENT_POSITIONS: Final = 8
@@ -444,8 +354,7 @@ class PiecewiseChebyshev:
             A backend's implementation, for a stage's scalar tables read by the backend
             that runs the stage (SEP 29 section 6.6): the position is then evaluated
             as a batch of one by :meth:`at_positions`. ``None``, for translation and
-            every caller outside a backend, takes the shared compiled pass
-            (:func:`clenshaw`).
+            every caller outside a backend, takes the shared pass (:func:`clenshaw`).
 
         Returns
         -------

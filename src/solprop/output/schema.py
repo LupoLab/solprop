@@ -737,18 +737,20 @@ class BackendRecord:
 
     A resumed file keeps the record it was opened with, creation time and all, so the
     backend it names is the one that **started** the run. That is append mode's rule
-    for the whole record and not a special case for this group.
+    for the whole record and not a special case for this group. The name may be one this
+    package no longer has (:data:`solprop.backends.registry.REMOVED_BACKENDS`): an old
+    file's record reads as it was written, in its backend's own vocabulary.
 
     Attributes
     ----------
     name : str
-        The registry name of the backend, ``"numpy_ref"`` or ``"numba_cpu"``.
+        The registry name of the backend, for example ``"numpy_ref"`` or ``"native"``.
     propagator_mode : str
         Which the backend resolved the contract's ``"auto"`` to, or which was asked
         for: ``"tabulate"`` or ``"recompute"``.
     settings : dict
-        Everything else the backend reported: the threading regime, the four pool
-        counts, the plan flag, the wisdom digest, the column family. Free-form because
+        Everything else the backend reported, for example its thread counts, its plan
+        flag and its wisdom digest. Free-form because
         it is a backend's own vocabulary, and JSON-serialisable because it is written
         to the file.
 
@@ -756,11 +758,11 @@ class BackendRecord:
     --------
     >>> from solprop.output.schema import BackendRecord
     >>> record = BackendRecord.from_metadata(
-    ...     {"backend": "numba_cpu", "propagator_mode": "recompute",
-    ...      "numba_threads": 4}
+    ...     {"backend": "native", "propagator_mode": "recompute",
+    ...      "thread_count": 4}
     ... )
     >>> record.name, record.propagator_mode, record.settings
-    ('numba_cpu', 'recompute', {'numba_threads': 4})
+    ('native', 'recompute', {'thread_count': 4})
     """
 
     name: str
@@ -2774,7 +2776,7 @@ class RunMetadata(Displayed):
         Returns
         -------
         str
-            For example ``RunMetadata(modal, field grid of 8192, 2 modes, numba_cpu,
+            For example ``RunMetadata(modal, field grid of 8192, 2 modes, native,
             2026-09-17T12:00:00+00:00)``.
         """
         backend = "no backend" if self.backend is None else self.backend.name

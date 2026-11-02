@@ -1678,8 +1678,8 @@ class CoherentWall(Displayed):
     and density profiles and whose profiles carry analytic derivatives, and a scalar
     run. It carries the default ``"input"`` noise, drawn in the channel basis at the
     entrance and propagated like any field, and refuses the ``"modified"`` model, whose
-    transport through a nonunitary coupled flow is not measured. All three backends
-    execute the ``linear.coupled_flow`` leaf it becomes (``method="cf4"`` on
+    transport through a nonunitary coupled flow is not measured. ``numpy_ref`` and
+    ``native`` execute the ``linear.coupled_flow`` leaf it becomes (``method="cf4"`` on
     ``numpy_ref`` alone).
 
     **The vector boundary response** is ``impedance="te_tm"``. The scalar

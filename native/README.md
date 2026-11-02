@@ -34,7 +34,7 @@ covers both:
 - [Installation](https://solprop.readthedocs.io/en/latest/introduction/installation.html)
 - [Building the native backend](https://solprop.readthedocs.io/en/latest/guide/performance/building-native.html):
   requirements, CPU builds on Linux and macOS, build profiles and every CMake option,
-  the CUDA and HIP builds, and OpenMP runtimes beside pyFFTW
+  the CUDA and HIP builds, and OpenMP runtimes beside other packages
 - [The native backend](https://solprop.readthedocs.io/en/latest/guide/performance/native.html):
   what it runs and running on a GPU
 - [Performance tuning](https://solprop.readthedocs.io/en/latest/guide/performance/tuning.html):

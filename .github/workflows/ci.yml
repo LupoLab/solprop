@@ -163,7 +163,7 @@ jobs:
       matrix:
         include: >-
           ${{ fromJSON(needs.changes.outputs.lanes == 'full'
-          && '[{"id":"linux-x86_64","os":"ubuntu-24.04"},{"id":"macos-arm64","os":"macos-15"},{"id":"windows-amd64","os":"windows-2025"}]'
+          && '[{"id":"linux-x86_64","os":"ubuntu-24.04"},{"id":"macos-arm64","os":"macos-15"},{"id":"windows-amd64","os":"windows-2025","vc":"x64"},{"id":"windows-arm64","os":"windows-11-arm","vc":"arm64"}]'
           || '[{"id":"linux-x86_64","os":"ubuntu-24.04"}]') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -197,8 +197,9 @@ jobs:
       - if: steps.cache.outputs.cache-hit != 'true' && runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
         with:
-          arch: x64
-      - if: steps.cache.outputs.cache-hit != 'true' && runner.os == 'Windows'
+          arch: ${{ matrix.vc }}
+      # The Arm image carries Ninja; Chocolatey's is an x64 build.
+      - if: steps.cache.outputs.cache-hit != 'true' && runner.os == 'Windows' && matrix.vc == 'x64'
         run: choco install ninja --yes --no-progress
       - if: steps.cache.outputs.cache-hit != 'true' && runner.os != 'Linux'
         uses: pypa/cibuildwheel@f9b966cfadf4109556cadc5bb39ddb72d0ce664e # v4.3.5
@@ -215,7 +216,7 @@ jobs:
 
   # The default lane on macOS and Windows with the native CPU backend installed, as a
   # user installs solprop[native]: backend="auto" and the driver tests select it, and
-  # the parity tests compare it and numba_cpu with numpy_ref. Each lane is split into
+  # the parity tests compare it with numpy_ref. Each lane is split into
   # shards of whole modules (SOLPROP_TEST_SHARD, tests/shards.py) run as parallel jobs,
   # without the runtime type checks, which the coverage lane runs (ADR-053).
   test:
@@ -230,6 +231,7 @@ jobs:
         platform:
           - { id: macos-arm64, os: macos-15 }
           - { id: windows-amd64, os: windows-2025 }
+          - { id: windows-arm64, os: windows-11-arm }
         shard: [1, 2, 3]
     defaults:
       run:
@@ -333,9 +335,8 @@ jobs:
       - run: uv run --no-sync poe test-slow-functional
 
   # The coverage lane (`poe cov`) as parallel jobs, on Linux with the native wheel
-  # installed (solprop's native paths are part of the 100 %) and the driver tests on
-  # numba_cpu (its paths are too): the kernel bodies interpreted in one job, the rest of
-  # the default lane compiled in shards. coverage-report combines their data and
+  # installed and the driver tests on it (solprop's native paths are part of the 100 %):
+  # the default lane in shards. coverage-report combines their data and
   # requires 100 % of statements and branches. The one lane with the runtime type
   # checks (ADR-053): every annotated call in the default lane is checked here.
   coverage:
@@ -347,9 +348,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        part: [kernels, 1/6, 2/6, 3/6, 4/6, 5/6, 6/6]
+        part: [1/6, 2/6, 3/6, 4/6, 5/6, 6/6]
     env:
-      SOLPROP_TEST_BACKEND: numba_cpu
+      SOLPROP_TEST_BACKEND: native
       # Three workers, with swap: four exhausted the runner's 16 GB.
       PYTEST_XDIST_AUTO_NUM_WORKERS: "3"
     steps:
@@ -376,16 +377,13 @@ jobs:
           sudo chmod 600 /swap.extra
           sudo mkswap /swap.extra
           sudo swapon /swap.extra
-      - if: matrix.part == 'kernels'
-        run: uv run --no-sync poe cov-kernels
-      - if: matrix.part != 'kernels'
-        run: uv run --no-sync poe cov-part --junitxml=junit.xml
+      - run: uv run --no-sync poe cov-part --junitxml=junit.xml
         env:
           SOLPROP_TEST_SHARD: ${{ matrix.part }}
       - id: name
         if: ${{ !cancelled() }}
         run: echo "name=$(echo '${{ matrix.part }}' | tr / -)" >> "$GITHUB_OUTPUT"
-      - if: ${{ !cancelled() && matrix.part != 'kernels' }}
+      - if: ${{ !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: junit-coverage-${{ steps.name.outputs.name }}

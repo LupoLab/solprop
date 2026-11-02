@@ -279,7 +279,7 @@ GeneralModalSource::GeneralModalSource(const Problem& problem)
       n_modes_, n_omega_, static_cast<std::size_t>(dense_.concurrency()));
   // A gas region's dispersive channels respond where every regional tensor may be
   // zero; with no regional tensor and no delayed response the contraction is
-  // identically zero, and it and its transform are skipped (solprop `numba_cpu`).
+  // identically zero, and it and its transform are skipped.
   const bool tensor =
       std::any_of(problem.general_tensor.begin(), problem.general_tensor.end(),
                   [](const double value) { return value != 0.0; });

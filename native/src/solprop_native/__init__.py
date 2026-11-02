@@ -31,14 +31,14 @@ from ._cpu import check_cpu_baseline, select_variant
 from ._wait import wait_policy
 
 if platform.system() == "Darwin" and "pyfftw" in sys.modules:
-    # solprop loads this package before pyFFTW itself; this is reached when a script,
-    # or a package it imported, loaded pyFFTW first.
+    # solprop does not load pyFFTW; this is reached when a script, or a package it
+    # imported, did. Its macOS wheels carry a private OpenMP runtime of their own.
     raise RuntimeError(
         "on macOS, import solprop_native before pyfftw; the reverse order is "
         "unsafe with wheels that bundle another OpenMP runtime. pyfftw is already "
         "loaded in this process: restart Python and import solprop (or solprop_native) "
         "before pyfftw or any package that imports it, or pass another backend, such "
-        "as backend='numba_cpu'"
+        "as backend='numpy_ref'"
     )
 
 check_cpu_baseline(Path(__file__).parent)

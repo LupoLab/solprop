@@ -89,7 +89,6 @@ _STOP_PACKAGES: Final = frozenset(
         "jaxtyping",
         "CoolProp",
         "pyfluids",
-        "numba",
     }
 )
 """Packages whose objects the walk does not enter. optmat's own objects are recorded

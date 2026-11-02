@@ -659,13 +659,13 @@ def test_import_and_shutdown_in_a_fresh_process() -> None:
 
 
 def test_a_process_that_ran_both_backends_exits_cleanly() -> None:
-    """Finalising the runtime does not destroy FFTW state that pyFFTW still uses.
+    """Finalising the runtime does not destroy FFTW state another user still holds.
 
     Kokkos-FFT cleans up FFTW's process-wide planner when Kokkos finalises. Finalised
-    from a Python exit handler, that ran before the interpreter released the Numba
-    backend's pyFFTW plans, whose destruction then crashed the process. The probe
-    also holds a plan on this build's own FFTW library, so the test applies whatever
-    pyFFTW was built against.
+    from a Python exit handler, that ran before the interpreter released other users'
+    plans on the same library, whose destruction then crashed the process. The probe
+    holds such a plan on this build's own FFTW library, and runs the reference backend
+    beside the native one.
     """
     script = Path(__file__).with_name("teardown_probe.py")
     completed = subprocess.run(
@@ -676,13 +676,18 @@ def test_a_process_that_ran_both_backends_exits_cleanly() -> None:
         env={**os.environ, "OMP_PROC_BIND": "false"},
     )
     assert completed.returncode == 0, completed.stderr
-    assert json.loads(completed.stdout.splitlines()[-1]) == ["native", "numba_cpu"]
+    assert json.loads(completed.stdout.splitlines()[-1]) == ["native", "numpy_ref"]
 
 
 @pytest.mark.skipif(sys.platform != "darwin", reason="macOS OpenMP-runtime guard")
 def test_pyfftw_first_is_refused_before_openmp_initialization() -> None:
+    # solprop does not depend on pyFFTW, so the test stands in a module of that name.
+    script = (
+        "import sys, types; sys.modules['pyfftw'] = types.ModuleType('pyfftw'); "
+        "import solprop_native"
+    )
     completed = subprocess.run(
-        [sys.executable, "-c", "import pyfftw; import solprop_native"],
+        [sys.executable, "-c", script],
         capture_output=True,
         text=True,
         check=False,

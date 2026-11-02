@@ -125,7 +125,7 @@ endif()
 # percent slower at one thread and 7 to 12 percent at full width (an
 # 18-core-per-socket AVX-512 server; solprop SEP 29). v3 leaves out older cluster nodes
 # and the low-power Atom, Celeron and Pentium chips without AVX, where solprop's
-# automatic selection falls back to numba_cpu; SOLPROP_NATIVE_CPU_BASELINE=x86-64-v2
+# automatic selection falls back to numpy_ref; SOLPROP_NATIVE_CPU_BASELINE=x86-64-v2
 # builds for them from source. FFTW and OpenBLAS select their kernels at run time
 # either way. Every Apple silicon Mac is at least an M1. Linux aarch64 takes Neoverse
 # N1 (Armv8.2-A with the dot-product and half-precision extensions: Graviton2, Ampere

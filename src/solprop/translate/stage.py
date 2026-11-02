@@ -883,8 +883,8 @@ def require_device_ready(problem: KernelProblem, name: str) -> None:
     the translation layer falls back to it for a mode set that declares no scalar
     parameter paths, that disagrees about their values, or whose operator kinks in a
     parameter (``docs/dev/kernel-contract.md`` section 3). Every CPU backend runs it:
-    ``numpy_ref`` and ``numba_cpu`` evaluate it on the host, and the native backend's
-    CPU build evaluates it natively (SEP 29 section 6.6).
+    ``numpy_ref`` evaluates it on the host, and the native backend's CPU build evaluates
+    it natively (SEP 29 section 6.6).
 
     Parameters
     ----------
@@ -925,7 +925,7 @@ def require_device_ready(problem: KernelProblem, name: str) -> None:
     # device build meets, and its reader needs the builds and backends that run it.
     fix = (
         f"The CPU backends run it: a CPU build of {name}, which evaluates the table "
-        'natively, backend="numba_cpu" or backend="numpy_ref".'
+        'natively, or backend="numpy_ref".'
     )
     held = (
         f"{' and '.join(tabulated)} took the z table, whose coefficients "
