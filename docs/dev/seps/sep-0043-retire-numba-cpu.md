@@ -125,8 +125,10 @@ agree to rounding-level bounds, and adaptive runs within an accuracy envelope.
   package that isn't installed.
 - `import solprop` still works everywhere it installs, so results can be read on any
   machine.
-- `backend="numpy_ref"` stays available by name, as a development and validation tool.
-  `backend="mlx"` stays an opt-in extra and a named choice on Apple silicon.
+- Every supported install has native. `numpy_ref` is not an alternative to it: it is the
+  development and validation tool, and it also runs the few features native doesn't have yet
+  (Q3), which behave as they do today. `backend="mlx"` stays an opt-in extra and a named choice
+  on Apple silicon.
 - The x86-64 wheels hold both builds and choose at import. `SOLPROP_NATIVE_CPU_VARIANT=
   x86-64-v2` asks for the lower build, for tests and comparisons; a higher build than the
   processor runs is refused by name, as an unknown name is. `solprop_native.build_info()`
@@ -303,10 +305,11 @@ as this development switch only, and user documentation stops mentioning it. The
 a contributor's plain environment differs from an installed one: `auto` refuses there, so
 tests name their backend through `SOLPROP_TEST_BACKEND` (Q4).
 
-**`numpy_ref` and `mlx`.** `numpy_ref` remains the reference that every backend is tested
-against, and it stops being described as a way to run solprop. A few features run only on it
-today, which limits how far that can go at once (Q3). `mlx` is unchanged: its platforms are
-within native's, native is installed beside it, and loads only if selected.
+**`numpy_ref` and `mlx`.** Every supported install has native, whichever backend a run uses.
+`numpy_ref` remains the reference that every backend is tested against, and it stops being
+described as an alternative way to run solprop. The features that run only on it stay there
+(Q3). `mlx` is unchanged: its platforms are within native's, native is installed beside it, and
+loads only if selected.
 
 #### 6.8 Layer, contract and cost
 
@@ -359,7 +362,8 @@ installs, and `numpy_ref` is for development.** That is more than removing `numb
   the two builds and the setting, a source build as the way past a wheel's limits, no extra
   and no fallback, and the warning on replacing a GPU build (Q5).
 - The other guide pages: about 50 files under `docs/guide` name `numpy_ref`. Each is reworded
-  so that it reads as a development tool, except where Q3 keeps it as the only route.
+  so that it reads as a development tool, except where it is the only route (Q3), which says so
+  as a limit of native.
 - Tutorials: 11 of the 82 gallery scripts pass `backend="numpy_ref"`. Each moves to `native`
   where native runs it, and its committed output is regenerated and compared, as §6.5
   describes. The time this takes isn't measured yet.
@@ -468,30 +472,34 @@ with an `ImportError`. Installing `solprop[native]` avoids that.
 - **Q1. What `auto` does without native. Settled 2026-11-02:** it refuses (§6.7).
 - **Q2. Whether native becomes a default dependency. Settled 2026-11-02:** it is required on
   every platform, with no markers (§6.7).
-- **Q3. How far `numpy_ref` can be development-only while some features run only on it.** These
-  run nowhere else today, so as things stand they would be unavailable to users:
+- **Q3. Features that run only on `numpy_ref`. Settled 2026-11-02:** they stay there, unchanged.
+  The rule is about installs, not runs: there is no supported solprop install without native,
+  even where a feature uses only `numpy_ref`. Closing these gaps in native is separate work.
 
   | Feature | State today |
   |---|---|
   | The TDSE response | Requires `numpy_ref`; `auto` resolves to it for a TDSE response |
   | `CoherentWall(method="cf4")`, and a coupled flow with a CF4 section | `numpy_ref` only, with the Runge–Kutta march |
-  | Single precision away from Apple silicon | `numpy_ref` or `mlx`; native refuses it |
+  | Single precision away from Apple silicon | `numpy_ref`; native refuses it and `mlx` needs Apple silicon |
   | The general route's delayed response beyond six terms on three components | `numpy_ref` only (Part II) |
 
-  Recommended: these stay available on `numpy_ref` by name, each documented as a known
-  exception and worded as a limit of native, and `auto` stops resolving to it. The rest of the
-  documentation treats `numpy_ref` as a development tool, and closing the gaps in native is
-  separate work. The alternative is to refuse these features to users until native has them,
-  which would remove TDSE from the documented features.
-- **Q4. What a contributor's plain environment holds.** Recommended: the workspace override of
-  §6.7, so that `uv sync` stays compiler-free on every platform, including Windows, for which
-  the build guide has no instructions. The alternative is a plain `uv sync` that builds native,
-  which matches an installed environment and adds a compiler and a build to every first sync
-  and every lane. To settle before phase 3.
-- **Q5. Source builds beside the exact pin.** A GPU build is a source build at solprop's version.
-  `pip install -U solprop` would probably replace it with the CPU wheel of the new version (not
-  tested). Recommended: a warning in `building-native.md`, and a check in `check_build` that
-  reports a CPU wheel where a GPU build was expected, if a real case shows it's needed.
+- **Q4. What a contributor's plain environment holds.** This concerns a repository checkout
+  only: users install from PyPI and get the wheel. A plain `uv sync` can't install a wheel,
+  because a checkout's version has none on PyPI and a released wheel isn't the matching pair.
+  Recommended: the workspace override of §6.7. A plain `uv sync` then holds no native package and
+  needs no compiler on any platform, including Windows, for which the build guide has no
+  instructions. `poe fetch-wheel` adds CI's wheel for the commit, and `uv sync --extra native`
+  builds. The alternative is a plain `uv sync` that builds native, which matches an installed
+  environment and adds a compiler and a build to every first sync and every lane. To settle
+  before phase 3.
+- **Q5. Source builds beside the exact pin.** A GPU or local build is a source build at solprop's
+  version. Reinstalling or upgrading at that version keeps it; a new release replaces it with
+  that release's CPU wheel, with no message (Part II). The results stay correct, but the run moves
+  to the CPU. Python has no finished standard for this: Wheel Variants (PEP 817) is still a draft.
+  Recommended: source builds carry a PEP 440 local label (`0.3.0+cuda`), which satisfies the pin
+  and shows in `pip list`; `building-native.md` says that upgrading a source build means
+  rebuilding it from the new tag; and an optional setting makes a run refuse a CPU-only build, for
+  GPU environments that want the guarantee. GPU wheels ([#317][317]) remain out of scope.
 
 ### 13. References
 
@@ -611,6 +619,16 @@ Issues and pull requests of the solprop repository:
   impossible marker in the override, the same mechanism; it wasn't run separately with the
   `extra` form. Pinning the required dependency in `hatch_build.py` wasn't tried: hatch doesn't
   allow a field to be both listed statically and marked dynamic, so the list may have to move.
+- **Source builds beside the pin, a design probe (2026-11-02):** fake wheels again, pip 26.2.2 and
+  uv 0.12.7, with the installed build standing for a GPU build:
+
+  | Installed | Action | pip | uv |
+  |---|---|---|---|
+  | `1.0+cuda` | Install or `-U` solprop 1.0 (pin `==1.0`) | Kept, also with `--upgrade-strategy eager` | Kept |
+  | `1.0`, no label | `-U` solprop 1.0 | Kept, also with eager | Kept |
+  | `1.0+cuda` | `-U` when solprop 1.1 is released | Replaced by the 1.1 wheel, with no message | The same |
+
+  Setting the label on a real build, which takes its version from `setuptools_scm`, wasn't tried.
 - **Deviations from the first plan:** the builds sit side by side as `_core` and `_core_v2`
   rather than in subdirectories; the Windows on Arm core keeps the generic Armv8-A baseline,
   so it needs no `PF_ARM_*` check.
@@ -625,4 +643,6 @@ Issues and pull requests of the solprop repository:
 - 2026-11-02: Drafted. Tracking issue [#392](https://github.com/LupoLab/solprop/issues/392).
 - 2026-11-02: The maintainer settled Q1 and Q2: native is a required dependency, a platform
   without it is unsupported and refuses with a request to report it, `numpy_ref` is a
-  development tool and `mlx` stays a special backend. §6.7, §8 and Q3 to Q5 added.
+  development tool and `mlx` stays a special backend. §6.7, §8 and Q3 to Q5 added. Q3 then
+  settled: features that run only on `numpy_ref` stay there, and every supported install has
+  native.
