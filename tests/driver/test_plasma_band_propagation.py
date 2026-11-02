@@ -260,6 +260,8 @@ def test_native_runs_the_band_rule_and_records_its_diagnostics():
 
 @pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu", "native"])
 def test_the_diagnostics_need_a_field_plasma_column(backend):
+    if backend == "native":
+        pytest.importorskip("solprop_native")
     simulation = build(
         plasma=False, backend=backend, stats=StatsSpec(names=("plasma_undershoot",))
     )

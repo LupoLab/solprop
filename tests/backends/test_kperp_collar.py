@@ -111,6 +111,8 @@ def test_the_rate_attenuates_each_column_exactly_over_the_run(schedule):
 
 @pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu", "native"])
 def test_the_rate_never_reaches_the_noise_phase(backend):
+    if backend == "native":
+        pytest.importorskip("solprop_native")
     from solprop.backends.registry import select  # noqa: PLC0415
 
     phases = []
