@@ -920,9 +920,9 @@ def require_device_ready(problem: KernelProblem, name: str) -> None:
         size += problem.linear.phi_coefficients.nbytes
     if problem.responses.prefactor is not None:
         size += problem.responses.prefactor.coefficients.nbytes
-    # The fix leads each message: "auto" picks the native backend whenever it is
-    # installed and never falls back, so this refusal is what a default call on a
-    # device build meets, and its reader needs the builds and backends that run it.
+    # The fix leads each message: "auto" picks the native backend and never falls
+    # back, so this refusal is what a default call on a device build meets, and its
+    # reader needs the builds and backends that run it.
     fix = (
         f"The CPU backends run it: a CPU build of {name}, which evaluates the table "
         'natively, or backend="numpy_ref".'

@@ -679,9 +679,9 @@ def prop_gnlse(  # noqa: PLR0913 - the interface's keyword surface
         Immutable local checkpoints at committed accepted steps; requires HDF5,
         ``step_planes=1``, all fields and non-interpolated observations.
     backend : str, optional
-        Registry name, or ``"auto"`` (the default) to prefer ``native`` if installed
-        and otherwise warn and use ``numpy_ref``. Import or construction errors do
-        not fall back.
+        Registry name, or ``"auto"`` (the default) for ``native``, which refuses if it
+        isn't installed or this processor is below its baseline. There is no fallback,
+        and import or construction errors stay visible.
         :func:`solprop.backends.registry.available` lists what can be used.
     precision : {'double', 'single'}, optional
         The arithmetic the run is held in (SEP 33,
@@ -1166,9 +1166,9 @@ def prop_capillary(  # noqa: PLR0913 - the interface's keyword surface
     node_budget : int, optional
         Bytes of node-chunk buffers the response pass may hold.
     backend : str, optional
-        Registry name, or ``"auto"`` (the default) to prefer ``native`` if installed
-        and otherwise warn and use ``numpy_ref``. Import or construction errors do
-        not fall back.
+        Registry name, or ``"auto"`` (the default) for ``native``, which refuses if it
+        isn't installed or this processor is below its baseline. There is no fallback,
+        and import or construction errors stay visible.
     precision : {'double', 'single'}, optional
         The arithmetic the run is held in (SEP 33,
         ``docs/guide/performance/single-precision.md``). ``"double"``, the default, is
@@ -1684,9 +1684,9 @@ def prop_waveguide(  # noqa: PLR0913 - the interface's keyword surface
     node_budget : int, optional
         Bytes of node-chunk buffers the response pass may hold.
     backend : str, optional
-        Registry name, or ``"auto"`` (the default) to prefer ``native`` if installed
-        and otherwise warn and use ``numpy_ref``. Import or construction errors do
-        not fall back.
+        Registry name, or ``"auto"`` (the default) for ``native``, which refuses if it
+        isn't installed or this processor is below its baseline. There is no fallback,
+        and import or construction errors stay visible.
     precision : {'double', 'single'}, optional
         The arithmetic the run is held in (SEP 33,
         ``docs/guide/performance/single-precision.md``). ``"double"``, the default, is

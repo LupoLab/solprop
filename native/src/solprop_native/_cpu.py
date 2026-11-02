@@ -37,7 +37,7 @@ place. If neither answers, the build refuses to load with
 :class:`CpuFeaturesUnknownError` rather than risk an illegal instruction with no Python
 error, and ``SOLPROP_NATIVE_CPU_VARIANT`` is the deliberate way past that, on the user's
 word about their processor. NumPy's names cover only part of Neoverse N1's list, so
-Linux aarch64 has no such fallback. A record naming a baseline this module does not know
+Linux aarch64 can't ask it. A record naming a baseline this module does not know
 (a source build's own ``-march``) is not checked, and a missing record is a local or
 editable build, compiled for the machine it runs on.
 

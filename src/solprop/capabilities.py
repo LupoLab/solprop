@@ -429,8 +429,7 @@ _RULES: Final = (
     Rule(
         "integrator-backends",
         ("integrator", "backend"),
-        "The Multistep and low-storage integrators run on numpy_ref, numba_cpu and "
-        "native only.",
+        "The Multistep and low-storage integrators run on numpy_ref and native only.",
         _BOTH,
     ),
     # The gnlse route.
