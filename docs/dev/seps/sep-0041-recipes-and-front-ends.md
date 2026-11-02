@@ -1451,6 +1451,73 @@ dispersive cladding costs about ten seconds, since the attainable range searches
 zero-dispersion wavelength at each of its samples and the glass model is slow to evaluate;
 with a constant cladding index it is about a second.
 
+### Phase 4, guided half, and phase 6 report (S1 on the waveguide, S5, S13, S14, S18)
+
+Complete on 2026-11-02, commits `74b79db` (previews), `50fb16c` (drawings), `224ea3c`
+(launch and keywords) and `a69e09e` (waveguide recipes). Checked as phase 1 was. The
+free-space half of phase 4 waits for SEP 40 on `main`.
+
+**Delivered.**
+
+- **Recipes on the `waveguide` route.** Its metadata layers its own entries over the
+  capillary's fill and response entries. `MarcatiliMode`, `RectMode`, `SlabMode` and
+  `ModeCollection.slab` are registered as tables of geometry, cladding and loss: a
+  supplied mode carries no fill, since the route rebinds every mode to its own (the
+  configuration hash is the same whatever fill a mode was built with), and
+  `Factory.omitted` names what a table may not give. Two capillary gallery scripts gain
+  recipes now that `MarcatiliMode` is registered. A recipe with a keyword its `prop_*`
+  lacks (`memory_budget` on the waveguide) is exported through `Simulation.from_*`.
+- **`launch`** on `prop_capillary`, `prop_waveguide` and their constructors
+  (`solprop.driver._launch`).
+  - Labels resolve by display label or index; a label without its parity is accepted
+    where one row completes it and refused, naming both, where two do.
+  - Each pulse is placed per mode with the square root of its normalised share and its
+    phase. On a guide whose provider declares a change of basis the coefficients are
+    rescaled so the flux-metric energy is the pulse's (to 1e-13 on the circular-pair
+    guide), recorded as a coordinate split.
+  - `configuration.modal_launch` records each pulse's labels, normalised shares and
+    phases, only when `launch` is given, so the default record is unchanged; it is
+    compared under SEP 42, with the neutral entry `None` for older records (release
+    0.2.0). No schema bump, per ADR-063.
+  - `launch` beside `channel`, `incident` or `coupling`, and a per-pulse list of the
+    wrong length, are refused with rule ids.
+  - In a recipe, `launch` is a mapping or a list of mappings, addressed as
+    `launch["HE1,1"].share`.
+- **Keyword gaps (S14).** `interpolate_planes` and `step_planes` on the waveguide;
+  `polarisation_taper` on the capillary and the waveguide (every grid of these routes has
+  a spectral collar); `step_planes` defaults to `None` on the GNLSE, hash unchanged. The
+  guide's table of where the interfaces' keywords differ gives the reasons for each kept
+  difference, and the route-defaults table was already in the stepper page.
+- **Previews (S18, guided).** `Recipe.modes(z=None)` (`solprop.recipe.preview`) gives
+  each mode's label, `beta`, `beta2`, loss, effective area and zero-dispersion wavelength
+  over the grid's band. `Recipe.preview_input()` gives the launched pulse on the run's
+  grid without noise, read through the processing functions from a one-plane view, as an
+  observer reads a plane. Both solve the pins first.
+- **Drawings (S13).** `solprop.plotting.geometry`: `outline(guide)` gives the
+  cross-section as shapes in metres, each with its region (medium, wall, core, cladding,
+  collar); `draw(ax, guide, palette=...)` paints them with Matplotlib patches; and
+  `thumbnail(route, representation, size)` makes a bare figure for a front end's picker.
+  The `Palette` is explicit, with `LIGHT` and `DARK` holding the guide's colours. Covered:
+  capillary, antiresonant, step-index, graded-index, general modal (its provider),
+  rectangular and slab guides, and the planar, radial, Cartesian and line grids.
+
+**Deviations and decisions.**
+
+- **S13 is narrowed to outlines**, by the maintainer's decision: the library draws walls,
+  core, tubes and collar. The guide's figure script draws SVG with `drawsvg` in CSS
+  classes, for its dark mode, so it paints the library's `outline()` shapes rather than
+  calling `draw()`. It keeps its own fields, node sets and labels. Six guide figures
+  change slightly, because the drawn wall is now one fraction of the guide's size.
+- **No waveguide example recipe yet.** None of the seven gallery scripts on the route can
+  be written as a recipe: five build their guide from a provider, which has no table form;
+  one passes an array to `with_input`; one uses a metal cladding, which is not registered.
+  The route is tested against the guide's own calls instead.
+- **An explicit first-mode launch is a recorded launch.** `launch={"HE1,1": 1.0}` builds
+  the default's field to rounding, but records `modal_launch`, so a file written without
+  `launch` continues under it only when forced.
+- **On a slab set**, a pulse's `energy` and `peak_power` are per metre of y, while the
+  metadata's units are J and W; the guide says so.
+
 ## Part III — History
 
 - 2026-10-31: Drafted, from the requirements of a desktop front end under design.
