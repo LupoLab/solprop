@@ -29,8 +29,11 @@ from solprop.backends.memory import (
     reference_base_memory,
 )
 from solprop.backends.registry import available, select
-from solprop.driver import Simulation
+from solprop.driver import Simulation, SimulationSettings
 from solprop.exceptions import BackendError, HostMarchWarning, SolpropWarning
+from solprop.grid import EnvelopeGrid, FreeGrid
+from solprop.pulses import GaussianPulse
+from solprop.spatial import SpatialMedium
 from solprop.stepper import FixedSchedule, Multistep
 from solprop.stepper.controller import PIController
 
@@ -96,19 +99,28 @@ def test_estimate_memory_equals_the_ledger_to_the_byte(problems, case, size, bac
     if backend == "numpy_ref":
         assert estimate.groups["base"] == held["base"]
         assert held["measured"] == 0
-    # The route the case exercises is present, and the reference is counted as resident.
+    # The route the case exercises is present, and the reference and the problem's
+    # initial state, which no ledger holds, are counted as resident.
     route = "coupled_flow" if case in {"wall", "te_tm", "taper"} else "general_maps"
     assert estimate.groups[route] > 0
-    assert estimate.resident == estimate.groups["general_reference"]
+    assert estimate.groups["initial_field"] == problem.initial.field0.nbytes
+    assert estimate.resident == (
+        estimate.groups["general_reference"] + estimate.groups["initial_field"]
+    )
     assert estimate.not_counted
 
 
 @pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu", "native"])
 def test_estimate_memory_of_the_legacy_route_is_its_base(gnlse_problem, backend):
+    # Beside it, the problem's own initial state: one state, resident.
     estimate = estimate_memory(gnlse_problem, backend)
-    assert estimate.total == estimate.groups["base"] > 0
-    assert estimate.resident == 0
-    assert estimate.largest() == (("base", estimate.total),)
+    field = gnlse_problem.initial.field0.nbytes
+    assert estimate.total == estimate.groups["base"] + field
+    assert estimate.resident == estimate.groups["initial_field"] == field > 0
+    assert estimate.largest() == (
+        ("base", estimate.groups["base"]),
+        ("initial_field", field),
+    )
 
 
 def test_estimate_memory_matches_the_reference_ledger_on_the_legacy_route(
@@ -123,6 +135,58 @@ def test_estimate_memory_matches_the_reference_ledger_on_the_legacy_route(
     assert {group: estimate.groups[group] for group in MEMORY_GROUPS} == {
         group: held[group] for group in MEMORY_GROUPS
     }
+
+
+def _free_problem(launch):
+    """Return a small Cartesian vacuum problem launched from `launch`, and its grid."""
+    grid = EnvelopeGrid.from_limits(1e-4, 800e-9, (700e-9, 950e-9), 150e-15, thg=False)
+    space = FreeGrid(4e-4, 4, 3e-4, 3, collar_fraction=0)
+    column = GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-9).build(grid)
+    settings = SimulationSettings(
+        boundary_check=None,
+        controller=PIController(rtol=1e-6, atol=1e-14),
+        save_planes=[1e-4],
+        dz_max=5e-5,
+        dz_init=5e-5,
+        backend="numpy_ref",
+    )
+    field = launch(np.broadcast_to(column, (space.n_columns, 1, grid.n_omega)))
+    simulation = Simulation.from_free(
+        grid, space, SpatialMedium(), [], field, settings=settings, noise=None
+    )
+    return simulation.translate(), grid, field, column
+
+
+def _frozen_copy(field):
+    """Return a read-only copy of `field` that owns its data."""
+    copy = field.copy()
+    copy.setflags(write=False)
+    return copy
+
+
+@pytest.mark.parametrize(
+    ("launch", "kept"),
+    [(lambda field: field, "column"), (np.copy, "state"), (_frozen_copy, "shared")],
+    ids=["broadcast", "writeable", "frozen"],
+)
+def test_estimate_memory_counts_the_initial_field_the_problem_holds(launch, kept):
+    # A broadcast input is held as its repeated column, a writeable one as the
+    # problem's copy, a frozen one as the caller's array itself: the estimate counts
+    # what is held, and no ledger holds it.
+    problem, grid, field, column = _free_problem(launch)
+    state = 16 * int(np.prod(problem.shape))
+    held = problem.initial.field0
+    expected = {"column": column.nbytes, "state": state, "shared": state}[kept]
+    assert np.shares_memory(held, field) == (kept == "shared")
+    assert held.flags.owndata == (kept == "state")
+    estimate = estimate_memory(problem, "numpy_ref")
+    assert estimate.groups["initial_field"] == estimate.resident == expected
+    constructed = select("numpy_ref", problem, grid=grid)
+    try:
+        ledger = ledger_groups(constructed.memory_ledger())
+    finally:
+        constructed.close()
+    assert sum(ledger.values()) == estimate.total - expected
 
 
 def test_estimate_memory_resolves_auto(gnlse_problem):

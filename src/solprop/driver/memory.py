@@ -118,6 +118,9 @@ _ADVICE = {
     "base": "fewer time samples, modes or nodes, or propagator_mode='recompute'",
     "adams_history": "integrator=RungeKutta(), which keeps no Adams history",
     "output": "an HDF5 file as the output instead of memory, or fewer save planes",
+    "initial_field": "a read-only input array or a broadcast view "
+    "(numpy.broadcast_to), which the translated problem keeps without copying (a "
+    "writeable array is copied, and a modal launch is held in its internal amplitude)",
 }
 
 _COUNTED_PER_PLANE = 3
@@ -290,10 +293,10 @@ def admit_memory(
     """Estimate a run's persistent memory and admit it against its budget.
 
     Called before the backend is constructed, so nothing the backend would allocate
-    exists yet. The general route's reference is already resident, in the translated
-    problem, and is counted with the rest. Given the run's output, what the output
-    keeps in memory is added as the group ``output``: an in-memory store at its
-    planned capacity, nothing for a file.
+    exists yet. The general route's reference and the initial field are already
+    resident, in the translated problem, and are counted with the rest. Given the
+    run's output, what the output keeps in memory is added as the group ``output``: an
+    in-memory store at its planned capacity, nothing for a file.
 
     Parameters
     ----------
@@ -807,9 +810,17 @@ def _over_budget(estimate: MemoryEstimate, budget: MemoryLimit, subject: str) ->
     largest = estimate.largest()
     groups = ", ".join(f"{name} {format_bytes(size)}" for name, size in largest)
     advice = "; ".join(f"{name}: {_ADVICE[name]}" for name, _ in largest)
+    held = " and ".join(
+        name
+        for group, name in (
+            ("general_reference", "the general route's reference"),
+            ("initial_field", "the initial field"),
+        )
+        if estimate.groups.get(group)
+    )
     resident = (
-        f" ({format_bytes(estimate.resident)} of it, the general route's reference, "
-        "is already held by the translated problem)"
+        f" ({format_bytes(estimate.resident)} of it, {held}, is already held by the "
+        "translated problem)"
         if estimate.resident
         else ""
     )

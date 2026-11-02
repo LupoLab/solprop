@@ -73,10 +73,41 @@ through {py:func}`~solprop.driver.scan.run_scan`, not as a `prop_*` keyword.
 
 The estimate is recorded in the file's backend record under `memory`, with its groups
 (`base`, `general_maps`, `general_reference`, `general_chunk`, `coupled_flow`,
-`adams_history`, ...), so
+`adams_history`, `initial_field`, ...), so
 you can see which one to shrink: fewer channels or nodes for the maps and the reference,
 a narrower frequency window for all of them. Nothing is ever approximated to fit. Not
 counted, and named on every estimate: FFTW's planning heap and per-stage transients.
+
+**The initial field.** The translated problem keeps the run's initial state for as long
+as it lives, and the estimate counts it as the group `initial_field`. What it keeps
+depends on what you pass. A read-only array (one whose owner is read-only too) is kept
+as it is, without a copy, and a broadcast view such as
+`numpy.broadcast_to(column, shape)` costs only the block it repeats. A writeable array is
+copied, one state's bytes, so that changing it afterwards cannot change the run; and a
+modal launch is held converted to its internal amplitude. A caller who loads its own
+state into one backend for run after run can pass a broadcast placeholder and pay for no
+held copy at all.
+
+```python
+import numpy as np
+
+from solprop.driver import Simulation, SimulationSettings
+from solprop.grid import EnvelopeGrid, FreeGrid
+from solprop.pulses import GaussianPulse
+from solprop.spatial import SpatialMedium
+
+grid = EnvelopeGrid.from_limits(1e-4, 800e-9, (700e-9, 950e-9), 150e-15, thg=False)
+space = FreeGrid(4e-4, 4, 3e-4, 3, collar_fraction=0)
+column = GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-9).build(grid)
+placeholder = np.broadcast_to(column, (space.n_columns, 1, grid.n_omega))
+settings = SimulationSettings(
+    save_planes=[1e-4], dz_max=5e-5, dz_init=5e-5, backend="numpy_ref"
+)
+problem = Simulation.from_free(
+    grid, space, SpatialMedium(), [], placeholder, settings=settings, noise=None
+).translate()
+print(problem.initial.field0.strides[1])  # 0: one column held, not a state
+```
 
 **The output.** A run kept in memory (`output=None` or a
 {py:class}`~solprop.output.memory.MemoryOutput`) holds every plane it saves, allocated at

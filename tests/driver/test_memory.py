@@ -118,9 +118,10 @@ def test_admit_memory_passes_a_run_within_its_budget(build_simulation):
     problem = build_simulation(integrator=RungeKutta()).translate()
     admission = admit_memory(problem, "numpy_ref", "1 GiB")
     assert admission.estimate == estimate_memory(problem, "numpy_ref")
+    field = problem.initial.field0.nbytes
     assert admission.record() == {
         "estimate": admission.estimate.total,
-        "groups": {"base": admission.estimate.total},
+        "groups": {"base": admission.estimate.total - field, "initial_field": field},
         "budget": 2**30,
         "budget_source": "keyword",
     }
@@ -169,12 +170,28 @@ def test_over_budget_names_the_resident_reference_and_the_route_advice():
     message = _over_budget(
         estimate, MemoryLimit(2**30, "refuse", "machine"), "the run's memory"
     )
-    assert "3.00 GiB of it, the general route's reference" in message
+    assert "3.00 GiB of it, the general route's reference, is already" in message
     assert "general_reference 3.00 GiB, general_maps 1.00 GiB, coupled_flow 5 B" in (
         message
     )
     assert "a coarser node rule" in message
     assert "Chebyshev terms" in message
+
+
+def test_over_budget_names_a_resident_initial_field_and_its_advice():
+    estimate = MemoryEstimate(
+        "numpy_ref",
+        {"base": 2**30, "general_reference": 2**30, "initial_field": 2**31},
+        resident=3 * 2**30,
+    )
+    message = _over_budget(
+        estimate, MemoryLimit(2**30, "refuse", "machine"), "the run's memory"
+    )
+    assert (
+        "3.00 GiB of it, the general route's reference and the initial field, is "
+        "already held by the translated problem" in message
+    )
+    assert "initial_field: a read-only input array or a broadcast view" in message
 
 
 def _history_limit(problem, backend="numpy_ref"):
@@ -284,7 +301,11 @@ def test_simulation_run_records_its_admission(
     assert history > 0
     assert record == {
         "estimate": estimate.total,
-        "groups": {"base": estimate.groups["base"], "adams_history": history},
+        "groups": {
+            "base": estimate.groups["base"],
+            "adams_history": history,
+            "initial_field": estimate.groups["initial_field"],
+        },
         "budget": record["budget"],
         "budget_source": "machine",
     }
