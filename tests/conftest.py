@@ -12,13 +12,10 @@ each worker is its own process and loads this file before it loads ``solprop``, 
 worker installs its own hook (``docs/dev/testing.md`` section 2).
 """
 
-import faulthandler
 import importlib
 import importlib.util
-import multiprocessing
 import os
 import sys
-import threading
 
 import pytest
 from hypothesis import settings
@@ -258,37 +255,3 @@ def pytest_terminal_summary(terminalreporter):
     terminalreporter.write_line(f"convergence records written ({len(written)}):")
     for path in written:
         terminalreporter.write_line(f"  {convergence_records.relative(path)}")
-
-
-# ------------------------------------------------- a process that will not exit
-#
-# On CI, a test process still alive minutes after its session ends prints what holds it:
-# every thread's stack, the live threads and the child processes. A hang in a test is
-# caught by `faulthandler_timeout`; this catches one at exit, which that cannot see.
-
-EXIT_GRACE = 300.0
-"""Seconds a CI test process may take to exit after its session before it reports."""
-
-
-def pytest_sessionfinish(session):
-    """On CI, report the threads and child processes of a process that does not exit."""
-    if not os.environ.get("CI"):
-        return
-    stream = sys.__stderr__
-    if stream is None:
-        return
-    timer = threading.Timer(EXIT_GRACE - 5.0, _report_leftovers, args=(stream,))
-    timer.daemon = True
-    timer.start()
-    faulthandler.dump_traceback_later(EXIT_GRACE, file=stream)
-
-
-def _report_leftovers(stream):
-    """Print the live threads and child processes of a process that has not exited."""
-    late = EXIT_GRACE - 5.0
-    print(f"pid {os.getpid()} is alive {late:.0f} s after its session", file=stream)
-    for thread in threading.enumerate():
-        print(f"  thread {thread.name!r} daemon={thread.daemon}", file=stream)
-    for child in multiprocessing.active_children():
-        print(f"  child process {child.name!r} pid={child.pid}", file=stream)
-    stream.flush()

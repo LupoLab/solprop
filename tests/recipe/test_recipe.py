@@ -6,7 +6,6 @@
 
 import hashlib
 import json
-import os
 import signal
 import subprocess
 import sys
@@ -477,10 +476,11 @@ def test_a_signal_stops_the_command_s_run_through_its_flag(
     seen = {}
 
     def run(self, output, *, stop, **keywords):
-        os.kill(os.getpid(), signal.SIGINT)
+        # Ctrl-C in-process; os.kill would terminate the process on Windows.
+        signal.raise_signal(signal.SIGINT)
         seen["stopped"] = stop.is_set()
         with pytest.raises(KeyboardInterrupt):
-            os.kill(os.getpid(), signal.SIGINT)
+            signal.raise_signal(signal.SIGINT)
 
     monkeypatch.setattr(Recipe, "run", run)
     before = signal.getsignal(signal.SIGINT)
