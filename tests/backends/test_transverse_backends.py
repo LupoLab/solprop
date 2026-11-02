@@ -195,13 +195,13 @@ def test_a_backend_that_does_not_read_the_edge_runs_unwatched(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # Section 6: a backend that does not read the edge (none of solprop's own);
-    # numba_cpu with its reading switched off stands in for one. The run warns
+    # numpy_ref with its reading switched off stands in for one. The run warns
     # before its first step, is not stopped by the packet on the wrap, and records
     # that it was unwatched.
-    from solprop.backends.numba_cpu import NumbaCpuBackend  # noqa: PLC0415
+    from solprop.backends.numpy_ref import NumpyRefBackend  # noqa: PLC0415
 
-    monkeypatch.setattr(NumbaCpuBackend, "reads_transverse_edge", False)
-    simulation = on(packet_run(REREVIEW, integrator=Multistep()), "numba_cpu")
+    monkeypatch.setattr(NumpyRefBackend, "reads_transverse_edge", False)
+    simulation = on(packet_run(REREVIEW, integrator=Multistep()), "numpy_ref")
     with pytest.warns(BoundaryWarning, match="does not read the transverse edge"):
         output = simulation.run(progress="none")
     assert isinstance(output, PlaneStore)
