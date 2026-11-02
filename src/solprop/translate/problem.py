@@ -1834,6 +1834,7 @@ class KernelProblem:
             f"{self._runge_kutta_advice()}or "
             'ask for absorber_scheme="split_step", which integrates the rate exactly '
             "and is unconditionally stable at the cost of first-order convergence."
+            f"{_history_replay_advice(limit) if schedule is not None else ''}"
         )
         raise TranslationError(msg)
 
@@ -5980,6 +5981,33 @@ def _stepper_settings(
         interval_cap=restrained if interval_cap is None else interval_cap,
         auto_init=auto_init and not restrained,
         **fields,
+    )
+
+
+def _history_replay_advice(limit: float) -> str:
+    """Return the two remedies for replaying an adaptive run's own step history.
+
+    An adaptive run is not held to the in-stage collar's limit: an empty collar
+    produces no error, so its accepted steps can be longer than the limit, and a
+    schedule read from them
+    (:meth:`solprop.stepper.schedule.FixedSchedule.from_history`) is then refused.
+    Either remedy replays exactly what the discovery run did.
+
+    Parameters
+    ----------
+    limit : float
+        The collar's stable step, m.
+
+    Returns
+    -------
+    str
+        A sentence, starting with a space, naming both remedies.
+    """
+    return (
+        " To replay an adaptive run's own steps (FixedSchedule.from_history), "
+        'either give absorber_scheme="split_step" to both the discovery run and '
+        "the replay, or hold the discovery run below this limit with dz_max just "
+        f"under {limit:.3e} m and replay its history."
     )
 
 
