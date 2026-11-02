@@ -1353,8 +1353,8 @@ passes (4, 13.1). SEP 42 adds `resume="force"`, which the GUI offers only after 
 
 ## 21. What solprop delivered, and what changed here
 
-Checked on 2026-11-02 against SEP 41's implementation record (Part II) and its code on
-`feature/sep-0041-recipes` at `Final`.
+Checked on 2026-11-02 against SEP 41's implementation record (Part II) and its code as
+merged to `main` at `Final`.
 
 ### 21.1 Differences from this design
 
