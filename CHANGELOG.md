@@ -9,11 +9,6 @@ All notable changes to solprop are recorded here. The format follows
 
 ### Added
 
-- A published-install check after each PyPI release, on all four wheel platforms:
-  fresh CPython 3.14 environments resolve the native extra with pip and verify its
-  version, dependencies and default backend. The same check can be run by hand for a
-  named release, with an optional run of its tagged README example and retained logs.
-
 - The first performance-history rows (`benchmarks/history/`), recorded at 0.1.0 on
   six CPU and three GPU hardware sets, with numba runs beside the native ones on three
   of them; `docs/dev/benchmarking.md` lists how each is run. The history takes any
@@ -22,11 +17,6 @@ All notable changes to solprop are recorded here. The format follows
   harness names an AMD GPU from its PCI IDs where ROCm reports only
   "AMD Radeon Graphics".
 
-- `Simulation.from_radial`, `from_free` and `from_planar` take `absorber` and
-  `absorber_scheme`, as `prop_radial`, `prop_free` and `prop_planar` and the modal
-  `from_*` do.
-- `solprop.sol` exports `wavelength_to_axis`, which the plots' documentation sends the
-  reader to.
 - `resume="force"` continues a file across changed physics, in the same file, while
   the stored arrays' layout agrees, the statistics fit and work is left: the Adams
   history restarts, the session's execution record marks the file, and later sessions
@@ -70,25 +60,6 @@ All notable changes to solprop are recorded here. The format follows
 
 ### Changed (breaking)
 
-- Names and keywords with two meanings or two spellings are settled, with no aliases;
-  `docs/dev/conventions.md` section 7 gives the rule for each:
-  - `prop_2d`, `time_1d` and `spectrogram` take `time_range`, not `trange`, which stays
-    the scalar window length on `prop_*`. `DEFAULT_TRANGE` is `DEFAULT_TIME_RANGE`.
-  - `stats.zdw` and `modes.base.zdw` take `wavelength_limits`, not `wavelength_range`,
-    as does `wavelength_to_axis`. `wavelength_range` is now only the attribute that says
-    where a data model is valid.
-  - `bandpass` and `Passband` take `spec_range`, not `limits`, as the plots and
-    accessors do; `Passband.limits` is `Passband.spec_range`. A call passing the pair
-    by position is unaffected.
-  - `band_coherence` takes `db_min`, not `floor_db`.
-  - `plotting.energy` and `plotting.stats` are `plot_energy` and `plot_stats`, the names
-    they already had in `solprop.sol`.
-  - `backends.protocol.StepHistory` is `BackendHistory`. Its `z` is each attempt's end
-    and `output.schema.StepHistory`'s is its start, so the two no longer share a name.
-  - `RUN_SUMMARY_ANNOTATION` moves from `driver.summary` to `output.schema`, beside the
-    other annotation names. The stored name is still `"run_summary"`.
-- `mode_average=True` beside `tdse=` is refused by name when the simulation is built. It
-  used to build, then fail at translation with a message that did not name it.
 - `resume` takes `False`, `True`, `"interpolated"` or `"force"`, and any other value is a
   `ValueError`: a mistyped word used to read as `True`. An appending `HDF5Output` holds
   the file's own record as its `metadata` after a resume, not the one offered, and
@@ -108,8 +79,6 @@ All notable changes to solprop are recorded here. The format follows
 
 ### Fixed
 
-- A gallery page re-run on its own keeps its `MaterialRangeWarning`: the docs build's
-  import of `solprop.sol` silenced it for every script after.
 - A scan derived from one cached simulation, the scans guide's own recipe, now gives every
   point its own noise seed. `with_input(noise="keep")` and `with_mixture` keep the ability
   to draw unseeded noise again, and the draw replaces only the initial noise of the shared
