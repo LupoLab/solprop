@@ -42,6 +42,7 @@ jobs:
           - { id: linux-aarch64, os: ubuntu-24.04-arm }
           - { id: macos-arm64, os: macos-15 }
           - { id: windows-amd64, os: windows-2025 }
+          - { id: windows-arm64, os: windows-11-arm }
     defaults:
       run:
         shell: bash

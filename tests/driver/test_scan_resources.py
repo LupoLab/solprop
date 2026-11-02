@@ -18,6 +18,7 @@ from typing import cast
 from unittest.mock import Mock
 
 import pytest
+import threadpoolctl
 
 from solprop import _process
 from solprop.driver.executors import pool
@@ -438,3 +439,57 @@ def test_the_posix_only_executors_refuse_windows_by_name(monkeypatch, build):
     monkeypatch.setattr("sys.platform", "win32")
     with pytest.raises(DriverError, match="not supported on Windows"):
         build()
+
+
+class _FakeProcess(BaseProcess):
+    """Record the environment and arguments a worker would start with."""
+
+    def __init__(self, target, args):
+        super().__init__(target=target, args=args)
+        self.args = args
+        self.environment: dict[str, str] = {}
+
+    def start(self):
+        self.environment = dict(os.environ)
+
+
+@pytest.mark.parametrize("after_load", [False, True])
+def test_a_worker_sizes_blas_by_environment_or_after_load(monkeypatch, after_load):
+    context = multiprocessing.get_context("spawn")
+    fake = Mock()
+    fake.Pipe = context.Pipe
+    fake.Process = _FakeProcess
+    monkeypatch.setattr(pool.mp, "get_context", lambda _method: fake)
+    monkeypatch.setattr(pool, "sizes_blas_after_load", lambda: after_load)
+    monkeypatch.setenv("GOTO_NUM_THREADS", "1")
+    monkeypatch.setenv("OMP_NUM_THREADS", "7")
+    monkeypatch.delenv("OPENBLAS_NUM_THREADS", raising=False)
+    spawned, connection = pool._spawn(print, 2, ())
+    connection.close()
+    process = cast(_FakeProcess, spawned)
+    seen = process.environment
+    assert process.args[-1] == (2 if after_load else None)
+    assert seen["SOLPROP_THREADS"] == "2"
+    if after_load:
+        assert not set(_process.LOAD_TIME_BLAS_VARIABLES) & set(seen)
+    else:
+        assert seen["OMP_NUM_THREADS"] == seen["OPENBLAS_NUM_THREADS"] == "2"
+        assert seen["GOTO_NUM_THREADS"] == "1"
+    # The parent's own settings come back.
+    assert os.environ["GOTO_NUM_THREADS"] == "1"
+    assert os.environ["OMP_NUM_THREADS"] == "7"
+    assert "OPENBLAS_NUM_THREADS" not in os.environ
+
+
+def test_a_worker_limits_blas_after_load_before_any_command(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        threadpoolctl,
+        "threadpool_limits",
+        lambda threads, user_api: calls.append((threads, user_api)),
+    )
+    parent, child = multiprocessing.get_context("spawn").Pipe()
+    parent.send(None)
+    pool._serve(cast(Connection, child), print, (), 2)
+    parent.close()
+    assert calls == [(2, "blas")]

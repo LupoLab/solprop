@@ -247,11 +247,11 @@ wheels are made with, for machines other than the build machine. It is a CPU pro
 
 - a **CPU baseline** instead of the build machine's architecture: `-march=x86-64-v3`
   (AVX2, FMA, BMI1/2: Intel Haswell, AMD Excavator and newer) on x86-64,
-  `-mcpu=apple-m1` on Apple silicon, `-mcpu=neoverse-n1` on Linux aarch64. For an older
-  x86-64 processor (no AVX2), build with `SOLPROP_NATIVE_CPU_BASELINE=x86-64-v2`
-  (SSE4.2 and POPCNT): on the benchmark core it costs up to 2 to 4 %, and on the general
-  modal route about a quarter at one thread and 7 to 12 % at full width, against
-  `x86-64-v3`. The bundled FFTW and OpenBLAS choose their kernels at run time either
+  `-mcpu=apple-m1` on Apple silicon, `-mcpu=neoverse-n1` on Linux aarch64. An older
+  x86-64 processor (no AVX2) gets the `x86-64-v2` build that the x86-64 wheels hold beside
+  it; to build that from source, use `SOLPROP_NATIVE_CPU_BASELINE=x86-64-v2` (SSE4.2 and
+  POPCNT). On the tracking set it costs about 20 to 25 % against `x86-64-v3` by geometric
+  mean, up to 50 % at one thread on the cases that lean on vector maths. The bundled FFTW and OpenBLAS choose their kernels at run time either
   way. The package records its baseline and refuses to import on a processor below it,
   naming the missing features (from `/proc/cpuinfo` on Linux, from
   `IsProcessorFeaturePresent` on Windows, where AVX2 stands for the other x86-64-v3

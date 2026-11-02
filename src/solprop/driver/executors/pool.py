@@ -21,7 +21,12 @@ from multiprocessing.process import BaseProcess
 from pathlib import Path
 from typing import Protocol, cast, runtime_checkable
 
-from solprop._process import allowed_cpus, thread_budget
+from solprop._process import (
+    LOAD_TIME_BLAS_VARIABLES,
+    allowed_cpus,
+    sizes_blas_after_load,
+    thread_budget,
+)
 from solprop.exceptions import DriverError, StopRequested
 from solprop.log import PlaneSummary, ProgressReporter, StopFlag
 
@@ -593,7 +598,27 @@ class MemoryBudget:
         return count
 
 
-def _serve(connection: _Pipe, work: Callable, cpus: tuple[int, ...]) -> None:
+def _limit_blas(threads: int) -> None:
+    """Hold this worker's NumPy and SciPy BLAS libraries to its thread allowance.
+
+    Parameters
+    ----------
+    threads : int
+        Positive threads per worker.
+    """
+    # Delayed: only this platform's workers load these before their first command.
+    import scipy.linalg  # noqa: F401, PLC0415 - loads SciPy's own BLAS, to be limited
+    import threadpoolctl  # noqa: PLC0415
+
+    threadpoolctl.threadpool_limits(threads, user_api="blas")
+
+
+def _serve(
+    connection: _Pipe,
+    work: Callable,
+    cpus: tuple[int, ...],
+    blas_threads: int | None = None,
+) -> None:
     """Process bounded commands inside one spawned interpreter.
 
     Parameters
@@ -604,11 +629,15 @@ def _serve(connection: _Pipe, work: Callable, cpus: tuple[int, ...]) -> None:
         Pickleable point operation and optional memory probe.
     cpus : tuple[int, ...]
         Allocated logical CPU identifiers; empty leaves affinity unchanged.
+    blas_threads : int, optional
+        Threads to hold BLAS to after loading it, where the environment can't.
     """
     channel = _Channel(connection)
     try:
         if cpus and hasattr(os, "sched_setaffinity"):
             os.sched_setaffinity(0, cpus)
+        if blas_threads is not None:
+            _limit_blas(blas_threads)
         while True:
             message = channel.command()
             if message is None:
@@ -654,16 +683,24 @@ def _spawn(
     """
     context = mp.get_context("spawn")
     parent, child = context.Pipe()
-    process = context.Process(target=_serve, args=(child, work, cpus))
+    after_load = sizes_blas_after_load()
+    process = context.Process(
+        target=_serve, args=(child, work, cpus, threads if after_load else None)
+    )
     environment = dict.fromkeys(_THREAD_VARIABLES, str(threads)) | {
         "OMP_WAIT_POLICY": "passive"
     }
+    removed = LOAD_TIME_BLAS_VARIABLES if after_load else ()
+    for key in removed:
+        environment.pop(key, None)
     # spawn takes its environment during start(), before replaying __main__ or
     # importing the target. Restore the parent's environment immediately afterwards.
     with _ENVIRONMENT_LOCK:
-        previous = {key: os.environ.get(key) for key in environment}
+        previous = {key: os.environ.get(key) for key in (*environment, *removed)}
         try:
             os.environ.update(environment)
+            for key in removed:
+                os.environ.pop(key, None)
             process.start()
         finally:
             for key, value in previous.items():
