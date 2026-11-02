@@ -112,6 +112,7 @@ jobs:
       - run: uv run poe docstrings
       - run: uv run poe spell
       - run: uv run poe reuse
+      - run: uv run poe changelog-check
 
   docs:
     needs: changes
