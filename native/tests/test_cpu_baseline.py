@@ -118,14 +118,13 @@ def test_an_older_processor_is_refused_by_name(
     assert _cpu.BUILD_GUIDE in str(refused.value)
 
 
-def test_a_capable_or_unverifiable_processor_passes(
+def test_a_capable_processor_or_a_build_with_no_record_passes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(_cpu.sys, "platform", "linux")
     package, info = write_build(tmp_path, "x86-64-v3", V3_FLAGS)
     _cpu.check_cpu_baseline(package, info)
-    # No cpuinfo (macOS), or no baseline record (a local or editable build).
-    _cpu.check_cpu_baseline(package, tmp_path / "absent")
+    # No baseline record: a local or editable build.
     _cpu.check_cpu_baseline(tmp_path, info)
 
 
@@ -134,7 +133,13 @@ def test_linux_x86_is_checked_only_on_linux(tmp_path: Path) -> None:
     error = _cpu.baseline_shortfall(package, platform="linux", cpuinfo=info)
     assert error is not None
     assert "avx2" in error.missing_features
-    assert _cpu.baseline_shortfall(package, platform="darwin", cpuinfo=info) is None
+    # Elsewhere, such as a source build on an Intel Mac, NumPy is asked.
+    v2 = frozenset(V2_FLAGS.split())
+    error = _cpu.baseline_shortfall(
+        package, platform="darwin", cpuinfo=info, numpy_query=lambda: v2
+    )
+    assert error is not None
+    assert "avx2" in error.missing_features
 
 
 def test_linux_aarch64_needs_the_neoverse_n1_features(tmp_path: Path) -> None:
@@ -373,3 +378,150 @@ def test_a_package_with_one_extension_has_no_choice(
     assert _cpu.select_variant(tmp_path) == "_core"
     with pytest.raises(ValueError, match="holds one extension"):
         _cpu.select_variant(tmp_path, requested="x86-64-v2")
+
+
+def no_answer() -> frozenset[str] | None:
+    return None
+
+
+@pytest.mark.parametrize("text", [None, "", "processor : 0\n", "flags :\n"])
+def test_numpy_answers_when_cpuinfo_cannot(tmp_path: Path, text: str | None) -> None:
+    package, _ = write_build(tmp_path, "x86-64-v3", V3_FLAGS)
+    info = tmp_path / "cpuinfo-under-test"
+    if text is not None:
+        info.write_text(text, encoding="utf-8")
+    capable = frozenset(V3_FLAGS.split())
+    older = frozenset(V2_FLAGS.split())
+    assert (
+        _cpu.baseline_shortfall(
+            package, platform="linux", cpuinfo=info, numpy_query=lambda: capable
+        )
+        is None
+    )
+    error = _cpu.baseline_shortfall(
+        package, platform="linux", cpuinfo=info, numpy_query=lambda: older
+    )
+    assert isinstance(error, _cpu.CpuBaselineError)
+    assert "avx2" in error.missing_features
+
+
+@pytest.mark.parametrize("text", [None, "", "processor : 0\n", "flags :\n"])
+def test_a_processor_nothing_can_read_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, text: str | None
+) -> None:
+    monkeypatch.delenv(_cpu.VARIANT_SETTING, raising=False)
+    package, _ = write_build(tmp_path, "x86-64-v3", V3_FLAGS)
+    info = tmp_path / "cpuinfo-under-test"
+    if text is not None:
+        info.write_text(text, encoding="utf-8")
+    error = _cpu.baseline_shortfall(
+        package, platform="linux", cpuinfo=info, numpy_query=no_answer
+    )
+    assert isinstance(error, _cpu.CpuFeaturesUnknownError)
+    assert isinstance(error, ImportError)
+    assert error.baseline == "x86-64-v3"
+    assert _cpu.BUILD_GUIDE in str(error)
+    assert _cpu.ISSUES in str(error)
+
+
+def write_two_builds(package: Path) -> None:
+    (package / _cpu.BASELINE_RECORD).write_text("x86-64-v2\n", encoding="utf-8")
+    (package / _cpu.VARIANTS_RECORD).write_text(
+        "x86-64-v3 _core\nx86-64-v2 _core_v2\n", encoding="utf-8"
+    )
+
+
+def test_naming_a_build_goes_past_an_unknown_processor(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    package, _ = write_build(tmp_path, "x86-64-v2", V3_FLAGS)
+    write_two_builds(package)
+    absent = tmp_path / "absent"
+    monkeypatch.delenv(_cpu.VARIANT_SETTING, raising=False)
+    with pytest.raises(_cpu.CpuFeaturesUnknownError, match=_cpu.VARIANT_SETTING):
+        _cpu.select_variant(
+            package, platform="linux", cpuinfo=absent, numpy_query=no_answer
+        )
+    assert isinstance(
+        _cpu.baseline_shortfall(
+            package, platform="linux", cpuinfo=absent, numpy_query=no_answer
+        ),
+        _cpu.CpuFeaturesUnknownError,
+    )
+    monkeypatch.setenv(_cpu.VARIANT_SETTING, "x86-64-v2")
+    assert (
+        _cpu.baseline_shortfall(
+            package, platform="linux", cpuinfo=absent, numpy_query=no_answer
+        )
+        is None
+    )
+    assert (
+        _cpu.select_variant(
+            package, platform="linux", cpuinfo=absent, numpy_query=no_answer
+        )
+        == "_core_v2"
+    )
+
+
+def test_a_lower_processor_gets_the_lower_build_from_numpy(tmp_path: Path) -> None:
+    package, _ = write_build(tmp_path, "x86-64-v2", V3_FLAGS)
+    write_two_builds(package)
+    older = frozenset(V2_FLAGS.split())
+    assert (
+        _cpu.select_variant(
+            package,
+            requested="",
+            platform="linux",
+            cpuinfo=tmp_path / "absent",
+            numpy_query=lambda: older,
+        )
+        == "_core_v2"
+    )
+
+
+def test_neoverse_n1_has_no_numpy_fallback(tmp_path: Path) -> None:
+    package = write_record(tmp_path, "neoverse-n1")
+
+    def asked() -> frozenset[str] | None:
+        raise AssertionError("NumPy's names do not cover Neoverse N1")
+
+    error = _cpu.baseline_shortfall(
+        package, platform="linux", cpuinfo=tmp_path / "absent", numpy_query=asked
+    )
+    assert isinstance(error, _cpu.CpuFeaturesUnknownError)
+    assert _cpu.VARIANT_SETTING not in str(error)
+
+
+def test_numpys_private_features_are_still_where_we_look() -> None:
+    """NumPy's name is a fallback: this fails if a NumPy upgrade moves it."""
+    features = _cpu.numpy_features()
+    assert features is not None
+    if _cpu.sys.platform != "darwin":
+        from numpy._core._multiarray_umath import __cpu_features__ as present
+
+        assert ("avx2" in features) == bool(present["AVX2"])
+
+
+@pytest.mark.parametrize(
+    ("present", "missing"),
+    [
+        ({31, 34}, ()),
+        ({31}, ("atomics",)),
+        ({34}, ("crc32",)),
+        (set(), ("atomics", "crc32")),
+    ],
+)
+def test_windows_on_arm_asks_kernel32(
+    tmp_path: Path, present: set[int], missing: tuple[str, ...]
+) -> None:
+    package = write_record(tmp_path, "armv8.2-a")
+
+    def query() -> Callable[[int], object]:
+        return lambda constant: int(constant in present)
+
+    error = _cpu.baseline_shortfall(package, platform="win32", feature_query=query)
+    if not missing:
+        assert error is None
+        return
+    assert isinstance(error, _cpu.CpuBaselineError)
+    assert error.missing_features == missing

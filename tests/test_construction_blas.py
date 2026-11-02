@@ -5,7 +5,6 @@
 """Host construction borrows BLAS pools and restores the previous owner."""
 
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import replace
 from threading import Event
 from types import SimpleNamespace
 
@@ -17,7 +16,6 @@ import solprop.translate.problem as translation
 from modal_provider_cases import GENERAL_Z_END, general_grid, general_guide
 from solprop import _process
 from solprop.backends import registry
-from solprop.backends.numba_cpu import fft
 from solprop.constants import C
 from solprop.coupling import CouplingModel, FieldPlane, PlaneGeometry, couple, coupler
 from solprop.driver import Simulation
@@ -238,37 +236,19 @@ def test_a_backend_test_double_need_not_supply_native_build_info(monkeypatch, po
         assert widths(pools) == [1, 1]
 
 
-@pytest.mark.parametrize("name", ["native", "numba_cpu"])
 @pytest.mark.parametrize("first", ["construction", "backend"])
 def test_crossing_backend_and_construction_lifetimes_keep_the_remaining_owner(
-    monkeypatch, pools, name, first
+    monkeypatch, pools, first
 ):
     controller = Controller(pools[0])
-    if name == "native":
-        native = pytest.importorskip("solprop_native._host_blas")
-        monkeypatch.setattr(native, "_holders", 0)
-        monkeypatch.setattr(native, "_limiter", None)
+    native = pytest.importorskip("solprop_native._host_blas")
+    monkeypatch.setattr(native, "_holders", 0)
+    monkeypatch.setattr(native, "_limiter", None)
 
-        def native_start():
-            monkeypatch.setenv("SOLPROP_BLAS_THREADS", "2")
-            native.hold(
-                "/native/blas", 4, controller, acquire=_process.acquire_host_blas
-            )
-            return native.release
-
-        start = native_start
-
-    else:
-        # Isolate BLAS ownership from Numba's separate kernel pool.
-        monkeypatch.setattr(fft, "set_num_threads", lambda _threads: None)
-        monkeypatch.setattr(fft, "get_num_threads", lambda: 1)
-
-        def numba_start():
-            settings = replace(fft.choose_pools(1000, 1000, 1000, threads=1), blas=2)
-            _, lease = fft.apply_pools(settings, controller=controller)
-            return lambda: fft.release_pools(lease)
-
-        start = numba_start
+    def start():
+        monkeypatch.setenv("SOLPROP_BLAS_THREADS", "2")
+        native.hold("/native/blas", 4, controller, acquire=_process.acquire_host_blas)
+        return native.release
 
     construction = _process.host_blas()
 
@@ -481,7 +461,7 @@ def test_incident_plane_hankel_transform_holds_the_pool(
     assert widths(pools) == [32, 32]
 
 
-@pytest.mark.parametrize("name", ["numpy_ref", "numba_cpu", "native"])
+@pytest.mark.parametrize("name", ["numpy_ref", "native"])
 def test_construction_beside_a_live_backend_restores_its_pools(
     monkeypatch, simulation, name
 ):

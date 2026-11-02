@@ -54,11 +54,34 @@ import shards  # noqa: E402 - test helper beside conftest
 import solprop  # noqa: E402, F401 - imported after the hook so the package is checked too
 from distribution import remember_nodeid  # noqa: E402 - test helper beside conftest
 from solprop.backends import registry  # noqa: E402 - needs the hook above
+from solprop.backends import memory  # noqa: E402 - needs the hook above
+from solprop.driver import simulation  # noqa: E402 - needs the hook above
 
-# The lanes without the native package run on `backend="auto"`, and its fallback
-# warning fires once per process: under `filterwarnings = ["error"]` it would fail
-# whichever test came first on each worker. The warning's own tests reset this flag.
-registry._warned_native_fallback = True
+
+@pytest.fixture(autouse=True)
+def _auto_is_the_named_backend_without_native(request, monkeypatch):
+    """Let ``auto`` mean ``SOLPROP_TEST_BACKEND`` where no native package is installed.
+
+    Outside tests it refuses there (SEP 43 section 5). A lightweight environment or the
+    ``no-native`` lane names ``numpy_ref``, and most tests take the default backend. A
+    test of the refusal itself says ``real_auto``.
+    """
+    name = os.environ.get("SOLPROP_TEST_BACKEND")
+    if (
+        not name
+        or request.node.get_closest_marker("real_auto") is not None
+        or importlib.util.find_spec("solprop_native") is not None
+    ):
+        return
+    real = registry.resolve_name
+
+    def resolve(backend="auto"):
+        return name if backend == "auto" else real(backend)
+
+    monkeypatch.setattr(registry, "resolve_name", resolve)
+    monkeypatch.setattr(simulation, "resolve_name", resolve)
+    monkeypatch.setattr(memory, "resolve_name", resolve)
+
 
 # ------------------------------------------------------------------------- the tiers
 #

@@ -13,31 +13,20 @@ import sys
 
 import pytest
 
-from solprop.backends import registry
 from solprop.driver import prop_gnlse
-from solprop.exceptions import SolpropWarning
+from solprop.exceptions import BackendError
 
-pytestmark = pytest.mark.skipif(
-    importlib.util.find_spec("solprop_native") is not None,
-    reason="solprop-native is installed",
-)
-
-
-def test_auto_warns_and_names_the_install_command(monkeypatch):
-    monkeypatch.setattr(registry, "_warned_native_fallback", False)
-    with pytest.warns(
-        SolpropWarning, match=r'pip install "solprop\[native\]"'
-    ) as caught:
-        assert registry.resolve_name() == "numpy_ref"
-    message = str(caught[0].message)
-    assert "6 to 40 times" in message
-    assert 'pass backend="numpy_ref"' in message
+pytestmark = [
+    pytest.mark.skipif(
+        importlib.util.find_spec("solprop_native") is not None,
+        reason="solprop-native is installed",
+    ),
+    pytest.mark.real_auto,
+]
 
 
-@pytest.mark.filterwarnings("ignore:solprop-native is not installed")
-@pytest.mark.parametrize("backend", ["auto", "numpy_ref"])
-def test_a_short_run_finishes_without_loading_native(backend):
-    output = prop_gnlse(
+def run(backend):
+    return prop_gnlse(
         0.11,
         1e-4,
         [0.0, 0.0, -11.83e-27],
@@ -50,5 +39,13 @@ def test_a_short_run_finishes_without_loading_native(backend):
         backend=backend,
         progress="none",
     )
-    assert output["z"][-1] == 1e-4
+
+
+def test_auto_refuses_and_says_how_to_install():
+    with pytest.raises(BackendError, match="pip install solprop"):
+        run("auto")
+
+
+def test_the_reference_by_name_finishes_without_loading_native():
+    assert run("numpy_ref")["z"][-1] == 1e-4
     assert "solprop_native" not in sys.modules

@@ -14,8 +14,8 @@ gave a pool sized this way one thread). The affinity is therefore read once, whe
 believed only when it is not that collapse.
 """
 
-import functools
 import contextlib
+import functools
 import os
 import platform
 import sys

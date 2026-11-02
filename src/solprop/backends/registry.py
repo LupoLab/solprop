@@ -12,37 +12,24 @@ and a known name whose dependencies are missing is an :class:`ImportError` namin
 extra to install.
 
 The native backend is a second distribution, ``solprop-native``, built from ``native/``
-in this repository and installed with the ``native`` extra; probing availability does
-not import it. Automatic selection prefers it when installed and otherwise chooses the
-NumPy reference, which is unthreaded and far slower (``_AUTO_FALLBACK``, SEP 43 Q1),
-with a :class:`~solprop.exceptions.SolpropWarning`, once per process: a run on the
-fallback should be a choice, so an explicit ``backend="numpy_ref"`` does not warn.
-Import, compatibility and construction errors remain visible; they never trigger a
-fallback to different arithmetic, with one exception. A distribution build of
-solprop-native is compiled for a CPU baseline, and on a processor below it automatic
-selection chooses the reference with the same warning, saying why.
-It finds that out without importing the package: it loads the package's own
-pure-Python processor check (``solprop_native/_cpu.py``) by path and runs it, so the
-check that refuses the import and the one that chooses the fallback are one code. An
-explicit ``backend="native"`` still raises the package's refusal.
-
-A backend that has been removed keeps a tombstone (:data:`REMOVED_BACKENDS`): naming it
-raises :class:`~solprop.exceptions.BackendError`, saying what to use, wherever a
-requested name is resolved. A recorded name is not a request: old output and snapshots
-that name a removed backend still load, and nothing here reads them.
+in this repository and a required dependency; probing availability does not import it.
+Automatic selection is that backend, with no fallback (SEP 43). It refuses when the
+package is absent or this processor is below the installed build's CPU baseline, using
+the package's own check (``solprop_native._cpu``), loaded by path and read from the
+same code that refuses the import. Import, compatibility and construction errors remain
+visible, and they never trigger different arithmetic.
 """
 
 import importlib.util
 import logging
-import warnings
 from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
-from typing import Final, cast
+from typing import cast
 
 from solprop.backends.protocol import Backend, BatchBackend
-from solprop.exceptions import BackendError, SolpropWarning
+from solprop.exceptions import BackendError
 from solprop.grid import TimeGrid
 from solprop.modes.protocol import Mode
 from solprop.profiles import ZProfile
@@ -255,9 +242,10 @@ def resolve_name(name: str = "auto") -> str:
     Parameters
     ----------
     name : str, optional
-        ``"auto"`` prefers ``"native"`` when ``solprop_native`` can be found and this
-        processor meets the installed build's CPU baseline, otherwise
-        ``"numpy_ref"``. Other names pass through unchanged, but for a removed backend
+        ``"auto"`` is ``"native"``, and has no fallback: it refuses if
+        ``solprop_native`` can't be found or this processor doesn't meet the installed
+        build's CPU baseline. Other names pass through unchanged, but for a removed
+        backend
         (:data:`REMOVED_BACKENDS`).
 
     Returns
@@ -270,14 +258,8 @@ def resolve_name(name: str = "auto") -> str:
     Raises
     ------
     BackendError
-        If ``name`` is a removed backend; the message says what to use instead.
-
-    Warns
-    -----
-    SolpropWarning
-        Once per process, when ``"auto"`` chooses ``"numpy_ref"``: solprop-native is
-        not installed, or this processor lacks features of the installed build's CPU
-        baseline. Naming ``"numpy_ref"`` explicitly does not warn.
+        If ``name`` is a removed backend, or ``"auto"`` has nothing to select; the
+        message says what to do.
 
     Examples
     --------
@@ -289,54 +271,25 @@ def resolve_name(name: str = "auto") -> str:
     if name != "auto":
         return name
     if not _satisfied(BACKENDS["native"]):
-        _warn_native_missing()
-        return _AUTO_FALLBACK
-    shortfall = _native_baseline_shortfall()
-    if shortfall is None:
+        raise BackendError(_NATIVE_MISSING)
+    refusal = _native_baseline_shortfall()
+    if refusal is None:
         return "native"
-    _warn_baseline_fallback(*shortfall)
-    return _AUTO_FALLBACK
+    raise BackendError(str(refusal)) from refusal
 
 
-_AUTO_FALLBACK: Final = "numpy_ref"
-"""What ``"auto"`` chooses without a usable native backend (SEP 43, Q1).
-
-The maintainer may change this default: a refusal instead would be plainer about the
-cost, and would break every first run on a platform with no wheel.
-"""
-
-_FALLBACK_COST = (
-    "the NumPy reference backend, which is unthreaded and far slower: roughly 6 to 40 "
-    "times slower than threaded native"
+_NATIVE_MISSING = (
+    'backend="auto" needs the native backend, and solprop-native is not installed. '
+    "Install it with pip install solprop, or with uv sync in a checkout "
+    "(https://solprop.readthedocs.io/en/latest/introduction/installation.html). "
+    "A contributor's lightweight setup has none, so name the backend there, "
+    'backend="numpy_ref"'
 )
-"""What the fallback costs, as both warnings state it (SEP 43 section 5)."""
-
-_NATIVE_BUILD_GUIDE = (
-    "https://solprop.readthedocs.io/en/latest/guide/performance/building-native.html"
-)
-"""The manual's page on building solprop-native from source."""
-
-_ISSUES = "https://github.com/LupoLab/solprop/issues"
-"""Where users report problems, and processors below the native wheels' baseline."""
-
-_FALLBACK_NOTE = (
-    "To choose numpy_ref deliberately and silence this warning, "
-    'pass backend="numpy_ref"'
-)
-"""How a user who wants the fallback says so; both warnings end with it."""
-
-_PACKAGE_FILES: Final = (str(Path(__file__).resolve().parents[1]), "<string>")
-"""Frames a warning skips, so that it names the caller's line and not solprop's.
-
-``"<string>"`` is the generated ``__init__`` of the settings dataclass, the usual route
-here.
-"""
-
-_warned_native_fallback = False
+"""Why ``"auto"`` refuses with no native package (SEP 43 section 5)."""
 
 
-def _native_baseline_shortfall() -> tuple[str, tuple[str, ...]] | None:
-    """Return the installed native build's baseline and what this processor lacks.
+def _native_baseline_shortfall() -> ImportError | None:
+    """Return why the installed native build can't run on this processor, if it can't.
 
     The package's ``_cpu.py`` is loaded by path, without importing the package (whose
     ``__init__`` refuses a processor below the baseline and loads the extension), and
@@ -344,9 +297,9 @@ def _native_baseline_shortfall() -> tuple[str, tuple[str, ...]] | None:
 
     Returns
     -------
-    tuple of (str, tuple of str) or None
-        The baseline and the missing features, or ``None`` when the processor meets
-        the baseline, cannot be checked, or the build records no baseline.
+    ImportError or None
+        The package's own refusal, or ``None`` when the processor meets the baseline or
+        the build records none to check.
     """
     spec = importlib.util.find_spec("solprop_native")
     locations = [] if spec is None else (spec.submodule_search_locations or [])
@@ -356,10 +309,7 @@ def _native_baseline_shortfall() -> tuple[str, tuple[str, ...]] | None:
             break
     else:
         return None
-    error = _baseline_probe(source).baseline_shortfall(source.parent)
-    if error is None:
-        return None
-    return error.baseline, tuple(error.missing_features)
+    return _baseline_probe(source).baseline_shortfall(source.parent)
 
 
 def _baseline_probe(source: Path) -> ModuleType:
@@ -381,53 +331,6 @@ def _baseline_probe(source: Path) -> ModuleType:
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
-
-
-def _warn_native_missing() -> None:
-    """Warn, once per process, that automatic selection found no solprop-native."""
-    global _warned_native_fallback  # noqa: PLW0603 - once per process, by design
-    if _warned_native_fallback:
-        return
-    _warned_native_fallback = True
-    logger.info("backend='auto' chooses numpy_ref: solprop-native is not installed")
-    msg = (
-        'solprop-native is not installed, so backend="auto" is using '
-        f"{_FALLBACK_COST}. For the fastest runs install the native backend: "
-        'pip install "solprop[native]", or where no wheel exists build it from source '
-        f"({_NATIVE_BUILD_GUIDE}). {_FALLBACK_NOTE}"
-    )
-    warnings.warn(msg, SolpropWarning, skip_file_prefixes=_PACKAGE_FILES)
-
-
-def _warn_baseline_fallback(baseline: str, missing: tuple[str, ...]) -> None:
-    """Warn, once per process, that automatic selection passed over solprop-native.
-
-    Parameters
-    ----------
-    baseline : str
-        The installed build's CPU baseline.
-    missing : tuple of str
-        The baseline's features this processor lacks.
-    """
-    global _warned_native_fallback  # noqa: PLW0603 - once per process, by design
-    if _warned_native_fallback:
-        return
-    _warned_native_fallback = True
-    logger.info(
-        "backend='auto' chooses numpy_ref: this processor is below solprop-native's "
-        "%s baseline",
-        baseline,
-    )
-    msg = (
-        f"this processor lacks {', '.join(missing)}, required by the installed "
-        f"solprop-native build (CPU baseline {baseline}), so solprop is using "
-        f"{_FALLBACK_COST}. To use the native backend on "
-        "this machine, build solprop-native from source for it "
-        f"({_NATIVE_BUILD_GUIDE}). "
-        f"Please also open an issue at {_ISSUES} so that the maintainers know such "
-        f"processors are in use. {_FALLBACK_NOTE}"
-    )
-    warnings.warn(msg, SolpropWarning, skip_file_prefixes=_PACKAGE_FILES)
 
 
 def available_device_memory(name: str) -> int | None:
