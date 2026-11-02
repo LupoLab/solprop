@@ -7,6 +7,8 @@
 import threading
 from pathlib import Path
 
+import pytest
+
 import targets
 from solprop_gui.service.client import KernelClient, ReplyFilter, RunClient
 from solprop_gui.service.messages import Event, Reply, Request
@@ -81,3 +83,24 @@ def test_a_killed_worker_is_lost(tmp_path: Path):
     client.kill()
     client.join(60)
     assert events[-1].kind == "lost" and events[-1].data["exitcode"] != 0
+
+
+def test_a_worker_that_dies_holding_the_pipe_open_is_lost(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    # As on Windows, where a worker killed early never closes its end of the pipe.
+    events: list[Event] = []
+    client = RunClient(
+        RunSpec("r", str(tmp_path)), events.append, target=targets.deaf_worker
+    )
+    looked = threading.Event()
+
+    def nothing_yet(_timeout: float = 0) -> bool:
+        looked.set()
+        return False
+
+    monkeypatch.setattr(client._events, "poll", nothing_yet)
+    assert looked.wait(30)  # the reader has found the worker alive and waits on
+    client.kill()
+    client.join(60)
+    assert events[-1].kind == "lost"

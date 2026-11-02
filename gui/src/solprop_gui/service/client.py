@@ -23,7 +23,10 @@ from solprop_gui.service import kernel, worker
 from solprop_gui.service.messages import Control, Event, Reply, Request
 from solprop_gui.service.worker import RunSpec
 
-__all__ = ["KernelClient", "ReplyFilter", "RunClient"]
+__all__ = ["POLL_PERIOD", "KernelClient", "ReplyFilter", "RunClient"]
+
+POLL_PERIOD = 0.5
+"""How often a run's reader looks whether its worker is still alive, s."""
 
 
 class ReplyFilter:
@@ -281,6 +284,12 @@ class RunClient:
         terminal = False
         while not terminal:
             try:
+                if not self._events.poll(POLL_PERIOD):
+                    # A worker killed before it took its end of the pipe never
+                    # closes it (Windows): its death is the end of the stream.
+                    if self._process.is_alive():
+                        continue
+                    break
                 event: Event = self._events.recv()
             except EOFError, OSError:
                 break
