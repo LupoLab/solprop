@@ -46,8 +46,12 @@ def test_automatic_selection_probes_without_importing_or_caching(monkeypatch):
     """Installation can change; probing must not initialize a native runtime."""
     probes = []
     present = False
+    real_find_spec = importlib.util.find_spec
 
-    def find_spec(name):
+    def find_spec(name, *args):
+        if not name.startswith("solprop_native"):
+            # Coverage looks up its source package when it sees sys.path change.
+            return real_find_spec(name, *args)
         probes.append(name)
         return importlib.machinery.ModuleSpec(name, None) if present else None
 
