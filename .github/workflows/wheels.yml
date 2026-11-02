@@ -15,7 +15,7 @@ permissions:
 jobs:
   probe:
     runs-on: windows-11-arm
-    timeout-minutes: 75
+    timeout-minutes: 110
     defaults:
       run:
         shell: bash
@@ -30,14 +30,11 @@ jobs:
       - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
       - run: uv python install 3.14
       - run: uv sync --locked
-      - name: Other thread variables, sizes 20 to 34
-        timeout-minutes: 15
-        run: .venv/Scripts/python.exe .github/scripts/arm_table.py .venv/Scripts/python.exe vars
       - name: Do survivors give the right answer
         timeout-minutes: 15
         run: .venv/Scripts/python.exe .github/scripts/arm_table.py .venv/Scripts/python.exe right
       - name: Real runs on the reference backend
-        timeout-minutes: 25
+        timeout-minutes: 40
         run: .venv/Scripts/python.exe .github/scripts/arm_runs.py .venv/Scripts/python.exe numpy_ref
       - name: Install the native wheel from PR 395's run
         env:
@@ -47,5 +44,5 @@ jobs:
           ls armwheel
           VIRTUAL_ENV=.venv uv pip install --no-deps armwheel/*.whl
       - name: Real runs on native
-        timeout-minutes: 25
+        timeout-minutes: 40
         run: .venv/Scripts/python.exe .github/scripts/arm_runs.py .venv/Scripts/python.exe native

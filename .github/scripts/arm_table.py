@@ -8,7 +8,7 @@ here = os.path.dirname(os.path.abspath(__file__))
 python = sys.argv[1]
 print("cpus", os.cpu_count(), flush=True)
 errors = {}
-def cell(env, how, kind, n, limit=45):
+def cell(env, how, kind, n, limit=20):
     full = {**os.environ, **env}
     try:
         done = subprocess.run([python, os.path.join(here, "arm_one.py"), how, kind, str(n)], env=full, capture_output=True, text=True, timeout=limit)

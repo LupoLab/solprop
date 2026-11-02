@@ -12,7 +12,7 @@ def worker(width):
 for label, env in (("no-settings", {}), ("scan-worker-1", worker("1")), ("scan-worker-2", worker("2")), ("scan-worker-4", worker("4"))):
     for n_r in (12, 14, 16, 24, 28):
         try:
-            done = subprocess.run([python, os.path.join(here, "arm_real.py"), str(n_r), backend], env={**os.environ, **env}, capture_output=True, text=True, timeout=150)
+            done = subprocess.run([python, os.path.join(here, "arm_real.py"), str(n_r), backend], env={**os.environ, **env}, capture_output=True, text=True, timeout=90)
         except subprocess.TimeoutExpired:
             print(backend, label, n_r, "HANG", flush=True)
             continue
