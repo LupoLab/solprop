@@ -1,5 +1,5 @@
 version = 1
-revision = 5
+revision = 3
 requires-python = ">=3.14"
 
 [manifest]
@@ -1598,7 +1598,7 @@ dependencies = [
     { name = "numba" },
     { name = "numpy" },
     { name = "optmat", extra = ["gas"] },
-    { name = "pyfftw" },
+    { name = "pyfftw", marker = "platform_machine != 'ARM64' or sys_platform != 'win32'" },
     { name = "scipy" },
     { name = "threadpoolctl" },
     { name = "tqdm" },
@@ -1652,7 +1652,7 @@ requires-dist = [
     { name = "numba", specifier = ">=0.67" },
     { name = "numpy", specifier = ">=2.5" },
     { name = "optmat", extras = ["gas"], specifier = ">=0.9.1" },
-    { name = "pyfftw", specifier = ">=0.15.1" },
+    { name = "pyfftw", marker = "platform_machine != 'ARM64' or sys_platform != 'win32'", specifier = ">=0.15.1" },
     { name = "scipy", specifier = ">=1.18" },
     { name = "solprop-native", marker = "extra == 'native'", editable = "native" },
     { name = "threadpoolctl", specifier = ">=3.1" },

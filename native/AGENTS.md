@@ -180,7 +180,7 @@ short windows (about ten accepted steps, or a propagation that completes in seco
 and do not extrapolate them to a complete run. On a shared machine, compare builds
 only as interleaved runs in the same session. Never add native-architecture flags to
 a distributable build (build it with `SOLPROP_NATIVE_PROFILE=DISTRIBUTION`, whose
-documented CPU baseline, x86-64-v3, Neoverse N1 or Apple M1, the package checks before
+documented CPU baseline, x86-64-v3 or v2, Neoverse N1 or Apple M1, the package checks before
 it loads the extension, and whose BLAS runs on every such machine), and never tune the
 step-size controller to gain speed.
 
