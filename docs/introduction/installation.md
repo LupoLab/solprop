@@ -37,7 +37,7 @@ python -m pip install "solprop[native]"
 ```
 
 The `native` extra adds `solprop-native`, the compiled native backend, at solprop's own
-version. It is a precompiled wheel on four platforms:
+version. It is a precompiled wheel on five platforms:
 
 | platform | system |
 |---|---|
@@ -45,21 +45,30 @@ version. It is a precompiled wheel on four platforms:
 | linux-64 | Linux on x86-64 |
 | linux-aarch64 | Linux on aarch64 |
 | win-64 | Windows on x86-64 |
+| win-arm64 | Windows on Arm |
 
 With it installed, `backend="auto"` uses the native backend
 ([The native backend](../guide/performance/native.md) describes what it runs).
+
+On Windows on Arm, leave `OMP_NUM_THREADS`, `OPENBLAS_NUM_THREADS` and `GOTO_NUM_THREADS`
+unset: small values can crash or hang NumPy's own linear solves
+([BLAS and vendor libraries](../guide/performance/tuning.md#blas-and-vendor-libraries)).
 
 **Processor requirements.** The wheels are compiled for a minimum processor:
 
 | platform | minimum processor |
 |---|---|
 | osx-arm64 | any Apple silicon Mac (M1 or newer) |
-| linux-64, win-64 | x86-64-v3: AVX2, FMA and BMI2, that is Intel Haswell (2013) or AMD Excavator (2015) and newer |
+| linux-64, win-64 | x86-64-v2: SSE4.2 and POPCNT, that is Intel Nehalem (2008) or AMD Bulldozer (2011) and newer |
 | linux-aarch64 | Arm Neoverse N1 (Armv8.2-A with dot product and half precision): AWS Graviton2, Ampere Altra and newer |
+| win-arm64 | any processor that runs Windows 11 on Arm |
 
-Low-power Intel Atom, Celeron and Pentium chips without AVX are below x86-64-v3 even
-when recent, as are older cluster nodes. On such a processor the native package refuses
-to load, naming the features it lacks, before any of its compiled code runs.
+An x86-64 wheel holds two builds of the backend and loads the best one the processor
+runs: x86-64-v3 (AVX2, FMA and BMI2; Intel Haswell, 2013, or AMD Excavator, 2015, and
+newer), and x86-64-v2 for the rest, including low-power Intel Atom, Celeron and Pentium
+chips without AVX even when recent, and older cluster nodes. The v2 build takes about 20
+to 25 % longer by geometric mean, up to 50 % on one thread. On a processor below the
+minimum the native package refuses to load, naming the features it lacks, before any of its compiled code runs.
 `backend="auto"` then uses the `numba_cpu` backend instead and warns once, saying so;
 every model still runs, at the included backend's speed. An explicit
 `backend="native"` raises the refusal. To use the native backend on such a machine,

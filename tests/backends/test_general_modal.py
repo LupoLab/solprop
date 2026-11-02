@@ -794,16 +794,18 @@ def spatial_case():
     return grid, problem
 
 
-@pytest.mark.parametrize("name", ["numpy_ref", "numba_cpu"])
+@pytest.mark.parametrize("name", ["numpy_ref", "numba_cpu", "native"])
 def test_both_backends_check_the_whitelist_before_the_spatial_branch(name):
     """A spatial run asked for a general name is refused, not answered.
 
     `numpy_ref` consulted the whitelist **after** its spatial early return, so a
     radial problem asked for `physical_energy` reached `collect_spatial` and was
     answered from a geometry that carries no certified flux metric and no stored
-    E/H reference at all. Both backends now check first, which is also where the
+    E/H reference at all. Every CPU backend now checks first, which is also where the
     four-door claim of `solprop.output.capability` is true.
     """
+    if name == "native":
+        pytest.importorskip("solprop_native")
     grid, problem = spatial_case()
     built = select(name, problem, grid=grid)
     try:
@@ -819,7 +821,7 @@ def test_both_backends_check_the_whitelist_before_the_spatial_branch(name):
         built.close()
 
 
-@pytest.mark.parametrize("name", ["numpy_ref", "numba_cpu"])
+@pytest.mark.parametrize("name", ["numpy_ref", "numba_cpu", "native"])
 def test_a_general_statistic_under_a_weight_that_is_not_one_is_refused(
     strand, soliton_grid, soliton_problem, name
 ):
@@ -833,16 +835,18 @@ def test_a_general_statistic_under_a_weight_that_is_not_one_is_refused(
     the two leaves past its own admission, which is the only way to exercise a
     guard written for the day either side is loosened.
     """
-    if name == "numpy_ref":
-        _, state = continuous_wave(strand, [1.0])
-        grid, problem = strand.grid, general_problem(strand, state)
-    else:
+    if name == "native":
+        pytest.importorskip("solprop_native")
+    if name == "numba_cpu":
         grid = soliton_grid
         problem = soliton_problem(soliton_grid, 1, save_planes=[0.001])
+    else:
+        _, state = continuous_wave(strand, [1.0])
+        grid, problem = strand.grid, general_problem(strand, state)
     built = select(name, problem, grid=grid)
     try:
         built.set_initial(problem.initial.field0, None)
-        if name != "numpy_ref":
+        if name == "numba_cpu":
             object.__setattr__(problem.transform, "modal_tables", strand.route.tables)
         object.__setattr__(
             problem.linear, "power_weight_constant", np.full(problem.shape[1:], 1.5)

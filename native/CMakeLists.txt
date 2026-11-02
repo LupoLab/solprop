@@ -724,6 +724,7 @@ FetchContent_Declare(
   GIT_TAG 5.2.0
   GIT_SHALLOW TRUE
   GIT_PROGRESS TRUE
+  PATCH_COMMAND "${CMAKE_COMMAND}" -P "${PROJECT_SOURCE_DIR}/cmake/KokkosKernelsWindowsArm.cmake"
 )
 FetchContent_MakeAvailable(kokkoskernels)
 set_property(DIRECTORY "${kokkoskernels_SOURCE_DIR}" PROPERTY EXCLUDE_FROM_ALL TRUE)
