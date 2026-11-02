@@ -200,15 +200,14 @@ def _ramp_profile(
     columns : numpy.ndarray
         Each column's ``|k|``, rad/m.
     start, top : float
-        Where the ramp leaves zero and reaches one, rad/m.
+        Where the ramp leaves zero and reaches one, rad/m; ``start < top``, since
+        every axis holds at least two samples and so a nonzero largest ``|k|``.
 
     Returns
     -------
     numpy.ndarray
         The profile, in [0, 1].
     """
-    if not top > start:
-        return np.zeros(columns.size)
     inside = np.clip((np.abs(columns) - start) / (top - start), 0.0, 1.0)
     return 0.5 * (1.0 - np.cos(np.pi * inside))
 
@@ -391,8 +390,6 @@ def resolve_transverse(  # noqa: PLR0912, PLR0915 - one resolution, in order
         length = widths[index] if collar else axis.size
         strengths.append(
             safety_ramp_strength(0.5 * (start + top), k, length, attenuation)
-            if top > start
-            else 0.0
         )
     profile = np.zeros(axes[0].columns.size)
     for axis, start, top in zip(axes, starts, tops, strict=True):
@@ -435,18 +432,14 @@ def resolve_transverse(  # noqa: PLR0912, PLR0915 - one resolution, in order
                 "cannot be designed: protect a narrower band"
             )
             raise TranslationError(msg)
+        # The ramp starts at discard_above or below it, so this also refuses a band
+        # that reaches above a declared discard_above.
         if float(np.max(edge)) > start:
             msg = (
                 f"the protected band on the {axis.name} faces reaches the safety "
                 f"ramp, which starts at {start:.4g} rad/m: refine the grid, or protect "
                 "a narrower band"
             )
-            raise TranslationError(msg)
-        if (
-            specification.discard_above is not None
-            and specification.discard_above < float(np.max(edge))
-        ):
-            msg = "discard_above lies below the protected band"
             raise TranslationError(msg)
     try:
         alpha0 = max(

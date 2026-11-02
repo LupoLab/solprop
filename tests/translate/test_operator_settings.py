@@ -37,6 +37,7 @@ from solprop.spatial import (
     SpatialMedium,
     spatial_energy,
 )
+from solprop.spatial_absorber import DEFAULT_ATTENUATION
 from solprop.stepper import FixedSchedule, Multistep, PIController, RungeKutta
 from solprop.translate.chebyshev import build
 from solprop.translate.linop import LinearOperator, phi_rate
@@ -281,6 +282,27 @@ def test_a_safety_ramp_past_the_budget_names_its_strength():
     # The ramp is designed, not set, so the refusal names the specification's levers.
     assert "spatial_absorber=False" in str(caught.value)
     assert "safety_fraction" in str(caught.value)
+
+
+def test_a_rate_whose_neighbour_alone_overflows_the_step_is_not_named():
+    # The evanescent bound binds (capped near 1.5e7 1/m on the finest columns), but
+    # a weakened ramp beside it alone takes a 0.1 mm step past the limit: no
+    # evanescent_rate would do, so the refusal names the step alone.
+    step = 1e-4
+    ramp = SpatialAbsorber(real_space=False, attenuation=0.3 * DEFAULT_ATTENUATION)
+    operator = (
+        line(spatial_absorber=ramp, evanescent_rate=1e8, step=None)
+        .translate()
+        .linear.separable
+    )
+    assert operator is not None
+    bounds = rate_bounds(operator)
+    assert bounds.evanescent > bounds.transverse > LOG_DBL_MAX / step
+    with pytest.raises(TranslationError, match="with evanescent_rate") as caught:
+        line(spatial_absorber=ramp, evanescent_rate=1e8, step=step).translate()
+    message = str(caught.value)
+    assert f"take steps of at most {LOG_DBL_MAX / bounds.loss:.3g} m" in message
+    assert "evanescent_rate at most" not in message
 
 
 def test_gain_spans_the_adams_methods_steps():

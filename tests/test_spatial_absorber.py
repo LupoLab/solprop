@@ -13,6 +13,7 @@ import math
 import numpy as np
 import pytest
 
+from runtime_types import unchecked
 from solprop.boundaries import SpatialAbsorber as Exported
 from solprop.constants import C
 from solprop.exceptions import GridError
@@ -156,6 +157,19 @@ def test_a_gaussian_s_rms_wavenumber() -> None:
 def test_a_band_past_cutoff_is_refused() -> None:
     with pytest.raises(GridError, match="strictly between"):
         collar_strength(1.1 * K800, np.array([K800]), 300e-6)
+    with pytest.raises(GridError, match="positive width"):
+        collar_strength(1e5, np.array([K800]), 0.0)
+    with pytest.raises(GridError, match="positive attenuation"):
+        collar_strength(1e5, np.array([K800]), 300e-6, attenuation=0.0)
+
+
+def test_an_attenuation_no_collar_can_reach_is_refused() -> None:
+    # As alpha0 grows |Im q| tends to k_z, so a collar of width w attenuates its round
+    # trip by less than 2 k_z w (4712 nepers for 300 um at 800 nm), however strong.
+    reachable = float(collar_attenuation(1e5, K800, 1e30, 300e-6))
+    assert reachable < 2 * K800 * 300e-6
+    with pytest.raises(GridError, match="could not be bracketed"):
+        collar_strength(1e5, np.array([K800]), 300e-6, attenuation=2 * reachable)
 
 
 @pytest.mark.parametrize(
@@ -176,6 +190,14 @@ def test_the_specification_refuses_what_it_cannot_mean(
 ) -> None:
     with pytest.raises(GridError, match=match):
         SpatialAbsorber(**arguments)  # pyright: ignore[reportArgumentType]
+
+
+def test_a_switch_that_is_not_a_bool_is_refused() -> None:
+    # The annotation refuses it first under the suite's type hook; a caller without a
+    # type checker meets the class's own check.
+    absorber = object.__new__(SpatialAbsorber)
+    with pytest.raises(GridError, match="real_space must be a bool"):
+        unchecked(SpatialAbsorber.__init__)(absorber, real_space=1)
 
 
 def test_the_specification_s_band_source_and_export() -> None:

@@ -484,6 +484,20 @@ def test_a_same_grid_field_in_the_outer_band_is_refused_by_its_own_tolerance(
     assert inside.diagnostics["edge_share"] <= 1e-4
 
 
+def test_on_a_grid_with_room_the_outer_band_is_the_room(
+    beam: BeamFactory, air: SpatialMedium
+):
+    # With room outside the requested 0.5 mm the outer band is that room, not the
+    # outer tenth of the 1 mm window: a 0.4 mm beam holds exp(-2 (0.5/0.4)^2), 4.4e-2,
+    # of its energy beyond 0.5 mm but only 4e-5 beyond 0.9 mm, and is refused. (The
+    # band starts at the first node past 0.5 mm, so it reads a little less.)
+    space = RadialGrid(0.5e-3, 128, collar_fraction=1.0)
+    with pytest.raises(CouplingError, match="outer band"):
+        FreeSpace(1e-6, air).apply(beam(space, 0.4e-3))
+    report = FreeSpace(1e-6, air, edge_tolerance=1.0).apply(beam(space, 0.4e-3)).report
+    assert 1e-2 < report.diagnostics["edge_share"] < 4.4e-2
+
+
 def test_output_plane_refusals(beam: BeamFactory, air: SpatialMedium):
     space = RadialGrid(0.5e-3, 64)
     state = beam(space, 0.1e-3)

@@ -147,7 +147,9 @@ def _frequency_nodes(
         Indices into the band, unique, and the share each stands for.
     """
     total = float(np.sum(power))
-    cumulative = np.cumsum(power) / total
+    # A launch with nothing in the band is stood for by the band's first bin, which
+    # carries nothing either.
+    cumulative = np.cumsum(power) / total if total > 0.0 else np.ones(power.size)
     targets = (np.arange(count) + 0.5) / count
     indices = np.unique(np.searchsorted(cumulative, targets))
     indices = np.minimum(indices, power.size - 1)

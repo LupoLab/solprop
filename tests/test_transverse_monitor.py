@@ -22,11 +22,13 @@ import pytest
 from solprop.boundaries import SpatialAbsorber, SpatialAbsorberDesign
 from solprop.driver import Simulation
 from solprop.exceptions import BoundaryError, BoundaryWarning
-from solprop.grid import LineGrid
+from solprop.grid import FreeGrid, LineGrid
 from solprop.log import NullReporter
+from solprop.modes import PlanarGrid, SlabMode
 from solprop.monitor import BoundaryCheck
 from solprop.output.hdf5 import resume
 from solprop.output.schema import PlaneStore
+from solprop.translate.transverse import _nodes_window
 from solprop.transverse_monitor import TransverseEdge
 from test_transverse_resolution import LENGTH, suite
 
@@ -290,3 +292,259 @@ def test_the_ramp_s_removal_stops_a_run_at_ten_budgets() -> None:
         with pytest.raises(BoundaryError, match="safety ramp has removed"):
             edge.read(filament, 1e-3)
     assert edge.status == "stopped"
+
+
+# The edge's own bookkeeping, one member's state handed to it directly: its launch,
+# its reads and its resume on each geometry, with no run around it.
+
+K800 = 2 * math.pi / 800e-9
+
+
+def _edge(
+    space: LineGrid | FreeGrid | PlanarGrid,
+    design: SpatialAbsorberDesign | None,
+    *,
+    budget: float = 1e-3,
+) -> TransverseEdge:
+    """Return an edge on `space`, one frequency at 800 nm over a 1 cm run."""
+    return TransverseEdge(space, design, budget, 10.0, 0.01, np.arange(1), K800)
+
+
+def _collar(
+    space: LineGrid | FreeGrid | PlanarGrid, width: float
+) -> SpatialAbsorberDesign:
+    """Return a collar of 1e3 1/m in the room outside the requested size."""
+    columns = int(np.asarray(space.spectral_weights).size)
+    return SpatialAbsorberDesign(
+        SpatialAbsorber(kappa=3e5),
+        np.zeros(columns),
+        1.0,
+        (1e6,),
+        collar_rate=1e3 * (1 - _nodes_window(space)),
+        alpha0=1e3,
+        width=(width,),
+        kappa_p=(3e5,),
+    )
+
+
+def _launched(edge: TransverseEdge, state: np.ndarray, **options: Any) -> None:
+    """Attach `state` at z = 0 as a read, undeclared launch without noise."""
+    arguments: dict[str, Any] = {
+        "noise": None,
+        "steps": None,
+        "reads": True,
+        "declared": False,
+    }
+    edge.launch(state, 0.0, **(arguments | options))
+
+
+def _gaussian_line(space: LineGrid, centre: float, waist: float) -> np.ndarray:
+    """Return a beam on a line's columns, one polarisation and frequency."""
+    x = np.asarray(space.x)
+    return np.fft.fft(np.exp(-(((x - centre) / waist) ** 2)))[:, None, None]
+
+
+def test_a_launch_with_no_energy_is_never_read() -> None:
+    edge = _edge(LineGrid(200e-6, 64), None)
+    _launched(edge, np.zeros((64, 1, 1), dtype=complex))
+    # Nothing to judge shares against: no read is due, and a read does nothing.
+    assert edge.ceiling(0.0) == math.inf
+    edge.read(np.zeros((64, 1, 1), dtype=complex), 1e-3)
+    assert edge.summary()["reads"] == 0
+
+
+def test_a_launch_in_the_outer_twentieth_of_the_aperture_warns_it_is_clipped() -> None:
+    # A beam centred at 190 um on a 200 um request puts most of its energy in the
+    # outer 5 % of the aperture on its x+ face.
+    space = LineGrid(200e-6, 128, collar_fraction=0.5)
+    with pytest.warns(BoundaryWarning, match=r"on its x\+ face: the aperture clips"):
+        _launched(_edge(space, None), _gaussian_line(space, 190e-6, 10e-6))
+
+
+def _noisy(scale: float) -> tuple[TransverseEdge, np.ndarray, np.ndarray]:
+    """Return a bare line's edge with a beam and white input noise of `scale`."""
+    space = LineGrid(200e-6, 128)
+    beam = _gaussian_line(space, 0.0, 20e-6)
+    phases = np.random.default_rng(7).uniform(0.0, 2 * math.pi, beam.shape)
+    noise = scale * float(np.max(np.abs(beam))) * np.exp(1j * phases)
+    return _edge(space, None), beam, noise
+
+
+def test_input_noise_above_the_warning_leaves_the_edge_insensitive() -> None:
+    # White noise puts its share at the edge from the launch on: an edge that cannot
+    # be judged below its allowance reports itself insensitive, and keeps that status
+    # when light then reaches the edge and warns.
+    edge, beam, noise = _noisy(3e-3)
+    with pytest.warns(BoundaryWarning, match="cannot be judged below"):
+        _launched(edge, beam + noise, noise=noise)
+    record = edge.summary()
+    allowance = cast("float", record["noise_allowance"])
+    assert allowance > 1e-6
+    assert edge.status == "insensitive"
+    # A packet on the x+ face holding 3e-5 of the launch energy above the face's
+    # launch share and the allowance: past the warning, short of the stop.
+    space = cast("LineGrid", edge.space)
+    packet = _gaussian_line(space, 195e-6, 4e-6)
+    above = cast("list[float]", record["edge_baseline"])[1] + allowance + 3e-5
+    launch = cast("float", record["launch_energy"])
+    scale = math.sqrt(above * launch / _energy(edge, packet))
+    with pytest.warns(BoundaryWarning, match="light reached the transverse edge"):
+        edge.read(beam + noise + scale * packet, 1e-3)
+    assert edge.status == "insensitive"
+
+
+def _energy(edge: TransverseEdge, state: np.ndarray) -> float:
+    """Return a state's energy in the edge's own measure."""
+    return float(np.sum(edge._column_power(state)))  # pyright: ignore[reportPrivateUsage]
+
+
+def _scaled(edge: TransverseEdge, state: np.ndarray, share: float) -> np.ndarray:
+    """Return `state` scaled to hold `share` of the edge's launch energy."""
+    launch = cast("float", edge.summary()["launch_energy"])
+    return math.sqrt(share * launch / _energy(edge, state)) * state
+
+
+def test_the_ramp_s_warning_keeps_an_earlier_verdict() -> None:
+    # A line with a safety ramp on its top tenth of k_x: light reaching the x+ face
+    # warns first; the ramp's removal of a filament at the top column then warns too,
+    # and the run stays warned rather than being reset.
+    space = LineGrid(200e-6, 256)
+    ramp = np.where(
+        np.abs(np.asarray(space.k_x)) > 0.9 * np.max(np.abs(space.k_x)), 1e4, 0.0
+    )
+    design = SpatialAbsorberDesign(
+        SpatialAbsorber(real_space=False), ramp, 1e4, (0.9 * float(np.max(space.k_x)),)
+    )
+    edge = _edge(space, design)
+    beam = _gaussian_line(space, 0.0, 20e-6)
+    _launched(edge, beam)
+    filament = np.zeros_like(beam)
+    filament[int(np.argmax(np.abs(np.asarray(space.k_x))))] = 0.01 * float(
+        np.max(np.abs(beam))
+    )
+    state = beam + filament + _scaled(edge, _gaussian_line(space, 196e-6, 2e-6), 3e-5)
+    with pytest.warns(BoundaryWarning, match="light reached the transverse edge"):
+        edge.read(state, 1e-4)
+    assert edge.status == "warned"
+    with pytest.warns(BoundaryWarning, match="safety ramp has removed"):
+        edge.read(state, 2e-4)
+    assert edge.status == "warned"
+    # Without a collar there is no current across an onset to accumulate.
+    edge.step(state, 2e-4)
+    assert edge.summary()["current"] == 0.0
+
+
+def test_a_resume_without_a_fitting_record_judges_its_own_launch() -> None:
+    space = LineGrid(200e-6, 128)
+    beam = _gaussian_line(space, 0.0, 20e-6)
+    for record in ({}, {"launch_energy": 1.0, "edge_baseline": [0.0]}):
+        # No launch energy, or one baseline for a line's two faces: nothing is
+        # restored, and the launch is recorded as a first execution's.
+        edge = _edge(space, None)
+        edge.resume(cast("dict[str, object]", record))
+        _launched(edge, beam)
+        assert edge.summary()["launch_energy"] == pytest.approx(_energy(edge, beam))
+
+
+def test_a_resume_restores_the_record_and_takes_the_state_unjudged() -> None:
+    edge, beam, noise = _noisy(3e-4)
+    _launched(edge, beam + noise, noise=noise)
+    record = edge.summary()
+    space = cast("LineGrid", edge.space)
+    # A stop is not carried into the execution that resumes after it: that one is
+    # judged afresh against the original launch.
+    stopped = _edge(space, None)
+    stopped.resume(record | {"transverse_status": "stopped"})
+    _launched(stopped, 2 * beam, noise=noise)
+    assert stopped.status == "clear"
+    assert stopped.summary()["launch_energy"] == record["launch_energy"]
+    # A resume on a backend that does not read the edge is unwatched from there.
+    unread = _edge(space, None)
+    unread.resume(record)
+    _launched(unread, beam + noise, noise=noise, reads=False)
+    assert unread.status == "unwatched"
+    assert unread.ceiling(0.0) == math.inf
+
+
+def test_a_stop_on_a_slab_names_a_y_half_width() -> None:
+    modes = [SlabMode(63.5e-6, "Ar", 1.0, order=p) for p in (1, 3)]
+    space = PlanarGrid(modes, 200e-6, 128)
+    edge = _edge(space, None)
+    _launched(edge, _slab(space, 0.0, 20e-6, 0.0))
+    with pytest.raises(BoundaryError, match="a y half-width of at least") as caught:
+        edge.read(_scaled(edge, _slab(space, 195e-6, 4e-6, 0.0), 1e-2), 1e-3)
+    assert "n_y of at least" in str(caught.value)
+
+
+def _slab(space: PlanarGrid, centre: float, waist: float, kappa: float) -> np.ndarray:
+    """Return a packet along y in every slab mode, on the slab's columns."""
+    y = np.asarray(space.y)
+    line = np.fft.fft(np.exp(-(((y - centre) / waist) ** 2) + 1j * kappa * y))
+    return np.repeat(line, space.n_p)[:, None, None]
+
+
+def _box(space: FreeGrid, centre: float, waist: float, kappa: float) -> np.ndarray:
+    """Return a packet off-centre along x on a Cartesian box's columns."""
+    x, y = np.meshgrid(np.asarray(space.x), np.asarray(space.y))
+    field = np.exp(-(((x - centre) / waist) ** 2) - (y / waist) ** 2 + 1j * kappa * x)
+    return np.fft.fft2(field).reshape(-1)[:, None, None]
+
+
+@pytest.mark.parametrize("geometry", ["slab", "box"])
+def test_a_collar_s_return_warns_then_stops_on_every_periodic_grid(
+    geometry: str,
+) -> None:
+    # A packet in the strip travelling inward (exp(i kappa s) moves to smaller s
+    # under exp(-i k_z z)): 1e-5 of the launch warns, 1e-2 stops (section 5.3).
+    if geometry == "slab":
+        modes = [SlabMode(63.5e-6, "Ar", 1.0, order=p) for p in (1, 3)]
+        slab = PlanarGrid(modes, 200e-6, 240, collar_fraction=0.5)
+        space: PlanarGrid | FreeGrid = slab
+
+        def packet(centre: float, waist: float, kappa: float) -> np.ndarray:
+            return _slab(slab, centre, waist, kappa)
+
+    else:
+        box = FreeGrid(200e-6, 120, 200e-6, 120, collar_fraction=0.5)
+        space = box
+
+        def packet(centre: float, waist: float, kappa: float) -> np.ndarray:
+            return _box(box, centre, waist, kappa)
+
+    edge = _edge(space, _collar(space, 100e-6))
+    beam = packet(0.0, 20e-6, 0.0)
+    _launched(edge, beam)
+    inward = packet(230e-6, 10e-6, 3e5)
+    with pytest.warns(BoundaryWarning, match="requested collar returns"):
+        edge.read(beam + _scaled(edge, inward, 1e-5), 1e-4)
+    assert edge.status == "warned"
+    with pytest.raises(BoundaryError, match="absorbing too little"):
+        edge.read(beam + _scaled(edge, inward, 1e-2), 2e-4)
+    assert edge.status == "stopped"
+    assert cast("float", edge.summary()["spatial_removed"]) > 0.0
+
+
+def test_a_collar_narrower_than_its_strip_s_resolution_reads_no_return() -> None:
+    # A collar of 2 um on a 10 um spacing: the strip holds fewer than the four nodes
+    # a direction needs, and the onset's nearest node is the grid's last on both
+    # faces, with no neighbour beyond it: neither reads anything.
+    space = LineGrid(200e-6, 40, collar_fraction=0.01)
+    edge = _edge(space, _collar(space, 2e-6))
+    _launched(edge, _gaussian_line(space, 0.0, 20e-6))
+    returning = _gaussian_line(space, 195e-6, 10e-6) * 10
+    assert edge._strip_inward(returning) == (0.0, 0.0)  # pyright: ignore[reportPrivateUsage]
+    assert edge._onset_current(returning) == 0.0  # pyright: ignore[reportPrivateUsage]
+
+
+def test_under_input_noise_a_collar_s_strip_is_judged_above_the_noise_s() -> None:
+    # The strip's floor is three times what the input noise alone reads there.
+    edge, space = _line_edge()
+    beam = _packet(space, 0.0, 0.0)
+    phases = np.random.default_rng(3).uniform(0.0, 2 * math.pi, beam.shape)
+    noise = 1e-3 * float(np.max(np.abs(beam))) * np.exp(1j * phases)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", BoundaryWarning)
+        _launched(edge, beam + noise, noise=noise)
+    floor = edge._strip_floor  # pyright: ignore[reportPrivateUsage]
+    assert floor == pytest.approx(3 * edge._strip_inward(noise)[0])  # pyright: ignore[reportPrivateUsage]
+    assert floor > 0.0

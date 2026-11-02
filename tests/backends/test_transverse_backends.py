@@ -227,6 +227,32 @@ def single(simulation: Simulation, backend: str) -> Simulation:
     return simulation
 
 
+def test_numpy_ref_s_binary32_path_carries_the_radial_collar() -> None:
+    # The reference for the single-precision backends: binary32 agrees with binary64
+    # to the single-precision tolerance, and the edge reads alike.
+    outputs: list[PlaneStore] = []
+    for precision in ("double", "single"):
+        simulation = single(radial_collar("numpy_ref", RungeKutta()), "numpy_ref")
+        simulation.settings = dataclasses.replace(
+            simulation.settings, precision=precision
+        )
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", BoundaryWarning)
+            output = simulation.run(progress="none")
+        assert isinstance(output, PlaneStore)
+        outputs.append(output)
+    reference, found = outputs
+    expected = np.asarray(reference["field"][-1])
+    error = float(
+        np.linalg.norm(np.asarray(found["field"][-1]) - expected)
+        / np.linalg.norm(expected)
+    )
+    assert error < 1e-5
+    first, second = edge_record(reference), edge_record(found)
+    assert second["reads"] == first["reads"]
+    assert second["transverse_status"] == first["transverse_status"] == "clear"
+
+
 @MLX
 @pytest.mark.parametrize("packet", [REREVIEW, MISS], ids=["rereview", "miss"])
 def test_mlx_stops_the_packet_where_numpy_ref_does(packet: Any) -> None:

@@ -76,6 +76,41 @@ class _Face:
     clip: np.ndarray
 
 
+def _axis_faces(
+    name: str, axis: np.ndarray, size: float, flat: np.ndarray
+) -> tuple[_Face, _Face]:
+    """Return an axis's low and high faces.
+
+    Parameters
+    ----------
+    name : str
+        The axis, ``"x"`` or ``"y"``.
+    axis : numpy.ndarray
+        Its centred samples, m.
+    size : float
+        Its requested half-size, m.
+    flat : numpy.ndarray
+        Each node's coordinate along it, m.
+
+    Returns
+    -------
+    tuple of _Face
+        The two faces.
+    """
+    outer = 0.5 * axis.size * float(axis[1] - axis[0])
+    low = _Face(
+        f"{name}-",
+        flat <= -(1 - GUARD) * outer,
+        (flat <= -(1 - GUARD) * size) & (flat >= -size),
+    )
+    high = _Face(
+        f"{name}+",
+        flat >= (1 - GUARD) * outer - 0.5 * float(axis[1] - axis[0]),
+        (flat >= (1 - GUARD) * size) & (flat <= size),
+    )
+    return low, high
+
+
 def _faces(space: RadialGrid | FreeGrid | PlanarGrid) -> tuple[_Face, ...]:
     """Return the faces of a grid's edge on its physical nodes or rows.
 
@@ -98,50 +133,15 @@ def _faces(space: RadialGrid | FreeGrid | PlanarGrid) -> tuple[_Face, ...]:
                 (r >= (1 - GUARD) * space.radius) & (r <= space.radius),
             ),
         )
-
-    def axis_faces(
-        name: str, axis: np.ndarray, size: float, flat: np.ndarray
-    ) -> tuple[_Face, _Face]:
-        """Return an axis's low and high faces.
-
-        Parameters
-        ----------
-        name : str
-            The axis, ``"x"`` or ``"y"``.
-        axis : numpy.ndarray
-            Its centred samples, m.
-        size : float
-            Its requested half-size, m.
-        flat : numpy.ndarray
-            Each node's coordinate along it, m.
-
-        Returns
-        -------
-        tuple of _Face
-            The two faces.
-        """
-        outer = 0.5 * axis.size * float(axis[1] - axis[0])
-        low = _Face(
-            f"{name}-",
-            flat <= -(1 - GUARD) * outer,
-            (flat <= -(1 - GUARD) * size) & (flat >= -size),
-        )
-        high = _Face(
-            f"{name}+",
-            flat >= (1 - GUARD) * outer - 0.5 * float(axis[1] - axis[0]),
-            (flat >= (1 - GUARD) * size) & (flat <= size),
-        )
-        return low, high
-
     if isinstance(space, PlanarGrid):
         y = np.asarray(space.y)
-        return axis_faces("y", y, space.radius_y, y)
+        return _axis_faces("y", y, space.radius_y, y)
     x = np.tile(np.asarray(space.x), space.n_y)
-    faces = axis_faces("x", np.asarray(space.x), space.radius_x, x)
+    faces = _axis_faces("x", np.asarray(space.x), space.radius_x, x)
     if isinstance(space, LineGrid):
         return faces
     y = np.repeat(np.asarray(space.y), space.n_x)
-    return faces + axis_faces("y", np.asarray(space.y), space.radius_y, y)
+    return faces + _axis_faces("y", np.asarray(space.y), space.radius_y, y)
 
 
 def _guard_width(space: RadialGrid | FreeGrid | PlanarGrid) -> float:
@@ -613,9 +613,10 @@ class TransverseEdge:
                     self._launch
                 )
         rate = self._collar_rate(nodes)
-        if self._last_rate is not None:
-            previous_z, previous = self._last_rate
-            self._spatial_removed += 0.5 * (z - previous_z) * (previous + rate)
+        # Every launch that leaves the edge read sets the rate's first sample.
+        assert self._last_rate is not None
+        previous_z, previous = self._last_rate
+        self._spatial_removed += 0.5 * (z - previous_z) * (previous + rate)
         self._last_rate = (z, rate)
         self._last_z = z
         self._last_columns = self._column_power(state)
@@ -803,8 +804,7 @@ class TransverseEdge:
         total = 0.0
         for s, values, measure in self._lines(state):
             index = int(np.argmin(np.abs(s - size)))
-            if index == 0 or index == s.size - 1:
-                continue
+            # A node without a neighbour on each side has no slope to read.
             order = np.argsort(s)
             position = int(np.nonzero(order == index)[0][0])
             if position == 0 or position == s.size - 1:

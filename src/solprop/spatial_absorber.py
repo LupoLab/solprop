@@ -262,7 +262,8 @@ def collar_strength(
         raise GridError(msg)
     k_z = np.sqrt(k * k - kappa_p * kappa_p)
     # The weak-loss formula, Gamma ~ k_z alpha0 w <P> / kappa with <P> = 1/2, read at
-    # its worst frequency, brackets the root from below (it overstates Gamma).
+    # its worst frequency, brackets the root from below: it bounds Gamma from above,
+    # since |Im sqrt(a + ib)| <= b / (2 sqrt(a)), so half its estimate falls short.
     estimate = float(np.max(attenuation * kappa_p / (0.5 * k_z * width)))
 
     def short(alpha0: float) -> float:
@@ -289,8 +290,6 @@ def collar_strength(
     else:
         msg = "the collar's strength could not be bracketed"
         raise GridError(msg)
-    while short(low) > 0.0:
-        low *= 0.5
     return float(brentq(short, low, high, xtol=1e-12 * high, rtol=1e-12))
 
 

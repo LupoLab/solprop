@@ -2917,9 +2917,9 @@ def _crossing_clamped(
     """
     if design is None:
         return dz_max, dz_init
-    if design.ramp_strength > 0.0:
-        budget = LOG_FLT_MAX if single else LOG_DBL_MAX
-        dz_max = min(dz_max, budget / design.ramp_strength)
+    # A resolved design's ramp is never zero: every axis has a nonzero largest |k|.
+    budget = LOG_FLT_MAX if single else LOG_DBL_MAX
+    dz_max = min(dz_max, budget / design.ramp_strength)
     if design.has_collar:
         dz_max = min(dz_max, design.crossing_step)
     return dz_max, min(dz_init, dz_max)

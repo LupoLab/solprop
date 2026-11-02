@@ -351,8 +351,11 @@ class LockstepRunner(StepDriver[tuple[object, ...]]):
             call()
         except (BoundaryError, BoundaryWarning) as error:
             self._stops[index] = error
-            if member._monitor is not None:
-                self._records[index] = member._monitor.summary()
+            # Only a watched member's call raises its stop: attach_monitor watches it
+            # before the launch is judged, and the other calls return when unwatched.
+            monitor = member._monitor
+            assert monitor is not None
+            self._records[index] = monitor.summary()
             member._monitor = None
             # The member's backend stops reading for it, a split's removal included.
             member._bind_monitor(None)

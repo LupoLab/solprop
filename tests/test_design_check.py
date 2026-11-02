@@ -12,21 +12,33 @@ its returned energies are the full case's: the direct check reads 8.91e-7, 6.88e
 
 import dataclasses
 import math
+import warnings
 from typing import cast
 
 import numpy as np
 import pytest
 
 from solprop.boundaries import SpatialAbsorber
+from solprop.constants import C
 from solprop.driver import Simulation
 from solprop.exceptions import BoundaryWarning, DriverError, TranslationError
-from solprop.grid import EnvelopeGrid, FreeGrid, LineGrid, RadialGrid
+from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid, LineGrid, RadialGrid
+from solprop.linear import Frame
+from solprop.modes import PlanarGrid, SlabMode
 from solprop.pulses import GaussianPulse, SpatialPulse
+from solprop.spatial import SpatialDispersion, SpatialMedium
 from solprop.translate.collar_check import (
     BUDGET,
     REFINED_BUDGET,
     _periodic_return,
     _radial_return,
+    design_check,
+)
+from solprop.translate.transverse import (
+    _relaunched,
+    _trial_grid,
+    checked_design,
+    resolve_transverse,
 )
 from test_transverse_resolution import LENGTH, W0, suite
 
@@ -289,3 +301,125 @@ def test_a_fixed_schedule_beyond_the_collar_s_limits_is_refused() -> None:
     with pytest.raises(TranslationError, match=r"section 4\.7"):
         scheduled(LENGTH / 4).translate()
     assert scheduled(LENGTH / 16).translate().transverse is not None
+
+
+def _line(
+    samples: int, length: float, waist: float, fraction: float = 1.0
+) -> tuple[LineGrid, SpatialDispersion, np.ndarray]:
+    """Return a line of 200 um with room, argon, and a beam over a 0.8 um band."""
+    grid = FieldGrid.from_limits(length, 800e-9, (600e-9, 1.2e-6), 150e-15)
+    space = LineGrid(100e-6, samples, collar_fraction=fraction)
+    dispersion = SpatialDispersion(SpatialMedium("Ar", 1.0), grid, Frame.comoving(grid))
+    omega0 = 2 * math.pi * C / 800e-9
+    spectrum = np.exp(-(((grid.omega - omega0) / (0.1 * omega0)) ** 2))
+    columns = np.fft.fft(np.exp(-((np.asarray(space.x) / waist) ** 2)))
+    launch = columns[None, :, None, None] * spectrum[None, None, None, :]
+    return space, dispersion, launch.astype(complex)
+
+
+def test_a_line_s_ladder_passes_over_what_it_cannot_design() -> None:
+    # A band just under the safety ramp's start on 68 samples: the 1.5 trial's grid
+    # rounds to a coarser spacing whose ramp starts below the band, so it cannot be
+    # designed and is passed over. The 10 um beam spreads past eight times the grid
+    # over 10 cm, so the design's check and every trial's is inconclusive: none is
+    # named, and inconclusive is not a pass (section 4.4).
+    space, dispersion, launch = _line(68, 0.1, 10e-6)
+    top = float(np.max(np.abs(space.k_x)))
+    kappa = 0.995 * 0.9 * top
+    trial = _trial_grid(space, 1.5)
+    assert isinstance(trial, LineGrid)
+    assert 0.9 * float(np.max(np.abs(trial.k_x))) < kappa
+    design = resolve_transverse(
+        SpatialAbsorber(kappa=kappa), space, dispersion, launch, 0.1
+    )
+    with pytest.raises(TranslationError, match="outgrows the bare reference") as caught:
+        checked_design(design, space, dispersion, launch, 0.1)
+    assert "none of the trial fractions 1.5, 2, 3 passes" in str(caught.value)
+
+
+def test_a_refined_estimate_that_disagrees_is_inconclusive() -> None:
+    # A 5 um beam on a 1.6 um spacing under a tenth of its designed collar, over 2 mm:
+    # the first estimate, 6.1e-8, is within a factor of two of the budget, and the
+    # refined one moves by more than a quarter, so the check cannot decide.
+    space, dispersion, launch = _line(128, 2e-3, 5e-6)
+    top = float(np.max(np.abs(space.k_x)))
+    design = resolve_transverse(
+        SpatialAbsorber(kappa=0.45 * top), space, dispersion, launch, 2e-3
+    )
+    assert design.collar_rate is not None
+    result = design_check(
+        space, 0.1 * design.collar_rate, launch, dispersion, 2e-3, min(design.width)
+    )
+    assert result.refined
+    assert result.status == "inconclusive"
+    assert "disagrees with the first" in result.reason
+
+
+def test_a_polarisation_that_carries_nothing_changes_nothing() -> None:
+    space, dispersion, launch = _line(68, 5e-3, 20e-6)
+    rate = 1e3 * (1 - np.asarray(space.window))
+    one = design_check(space, rate, launch, dispersion, 5e-3, 100e-6)
+    both = np.concatenate([launch, np.zeros_like(launch)], axis=2)
+    two = design_check(space, rate, both, dispersion, 5e-3, 100e-6)
+    assert two.returned == pytest.approx(one.returned, rel=1e-12)
+    assert two.status == one.status == "passed"
+
+
+def test_a_launch_with_nothing_in_the_requested_band_returns_nothing() -> None:
+    # Light outside the requested band is not the collar's to return: the check
+    # passes with nothing returned.
+    space, dispersion, launch = _line(68, 5e-3, 20e-6)
+    band = dispersion.grid.inband_mask & dispersion.grid.active_mask
+    outside = np.where(band, 0.0, 1.0) * np.abs(launch).max()
+    rate = 1e3 * (1 - np.asarray(space.window))
+    result = design_check(space, rate, launch * 0 + outside, dispersion, 5e-3, 1e-4)
+    assert result.status == "passed"
+    assert result.returned == 0.0
+
+
+@pytest.mark.parametrize("kind", ["line", "box", "slab"])
+def test_a_trial_grid_keeps_the_spacing_and_the_launch(kind: str) -> None:
+    # The ladder's trial grids (section 4.4): another collar fraction at the same
+    # spacing, onto which the launch is carried with its energy, zero in the new room.
+    def beam(axis: np.ndarray) -> np.ndarray:
+        return np.exp(-((axis / 20e-6) ** 2))
+
+    if kind == "line":
+        space: LineGrid | FreeGrid | PlanarGrid = LineGrid(
+            1e-4, 40, collar_fraction=1.0
+        )
+        axis = np.asarray(space.x)
+        columns = np.fft.fft(beam(axis))
+    elif kind == "box":
+        space = FreeGrid(1e-4, 40, 1e-4, 40, collar_fraction=1.0)
+        axis = np.asarray(space.x)
+        columns = np.fft.fft2(np.outer(beam(np.asarray(space.y)), beam(axis)))
+    else:
+        modes = [SlabMode(63.5e-6, "Ar", 1.0, order=p) for p in (1, 3)]
+        space = PlanarGrid(modes, 1e-4, 40, collar_fraction=1.0)
+        axis = np.asarray(space.y)
+        # Columns p + n_p * iy: the same line in both modes.
+        columns = np.repeat(np.fft.fft(beam(axis)), space.n_p)
+    trial = _trial_grid(space, 3.0)
+    assert trial.collar_fraction == 3.0
+    assert trial.spectral_weights.size == 2 ** (2 if kind == "box" else 1) * len(
+        np.asarray(space.spectral_weights)
+    )
+    launch = columns.reshape(1, -1, 1, 1)
+    carried = _relaunched(space, trial, launch)
+    before = float(np.sum(space.spectral_weights * np.abs(launch[0, :, 0, 0]) ** 2))
+    after = float(np.sum(trial.spectral_weights * np.abs(carried[0, :, 0, 0]) ** 2))
+    assert after == pytest.approx(before, rel=1e-12)
+
+
+def test_a_new_launch_its_collar_cannot_absorb_is_refused_by_name() -> None:
+    # A beam 2.5 times wider fills the requested aperture: its own band is narrower
+    # than the collar's, so it does not warn of spreading, but the collar returns
+    # more than the budget, and the shared grid cannot take the larger fraction.
+    parent = suite(2.6, SpatialAbsorber())
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always", BoundaryWarning)
+        with pytest.raises(DriverError, match="translate a new simulation") as refusal:
+            parent.with_input(_pulse(waist=2.5 * W0))
+    assert "bare wall" in str(refusal.value)
+    assert not [one for one in caught if "spreads beyond" in str(one.message)]

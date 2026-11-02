@@ -19,12 +19,12 @@ from capability_routes import ROUTES
 from solprop.boundaries import SpatialAbsorber
 from solprop.driver import Simulation, SimulationSettings
 from solprop.exceptions import DriverError, TranslationError
-from solprop.grid import FieldGrid, RadialGrid
+from solprop.grid import EnvelopeGrid, FieldGrid, RadialGrid
 from solprop.linear import Frame
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialDispersion, SpatialMedium
 from solprop.stepper import PIController, RungeKutta
-from solprop.translate.transverse import resolve_transverse
+from solprop.translate.transverse import band_wavenumbers, resolve_transverse
 
 SPATIAL = ("radial", "cartesian", "line", "planar")
 LENGTH = 0.01
@@ -253,3 +253,26 @@ def test_a_backend_that_does_not_read_the_edge_refuses_a_collar(
     simulation.settings = dataclasses.replace(simulation.settings, backend="numba_cpu")
     with pytest.raises(BackendError, match="numba_cpu backend does not carry"):
         simulation.run(progress="none")
+
+
+def test_a_requested_band_without_an_active_bin_is_refused() -> None:
+    # 0.1 pm about 810 nm holds no bin of a 400 fs envelope grid about 800 nm.
+    grid = EnvelopeGrid.from_limits(LENGTH, 800e-9, (810e-9, 810.0001e-9), 400e-15)
+    assert not np.any(grid.inband_mask & grid.active_mask)
+    dispersion = SpatialDispersion(SpatialMedium("Ar", 1.0), grid, Frame.comoving(grid))
+    with pytest.raises(TranslationError, match="holds no active frequency"):
+        band_wavenumbers(RadialGrid(RADIUS, 64), dispersion, LENGTH)
+
+
+def test_a_band_past_the_collar_s_cutoff_is_refused() -> None:
+    # An angle of 1.5 rad protects sin(1.5) k = 0.997 k, past the 0.9 k where the
+    # collar can still be designed (section 4.2).
+    with pytest.raises(TranslationError, match=r"reaches beyond 0\.9 k"):
+        suite(2.6, SpatialAbsorber(angle=1.5)).translate()
+
+
+def test_an_attenuation_no_collar_can_reach_is_refused_by_name() -> None:
+    # A strong collar's round trip saturates near 2 k_z w, about 2200 nepers for this
+    # one at the band's red end, 1.6 um: ten thousand cannot be met however strong.
+    with pytest.raises(TranslationError, match="could not be bracketed"):
+        suite(2.6, SpatialAbsorber(kappa=2.5e5, attenuation=1e4)).translate()

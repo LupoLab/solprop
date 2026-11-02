@@ -17,15 +17,18 @@ import dataclasses
 import math
 import warnings
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, cast
 
 import numpy as np
 import pytest
 
+from runtime_types import unchecked
 from solprop.backends.registry import available
 from solprop.constants import C
 from solprop.driver import Simulation, prop_gnlse
 from solprop.driver.executors import Batch, Local
+from solprop.driver.run import _earlier_execution
 from solprop.driver.scan import Scan, ScanPoint, run_scan
 from solprop.exceptions import BoundaryError, BoundaryWarning
 from solprop.grid import EnvelopeGrid
@@ -41,7 +44,13 @@ from solprop.monitor import (
 from solprop.output import MemoryOutput
 from solprop.output.hdf5 import resume
 from solprop.output.scan import read_point
-from solprop.output.schema import Output, PlaneStore, RunOutcome, TerminalCheckpoint
+from solprop.output.schema import (
+    CheckpointOutput,
+    Output,
+    PlaneStore,
+    RunOutcome,
+    TerminalCheckpoint,
+)
 from solprop.pulses import GaussianPulse
 from solprop.stepper.multistep import Multistep
 from solprop.stepper.runge_kutta import RungeKutta
@@ -120,6 +129,9 @@ def test_the_check_refuses_bad_thresholds() -> None:
         BoundaryCheck(budget=0.0)
     with pytest.raises(BoundaryError, match="stop_factor"):
         BoundaryCheck(stop_factor=0.5)
+    for edge in (0.0, math.inf):
+        with pytest.raises(BoundaryError, match="transverse_budget"):
+            BoundaryCheck(transverse_budget=edge)
 
 
 def test_a_pulse_that_stays_clear_leaves_the_guards_empty() -> None:
@@ -1153,6 +1165,24 @@ def test_a_stretch_without_a_monitor_keeps_the_totals_and_is_listed(
     assert record["unwatched"] == [[first_end, middle_end]]
     assert record["resumed_at"] == [middle_end]
     assert record["launch_energy"] is not None
+
+
+def test_executions_that_kept_no_record_are_unwatched_from_the_launch() -> None:
+    # Three earlier executions without a monitor; the second was killed before it
+    # moved, so its stretch is empty and passed over. The record starts afresh and
+    # lists the stretches end to end from the launch.
+    outcome = RunOutcome(
+        "failed",
+        0.5,
+        previous_executions=({"z": 0.2, "execution": {}}, {"z": 0.2}),
+    )
+    # The earlier outcome is all a checkpoint handler is asked for here.
+    resumed, record, unwatched = unchecked(_earlier_execution)(
+        MemoryOutput(), cast("CheckpointOutput", SimpleNamespace(outcome=outcome))
+    )
+    assert resumed
+    assert record is None
+    assert unwatched == ((0.0, 0.2), (0.2, 0.5))
 
 
 def test_under_input_noise_a_resume_reads_the_whole_run_s_removal(
