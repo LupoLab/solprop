@@ -324,6 +324,11 @@ def test_a_gas_path_is_the_same_through_a_mixture():
     mixed = Material(Mixture.fill({"Ar": 1.0}, 1.5), 2.0, WAVELENGTH)(omega)
     # n = sqrt(1 + chi) formed two ways from one susceptibility; a phase of 2e7 rad.
     np.testing.assert_allclose(mixed, named, rtol=0.0, atol=1e-7)
+    heated = Material("Ar", 2.0, WAVELENGTH, pressure=1.5, temperature=350.0)(omega)
+    heated_mixed = Material(
+        Mixture.fill({"Ar": 1.0}, 1.5, temperature=350.0), 2.0, WAVELENGTH
+    )(omega)
+    np.testing.assert_allclose(heated_mixed, heated, rtol=0.0, atol=1e-7)
 
 
 def test_a_reflectivity_of_exactly_zero_is_a_zero_and_not_a_warning():
@@ -355,6 +360,11 @@ def test_a_glass_name_is_resolved_and_a_range_is_still_warned_about():
         lambda: Material(WINDOW, 1e-3, -800e-9),
         lambda: Material("Ar", 1.0),
         lambda: Material(WINDOW, 1e-3, pressure=1.0),
+        lambda: Material(WINDOW, 1e-3, temperature=500.0),
+        lambda: Material("SiO2", 1e-3, temperature=500.0),
+        lambda: Material(
+            Mixture.fill({"Ar": 1.0}, 1.0, temperature=350.0), 1.0, temperature=500.0
+        ),
         lambda: TaylorPhase((0.0, math.nan), WAVELENGTH),
         lambda: TaylorPhase((0.0,), 0.0),
     ],
