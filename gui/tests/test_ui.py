@@ -449,6 +449,7 @@ def test_closing_over_a_run_or_unsaved_changes_asks(qtbot: QtBot, tmp_path: Path
     window.confirm = lambda _title, _text: answers.pop(0) if answers else "discard"
     assert not window.close()
     assert window.close()
+    assert window.bridge.request("examples") == -1  # closed: no kernel is started
 
 
 def test_opening_a_recipe_file_and_an_example(qtbot: QtBot, tmp_path: Path):
