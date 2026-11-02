@@ -112,6 +112,24 @@ before-all = "pwsh -NoProfile -ExecutionPolicy Bypass -File {package}\\ci\\build
 environment = { CMAKE_GENERATOR = "Ninja", CC = "clang", CXX = "clang++", CMAKE_ARGS = "-DSOLPROP_NATIVE_DISTRIBUTION_BLAS=OPENMP_OPENBLAS -DSOLPROP_NATIVE_OPENBLAS_ROOT=C:/solprop-deps/openblas -DFFTW_ROOT=C:/solprop-deps/fftw -DFFTW_DOUBLE_LIB=C:/solprop-deps/fftw/lib/fftw3.lib -DFFTW_FLOAT_LIB=C:/solprop-deps/fftw/lib/fftw3f.lib -DFFTW_DOUBLE_OPENMP_LIB=C:/solprop-deps/fftw/lib/fftw3_omp.lib -DFFTW_FLOAT_OPENMP_LIB=C:/solprop-deps/fftw/lib/fftw3f_omp.lib -DOpenMP_CXX_FLAGS=-fopenmp -DOpenMP_CXX_LIB_NAMES=libomp -DOpenMP_libomp_LIBRARY=C:/solprop-deps/libomp/lib/libomp.lib -DSOLPROP_NATIVE_BUNDLED_LICENCES=C:/solprop-deps/licences" }
 repair-wheel-command = "delvewheel repair --add-path C:\\solprop-deps\\libomp\\bin -w {dest_dir} -v {wheel}"
 
+# The x86-64 wheels hold two builds of the extension: x86-64-v3, and x86-64-v2 for older
+# processors, which the package chooses between at import (solprop_native/_cpu.py).
+# native/ci/build_variant.py builds the second before the wheel and merge_variant.py adds
+# it to the wheel before the repair, which then treats both alike. On Linux both link one
+# OpenBLAS, built with run-time kernel selection by the first build; on Windows each
+# links its own fixed target.
+[[tool.cibuildwheel.overrides]]
+select = "*-manylinux_x86_64"
+before-build = "python {package}/ci/build_variant.py {package} --baseline x86-64-v2 --output /tmp/solprop-variant --build-dir /tmp/solprop-variant-build"
+inherit.environment = "append"
+environment = { SOLPROP_NATIVE_OPENBLAS_ROOT = "/tmp/solprop-variant-build/_openblas/install" }
+repair-wheel-command = "python {package}/ci/merge_variant.py {wheel} /tmp/solprop-variant --best x86-64-v3 --variant x86-64-v2 && LD_LIBRARY_PATH=/opt/solprop-deps/lib:$LD_LIBRARY_PATH auditwheel repair -w {dest_dir} {wheel}"
+
+[[tool.cibuildwheel.overrides]]
+select = "*-win_amd64"
+before-build = "python {package}/ci/build_variant.py {package} --baseline x86-64-v2 --output C:/sp-variant --build-dir C:/sp-v2 --cmake-arg=-DSOLPROP_NATIVE_OPENBLAS_ROOT=C:/solprop-deps/openblas-v2"
+repair-wheel-command = "python {package}/ci/merge_variant.py {wheel} C:/sp-variant --best x86-64-v3 --variant x86-64-v2 && delvewheel repair --add-path C:\\solprop-deps\\libomp\\bin -w {dest_dir} -v {wheel}"
+
 [tool.setuptools_scm]
 root = ".."
 fallback_version = "0.0.0"
