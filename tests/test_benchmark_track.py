@@ -156,7 +156,8 @@ def test_history_rows_append_read_and_summarise(tmp_path):
     changed = [{**row, "date": "2100-01-01T00:00Z", "rtol": "1e-05"} for row in later]
     history.append(path, changed)
     assert history.summary(history.read(path))[-1]["shared_previous"] == 0
-    # A numba run of the same commit is its own series, never compared with native.
+    # A retired backend's rows stay in an old history, its own series, never compared
+    # with native.
     numba = [
         {**row, "date": "2101-01-01T00:00Z", "backend": "numba_cpu", "median_s": "8.0"}
         for row in later
@@ -205,7 +206,7 @@ def test_the_history_takes_only_a_complete_default_run_of_committed_code():
     rows, _ = runner.plan_rows(select(), ("default",), None, 16)
     clean = {"revision": "a" * 40, "dirty": False}
     track.refuse_partial(namespace(), rows, 16, clean)
-    track.refuse_partial(namespace(backend="numba_cpu"), rows, 16, clean)
+    track.refuse_partial(namespace(backend="numpy_ref"), rows, 16, clean)
     for args, source, message in (
         (namespace(), {"revision": None, "dirty": None}, "source state is unknown"),
         (namespace(), {**clean, "dirty": True}, "uncommitted changes"),

@@ -2,14 +2,14 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The transverse edge on native, ``numba_cpu`` and mlx, against ``numpy_ref`` (SEP 40).
+"""The transverse edge on native and mlx, against ``numpy_ref`` (SEP 40).
 
 Every backend reads the edge on the host from its state, as ``numpy_ref`` does; the
 native Adams march holds its steps to the edge's next read and hands the state back
-there, and ``numba_cpu`` and mlx step from the host under the driver's ceiling
-(section 5.3). mlx is compared with ``numpy_ref``'s single-precision path.
-The same run on two backends must then stop at the same read, read the same number of
-times and keep the same record; a requested collar must remove the same energy.
+there, and mlx steps from the host under the driver's ceiling (section 5.3). mlx is
+compared with ``numpy_ref``'s single-precision path. The same run on two backends must
+then stop at the same read, read the same number of times and keep the same record; a
+requested collar must remove the same energy.
 """
 
 import dataclasses
@@ -48,7 +48,6 @@ BACKENDS = [
             "native" not in available(), reason="native is not installed"
         ),
     ),
-    "numba_cpu",
 ]
 """The backends compared with ``numpy_ref``."""
 

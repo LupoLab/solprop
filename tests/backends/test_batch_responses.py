@@ -209,7 +209,7 @@ def compare(problem, grid, backend, *, factory=select, spec=None):
         assert runner.memory_ledger() == {}
 
 
-@pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu", "native"])
+@pytest.mark.parametrize("backend", ["numpy_ref", "native"])
 @pytest.mark.parametrize("route", ["scalar", "product", "rows"])
 def test_modal_batches_preserve_members(modal_case, backend, route):
     if backend == "native":
@@ -217,7 +217,7 @@ def test_modal_batches_preserve_members(modal_case, backend, route):
     compare(modal_problem(modal_case, route), modal_case[0], backend)
 
 
-@pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu", "native"])
+@pytest.mark.parametrize("backend", ["numpy_ref", "native"])
 @pytest.mark.parametrize(
     ("kind", "plasma"), [("envelope", False), ("field", False), ("field", True)]
 )
@@ -228,7 +228,7 @@ def test_raman_and_plasma_batches_preserve_members(backend, kind, plasma):
     compare(problem, grid, backend)
 
 
-@pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu", "native"])
+@pytest.mark.parametrize("backend", ["numpy_ref", "native"])
 def test_plasma_batches_preserve_species_statistics(backend):
     if backend == "native":
         pytest.importorskip("solprop_native")

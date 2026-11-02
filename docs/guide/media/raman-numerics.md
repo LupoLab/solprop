@@ -108,7 +108,7 @@ sum once is wrong for every gas with both a rotation and a vibration.
 
 ## Backends, and the drive form
 
-Raman responses run on the supported NumPy, Numba and native routes. Check
+Raman responses run on the supported NumPy and native routes. Check
 [backend support](../performance/backends.md) for the geometry and execution space
 of your problem. Backend agreement measures numerical implementation of the
 same response, not agreement with a material outside its validated range.

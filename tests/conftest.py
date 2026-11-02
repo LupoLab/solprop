@@ -39,13 +39,13 @@ JAXTYPING_HOOK = (
 
 # Hypothesis's per-example deadline is a wall-clock limit, which a parallel lane on a
 # shared node exceeds without anything being wrong: the first example of a property
-# also pays the import and JIT costs. Examples are bounded by their count instead.
+# also pays the import costs. Examples are bounded by their count instead.
 settings.register_profile("solprop", deadline=None)
 settings.load_profile("solprop")
 
 # Any driver test can select the installed backend, even without collecting
-# tests/backends. On macOS Kokkos must load before pyFFTW's private OpenMP runtime.
-# A present but broken wheel fails here; only an absent optional wheel is omitted.
+# tests/backends. A present but broken wheel fails here; only an absent optional wheel
+# is omitted.
 if importlib.util.find_spec("solprop_native") is not None:
     importlib.import_module("solprop_native")
 

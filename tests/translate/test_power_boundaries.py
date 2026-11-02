@@ -268,7 +268,7 @@ def test_a_taper_with_a_floored_vacuum_end_translates():
         np.testing.assert_allclose(actual, expected, rtol=0.0, atol=bound)
 
 
-@pytest.mark.parametrize("name", ["numpy_ref", "numba_cpu", "native"])
+@pytest.mark.parametrize("name", ["numpy_ref", "native"])
 @pytest.mark.parametrize("with_modes", [False, True])
 @pytest.mark.filterwarnings("ignore::solprop.exceptions.MaterialRangeWarning")
 def test_unit_index_intensity_retains_the_vacuum_limit(grid, launch, name, with_modes):

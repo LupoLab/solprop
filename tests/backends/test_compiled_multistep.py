@@ -5,8 +5,8 @@
 """SEP 14 phase 2: the Adams march on the compiled backends, against the reference.
 
 The march is shared (``solprop.backends.multistep``); only the one source evaluation
-and the propagator differ: ``numba_cpu`` evaluates through its fused stage kernels and
-Kokkos through its general engine's stage pipeline. Parity is the reference's
+and the propagator differ: Kokkos evaluates through its general engine's stage pipeline.
+Parity is the reference's
 trajectory to round-off: the same steps, orders and calls, and fields that agree to
 the accumulated rounding of the evaluation orders.
 """
@@ -18,7 +18,6 @@ import pytest
 
 from bounds import assert_within, fft_bound
 from solprop.backends import available
-from solprop.backends.numba_cpu import NumbaCpuBackend
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.boundaries import absorber
 from solprop.driver.simulation import Simulation, SimulationSettings
@@ -29,7 +28,7 @@ from solprop.stepper import PIController
 from solprop.stepper.multistep import ComparisonMultistep, Multistep
 from solprop.translate.linop import delta_phi
 
-COMPILED: list[type] = [NumbaCpuBackend]
+COMPILED: list[type] = []
 if "native" in available():
     from solprop_native import NativeBackend  # pyright: ignore[reportMissingImports]
 
@@ -93,7 +92,7 @@ def test_a_compiled_backend_follows_the_reference_trajectory(
     assert ledger.total == reference_ledger.total
     # The evaluation orders round differently and the controller passes that on to
     # the step sizes: measured at most 1.5e-10 relative over 47-99 steps (Kokkos's
-    # PECE4; 1.0e-10 on numba_cpu).
+    # PECE4).
     np.testing.assert_allclose(steps, reference_steps, rtol=1e-9)
     # Measured 8e-16 to 1.8e-15 of the peak over the quarter period.
     scale = np.max(np.abs(reference))
@@ -137,15 +136,14 @@ def test_a_compiled_backend_steps_the_modified_noise_as_the_reference(
 def test_the_settings_admit_the_compiled_backends():
     control = PIController(rtol=1e-6, atol=1e-12)
     common = {"save_planes": [1.0], "dz_max": 0.1, "dz_init": 1e-3}
-    for backend in ("numba_cpu", "native"):
-        settings = SimulationSettings(
-            control,
-            backend=backend,
-            integrator=Multistep(formulation="interaction"),
-            **common,
-        )
-        assert settings.backend == backend
-    with pytest.raises(DriverError, match="numba_cpu and native only"):
+    settings = SimulationSettings(
+        control,
+        backend="native",
+        integrator=Multistep(formulation="interaction"),
+        **common,
+    )
+    assert settings.backend == "native"
+    with pytest.raises(DriverError, match="numpy_ref and native only"):
         SimulationSettings(
             control,
             backend="cuda",
@@ -240,9 +238,8 @@ def assert_sources_the_reference(backend_class, route):
     # comparison measures the grid more than the backend (8.3e-12 of the peak on the
     # grids before SEP 21, 3.6e-10 and 4.7e-10 on today's, for the same 4e-16 of the
     # term's own peak). Untransported, the two evaluations are one transform round
-    # trip apart: measured 8.2e-16 and 5.1e-16 normwise on native's two grids, and
-    # 5.9e-16 on numba_cpu's, against the one-evaluation budget fft_bound(n_to), about
-    # 1e-12.
+    # trip apart: measured 8.2e-16 and 5.1e-16 normwise on native's two grids, against
+    # the one-evaluation budget fft_bound(n_to), about 1e-12.
     assert_within(
         source * back,
         reference * reference_back,

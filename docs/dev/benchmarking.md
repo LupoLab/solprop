@@ -130,8 +130,8 @@ bundle to a directory outside the repository.
 
 `--append-history` adds one row per configuration to
 `benchmarks/history/<hardware>.csv`, which is committed. Each row names its backend,
-and rows compare only with rows of the same backend, so a `--backend numba_cpu` run
-keeps its own series beside the native one. It records only the whole default plan
+and rows compare only with rows of the same backend, so the `numba_cpu` rows recorded at
+0.1.0, before [SEP 43](seps/sep-0043-retire-numba-cpu.md) retired that backend, keep their own series beside the native one. It records only the whole default plan
 with at least three repeats, and only when:
 
 - every configuration finished, and its repeats took the same steps and reached the
@@ -184,8 +184,9 @@ so that their rows stay one series:
   `uv pip install solprop-native==<version>` from PyPI, and every command run as
   `.venv/bin/python -m benchmarks …`: a later `uv sync` or `uv run` removes the
   wheel. The wheel records the tag's commit, so the history accepts it.
-- **numba rows** come from a second run in the same checkout with
-  `--backend numba_cpu`, on the Apple M5 Max, the Xeon Gold 6240 and the EPYC 7763.
+- **numba rows** exist only at 0.1.0: a second run in the same checkout with
+  `--backend numba_cpu`, on the Apple M5 Max, the Xeon Gold 6240 and the EPYC 7763. A later
+  release cannot add them.
 - **GPU rows build the tag's native backend** with the `cuda` or `hip` preset's
   options into a separate environment, out of tree (`uv build native --wheel
   --config-setting build-dir=…`), so that the checkout stays clean. ROCm 10 builds

@@ -416,9 +416,9 @@ def test_the_alarm_falls_with_the_radial_order_on_a_three_mode_set(
     8, 16, 24, 32 and 48 -- between three and four orders for every eight nodes added,
     and the 1e-6 threshold falling between 24 and 32, which is why a *set* needs the
     higher order that a single HE_11 does not (`CONVERGED_N_R` is 24,
-    `CONVERGED_N_R_SET` is 32). The stored record was written on ``numba_cpu``; the
-    reference backend gives the same five numbers, the last to 4.251e-15, within the
-    record's tolerances.
+    `CONVERGED_N_R_SET` is 32). The stored record was written on the retired
+    ``numba_cpu`` backend; the reference backend gives the same five numbers, the last
+    to 4.251e-15, within the record's tolerances.
 
     Slow because it is a convergence ladder whose numbers are recorded
     (`docs/dev/testing.md` section 2), not because of what it costs: five runs of a

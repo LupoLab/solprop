@@ -66,7 +66,7 @@ def raise_crash():
 
 
 @pytest.mark.medium
-@pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu", "native"])
+@pytest.mark.parametrize("backend", ["numpy_ref", "native"])
 def test_an_exception_as_a_step_is_recorded_leaves_a_consistent_checkpoint(
     build_simulation, tmp_path, backend
 ):

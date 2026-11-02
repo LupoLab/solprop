@@ -191,8 +191,8 @@ def test_every_backend_refuses_every_general_modal_leaf_by_name(
     fourth, `linear.coupled_flow`, as the coherent wall block, so it names all four
     in `admits` and checks the exact representation itself
     (`test_the_reference_refuses_...` below and `tests/modes/test_wall_operator.py`).
-    `numba_cpu` and ``native`` execute all four too, and each runs the shared admission
-    list under its own name, which refuses a spoiled leaf here and names it.
+    ``native`` executes all four too, and runs the shared admission list under its own
+    name, which refuses a spoiled leaf here and names it.
     """
     assert backend_name in BACKEND_NAMES
     if backend_name == "numpy_ref":
@@ -201,17 +201,11 @@ def test_every_backend_refuses_every_general_modal_leaf_by_name(
     expected = f"does not execute {GROUP[leaf]}.{leaf}"
     if backend_name == "native":
         expected = "native executes (a general modal guide|a constant-Schur|.* as part)"
-    elif backend_name == "numba_cpu" and leaf != "coupled_flow":
-        expected = (
-            "numba_cpu executes (a general modal guide|.* as part of the general)"
-        )
-    elif backend_name == "numba_cpu":
-        expected = "numba_cpu executes a constant-Schur coupled flow"
     with pytest.raises(BackendError, match=expected):
         backend_class(spoiled, grid=soliton_grid)
 
 
-BACKEND_NAMES = {"numpy_ref", "numba_cpu", "native"}
+BACKEND_NAMES = {"numpy_ref", "native"}
 """Every backend name the refusal is exercised on, so a new one cannot slip past."""
 
 
@@ -794,7 +788,7 @@ def spatial_case():
     return grid, problem
 
 
-@pytest.mark.parametrize("name", ["numpy_ref", "numba_cpu", "native"])
+@pytest.mark.parametrize("name", ["numpy_ref", "native"])
 def test_both_backends_check_the_whitelist_before_the_spatial_branch(name):
     """A spatial run asked for a general name is refused, not answered.
 
@@ -819,31 +813,22 @@ def test_both_backends_check_the_whitelist_before_the_spatial_branch(name):
         built.close()
 
 
-@pytest.mark.parametrize("name", ["numpy_ref", "numba_cpu", "native"])
-def test_a_general_statistic_under_a_weight_that_is_not_one_is_refused(
-    strand, soliton_grid, soliton_problem, name
-):
+@pytest.mark.parametrize("name", ["numpy_ref", "native"])
+def test_a_general_statistic_under_a_weight_that_is_not_one_is_refused(strand, name):
     """`physical_energy` and `analytic_flux` are the unit-weight arithmetic.
 
     Both are outside `_POYNTING_STATISTICS`, so a weight that is not the constant
     one would reach them as the **unweighted** field's arithmetic and be silently
     wrong rather than obviously so. The combination is unreachable through the
-    translation layer -- the route certifies the constant weight, and `numba_cpu`
-    refuses a general guide's leaves at construction -- so each backend is handed
-    the two leaves past its own admission, which is the only way to exercise a
+    translation layer -- the route certifies the constant weight -- so each backend
+    is handed the weight past its own admission, which is the only way to exercise a
     guard written for the day either side is loosened.
     """
-    if name == "numba_cpu":
-        grid = soliton_grid
-        problem = soliton_problem(soliton_grid, 1, save_planes=[0.001])
-    else:
-        _, state = continuous_wave(strand, [1.0])
-        grid, problem = strand.grid, general_problem(strand, state)
+    _, state = continuous_wave(strand, [1.0])
+    grid, problem = strand.grid, general_problem(strand, state)
     built = select(name, problem, grid=grid)
     try:
         built.set_initial(problem.initial.field0, None)
-        if name == "numba_cpu":
-            object.__setattr__(problem.transform, "modal_tables", strand.route.tables)
         object.__setattr__(
             problem.linear, "power_weight_constant", np.full(problem.shape[1:], 1.5)
         )

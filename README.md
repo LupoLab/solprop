@@ -97,13 +97,10 @@ the backend solprop is developed and run on: C++ kernels built with
 CUDA and HIP on NVIDIA and AMD GPUs. Once it is installed, solprop uses it automatically;
 your scripts do not change.
 
-Without it, solprop falls back to `numba_cpu`, a compiled CPU backend included in the
-package, and warns that it has done so. `numba_cpu` is correct and tested, but it is a
-second-tier fallback for machines the native backend cannot reach: in the
-[recorded benchmarks](https://solprop.readthedocs.io/en/latest/guide/performance/backends.html#which-backend-to-use)
-it took 1.5 to 2.2 times as long at one thread and 2.1 to 2.8 times as long on all cores,
-and new features do not always reach it. The third backend, `numpy_ref`, is the plain NumPy reference that the
-others are tested against. See
+Without it, solprop falls back to `numpy_ref`, the plain NumPy reference that the native
+backend is tested against, and warns that it has done so. `numpy_ref` is correct and
+tested, but it is unthreaded and roughly 6 to 40 times slower than threaded native
+([which backend to use](https://solprop.readthedocs.io/en/latest/guide/performance/backends.html#which-backend-to-use)). See
 [The native backend](https://solprop.readthedocs.io/en/latest/guide/performance/native.html) and
 [Performance tuning](https://solprop.readthedocs.io/en/latest/guide/performance/tuning.html).
 
@@ -114,12 +111,12 @@ for it) and runs on Linux, macOS and Windows:
 
 ```sh
 pip install "solprop[native]"   # the default: with the compiled native backend
-pip install solprop             # no wheel for your platform: the slower fallback backends
+pip install solprop             # no wheel for your platform: the far slower reference backend
 ```
 
 The `native` extra installs a precompiled wheel of the native backend, the fastest way to
 run solprop, on macOS on Apple silicon (osx-arm64), Linux on x86-64 (linux-64), Linux on
-aarch64 (linux-aarch64) and Windows on x86-64 (win-64). On other platforms, and for GPUs,
+aarch64 (linux-aarch64), Windows on x86-64 (win-64) and Windows on Arm (win-arm64). On other platforms, and for GPUs,
 build it from source (below) rather than stay on the fallback.
 [Installation](https://solprop.readthedocs.io/en/latest/introduction/installation.html) covers environment checks and a
 first run.

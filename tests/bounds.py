@@ -140,7 +140,7 @@ def dispersive_device_bound(cpu_bound: float, problem) -> float:
     """Return a dispersive comparison's CPU bound, or its device envelope.
 
     SEP 6's dispersive stage counts its transforms and node reductions in its CPU bound
-    (``evaluation_bound`` of ``test_numba_dispersive_kerr.py``) at ``8 eps
+    (``evaluation_bound`` of ``backends/dispersive_cases.py``) at ``8 eps
     ceil(log2 n_to)`` per transform. A device build's vendor FFT and reductions are
     held to this module's predeclared envelope instead, :func:`fft_bound` per transform,
     with the same count and the reference's factor of two; the larger bound holds.

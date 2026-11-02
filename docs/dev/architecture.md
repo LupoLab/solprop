@@ -35,7 +35,7 @@ precision. Single precision is an explicit per-run choice, `precision="single"`,
 SEP 33's contract (ADR-054): the state, stages, transforms and responses in binary32,
 the controller, host scalars and propagator exponents in binary64, every narrowed table
 with its own power-of-two exponent and the state at an exact scale. `numpy_ref`'s
-single-precision path is its oracle; `numba_cpu` and `native` compute in binary64 only.
+single-precision path is its oracle; `native` computes in binary64 only.
 
 ## 2. The model
 
@@ -69,7 +69,7 @@ full-spectrum state, c2c transforms, optional oversampling for third-harmonic te
 first class, with parity tests for shared physics on narrowband pulses. Supported
 combinations are explicit: plasma supports scalar and Cartesian vector fields on
 both grids, using a separately derived cycle-averaged envelope model. Explicitly
-declared tensor Raman supports both grids on NumPy, Numba CPU and native;
+declared tensor Raman supports both grids on NumPy and native;
 unlabelled custom kernels and the default silica model remain scalar-only.
 Envelope plasma with THG is refused. The native CPU/CUDA/HIP paths
 have their own qualification. The [running guide](../guide/setup/running.md)
@@ -80,7 +80,7 @@ A scalar helium `TDSEGasResponse` owns
 the gas nonlinearity. Its immutable specification becomes a `TDSEDescriptor`;
 the driver lazily owns native plans and stable radial chunks and passes a narrow
 host binding explicitly to NumPy. The optical march uses Adams. Atomic device
-execution is independent of the optical backend. Numba and the native backend refuse this
+execution is independent of the optical backend. The native backend refuses this
 response by name. The kernel schema includes separate polarisation and current
 factors: current enters with `-1/(2 epsilon_0 c Re(n_eff))`, without division by
 frequency. The provider's raw discrete shadows are subtracted before density
@@ -138,7 +138,7 @@ kernel layout carries the transverse columns in its mode axis (see §12).
 |---|---|---|---|
 | **P** physics / convenience | grids, materials, modes, profiles, pulses, noise, linear-operator assembly, response *definitions*, ionisation and Raman models, boundaries, normalisation, tools | numpy, scipy, standard library, other P modules | none: clarity first; never in a hot loop |
 | **T** translation | turns P objects into validated kernel-ready arrays and the `KernelProblem` contract | P, numpy, scipy | may be expensive once per problem; results cached and validated |
-| **B** backends | state buffers, transform plans, kernels, the inner z-loop, statistics kernels | numpy, numba, pyfftw; the native package in `native/` (Kokkos, Kokkos-FFT and nanobind); from P only the types and constants the seam names — never a physics object | all hot-path rules of [backends.md](backends.md); in-place and `out=` allowed here only |
+| **B** backends | state buffers, transform plans, kernels, the inner z-loop, statistics kernels | numpy; the native package in `native/` (Kokkos, Kokkos-FFT and nanobind); from P only the types and constants the seam names — never a physics object | all hot-path rules of [backends.md](backends.md); in-place and `out=` allowed here only |
 | **D** driver | `Simulation`, run loop over save planes, batch runners, `prop_capillary`/`prop_gnlse`, output handlers, statistics specs | P, T, B (through the seam only), h5py | none |
 | **X** processing / plotting | analysis of outputs, standard plots, design tools | numpy, scipy, matplotlib, D (outputs), T (reference tables and their identities, for `processing.modal`; the recorded plane measure, for `processing.mixtures` and `processing.planes`) — never B | none; may call backend statistics kernels through the D layer when a computation belongs on the device |
 
@@ -205,7 +205,7 @@ against `src/solprop` by `tests/test_structure_figures.py`.
 | `linear.py`, `boundaries.py`, `nonlinear/` | Linear assembly, absorbing rates, response definitions, ionisation, Raman, normalisation and the GNLSE mapping | P |
 | `translate/` | Validated `KernelProblem`; parameter expansions and z tables; modal/radial/Cartesian transforms and the hybrid planar one (slab modes in x × FFT in y, `translate/planar.py`); dense tracked modal tables, the general modal route and the coupled-flow and metric records (`translate/general.py`, `translate/coupled.py`); the spatial plane measure (`translate/flux.py`, the `FluxPlan` of schema 35); the persisted frame integral and the filled input port of a problem's entrance (`translate/coupling.py`); response tables, masks and stage bundles | T |
 | `backends/` | Registry and protocols, shared step and batch drivers, scalar bodies, spatial and population statistics | B |
-| `backends/numpy_ref/`, `backends/numba_cpu/` | Reference and compiled CPU execution | B |
+| `backends/numpy_ref/` | Reference execution | B |
 | `stepper/`, `log.py`, `stats.py` | Tableaux, controllers, schedules, progress reporters and statistics specifications | D |
 | `driver/`, `driver/executors/`, `scan.py` | Simulation and convenience interfaces, scan/batch orchestration, Local/Pool/Queue/Slurm execution and scan CLI | D |
 | `output/` | Memory and HDF5 outputs, provenance/resume, scan storage and artifacts | D |
@@ -221,9 +221,7 @@ directly, without a contract, a backend or an output handler, which is what make
 cross-check of the reference backend. `processing/windows.py` is a candidate
 module, drawn dashed in figure 1, to be written only for an agreed use case.
 `_display.py` is private: the formatter behind every class's printed block, imported by
-any layer and importing none. `_numba_cache.py` is private in the same way: numba's
-`njit` with a disk cache that concurrent processes cannot cross-wire, through which
-every kernel in **T**, **D** and **B** compiles ([backends.md §3.2](backends.md)).
+any layer and importing none.
 
 The layout does not mirror Luna's module tree: what `NonlinearRHS.jl` does spans
 response normalisation, translation and backend passes; `Maths.jl` mostly becomes SciPy
@@ -252,8 +250,7 @@ MemoryOutput / HDF5Output  ──►  processing / plotting               (X)
 ```
 
 The inner loop (many adaptive or scheduled steps between two save planes) is the
-shared Python `StepDriver`. NumPy evaluates reference passes, Numba launches compiled
-kernels and library transforms, and the native backend executes each trial through one native
+shared Python `StepDriver`. NumPy evaluates reference passes, and the native backend executes each trial through one native
 call. The outer driver visits save planes. Device arrays never cross the seam;
 `observe()` returns host arrays of the field at the plane
 and the step history; `stats()` returns a small dictionary of host scalars/vectors.
@@ -541,17 +538,6 @@ class Backend(Protocol):
 
 - `numpy_ref`: the readable oracle. Plain NumPy + `scipy.fft`, no fusion, no in-place
   tricks, one function per pass. Every other backend is validated against it.
-- `numba_cpu`: fused stage kernels (`@njit(cache=True, nogil=True)` through
-  `solprop._numba_cache.njit`), pyfftw plans executed in place on preallocated aligned
-  buffers (`FFTW_MEASURE` + wisdom on a quiet machine), node-parallel kernels and controlled
-  FFTW/BLAS threads, with two-stage reductions and the shared Python step loop. Its
-  floating-point licence is [SEP 25](seps/archive/sep-0025-rounding-level-reproducibility.md)'s:
-  contraction by default, strict opt-outs for the protected helpers (stable increments,
-  small-argument functions, defects, compensated sums), reassociation only on the loops
-  of a kernel that asks for it, and no other fast-math flag
-  ([backends.md §3.2](backends.md)), applied by the `njit` wrapper. Fixed fibre batches have a compiled accept
-  update over members; other numerical work remains member-owned. An all-compiled march
-  is a deferred experiment, subject to a measured dispatch-cost case.
 - `native` (the `solprop-native` distribution, `native/`): C++20/Kokkos kernels and persistent Kokkos-FFT plans
   behind nanobind. It runs mode-averaged and multimode scalar/two-component problems,
   Kerr, plasma and declared tensor Raman, weighted control, embedded quadrature and
@@ -564,7 +550,11 @@ class Backend(Protocol):
   data-centre NVIDIA GPUs; the HIP build is qualified on AMD Instinct GPUs, with the HIP
   sanitizer run still outstanding. Fixed-schedule fibre batching is implemented through
   `select_batch`. The private state is exposed to the shared driver only through its
-  protected state type and the `_observed_field` host-copy hook.
+  protected state type and the `_observed_field` host-copy hook. Its floating-point licence is
+  [SEP 25](seps/archive/sep-0025-rounding-level-reproducibility.md)'s: contraction by default,
+  strict opt-outs for the protected helpers (stable increments, small-argument functions,
+  defects, compensated sums), reassociation only on the loops of a kernel that asks for it,
+  and no other fast-math flag ([backends.md §3.2](backends.md)).
 - JAX: evaluated in a measured comparison (ADR-002); not a planned backend unless the
   data reverse the decision.
 
@@ -663,7 +653,7 @@ to 256 teams of at least 1,024 bins, reduced on the host. Response teams are 256
 at and above it; deterministic reduction blocks are 512. Fixed batches are
 implemented; their measured crossover depends on workload
 ([backends.md](backends.md)). Public selection prefers the installed native backend,
-otherwise Numba CPU (ADR-029); the installed native build determines its execution space.
+otherwise, with a warning, `numpy_ref` (ADR-029, ADR-064); the installed native build determines its execution space.
 
 ## 13. Memory discipline
 
@@ -773,8 +763,8 @@ section of the operator table's breakpoints, in one of three ways:
   ([stepper.md](stepper.md) §2); admitted on `numpy_ref` only and never selected by
   default.
 
-The coupled flow runs on `numpy_ref`, `numba_cpu` and the native CPU build, which form
-the per-bin flow actions in their own kernels and agree with the reference to a derived
+The coupled flow runs on `numpy_ref` and the native CPU build, which forms
+the per-bin flow actions in its own kernels and agrees with the reference to a derived
 rounding bound; a certificate records each flow's conditioning. A multimode capillary
 taper carries the taper coupling by default; `taper_coupling=False` is the explicit
 opt-out to the adiabatic route

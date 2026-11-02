@@ -363,11 +363,13 @@ was the boundary's (SEP 21, D2).
 
 ## 7. Backend equivalence
 
-`numba_cpu` and the installed native backend against `numpy_ref`, bounds derived from
-summation lengths and then measured. No comparison is bitwise
+The installed native backend against `numpy_ref`, bounds derived from
+summation lengths and then measured. The first rows of the table below, unmarked by a build,
+are what the retired `numba_cpu` backend measured against `numpy_ref`, kept in the record as
+evidence with their bounds, which the native rows share. No comparison is bitwise
 ([SEP 25](seps/archive/sep-0025-rounding-level-reproducibility.md)): independent floating-point
-computations are compared by numerical error — numpy's complex multiply contracts into a
-fused multiply-add and numba's does not — so every round-off bound is a multiple of ε. The ladder has two kinds of row, and the criterion follows the kind
+computations are compared by numerical error — numpy's complex multiply can contract into a
+fused multiply-add where a compiled kernel's does not — so every round-off bound is a multiple of ε. The ladder has two kinds of row, and the criterion follows the kind
 ([testing.md](testing.md) section 3):
 
 - **Matched discrete computations: rounding budgets** (class R). One application, one
@@ -395,20 +397,20 @@ relative-L2 bounds of `1e-10` and `1e-9`.
 
 | ladder rung | bound | measured | where |
 |---|---|---|---|
-| one linear application | 32 ε | 4.8e-16 (not bitwise: the contraction above) | `tests/backends/test_numba_cpu.py` |
-| one step | 16 ε | 5.0e-17 | `tests/backends/test_numba_cpu.py` |
-| eight steps | 128 ε | 2.0e-16 | `tests/backends/test_numba_cpu.py` |
-| a full adaptive soliton run | 1600 ε | 6.2e-16 | `tests/backends/test_numba_cpu.py` |
-| a capillary with an absorber and a kink | 3200 ε | 1.4e-15 | `tests/backends/test_numba_cpu.py` |
-| the analytic field family | 1e-13 | 4.6e-16 | `tests/backends/test_numba_cpu.py` |
-| the reduced M2 case | 1e-10 | 3.5e-14, at identical step counts | `tests/driver/test_prop_capillary.py` |
+| one linear application | 32 ε | 4.8e-16 (not bitwise: the contraction above) | `tests/backends/test_backend_ladder.py`; the value is `numba_cpu`'s, from the record |
+| one step | 16 ε | 5.0e-17 | `tests/backends/test_backend_ladder.py`; the value is `numba_cpu`'s, from the record |
+| eight steps | 128 ε | 2.0e-16 | `tests/backends/test_backend_ladder.py`; the value is `numba_cpu`'s, from the record |
+| a full adaptive soliton run | 1600 ε | 6.2e-16 | `tests/backends/test_backend_ladder.py`; the value is `numba_cpu`'s, from the record |
+| a capillary with an absorber and a kink | 3200 ε | 1.4e-15 | `tests/backends/test_backend_ladder.py`; the value is `numba_cpu`'s, from the record |
+| the analytic field family | 1e-13 | 4.6e-16 | `tests/backends/test_backend_ladder.py`; the value is `numba_cpu`'s, from the record |
+| the reduced M2 case | 1e-10 | 3.5e-14, at identical step counts | `tests/driver/test_prop_capillary.py`; the value is `numba_cpu`'s, from the record |
 | the reduced M2 case, native CPU | 1e-10 | 3.5e-14, at identical step counts | `tests/driver/test_prop_capillary.py` |
-| the reduced CtC field with seeded shot noise, native CPU against fresh Numba | 1e-9 | 5.2e-11 at identical 4,937 accepted steps | `tests/driver/test_prop_capillary.py` |
+| the reduced CtC field with seeded shot noise, native CPU against `numba_cpu` | 1e-9 | 5.2e-11 at identical 4,937 accepted steps | measured while `numba_cpu` existed |
 | the reduced M2 case, native CUDA | 1e-10 | 5.5534e-13, at identical step counts | `tests/backends/test_native_gpu.py` (the `gpu` lane) |
-| the reduced CtC field, native CUDA against fresh Numba | 1e-9 | below the bound at identical 1,235 accepted steps on the former 1 ps two-mode case; not yet re-measured on the 2 ps one-mode case | `tests/backends/test_native_gpu.py` (the `gpu` lane) |
+| the reduced CtC field, native CUDA against `numba_cpu` | 1e-9 | below the bound at identical 1,235 accepted steps on the former 1 ps two-mode case; not yet re-measured on the 2 ps one-mode case | measured while `numba_cpu` existed |
 | native Raman kernel/convolution | operation-count and FFT-depth bounds fixed before execution | native host reference, all three drive forms and tail chunks pass | the native tests under `native/tests/native/` |
-| the plasma scan's running sums | `4 n_to ε` across scalar/vector libm paths | 2.79e-16 scaled at 256 samples on an x86-64 host; same-path repetition within the same bound | `tests/backends/test_numba_cpu_kernels.py` |
-| two runs, one thread against many, on one fixed schedule | the step's rounding budget from its reduction lengths | within it | `tests/backends/test_numba_cpu.py` |
+| the plasma scan's running sums | `4 n_to ε` across scalar/vector libm paths | 2.79e-16 scaled at 256 samples on an x86-64 host; same-path repetition within the same bound | measured on `numba_cpu` |
+| two runs, one thread against many, on one fixed schedule | the step's rounding budget from its reduction lengths | within it | `tests/backends/test_backend_ladder.py` |
 | same-backend resume through true-power output | 2.7e-16 of the global field peak; statistic-specific rounding bounds | field 1.77333e-16; energy up to 2.64009e-16; rate up to 5.06947e-15 | `tests/driver/test_resume.py` |
 | a run continued on the other backend | — | 2.2–2.7e-16 against either uninterrupted run | `tests/driver/test_resume.py` |
 
@@ -421,7 +423,7 @@ separate rows rather than rungs of that ladder.
 **Polarisation.** `tests/backends/test_polarised_runs.py` extends the ladder with both
 polarisation representations at one nonlinear evaluation, one and eight steps, a reduced
 adaptive propagation and matching total statistics, for the field-real, field-analytic
-and envelope families on NumPy, Numba and native, against a rounding bound derived from
+and envelope families on NumPy and native, against a rounding bound derived from
 the FFT depth and the two radial reductions before evaluation. Circular plasma has a
 separate analytic magnitude/rate/fraction check and a three-resolution
 ionisation-energy identity; TE/TM linear fields are checked against their exact
@@ -453,7 +455,7 @@ points under `Local` and a fresh `Pool`; batches of 1, 2 and 3 with a partial fi
 group). Neither is required to be bitwise: a batch's lockstep reductions, its thread
 layout and a worker process's library state may order sums differently. A scan point or
 batch member run adaptively is class T against its own reference. The short CtC case (0.2 mm, six
-modes, three seeds) agrees between native CUDA and `numba_cpu` to 2.0e-16 relative L2
+modes, three seeds) agreed between native CUDA and `numba_cpu`, when it was measured, to 2.0e-16 relative L2
 against the 1e-9 CtC bound, and the reduced M2 case on the GPU with the fixed-schedule
 CPU fields to 7.9e-14 (a diagnostic; no bound asserted). A calibrated reduced-M2 schedule
 (eight seeds, 515 steps) transfers to 4.7e-7 in its scalar metrics against `rtol = 1e-10`
@@ -463,7 +465,7 @@ which that target does not bound.
 .. plot::
    :filename-prefix: accuracy-backend-equivalence
    :include-source: False
-   :caption: Each rung of the backend-equivalence ladder, from ``tests/data/convergence/backend_equivalence.json`` (``tests/backends/test_numba_cpu.py`` and ``tests/driver/test_prop_capillary.py``). The bar runs from what the rung measures to the bound derived for it; only the seven rungs of the ladder are drawn, not the separate rows of the table above.
+   :caption: Each rung of the backend-equivalence ladder, from ``tests/data/convergence/backend_equivalence.json``. The bar runs from what the rung measures to the bound derived for it; only the seven rungs of the ladder are drawn, not the separate rows of the table above.
 
    import accuracy_figures
 
@@ -595,7 +597,7 @@ Gaussian diffraction tests cover the nonparaxial remainder of exact `k_z`, finit
 bandwidth and radius, the Gouy phase, physical-axis reconstruction and width
 interpolation; circular plasma uses an independent electron count and the radial area
 measure; absorber refinement is compared against a matrix exponential with a predeclared
-Runge–Kutta remainder. The spatial ladders pass on the three CPU backends and on the CUDA build.
+Runge–Kutta remainder. The spatial ladders pass on both CPU backends and on the CUDA build.
 
 **Cartesian arithmetic at grazing incidence.** At grazing incidence the longitudinal
 square $q = k^2 - k_\perp^2$ approaches zero: a propagating plane wave travels almost
@@ -603,7 +605,7 @@ parallel to the transverse plane, and squaring the material and transverse wave 
 binary64 loses information before their nearly equal squares are subtracted. Translation
 therefore keeps each square's high part and a residual computed with exact rational
 arithmetic from the stored frequency, refractive index and unsquared transverse axes, and
-NumPy, Numba and native all evaluate
+NumPy and native both evaluate
 `q = (material_high - transverse_high) + (material_low - transverse_low)`
 ([kernel contract](kernel-contract.md) §3); the same correction applies to Cartesian
 input pre-propagation. With $\epsilon = 2^{-52}$,

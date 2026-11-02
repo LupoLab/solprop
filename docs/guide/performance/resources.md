@@ -8,7 +8,8 @@ output cost. Choose an adequate model and resolution first, then select a
 ## Backend choice and scan workers
 
 `backend="auto"` resolves to the native backend when installed and otherwise, with a
-warning, to the slower `numba_cpu`. It does
+warning, to `numpy_ref`, which is unthreaded and roughly 6 to 40 times slower than threaded
+native. It does
 not silently retry another backend if the chosen one refuses a representation.
 Use an explicit name for a scan spanning machines with different installations.
 The resolved backend and runtime settings are recorded with the output.
@@ -56,7 +57,7 @@ simulation = Simulation.from_capillary(
     fwhm=10e-15,
     energy=1e-9,
     n_save=2,
-    backend="numba_cpu",
+    backend="native",
 )
 budgeted = simulation.run(memory_budget="warn:8 GiB", progress="none")
 print(budgeted.metadata.backend.settings.get("memory"))
@@ -92,7 +93,7 @@ is not counted.
 propagators are kept for the whole step (`"tabulate"`) or recomputed in each stage
 (`"recompute"`), which changes the memory held in the `base` group, not the method. Its
 default, `"auto"`, leaves the choice to the backend and records what was resolved in the
-backend record: `numpy_ref` tabulates, `numba_cpu` and `native` recompute, and a
+backend record: `numpy_ref` tabulates, `native` recomputes, and a
 free-space or planar run always recomputes and refuses `"tabulate"`. When `base` is what
 does not fit, `propagator_mode="recompute"` is one of the remedies the refusal names.
 
@@ -100,7 +101,7 @@ does not fit, `propagator_mode="recompute"` is one of the remedies the refusal n
 along z but cannot be expanded in the mode set's scalar parameter paths is tabulated
 along z instead ([varying operators](../numerics/linear-tables.md#the-table)). On a
 large multimode set that table can run to gigabytes, and, like the problem's other
-tables, it is not in the estimate. `numpy_ref` and `numba_cpu` run it; `native` refuses it
+tables, it is not in the estimate. `numpy_ref` and a native CPU build run it; a native GPU build refuses it
 ([backends](backends.md)).
 
 **A general modal guide is admitted twice.** Its route — the dense reference and the two

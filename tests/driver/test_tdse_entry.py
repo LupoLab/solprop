@@ -182,8 +182,8 @@ def test_tdse_execution_alone_and_a_foreign_record_are_refused():
 
 
 def test_explicit_incompatible_settings_keep_their_existing_refusals():
-    with pytest.raises(DriverError, match=r"explicit backend='numpy_ref'.*numba_cpu"):
-        _capillary(tdse=_sae(), backend="numba_cpu")
+    with pytest.raises(DriverError, match=r"explicit backend='numpy_ref'.*native"):
+        _capillary(tdse=_sae(), backend="native")
 
 
 def test_statistics_default_excludes_what_a_tdse_response_cannot_supply():

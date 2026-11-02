@@ -847,6 +847,9 @@ No implementation phases have started.
 - 2026-10-22: Split the new material model into SEP 32; reviewed and revised the
   remaining proposal jointly with SEP 10, with compatibility changes to SEP 11.
 - 2026-11-01: Tracking issue [#113](https://github.com/LupoLab/solprop/issues/113).
+- 2026-11-02: [SEP 43](sep-0043-retire-numba-cpu.md) retired `numba_cpu` (ADR-064). Where this
+  proposal names Numba or `numba_cpu`, it was written before that: such a phase or check falls
+  away, and the feature goes on `numpy_ref` and the native backend (SEP 0).
 
 ### Maintainer decisions for this revision — 2026-10-22
 

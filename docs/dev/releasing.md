@@ -89,15 +89,13 @@ checkout and run, in order:
    BLAS and OpenMP libraries from inside the wheel, and carries their licences; on Arm,
    both precisions of its FFTW carry the NEON codelets;
 2. `python -I -m solprop_native`: the build record;
-3. `python -I native/ci/coexistence.py`: NumPy, SciPy, pyFFTW and Numba imported before
+3. `python -I native/ci/coexistence.py`: NumPy and SciPy imported before
    and after `solprop_native`, each order in a fresh process, every package's thread
-   pool started, and a short propagation run on the native backend, on `numba_cpu` and on
+   pool started, and a short propagation run on the native backend, on `numpy_ref` and on
    the native backend again in the same process;
 4. `uv run --no-sync poe test` with `SOLPROP_TEST_BACKEND=native`: solprop's default
    lane on the native backend. It runs a second time on Linux and on Windows x64 with the
-   x86-64-v2 build forced. On Windows on Arm the test job does not run yet, since the suite
-   imports `numba_cpu` and pyFFTW has no wheel there (SEP 43); the build job's smoke test
-   qualifies that wheel.
+   x86-64-v2 build forced.
 
 On Linux x86-64, the `cpu-floor` job runs the wheel under Intel's Software Development
 Emulator: the smoke test on a Haswell, which loads the x86-64-v3 build; a Nehalem (no AVX)
@@ -109,16 +107,12 @@ runs on a Penryn (no SSE4.2). It runs when the repository variables `SDE_URL` an
 unit-tested with stand-in processors in `native/tests/test_cpu_baseline.py`; no CI job
 runs them on a processor below the baseline.
 
-**macOS and pyFFTW.** pyFFTW's macOS wheel carries its own `libomp`, which it initialises
+**macOS and pyFFTW.** solprop no longer uses pyFFTW, but a script or another package may.
+pyFFTW's macOS wheel carries its own `libomp`, which it initialises
 when it is imported. LLVM's OpenMP runtime refuses, or crashes on, a second initialised
 copy, so the native package raises at import when pyFFTW is already loaded
-([OpenMP runtimes and pyFFTW](../guide/performance/building-native.md#openmp-runtimes-and-pyfftw)).
-solprop imports both backends lazily, and on macOS its `numba_cpu` backend imports the
-native package, when installed, before pyFFTW, so a script that only calls solprop can
-run both backends in either order; only a script that imports pyFFTW itself first meets
-the refusal, whose message says what to do.
-`coexistence.py` expects that refusal on macOS; `--bypass-guard` adds a report-only
-scenario that hides pyFFTW from the guard, to test whether it is still needed.
+([OpenMP runtimes](../guide/performance/building-native.md#openmp-runtimes)), with a message
+that says what to do. No CI job exercises that guard on a real pyFFTW any longer.
 
 **solprop's distributions.** The `solprop-dist` job builds solprop's sdist and wheel and
 installs each from the file in a fresh environment, outside the checkout: the wheel
@@ -126,7 +120,7 @@ alone, then the wheel and the sdist each with the `native` extra beside this run
 Linux x86-64 wheel. In each it runs the check of the
 [installation page](../introduction/installation.md#checking-the-installation): solprop
 imports at the distributions' version, which on a release tag must be the tag's, and
-`backend="auto"` resolves to `numba_cpu` without the extra and to `native` with it.
+`backend="auto"` resolves to `numpy_ref` without the extra and to `native` with it.
 The extra pins solprop-native at solprop's own version (`hatch_build.py`), so two
 distributions built at different versions fail here, before anything is published.
 

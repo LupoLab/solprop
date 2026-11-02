@@ -74,7 +74,7 @@ pressure floor or a vacuum end are log records, not warnings, and are not touche
 
 `import solprop` alone does none of this and stays cheap: the namespace is loaded on
 first use, like every other submodule. Importing `solprop.sol` takes noticeably longer,
-because it loads matplotlib, h5py and numba.
+because it loads matplotlib and h5py.
 
 ## What is in it
 
@@ -173,7 +173,7 @@ MemoryOutput
   field per plane: 2 x 1 x 4097 (modes x components x omega)
   statistics:      energy, fwhm_t, omega0, peak_intensity, peak_power, zdw, ...
   between planes:  none
-  run:             RunMetadata(multimode, field grid of 8192, 2 modes, numba_cpu, ...
+  run:             RunMetadata(multimode, field grid of 8192, 2 modes, native, ...
 
 In [4]: pulse
 GaussianPulse

@@ -474,14 +474,11 @@ plane, so {py:func}`~solprop.stats.collect` forms them from a plane with
 run's linear operator, which a plane does not carry, and `collect` refuses it by name. A spec naming a statistic whose
 table it does not carry is refused when it is built, and so are radial and planar-hybrid
 geometry, which have no Cartesian transverse wavevector. All five run on `numpy_ref`,
-through the reference pass {py:func}`~solprop.spatial.aperture_statistics`, and on
-`numba_cpu`, which computes them natively in one compiled pass over the state, threaded
-over bands of columns whose sums do not depend on the thread count; it agrees with the
+through the reference pass {py:func}`~solprop.spatial.aperture_statistics`, and on the
+native backend, which computes them in one compiled pass over the state; it agrees with the
 reference within a rounding bound, and decides every hard edge as the reference does.
-On `numba_cpu` the same pass also forms `on_axis_spectrum` (an aperture with
-$W\equiv1$), and a plane's five statistics cost about as much as `energy`. The native
-backend runs the same pass natively, in the same order of sums, and agrees with both
-within that bound; a solprop-native build from before this pass is refused them by
+The same pass also forms `on_axis_spectrum` (an aperture with
+$W\equiv1$). A solprop-native build from before this pass is refused them by
 name, before it is built.
 Lockstep batch members must carry equal tables.
 

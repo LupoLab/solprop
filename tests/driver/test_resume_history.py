@@ -34,7 +34,6 @@ from flow_parity import LENGTH as FLOW_LENGTH
 from flow_parity import build as flow_case
 from march_bounds import TIGHTER, assert_in_envelope
 from solprop.backends import available
-from solprop.backends.numba_cpu import NumbaCpuBackend
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.driver import Simulation
 from solprop.exceptions import OutputError, SolpropWarning
@@ -138,21 +137,14 @@ CASES = {
     "soliton-numpy_ref": lambda build, rtol=RTOL: soliton(
         build, "numpy_ref", rtol=rtol
     ),
-    "soliton-numba_cpu": lambda build, rtol=RTOL: soliton(
-        build, "numba_cpu", rtol=rtol
-    ),
     "soliton-native": lambda build, rtol=RTOL: soliton(build, "native", rtol=rtol),
     "interaction-numpy_ref": lambda build, rtol=RTOL: soliton(
         build, "numpy_ref", integrator=INTERACTION, rtol=rtol
-    ),
-    "interaction-numba_cpu": lambda build, rtol=RTOL: soliton(
-        build, "numba_cpu", integrator=INTERACTION, rtol=rtol
     ),
     "interaction-native": lambda build, rtol=RTOL: soliton(
         build, "native", integrator=INTERACTION, rtol=rtol
     ),
     "varying-numpy_ref": lambda _, rtol=RTOL: varying("numpy_ref", rtol),
-    "varying-numba_cpu": lambda _, rtol=RTOL: varying("numba_cpu", rtol),
     "varying-native": lambda _, rtol=RTOL: varying("native", rtol),
     "coupled-numpy_ref": lambda _, rtol=RTOL: coupled("numpy_ref", rtol),
     "coupled-native": lambda _, rtol=RTOL: coupled("native", rtol),
@@ -188,21 +180,20 @@ def test_a_resumed_run_is_the_uninterrupted_one(
 
 
 @pytest.mark.medium
-@pytest.mark.parametrize("backend_class", [NumpyRefBackend, NumbaCpuBackend])
 def test_a_run_stopped_between_planes_continues_from_its_checkpoint(
-    build_simulation, tmp_path, monkeypatch, backend_class, caplog
+    build_simulation, tmp_path, monkeypatch, caplog
 ):
     # A failing source evaluation -- a TDSE provider gone, a budget spent -- stops the
     # march at its last accepted step, between save planes; the run writes a terminal
     # checkpoint there and the march's state beside it.
-    name = "numpy_ref" if backend_class is NumpyRefBackend else "numba_cpu"
-    build = soliton(build_simulation, name)
+    build = soliton(build_simulation, "numpy_ref")
     whole, part = tmp_path / "whole.h5", tmp_path / "part.h5"
     build().run(whole, progress="none")
     reference = tight_run(
-        soliton(build_simulation, name, rtol=RTOL / TIGHTER), tmp_path / "tight.h5"
+        soliton(build_simulation, "numpy_ref", rtol=RTOL / TIGHTER),
+        tmp_path / "tight.h5",
     )
-    original = backend_class._adams_lab_source
+    original = NumpyRefBackend._adams_lab_source
     planes = [0.0, *build().settings.save_planes.tolist()]
     positions = []
 
@@ -216,7 +207,7 @@ def test_a_run_stopped_between_planes_continues_from_its_checkpoint(
         return original(self, field, position, *args, **keywords)
 
     with monkeypatch.context() as patch:
-        patch.setattr(backend_class, "_adams_lab_source", failing)
+        patch.setattr(NumpyRefBackend, "_adams_lab_source", failing)
         with pytest.raises(CrashError):
             build().run(part, progress="none")
     state = resume(part)

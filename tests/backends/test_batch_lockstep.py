@@ -130,8 +130,6 @@ def statistics_bound(field, bound=FIELD_BOUND):
     [
         ("numpy_ref", LockstepRunner),
         ("numpy_ref", NumpyBatchBackend),
-        ("numba_cpu", LockstepRunner),
-        ("numba_cpu", select_batch),
         ("native", LockstepRunner),
         ("native", select_batch),
     ],
@@ -206,7 +204,7 @@ def test_lockstep_interleaves_members_at_each_fixed_step(monkeypatch):
         assert len({(z, dz) for _, z, dz in visited[start : start + 3]}) == 1
 
 
-@pytest.mark.parametrize("backend", ["numba_cpu", "native"])
+@pytest.mark.parametrize("backend", ["native"])
 @pytest.mark.parametrize("noise", [None, "input", "modified"])
 def test_batch_agrees_with_numpy_oracle(backend, noise):
     if backend == "native":

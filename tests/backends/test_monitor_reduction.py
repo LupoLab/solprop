@@ -55,7 +55,7 @@ ROUTE_NAMES = (
 field and envelope modal columns, the general modal route, radial (whose columns carry
 the Hankel quadrature), Cartesian and line free space and the planar hybrid."""
 
-COMPILED = ("numba_cpu", "native")
+COMPILED = ("native",)
 SCHEMES = ("nonlinear", "split_step")
 MARCHES = {
     "runge_kutta": RungeKutta(),
@@ -368,11 +368,10 @@ def test_a_second_watched_run_reads_as_the_first(backend: str) -> None:
 @pytest.mark.parametrize(
     ("backend", "route", "rows"),
     [
-        ("numba_cpu", "capillary (multimode)", ("monitor_spectrum", "monitor_time")),
         # The general engine reads through its statistics buffers: only its weights.
         ("native", "gnlse", ("monitor_weights",)),
     ],
-    ids=["numba_cpu", "native"],
+    ids=["native"],
 )
 def test_a_monitor_s_own_transform_is_in_the_ledger(
     backend: str, route: str, rows: tuple[str, ...]

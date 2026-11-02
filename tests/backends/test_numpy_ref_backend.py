@@ -332,8 +332,8 @@ def test_the_memory_ledger_names_every_buffer(
     backend.close()
     if backend.name == "numpy_ref":
         # Released with everything else, and still named: a closed backend owes the
-        # budget a row of zero, not a missing row. `numba_cpu` asserts the same in its
-        # own ledger test; native refuses a ledger read once the native state is gone.
+        # budget a row of zero, not a missing row; native refuses a ledger read once
+        # the native state is gone.
         assert backend.memory_ledger()["statistics_power_weight"] == 0
 
 
@@ -372,10 +372,10 @@ def test_the_propagator_mode_defaults_to_the_backends_own_choice(
     """The flag is the problem's, the choice is the backend's, and it is recorded.
 
     The reference forms two complex exponentials per stage and keeps the six distinct
-    exponents of a step; ``numba_cpu`` takes both signs from one ``exp`` and a
-    ``sincos`` in the stage that formed them, so the table buys residency and nothing
-    else and it recomputes. Either can still be asked for by name, and the two agree
-    to rounding, so what the default changes is memory rather than numbers.
+    exponents of a step; ``native`` takes both signs in the stage that formed them, so
+    the table buys residency and nothing else and it recomputes. Either can still be
+    asked for by name, and the two agree to rounding, so what the default changes is
+    memory rather than numbers.
     """
     problem = soliton_problem(narrow_grid, 1, save_planes=[LENGTH])
     assert problem.stepper.propagator_mode == "auto"
@@ -388,7 +388,6 @@ def test_the_propagator_mode_defaults_to_the_backends_own_choice(
             == {
                 "native": "recompute",
                 "numpy_ref": "tabulate",
-                "numba_cpu": "recompute",
             }[backend.name]
         )
         named = backend_class(
@@ -610,11 +609,12 @@ def test_the_alarm_is_weighted_at_the_stage_it_was_scored_from(
 ):
     """The prefactor varies along this fibre, so the alarm's weight has to follow it.
 
-    Regression: ``numba_cpu`` held the position of its last stage in a field that was
-    set to zero at construction and never written, so the alarm was weighted by
-    ``prefactor_at(responses, 0.0)`` for the whole run and its warning always named
-    ``z = 0``. Invisible on a uniform fill and wrong on any gradient. The bundle is
-    what makes it right: the alarm reads the scalars of the stage it was scored from.
+    Regression: the retired ``numba_cpu`` backend held the position of its last stage
+    in a field that was set to zero at construction and never written, so the alarm
+    was weighted by ``prefactor_at(responses, 0.0)`` for the whole run and its warning
+    always named ``z = 0``. Invisible on a uniform fill and wrong on any gradient. The
+    bundle is what makes it right: the alarm reads the scalars of the stage it was
+    scored from.
     """
     problem = capillary_problem()
     backend, _ = run_to(backend_class, problem, field_grid, 0.1)
@@ -894,11 +894,10 @@ def test_a_run_with_the_channel_is_the_run_without(
 
     ``wall_time`` is excluded because it is a clock reading rather than a result. The
     other four history columns and the exit field are the whole of what the step loop
-    computed, and the channel must not move any of them -- which on ``numba_cpu`` also
-    means its statistics pass must leave the plan buffers in a state the next stage
-    rewrites completely. The two runs replay one schedule: the schedule and the
-    acceptances are exact, the field within the eight-step rung's budget and the
-    error norm, a defect over ``rtol``, within seven stages of that over ``rtol``.
+    computed, and the channel must not move any of them. The two runs replay one
+    schedule: the schedule and the acceptances are exact, the field within the
+    eight-step rung's budget and the error norm, a defect over ``rtol``, within seven
+    stages of that over ``rtol``.
     """
     columns = ("z", "dz", "accepted")
 

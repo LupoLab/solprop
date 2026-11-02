@@ -8,9 +8,9 @@ The native backend holds a z table's coefficients resident and evaluates them at
 trial's positions into the slots its stage kernels read as terms; the stage weights
 then select them, ``Phi(z1) - Phi(z0)`` as ``e_1 - e_0`` and a value as ``e_1``. These
 tests hold the slots to the reference's own host evaluation
-(:class:`solprop.backends.numba_cpu.tables.HostTable`, NumPy's ``chebval`` operation
-order) within a Clenshaw rounding budget, the stage kernels' phase sum over two slots to
-the table's difference, the compensation's rate slot to solprop's ``phi_rate``, and
+(:class:`solprop.translate.chebyshev.PiecewiseChebyshev`, through NumPy's ``chebval``)
+within a Clenshaw rounding budget, the stage kernels' phase sum over two slots to the
+table's difference, the compensation's rate slot to solprop's ``phi_rate``, and
 ten fixed steps of each march to the reference within the matched-march budget of
 ``tests/march_bounds.py`` -- with ``Phi``, the prefactor or both on the table, since
 either may be a table while the other is an expansion. A device build refuses the
@@ -26,7 +26,6 @@ import pytest
 from bounds import EPS
 from march_bounds import FIXED_ORDER, assert_matched, march_bound
 from solprop.backends.memory import estimate_memory, ledger_groups, z_table_slots
-from solprop.backends.numba_cpu.tables import HostTable
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.boundaries import absorber
 from solprop.exceptions import BackendError, MaterialRangeWarning
@@ -209,7 +208,7 @@ def test_the_slots_hold_the_tables_values(tabulated, field_grid):
         for z in positions:
             for kind, table in (("phi", phi), ("prefactor", prefactor)):
                 got = tables.values(kind, z).reshape(table.value_shape)
-                want = HostTable(table).at(z)
+                want = table(z)
                 bound = clenshaw_bound(table, z)
                 # Each value against the host's within both evaluations' budgets.
                 assert np.all(np.abs(got - want) <= 2 * bound), (kind, z)
@@ -227,13 +226,12 @@ def test_the_phase_sum_of_two_slots_is_the_tables_difference(tabulated, field_gr
     native_state = backend._native_state
     try:
         phi = tabulated.linear.polynomial
-        host = HostTable(phi)
         z0, z1 = 0.25 * LENGTH, 0.4 * LENGTH
         slot_of = tables.load([z0, z1])
         row = tables.phi_row(slot_of, z0, z1)
         assert sorted(row[row != 0].tolist()) == [-1.0, 1.0]
         got = native_state.phase_sum_to_host(row).reshape(phi.value_shape)
-        want = host.delta(z0, z1)
+        want = phi(z1) - phi(z0)
         # Two evaluations on each side, each within its budget, and one rounding of
         # the difference each.
         bound = 2 * (clenshaw_bound(phi, z0) + clenshaw_bound(phi, z1)) + 2 * EPS * (
@@ -312,17 +310,16 @@ def test_a_device_build_refuses_the_table_naming_the_cpu_backends(
         + tabulated.responses.prefactor.coefficients.nbytes
     )
     assert f"{size / 1e6:.3g} MB" in message
-    # The native CPU build is named first; numba_cpu is one option among the others.
-    assert message.index("a CPU build of native") < message.index("numba_cpu")
-    assert 'backend="numpy_ref"' in message
+    # The native CPU build is named first, the reference after it.
+    assert message.index("a CPU build of native") < message.index('backend="numpy_ref"')
 
 
 @pytest.mark.parametrize("tables", TABLES)
 def test_no_cpu_configuration_refuses_a_z_table(
     field_grid, substitute, tables, monkeypatch
 ):
-    # SEP 29 section 7: no supported configuration directs a user to numba_cpu. On a
-    # CPU build the native backend admits every z table, under every march.
+    # SEP 29 section 7: on a CPU build the native backend admits every z table, under
+    # every march.
     def refuse(*_):
         raise AssertionError("a CPU build reached the device refusal")
 

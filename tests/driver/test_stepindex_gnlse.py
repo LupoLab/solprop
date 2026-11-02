@@ -68,7 +68,7 @@ def spectral_change(fields):
 def test_stepindex_reduced_strand_propagates_on_the_reference_backend():
     """Two centimetres on `numpy_ref`, the medium tier's share of the strand.
 
-    The duplicate `numba_cpu` copy is the slow case below, as
+    The duplicate compiled copy is the slow case below, as
     ``docs/dev/testing.md`` section 2 prescribes: the parity test stands in for a
     copy already known to agree.
     """
@@ -105,7 +105,7 @@ def test_stepindex_strand_propagates_on_both_cpu_backends(monkeypatch):
     # within 8.8e-7 of the other's, so what parts them is rounding, carried by the
     # Adams history and its controller through fifteen centimetres of strongly
     # nonlinear evolution: measured 7.7e-11 of the largest component with ESTIMATE
-    # plans. The bound is the one this test held against numba_cpu.
+    # plans. The bound is the one this test held against the retired numba_cpu backend.
     assert isinstance(first, MemoryOutput)
     assert isinstance(second, MemoryOutput)
     steps = [run.planes()[-1].step_history for run in (first, second)]

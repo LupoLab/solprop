@@ -112,7 +112,7 @@ def test_batch_refuses_reloading_a_shared_field_and_mismatched_statistics(monkey
         assert runner.available_device_memory() is None
 
 
-@pytest.mark.parametrize("kind", ["common", "numpy", "numba", "native"])
+@pytest.mark.parametrize("kind", ["common", "numpy", "native"])
 @pytest.mark.parametrize("norm", [float("nan"), float("inf"), -1.0])
 def test_batch_names_the_member_behind_an_invalid_norm(monkeypatch, kind, norm):
     # The same value refuses the member's own BackendHistory/StepSummary, so a
@@ -121,7 +121,7 @@ def test_batch_names_the_member_behind_an_invalid_norm(monkeypatch, kind, norm):
     if kind == "native":
         pytest.importorskip("solprop_native")
     with ExitStack() as cleanup:
-        name = {"numba": "numba_cpu", "native": "native"}.get(kind, "numpy_ref")
+        name = "native" if kind == "native" else "numpy_ref"
         healthy = fixtures.loaded(fixtures.simulation(1, name), cleanup)
         member = fixtures.loaded(fixtures.simulation(0, name), cleanup)
         solo = fixtures.loaded(fixtures.simulation(0, name), cleanup)

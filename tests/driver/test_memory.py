@@ -128,9 +128,9 @@ def test_admit_memory_passes_a_run_within_its_budget(build_simulation):
 
 def test_admit_memory_refuses_by_name(build_simulation):
     problem = build_simulation(integrator=Multistep()).translate()
-    total = estimate_memory(problem, "numba_cpu").total
+    total = estimate_memory(problem, "numpy_ref").total
     with pytest.raises(MemoryBudgetError) as refused:
-        admit_memory(problem, "numba_cpu", total - 1)
+        admit_memory(problem, "numpy_ref", total - 1)
     message = str(refused.value)
     assert f"estimated at {format_bytes(total)}" in message
     assert f"budget of {format_bytes(total - 1)} (keyword)" in message

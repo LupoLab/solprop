@@ -16,8 +16,8 @@ subject to the retained modes, grid, boundary and response assumptions. A 1 mJ, 
 pulse (the incident beam's physical energy in the argon fill),
 Gaussian in both directions (``w_x = 0.735a`` projected onto TE1, TE3 and TE5;
 ``w_y = 0.5 mm``), propagates 10 cm with the Kerr effect under the step controller;
-the run takes seconds on ``numpy_ref``, the reference backend. ``numba_cpu`` and the
-native backend execute the geometry too.
+the run takes seconds on ``numpy_ref``, the reference backend. The native backend
+executes the geometry too.
 """
 
 from time import perf_counter

@@ -472,9 +472,7 @@ def test_a_native_run_forms_the_statistics_at_planes_and_between_them():
                 integrator=RungeKutta(),
                 stats=spec,
                 # The launch puts 5e-5 into the safety ramp's band, which warns
-                # (SEP 40 section 5.3); the subject is the statistics' placement,
-                # and numba_cpu does not yet read the transverse edge, whose reads
-                # would cap native's steps alone.
+                # (SEP 40 section 5.3); the subject is the statistics' placement.
                 spatial_absorber=False,
                 boundary_check=None,
             ),

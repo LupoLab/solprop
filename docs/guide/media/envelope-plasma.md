@@ -520,7 +520,7 @@ recombination, sequential charge states, oriented molecules, subcycle/CEP
 recovery and Brunel harmonics are outside it. Envelope THG combined with plasma
 is refused. A species-free GNLSE model does not acquire gas plasma implicitly.
 
-The model runs on `numpy_ref`, `numba_cpu` and the native backend, including
+The model runs on `numpy_ref` and the native backend, including
 its CUDA and HIP builds (see [the native backend](../performance/native.md)).
 
 ## Sources and further reading

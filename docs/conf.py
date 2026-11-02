@@ -31,8 +31,8 @@ from sphinx_gallery.utils import get_md5sum
 if _watchdog := os.environ.get("SOLPROP_DOCS_WATCHDOG"):
     faulthandler.dump_traceback_later(float(_watchdog), exit=False)
 
-# Gallery examples may select the native backend automatically. Load its OpenMP runtime
-# before autodoc or a tutorial imports pyFFTW, as the test configuration does.
+# Gallery examples may select the native backend automatically. Load it and its OpenMP
+# runtime before autodoc or a tutorial imports the rest of the stack, as the tests do.
 if importlib.util.find_spec("solprop_native") is not None:
     importlib.import_module("solprop_native")
 
@@ -131,16 +131,14 @@ intersphinx_mapping = {
         (None, "_inventories/matplotlib.inv"),
     ),
     "h5py": ("https://docs.h5py.org/en/stable/", (None, "_inventories/h5py.inv")),
-    "numba": (
-        "https://numba.readthedocs.io/en/stable/",
-        (None, "_inventories/numba.inv"),
-    ),
 }
 intersphinx_timeout = 10
 nitpicky = True
 nitpick_ignore = [
     ("py:class", "logging.Logger"),
     ("py:mod", "pyfluids"),  # no published inventory
+    # Removed with numba_cpu (SEP 43); the Final SEP 18 keeps its reference as history.
+    ("py:mod", "solprop.backends.bodies"),
     # The private base of the two tabulated hollow modes. `show-inheritance`
     # emits it under "Bases:" for both subclasses; documenting it to satisfy the
     # reference would publish an underscore name in the API reference and its

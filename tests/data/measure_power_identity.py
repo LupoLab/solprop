@@ -22,7 +22,7 @@ import warnings
 from dataclasses import replace
 from pathlib import Path
 
-# Initialise Kokkos before importing the wheel-private pyFFTW OpenMP runtime.
+# Import the optional native package first, as a run would.
 # The base-pair doctest collector also imports this measurement script.
 try:
     # The optional package is out of tree and deliberately absent from the

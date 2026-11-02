@@ -31,8 +31,8 @@ subject to the retained modes, grid, boundary and response assumptions. A 1 mJ, 
 pulse (the incident beam's physical energy in the argon fill),
 Gaussian in both directions (``w_x = 0.735a`` projected onto TE1, TE3 and TE5;
 ``w_y = 0.5 mm``), propagates 10 cm with the Kerr effect under the step controller;
-the run takes seconds on ``numpy_ref``, the reference backend. ``numba_cpu`` and the
-native backend execute the geometry too.
+the run takes seconds on ``numpy_ref``, the reference backend. The native backend
+executes the geometry too.
 
 .. GENERATED FROM PYTHON SOURCE LINES 22-47
 
@@ -222,7 +222,7 @@ and across y after integrating over the gap. The widths in y are the run's
 
  .. code-block:: none
 
-    ran in 1.6 s on numpy_ref
+    ran in 5.8 s on numpy_ref
 
 
 
@@ -239,7 +239,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 1.573 seconds)
+   **Total running time of the script:** (0 minutes 5.829 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_free_space_plot_04_planar_hybrid.py:

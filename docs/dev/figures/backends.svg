@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
-     width="1200" height="927.0" viewBox="0 0 1200 927.0">
+     width="1200" height="764.0" viewBox="0 0 1200 764.0">
 <defs>
 </defs>
 <style>
@@ -69,7 +69,7 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 .edge-x { stroke: var(--x-edge); }
 .ink-x { fill: var(--x-edge); }
 </style>
-<rect x="0" y="0" width="1200" height="927.0" class="ground" />
+<rect x="0" y="0" width="1200" height="764.0" class="ground" />
 <text x="32" y="44.0" font-size="21" class="bold">One seam, one step loop, and the backends behind them</text>
 <text x="32" y="64.0" font-size="12" class="dim">backends.md §1: the protocol is drawn at the level of operations on the propagated state, never at the array-namespace level. A backend is constructed from a validated</text>
 <text x="32" y="79.5" font-size="12" class="dim">KernelProblem and host arrays and returns host arrays; its buffers, layout and plans are private.</text>
@@ -139,21 +139,12 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 <path d="M600.0,526.0 L600.0,542.0 L893.0,542.0 L893.0,558.0" class="arrow" />
 <path d="M893.0,558.0 L889.4,549.0 L896.6,549.0 Z" class="head" />
 <rect x="618.0" y="564.0" width="550.0" height="97.0" rx="7" ry="7" class="fill-b" />
-<text x="628.0" y="586.0" font-size="15" class="bold ink-b">numba_cpu  ·  CPU fallback</text>
-<text x="628.0" y="601.5" font-size="12" class="dim">fused @njit columns over bodies.py</text>
-<text x="628.0" y="617.0" font-size="12" class="dim">TransformPlans: pyfftw, in place, FFTW_MEASURE</text>
-<text x="628.0" y="632.5" font-size="12" class="dim">ThreadPools: numba, FFTW, BLAS, OMP</text>
-<text x="628.0" y="648.0" font-size="12" class="dim">host z-table adapter; auto → recompute</text>
+<text x="628.0" y="586.0" font-size="15" class="bold ink-b">native  ·  preferred if installed</text>
+<text x="628.0" y="601.5" font-size="12" class="dim">solprop-native distribution, native/</text>
+<text x="628.0" y="617.0" font-size="12" class="dim">C++20 Kokkos + persistent Kokkos-FFT plans</text>
+<text x="628.0" y="632.5" font-size="12" class="dim">one native call per seven-stage trial</text>
+<text x="628.0" y="648.0" font-size="12" class="dim">OpenMP on CPUs; CUDA and HIP on GPUs</text>
 <text x="628.0" y="675.0" font-size="12" class="bold dim">_trial_step · _apply_mask · _finish · _observed_field</text>
-<path d="M600.0,526.0 L600.0,705.0 L307.0,705.0 L307.0,721.0" class="arrow" />
-<path d="M307.0,721.0 L303.4,712.0 L310.6,712.0 Z" class="head" />
-<rect x="32.0" y="727.0" width="550.0" height="97.0" rx="7" ry="7" class="fill-b" />
-<text x="42.0" y="749.0" font-size="15" class="bold ink-b">native  ·  preferred if installed</text>
-<text x="42.0" y="764.5" font-size="12" class="dim">solprop-native distribution, native/</text>
-<text x="42.0" y="780.0" font-size="12" class="dim">C++20 Kokkos + persistent Kokkos-FFT plans</text>
-<text x="42.0" y="795.5" font-size="12" class="dim">one native call per seven-stage trial</text>
-<text x="42.0" y="811.0" font-size="12" class="dim">OpenMP on CPUs; CUDA and HIP on GPUs</text>
-<text x="42.0" y="838.0" font-size="12" class="bold dim">_trial_step · _apply_mask · _finish · _observed_field</text>
-<text x="32" y="879.5" font-size="12" class="dim">Three things every backend owes beyond the methods: deterministic reductions, the device form of the stage, and one step loop. The error norm is control flow, so a sum</text>
-<text x="32" y="895.0" font-size="12" class="dim">whose association depends on the thread count forks the trajectory.</text>
+<text x="32" y="716.5" font-size="12" class="dim">Three things every backend owes beyond the methods: deterministic reductions, the device form of the stage, and one step loop. The error norm is control flow, so a sum</text>
+<text x="32" y="732.0" font-size="12" class="dim">whose association depends on the thread count forks the trajectory.</text>
 </svg>

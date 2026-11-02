@@ -61,7 +61,6 @@ from legacy_geometry import LEGACY_GRID
 from march_bounds import FIXED_ORDER
 from modal_provider_cases import GENERAL_Z_END
 from solprop.backends import available
-from solprop.backends.numba_cpu import NumbaCpuBackend
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.boundaries import Absorber, absorber
 from solprop.driver import Simulation
@@ -79,8 +78,8 @@ pytestmark = [
     for category in QUIET
 ] + [pytest.mark.filterwarnings("ignore:the temporal absorber attenuates")]
 
-BACKENDS = ("numpy_ref", "numba_cpu", "native")
-"""The three CPU backends, which must all leave the collar to the frozen flow."""
+BACKENDS = ("numpy_ref", "native")
+"""The CPU backends, which must all leave the collar to the frozen flow."""
 
 UNIT = 2.0**-53
 """The unit roundoff of float64."""
@@ -97,7 +96,7 @@ def backend_class(name):
         )
 
         return NativeBackend
-    return {"numpy_ref": NumpyRefBackend, "numba_cpu": NumbaCpuBackend}[name]
+    return NumpyRefBackend
 
 
 def scored_everywhere(problem: KernelProblem) -> KernelProblem:
@@ -434,7 +433,7 @@ def test_the_in_band_answer_moves_by_less_than_the_derived_bound(case):
 
 
 @pytest.mark.medium
-@pytest.mark.parametrize("name", ["numpy_ref", "numba_cpu", "native"])
+@pytest.mark.parametrize("name", ["numpy_ref", "native"])
 @pytest.mark.parametrize("case", ["scalar", "te_tm", "split", "taper", "gradient"])
 def test_a_flow_with_nothing_unscored_is_what_it_was(
     case, name, ndarrays_regression, monkeypatch

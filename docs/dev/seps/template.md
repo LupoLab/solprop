@@ -74,8 +74,8 @@ plan. Cover as applicable:*
 - *the layer the work belongs to (physics, translation, backends; architecture.md §3);*
 - *the effect on the kernel contract and whether KERNEL_SCHEMA_VERSION changes;*
 - *each Tier 1 backend in turn — numpy_ref, then the native CPU build — and anything
-  that makes one of them hard; GPU considerations for later; whether numba_cpu (Tier 2)
-  or mlx (Tier 3) should take the feature too, and why (ADR-061);*
+  that makes one of them hard; GPU considerations for later; whether mlx (Tier 3)
+  should take the feature too, and why (ADR-061);*
 - *the expected cost in time and memory, and how it scales;*
 - *new dependencies (to be agreed before acceptance).*
 
@@ -104,7 +104,7 @@ differences page.*
 ### 11. Phases
 
 *The proposed phases, each independently mergeable with a green gate. The usual order is
-numpy_ref with tests and the manual page first, then numba_cpu, then Kokkos CPU. For each
+numpy_ref with tests and the manual page first, then the native CPU build. For each
 phase: its deliverables and what it must verify.*
 
 ### 12. Open questions

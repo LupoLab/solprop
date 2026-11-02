@@ -176,7 +176,7 @@ def historical_fields(value):
 
 
 def test_m2_problem_keeps_every_recorded_array(ndarrays_regression):
-    simulation = reduced_m2_simulation(backend="numba_cpu")
+    simulation = reduced_m2_simulation(backend="numpy_ref")
     with warnings.catch_warnings(record=True) as diagnostics:
         warnings.simplefilter("always", MaterialRangeWarning)
         problem = simulation.translate()

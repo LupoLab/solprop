@@ -205,7 +205,7 @@ resolved exactly there and its integral is exact too. What changes against the
 constant-dispersion case is the *representation*: a mode whose dispersion moves is
 not a function of one scalar parameter, so `build_phi` tabulates the operator
 along $z$ instead of expanding it in parameters — the general representation. Every
-CPU backend evaluates that table: `numpy_ref` and `numba_cpu` on the host, and the
+CPU backend evaluates that table: `numpy_ref` on the host, and the
 native backend's CPU build in its own kernels, so the default `backend="auto"` runs a
 moving-dispersion fibre ({doc}`../numerics/linear-tables`). The native backend's GPU
 builds refuse the table by name, since they would hold it on the device; run such a

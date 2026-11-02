@@ -62,15 +62,14 @@ def test_python_counter_tracks_dispatch_through_rejection(
 
         monkeypatch.setattr(engine, "_trial_step", trial)
         dispatched = []
-        if engine.name in ("numpy_ref", "numba_cpu"):
-            name = "_nonlinear" if engine.name == "numpy_ref" else "_stage"
-            original_source = getattr(engine, name)
+        if engine.name == "numpy_ref":
+            original_source = engine._nonlinear
 
             def source(*args, **kwargs):
                 dispatched.append(None)
                 return original_source(*args, **kwargs)
 
-            monkeypatch.setattr(engine, name, source)
+            monkeypatch.setattr(engine, "_nonlinear", source)
         summary = engine.propagate_to(0.002)
         assert summary.n_rejected == 1
         assert calls[0] == 7

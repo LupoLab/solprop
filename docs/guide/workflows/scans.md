@@ -51,7 +51,7 @@ Five executors, all in `solprop.driver.executors`, run the points:
 | `Slurm(script, ...)` | prepares a queue and submits a Slurm array job that drains it |
 
 A builder's omitted `backend` resolves to the native backend when it is installed and otherwise,
-with a warning, to the slower `numba_cpu`, as described in
+with a warning, to the far slower `numpy_ref`, as described in
 [running a simulation](../performance/resources.md#backend-choice-and-scan-workers); every
 executor keeps that concrete choice, so name the backend in the builder when the workers
 may run on machines with different installations.
@@ -93,7 +93,7 @@ def base():
         plasma=False,
         thg=False,
         n_save=3,
-        backend="numba_cpu",
+        backend="native",
     )
     simulation.translate()
     return simulation
@@ -150,7 +150,7 @@ need not have equal configuration hashes when their construction provenance diff
 ## Fixed-schedule batches
 
 `Batch(size)` advances up to `size` points in lockstep, on one fixed step schedule, inside
-one backend. It runs on `numpy_ref`, `numba_cpu` and `native` (CPU and GPU builds), and
+one backend. It runs on `numpy_ref` and `native` (CPU and GPU builds), and
 each backend is tested to give a batch member the output the same point gives run alone,
 to rounding: the same steps, with sums that may be ordered differently
 ([SEP 25](../../dev/seps/archive/sep-0025-rounding-level-reproducibility.md)).
@@ -160,7 +160,7 @@ from solprop.driver.executors import Batch
 from solprop.driver.scan import run_scan
 
 # The builder must return fibre simulations with an explicit fixed schedule.
-# It selects numpy_ref, numba_cpu or native as usual.
+# It selects numpy_ref or native as usual.
 result = run_scan(
     scan,
     build_fixed_point,
@@ -207,8 +207,8 @@ reserves are excluded from free space. The recorded device bound may include hos
 buffers, so it can admit fewer members than a device-only ledger would.
 
 Each point records its actual batch size, execution strategy and resolved backend
-policies. `numba_cpu` and `native` fuse the accepted update across members (`native`
-combines the error partials of all members in the same native kernel), while each member
+policies. `native` fuses the accepted update across members, and
+combines the error partials of all members in the same native kernel, while each member
 keeps its own workspace; the response kernels and the FFT and BLAS plans stay per member. This partial fusion does not amortise the whole GPU launch
 sequence.
 

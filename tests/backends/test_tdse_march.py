@@ -222,7 +222,7 @@ def test_failed_chunk_is_charged_and_unused_trial_reservation_is_released(
         backend.close()
 
 
-@pytest.mark.parametrize("backend_name", ["numba_cpu", "native"])
+@pytest.mark.parametrize("backend_name", ["native"])
 def test_registry_refuses_tdse_before_constructing_a_backend(
     march_problem, monkeypatch, backend_name
 ):

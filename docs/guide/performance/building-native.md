@@ -102,23 +102,8 @@ Check the reported `fft_library` and `openmp_library` before benchmarking. The
 supports `--enable-neon` for double and single precision on AArch64. The installed
 libraries identify their codelet family in `fftw_version` and `fftwf_version`, which
 both end in `-neon` for this recipe. Keep these prefixes separate from a comparison's
-baseline libraries. A pyFFTW build used in the same process must also share this
-runtime. To build the existing pyFFTW dependency against that same owned prefix:
-
-```sh
-pyfftw_version=$(uv run --no-sync python -c 'from importlib.metadata import version; print(version("pyfftw"))')
-CC=/opt/homebrew/opt/llvm/bin/clang \
-CXX=/opt/homebrew/opt/llvm/bin/clang++ \
-PYFFTW_FFTW_PREFIX="$native_deps" \
-LDFLAGS="-L$native_deps/lib -Wl,-rpath,$native_deps/lib" \
-uv pip install --python .venv/bin/python --no-deps --no-binary pyfftw \
-  --reinstall --no-cache "pyfftw==$pyfftw_version"
-```
-
-The uncached source build prevents reuse of a wheel linked to another runtime.
-Keep the project's locked pyFFTW version when qualifying a comparison. See
-[OpenMP runtimes](#openmp-runtimes-and-pyfftw) below for import ordering and the
-limits of mixing independently bundled wheels.
+baseline libraries. See [OpenMP runtimes](#openmp-runtimes) below for the limits of mixing
+independently bundled wheels.
 
 For a distributable wheel, `native/ci/build-wheel-macos.sh OUT_DIR DEPS_PREFIX`
 builds the distribution profile, repairs its library references with delocate, and
@@ -255,7 +240,7 @@ wheels are made with, for machines other than the build machine. It is a CPU pro
   way. The package records its baseline and refuses to import on a processor below it,
   naming the missing features (from `/proc/cpuinfo` on Linux, from
   `IsProcessorFeaturePresent` on Windows, where AVX2 stands for the other x86-64-v3
-  features Windows does not report); solprop's `backend="auto"` then uses `numba_cpu`
+  features Windows does not report); solprop's `backend="auto"` then uses `numpy_ref`
   with a warning;
 - a **BLAS** that every such machine has and that shares the extension's threads:
   Accelerate on macOS; on Linux an OpenBLAS 0.3.34 that the configure step builds with
@@ -559,7 +544,7 @@ Sanitizer, `rocprof`) to check device memory; the CMake sanitizer option is for 
 builds. GPU builds are qualified with CUDA 13 and a ROCm 7 stack; other toolkit versions
 are expected to work but are untested.
 
-## OpenMP runtimes and pyFFTW
+## OpenMP runtimes
 
 A process can safely load only one OpenMP runtime. Two different runtimes (LLVM's
 `libomp` and GNU's `libgomp`, or two copies of one) each start their own thread pools,
@@ -568,47 +553,13 @@ therefore links every native part — Kokkos, FFTW's threaded library, an OpenMP
 against one runtime: on macOS, either Homebrew's `libomp` with its FFTW, or the one
 runtime in the owned dependency prefix built above.
 
-solprop's `numba_cpu` backend uses [pyFFTW](https://github.com/pyFFTW/pyFFTW), whose
-published wheels bundle their own OpenMP runtimes, so running both backends in one
-process loads a second runtime.
-
-- **On macOS, `solprop_native` must be imported before anything imports pyFFTW.** The
-  package raises `RuntimeError` at import if pyFFTW is already loaded. solprop takes
-  care of this itself: when the native backend is installed, `numba_cpu` imports it
-  before pyFFTW, so both backends can run in one process in either order. A script
-  that imports pyFFTW itself, or a package that does, imports solprop (or
-  `solprop_native`) first.
-- Import order alone does not remove pyFFTW's bundled runtimes. When one process must run
-  both the native and the Numba backends, build pyFFTW from source against the same
-  FFTW, in the same environment.
-- pyFFTW then shares FFTW's process-wide planner with Kokkos-FFT. The package finalises
-  the Kokkos runtime it owns at the very end of interpreter shutdown, after Python has
-  released pyFFTW's plans.
-
-macOS, against Homebrew's FFTW and `libomp`:
-
-```sh
-CC=/opt/homebrew/opt/llvm/bin/clang \
-CXX=/opt/homebrew/opt/llvm/bin/clang++ \
-PYFFTW_FFTW_PREFIX=/opt/homebrew/opt/fftw \
-LDFLAGS="-L/opt/homebrew/opt/libomp/lib -Wl,-rpath,/opt/homebrew/opt/libomp/lib" \
-  uv pip install --python /path/to/env/bin/python \
-  --no-deps --no-binary pyfftw --reinstall pyfftw
-```
-
-Linux, against the system FFTW with pthreads, so that pyFFTW adds no OpenMP runtime:
-
-```sh
-CC=gcc CXX=g++ PYFFTW_USE_PTHREADS=1 PYFFTW_FFTW_PREFIX=/usr \
-  uv pip install --python /path/to/env/bin/python \
-  --no-deps --no-binary pyfftw --reinstall pyfftw
-```
-
-For an FFTW installed elsewhere, set `PYFFTW_FFTW_PREFIX` to its prefix; pyFFTW needs the
-single-precision FFTW libraries as well as the double-precision ones. On macOS also
-change both library paths in `LDFLAGS` to that prefix's OpenMP library directory. With AOCL's FFTW,
-build pyFFTW with AOCC and without `PYFFTW_USE_PTHREADS`, so that it uses AOCL's OpenMP
-interface; do not combine a standard FFTW pthreads library with AOCL's FFTW core.
+solprop itself loads no other OpenMP runtime, but a script or another package may: the
+published [pyFFTW](https://github.com/pyFFTW/pyFFTW) wheels, for one, bundle their own. On
+macOS `solprop_native` must then be imported first, and the package raises `RuntimeError`
+at import if pyFFTW is already loaded. A script that imports pyFFTW itself, or a package
+that does, imports solprop (or `solprop_native`) first. Import order alone does not remove
+the second runtime, so pyFFTW is then best built from source against the same FFTW and
+OpenMP runtime.
 
 ## Wheels and redistribution
 

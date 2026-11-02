@@ -12,9 +12,7 @@ All notable changes to solprop are recorded here. The format follows
 - A `solprop-native` wheel for Windows on Arm (`win-arm64`), and an x86-64-v2 build beside
   the x86-64-v3 one in the Linux and Windows x86-64 wheels, chosen at import, so processors
   without AVX2 now run the native backend. The v2 build runs about 20 to 25 % longer by
-  geometric mean. `SOLPROP_NATIVE_CPU_VARIANT=x86-64-v2` asks for it (SEP 43). pyFFTW is
-  not installed on Windows on Arm, where it has no wheel, so `numba_cpu` does not import
-  there.
+  geometric mean. `SOLPROP_NATIVE_CPU_VARIANT=x86-64-v2` asks for it (SEP 43).
 - The first performance-history rows (`benchmarks/history/`), recorded at 0.1.0 on
   six CPU and three GPU hardware sets, with numba runs beside the native ones on three
   of them; `docs/dev/benchmarking.md` lists how each is run. The history takes any
@@ -61,13 +59,18 @@ All notable changes to solprop are recorded here. The format follows
   value or provenance, and refuses one whose numerics or physics changed, naming what;
   the `Queue` and `Slurm` executors keep exact identity (SEP 42). The output schema is
   bumped only for a change an older reader would misread (ADR-063).
-- `backend="auto"` now warns, once per process, whenever it chooses `numba_cpu`: when
-  `solprop-native` is not installed as well as on a processor below its wheel's baseline.
-  The warning says how to install the native backend; an explicit `backend="numba_cpu"`
-  does not warn. The README and manual now recommend the native backend by default and
-  describe `numba_cpu` as its slower fallback, with the 0.1.0 measurements. They no longer
-  advise `numba_cpu` for scans of one-thread workers, which the history does not support,
-  and they now say that only GPU builds refuse z-tabulated problems.
+- `backend="auto"` without `solprop-native`, or on a processor below every build's
+  baseline, now uses `numpy_ref` and warns, once per process, stating the cost: it is
+  unthreaded and roughly 6 to 40 times slower than threaded native, and the warning says how
+  to install the native backend. An explicit `backend="numpy_ref"` does not warn. The README
+  and manual recommend the native backend by default, and say that only GPU builds refuse
+  z-tabulated problems (SEP 43, ADR-064).
+- CI's documentation lane executes the lessons and tutorials on the native wheel, and a lesson
+  may use anything `native` runs; Read the Docs still executes none. `poe fetch-wheel`
+  installs the wheel CI built, for a contributor without a compiler, whose plain `uv sync`
+  now gets `numpy_ref` (SEP 43, ADR-064).
+- pyFFTW no longer stands in the way of Python 3.15. h5py still has no 3.15 wheel, so 3.14
+  remains the supported version.
 - Planned work has moved to [GitHub issues](https://github.com/LupoLab/solprop/issues),
   labelled by type, priority and area: the roadmap now lists only SEPs (ADR-062). Issue
   templates and `CONTRIBUTING.md`
@@ -146,6 +149,22 @@ All notable changes to solprop are recorded here. The format follows
   amplitude −0.9, came out 85 % wrong with no warning. The class evaluates the record's
   transform exactly at the grid's frequencies, 3e-12 from the direct sum on that case,
   less its mean: a baseline is an offset of the instrument, not part of the field.
+
+### Removed
+
+- The `numba_cpu` backend, and the `numba` and `pyfftw` dependencies (SEP 43, ADR-064).
+  `backend="numba_cpu"` raises `BackendError`, naming `native` and `numpy_ref`: install
+  `solprop[native]` and pass `backend="native"`, or no `backend=` at all. Output and snapshots
+  that record `numba_cpu` still load.
+- The settings that only it read: `SOLPROP_NUMBA_THREADS`, `SOLPROP_NUMBA_REGIME`,
+  `SOLPROP_FFTW_THREADS`, `SOLPROP_TRANSVERSE_FFTW_THREADS`, `SOLPROP_PASS_TIMERS`,
+  `NUMBA_DISABLE_JIT` and `NUMBA_NUM_THREADS`. Drop them from job scripts; they now do
+  nothing. For the native backend's pools use `SOLPROP_THREADS` and `SOLPROP_NATIVE_THREADS`.
+  `SOLPROP_FFTW_PLAN`, `SOLPROP_FFTW_WISDOM` and `SOLPROP_BLAS_THREADS` stay.
+- Compiled CPU support for Intel macOS, ppc64le, Arm below Neoverse N1 and Windows before 10
+  version 2004, and for x86-64 below x86-64-v2. These use `numpy_ref` where it installs;
+  NumPy's own baseline may refuse x86-64 below v2. In a process with a GPU build, a CPU run now
+  needs a second environment with the CPU wheel, or `numpy_ref`.
 
 ### Fixed
 

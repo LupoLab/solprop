@@ -11,9 +11,8 @@ problems (field and envelope grids, both sectors, a polynomial mixture as the ex
 per-species sum and a symmetric one under its mixture filter); its whole stage
 derivative, with the dispersion switched off, to the constant cubic's on the
 mode-averaged and radial routes; a short lossless propagation to the
-work identity. ``numba_cpu`` and the native backend execute it on this path
-(``tests/backends/test_numba_dispersive_kerr.py``,
-``tests/backends/test_native_dispersive_kerr.py``); the free-space, planar and general
+work identity. The native backend executes it on this path
+(``tests/backends/test_native_dispersive_kerr.py``); the free-space, planar and general
 modal routes are ``tests/backends/test_dispersive_kerr_routes.py``'s.
 """
 

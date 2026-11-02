@@ -25,8 +25,13 @@ pytestmark = pytest.mark.skipif(
 
 def test_auto_warns_and_names_the_install_command(monkeypatch):
     monkeypatch.setattr(registry, "_warned_native_fallback", False)
-    with pytest.warns(SolpropWarning, match=r'pip install "solprop\[native\]"'):
-        assert registry.resolve_name() == "numba_cpu"
+    with pytest.warns(
+        SolpropWarning, match=r'pip install "solprop\[native\]"'
+    ) as caught:
+        assert registry.resolve_name() == "numpy_ref"
+    message = str(caught[0].message)
+    assert "6 to 40 times" in message
+    assert 'pass backend="numpy_ref"' in message
 
 
 @pytest.mark.filterwarnings("ignore:solprop-native is not installed")

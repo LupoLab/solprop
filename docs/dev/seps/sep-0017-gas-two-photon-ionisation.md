@@ -879,6 +879,9 @@ Part I above. The revised Part I was reviewed on 2026-10-12 (the last section).
   of the Drude current. That factor also applies to the existing field-grid plasma
   path, independently of this SEP. The drafting-agent field now names the review
   revisions' agent. Part I is unchanged.
+- 2026-11-02: [SEP 43](sep-0043-retire-numba-cpu.md) retired `numba_cpu` (ADR-064). Part I stays
+  as accepted; its Numba phase falls away, and the feature goes on `numpy_ref` and the native
+  backend (SEP 0).
 
 ### AI review, 2026-10-08
 

@@ -4,7 +4,6 @@
 
 import logging
 import math
-import sys
 
 import numpy as np
 import pytest
@@ -803,7 +802,7 @@ def test_the_build_meets_its_uniform_error_bound(parameters):
     exponent=st.integers(-20, 20),
 )
 def test_evaluation_is_numpys_chebval(degree, width, complex_values, x, exponent):
-    """The compiled Clenshaw pass gives NumPy's values, in their shape.
+    """The Clenshaw pass gives NumPy's values, in their shape.
 
     The two are independent Clenshaw passes, held to :func:`clenshaw_bound` per
     element; the shape, the type and the read-only flag
@@ -901,9 +900,8 @@ def test_positions_taken_together_refuse_the_outside_of_the_span():
         table.at_positions(np.array([0.5, 1.5, -1.0]))
 
 
-@pytest.mark.parametrize("compiled", [False, True])
-def test_the_batch_kernel_stops_at_the_first_offender_and_files_nan_last(compiled):
-    """The plain loop and its compiled instance answer alike, position by position.
+def test_the_batch_kernel_stops_at_the_first_offender_and_files_nan_last():
+    """The plain loop answers as one call does, position by position.
 
     A position outside the widened span stops the loop and is returned, its row and
     those after it unwritten; a NaN position passes the span test, takes the last
@@ -911,7 +909,7 @@ def test_the_batch_kernel_stops_at_the_first_offender_and_files_nan_last(compile
     """
     table = build(smooth, 0.0, 1.0, mandatory_breakpoints=(0.5,))
     flat = table.coefficients.reshape(*table.coefficients.shape[:2], -1)
-    kernel = chebyshev._clenshaw_batch() if compiled else chebyshev._clenshaw_points
+    kernel = chebyshev._clenshaw_points
     positions = np.array([0.25, math.nan, 1.5, 0.75])
     out = np.full((positions.size, flat.shape[2]), 7.0)
     assert kernel(positions, table.breakpoints, 0.0, 1.0, flat, out) == 2
@@ -920,26 +918,24 @@ def test_the_batch_kernel_stops_at_the_first_offender_and_files_nan_last(compile
     assert (out[2:] == 7.0).all()
 
 
-@pytest.mark.parametrize("compiled", [False, True], ids=["plain", "compiled"])
-def test_a_degree_one_series_is_one_product_and_one_sum(compiled):
+def test_a_degree_one_series_is_one_product_and_one_sum():
     # The recursion's two-term case, `c_0 + c_1 x`, on real and complex columns:
     # exact here, since every product and sum is exact in binary at x = 0.5.
-    columns = chebyshev._clenshaw() if compiled else chebyshev._clenshaw_columns
     for coefficients in (
         np.array([[1.0, -2.0], [2.0, 0.25]]),
         np.array([[1.0 - 0.5j, 3.0j], [2.0 + 4.0j, -1.0]]),
     ):
-        out = np.empty(2, dtype=coefficients.dtype)
-        columns(0.5, coefficients, out)
-        np.testing.assert_array_equal(out, coefficients[0] + 0.5 * coefficients[1])
+        np.testing.assert_array_equal(
+            chebyshev.clenshaw(0.5, coefficients),
+            coefficients[0] + 0.5 * coefficients[1],
+        )
 
 
 @pytest.mark.parametrize("shape", [(), (18,), (3, 2)])
 @pytest.mark.parametrize("complex_valued", [False, True])
-def test_clenshaw_by_numpy_gives_the_series_values(shape, complex_valued, monkeypatch):
+def test_clenshaw_by_numpy_gives_the_series_values(shape, complex_valued):
     # The series summed directly, T_k(x) = cos(k arccos x), an independent evaluation,
-    # against the path a run on the native backend takes: chebval's own recurrence.
-    monkeypatch.delitem(sys.modules, "numba", raising=False)
+    # against the path translation takes: chebval's own recurrence.
     rng = np.random.default_rng(7)
     coefficients = rng.standard_normal((33, *shape))
     if complex_valued:
@@ -952,25 +948,3 @@ def test_clenshaw_by_numpy_gives_the_series_values(shape, complex_valued, monkey
         assert value.shape == shape
         assert value.dtype == coefficients.dtype
         assert np.all(np.abs(value - np.tensordot(basis, coefficients, 1)) <= bound)
-
-
-@pytest.mark.parametrize("shape", [(), (18,), (3, 2)])
-@pytest.mark.parametrize("complex_valued", [False, True])
-def test_clenshaw_before_numba_loads_gives_the_compiled_values(
-    shape, complex_valued, monkeypatch
-):
-    # Until numba is imported, clenshaw evaluates with NumPy's chebval (a run on the
-    # native backend never imports numba); the values must be the compiled ones.
-    pytest.importorskip("numba")
-    rng = np.random.default_rng(7)
-    coefficients = rng.standard_normal((33, *shape))
-    if complex_valued:
-        coefficients = coefficients + 1j * rng.standard_normal(coefficients.shape)
-    points = rng.uniform(-1.0, 1.0, 16)
-    compiled = [chebyshev.clenshaw(x, coefficients) for x in points]
-    monkeypatch.delitem(sys.modules, "numba")
-    uncompiled = [chebyshev.clenshaw(x, coefficients) for x in points]
-    for one, other in zip(compiled, uncompiled, strict=True):
-        assert one.shape == other.shape == shape
-        assert one.dtype == other.dtype
-        np.testing.assert_array_equal(one, other)

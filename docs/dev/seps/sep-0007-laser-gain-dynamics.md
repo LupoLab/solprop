@@ -1106,3 +1106,6 @@ is an algebraic consistency check, not experimental evidence.
 - 2026-10-26: Added a note to §4.6 that stochastic ASE needs the noise to see only the
   emission gain, through a separate injection path or a gain Langevin term (SEP 37).
 - 2026-11-01: Tracking issue [#117](https://github.com/LupoLab/solprop/issues/117).
+- 2026-11-02: [SEP 43](sep-0043-retire-numba-cpu.md) retired `numba_cpu` (ADR-064). Where this
+  proposal names Numba or `numba_cpu`, it was written before that: such a phase or check falls
+  away, and the feature goes on `numpy_ref` and the native backend (SEP 0).

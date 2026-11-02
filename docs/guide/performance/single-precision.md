@@ -16,7 +16,7 @@ measured on the reference implementation (on `mlx` for two cases only), and on t
 default grids it can be slower than binary64 `native`; build single-precision grids
 with `fft_size="pow2"` ([grid sizes on `mlx`](#grid-sizes-on-mlx)). `numpy_ref` runs
 every route below as the reference implementation, which defines the arithmetic and
-measures it but is not fast. `numba_cpu` and `native` compute in binary64 only.
+measures it but is not fast. `native` computes in binary64 only.
 ```
 
 ## Asking for it

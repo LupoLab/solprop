@@ -452,7 +452,7 @@ def test_a_tdse_run_s_refusals_name_the_precision_and_the_integrator():
             save_planes=[1.0],
             dz_max=1.0,
             dz_init=1e-3,
-            backend="numba_cpu",
+            backend="native",
             tdse_execution=TDSEExecution(),
         )
     # Not a record at all: refused where the annotations are not checked at run time.

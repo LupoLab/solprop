@@ -10,17 +10,15 @@ that runs them —
 
 - on a **CPU** with OpenMP threads, FFTW and a vendor BLAS (Accelerate, MKL, OpenBLAS or
   AOCL). A locally built CPU backend is the fastest backend measured on the
-  coherent-wall and general modal cases, and its lead over the in-tree `numba_cpu`
-  backend grows with the thread count: on a large graded-index guide it takes about 0.6
-  of `numba_cpu`'s time at one thread and about a quarter at eighteen;
+  coherent-wall and general modal cases;
 - on an **NVIDIA GPU** with CUDA (cuFFT and cuBLAS), or an **AMD GPU** with HIP (rocFFT
   and rocBLAS).
 
 It is the backend to use by default. With it installed, `backend="auto"` — the default of
 every entry point — selects it. You never need it for correctness: without it solprop runs
-everything on `numpy_ref` and `numba_cpu`, but `numba_cpu` is a slower fallback
-([measured](backends.md#which-backend-to-use)), and `backend="auto"` warns when it lands
-there.
+everything on `numpy_ref`, which is unthreaded and roughly 6 to 40 times slower than
+threaded native ([which backend to use](backends.md#which-backend-to-use)), and
+`backend="auto"` warns when it lands there.
 
 ## What it runs
 
@@ -42,11 +40,11 @@ The native backend runs:
   The CPU build holds the table's coefficients and evaluates it at each step's
   positions in its own kernels ([z tables](../numerics/linear-tables.md)).
 
-Everything `numba_cpu` runs, the native CPU build runs too
-([SEP 29](../../dev/seps/archive/sep-0029-compiled-backend-distribution.md), §6.6). The GPU
+The GPU
 builds do not run the z table: they refuse it before anything is allocated, giving the
 table's size, since it would be held resident on the device; run such a problem on a
-CPU build, or with `backend="numba_cpu"` in a process that has the GPU build installed.
+CPU build, in a second environment, or with `backend="numpy_ref"` in a process that has
+the GPU build installed.
 
 **Adams snapshots and resume history** run on the native backend as on the others. It
 keeps the history of the default `Multistep()` integrator resident in its engine and
@@ -55,16 +53,16 @@ of an HDF5 output that keeps the resume history, and for each periodic snapshot.
 resume installs them again and continues the history ([resuming](../results/resuming.md)).
 A frozen-residual coupled flow's history is kept in a native form (each sample's
 generator applied to its state), so a snapshot of it continues only on the native
-backend, and a host engine's snapshot of it only on `numpy_ref` or `numba_cpu`; a
+backend, and a host engine's snapshot of it only on `numpy_ref`; a
 mismatch starts the history afresh and says why. Other histories cross between backends.
 
 Separately, the `cf4` section method of a coupled flow (`CoherentWall(method="cf4")`)
-runs on `numpy_ref` only, with the Runge–Kutta march; neither compiled backend runs it.
+runs on `numpy_ref` only, with the Runge–Kutta march; the native backend does not run it.
 The planar guide resolved in y is built into the GPU builds but has not been qualified
 on a device. solprop never falls back silently: an import failure, an incompatible build
 or a refused problem raises, naming the backend to use instead. The fallback is
-announced: when the native backend is not installed, or on a processor below the installed
-build's CPU baseline, `backend="auto"` uses `numba_cpu` with a warning
+announced: when the native backend is not installed, or on a processor below every
+installed build's CPU baseline, `backend="auto"` uses `numpy_ref` with a warning
 ([choosing a backend](backends.md)).
 
 ## Installing
@@ -87,6 +85,11 @@ is a few per cent faster than the wheel on the measured cases. A third profile,
 agree to rounding, not bit for bit. [Building the native backend](building-native.md)
 gives the requirements, the commands for Linux and macOS, every build option, and the
 CUDA and HIP builds.
+
+An x86-64 wheel holds two builds of the extension, x86-64-v3 and x86-64-v2, and loads the best
+one the processor runs. `SOLPROP_NATIVE_CPU_VARIANT=x86-64-v2` asks for the lower one, for
+tests and comparisons; a build above what the processor runs is refused by name, as an
+unknown name is. `solprop_native.build_info()` reports which build is loaded.
 
 **Check the installation:**
 
@@ -149,8 +152,9 @@ planes. Things to know:
   noise seeds) in separate processes, each seeing one device.
 - **Small problems belong on the CPU.** A single-mode fibre on a few thousand time
   samples is limited by kernel-launch latency, not arithmetic, and usually runs faster
-  on the CPU. In a process that has the GPU build installed, pass
-  `backend="numba_cpu"` for such problems. The GPU wins on large grids: multimode and
+  on the CPU. Install the CPU wheel in a second environment for such
+  problems, or pass `backend="numpy_ref"` in a process that has only the GPU build, if the
+  problem is small enough for it. The GPU wins on large grids: multimode and
   general modal guides with many nodes, coherent walls with many channels, broadband
   supercontinuum grids, and free-space runs.
 - **On-axis plasma statistics.** The four modal `on_axis_*` plasma statistics
@@ -192,7 +196,8 @@ large run, for a scan of many runs and on a cluster.
 - **"refuses this problem".** The message names what was refused and which backend runs
   it; pass that backend explicitly.
 - **A `RuntimeError` on macOS about `pyfftw`, or a crash or hang.** Two OpenMP runtimes
-  were loaded, or would have been. Import `solprop_native` at the top of the script,
+  were loaded, or would have been. solprop does not use pyFFTW, but a script or another
+  package may. Import `solprop_native` at the top of the script,
   before anything imports `pyfftw` (the package raises the error when it detects the
   wrong order); see [Performance tuning](tuning.md#blas-and-vendor-libraries).
 - **Slower than expected.** Check `python -m solprop_native`: a `reference` profile, no
@@ -200,6 +205,6 @@ large run, for a scan of many runs and on a cluster.
   `native_arch_enabled` nor a `cpu_baseline`) each cost a large factor. Then see
   [Performance tuning](tuning.md).
 
-The native backend's place in this repository, its parity with `numba_cpu` and its
+The native backend's place in this repository and its
 precompiled wheels were proposed and carried out by
 [SEP 29](../../dev/seps/archive/sep-0029-compiled-backend-distribution.md).

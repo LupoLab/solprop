@@ -520,7 +520,7 @@ def test_an_older_native_build_is_refused_the_far_field_statistics_by_name(
     # A build that declares none of them, as every build before SEP 23's third phase:
     # the refusal precedes the native build and names the backends that form them.
     monkeypatch.setattr(registry, "_plugin_far_field", lambda name: frozenset())
-    with pytest.raises(BackendError, match="numpy_ref or numba_cpu"):
+    with pytest.raises(BackendError, match="or run them on numpy_ref"):
         select("native", problem, grid=grid)
     assert statistics_refusal("native", ["energy"]) is None
     assert statistics_refusal("numpy_ref", list(ALL_SIX)) is None

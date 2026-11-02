@@ -27,8 +27,9 @@ from types import ModuleType
 import pytest
 
 from solprop.backends import Backend, available, registry, resolve_name, select
+from solprop.backends.memory import estimate_memory
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.backends.registry import BACKENDS, _construct
+from solprop.backends.registry import BACKENDS, REMOVED_BACKENDS, _construct
 from solprop.driver import SimulationSettings
 from solprop.exceptions import BackendError, SolpropWarning
 from solprop.stepper import PIController
@@ -53,14 +54,13 @@ def test_automatic_selection_probes_without_importing_or_caching(monkeypatch):
 
     monkeypatch.setattr(importlib.util, "find_spec", find_spec)
     before = sys.modules.get("solprop_native")
-    assert resolve_name() == "numba_cpu"
+    assert resolve_name() == "numpy_ref"
     present = True
     assert resolve_name() == "native"
-    assert resolve_name("numba_cpu") == "numba_cpu"
     assert resolve_name("numpy_ref") == "numpy_ref"
     assert resolve_name("unregistered") == "unregistered"
     present = False
-    assert resolve_name() == "numba_cpu"
+    assert resolve_name() == "numpy_ref"
     # Each "auto" asks whether the package is installed; when it is, its CPU-baseline
     # check is looked up too (this stand-in has no files, so there is none to run).
     assert probes == ["solprop_native"] * 4
@@ -82,7 +82,7 @@ def test_auto_constructs_only_the_resolved_backend(
         ),
     )
     calls = []
-    expected = "native" if present else "numba_cpu"
+    expected = "native" if present else "numpy_ref"
     problem = linear_problem(narrow_grid, save_planes=[LENGTH])
     result = NumpyRefBackend(problem, grid=narrow_grid)
 
@@ -181,7 +181,65 @@ def test_an_unknown_name_lists_what_is_usable(linear_problem, narrow_grid):
 
 def test_the_table_holds_the_backends_that_exist():
     """The in-tree CUDA backend is gone; mlx is SEP 33's single-precision GPU."""
-    assert sorted(BACKENDS) == ["mlx", "native", "numba_cpu", "numpy_ref"]
+    assert sorted(BACKENDS) == ["mlx", "native", "numpy_ref"]
+
+
+# The tombstone: a removed backend's name is refused wherever a request is validated.
+
+
+def assert_names_the_replacements(refused):
+    """The refusal says the backend is gone and names both backends to use instead."""
+    message = str(refused.value)
+    assert "numba_cpu backend was removed" in message
+    assert "backend='native'" in message
+    assert "backend='numpy_ref'" in message
+
+
+def test_the_removed_backend_is_only_a_tombstone():
+    assert "numba_cpu" in REMOVED_BACKENDS
+    assert "numba_cpu" not in BACKENDS
+    assert "numba_cpu" not in available()
+    assert not set(REMOVED_BACKENDS) & set(BACKENDS)
+
+
+def test_resolving_the_removed_backend_names_the_replacements():
+    with pytest.raises(BackendError) as refused:
+        resolve_name("numba_cpu")
+    assert_names_the_replacements(refused)
+
+
+def test_selecting_the_removed_backend_names_the_replacements(
+    linear_problem, narrow_grid, monkeypatch
+):
+    def forbidden(*args, **kwargs):
+        raise AssertionError("no backend is constructed for a removed name")
+
+    monkeypatch.setattr(registry, "_construct", forbidden)
+    problem = linear_problem(narrow_grid, save_planes=[LENGTH])
+    with pytest.raises(BackendError) as refused:
+        select("numba_cpu", problem, grid=narrow_grid)
+    assert_names_the_replacements(refused)
+
+
+def test_settings_naming_the_removed_backend_name_the_replacements():
+    with pytest.raises(BackendError) as refused:
+        SimulationSettings(
+            controller=PIController(rtol=1e-8, atol=1e-14),
+            save_planes=[1e-3],
+            dz_max=1e-3,
+            dz_init=1e-3,
+            backend="numba_cpu",
+        )
+    assert_names_the_replacements(refused)
+
+
+def test_a_memory_estimate_on_the_removed_backend_names_the_replacements(
+    linear_problem, narrow_grid
+):
+    problem = linear_problem(narrow_grid, save_planes=[LENGTH])
+    with pytest.raises(BackendError) as refused:
+        estimate_memory(problem, "numba_cpu")
+    assert_names_the_replacements(refused)
 
 
 def test_a_known_name_without_its_extra_names_the_extra(
@@ -250,11 +308,11 @@ def test_the_device_memory_probe_is_the_native_package_s_own(monkeypatch, free):
     monkeypatch.setitem(sys.modules, "solprop_native", module)
     monkeypatch.setattr(registry, "_satisfied", lambda entry: True)
     assert registry.available_device_memory("native") == free
-    assert registry.available_device_memory("numba_cpu") is None
+    assert registry.available_device_memory("numpy_ref") is None
 
 
 # The CPU-baseline fallback of automatic selection: an installed distribution build
-# whose baseline this processor is below is passed over for numba_cpu, with a warning.
+# whose baseline this processor is below is passed over for numpy_ref, with a warning.
 
 NATIVE_CPU_CHECK = (
     Path(__file__).parents[2] / "native" / "src" / "solprop_native" / "_cpu.py"
@@ -312,20 +370,20 @@ def hide_native(monkeypatch):
 def test_auto_warns_once_when_the_native_backend_is_not_installed(monkeypatch):
     hide_native(monkeypatch)
     with pytest.warns(SolpropWarning) as caught:
-        assert resolve_name() == "numba_cpu"
+        assert resolve_name() == "numpy_ref"
     assert len(caught) == 1
     message = str(caught[0].message)
     assert "solprop-native is not installed" in message
-    assert "slower fallback" in message
+    assert "6 to 40 times" in message
     assert 'pip install "solprop[native]"' in message
     assert "building-native.html" in message
-    assert 'pass backend="numba_cpu"' in message
+    assert 'pass backend="numpy_ref"' in message
     # It names the caller's file, not solprop's (under the session's type hook the
     # nearest frame outside the package is jaxtyping's wrapper, not this file).
     assert not caught[0].filename.startswith(registry._PACKAGE_FILES)
     with warnings.catch_warnings():
         warnings.simplefilter("error")
-        assert resolve_name() == "numba_cpu"
+        assert resolve_name() == "numpy_ref"
 
 
 def test_the_warning_names_the_line_that_built_the_settings(monkeypatch):
@@ -338,11 +396,11 @@ def test_the_warning_names_the_line_that_built_the_settings(monkeypatch):
             dz_max=1e-3,
             dz_init=1e-3,
         )
-    assert settings.backend == "numba_cpu"
+    assert settings.backend == "numpy_ref"
     assert not caught[0].filename.startswith(registry._PACKAGE_FILES)
 
 
-@pytest.mark.parametrize("name", ["numba_cpu", "numpy_ref", "native"])
+@pytest.mark.parametrize("name", ["numpy_ref", "native"])
 def test_an_explicit_backend_never_warns_of_the_fallback(monkeypatch, name):
     hide_native(monkeypatch)
     with warnings.catch_warnings():
@@ -356,22 +414,22 @@ def test_auto_falls_back_below_the_native_baseline_and_warns_once(
     install_native(monkeypatch, tmp_path, "x86-64-v3")
     before = sys.modules.get("solprop_native")
     with pytest.warns(SolpropWarning) as caught:
-        assert resolve_name() == "numba_cpu"
+        assert resolve_name() == "numpy_ref"
     assert len(caught) == 1
     message = str(caught[0].message)
     assert "lacks avx2, fma" in message
     assert "CPU baseline x86-64-v3" in message
-    assert "numba_cpu" in message
+    assert "6 to 40 times" in message
     assert (
         "https://solprop.readthedocs.io/en/latest/guide/performance/"
         "building-native.html" in message
     )
     assert "https://github.com/LupoLab/solprop/issues" in message
-    assert 'pass backend="numba_cpu"' in message
+    assert 'pass backend="numpy_ref"' in message
     # Once per process; the package itself was never imported.
     with warnings.catch_warnings():
         warnings.simplefilter("error")
-        assert resolve_name() == "numba_cpu"
+        assert resolve_name() == "numpy_ref"
     assert sys.modules.get("solprop_native") is before
 
 
@@ -391,10 +449,10 @@ def test_the_fallback_is_recorded_as_the_selected_backend(monkeypatch, tmp_path)
             dz_max=1e-3,
             dz_init=1e-3,
         )
-    assert settings.backend == "numba_cpu"
+    assert settings.backend == "numpy_ref"
 
 
-def test_auto_selects_numba_cpu_and_constructs_it_after_a_fallback(
+def test_auto_selects_numpy_ref_and_constructs_it_after_a_fallback(
     linear_problem, narrow_grid, monkeypatch, tmp_path
 ):
     install_native(monkeypatch, tmp_path, "x86-64-v3")
@@ -410,7 +468,7 @@ def test_auto_selects_numba_cpu_and_constructs_it_after_a_fallback(
     try:
         with pytest.warns(SolpropWarning, match="CPU baseline x86-64-v3"):
             assert select("auto", problem) is result
-        assert calls == ["numba_cpu"]
+        assert calls == ["numpy_ref"]
     finally:
         result.close()
 
@@ -444,7 +502,7 @@ def test_explicit_native_still_raises_the_baseline_refusal(
 def test_auto_raises_other_native_failures_above_the_baseline(
     linear_problem, narrow_grid, monkeypatch, tmp_path, error
 ):
-    """A pyFFTW-first refusal, a schema mismatch or a broken extension still raise."""
+    """A refusal at import, a schema mismatch or a broken extension still raise."""
     install_native(monkeypatch, tmp_path, "met")
     calls = []
 
@@ -472,7 +530,7 @@ def test_auto_runs_the_native_package_s_own_check(monkeypatch, tmp_path):
     monkeypatch.setattr(sys, "platform", "win32")
     install_native(monkeypatch, tmp_path, "x86-64-v3", check=NATIVE_CPU_CHECK)
     with pytest.warns(SolpropWarning) as caught:
-        assert resolve_name() == "numba_cpu"
+        assert resolve_name() == "numpy_ref"
     assert "lacks abm, avx2, bmi1, bmi2, f16c, fma, movbe" in str(caught[0].message)
     monkeypatch.setattr(registry, "_warned_native_fallback", False)
     sandy_bridge.add(40)

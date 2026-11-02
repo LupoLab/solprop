@@ -124,7 +124,7 @@ def test_estimate_memory_matches_the_reference_ledger_on_the_legacy_route(
 
 
 def test_estimate_memory_resolves_auto(gnlse_problem):
-    assert estimate_memory(gnlse_problem, "auto").backend in {"native", "numba_cpu"}
+    assert estimate_memory(gnlse_problem, "auto").backend in {"native", "numpy_ref"}
 
 
 def test_estimate_memory_refuses_an_unknown_backend(gnlse_problem):

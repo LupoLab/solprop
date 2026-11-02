@@ -56,7 +56,7 @@ def installation(request, monkeypatch):
             else real_find_spec(name)
         ),
     )
-    return "native" if present else "numba_cpu"
+    return "native" if present else "numpy_ref"
 
 
 def settings(**keywords):

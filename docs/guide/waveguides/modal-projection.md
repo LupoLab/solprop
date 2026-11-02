@@ -207,8 +207,8 @@ diagonal, as any symmetric mixture does
 ([mixtures](../media/dispersive-kerr.md#mixtures-and-vectors)). A
 `MaterialKerr` region stays the constant cubic under every policy, so a guide may carry
 both laws, one region each. The fill is the region's nonlinear medium only; its linear
-law is still the region's `material`. The dispersive channels run on `numpy_ref`,
-`numba_cpu` and `native`; the compiled backends apply their filters in the route's
+law is still the region's `material`. The dispersive channels run on `numpy_ref`
+and `native`; the native backend applies its filters in the route's
 synthesis. The record names the fill in the guide's
 identity, the channels under `modal["dispersive"]` and each channel's model, support
 and spectral regions, and a mixture's filter with the composition it is built from, in

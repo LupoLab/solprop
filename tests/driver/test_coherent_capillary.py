@@ -36,7 +36,6 @@ from legacy_geometry import LEGACY_GRID, bare_absorber
 from march_bounds import FIXED_ORDER
 from modal_provider_cases import GENERAL_Z_END, general_grid, general_guide
 from solprop.backends import available
-from solprop.backends.numba_cpu import NumbaCpuBackend
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.numpy_ref.admission import refuse_coupled_flow
 from solprop.backends.numpy_ref.backend import (
@@ -1463,7 +1462,7 @@ def legacy_simulation(entry):
 
 @pytest.mark.medium
 @pytest.mark.parametrize("entry", ["prop_capillary", "prop_gnlse"])
-@pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu", "native"])
+@pytest.mark.parametrize("backend", ["numpy_ref", "native"])
 def test_the_legacy_entry_points_are_what_they_were(
     entry, backend, ndarrays_regression
 ):
@@ -2804,15 +2803,15 @@ def test_a_vector_wall_refuses_every_declaration_it_would_otherwise_override():
 
 
 @pytest.mark.medium
-@pytest.mark.parametrize("name", ["numba_cpu", "native"])
+@pytest.mark.parametrize("name", ["native"])
 def test_a_varying_vector_wall_runs_on_the_compiled_backends_to_rounding(name):
     """Every backend executes the TE/TM wall on a taper, to the flow parity bound.
 
-    `numba_cpu` and ``native`` execute every constant-Schur and frozen-residual flow the
-    reference admits, the TE/TM block on a varying guide included. The leaf is a
-    dense frozen-residual flow like the scalar taper's, so the compiled backends'
-    parity bounds cover it: at most 1.9e-12 (`numba_cpu`) and 5.5e-12 (Kokkos) of the
-    launch peak after ten steps. Gated here at 1e-11 of the final plane's peak.
+    ``native`` executes every constant-Schur and frozen-residual flow the reference
+    admits, the TE/TM block on a varying guide included. The leaf is a dense
+    frozen-residual flow like the scalar taper's, so the compiled backend's parity
+    bounds cover it: at most 5.5e-12 (Kokkos) of the launch peak after ten steps. Gated
+    here at 1e-11 of the final plane's peak.
     """
     if name not in available():
         pytest.skip(f"{name} is not installed")
@@ -3770,13 +3769,11 @@ def test_a_cf4_wall_refuses_every_declaration_the_frozen_one_refuses():
     # It names the state's two components, the product route, and not the
     # synthesis, which may resolve two.
     assert "a state with two polarisation components" in str(refused.value)
-    # `numba_cpu` and `native` execute the frozen flow and refuse a CF4 one at the entry
-    # point: CF4 is not yet implemented on the compiled backends.
-    for name in ("numba_cpu", "native", "auto"):
+    # `native` executes the frozen flow and refuses a CF4 one at the entry point: CF4 is
+    # not yet implemented on the compiled backend. "auto" follows when it selects it.
+    for name in ("native", *(("auto",) if "native" in available() else ())):
         with pytest.raises(DriverError, match=r"method='cf4'"):
             varying(wall=CF4_WALL, backend=name).translate()
-    with pytest.raises(BackendError, match=r"does not execute a 'cf4' section"):
-        NumbaCpuBackend(problem, grid=simulation.grid)
 
 
 @pytest.mark.medium

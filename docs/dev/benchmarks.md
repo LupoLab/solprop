@@ -4,7 +4,9 @@ How solprop's performance is measured and judged, and what the measurements so f
 indicate. A performance claim names what it measured, the build, the machine and the
 result; the rules below say how to take it. The numbers in the indicative sections are
 indicative: each was measured once, on one machine, for one change. Re-measure before
-relying on any of them.
+relying on any of them. Rows naming `numba_cpu` record a backend that
+[SEP 43](seps/sep-0043-retire-numba-cpu.md) retired; they can no longer be re-measured, and
+stay as what was measured.
 
 ## Where things are
 
@@ -81,12 +83,6 @@ baseline runs beside every ratio; a difference inside it is not a result.
 machine record, the per-case table with medians and spreads, the declared aggregate and
 its verdict, and any case that regressed. Concise evidence belongs in the change
 description; raw runs stay local.
-
-**Numba's on-disk cache.** Clear it
-(`find src -name '__pycache__' -type d -prune -exec rm -rf {} +`) before timing in a
-worktree that has run the suite many times: tens of thousands of cache files slow every
-tool that walks the tree. Numba's startup includes compilation or cache loading and is
-not a reproducible cold-compilation measurement.
 
 (benchmark-results)=
 ## Indicative results

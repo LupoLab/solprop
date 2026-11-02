@@ -46,23 +46,23 @@ How each is reached, and where it runs:
 
 | decomposition | amplitude, energy | entry point | backends |
 |---|---|---|---|
-| [mode-averaged](#mode-averaged-one-field-and-one-area) | √W, J | `prop_gnlse`, `Simulation.from_gnlse`; `prop_capillary(mode_average=True)` | all three |
-| [capillary, radial](#capillary-modes-on-a-radial-rule) | √W, J | `prop_capillary(modes=N)`, `Simulation.from_capillary` | all three |
-| [capillary, full 2-D](#capillary-modes-on-the-full-cross-section) | √W, J | `prop_waveguide(modes, ..., gas=...)`, `Simulation.from_waveguide` | all three |
-| [coherent wall](#the-capillary-wall-two-ways) | √W, J | `prop_capillary(..., wall=CoherentWall())` | all three (CF4 on `numpy_ref` only) |
-| [antiresonant](#antiresonant-tube-lattice) | √W, J | `prop_capillary(..., lattice=TubeLattice(...))` | all three |
-| [step-index, exact](#step-index-fibres-exact) | √W, J | `prop_gnlse(fibre=StepIndexMode(...))`; the general route | all three |
-| [graded-index](#graded-index-providers) | √W true power, J | `prop_waveguide((), ..., provider=guide)` | all three |
-| [general modal, vector](#the-general-modal-route-vector-fields) | √W true power, J | `prop_waveguide((), ..., provider=guide)`, `Simulation.from_waveguide` | all three |
-| [a guide that moves along z](#guides-that-move-along-z) | √W, J | the route's own, with a `ZProfile` | all three, including a moving solid guide |
-| [rectangular hollow](#rectangular-hollow-guides) | √W, J | `prop_waveguide(modes, ..., gas=...)` | all three |
-| [planar, uniform in y](#planar-hollow-guides-uniform-in-y) | √(W/m), J/m: per metre of y | `prop_waveguide(modes, ..., gas=...)`, `ModeCollection.slab` | all three |
-| [radial free space](#radial-free-space) | V m (spectrum), J | `prop_radial`, `Simulation.from_radial` | all three |
-| [Cartesian free space](#cartesian-free-space) | V/m, J | `prop_free`, `Simulation.from_free` | all three |
-| [line free space](#line-free-space-x-only) | V/m, J/m: per metre of y | `prop_free(grid, LineGrid(...), ...)` | all three |
-| [planar, resolved in y](#planar-guides-resolved-in-y) | √(W/m) per y frequency, J | `prop_planar`, `Simulation.from_planar` with a `PlanarGrid` | all three |
+| [mode-averaged](#mode-averaged-one-field-and-one-area) | √W, J | `prop_gnlse`, `Simulation.from_gnlse`; `prop_capillary(mode_average=True)` | both CPU |
+| [capillary, radial](#capillary-modes-on-a-radial-rule) | √W, J | `prop_capillary(modes=N)`, `Simulation.from_capillary` | both CPU |
+| [capillary, full 2-D](#capillary-modes-on-the-full-cross-section) | √W, J | `prop_waveguide(modes, ..., gas=...)`, `Simulation.from_waveguide` | both CPU |
+| [coherent wall](#the-capillary-wall-two-ways) | √W, J | `prop_capillary(..., wall=CoherentWall())` | both CPU (CF4 on `numpy_ref` only) |
+| [antiresonant](#antiresonant-tube-lattice) | √W, J | `prop_capillary(..., lattice=TubeLattice(...))` | both CPU |
+| [step-index, exact](#step-index-fibres-exact) | √W, J | `prop_gnlse(fibre=StepIndexMode(...))`; the general route | both CPU |
+| [graded-index](#graded-index-providers) | √W true power, J | `prop_waveguide((), ..., provider=guide)` | both CPU |
+| [general modal, vector](#the-general-modal-route-vector-fields) | √W true power, J | `prop_waveguide((), ..., provider=guide)`, `Simulation.from_waveguide` | both CPU |
+| [a guide that moves along z](#guides-that-move-along-z) | √W, J | the route's own, with a `ZProfile` | both CPU, including a moving solid guide |
+| [rectangular hollow](#rectangular-hollow-guides) | √W, J | `prop_waveguide(modes, ..., gas=...)` | both CPU |
+| [planar, uniform in y](#planar-hollow-guides-uniform-in-y) | √(W/m), J/m: per metre of y | `prop_waveguide(modes, ..., gas=...)`, `ModeCollection.slab` | both CPU |
+| [radial free space](#radial-free-space) | V m (spectrum), J | `prop_radial`, `Simulation.from_radial` | both CPU |
+| [Cartesian free space](#cartesian-free-space) | V/m, J | `prop_free`, `Simulation.from_free` | both CPU |
+| [line free space](#line-free-space-x-only) | V/m, J/m: per metre of y | `prop_free(grid, LineGrid(...), ...)` | both CPU |
+| [planar, resolved in y](#planar-guides-resolved-in-y) | √(W/m) per y frequency, J | `prop_planar`, `Simulation.from_planar` with a `PlanarGrid` | both CPU |
 
-"All three" backends means `numpy_ref`, `numba_cpu` and the native backend's CPU build.
+"Both CPU" backends means `numpy_ref` and the native backend's CPU build.
 The native backend's GPU builds (CUDA and HIP) also run the mode-averaged, multimode, general modal,
 coherent-wall and moving-guide routes, and the CUDA build runs radial, Cartesian and line
 free space; the planar guide resolved in y is not qualified on a GPU, and a CF4
@@ -276,7 +276,7 @@ exact vector Maxwell roots family by family, but it has not been checked against
 resolved-cladding solve of a mixed state.
 
 **Entry point.** `prop_capillary(..., wall=CoherentWall())`. The scalar and TE/TM blocks
-run on all three backends, straight, tapered or in a gradient; `method="cf4"` runs on
+run on both CPU backends, straight, tapered or in a gradient; `method="cf4"` runs on
 `numpy_ref` alone ([the capillary chapter](../waveguides/capillaries.md)). The block is
 scalar in the **state**, one component per channel, but not in the synthesis: a
 $\mathrm{TE}_{0m}$, $\mathrm{TM}_{0m}$ or EH set beside the `te_tm` wall resolves
@@ -772,8 +772,8 @@ or when both TE and TM are wanted: the state is scalar, one polarisation family.
 is $n_{\rm modes}\,n_y$ columns and $n_x n_y$ nodes per time sample.
 
 **Entry point.** `prop_planar(grid, PlanarGrid(modes, radius_y, n_y), responses, launch,
-settings=...)` and `Simulation.from_planar`; `numpy_ref`, `numba_cpu` and native CPU
-execute it, the compiled two within derived bounds of `numpy_ref`.
+settings=...)` and `Simulation.from_planar`; `numpy_ref` and native CPU
+execute it, native within derived bounds of `numpy_ref`.
 
 ## Radial and azimuthal free space: considered, not built
 

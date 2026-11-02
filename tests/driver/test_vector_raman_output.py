@@ -27,7 +27,7 @@ from vector_raman_cases import raman_response, vector_problem
 
 
 @pytest.mark.medium
-@pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu", "native"])
+@pytest.mark.parametrize("backend", ["numpy_ref", "native"])
 @pytest.mark.parametrize("noise_model", ["input", "modified"])
 def test_tensor_run_resumes_with_the_same_realisation_and_configuration(
     backend, noise_model, tmp_path, record_property
@@ -98,7 +98,7 @@ def test_tensor_run_resumes_with_the_same_realisation_and_configuration(
 # warning native/tests/test_batch.py asserts (SEP 39).
 @pytest.mark.filterwarnings("ignore::solprop.exceptions.HostMarchWarning")
 @pytest.mark.medium
-@pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu", "native"])
+@pytest.mark.parametrize("backend", ["numpy_ref", "native"])
 def test_jones_tensor_scan_batches_match_singletons_with_a_partial_group(
     tmp_path, backend
 ):

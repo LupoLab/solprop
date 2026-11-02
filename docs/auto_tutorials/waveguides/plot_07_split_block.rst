@@ -167,9 +167,9 @@ of them than reproducing either.
 The rotated channels report one and the same ``neff``: the block's mean, which is
 not a propagation constant of either.
 
-Three runs of a millimetre in ten steps on ``numpy_ref`` (``numba_cpu`` and the
-native backend execute the leaf too): the rotated guide launched into its first
-channel, and the plain guide launched into each of its two.
+Three runs of a millimetre in ten steps on ``numpy_ref`` (the native backend executes
+the leaf too): the rotated guide launched into its first channel, and the plain guide
+launched into each of its two.
 
 .. GENERATED FROM PYTHON SOURCE LINES 126-158
 
@@ -347,7 +347,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 1.227 seconds)
+   **Total running time of the script:** (0 minutes 4.045 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_waveguides_plot_07_split_block.py:

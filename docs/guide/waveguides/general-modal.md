@@ -25,7 +25,7 @@ It is reached through the waveguide entry points, with one extra argument:
 fill. What the route supports, and what it refuses rather than approximates, is set out
 in the last two sections of this page; read them before planning a run. In short: the route
 runs on **a field grid, for a guide of constant geometry or a solid guide whose geometry
-moves along z**, on `numpy_ref`, `numba_cpu` and the native backend (its CPU build and
+moves along z**, on `numpy_ref` and the native backend (its CPU build and
 its CUDA and HIP device builds alike); a coupled flow runs on all of them too, except
 that a flow with a CF4 section runs on `numpy_ref` alone. A general modal run writes,
 reads back and resumes an HDF5 file, a scan point writes one, and a
@@ -417,7 +417,7 @@ two radial families of one azimuthal order. Each has its gallery example:
 
 ## What is implemented, and what is not
 
-Implemented, and executed by every backend — `numpy_ref`, `numba_cpu`, and `native` in its
+Implemented, and executed by both backends — `numpy_ref`, and `native` in its
 CPU build and its CUDA and HIP device builds — with the one exception of a CF4 section,
 which runs on `numpy_ref` alone:
 
@@ -459,11 +459,7 @@ Everything else is refused by name, at the entry point, again at the translation
 and again in the backend. Every backend admits through one list, the reference's, run
 under its own name, and nothing falls back: a leaf without a kernel is refused by its
 dotted name, and `backend="auto"`, which selects `native` where it is installed, runs a
-general guide and a coupled flow there. `numba_cpu` executes the route through an
-execution path of its own — its fused pipeline is written for one real transverse matrix
-in the time domain, and this route's synthesis is a complex frequency-dependent map of
-three components — in exactly the combinations `numpy_ref` admits, and agrees with it to
-rounding (a few 1e-16 after ten steps); `native` agrees with `numpy_ref` to a derived
+general guide and a coupled flow there. `native` agrees with `numpy_ref` to a derived
 rounding bound. See [backends](../performance/backends.md) and [the native backend](../performance/native.md).
 
 Some refusals are **permanent** and not a gap to be filled. `peak_intensity`, like
@@ -507,8 +503,8 @@ Not implemented, and refused rather than approximated:
   a propagation constant across the whole active band, through the one site every route
   in the package shares. A guide that does not span the active band is therefore
   refused, with both bands in the message;
-* a **CF4 section** on the compiled backends. `numpy_ref` evaluates a CF4 step's
-  Gauss-node weights itself, and `numba_cpu` and `native` have no path for them.
+* a **CF4 section** on the native backend. `numpy_ref` evaluates a CF4 step's
+  Gauss-node weights itself, and `native` has no path for them.
 
 Two approximations are worth naming because a reader would otherwise take them as exact.
 Outside the guide's sampled band the stored reference is an **explicit zero** rather than

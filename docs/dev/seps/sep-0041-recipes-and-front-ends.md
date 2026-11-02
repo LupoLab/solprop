@@ -1151,6 +1151,9 @@ builds against the branch; the order puts what it needs first.
 - 2026-11-01: Tracking issue: [#143](https://github.com/LupoLab/solprop/issues/143). Brought to the standard of ADR-062 before the pull request
   merged: §3 lists the open issues, and Q4 names [#141](https://github.com/LupoLab/solprop/issues/141). §11 notes that phase 4 follows SEP 40, as
   the maintainer ordered.
+- 2026-11-02: [SEP 43](sep-0043-retire-numba-cpu.md) retired `numba_cpu` (ADR-064). Part I stays
+  as accepted; where it or a report names `numba_cpu`, the checks now run on `numpy_ref` and
+  the native backend, and a number measured on `numba_cpu` stays as what was measured.
 
 ### AI review, 2026-10-31
 
