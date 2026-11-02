@@ -1031,20 +1031,31 @@ _NA_CORE = 1.45 + 0.22**2 / 2.9
     "v,core,cladding,families",
     [
         (4990.0, _NA_CORE, 1.45, _LOW_ORDERS),
-        pytest.param(
-            19990.0,
-            _NA_CORE,
-            1.45,
-            (("HE", 1), ("EH", 1), ("TE", 0)),
-            marks=pytest.mark.slow,
-        ),
         (1000.0, _NA_CORE, 1.45, (("HE", 40), ("EH", 40), ("HE", 150), ("EH", 150))),
-        pytest.param(
-            4990.0, 1.45, 1.0, (("HE", 300), ("EH", 300)), marks=pytest.mark.slow
-        ),
     ],
 )
 def test_stepindex_large_v_against_a_textbook_mpmath_solve(v, core, cladding, families):
+    _assert_matches_textbook(v, core, cladding, families)
+
+
+@pytest.mark.slow
+@pytest.mark.filterwarnings("error")
+@pytest.mark.parametrize(
+    "v,core,cladding,families",
+    [
+        (19990.0, _NA_CORE, 1.45, (("HE", 1), ("EH", 1), ("TE", 0))),
+        (4990.0, 1.45, 1.0, (("HE", 300), ("EH", 300))),
+    ],
+)
+def test_stepindex_largest_v_and_order_against_a_textbook_mpmath_solve(
+    v, core, cladding, families
+):
+    # The limit's own V and the highest azimuthal order, about 2.5 s each.
+    _assert_matches_textbook(v, core, cladding, families)
+
+
+def _assert_matches_textbook(v, core, cladding, families):
+    """Assert the scan's roots against an mpmath solve of the unreduced equation."""
     # An independent reference: the unreduced equation (J_n'/(u J_n) + K_n'/(w K_n))
     # (J_n'/(u J_n) + ratio K_n'/(w K_n)) = n**2 (1/u**2 + 1/w**2)(1/u**2 + ratio/w**2)
     # with its poles, mpmath's Bessel functions at 40 digits, its own root solver,
