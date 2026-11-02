@@ -38,6 +38,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "OBJECT_ROUTES",
+    "PER_WIDTH_KEYWORDS",
     "REQUIRED",
     "SETTINGS_KEYWORDS",
     "ElementUnits",
@@ -49,6 +50,7 @@ __all__ = [
     "Resolution",
     "Resolver",
     "parameters",
+    "per_unit_width",
     "surface",
 ]
 
@@ -302,6 +304,57 @@ def _is_slab(value: object) -> bool:
     return False
 
 
+PER_WIDTH_KEYWORDS: Final = ("energy", "peak_power")
+"""The keywords that are per metre of y on a slab mode set (:func:`per_unit_width`)."""
+
+
+def per_unit_width(route: str, values: Mapping[str, object]) -> bool:
+    """Return whether a recipe's pulse energy and peak power are per metre of y.
+
+    A slab mode set is uniform in y, a plane wave in the free direction, so on the
+    waveguide route with slab modes the :data:`PER_WIDTH_KEYWORDS` are read in J/m
+    and W/m though written, as everywhere, in J and W: the value is the same number,
+    and a front end shows the unit per metre.
+
+    Parameters
+    ----------
+    route : str
+        The route.
+    values : collections.abc.Mapping
+        The recipe's ``[build]`` values, as it gives them (``modes`` as tables).
+
+    Returns
+    -------
+    bool
+        Whether the route is the waveguide's and its mode set a slab set.
+
+    Examples
+    --------
+    >>> from solprop.recipe.metadata import per_unit_width
+    >>> per_unit_width("waveguide", {"modes": {"type": "ModeCollection.slab"}})
+    True
+    >>> per_unit_width("waveguide", {"modes": [{"type": "RectMode"}]})
+    False
+    """
+    return route == "waveguide" and _is_slab(values.get("modes"))
+
+
+def _slab_note(route: str) -> str:
+    """Return what a route's energy summary adds for slab sets.
+
+    Parameters
+    ----------
+    route : str
+        The route.
+
+    Returns
+    -------
+    str
+        `` (per metre of y on a slab set)`` on the waveguide route, else nothing.
+    """
+    return " (per metre of y on a slab set)" if route == "waveguide" else ""
+
+
 def _row(route: str, values: Mapping[str, object]) -> str:
     """Return the defaults-table row a recipe reads.
 
@@ -320,7 +373,7 @@ def _row(route: str, values: Mapping[str, object]) -> str:
     """
     if route == "capillary" and values.get("tdse") is not None:
         return "capillary tdse"
-    if route == "waveguide" and _is_slab(values.get("modes")):
+    if per_unit_width(route, values):
         return "waveguide slab"
     return route
 
@@ -746,7 +799,7 @@ def _shared(route: str) -> tuple[Parameter, ...]:
             (_ENERGY,),
             "input",
             "basic",
-            "Pulse energy; give it or peak_power.",
+            f"Pulse energy; give it or peak_power{_slab_note(route)}.",
             "guide/setup/pulses.md#energy-or-peak-power-never-both",
             display="uJ",
         ),
@@ -755,7 +808,7 @@ def _shared(route: str) -> tuple[Parameter, ...]:
             (_POWER,),
             "input",
             "basic",
-            "Peak power; give it or energy.",
+            f"Peak power; give it or energy{_slab_note(route)}.",
             "guide/setup/pulses.md#energy-or-peak-power-never-both",
             display="W",
         ),

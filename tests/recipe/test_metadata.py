@@ -338,3 +338,12 @@ def test_a_type_s_defaults_are_its_target_s():
     assert windows.shape == (0, 2)  # a dataclass's default factory, called
     assert "grid" not in metadata.parameters("absorber")  # the build context
     assert "tableau" not in metadata.parameters("RungeKutta")  # omitted
+
+
+def test_a_slab_set_s_energy_is_per_metre_of_y():
+    slab = {"modes": {"type": "ModeCollection.slab", "half_gap": 6e-5, "orders": [1]}}
+    assert metadata.per_unit_width("waveguide", slab)
+    assert not metadata.per_unit_width("capillary", slab)
+    assert set(metadata.PER_WIDTH_KEYWORDS) <= set(metadata.parameters("waveguide"))
+    assert "per metre of y" in metadata.parameters("waveguide")["energy"].summary
+    assert "per metre" not in metadata.parameters("capillary")["peak_power"].summary
