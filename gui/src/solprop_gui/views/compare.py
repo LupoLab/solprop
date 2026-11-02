@@ -16,11 +16,9 @@ import pyqtgraph as pg
 from PySide6.QtWidgets import QVBoxLayout, QWidget
 
 from solprop_gui.views.live import decibels
-from solprop_gui.views.plotting import HoverLayout
+from solprop_gui.views.plotting import PALETTE, HoverLayout
 
 __all__ = ["CompareView"]
-
-_PENS = ("#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b")
 
 
 class CompareView(QWidget):
@@ -101,7 +99,7 @@ class CompareView(QWidget):
         self.power_legend.clear()
         reference = self.reference()
         for number, (name, (axes, rows)) in enumerate(self.runs.items()):
-            pen = _PENS[number % len(_PENS)]
+            pen = PALETTE[number % len(PALETTE)]
             last = rows[-1]
             wavelength = np.asarray(axes["wavelength"], dtype=float) * 1e9
             time = np.asarray(axes["time"], dtype=float) * 1e15

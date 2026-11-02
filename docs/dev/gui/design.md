@@ -1168,7 +1168,7 @@ solprop changes section 21 names for it.
 | M0 (done) | Prototypes: NiceGUI and Qt run-and-watch for `prop_capillary`. |
 | Scaffold (done) | The `gui/` distribution in solprop's repository: packaging and the `gui` extra, the layer rules and their tests, the `gui` CI job, this page. |
 | M1 Lifecycle (in progress) | On the capillary, mode-averaged, only: main window, step bar, summary panel, service with kernel and worker, and the whole run lifecycle end to end — edit, validate, save, export, run, stop, reopen, resume and a simple compare of two runs — with the Overview results layout. It needs the lazy `solprop.recipe` (21.2). This exercises the architecture more than more forms would. |
-| M2 Explorer | The waveguide explorer, standalone and in the medium page; pinned pressure; multimode capillary. |
+| M2 Explorer (in progress, #422) | The waveguide explorer, standalone and in the medium page; pinned pressure; multimode capillary. Built as: a Dispersion view among the views (n_eff − 1, group index, β₂ or D, β₃, loss, A_eff and γ against wavelength, frequency or photon energy; modes on and off; ZDW and pump marked; a sweep of one keyword overlaid; a table at the pump; CSV), fed by a kernel `modes` request over `Recipe.modes` (P4) and brought forward on the Geometry and Medium steps; the start panel's "Waveguide explorer" opens a four-mode helium capillary; pins on pressure, radius, energy and peak power edited in their rows ("pinned": target, search range, root, solved value, every root on request through `Recipe.pin_roots`), a pin and a value of one keyword replacing each other in one undo step; the multimode capillary card; the launch table, labelled by the mode preview. |
 | M3 Guided routes | Antiresonant, full-transverse capillary, GNLSE (Taylor, step-index, tables), rectangular, slab. |
 | M4 Results depth | All views of 11.3 under result capabilities, view specifications and export through `solprop.plotting`, richer compare. |
 | M5 Free space | Radial, Cartesian, line; spatial views. |
@@ -1397,7 +1397,7 @@ merged to `main` at `Final`.
 | P1 | `solprop.recipe` imports lazily, so its quantity parser and writer, parameter paths and document load without the driver | M1; done ([#408](https://github.com/LupoLab/solprop/issues/408)) |
 | P2 | Per-keyword metadata for registered types: summary, level, default, range, manual anchor and display unit, held to the signatures as S9's is | M3, M5 |
 | P3 | A size-only estimate (shape, memory, output size) that builds no backend ([#410](https://github.com/LupoLab/solprop/issues/410)) | Not M1, whose estimate runs on request; a live figure in the summary later |
-| P4 | `ModeSetPreview` gains n_eff, β₁, β₃ and γ | M2 |
+| P4 | `ModeSetPreview` gains n_eff, β₁, β₃ and γ (PR #421) | M2 |
 | — | A waveguide example ([#402](https://github.com/LupoLab/solprop/issues/402)); metal claddings in recipes ([#403](https://github.com/LupoLab/solprop/issues/403)); a slab set's per-width units in the metadata ([#404](https://github.com/LupoLab/solprop/issues/404)) | M3 |
 | — | A radial example ([#405](https://github.com/LupoLab/solprop/issues/405)) | M5 |
 | — | `get_power` on a spatial output ([#406](https://github.com/LupoLab/solprop/issues/406)) | M4 |

@@ -15,12 +15,23 @@ import numpy as np
 import pyqtgraph as pg
 from PySide6.QtCore import QEvent, QPointF
 
-__all__ = ["BLUE", "HoverLayout", "Lookup", "Readout", "colormap", "curve_lookup"]
+__all__ = [
+    "BLUE",
+    "PALETTE",
+    "HoverLayout",
+    "Lookup",
+    "Readout",
+    "colormap",
+    "curve_lookup",
+]
 
 pg.setConfigOptions(antialias=True, background="w", foreground="k")
 
 BLUE = "#1f77b4"
 """The colour of a single curve."""
+
+PALETTE = ("#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b")
+"""The colours of several curves, in turn (Matplotlib's first six)."""
 
 Lookup = Callable[[float, float], tuple[float, float, str] | None]
 """Given a point in a plot's coordinates, the point to mark and its label, or None."""

@@ -46,6 +46,7 @@ class ServiceBridge(QObject):
         super().__init__(parent)
         self._kernel: KernelClient | None = None
         self._revision = 0
+        self._closed = False
         self.runs: dict[str, RunClient] = {}
 
     def _client(self) -> KernelClient:
@@ -101,8 +102,10 @@ class ServiceBridge(QObject):
         Returns
         -------
         int
-            The request's id.
+            The request's id; -1 once the bridge is closed, when nothing is sent.
         """
+        if self._closed:
+            return -1
         return self._client().request(kind, payload, revision=revision, key=key)
 
     def start_run(self, spec: RunSpec) -> RunClient:
@@ -123,7 +126,11 @@ class ServiceBridge(QObject):
         return client
 
     def close(self) -> None:
-        """End the kernel; runs still going are left to finish on their own."""
+        """End the kernel, for good; runs still going are left to finish on their own.
+
+        A request after this is not sent: it would start a kernel that nothing ends.
+        """
+        self._closed = True
         if self._kernel is not None:
             self._kernel.close(timeout=2.0)
             self._kernel = None

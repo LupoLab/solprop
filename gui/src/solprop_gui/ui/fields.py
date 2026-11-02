@@ -13,7 +13,9 @@ Each form the keyword takes that a widget can hold gets one:
 - anything else (a table, a profile, an array) is a line of inline TOML.
 
 Where a keyword takes several forms (a constant pressure or a gradient), a small
-picker chooses the form. Leaving a field empty, or picking the default, unsets the
+picker chooses the form. The launch is a table of modes; a keyword solprop can pin to
+a design target offers "pinned" too, whose entry goes in the recipe's ``[pins]``
+table in place of the value. Leaving a field empty, or picking the default, unsets the
 keyword so that solprop's default applies and follows solprop's improvements; the
 reset button does the same for any form.
 """
@@ -37,9 +39,11 @@ from solprop_gui.help.guide import guide_url
 from solprop_gui.model.recipe import MISSING
 from solprop_gui.model.values import FieldError, inline, read_value
 from solprop_gui.registry.pages import label
+from solprop_gui.ui.launch import LaunchField, launch_rows
+from solprop_gui.ui.pin import PinField
 from solprop_gui.ui.quantity import QuantityField, RangeField
 
-__all__ = ["ParameterRow", "modes_of"]
+__all__ = ["TABLE_KEYWORDS", "ParameterRow", "modes_of"]
 
 _SEVERITY_STYLE = {
     "error": "color: #c62828;",
@@ -50,8 +54,13 @@ _MODE_TITLES = {
     "choice": "choice",
     "number": "value",
     "range": "from … to",
+    "table": "table",
     "text": "as text",
+    "pin": "pinned",
 }
+
+TABLE_KEYWORDS = frozenset({"launch"})
+"""Keywords edited as a table of modes (:class:`~solprop_gui.ui.launch.LaunchField`)."""
 
 
 def modes_of(forms: Sequence[Mapping[str, object]]) -> list[str]:
@@ -134,6 +143,7 @@ class ParameterRow(QWidget):
         self.default = meta.get("default_value")
         self.default_text = meta.get("default")
         self._value: object = MISSING
+        self._pin: dict[str, object] | None = None
         self._updating = False
         self.resolved: Sequence[object] | None = None
 
@@ -179,6 +189,28 @@ class ParameterRow(QWidget):
             self.text = QLineEdit()
             self.text.editingFinished.connect(self._text_finished)
             self.editors["text"] = self.text
+        if self.name in TABLE_KEYWORDS:
+            self.modes.insert(0, "table")
+            self.launch = LaunchField()
+            self.launch.changed.connect(self._emit)
+            self.launch.refused.connect(lambda reason: self.set_issue(reason, "error"))
+            self.editors["table"] = self.launch
+        self.pin_targets = list(meta.get("pins") or [])  # pyright: ignore[reportArgumentType]
+        if self.pin_targets:
+            self.modes.append("pin")
+            self.unit = next(
+                (str(f["unit"]) for f in self.forms if f.get("unit") is not None), None
+            )
+            display = meta.get("display")
+            self.pin = PinField(
+                self.name,
+                self.pin_targets,
+                self.unit,
+                None if display is None else str(display),
+            )
+            self.pin.changed.connect(self._pinned)
+            self.pin.refused.connect(lambda reason: self.set_issue(reason, "error"))
+            self.editors["pin"] = self.pin
         for mode in self.modes:
             self.stack.addWidget(self.editors[mode])
         fixed = QSizePolicy.Policy.Fixed
@@ -196,7 +228,7 @@ class ParameterRow(QWidget):
         self.reset.setText("↺")
         self.reset.setObjectName(f"reset-{self.name}")
         self.reset.setToolTip("Back to the default.")
-        self.reset.clicked.connect(lambda: self._emit(None))
+        self.reset.clicked.connect(self._reset)
         self.editor = self.editors[self.modes[0]]
         self.editor.setObjectName(f"field-{self.name}")
         self.label.setBuddy(self.editor)
@@ -329,6 +361,10 @@ class ParameterRow(QWidget):
         """
         if mode == "choice":
             return any(c == value and type(c) is type(value) for c in self.choices)
+        if mode == "pin":
+            return False
+        if mode == "table":
+            return launch_rows(value) is not None
         if mode == "number":
             return isinstance(value, int | float | str) and not isinstance(value, bool)
         if mode == "range":
@@ -342,6 +378,24 @@ class ParameterRow(QWidget):
             )
         return True
 
+    def _raise(self, mode: str) -> None:
+        """Show one editor, the row taking its height alone, not the tallest one's.
+
+        Parameters
+        ----------
+        mode : str
+            The editor.
+        """
+        for name, editor in self.editors.items():
+            policy = (
+                QSizePolicy.Policy.Preferred
+                if name == mode
+                else QSizePolicy.Policy.Ignored
+            )
+            editor.setSizePolicy(policy, policy)
+        self.stack.setCurrentWidget(self.editors[mode])
+        self.stack.updateGeometry()
+
     def _show_mode(self, mode: str) -> None:
         """Show one editor, and pick it in the form picker.
 
@@ -350,7 +404,7 @@ class ParameterRow(QWidget):
         mode : str
             The editor.
         """
-        self.stack.setCurrentWidget(self.editors[mode])
+        self._raise(mode)
         self.mode.blockSignals(True)
         self.mode.setCurrentIndex(self.modes.index(mode))
         self.mode.blockSignals(False)
@@ -364,7 +418,7 @@ class ParameterRow(QWidget):
             The form picked.
         """
         mode = self.modes[index]
-        self.stack.setCurrentWidget(self.editors[mode])
+        self._raise(mode)
         self._show(self._value, mode)
 
     # ------------------------------------------------------------------ editing
@@ -395,6 +449,31 @@ class ParameterRow(QWidget):
             self.edited.emit(self.name, self.table, value)
         self.reset.setEnabled(self.is_set)
 
+    def _pinned(self, entry: dict[str, object]) -> None:
+        """Announce a complete pin: its ``[pins]`` entry replaces the value.
+
+        Parameters
+        ----------
+        entry : dict
+            The entry.
+        """
+        if self._updating:
+            return
+        self.set_issue(None)
+        self._pin = entry
+        self._value = MISSING
+        self.edited.emit(self.name, "pins", entry)
+        self.reset.setEnabled(True)
+
+    def _reset(self) -> None:
+        """Go back to the default: unset the value, or remove the pin."""
+        if self._pin is not None:
+            self._pin = None
+            self.edited.emit(self.name, "pins", MISSING)
+            self.reset.setEnabled(self.is_set)
+            return
+        self._emit(None)
+
     def _text_finished(self) -> None:
         """Read the text the user left, and announce a changed value."""
         if self._updating:
@@ -420,7 +499,7 @@ class ParameterRow(QWidget):
         bool
             False while solprop's default applies.
         """
-        return self._value is not MISSING
+        return self._value is not MISSING or self._pin is not None
 
     # ------------------------------------------------------------------ showing
 
@@ -485,6 +564,10 @@ class ParameterRow(QWidget):
                 shown = None if unset or not self._fits("range", value) else value
                 fallback = default if self._fits("range", default) else None
                 self.range.set_value(shown, fallback)
+            elif mode == "table":
+                self.launch.set_value(None if unset else value)
+            elif mode == "pin":
+                pass  # the pin shows its own entry (set_pin)
             else:
                 self.text.setText("" if unset else inline(value))
                 self.text.setPlaceholderText(self._placeholder())
@@ -501,14 +584,30 @@ class ParameterRow(QWidget):
             :data:`~solprop_gui.model.recipe.MISSING`.
         """
         self._value = value
+        self._pin = None
         current = self.modes[self.mode.currentIndex()]
-        if value is MISSING or self._fits(current, value):
+        # Text holds anything, so it is the editor of last resort.
+        if value is MISSING or (current != "text" and self._fits(current, value)):
             mode = current
         else:
             mode = next((m for m in self.modes if self._fits(m, value)), current)
         self._show_mode(mode)
         self._show(value, mode)
         self.reset.setEnabled(self.is_set)
+
+    def set_pin(self, entry: Mapping[str, object]) -> None:
+        """Show the recipe's pin on this keyword, without announcing it.
+
+        Parameters
+        ----------
+        entry : Mapping
+            Its ``[pins]`` entry.
+        """
+        self._value = MISSING
+        self._pin = dict(entry)
+        self._show_mode("pin")
+        self.pin.set_value(entry)
+        self.reset.setEnabled(True)
 
     def set_resolved(self, resolved: Sequence[object] | None) -> None:
         """Show what an unset keyword's default resolves to.

@@ -50,13 +50,14 @@ from PySide6.QtWidgets import (
 from solprop_gui.model.recipe import MISSING, RecipeModel
 from solprop_gui.model.workspace import DEFAULT_WORKSPACE, list_runs
 from solprop_gui.registry.pages import PAGES
-from solprop_gui.registry.routes import CARDS, card, card_of
+from solprop_gui.registry.routes import CARDS, EXPLORER_SETUP, GUIDED, card, card_of
 from solprop_gui.service.messages import Reply
 from solprop_gui.ui.bridge import ServiceBridge
 from solprop_gui.ui.icons import icon
 from solprop_gui.ui.pages import ParameterPage, StartPage, issue_keyword
 from solprop_gui.ui.results import ResultsPage
 from solprop_gui.ui.run_panel import RunPanel
+from solprop_gui.views.explorer import ExplorerView
 from solprop_gui.views.splitter import GripSplitter
 
 __all__ = ["CHECK_DELAY_MS", "ROUTES", "STEPS", "MainWindow"]
@@ -85,42 +86,39 @@ Confirm = Callable[[str, str], str]
 ``"cancel"``."""
 
 
-class _SetValue(QUndoCommand):
-    """Set, or unset, one value of the recipe; undone by setting the old one back.
+Change = tuple[str, str, object, object]
+"""One change to the recipe: the keyword, its table, the new value and the old."""
+
+
+class _SetValues(QUndoCommand):
+    """Set, or unset, values of the recipe together; undone by setting them back.
+
+    A pin and a value of the same keyword replace each other, so pinning a keyword
+    unsets its value in one step, and undoing it sets the value back.
 
     Parameters
     ----------
     window : MainWindow
         The window whose recipe it changes.
-    name : str
-        The keyword.
-    table : str
-        Its table.
-    values : tuple
-        The new value and the old one.
+    changes : list of Change
+        The changes.
     """
 
-    def __init__(
-        self,
-        window: MainWindow,
-        name: str,
-        table: str,
-        values: tuple[object, object],
-    ) -> None:
-        """Hold the change: the new value and the old one."""
-        super().__init__(f"Set {name}")
+    def __init__(self, window: MainWindow, changes: list[Change]) -> None:
+        """Hold the changes."""
+        super().__init__(f"Set {changes[0][0]}")
         self.window = window
-        self.name = name
-        self.table = table
-        self.new, self.old = values
+        self.changes = changes
 
     def redo(self) -> None:
-        """Set the new value."""
-        self.window.apply_value(self.name, self.table, self.new)
+        """Set the new values."""
+        self.window.apply_values([(n, t, new) for n, t, new, _ in self.changes])
 
     def undo(self) -> None:
-        """Set the old value back."""
-        self.window.apply_value(self.name, self.table, self.old)
+        """Set the old values back."""
+        self.window.apply_values(
+            [(n, t, old) for n, t, _, old in reversed(self.changes)]
+        )
 
 
 class MainWindow(QMainWindow):
@@ -160,6 +158,7 @@ class MainWindow(QMainWindow):
         self.confirm: Confirm = self._ask
         self._pending: dict[int, str] = {}
         self._built_route: str | None = None
+        self._modes_revision: int | None = None
         self.verdicts: dict[str, str | None] = {}
         self.undo = QUndoStack(self)
         saved = self.settings.value("workspace")
@@ -169,6 +168,7 @@ class MainWindow(QMainWindow):
         self.start.card_chosen.connect(self.new_from_card)
         self.start.example_chosen.connect(self.open_example)
         self.start.open_button.clicked.connect(self.choose_recipe)
+        self.start.explorer_button.clicked.connect(self.open_explorer)
         self.results = ResultsPage(self.bridge)
         self.results.setup_opened.connect(self.open_setup_text)
         self.results.view_wanted.connect(self.show_view)
@@ -190,6 +190,7 @@ class MainWindow(QMainWindow):
                 continue
             widget = ParameterPage(page)
             widget.edited.connect(self.edit)
+            widget.roots_wanted.connect(self.find_roots)
             if page.key == "propagate":
                 widget.add_section("Run", self.run_panel)
             self.pages[page.key] = widget
@@ -200,6 +201,9 @@ class MainWindow(QMainWindow):
         self.views = QTabWidget()
         self.views.setObjectName("views")
         self.views.setDocumentMode(True)
+        self.explorer = ExplorerView()
+        self.explorer.sweep_changed.connect(lambda: self.request_modes(force=True))
+        self.views.addTab(self.explorer, "Dispersion")
         self.views.addTab(self.run_panel.view, "Live run")
         self.views.addTab(self.results.overview, "Results")
         self.views.addTab(self.results.compare, "Compare")
@@ -271,6 +275,7 @@ class MainWindow(QMainWindow):
         self.autosave.timeout.connect(self.write_recovery)
         self.autosave.start(30_000)
         self.bridge.replied.connect(self.on_reply)
+        self.views.currentChanged.connect(lambda _index: self.request_modes())
 
         self.show_step("start")
         self.resize(1280, 800)
@@ -496,6 +501,9 @@ class MainWindow(QMainWindow):
         self.forward_action.setEnabled(index < len(STEPS) - 1)
         if key == "results":
             self.show_view("results")
+        elif key in ("geometry", "medium") and self._guided():
+            self.show_view("dispersion")
+        self.request_modes()
 
     def step_by(self, steps: int) -> None:
         """Go back or forward through the steps.
@@ -514,9 +522,10 @@ class MainWindow(QMainWindow):
         Parameters
         ----------
         name : str
-            ``"live"``, ``"results"`` or ``"compare"``.
+            ``"dispersion"``, ``"live"``, ``"results"`` or ``"compare"``.
         """
         widget = {
+            "dispersion": self.explorer,
             "live": self.run_panel.view,
             "results": self.results.overview,
             "compare": self.results.compare,
@@ -633,6 +642,10 @@ class MainWindow(QMainWindow):
             self._show_issues(value if reply.ok else _failure(reply))  # pyright: ignore[reportArgumentType]
         elif purpose == "summarise":
             self._show_summary(value if reply.ok else None, reply.error)  # pyright: ignore[reportArgumentType]
+        elif purpose == "modes":
+            self._show_modes(reply)
+        elif purpose.startswith("roots-"):
+            self._show_roots(purpose.removeprefix("roots-"), reply)
         elif purpose in ("to_python", "export"):
             self.code = str(value) if reply.ok else f"# {reply.error}"
             self.code_view.setPlainText(self.code)
@@ -727,6 +740,8 @@ class MainWindow(QMainWindow):
         """
         self.model = model
         self.base = base
+        self._modes_revision = None
+        self.explorer.set_route(model.route)
         self.undo.clear()
         self.issues = []
         route = model.route
@@ -766,44 +781,53 @@ class MainWindow(QMainWindow):
                 page.show_values(self.model)
 
     def edit(self, name: str, table: str, value: object) -> None:
-        """Change one value, as an undoable command.
+        """Change one value, or one pin, as an undoable command.
+
+        A value set on a pinned keyword removes its pin, and a pin removes the
+        keyword's value, in the same command.
 
         Parameters
         ----------
         name : str
             The keyword.
         table : str
-            Its table.
+            Its table: ``"build"``, ``"execution"`` or ``"pins"``.
         value : object
-            The new value, or :data:`~solprop_gui.model.recipe.MISSING`.
+            The new value or pin, or :data:`~solprop_gui.model.recipe.MISSING`.
         """
         if self.model is None:
             return
         old = self.model.get(name, table)
+        changes: list[Change] = []
         if old != value:
-            self.undo.push(_SetValue(self, name, table, (value, old)))
+            changes.append((name, table, value, old))
+        other = {"pins": "build", "build": "pins"}.get(table)
+        if other is not None and (table == "build" or value is not MISSING):
+            replaced = self.model.get(name, other)
+            if replaced is not MISSING:
+                changes.append((name, other, MISSING, replaced))
+        if changes:
+            self.undo.push(_SetValues(self, changes))
 
-    def apply_value(self, name: str, table: str, value: object) -> None:
-        """Set a value in the recipe and show the change (the commands' action).
+    def apply_values(self, values: list[tuple[str, str, object]]) -> None:
+        """Set values in the recipe and show the change (the commands' action).
 
         Parameters
         ----------
-        name : str
-            The keyword.
-        table : str
-            Its table.
-        value : object
-            The value, or :data:`~solprop_gui.model.recipe.MISSING`.
+        values : list of tuple
+            Each keyword, its table and its value, or
+            :data:`~solprop_gui.model.recipe.MISSING`.
         """
         if self.model is None:
             return
-        try:
-            if value is MISSING:
-                self.model.unset(name, table)
-            else:
-                self.model.set(name, value, table)
-        except ValueError as error:
-            self.statusBar().showMessage(f"{name}: {error}", 10_000)
+        for name, table, value in values:
+            try:
+                if value is MISSING:
+                    self.model.unset(name, table)
+                else:
+                    self.model.set(name, value, table)
+            except ValueError as error:
+                self.statusBar().showMessage(f"{name}: {error}", 10_000)
         self.show_values()
         self._update_title()
         self.schedule_check()
@@ -854,6 +878,7 @@ class MainWindow(QMainWindow):
         self.run_panel.set_can_run(self.model is not None and not errors)
         if not errors and self.console.currentWidget() is self.code_view:
             self._request_code()
+        self.request_modes()
 
     def _update_steps(self) -> None:
         """Badge each step with solprop's verdict on its page."""
@@ -904,8 +929,10 @@ class MainWindow(QMainWindow):
                 lines.append(f"Peak intensity {intensity:.3g} W/cm²")
                 lines.append("<i>at the entrance (solprop.tools.capillary_params)</i>")
             resolved = summary.get("resolved") or {}
+            pinned = summary.get("pinned") or {}
             for page in self.pages.values():
                 page.show_resolved(resolved)  # pyright: ignore[reportArgumentType]
+                page.show_pinned(pinned)  # pyright: ignore[reportArgumentType]
         self.summary.setText("<br>".join(lines))
 
     def _go_to_issue(self, item: QListWidgetItem) -> None:
@@ -922,6 +949,125 @@ class MainWindow(QMainWindow):
                 self.show_step(key)
                 widget.reveal(name)
                 return
+
+    # ------------------------------------------------------------------ modes
+
+    def _guided(self) -> bool:
+        """Return whether the open setup is on a route with modes to explore.
+
+        Returns
+        -------
+        bool
+            Whether its route builds a mode set.
+        """
+        return self.model is not None and self.model.route in GUIDED
+
+    def _wants_modes(self) -> bool:
+        """Return whether the modes are needed now: shown, or labelling a launch.
+
+        Returns
+        -------
+        bool
+            Whether the explorer is in front, or the Input step shows a multimode
+            setup's launch table.
+        """
+        if not self._guided():
+            return False
+        if self.views.currentWidget() is self.explorer:
+            return True
+        multimode = self.model is not None and self.model.get("modes") not in (
+            MISSING,
+            1,
+        )
+        return self.step == "input" and multimode
+
+    def request_modes(self, *, force: bool = False) -> None:
+        """Ask for the setup's modes, when needed and not yet asked for this revision.
+
+        Parameters
+        ----------
+        force : bool, optional
+            Ask even if this revision's modes were asked for (a new sweep).
+        """
+        if self.model is None or not (force or self._wants_modes()):
+            return
+        if not self._guided():
+            self.explorer.show_error(
+                f"The {self.model.route} route has no modes to explore."
+            )
+            return
+        if any(issue.get("severity") == "error" for issue in self.issues):
+            self.explorer.show_error(
+                "solprop's check finds an error in the setup: the modes are solved "
+                "once it accepts it."
+            )
+            return
+        revision = self.model.revision
+        if revision == self._modes_revision and not force:
+            return
+        self._modes_revision = revision
+        self.explorer.busy("Solving the modes…")
+        payload = {
+            "text": self.model.to_text(),
+            "base": self.base,
+            "sweep": self.explorer.sweep(),
+        }
+        self._ask_kernel("modes", payload, "modes", revision=revision)
+
+    def _show_modes(self, reply: Reply) -> None:
+        """Show the kernel's modes in the explorer, and their labels in the launch.
+
+        Parameters
+        ----------
+        reply : solprop_gui.service.messages.Reply
+            The ``modes`` reply.
+        """
+        if not reply.ok or not isinstance(reply.value, dict):
+            self.explorer.show_error(f"No modes: {reply.error}")
+            self._modes_revision = None
+            return
+        self.explorer.set_sets(reply.value)
+        labels = self.explorer.labels()
+        for page in self.pages.values():
+            page.set_mode_labels(labels)
+
+    def find_roots(self, name: str) -> None:
+        """Ask for every root of a pinned keyword's target.
+
+        Parameters
+        ----------
+        name : str
+            The keyword.
+        """
+        if self.model is None:
+            return
+        payload = {"text": self.model.to_text(), "base": self.base, "path": name}
+        self._ask_kernel("pin_roots", payload, f"roots-{name}")
+
+    def _show_roots(self, name: str, reply: Reply) -> None:
+        """Offer a pin's roots in its row.
+
+        Parameters
+        ----------
+        name : str
+            The pinned keyword.
+        reply : solprop_gui.service.messages.Reply
+            The ``pin_roots`` reply.
+        """
+        for page in self.pages.values():
+            for (row_name, _), row in page.rows.items():
+                if row_name != name or not row.pin_targets:
+                    continue
+                if reply.ok and isinstance(reply.value, dict):
+                    row.pin.set_roots(reply.value, row.unit)
+                else:
+                    row.set_issue(str(reply.error), "error")
+
+    def open_explorer(self) -> None:
+        """Open the standalone explorer: a capillary to change and sweep."""
+        if self._may_discard():
+            self.set_model(RecipeModel(EXPLORER_SETUP), base=None)
+            self.show_view("dispersion")
 
     # ------------------------------------------------------------------ code
 
@@ -1106,6 +1252,8 @@ class MainWindow(QMainWindow):
             event.ignore()
             return
         self.settings.setValue("workspace", str(self.run_panel.workspace))
+        self.check_timer.stop()
+        self.autosave.stop()
         self.bridge.close()
         event.accept()
 

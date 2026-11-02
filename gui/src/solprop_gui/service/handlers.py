@@ -26,6 +26,7 @@ from solprop.recipe.metadata import REQUIRED
 from solprop.recipe.quantity import Unit, format_quantity
 from solprop.tools import capillary_params
 
+from solprop_gui.service.design import DESIGN_HANDLERS, pin_targets
 from solprop_gui.service.reduce import Display, Reducer, stats_row
 
 __all__ = ["HANDLERS"]
@@ -194,13 +195,18 @@ def describe(payload: Payload) -> dict[str, object]:
     -------
     dict
         ``parameters`` (the route's keywords in order), ``execution`` (the
-        ``[execution]`` table's), ``choices`` and ``rules``.
+        ``[execution]`` table's), ``choices`` and ``rules``; each keyword carries
+        ``pins``, the design targets it can be pinned to (empty for most).
     """
     route = str(payload["route"])
     caps = capabilities.route(route)
+    targets = pin_targets({"route": route})
+    keywords = [_parameter(entry) for entry in parameters(route).values()]
+    for keyword in keywords:
+        keyword["pins"] = targets.get(str(keyword["name"]), [])
     return {
         "route": route,
-        "parameters": [_parameter(entry) for entry in parameters(route).values()],
+        "parameters": keywords,
         "execution": [_parameter(entry) for entry in parameters("execution").values()],
         "choices": {name: list(values) for name, values in caps.choices.items()},
         "rules": [
@@ -267,10 +273,15 @@ def summarise(payload: Payload) -> dict[str, object]:
     -------
     dict
         ``energy`` and ``peak_power`` (J, W), ``resolved`` (by keyword: the value
-        and the rule's sentence), and ``design`` (by name, SI; empty when not
-        available) with ``design_error`` saying why it is not.
+        and the rule's sentence), ``design`` (by name, SI; empty when not
+        available) with ``design_error`` saying why it is not, and ``pinned`` (by
+        pinned path, the solved value in its keyword's unit).
     """
-    recipe = _recipe(payload).resolve()
+    authored = _recipe(payload)
+    recipe = authored.resolve()
+    pinned = {
+        path: _plain(recipe.get(path)) for path in authored.to_dict().get("pins", {})
+    }
     preview = recipe.preview_input()
     build = recipe.to_dict()["build"]
     resolved: dict[str, object] = {}
@@ -291,6 +302,7 @@ def summarise(payload: Payload) -> dict[str, object]:
         "resolved": resolved,
         "design": design,
         "design_error": design_error,
+        "pinned": pinned,
     }
 
 
@@ -601,5 +613,6 @@ HANDLERS: dict[str, Callable[[Payload], object]] = {
     "recipe_of": recipe_of,
     "summarise": summarise,
     "to_python": to_python,
+    **DESIGN_HANDLERS,
 }
 """The handlers, by request kind."""

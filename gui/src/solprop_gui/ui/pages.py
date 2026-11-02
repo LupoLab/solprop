@@ -128,9 +128,12 @@ class ParameterPage(QWidget):
     ----------
     edited : Signal
         Emitted with (name, table, value) when a row's value is changed.
+    roots_wanted : Signal
+        Emitted with a pinned keyword when the user asks for its pin's roots.
     """
 
     edited = Signal(str, str, object)
+    roots_wanted = Signal(str)
 
     def __init__(self, page: Page, parent: QWidget | None = None) -> None:
         """Make the page, with no rows until the route is described."""
@@ -214,6 +217,10 @@ class ParameterPage(QWidget):
                 continue
             row = ParameterRow(meta, table)
             row.edited.connect(self.edited)
+            if row.pin_targets:
+                row.pin.roots_wanted.connect(
+                    lambda name=row.name: self.roots_wanted.emit(name)
+                )
             self.rows[row.name, table] = row
             section = self.sections[str(meta.get("group"))]
             section.add(row)
@@ -254,9 +261,37 @@ class ParameterPage(QWidget):
         advanced = self.advanced.isChecked()
         for (name, table), row in self.rows.items():
             value = model.get(name, table)
-            row.set_value(value)
+            pin = model.get(name, "pins") if row.pin_targets else MISSING
+            if isinstance(pin, dict):
+                row.set_pin(pin)
+            else:
+                row.set_value(value)
             # An advanced keyword the recipe sets is shown: nothing set is hidden.
-            row.setVisible(advanced or row.level == "basic" or value is not MISSING)
+            row.setVisible(advanced or row.level == "basic" or row.is_set)
+
+    def show_pinned(self, pinned: Mapping[str, object]) -> None:
+        """Show the values solprop solved the pins to.
+
+        Parameters
+        ----------
+        pinned : Mapping
+            By pinned keyword, its solved value in the keyword's unit.
+        """
+        for (name, _), row in self.rows.items():
+            if row.pin_targets:
+                row.pin.set_solved(pinned.get(name), row.unit)
+
+    def set_mode_labels(self, labels: Sequence[str]) -> None:
+        """Offer the setup's mode labels to its tables of modes.
+
+        Parameters
+        ----------
+        labels : Sequence of str
+            The labels, as the mode preview gives them.
+        """
+        for row in self.rows.values():
+            if "table" in row.modes:
+                row.launch.set_labels(labels)
 
     def show_resolved(self, resolved: Mapping[str, Sequence[object]]) -> None:
         """Show what unset defaults resolve to.
@@ -353,6 +388,12 @@ class StartPage(QWidget):
         self.open_button.setObjectName("open-setup-file")
         self.results_button = QPushButton("Open results…")
         self.results_button.setObjectName("open-results-file")
+        self.explorer_button = QPushButton("Waveguide explorer")
+        self.explorer_button.setObjectName("explorer")
+        self.explorer_button.setToolTip(
+            "A capillary to explore: its modes' dispersion, loss and nonlinearity, "
+            "swept over a keyword, before any run."
+        )
         files = QHBoxLayout()
         files.addWidget(self.open_button)
         files.addWidget(self.results_button)
@@ -383,6 +424,7 @@ class StartPage(QWidget):
         layout.setContentsMargins(6, 6, 2, 2)
         layout.addWidget(title)
         layout.addLayout(files)
+        layout.addWidget(self.explorer_button)
         layout.addWidget(cards)
         layout.addWidget(examples, 1)
 

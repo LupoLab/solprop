@@ -14,7 +14,15 @@ come yet is shown disabled, with the reason.
 from dataclasses import dataclass, field
 from typing import Final
 
-__all__ = ["CARDS", "RouteCard", "card", "card_of"]
+__all__ = [
+    "CARDS",
+    "EXPLORER_SETUP",
+    "GUIDED",
+    "IMPLIED",
+    "RouteCard",
+    "card",
+    "card_of",
+]
 
 
 @dataclass(frozen=True)
@@ -32,7 +40,11 @@ class RouteCard:
     route : str
         The solprop route it builds.
     preset : dict
-        The ``[build]`` values that make a recipe this card's.
+        The ``[build]`` values that make a recipe this card's; a value equal to
+        solprop's default (:data:`IMPLIED`) may also be left out of a recipe.
+    extra : dict
+        Values a new setup from the card starts with beyond its preset, which do not
+        make a recipe the card's.
     reason : str or None
         Why it cannot be chosen yet; ``None`` when it can.
 
@@ -47,6 +59,7 @@ class RouteCard:
     summary: str
     route: str
     preset: dict[str, object] = field(default_factory=dict)
+    extra: dict[str, object] = field(default_factory=dict)
     reason: str | None = None
 
     @property
@@ -79,7 +92,9 @@ class RouteCard:
             lines.append(f'title = "{escaped}"')
         lines.append("")
         lines.append("[build]")
-        for name, value in self.preset.items():
+        for name, value in {**self.preset, **self.extra}.items():
+            if name in IMPLIED and IMPLIED[name] == value:
+                continue  # solprop's default: left to solprop
             lines.append(f"{name} = {_toml(value)}")
         return "\n".join(lines) + "\n"
 
@@ -106,6 +121,10 @@ def _toml(value: object) -> str:
 
 _LATER = "Comes with milestone {} of the front end."
 
+IMPLIED: Final = {"mode_average": False}
+"""solprop's defaults of the keywords the cards' presets name; a test holds them to
+solprop's metadata."""
+
 CARDS: Final = (
     RouteCard(
         "capillary-averaged",
@@ -120,7 +139,8 @@ CARDS: Final = (
         "Capillary, multimode",
         "The capillary's HE1m modes, coupled through the nonlinearity.",
         "capillary",
-        reason=_LATER.format("M2"),
+        {"mode_average": False},
+        {"modes": 4},
     ),
     RouteCard(
         "gnlse",
@@ -190,14 +210,41 @@ def card_of(route: str, build: dict[str, object]) -> RouteCard | None:
     --------
     >>> card_of("capillary", {"mode_average": True}).key
     'capillary-averaged'
-    >>> card_of("capillary", {"modes": 2}) is None
+    >>> card_of("capillary", {"modes": 2}).key
+    'capillary-modal'
+    >>> card_of("planar", {}) is None
     True
     """
     for entry in CARDS:
         if (
             entry.enabled
             and entry.route == route
-            and all(build.get(k) == v for k, v in entry.preset.items())
+            and all(build.get(k, IMPLIED.get(k)) == v for k, v in entry.preset.items())
         ):
             return entry
     return None
+
+
+GUIDED: Final = frozenset({"capillary", "waveguide", "planar"})
+"""The routes with a mode set for the explorer to show (``Recipe.modes``)."""
+
+EXPLORER_SETUP: Final = """\
+[recipe]
+format = 1
+route = "capillary"
+title = "Waveguide explorer"
+
+[build]
+radius = "125 um"
+length = "1 m"
+gas = "He"
+pressure = "1 bar"
+modes = 4
+wavelength = "800 nm"
+fwhm = "10 fs"
+energy = "100 uJ"
+wavelength_limits = ["150 nm", "4 um"]
+trange = "400 fs"
+"""
+"""The setup the standalone waveguide explorer opens with: a helium-filled capillary
+and its first four modes, a starting point to change and sweep."""

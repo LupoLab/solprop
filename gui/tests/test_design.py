@@ -1,0 +1,134 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+"""The kernel's design requests: modes, sweeps and pins (no Qt), and a multimode run."""
+
+import warnings
+from collections.abc import Iterator, Mapping
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+import pytest
+from solprop.recipe import Recipe, parameters
+from solprop.recipe.pins import TARGETS
+
+from conftest import TINY
+from solprop_gui.registry.explore import PIN_KEYS, PIN_SEARCH
+from solprop_gui.registry.routes import EXPLORER_SETUP, IMPLIED
+from solprop_gui.service import handlers
+from solprop_gui.service.worker import RunSpec
+from test_service import Collector
+
+MULTIMODE = TINY.replace("mode_average = true", "modes = 2").replace(
+    "n_save = 6",
+    'n_save = 3\nlaunch = { "HE1,1" = 0.8, "HE1,2" = { share = 0.2, phase = 1.0 } }',
+)
+"""The tiny capillary in two modes, launched into both."""
+
+PINNED = TINY.replace('pressure = "1 bar"\n', "") + (
+    '\n[pins]\npressure = { target = "zdw", wavelength = "500 nm", '
+    'search = ["0.1 bar", "10 bar"] }\n'
+)
+"""The tiny capillary with its pressure pinned to a zero-dispersion wavelength."""
+
+
+@pytest.fixture(autouse=True)
+def _quiet() -> Iterator[None]:
+    """Ignore the material-range warnings of the wide bands."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        yield
+
+
+def ask(kind: str, payload: Mapping[str, object]) -> Any:
+    return handlers.HANDLERS[kind](payload)
+
+
+def test_the_modes_of_a_setup_are_plain_arrays():
+    reply = ask("modes", {"text": EXPLORER_SETUP})
+    assert reply["pump"] == pytest.approx(800e-9) and reply["sweep"] is None
+    (only,) = reply["sets"]
+    assert only["value"] is None and only["z"] == 0.0
+    labels = [mode["label"] for mode in only["modes"]]
+    assert labels == [f"HE1,{m}:even" for m in range(1, 5)]
+    first = only["modes"][0]
+    for name in ("neff_minus_one", "beta1", "beta2", "beta3", "alpha", "gamma"):
+        assert first[name].shape == only["omega"].shape
+    assert 4e-7 < first["zdw"] < 6e-7 and first["aeff"] > 0
+
+
+def test_a_sweep_gives_one_mode_set_per_value_and_says_which_fail():
+    payload = {
+        "text": TINY,
+        "sweep": {"name": "pressure", "values": ["0.5 bar", "2 bar", "x"]},
+        "z": 0.0,
+    }
+    reply = ask("modes", payload)
+    assert reply["sweep"] == "pressure"
+    low, high, bad = reply["sets"]
+    assert low["modes"][0]["zdw"] < high["modes"][0]["zdw"]  # more gas, redder ZDW
+    assert "not a quantity" in bad["error"]
+    wrong = ask(
+        "modes", {"text": TINY, "sweep": {"name": "radius", "values": ["0 um"]}}
+    )
+    assert "error" in wrong["sets"][0]
+
+
+def test_a_sweep_over_a_pinned_keyword_replaces_the_pin():
+    pinned = PINNED + '\n[pins.energy]\ntarget = "soliton_order"\norder = 2\n'
+    pinned = pinned.replace('energy = "100 uJ"\n', "")
+    reply = ask("modes", {"text": pinned, "sweep": {"name": "pressure", "values": [1]}})
+    assert "modes" in reply["sets"][0]
+    alone = ask("modes", {"text": PINNED, "sweep": {"name": "pressure", "values": [1]}})
+    assert "modes" in alone["sets"][0]
+
+
+def test_a_route_without_modes_or_a_pump_says_so():
+    soliton = Recipe.example("soliton").to_text()
+    reply = ask("modes", {"text": soliton})
+    assert "builds no mode set" in reply["sets"][0]["error"]
+    no_pump = ask("modes", {"text": TINY.replace('wavelength = "800 nm"\n', "")})
+    assert no_pump["pump"] is None and "wavelength" in no_pump["sets"][0]["error"]
+    unsolvable = PINNED.replace('"500 nm"', '"50 nm"')
+    assert ask("modes", {"text": unsolvable})["pump"] is None
+
+
+def test_pins_are_described_and_their_roots_found():
+    assert set(ask("pin_targets", {"route": "capillary"})["pressure"][0]) == {
+        "target",
+        "stage",
+        "required",
+    }
+    description = ask("describe", {"route": "capillary"})
+    by_name = {entry["name"]: entry for entry in description["parameters"]}
+    assert [pin["target"] for pin in by_name["energy"]["pins"]] == ["soliton_order"]
+    assert by_name["gas"]["pins"] == []
+    found = ask("pin_roots", {"text": PINNED, "path": "pressure"})
+    assert len(found["roots"]) >= 1 and found["attainable"] is None
+    none = ask(
+        "pin_roots", {"text": PINNED.replace('"500 nm"', '"50 nm"'), "path": "pressure"}
+    )
+    assert none["roots"] == [] and "wavelength" in none["quantity"]
+    summary = ask("summarise", {"text": PINNED})
+    assert summary["pinned"]["pressure"] == pytest.approx(found["roots"][0])
+
+
+def test_the_registry_agrees_with_solprops_pins_and_defaults():
+    required = {key for _, keys, _ in TARGETS.values() for key in keys}
+    assert required == set(PIN_KEYS)
+    capillary = parameters("capillary")
+    assert set(PIN_SEARCH) <= set(capillary)
+    for name, value in IMPLIED.items():
+        assert capillary[name].default == value
+
+
+def test_a_multimode_run_with_a_launch_streams_rows(tmp_path: Path):
+    spec = RunSpec("m1", str(tmp_path / "m1"), recipe=MULTIMODE, base=str(tmp_path))
+    collector = Collector(spec).start()
+    collector.collect()
+    kinds = collector.kinds()
+    assert kinds[-1] == "finished", collector.events[-1].data
+    rows = [event.data for event in collector.events if event.kind == "row"]
+    assert len(rows) == 3 and np.all(np.isfinite(rows[-1]["power"]))
