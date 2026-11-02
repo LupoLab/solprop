@@ -24,6 +24,7 @@ from solprop.output import (
     open_file,
     resume,
 )
+from solprop.output.hdf5 import _dataset
 from solprop.output.schema import (
     StepStats,
     _example_metadata,
@@ -258,11 +259,14 @@ def test_each_recorded_outcome_owns_its_resume_entry_and_history(metadata):
     assert second.previous_executions[0]["message"] == "stopped"
 
 
+@pytest.mark.parametrize("value", [float("nan"), object()], ids=["nan", "object"])
 @pytest.mark.parametrize(
     "name", ["logical_calls", "atomic_calls", "execution", "previous_executions"]
 )
-def test_an_outcome_that_is_not_finite_json_names_the_part(name):
-    bad = {"value": float("nan")}
+def test_an_outcome_that_is_not_finite_json_names_the_part(name, value):
+    # The record is validated whole, once; only its failure checks the parts alone,
+    # and the error names the one that failed, whichever it is.
+    bad = {"value": value}
     with pytest.raises(OutputError, match=rf"finite JSON values: .*'s {name} holds"):
         if name == "logical_calls":
             RunOutcome("failed", 0.0, logical_calls=bad)
@@ -272,6 +276,41 @@ def test_an_outcome_that_is_not_finite_json_names_the_part(name):
             RunOutcome("failed", 0.0, execution=bad)
         else:
             RunOutcome("failed", 0.0, previous_executions=(bad,))
+
+
+def _string_length(dataset: h5py.Dataset) -> int | None:
+    """Return a string dataset's fixed length, or ``None`` for a variable one."""
+    string = h5py.check_string_dtype(dataset.dtype)
+    assert string is not None
+    return string.length
+
+
+def test_an_outcome_dataset_of_another_type_is_replaced_and_reads_back(
+    metadata, tmp_path
+):
+    # The outcome is written in place when it is a variable-length string; a file
+    # whose outcome was stored another way, by hand, has it replaced by one.
+    path = tmp_path / "fixed.h5"
+    with HDF5Output(path) as handler:
+        handler.open(metadata)
+        handler.save(plane(metadata, 0.0))
+        handler.record_outcome(RunOutcome("running", 0.0))
+    with h5py.File(path, "r+") as file:
+        text = _dataset(file, "meta/outcome").asstr()[()]
+        del file["meta/outcome"]
+        file.create_dataset("meta/outcome", data=np.bytes_(text))
+        assert _string_length(_dataset(file, "meta/outcome")) == len(text)
+    with HDF5Output(path, append=True) as handler:
+        handler.open(metadata)
+        handler.record_outcome(RunOutcome("complete", 0.0, message="replaced"))
+    with h5py.File(path, "r") as file:
+        stored = _dataset(file, "meta/outcome")
+        assert stored.shape == ()
+        assert _string_length(stored) is None
+    with open_file(path) as handler:
+        assert handler.outcome is not None
+        assert handler.outcome.status == "complete"
+        assert handler.outcome.message == "replaced"
 
 
 @pytest.mark.parametrize("z", [-1.0, np.nan, np.inf])

@@ -1993,8 +1993,18 @@ class RunOutcome:
         try:
             owned = _outcome_record(parts)
         except OutputError as error:
-            _name_the_failing_part(parts, error)
-            raise
+            # Only now is each part checked alone, so that the error names the one to
+            # look at: the whole record fails exactly when one of its parts does.
+            name, why = next(
+                (name, why)
+                for name, part in parts.items()
+                if (why := _json_failure(part)) is not None
+            )
+            msg = (
+                "execution records must contain finite JSON values: the run "
+                f"outcome's {name} holds {why}"
+            )
+            raise OutputError(msg) from error
         for name in ("logical_calls", "atomic_calls", "execution"):
             object.__setattr__(self, name, owned[name])
         object.__setattr__(
@@ -2053,32 +2063,24 @@ class RunOutcome:
         )
 
 
-def _name_the_failing_part(parts: Mapping[str, object], error: OutputError) -> None:
-    """Raise the error of the first part of an outcome that is not finite JSON.
-
-    The record is validated whole, once, on the way in; only when that fails is
-    each part checked alone, so that the error names the one to look at.
+def _json_failure(part: object) -> str | None:
+    """Return why a part of a run outcome is not finite JSON, or ``None`` if it is.
 
     Parameters
     ----------
-    parts : collections.abc.Mapping
-        The outcome's ledgers and execution records, by field name.
-    error : OutputError
-        The whole record's failure.
+    part : object
+        The part.
 
-    Raises
-    ------
-    OutputError
-        For the first part that fails alone, naming it.
+    Returns
+    -------
+    str or None
+        The encoder's reason.
     """
-    for name, part in parts.items():
-        try:
-            json.dumps(part, allow_nan=False)
-        except (TypeError, ValueError) as one:
-            raise OutputError(
-                f"execution records must contain finite JSON values: the run "
-                f"outcome's {name} holds {one}"
-            ) from error
+    try:
+        json.dumps(part, allow_nan=False)
+    except (TypeError, ValueError) as error:
+        return str(error)
+    return None
 
 
 def _json_copy(value: object) -> object:
