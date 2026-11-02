@@ -36,7 +36,7 @@ def radial_blas_case(n_r, n_pol, chunk, duration):
     grid = EnvelopeGrid.from_limits(
         1e-4, 800e-9, (600e-9, 1.2e-6), duration, thg=False, **LEGACY_GRID
     )
-    space = RadialGrid(6e-4, n_r, window_factor=0)
+    space = RadialGrid(6e-4, n_r, collar_fraction=0)
     pulse = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-7),
         80e-6,

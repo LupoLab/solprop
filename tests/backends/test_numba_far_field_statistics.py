@@ -41,7 +41,7 @@ def grid():
 
 
 def test_numba_cpu_forms_the_far_field_statistics_through_the_reference_pass(grid):
-    space = FreeGrid(3e-4, 24, 3e-4, 16, window_factor=0.1)
+    space = FreeGrid(3e-4, 24, 3e-4, 16, collar_fraction=0.1)
     simulation = free_simulation(
         grid,
         space,
@@ -80,7 +80,7 @@ def test_planar_geometry_is_refused_before_any_step():
 
 
 def test_a_run_records_every_far_field_statistic_at_every_plane(grid):
-    space = FreeGrid(3e-4, 16, 3e-4, 16, window_factor=0.1)
+    space = FreeGrid(3e-4, 16, 3e-4, 16, collar_fraction=0.1)
     simulation = free_simulation(
         grid,
         space,

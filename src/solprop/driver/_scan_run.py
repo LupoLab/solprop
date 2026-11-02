@@ -16,7 +16,7 @@ from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Literal
+from typing import Literal, cast
 
 import numpy as np
 
@@ -624,6 +624,7 @@ class _Work:
                     wall_time=time.perf_counter() - started,
                     n_steps=capture.steps,
                     n_rejected=capture.rejected,
+                    boundary_monitor=_closing_monitor(capture),
                 )
         except Exception:
             if capture is not None and capture.metadata is not None:
@@ -635,7 +636,26 @@ class _Work:
                 metadata_json,
                 error=traceback.format_exc(),
                 wall_time=time.perf_counter() - started,
+                boundary_monitor=_closing_monitor(capture),
             )
+
+
+def _closing_monitor(capture: _Capture | None) -> Mapping[str, object] | None:
+    """Return a point's closing boundary-monitor record from its capture.
+
+    Parameters
+    ----------
+    capture : _Capture or None
+        The point's capture, once its run has recorded an outcome.
+
+    Returns
+    -------
+    collections.abc.Mapping or None
+        The record, or ``None`` when the point was not watched or never ran.
+    """
+    outcome = None if capture is None else capture.outcome
+    record = None if outcome is None else outcome.execution.get("boundary_monitor")
+    return cast("Mapping[str, object]", record) if isinstance(record, Mapping) else None
 
 
 def _retained(simulation: Simulation, capture: _Capture) -> Simulation:

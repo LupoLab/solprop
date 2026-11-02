@@ -5,11 +5,12 @@
 """The hybrid planar kind's compiled kernels against the frozen host operator.
 
 Each kernel of :mod:`solprop.backends.numba_cpu.planar` is compared on a small synthetic
-separable leaf carrying ``kappa_sq`` -- two channels, loss, gain, an evanescent column
-and an inactive bin -- with :func:`solprop.translate.spatial.separable_values`, the
-reference's operator and prefactor, and with the reference's stage expression. This
-module runs in the coverage lane's interpreted pass (``poe cov-kernels``), so every
-kernel and body line is counted, and compiled in the default lane.
+separable leaf carrying ``kappa_sq`` and a safety ramp's ``kperp_rate`` -- two channels,
+loss, gain, an evanescent column and an inactive bin -- with
+:func:`solprop.translate.spatial.separable_values`, the reference's operator and
+prefactor, and with the reference's stage expression. This module runs in the coverage
+lane's interpreted pass (``poe cov-kernels``), so every kernel and body line is
+counted, and compiled in the default lane.
 
 **The bound, stated first**: as the Cartesian kernels' test
 (``tests/backends/test_numba_cpu_kernels.py``), the principal root and the complete
@@ -44,7 +45,11 @@ BOUND = 128 * np.finfo(float).eps
 
 
 def leaf(n_pol):
-    """Return a two-channel planar leaf: four columns, five frequencies."""
+    """Return a two-channel planar leaf: four columns, five frequencies.
+
+    The outer two columns carry a safety ramp's rate (SEP 40), so that every kernel
+    is compared with the ramp in its operator.
+    """
     active = np.array([True, True, True, True, False])
     wall = np.array(
         [[0.25 + 0.01j, 0.5 - 0.02j, 1.0 + 0.1j, 5.0, 0], [1.5, 0.5j, -0.5, 0.1j, 0]]
@@ -63,6 +68,7 @@ def leaf(n_pol):
         n_pol=n_pol,
         z_span=(0.0, 1.0),
         kappa_sq=wall,
+        kperp_rate=np.array([0.0, 0.0, 0.5, 1.0]),
     )
 
 
@@ -83,6 +89,7 @@ def data_of(coefficients):
         coefficients.evanescent_rate,
         coefficients.n_pol,
         coefficients.n_channels,
+        coefficients.kperp_rate,
     )
 
 
@@ -90,22 +97,35 @@ def test_the_slab_element_is_the_free_element_with_the_wall_subtracted_last():
     """A zero wall term is the free-space element to the last bit; a wall is ``q``."""
     operands = (4 + 1j, 2.0, 1e-17 + 0j, 1e-17)
     tail = (0.125, 0.0625, -2j, -0.5j, True, 0.5)
-    # The slab element carries no transverse collar: the free element's rate zero.
+    # With no safety ramp, the free element's transverse rate zero.
     free = PLAIN.spatial_element(*operands, *tail, 0.0)
-    assert PLAIN.slab_element(*operands, 0j, *tail) == free
+    assert PLAIN.slab_element(*operands, 0j, *tail, 0.0) == free
     wall = 0.5 - 0.25j
     square = ((operands[0] - operands[1]) + (operands[2] - operands[3])) - wall
-    assert PLAIN.slab_element(*operands, wall, *tail) == PLAIN.longitudinal_rate(
+    assert PLAIN.slab_element(*operands, wall, *tail, 0.0) == PLAIN.longitudinal_rate(
         square, *tail, 0.0
     )
     # An evanescent column is clamped as in free space, and an inactive bin is zero.
-    rate, prefactor = PLAIN.slab_element(1 + 0j, 4.0, 0j, 0.0, 0j, *tail)
+    rate, prefactor = PLAIN.slab_element(1 + 0j, 4.0, 0j, 0.0, 0j, *tail, 0.0)
     assert rate.real == pytest.approx(-0.5 - 0.5 * 0.0625)
     assert prefactor == -0.5j
-    assert PLAIN.slab_element(*operands, wall, 0.0, 0.0, -2j, -0.5j, False, 0.5) == (
-        0j,
-        0j,
-    )
+    assert PLAIN.slab_element(
+        *operands, wall, 0.0, 0.0, -2j, -0.5j, False, 0.5, 0.0
+    ) == (0j, 0j)
+
+
+def test_the_safety_ramp_joins_the_slab_element_on_the_active_band_alone():
+    """A transverse rate subtracts half of itself from the active element's real part
+    (SEP 40 section 5.4), as on the free-space element, and leaves the rest."""
+    operands = (4 + 1j, 2.0, 1e-17 + 0j, 1e-17, 0.5 - 0.25j)
+    tail = (0.125, 0.0625, -2j, -0.5j)
+    plain_rate, plain_prefactor = PLAIN.slab_element(*operands, *tail, True, 0.5, 0.0)
+    rate, prefactor = PLAIN.slab_element(*operands, *tail, True, 0.5, 3.0)
+    # 1.5 is exact, and so is the subtraction from the rate's real part here.
+    assert rate == plain_rate - 1.5
+    assert prefactor == plain_prefactor
+    inactive = PLAIN.slab_element(*operands, *tail, False, 0.5, 3.0)
+    assert inactive == PLAIN.slab_element(*operands, *tail, False, 0.5, 0.0)
 
 
 @pytest.mark.parametrize("n_pol", [1, 2])

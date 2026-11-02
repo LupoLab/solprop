@@ -98,7 +98,7 @@ def fine_space():
     Its column images lie some 6 cm apart in the mask plane at 800 nm, so the holes
     are scaled by :data:`FINE` to span several of them.
     """
-    return FreeGrid(1.5e-6, 12, 1.25e-6, 10, window_factor=0.1)
+    return FreeGrid(1.5e-6, 12, 1.25e-6, 10, collar_fraction=0.1)
 
 
 def spec_of(apertures, names=FAR_FIELD_STATISTICS, regions=QUADRANTS):

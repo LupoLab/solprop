@@ -275,7 +275,7 @@ def prepare(file, media, backend, rtol, checks, prefactor_index=None):
             geometry = "modal_product"
             settings = replace(settings, components=("x",))
     elif geometry == "radial":
-        space = RadialGrid(float(p["radius"]), int(p["n_r"]), window_factor=0)
+        space = RadialGrid(float(p["radius"]), int(p["n_r"]), collar_fraction=0)
         checked_gap(checks, "radial nodes", space.r, p["r"], gamma_n(128))
         checked_gap(checks, "radial frequencies", space.k_r, p["k_r"], gamma_n(128))
     else:
@@ -286,7 +286,7 @@ def prepare(file, media, backend, rtol, checks, prefactor_index=None):
             int(p["n_x"]),
             -float(p["y"][0]),
             int(p["n_y"]),
-            window_factor=0,
+            collar_fraction=0,
         )
         for axis in ("x", "y", "k_x", "k_y"):
             checked_gap(

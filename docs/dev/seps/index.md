@@ -35,7 +35,6 @@ Proposals that are active, in draft, accepted, in progress or deferred.
 | [17](sep-0017-gas-two-photon-ionisation.md) | Broadband two-photon continuum response beside strong-field ionisation | Accepted | Feature |
 | [21](archive/sep-0021-absorbing-boundaries.md) | Temporal boundaries: wider windows, absorption and the escaped field | Final | Change |
 | [32](sep-0032-raman-maxwell-bloch.md) | Raman Maxwell–Bloch dynamics | Draft | Feature |
-| [40](sep-0040-transverse-absorbing-boundaries.md) | Transverse absorbing boundaries for free-space propagation | Draft | Change |
 | [41](sep-0041-recipes-and-front-ends.md) | Recipes, and the hooks a front end needs | Accepted | Change |
 
 SEP 13, the standalone numerical prerequisite for SEP 12, SEP 14, which carried it to
@@ -77,6 +76,7 @@ Proposals that are final, rejected, withdrawn or superseded; the
 | [37](archive/sep-0037-noise-and-stepper-defaults.md) | Shot noise on by default, and an integrator and tolerances chosen for each interface | Final | Change |
 | [38](archive/sep-0038-performance-tracking.md) | Performance tracking: complete runs, about an hour per machine | Final | Process |
 | [39](archive/sep-0039-native-adams-march.md) | A native Adams march: the Multistep step loop in the compiled backend | Final | Change |
+| [40](archive/sep-0040-transverse-absorbing-boundaries.md) | Transverse absorbing boundaries for free-space propagation | Final | Change |
 | [42](archive/sep-0042-tolerant-resume.md) | Resuming by what matters to the run | Final | Change |
 
 ```{toctree}
@@ -95,7 +95,6 @@ sep-0010-low-rank-raman
 sep-0011-finite-density-gas-index
 sep-0017-gas-two-photon-ionisation
 sep-0032-raman-maxwell-bloch
-sep-0040-transverse-absorbing-boundaries
 sep-0041-recipes-and-front-ends
 template
 archive/index

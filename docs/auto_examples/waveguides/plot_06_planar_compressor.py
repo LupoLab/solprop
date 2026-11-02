@@ -76,8 +76,8 @@ slightly noisy beam through a longer guide to show the break-up that sets the li
   excites. TE7 carries 0.1 % at launch and is damped fifty times more than TE1.
   Arnold used ten.
 * The Kerr effect is the only nonlinearity. Plasma is left out: optmat's argon rate at
-  the peak intensity leaves about 5e14 electrons per cubic centimetre (Arnold: "well
-  below 1e15"), whose index change is about 3 % of the Kerr one (printed below).
+  the peak intensity leaves about 3.5e14 electrons per cubic centimetre (Arnold: "well
+  below 1e15"), whose index change is about 2 % of the Kerr one (printed below).
   That estimate uses the incident peak intensity, so it does not justify the omission
   after strong spatial contraction: the late, under-resolved breakup is qualitative
   and cannot predict a filament peak intensity. Argon has no Raman response.

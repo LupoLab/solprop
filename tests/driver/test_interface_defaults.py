@@ -324,9 +324,9 @@ def _build(route, precision, through):  # noqa: PLR0911 - one return per route f
         )
     if family == "free":
         space = (
-            LineGrid(3e-4, 16, window_factor=0)
+            LineGrid(3e-4, 16, collar_fraction=0)
             if variant == "line"
-            else FreeGrid(3e-4, 12, 4e-4, 16, window_factor=0)
+            else FreeGrid(3e-4, 12, 4e-4, 16, collar_fraction=0)
         )
         return entry(
             SPATIAL,
@@ -544,7 +544,7 @@ def _with_check(route, through, check):
             space = (
                 RadialGrid(6e-4, 16)
                 if family == "radial"
-                else FreeGrid(3e-4, 12, 4e-4, 16, window_factor=0)
+                else FreeGrid(3e-4, 12, 4e-4, 16, collar_fraction=0)
             )
             arguments = (space, SpatialMedium(), [], _beam())
         return entry(

@@ -403,21 +403,29 @@ def _taper_edge_derivative(
 
 @dataclass(frozen=True, eq=False)
 class RadialGrid(Displayed):
-    """Construct an axisymmetric spatial grid with a declared outer collar.
+    """Construct an axisymmetric spatial grid, with room for a collar outside it.
 
     Attributes
     ----------
     radius : float
-        Outer Dirichlet boundary in m, finite and positive.
+        The requested aperture in m, finite and positive: the radius modelled flat,
+        with no absorption.
     n_r : int
-        Number of interior radial and spectral samples, at least 2.
-    window_factor : float
-        Fraction of the outer radius occupied by the absorbing collar, in [0, 1).
-        Zero disables the spatial collar; the default 0.1 uses its outer tenth.
+        Number of interior radial and spectral samples over the whole grid, the
+        collar's room included, at least 2.
+    collar_fraction : float
+        Room outside the aperture, as a fraction of `radius`, finite and at least 0.
+        The Dirichlet boundary is at ``radius * (1 + collar_fraction)``
+        (:attr:`outer_radius`). The default 0 puts it at the aperture. Room alone
+        absorbs nothing: a real-space collar there is requested separately
+        (:class:`solprop.boundaries.SpatialAbsorber`).
     hankel : solprop.hankel.QDHT
-        The raw transform, its physical scalings and integration weights.
+        The raw transform on the outer radius, its physical scalings and integration
+        weights.
     window : numpy.ndarray
-        Planck window on the radial samples, shape ``(n_r,)``, dimensionless.
+        Planck window on the radial samples, shape ``(n_r,)``, dimensionless: one
+        inside the aperture, falling to zero at the outer radius; it marks the region
+        outside the request.
 
     Raises
     ------
@@ -434,31 +442,35 @@ class RadialGrid(Displayed):
 
     radius: float
     n_r: int
-    window_factor: float = 0.1
+    collar_fraction: float = 0.0
     hankel: QDHT = field(init=False, repr=False)
     window: Float[np.ndarray, " n_r"] = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
-        """Build the transform and an immutable collar profile."""
-        if not math.isfinite(self.window_factor) or not 0 <= self.window_factor < 1:
-            msg = "window_factor must be finite and lie in [0, 1)"
-            raise GridError(msg)
-        hankel = QDHT(self.radius, self.n_r)
+        """Build the transform on the outer radius and the immutable window."""
+        _check_fraction("RadialGrid", self.collar_fraction)
+        outer = self.outer_radius
+        hankel = QDHT(outer, self.n_r)
         window = (
             np.ones(self.n_r)
-            if self.window_factor == 0
-            else planck_taper(
-                hankel.r,
-                -self.radius,
-                0.0,
-                self.radius * (1 - self.window_factor),
-                self.radius,
-            )
+            if self.collar_fraction == 0
+            else planck_taper(hankel.r, -outer, -self.radius, self.radius, outer)
         )
         window.setflags(write=False)
         object.__setattr__(self, "hankel", hankel)
         object.__setattr__(self, "window", window)
         self.validate()
+
+    @property
+    def outer_radius(self) -> float:
+        """Return the Dirichlet boundary: the aperture with its collar's room.
+
+        Returns
+        -------
+        float
+            ``radius * (1 + collar_fraction)``, m.
+        """
+        return self.radius * (1.0 + self.collar_fraction)
 
     @property
     def r(self) -> Float[np.ndarray, " n_r"]:
@@ -543,8 +555,10 @@ class RadialGrid(Displayed):
         if np.any(np.diff(self.r) <= 0) or np.any(np.diff(self.k_r) <= 0):
             msg = "RadialGrid axes must be strictly increasing"
             raise GridError(msg)
-        if self.r[-1] >= self.radius or np.any((self.window < 0) | (self.window > 1)):
-            msg = "RadialGrid samples must lie inside radius and window in [0, 1]"
+        if self.r[-1] >= self.outer_radius or np.any(
+            (self.window < 0) | (self.window > 1)
+        ):
+            msg = "RadialGrid samples must lie inside outer_radius and window in [0, 1]"
             raise GridError(msg)
 
     def __repr__(self) -> str:
@@ -576,12 +590,38 @@ class RadialGrid(Displayed):
                 f"{engineering(float(self.r[-1]), 'm')}",
             ),
             ("largest k_r", f"{float(self.k_r[-1]):.4g} rad/m"),
-            ("window factor", f"{self.window_factor:g}"),
+            ("collar fraction", f"{self.collar_fraction:g}"),
+            ("outer radius", engineering(self.outer_radius, "m")),
         ]
 
 
+def _check_fraction(owner: str, fraction: float) -> None:
+    """Refuse a collar fraction that is not finite and at least zero.
+
+    Parameters
+    ----------
+    owner : str
+        The grid class, named in the message.
+    fraction : float
+        The room outside the requested size, as a fraction of it.
+
+    Raises
+    ------
+    GridError
+        If the fraction is negative or not finite.
+    """
+    if (
+        isinstance(fraction, bool)
+        or not isinstance(fraction, int | float)
+        or not math.isfinite(fraction)
+        or fraction < 0
+    ):
+        msg = f"{owner}.collar_fraction must be finite and at least 0"
+        raise GridError(msg)
+
+
 def _periodic_axis(
-    owner: str, radius: float, count: int, window_factor: float
+    owner: str, radius: float, count: int, collar_fraction: float
 ) -> tuple[
     Float[np.ndarray, " n"], Float[np.ndarray, " n"], Float[np.ndarray, " n"], float
 ]:
@@ -595,8 +635,8 @@ def _periodic_axis(
         Requested physical half-width in m, finite and positive.
     count : int
         Number of samples, at least 1 (validated by the caller).
-    window_factor : float
-        Added collar width divided by the half-width, in [0, 1).
+    collar_fraction : float
+        Room outside the requested half-width, as a fraction of it, at least 0.
 
     Returns
     -------
@@ -609,7 +649,7 @@ def _periodic_axis(
     GridError
         If the extent, the spacing or the wave-number squares are not representable.
     """
-    outer = radius * (1 + window_factor)
+    outer = radius * (1 + collar_fraction)
     spacing = 2 * (outer / count)
     if not math.isfinite(outer) or not math.isfinite(spacing) or spacing <= 0:
         msg = f"{owner} extent or spacing is not representable"
@@ -621,7 +661,7 @@ def _periodic_axis(
     frequencies = np.fft.fftfreq(count) * (2 * np.pi / spacing)
     window = (
         np.ones(count)
-        if window_factor == 0
+        if collar_fraction == 0
         else planck_taper(axis, -outer, -radius, radius, outer)
     )
     return axis, frequencies, window, spacing
@@ -637,10 +677,12 @@ class FreeGrid(Displayed):
         Requested physical half-widths in m, finite and positive.
     n_x, n_y : int
         Independent sample counts, each an integer of at least 2.
-    window_factor : float
-        Added collar width divided by each requested half-width, in [0, 1).
-        The periodic half-width is ``radius * (1 + window_factor)``. Zero
-        disables the collar. The default is 0.1.
+    collar_fraction : float
+        Room outside each requested half-width, as a fraction of it, finite and at
+        least 0. The periodic half-width is ``radius * (1 + collar_fraction)``, and
+        ``n_x``, ``n_y`` count every sample. The default 0 wraps at the requested
+        half-width. Room alone absorbs nothing: a real-space collar there is
+        requested separately (:class:`solprop.boundaries.SpatialAbsorber`).
     x, y : numpy.ndarray
         Centred physical axes in m, shapes ``(n_x,)`` and ``(n_y,)``. Odd
         sample counts place zero halfway between samples.
@@ -673,7 +715,7 @@ class FreeGrid(Displayed):
     n_x: int
     radius_y: float
     n_y: int
-    window_factor: float = 0.1
+    collar_fraction: float = 0.0
     x: Float[np.ndarray, " n_x"] = field(init=False, repr=False)
     y: Float[np.ndarray, " n_y"] = field(init=False, repr=False)
     k_x: Float[np.ndarray, " n_x"] = field(init=False, repr=False)
@@ -697,14 +739,12 @@ class FreeGrid(Displayed):
             if isinstance(value, bool) or not isinstance(value, int) or value < 2:
                 msg = f"FreeGrid.{name} must be an integer of at least 2"
                 raise GridError(msg)
-        if not math.isfinite(self.window_factor) or not 0 <= self.window_factor < 1:
-            msg = "FreeGrid.window_factor must be finite and lie in [0, 1)"
-            raise GridError(msg)
+        _check_fraction("FreeGrid", self.collar_fraction)
         x, k_x, window_x, spacing_x = _periodic_axis(
-            "FreeGrid", self.radius_x, self.n_x, self.window_factor
+            "FreeGrid", self.radius_x, self.n_x, self.collar_fraction
         )
         y, k_y, window_y, spacing_y = _periodic_axis(
-            "FreeGrid", self.radius_y, self.n_y, self.window_factor
+            "FreeGrid", self.radius_y, self.n_y, self.collar_fraction
         )
         self._adopt(x, y, (k_x, k_y), (window_x, window_y), spacing_x * spacing_y)
 
@@ -864,7 +904,7 @@ class FreeGrid(Displayed):
                 f"{engineering(float(self.x[1] - self.x[0]), 'm')}, "
                 f"{engineering(float(self.y[1] - self.y[0]), 'm')}",
             ),
-            ("window factor", f"{self.window_factor:g}"),
+            ("collar fraction", f"{self.collar_fraction:g}"),
         ]
 
 
@@ -888,10 +928,10 @@ class LineGrid(FreeGrid):
         Requested physical half-width in m, finite and positive.
     n_x : int
         Number of samples in x, an integer of at least 2.
-    window_factor : float
-        Added collar width divided by the half-width, in [0, 1). The periodic
-        half-width is ``radius_x * (1 + window_factor)``; zero disables the collar.
-        The default is 0.1.
+    collar_fraction : float
+        Room outside the requested half-width, as a fraction of it, finite and at
+        least 0. The periodic half-width is ``radius_x * (1 + collar_fraction)``; the
+        default 0 wraps at the requested half-width.
     radius_y : float
         ``math.inf``: the field is uniform and unbounded in y.
     n_y : int
@@ -931,7 +971,7 @@ class LineGrid(FreeGrid):
     >>> line.n_columns, line.y.tolist(), line.transverse_measure
     (64, [0.0], 'per_unit_width')
     >>> f"{line.spatial_weights[0]:.4e} m"
-    '3.4375e-05 m'
+    '3.1250e-05 m'
     """
 
     radius_y: float = field(init=False, repr=False)
@@ -945,13 +985,11 @@ class LineGrid(FreeGrid):
         if isinstance(self.n_x, bool) or not isinstance(self.n_x, int) or self.n_x < 2:
             msg = "LineGrid.n_x must be an integer of at least 2"
             raise GridError(msg)
-        if not math.isfinite(self.window_factor) or not 0 <= self.window_factor < 1:
-            msg = "LineGrid.window_factor must be finite and lie in [0, 1)"
-            raise GridError(msg)
+        _check_fraction("LineGrid", self.collar_fraction)
         object.__setattr__(self, "radius_y", math.inf)
         object.__setattr__(self, "n_y", 1)
         x, k_x, window_x, spacing_x = _periodic_axis(
-            "LineGrid", self.radius_x, self.n_x, self.window_factor
+            "LineGrid", self.radius_x, self.n_x, self.collar_fraction
         )
         # One y sample of unit measure: every transverse integral is then per
         # metre of y, and k_y = 0 makes the operator and the collar the x axis's.
@@ -997,7 +1035,7 @@ class LineGrid(FreeGrid):
                 f"{engineering(self.radius_x, 'm')}, {self.n_x} samples",
             ),
             ("spacing", engineering(float(self.x[1] - self.x[0]), "m")),
-            ("window factor", f"{self.window_factor:g}"),
+            ("collar fraction", f"{self.collar_fraction:g}"),
             ("measure", "per metre of y: energy J/m, power W/m"),
         ]
 
