@@ -164,19 +164,28 @@ single-mode propagation; several channels need the general modal route and its
 power-orthogonal metric
 ([full electric and magnetic mode fields](vector-fields.md#full-electric-and-magnetic-mode-fields)).
 
-**Large V.** Every root of the mode's azimuthal order, about $V/\pi$ of them, is
-solved at each frequency so that its radial order can be assigned, and the cost grows
-linearly with $V$: about 0.1 s a frequency at $V=5000$ (Apple M5 Max). The modified
-Bessel functions enter only as ratios at one argument, or with an explicit factor
-$e^{-w(r/a-1)}$ in the exterior field, and are taken from the exponentially scaled
-`kve`, since `kv` itself underflows to zero from an argument of about 700. Up to
-$V=5000$ the scan is qualified: its roots agree with a 40-digit mpmath solve of the
-unreduced equation above, with radial order and family assigned independently, within 2
-machine epsilons in $u$, and it finds every root at each $V$ of a sweep to 5000 for
-$n$ from 1 to 3 at two index contrasts. Above $V=5000$ construction raises
-{class}`~solprop.exceptions.ModeError` and says why. A core of 300 µm radius and
-numerical aperture 0.22 at 250 nm ($V\approx1660$) builds in about a tenth of a
-second:
+**Large V.** The scan for radial order $m$ covers $u$ from the family's first cutoff,
+below which no guided root lies, to its $(m+1)$-th, and holds the roots it finds to
+the cutoffs between, so its cost grows with $m$ and not with $V$: the HE₁₁ index over
+a 256-point band takes about 27 ms at $V=1663$, 4976 and 19905 alike (Apple M5 Max).
+Starting at the first cutoff also keeps $J_n$ representable, which underflows to
+zero at small $u$ for large $n$. The modified Bessel functions enter only as ratios at
+one argument, or as $K_\nu(wr/a)/K_\nu(w)$ in the exterior field, taken from the
+exponentially scaled `kve`, since `kv` itself underflows to zero from an argument of
+about 700. Where `kve` overflows instead, at large $n$ and small $w$, the ratios are
+carried up from order one by the recurrence
+$K_{\nu+1}=K_{\nu-1}+(2\nu/w)K_\nu$, divided through, which is stable in increasing
+order. Up to $V=20000$ the scan is qualified: its roots agree with a 40-digit mpmath
+solve of the unreduced equation above, with radial order and family assigned
+independently, within 3 machine epsilons in $u$ (at $V$ up to 19990 and $n$ up to
+300), and it finds every root at each $V$ of a sweep to 20000 for $n$ from 1 to 3,
+and for $n$ from 40 to 300 at $V$ from 200 to 5000, at two index contrasts. Above
+$V=20000$ construction raises {class}`~solprop.exceptions.ModeError` and says why.
+The transverse integrals of a mode of high radial order are another matter: the
+effective area of HE₆₀,₁₄₅ at $V=1000$ runs out of the adaptive integral's
+subdivisions and warns, while EH₄₀,₄₂ at $V=200$ is resolved ([#438](https://github.com/LupoLab/solprop/issues/438)). A core of
+300 µm radius and numerical aperture 0.22 at 250 nm ($V\approx1660$) builds in a few
+hundredths of a second:
 
 ```python
 from solprop.modes import StepIndexMode
