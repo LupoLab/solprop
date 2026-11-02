@@ -113,20 +113,33 @@ replay with its adaptive run. Recording the order sequence in the schedule would
 replay match its adaptive run exactly; that would extend the saved schedule and is not
 done, because two replays already share one discretisation.
 
-**The in-stage collar.** Under the default `absorber_scheme="nonlinear"` the temporal
-collar's largest rate is an eigenvalue of the step, so a replayed step may be no longer
-than the collar's stable step ({py:obj}`~solprop.boundaries.stable_step`, scaled to the
-method's stability interval), and translation refuses a schedule that has one, naming
-the limit. An adaptive run is not held to that limit, because an empty collar produces no
-error, so a default run's own history is often refused: on the soliton above its longest
-accepted step is 5.60 mm against a limit of 5.24 mm under `RungeKutta()`, and 1.59 mm
-against 0.139 mm under `Multistep()`. Either of two remedies replays exactly:
+**The collars.** Under the default `absorber_scheme="nonlinear"` the temporal collar's
+largest rate is an eigenvalue of the step, so a replayed step may be no longer than the
+collar's stable step ({py:obj}`~solprop.boundaries.stable_step`, scaled to the method's
+stability interval), and translation refuses a schedule that has one, naming the limit.
+An adaptive run is not held to that limit, because an empty collar produces no error, so
+a default run's own history is often refused: on the soliton above its longest accepted
+step is 5.60 mm against a limit of 5.24 mm under `RungeKutta()`, and 1.59 mm against
+0.139 mm under `Multistep()`. Either of two remedies replays exactly:
 
 - give `absorber_scheme="split_step"` to **both** the discovery run and the replay, as
   above (on the replay alone the replay runs, but differs from the discovery run by the
   change of scheme); or
-- hold the discovery run below the limit with `dz_max` just under the value the refusal
-  prints, and replay its history with the same `dz_max`.
+- hold the discovery run to a `dz_max` at or under the limit the refusal prints, and
+  replay its history with the same `dz_max`. The printed limit is rounded down, so the
+  printed value itself is safe.
+
+A stability limit belongs to the integrator, `Multistep()`'s being far shorter than
+`RungeKutta()`'s, so run the discovery with the integrator the replay will use: the
+printed limit is computed for it.
+
+A requested spatial collar on a spatial route ([SEP 40](../../dev/seps/archive/sep-0040-transverse-absorbing-boundaries.md))
+adds three more limits on a replayed step: its own stable step, which also depends on the
+integrator, and the fixed-schedule crossing and damping bounds, which do not. An adaptive
+run is held only to the looser adaptive crossing limit, so its history can break them.
+The spatial collar is always in-stage, so `absorber_scheme="split_step"` does not lift
+these; `dz_max` at or under the printed limit in the discovery run does, and each
+refusal says so.
 
 **Two more limits.** A replay lands on its save planes, so `interpolate_planes=True` is
 refused beside a schedule; and a discovery run with `interpolate_planes=True` steps past

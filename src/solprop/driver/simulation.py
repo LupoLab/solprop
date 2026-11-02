@@ -1624,6 +1624,36 @@ def metadata_for(  # noqa: PLR0913 - the record's parts, each a distinct object
     )
 
 
+def _frame_follows_the_electronic_rule(
+    responses: Sequence[object], grid: TimeGrid
+) -> bool:
+    """Return whether a run's co-moving frame changed when it stopped reading Raman.
+
+    Before the frame followed
+    :func:`solprop.translate.responses.declares_harmonic_carrier`, any response's
+    ``thg`` kept ``beta_0`` on an envelope grid. The two rules disagree exactly when a
+    response other than the electronic ones declares ``thg=True`` and no electronic one
+    does.
+
+    Parameters
+    ----------
+    responses : collections.abc.Sequence
+        The run's declared responses.
+    grid : solprop.grid.TimeGrid
+        Its temporal grid.
+
+    Returns
+    -------
+    bool
+        True when the earlier rule would have kept ``beta_0`` and this one removes it.
+    """
+    return (
+        grid.kind == "envelope"
+        and any(bool(getattr(one, "thg", False)) for one in responses)
+        and not declares_harmonic_carrier(responses, grid)
+    )
+
+
 def _plane_reference_record(
     problem: KernelProblem,
     grid: TimeGrid,
@@ -3006,6 +3036,13 @@ class Simulation(Displayed):
             )
             if self.frame is not None:
                 configuration["frame"] = self.frame
+            elif _frame_follows_the_electronic_rule(self.responses, self.grid):
+                # A Raman thg flag kept beta_0 on an envelope grid before the frame
+                # followed the electronic responses alone (issue #77). Recording the
+                # co-moving frame here, and only here, refuses a resume of such an
+                # earlier run by name, which would otherwise continue under another
+                # frame with the same digest; every other run keeps its digest.
+                configuration["frame"] = Frame.comoving(self.grid)
             # The operator settings of SEP 22 phase 2, recorded only where set, so
             # every earlier run keeps its digest; a collar as its two numbers.
             if self.settings.evanescent_rate is not None:
