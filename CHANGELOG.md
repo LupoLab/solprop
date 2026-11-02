@@ -168,6 +168,10 @@ All notable changes to solprop are recorded here. The format follows
 - The README, `CITATION.cff` and the citing page name solprop's Zenodo DOI,
   [10.5281/zenodo.23854248](https://doi.org/10.5281/zenodo.23854248), which covers
   every release.
+- Notable changes are recorded in separate release-note fragments and collected into one
+  rolling draft release PR after merges. Implementation PRs no longer edit the shared
+  changelog, avoiding conflicts between unrelated changes. Release tags and publication
+  remain manual.
 
 ### Changed (breaking)
 
