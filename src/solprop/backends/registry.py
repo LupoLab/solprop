@@ -335,7 +335,15 @@ def _check_required_device(name: str) -> None:
         raise BackendError(msg)
     if not _satisfied(BACKENDS["native"]):
         return  # select() goes on to say that the package is missing
-    import solprop_native  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+    try:
+        import solprop_native  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+    except Exception as error:
+        # A device build with no visible device stops inside Kokkos as the package loads.
+        msg = (
+            f"{REQUIRE_DEVICE_SETTING}={value}: solprop-native did not load, so this "
+            f"run wouldn't execute on a device: {error}"
+        )
+        raise BackendError(msg) from error
 
     info = solprop_native.build_info()
     if info.device_backend not in accepted:

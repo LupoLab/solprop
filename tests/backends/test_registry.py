@@ -553,3 +553,18 @@ def test_a_required_device_is_refused_before_anything_is_constructed(
     with pytest.raises(BackendError, match="this run is on numpy_ref"):
         select("numpy_ref", problem, grid=narrow_grid)
     assert not built
+
+
+def test_a_required_device_reports_a_build_that_will_not_load(monkeypatch):
+    """A CUDA build with no visible device raises from Kokkos as the package loads."""
+    spec = importlib.machinery.ModuleSpec("solprop_native", None)
+    real_find_spec = importlib.util.find_spec
+    monkeypatch.setattr(
+        importlib.util,
+        "find_spec",
+        lambda name: spec if name == "solprop_native" else real_find_spec(name),
+    )
+    monkeypatch.setitem(sys.modules, "solprop_native", None)
+    monkeypatch.setenv(registry.REQUIRE_DEVICE_SETTING, "cuda")
+    with pytest.raises(BackendError, match="did not load"):
+        registry._check_required_device("native")
