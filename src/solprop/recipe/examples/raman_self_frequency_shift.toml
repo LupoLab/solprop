@@ -1,0 +1,26 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# The Raman self-frequency shift of a soliton in a narrow hydrogen-filled capillary.
+# mirrors: docs/examples/processes/plot_05_raman_self_frequency_shift.py
+
+[recipe]
+format = 1
+route = "capillary"
+title = "Raman self-frequency shift in hydrogen"
+
+[build]
+radius = "20 um"
+length = "2 m"
+gas = "H2"
+pressure = "5 bar"
+wavelength = "1030 nm"
+fwhm = "40 fs"
+energy = "4 uJ"
+loss = false
+plasma = false
+trange = "5000 fs"
+wavelength_limits = ["400 nm", "4000 nm"]
+n_save = 301
+seed = 20261027

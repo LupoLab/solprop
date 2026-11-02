@@ -26,7 +26,7 @@ from solprop.constants import C
 from solprop.exceptions import ProcessingError
 from solprop.output._scan_lock import read_scan
 from solprop.output.capability import capability_of
-from solprop.output.hdf5 import _dataset, _group
+from solprop.output.hdf5 import _dataset, _group, read_recipe
 from solprop.output.scan import (
     _expand,
     _refuse_other_schemas,
@@ -37,6 +37,7 @@ from solprop.output.schema import (
     GridRecord,
     JsonValue,
     Output,
+    RecipeRecord,
     RunMetadata,
     _rebuild,
 )
@@ -775,6 +776,19 @@ class ScanOutput(Displayed):
             ("state", state),
             ("contents", "read .shape, .status and .layouts, which open the file"),
         ]
+
+    @property
+    def recipe(self) -> RecipeRecord | None:
+        """Return the recipe the scan was built from, or ``None`` for a scan script's.
+
+        Returns
+        -------
+        solprop.output.schema.RecipeRecord or None
+            The authored recipe a scan from :meth:`solprop.recipe.core.Recipe.scan`
+            records (SEP 41, S2).
+        """
+        with read_scan(self.path) as file:
+            return read_recipe(file)
 
     @property
     def shape(self) -> tuple[int, ...]:

@@ -1,0 +1,27 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# A third-order soliton over one soliton period, the second lesson.
+# mirrors: docs/introduction/tutorials/plot_02_soliton.py
+# The length and the peak power are the script's own arithmetic, written to the last
+# digit: the period pi/2 * tau0^2/|beta2| and N^2 |beta2| / (gamma tau0^2) for N = 3.
+
+[recipe]
+format = 1
+route = "gnlse"
+title = "A third-order soliton"
+
+[build]
+gamma = "0.11 W^-1/m"
+length = "1.3278075458959395 m"
+betas = [0, 0, "-0.01183 ps^2/m"]
+wavelength = "835 nm"
+grid = { type = "EnvelopeGrid.from_limits", length = "1.3278075458959395 m", reference_wavelength = "835 nm", wavelength_limits = ["500 nm", "2000 nm"], trange = "4000 fs" }
+width = "100 fs"
+peak_power = "96.79090909090908 W"
+shape = "sech"
+shock = false
+rtol = 1e-9
+n_save = 201
+noise = "none"
