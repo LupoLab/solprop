@@ -72,6 +72,7 @@ from scipy.special import j0
 
 from solprop import fourier
 from solprop._display import Displayed, engineering, line
+from solprop._process import host_blas
 from solprop.adiabatic import AdiabaticAdmission
 from solprop.constants import EPS0, C
 from solprop.coupling.envelopes import (
@@ -422,6 +423,7 @@ class CouplingResult:
     report: CouplingReport
 
 
+@host_blas()
 def couple(
     plane: FieldPlane, port: InputPort, *, model: CouplingModel
 ) -> CouplingResult:
