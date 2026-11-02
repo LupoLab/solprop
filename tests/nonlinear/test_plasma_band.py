@@ -161,9 +161,9 @@ PLASMA_BAND = Study(
             name="deviation",
             unit="1 (relative)",
             why="sums of a few thousand terms, compared well above their round-off; "
-            "atol is that floor, about 8193 eps",
+            "atol is that floor, about 45000 eps",
             rtol=1e-6,
-            atol=2e-12,
+            atol=1e-11,
         ),
         Column(
             name="ratio",

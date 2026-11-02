@@ -150,18 +150,14 @@ jobs:
           sudo swapon /swap.extra
           free -h
       # Spike only: pyFFTW has no Windows on Arm wheel, so numba_cpu cannot import there.
-      - name: Leave out what imports numba_cpu
+      # pyFFTW has no wheel here and numba_cpu is going. An empty pyfftw lets test modules
+      # that import numba_cpu at the top collect, so their native tests run. Whatever still
+      # reaches numba_cpu then fails, and is read from the log.
+      - name: A pyfftw that imports and does nothing
         if: matrix.id == 'windows-arm64'
         run: |
-          uv run --no-sync python - >> "$GITHUB_ENV" <<'E'
-          import pathlib, re
-          needs = re.compile(r"backends\.numba_cpu|import pyfftw|backends import numba_cpu")
-          kept = ["--ignore=src/solprop/backends/numba_cpu"]
-          for path in pathlib.Path("tests").rglob("*.py"):
-              if path.name != "conftest.py" and needs.search(path.read_text(encoding="utf-8")):
-                  kept.append(f"--ignore={path.as_posix()}")
-          print("PYTEST_ADDOPTS=" + " ".join(kept))
-          E
+          uv run --no-sync python -c "import site, pathlib; pathlib.Path(site.getsitepackages()[-1], 'pyfftw.py').write_text('')"
+          echo 'PYTEST_ADDOPTS=-k "not numba"' >> "$GITHUB_ENV"
       - name: solprop's default lane on the native backend
         env:
           SOLPROP_TEST_BACKEND: native
@@ -270,6 +266,10 @@ jobs:
       - run: /usr/bin/time -v uv run --no-sync poe docs
         env:
           SOLPROP_RUN_EXAMPLES: tutorials
+      - name: The example the tutorials lane leaves out
+        run: /usr/bin/time -v uv run --no-sync python docs/examples/waveguides/plot_05_moving_solid_guide.py
+        env:
+          MPLBACKEND: Agg
 
   rehearse-slow:
     needs: build
@@ -293,6 +293,79 @@ jobs:
       - run: uv sync --locked
       - run: uv pip install --no-deps wheelhouse/*.whl
       - run: uv run --no-sync poe test-slow
+
+  # The one stable-ABI wheel on Python 3.15, on every platform: the extension loads and
+  # holds nothing beyond that ABI.
+  py315-native:
+    needs: build
+    name: py315-native (${{ matrix.id }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { id: linux-x86_64, os: ubuntu-24.04 }
+          - { id: linux-aarch64, os: ubuntu-24.04-arm }
+          - { id: macos-arm64, os: macos-15 }
+          - { id: windows-amd64, os: windows-2025 }
+          - { id: windows-arm64, os: windows-11-arm }
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: wheel-${{ matrix.id }}
+          path: wheelhouse
+      - run: ls -la wheelhouse
+      - run: uvx abi3audit --strict --verbose wheelhouse/*.whl
+      - run: uv venv --python 3.15
+      - run: uv pip install numpy wheelhouse/*.whl
+      - run: uv run --no-project --python .venv python -I -c "import sys, solprop_native; print(sys.version); print(solprop_native.build_info())"
+      - run: uv run --no-project --python .venv python -I -m solprop_native
+
+  # solprop's default lane on Python 3.15, from today's newest releases: h5py from source
+  # against the system's HDF5, an empty pyfftw (no 3.15 wheel, and going), numba's wheel.
+  py315-linux:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      PYTEST_XDIST_AUTO_NUM_WORKERS: "4"
+      SOLPROP_TEST_BACKEND: native
+      SOLPROP_TEST_TYPECHECK: "0"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: wheel-linux-x86_64
+          path: wheelhouse
+      - run: sudo apt-get update && sudo apt-get install -y libhdf5-dev pkg-config
+      - run: uv venv --python 3.15
+      - name: Everything solprop depends on but pyFFTW
+        run: |
+          python3 - > requirements.txt <<'E'
+          import tomllib
+          with open("pyproject.toml", "rb") as file:
+              for line in tomllib.load(file)["project"]["dependencies"]:
+                  if not line.lower().startswith("pyfftw"):
+                      print(line)
+          E
+          cat requirements.txt
+          uv pip install -r requirements.txt
+          uv pip install --no-deps -e .
+          .venv/bin/python -c "import site, pathlib; pathlib.Path(site.getsitepackages()[-1], 'pyfftw.py').write_text('')"
+      - run: uv pip install --no-deps wheelhouse/*.whl
+      - run: >-
+          uv pip install "pytest<9.2" pytest-xdist pytest-randomly pytest-regressions
+          pytest-cov hypothesis beartype sympy psutil
+      - run: uv pip list
+      - run: .venv/bin/python -m pytest -n auto --dist loadgroup -k "not numba"
 
   rehearse-oldest:
     needs: build

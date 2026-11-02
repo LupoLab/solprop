@@ -45,7 +45,7 @@ about a nanometre.
 
 **What is approximate.** Only the electronic response differs between the runs: the
 linear operator, the pulse, the grid, the plasma and the backend are the same. Every
-run here selects ``backend="numba_cpu"``, the carrier runs too, for a like-for-like
+run here selects ``backend="native"``, the carrier runs too, for a like-for-like
 comparison: the dispersive responses run on ``numpy_ref``, ``numba_cpu`` and the native
 backend's CPU build.
 """
@@ -54,7 +54,7 @@ backend's CPU build.
 # Setting up
 # ----------
 # The three policies are values of ``MaterialSelection.electronic``. Each run passes
-# its selection with ``materials=``, and ``backend="numba_cpu"`` explicitly: a
+# its selection with ``materials=``, and ``backend="native"`` explicitly: a
 # dispersive response on a backend without it is refused, never quietly replaced.
 
 import math
@@ -197,7 +197,7 @@ def fwm_run(policy):
             wavelength_limits=(210e-9, 2e-6),
             trange=250e-15,
             n_save=26,
-            backend="numba_cpu",
+            backend="native",
             materials=MaterialSelection(electronic=policy),
             progress="none",
             seed=20261027,
@@ -297,7 +297,7 @@ def rdw_run(policy):
             energy=275e-6,
             modes=2,
             n_save=51,
-            backend="numba_cpu",
+            backend="native",
             materials=MaterialSelection(electronic=policy),
             progress="none",
             seed=20261027,
@@ -392,7 +392,7 @@ for policy, (band_energy, centre) in results.items():
 # Runtime and reproducibility
 # ---------------------------
 
-print(f"{time.perf_counter() - started:.0f} s on numba_cpu")
+print(f"{time.perf_counter() - started:.0f} s on native")
 
 # %%
 # Related reading

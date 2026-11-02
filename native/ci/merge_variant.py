@@ -4,7 +4,7 @@
 
 """Add a second build of the extension to a wheel, before the wheel is repaired.
 
-The variant's extension goes in beside the wheel's as ``_core_v2.<abi tag>.<suffix>``.
+The variant's extension goes in beside the wheel's as ``_core_v2.<suffix>``.
 ``_cpu_baseline.txt`` becomes the variant's baseline, the wheel's floor, and
 ``_cpu_variants.txt`` lists both builds, best first (solprop_native/_cpu.py). The wheel
 is rewritten in place, with its RECORD::
@@ -23,7 +23,7 @@ import tempfile
 import zipfile
 from pathlib import Path
 
-EXTENSION = re.compile(r"^solprop_native/_core\.[^/]+\.(so|pyd)$")
+EXTENSION = re.compile(r"^solprop_native/_core\.([^/]+\.)?(so|pyd)$")
 
 
 def record_line(name: str, data: bytes) -> str:

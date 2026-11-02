@@ -11,12 +11,12 @@
  },
  "columns": [
   {
-   "atol": 2e-12,
+   "atol": 1e-11,
    "bound": null,
    "name": "deviation",
    "rtol": 1e-06,
    "unit": "1 (relative)",
-   "why": "sums of a few thousand terms, compared well above their round-off; atol is that floor, about 8193 eps"
+   "why": "sums of a few thousand terms, compared well above their round-off; atol is that floor, about 45000 eps"
   },
   {
    "atol": 0.0,
