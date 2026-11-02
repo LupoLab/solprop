@@ -32,6 +32,7 @@ __all__ = [
     "MemoryBudgetError",
     "MemoryBudgetWarning",
     "ModeError",
+    "NoZeroDispersionError",
     "NoiseError",
     "OpticsGeometryError",
     "OutputError",
@@ -218,6 +219,10 @@ class OpticsGeometryError(MaterialError):
 
 class ModeError(SolpropError, ValueError):
     """A waveguide mode or mode set is invalid."""
+
+
+class NoZeroDispersionError(ModeError):
+    """``beta_2`` has one sign at both ends of a zero-dispersion search window."""
 
 
 class PulseError(SolpropError, ValueError):
