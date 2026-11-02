@@ -85,6 +85,12 @@ class Controller:
         return Limit(self.lib_controllers, limits)
 
 
+@pytest.fixture(autouse=True)
+def own_blas_pools(monkeypatch):
+    """Keep these checks apart from a backend an earlier test left open."""
+    monkeypatch.setattr(_process, "_BLAS_POOLS", {})
+
+
 @pytest.fixture
 def pools(monkeypatch):
     """Two independent host BLAS libraries, with a four-thread process budget."""
