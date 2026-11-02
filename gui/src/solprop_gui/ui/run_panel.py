@@ -2,10 +2,13 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The run on the Propagate page: pre-flight, run, stop, resume and the live view.
+"""The run: pre-flight, run, stop, resume, and what the live view is fed.
 
 The panel runs the recipe revision current when Run is pressed, in a new folder of the
-workspace, in a worker of its own (design 10). Its execution state is the window's
+workspace, in a worker of its own (design 10). The panel's controls sit on the
+Propagate step, its actions also on the window's toolbar; its live view, log and
+progress are shown by the window, among its views, in its bottom panel and in its
+status bar. Its execution state is the window's
 (:mod:`solprop_gui.service.states`); whether the file can be continued is asked of
 solprop after every ending, and Resume follows that answer alone.
 """
@@ -13,14 +16,14 @@ solprop after every ending, and Resume follows that answer alone.
 from collections.abc import Callable
 from pathlib import Path
 
-from PySide6.QtCore import QTimer, Signal
+from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtGui import QAction, QColor
 from PySide6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
     QLabel,
     QPlainTextEdit,
     QProgressBar,
-    QPushButton,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -32,6 +35,7 @@ from solprop_gui.service.messages import Event, Reply
 from solprop_gui.service.states import ACTIVE, ExecutionState, advance
 from solprop_gui.service.worker import OUTPUT, RunSpec
 from solprop_gui.ui.bridge import ServiceBridge
+from solprop_gui.ui.icons import icon
 from solprop_gui.views.live import OverviewView
 
 __all__ = ["STOP_GRACE_MS", "RecipeSnapshot", "RunPanel"]
@@ -114,87 +118,81 @@ class RunPanel(QWidget):
         self._z_end = 0.0
 
         self.workspace = Path(workspace)
-        self.workspace_button = QToolButton()
-        self.workspace_button.setObjectName("workspace")
-        self.workspace_button.setText("Workspace…")
-        self.workspace_button.clicked.connect(self.choose_workspace)
-        self._show_workspace()
-        self.estimate_button = QToolButton()
-        self.estimate_button.setObjectName("estimate")
-        self.estimate_button.setText("Estimate")
-        self.estimate_button.setToolTip(
+        text = self.palette().windowText().color()
+        self.run_action = self._action("Run", "run", self.start, QColor("#2e7d32"))
+        self.run_action.setToolTip("Run the setup as it is now, in a new run folder.")
+        self.stop_action = self._action("Stop", "stop", self.stop, QColor("#c62828"))
+        self.stop_action.setToolTip(
+            "Stop at the next step; the file keeps what was done, and can be resumed."
+        )
+        self.kill_action = self._action("Kill", "kill", self.kill, text)
+        self.kill_action.setToolTip(
+            "End the worker at once. The file may then hold no state to resume from."
+        )
+        self.resume_action = self._action("Resume", "resume", self.resume, text)
+        self.estimate_action = self._action("Estimate", "estimate", self.estimate, text)
+        self.estimate_action.setToolTip(
             "Ask solprop what the run will cost: it builds the run and times a few "
             "trial steps, which takes seconds."
         )
-        self.estimate_button.clicked.connect(self.estimate)
+        self.run_button = self._button(self.run_action)
+        self.stop_button = self._button(self.stop_action)
+        self.kill_button = self._button(self.kill_action)
+        self.resume_button = self._button(self.resume_action)
+        self.estimate_button = self._button(self.estimate_action)
         self.estimate_text = QLabel("")
         self.estimate_text.setObjectName("estimate-text")
-
-        self.run_button = QPushButton("Run")
-        self.run_button.setObjectName("run")
-        self.run_button.setDefault(True)
-        self.run_button.clicked.connect(self.start)
-        self.stop_button = QPushButton("Stop")
-        self.stop_button.setObjectName("stop")
-        self.stop_button.clicked.connect(self.stop)
-        self.kill_button = QPushButton("Kill")
-        self.kill_button.setObjectName("kill")
-        self.kill_button.setToolTip(
-            "End the worker at once. The file may then hold no state to resume from."
-        )
-        self.kill_button.clicked.connect(self.kill)
-        self.resume_button = QPushButton("Resume")
-        self.resume_button.setObjectName("resume")
-        self.resume_button.clicked.connect(self.resume)
+        self.estimate_text.setWordWrap(True)
         self.state_label = QLabel("No run yet.")
         self.state_label.setObjectName("run-state")
+        self.state_label.setWordWrap(True)
+        self.workspace_label = QLabel()
+        self.workspace_label.setWordWrap(True)
+        self.workspace_button = QToolButton()
+        self.workspace_button.setObjectName("workspace")
+        self.workspace_button.setText("Change…")
+        self.workspace_button.clicked.connect(self.choose_workspace)
+        self._show_workspace()
+
+        # Shown by the window: the progress in its status bar, the live view among
+        # its views, the log in its bottom panel.
         self.lamp = QLabel("boundary: ok")
         self.lamp.setToolTip("The time window's edges, as solprop's monitor reports.")
         self.progress = QProgressBar()
         self.progress.setRange(0, 1000)
-        self.progress.setMaximumWidth(240)
+        self.progress.setMaximumWidth(200)
+        self.progress.setMaximumHeight(16)
         self.steps = QLabel("")
-        self.log_button = QToolButton()
-        self.log_button.setText("Log")
-        self.log_button.setCheckable(True)
-        self.log_button.setToolTip("Show solprop's log of the run.")
-
-        bar = QHBoxLayout()
-        for widget in (
-            self.run_button,
-            self.stop_button,
-            self.kill_button,
-            self.resume_button,
-        ):
-            bar.addWidget(widget)
-        bar.addWidget(self.progress)
-        bar.addWidget(self.steps)
-        bar.addStretch(1)
-        bar.addWidget(self.lamp)
-        bar.addWidget(self.estimate_button)
-        bar.addWidget(self.workspace_button)
-        bar.addWidget(self.log_button)
-        status = QHBoxLayout()
-        status.addWidget(self.state_label)
-        status.addStretch(1)
-        status.addWidget(self.estimate_text)
-
         self.view = OverviewView()
         self.log = QPlainTextEdit()
         self.log.setReadOnly(True)
         self.log.setMaximumBlockCount(2000)
         self.log.setObjectName("run-log")
-        self.log.setMaximumHeight(160)
-        self.log.hide()
-        self.log_button.toggled.connect(self.log.setVisible)
 
+        buttons = QHBoxLayout()
+        buttons.setSpacing(2)
+        for button in (
+            self.run_button,
+            self.stop_button,
+            self.kill_button,
+            self.resume_button,
+        ):
+            buttons.addWidget(button)
+        buttons.addStretch(1)
+        estimate = QHBoxLayout()
+        estimate.addWidget(self.estimate_button)
+        estimate.addStretch(1)
+        where = QHBoxLayout()
+        where.addWidget(self.workspace_label, 1)
+        where.addWidget(self.workspace_button)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(2)
-        layout.addLayout(bar)
-        layout.addLayout(status)
-        layout.addWidget(self.view, 1)
-        layout.addWidget(self.log)
+        layout.setSpacing(4)
+        layout.addLayout(buttons)
+        layout.addWidget(self.state_label)
+        layout.addLayout(estimate)
+        layout.addWidget(self.estimate_text)
+        layout.addLayout(where)
 
         self._grace = QTimer(self)
         self._grace.setSingleShot(True)
@@ -240,22 +238,69 @@ class RunPanel(QWidget):
             self.state_changed.emit(state.value)
         self._update_buttons()
 
+    def _action(
+        self, text: str, drawing: str, slot: Callable[[], object], colour: QColor
+    ) -> QAction:
+        """Make one of the panel's actions, shared with the window's toolbar.
+
+        Parameters
+        ----------
+        text : str
+            Its text.
+        drawing : str
+            Its icon's drawing (:data:`~solprop_gui.ui.icons.DRAWINGS`).
+        slot : callable
+            What it does.
+        colour : PySide6.QtGui.QColor
+            Its icon's colour.
+
+        Returns
+        -------
+        PySide6.QtGui.QAction
+            The action.
+        """
+        action = QAction(icon(drawing, colour), text, self)
+        action.setObjectName(drawing)
+        action.triggered.connect(lambda _checked=False: slot())
+        return action
+
+    @staticmethod
+    def _button(action: QAction) -> QToolButton:
+        """Make a button for an action.
+
+        Parameters
+        ----------
+        action : PySide6.QtGui.QAction
+            The action; the button follows its text, icon and state.
+
+        Returns
+        -------
+        PySide6.QtWidgets.QToolButton
+            The button.
+        """
+        button = QToolButton()
+        button.setDefaultAction(action)
+        button.setObjectName(action.objectName())
+        button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        return button
+
     def _update_buttons(self) -> None:
-        """Enable the buttons the state allows."""
+        """Enable the actions the state allows."""
         active = self.active
-        self.run_button.setEnabled(self.can_run and not active)
-        self.estimate_button.setEnabled(self.can_run)
-        self.stop_button.setEnabled(active and self.state != ExecutionState.STOPPING)
-        self.kill_button.setEnabled(
+        self.run_action.setEnabled(self.can_run and not active)
+        self.estimate_action.setEnabled(self.can_run)
+        self.stop_action.setEnabled(active and self.state != ExecutionState.STOPPING)
+        self.kill_action.setEnabled(
             active
             and self.state == ExecutionState.STOPPING
             and not self._grace.isActive()
         )
-        self.resume_button.setEnabled(not active and self.resume_mode is not None)
+        self.resume_action.setEnabled(not active and self.resume_mode is not None)
 
     def _show_workspace(self) -> None:
-        """Say on the workspace button where runs go."""
-        self.workspace_button.setToolTip(f"New runs go in {self.workspace}")
+        """Say where new runs go."""
+        self.workspace_label.setText(f"Runs go in the workspace {self.workspace.name}")
+        self.workspace_label.setToolTip(str(self.workspace))
 
     def choose_workspace(self) -> None:
         """Pick the folder new runs are made in."""
@@ -466,13 +511,13 @@ class RunPanel(QWidget):
             value = reply.value if reply.ok else None
             if isinstance(value, dict) and value.get("resumable"):
                 self.resume_mode = value.get("mode")
-                self.resume_button.setToolTip(
+                self.resume_action.setToolTip(
                     f"Continue from z = {value.get('z'):.4g} m."
                 )
             else:
                 self.resume_mode = None
                 reason = value.get("reason") if isinstance(value, dict) else reply.error
-                self.resume_button.setToolTip(f"Cannot resume: {reason}")
+                self.resume_action.setToolTip(f"Cannot resume: {reason}")
             self._update_buttons()
 
     def _show_estimate(self, reply: Reply) -> None:

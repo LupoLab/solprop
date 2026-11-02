@@ -2,31 +2,31 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The start screen and the setup pages built from solprop's metadata."""
+"""The settings panels: the start, and the setup steps built from solprop's metadata."""
 
 from collections.abc import Iterable, Mapping, Sequence
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
-    QGroupBox,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QListWidget,
     QListWidgetItem,
     QPushButton,
     QScrollArea,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
 from solprop_gui.model.recipe import MISSING, RecipeModel
-from solprop_gui.model.workspace import RunEntry
-from solprop_gui.registry.pages import Page
+from solprop_gui.registry.pages import GROUP_TITLES, Page
 from solprop_gui.registry.routes import CARDS
 from solprop_gui.ui.fields import ParameterRow
 
-__all__ = ["ParameterPage", "StartPage", "issue_keyword"]
+__all__ = ["ParameterPage", "Section", "StartPage", "issue_keyword"]
 
 
 def issue_keyword(parameter: object) -> list[str]:
@@ -54,8 +54,68 @@ def issue_keyword(parameter: object) -> list[str]:
     return names
 
 
+class Section(QWidget):
+    """A titled, collapsible part of a settings panel, as COMSOL's settings have.
+
+    Parameters
+    ----------
+    title : str
+        Its title.
+    parent : PySide6.QtWidgets.QWidget or None, optional
+        The owner.
+    """
+
+    def __init__(self, title: str, parent: QWidget | None = None) -> None:
+        """Make the section, open and empty."""
+        super().__init__(parent)
+        self.header = QToolButton()
+        self.header.setText(title)
+        self.header.setCheckable(True)
+        self.header.setChecked(True)
+        self.header.setAutoRaise(True)
+        self.header.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.header.setArrowType(Qt.ArrowType.DownArrow)
+        self.header.setStyleSheet("QToolButton { font-weight: bold; border: none; }")
+        self.header.toggled.connect(self.set_open)
+        self.body = QWidget()
+        self.rows = QVBoxLayout(self.body)
+        self.rows.setContentsMargins(12, 0, 0, 4)
+        self.rows.setSpacing(0)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        layout.addWidget(self.header)
+        layout.addWidget(self.body)
+
+    def set_open(self, open_: bool) -> None:
+        """Show or fold the section's body.
+
+        Parameters
+        ----------
+        open_ : bool
+            Whether to show it.
+        """
+        self.header.setArrowType(
+            Qt.ArrowType.DownArrow if open_ else Qt.ArrowType.RightArrow
+        )
+        self.body.setVisible(open_)
+
+    def add(self, widget: QWidget) -> None:
+        """Add a widget to the section's body.
+
+        Parameters
+        ----------
+        widget : PySide6.QtWidgets.QWidget
+            The widget.
+        """
+        self.rows.addWidget(widget)
+
+
 class ParameterPage(QWidget):
-    """One setup page: the rows of the keywords in its groups.
+    """One step's settings: the rows of the keywords in its groups, in sections.
+
+    The page is a narrow panel at the window's left; a page of several groups
+    shows each in a collapsible section.
 
     Parameters
     ----------
@@ -77,27 +137,61 @@ class ParameterPage(QWidget):
         super().__init__(parent)
         self.page = page
         self.rows: dict[tuple[str, str], ParameterRow] = {}
-        self.title = QLabel(f"<h2>{page.title}</h2>")
+        self.sections: dict[str, Section] = {}
+        self.title = QLabel(f"<b>{page.title}</b>")
         self.help = QLabel(page.help)
         self.help.setWordWrap(True)
-        self.advanced = QCheckBox("Show advanced settings")
+        self.help.setStyleSheet("color: palette(placeholder-text);")
+        self.advanced = QCheckBox("Advanced")
+        self.advanced.setToolTip("Show the expert settings too.")
         self.advanced.toggled.connect(self._show_levels)
         self.body = QWidget()
         self.form = QVBoxLayout(self.body)
         self.form.setAlignment(Qt.AlignmentFlag.AlignTop)
-        self.form.setSpacing(4)
-        self.extra = QVBoxLayout()
+        self.form.setContentsMargins(6, 4, 6, 4)
+        self.form.setSpacing(2)
+        self.top = QVBoxLayout()
+        self.top.setContentsMargins(0, 0, 0, 0)
+        self.form.addLayout(self.top)
+        for group in page.groups:
+            section = Section(GROUP_TITLES.get(group, group.capitalize()))
+            section.setVisible(False)
+            self.sections[group] = section
+            self.form.addWidget(section)
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setWidget(self.body)
         header = QHBoxLayout()
         header.addWidget(self.title, 1)
         header.addWidget(self.advanced)
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(4, 4, 0, 0)
+        layout.setSpacing(2)
         layout.addLayout(header)
         layout.addWidget(self.help)
         layout.addWidget(scroll, 1)
-        layout.addLayout(self.extra)
+
+    def add_section(self, title: str, widget: QWidget) -> Section:
+        """Put a section of the window's own above the keywords' sections.
+
+        Parameters
+        ----------
+        title : str
+            Its title.
+        widget : PySide6.QtWidgets.QWidget
+            What it holds.
+
+        Returns
+        -------
+        Section
+            The section.
+        """
+        section = Section(title)
+        section.add(widget)
+        self.top.addWidget(section)
+        return section
 
     def build(
         self,
@@ -121,7 +215,12 @@ class ParameterPage(QWidget):
             row = ParameterRow(meta, table)
             row.edited.connect(self.edited)
             self.rows[row.name, table] = row
-            self.form.addWidget(row)
+            section = self.sections[str(meta.get("group"))]
+            section.add(row)
+            section.setVisible(True)
+        # One group needs no heading of its own: the page's title says it.
+        for section in self.sections.values():
+            section.header.setVisible(len(self.sections) > 1)
         self._show_levels(self.advanced.isChecked())
 
     def clear(self) -> None:
@@ -130,6 +229,8 @@ class ParameterPage(QWidget):
             row.setParent(None)
             row.deleteLater()
         self.rows = {}
+        for section in self.sections.values():
+            section.setVisible(False)
 
     def _show_levels(self, advanced: bool) -> None:
         """Show the basic rows, and the advanced ones when asked.
@@ -168,6 +269,29 @@ class ParameterPage(QWidget):
         for (name, _), row in self.rows.items():
             row.set_resolved(resolved.get(name))
 
+    def reveal(self, name: str) -> ParameterRow | None:
+        """Show a keyword's row, opening its section, and focus its field.
+
+        Parameters
+        ----------
+        name : str
+            The keyword.
+
+        Returns
+        -------
+        ParameterRow or None
+            The row, or ``None`` if the page has none for it.
+        """
+        for (row_name, _), row in self.rows.items():
+            if row_name == name:
+                for section in self.sections.values():
+                    if section.isAncestorOf(row):
+                        section.header.setChecked(True)
+                row.setVisible(True)
+                row.editor.setFocus()
+                return row
+        return None
+
     def show_issues(self, issues: Sequence[Mapping[str, object]]) -> str | None:
         """Show the issues at their rows.
 
@@ -198,7 +322,7 @@ class ParameterPage(QWidget):
 
 
 class StartPage(QWidget):
-    """Where a setup begins: a route card, an example, a file or a past run.
+    """Where a setup begins: a route card, one of solprop's examples, or a file.
 
     Parameters
     ----------
@@ -211,61 +335,56 @@ class StartPage(QWidget):
         Emitted with a card's key.
     example_chosen : Signal
         Emitted with an example's name.
-    run_chosen : Signal
-        Emitted with a run folder's results file.
     """
 
     card_chosen = Signal(str)
     example_chosen = Signal(str)
-    run_chosen = Signal(str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
-        """Make the screen; the examples and runs are filled in later."""
+        """Make the panel; the examples are filled in later."""
         super().__init__(parent)
-        cards = QGroupBox("New setup")
-        cards_layout = QVBoxLayout(cards)
+        title = QLabel(
+            "<b>solprop</b><br>Set up, run and read an ultrafast propagation "
+            "simulation. Every setup is a solprop recipe, and can leave as a recipe "
+            "file or a Python script."
+        )
+        title.setWordWrap(True)
+        self.open_button = QPushButton("Open setup…")
+        self.open_button.setObjectName("open-setup-file")
+        self.results_button = QPushButton("Open results…")
+        self.results_button.setObjectName("open-results-file")
+        files = QHBoxLayout()
+        files.addWidget(self.open_button)
+        files.addWidget(self.results_button)
+
+        cards = Section("New setup")
         self.card_buttons: dict[str, QPushButton] = {}
         for card in CARDS:
             button = QPushButton(card.title)
             button.setObjectName(f"card-{card.key}")
             button.setToolTip(card.reason or card.summary)
             button.setEnabled(card.enabled)
+            button.setStyleSheet("text-align: left; padding: 3px 8px;")
             button.clicked.connect(
                 lambda _checked=False, key=card.key: self.card_chosen.emit(key)
             )
-            cards_layout.addWidget(button)
+            cards.add(button)
             self.card_buttons[card.key] = button
-        cards_layout.addStretch(1)
 
-        examples = QGroupBox("Start from one of solprop's examples")
+        examples = Section("Start from one of solprop's examples")
         self.examples = QListWidget()
         self.examples.setObjectName("examples")
         self.examples.itemActivated.connect(
             lambda item: self.example_chosen.emit(item.data(Qt.ItemDataRole.UserRole))
         )
-        QVBoxLayout(examples).addWidget(self.examples)
+        examples.add(self.examples)
 
-        runs = QGroupBox("Runs in the workspace")
-        self.runs = QListWidget()
-        self.runs.setObjectName("runs")
-        self.runs.itemActivated.connect(
-            lambda item: self.run_chosen.emit(item.data(Qt.ItemDataRole.UserRole))
-        )
-        QVBoxLayout(runs).addWidget(self.runs)
-
-        title = QLabel(
-            "<h1>solprop</h1><p>Set up, run and read an ultrafast propagation "
-            "simulation. Every setup is a solprop recipe, and can leave as a recipe "
-            "file or a Python script.</p>"
-        )
-        title.setWordWrap(True)
-        columns = QHBoxLayout()
-        columns.addWidget(cards, 1)
-        columns.addWidget(examples, 2)
-        columns.addWidget(runs, 2)
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(6, 6, 2, 2)
         layout.addWidget(title)
-        layout.addLayout(columns, 1)
+        layout.addLayout(files)
+        layout.addWidget(cards)
+        layout.addWidget(examples, 1)
 
     def show_examples(
         self, examples: Sequence[Mapping[str, object]], routes: Iterable[str]
@@ -289,19 +408,3 @@ class StartPage(QWidget):
                 item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEnabled)
                 item.setToolTip(f"The {example['route']} route comes later.")
             self.examples.addItem(item)
-
-    def show_runs(self, runs: Sequence[RunEntry]) -> None:
-        """List the workspace's runs.
-
-        Parameters
-        ----------
-        runs : Sequence of RunEntry
-            The runs, newest first.
-        """
-        self.runs.clear()
-        for run in runs:
-            if run.output is None:
-                continue
-            item = QListWidgetItem(run.name)
-            item.setData(Qt.ItemDataRole.UserRole, str(run.output))
-            self.runs.addItem(item)

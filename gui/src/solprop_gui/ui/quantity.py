@@ -71,7 +71,7 @@ class NumberEdit(QLineEdit):
         super().__init__(parent)
         self.integer = integer
         self.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.setMinimumWidth(90)
+        self.setMinimumWidth(60)
 
     def _step(self, steps: int) -> None:
         """Step the number shown, or the default, and finish the edit.

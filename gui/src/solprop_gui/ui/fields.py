@@ -138,7 +138,7 @@ class ParameterRow(QWidget):
         self.resolved: Sequence[object] | None = None
 
         self.label = QLabel(label(self.name))
-        self.label.setMinimumWidth(170)
+        self.label.setWordWrap(True)
         self.issue = QLabel()
         self.issue.setWordWrap(True)
         self.issue.hide()
@@ -202,15 +202,21 @@ class ParameterRow(QWidget):
         self.label.setBuddy(self.editor)
         self._tooltip()
 
+        # Compact, for a narrow settings panel: the label line carries the form
+        # picker and the reset; the editor has the full width below it.
+        self.mode.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
+        self.reset.setAutoRaise(True)
         line = QHBoxLayout()
         line.setContentsMargins(0, 0, 0, 0)
-        line.addWidget(self.label)
+        line.setSpacing(4)
+        line.addWidget(self.label, 1)
         line.addWidget(self.mode)
-        line.addWidget(self.stack, 1)
         line.addWidget(self.reset)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 2, 0, 2)
+        layout.setContentsMargins(0, 3, 0, 3)
+        layout.setSpacing(1)
         layout.addLayout(line)
+        layout.addWidget(self.stack)
         layout.addWidget(self.issue)
         self._show_mode(self.modes[0])
         self.set_value(MISSING)

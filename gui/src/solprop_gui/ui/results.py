@@ -2,27 +2,33 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The Results page: any solprop results file, its Overview, and a compare.
+"""The Results step: any solprop results file, its Overview, and a compare.
+
+The panel holds the file's controls and the workspace's runs; its Overview and Compare
+views are shown by the window among its views.
 
 A file opens whether the window ran it or not: what it can show is asked of solprop
 (``capabilities.output``), and its planes are reduced in the kernel. A file that
-records its recipe can give its setup back ("Open setup from this run", the resolved
+records its recipe can give its setup back ("Open its setup", the resolved
 recipe, design 4).
 """
 
+from collections.abc import Sequence
 from pathlib import Path
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QFileDialog,
-    QHBoxLayout,
+    QGridLayout,
     QLabel,
+    QListWidget,
+    QListWidgetItem,
     QPushButton,
-    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
 
+from solprop_gui.model.workspace import RunEntry
 from solprop_gui.service.messages import Reply
 from solprop_gui.ui.bridge import ServiceBridge
 from solprop_gui.views.compare import CompareView
@@ -32,7 +38,7 @@ __all__ = ["ResultsPage"]
 
 
 class ResultsPage(QWidget):
-    """Open a results file, show its Overview, and compare runs.
+    """Open a results file, list the workspace's runs, and compare runs.
 
     Parameters
     ----------
@@ -45,9 +51,12 @@ class ResultsPage(QWidget):
     ----------
     setup_opened : Signal
         Emitted with (recipe text, results file) when the user opens a run's setup.
+    view_wanted : Signal
+        Emitted with ``"results"`` or ``"compare"``: the view to bring forward.
     """
 
     setup_opened = Signal(str, str)
+    view_wanted = Signal(str)
 
     def __init__(self, bridge: ServiceBridge, parent: QWidget | None = None) -> None:
         """Make the page, with no file."""
@@ -60,7 +69,7 @@ class ResultsPage(QWidget):
         self.open_button = QPushButton("Open results…")
         self.open_button.setObjectName("open-results")
         self.open_button.clicked.connect(self.choose)
-        self.setup_button = QPushButton("Open setup from this run")
+        self.setup_button = QPushButton("Open its setup")
         self.setup_button.setObjectName("open-setup")
         self.setup_button.setToolTip(
             "Loads the recipe the file records, as resolved: the values that rebuild "
@@ -74,29 +83,47 @@ class ResultsPage(QWidget):
         self.info = QLabel("No results file open.")
         self.info.setObjectName("results-info")
         self.info.setWordWrap(True)
+        self.runs = QListWidget()
+        self.runs.setObjectName("runs")
+        self.runs.itemActivated.connect(
+            lambda item: self.open(item.data(Qt.ItemDataRole.UserRole))
+        )
 
         self.overview = OverviewView()
         self.compare = CompareView()
         self.clear_button.clicked.connect(self.compare.clear)
-        self.tabs = QTabWidget()
-        self.tabs.addTab(self.overview, "Overview")
-        self.tabs.addTab(self.compare, "Compare")
 
-        buttons = QHBoxLayout()
-        for button in (
-            self.open_button,
-            self.setup_button,
-            self.compare_button,
-            self.clear_button,
-        ):
-            buttons.addWidget(button)
-        buttons.addStretch(1)
+        file = QGridLayout()
+        file.addWidget(self.open_button, 0, 0)
+        file.addWidget(self.setup_button, 0, 1)
+        file.addWidget(self.compare_button, 1, 0)
+        file.addWidget(self.clear_button, 1, 1)
         layout = QVBoxLayout(self)
-        layout.addLayout(buttons)
+        layout.setContentsMargins(6, 6, 2, 2)
+        layout.addWidget(QLabel("<b>Results</b>"))
+        layout.addLayout(file)
         layout.addWidget(self.info)
-        layout.addWidget(self.tabs, 1)
+        layout.addWidget(QLabel("Runs in the workspace"))
+        layout.addWidget(self.runs, 1)
         bridge.replied.connect(self.on_reply)
         self._update_buttons()
+
+    def show_runs(self, runs: Sequence[RunEntry]) -> None:
+        """List the workspace's runs.
+
+        Parameters
+        ----------
+        runs : Sequence of RunEntry
+            The runs, newest first.
+        """
+        self.runs.clear()
+        for run in runs:
+            if run.output is None:
+                continue
+            item = QListWidgetItem(run.name)
+            item.setData(Qt.ItemDataRole.UserRole, str(run.output))
+            item.setToolTip(str(run.output))
+            self.runs.addItem(item)
 
     def _update_buttons(self) -> None:
         """Enable what the open file allows."""
@@ -128,19 +155,24 @@ class ResultsPage(QWidget):
         request = self.bridge.request(kind, payload, key=f"results-{purpose}")
         self._pending[request] = (purpose, str(payload.get("path")))
 
-    def open(self, path: str | Path) -> None:
+    def open(self, path: str | Path, *, show: bool = True) -> None:
         """Open a results file.
 
         Parameters
         ----------
         path : str or pathlib.Path
             The file.
+        show : bool, optional
+            Whether to bring its Overview forward.
         """
         self.path = str(path)
         self.capabilities = None
-        self.info.setText(f"{self.path}: reading…")
+        self.info.setText(f"{_short(self.path)}: reading…")
+        self.info.setToolTip(self.path)
         self.overview.clear()
         self._update_buttons()
+        if show:
+            self.view_wanted.emit("results")
         self._ask("describe_output", {"path": self.path}, "describe")
         self._ask("overview", {"path": self.path}, "overview")
 
@@ -167,7 +199,7 @@ class ResultsPage(QWidget):
             return
         purpose, path = entry
         if not reply.ok:
-            self.info.setText(f"{path}: {reply.error}")
+            self.info.setText(f"{_short(path)}: {reply.error}")
             return
         value = reply.value
         if purpose == "describe" and path == self.path and isinstance(value, dict):
@@ -175,7 +207,7 @@ class ResultsPage(QWidget):
             outcome = value.get("outcome") or {}
             status = outcome.get("status") if isinstance(outcome, dict) else None
             text = (
-                f"{Path(path).parent.name}/{Path(path).name}: "
+                f"{_short(path)}: "
                 f"{value.get('simulation_kind')} run, {status or 'no outcome'}"
             )
             message = outcome.get("message") if isinstance(outcome, dict) else None
@@ -192,6 +224,28 @@ class ResultsPage(QWidget):
         elif purpose == "compare" and isinstance(value, dict):
             name = Path(path).parent.name
             self.compare.add_run(name, value.get("axes", {}), value.get("rows", []))  # pyright: ignore[reportArgumentType]
-            self.tabs.setCurrentWidget(self.compare)
+            self.view_wanted.emit("compare")
         elif purpose == "setup" and isinstance(value, str):
             self.setup_opened.emit(value, path)
+
+
+def _short(path: str) -> str:
+    """Name a results file by its folder and its name.
+
+    Parameters
+    ----------
+    path : str
+        The file.
+
+    Returns
+    -------
+    str
+        ``folder/name``.
+
+    Examples
+    --------
+    >>> _short("/a/b/2026-11-02-rdw/run.h5")
+    '2026-11-02-rdw/run.h5'
+    """
+    file = Path(path)
+    return f"{file.parent.name}/{file.name}"

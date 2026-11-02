@@ -238,46 +238,58 @@ serves.
 
 ### 5.1 Layout
 
+The window follows COMSOL's layout, simplified (revised 2026-11-02, after trying the
+first build: a list of steps at the left with full-width pages left the plots too
+little room).
+
 ```
 ┌──────────────────────────────────────────────────────────────────────────────────┐
-│ File  Edit  View  Run  Tools  Help                     rdw-helium.toml  (edited) │
+│ File  Edit  Go  Run  View                                rdw-helium.toml (edited) │
 ├──────────────────────────────────────────────────────────────────────────────────┤
-│  ① Geometry ✓ ── ② Medium ✓ ── ③ Nonlinearity ✓ ── ④ Input ⚠ ── ⑤ Run ── ⑥ Results │
-├────────────────────────────────────────────────────────┬─────────────────────────┤
-│ Input fields                              [?] [Advanced]│ Summary            [⇥]  │
-│                                                        │ route   capillary,      │
-│                                                        │         4 HE₁ₘ modes    │
-│              (page content)                            │ λ₀      800 nm          │
-│                                                        │ β₂(λ₀)  … fs²/m         │
-│                                                        │ ZDW     … nm            │
-│                                                        │ N       …               │
-│                                                        │ L_fiss  … cm            │
-│                                                        │ I_peak  … W/cm²         │
-│                                                        │ grid    2¹³ × 4 modes   │
-│                                                        │ memory  ≈ … MB          │
-├────────────────────────────────────────────────────────┴─────────────────────────┤
-│ ⚠ Pulse 2 lies within 10 fs of the time-window edge.        [Widen window] [Why?] │
+│  ‹   ›  │ [⌂]   [◎]✓   [∴]✓    [≈]✓    [Λ]⚠   [⇒]    [⌇]   │  [⏱]  [▶]  [■]  [▶▶] │
+│ Back Next│Start Geometry Medium Nonlinear Input Propagate Results│Estimate Run Stop Resume│
+├─────────────────────────┬────────────────────────────────────────────────────────┤
+│ Input and grid [Advanced]│ [Live run] [Results] [Compare]   (later: Geometry, …) │
+│ ▾ Input pulse            │                                                        │
+│   Central wavelength   ↺ │                                                        │
+│   [ 800        ] [nm ▾]  │                 the view: plots                        │
+│   Duration (FWHM)      ↺ │                                                        │
+│   [ 10         ] [fs ▾]  │                                                        │
+│ ▾ Grid                   │                                                        │
+│   Wavelength window    ↺ ├────────────────────────────────────────────────────────┤
+│   [200] to [2000] [nm ▾] │ summary numbers          │ solprop's check             │
+│                          │                          │ ✓ solprop accepts this setup │
+│                          ├────────────────────────────────────────────────────────┤
+│                          │ [Summary] [Log] [Python]                                │
+├─────────────────────────┴────────────────────────────────────────────────────────┤
+│ status message                       z 0.05 / 0.05 m  steps 170  boundary: ok [██] │
 └──────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-- **Step bar.** Six steps, always visible, each with a status badge: ✓ valid, ⚠ valid
-  with warnings, ✗ invalid, ○ untouched. Steps are not a forced sequence: once a geometry
-  is chosen, any step can be visited in any order. "Next" and "Back" buttons exist for
-  newcomers. On a narrow window the labels collapse to numbers and icons.
-- **Page.** Each page has a title, a help button `[?]`, and an `[Advanced]` toggle that
-  reveals the expert controls (remembered per page).
-- **Summary dock (right).** Live derived numbers for the current recipe, computed by
-  solprop (`tools.capillary_params`, `soliton_params`, `zdw`, the grid's own size, the
-  cost estimate): dispersion and soliton figures for guided routes; Rayleigh range,
-  critical power and peak intensity for free space. It answers "what will this do?" while
-  the user types, which is most of the value of a GUI over a script. Collapsible to an
-  icon rail. The same dock can show the help page instead (section 12.4).
-- **Message bar (bottom).** The most important current warning or error with one-click
-  fixes where solprop can suggest one, and a "Why?" link to the relevant help. The full
-  list is in a Messages panel (View menu).
-- **Show code (View menu).** A dock with the live Python equivalent of the current
-  recipe, updated as the user types. This is the bridge from GUI to scripts, and teaches
-  the API by example.
+- **Step bar (top).** The steps as icons with their names, each badged with solprop's
+  check of it (✓ accepted, ⚠ a warning, ✗ an error; no badge before a setup is open).
+  Back and Next step through them (also the platform's back and forward keys, and
+  Ctrl+1 to Ctrl+7); any step can be visited in any order. The run's actions (Estimate,
+  Run, Stop, Resume) sit at the bar's right end, so a run is one click from any step.
+- **Settings (left).** The current step's settings in a narrow panel: a title, a line
+  of help, an `Advanced` toggle, and the keywords in collapsible sections, one per
+  metadata group. Each row is compact: the label with the form picker and the reset
+  on one line, the editor below at the panel's full width. The Propagate step adds a
+  Run section (the run's controls, the estimate, the workspace); the Results step's
+  panel opens files and lists the workspace's runs.
+- **Views (right).** Tabs over most of the window: the live run, the open results
+  file's Overview, the compare. Later tabs (the guide's cross-section, the medium's
+  dispersion, the pulse) join them; the views are independent of the step, though
+  starting a run brings the live view forward and the Results step the results.
+- **Messages (bottom, under the views).** Tabs: the summary of derived numbers
+  (`tools.capillary_params`, …) beside solprop's check (activating an issue goes to its
+  step and field); the run's log; and the live Python equivalent of the setup. Later:
+  a console. Each panel can be hidden from the View menu.
+- **Status bar.** Passing messages, and the run's position, steps, boundary lamp and
+  progress.
+
+A variation kept for later: a tree of the steps and their keywords in place of the
+settings panel, edited in place, as COMSOL's model builder.
 
 ### 5.2 Start screen
 
@@ -292,7 +304,7 @@ The design target is a 13-inch laptop (1280 × 800 logical pixels) without scrol
 main controls; it must remain usable at 1024 × 700 and look good on a 4K monitor and a
 projector (S5).
 
-- The summary dock collapses to a rail; the step bar to icons.
+- The settings and messages panels can be hidden; the step bar can drop its names.
 - Setup pages are single-column forms grouped into collapsible sections; plots on setup
   pages (pulse preview, dispersion) sit beside the form when there is room and below it
   when there isn't.
@@ -592,7 +604,7 @@ Below the pulses, because the pulses determine it:
   solprop for a suggestion from the pulses and the route (S10 covers the suggestion).
 - **Transverse grid** (free space: radius and points; planar: y extent and points).
 - Advanced: `ffac`, `fft_size`, collar fraction, a ready-made grid.
-- The resulting grid size, sample spacing and memory appear in the summary dock and
+- The resulting grid size, sample spacing and memory appear in the summary panel and
   update immediately.
 
 ### 9.4 Noise
@@ -975,7 +987,7 @@ Messages (sketch):
 | Request (GUI → service) | Reply or events |
 |---|---|
 | `validate(recipe)` | errors and warnings with parameter paths |
-| `summarise(recipe)` | the summary dock's numbers |
+| `summarise(recipe)` | the summary panel's numbers |
 | `explore(geometry, medium, quantities, axis, sweep)` | arrays |
 | `solve_pin(recipe, pin)` | every root and the chosen value, or the attainable range (`Recipe.pin_roots`) |
 | `preview_input(recipe)` | pulse and beam arrays on the grid |
@@ -1151,7 +1163,7 @@ solprop changes section 21 names for it.
 |---|---|
 | M0 (done) | Prototypes: NiceGUI and Qt run-and-watch for `prop_capillary`. |
 | Scaffold (done) | The `gui/` distribution in solprop's repository: packaging and the `gui` extra, the layer rules and their tests, the `gui` CI job, this page. |
-| M1 Lifecycle (in progress) | On the capillary, mode-averaged, only: main window, step bar, summary dock, service with kernel and worker, and the whole run lifecycle end to end — edit, validate, save, export, run, stop, reopen, resume and a simple compare of two runs — with the Overview results layout. It needs the lazy `solprop.recipe` (21.2). This exercises the architecture more than more forms would. |
+| M1 Lifecycle (in progress) | On the capillary, mode-averaged, only: main window, step bar, summary panel, service with kernel and worker, and the whole run lifecycle end to end — edit, validate, save, export, run, stop, reopen, resume and a simple compare of two runs — with the Overview results layout. It needs the lazy `solprop.recipe` (21.2). This exercises the architecture more than more forms would. |
 | M2 Explorer | The waveguide explorer, standalone and in the medium page; pinned pressure; multimode capillary. |
 | M3 Guided routes | Antiresonant, full-transverse capillary, GNLSE (Taylor, step-index, tables), rectangular, slab. |
 | M4 Results depth | All views of 11.3 under result capabilities, view specifications and export through `solprop.plotting`, richer compare. |
@@ -1368,7 +1380,7 @@ merged to `main` at `Final`.
 | Data pulses from FROG or SPIDER retrievals and temporal fields (9.1) | `load_spectrum` reads three columns, frequency in Hz, power and phase (SEP 41 Q5); a `TimeDataPulse` from a file is not registered | Spectral import only, until a temporal loader is registered |
 | The launch table (9.2) | `launch`, a mapping or a list of mappings, labels such as `HE1,1:even`, addressed as `launch["HE1,1"].share` | As designed, with solprop's labels |
 | Auto grid, the collar (9.3) | `solprop.grid.suggest`, a stated heuristic; on free space `collar_fraction` defaults to 0 and `spatial_absorber` is a table or `false` (SEP 40) | Auto is labelled as solprop's starting suggestion; the collar is an opt-in under Advanced |
-| The cost estimate in the summary dock (10.1) | `Simulation.estimate()` builds the backend and times warm-up trial steps (seconds): memory, output size, the right-hand side's cost and the calls per step, with no total time | Timing runs on request from the pre-flight panel; a live memory figure needs a size-only estimate (21.2); the rough time uses similar runs in the workspace or says it is unknown |
+| The cost estimate in the summary panel (10.1) | `Simulation.estimate()` builds the backend and times warm-up trial steps (seconds): memory, output size, the right-hand side's cost and the calls per step, with no total time | Timing runs on request from the pre-flight panel; a live memory figure needs a size-only estimate (21.2); the rough time uses similar runs in the workspace or says it is unknown |
 | One registry, its metadata from S9 (12.1) | S9 covers the keywords of the `gnlse`, `capillary` and `waveguide` routes and the execution settings; a registered type (`Factory`) carries units only | Forms for pulse lists, grids, profiles and every free-space table have no summaries, levels or defaults from solprop until 21.2's P2 |
 | The geometry cards (6.1) | No example recipe on the waveguide or radial routes; metal claddings, `IndexTable`, mode or table objects as the GNLSE `fibre`, providers and `CustomPulse` are not registered; a slab set's per-width units are not in the metadata | A card with no recipe form is shown disabled, with the reason |
 | `get_power` on spatial files (11.3) | Not physical there yet | The view is offered only where `capabilities.output` says so |

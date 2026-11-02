@@ -17,7 +17,8 @@ from conftest import TINY
 from solprop_gui.model.recipe import MISSING, RecipeModel
 from solprop_gui.service.states import ExecutionState
 from solprop_gui.ui.fields import ParameterRow
-from solprop_gui.ui.main_window import MainWindow
+from solprop_gui.ui.icons import DRAWINGS, icon
+from solprop_gui.ui.main_window import STEPS, MainWindow
 from solprop_gui.views.compare import CompareView
 from solprop_gui.views.live import OverviewView, decibels
 
@@ -293,6 +294,15 @@ def test_compare_shares_one_reference(qtbot: QtBot, tmp_path: Path):
     assert view.reference() == 0.0
 
 
+def test_every_drawing_makes_an_icon_with_each_badge(qtbot: QtBot):
+    from PySide6.QtGui import QColor  # noqa: PLC0415 - only here
+
+    for name in DRAWINGS:
+        for verdict in (None, "accepted", "warning", "error"):
+            made = icon(name, QColor("black"), verdict, size=32)
+            assert not made.pixmap(32, 32).toImage().isNull()
+
+
 # ---------------------------------------------------------------------- the window
 
 
@@ -306,7 +316,7 @@ def test_the_window_runs_the_whole_lifecycle(qtbot: QtBot, tmp_path: Path):  # n
     # A new setup from the card: solprop's check says what is required.
     window.new_from_card("capillary-averaged")
     qtbot.waitUntil(lambda: "required" in _issues(window), timeout=WAIT_MS)
-    assert window.steps.item(1).text().startswith("✗")
+    assert window.verdicts["geometry"] == "error"
     assert not window.run_panel.run_button.isEnabled()
 
     # Open a setup: every page is built from solprop's metadata and accepted.
@@ -314,10 +324,21 @@ def test_the_window_runs_the_whole_lifecycle(qtbot: QtBot, tmp_path: Path):  # n
     window.set_model(RecipeModel(TINY), base=str(tmp_path))
     qtbot.waitUntil(lambda: "accepts" in _issues(window), timeout=WAIT_MS)
     qtbot.waitUntil(lambda: "Soliton order" in window.summary.text(), timeout=WAIT_MS)
-    for row in range(1, 6):
-        window.steps.setCurrentRow(row)
-        shot(window, tmp_path, f"page-{row}")
-    assert all(window.steps.item(r).text().startswith("✓") for r in range(1, 6))
+    for key in STEPS[1:6]:
+        window.show_step(key)
+        shot(window, tmp_path, f"page-{key}")
+    assert set(window.verdicts.values()) == {"accepted"}
+
+    # Back and forward through the steps, by the toolbar's actions.
+    window.show_step("start")
+    assert not window.back_action.isEnabled()
+    window.forward_action.trigger()
+    assert window.step == "geometry"
+    window.step_actions["results"].trigger()
+    assert not window.forward_action.isEnabled()
+    window.step_by(5)  # past the end: stays
+    window.back_action.trigger()
+    assert window.step == "propagate"
 
     # Edit, refuse, undo and redo.
     energy = window.pages["input"].rows["energy", "build"]
@@ -329,14 +350,14 @@ def test_the_window_runs_the_whole_lifecycle(qtbot: QtBot, tmp_path: Path):  # n
     window.undo.redo()
     window.edit("energy", "build", "150 uJ")  # unchanged: no command
     window.edit("energy", "build", "1 fs")
-    qtbot.waitUntil(lambda: "✗" in window.steps.item(4).text(), timeout=WAIT_MS)
+    qtbot.waitUntil(lambda: window.verdicts["input"] == "error", timeout=WAIT_MS)
     window.issue_list.itemActivated.emit(window.issue_list.item(0))
-    assert window.steps.currentRow() == 4
+    assert window.step == "input"
     window.undo.undo()
     qtbot.waitUntil(window.run_panel.run_button.isEnabled, timeout=WAIT_MS)
 
     # The code dock, the export and saving.
-    window.code_dock.show()
+    window.console.setCurrentWidget(window.code_view)
     qtbot.waitUntil(lambda: "import" in window.code_view.toPlainText(), timeout=WAIT_MS)
     assert window.save_as(tmp_path / "setup.toml")
     assert not window.isWindowModified()
@@ -348,10 +369,11 @@ def test_the_window_runs_the_whole_lifecycle(qtbot: QtBot, tmp_path: Path):  # n
 
     # Estimate, run, stop and resume.
     panel = window.run_panel
-    window.steps.setCurrentRow(5)
+    window.show_step("propagate")
     panel.estimate()
     qtbot.waitUntil(lambda: "memory" in panel.estimate_text.text(), timeout=WAIT_MS)
     panel.start()
+    assert window.views.currentWidget() is panel.view
     qtbot.waitUntil(lambda: len(panel.view.rows) >= 2, timeout=WAIT_MS)
     panel.start()  # a run is going: ignored
     panel.stop()
@@ -374,13 +396,16 @@ def test_the_window_runs_the_whole_lifecycle(qtbot: QtBot, tmp_path: Path):  # n
     window.results.add_to_compare()
     qtbot.waitUntil(lambda: len(window.results.compare.runs) == 2, timeout=WAIT_MS)
     window.open_results(str(first))
-    assert window.stack.currentWidget() is window.results
+    assert window.panels.currentWidget() is window.results
+    assert window.views.currentWidget() is window.results.overview
     shot(window, tmp_path, "results")
     window.results.open_setup()
     qtbot.waitUntil(
         lambda: window.model is not None and window.model.path is None, timeout=WAIT_MS
     )
-    assert window.start.runs.count() == 2
+    assert window.results.runs.count() == 2
+    window.results.runs.itemActivated.emit(window.results.runs.item(0))
+    assert window.results.path is not None
     window.close()
 
 

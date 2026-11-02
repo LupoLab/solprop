@@ -13,7 +13,7 @@ keyword's own name does not read well. A test holds every label to a real keywor
 from dataclasses import dataclass
 from typing import Final
 
-__all__ = ["LABELS", "PAGES", "Page", "label", "page_of"]
+__all__ = ["GROUP_TITLES", "LABELS", "PAGES", "Page", "label", "page_of"]
 
 
 @dataclass(frozen=True)
@@ -30,12 +30,15 @@ class Page:
         The metadata groups it shows.
     help : str
         What the page sets, in a sentence or two.
+    short : str
+        Its name under its icon in the step bar, where the title is long.
     """
 
     key: str
     title: str
     groups: tuple[str, ...]
     help: str
+    short: str = ""
 
 
 PAGES: Final = (
@@ -64,6 +67,7 @@ PAGES: Final = (
         "Input and grid",
         ("input", "grid"),
         "The input pulse, its noise, and the time-frequency grid the run is held on.",
+        "Input",
     ),
     Page(
         "propagate",
@@ -80,6 +84,17 @@ PAGES: Final = (
     ),
 )
 """The steps, in order."""
+
+GROUP_TITLES: Final = {
+    "geometry": "Waveguide",
+    "medium": "Fill",
+    "nonlinear": "Responses",
+    "input": "Input pulse",
+    "grid": "Grid",
+    "output": "Output",
+    "numerics": "Numerics",
+}
+"""The section titles of the metadata groups, where a page shows several."""
 
 LABELS: Final = {
     "radius": "Core radius",
