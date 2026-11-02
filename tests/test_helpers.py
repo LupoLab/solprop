@@ -10,6 +10,8 @@ the plain forms (SEP 25: bounds, not bits), derived here before any comparison. 
 the native record also agrees to the last bit is recorded as information only.
 """
 
+import subprocess
+import sys
 from typing import Any
 
 import numpy as np
@@ -17,6 +19,7 @@ import pytest
 
 from bounds import EPS, assert_within, gamma
 from solprop._helpers import NUMBA, PLAIN, Helpers
+from solprop.backends.driver import StepDriver
 from solprop.backends.multistep import trial_tables
 from solprop.backends.numba_cpu import NumbaCpuBackend
 from solprop.backends.numpy_ref import NumpyRefBackend
@@ -140,6 +143,71 @@ def test_each_backend_names_its_own_record():
     assert NumbaCpuBackend.helpers is NUMBA
     if NativeBackend is not None:
         assert NativeBackend.helpers is NATIVE
+
+
+def test_a_caller_outside_a_backend_compiles_nothing(monkeypatch):
+    """The shared functions default to the plain forms: translation needs no Numba."""
+
+    def refuse(*_):
+        pytest.fail("a default reached the Numba record")
+
+    for name in ("points", "basis"):
+        monkeypatch.setitem(NUMBA.__dict__, name, refuse)
+    assert StepDriver.helpers is PLAIN
+    assert integrated_weights([1.0, 0.0]).tolist() == [0.5, 0.5]
+    assert lagrange_coefficients([1.0, 0.0]).shape == (2, 2)
+    table = build(np.sin, 0.0, 1.0, tol=1e-8)
+    assert table.at_positions(np.array([0.25])).shape[0] == 1
+
+
+def test_solprop_runs_on_numpy_ref_with_numba_blocked():
+    """No Numba or pyFFTW: an import, the helpers and a short run (SEP 29 R2)."""
+    script = """
+import sys
+from importlib.machinery import PathFinder
+
+
+class Absent(PathFinder):
+    @classmethod
+    def find_spec(cls, fullname, path=None, target=None):
+        if fullname.partition(".")[0] in {"numba", "pyfftw"}:
+            return None
+        return super().find_spec(fullname, path, target)
+
+
+sys.meta_path[sys.meta_path.index(PathFinder)] = Absent
+
+import numpy as np
+
+from solprop.driver import prop_gnlse
+from solprop.backends import available
+from solprop.stepper.multistep import integrated_weights
+from solprop.translate.chebyshev import clenshaw
+
+assert clenshaw(0.0, np.array([1.0, 2.0])).item() == 1.0
+assert integrated_weights([0.0, 1.0]).shape == (2,)
+assert "numba_cpu" not in available()
+output = prop_gnlse(
+    0.11,
+    1e-4,
+    [0.0, 0.0, -11.83e-27],
+    wavelength=835e-9,
+    wavelength_limits=(500e-9, 2e-6),
+    trange=1e-12,
+    fwhm=50e-15,
+    peak_power=1e3,
+    shape="sech",
+    backend="numpy_ref",
+    progress="none",
+)
+assert output["z"][-1] == 1e-4
+assert "numba" not in sys.modules
+assert "pyfftw" not in sys.modules
+"""
+    done = subprocess.run(
+        [sys.executable, "-c", script], capture_output=True, text=True, check=False
+    )
+    assert done.returncode == 0, done.stderr
 
 
 def test_a_record_loads_its_functions_at_first_use():

@@ -30,7 +30,7 @@ import numpy as np
 from jaxtyping import Float, Inexact, Int
 from numpy.polynomial import chebyshev as chebyshev_basis
 
-from solprop._helpers import NUMBA, Helpers
+from solprop._helpers import PLAIN, Helpers
 from solprop.exceptions import TranslationError
 
 __all__ = [
@@ -485,7 +485,7 @@ class PiecewiseChebyshev:
         return value
 
     def at_positions(
-        self, z: Float[np.ndarray, " n_points"], *, helpers: Helpers = NUMBA
+        self, z: Float[np.ndarray, " n_points"], *, helpers: Helpers = PLAIN
     ) -> Inexact[np.ndarray, " n_points *value"]:
         """Evaluate at several positions, one Clenshaw pass for all of them.
 
@@ -508,7 +508,7 @@ class PiecewiseChebyshev:
             Positions, m, float64, shape ``(n_points,)``, each within the represented
             span (a few ulp outside is tolerated).
         helpers : solprop._helpers.Helpers, optional
-            The evaluating backend's implementation; the shared Numba one by default,
+            The evaluating backend's implementation; the plain Python forms by default,
             for callers outside a backend.
 
         Returns

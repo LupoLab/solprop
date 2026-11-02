@@ -33,7 +33,7 @@ from typing import TYPE_CHECKING, Literal, TypeVar, cast
 import numpy as np
 from jaxtyping import Complex, Float
 
-from solprop._helpers import NUMBA, Helpers
+from solprop._helpers import PLAIN, Helpers
 from solprop._interrupts import committing
 from solprop.backends.protocol import (
     BackendHistory,
@@ -311,14 +311,14 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         The implementation of the per-stage and per-step scalar evaluations -- the
         stage tables' Clenshaw rows and the Adams basis -- which the shared driver,
         march and engines pass down rather than choosing one (SEP 29 section 6.6).
-        Each backend sets its own: ``PLAIN`` for the NumPy reference, ``NUMBA`` (the
-        default) for ``numba_cpu``, the C++ bindings for the native backend.
+        Each backend sets its own: ``PLAIN`` (the default) for the NumPy reference,
+        ``NUMBA`` for ``numba_cpu``, the C++ bindings for the native backend.
     """
 
     name: str = "driver"
     max_batch: int = 1
     propagator_default: PropagatorMode = "tabulate"
-    helpers: Helpers = NUMBA
+    helpers: Helpers = PLAIN
 
     def __init__(
         self,
