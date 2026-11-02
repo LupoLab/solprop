@@ -35,7 +35,7 @@ from legacy_geometry import LEGACY_GRID, bare_absorber
 from mixture_cases import AnalyticRate
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.registry import available
-from solprop.boundaries import absorber
+from solprop.boundaries import SpatialAbsorber, absorber
 from solprop.constants import C
 from solprop.driver import SimulationSettings, prop_planar
 from solprop.grid import EnvelopeGrid, FieldGrid
@@ -64,6 +64,15 @@ HALF_GAP = 63.5e-6
 ORDERS = (1, 2, 3)
 N_Y = 11
 ROWS_PER_CHUNK = 4
+COLLAR_N_Y = 22
+"""The collar families' rows: enough that the declared band lies below the ramp."""
+COLLAR = SpatialAbsorber(kappa=14e3, attenuation=300.0)
+"""The collar families' y collar (SEP 40), in a room four times the 0.4 mm aperture.
+
+A declared band, kappa w = 22.4 above the floor 22.3, below the safety ramp's start
+at 1.56e4 rad/m; three hundred nepers at its edge make a collar of about 9e3 1/m,
+close to one neper over the run, so that it moves the answer by more than the
+rounding compared."""
 STEPS = (0, 1, 10)
 """Zero is one nonlinear evaluation, one a single step, ten the qualification run."""
 
@@ -136,7 +145,11 @@ def planar_case(family):
     grid = constructor(LENGTH, 800e-9, (600e-9, 1.2e-6), duration)
     modes = [SlabMode(HALF_GAP, order=p, cladding=1.45) for p in ORDERS]
     collar = family.startswith("collar")
-    space = PlanarGrid(modes, 4e-4, N_Y, window_factor=0.3 if collar else 0.0)
+    space = (
+        PlanarGrid(modes, 4e-4, COLLAR_N_Y, collar_fraction=4.0)
+        if collar
+        else PlanarGrid(modes, 4e-4, N_Y)
+    )
     pulse = PlanarPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-7),
         80e-6,
@@ -153,9 +166,10 @@ def planar_case(family):
         pulse.build(grid, space, medium=SpatialMedium()),
         spatial_grid=space,
         medium=SpatialMedium(),
-        # A reference length short enough that the y collar and the temporal
-        # absorber move the answer by more than the rounding compared.
+        # A reference length short enough that the temporal absorber moves the
+        # answer by more than the rounding compared, as the y collar does.
         absorber=absorber(grid, boundary_length=10 * LENGTH) if collar else None,
+        spatial_absorber=COLLAR if collar else None,
         absorber_scheme="split_step" if family == "collar_split_step" else "nonlinear",
         controller=PIController(rtol=1e-8, atol=1e-14),
         save_planes=[LENGTH],
@@ -242,8 +256,9 @@ def test_the_cases_exercise_the_slab_route(case):
     assert problem.linear.separable is not None
     assert problem.linear.separable.kappa_sq is not None
     assert problem.transform.synthesis.shape == (space.x.size, len(ORDERS))
-    assert N_Y % ROWS_PER_CHUNK != 0
+    assert space.n_y % ROWS_PER_CHUNK != 0
     if family.startswith("collar"):
+        assert problem.transverse is not None and problem.transverse.has_collar
         assert np.any(geometry.absorber_rate > 0)
 
 
@@ -310,8 +325,9 @@ def test_the_ledger_counts_the_planar_buffers():
     separable = problem.linear.separable
     assert separable is not None
     assert separable.kappa_sq is not None
-    # The free-space vectors, the per-column collar rate, the transverse collar's
-    # rate (kernel schema 31, zeros here) and the wall terms.
+    # The free-space vectors, the per-column collar rate, the safety ramp's rate
+    # (kernel schema 31, zeros here: assembled with no spatial_absorber) and the wall
+    # terms.
     expected = (
         4 * grid.n_omega * 16
         + 2 * grid.n_omega * 8
@@ -373,6 +389,9 @@ def test_prop_planar_runs_on_native_as_on_the_reference(tmp_path):
             backend=backend,
             stats=default_spec("free"),
             absorber=bare_absorber(grid),
+            # The coarse case launches 4e-4 into the safety ramp's band, which
+            # would refuse it (SEP 40 section 5.3); the subject is backend parity.
+            spatial_absorber=False,
         )
         prop_planar(
             grid,

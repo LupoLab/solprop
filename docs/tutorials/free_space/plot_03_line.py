@@ -44,7 +44,7 @@ wavelength, chi3, x0 = 800e-9, 3e-26, 50e-6
 k0 = 2 * math.pi / wavelength
 amplitude = math.sqrt(8 / (3 * k0**2 * chi3 * x0**2))  # V/m
 length = 3 * k0 * x0**2
-space = LineGrid(20 * x0, 128, window_factor=0)
+space = LineGrid(20 * x0, 128, collar_fraction=0)
 print(f"soliton peak field {amplitude:.4g} V/m; 3 diffraction lengths {length:.3g} m")
 try:
     critical_power(wavelength, chi3, index=1.0, space=space)

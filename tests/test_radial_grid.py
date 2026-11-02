@@ -11,14 +11,18 @@ from solprop.grid import RadialGrid
 
 
 def test_radial_grid_carries_the_qdht_measure_and_declared_collar():
-    grid = RadialGrid(1e-3, 64)
+    grid = RadialGrid(1e-3, 64, collar_fraction=1.0)
     assert grid.validate() is None
+    assert grid.outer_radius == 2e-3
+    assert grid.hankel.radius == grid.outer_radius
     assert grid.r is grid.hankel.r
     assert grid.k_r is grid.hankel.k_r
     assert grid.radial_weights is grid.hankel.radial_weights
     assert grid.spectral_weights is grid.hankel.spectral_weights
-    assert np.all(grid.window[grid.r <= 0.9 * grid.radius] == 1)
-    assert np.all(grid.window[grid.r > 0.9 * grid.radius] < 1)
+    # The room lies outside the requested radius, which is modelled flat.
+    assert np.all(grid.window[grid.r <= grid.radius] == 1)
+    assert np.all(grid.window[grid.r > grid.radius] <= 1)
+    assert grid.window[-1] < 1e-6
     assert not grid.window.flags.writeable
     assert np.all(np.diff(grid.window) <= 0)
     # The weights are positive integration measures, not annular point areas
@@ -27,14 +31,16 @@ def test_radial_grid_carries_the_qdht_measure_and_declared_collar():
     assert np.all(grid.spectral_weights > 0)
 
 
-def test_radial_grid_can_disable_the_collar_explicitly():
-    grid = RadialGrid(1e-3, 8, window_factor=0)
+def test_radial_grid_has_no_room_by_default():
+    grid = RadialGrid(1e-3, 8)
+    assert grid.collar_fraction == 0.0
+    assert grid.outer_radius == grid.radius == grid.hankel.radius
     assert_allclose(grid.window, np.ones(8), rtol=0, atol=0)
 
 
-@pytest.mark.parametrize("fraction", [-0.1, 1, 2, np.inf, np.nan])
+@pytest.mark.parametrize("fraction", [-0.1, np.inf, np.nan])
 def test_radial_grid_rejects_invalid_window_fraction(fraction):
-    with pytest.raises(GridError, match="window_factor"):
+    with pytest.raises(GridError, match="collar_fraction"):
         RadialGrid(1e-3, 8, fraction)
 
 

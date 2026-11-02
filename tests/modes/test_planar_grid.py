@@ -34,7 +34,7 @@ def slab_set(orders=(1, 3, 5), **fill):
 
 def test_the_grid_lays_out_channels_fastest_and_nodes_x_fastest():
     modes = slab_set((1, 3))
-    space = PlanarGrid(modes, 1e-3, 16, window_factor=0.2)
+    space = PlanarGrid(modes, 1e-3, 16, collar_fraction=0.2)
     assert space.n_p == 2
     assert space.n_columns == 32
     assert space.n_nodes == space.x.size * 16
@@ -42,7 +42,7 @@ def test_the_grid_lays_out_channels_fastest_and_nodes_x_fastest():
     assert math.isclose(space.half_gap, HALF_GAP)
     # The y axis is FreeGrid's y axis exactly: the same helpers build the samples,
     # frequencies and collar, so this is identity of construction, not arithmetic.
-    free = FreeGrid(1e-3, 16, 1e-3, 16, window_factor=0.2)
+    free = FreeGrid(1e-3, 16, 1e-3, 16, collar_fraction=0.2)
     assert_array_equal(space.y, free.y)
     assert_array_equal(space.k_y, free.k_y)
     # x = 0 is the ninth sample, where the x collar is exactly one.
@@ -138,7 +138,7 @@ def test_a_set_the_hybrid_cannot_carry_is_refused_by_name(modes, match):
         ({"n_y": True}, "n_y must be an integer of at least 2"),
         ({"radius_y": 0.0}, "radius_y must be finite and positive"),
         ({"radius_y": math.inf}, "radius_y must be finite and positive"),
-        ({"window_factor": 1.0}, "window_factor must be finite"),
+        ({"collar_fraction": -1.0}, "collar_fraction must be finite"),
         ({"n_x": 1}, "n_x must be an integer of at least 2"),
         ({"n_x": True}, "n_x must be an integer of at least 2"),
     ],
@@ -146,13 +146,13 @@ def test_a_set_the_hybrid_cannot_carry_is_refused_by_name(modes, match):
 def test_an_invalid_axis_is_refused_by_name(keywords, match):
     arguments = {"radius_y": 1e-3, "n_y": 8} | keywords
     n_x = arguments.pop("n_x", None)
-    window = arguments.pop("window_factor", 0.1)
+    window = arguments.pop("collar_fraction", 0.1)
     with pytest.raises(GridError, match=match):
         PlanarGrid(
             slab_set((1,)),
             arguments["radius_y"],
             arguments["n_y"],
-            window_factor=window,
+            collar_fraction=window,
             n_x=n_x,
         )
 

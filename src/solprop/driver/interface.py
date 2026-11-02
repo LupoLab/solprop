@@ -26,7 +26,7 @@ from typing import Literal
 import numpy as np
 from jaxtyping import Float
 
-from solprop.boundaries import Absorber
+from solprop.boundaries import Absorber, SpatialAbsorber
 from solprop.coupling.models import CouplingModel
 from solprop.driver.simulation import (
     DEFAULT_ATOL,
@@ -108,6 +108,7 @@ def prop_radial(  # noqa: PLR0913 - the simulation interface and output controls
     absorber: Absorber | Literal[False] | None = None,
     absorber_scheme: AbsorberScheme | None = None,
     boundary_check: BoundaryCheck | None = DEFAULT_BOUNDARY_CHECK,
+    spatial_absorber: SpatialAbsorber | Literal[False] | None = None,
 ) -> Output:
     """Propagate a radial beam and return its saved output.
 
@@ -170,6 +171,13 @@ def prop_radial(  # noqa: PLR0913 - the simulation interface and output controls
         shot-noise floor reaches them; ``None`` watches nothing, for a window kept
         narrow on purpose. Refused beside settings that name another check.
 
+    spatial_absorber : solprop.boundaries.SpatialAbsorber, False or None, optional
+        The transverse boundary (SEP 40), when `settings` declare none: ``None``
+        keeps the settings' own, by default a wall or wrap at the grid's outer size
+        with the safety ramp and the boundary monitor; a
+        :class:`~solprop.boundaries.SpatialAbsorber` asks for a designed collar in
+        the grid's room outside its requested size; ``False`` carries no ramp.
+
     Returns
     -------
     solprop.output.schema.Output
@@ -189,6 +197,7 @@ def prop_radial(  # noqa: PLR0913 - the simulation interface and output controls
         absorber=absorber,
         absorber_scheme=absorber_scheme,
         boundary_check=boundary_check,
+        spatial_absorber=spatial_absorber,
     )
     return simulation.run(
         output,
@@ -219,6 +228,7 @@ def prop_free(  # noqa: PLR0913 - the simulation interface and output controls
     absorber: Absorber | Literal[False] | None = None,
     absorber_scheme: AbsorberScheme | None = None,
     boundary_check: BoundaryCheck | None = DEFAULT_BOUNDARY_CHECK,
+    spatial_absorber: SpatialAbsorber | Literal[False] | None = None,
 ) -> Output:
     """Propagate a Cartesian beam and return its saved output.
 
@@ -286,6 +296,13 @@ def prop_free(  # noqa: PLR0913 - the simulation interface and output controls
         shot-noise floor reaches them; ``None`` watches nothing, for a window kept
         narrow on purpose. Refused beside settings that name another check.
 
+    spatial_absorber : solprop.boundaries.SpatialAbsorber, False or None, optional
+        The transverse boundary (SEP 40), when `settings` declare none: ``None``
+        keeps the settings' own, by default a wall or wrap at the grid's outer size
+        with the safety ramp and the boundary monitor; a
+        :class:`~solprop.boundaries.SpatialAbsorber` asks for a designed collar in
+        the grid's room outside its requested size; ``False`` carries no ramp.
+
     Returns
     -------
     solprop.output.schema.Output
@@ -305,6 +322,7 @@ def prop_free(  # noqa: PLR0913 - the simulation interface and output controls
         absorber=absorber,
         absorber_scheme=absorber_scheme,
         boundary_check=boundary_check,
+        spatial_absorber=spatial_absorber,
     )
     return simulation.run(
         output,
@@ -332,6 +350,7 @@ def prop_planar(  # noqa: PLR0913 - the simulation interface and output controls
     absorber: Absorber | Literal[False] | None = None,
     absorber_scheme: AbsorberScheme | None = None,
     boundary_check: BoundaryCheck | None = DEFAULT_BOUNDARY_CHECK,
+    spatial_absorber: SpatialAbsorber | Literal[False] | None = None,
 ) -> Output:
     """Propagate a beam in a hollow planar guide, resolved in y, and return its output.
 
@@ -391,6 +410,13 @@ def prop_planar(  # noqa: PLR0913 - the simulation interface and output controls
         shot-noise floor reaches them; ``None`` watches nothing, for a window kept
         narrow on purpose. Refused beside settings that name another check.
 
+    spatial_absorber : solprop.boundaries.SpatialAbsorber, False or None, optional
+        The transverse boundary (SEP 40), when `settings` declare none: ``None``
+        keeps the settings' own, by default a wall or wrap at the grid's outer size
+        with the safety ramp and the boundary monitor; a
+        :class:`~solprop.boundaries.SpatialAbsorber` asks for a designed collar in
+        the grid's room outside its requested size; ``False`` carries no ramp.
+
     Returns
     -------
     solprop.output.schema.Output
@@ -407,6 +433,7 @@ def prop_planar(  # noqa: PLR0913 - the simulation interface and output controls
         absorber=absorber,
         absorber_scheme=absorber_scheme,
         boundary_check=boundary_check,
+        spatial_absorber=spatial_absorber,
     )
     return simulation.run(
         output,

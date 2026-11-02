@@ -978,6 +978,10 @@ march::Bounds march_bounds_from(const nb::dict values) {
     bounds.first_check = nb::cast<bool>(values["first_check"]);
     bounds.check_interval = nb::cast<double>(values["check_interval"]);
     bounds.last_check = nb::cast<double>(values["last_check"]);
+    bounds.has_read_at = !values["read_at"].is_none();
+    bounds.read_at = bounds.has_read_at ? nb::cast<double>(values["read_at"]) : 0.0;
+    bounds.read_spacing =
+        bounds.has_read_at ? nb::cast<double>(values["read_spacing"]) : 0.0;
     bounds.max_attempts = nb::cast<std::size_t>(values["max_attempts"]);
     bounds.max_seconds = nb::cast<double>(values["max_seconds"]);
     bounds.replay = nb::cast<bool>(values["replay"]);
@@ -1905,7 +1909,7 @@ nb::dict build_record() {
   nb::dict result;
   result["backend_commit"] = SOLPROP_NATIVE_BACKEND_COMMIT;
   result["solprop_built_against"] = SOLPROP_NATIVE_SOLPROP_BUILT_AGAINST;
-  result["schema_version"] = 40;
+  result["schema_version"] = 41;
   result["kokkos_version"] = SOLPROP_NATIVE_KOKKOS_VERSION;
   result["kokkos_fft_version"] = SOLPROP_NATIVE_KOKKOSFFT_VERSION;
   result["kokkos_kernels_version"] = SOLPROP_NATIVE_KOKKOSKERNELS_VERSION;

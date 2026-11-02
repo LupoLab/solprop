@@ -340,10 +340,10 @@ local maxima. We compare their fluence centroids with the straight-ray estimate.
 
  .. code-block:: none
 
-    relative field superposition error: 1.243e-15
-    largest centroid error: 5.765e-04 μm
+    relative field superposition error: 1.184e-15
+    largest centroid error: 5.764e-04 μm
     largest relative energy change: 1.436e-12
-    largest energy fraction in the outer collar region: 3.518e-07
+    largest energy fraction in the outer collar region: 0.000e+00
 
 
 
@@ -458,9 +458,9 @@ the edge. See :doc:`/guide/numerics/boundaries`.
 
  .. code-block:: none
 
-    fitted fringe spacing: 80.001 μm; expected 80.001 μm
-    largest relative fluence change on spatial refinement: 6.069e-16
-    12.0 s including checks; backend native
+    fitted fringe spacing: 80.002 μm; expected 80.001 μm
+    largest relative fluence change on spatial refinement: 6.930e-14
+    16.2 s including checks; backend native
 
 
 
@@ -485,7 +485,7 @@ demonstrates adding a material response to a Cartesian beam.
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 11.996 seconds)
+   **Total running time of the script:** (0 minutes 16.192 seconds)
 
 
 .. _sphx_glr_download_introduction_lessons_plot_04_crossing_beams.py:

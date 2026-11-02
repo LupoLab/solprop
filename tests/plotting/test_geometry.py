@@ -92,21 +92,28 @@ GEOMETRIES = {
     ),
     "slab": (_slab, ["wall", "wall", "medium"]),
     "planar_grid": (
-        lambda: PlanarGrid([_slab()], 1e-4, 4),
+        lambda: PlanarGrid([_slab()], 1e-4, 4, collar_fraction=0.1),
         ["wall", "wall", "collar", "medium"],
     ),
     "planar_no_collar": (
-        lambda: PlanarGrid([_slab()], 1e-4, 4, window_factor=0.0),
+        lambda: PlanarGrid([_slab()], 1e-4, 4),
         ["wall", "wall", "medium"],
     ),
-    "radial": (lambda: RadialGrid(1e-3, 8), ["medium", "collar"]),
-    "radial_no_collar": (lambda: RadialGrid(1e-3, 8, window_factor=0.0), ["medium"]),
-    "free": (lambda: FreeGrid(3e-4, 4, 2e-4, 4), ["collar", "medium"]),
-    "free_no_collar": (
-        lambda: FreeGrid(3e-4, 4, 2e-4, 4, window_factor=0.0),
-        ["medium"],
+    "radial": (
+        lambda: RadialGrid(1e-3, 8, collar_fraction=0.1),
+        ["medium", "collar"],
     ),
-    "line": (lambda: LineGrid(3e-4, 4), ["collar", "medium"]),
+    "radial_no_collar": (lambda: RadialGrid(1e-3, 8), ["medium"]),
+    "free": (
+        lambda: FreeGrid(3e-4, 4, 2e-4, 4, collar_fraction=0.1),
+        ["collar", "medium"],
+    ),
+    "free_no_collar": (lambda: FreeGrid(3e-4, 4, 2e-4, 4), ["medium"]),
+    "line": (
+        lambda: LineGrid(3e-4, 4, collar_fraction=0.1),
+        ["collar", "medium"],
+    ),
+    "line_no_collar": (lambda: LineGrid(3e-4, 4), ["medium"]),
 }
 
 
@@ -190,15 +197,16 @@ def test_antiresonant_tubes_are_to_scale_and_inscribe_the_core():
     assert min(abs(math.atan2(t.centre[1], t.centre[0])) for t in tubes) > 0.1
 
 
-def test_free_space_collars_follow_the_window_factor():
-    radial = RadialGrid(1e-3, 8, window_factor=0.2)
+def test_free_space_collars_follow_the_collar_fraction():
+    radial = RadialGrid(1e-3, 8, collar_fraction=0.2)
     shapes = outline(radial)
     assert len(shapes) == 2
     medium, collar = _as(Disc, shapes[0]), _as(Ring, shapes[1])
+    # The requested radius is the medium's; the collar lies outside it.
     assert medium.radius == 1e-3
-    assert collar.inner == pytest.approx(0.8e-3, rel=1e-15)
-    assert collar.outer == 1e-3
-    free = FreeGrid(3e-4, 4, 2e-4, 4, window_factor=0.1)
+    assert collar.inner == 1e-3
+    assert collar.outer == pytest.approx(1.2e-3, rel=1e-15)
+    free = FreeGrid(3e-4, 4, 2e-4, 4, collar_fraction=0.1)
     outer, inner = (_as(Box, shape) for shape in outline(free))
     assert outer.upper == pytest.approx((3.3e-4, 2.2e-4), rel=1e-15)
     assert inner.upper == pytest.approx((3e-4, 2e-4), rel=1e-15)

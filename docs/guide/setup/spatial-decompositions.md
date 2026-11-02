@@ -546,9 +546,11 @@ transform per Cartesian component $p$. The state's columns are the transverse
 frequencies $k_i = \alpha_i/R$ ({class}`~solprop.grid.RadialGrid`).
 
 **Boundary.** $E = 0$ at $R$: the nodes $r_i = R\alpha_i/\alpha_{N+1}$ sit at the zeros of
-$J_0$. When the run declares an absorber (free-space entry points carry none by default, and
-without one the field reflects at $R$), a Planck collar over the outer `window_factor` (a
-tenth by default) absorbs as a rate inside every stage, not as a mask ([spatial collar](../free-space/model.md#spatial-collar-and-statistics)).
+$J_0$, with $R$ the grid's `outer_radius`, `radius * (1 + collar_fraction)`; `radius` is the
+requested aperture. By default the field reflects at $R$, the monitor watches the edge,
+and a safety ramp acts on the highest $k_r$; a requested collar in the room outside
+`radius` absorbs as a rate inside every stage, not as a mask
+([transverse boundaries](../free-space/model.md#transverse-boundaries)).
 
 **Units.** The stored spectrum is in V m and the field in V/m. The weights carry the whole
 $2\pi$; the energy is in J, the axial Poynting flux of the medium at the plane
@@ -587,10 +589,10 @@ assumed about symmetry.
 **Expansion.** $E_p(x,y,t)$ on a periodic $n_x \times n_y$ grid, stored as its raw
 forward DFT; column `ix + n_x*iy`, x fastest ({class}`~solprop.grid.FreeGrid`).
 
-**Boundary.** Periodic, with an absorbing collar when the run declares an absorber (none by
-default, so light leaving one side re-enters on the other): the periodic half-width is
-`radius * (1 + window_factor)` on each axis, and the collar is the product of two Planck
-windows over the added width ([Cartesian free space](../free-space/cartesian.md)).
+**Boundary.** Periodic: the periodic half-width is `radius * (1 + collar_fraction)` on
+each axis, so by default light leaving one side re-enters on the other, which the monitor
+watches; a requested collar is the product of two Planck windows' complements over the
+added width ([transverse boundaries](../free-space/model.md#transverse-boundaries)).
 
 **Units.** Stored and physical fields in V/m; spatial weights $\Delta x\Delta y$ and
 spectral weights $\Delta x\Delta y/N$; energy in J, the axial flux of the medium.
@@ -679,8 +681,8 @@ DFT, uniform in y ({class}`~solprop.grid.LineGrid`). It is
 the [Cartesian grid](#cartesian-free-space) with $n_y = 1$: one y column carrying
 $k_y = 0$, no y collar and a unit y measure.
 
-**Boundary.** Periodic in x with an absorbing collar over the added `window_factor` of
-the half-width when the run declares an absorber, exactly the Cartesian x axis; nothing bounds or varies in y.
+**Boundary.** Periodic in x, with a requested collar over the added `collar_fraction` of
+the half-width, exactly the Cartesian x axis; nothing bounds or varies in y.
 
 **Units.** Fields in V/m; spatial weights $\Delta x$ and spectral weights $\Delta x/n_x$,
 in m, so the energy is in **J/m** and the power in **W/m**, per metre of y; intensity
@@ -727,9 +729,9 @@ it resolves.
 
 **Boundary.** In x, the uniform slab's: the field truncated at the plates and each
 channel's wall pair in its complex $\kappa_p(\omega)^2$. In y, the Cartesian grid's: periodic
-with the Planck collar over the added `window_factor` of the half-width, applied as an
-in-stage rate when the run declares an absorber, so that a beam that diffracts or breaks
-up in y does not wrap around the periodic grid.
+with a requested collar over the added `collar_fraction` of the half-width, applied as an
+in-stage rate, so that a beam that diffracts or breaks up in y does not wrap around the
+periodic grid; the safety ramp acts on each `(p, k_y)` column, which is diagonal there.
 
 **Normalisation and units.** Modal amplitudes per y sample in √(W/m), exactly the uniform
 slab's; the geometry integrates over y, so energy is in **J** and power in **W**, and

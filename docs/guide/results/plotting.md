@@ -246,7 +246,7 @@ its outline, not its fields. A capillary is its gas-filled bore in a wall; an
 antiresonant fibre its tubes, to scale, inside a jacket; a step-index fibre or a
 graded-index provider its core in a cladding; a rectangular or planar guide its bore
 between walls or plates; and a radial, Cartesian, line or planar grid its medium with
-the absorbing collar its `window_factor` declares. The cross-section figures of
+the absorbing collar its `collar_fraction` adds outside it. The cross-section figures of
 [the spatial decompositions](../setup/spatial-decompositions.md) draw their outlines
 from it, so the manual and the library show one geometry.
 

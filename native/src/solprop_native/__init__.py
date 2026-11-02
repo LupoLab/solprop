@@ -240,7 +240,10 @@ backend's native Adams march runs many attempts per call and books them through 
 with the policy of :data:`MARCH_POLICY_FIELDS` and the march's members of
 :data:`ADAMS_MARCH_SURFACE`. Schema 40 gives ``set_initial`` its ``resume`` keyword,
 which this backend hands to the driver's load: a stored field never takes the ``input``
-draw again.
+draw again. Schema 41 (solprop SEP 40) adds ``KernelProblem.transverse``, the resolved
+transverse boundary, and ``reads_transverse_edge``: this backend carries the safety ramp
+and a requested collar in its operators, reads the transverse edge on the host from its
+state, and its Adams march holds its steps to the edge's next read and stops there.
 
 solprop freezes this surface under its ``KERNEL_SCHEMA_VERSION`` (the test in its
 ``tests/backends/test_driver.py``); :func:`check_build` looks each member up so a

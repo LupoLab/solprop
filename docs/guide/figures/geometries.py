@@ -2355,8 +2355,8 @@ def planar_hybrid() -> drawsvg.Drawing:
     """
     half_gap = 63.5e-6
     modes = [SlabMode(half_gap, cladding=1.45, order=order) for order in (1, 3)]
-    grid = PlanarGrid(modes, 1e-3, 12, window_factor=0.35, n_x=24, x_rule="gauss")
-    outer = grid.radius_y * (1 + grid.window_factor)
+    grid = PlanarGrid(modes, 1e-3, 12, collar_fraction=0.35, n_x=24, x_rule="gauss")
+    outer = grid.radius_y * (1 + grid.collar_fraction)
     plate = geometry.WALL_FRACTION * half_gap
     x = np.linspace(-half_gap, half_gap, 161)
     profiles = [mode.field(_ray(x))[:, 1] for mode in modes]
@@ -2368,7 +2368,7 @@ def planar_hybrid() -> drawsvg.Drawing:
             "The same plates, a = 63.5 µm, to scale in x; y schematic. The slab "
             "rule's nodes in x",
             f"({grid.x.size} here) on every one of {grid.n_y} periodic y samples, "
-            "the outer rows in the collar.",
+            "the outer rows in the room for a collar.",
         ),
     )
     section = Section(170.0, 212.0, 105.0 / (half_gap + plate))
@@ -2420,7 +2420,7 @@ def planar_hybrid() -> drawsvg.Drawing:
             section.cy - 0.5 * (grid.radius_y + outer) * per_metre,
         ),
         (LABEL_X + 30, 150),
-        ("periodic + absorbing", "collar in y (applied)"),
+        ("periodic in y; a collar", "there on request"),
     )
     _label(
         drawing,
@@ -2477,19 +2477,19 @@ def radial_free() -> drawsvg.Drawing:
     drawsvg.Drawing
         The figure.
     """
-    grid = RadialGrid(1e-3, 24)
+    grid = RadialGrid(1e-3 / 1.1, 24, collar_fraction=0.1)
     waist = 0.3e-3
-    radius = grid.radius
-    inner = radius * (1 - grid.window_factor)
+    radius = grid.outer_radius
+    inner = grid.radius
 
     drawing = _canvas(
         500,
         "Radial free space",
         (
-            "RadialGrid(1 mm, 24): the order-zero QDHT samples at the zeros of J₀, and "
-            "a Planck",
-            "collar occupies the outer tenth. A Gaussian beam of 0.3 mm waist on the "
-            "nodes.",
+            "RadialGrid(R, 24, collar_fraction=0.1): the order-zero QDHT samples at "
+            "the zeros of J₀;",
+            "the outer tenth is room outside R for a collar on request. A Gaussian "
+            "beam of 0.3 mm waist.",
         ),
     )
     section = Section(CORE_CX, CORE_CY + 5, CORE_PX / radius)
@@ -2520,8 +2520,9 @@ def radial_free() -> drawsvg.Drawing:
         ),
         (LABEL_X, 152),
         (
-            "absorbing collar, outer 10 %",
-            "a rate in every stage, not a mask",
+            "room outside R: a collar",
+            "there on request, a rate",
+            "in every stage",
         ),
     )
     _label(
@@ -2580,18 +2581,18 @@ def cartesian_free() -> drawsvg.Drawing:
     drawsvg.Drawing
         The figure.
     """
-    grid = FreeGrid(3e-4, 16, 2e-4, 12, window_factor=0.1)
+    grid = FreeGrid(3e-4, 16, 2e-4, 12, collar_fraction=0.1)
     waist = 80e-6
-    outer_x = grid.radius_x * (1 + grid.window_factor)
-    outer_y = grid.radius_y * (1 + grid.window_factor)
+    outer_x = grid.radius_x * (1 + grid.collar_fraction)
+    outer_y = grid.radius_y * (1 + grid.collar_fraction)
 
     drawing = _canvas(
         500,
         "Cartesian free space",
         (
-            "FreeGrid(0.3 mm, 16, 0.2 mm, 12): a periodic box whose extra tenth on "
-            "each side is",
-            "the absorbing collar, sampled by the FFT, with x fastest in the "
+            "FreeGrid(0.3 mm, 16, 0.2 mm, 12, collar_fraction=0.1): a periodic box "
+            "whose extra tenth",
+            "on each side is room for a collar on request; x is fastest in the "
             "flattened columns.",
         ),
     )
@@ -2650,7 +2651,7 @@ def cartesian_free() -> drawsvg.Drawing:
         (section.px(outer_x), section.py(-0.4 * grid.radius_y)),
         (LABEL_X + 20, 92),
         (
-            "periodic + absorbing collar",
+            "periodic; room outside",
             "half-width radius × (1 + 0.1)",  # noqa: RUF001 - the glyph is what the figure prints
         ),
     )
@@ -2659,7 +2660,7 @@ def cartesian_free() -> drawsvg.Drawing:
         (section.px(0.5 * grid.radius_x), section.py(-1.05 * grid.radius_y)),
         (LABEL_X + 20, 138),
         (
-            "collar: product of two Planck",
+            "a requested collar: two Planck",
             "windows; dim nodes are in it",
         ),
     )
@@ -2721,9 +2722,9 @@ def line_free() -> drawsvg.Drawing:
     drawsvg.Drawing
         The figure.
     """
-    grid = LineGrid(3e-4, 16, window_factor=0.1)
+    grid = LineGrid(3e-4, 16, collar_fraction=0.1)
     waist = 80e-6
-    outer = grid.radius_x * (1 + grid.window_factor)
+    outer = grid.radius_x * (1 + grid.collar_fraction)
 
     drawing = _canvas(
         460,
@@ -2780,8 +2781,8 @@ def line_free() -> drawsvg.Drawing:
         (section.px(outer), section.cy - 40),
         (LABEL_X + 20, 92),
         (
-            "periodic + absorbing collar",
-            "in x only; no y collar",
+            "periodic; a collar in x on",
+            "request, none in y",
         ),
     )
     _label(
@@ -2849,7 +2850,7 @@ def radial_azimuthal() -> drawsvg.Drawing:
         The figure.
     """
     count = 12
-    grid = RadialGrid(1.0, count, window_factor=0.0)
+    grid = RadialGrid(1.0, count, collar_fraction=0.0)
     orders = (0, 1, 2)
     left, right = 78.0, 520.0
 

@@ -458,16 +458,16 @@ def _planar_grid(grid: PlanarGrid) -> tuple[Shape, ...]:
     """
     half_gap = grid.half_gap
     inner = grid.radius_y
-    outer = inner * (1 + grid.window_factor)
+    outer = inner * (1 + grid.collar_fraction)
     shapes: list[Shape] = list(_plates(half_gap, outer))
-    if grid.window_factor > 0:
+    if grid.collar_fraction > 0:
         shapes.append(Box((-half_gap, -outer), (half_gap, outer), "collar"))
     shapes.append(Box((-half_gap, -inner), (half_gap, inner), "medium"))
     return tuple(shapes)
 
 
 def _radial_grid(grid: RadialGrid) -> tuple[Shape, ...]:
-    """Return radial free space: the medium to ``R``, its outer part the collar.
+    """Return radial free space: the medium to ``R``, the collar beyond it.
 
     Parameters
     ----------
@@ -479,12 +479,9 @@ def _radial_grid(grid: RadialGrid) -> tuple[Shape, ...]:
     tuple of Shape
         The medium, then the collar when there is one.
     """
-    radius = grid.radius
-    shapes: list[Shape] = [Disc(_ORIGIN, radius, "medium")]
-    if grid.window_factor > 0:
-        shapes.append(
-            Ring(_ORIGIN, radius * (1 - grid.window_factor), radius, "collar")
-        )
+    shapes: list[Shape] = [Disc(_ORIGIN, grid.radius, "medium")]
+    if grid.collar_fraction > 0:
+        shapes.append(Ring(_ORIGIN, grid.radius, grid.outer_radius, "collar"))
     return tuple(shapes)
 
 
@@ -506,14 +503,14 @@ def _free_grid(grid: FreeGrid, extent: float | None) -> tuple[Shape, ...]:
     tuple of Shape
         The collar when there is one, then the medium inside it.
     """
-    factor = 1 + grid.window_factor
+    factor = 1 + grid.collar_fraction
     outer_x = grid.radius_x * factor
     if isinstance(grid, LineGrid):
         inner_y = outer_y = outer_x if extent is None else extent
     else:
         inner_y, outer_y = grid.radius_y, grid.radius_y * factor
     shapes: list[Shape] = []
-    if grid.window_factor > 0:
+    if grid.collar_fraction > 0:
         shapes.append(Box((-outer_x, -outer_y), (outer_x, outer_y), "collar"))
     shapes.append(Box((-grid.radius_x, -inner_y), (grid.radius_x, inner_y), "medium"))
     return tuple(shapes)
@@ -795,10 +792,11 @@ def _example(route: str, representation: str) -> object:
         ("capillary", "mode_averaged"): lambda: MarcatiliMode(50e-6, cladding=1.45),
         ("capillary", "multimode"): lambda: MarcatiliMode(50e-6, cladding=1.45),
         ("waveguide", "multimode"): lambda: RectMode(50e-6, 25e-6, cladding=1.45),
-        ("radial", "radial"): lambda: RadialGrid(1e-3, 8),
-        ("free", "free"): lambda: FreeGrid(3e-4, 4, 2e-4, 4),
+        # The free-space grids drawn with a collar, so the thumbnail shows one.
+        ("radial", "radial"): lambda: RadialGrid(1e-3, 8, collar_fraction=0.1),
+        ("free", "free"): lambda: FreeGrid(3e-4, 4, 2e-4, 4, collar_fraction=0.1),
         ("planar", "slab"): lambda: PlanarGrid(
-            [SlabMode(63.5e-6, cladding=1.45)], 1e-4, 4
+            [SlabMode(63.5e-6, cladding=1.45)], 1e-4, 4, collar_fraction=0.1
         ),
     }
     return builders[route, representation]()
