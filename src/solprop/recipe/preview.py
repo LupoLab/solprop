@@ -121,8 +121,9 @@ class ModeSetPreview:
         ``wavelength``; ``None`` when it gives none (a recipe of ``pulses``).
     nonlinear : bool
         Whether the phase matching has the soliton's nonlinear term: the recipe's
-        pulse is an unchirped sech or Gaussian and the launch mode's fill has Kerr
-        data; otherwise it is the linear condition.
+        pulse is an unchirped sech or Gaussian, the launch mode's fill has Kerr
+        data and the pump is in anomalous dispersion; otherwise it is the linear
+        condition.
     """
 
     z: float
@@ -209,8 +210,9 @@ def modes(recipe: "Recipe", z: float | None = None) -> ModeSetPreview:  # noqa: 
     mode (the launch mode's own for the first; intermodal for the rest). With an
     unchirped sech or Gaussian pulse given by its FWHM and its energy or peak power,
     and a fill with Kerr data, the soliton's nonlinear wavenumber is that of its
-    largest constituent (:func:`solprop.tools.phase_mismatch`'s default); otherwise
-    the condition is the linear one.
+    largest constituent (:func:`solprop.tools.phase_mismatch`'s default); otherwise,
+    and for a pump in normal dispersion, which launches no soliton, the condition is
+    the linear one.
     """
     from solprop.modes.base import (  # noqa: PLC0415
         aeff,
@@ -293,6 +295,7 @@ def _pump(
         term (``peak_power``, ``gamma``, ``fwhm``, ``shape``), empty for the linear
         condition.
     """
+    from solprop.modes.base import beta2  # noqa: PLC0415 - layer above
     from solprop.recipe.pins import _gamma as launch_gamma  # noqa: PLC0415
     from solprop.recipe.pins import _route_pulse  # noqa: PLC0415
     from solprop.tools import SolitonOrder  # noqa: PLC0415
@@ -308,6 +311,9 @@ def _pump(
         gamma = launch_gamma(soliton, pump)
     except KeyError, TypeError, ValueError, ToolsError:
         # No width or size, a shape without design numbers, or no Kerr data.
+        return pump, {}
+    if not float(beta2(soliton, np.array([2 * np.pi * _C / pump]))[0]) < 0.0:
+        # A pump in normal dispersion launches no soliton: the linear condition.
         return pump, {}
     return pump, {
         "peak_power": target.peak_power,

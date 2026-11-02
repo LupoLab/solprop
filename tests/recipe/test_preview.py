@@ -194,3 +194,9 @@ def test_without_a_pump_there_is_no_phase_matching(monkeypatch):
         )
         == nothing
     )
+
+
+def test_a_pump_in_normal_dispersion_is_phase_matched_linearly():
+    preview = Recipe.example("hollow_rectangular").modes()  # beta2 > 0 at 800 nm
+    assert preview.modes[0].beta2[np.argmin(abs(preview.omega - 2.355e15))] > 0
+    assert not preview.nonlinear and preview.modes[0].phase_mismatch is not None
