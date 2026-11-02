@@ -240,12 +240,16 @@ def preview_input(recipe: "Recipe") -> InputPreview:  # noqa: UP037 - run time
     field = np.asarray(problem.initial.field0)[0]
     plane = SavedPlane(z=z, field=field, stats={}, noise_phase=None)
     view = PlaneView(plane, 0, simulation.metadata(), None, ObserverSpend())
+    beam_route = recipe.route in OBJECT_ROUTES
     try:
-        time, power = view.power()
         omega, spectrum = view.spectrum()
+        # A free-space beam's power is its axial flux, measured below: the view's
+        # power would read the transverse columns as modes, and refuses them. Its
+        # field has the same centred time axis.
+        time, power = view.field() if beam_route else view.power()
     finally:
         view._close()
-    if recipe.route in OBJECT_ROUTES:
+    if beam_route:
         beam = _beam(simulation, field, z)
         return InputPreview(
             time=np.asarray(time),

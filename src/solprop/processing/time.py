@@ -23,7 +23,14 @@ axis being an orthogonal basis whose coordinate powers add, so on a general moda
 they are refused by name, with the same text the run loop and
 :mod:`solprop.processing.modal` use (:mod:`solprop.output.capability`). The widths, the
 spectral metrics and the autocorrelations are shape functionals of the same trace and
-are admitted on every basis.
+are admitted on every modal basis.
+
+**Every metric here refuses a spatial file by name.** Each one reads a column of the
+mode axis as a modal amplitude in sqrt(W), and a radial, Cartesian, line or planar
+column is a field sample or a slab amplitude instead, so the energies and powers would
+be wrong in joules and watts, and the widths would be those of single columns rather
+than of the beam. The refusal names the functional of :mod:`solprop.spatial` that
+measures the quantity (:data:`solprop.output.capability.COLUMN_READINGS`).
 """
 
 from collections.abc import Callable
@@ -33,9 +40,7 @@ import numpy as np
 from jaxtyping import Float, Inexact
 
 from solprop import stats
-from solprop.exceptions import OutputError
 from solprop.grid import TimeGrid
-from solprop.output.capability import capability_of, refusal_for, withheld_from
 from solprop.output.schema import Output
 from solprop.processing import spectra
 from solprop.processing.axes import (
@@ -45,6 +50,7 @@ from solprop.processing.axes import (
     _check_mode_index,
     _check_mode_selection,
     _plane_field,
+    _refuse_by_basis,
     _squeeze,
     grid_of,
 )
@@ -211,6 +217,9 @@ def energy(
     additive on a three-component basis, and
     :func:`solprop.processing.modal.physical_energy` is that basis's own energy
     (:mod:`solprop.output.capability`). A run on an ordinary basis is unaffected.
+    **A spatial file is refused by name too**: its columns are not modal amplitudes,
+    and :func:`solprop.spatial.spatial_energy` of a saved plane, or the run's own
+    ``stats/energy``, is the beam's energy.
 
     Parameters
     ----------
@@ -236,7 +245,8 @@ def energy(
     Raises
     ------
     solprop.exceptions.OutputError
-        If the stored run is a general modal one, which does not define this name.
+        If the stored run is a general modal or a spatial one, which does not define
+        this name.
 
     Examples
     --------
@@ -288,6 +298,8 @@ def peak_power(
     that a three-component basis does not make, and
     :func:`solprop.processing.modal.reconstructed_flux` is that basis's own flux
     (:mod:`solprop.output.capability`). A run on an ordinary basis is unaffected.
+    **A spatial file is refused by name too**: the largest value of
+    :func:`solprop.spatial.spatial_power` of a saved plane is the beam's peak power.
 
     Parameters
     ----------
@@ -314,7 +326,8 @@ def peak_power(
     Raises
     ------
     solprop.exceptions.OutputError
-        If the stored run is a general modal one, which does not define this name.
+        If the stored run is a general modal or a spatial one, which does not define
+        this name.
 
     Examples
     --------
@@ -389,6 +402,11 @@ def fwhm_t(
     numpy.ndarray
         The width, s.
 
+    Raises
+    ------
+    solprop.exceptions.OutputError
+        If the stored run is a spatial one, whose columns are not modal amplitudes.
+
     Examples
     --------
     >>> import numpy as np
@@ -398,6 +416,7 @@ def fwhm_t(
     >>> bool(np.isclose(widths[-1] / widths[0], 2.0, rtol=1e-3))
     True
     """
+    _refuse_by_basis(output, "fwhm_t")
     measure = stats.fwhm_t_outer if outer else stats.fwhm_t
     grid, planes, has_z = _planes(output, plane, z, bandpass)
     groups = _mode_groups(planes[0].shape[0], modes)
@@ -438,6 +457,11 @@ def fwhm_f(
     numpy.ndarray
         The width, Hz.
 
+    Raises
+    ------
+    solprop.exceptions.OutputError
+        If the stored run is a spatial one, whose columns are not modal amplitudes.
+
     Examples
     --------
     >>> import numpy as np
@@ -446,6 +470,7 @@ def fwhm_f(
     >>> bool(np.all(fwhm_f(example_output()) > 0.0))
     True
     """
+    _refuse_by_basis(output, "fwhm_f")
     frequency, density = get_spectral_density(
         output, "f", plane=plane, z=z, modes=modes
     )
@@ -487,6 +512,11 @@ def time_bandwidth(
     numpy.ndarray
         The product, dimensionless.
 
+    Raises
+    ------
+    solprop.exceptions.OutputError
+        If the stored run is a spatial one, whose columns are not modal amplitudes.
+
     Examples
     --------
     >>> import numpy as np
@@ -496,6 +526,7 @@ def time_bandwidth(
     >>> bool(np.isclose(product, 2 * np.log(2) / np.pi, rtol=1e-2))
     True
     """
+    _refuse_by_basis(output, "time_bandwidth")
     widths = fwhm_t(output, plane=plane, z=z, modes=modes, bandpass=bandpass)
     # Multiplying two zero-dimensional arrays gives a numpy scalar; every metric
     # here returns an array, as the statistics catalogue does.
@@ -543,6 +574,8 @@ def arrival_time(
     ------
     solprop.exceptions.GridError
         If ``method`` is not one of :data:`ARRIVAL_METHODS`.
+    solprop.exceptions.OutputError
+        If the stored run is a spatial one, whose columns are not modal amplitudes.
 
     Examples
     --------
@@ -552,6 +585,7 @@ def arrival_time(
     >>> bool(np.all(np.abs(arrival_time(example_output())) < 1e-16))
     True
     """
+    _refuse_by_basis(output, "arrival_time")
     _check_choice(method, ARRIVAL_METHODS, "method")
     t, power = get_power(output, plane=plane, z=z, modes=modes, bandpass=bandpass)
     if method == "peak":
@@ -596,6 +630,11 @@ def field_autocorrelation(
     correlation : numpy.ndarray
         The autocorrelation, J.
 
+    Raises
+    ------
+    solprop.exceptions.OutputError
+        If the stored run is a spatial one, whose columns are not modal amplitudes.
+
     Examples
     --------
     >>> import numpy as np
@@ -606,6 +645,7 @@ def field_autocorrelation(
     >>> bool(np.isclose(zero.real, energy(example_output(), plane=0), rtol=1e-12))
     True
     """
+    _refuse_by_basis(output, "field_autocorrelation")
     _, t, amplitude = _plane_amplitude(
         output, plane=plane, z=z, oversampling=1, bandpass=bandpass
     )
@@ -653,6 +693,11 @@ def intensity_autocorrelation(
     correlation : numpy.ndarray
         The autocorrelation, W^2 s.
 
+    Raises
+    ------
+    solprop.exceptions.OutputError
+        If the stored run is a spatial one, whose columns are not modal amplitudes.
+
     Examples
     --------
     >>> import numpy as np
@@ -662,6 +707,7 @@ def intensity_autocorrelation(
     >>> bool(np.argmax(correlation) == delay.size // 2)
     True
     """
+    _refuse_by_basis(output, "intensity_autocorrelation")
     t, power = get_power(output, plane=plane, z=z, modes=modes, bandpass=bandpass)
     dt = float(t[1] - t[0])
     return t, dt * np.real(_wiener_khinchin(power))
@@ -700,6 +746,11 @@ def coherence_time(
     numpy.ndarray
         The coherence time, s.
 
+    Raises
+    ------
+    solprop.exceptions.OutputError
+        If the stored run is a spatial one, whose columns are not modal amplitudes.
+
     Examples
     --------
     >>> from solprop.processing._examples import example_output
@@ -707,6 +758,7 @@ def coherence_time(
     >>> float(coherence_time(example_output(), plane=0)) > 0.0
     True
     """
+    _refuse_by_basis(output, "coherence_time")
     delay, correlation = field_autocorrelation(
         output, plane=plane, z=z, modes=modes, bandpass=bandpass
     )
@@ -735,46 +787,6 @@ def _wiener_khinchin(
     """
     spectrum = np.fft.fft(values, axis=-1)
     return np.fft.fftshift(np.fft.ifft(np.abs(spectrum) ** 2, axis=-1), axes=-1)
-
-
-def _refuse_by_basis(output: Output, name: str) -> None:
-    """Refuse a legacy metric the stored basis does not define, by name.
-
-    The whitelist's fourth door (:mod:`solprop.output.capability`). The accessors of
-    this module were written when every run's mode axis was an orthogonal one- or
-    two-component basis whose coordinate powers add up to the physical power; a
-    general modal file is not that, and ``peak_power(modes='sum')`` is
-    :func:`solprop.stats.peak_power_total`, which the run loop, both CPU backends and
-    :mod:`solprop.processing.modal` all refuse on that basis. Without this check the
-    same number came back through a different import.
-
-    Nothing changes for a run on an ordinary basis, which is every gas-filled run.
-
-    Parameters
-    ----------
-    output : solprop.output.schema.Output
-        An opened output handler.
-    name : str
-        The accessor being asked for, which the refusal names.
-
-    Raises
-    ------
-    solprop.exceptions.OutputError
-        If the stored basis does not admit `name`. It is an
-        :class:`~solprop.exceptions.OutputError` and not a
-        :class:`~solprop.exceptions.ProcessingError` because it is a statement about
-        the record, and because one gate raising two classes would make the refusal
-        harder to catch than to cause: :mod:`solprop.processing.modal` raises the
-        same class for the same text.
-    """
-    metadata = output.metadata
-    if metadata is None:
-        return
-    refusal = refusal_for(
-        capability_of(metadata), [name], withheld=withheld_from(metadata)
-    )
-    if refusal is not None:
-        raise OutputError(refusal)
 
 
 def _planes(

@@ -184,6 +184,12 @@ class PlaneView:
         -------
         tuple
             The time axis and the power, W.
+
+        Raises
+        ------
+        solprop.exceptions.OutputError
+            On a spatial run, whose columns the function would read as modes:
+            :func:`solprop.spatial.spatial_power` is the beam's power.
         """
         return fields.get_power(self._reader(), plane=0, **keywords)
 
@@ -200,6 +206,11 @@ class PlaneView:
         -------
         tuple
             The axis and the density.
+
+        Raises
+        ------
+        solprop.exceptions.OutputError
+            On a spatial run, whose columns the function would read as modes.
         """
         return fields.get_spectral_density(self._reader(), plane=0, **keywords)
 

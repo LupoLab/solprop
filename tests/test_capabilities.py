@@ -74,10 +74,13 @@ def test_a_general_modal_file_gives_coordinates_and_names_what_reconstruction_ne
     assert "reference tables" in statement.needs["reconstructed_flux"]
 
 
-def test_a_spatial_file_refuses_compression():
+def test_a_spatial_file_refuses_compression_and_the_column_readers():
     statement = capabilities.output(_spatial_output())
     assert statement.quantities["field"].kind == "coordinate"
     assert not statement.admits("compression")
+    # The legacy energy and peak power read columns as modes; the statistic does not.
+    assert not statement.admits("energy") and not statement.admits("peak_power")
+    assert statement.admits("peak_intensity")
 
 
 def test_a_file_says_its_planes_its_recipe_and_whether_it_continues(tmp_path):

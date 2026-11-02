@@ -20,7 +20,7 @@ file's basis, and for each derived quantity whether it is a **physical flux** or
 **coordinate quantity**; which planes keep their field; which operations a reader
 admits and which it refuses, with the refusal the reader itself gives; and whether
 the file records a recipe and can continue. The refusals come from the same gates the
-readers raise from (:func:`solprop.output.capability.refusal_for` and the
+readers raise from (:func:`solprop.output.capability.reading_refusal` and the
 compressors' basis check), so the statement and the refusal cannot drift.
 """
 
@@ -37,8 +37,7 @@ from solprop.exceptions import DriverError, ProcessingError
 from solprop.output.capability import (
     BasisCapability,
     capability_of,
-    refusal_for,
-    withheld_from,
+    reading_refusal,
 )
 from solprop.output.hdf5 import open_file
 from solprop.output.resumable import Resumability, resumability
@@ -255,10 +254,9 @@ def _statement(handler: Output, resumable: Resumability | None) -> OutputCapabil
         msg = "the output holds no run record"
         raise OutputError(msg)
     basis = capability_of(metadata)
-    withheld = withheld_from(metadata)
     refused: dict[str, str] = {}
     for name in OPERATIONS[:-1]:
-        refusal = refusal_for(basis, [name], withheld=withheld)
+        refusal = reading_refusal(metadata, name)
         if refusal is not None:
             refused[name] = refusal
     compression = _compression_refusal(handler)

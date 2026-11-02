@@ -28,6 +28,13 @@ then includes the zero-frequency bin, where a wavelength is undefined.
 No window is ever applied implicitly. ``bandpass`` is a keyword, it is a wavelength
 range, and nothing happens without it.
 
+**A spatial file's columns are not modes.** :func:`get_power` and
+:func:`get_spectral_density` read each column of the mode axis as a modal amplitude in
+sqrt(W), so on a radial, Cartesian, line or planar file they refuse by name and name the
+functional of :mod:`solprop.spatial` that measures the quantity. :func:`get_spectrum`,
+:func:`get_field` and :func:`get_phase` return the stored columns as they are, in the
+file's own units, and read every file.
+
 **The noise floor.** A run with input shot noise saves a field that carries its seed,
 one photon per active bin and channel. ``noise_floor="subtract"`` on
 :func:`get_spectral_density` removes exactly that seed's energy, bin by bin and channel
@@ -54,6 +61,7 @@ from solprop.processing.axes import (
     _keep_index,
     _nearest_plane,
     _plane_field,
+    _refuse_by_basis,
     _squeeze,
     grid_of,
     spectral_axis,
@@ -268,6 +276,8 @@ def get_spectral_density(  # noqa: PLR0913 - the abscissa and the smoothing on t
         If ``noise_floor`` is not one of :data:`NOISE_FLOORS`, or is ``'subtract'``
         for a run without input noise, or if ``spec_range`` selects no sample of the
         abscissa (a range in another axis's units, say).
+    solprop.exceptions.OutputError
+        If the stored run is a spatial one, whose columns are not modal amplitudes.
 
     Examples
     --------
@@ -277,6 +287,72 @@ def get_spectral_density(  # noqa: PLR0913 - the abscissa and the smoothing on t
     >>> wavelength, density = get_spectral_density(example_output(), plane=0)
     >>> bool(np.all(np.diff(wavelength) > 0))
     True
+    """
+    _refuse_by_basis(output, "get_spectral_density")
+    return _spectral_density(
+        output,
+        axis,
+        plane=plane,
+        z=z,
+        modes=modes,
+        band=band,
+        spec_range=spec_range,
+        resolution=resolution,
+        noise_floor=noise_floor,
+    )
+
+
+def _spectral_density(  # noqa: PLR0913 - the keywords of get_spectral_density
+    output: Output,
+    axis: SpectralAxis = "wavelength",
+    *,
+    plane: int | None = None,
+    z: float | None = None,
+    modes: ModeSelection = None,
+    band: Band = "active",
+    spec_range: tuple[float, float] | None = None,
+    resolution: float | None = None,
+    noise_floor: NoiseFloor = "keep",
+) -> tuple[Float[np.ndarray, " n_x"], Float[np.ndarray, "*shape n_x"]]:
+    """Return the density of every column, whatever the columns are.
+
+    :func:`get_spectral_density` without its refusal of a spatial file, for a caller
+    that weights each column by its own measure, as
+    :func:`solprop.processing.mixtures.absorbed_spectral_energy` does: on a spatial
+    file each column's value is ``|E|^2`` in its own units, not a density in J.
+
+    Parameters
+    ----------
+    output : solprop.output.schema.Output
+        An opened output handler.
+    axis : {'wavelength', 'f', 'omega'}
+        The abscissa, in m, Hz or rad/s.
+    plane : int or None
+        Index of the plane wanted, negative from the end.
+    z : float or None
+        Position of the plane wanted, m.
+    modes : int, sequence of int, 'sum' or None
+        Which columns to return; ``'sum'`` adds their values.
+    band : {'active', 'all'}
+        Which part of the stored axis to use.
+    spec_range : tuple of float or None
+        Limits on the abscissa, in its own units.
+    resolution : float or None
+        Instrument resolution, in the units of the abscissa.
+    noise_floor : {'keep', 'subtract'}
+        Whether to remove the input noise's seed.
+
+    Returns
+    -------
+    x : numpy.ndarray
+        The abscissa, shape ``(n_x,)``, ascending.
+    density : numpy.ndarray
+        The value per unit of ``x``.
+
+    Raises
+    ------
+    solprop.exceptions.ProcessingError
+        As :func:`get_spectral_density`.
     """
     _check_choice(noise_floor, NOISE_FLOORS, "noise_floor")
     grid = grid_of(output)
@@ -501,6 +577,12 @@ def get_power(  # noqa: PLR0913 - a plane, a mode set, a window and an optical e
     power : numpy.ndarray
         Instantaneous power, W, with trivial axes squeezed.
 
+    Raises
+    ------
+    solprop.exceptions.OutputError
+        If the stored run is a spatial one, whose columns are not modal amplitudes:
+        :func:`solprop.spatial.spatial_power` of a saved plane is the beam's power.
+
     Examples
     --------
     >>> import numpy as np
@@ -510,6 +592,7 @@ def get_power(  # noqa: PLR0913 - a plane, a mode set, a window and an optical e
     >>> bool(np.all(power >= 0.0))
     True
     """
+    _refuse_by_basis(output, "get_power")
     _, t, amplitude = _plane_amplitude(
         output,
         plane=plane,

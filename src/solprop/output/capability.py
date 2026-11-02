@@ -21,16 +21,26 @@ file publishes without importing an output one.
 The gate is applied at four doors: at :class:`solprop.stats.StatsSpec` admission, where
 the driver knows the problem; in each CPU backend's ``stats``, for a caller who builds
 one and asks it directly; in the accessors of :mod:`solprop.processing.modal`; and in
-the legacy processing accessors of :mod:`solprop.processing.time`, which see only the
-stored record. A modal run of any other route carries no general identity, and is read
-as the ordinary modal run it is: the general names are refused for it, because the
-certified metric and the stored E/H reference they promise are exactly what such a file
-does not have.
+the legacy processing accessors of :mod:`solprop.processing.time` and
+:mod:`solprop.processing.fields` and the plots drawn from them, which see only the
+stored record (:func:`reading_refusal`). A modal run of any other route carries no
+general identity, and is read as the ordinary modal run it is: the general names are
+refused for it, because the certified metric and the stored E/H reference they promise
+are exactly what such a file does not have.
+
+**The fourth door also refuses a spatial file's columns read as modes.** The legacy
+readers were written for a mode axis of true-power amplitudes in sqrt(W). A radial or
+Cartesian column is a field sample in V m or V/m and a planar column a slab amplitude
+per y frequency, so ``|a|^2`` summed over them is neither a power nor an energy:
+:data:`COLUMN_READINGS` names those readers and the spatial functional that measures
+the quantity instead. A run's statistics are not readers and are not narrowed: the
+spatial route's ``stats/energy`` is the physical energy and is admitted as before.
 
 The manual page is ``docs/guide/results/statistics.md``.
 """
 
 from collections.abc import Mapping, Sequence
+from types import MappingProxyType
 from typing import Literal
 
 from solprop.output.schema import RunMetadata
@@ -38,6 +48,7 @@ from solprop.stats import (
     _GAS_OR_SPATIAL_NAMES,
     _STEP_DIAGNOSTICS,
     ACCESSOR_ADVICE,
+    CATALOGUE,
     GENERAL_MODAL_ACCESSORS,
     WITHHELD_WITH_A_FLOW,
 )
@@ -46,10 +57,12 @@ __all__ = [
     "ACCESSOR_ADVICE",
     "ACCESSOR_WHITELIST",
     "CAPABILITIES",
+    "COLUMN_READINGS",
     "GENERAL_MODAL_ACCESSORS",
     "BasisCapability",
     "capability_of",
     "declared_capability",
+    "reading_refusal",
     "refusal_for",
     "withheld_accessors",
     "withheld_from",
@@ -89,16 +102,79 @@ ACCESSOR_WHITELIST: Mapping[BasisCapability, frozenset[str] | None] = {
     "general_modal": GENERAL_MODAL_ACCESSORS,
     "spatial": None,
 }
-"""Which accessors each capability admits.
+"""Which statistics and accessors each capability admits.
 
 ``None`` means "every name this run has always had, and no general one".
 
-An orthogonal modal run and a spatial run keep every accessor they have always had --
-this table never narrows an existing route -- and refuse the ten names of
+An orthogonal modal run and a spatial run keep every statistic they have always had --
+this table never narrows an existing route's statistics -- and refuse the ten names of
 ``_GENERAL_ONLY``, which need a certified flux metric and a stored E/H reference
 they do not carry. A general modal run admits exactly its own list, plus the
 basis-independent step diagnostics section 6 allows.
+
+The table is read at every door, so it speaks of statistic names, and on a spatial
+run those are the physical flux the run recorded. What it does not cover is the
+processing readers that take each column of a file's mode axis for a modal amplitude:
+on a spatial file those are refused at the processing door by :data:`COLUMN_READINGS`,
+not here, because ``energy`` the statistic is admitted where ``energy`` the reader of
+the stored columns is not.
 """
+
+_POWER_ADVICE = "use solprop.spatial.spatial_power"
+_SPECTRAL_ADVICE = (
+    "use the spectral_energy of the plane solprop.processing.field_plane reads (J per "
+    "bin; radial and Cartesian) or solprop.spatial.on_axis_spectrum"
+)
+
+COLUMN_READINGS: Mapping[str, str] = MappingProxyType(
+    {
+        "energy": "use solprop.spatial.spatial_energy (planar_mode_energy per slab "
+        "mode)",
+        "peak_power": "use the largest value of solprop.spatial.spatial_power",
+        "get_power": _POWER_ADVICE,
+        "get_spectral_density": _SPECTRAL_ADVICE,
+        "fwhm_t": "use solprop.processing.fwhm of solprop.spatial.spatial_power",
+        "fwhm_f": _SPECTRAL_ADVICE,
+        "time_bandwidth": "use the widths of solprop.spatial.spatial_power and of the "
+        "plane's spectral_energy from solprop.processing.field_plane",
+        "arrival_time": "use solprop.processing.moment of "
+        "solprop.spatial.spatial_power",
+        "field_autocorrelation": "use solprop.spatial.spatial_energy for its value at "
+        "zero delay",
+        "intensity_autocorrelation": _POWER_ADVICE,
+        "coherence_time": "use solprop.spatial.on_axis_spectrum, whose transform is "
+        "the field autocorrelation on the axis",
+        "prop_2d": "use solprop.spatial.spatial_power and "
+        "solprop.spatial.on_axis_spectrum at each saved plane",
+        "time_1d": _POWER_ADVICE,
+        "spec_1d": _SPECTRAL_ADVICE,
+        "plot_energy": "use the run's stats/energy, which is the beam's energy at each "
+        "plane",
+    }
+)
+"""The readers that take each column of a file's mode axis for a modal amplitude.
+
+Each of the processing and plotting readers named here forms ``|a|^2`` of a column in
+the square root of watts and sums it over polarisation and, on request, over columns.
+The value of each entry is what to use instead on a spatial file, whose columns are
+fields or slab amplitudes: a functional of :mod:`solprop.spatial` on a saved plane and
+its :class:`~solprop.spatial.SpatialFlux`. On a modal or general modal file these
+readers are what they always were.
+"""
+
+_WHITELISTED: frozenset[str] = frozenset(
+    {*CATALOGUE, *GENERAL_MODAL_ACCESSORS, *_GENERAL_ONLY}
+)
+"""The names :data:`ACCESSOR_WHITELIST` speaks of: statistics and the general accessors.
+
+A reader of no such name -- a trace, a density, a plot -- is admitted on every modal
+basis, as it always was, and only :data:`COLUMN_READINGS` can refuse it.
+"""
+
+_SPATIAL_KINDS: Mapping[str, str] = MappingProxyType(
+    {"radial": "radial", "free": "Cartesian or line", "slab": "planar"}
+)
+"""How a refusal names each spatial ``simulation_kind``."""
 
 _GENERIC_ADVICE = (
     "physical_energy, analytic_flux, or reconstructed E/H with an explicit detector "
@@ -271,6 +347,58 @@ def refusal_for(
             f"This basis admits {', '.join(sorted(allowed))}"
         )
     return None
+
+
+def reading_refusal(metadata: RunMetadata, name: str) -> str | None:
+    """Return why a reader of a stored record refuses it, or ``None``.
+
+    The processing door of the gate, for the readers that see only the stored record:
+    on a spatial record a reader of :data:`COLUMN_READINGS` is refused, because it
+    would read each transverse column as a modal amplitude in sqrt(W); otherwise a
+    name :data:`ACCESSOR_WHITELIST` speaks of is asked of :func:`refusal_for`, with
+    the names the record withholds. A reader of no such name -- a trace, a density, a
+    plot -- is admitted on every modal basis, as it always was.
+
+    Parameters
+    ----------
+    metadata : solprop.output.schema.RunMetadata
+        The stored record.
+    name : str
+        The reader or accessor asked for, which the refusal names.
+
+    Returns
+    -------
+    str or None
+        The refusal, or ``None`` when the record admits `name`.
+
+    Examples
+    --------
+    >>> from dataclasses import replace
+    >>> from solprop.output.capability import reading_refusal
+    >>> from solprop.output.schema import _example_metadata
+    >>> reading_refusal(_example_metadata(), "get_power") is None
+    True
+    >>> radial = replace(
+    ...     _example_metadata(),
+    ...     simulation_kind="radial",
+    ...     spatial={"geometry": "radial", "flux_model": "scalar-axial-admittance"},
+    ... )
+    >>> reading_refusal(radial, "get_power")[:44]
+    'get_power measures modal amplitudes and this'
+    """
+    capability = capability_of(metadata)
+    if capability == "spatial" and name in COLUMN_READINGS:
+        kind = _SPATIAL_KINDS.get(metadata.simulation_kind, metadata.simulation_kind)
+        return (
+            f"{name} measures modal amplitudes and this is a {kind} run, whose "
+            f"columns are not: {COLUMN_READINGS[name]}, or the run's own spatial "
+            "statistics (energy, peak_intensity, on_axis_intensity, beam_radius). A "
+            "column here is a field sample or a slab amplitude, and each spatial "
+            "functional takes a saved plane's field and its SpatialFlux"
+        )
+    if name not in _WHITELISTED:
+        return None
+    return refusal_for(capability, [name], withheld=withheld_from(metadata))
 
 
 def withheld_accessors(*, general_modal: bool, coupled_flow: bool) -> tuple[str, ...]:

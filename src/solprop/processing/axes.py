@@ -30,6 +30,7 @@ from solprop.constants import C
 from solprop.exceptions import ModeError, OutputError, ProcessingError
 from solprop.grid import Collar, EnvelopeGrid, FieldGrid, TimeGrid
 from solprop.modes.protocol import TransverseMeasure
+from solprop.output.capability import reading_refusal
 from solprop.output.schema import Convention, GridRecord, Output, PlaneStore
 
 __all__ = [
@@ -439,6 +440,50 @@ def _nearest_plane(output: Output, z: float) -> int:
         msg = "the output holds no saved plane, so no position can be selected"
         raise OutputError(msg)
     return int(np.argmin(np.abs(positions - z)))
+
+
+def _refuse_by_basis(output: Output, name: str) -> None:
+    """Refuse a reader the stored basis does not define, by name.
+
+    The whitelist's fourth door (:mod:`solprop.output.capability`). The readers of
+    :mod:`solprop.processing.time`, :mod:`solprop.processing.fields` and the plots
+    drawn from them were written when every run's mode axis was an orthogonal one- or
+    two-component basis whose coordinate powers add up to the physical power. A
+    general modal file is not that, and ``peak_power(modes='sum')`` is
+    :func:`solprop.stats.peak_power_total`, which the run loop, both CPU backends and
+    :mod:`solprop.processing.modal` all refuse on that basis. A spatial file is not
+    that either: its columns are fields in V m or V/m or slab amplitudes, and the
+    readers of :data:`~solprop.output.capability.COLUMN_READINGS` would read them as
+    modes in sqrt(W). Without this check the same numbers came back through a
+    different import, silently wrong in joules and watts.
+
+    Nothing changes for a run on an ordinary modal basis, which is every gas-filled
+    guided run.
+
+    Parameters
+    ----------
+    output : solprop.output.schema.Output
+        An opened output handler.
+    name : str
+        The reader being asked for, which the refusal names.
+
+    Raises
+    ------
+    solprop.exceptions.OutputError
+        If the stored basis does not admit `name`
+        (:func:`~solprop.output.capability.reading_refusal`). It is an
+        :class:`~solprop.exceptions.OutputError` and not a
+        :class:`~solprop.exceptions.ProcessingError` because it is a statement about
+        the record, and because one gate raising two classes would make the refusal
+        harder to catch than to cause: :mod:`solprop.processing.modal` raises the
+        same class for the same text.
+    """
+    metadata = output.metadata
+    if metadata is None:
+        return
+    refusal = reading_refusal(metadata, name)
+    if refusal is not None:
+        raise OutputError(refusal)
 
 
 def _plane_field(

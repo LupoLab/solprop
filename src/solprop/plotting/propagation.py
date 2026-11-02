@@ -12,6 +12,11 @@ figure of several panels is assembled by the caller rather than by a keyword her
 The display units are :mod:`solprop.plotting.style`'s: z in centimetres, time in
 femtoseconds, wavelength in nanometres, frequency in petahertz, energy in microjoules
 and power auto-scaled.
+
+These figures draw modes, so a radial, Cartesian, line or planar file is refused by the
+name of the figure: its columns are not modal amplitudes, and a map or a slice of them
+would be labelled in watts and joules it does not hold. The refusal names the spatial
+functionals to draw instead (:data:`solprop.output.capability.COLUMN_READINGS`).
 """
 
 from collections.abc import Sequence
@@ -40,7 +45,12 @@ from solprop.plotting.style import (
     spectral_display,
 )
 from solprop.processing import spectra, time
-from solprop.processing.axes import ModeSelection, SpectralAxis, _check_choice
+from solprop.processing.axes import (
+    ModeSelection,
+    SpectralAxis,
+    _check_choice,
+    _refuse_by_basis,
+)
 from solprop.processing.fields import (
     NoiseFloor,
     get_field,
@@ -147,6 +157,11 @@ def prop_2d(  # noqa: PLR0913 - the two axes, the two ranges and the colour scal
         One figure per drawn mode, and one for the modal sum when there is more than
         one.
 
+    Raises
+    ------
+    solprop.exceptions.OutputError
+        If the stored run is a spatial one, whose columns are not modal amplitudes.
+
     Examples
     --------
     >>> import matplotlib.pyplot as plt
@@ -160,6 +175,7 @@ def prop_2d(  # noqa: PLR0913 - the two axes, the two ranges and the colour scal
     True
     >>> plt.close("all")
     """
+    _refuse_by_basis(output, "prop_2d")
     limits = _spec_range(axis, spec_range, DEFAULT_WAVELENGTH_RANGE)
     x, density = get_spectral_density(
         output,
@@ -260,6 +276,11 @@ def time_1d(  # noqa: PLR0913 - the planes, the quantity, the window and the axi
     matplotlib.figure.Figure
         The figure the traces were drawn on.
 
+    Raises
+    ------
+    solprop.exceptions.OutputError
+        If the stored run is a spatial one, whose columns are not modal amplitudes.
+
     Examples
     --------
     >>> import matplotlib.pyplot as plt
@@ -270,6 +291,7 @@ def time_1d(  # noqa: PLR0913 - the planes, the quantity, the window and the axi
     2
     >>> plt.close(figure)
     """
+    _refuse_by_basis(output, "time_1d")
     _check_choice(quantity, SLICE_QUANTITIES, "quantity")
     ax = _axis(ax, (8.5, 5.0))
     planes = _plane_indices(output, z)
@@ -372,6 +394,11 @@ def spec_1d(  # noqa: PLR0913 - the planes, the abscissa, the range and the scal
     matplotlib.figure.Figure
         The figure the traces were drawn on.
 
+    Raises
+    ------
+    solprop.exceptions.OutputError
+        If the stored run is a spatial one, whose columns are not modal amplitudes.
+
     Examples
     --------
     >>> import matplotlib.pyplot as plt
@@ -382,6 +409,7 @@ def spec_1d(  # noqa: PLR0913 - the planes, the abscissa, the range and the scal
     'Wavelength (nm)'
     >>> plt.close(figure)
     """
+    _refuse_by_basis(output, "spec_1d")
     ax = _axis(ax, (8.5, 5.0))
     planes = _plane_indices(output, z)
     limits = _spec_range(axis, spec_range, DEFAULT_SLICE_WAVELENGTH_RANGE)
@@ -459,6 +487,11 @@ def plot_energy(
     matplotlib.figure.Figure
         The figure the traces were drawn on.
 
+    Raises
+    ------
+    solprop.exceptions.OutputError
+        If the stored run is a spatial one, whose columns are not modal amplitudes.
+
     Examples
     --------
     >>> import matplotlib.pyplot as plt
@@ -469,6 +502,7 @@ def plot_energy(
     'Conversion efficiency (%)'
     >>> plt.close(figure)
     """
+    _refuse_by_basis(output, "plot_energy")
     ax = _axis(ax, (7.0, 5.0))
     values = pulse_energy(output, modes=modes, bandpass=bandpass)
     if values.ndim == 1:
