@@ -74,6 +74,7 @@ QUANTITIES: Final = (
     Quantity("loss", "Loss (dB/m)", "alpha", 10.0 / math.log(10.0)),
     Quantity("aeff", "A_eff (µm²)", "aeff", 1e12),
     Quantity("gamma", "γ (1/(W km))", "gamma", 1e3),  # noqa: RUF001 - gamma
+    Quantity("mismatch", "Phase mismatch Δβ (1/cm)", "phase_mismatch", 1e-2),
 )
 """The quantities, in the order the explorer offers them."""
 

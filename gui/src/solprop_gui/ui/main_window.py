@@ -988,8 +988,6 @@ class MainWindow(QMainWindow):
             if isinstance(design, dict) and design:
                 lines += design_lines(design)
                 lines.append("<i>at the entrance (solprop.tools.capillary_params)</i>")
-            rdw = design.get("rdw") if isinstance(design, dict) else None
-            self.explorer.set_rdw(None if rdw is None else float(rdw))
             resolved = summary.get("resolved") or {}
             pinned = summary.get("pinned") or {}
             for page in self.pages.values():

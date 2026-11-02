@@ -98,7 +98,6 @@ class ExplorerView(QWidget):
         self.status.setObjectName("explorer-status")
         self.status.setWordWrap(True)
         self.pump: float | None = None
-        self.rdw: float | None = None
         self.swept: str | None = None
         self.hidden: set[str] = set()
         self.curves: list[Curve] = []
@@ -108,6 +107,7 @@ class ExplorerView(QWidget):
         for quantity in QUANTITIES:
             self.quantity.addItem(quantity.title, quantity.key)
         self.quantity.setCurrentIndex(2)  # beta2
+        self.quantity.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
         self.axis = QComboBox()
         self.axis.setObjectName("explorer-axis")
         for axis in AXES:
@@ -366,6 +366,8 @@ class ExplorerView(QWidget):
                 pen = pg.mkPen(colour, width=1.6, style=style)
                 self.plot.plot(x, values, pen=pen, name=title)
                 self.curves.append((title, x, values))
+                if index == 0:
+                    self._mark_rdw(mode, colour, axis)
                 zero = mode.get("zdw")
                 if zero is not None and index == 0 and quantity.source == "beta2":
                     first = not any(
@@ -383,7 +385,7 @@ class ExplorerView(QWidget):
                             labelOpts={"position": 0.95, "color": colour},
                         )
                     )
-        if quantity.source in ("beta2", "beta3"):
+        if quantity.source in ("beta2", "beta3", "phase_mismatch"):
             self.plot.addItem(pg.InfiniteLine(0.0, angle=0, pen=pg.mkPen("#888888")))
         if self.pump is not None:
             position = axis_values(
@@ -398,33 +400,37 @@ class ExplorerView(QWidget):
                     labelOpts={"position": 0.88, "color": "#c62828"},
                 )
             )
-        if self.rdw is not None and drawn:
-            position = axis_values(
-                np.array([2 * np.pi * 299_792_458.0 / self.rdw]), axis
-            )[0]
-            self.plot.addItem(
-                pg.InfiniteLine(
-                    float(position),
-                    angle=90,
-                    pen=pg.mkPen("#6a1b9a", width=1.2, style=Qt.PenStyle.DashLine),
-                    label="RDW",
-                    labelOpts={"position": 0.81, "color": "#6a1b9a"},
-                )
-            )
         self._fill_table()
 
-    def set_rdw(self, wavelength: float | None) -> None:
-        """Mark the phase-matched dispersive wave of the setup's pulse.
+    def _mark_rdw(self, mode: Mapping[str, object], colour: object, axis: str) -> None:
+        """Mark a mode's phase-matched dispersive wave, the shortest.
 
         Parameters
         ----------
-        wavelength : float or None
-            Its wavelength in m (the summary's ``tools.lambda_rdw_all``), or ``None``
-            for none.
+        mode : Mapping
+            The mode, with its ``rdw`` wavelengths.
+        colour : object
+            Its curve's colour.
+        axis : str
+            The horizontal axis.
         """
-        if wavelength != self.rdw:
-            self.rdw = wavelength
-            self.redraw()
+        roots: list[float] = list(mode.get("rdw") or [])  # pyright: ignore[reportArgumentType]
+        if not roots:
+            return
+        first = not any(
+            isinstance(item, pg.InfiniteLine) and getattr(item, "rdw", False)
+            for item in self.plot.items
+        )
+        position = axis_values(np.array([2 * np.pi * 299_792_458.0 / roots[0]]), axis)
+        line = pg.InfiniteLine(
+            float(position[0]),
+            angle=90,
+            pen=pg.mkPen(colour, width=1.2, style=Qt.PenStyle.DashLine),
+            label="RDW" if first else None,
+            labelOpts={"position": 0.81, "color": colour},
+        )
+        line.rdw = True  # pyright: ignore[reportAttributeAccessIssue]
+        self.plot.addItem(line)
 
     def _fill_table(self) -> None:
         """Write every quantity at the pump, one row per mode."""

@@ -105,8 +105,9 @@ def _mode_set(recipe: Recipe, z: float | None) -> dict[str, object]:
     -------
     dict
         ``z`` and ``omega``, and per mode its ``label``, ``neff_minus_one``,
-        ``beta1``, ``beta2``, ``beta3``, ``alpha``, ``gamma`` (or ``None``), ``aeff``
-        and ``zdw`` (or ``None``), in SI.
+        ``beta1``, ``beta2``, ``beta3``, ``alpha``, ``gamma`` (or ``None``), ``aeff``,
+        ``zdw`` (or ``None``), ``phase_mismatch`` to the launch soliton (or
+        ``None``) and ``rdw``, its phase-matched wavelengths, in SI.
     """
     preview = recipe.modes(z)
     return {
@@ -123,6 +124,12 @@ def _mode_set(recipe: Recipe, z: float | None) -> dict[str, object]:
                 "gamma": None if mode.gamma is None else np.asarray(mode.gamma),
                 "aeff": float(mode.aeff),
                 "zdw": None if mode.zdw is None else float(mode.zdw),
+                "phase_mismatch": (
+                    None
+                    if mode.phase_mismatch is None
+                    else np.asarray(mode.phase_mismatch)
+                ),
+                "rdw": [float(root) for root in mode.rdw],
             }
             for mode in preview.modes
         ],

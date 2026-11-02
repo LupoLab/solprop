@@ -255,10 +255,11 @@ def test_the_explorers_axes_and_quantities():
         "alpha": np.array([0.1, 0.2]),
         "aeff": 1e-8,
         "gamma": None,
+        "phase_mismatch": None,
     }
     for quantity in explore.QUANTITIES:
         values = explore.quantity_values(mode, omega, quantity)
-        if quantity.key == "gamma":
+        if quantity.key in ("gamma", "mismatch"):
             assert values is None
         else:
             assert values is not None and values.shape == (2,)

@@ -55,9 +55,13 @@ def test_the_modes_of_a_setup_are_plain_arrays():
     labels = [mode["label"] for mode in only["modes"]]
     assert labels == [f"HE1,{m}:even" for m in range(1, 5)]
     first = only["modes"][0]
-    for name in ("neff_minus_one", "beta1", "beta2", "beta3", "alpha", "gamma"):
+    names = ("neff_minus_one", "beta1", "beta2", "beta3", "alpha", "gamma")
+    for name in (*names, "phase_mismatch"):
         assert first[name].shape == only["omega"].shape
     assert 4e-7 < first["zdw"] < 6e-7 and first["aeff"] > 0
+    # Each mode's wave phase-matched to the soliton in the first: bluer in higher ones.
+    rdw = [mode["rdw"][0] for mode in only["modes"][:3]]
+    assert rdw == sorted(rdw, reverse=True) and 1.5e-7 < rdw[-1] < rdw[0] < 2.1e-7
 
 
 def test_a_sweep_gives_one_mode_set_per_value_and_says_which_fail():

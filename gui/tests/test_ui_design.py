@@ -42,6 +42,8 @@ def mode(label: str, scale: float, *, gamma: bool = True) -> dict[str, object]:
         "gamma": 1e-4 * OMEGA / OMEGA[0] if gamma else None,
         "aeff": 1e-8,
         "zdw": 6e-7,
+        "phase_mismatch": scale * np.linspace(-1.0, 1.0, OMEGA.size),
+        "rdw": [2.5e-7 / scale] if gamma else [],
     }
 
 
@@ -69,9 +71,6 @@ def test_the_explorer_draws_modes_sweeps_and_a_table(qtbot: QtBot, tmp_path: Pat
     }
     view.set_sets(reply)
     assert len(view.curves) == 2 and view.table.rowCount() == 2
-    view.set_rdw(2.5e-7)
-    view.set_rdw(2.5e-7)  # the same: not drawn again
-    assert view.rdw == 2.5e-7
     figures = []
     view.figure_wanted.connect(figures.append)
     view.export_figure(str(tmp_path / "modes.pdf"))
@@ -80,6 +79,7 @@ def test_the_explorer_draws_modes_sweeps_and_a_table(qtbot: QtBot, tmp_path: Pat
     assert [curve["label"] for curve in spec["curves"]] == ["HE1,1", "HE1,2"]
     marks = {line["label"]: line for line in spec["lines"]}
     assert marks["RDW"]["x"] == pytest.approx(250.0) and marks["RDW"]["style"] == "--"
+    assert sum(line["style"] == "--" for line in spec["lines"]) == 1  # HE1,2 has none
     assert "pump" in marks and spec["xlabel"] == "Wavelength (nm)"
     assert view.labels() == ["HE1,1", "HE1,2"]
     shot(view, tmp_path, "explorer")
