@@ -698,6 +698,13 @@ to settle before acceptance; medium priority may be explicitly assigned to a pha
    development activity. Also preserve the rule that future features need native
    parity or an explicit accepted exception; Q3 should not become a general waiver.
 
+   **Maintainer decision — 2026-11-02 (John C. Travers):** describe `numpy_ref` as
+   the numerical reference backend and the executor for explicitly listed supported
+   scientific features. Those features remain supported on the project's supported
+   platforms. Explicit reference execution elsewhere may remain available without
+   a support promise for those platforms. The drafting agent should reconcile this
+   wording with the selection rules and the required native installation policy.
+
 2. **R2 — High: the refusal-only wheel needs an installed-state contract, or should
    be deferred (§6.7, §7, Q2).** Wheel preference only answers a fresh resolution.
    In a disposable local-index probe, I installed a pure-Python stub at version 1.0,
@@ -718,6 +725,13 @@ to settle before acceptance; medium priority may be explicitly assigned to a pha
    Give the stub and platform wheels consistent dependency metadata, a stable
    non-importing capability marker, and an exact recovery command. `available()`
    and diagnostic tools must not report the stub as an executable backend.
+
+   **Maintainer decision — 2026-11-02 (John C. Travers):** omit the refusal-only
+   wheel from this change. Normal installations require the real native package;
+   accept the installer's resolution error on unsupported platforms and explain it
+   on the installation page. Retain helpful runtime diagnostics for unsupported
+   CPUs and broken installations where solprop can execute them. Remove the stub's
+   design and its associated verification obligations when revising the proposal.
 
 3. **R3 — High: cached ancestor wheels and the exact version pin do not yet form a
    coherent contributor workflow (§6.5, §6.7, Q4–Q5).** CI keys its wheel cache on
@@ -897,6 +911,13 @@ to settle before acceptance; medium priority may be explicitly assigned to a pha
     builds remain deferred to #312; required native increases their importance for
     scientific reproducibility, although they need not block this retirement.
 
+    **Maintainer decision — 2026-11-02 (John C. Travers):** keep plain `uv sync`
+    building native by default, and provide one documented lightweight setup command
+    for Python/documentation contributors without native or a compiler. It supports
+    reference execution and documentation checks as a development workflow, not a
+    production fallback. Native changes still require native qualification. The
+    drafting agent should specify the command and resolve R3's compatibility details.
+
 13. **R13 — Medium: make phase completion, evidence and rollback current and
     enforceable (§3, §7, §9, §11, Part II).** Part II says nothing has merged, but
     #395 is merged and its code is in the reviewed tree. #398 has a full CI result
@@ -916,6 +937,12 @@ to settle before acceptance; medium priority may be explicitly assigned to a pha
     with Numba”. Pinning an existing release is an immediate rollback; reverting
     source after publication requires a new tested release. Before Numba's last
     release, retain enough qualification for it despite moving the CI lanes.
+
+    **Maintainer decision — 2026-11-02 (John C. Travers):** remove `numba_cpu`
+    before the 0.2 release. Version 0.2 therefore ships without Numba; it is not the
+    last release retaining it. Update the phase ordering, compatibility text and
+    migration/rollback guidance consistently. The required qualification gates
+    still apply before removal.
 
 14. **R14 — Medium: separate stable-ABI compatibility from Python support (§6.6,
     §7, phase 4).** The ABI strategy is sensible and nanobind
@@ -969,3 +996,12 @@ to settle before acceptance; medium priority may be explicitly assigned to a pha
     reserve explicit native selection for examples that need its capabilities or
     performance. This reduces future documentation churn without reintroducing a
     fallback.
+
+### Drafting handoff after the maintainer's decisions — 2026-11-02
+
+The decisions recorded beside R1, R2, R12 and R13 settle those policy choices.
+The drafting agent should now revise Part I and provide the separate response to
+each review item required by SEP 0, distinguishing decisions implemented in the
+text from qualification work assigned to a phase. The other technical questions,
+including R3's wheel/version compatibility and R4's concrete GPU safeguard, still
+need answers. These decisions do not mark the SEP accepted or the review complete.
