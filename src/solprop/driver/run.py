@@ -38,17 +38,19 @@ from typing import cast
 import numpy as np
 
 from solprop._host import RunClock, machine, usage
-from solprop._interrupts import committing, handled
+from solprop._interrupts import committing, handled, poll
 from solprop.backends.populations import axis_refusal
 from solprop.backends.protocol import Backend, BackendHistory, Observation
 from solprop.backends.registry import statistics_refusal
 from solprop.driver.memory import MemoryAdmission
+from solprop.driver.plane_view import PlaneWatch
 from solprop.driver.summary import resources, run_summary
 from solprop.exceptions import (
     DriverError,
     OutputError,
     ResponseBudgetError,
     RunTerminated,
+    StopRequested,
 )
 from solprop.fourier import power_amplitude
 from solprop.log import (
@@ -57,6 +59,7 @@ from solprop.log import (
     LogReporter,
     ProgressChoice,
     ProgressReporter,
+    StopFlag,
     SummarisingReporter,
     resolve_reporter,
 )
@@ -76,6 +79,7 @@ from solprop.output.schema import (
     FieldsChoice,
     Output,
     PlaneStore,
+    RecipeRecord,
     RunMetadata,
     RunOutcome,
     SavedPlane,
@@ -284,6 +288,8 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
     tdse_archive: TDSEArchiveWriter | None = None,
     boundary_monitor: BoundaryMonitor | None = None,
     resume_record: Mapping[str, object] | None = None,
+    stop: StopFlag | None = None,
+    recipe: RecipeRecord | None = None,
 ) -> None:
     """Run one translated problem to its save planes, writing each one out.
 
@@ -372,6 +378,16 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
         from its record (SEP 42 section 5.3): every execution record this session
         writes carries it, from the first, written before any step, so a session
         that stops or fails still leaves it. ``None`` records none.
+    stop : solprop.log.StopFlag or None, optional
+        The run's own stop flag, any object with an ``is_set()`` method (SEP 41,
+        S17). It is polled before the first step, before every trial step and between
+        save planes; once it is set the run writes its state as for SIGTERM, tells the
+        reporter through ``interrupted``, and raises
+        :class:`~solprop.exceptions.StopRequested`, which
+        :meth:`~solprop.driver.simulation.Simulation.run` turns into a return.
+    recipe : solprop.output.schema.RecipeRecord or None, optional
+        The recipe the run was built from (SEP 41, S2), recorded in a plane store at
+        the first run start and never rewritten; ``None`` records none.
 
     Raises
     ------
@@ -436,6 +452,9 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
         estimated=not isinstance(problem.stepper.integrator, LowStorageRungeKutta),
     )
     backend.set_progress(reporter)
+    set_stop = getattr(backend, "set_stop", None)
+    if set_stop is not None:
+        set_stop(stop)
     started = time.perf_counter()
     clock = RunClock.start()
     logger.debug(
@@ -454,6 +473,9 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
     if resume_record is not None:
         # Only a file resume carries an entry, and its handler is an HDF5Output.
         cast("PlaneStore", output).record_resume(resume_record)
+    if recipe is not None and isinstance(output, PlaneStore):
+        with committing():
+            output.record_recipe(recipe)
     # A store that preallocates (`PlaneStore.reserve`) sizes itself for the entrance
     # and every save plane; a resumed one keeps what it holds and grows to the rest.
     reserve = getattr(output, "reserve", None)
@@ -473,6 +495,14 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
         boundary_check=None if boundary_monitor is None else boundary_monitor.check,
     )
     keeper = _MarchKeeper(output, backend, resume_history)
+    # A plane observer is shown each committed plane (SEP 41, S3); a field the output
+    # does not keep is fetched from the backend only when the observer asks.
+    watch = PlaneWatch(
+        reporter,
+        metadata,
+        lambda: _fetched(problem, backend),
+        clock.observer,
+    )
     pending: SavedPlane | None = None
     pending_save_count = output.n_saved
     snapshots_started = False
@@ -513,6 +543,7 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
                     RunOutcome("running", reached),
                     clock=clock,
                 )
+            watch.show(pending, output.n_saved - 1)
         attach = getattr(backend, "attach_monitor", None)
         if boundary_monitor is not None and attach is not None:
             if resumed:
@@ -524,6 +555,9 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
             attach(boundary_monitor)
         index = start_plane
         while index < planes.size:
+            # Before the first step and between planes, for a backend that does not
+            # poll per trial itself.
+            poll(stop)
             target = float(planes[index])
             pending = None
             pending_save_count = output.n_saved
@@ -587,6 +621,7 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
                     persist=persist,
                     provenance=metadata,
                 )
+            watch.show(pending, output.n_saved - 1)
             reporter.plane(summary.z, summary)
             # A natural step can stop short of the requested plane (SEP 14).
             if math.isclose(summary.z, target, rel_tol=1e-12, abs_tol=0.0):
@@ -618,8 +653,10 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
         )
         if failed_z is not None:
             reached = failed_z
-        if isinstance(error, RunTerminated):
-            logger.warning(
+        if isinstance(error, RunTerminated | StopRequested):
+            # A stop the caller asked for is not a warning; a signal may be one.
+            logger.log(
+                logging.INFO if isinstance(error, StopRequested) else logging.WARNING,
                 "%s at z = %.6e m; the run's state there is written, and "
                 "resume=True continues it",
                 error,
@@ -632,6 +669,8 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
             reporter.interrupted(reached, error)
         raise
     finally:
+        if set_stop is not None:
+            set_stop(None)
         try:
             output.close()
         except BaseException as error:
@@ -765,6 +804,28 @@ def _observed(problem: KernelProblem, backend: Backend, *, keep: bool) -> Observ
         otherwise.
     """
     return _power_observation(problem, backend.observe(field=keep))
+
+
+def _fetched(problem: KernelProblem, backend: Backend) -> np.ndarray:
+    """Return the field at the backend's current plane, in output units.
+
+    For a plane observer shown a plane whose field the output does not keep.
+
+    Parameters
+    ----------
+    problem : solprop.translate.problem.KernelProblem
+        The translated problem.
+    backend : solprop.backends.protocol.Backend
+        The backend, at the plane.
+
+    Returns
+    -------
+    numpy.ndarray
+        The field, as a saved plane holds it.
+    """
+    plane = plane_from_observation(_observed(problem, backend, keep=True), field=True)
+    assert plane.field is not None  # observed with its field
+    return plane.field
 
 
 def field_retention(

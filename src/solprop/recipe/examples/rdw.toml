@@ -1,0 +1,25 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Resonant dispersive wave emission in a helium-filled capillary, the first lesson.
+# mirrors: docs/introduction/tutorials/plot_01_rdw.py
+
+[recipe]
+format = 1
+route = "capillary"
+title = "RDW in a helium capillary"
+
+[build]
+radius = "125 um"
+length = "1 m"
+gas = "He"
+pressure = ["1.2 bar", "0 bar"]  # entrance to exit: a gradient to vacuum
+wavelength = "800 nm"
+wavelength_limits = ["100 nm", "1500 nm"]
+trange = "200 fs"
+fwhm = "7.5 fs"
+energy = "275 uJ"
+modes = 2
+n_save = 51
+seed = 20261027

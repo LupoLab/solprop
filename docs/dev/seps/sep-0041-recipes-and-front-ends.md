@@ -6,7 +6,7 @@
 | **Title** | Recipes, and the hooks a front end needs |
 | **Author** | John C. Travers |
 | **Drafting agent** | Claude Opus 5.5 (2026-10-31) |
-| **Status** | Accepted |
+| **Status** | In progress |
 | **Review status** | Reviewed |
 | **Reviewers** | John Travers (human); Opus 5.5 (AI); Codex (AI) |
 | **Type** | Change |
@@ -15,7 +15,7 @@
 | **Requires** | SEP 42 (resuming by what matters to the run; accepted) |
 | **Supersedes** | — |
 | **Superseded-by** | — |
-| **Implementation** | — |
+| **Implementation** | In progress: John Travers, with Opus 5.5, on `feature/sep-0041-recipes`; phase 1 started 2026-11-01 |
 | **Manual pages** | — |
 
 ## Part I — Proposal
@@ -710,7 +710,7 @@ The phase needs care when it is regridded:
   $\pm\pi$ cannot be recovered, and is warned on.
 
 Tool-specific export formats are left until someone needs one; the `columns` keyword and
-`DataPulse.from_time` already cover most of them. There is no `load_retrieval`.
+`TimeDataPulse` already cover most of them. There is no `load_retrieval`.
 
 #### 5.13 S13 — geometry drawings in the library
 
@@ -1119,6 +1119,338 @@ builds against the branch; the order puts what it needs first.
 
 *One report per phase, appended in the pull request that merges the phase (SEP 0 §8).*
 
+### Start of implementation — 2026-11-01
+
+**A deviation from §11.** §11 starts the branch after SEP 42's phase 1. The maintainer
+started phases 1–3 earlier, alongside SEP 42 and SEP 40, because most of their work needs
+nothing from SEP 42's gate:
+
+- phase 1 (the recipe core) sits above translation and adds no recorded field;
+- phase 3 (watching runs) is driver hook work;
+- of phase 2, the stop, the writer-lock text and writing the recipe group are independent.
+
+The parts that rest on SEP 42 (`resume_file`, `solprop resume`, `resumability` and the
+resumability field of `OutputCapabilities`) are made after SEP 42's phase-1 branch is merged into
+this one. Phase 4 still follows SEP 40.
+
+**Also on this branch.** [#87](https://github.com/LupoLab/solprop/issues/87) (one table of
+route defaults) is phase 1's first slice, so that S9's resolvers read that table rather than
+copy the rules again. [#86](https://github.com/LupoLab/solprop/issues/86) is settled separately
+before this SEP is set `Final`.
+
+**Part I amended after acceptance.** §5.12 named `DataPulse.from_time`, which
+[#70](https://github.com/LupoLab/solprop/pull/70) replaced with the class `TimeDataPulse` before
+this SEP was accepted; the text now names the class.
+
+### Phase 1 report — recipe core on `gnlse` and `capillary` (S1, S9, S10, S12)
+
+Complete on 2026-11-01, commits `db6e692` to `48889c8` on `feature/sep-0041-recipes`, with
+#87 as its first slice. Checked by the fast checks and the directly affected test modules,
+on `numpy_ref`, `numba_cpu` and the native CPU build (Apple M5 Max); the full gate runs
+in CI on the pull request at `Final`.
+
+**Delivered.**
+
+- **#87, one table of route defaults** (`solprop.driver.defaults`). `ROUTE_DEFAULTS` holds
+  each route's integrator, tolerances, noise policy and collar scheme, with two variants
+  (a capillary beside the TDSE response, a waveguide of slab modes), and pure functions
+  resolve each default. `SimulationSettings` marks what it took from the table, so a copy
+  in the other precision resolves the tolerance and the backend `"auto"` again. A new
+  record outside the hash, `RunMetadata.defaults` (`DefaultsResolution`), the run summary
+  and the settings' display say which values were defaults. The summary names a
+  Multistep carrier frame. An incident launch keeps a default noise's resolution, and an
+  interior launch keeps the single-precision reason. The guide says that naming an
+  integrator keeps the interface's tolerance.
+- **`solprop.recipe`** (S1): the quantity parser and writer, parameter paths, the
+  five-table document, the factory registry (24 types, below), `Recipe` with
+  `load`/`loads`/`from_dict`/`from_keywords`/`examples`/`example`, `get`/`set`, `check`,
+  `build`, `run`, `to_text`/`save` and `to_python`, and the `solprop` command with `run`,
+  `check`, `export` and `scan` (also `python -m solprop`). `tomli-w` writes TOML (Q6).
+- **Parameter metadata** (S9): one entry per keyword of `from_gnlse` (41), `from_capillary`
+  (61) and the execution settings (4), with forms, units, the `"none"` spelling, display
+  units, the resolvable flag, resolvers that read the defaults table, group, level,
+  summary and manual anchor. Tests hold it to the signatures, the anchors to the manual's
+  headings and the resolvers to what the build resolves.
+- **Structured validation** (S10): `parameter` and `rule` on `SolpropError`, `parameter`
+  on `SolpropWarning`, set at about 105 refusal sites of these two routes; `Recipe.check()`;
+  `solprop.grid.suggest`. On the capillary example `check()` costs 0.24 s (a GNLSE
+  0.01 s) and loading a recipe 1 ms.
+- **`solprop.pulses.load_spectrum`** (S12).
+- **27 example recipes**, each tested to build the configuration hash and execution
+  settings of the gallery example it mirrors, through the recipe and through its Python
+  export run in a subprocess.
+- Ahead of phase 2, because they touch no SEP 42 code: the stop flag in the backends and
+  `run_problem` (S17, without `Simulation.run`'s return yet), and S15's text.
+
+**Deviations and decisions made in the phase.**
+
+- **The modules are public.** §5.1 names only `solprop.recipe`. Its modules are
+  `core`, `document`, `metadata`, `paths`, `quantity`, `registry`, `export` and `errors`,
+  public so the API reference documents them and a front end can call the quantity
+  parser and writer to display values.
+- **The registry.** `GaussianPulse`, `SechPulse`, `load_spectrum`,
+  `PressureGradient.two_point`, `PressureGradient.from_stages`, `Constant`, `Linear`,
+  `PiecewiseLinear`, `Mixture.fill`, `Mixture.partial_pressures`, `Mixture.air`,
+  `EnvelopeGrid.from_limits`, `FieldGrid.from_limits`, `StatsSpec`, `BoundaryCheck`,
+  `FixedSchedule`, `FixedSchedule.uniform`, `Multistep`, `RungeKutta` (without its
+  `tableau`), `LowStorageRungeKutta`, `absorber` (on the grid), `TubeLattice`,
+  `CoherentWall` and `MaterialSelection`. Left out: `CustomPulse`, a `DataPulse` or
+  `TimeDataPulse` from arrays, `IndexTable`, mode objects, a TDSE response and a glass
+  cladding object, which the Python export carries.
+- **Decoded lists take the container the parameter's annotation names**, a tuple or an
+  array, so a recipe passes what a script passes; two recipes compare by value, so `"1 cm"`
+  and `0.01` are equal.
+- **A value built on the grid** (`absorber`) is built by building the route once without
+  it to obtain the grid. The export writes it only when the recipe gives `grid`
+  explicitly; otherwise it refuses, naming the keyword.
+- **The recipe is not yet carried by the `Simulation`** (§5.2): nothing reads it before
+  the recorded recipe, so it moves to phase 2 with the mutators that drop it.
+- **Where `parameter` comes from.** The small validators of pulses, grids, profiles and
+  the step controller name their own arguments, which the routes rename where a keyword
+  differs (`reference_wavelength` → `wavelength`, `phase` → `phases`), because a call
+  wrapped from outside cannot tell which of its keywords was refused. Left without a
+  parameter, where it would be ambiguous: object-level checks in `Simulation.__init__`,
+  the mode and quadrature constructors, `Mixture.fill`'s own refusals and an unknown
+  backend name. Material warnings raised at translation, the commonest being a gas index
+  used outside its fit because of `wavelength_limits`, are not labelled in this phase.
+- **`load_spectrum` across interior gaps.** Below the noise floor inside the band a
+  wrapped phase is interpolated linearly between the samples above it; §5.12 states only
+  the hold beyond the band.
+- **`grid.suggest`'s rule** is a documented heuristic, stated as a starting point: ten
+  input bandwidths each side of the carrier, at least half the carrier frequency on the
+  `gnlse` route and all of it on the `capillary` route, and thirty input durations of
+  window beyond the delays.
+- **Units the grammar does not hold.** `ionisation_field_range` (V/m) and
+  `loss_db_per_m` (dB/m) take plain numbers in their stated units, with no quantity
+  string.
+- **Ten gallery scripts on these routes have no recipe**, listed with the reason in
+  `tests/recipe/test_examples.py` and checked against the gallery: two phase-matching
+  roots that a pin would express (phase 5), lists of mode objects, mode or table objects
+  as the GNLSE `fibre`, and runs launched with `with_input`.
+
+### Phase 2 report — provenance, resume and stop (S2, S15, S17)
+
+Complete on 2026-11-01. SEP 42's branch was merged in at its `Final` (`4daf5d8`, PR #336 open),
+and `main` after it (`e34bdee`); the phase's own commits are `e3c2f36` (the stop poll, made in
+phase 1), `1f061c7`, `52cd5d5`, `45b5a9e`, `8dfe354` (the scans' stop) and `1103b21`. Checked as
+phase 1 was.
+
+**Delivered.**
+
+- **The stop** (S17). `Simulation.run(stop=)` and `run_scan(stop=)` take any object with
+  `is_set()`. Every march polls it at the top of each trial, where the state is the last
+  accepted one: the adaptive and replayed Runge–Kutta marches, the Adams march, the
+  low-storage march and the batch, and so the native backend, which steps through them.
+  `run_problem` also polls between planes. A set flag writes the state as SIGTERM does and
+  raises `StopRequested`, a `BaseException`, which `Simulation.run` turns into a return
+  when the flag is its own; another run's propagates. `solprop run` and `solprop resume`
+  set the flag on SIGINT, SIGTERM and SIGBREAK, interrupt on a second signal, and exit
+  with 128 plus the signal. Scans per the §5.17 table. Local and Pool stop the point in
+  flight, Pool through a `"stop"` message on the worker pipe, read by a worker-side flag
+  that holds other messages for later. Batch stops between groups, and Queue and Slurm
+  refuse the flag. A stopped point is released to its earlier state rather than
+  committed, so a rerun computes it at once, not after `stale_age`.
+- **The recipe in the output** (S2). `Recipe.build` attaches the recipe. `with_input`,
+  `with_mixture` and a new value of any setting but `fields`, `field_planes` and
+  `resume_history` drop it with a warning. `run_problem` writes the top-level `recipe` group
+  once (`RecipeRecord`): the authored text, the resolved text, the format, both SHA-256s,
+  and the data files under generated names, embedded up to 16 MiB. A scan's file records
+  the authored recipe through `run_scan(recipe=)`.
+- **The resolved recipe** writes back the drawn seed, `[execution]` at run start, and
+  each resolvable keyword the authored recipe left out, at the value the build used:
+  - `rtol`, `atol` and `dz_max` from the settings;
+  - the integrator as `{type = ...}`, only when it is its class's default instance;
+  - the statistics as a `StatsSpec` table, only without apertures;
+  - the save planes, in place of `n_save`;
+  - the capillary's temperature from its record, and `raman` from whether a Raman
+    response was built;
+  - `plasma` and `thg` from their resolvers;
+  - `loss` and `model` from their defaults.
+
+  A test writes each back alone and rebuilds the file's hash on three examples. Another
+  shows that `dz_init` and `raman_fraction` would move it.
+- **Resume from a file.** `Recipe.from_output(path, resolved=False)`, on a run's file or a
+  scan's (through `ScanOutput`'s schema check), keeps the embedded files, and `save`
+  writes them beside the recipe under their generated names. `resume_file(path, mode)`
+  and `solprop resume` rebuild from the resolved recipe and continue through SEP 42's gate.
+  The file's own `memory_budget` and `node_budget` are ignored. The caller's apply, by
+  default the machine's four fifths as a refusal.
+- **`solprop.output.resumability(path, gate=False)`.** It reports a live writer (by
+  probing the writer lock), another schema, no state, a complete run (by position) and a
+  field-free last plane. It gives the `resume=` a file needs, `"force"` from the forced
+  positions and `"interpolated"` from `ResumeState.interpolated`, now public. It says
+  whether a recipe is stored, missing or of a newer format, and with `gate=True` gives
+  the `RecordComparison`.
+- **S15:** the writer-lock sidecar is described with the file on disk.
+
+**Deviations and decisions.**
+
+- **The stop is polled at the top of each trial, not in `StepDriver._record`.** The
+  Adams and replay marches record a step after committing it, and a raise there would
+  have dropped that step's bookkeeping.
+- **A stopped run's outcome has status `failed`, with the message "StopRequested:
+  stopped by the caller's stop flag"**, as §5.17 keeps `RunOutcome.status` unchanged.
+- **Changing the backend through the settings drops the recipe.** `backend` is a build
+  keyword, so a recipe that names another backend no longer describes the run.
+- **`run_scan` gains `recipe=`**, which §5.2's "a scan's file stores the authored recipe
+  too" needs. `Recipe.scan()` passes it among its keywords.
+
+**Unmeasured.** The stop and the recipe group on the GPU builds, `SIGBREAK` on Windows,
+and Queue and Slurm beyond their refusal.
+
+### Phase 3 report — watching runs (S3, S4, S11, S16)
+
+Complete on 2026-11-01, commits `8dfe354`, `5cda2ba`, `1103b21` and `e5d362f`. Checked as phase 1
+was.
+
+**Delivered.**
+
+- **`PlaneObserver`** (`solprop.log`), an optional protocol that `NullReporter` does not
+  implement. `run_problem` shows each committed plane, the entrance included, before
+  `plane()`; a resume does not repeat planes.
+  - **`PlaneView`** (`solprop.driver.plane_view`) holds the position, statistics row,
+    basis and quantity kinds at once. Its `spectrum`, `field`, `power` and
+    `spectral_density` call the processing functions on a one-plane in-memory output
+    built on request, so what an observer reads is what the file gives. A field the
+    output does not keep is fetched from the backend only on request.
+  - **Failure:** an `Exception` from the observer is logged with its traceback, warned
+    on, and the observer detached. A stop or an interrupt passes through.
+  - **Resources:** the run records `observer_time_s` and `observer_transfers`.
+  - **Tests** on numpy_ref, numba_cpu and native: the copy equals the file, a
+    fixed-schedule run with an observer is bitwise the run without, field-free planes
+    are fetched and counted, a failing observer is detached, a stop from an observer
+    stops the run, and a resume shows the rest.
+- **`ScanReporter`** (with `WatchingScanReporter` for per-point runs, and
+  `NullScanReporter`), accepted by `run_scan(progress=)`; the named choices go through the
+  same path. Pool relays each point's `started`, `plane`, `finished`, `interrupted` and
+  summary over a new `("progress", call, args)` worker message carrying a picklable
+  `PlaneScalars`, never a field. Batch, Queue and Slurm report point boundaries.
+- **`Simulation.estimate()`** (`solprop.driver.estimate`) gives:
+  - the state's shape and the persistent memory, admitted before any allocation; a run
+    refused by its budget is reported and no backend is built;
+  - the output size for the retained fields;
+  - the setup, which is building the backend and taking an untimed warm-up trial step;
+  - the right-hand-side cost, the median of timed trial steps divided by the tableau's
+    stages, labelled with the backend and its threads;
+  - the calls per step (six, one or four), with their total for a fixed schedule.
+
+  On the soliton example: numpy_ref 368 µs, numba_cpu 76 µs and native 77 µs per
+  evaluation, on the Apple M5 Max.
+- **`solprop.capabilities.output(path_or_output)`.** It gives the basis, the physical or
+  coordinate kind and unit of power, energy, spectral density and field, the planes with
+  fields and those with statistics only, and the operations refused with the readers'
+  own text. That text comes from the same gates (`refusal_for` and the compressors'
+  basis check), and a test compares each with the reader's refusal on modal, general
+  modal and spatial files. It also says what a general modal reconstruction needs, and,
+  for a path, whether a recipe is recorded and the resumability.
+- **`[scan]` and `Recipe.scan()`.** Each path's values or range are read in the unit of
+  its keyword (or of a registered type's keyword). The result holds a picklable builder
+  that sets each point's values, passes `point.seed` and builds without `[execution]`,
+  and the `run_scan` keywords.
+
+**Deviations and decisions.**
+
+- **The right-hand-side cost is taken from Runge–Kutta trial steps.** `_trial_step` is
+  the one call every backend implements; the cost of an evaluation does not depend on the
+  integrator that calls it.
+- **`ScanReporter` splits into two protocols.** `point_reporter` is optional, so
+  `WatchingScanReporter` declares it.
+- **The `PlaneView` arrays come from the processing functions**, in their units and
+  convention, rather than raw stored amplitudes.
+
+**Unmeasured.** The `PlaneView` fetch and the estimate on device backends, and `ScanReporter`
+on Queue and Slurm beyond point boundaries.
+
+**State after phase 3.** Phases 4 (the object routes, the waveguide, launches and
+previews), 5 (design, pins and capabilities by route and species) and 6 (drawings and
+keyword gaps) remain. Phase 4 waits for SEP 40 on `main`.
+
+### Phase order after phase 3 — 2026-11-01
+
+**A second deviation from §11**, agreed with the maintainer: phase 5 is made before phase 4,
+while SEP 40 is still being implemented. Phase 5 does not touch the free-space interface that
+SEP 40 changes. The guided half of phase 4 and most of phase 6 follow it. The free-space half
+of phase 4, its types, recipes, beams and previews, waits for SEP 40 on `main`. Pins are
+therefore carried into `Recipe.modes()` and `preview_input()` when phase 4 adds them, rather
+than the other way round.
+
+### Phase 5 report — design, pins and capability (S7, S1's pins, S8)
+
+Complete on 2026-11-01, commits `a3ad93a` (capabilities), `59bdf15` (solvers) and
+`50926af` (pins). Checked as phase 1 was. Pins reach `Recipe.modes()` and
+`preview_input()` with the guided half of phase 4, which adds them.
+
+**Delivered.**
+
+- **`tools.solve_parameter(build, search, target, *, z=0.0)`** with the targets `ZDW`,
+  `RDW` and `SolitonOrder`, returning `DesignRoots` (every root, ascending; `pick` by
+  `"lowest"`, `"highest"` or an index; the attainable range when there is none).
+  - It samples 129 linear and, where the range is positive, 129 logarithmic values,
+    refines each sign change with Brent's method to a relative 2e-12, and keeps a
+    refined change only where the residual has fallen to a thousandth of its bracket
+    ends', which discards a change through a pole.
+  - `RDW` is `pressure_rdw`'s residual, now one shared function, with `peak_power`,
+    `fwhm` and the nonlinear phase. `pressure_rdw` uses the same sampler.
+  - `radius_zdw`; `soliton_peak_power` and `pulse_energy`, the closed-form inverses,
+    which `capillary_design` now calls with the same arithmetic.
+  - **Tests:** `RDW` reproduces `pressure_rdw` (linear, largest constituent and supplied
+    power) to 1e-12; `ZDW` reproduces `pressure_zdw` to 3e-8 where it has one root;
+    `radius_zdw` inverts `zdw`; two roots on either side of a zero-dispersion point for a
+    soliton order; six roots around a Vincetti wall resonance, alternating in sign; a
+    synthetic pole discarded.
+- **`[pins]`** (`solprop.recipe.pins`).
+  - Targets `zdw` and `rdw` set `radius` or a constant `pressure` of the capillary;
+    `soliton_order` sets a pulse's `energy` or `peak_power`, on the route or on one of
+    `pulses`.
+  - The guide's pin is solved by building the route once, at the middle of the search
+    range, and re-evaluating its launch mode at each trial value (a density for a
+    pressure, `at_parameters` for a radius), with the fill's Kerr coefficient where the
+    target needs it. A pulse pin is closed form on that mode.
+  - `Recipe.resolve()` returns the recipe with the pins written as values, and
+    `Recipe.pin_roots(path)` the solver's roots. `check()` reports a pin that does not
+    read, or a target not met, on the pinned path, with the attainable range. A build
+    solves the pins and each scan point solves its own. A run records the authored text
+    with its pins and the resolved one.
+  - The Python export binds the literals to `keywords`, then writes `solve_pin(...)` and
+    `solve_pulse(...)` (public in `solprop.recipe.pins`) before the route's call.
+  - **Tests:** a pinned pressure equals `pressure_zdw` to 1e-7; a soliton-order pin gives
+    order 4 on the launch mode; the pulse pin reads the pressure the guide's pin settles;
+    a scan re-solves its pins per point; two guide pins, an array element (a gradient's),
+    a pin also set literally, an unpinnable keyword and malformed tables are refused on
+    their path; an unreachable target is one issue with its attainable range; the export
+    builds the same configuration hash in a subprocess.
+- **`solprop.capabilities.route(name)` and `species(name)`.**
+  - `RouteCapabilities` lists the route's keywords (from S9), each choice keyword's
+    values, and the rules that couple keywords. 42 rules, each with an id, the keywords
+    it binds, a reason and its routes. The id is given as `rule=` at its raise sites (53
+    sites), and a lint test over the source checks each site against the registry and
+    each rule's use.
+  - `SpeciesCapabilities` gives the ionisation models with optmat's own statuses (the
+    recommended one first), the Raman status and whether it is on by default, the data
+    ranges and the material records with their statuses. Air is refused, pointing to its
+    components.
+
+**Deviations and decisions.**
+
+- **`SolitonOrder` holds the pulse and solves the guide**; the opposite question, the
+  pulse for an order on a given mode, is closed form and is what a `soliton_order` pin
+  uses.
+- **`RDW`'s `shape` defaults to `"sech"`**, as `pressure_rdw` and the rest of
+  `solprop.tools` do, not the `"gauss"` of §5.7's sketch.
+- **The attainable range is computed only when there is no root**, on a coarser grid
+  (17 linear and 17 logarithmic values) with the modes rebuilt rather than kept.
+- **A pin on one of `pulses` is exported as its solved value** with the pin in a comment:
+  the pulse object cannot be built without its energy.
+- **Pin values are written as numbers** in their keywords' units.
+- **Rules that depend on a value, a type or the machine are not registered** (a mixture
+  at a different temperature, `precision` with `backend="auto"` and no Metal, and the
+  like); their refusals carry `parameter` and no `rule`.
+
+**Unmeasured, and a cost.** An unreachable `zdw` pin on a capillary with the default
+dispersive cladding costs about ten seconds, since the attainable range searches the
+zero-dispersion wavelength at each of its samples and the glass model is slow to evaluate;
+with a constant cladding index it is about a second.
+
 ## Part III — History
 
 - 2026-10-31: Drafted, from the requirements of a desktop front end under design.
@@ -1151,6 +1483,8 @@ builds against the branch; the order puts what it needs first.
 - 2026-11-01: Tracking issue: [#143](https://github.com/LupoLab/solprop/issues/143). Brought to the standard of ADR-062 before the pull request
   merged: §3 lists the open issues, and Q4 names [#141](https://github.com/LupoLab/solprop/issues/141). §11 notes that phase 4 follows SEP 40, as
   the maintainer ordered.
+- 2026-11-01: In progress. Phases 1–3 started on `feature/sep-0041-recipes` (John Travers, with
+  Opus 5.5), ahead of SEP 42's phase 1 (Part II).
 
 ### AI review, 2026-10-31
 

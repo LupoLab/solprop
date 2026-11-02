@@ -1,0 +1,34 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Four-wave mixing of a 267 nm pump and an 800 nm seed in a helium capillary.
+# mirrors: docs/examples/processes/plot_03_four_wave_mixing.py
+
+[recipe]
+format = 1
+route = "capillary"
+title = "Four-wave mixing in helium"
+
+[build]
+radius = "75 um"
+length = "1.5 m"
+gas = "He"
+pressure = "0.445 bar"
+wavelength = "267 nm"
+trange = "400 fs"
+wavelength_limits = ["120 nm", "3000 nm"]
+n_save = 301
+seed = 20261027
+
+[[build.pulses]]
+type = "GaussianPulse"
+wavelength = "267 nm"
+fwhm = "35 fs"
+energy = "95 uJ"
+
+[[build.pulses]]
+type = "GaussianPulse"
+wavelength = "800 nm"
+fwhm = "35 fs"
+energy = "45 uJ"

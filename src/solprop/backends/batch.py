@@ -177,6 +177,7 @@ class LockstepRunner(StepDriver[tuple[object, ...]]):
         for member in self._members:
             member._refuse_in_flight()
         while self._schedule_index < schedule.n_steps and self._z < target - slack:
+            self._poll_stop()
             dz = float(schedule.steps[self._schedule_index])
             end = float(edges[self._schedule_index + 1])
             self._member_norms = tuple(

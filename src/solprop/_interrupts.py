@@ -21,9 +21,32 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from types import FrameType
 
-from solprop.exceptions import RunTerminated
+from solprop.exceptions import RunTerminated, StopRequested
+from solprop.log import StopFlag
 
-__all__ = ["committing", "deferred_handlers", "handled"]
+__all__ = [
+    "committing",
+    "deferred_handlers",
+    "handled",
+    "poll",
+]
+
+
+def poll(flag: StopFlag | None) -> None:
+    """Raise :class:`StopRequested` when a run's stop flag is set.
+
+    Parameters
+    ----------
+    flag : StopFlag or None
+        The run's flag; ``None`` never stops.
+
+    Raises
+    ------
+    StopRequested
+        If the flag is set.
+    """
+    if flag is not None and flag.is_set():
+        raise StopRequested(flag)
 
 
 class _Guard:

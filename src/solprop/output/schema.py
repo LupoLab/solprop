@@ -91,6 +91,7 @@ __all__ = [
     "BackendRecord",
     "CheckpointOutput",
     "Convention",
+    "DefaultsResolution",
     "FieldRetention",
     "FieldsChoice",
     "GitProvenance",
@@ -103,6 +104,8 @@ __all__ = [
     "Output",
     "PlaneLayout",
     "PlaneStore",
+    "RecipeFile",
+    "RecipeRecord",
     "RunMetadata",
     "RunOutcome",
     "SavedPlane",
@@ -1265,6 +1268,40 @@ class NoiseResolution:
     requested: str | None
     resolved: str | None
     reason: str | None = None
+
+
+@dataclass(frozen=True)
+class DefaultsResolution:
+    """Which of a run's numerics took its route's default, and which route that was.
+
+    The companion of :class:`NoiseResolution` for the stepping (``docs/guide/numerics/
+    choosing-a-stepper.md``): the integrator, the step controller and the temporal
+    collar's scheme are each either the caller's or the route's default from
+    :data:`solprop.driver.defaults.ROUTE_DEFAULTS`. Outside the hash: what the run
+    computes is in the stepper record already, and how it was chosen is not physics.
+
+    Attributes
+    ----------
+    route : str or None
+        The row of the defaults table the constructor read, or ``None`` for settings
+        built by hand.
+    defaulted : sequence of str
+        Which of ``"integrator"``, ``"rtol"`` and ``"absorber_scheme"`` took the
+        route's default, in that order, adopted as a tuple.
+
+    Examples
+    --------
+    >>> from solprop.output.schema import DefaultsResolution
+    >>> DefaultsResolution("capillary", ["integrator", "rtol"])
+    DefaultsResolution(route='capillary', defaulted=('integrator', 'rtol'))
+    """
+
+    route: str | None
+    defaulted: Sequence[str] = ()
+
+    def __post_init__(self) -> None:
+        """Adopt the names as a tuple, so a record read back compares equal."""
+        object.__setattr__(self, "defaulted", tuple(self.defaulted))
 
 
 @dataclass(frozen=True)
@@ -2646,6 +2683,10 @@ class RunMetadata(Displayed):
         How the noise model was chosen (SEP 37): the requested and the resolved
         model and any fallback's reason. Outside the hash; ``None`` when the record's
         builder did not say, as for a record built by hand.
+    defaults : DefaultsResolution or None
+        Which of the integrator, the controller and the collar scheme took the
+        route's default. Outside the hash; ``None`` when the record's builder did not
+        say.
     backend : BackendRecord or None
         What executed the run, written by the driver from the backend's own
         ``metadata()``; ``None`` for a record built before a backend existed. Outside
@@ -2756,6 +2797,7 @@ class RunMetadata(Displayed):
     quadrature: Mapping[str, object] | None = None
     reference: Mapping[str, object] | None = None
     noise_resolution: NoiseResolution | None = None
+    defaults: DefaultsResolution | None = None
     _stored: dict[str, JsonValue] | None = dataclasses.field(
         default=None, init=False, repr=False, compare=False, metadata={"record": False}
     )
@@ -3164,6 +3206,8 @@ class RunMetadata(Displayed):
         # How the model was chosen, beside the key: the resolved model is in the
         # hashed noise record already, and a request is not part of the physics.
         document["noise_resolution"] = serialise(self.noise_resolution)
+        # Which numerics took the route's default, beside the key for the same reason.
+        document["defaults"] = serialise(self.defaults)
         document["spectral_convention"] = self.spectral_convention
         document["field_layout"] = self.field_layout
         document["backend"] = serialise(self.backend)
@@ -3224,6 +3268,8 @@ class RunMetadata(Displayed):
         try:
             noise = stored("noise")
             resolution = stored("noise_resolution")
+            # Absent from a record written before the defaults were recorded.
+            defaults = stored("defaults")
             git = stored("git")
             backend = stored("backend")
             metadata = cls(
@@ -3257,6 +3303,9 @@ class RunMetadata(Displayed):
                 noise_resolution=None
                 if resolution is None
                 else _rebuild(NoiseResolution, resolution),
+                defaults=None
+                if defaults is None
+                else _rebuild(DefaultsResolution, defaults),
             )
         except (KeyError, TypeError, MaterialError) as error:
             msg = f"stored metadata is missing or malformed: {error}"
@@ -3734,6 +3783,83 @@ class CheckpointOutput(Protocol):
         ...
 
 
+@dataclass(frozen=True)
+class RecipeFile:
+    """A data file a recorded recipe refers to (SEP 41, S2).
+
+    Attributes
+    ----------
+    path : str
+        The path the recipe wrote, relative to its directory.
+    sha256 : str
+        Its SHA-256, as the recipe recorded it.
+    data : bytes or None
+        Its contents, embedded under the generated name it is filed by; ``None``
+        when the run's files together passed the embedding cap, and only the path and
+        hash are kept.
+    """
+
+    path: str
+    sha256: str
+    data: bytes | None = None
+
+
+@dataclass(frozen=True)
+class RecipeRecord:
+    """The recipe a run was built from, as its output records it once (SEP 41, S2).
+
+    Provenance outside the run record and its hash: a file without one is a file from
+    a script, and a reader that does not know it ignores it.
+
+    Attributes
+    ----------
+    format : int
+        The recipe format.
+    authored : str
+        The recipe's text as loaded, or its canonical TOML if it was edited.
+    resolved : str
+        The recipe to rebuild the run from: the authored keys with the drawn seed, the
+        keywords whose value written back gives the same record, at the values used,
+        and the execution settings at run start.
+    files : collections.abc.Mapping
+        The data files the recipe refers to, by the generated name each is filed by.
+
+    Examples
+    --------
+    >>> from solprop.output.schema import RecipeRecord
+    >>> record = RecipeRecord(1, "[recipe]", "[recipe]", {})
+    >>> record.authored_sha256 == record.resolved_sha256
+    True
+    """
+
+    format: int
+    authored: str
+    resolved: str
+    files: Mapping[str, RecipeFile] = dataclasses.field(default_factory=dict)
+
+    @property
+    def authored_sha256(self) -> str:
+        """Return the SHA-256 of the authored text.
+
+        Returns
+        -------
+        str
+            The digest, in hexadecimal.
+        """
+        return hashlib.sha256(self.authored.encode("utf-8")).hexdigest()
+
+    @property
+    def resolved_sha256(self) -> str:
+        """Return the SHA-256 of the resolved text.
+
+        Returns
+        -------
+        str
+            The digest, in hexadecimal.
+        """
+        return hashlib.sha256(self.resolved.encode("utf-8")).hexdigest()
+
+
 class PlaneStore(Displayed, ABC):
     """The shared half of an output handler: one save protocol for every backing store.
 
@@ -3770,6 +3896,7 @@ class PlaneStore(Displayed, ABC):
         """Start with nothing stored and nothing opened."""
         self._metadata: RunMetadata | None = None
         self._session_resume: dict[str, object] | None = None
+        self._recipe: RecipeRecord | None = None
         self._n_saved = 0
         self._planned = 0
         self._closed = False
@@ -3820,6 +3947,45 @@ class PlaneStore(Displayed, ABC):
             The entry: finite JSON values.
         """
         self._session_resume = dict(entry)
+
+    def record_recipe(self, record: RecipeRecord) -> None:
+        """Record the recipe the run was built from, unless one is recorded already.
+
+        Written once, at the first run start, and never rewritten (SEP 41, S2): a
+        later session of the same file, from a script or from an edited recipe,
+        leaves the first session's recipe in place and is recorded in its own
+        execution record.
+
+        Parameters
+        ----------
+        record : RecipeRecord
+            The authored and resolved texts and the data files.
+        """
+        self._check_usable()
+        if self.recipe is not None:
+            return
+        self._write_recipe(record)
+        self._recipe = record
+
+    def _write_recipe(self, record: RecipeRecord) -> None:
+        """Persist the recipe; a store that lives in memory has nothing to do.
+
+        Parameters
+        ----------
+        record : RecipeRecord
+            The recipe.
+        """
+
+    @property
+    def recipe(self) -> RecipeRecord | None:
+        """The recipe the run was built from, or ``None`` for a run from a script.
+
+        Returns
+        -------
+        RecipeRecord or None
+            The record.
+        """
+        return self._recipe
 
     def record_outcome(
         self, outcome: RunOutcome, checkpoint: TerminalCheckpoint | None = None

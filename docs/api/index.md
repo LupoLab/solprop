@@ -21,12 +21,14 @@ In scripts and library code, import from the home modules listed below.
 |---|---|
 | {mod}`solprop.driver` | the entry points `prop_gnlse`, `prop_capillary`, `prop_waveguide`, `prop_radial`, `prop_free` and `prop_planar`, the `Simulation` object behind them, and `run_problem`, the loop over save planes that takes a translated problem, a backend already holding its initial state and an output handler, for a batch runner of your own |
 | {mod}`solprop.grid` | time and frequency grids (`FieldGrid`, `EnvelopeGrid`) and the free-space transverse grids (`RadialGrid`, `FreeGrid`, `LineGrid`) |
-| {mod}`solprop.pulses` | initial pulses: `GaussianPulse`, `SechPulse`, `CustomPulse`, `DataPulse`, `TimeDataPulse`, and spatial and planar pulses |
+| {mod}`solprop.pulses` | initial pulses: `GaussianPulse`, `SechPulse`, `CustomPulse`, `DataPulse`, `TimeDataPulse`, `load_spectrum` (a measured spectrum and phase from a text file), and spatial and planar pulses |
 | {mod}`solprop.profiles` | quantities that vary along z: radius, pressure and temperature profiles such as `PiecewiseLinear` and `PressureGradient` |
 | {mod}`solprop.gasflow` | the steady gas flow of a pressure gradient: `steady_fill`, choked ends, `flow_report` |
 | {mod}`solprop.boundaries` | absorbing boundaries in time and frequency |
 | {mod}`solprop.stepper` | the Runge–Kutta tableaux, the low-call Adams methods (`multistep`), the step-size controller and fixed step schedules (`FixedSchedule`) |
 | {mod}`solprop.noise` | shot-noise realisations |
+| {mod}`solprop.recipe` | recipes: a run written as TOML (`Recipe`, with `check`, `build`, `run`, `save` and `to_python`), values pinned to a design target (`solprop.recipe.pins`, `Recipe.resolve`, `Recipe.pin_roots`), the parameter metadata a front end reads (`parameters`), and the quantity parser and formatter (`solprop.recipe.quantity`) ([recipes and the command line](../guide/setup/recipes.md)) |
+| {mod}`solprop.driver.defaults` | the route defaults in one table (`ROUTE_DEFAULTS`): integrators, tolerances, noise and collar schemes, and the functions that resolve them |
 | {mod}`solprop.driver.scan`, {mod}`solprop.driver.executors` | parameter scans and where their points run ([scans and executors](scans.md)) |
 
 **The physics**
@@ -54,7 +56,7 @@ In scripts and library code, import from the home modules listed below.
 | {mod}`solprop.processing` | post-processing of a saved run: fields, spectra, pulse metrics, coherence, compression, the physical fields of a general modal run, and `field_plane`, a saved plane read back for coupling |
 | {mod}`solprop.coupling` | coupling simulations through a field plane: `FieldPlane` (from a run, a `SpatialPulse`, an analytic field or arrays), `regrid`, `InputPort`, `couple` under a `CouplingModel` with its `CouplingReport`, the scalar profiles `ScalarModeBasis`, the recorded pair envelopes and `Outcouple`; `transport` through the linear elements `FreeSpace`, `ThinLens`, `Aperture`, `TransmissionMask`, `Alignment`, `PolarisationTransform`, `Mirror`, `PlanarInterface` and `SpectralTransfer` ([coupling simulations](../guide/workflows/coupling.md); [the transport report](transport.md)) |
 | {mod}`solprop.stats` | the statistics recorded at the saved planes, and `StatsSpec` to choose them |
-| {mod}`solprop.plotting` | the standard figures: propagation maps, slices, spectrograms, statistics |
+| {mod}`solprop.plotting` | the standard figures: propagation maps, slices, spectrograms, statistics; and the cross-section of a guide or grid ({mod}`solprop.plotting.geometry`: `outline`, `draw`, `thumbnail` and the `Palette`; [cross-section drawings](../guide/results/plotting.md#cross-section-drawings)) |
 | {mod}`solprop.optics` | linear optics applied to a pulse outside a propagation: materials, chirped mirrors, grating and prism pairs |
 | {mod}`solprop.tools` | design calculators: soliton numbers, dispersive-wave phase matching, nonlinear lengths |
 
@@ -65,6 +67,7 @@ In scripts and library code, import from the home modules listed below.
 | {mod}`solprop.sol` | the interactive namespace |
 | {mod}`solprop.log`, {mod}`solprop.driver.summary` | logging and progress reporting (`configure_logging`), and the summary a run shows before its first step |
 | {mod}`solprop.exceptions` | every error and warning solprop raises, under `SolpropError` and `SolpropWarning` |
+| {mod}`solprop.cli` | the `solprop` command: run, check and export a recipe, and launch a scan |
 | {mod}`solprop.scan` | the command-line launcher of a scan script |
 
 **Internals.** {mod}`solprop.translate` turns the physics objects into the kernel problem

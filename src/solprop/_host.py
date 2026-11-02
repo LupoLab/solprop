@@ -18,6 +18,7 @@ call per save plane. No host name is recorded: a file is shared, and the CPU mod
 counts are what identify the hardware.
 """
 
+import dataclasses
 import functools
 import os
 import platform
@@ -30,7 +31,7 @@ from pathlib import Path
 
 from solprop._process import allowed_cpus
 
-__all__ = ["RunClock", "cpu_model", "lscpu_model", "machine", "usage"]
+__all__ = ["ObserverSpend", "RunClock", "cpu_model", "lscpu_model", "machine", "usage"]
 
 # A probe that hangs must not stall a run that is otherwise ready to start.
 _TIMEOUT = 5.0
@@ -195,6 +196,25 @@ def machine() -> dict[str, object]:
     return record
 
 
+@dataclass
+class ObserverSpend:
+    """What a run's plane observer cost it (SEP 41, S3).
+
+    Attributes
+    ----------
+    calls : int
+        Planes the observer was shown.
+    seconds : float
+        Seconds spent inside the observer, in the march's thread.
+    transfers : int
+        Fields fetched from a device for planes whose field the output keeps not.
+    """
+
+    calls: int = 0
+    seconds: float = 0.0
+    transfers: int = 0
+
+
 @dataclass(frozen=True)
 class RunClock:
     """When a run started, on the wall clock and on the process's CPU clock.
@@ -206,10 +226,13 @@ class RunClock:
     cpu : float
         :func:`time.process_time` at the start: the process's user and system time,
         every thread's, s.
+    observer : ObserverSpend
+        What a plane observer has cost the run so far.
     """
 
     wall: float
     cpu: float
+    observer: ObserverSpend = dataclasses.field(default_factory=ObserverSpend)
 
     @classmethod
     def start(cls) -> "RunClock":  # noqa: UP037 - bound after the class body
@@ -238,7 +261,8 @@ def usage(clock: RunClock) -> dict[str, float | int | None]:
         the start, and ``peak_rss_bytes``, the **process's** largest resident memory so
         far: in a session running several runs it includes the earlier ones, and on a
         device it does not count device memory; ``None`` where :mod:`resource` is
-        absent (Windows).
+        absent (Windows). A run with a plane observer adds ``observer_time_s`` and
+        ``observer_transfers``, the device fetches made for it.
 
     Examples
     --------
@@ -252,6 +276,9 @@ def usage(clock: RunClock) -> dict[str, float | int | None]:
         "cpu_time_s": time.process_time() - clock.cpu,
         "peak_rss_bytes": None,
     }
+    if clock.observer.calls:
+        spent["observer_time_s"] = clock.observer.seconds
+        spent["observer_transfers"] = clock.observer.transfers
     try:
         import resource  # noqa: PLC0415 - POSIX only
     except ImportError:  # pragma: no cover - Windows

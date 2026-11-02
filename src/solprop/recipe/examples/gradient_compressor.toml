@@ -1,0 +1,28 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# A gradient-to-vacuum pulse compressor in four coherently coupled modes: the script's
+# gradient fill, its first run.
+# mirrors: docs/examples/waveguides/plot_01_gradient_compressor.py
+
+[recipe]
+format = 1
+route = "capillary"
+title = "Gradient compressor with a coherent wall"
+
+[build]
+radius = "125 um"
+length = "2 m"
+gas = "He"
+pressure = ["0.8 bar", "0 bar"]  # entrance to exit
+wavelength_limits = ["90 nm", "3000 nm"]
+trange = "250 fs"
+modes = 4
+wall = { type = "CoherentWall" }
+dz_max = "5 mm"
+n_save = 201
+seed = 20261027
+wavelength = "800 nm"
+fwhm = "10 fs"
+energy = "250 uJ"

@@ -24,8 +24,13 @@ from solprop.driver._scan_model import Scan
 from solprop.exceptions import OutputError, ProcessingError
 from solprop.output._scan_lock import read_scan, write_scan
 from solprop.output.compatibility import RecordComparison
-from solprop.output.hdf5 import _dataset, _group
-from solprop.output.schema import RunMetadata, _refuse_schema, serialise
+from solprop.output.hdf5 import _dataset, _group, write_recipe
+from solprop.output.schema import (
+    RecipeRecord,
+    RunMetadata,
+    _refuse_schema,
+    serialise,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -100,7 +105,8 @@ class PointResult:
     index : int
         Global scan index.
     status : str
-        Done, failed, skipped or conflict.
+        Done, failed, skipped, conflict, or stopped: a point a stop flag stopped
+        (SEP 41, S17), which is never committed, so a rerun computes it.
     configuration_hash : str
         Single-run configuration digest, empty if construction failed.
     metadata_json : str
@@ -254,6 +260,20 @@ class ScanWriter:
         except BaseException:
             self._session.close()
             raise
+
+    def record_recipe(self, record: RecipeRecord | None) -> None:
+        """Record the recipe the scan was built from, unless one is recorded already.
+
+        The authored recipe, so that a scan reopens with its setup (SEP 41, S2);
+        written once and never rewritten.
+
+        Parameters
+        ----------
+        record : solprop.output.schema.RecipeRecord or None
+            The recipe; ``None``, a scan from a script, records none.
+        """
+        if record is not None and "recipe" not in self.file:
+            write_recipe(self.file, record)
 
     def _initialise(self, scan: Scan, description: str) -> None:
         """Create scheduling columns before any point is dispatched.

@@ -16,6 +16,79 @@ All notable changes to solprop are recorded here. The format follows
   history recorded no longer makes the next run in that checkout dirty. The benchmark
   harness names an AMD GPU from its PCI IDs where ROCm reports only
   "AMD Radeon Graphics".
+- One table of the route defaults, `solprop.driver.defaults.ROUTE_DEFAULTS`, with the
+  functions that resolve each default (`default_rtol`, `default_integrator`,
+  `default_controller`, `default_scheme`, `resolve_noise`); the run record's new
+  `defaults` entry (`DefaultsResolution`), the start-of-run summary and the settings'
+  display say which of the integrator, `rtol` and the collar scheme took the route's
+  default, and the summary names a Multistep carrier frame
+  ([#87](https://github.com/LupoLab/solprop/issues/87)).
+- Recipes ([SEP 41](https://solprop.readthedocs.io/en/latest/dev/seps/sep-0041-recipes-and-front-ends.html)):
+  `solprop.recipe.Recipe` reads a TOML description of a `gnlse` or `capillary` run, with
+  quantities in their units (`"125 um"`, `"1.2 bar"`), checks it (`check()`, each issue
+  at its parameter path), builds and runs it, saves it and exports it as the Python
+  script it stands for (`to_python()`). `solprop.recipe.parameters` gives each
+  keyword's forms, units, display unit, default rule and manual section. The `solprop`
+  command (also `python -m solprop`) runs, checks and exports recipes, and forwards
+  `solprop scan`. Example recipes ship with the package (`Recipe.examples()`). Errors
+  and warnings that concern a value carry its `parameter`; writing TOML takes the
+  `tomli-w` dependency. `solprop.grid.suggest` proposes `wavelength_limits` and
+  `trange` from the input pulses, as a starting point. A run built from a recipe records
+  it in a top-level `recipe` group of its output, as written and as resolved (the recipe
+  that rebuilds the run); `Simulation.run(stop=...)` takes a flag that stops the run,
+  writes its state and returns, and `solprop run` stops cleanly on Ctrl-C. `solprop resume`
+  and `solprop.recipe.resume_file` continue a run from its file alone, and
+  `solprop.output.resumability` says whether a file can continue, from where and with
+  which `resume=`, whether it can rebuild itself, and, on request, what the gate would
+  compare. `run_scan(stop=)` takes the same flag: Local and Pool stop the point in
+  flight, Pool through a message on the worker pipe, Batch between groups; a stopped
+  point is not committed and a rerun computes it; Queue and Slurm refuse it.
+  `run_scan(progress=)` accepts a `solprop.log.ScanReporter` (and a
+  `WatchingScanReporter` for each point's run, relayed from Pool workers). A recipe's
+  `[scan]` table gives `Recipe.scan()`, ready for `run_scan`. `Simulation.estimate()`
+  reports a run's memory (admitted before anything is allocated), output size and the
+  cost of one right-hand-side evaluation; `solprop.capabilities.output` says what a
+  results file can give: its basis, which quantities are physical fluxes, which planes
+  keep fields, which operations its readers refuse and why. A reporter that implements
+  `observe_plane` (`solprop.log.PlaneObserver`) is shown each saved plane as a lazy
+  view, whose spectrum, field, power and spectral density come from the processing
+  functions, fetched from a device only on request; a failing observer is detached and
+  the run completes. See [recipes and the command line](https://solprop.readthedocs.io/en/latest/guide/setup/recipes.html).
+- Design solvers for any guide ([SEP 41](https://solprop.readthedocs.io/en/latest/dev/seps/sep-0041-recipes-and-front-ends.html)):
+  `solprop.tools.solve_parameter` finds every value of a guide or fill parameter
+  (a radius, a pressure, a core size, a wall thickness) that meets a target, `ZDW`,
+  `RDW` or `SolitonOrder`, discarding sign changes through a wall resonance, and
+  returns them as `DesignRoots` with the attainable range when there is none.
+  `tools.radius_zdw` inverts `zdw` in the radius; `tools.soliton_peak_power` and
+  `tools.pulse_energy` give the pulse for a soliton order. A recipe's `[pins]` table
+  sets a value from such a target (`Recipe.resolve()`, `Recipe.pin_roots()`), solved at
+  each build and each scan point and recorded with the run. `Recipe.modes()` and
+  `Recipe.preview_input()` preview the mode set and the launched pulse before a run.
+  `solprop.capabilities.route` lists a route's keywords, their values and the rules
+  that couple them, each refusal naming its rule (`SolpropError.rule`), and
+  `solprop.capabilities.species` what a gas admits: its ionisation models with their
+  status, its Raman response, and its data ranges.
+- `solprop.pulses.load_spectrum` reads a measured spectrum from a text file (frequency
+  or wavelength, power density, and an optional phase) into a `DataPulse`. A wrapped
+  phase column is unwrapped only where the power is above a noise floor, a phase in
+  the FFT sign convention of a Luna.jl file is read with `phase_convention="fft"`, and
+  a wrapped column sampled too coarsely to unwrap is warned on
+  ([SEP 41](https://solprop.readthedocs.io/en/latest/dev/seps/sep-0041-recipes-and-front-ends.html)).
+- `prop_capillary`, `prop_waveguide` and their `Simulation` constructors take `launch=`,
+  which puts each pulse into chosen modes with a share and an optional phase:
+  `launch={"HE1,1": 0.9, "HE1,2": {"share": 0.1, "phase": 1.57}}`, or a list with one
+  mapping per pulse of `pulses=`. Modes are named as `channel=` names them; the shares
+  are energy fractions, and on a guide that declares a change of basis a coordinate
+  split scaled to the pulse's energy under the flux metric. The run records the launch
+  as `configuration["modal_launch"]`, which a resume compares; a run without one
+  records nothing and resumes as before
+  ([SEP 41](https://solprop.readthedocs.io/en/latest/dev/seps/sep-0041-recipes-and-front-ends.html)).
+- `prop_waveguide` and `Simulation.from_waveguide` take `interpolate_planes` and
+  `step_planes`, and `prop_capillary`, `prop_waveguide` and their constructors take
+  `polarisation_taper`, as `prop_gnlse` does; `step_planes` defaults to `None` on
+  every interface that takes it, which on `prop_gnlse` behaves as its `0` did. The
+  guide lists the deliberate differences between the routes' keywords
+  ([SEP 41](https://solprop.readthedocs.io/en/latest/dev/seps/sep-0041-recipes-and-front-ends.html)).
 
 - `Simulation.from_radial`, `from_free` and `from_planar` take `absorber` and
   `absorber_scheme`, as `prop_radial`, `prop_free` and `prop_planar` and the modal
@@ -28,6 +101,14 @@ All notable changes to solprop are recorded here. The format follows
   and readers respect the mark (SEP 42, ADR-063). `RunMetadata.compare` and
   `solprop.output.compatibility` hold the comparison; `RunOutcome.resumes` and
   `RunOutcome.forced_positions` read back how each session continued its file.
+- Cross-section drawings in the library
+  ([SEP 41](https://solprop.readthedocs.io/en/latest/dev/seps/sep-0041-recipes-and-front-ends.html)): `solprop.plotting.geometry.outline`
+  gives the outline of a capillary, antiresonant, step-index, graded-index, rectangular
+  or planar guide, or of a radial, Cartesian, line or planar grid, as shapes in metres;
+  `draw(ax, guide, palette=...)` paints it in Matplotlib, and `thumbnail(route,
+  representation, size)` makes a small figure of a route for a front end's picker. Colours
+  come from an explicit `Palette` (`LIGHT`, `DARK`). The user guide's cross-section
+  figures draw their outlines from it.
 
 ### Changed
 

@@ -1,0 +1,25 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Self-phase modulation of a 30 fs pulse in argon, without photoionisation.
+# mirrors: docs/examples/processes/plot_01_self_phase_modulation.py
+
+[recipe]
+format = 1
+route = "capillary"
+title = "Self-phase modulation in argon"
+
+[build]
+radius = "125 um"
+length = "0.75 m"
+gas = "Ar"
+pressure = "5 bar"
+wavelength = "800 nm"
+fwhm = "30 fs"
+energy = "250 uJ"
+plasma = false
+trange = "3000 fs"
+wavelength_limits = ["200 nm", "4000 nm"]
+n_save = 301
+seed = 20261027

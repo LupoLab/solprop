@@ -3140,6 +3140,7 @@ class AdamsMarch:
             return
         targets = adams_core.targets(self._policy, target)
         while not reached(backend._z, target):
+            backend._poll_stop()
             self._afford()
             try:
                 if not self._history:
@@ -3201,6 +3202,7 @@ class AdamsMarch:
         while (
             backend._schedule_index < schedule.n_steps and backend._z < target - slack
         ):
+            backend._poll_stop()
             dz = float(schedule.steps[backend._schedule_index])
             end = float(edges[backend._schedule_index + 1])
             norm = self.replay_step(dz, end, slack)

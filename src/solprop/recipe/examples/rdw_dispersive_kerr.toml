@@ -1,0 +1,27 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# The helium dispersive-wave case under the carrier-Kerr electronic policy, the first
+# of the script's three policies (and of its mode-count comparison).
+# mirrors: docs/examples/processes/plot_07_rdw_dispersive_kerr.py
+
+[recipe]
+format = 1
+route = "capillary"
+title = "VUV dispersive wave, carrier Kerr"
+
+[build]
+radius = "125 um"
+length = "1.5 m"
+gas = "He"
+pressure = ["0.8 bar", "0 bar"]  # entrance to exit
+wavelength = "800 nm"
+fwhm = "7.5 fs"
+energy = "275 uJ"
+modes = 4
+trange = "400 fs"
+wavelength_limits = ["90 nm", "4000 nm"]
+n_save = 151
+materials = { type = "MaterialSelection", electronic = "carrier-kerr" }
+seed = 20261027

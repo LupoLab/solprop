@@ -220,6 +220,86 @@ A real array is the electric field; a complex one is the analytic signal in the 
 convention. The run record holds the record itself, which costs the same as the spectrum
 at its own bins: two real numbers for each real sample.
 
+### Measured spectra from a file
+
+{py:func}`~solprop.pulses.load_spectrum` reads a spectrum and its retrieved phase from a
+text file and returns a `DataPulse`. The default layout is the one a spectrometer and a
+phase retrieval usually write, and the one Luna.jl's `DataField` documents: three columns
+of frequency in Hz, spectral power density in arbitrary units and spectral phase in
+radians.
+
+```text
+# frequency (Hz)   power (a.u.)   phase (rad)
+3.4e14             0.0012         4.1
+3.5e14             0.0310         2.7
+...
+```
+
+```{code-block} python
+from solprop.pulses import load_spectrum
+
+pulse = load_spectrum("retrieved.txt", energy=1e-6)
+pulse = load_spectrum(
+    "spectrum.csv", energy=1e-6, axis="wavelength", axis_unit="nm", columns=(0, 1)
+)
+pulse = load_spectrum("for_luna.dat", energy=1e-6, phase_convention="fft")
+```
+
+**The file.** Columns are separated by commas, or by whitespace on a line with no comma.
+A `#` starts a comment, blank lines are skipped, and the first line that is not a comment
+may be a header of column names. The rows may run either way along the axis: they are
+sorted. A two-column file has a flat phase; `columns` picks other columns, as zero-based
+`(axis, power)` or `(axis, power, phase)`, and further columns are ignored. `path` may also
+be an open text stream such as an `io.StringIO`. A file that cannot be read as a spectrum
+is refused with a message that names the problem: no such file, a line that is not a row
+of numbers, too few columns or rows, a value that is not finite, an axis value that is not
+positive or repeats, or a power column with no positive value. Negative powers, which a
+background subtraction leaves where there is no signal, are read as zero; one more
+negative than a tenth of the peak is refused as the wrong column.
+
+**The axis.** `axis_unit` defaults to the axis's own SI unit, Hz or m. A frequency may be
+in `"Hz"`, `"GHz"`, `"THz"` or `"PHz"`, or as an angular frequency in `"rad/s"` or
+`"rad/fs"`; a wavelength in `"m"`, `"um"` (or `"µm"`) or `"nm"`. A density per unit
+wavelength is converted to one per unit angular frequency, which is what a `DataPulse`
+holds:
+
+$$ P_\omega = P_\lambda \left|\frac{\mathrm{d}\lambda}{\mathrm{d}\omega}\right|
+   = P_\lambda\,\frac{\lambda^2}{2\pi c}, $$
+
+so that each band holds the same energy on either axis. The constant goes with the
+arbitrary units, since `energy` sets the scale.
+
+**The sign.** The phase is read in the optics convention of this page: a delay $\tau$ is
+$+\omega\tau$ and puts the pulse at $+\tau$. A file written for Luna.jl holds the FFT
+convention, in which the same delay is $-\omega\tau$; `phase_convention="fft"` reads it
+with the opposite sign, so that the same file puts the pulse at $-\tau$.
+
+**The phase.** The pulse is built through `DataPulse.from_spectral_density`, so the phase
+is interpolated as read, by a cubic spline through the file's unwrapped values, and is
+never re-derived from a complex spectrum. Wrapping a phase and unwrapping it again cannot
+recover a change of more than $\pi$ between samples, so a large chirp is best given
+unwrapped. The column's own range decides how it is read:
+
+- A column whose values all lie within $2\pi$ (and a milliradian, for the rounding of a
+  file's last digit) is taken as wrapped and unwrapped; any other is taken as it stands.
+  `wrapped=True` or `wrapped=False` says which where that guess would be wrong.
+- A phase in degrees needs `phase_unit="deg"`: wrapped, it spans 360, and as radians it
+  would be taken as unwrapped.
+- A wrapped column is unwrapped only over the samples whose power is above `floor` times
+  the peak of the power column ($10^{-4}$ by default). Between them the phase is
+  interpolated linearly across any gap, and beyond the first and last it is held at
+  their value. The random phase of the noise floor, or of a sample that drops into it
+  within the band, therefore cannot add a turn to the phase of the pulse. An unwrapped
+  column is taken as it stands, noise floor and all.
+- A wrapped phase that is undersampled cannot be recovered, and a
+  {py:class}`~solprop.exceptions.SolpropWarning` says so. The sign of it is a step
+  between neighbouring samples above the floor within a tenth of $\pi$ of $\pm\pi$:
+  a chirp whose step per sample grows past $\pi$ passes through there in every turn, and
+  every sample beyond the innermost such step, outward from the peak, may carry a wrong
+  turn. The warning is given when those samples hold more than a thousandth of the
+  power. A phase that steps by well over $\pi$ everywhere, such as a delay sampled too
+  coarsely, aliases to a smaller step and cannot be detected at all.
+
 ## Continuous wave
 
 {py:class}`~solprop.pulses.CWPulse` writes its spectrum straight onto the grid's own
@@ -285,6 +365,67 @@ the same way. The worked examples on
 [four-wave mixing to the vacuum ultraviolet](../../auto_examples/processes/plot_03_four_wave_mixing)
 and on [cross-phase modulation in the deep ultraviolet](../../auto_examples/processes/plot_04_cross_phase_modulation)
 use this.
+
+## Launching into chosen modes
+
+A pulse given by keywords enters the first mode of a multimode run, and the others fill
+through the nonlinearity. `launch=` puts it into chosen modes instead, on
+`prop_capillary`, `prop_waveguide` and their `Simulation` constructors
+([SEP 41](../../dev/seps/sep-0041-recipes-and-front-ends.md)): a mapping from a mode to
+its share, or to a share and a phase in radians.
+
+```python
+import warnings
+
+from solprop.driver import Simulation
+from solprop.exceptions import MaterialRangeWarning
+
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore", MaterialRangeWarning)
+    simulation = Simulation.from_capillary(
+        125e-6, 0.1, "He", 1.0, wavelength=800e-9,
+        wavelength_limits=(300e-9, 3e-6), trange=100e-15,
+        fwhm=10e-15, energy=5e-6, modes=3, plasma=False, n_r=16, n_save=2,
+        launch={"HE1,1": 0.9, "HE1,2": {"share": 0.1, "phase": 1.57}},
+    )
+simulation.configuration["modal_launch"]
+# {'split': 'energy', 'pulses': [{'labels': ['HE1,1:even', 'HE1,2:even'],
+#   'shares': [0.9, 0.1], 'phases': [0.0, 1.57]}]}
+```
+
+- **Modes** are named as `channel=` names a general guide's channels: by display label
+  (`"HE1,1:even"`) or by index. A label may leave out a parity that the set carries
+  once, so `"HE1,1"` is `"HE1,1:even"` in a capillary; in a set that carries both
+  polarisations it is refused, naming both. A mode the set does not have is refused,
+  naming those it has.
+- **Shares** are energy fractions, normalised to one, so `{"HE1,1": 9, "HE1,2": 1}` is
+  the launch above, and each mode carries its share of the pulse's energy.
+- **The phase** is in the optics convention ([conventions](../../dev/conventions.md)): a
+  mode's spectrum is the pulse's times $e^{i\phi}$, so the phase adds to the pulse's
+  carrier-envelope phase in that mode. It sets the relative phase of the modes where
+  they overlap, which decides how they beat.
+- **Several pulses.** One mapping launches every pulse of `pulses=` the same way; a list
+  of mappings, one per pulse, launches each into its own modes, so a pump can enter the
+  fundamental and a seed a higher mode:
+  `launch=[{"HE1,1": 1.0}, {"HE1,2": 1.0}]`.
+- **Beside the other launches.** `launch=` generalises `channel=`, so the two are not
+  given together; nor is `launch=` given beside `incident=` and `coupling=`, which
+  compute the launch from a beam. An array is launched with `Simulation.with_input`,
+  which also drops the launch record, since the array replaces it.
+
+**On a general modal basis.** A guide in its provider's own coordinates is orthonormal
+in true power, and the shares are energy fractions there too. A guide that declares a
+change of basis ([general modal guides](../waveguides/general-modal.md)) carries a flux
+metric $W$ whose cross terms make the energy $a^\dagger W a$ of the coefficients depend
+on their relative phases. There the shares are relative amplitudes squared: the
+coefficients point where the shares and phases say, and are scaled so that their
+flux-metric energy is the pulse's. The per-mode split is then a coordinate one, not an
+energy split, and the record says so with `"split": "coordinate"`.
+
+**The record.** The run records each pulse's labels, normalised shares and phases as
+`configuration["modal_launch"]`, which a resume compares
+([resuming](../results/resuming.md)), so a file written with one launch is not continued
+with another. A run with no launch records no entry and reads as before.
 
 ## Transverse beams
 

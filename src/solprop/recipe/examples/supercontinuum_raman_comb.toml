@@ -1,0 +1,30 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# A Raman-comb supercontinuum in hydrogen, mode-averaged.
+# mirrors: docs/examples/supercontinuum/plot_04_raman_comb_supercontinuum.py
+
+[recipe]
+format = 1
+route = "capillary"
+title = "Raman-comb supercontinuum in hydrogen"
+
+[build]
+radius = "16 um"
+length = "0.4 m"
+gas = "H2"
+pressure = "40 bar"
+wavelength = "515 nm"
+fwhm = "400 fs"
+energy = "10 uJ"
+loss = false
+plasma = true
+raman = true
+trange = "4000 fs"
+wavelength_limits = ["170 nm", "4000 nm"]
+noise = "input"
+seed = 0
+n_save = 201
+mode_average = true
+boundary_check = { type = "BoundaryCheck", budget = 5e-3 }

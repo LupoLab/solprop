@@ -47,6 +47,22 @@ noise that resolves to none says why in the run record and the start-of-run summ
 and asking for noise beside the TDSE response is warned on: TDSE and Cartesian runs
 are slow and rarely about noise sensitivity.
 
+The table lives in one place, `solprop.driver.defaults.ROUTE_DEFAULTS`, with the temporal
+collar's scheme beside it (`"split_step"` on the radial, free-space and planar routes
+unless planes are interpolated, `"nonlinear"` elsewhere). The run record's `defaults`
+entry and the start-of-run summary say which of the integrator, `rtol` and the scheme
+took the route's default, and a copy of the settings made with `dataclasses.replace` in
+the other precision takes that precision's default for each of them, the backend
+`"auto"` included.
+
+**Naming an integrator keeps the interface's tolerance.** The tolerance in the table
+belongs to the interface, not to the method: `prop_capillary(integrator=RungeKutta())`
+runs the Runge–Kutta march at the capillary's `1e-6`, and
+`prop_gnlse(integrator=Multistep())` the Adams method at the GNLSE's `1e-7`. The advice
+on this page about each method's tolerance was measured at the levels it names, so pass
+`rtol=` beside `integrator=` when you change the method; for instance, the capillary's
+Runge–Kutta comparison below is at `1e-5`.
+
 On the GNLSE, the Runge–Kutta march is 2.5 to 4.8 times faster than the exponential
 Adams method at matched accuracy, more with noise. On the waveguide route it is 4 times
 faster; the interaction-formulation Adams method is faster still there but refuses the

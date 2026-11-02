@@ -1,0 +1,29 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# The ionisation blue-shift capillary on an envelope grid in double precision, the
+# first of the script's two precisions.
+# mirrors: docs/examples/performance/plot_01_single_precision.py
+
+[recipe]
+format = 1
+route = "capillary"
+title = "Envelope capillary in double precision"
+
+[build]
+radius = "13 um"
+length = "0.4 m"
+gas = "Ar"
+pressure = "1.7 bar"
+wavelength = "800 nm"
+fwhm = "30 fs"
+energy = "3 uJ"
+loss = false
+trange = "400 fs"
+wavelength_limits = ["300 nm", "4000 nm"]
+envelope = true
+plasma = true
+n_save = 101
+precision = "double"
+noise = "none"

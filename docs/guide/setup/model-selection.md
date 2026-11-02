@@ -47,10 +47,31 @@ pulse, noise and output keywords; these differ, by interface:
 | `rtol`, `atol`, `backend`, `precision` | yes; `atol` 1e-14 √W | yes; `atol` 1e-10 √W | yes; `atol` 1e-10 √W | in the `settings` they require |
 | `raman` | `False`: fused silica's response only when asked | `None`: each species' curated response | `None`, as the capillary | the medium's own |
 | loss | `loss_db_per_m`, a fibre's attenuation | `loss=True`, the capillary's own wall loss | the modes' own | the medium's own |
-| `step_planes`, `interpolate_planes` | yes (`step_planes=0` is off) | yes (`step_planes=None` is off) | no: replace them in `Simulation.from_waveguide(...).settings` | in the settings |
-| `polarisation_taper` | yes | no | no | no |
+| `step_planes`, `interpolate_planes` | yes (`step_planes=None`, the default, and `0` are off) | yes (`None` is off, or every step with the TDSE response) | yes (`None` is off) | in the settings |
+| `polarisation_taper` | yes | yes | yes | in the settings |
+| the launch | the pulse | `launch=`, or the first mode | `launch=`; with `provider=` also `channel=` or `incident=` with `coupling=`; or the first channel | a beam (`SpatialPulse`, `PlanarPulse`) |
+| `memory_budget` | `Simulation.run(memory_budget=)` | as the GNLSE | as the GNLSE; with `provider=` also `Simulation.from_waveguide(memory_budget=)` | as the GNLSE |
 
-The default integrators and tolerances are in [choosing a stepper](../numerics/choosing-a-stepper.md#the-defaults).
+The default integrators and tolerances, and the reason for each difference between the
+interfaces, are in [choosing a stepper](../numerics/choosing-a-stepper.md#the-defaults);
+the table there is `solprop.driver.defaults.ROUTE_DEFAULTS`. The other differences are
+deliberate:
+
+- **`atol`** acts only when the field's norm falls to about `atol/rtol`: 1e-7 √W on the
+  GNLSE and 1e-4 √W elsewhere, far below any real pulse (a 1 pJ capillary pulse has a
+  norm of about 760 √W, a 10 W GNLSE pulse about 1.9e3 √W, and a capillary run takes the
+  same steps at either value).
+- **`raman`** is off by default on the GNLSE because it has no medium to read a response
+  from: `None` there would switch fused silica's Raman response on for every fibre. The
+  gas routes read each species' curated response.
+- **`loss`** on the capillary is a switch or a model of the wall loss, and
+  `loss_db_per_m` on the GNLSE a number from a data sheet; they mean different things,
+  so they keep different names.
+- **`noise`** is not drawn on `prop_planar`: a planar grid declares no photon measure, and
+  adding one is physics, not a keyword.
+- **`memory_budget`** has one unit everywhere and two gates: `Simulation.run` admits the
+  run's buffers when it starts, and a guide given to `from_waveguide` admits its tables
+  and maps before they are built, which happens there.
 
 **Which one?** A hollow guide filled with gas is the capillary route; add the coherent
 wall when linear coupling through the boundary matters to the retained modes,

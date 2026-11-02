@@ -1,0 +1,25 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# A vacuum-ultraviolet dispersive wave from a helium gradient in four modes.
+# mirrors: docs/examples/processes/plot_00_vuv_dispersive_wave.py
+
+[recipe]
+format = 1
+route = "capillary"
+title = "VUV dispersive wave in a helium gradient"
+
+[build]
+radius = "125 um"
+length = "1.5 m"
+gas = "He"
+pressure = ["0.8 bar", "0 bar"]  # entrance to exit
+wavelength = "800 nm"
+fwhm = "7.5 fs"
+energy = "275 uJ"
+modes = 4
+trange = "400 fs"
+wavelength_limits = ["90 nm", "4000 nm"]
+n_save = 301
+seed = 20261027

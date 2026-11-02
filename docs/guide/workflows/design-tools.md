@@ -422,6 +422,137 @@ may suffer strong confinement loss: phase matching alone is not an efficiency
 prediction. Inspect all roots and the mode's loss, and narrow the wavelength
 window when close resonances cannot be resolved by the 2048-point sampling.
 
+## Any guide, any parameter
+
+The pressure tools are written for the capillary. {py:func}`~solprop.tools.solve_parameter`
+is their general form: it takes a **builder**, a function that returns the mode at a
+trial value of any parameter (a radius, a pressure, a core size, a wall thickness), a
+search range, and a target, and returns every value in the range that meets the target.
+
+```{code-block} python
+>>> from solprop.modes import MarcatiliMode
+>>> from solprop.tools import ZDW, solve_parameter
+>>> mode = MarcatiliMode(125e-6, "He", 1.0, cladding=1.45)
+>>> roots = solve_parameter(
+...     lambda radius: mode.at_parameters({"core_radius": radius}),
+...     (20e-6, 500e-6),
+...     ZDW(400e-9),
+... )
+>>> [f"{radius * 1e6:.2f} um" for radius in roots]
+['89.49 um']
+```
+
+{py:func}`~solprop.tools.radius_zdw` is this search for the capillary, the radius
+counterpart of `pressure_zdw`, with the same keywords and `materials=`:
+`radius_zdw("He", 1.0, 400e-9, cladding=1.45)` is the same 89.49 µm.
+
+There are three targets, each a frozen dataclass whose residual the search brackets:
+
+```{eval-rst}
+.. list-table::
+   :header-rows: 1
+   :widths: 30 40 30
+
+   * - target
+     - residual on the trial mode
+     - the builder returns
+   * - :py:class:`~solprop.tools.ZDW` ``(wavelength)``
+     - :math:`\beta_2` at the wavelength
+     - the mode
+   * - :py:class:`~solprop.tools.RDW` ``(pump, rdw, peak_power, fwhm, shape, nonlinear_phase)``
+     - the phase mismatch at ``rdw``, exactly as ``pressure_rdw`` evaluates it; none
+       where the largest constituent does not exist
+     - the mode, or ``(mode, gamma)`` with a ``peak_power``
+   * - :py:class:`~solprop.tools.SolitonOrder` ``(order, pulse)``
+     - the pulse's soliton order less ``order``, at the pulse's wavelength
+     - ``(mode, gamma)``
+```
+
+A mode need not know its fill's Kerr response, so a target that needs the nonlinear
+coefficient asks the builder for it beside the mode, from
+{py:func}`~solprop.tools.nonlinear_coefficient`; a builder that returns one serves a
+linear target too, which ignores it. The search evaluates each mode at the launch
+position `z` (zero by default).
+
+**How it searches.** The residual is sampled on 129 linear values of the parameter and,
+where the range is positive, 129 logarithmic ones, as `pressure_rdw` samples pressure.
+Every sign change between two samples where the residual is defined is refined with
+Brent's method, to a relative tolerance of $2\times10^{-12}$. A refined change is kept
+only where the residual has fallen below a thousandth of its value at the bracket's
+ends: at a zero Brent's method ends on a residual many orders smaller, while across a
+pole, where a lossless resonance moves past the target, it converges onto the pole and
+the residual diverges. Two roots closer than one sample are not separated; narrow the
+range to resolve them. A search costs up to 258 builds and a few more for the
+refinements, so a builder that re-evaluates one mode, as above, costs milliseconds per
+value, while one that constructs a new capillary costs about 20 ms, and an antiresonant
+or tabulated guide more.
+
+**Every root.** The result is a {py:class}`~solprop.tools.DesignRoots`: the roots in
+ascending order, the range, the target and the number of builds. A design can have
+more than one answer. The soliton order of a fixed pulse diverges at the pressure that
+puts the zero dispersion at the pump, and is the conventional measure on both sides of
+it, so an order can be met twice:
+
+```{code-block} python
+>>> from solprop.physdata import n2
+>>> from solprop.pulses import SechPulse
+>>> from solprop.tools import SolitonOrder, nonlinear_coefficient
+>>> def build(pressure):
+...     mode = MarcatiliMode(125e-6, "Ar", pressure, cladding=1.45)
+...     kerr = n2("Ar", pressure=pressure, wavelength=800e-9)
+...     return mode, nonlinear_coefficient(mode, kerr, 800e-9)
+>>> pulse = SechPulse(wavelength=800e-9, fwhm=10e-15, energy=20e-6)
+>>> roots = solve_parameter(build, (0.01, 5.0), SolitonOrder(4.0, pulse))
+>>> [f"{pressure:.4f} bar" for pressure in roots]
+['0.2770 bar', '1.3815 bar']
+```
+
+The first root is in anomalous dispersion, the second in normal dispersion, where the
+pulse has no soliton. `roots.pick(root)` chooses one: `"lowest"` (the default),
+`"highest"`, or an index, negative from the end; an index out of range is refused,
+naming the roots. A wall resonance of an antiresonant fibre gives its zero-dispersion
+points in pairs in the same way: as the wall thickness passes the resonance, the
+dispersion at a fixed wavelength turns from anomalous to normal and back, with further
+sign changes inside the resonance band, and the search returns each of them.
+
+**No root.** A range without a root returns no roots and the **attainable range** of
+the target's quantity, on a coarser grid of 17 linear and 17 logarithmic values: the
+zero-dispersion wavelength nearest the target, the phase-matched wavelength nearest the
+target, or the soliton order. `pick` then refuses with it:
+
+```{code-block} python
+>>> roots = solve_parameter(
+...     lambda radius: mode.at_parameters({"core_radius": radius}),
+...     (20e-6, 60e-6),
+...     ZDW(400e-9),
+... )
+>>> roots.pick()
+Traceback (most recent call last):
+...
+solprop.exceptions.ToolsError: no value between 2e-05 and 6e-05 gives a zero-dispersion wavelength of 400 nm: across it the zero-dispersion wavelength nearest the target (m) spans 1.98111e-07 to 3.29809e-07
+```
+
+A mode with no zero dispersion in 100 nm to 3 µm, or no phase-matched wavelength in the
+window around the target, contributes nothing to that range; when no value does, the
+refusal says the quantity is undefined across the range.
+
+**The pulse for an order.** The other soliton design holds the mode and asks for the
+pulse. $N^2=\gamma P_0\tau_0^2/|\beta_2|$ is linear in the peak power, so
+{py:func}`~solprop.tools.soliton_peak_power` is closed form, and
+{py:func}`~solprop.tools.pulse_energy` turns the peak power into an energy, as
+`capillary_design` does at its designed pressure:
+
+```{code-block} python
+>>> import numpy as np
+>>> from solprop.modes import base
+>>> from solprop.tools import pulse_energy, soliton_peak_power
+>>> mode, gamma = build(0.2)
+>>> beta2 = float(base.beta2(mode, np.array([2 * np.pi * 299792458.0 / 800e-9]))[0])
+>>> power = soliton_peak_power(3.0, 10e-15, gamma, beta2)
+>>> f"{power / 1e9:.3f} GW, {pulse_energy(power, 10e-15) * 1e6:.2f} uJ"
+'1.947 GW, 22.09 uJ'
+```
+
 ## Designs under a material selection
 
 A run ([materials](../media/material-selection.md#selecting-a-runs-materials)) takes its gas index,
@@ -432,8 +563,9 @@ from a name therefore takes the same `materials=` keyword, with the same default
 `MaterialSelection()` —
 {py:func}`~solprop.tools.soliton_params`, {py:func}`~solprop.tools.capillary_params`,
 {py:func}`~solprop.tools.capillary_design`,
-{py:func}`~solprop.tools.gas_ratio`, {py:func}`~solprop.tools.pressure_zdw` and
-{py:func}`~solprop.tools.pressure_rdw` — and resolves exactly as the capillary driver
+{py:func}`~solprop.tools.gas_ratio`, {py:func}`~solprop.tools.pressure_zdw`,
+{py:func}`~solprop.tools.pressure_rdw` and {py:func}`~solprop.tools.radius_zdw` — and
+resolves exactly as the capillary driver
 does: a name, a fraction mapping and `"air"` (nitrogen and oxygen) through the
 selection, the Kerr coefficient at the tool's pump wavelength (a selection naming
 another carrier is refused, as a run refuses it), and `cladding=None` as optmat's

@@ -24,7 +24,7 @@ import logging
 import math
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
-from typing import ClassVar, Final, Literal
+from typing import ClassVar, Final, Literal, cast
 
 import numpy as np
 from jaxtyping import Bool, Complex, Float
@@ -44,6 +44,7 @@ __all__ = [
     "EnvelopeGrid",
     "FieldGrid",
     "FreeGrid",
+    "GridSuggestion",
     "LineGrid",
     "RadialGrid",
     "TimeGrid",
@@ -51,6 +52,7 @@ __all__ = [
     "planck_taper",
     "planck_taper_derivative",
     "planck_taper_derivative_error",
+    "suggest",
 ]
 
 logger = logging.getLogger(__name__)
@@ -1816,14 +1818,14 @@ def _frequency_limits(wavelength_limits: Sequence[float]) -> tuple[float, float]
         msg = (
             f"wavelength_limits must hold exactly two values, got {wavelength_limits!r}"
         )
-        raise GridError(msg)
+        raise GridError(msg, parameter="wavelength_limits")
     low, high = (float(value) for value in wavelength_limits)
     if not 0.0 < low < high:
         msg = (
             "wavelength_limits must be a strictly increasing pair of positive "
             f"wavelengths in metres, got {wavelength_limits!r}"
         )
-        raise GridError(msg)
+        raise GridError(msg, parameter="wavelength_limits")
     return 2.0 * np.pi * C / high, 2.0 * np.pi * C / low
 
 
@@ -1859,31 +1861,31 @@ def _check_common(
     """
     if length < 0.0:
         msg = f"length must be a non-negative distance in metres, got {length!r}"
-        raise GridError(msg)
+        raise GridError(msg, parameter="length")
     if reference_wavelength <= 0.0:
         msg = (
             "reference_wavelength must be positive, in metres, got "
             f"{reference_wavelength!r}"
         )
-        raise GridError(msg)
+        raise GridError(msg, parameter="reference_wavelength")
     if trange <= 0.0:
         msg = f"trange must be a positive time window in seconds, got {trange!r}"
-        raise GridError(msg)
+        raise GridError(msg, parameter="trange")
     if dt is not None and dt <= 0.0:
         msg = f"dt must be a positive sample spacing in seconds, got {dt!r}"
-        raise GridError(msg)
+        raise GridError(msg, parameter="dt")
     if ffac < 2.0:
         msg = (
             "ffac must be at least 2 so that the fine grid resolves the frequency "
             f"window itself, got {ffac!r}"
         )
-        raise GridError(msg)
+        raise GridError(msg, parameter="ffac")
     if not 0.0 <= collar_fraction < 0.5:
         msg = (
             "collar_fraction must lie in [0, 0.5): zero leaves no temporal collar, and "
             f"half or more leaves no window, got {collar_fraction!r}"
         )
-        raise GridError(msg)
+        raise GridError(msg, parameter="collar_fraction")
 
 
 def _temporal_collar(
@@ -2339,3 +2341,204 @@ def _fft_order(n: int) -> Float[np.ndarray, " n"]:
     index = np.arange(n, dtype=float)
     index[n // 2 :] -= n
     return index
+
+
+# ------------------------------------------------------------------ grid suggestions
+
+_TIME_BANDWIDTH: Final = {
+    "GaussianPulse": 2.0 * math.log(2.0) / math.pi,
+    "SechPulse": 0.315,
+}
+"""Transform-limited intensity time-bandwidth products of the shaped pulses."""
+
+_SUGGESTED_HALF_WIDTH: Final = {"gnlse": 0.5, "capillary": 1.0}
+"""The least half-width of a suggested band, as a fraction of the carrier, by route.
+
+A fibre supercontinuum spans about an octave about its pump; a gas-filled capillary's
+dispersive waves and blue shift reach several times the pump frequency.
+"""
+
+_SUGGESTED_BROADENING: Final = 10.0
+"""How many input bandwidths a suggested band spans each side of the carrier."""
+
+_SUGGESTED_DURATIONS: Final = 30.0
+"""How many input durations a suggested window spans, beyond the pulses' delays."""
+
+
+@dataclass(frozen=True)
+class GridSuggestion:
+    """A starting point for a route's ``wavelength_limits`` and ``trange``.
+
+    Attributes
+    ----------
+    wavelength_limits : tuple of float
+        Shortest and longest wavelength, m.
+    trange : float
+        Length of the time window, s.
+    note : str
+        What the suggestion assumed, and what to check.
+
+    Examples
+    --------
+    >>> from solprop.grid import GridSuggestion
+    >>> GridSuggestion((5e-7, 2e-6), 1e-12, "a starting point").trange
+    1e-12
+    """
+
+    wavelength_limits: tuple[float, float]
+    trange: float
+    note: str
+
+
+def _rounded(value: float, *, up: bool) -> float:
+    """Round a positive value to two significant figures, outwards.
+
+    Parameters
+    ----------
+    value : float
+        The value.
+    up : bool
+        Round up rather than down.
+
+    Returns
+    -------
+    float
+        The value with two significant figures.
+    """
+    scale = 10.0 ** (math.floor(math.log10(value)) - 1)
+    steps = value / scale
+    steps = math.ceil(steps - 1e-9) if up else math.floor(steps + 1e-9)
+    return float(f"{steps * scale:.2g}")
+
+
+def _extent(pulse: object) -> tuple[float, float, float, float]:
+    """Return a pulse's carrier and bandwidth, its duration and its delay.
+
+    Parameters
+    ----------
+    pulse : object
+        A shaped pulse, a sum of pulses or a measured spectrum.
+
+    Returns
+    -------
+    tuple of float
+        The centre frequency and the intensity full width at half maximum in
+        frequency, Hz; the intensity full width at half maximum in time and the
+        largest delay, s.
+
+    Raises
+    ------
+    GridError
+        For a pulse whose extent cannot be read, such as a continuous wave or a
+        custom shape.
+    """
+    from solprop.pulses import (  # noqa: PLC0415 - pulses import this module
+        SECH_FWHM_TO_WIDTH,
+        DataPulse,
+        GaussianPulse,
+        SechPulse,
+    )
+
+    if isinstance(pulse, GaussianPulse | SechPulse):
+        fwhm = pulse.fwhm
+        if fwhm is None and isinstance(pulse, SechPulse):
+            fwhm = float(cast("float", pulse.width)) / SECH_FWHM_TO_WIDTH
+        fwhm = float(cast("float", fwhm))
+        product = _TIME_BANDWIDTH[type(pulse).__name__]
+        return C / pulse.wavelength, product / fwhm, fwhm, abs(pulse.t0)
+    if isinstance(pulse, DataPulse):
+        frequency = np.asarray(pulse.omega) / (2.0 * math.pi)
+        power = np.abs(np.asarray(pulse.spectrum)) ** 2
+        above = frequency[power >= 0.5 * power.max()]
+        bandwidth = float(above.max() - above.min()) or float(np.ptp(frequency))
+        centre = float(np.sum(frequency * power) / np.sum(power))
+        # Its duration if it were transform-limited and Gaussian.
+        limited = _TIME_BANDWIDTH["GaussianPulse"] / bandwidth
+        return centre, bandwidth, limited, abs(pulse.t0)
+    msg = (
+        f"no grid can be suggested for a {type(pulse).__name__}: give a "
+        "GaussianPulse, a SechPulse or a DataPulse, or choose wavelength_limits and "
+        "trange by hand"
+    )
+    raise GridError(msg, parameter="pulses")
+
+
+def suggest(pulses: object, *, route: str = "capillary") -> GridSuggestion:
+    """Suggest ``wavelength_limits`` and ``trange`` for an input, as a starting point.
+
+    The band is centred on the input's carrier and spans, each side, ten times the
+    input's transform-limited bandwidth or a fraction of the carrier frequency, the
+    larger: half of it on the ``gnlse`` route, where a supercontinuum spans about an
+    octave, and all of it on the ``capillary`` route, whose dispersive waves and
+    ionisation blue shift reach far above the pump. The window spans thirty input
+    durations beyond the pulses' delays. Both are rounded outwards to two significant
+    figures. A suggestion knows nothing of the medium or the length: it does not
+    cover a chirp in the input's phase, nor a dispersive wave further than it allows,
+    nor walk-off over a long fibre. Check a run's spectrum at the band's edges and
+    the boundary monitor's verdict on the window.
+
+    Parameters
+    ----------
+    pulses : object
+        A pulse (:class:`~solprop.pulses.GaussianPulse`,
+        :class:`~solprop.pulses.SechPulse`, :class:`~solprop.pulses.DataPulse`), a
+        sum of them, or a sequence of them.
+    route : {'gnlse', 'capillary'}, optional
+        The route the grid is for.
+
+    Returns
+    -------
+    GridSuggestion
+        The limits, the window and what they assumed.
+
+    Raises
+    ------
+    GridError
+        For a route without a rule, or a pulse whose extent cannot be read.
+
+    Examples
+    --------
+    >>> from solprop.grid import suggest
+    >>> from solprop.pulses import GaussianPulse
+    >>> suggestion = suggest(
+    ...     GaussianPulse(wavelength=800e-9, fwhm=7.5e-15, energy=275e-6)
+    ... )
+    >>> suggestion.wavelength_limits, suggestion.trange
+    ((3.1e-07, 4e-06), 2.3e-13)
+    """
+    if route not in _SUGGESTED_HALF_WIDTH:
+        msg = f"no grid suggestion for route {route!r}; the routes are gnlse, capillary"
+        raise GridError(msg, parameter="route")
+    members = list(pulses) if isinstance(pulses, Sequence) else [pulses]
+    flat: list[object] = []
+    while members:
+        member = members.pop(0)
+        inner = getattr(member, "pulses", None)
+        if type(member).__name__ == "PulseSum" and inner is not None:
+            members.extend(inner)
+        else:
+            flat.append(member)
+    if not flat:
+        msg = "no pulses to suggest a grid for"
+        raise GridError(msg, parameter="pulses")
+    extents = [_extent(pulse) for pulse in flat]
+    fraction = _SUGGESTED_HALF_WIDTH[route]
+    low = min(
+        max(
+            centre - max(_SUGGESTED_BROADENING * width, fraction * centre), 0.2 * centre
+        )
+        for centre, width, _, _ in extents
+    )
+    high = max(
+        centre + max(_SUGGESTED_BROADENING * width, fraction * centre)
+        for centre, width, _, _ in extents
+    )
+    duration = max(fwhm for _, _, fwhm, _ in extents)
+    delay = max(delay for _, _, _, delay in extents)
+    trange = 2.0 * delay + _SUGGESTED_DURATIONS * duration
+    return GridSuggestion(
+        (_rounded(C / high, up=False), _rounded(C / low, up=True)),
+        _rounded(trange, up=True),
+        "a starting point from the input's bandwidth and duration: check the "
+        "spectrum at the band's edges and the boundary monitor's verdict on the window",
+    )

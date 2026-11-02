@@ -54,7 +54,13 @@ dependencies = [
     # kernels, which numba then cannot compile or cache.
     "jaxtyping>=0.3.11",
     "tqdm>=4.67",
+    # Writes recipes (SEP 41); 1.0, the first release, already writes every form a recipe
+    # uses (nested tables, arrays of inline tables, quoted keys) back through tomllib.
+    "tomli-w>=1.0",
 ]
+
+[project.scripts]
+solprop = "solprop.cli:main"
 
 [project.urls]
 Homepage = "https://solprop.readthedocs.io/"
@@ -280,6 +286,9 @@ markers = [
     "benchmark: run by no lane at all; each says in its docstring how to run it by hand",
 ]
 xfail_strict = true
+# A test that hangs dumps every thread's traceback after fifteen minutes, so a lane
+# that times out in CI says where (no default-lane test comes near this).
+faulthandler_timeout = 900
 
 # ---------------------------------------------------------------------------- coverage
 [tool.coverage.run]

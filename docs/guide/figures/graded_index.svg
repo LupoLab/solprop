@@ -88,7 +88,6 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 <text x="20.0" y="44.0" font-size="11" class="dim">A parabolic core (Δ = 0.005, a = 25 µm) solved by finite elements over 8 core elements</text>
 <text x="20.0" y="58.0" font-size="11" class="dim">and 8 exterior ones: the rule splits at every element, and beyond the matching radius is Bessel.</text>
 <circle cx="170.0" cy="210.0" r="118.0" class="glass" />
-<circle cx="170.0" cy="210.0" r="105.36" class="glass" />
 <circle cx="170.0" cy="210.0" r="52.68" class="core" />
 <circle cx="170.0" cy="210.0" r="6.58" class="ring" />
 <circle cx="170.0" cy="210.0" r="13.17" class="ring" />

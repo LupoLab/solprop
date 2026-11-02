@@ -236,6 +236,63 @@ file read-write instead of replacing it, compares the record offered with the fi
 refuses a layout or compared difference, keeps the file's own record and creation time as
 its own, and numbers the next plane and the next attempt where the file left off.
 
+## Resuming from the file alone
+
+A run built from a [recipe](../setup/recipes.md) records it in its output, and the file
+then resumes without the script that made it:
+
+```text
+solprop resume run.h5 [--interpolated | --force] [--memory-budget "16 GiB"]
+```
+
+or `solprop.recipe.resume_file(path, mode=True)` from Python. The simulation is rebuilt
+from the file's resolved recipe and continued with `resume=mode`, so the comparison above
+decides, and records any difference, as for any resume. A file written from a script
+records no recipe, and its script resumes it.
+
+**Resuming a file runs the setup it holds.** A file from someone else is a program to
+run: its recipe passes the same checks as a recipe file (registered types only, no keys
+that choose paths), its embedded data files are read into memory and checked against
+their hashes, and it does not choose its own limits: its `memory_budget` and
+`node_budget` are ignored, and yours apply, refusing by default rather than warning
+(four fifths of the machine's memory unless you give `--memory-budget`). Opening an
+HDF5 file at all exposes the HDF5 library to it.
+
+### What a file allows
+
+{py:func}`solprop.output.resumable.resumability` answers three questions about a file without
+resuming it:
+
+```{code-block} python
+from solprop.output import resumability
+
+answer = resumability("run.h5")
+# Can it continue, from where, and with which resume=?
+print(answer.resumable, answer.z, answer.mode)
+# Why not: complete, no state, another schema, a live writer.
+print(answer.reason)
+# "stored", "none" (a file from a script) or "newer".
+print(answer.recipe)
+# What a resume would compare, at the cost of a rebuild.
+print(resumability("run.h5", gate=True).comparison)
+```
+
+`mode` is `"force"` for a file a forced session wrote and `"interpolated"` when its last
+plane lies inside a step. `gate=True` rebuilds the run from its recipe and compares the
+records, so a moved optmat digest shows before a resume is tried.
+
+### Stopping a run
+
+`Simulation.run(..., stop=flag)` takes any object with an `is_set()` method, such as a
+{py:class}`threading.Event`. The run polls it before its first step and before every
+trial step, so it answers within one step. When it is set, the run writes its state as
+SIGTERM would, tells the reporter through `interrupted`, and **returns** the handler: a
+requested stop is not an error, and the outcome's message says the caller's flag stopped
+it. `resume=True` continues the file. A front end sets the flag from any thread, on any
+platform, with no signals; each run polls its own. `solprop run` and `solprop resume` set
+it on Ctrl-C, SIGTERM and, on Windows, Ctrl-Break, and exit with the usual status; a
+second Ctrl-C interrupts at once.
+
 ## Completion status and terminal checkpoints
 
 Both standard handlers implement the optional

@@ -547,7 +547,11 @@ class Neutral:
     release: str
 
 
-NEUTRAL_VALUES: Final[tuple[Neutral, ...]] = ()
+NEUTRAL_VALUES: Final[tuple[Neutral, ...]] = (
+    # A run launched into chosen modes records them (SEP 41, S5); every earlier run put
+    # its pulse in the first mode, which is what no launch means.
+    Neutral("configuration.modal_launch", None, "0.2.0"),
+)
 """One entry per recorded path a release declared neutral (SEP 42 section 4).
 
 A path present in one record and absent from the other is a difference unless an entry

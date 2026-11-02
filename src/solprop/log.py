@@ -42,11 +42,16 @@ __all__ = [
     "InterruptibleReporter",
     "LogReporter",
     "NullReporter",
+    "NullScanReporter",
+    "PlaneObserver",
     "PlaneSummary",
     "ProgressChoice",
     "ProgressReporter",
     "ProgressStatus",
+    "ScanReporter",
+    "StopFlag",
     "SummarisingReporter",
+    "WatchingScanReporter",
     "configure_logging",
     "default_progress",
     "default_reporter",
@@ -342,10 +347,10 @@ class ProgressReporter(Protocol):
     """Receive progress events from the propagation driver.
 
     Four calls, in this order: :meth:`started` once, :meth:`step` once per **attempted**
-    step including the rejected ones, :meth:`plane` once per save plane, and
-    :meth:`finished` once at the end. A reporter may also implement the fifth call
+    step including the rejected ones, ``plane()`` once per save plane, and
+    ``finished()`` once at the end. A reporter may also implement the fifth call
     of :class:`solprop.log.InterruptibleReporter`, which the driver makes instead
-    of :meth:`finished` when the loop raises, ``KeyboardInterrupt`` included, so
+    of ``finished()`` when the loop raises, ``KeyboardInterrupt`` included, so
     that a reporter holding a terminal can give it back; a reporter without it is
     still complete. The driver holds no state on a reporter's behalf and never
     inspects what it returns.
@@ -413,6 +418,59 @@ class ProgressReporter(Protocol):
 
 
 @runtime_checkable
+class StopFlag(Protocol):
+    """A run's own stop flag: any object with an ``is_set()`` method (SEP 41, S17).
+
+    :class:`threading.Event` qualifies. A front end sets it from any thread, on any
+    platform, without signals.
+    """
+
+    def is_set(self) -> bool:
+        """Return whether the run is asked to stop.
+
+        Returns
+        -------
+        bool
+            True once the caller has set the flag.
+        """
+        ...
+
+
+@runtime_checkable
+class PlaneObserver(ProgressReporter, Protocol):
+    """A reporter that is shown each saved plane, for a front end to draw (SEP 41, S3).
+
+    The driver calls :meth:`observe_plane` once per save plane, the entrance included,
+    after the plane is committed to the output and before ``plane()``; a resume
+    does not show the planes it continues after again. The view is lazy: the field
+    and the spectral density are computed only when asked for, and on a device a plane
+    whose field the output does not keep is fetched only then, a transfer the run's
+    resource summary counts. Its arrays are valid only during the call, so an
+    observer copies what it keeps, and it runs in the march's thread: reduce the plane
+    to what is drawn, hand that to a bounded queue that replaces an undelivered
+    preview, and return.
+
+    An exception from the observer, other than a stop or an interrupt, does not fail
+    the run: it is logged once with its traceback, warned on, and the observer is not
+    called again in that run; ``plane()``, ``finished()`` and ``interrupted`` are
+    still delivered. Nothing an observer does may change the propagation.
+    :class:`NullReporter` does not implement it, so a quiet run builds no view.
+    """
+
+    def observe_plane(self, z: float, plane: object) -> None:
+        """Be shown one saved plane.
+
+        Parameters
+        ----------
+        z : float
+            Its position, m.
+        plane : solprop.driver.plane_view.PlaneView
+            The lazy view of it.
+        """
+        ...
+
+
+@runtime_checkable
 class InterruptibleReporter(ProgressReporter, Protocol):
     """A reporter that also wants to hear that the run stopped before its end.
 
@@ -464,6 +522,177 @@ class SummarisingReporter(ProgressReporter, Protocol):
         text : str
             The summary block, one line per row, without a trailing newline.
         """
+
+
+@runtime_checkable
+class ScanReporter(Protocol):
+    """Receive the progress of a parameter scan, point by point (SEP 41, S4).
+
+    :func:`solprop.driver.scan.run_scan` takes one as ``progress=`` in place of its
+    named choices and then draws no display of its own. Four calls:
+    :meth:`scan_started` once, :meth:`point_started` and :meth:`point_finished` once
+    for each point dispatched or collected, and :meth:`scan_finished` once when the
+    scan returns, stopped by its flag or not; an exception from the scan propagates
+    without it. The calls are made in the controlling process, in the thread that
+    called ``run_scan``. When a point starts depends on the executor: ``Local`` at its
+    build, ``Pool`` when the point is sent to a worker, and ``Batch``, ``Queue`` and
+    ``Slurm`` only when its result is collected, just before :meth:`point_finished`. A
+    reporter that also wants each point's own run implements
+    :class:`solprop.log.WatchingScanReporter`.
+
+    Subclass :class:`solprop.log.NullScanReporter` to implement only the calls you care
+    about.
+
+    Examples
+    --------
+    >>> isinstance(NullScanReporter(), ScanReporter)
+    True
+    """
+
+    def scan_started(self, n_points: int) -> None:
+        """Record that a scan has begun.
+
+        Parameters
+        ----------
+        n_points : int
+            The selected points, those a rerun skips as complete included.
+        """
+
+    def point_started(self, index: int, point: object) -> None:
+        """Record that a point has been dispatched.
+
+        Parameters
+        ----------
+        index : int
+            The point's global index.
+        point : solprop.driver.scan.ScanPoint
+            Its values and seed.
+        """
+
+    def point_finished(self, index: int, status: str, wall: float) -> None:
+        """Record that a point's result has been collected.
+
+        Parameters
+        ----------
+        index : int
+            The point's global index.
+        status : str
+            ``"done"``; ``"failed"``; ``"skipped"`` for a point complete in the file;
+            ``"conflict"`` for a complete point whose stored record agrees but for
+            rounding, neutral values or provenance, which is kept; or ``"stopped"``
+            for a point the stop flag stopped, which is not committed and a rerun
+            computes again.
+        wall : float
+            The point's build and run time as its worker measured it, s; for a batch
+            member, its group's.
+        """
+
+    def scan_finished(self) -> None:
+        """Record that the scan has returned."""
+
+
+@runtime_checkable
+class WatchingScanReporter(ScanReporter, Protocol):
+    """A scan reporter that also watches each point's own run (SEP 41, S4).
+
+    Before a point runs, the scan asks for a :class:`ProgressReporter` for it, which
+    then receives that run's calls. ``Local`` runs the point with it in this process.
+    A ``Pool`` worker sends the point's ``summary``, ``started``, ``plane``,
+    ``finished`` and ``interrupted`` calls to the controller, which makes them on the
+    reporter returned here as the messages arrive; each plane carries its position and
+    the four scalars of its :class:`PlaneSummary`, never a field, and ``step``, on the
+    hot path, is not sent. ``Batch``, ``Queue`` and ``Slurm`` ask for none.
+
+    Examples
+    --------
+    >>> isinstance(NullScanReporter(), WatchingScanReporter)
+    True
+    """
+
+    def point_reporter(self, index: int) -> ProgressReporter | None:
+        """Return the reporter for one point's run, or ``None`` for none.
+
+        Parameters
+        ----------
+        index : int
+            The point's global index.
+
+        Returns
+        -------
+        ProgressReporter or None
+            Where the point's run reports; ``None`` runs it silently.
+        """
+        ...
+
+
+class NullScanReporter:
+    """A scan reporter that does nothing, and the base for one that does something.
+
+    Every method is a no-op and :meth:`point_reporter` returns ``None``, so a subclass
+    overrides only what it wants:
+
+    Examples
+    --------
+    >>> class Count(NullScanReporter):
+    ...     def point_finished(self, index, status, wall):
+    ...         print(index, status)
+    >>> isinstance(Count(), ScanReporter)
+    True
+    >>> Count().point_reporter(0) is None
+    True
+    """
+
+    def scan_started(self, n_points: int) -> None:
+        """Ignore the event.
+
+        Parameters
+        ----------
+        n_points : int
+            See :meth:`ScanReporter.scan_started`.
+        """
+
+    def point_started(self, index: int, point: object) -> None:
+        """Ignore the event.
+
+        Parameters
+        ----------
+        index : int
+            See :meth:`ScanReporter.point_started`.
+        point : object
+            See :meth:`ScanReporter.point_started`.
+        """
+
+    def point_finished(self, index: int, status: str, wall: float) -> None:
+        """Ignore the event.
+
+        Parameters
+        ----------
+        index : int
+            See :meth:`ScanReporter.point_finished`.
+        status : str
+            See :meth:`ScanReporter.point_finished`.
+        wall : float
+            See :meth:`ScanReporter.point_finished`.
+        """
+
+    def scan_finished(self) -> None:
+        """Ignore the event."""
+
+    def point_reporter(self, index: int) -> ProgressReporter | None:
+        """Watch no point.
+
+        Parameters
+        ----------
+        index : int
+            See :meth:`WatchingScanReporter.point_reporter`.
+
+        Returns
+        -------
+        None
+            The point runs silently.
+        """
+        del index
+        return None
 
 
 class NullReporter:
@@ -563,7 +792,7 @@ class LogReporter:
     gradient fill changes the operator and the plasma cost along z, and a plane-dense
     run pays its planes unevenly. When a fixed schedule is replayed the total step count
     is known, so the estimate is the remaining steps at the recent cost per step. Both
-    estimates' median absolute relative errors are kept, and :meth:`finished` logs the
+    estimates' median absolute relative errors are kept, and ``finished()`` logs the
     reported one, so the estimator is measured on every run rather than assumed.
 
     Parameters
@@ -685,7 +914,7 @@ class LogReporter:
         -------
         float
             Median absolute relative error of the windowed estimate over every periodic
-            line that published one; NaN before :meth:`finished`, or when no line did.
+            line that published one; NaN before ``finished()``, or when no line did.
         """
         return self._median_error(0)
 
