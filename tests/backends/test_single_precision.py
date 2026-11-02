@@ -51,22 +51,25 @@ from solprop.backends.registry import (
     select_batch,
 )
 from solprop.boundaries import absorber
-from solprop.constants import EPS0
+from solprop.constants import EPS0, C
 from solprop.driver import Simulation, prop_gnlse
 from solprop.driver import simulation as simulation_module
 from solprop.driver.simulation import SimulationSettings
 from solprop.exceptions import (
     BackendError,
+    BoundaryWarning,
     ConvergenceError,
     DriverError,
     ExponentBudgetWarning,
     TranslationError,
 )
 from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid, LineGrid, RadialGrid
+from solprop.monitor import BoundaryCheck
 from solprop.nonlinear.ionisation import RunningIntegral
 from solprop.nonlinear.optmat_raman import gas_raman
 from solprop.nonlinear.optmat_rates import OptmatRate
 from solprop.nonlinear.responses import KerrResponse, PlasmaResponse
+from solprop.output.schema import RUN_SUMMARY_ANNOTATION, PlaneStore
 from solprop.physdata import gamma3
 from solprop.physdata.selection import MaterialSelection
 from solprop.pulses import GaussianPulse, SpatialPulse
@@ -1183,3 +1186,76 @@ def test_the_binary32_analytic_signal_is_the_hilbert_transforms(n):
     expected = signal.hilbert(values.astype(np.float64))
     assert_within(analytic_single(values), expected, 64 * U32)
 
+
+# A whole run, as a user sees it.
+
+
+def drifting_pulse(backend: str) -> Simulation:
+    """Return a single-precision fibre run whose pulse walks deep into the collar.
+
+    A ten-kilowatt Gaussian pulse, offset in frequency so that the group-velocity
+    walk-off carries it 0.65 of the window over a metre of 200 fixed steps, under the
+    split-step collar, its boundary check relaxed so the walk is recorded, not
+    stopped. The nonlinearity is scaled down with the power: the walk is linear.
+    """
+    length, trange, beta2, peak_power = 1.0, 1e-12, 2e-26, 1e4
+    grid = EnvelopeGrid.from_limits(length, 1e-6, (0.8e-6, 1.25e-6), trange)
+    omega0 = 2 * math.pi * C / 1e-6
+    offset = 0.65 * trange / (beta2 * length)
+    simulation = Simulation.from_gnlse(
+        1e-9 / peak_power, length, [0.0, 0.0, beta2], wavelength=1e-6, grid=grid,
+        pulses=[GaussianPulse(
+            wavelength=2 * math.pi * C / (omega0 + offset), fwhm=200e-15,
+            peak_power=peak_power,
+        )],
+        noise=None, raman=False, shock=False, n_save=3, precision="single",
+        backend=backend, integrator=RungeKutta(), rtol=1e-5,
+        schedule=FixedSchedule.uniform(0.0, length, length / 200),
+    )  # fmt: skip
+    simulation.settings = dataclasses.replace(
+        simulation.settings,
+        boundary_check=BoundaryCheck(budget=1.0, stop_factor=1.0),
+        absorber_scheme="split_step",
+    )
+    return simulation
+
+
+def check_a_whole_run(backend: str) -> None:
+    """Run :func:`drifting_pulse` through ``Simulation.run`` and check what it reports.
+
+    The summary names the precision and the backend, the saved field is widened to
+    binary64 (observation is exact), and the boundary monitor's record counts every
+    step and reads as removed what the run lost.
+    """
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", BoundaryWarning)
+        run = drifting_pulse(backend).run(progress="none")
+    assert isinstance(run, PlaneStore)
+    (summary,) = cast(
+        "list[dict[str, list[list[str]]]]", run.annotations[RUN_SUMMARY_ANNOTATION]
+    )
+    rows = {row[0]: row[1] for row in summary["rows"]}
+    assert rows["precision"] == "single"
+    assert rows["backend"] == backend
+    field = np.asarray(run["field"])
+    assert field.dtype == np.complex128
+    assert field.shape[0] == 3 and np.all(np.isfinite(field))
+    outcome = run.outcome
+    assert outcome is not None and outcome.execution is not None
+    record = outcome.execution["boundary_monitor"]
+    assert isinstance(record, dict)
+    assert record["steps"] == 200
+    assert record["launch_energy"] > 0.0
+    energy = np.asarray(run["stats/energy"])[:, 0, 0]
+    lost = float(1.0 - energy[-1] / energy[0])
+    assert lost > 0.5
+    # Binary32's rounding over 200 steps: each step's removal is a non-negative sum,
+    # within gamma of its few hundred samples of itself, and the states it is taken
+    # from agree with the energies' to the march's rounding.
+    assert record["removed_fraction"] == pytest.approx(lost, rel=1e-4)
+    assert 0.0 < record["collar_max"] <= 1.0
+
+
+@pytest.mark.medium
+def test_a_whole_single_precision_run_reports_what_it_ran():
+    check_a_whole_run("numpy_ref")

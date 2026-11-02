@@ -12,7 +12,8 @@ reading drains the sum. ``numpy_ref`` forms both on the host
 (:meth:`solprop.monitor.BoundaryMonitor.energies`, ``split_removal``), the oracle every
 other backend is held to here, on each route's tiny case
 (``tests/capability_routes.py``) launched with a copy of its pulse near the window's
-edge, so that every region holds light.
+edge, so that every region holds light. ``mlx``, single precision only, is held to the
+single-precision oracle on the same probes in ``tests/backends/test_mlx.py``.
 """
 
 from __future__ import annotations
