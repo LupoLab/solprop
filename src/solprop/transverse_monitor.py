@@ -32,8 +32,10 @@ from dataclasses import dataclass, field
 from typing import Literal, cast
 
 import numpy as np
+import scipy.fft
 from jaxtyping import Complex, Float, Int
 
+from solprop._process import thread_budget
 from solprop.exceptions import BoundaryError, BoundaryWarning
 from solprop.grid import FreeGrid, LineGrid, RadialGrid
 from solprop.modes.slab import PlanarGrid
@@ -232,6 +234,9 @@ class TransverseEdge:
     _current_last: tuple[float, float] | None = field(default=None, init=False)
     _current_baseline: float = field(default=0.0, init=False)
     _returned_peak: float = field(default=0.0, init=False)
+    _inverse: np.ndarray | None = field(default=None, init=False)
+    _read_rows: np.ndarray | None = field(default=None, init=False)
+    _workers: int = field(default=1, init=False)
 
     def __post_init__(self) -> None:
         """Build the faces, the node weights and the column wavenumbers."""
@@ -251,10 +256,15 @@ class TransverseEdge:
         self._peak = [0.0] * len(self._faces)
         self._peak_raw = [0.0] * len(self._faces)
         self._baseline = [0.0] * len(self._faces)
+        # The host's transverse transforms take the process's thread budget (ADR-052).
+        self._workers = thread_budget().threads
 
     # ------------------------------------------------------------------ reductions
     def _node_power(
-        self, state: Complex[np.ndarray, "n_modes n_pol n_omega"]
+        self,
+        state: Complex[np.ndarray, "n_modes n_pol n_omega"],
+        *,
+        read: bool = False,
     ) -> Float[np.ndarray, " n_nodes"]:
         """Return each physical node's (or row's) energy, summed over pol and frequency.
 
@@ -262,6 +272,11 @@ class TransverseEdge:
         ----------
         state : numpy.ndarray
             One batch member's spectral columns.
+        read : bool, optional
+            Whether only the rows a read uses are wanted: the edge's faces, and a
+            requested collar's (:meth:`_rows_read`). Radially the others are not
+            synthesised and are zero; a read happens many times a run, and the full
+            synthesis is an ``n_r``-square product per frequency.
 
         Returns
         -------
@@ -271,21 +286,59 @@ class TransverseEdge:
         space = self.space
         flat = state.reshape(state.shape[0], -1)
         if isinstance(space, RadialGrid):
-            hankel = space.hankel
-            inverse = (
-                hankel.inverse_scale
-                * (hankel.j1[:, None] / hankel.j1[None, :])
-                * hankel.matrix
-            )
-            physical = inverse @ flat
-            return np.sum(np.abs(physical) ** 2, axis=1)
+            if self._inverse is None:
+                hankel = space.hankel
+                self._inverse = (
+                    hankel.inverse_scale
+                    * (hankel.j1[:, None] / hankel.j1[None, :])
+                    * hankel.matrix
+                )
+            if not read:
+                return np.sum(np.abs(self._inverse @ flat) ** 2, axis=1)
+            rows = self._rows_read()
+            nodes = np.zeros(space.n_r)
+            nodes[rows] = np.sum(np.abs(self._inverse[rows] @ flat) ** 2, axis=1)
+            return nodes
         if isinstance(space, PlanarGrid):
             cube = flat.reshape(space.n_y, space.n_p, -1)
-            physical = np.fft.ifft(cube, axis=0)
+            physical = scipy.fft.ifft(cube, axis=0, workers=self._workers)
             return np.sum(np.abs(physical) ** 2, axis=(1, 2))
         cube = flat.reshape(space.n_y, space.n_x, -1)
-        physical = np.fft.ifftn(cube, axes=(0, 1))
+        physical = scipy.fft.ifftn(cube, axes=(0, 1), workers=self._workers)
         return np.sum(np.abs(physical) ** 2, axis=2).reshape(-1)
+
+    def _rows_read(self) -> np.ndarray:
+        """Return the nodes (or rows) a read uses: the faces' and a collar's.
+
+        Returns
+        -------
+        numpy.ndarray
+            A mask over the nodes.
+        """
+        if self._read_rows is None:
+            rows = np.zeros(self._weights.size, dtype=bool)
+            for face in self._faces:
+                rows |= face.edge
+            rate = self._node_rate()
+            if rate is not None:
+                rows |= rate > 0.0
+            self._read_rows = rows
+        return self._read_rows
+
+    def _node_rate(self) -> Float[np.ndarray, " n_nodes"] | None:
+        """Return a requested collar's power rate on the nodes (or rows), 1/m.
+
+        Returns
+        -------
+        numpy.ndarray or None
+            The rate; ``None`` without a collar. On a slab it depends on y alone.
+        """
+        if self.design is None or self.design.collar_rate is None:
+            return None
+        rate = np.asarray(self.design.collar_rate)
+        if isinstance(self.space, PlanarGrid):
+            rate = rate.reshape(self.space.n_y, -1)[:, 0]
+        return rate
 
     def _column_power(
         self, state: Complex[np.ndarray, "n_modes n_pol n_omega"]
@@ -502,11 +555,9 @@ class TransverseEdge:
         float
             ``sum alpha w |E|^2 / U_launch``; zero without a collar.
         """
-        if self.design is None or self.design.collar_rate is None:
+        rate = self._node_rate()
+        if rate is None:
             return 0.0
-        rate = np.asarray(self.design.collar_rate)
-        if isinstance(self.space, PlanarGrid):
-            rate = rate.reshape(self.space.n_y, -1)[:, 0]
         return float(np.sum(rate * self._weights * nodes)) / self._launch
 
     def _spacing(self, state: Complex[np.ndarray, "n_modes n_pol n_omega"]) -> float:
@@ -597,7 +648,7 @@ class TransverseEdge:
         """
         if not self._launch > 0.0 or self._status == "unwatched":
             return
-        nodes = self._node_power(state)
+        nodes = self._node_power(state, read=True)
         weighted = self._weights * nodes
         gap = z - self._last_z
         if gap <= 0.0:
