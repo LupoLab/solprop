@@ -107,7 +107,7 @@ agree to rounding-level bounds, and adaptive runs within an accuracy envelope.
 
 ### 5. Proposed interface
 
-- `backend="numba_cpu"` raises a `ValueError` naming `native` and `numpy_ref`, and the
+- `backend="numba_cpu"` raises a `BackendError` naming `native` and `numpy_ref`, and the
   release that removed it, in place of today's unknown-backend message. Old output and snapshots that record `numba_cpu` as their
   backend still load.
 - `backend="auto"` picks `native` when it is installed and the processor is at or above
@@ -117,8 +117,8 @@ agree to rounding-level bounds, and adaptive runs within an accuracy envelope.
   x86-64-v2` asks for the lower build, for tests and comparisons; a higher build than the
   processor runs is refused by name, as an unknown name is. `solprop_native.build_info()`
   and the benchmark build string report which build is loaded.
-- `SOLPROP_NUMBA_*`, `SOLPROP_FFTW_PLAN` and `SOLPROP_PASS_TIMERS` go. Native has Kokkos
-  regions for what the pass timers measured.
+- `SOLPROP_NUMBA_*` and `SOLPROP_PASS_TIMERS` go; `SOLPROP_FFTW_PLAN` stays, since native
+  reads it. Native has Kokkos regions for what the pass timers measured.
 
 ### 6. Implementation strategies
 
@@ -269,7 +269,7 @@ recorded as the maintainer's decision.
 | Who | Before | After |
 |---|---|---|
 | Arm below Neoverse N1, Windows before version 2004, Intel macOS, ppc64le | `numba_cpu` where Numba installs | `numpy_ref` where it installs |
-| x86-64 below x86-64-v2 (Intel before 2008, AMD before 2011) | `numba_cpu` | `numpy_ref`, unthreaded |
+| x86-64 below x86-64-v2 (Intel before 2008, AMD before 2011) | Nothing from wheels: NumPy 2.5.2's own baseline is `X86_V2`, so `numba_cpu` can't import it either | Unchanged. Native's v2 build sits at NumPy's floor |
 | Any CPU inside a GPU build | `numba_cpu` in process | A second environment with the CPU wheel, or `numpy_ref` in process |
 | x86-64 below AVX2 | Numba compiled for the host | Native v2, in 0.44 to 0.51 of Numba's time |
 
