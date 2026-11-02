@@ -51,7 +51,7 @@ from dataclasses import dataclass, field, fields, replace
 from typing import Literal, Protocol, cast, runtime_checkable
 
 import numpy as np
-from jaxtyping import Complex, Float, Int
+from jaxtyping import Bool, Complex, Float, Int
 from numpy.polynomial import chebyshev as chebyshev_basis
 from scipy.integrate import quad_vec
 
@@ -89,7 +89,11 @@ from solprop.translate.expansion import (
     parameter_roundoff_floor,
     reweight_expansion,
 )
-from solprop.translate.spatial import SeparableOperator, separable_values
+from solprop.translate.spatial import (
+    SeparableOperator,
+    longitudinal_root,
+    separable_values,
+)
 
 __all__ = [
     "DEFAULT_MARGIN",
@@ -115,6 +119,7 @@ __all__ = [
     "tabulate",
     "unitary_phase",
     "verify_phi",
+    "walk_off_rate",
     "with_power_weight",
 ]
 
@@ -2973,6 +2978,201 @@ def _separable_phase(
         operator, _ = separable_values(coefficients, rows)
         result[:, rows] = (np.imag(operator) if imaginary else operator) * distance
     return result
+
+
+_WALK_OFF_POSITIONS = 5
+"""Positions along a z-varying operator at which :func:`walk_off_rate` reads it."""
+
+
+def walk_off_rate(
+    table: LinearOperator,
+    omega: Float[np.ndarray, " n_omega"],
+    omega0: float,
+    band: Bool[np.ndarray, " n_omega"],
+) -> float:
+    """Return the fastest group-delay walk-off against the frame, s/m.
+
+    ``max |d(beta - beta_frame)/d omega|`` (the frame's ``beta_1`` subtracted), read
+    from the operator ``D = -i (beta - beta_frame) - alpha / 2`` by centred differences
+    over two sets of bins: **every column at the reference frequency** (the modes'
+    spread of group delays at the carrier, the modal planning range of
+    :func:`solprop.boundaries.warn_walkoff`'s callers), and **the frame's own column**
+    -- the first mode, or the column of smallest transverse wavenumber -- **over the
+    requested band**, where a pulse off the reference wavelength walks. A transverse
+    column's group delay ``k k' / k_z`` diverges towards its cutoff, so the whole
+    band of every column would bound the step by content near cutoff, of a few
+    columns at the band's red edge. A separable operator's evanescent bins are passed
+    over; a tabulated operator's columns, modes or a radial grid's, are read as they
+    are, which on a radial grid fine enough to hold an evanescent column at the
+    reference frequency reads that column's frame rate. A z-varying
+    operator is read at five positions along its table, and its largest rate taken.
+
+    Parameters
+    ----------
+    table : LinearOperator
+        The cumulative operator.
+    omega : numpy.ndarray
+        The coarse angular frequency axis, rad/s, shape ``(n_omega,)``, in the state's
+        order.
+    omega0 : float
+        The reference frequency, rad/s.
+    band : numpy.ndarray
+        Boolean, shape ``(n_omega,)``: the requested band's bins.
+
+    Returns
+    -------
+    float
+        The rate, s/m; zero when no bin qualifies.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from solprop.translate.linop import constant_phi, walk_off_rate
+    >>> omega = np.linspace(1.0e15, 3.0e15, 201)
+    >>> beta2, omega0 = 2e-26, 2.0e15
+    >>> operator = -1j * 0.5 * beta2 * (omega - omega0) ** 2
+    >>> rate = walk_off_rate(
+    ...     constant_phi(operator, 1.0), omega, omega0, np.abs(omega - omega0) < 5e14
+    ... )
+    >>> round(rate / (beta2 * 4.9e14), 6)  # the band's last bin, 4.9e14 rad/s out
+    1.0
+    """
+    order = np.argsort(omega)
+    axis = np.asarray(omega, dtype=np.float64)[order]
+    centre = int(np.argmin(np.abs(axis - omega0)))
+    if not 1 <= centre < len(axis) - 1:
+        return 0.0
+    # Sorted bins about the reference, and the requested band's interior bins.
+    near = order[centre - 1 : centre + 2]
+    inside = np.asarray(band, dtype=bool)[order]
+    if table.separable is not None:
+        # Two slices of the operator, never the whole state: every column on the three
+        # bins about the reference, and the frame's column on every bin.
+        coefficients = table.separable
+        first = int(np.argmin(coefficients.kperp_sq))
+        columns = (None, slice(first, first + 1))
+        (near_phase, near_valid), (own_phase, own_valid) = (
+            _separable_phase_rows(coefficients, bins, chosen)
+            for bins, chosen in zip((near, order), columns, strict=True)
+        )
+        return max(
+            _slope_rate(near_phase, near_valid, axis[centre - 1 : centre + 2]),
+            _slope_rate(own_phase, own_valid, axis, inside),
+        )
+    lo, hi = float(table.phi_breakpoints[0]), float(table.phi_breakpoints[-1])
+    varies = table.phi_constant is None
+    rates = [0.0]
+    for z in np.linspace(lo, hi, _WALK_OFF_POSITIONS) if varies else [lo]:
+        rate = phi_rate(table, float(z))
+        phase = -np.imag(rate.reshape(-1, rate.shape[-1]))[:, order]
+        everywhere = np.ones(phase.shape, dtype=bool)
+        rates.append(
+            max(
+                _slope_rate(
+                    phase[:, centre - 1 : centre + 2],
+                    everywhere[:, :3],
+                    axis[centre - 1 : centre + 2],
+                ),
+                _slope_rate(phase[:1], everywhere[:1], axis, inside),
+            )
+        )
+    return max(rates)
+
+
+def _slope_rate(
+    phase: Float[np.ndarray, "n_rows n_bins"],
+    valid: Bool[np.ndarray, "n_rows n_bins"],
+    axis: Float[np.ndarray, " n_bins"],
+    at: Bool[np.ndarray, " n_bins"] | None = None,
+) -> float:
+    """Return the largest centred slope ``|d phase / d omega|`` over rows and bins.
+
+    Parameters
+    ----------
+    phase : numpy.ndarray
+        Phases per metre on sorted frequency bins, rad/m.
+    valid : numpy.ndarray
+        Which bins may be read; a slope needs its bin and both neighbours.
+    axis : numpy.ndarray
+        The sorted angular frequencies, rad/s.
+    at : numpy.ndarray or None, optional
+        The bins whose slopes count, their neighbours read regardless; ``None`` takes
+        all.
+
+    Returns
+    -------
+    float
+        The slope, s/m; zero where no bin qualifies.
+    """
+    slope = np.abs(phase[:, 2:] - phase[:, :-2]) / (axis[2:] - axis[:-2])
+    ok = valid[:, 1:-1] & valid[:, 2:] & valid[:, :-2]
+    if at is not None:
+        ok &= at[None, 1:-1]
+    return float(np.max(np.where(ok, slope, 0.0), initial=0.0))
+
+
+def _separable_phase_rows(
+    coefficients: SeparableOperator,
+    bins: Int[np.ndarray, " n_bins"],
+    columns: slice | None,
+) -> tuple[Float[np.ndarray, "n_rows n_bins"], Bool[np.ndarray, "n_rows n_bins"]]:
+    """Return a separable operator's phase ``Re k_z - beta_frame`` on some bins.
+
+    Parameters
+    ----------
+    coefficients : solprop.translate.spatial.SeparableOperator
+        The operator.
+    bins : numpy.ndarray
+        Indices into its frequency axis.
+    columns : slice or None
+        Transverse columns; ``None`` takes all.
+
+    Returns
+    -------
+    tuple of numpy.ndarray
+        The phases, rad/m, and where the bins are active and propagate.
+    """
+    sliced = _separable_bins(coefficients, bins)
+    root, propagating, _ = longitudinal_root(sliced, columns)
+    active = np.asarray(sliced.active, dtype=bool)[None, :]
+    return np.real(root) - sliced.frame[None, :], propagating & active
+
+
+def _separable_bins(
+    coefficients: SeparableOperator, bins: Int[np.ndarray, " n_bins"]
+) -> SeparableOperator:
+    """Return a separable operator on some of its frequency bins, in their order.
+
+    Parameters
+    ----------
+    coefficients : solprop.translate.spatial.SeparableOperator
+        The operator.
+    bins : numpy.ndarray
+        Indices into its frequency axis.
+
+    Returns
+    -------
+    solprop.translate.spatial.SeparableOperator
+        The same columns on those bins.
+    """
+    per_bin = {
+        name: np.asarray(getattr(coefficients, name))[bins]
+        for name in (
+            "k_squared",
+            "k_squared_low",
+            "frame",
+            "spectral_rate",
+            "prefactor_numerator",
+            "prefactor_clamped",
+            "active",
+        )
+    }
+    kappa = coefficients.kappa_sq
+    return replace(
+        coefficients,
+        **per_bin,
+        kappa_sq=None if kappa is None else np.asarray(kappa)[:, bins],
+    )
 
 
 def unitary_phase(

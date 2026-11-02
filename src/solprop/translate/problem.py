@@ -43,8 +43,10 @@ from jaxtyping import Bool, Complex, Float
 from solprop._process import host_blas
 from solprop.adiabatic import AdiabaticAccuracy, certify_radial_path
 from solprop.boundaries import (
+    SPLIT_CROSSING,
     STABILITY_RADIUS,
     Absorber,
+    split_crossing_step,
     stable_step,
 )
 from solprop.constants import EPS0, C
@@ -124,6 +126,7 @@ from solprop.translate.linop import (
     build_phi,
     delta_phi,
     power_weight_row,
+    walk_off_rate,
     with_power_weight,
 )
 from solprop.translate.masks import (
@@ -2923,6 +2926,73 @@ def _crossing_clamped(
     dz_max = min(dz_max, budget / design.ramp_strength)
     if design.has_collar:
         dz_max = min(dz_max, design.crossing_step)
+    return dz_max, min(dz_init, dz_max)
+
+
+def _split_crossing_clamped(
+    compiled: CompiledResponses,
+    linear: LinearOperator,
+    grid: TimeGrid,
+    bounds: tuple[float, float],
+    schedule: FixedSchedule | None,
+) -> tuple[float, float]:
+    """Return the step bounds held to the split temporal collar's crossing limit.
+
+    Under the ``"split_step"`` scheme the collar damps the state once per accepted
+    step, so a step whose walk-off exceeds the collar's width can carry light through
+    it and round the periodic window, undamped, where on a linear stretch the error
+    estimate sees nothing. No adaptive step walks more than
+    :data:`~solprop.boundaries.SPLIT_CROSSING` of the collar
+    (:func:`~solprop.boundaries.split_crossing_step`, with the rate of
+    :func:`~solprop.translate.linop.walk_off_rate`), and a fixed schedule past that
+    limit is refused, as SEP 40 section 4.7 does for the transverse collar. The
+    in-stage scheme, and a run without a temporal collar, keep their bounds.
+
+    Parameters
+    ----------
+    compiled : solprop.translate.responses.CompiledResponses
+        The compiled responses, with the temporal collar and its scheme.
+    linear : LinearOperator
+        The linear operator, whose group delays walk.
+    grid : solprop.grid.TimeGrid
+        The grid, with the collar and the requested band.
+    bounds : tuple of float
+        The largest and the first step, m.
+    schedule : solprop.stepper.schedule.FixedSchedule or None
+        A fixed schedule to replay, or ``None`` for an adaptive run.
+
+    Returns
+    -------
+    tuple
+        The largest step and the first step, m.
+
+    Raises
+    ------
+    TranslationError
+        If the fixed schedule's longest step exceeds the limit.
+    """
+    dz_max, dz_init = bounds
+    if compiled.absorber_scheme != "split_step" or compiled.temporal_absorber is None:
+        return dz_max, dz_init
+    width = min(grid.t_collar.width_low, grid.t_collar.width_high)
+    if not width > 0.0:
+        return dz_max, dz_init
+    rate = walk_off_rate(linear, grid.omega, grid.omega0, grid.inband_mask)
+    limit = split_crossing_step(rate, width)
+    if schedule is not None:
+        longest = float(np.max(schedule.steps))
+        if longest > limit:
+            msg = (
+                f"the fixed schedule's longest step {longest:.3e} m exceeds the split "
+                f"temporal collar's crossing limit {limit:.3e} m, {SPLIT_CROSSING:g} "
+                f"of the collar's {width:.3e} s width over the fastest walk-off "
+                f"{rate:.3e} s/m: a step that long could carry light through the "
+                "collar and round the window undamped. Take shorter steps, an "
+                'adaptive run, which the limit holds, or absorber_scheme="nonlinear"'
+            )
+            raise TranslationError(msg)
+        return dz_max, dz_init
+    dz_max = min(dz_max, limit)
     return dz_max, min(dz_init, dz_max)
 
 
@@ -6455,6 +6525,9 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
     )
     dz_max, dz_init = _crossing_clamped(
         design, dz_max, dz_init, single=precision.single
+    )
+    dz_max, dz_init = _split_crossing_clamped(
+        compiled, linear, grid, (dz_max, dz_init), schedule
     )
     settings = _stepper_settings(
         linear,

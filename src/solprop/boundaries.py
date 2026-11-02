@@ -84,6 +84,7 @@ __all__ = [
     "MAX_ALPHA_LENGTH",
     "MIN_COLLAR_ATTENUATION",
     "MIN_COLLAR_SAMPLES",
+    "SPLIT_CROSSING",
     "STABILITY_RADIUS",
     "TEMPORAL_ALPHA_LENGTH",
     "Absorber",
@@ -96,6 +97,7 @@ __all__ = [
     "custom_absorber",
     "no_absorber",
     "nonlinear_absorber_term",
+    "split_crossing_step",
     "split_step_factor",
     "stable_step",
     "temporal_collar_rate",
@@ -156,6 +158,17 @@ MIN_COLLAR_ATTENUATION: Final = math.log(1e3)
 
 ``log(1e3)``: the field falls by a thousand and the power by sixty decibels. Below that
 :func:`warn_walkoff` says the absorber is too weak for the walk-off the run can produce.
+"""
+
+SPLIT_CROSSING: Final = 0.5
+"""``c`` of the split collar's step limit ``h <= c w / max |d tau / dz|``: no step
+carries light more than half the temporal collar's width (:func:`split_crossing_step`).
+
+The ``"split_step"`` scheme damps the collar once per accepted step, at the step's end,
+so light that walks through the collar within one step wraps round the periodic window
+into the interior undamped, and on a linear stretch the error estimate sees nothing.
+At half a width a crossing is damped at two step ends at least; the same factor as SEP
+40's adaptive transverse clamp (:data:`solprop.spatial_absorber.CROSSING_ADAPTIVE`).
 """
 
 STABILITY_RADIUS: Final = 3.3
@@ -750,6 +763,46 @@ def custom_absorber(
         reference_length=reference,
         collar_length=base.in_stage_length,
     )
+
+
+def split_crossing_step(
+    rate: float, width: float, factor: float = SPLIT_CROSSING
+) -> float:
+    """Return the longest step the split collar holds a walking pulse to, m.
+
+    ``factor * width / rate``: a component whose group delay walks ``rate`` seconds
+    per metre against the frame moves ``factor`` of the collar's ``width`` in one step
+    at most, so it cannot cross the collar between two of the split's applications.
+    Translation holds an adaptive run's ``dz_max`` to it and refuses a fixed schedule
+    past it, under the ``"split_step"`` scheme; the in-stage scheme absorbs inside
+    every stage and needs no such limit.
+
+    Parameters
+    ----------
+    rate : float
+        The fastest walk-off against the frame, s/m, nonnegative
+        (:func:`solprop.translate.linop.walk_off_rate`).
+    width : float
+        The temporal collar's width at its narrower edge, s.
+    factor : float, optional
+        ``c``, the share of the width one step may walk; :data:`SPLIT_CROSSING`.
+
+    Returns
+    -------
+    float
+        The step, m; ``inf`` when nothing walks.
+
+    Examples
+    --------
+    >>> from solprop.boundaries import split_crossing_step
+    >>> round(split_crossing_step(1.7e-12, 212e-15), 4)
+    0.0624
+    >>> split_crossing_step(0.0, 212e-15)
+    inf
+    """
+    if not rate > 0.0:
+        return math.inf
+    return factor * width / rate
 
 
 def stable_step(temporal_rate: Float[np.ndarray, " n_t"]) -> float:
