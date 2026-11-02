@@ -282,7 +282,7 @@ def summarise(payload: Payload) -> dict[str, object]:
     design_error: str | None = None
     if recipe.route == "capillary":
         try:
-            design = _capillary_design(recipe)
+            design = _capillary_design(recipe, float(preview.energy))
         except (SolpropError, KeyError, TypeError, ValueError) as error:
             design_error = str(error)
     return {
@@ -294,13 +294,22 @@ def summarise(payload: Payload) -> dict[str, object]:
     }
 
 
-def _capillary_design(recipe: Recipe) -> dict[str, float]:
+_SHARED = ("shape", "temperature", "model", "loss", "cladding", "materials")
+"""The capillary's keywords that ``tools.capillary_params`` also takes, by name."""
+
+
+def _capillary_design(recipe: Recipe, energy: float) -> dict[str, float]:
     """Return a capillary recipe's design numbers at the entrance.
+
+    The keywords the tool shares with the route are passed on, with the route's
+    default where the recipe gives none (the pulse shape's differs: Gaussian).
 
     Parameters
     ----------
     recipe : solprop.recipe.Recipe
         A resolved capillary recipe.
+    energy : float
+        The pulse energy launched, J (given, or from the peak power).
 
     Returns
     -------
@@ -311,9 +320,15 @@ def _capillary_design(recipe: Recipe) -> dict[str, float]:
     Raises
     ------
     KeyError
-        If the recipe gives no ``fwhm`` or ``energy``: the numbers need both.
+        If the recipe gives no ``fwhm``: the numbers need it.
     """
     keywords = recipe.keywords()
+    defaults = parameters(recipe.route)
+    shared = {
+        name: keywords.get(name, defaults[name].default)
+        for name in _SHARED
+        if keywords.get(name, defaults[name].default) is not None
+    }
     pressure = keywords.get("pressure")
     if isinstance(pressure, tuple | list):
         # A gradient: the numbers at the entrance.
@@ -323,9 +338,10 @@ def _capillary_design(recipe: Recipe) -> dict[str, float]:
         float(keywords["radius"]),  # pyright: ignore[reportArgumentType]
         keywords["gas"],  # pyright: ignore[reportArgumentType]
         None if pressure is None else float(pressure),  # pyright: ignore[reportArgumentType]
-        energy=float(keywords["energy"]),  # pyright: ignore[reportArgumentType]
+        energy=energy,
         fwhm=float(keywords["fwhm"]),  # pyright: ignore[reportArgumentType]
         wavelength=float(keywords["wavelength"]),  # pyright: ignore[reportArgumentType]
+        **shared,  # pyright: ignore[reportArgumentType]
     )
     return {
         "soliton_order": float(params.soliton_order),

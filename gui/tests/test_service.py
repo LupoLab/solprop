@@ -165,6 +165,15 @@ def test_summarise_gives_the_pulse_and_the_design_numbers():
     no_width = TINY.replace('fwhm = "10 fs"', 'width = "6 fs"\nshape = "sech"')
     summary = ask("summarise", {"text": no_width})
     assert summary["design"] == {} and summary["design_error"]
+    # The numbers are the recipe's own: its pulse shape (Gaussian by default) and an
+    # energy from its peak power.
+    order = TINY.replace('energy = "100 uJ"\n', "") + (
+        '\n[pins]\nenergy = { target = "soliton_order", order = 3 }\n'
+    )
+    pinned = ask("summarise", {"text": order})
+    assert pinned["design"]["soliton_order"] == pytest.approx(3.0, rel=1e-4)
+    power = TINY.replace('energy = "100 uJ"', 'peak_power = "5 GW"')
+    assert ask("summarise", {"text": power})["design"]["soliton_order"] > 1
 
 
 def test_previews_estimate_and_export():
