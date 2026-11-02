@@ -22,9 +22,6 @@ def go(label, script, args, env, limit):
 # What the pool executor sets in a worker before its interpreter starts (pool.py).
 def worker(width):
     return dict.fromkeys(("SOLPROP_THREADS", "OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "VECLIB_MAXIMUM_THREADS"), width)
-for threads in (1, 2, 4):
+for threads in (1, 2, 3, 4):
     for n_r in (18, 24, 28):
-        go(f"pool-scan threads={threads} n_r={n_r}", "arm_scan.py", [str(n_r), backend, str(threads), "120"], {}, 120)
-for label, env in (("no-settings", {}), ("env-1", worker("1")), ("env-2", worker("2")), ("env-4", worker("4"))):
-    for n_r in (18, 24, 28):
-        go(f"{label} n_r={n_r}", "arm_real.py", [str(n_r), backend], env, 90)
+        go(f"pool-scan threads={threads} n_r={n_r}", "arm_scan.py", [str(n_r), backend, str(threads), "90"], {}, 90)

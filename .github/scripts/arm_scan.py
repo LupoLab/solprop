@@ -15,6 +15,8 @@ from solprop.stepper import PIController
 
 
 def build_point(point):
+    if os.environ.get("ARM_SCAN_CRASH"):
+        os._exit(3)
     n_r = int(sys.argv[1])
     grid = EnvelopeGrid.from_limits(1e-4, 800e-9, (500e-9, 1.6e-6), 100e-15, thg=False)
     space = RadialGrid(4e-4, n_r, collar_fraction=1.25)
@@ -31,5 +33,5 @@ if __name__ == "__main__":
     faulthandler.dump_traceback_later(int(sys.argv[4]) - 5, exit=True)
     print("start", sys.argv[1:], flush=True)
     with tempfile.TemporaryDirectory() as folder:
-        run_scan(Scan("energy", energy=[1e-9, 2e-9]), build_point, output=os.path.join(folder, "s.h5"), executor=Pool(workers=2, threads=int(sys.argv[3])))
-    print("finished", sys.argv[1:], flush=True)
+        result = run_scan(Scan("energy", energy=[1e-9, 2e-9]), build_point, output=os.path.join(folder, "s.h5"), executor=Pool(workers=2, threads=int(sys.argv[3])))
+        print("finished points", [str(x) for x in result.status.ravel()], flush=True)
