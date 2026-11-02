@@ -150,12 +150,13 @@ capability does not admit is refused by name
 ({py:mod}`solprop.output.capability`). The gate is applied at **four** doors: at
 {py:class}`~solprop.stats.StatsSpec` admission in the run loop, in each backend's
 `stats`, in the accessors of {py:mod}`solprop.processing.modal`, and in the
-modal-amplitude processing functions such as {py:func}`~solprop.processing.time.energy`
-and {py:func}`~solprop.processing.time.peak_power`. The
-last two see only the stored record, and `peak_power(modes="sum")` is
+modal-amplitude readers of {py:mod}`solprop.processing` and the plots drawn from them
+({py:data}`~solprop.output.capability.COLUMN_READINGS`). Those readers see only the
+stored record. On a general modal file the fourth door refuses `energy` and
+`peak_power` (and the plot of the energy): `peak_power(modes="sum")` is
 `peak_power_total`, so without that door the number the other three refuse would come
-back through a different import. The same door refuses a spatial file's columns read as
-modes ([below](#spatial-files-and-the-modal-readers)).
+back through a different import. On a spatial file it refuses every one of them,
+because they read the columns as modes ([below](#spatial-files-and-the-modal-readers)).
 
 ```{eval-rst}
 .. list-table::
@@ -209,17 +210,26 @@ spatial file the readers that form it refuse by name, at the same door, and name
 plots `prop_2d`, `time_1d`, `spec_1d` and `plot_energy`, and a plane observer's
 `power` and `spectral_density`
 ({py:data}`~solprop.output.capability.COLUMN_READINGS`). The refusal follows the scan
-reductions' wording:
+reductions' wording, names only functionals that work on the file's route, and points
+to the beam statistics the run recorded, if any:
 
 ```{code-block} text
 energy measures modal amplitudes and this is a radial run, whose columns are not: use
-solprop.spatial.spatial_energy (planar_mode_energy per slab mode), or the run's own
-spatial statistics (energy, peak_intensity, on_axis_intensity, beam_radius). ...
+solprop.spatial.spatial_energy; the run's own beam statistics are energy. ...
 ```
 
+A spectral reader on a radial, Cartesian or line file points to the `spectral_energy` of
+the plane {py:func}`~solprop.processing.field_plane` reads, or to
+{py:func}`~solprop.spatial.on_axis_spectrum`; on a planar file, whose planes
+`field_plane` does not read, no spatial functional gives the spectrum yet, and the
+refusal says so. `time_1d` is refused for a field too, since it would label a column's
+field in W^1/2; {py:func}`~solprop.processing.fields.get_field` reads it.
+
 The run's statistics are not affected: `stats/energy` of a spatial run is the beam's
-energy, from the same functional. `get_spectrum`, `get_field` and `get_phase` return the
-stored columns as they are, in the file's own units, and read every file.
+energy, from the same functional, and {py:func}`solprop.capabilities.output` admits it.
+The readers' refusals are stated apart, in its `refused_readers`.
+`get_spectrum`, `get_field` and `get_phase` return the stored columns as they are, in
+the file's own units, and read every file.
 
 **The two scalar general names are not indexed by channel, and that is the point.** `physical_energy`
 is the

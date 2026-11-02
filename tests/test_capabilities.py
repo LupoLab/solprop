@@ -78,9 +78,13 @@ def test_a_spatial_file_refuses_compression_and_the_column_readers():
     statement = capabilities.output(_spatial_output())
     assert statement.quantities["field"].kind == "coordinate"
     assert not statement.admits("compression")
-    # The legacy energy and peak power read columns as modes; the statistic does not.
-    assert not statement.admits("energy") and not statement.admits("peak_power")
-    assert statement.admits("peak_intensity")
+    # The energy statistic is the beam's flux and is admitted; the legacy readers of
+    # the columns are not, and their refusals are the readers' own.
+    assert statement.admits("energy") and statement.admits("peak_power")
+    for name in ("energy", "peak_power"):
+        with pytest.raises(OutputError) as caught:
+            READERS[name](_spatial_output())
+        assert str(caught.value) == statement.refused_readers[name]
 
 
 def test_a_file_says_its_planes_its_recipe_and_whether_it_continues(tmp_path):

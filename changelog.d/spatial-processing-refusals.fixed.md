@@ -8,5 +8,6 @@ numbers silently (a 3 nJ launch read back as 4.8e-15 J). They are `energy`,
 plane observer's `power` and `spectral_density`. Use `solprop.spatial.spatial_energy`,
 `spatial_power` and their neighbours on a saved plane, or the run's `stats/energy`,
 which is unchanged; `get_spectrum`, `get_field` and `get_phase` still return the stored
-columns. `solprop.capabilities.output` now states the `energy` and `peak_power` refusals
-of a spatial file, and modal files read as before (#147, #406).
+columns. `solprop.capabilities.output` gains `refused_readers`, which states these
+refusals with the readers' own text, while it still admits a spatial file's `energy`
+statistic. Modal files read as before (#147, #406).

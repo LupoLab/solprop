@@ -54,11 +54,7 @@ from solprop.processing.axes import (
     _squeeze,
     grid_of,
 )
-from solprop.processing.fields import (
-    _plane_amplitude,
-    get_power,
-    get_spectral_density,
-)
+from solprop.processing.fields import _plane_amplitude, _power, _spectral_density
 
 __all__ = [
     "ARRIVAL_METHODS",
@@ -258,9 +254,7 @@ def energy(
     True
     """
     _refuse_by_basis(output, "energy")
-    grid, planes, has_z = _planes(output, plane, z, bandpass)
-    per_mode = np.stack([np.sum(stats.energy(grid, one), axis=-1) for one in planes])
-    return _finish(_take_modes(per_mode, modes), has_z)
+    return _energy(output, plane=plane, z=z, modes=modes, bandpass=bandpass)
 
 
 def peak_power(
@@ -338,7 +332,7 @@ def peak_power(
     """
     _refuse_by_basis(output, "peak_power")
     if oversampling > 1:
-        _, power = get_power(
+        _, power = _power(
             output,
             plane=plane,
             z=z,
@@ -417,13 +411,9 @@ def fwhm_t(
     True
     """
     _refuse_by_basis(output, "fwhm_t")
-    measure = stats.fwhm_t_outer if outer else stats.fwhm_t
-    grid, planes, has_z = _planes(output, plane, z, bandpass)
-    groups = _mode_groups(planes[0].shape[0], modes)
-    widths = np.asarray(
-        [[float(measure(grid, one[group])) for group in groups] for one in planes]
+    return _fwhm_t(
+        output, plane=plane, z=z, modes=modes, bandpass=bandpass, outer=outer
     )
-    return _finish(_squeeze_modes(widths), has_z)
 
 
 def fwhm_f(
@@ -471,10 +461,7 @@ def fwhm_f(
     True
     """
     _refuse_by_basis(output, "fwhm_f")
-    frequency, density = get_spectral_density(
-        output, "f", plane=plane, z=z, modes=modes
-    )
-    return _along_last(density, lambda trace: fwhm(frequency, trace, outer=outer))
+    return _fwhm_f(output, plane=plane, z=z, modes=modes, outer=outer)
 
 
 def time_bandwidth(
@@ -527,10 +514,10 @@ def time_bandwidth(
     True
     """
     _refuse_by_basis(output, "time_bandwidth")
-    widths = fwhm_t(output, plane=plane, z=z, modes=modes, bandpass=bandpass)
+    widths = _fwhm_t(output, plane=plane, z=z, modes=modes, bandpass=bandpass)
     # Multiplying two zero-dimensional arrays gives a numpy scalar; every metric
     # here returns an array, as the statistics catalogue does.
-    return np.asarray(widths * fwhm_f(output, plane=plane, z=z, modes=modes))
+    return np.asarray(widths * _fwhm_f(output, plane=plane, z=z, modes=modes))
 
 
 def arrival_time(
@@ -587,7 +574,7 @@ def arrival_time(
     """
     _refuse_by_basis(output, "arrival_time")
     _check_choice(method, ARRIVAL_METHODS, "method")
-    t, power = get_power(output, plane=plane, z=z, modes=modes, bandpass=bandpass)
+    t, power = _power(output, plane=plane, z=z, modes=modes, bandpass=bandpass)
     if method == "peak":
         return _along_last(power, lambda trace: float(t[np.argmax(trace)]))
     return _along_last(power, lambda trace: moment(t, trace))
@@ -646,15 +633,9 @@ def field_autocorrelation(
     True
     """
     _refuse_by_basis(output, "field_autocorrelation")
-    _, t, amplitude = _plane_amplitude(
-        output, plane=plane, z=z, oversampling=1, bandpass=bandpass
+    return _field_autocorrelation(
+        output, plane=plane, z=z, modes=modes, bandpass=bandpass
     )
-    dt = float(t[1] - t[0])
-    # Polarisation components are summed, as they are in every quadratic quantity, so
-    # that the value at zero delay is the pulse energy of the whole field.
-    correlation = np.sum(_wiener_khinchin(amplitude), axis=-2, keepdims=True)
-    correlation, kept = _apply_modes(correlation, modes, allow_sum=True)
-    return t, dt * _squeeze(correlation, mode_axis=kept)
 
 
 def intensity_autocorrelation(
@@ -708,7 +689,7 @@ def intensity_autocorrelation(
     True
     """
     _refuse_by_basis(output, "intensity_autocorrelation")
-    t, power = get_power(output, plane=plane, z=z, modes=modes, bandpass=bandpass)
+    t, power = _power(output, plane=plane, z=z, modes=modes, bandpass=bandpass)
     dt = float(t[1] - t[0])
     return t, dt * np.real(_wiener_khinchin(power))
 
@@ -759,11 +740,163 @@ def coherence_time(
     True
     """
     _refuse_by_basis(output, "coherence_time")
-    delay, correlation = field_autocorrelation(
+    delay, correlation = _field_autocorrelation(
         output, plane=plane, z=z, modes=modes, bandpass=bandpass
     )
     squared = np.abs(correlation) ** 2
     return _along_last(squared, lambda trace: fwhm(delay, trace))
+
+
+# --- the ungated readings ------------------------------------------------------------
+#
+# Each public metric above gates once, under its own name, and then reads through these;
+# a metric built on another reads through its reading, so no call is gated twice.
+
+
+def _energy(
+    output: Output,
+    *,
+    plane: int | None = None,
+    z: float | None = None,
+    modes: ModeSelection = None,
+    bandpass: spectra.Bandpass | None = None,
+) -> Float[np.ndarray, "*shape"]:
+    """Return :func:`energy` without its gate, for a caller already gated.
+
+    Parameters
+    ----------
+    output : solprop.output.schema.Output
+        An opened output handler.
+    plane : int or None
+        Index of the plane wanted, negative from the end.
+    z : float or None
+        Position of the plane wanted, m.
+    modes : int, sequence of int, 'sum' or None
+        Which modes to report.
+    bandpass : tuple of float, Passband, numpy.ndarray or None
+        A window applied before the measurement.
+
+    Returns
+    -------
+    numpy.ndarray
+        The energy, J.
+    """
+    grid, planes, has_z = _planes(output, plane, z, bandpass)
+    per_mode = np.stack([np.sum(stats.energy(grid, one), axis=-1) for one in planes])
+    return _finish(_take_modes(per_mode, modes), has_z)
+
+
+def _fwhm_t(
+    output: Output,
+    *,
+    plane: int | None = None,
+    z: float | None = None,
+    modes: ModeSelection = None,
+    bandpass: spectra.Bandpass | None = None,
+    outer: bool = False,
+) -> Float[np.ndarray, "*shape"]:
+    """Return :func:`fwhm_t` without its gate, for a caller already gated.
+
+    Parameters
+    ----------
+    output : solprop.output.schema.Output
+        An opened output handler.
+    plane : int or None
+        Index of the plane wanted, negative from the end.
+    z : float or None
+        Position of the plane wanted, m.
+    modes : int, sequence of int, 'sum' or None
+        Which modes to report.
+    bandpass : tuple of float, Passband, numpy.ndarray or None
+        A window applied before the measurement.
+    outer : bool
+        Whether to span every satellite rather than the central feature alone.
+
+    Returns
+    -------
+    numpy.ndarray
+        The width, s.
+    """
+    measure = stats.fwhm_t_outer if outer else stats.fwhm_t
+    grid, planes, has_z = _planes(output, plane, z, bandpass)
+    groups = _mode_groups(planes[0].shape[0], modes)
+    widths = np.asarray(
+        [[float(measure(grid, one[group])) for group in groups] for one in planes]
+    )
+    return _finish(_squeeze_modes(widths), has_z)
+
+
+def _fwhm_f(
+    output: Output,
+    *,
+    plane: int | None = None,
+    z: float | None = None,
+    modes: ModeSelection = None,
+    outer: bool = False,
+) -> Float[np.ndarray, "*shape"]:
+    """Return :func:`fwhm_f` without its gate, for a caller already gated.
+
+    Parameters
+    ----------
+    output : solprop.output.schema.Output
+        An opened output handler.
+    plane : int or None
+        Index of the plane wanted, negative from the end.
+    z : float or None
+        Position of the plane wanted, m.
+    modes : int, sequence of int, 'sum' or None
+        Which modes to report.
+    outer : bool
+        Whether to span every satellite rather than the central feature alone.
+
+    Returns
+    -------
+    numpy.ndarray
+        The width, Hz.
+    """
+    frequency, density = _spectral_density(output, "f", plane=plane, z=z, modes=modes)
+    return _along_last(density, lambda trace: fwhm(frequency, trace, outer=outer))
+
+
+def _field_autocorrelation(
+    output: Output,
+    *,
+    plane: int | None = None,
+    z: float | None = None,
+    modes: ModeSelection = None,
+    bandpass: spectra.Bandpass | None = None,
+) -> tuple[Float[np.ndarray, " n_t"], Inexact[np.ndarray, "*shape n_t"]]:
+    """Return :func:`field_autocorrelation` without its gate, for a caller gated.
+
+    Parameters
+    ----------
+    output : solprop.output.schema.Output
+        An opened output handler.
+    plane : int or None
+        Index of the plane wanted, negative from the end.
+    z : float or None
+        Position of the plane wanted, m.
+    modes : int, sequence of int, 'sum' or None
+        Which modes to report.
+    bandpass : tuple of float, Passband, numpy.ndarray or None
+        A window applied before the transform.
+
+    Returns
+    -------
+    delay : numpy.ndarray
+        Delay axis, s, centred on zero.
+    correlation : numpy.ndarray
+        The autocorrelation, J.
+    """
+    _, t, amplitude = _plane_amplitude(
+        output, plane=plane, z=z, oversampling=1, bandpass=bandpass
+    )
+    dt = float(t[1] - t[0])
+    # Polarisation components are summed, as they are in every quadratic quantity, so
+    # that the value at zero delay is the pulse energy of the whole field.
+    correlation = np.sum(_wiener_khinchin(amplitude), axis=-2, keepdims=True)
+    correlation, kept = _apply_modes(correlation, modes, allow_sum=True)
+    return t, dt * _squeeze(correlation, mode_axis=kept)
 
 
 # --- private helpers -----------------------------------------------------------------

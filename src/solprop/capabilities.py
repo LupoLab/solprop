@@ -20,8 +20,12 @@ file's basis, and for each derived quantity whether it is a **physical flux** or
 **coordinate quantity**; which planes keep their field; which operations a reader
 admits and which it refuses, with the refusal the reader itself gives; and whether
 the file records a recipe and can continue. The refusals come from the same gates the
-readers raise from (:func:`solprop.output.capability.reading_refusal` and the
-compressors' basis check), so the statement and the refusal cannot drift.
+readers raise from (:func:`solprop.output.capability.refusal_for`,
+:func:`~solprop.output.capability.reading_refusal` and the compressors' basis check), so
+the statement and the refusal cannot drift. An operation is a statistic or an accessor
+of the run; the processing and plotting readers that would read a spatial file's
+columns as modes are stated apart, in ``refused_readers``, because ``energy`` the
+statistic is a physical flux there and ``energy`` the reader is refused.
 """
 
 import functools
@@ -35,9 +39,12 @@ import numpy as np
 
 from solprop.exceptions import DriverError, ProcessingError
 from solprop.output.capability import (
+    COLUMN_READINGS,
     BasisCapability,
     capability_of,
     reading_refusal,
+    refusal_for,
+    withheld_from,
 )
 from solprop.output.hdf5 import open_file
 from solprop.output.resumable import Resumability, resumability
@@ -111,7 +118,13 @@ class OutputCapabilities:
     statistics_planes : tuple of int
         The saved planes that keep only their statistics row.
     refused : collections.abc.Mapping
-        For each of :data:`OPERATIONS` a reader refuses, its refusal.
+        For each of :data:`OPERATIONS` the file's basis refuses, its refusal. A
+        spatial file admits ``energy``: its statistic is the beam's physical energy.
+    refused_readers : collections.abc.Mapping
+        For each processing or plotting reader of
+        :data:`~solprop.output.capability.COLUMN_READINGS` that refuses the file, its
+        refusal: on a spatial file every one of them, which would read its columns as
+        modes, and on a general modal file the legacy ``energy`` and ``peak_power``.
     needs : collections.abc.Mapping
         For an operation a reader admits only with something the file does not hold,
         what it needs: a general modal file's reconstruction needs its guide and
@@ -128,6 +141,7 @@ class OutputCapabilities:
     field_planes: tuple[int, ...]
     statistics_planes: tuple[int, ...]
     refused: dict[str, str]
+    refused_readers: dict[str, str]
     needs: dict[str, str]
     recipe: bool
     resumability: Resumability | None
@@ -254,9 +268,10 @@ def _statement(handler: Output, resumable: Resumability | None) -> OutputCapabil
         msg = "the output holds no run record"
         raise OutputError(msg)
     basis = capability_of(metadata)
+    withheld = withheld_from(metadata)
     refused: dict[str, str] = {}
     for name in OPERATIONS[:-1]:
-        refusal = reading_refusal(metadata, name)
+        refusal = refusal_for(basis, [name], withheld=withheld)
         if refusal is not None:
             refused[name] = refusal
     compression = _compression_refusal(handler)
@@ -269,6 +284,11 @@ def _statement(handler: Output, resumable: Resumability | None) -> OutputCapabil
             "the guide and the reference tables that produced the file, which it "
             f"identifies ({', '.join(held) or 'nothing'}) but does not hold"
         )
+    readers = {
+        name: reading_refusal(metadata, name, recorded=handler.stat_names)
+        for name in COLUMN_READINGS
+    }
+    refused_readers = {name: text for name, text in readers.items() if text is not None}
     n_saved = handler.n_saved
     # Every handler answers which saved planes kept their field (SEP 22).
     kept = tuple(int(index) for index in np.asarray(handler["field_planes"]))
@@ -281,6 +301,7 @@ def _statement(handler: Output, resumable: Resumability | None) -> OutputCapabil
         kept,
         others,
         refused,
+        refused_readers,
         needs,
         recipe,
         resumable,

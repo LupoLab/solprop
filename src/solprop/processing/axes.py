@@ -458,7 +458,8 @@ def _refuse_by_basis(output: Output, name: str) -> None:
     different import, silently wrong in joules and watts.
 
     Nothing changes for a run on an ordinary modal basis, which is every gas-filled
-    guided run.
+    guided run. Each public reader calls this once, under its own name; what it reads
+    through internally is the ungated private reading, so no call is gated twice.
 
     Parameters
     ----------
@@ -481,7 +482,7 @@ def _refuse_by_basis(output: Output, name: str) -> None:
     metadata = output.metadata
     if metadata is None:
         return
-    refusal = reading_refusal(metadata, name)
+    refusal = reading_refusal(metadata, name, recorded=output.stat_names)
     if refusal is not None:
         raise OutputError(refusal)
 

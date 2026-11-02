@@ -18,7 +18,7 @@ from solprop import capabilities
 from solprop._host import ObserverSpend
 from solprop.driver import Simulation, SimulationSettings
 from solprop.driver.plane_view import PlaneView
-from solprop.exceptions import OutputError
+from solprop.exceptions import OutputError, ProcessingError
 from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid, LineGrid, RadialGrid
 from solprop.modes import PlanarGrid, SlabMode
 from solprop.output.capability import COLUMN_READINGS, reading_refusal
@@ -28,6 +28,7 @@ from solprop.processing import (
     coherence_time,
     energy,
     field_autocorrelation,
+    field_plane,
     fwhm_f,
     fwhm_t,
     get_field,
@@ -41,7 +42,14 @@ from solprop.processing import (
 )
 from solprop.processing._examples import example_general_output, example_output
 from solprop.pulses import GaussianPulse, PlanarPulse, SpatialPulse
-from solprop.spatial import SpatialFlux, SpatialMedium, spatial_energy
+from solprop.spatial import (
+    SpatialFlux,
+    SpatialMedium,
+    on_axis_spectrum,
+    planar_mode_energy,
+    spatial_energy,
+    spatial_power,
+)
 from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule, PIController
 
@@ -76,11 +84,14 @@ READERS = {
 
 KINDS = {
     "radial": "radial",
-    "cartesian": "Cartesian or line",
-    "line": "Cartesian or line",
+    "cartesian": "Cartesian",
+    "line": "line",
     "planar": "planar",
 }
 """How the refusal names each route's run."""
+
+SPECTRAL = ("get_spectral_density", "fwhm_f", "time_bandwidth", "coherence_time")
+"""Readers whose advice is the route's spectral functional."""
 
 
 def _settings(length: float) -> SimulationSettings:
@@ -147,8 +158,11 @@ def test_each_column_reader_refuses_a_spatial_file_by_name(spatial_run, name):
         f"{name} measures modal amplitudes and this is a {KINDS[route]} run, whose "
         "columns are not: "
     )
-    assert COLUMN_READINGS[name] in message
-    assert message == reading_refusal(output.metadata, name)
+    assert message == reading_refusal(output.metadata, name, recorded=output.stat_names)
+    # The run recorded its energy and no other beam statistic, and the refusal points
+    # to that one alone.
+    assert "the run's own beam statistics are energy." in message
+    assert "peak_intensity" not in message
 
 
 def test_every_column_reader_is_tested():
@@ -194,13 +208,70 @@ def test_a_plane_view_of_a_spatial_run_refuses_its_power_and_density(spatial_run
         view._close()
 
 
-def test_the_file_statement_names_the_readers_refusals(spatial_run):
+def test_the_advice_names_only_what_works_on_the_route(spatial_run):
+    route, simulation, output = spatial_run
+    stored = output.fields("fft")[-1]
+    flux = SpatialFlux.resolve(
+        simulation.grid,
+        simulation.spatial_grid,
+        simulation.medium,
+        z=float(output["z"][-1]),
+    )
+    recorded = float(np.ravel(output["stats/energy"])[-1])
+    advice = {name: reading_refusal(output.metadata, name) or "" for name in READERS}
+    # What every route is pointed to, called on its saved plane.
+    assert spatial_power(stored, flux).shape == (simulation.grid.n_t,)
+    assert "solprop.spatial.spatial_power" in advice["get_power"]
+    assert "get_field reads a column's field" in advice["time_1d"]
+    assert get_field(output, plane=-1)[1].shape[0] == stored.shape[0]
+    if route == "planar":
+        assert "planar_mode_energy" in advice["energy"]
+        # The slab modes' energies sum to the beam's: two sums of the same terms in a
+        # different order, a few rounding errors apart (bound 1e-12).
+        modal = planar_mode_energy(stored, flux)
+        assert float(np.sum(modal)) == pytest.approx(recorded, rel=1e-12)
+        for name in SPECTRAL:
+            assert (
+                "no spatial functional gives a planar run's spectrum yet"
+                in (advice[name])
+            )
+            assert "field_plane" not in advice[name]
+            assert "on_axis_spectrum" not in advice[name]
+        with pytest.raises(ProcessingError, match="planar planes are not exchanged"):
+            field_plane(output)
+        return
+    assert "planar_mode_energy" not in advice["energy"]
+    for name in SPECTRAL:
+        assert "field_plane" in advice[name] and "on_axis_spectrum" in advice[name]
+    # The plane's energy per bin sums to the beam's energy: the same weighted terms
+    # accumulated per bin rather than in total, a few rounding errors apart.
+    per_bin = field_plane(output).spectral_energy()
+    assert float(np.sum(per_bin)) == pytest.approx(recorded, rel=1e-12)
+    assert on_axis_spectrum(stored, flux).shape == (simulation.grid.n_omega,)
+
+
+def test_the_file_statement_keeps_the_statistic_and_states_the_readers(spatial_run):
     _, _, output = spatial_run
     statement = capabilities.output(output)
     assert statement.basis == "spatial"
-    for name in ("energy", "peak_power"):
-        assert statement.refused[name] == reading_refusal(output.metadata, name)
-    assert statement.admits("peak_intensity")
+    # The energy statistic is the beam's physical flux, and stays admitted.
+    assert statement.admits("energy") and statement.admits("peak_intensity")
+    assert set(statement.refused_readers) == set(COLUMN_READINGS)
+    for name, text in statement.refused_readers.items():
+        assert text == reading_refusal(
+            output.metadata, name, recorded=output.stat_names
+        )
+
+
+def test_a_spatial_spectrum_refuses_the_floor_without_pointing_to_a_refused_reader(
+    spatial_run,
+):
+    _, _, output = spatial_run
+    with pytest.raises(ProcessingError) as caught:
+        get_spectrum(output, noise_floor="subtract")
+    message = str(caught.value)
+    assert "a spatial file has no reader of the floor-subtracted density" in message
+    assert "ask get_spectral_density" not in message
 
 
 @pytest.mark.parametrize("build", [example_output, example_general_output])
@@ -208,12 +279,18 @@ def test_a_modal_file_keeps_its_column_readers(build):
     output = build()
     metadata = output.metadata
     assert metadata is not None
-    # The general modal basis keeps refusing its two legacy metrics, as before, and
-    # admits every other reader; the orthogonal basis admits all of them.
+    # The general modal basis keeps refusing its two legacy metrics and the plot of
+    # the energy, as before, and admits every other reader; the orthogonal basis
+    # admits all of them.
     refused = {
         name for name in COLUMN_READINGS if reading_refusal(metadata, name) is not None
     }
-    assert refused == (set() if build is example_output else {"energy", "peak_power"})
+    general = {"energy", "peak_power", "plot_energy"}
+    assert refused == (set() if build is example_output else general)
+    assert set(capabilities.output(output).refused_readers) == refused
+    if build is example_general_output:
+        with pytest.raises(OutputError, match=r"^energy is unavailable"):
+            plot_energy(output)
     t, power = get_power(output, plane=0)
     assert power.shape[-1] == t.size
     assert np.all(fwhm_t(output, plane=0) > 0.0)

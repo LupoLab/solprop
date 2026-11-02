@@ -53,12 +53,12 @@ from solprop.processing.axes import (
 )
 from solprop.processing.fields import (
     NoiseFloor,
+    _power,
+    _spectral_density,
     get_field,
-    get_power,
-    get_spectral_density,
     nearest_plane,
 )
-from solprop.processing.time import energy as pulse_energy
+from solprop.processing.time import _energy
 
 __all__ = [
     "DEFAULT_SLICE_WAVELENGTH_RANGE",
@@ -177,7 +177,7 @@ def prop_2d(  # noqa: PLR0913 - the two axes, the two ranges and the colour scal
     """
     _refuse_by_basis(output, "prop_2d")
     limits = _spec_range(axis, spec_range, DEFAULT_WAVELENGTH_RANGE)
-    x, density = get_spectral_density(
+    x, density = _spectral_density(
         output,
         axis,
         modes=modes,
@@ -185,9 +185,7 @@ def prop_2d(  # noqa: PLR0913 - the two axes, the two ranges and the colour scal
         resolution=resolution,
         noise_floor=noise_floor,
     )
-    t, power = get_power(
-        output, modes=modes, oversampling=oversampling, bandpass=bandpass
-    )
+    t, power = _power(output, modes=modes, oversampling=oversampling, bandpass=bandpass)
     z = output["z"] * Z_TO_CM
     density, power = _with_mode_axis(density), _with_mode_axis(power)
     labels = _drawn_labels(output, density.shape[1], modes)
@@ -298,7 +296,7 @@ def time_1d(  # noqa: PLR0913 - the planes, the quantity, the window and the axi
     traces = []
     for index in planes:
         if quantity == "power":
-            t, values = get_power(
+            t, values = _power(
                 output,
                 plane=index,
                 modes=modes,
@@ -415,7 +413,7 @@ def spec_1d(  # noqa: PLR0913 - the planes, the abscissa, the range and the scal
     limits = _spec_range(axis, spec_range, DEFAULT_SLICE_WAVELENGTH_RANGE)
     factor, label = spectral_display(axis)
     traces = [
-        get_spectral_density(
+        _spectral_density(
             output,
             axis,
             plane=index,
@@ -490,7 +488,8 @@ def plot_energy(
     Raises
     ------
     solprop.exceptions.OutputError
-        If the stored run is a spatial one, whose columns are not modal amplitudes.
+        If the stored run is a spatial one, whose columns are not modal amplitudes,
+        or a general modal one, whose coordinate energies do not add.
 
     Examples
     --------
@@ -504,11 +503,11 @@ def plot_energy(
     """
     _refuse_by_basis(output, "plot_energy")
     ax = _axis(ax, (7.0, 5.0))
-    values = pulse_energy(output, modes=modes, bandpass=bandpass)
+    values = _energy(output, modes=modes, bandpass=bandpass)
     if values.ndim == 1:
         # One value per plane, because one mode was asked for or they were summed.
         values = values[:, np.newaxis]
-    reference = float(np.sum(pulse_energy(output, plane=0, modes="sum")))
+    reference = float(np.sum(_energy(output, plane=0, modes="sum")))
     z = output["z"] * Z_TO_CM
     labels = _drawn_labels(output, values.shape[1], modes)
     for index, name in enumerate(labels):

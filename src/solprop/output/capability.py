@@ -120,34 +120,27 @@ not here, because ``energy`` the statistic is admitted where ``energy`` the read
 the stored columns is not.
 """
 
-_POWER_ADVICE = "use solprop.spatial.spatial_power"
-_SPECTRAL_ADVICE = (
-    "use the spectral_energy of the plane solprop.processing.field_plane reads (J per "
-    "bin; radial and Cartesian) or solprop.spatial.on_axis_spectrum"
-)
-
 COLUMN_READINGS: Mapping[str, str] = MappingProxyType(
     {
-        "energy": "use solprop.spatial.spatial_energy (planar_mode_energy per slab "
-        "mode)",
+        "energy": "use solprop.spatial.spatial_energy{slab}",
         "peak_power": "use the largest value of solprop.spatial.spatial_power",
-        "get_power": _POWER_ADVICE,
-        "get_spectral_density": _SPECTRAL_ADVICE,
+        "get_power": "use solprop.spatial.spatial_power",
+        "get_spectral_density": "{spectrum}",
         "fwhm_t": "use solprop.processing.fwhm of solprop.spatial.spatial_power",
-        "fwhm_f": _SPECTRAL_ADVICE,
-        "time_bandwidth": "use the widths of solprop.spatial.spatial_power and of the "
-        "plane's spectral_energy from solprop.processing.field_plane",
+        "fwhm_f": "{spectrum}",
+        "time_bandwidth": "use solprop.processing.fwhm of "
+        "solprop.spatial.spatial_power for the duration; for the bandwidth, {spectrum}",
         "arrival_time": "use solprop.processing.moment of "
         "solprop.spatial.spatial_power",
         "field_autocorrelation": "use solprop.spatial.spatial_energy for its value at "
         "zero delay",
-        "intensity_autocorrelation": _POWER_ADVICE,
-        "coherence_time": "use solprop.spatial.on_axis_spectrum, whose transform is "
-        "the field autocorrelation on the axis",
-        "prop_2d": "use solprop.spatial.spatial_power and "
-        "solprop.spatial.on_axis_spectrum at each saved plane",
-        "time_1d": _POWER_ADVICE,
-        "spec_1d": _SPECTRAL_ADVICE,
+        "intensity_autocorrelation": "use solprop.spatial.spatial_power",
+        "coherence_time": "it is the width of the transform of a spectrum: {spectrum}",
+        "prop_2d": "use solprop.spatial.spatial_power at each saved plane for the "
+        "temporal map; for the spectral map, {spectrum}",
+        "time_1d": "use solprop.spatial.spatial_power for the power; get_field reads "
+        "a column's field, in the file's own units",
+        "spec_1d": "{spectrum}",
         "plot_energy": "use the run's stats/energy, which is the beam's energy at each "
         "plane",
     }
@@ -156,10 +149,45 @@ COLUMN_READINGS: Mapping[str, str] = MappingProxyType(
 
 Each of the processing and plotting readers named here forms ``|a|^2`` of a column in
 the square root of watts and sums it over polarisation and, on request, over columns.
-The value of each entry is what to use instead on a spatial file, whose columns are
-fields or slab amplitudes: a functional of :mod:`solprop.spatial` on a saved plane and
-its :class:`~solprop.spatial.SpatialFlux`. On a modal or general modal file these
-readers are what they always were.
+This is the one list of what a spatial file refuses. The value of each entry is what to
+use instead, a functional of :mod:`solprop.spatial` on a saved plane and its
+:class:`~solprop.spatial.SpatialFlux`; ``{spectrum}`` and ``{slab}`` stand for the
+route's own spectral functional and slab-mode energy, which :func:`reading_refusal`
+fills in, so that the advice names only what works on the file's route. On a modal or
+general modal file these readers are what they always were.
+"""
+
+_SPECTRUM_ADVICE: Mapping[str, str] = MappingProxyType(
+    {
+        "radial": "use the spectral_energy of the plane solprop.processing.field_plane "
+        "reads (J per bin) or solprop.spatial.on_axis_spectrum on the axis",
+        "planar": "no spatial functional gives a planar run's spectrum yet",
+    }
+)
+"""The spectral functional of each spatial route.
+
+The Cartesian and line routes share the radial one's; the planar route, whose planes
+``field_plane`` refuses, has none.
+"""
+
+_BEAM_STATISTICS: frozenset[str] = frozenset(
+    {
+        "energy",
+        "peak_intensity",
+        *(
+            name
+            for name, entry in CATALOGUE.items()
+            if "spatial_geometry" in entry.requires
+        ),
+    }
+)
+"""The statistics a spatial run measures of its beam, which a refusal may point to."""
+
+_MEASURES: Mapping[str, str] = MappingProxyType({"plot_energy": "energy"})
+"""The whitelisted name a reader measures, where it is not the reader's own.
+
+A plot of the energy is admitted wherever ``energy`` is, and refused with its text on a
+general modal file.
 """
 
 _WHITELISTED: frozenset[str] = frozenset(
@@ -170,11 +198,6 @@ _WHITELISTED: frozenset[str] = frozenset(
 A reader of no such name -- a trace, a density, a plot -- is admitted on every modal
 basis, as it always was, and only :data:`COLUMN_READINGS` can refuse it.
 """
-
-_SPATIAL_KINDS: Mapping[str, str] = MappingProxyType(
-    {"radial": "radial", "free": "Cartesian or line", "slab": "planar"}
-)
-"""How a refusal names each spatial ``simulation_kind``."""
 
 _GENERIC_ADVICE = (
     "physical_energy, analytic_flux, or reconstructed E/H with an explicit detector "
@@ -349,7 +372,9 @@ def refusal_for(
     return None
 
 
-def reading_refusal(metadata: RunMetadata, name: str) -> str | None:
+def reading_refusal(
+    metadata: RunMetadata, name: str, *, recorded: Sequence[str] = ()
+) -> str | None:
     """Return why a reader of a stored record refuses it, or ``None``.
 
     The processing door of the gate, for the readers that see only the stored record:
@@ -365,6 +390,9 @@ def reading_refusal(metadata: RunMetadata, name: str) -> str | None:
         The stored record.
     name : str
         The reader or accessor asked for, which the refusal names.
+    recorded : collections.abc.Sequence, optional
+        The statistics the file holds. A spatial refusal points to those of them that
+        measure the beam, and to none the run did not record.
 
     Returns
     -------
@@ -383,22 +411,57 @@ def reading_refusal(metadata: RunMetadata, name: str) -> str | None:
     ...     simulation_kind="radial",
     ...     spatial={"geometry": "radial", "flux_model": "scalar-axial-admittance"},
     ... )
-    >>> reading_refusal(radial, "get_power")[:44]
+    >>> reading_refusal(radial, "get_power", recorded=["energy"])[:44]
     'get_power measures modal amplitudes and this'
     """
     capability = capability_of(metadata)
     if capability == "spatial" and name in COLUMN_READINGS:
-        kind = _SPATIAL_KINDS.get(metadata.simulation_kind, metadata.simulation_kind)
-        return (
-            f"{name} measures modal amplitudes and this is a {kind} run, whose "
-            f"columns are not: {COLUMN_READINGS[name]}, or the run's own spatial "
-            "statistics (energy, peak_intensity, on_axis_intensity, beam_radius). A "
-            "column here is a field sample or a slab amplitude, and each spatial "
-            "functional takes a saved plane's field and its SpatialFlux"
-        )
-    if name not in _WHITELISTED:
+        return _column_refusal(metadata, name, recorded)
+    measured = _MEASURES.get(name, name)
+    if measured not in _WHITELISTED:
         return None
-    return refusal_for(capability, [name], withheld=withheld_from(metadata))
+    return refusal_for(capability, [measured], withheld=withheld_from(metadata))
+
+
+def _column_refusal(metadata: RunMetadata, name: str, recorded: Sequence[str]) -> str:
+    """Return a spatial file's refusal of a column reader, with its route's advice.
+
+    Parameters
+    ----------
+    metadata : solprop.output.schema.RunMetadata
+        The spatial record.
+    name : str
+        A name of :data:`COLUMN_READINGS`.
+    recorded : collections.abc.Sequence
+        The statistics the file holds.
+
+    Returns
+    -------
+    str
+        The refusal.
+    """
+    kind = metadata.simulation_kind
+    if kind == "free":
+        # A line grid runs as the free transform with one y sample, and is the only
+        # free grid measured per metre of y.
+        per_width = metadata.transverse_measure == "per_unit_width"
+        route = "line" if per_width else "Cartesian"
+    else:
+        route = "planar" if kind == "slab" else kind
+    advice = COLUMN_READINGS[name].format(
+        spectrum=_SPECTRUM_ADVICE.get(route, _SPECTRUM_ADVICE["radial"]),
+        slab=" (planar_mode_energy per slab mode)" if route == "planar" else "",
+    )
+    beam = [one for one in recorded if one in _BEAM_STATISTICS]
+    statistics = (
+        f"; the run's own beam statistics are {', '.join(beam)}" if beam else ""
+    )
+    return (
+        f"{name} measures modal amplitudes and this is a {route} run, whose columns "
+        f"are not: {advice}{statistics}. A column here is a field sample or a slab "
+        "amplitude, and each spatial functional takes a saved plane's field and its "
+        "SpatialFlux"
+    )
 
 
 def withheld_accessors(*, general_modal: bool, coupled_flow: bool) -> tuple[str, ...]:
