@@ -421,9 +421,14 @@ def test_a_numeric_default_is_written_in_its_display_unit():
 
 
 def test_summaries_and_previews_of_other_routes_and_modes():
-    gnlse = ask("summarise", {"text": ask("example", {"name": "soliton"})})
+    def example(name: str) -> str:
+        # The reference backend: a lane without the native one would warn.
+        text = ask("example", {"name": name})
+        return text.replace("[build]\n", '[build]\nbackend = "numpy_ref"\n', 1)
+
+    gnlse = ask("summarise", {"text": example("soliton")})
     assert gnlse["design"] == {} and gnlse["design_error"] is None
-    rdw = ask("preview_input", {"text": ask("example", {"name": "rdw"})})
+    rdw = ask("preview_input", {"text": example("rdw")})
     assert rdw["spectral_power"].ndim == 1  # summed over the two modes
 
 

@@ -200,7 +200,8 @@ class KernelClient:
         while True:
             try:
                 reply: Reply = self._connection.recv()
-            except EOFError, OSError:
+            except EOFError, OSError, TypeError:
+                # TypeError: close() released the handle while recv() waited on it.
                 break
             if self.filter.accepts(reply):
                 self._on_reply(reply)
