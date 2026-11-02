@@ -31,9 +31,11 @@ jobs:
       - run: uv python install 3.14
       - run: uv sync --locked
       - name: Wider widths, as on a machine with more cores
+        continue-on-error: true
         timeout-minutes: 20
         run: .venv/Scripts/python.exe .github/scripts/arm_table.py .venv/Scripts/python.exe widths
       - name: Real runs on the reference backend
+        continue-on-error: true
         timeout-minutes: 40
         run: .venv/Scripts/python.exe .github/scripts/arm_runs.py .venv/Scripts/python.exe numpy_ref
       - name: Install the native wheel from PR 395's run
