@@ -203,10 +203,18 @@ jobs:
           for chip in nhm snb; do
             sudo mount --bind "cpuinfo-$chip" /proc/cpuinfo
             sde/sde64 -$chip -chip_check_zcnt 1 -- .venv/bin/python -I -c "
+          import logging
+          logs = []
+          class Keep(logging.Handler):
+              def emit(self, record):
+                  logs.append(record.getMessage())
+          logging.getLogger('solprop_native').addHandler(Keep())
+          logging.getLogger('solprop_native').setLevel(logging.INFO)
           import solprop_native
           baseline = solprop_native.build_info().cpu_baseline
-          print(baseline)
+          print(baseline, logs)
           assert baseline == 'x86-64-v2', baseline
+          assert any('no ' in m and 'avx2' in m and 'x86-64-v3 build' in m for m in logs), logs
           "
             sde/sde64 -$chip -chip_check_zcnt 1 -- .venv/bin/python -I -c "
           import warnings
