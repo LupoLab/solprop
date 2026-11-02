@@ -46,7 +46,7 @@ from dataclasses import dataclass
 import numpy as np
 from jaxtyping import Complex, Float, Inexact
 
-from solprop._helpers import NUMBA, Helpers
+from solprop._helpers import PLAIN, Helpers
 from solprop.exceptions import BackendError, TranslationError
 from solprop.translate.chebyshev import PiecewiseChebyshev
 from solprop.translate.coupled import flow_section, flow_weights
@@ -146,7 +146,7 @@ class StepAnchor:
 
 
 def anchor(
-    problem: KernelProblem, z0: float, *, helpers: Helpers = NUMBA
+    problem: KernelProblem, z0: float, *, helpers: Helpers = PLAIN
 ) -> StepAnchor:
     """Return the weights a step's stages all subtract, evaluated once.
 
@@ -158,7 +158,7 @@ def anchor(
         The step's anchor, m, inside the tabulated range.
     helpers : solprop._helpers.Helpers, optional
         The implementation of the tables' Clenshaw pass: the backend's that runs the
-        step (``StepDriver.helpers``, SEP 29 section 6.6), or the shared Numba one by
+        step (``StepDriver.helpers``, SEP 29 section 6.6), or the plain Python forms by
         default.
 
     Returns
@@ -456,7 +456,7 @@ def scalars(
     z1: float,
     *,
     at: StepAnchor | None = None,
-    helpers: Helpers = NUMBA,
+    helpers: Helpers = PLAIN,
 ) -> StageScalars:
     """Return the host scalars of one stage, from the step's anchor to the node.
 
@@ -474,7 +474,7 @@ def scalars(
         stage that the step did not need. Must be the anchor of `z0`.
     helpers : solprop._helpers.Helpers, optional
         The implementation of the tables' Clenshaw pass: the backend's that runs the
-        stage (``StepDriver.helpers``, SEP 29 section 6.6), or the shared Numba one by
+        stage (``StepDriver.helpers``, SEP 29 section 6.6), or the plain Python forms by
         default.
 
     Returns
@@ -560,7 +560,7 @@ def scalars_at(
     positions: Sequence[float],
     *,
     at: StepAnchor | None = None,
-    helpers: Helpers = NUMBA,
+    helpers: Helpers = PLAIN,
 ) -> tuple[StageScalars, ...]:
     """Return the host scalars of several stages of one step, each table read once.
 
@@ -591,8 +591,8 @@ def scalars_at(
         The anchor's weights from :func:`anchor`; must be the anchor of `z0`.
     helpers : solprop._helpers.Helpers, optional
         The implementation of the tables' Clenshaw pass: the backend's that runs the
-        stages (``StepDriver.helpers``, SEP 29 section 6.6), or the shared Numba one by
-        default, for callers outside a backend.
+        stages (``StepDriver.helpers``, SEP 29 section 6.6), or the plain Python forms
+        by default, for callers outside a backend.
 
     Returns
     -------

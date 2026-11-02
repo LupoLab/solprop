@@ -38,7 +38,7 @@ import numpy as np
 from jaxtyping import Float
 from numpy.polynomial import polynomial
 
-from solprop._helpers import NUMBA, Helpers
+from solprop._helpers import PLAIN, Helpers
 from solprop.exceptions import StepperError
 from solprop.stepper.schedule import LANDING_ULPS
 
@@ -793,7 +793,7 @@ def integrated_weights(
     upper: float = 1.0,
     *,
     check: bool = True,
-    helpers: Helpers = NUMBA,
+    helpers: Helpers = PLAIN,
 ) -> Float[np.ndarray, " n_nodes"]:
     """Return the weights of the integral from 0 to `upper` of an interpolant.
 
@@ -847,7 +847,7 @@ def lagrange_coefficients(
     nodes: Sequence[float] | Float[np.ndarray, " n_nodes"],
     *,
     check: bool = True,
-    helpers: Helpers = NUMBA,
+    helpers: Helpers = PLAIN,
 ) -> Float[np.ndarray, "n_nodes n_nodes"]:
     """Return the monomial coefficients of the Lagrange basis on distinct nodes.
 
@@ -864,7 +864,7 @@ def lagrange_coefficients(
     check : bool, optional
         Whether to refuse empty, non-finite or repeated nodes.
     helpers : solprop._helpers.Helpers, optional
-        The evaluating backend's implementation of the basis; the shared Numba one by
+        The evaluating backend's implementation of the basis; the plain Python forms by
         default.
 
     Returns

@@ -27,10 +27,11 @@ call (:attr:`Helpers.tables`), the composition of
 resident engine reads every trial; the others compose them from the basis.
 
 Translation is not a backend's: it runs before any backend exists and builds the
-problem every backend receives, so it keeps the shared reference compiled by Numba
-(:func:`solprop.translate.chebyshev.clenshaw`, and a table called without a record),
-and the shared functions' defaults are :data:`NUMBA` for callers outside a backend. A
-z table's state-sized evaluation is not a stage scalar and stays on that shared pass.
+problem every backend receives, so it needs nothing compiled, and the shared functions'
+defaults are :data:`PLAIN` for callers outside a backend. Its one-point evaluation
+(:func:`solprop.translate.chebyshev.clenshaw`, and a table called without a record) is
+NumPy's until Numba is loaded. A z table's state-sized evaluation is not a stage scalar
+and stays on that shared pass.
 
 Like ``_display`` and ``_numba_cache``, this module imports nothing from the rest of
 the package at import time, so any layer may use it; each record imports its
@@ -217,7 +218,7 @@ def _numba_basis() -> BasisFunction:
 
 
 PLAIN = Helpers("plain", _plain_points, _plain_basis)
-"""The uncompiled Python forms: the NumPy reference backend's."""
+"""The uncompiled Python forms: the NumPy reference's, and the shared default."""
 
 NUMBA = Helpers("numba", _numba_points, _numba_basis)
-"""The same forms compiled by Numba: ``numba_cpu``'s, and the shared default."""
+"""The same forms compiled by Numba: ``numba_cpu``'s."""

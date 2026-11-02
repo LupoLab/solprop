@@ -50,7 +50,7 @@ import numpy as np
 from jaxtyping import Complex
 from scipy.linalg import expm
 
-from solprop._helpers import NUMBA, Helpers
+from solprop._helpers import PLAIN, Helpers
 from solprop._interrupts import committing
 from solprop.backends import adams_core
 from solprop.backends.driver import StepDriver
@@ -269,10 +269,10 @@ class AdamsKernels:
     ----------
     helpers : solprop._helpers.Helpers, optional
         The owning backend's implementation of the Adams basis (SEP 29 section 6.6);
-        the shared Numba one by default.
+        the plain Python forms by default.
     """
 
-    def __init__(self, *, helpers: Helpers = NUMBA) -> None:
+    def __init__(self, *, helpers: Helpers = PLAIN) -> None:
         """Hold the backend's basis implementation."""
         self._helpers = helpers
 
@@ -729,10 +729,10 @@ class ExponentialKernels:
     ----------
     helpers : solprop._helpers.Helpers, optional
         The owning backend's implementation of the Adams basis (SEP 29 section 6.6);
-        the shared Numba one by default.
+        the plain Python forms by default.
     """
 
-    def __init__(self, *, helpers: Helpers = NUMBA) -> None:
+    def __init__(self, *, helpers: Helpers = PLAIN) -> None:
         """Hold the backend's basis implementation."""
         self._helpers = helpers
 

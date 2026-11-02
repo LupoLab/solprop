@@ -48,7 +48,7 @@ from dataclasses import dataclass
 import numpy as np
 from jaxtyping import Complex, Float, Inexact
 
-from solprop._helpers import NUMBA, Helpers
+from solprop._helpers import PLAIN, Helpers
 from solprop.exceptions import BackendError, StepperError
 from solprop.stepper.multistep import (
     MAX_ADAMS_ORDER,
@@ -240,7 +240,7 @@ def exponential_weights(
     x: Inexact[np.ndarray, "*shape"] | complex,
     upper: float = 1.0,
     *,
-    helpers: Helpers = NUMBA,
+    helpers: Helpers = PLAIN,
 ) -> Complex[np.ndarray, " n_nodes *shape"]:
     """Return the exponential Adams weights of distinct nodes at each argument.
 
@@ -258,8 +258,8 @@ def exponential_weights(
     upper : float, optional
         The fraction of the step integrated, in ``[0, 1]``.
     helpers : solprop._helpers.Helpers, optional
-        The implementation of the Lagrange basis (SEP 29 section 6.6); the shared
-        Numba one by default.
+        The implementation of the Lagrange basis (SEP 29 section 6.6); the plain
+        Python forms by default.
 
     Returns
     -------
