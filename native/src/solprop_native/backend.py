@@ -98,6 +98,7 @@ from solprop.stats import (
     collect,
     inband_wavelengths,
     profile_value,
+    weight_refusal_for,
     zdw,
 )
 from solprop.stepper.controller import PIController
@@ -1181,7 +1182,23 @@ class NativeBackend(StepDriver[_core.State]):
         """Collect field and response statistics without observing the full field."""
         self._require_state()
         grid_value = self._require_grid()
-        if self._problem.transform.modal_tables is not None:
+        # The accessor whitelist comes first, as on every CPU backend: a caller may ask
+        # a backend directly, and a spatial run is refused rather than answered.
+        general_modal = self._problem.transform.modal_tables is not None
+        refusal = refusal_for(
+            declared_capability(
+                general_modal=general_modal,
+                spatial=self._problem.transform.geometry is not None,
+            ),
+            spec.names,
+            withheld=withheld_accessors(
+                general_modal=general_modal,
+                coupled_flow=self._problem.linear.coupled_flow is not None,
+            ),
+        )
+        if refusal is not None:
+            raise BackendError(refusal)
+        if general_modal:
             return self._general_statistics(spec, grid_value)
         integration_names = set(PLASMA_INTEGRATION_STATISTICS) & set(spec.names)
         if integration_names and (
@@ -1345,19 +1362,14 @@ class NativeBackend(StepDriver[_core.State]):
 
         The route's admitted names are functionals of the physical flux ``a.H W a``
         of the basis metric, which solprop's own ``collect`` evaluates; none is a
-        backend-owned response statistic. The accessor whitelist is checked first, as
-        ``numpy_ref`` checks it, because a caller may ask a backend directly.
+        backend-owned response statistic. They are the unit-weight arithmetic, so a
+        weight that is not the constant one is refused rather than silently ignored.
         """
-        refusal = refusal_for(
-            declared_capability(general_modal=True, spatial=False),
-            spec.names,
-            withheld=withheld_accessors(
-                general_modal=True,
-                coupled_flow=self._problem.linear.coupled_flow is not None,
-            ),
+        weight_refusal = weight_refusal_for(
+            spec.names, power_weight_at(self._problem, self._z)
         )
-        if refusal is not None:
-            raise BackendError(refusal)
+        if weight_refusal is not None:
+            raise BackendError(weight_refusal)
         metric = (
             metric_at(self._problem.linear.modal_metric, self._z)
             if set(spec.names) & METRIC_WEIGHTED_STATISTICS

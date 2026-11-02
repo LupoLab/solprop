@@ -328,6 +328,10 @@ All notable changes to solprop are recorded here. The format follows
   before a backend starts.
   Vendor thread defaults are overridden only during construction; the native
   backend's own BLAS keeps its fitted width.
+- A boundary monitor built for another grid is now refused by name on every backend, instead
+  of a bare `ValueError` on `native` and an accident in `matmul` on `numpy_ref`. A direct call
+  to `native`'s `stats` now checks every route for names the route doesn't define, and refuses
+  a general flux statistic under a weight other than one rather than ignoring the weight.
 - On Windows on Arm, `Pool` scans no longer fail or hang in NumPy's linear solves. Workers now limit BLAS through `threadpoolctl` instead of thread variables, which crash or hang NumPy's OpenBLAS on that platform at small widths, and `import solprop` warns if such a value is set.
 
 ## [0.1.0] - 2026-10-31
