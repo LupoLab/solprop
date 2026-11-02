@@ -24,7 +24,9 @@ from scipy import signal
 
 from bounds import EPS_32, UNIT_ROUNDOFF_32, assert_within, higham_gamma, prefix_bound
 from legacy_geometry import LEGACY_GRID, bare_absorber
+from solprop import fourier
 from solprop.backends import registry
+from solprop.backends.batch import LockstepRunner
 from solprop.backends.memory import (
     MLX_GRAPH_BUDGET,
     estimate_memory,
@@ -937,6 +939,97 @@ def test_a_non_finite_state_after_a_step_is_refused():
             backend._finish(state, 1e-3)
 
 
+# The split-step collar.
+
+
+def collar_case(kind: str) -> tuple[np.ndarray, np.ndarray, float]:
+    """Return a two-mode state on 256 samples, a collar's rate and a step.
+
+    The collar rises quadratically over the outer eighth of the window on each side
+    to ``alpha h / 2 = 0.5``; a Gaussian pulse sits in the middle, so the factor is
+    exactly one where the light is.
+    """
+    n_t, dz = 256, 1e-4
+    t = np.arange(n_t) - n_t / 2
+    edge = np.clip((np.abs(t) - 0.375 * n_t) / (0.125 * n_t), 0.0, 1.0)
+    rate = 1e4 * edge**2
+    rng = np.random.default_rng(79)
+    pulse = np.exp(-((t / 20.0) ** 2))
+    samples = pulse * rng.standard_normal((2, n_t))
+    if kind == "envelope":
+        samples = samples + 1j * pulse * rng.standard_normal((2, n_t))
+    state = fourier.forward(samples, kind=kind)[None, :, None, :]  # pyright: ignore[reportArgumentType]
+    return state, rate, dz
+
+
+@pytest.mark.parametrize("kind", ["field", "envelope"])
+def test_the_split_collar_keeps_binary32_in_binary32(kind, monkeypatch):
+    state, rate, dz = collar_case(kind)
+    # Binary64 keeps its form, operation for operation.
+    wide = passes.apply_temporal_rate(state, rate, dz, kind=kind)
+    product = fourier.inverse(state, kind=kind) * np.exp(-0.5 * rate * dz)
+    assert wide.dtype == np.complex128
+    assert np.array_equal(wide, fourier.forward(product, kind=kind))
+    narrow = state.astype(np.complex64)
+    # Every transform the pass takes of a binary32 state is of binary32 operands.
+    operands: list[np.dtype] = []
+    for name in ("forward", "inverse"):
+        original = getattr(fourier, name)
+
+        def spy(values, *, kind, original=original):
+            operands.append(np.asarray(values).dtype)
+            return original(values, kind=kind)
+
+        monkeypatch.setattr(passes.fourier, name, spy)
+    absorbed = passes.apply_temporal_rate(narrow, rate, dz, kind=kind)
+    monkeypatch.undo()
+    assert absorbed.dtype == np.complex64
+    assert len(operands) == 2
+    assert set(operands) <= {np.dtype(np.float32), np.dtype(np.complex64)}
+    # Against the binary64 pass on the same binary32 state: the correction's round
+    # trip, two binary32 transforms of the oracle tests' 16 eps log2 n each and the
+    # rounded factor and product, scaled by the correction's largest share
+    # |f - 1| = 1 - exp(-0.5); and the final addition's rounding.
+    change = float(np.max(-np.expm1(-0.5 * rate * dz)))
+    transform = 16 * EPS_32 * math.ceil(math.log2(rate.size))
+    widened = narrow.astype(np.complex128)
+    exact = passes.apply_temporal_rate(widened, rate, dz, kind=kind)
+    assert_within(absorbed, exact, 2 * U32 + change * (2 * transform + 2 * U32))
+    # Without a collar the correction is exactly nothing.
+    unchanged = passes.apply_temporal_rate(narrow, np.zeros_like(rate), dz, kind=kind)
+    assert np.array_equal(unchanged, narrow)
+
+
+def test_a_binary64_collar_in_the_finish_is_refused(monkeypatch):
+    # The finish used to narrow whatever its collar returned; a binary64 result is now
+    # a pass that left binary32, refused by name.
+    widening = passes.apply_temporal_rate
+
+    def widened(state, rate, dz, *, kind):
+        return widening(state.astype(np.complex128), rate, dz, kind=kind)
+
+    with ExitStack() as cleanup:
+        backend = cast(NumpySingleBackend, loaded(capillary("single"), cleanup))
+        state = backend._require_state()
+        assert backend._finish(state, 1e-4).dtype == np.complex64
+        monkeypatch.setattr(passes, "apply_temporal_rate", widened)
+        with pytest.raises(BackendError, match="the finished state as complex128"):
+            backend._finish(state, 1e-4)
+
+
+def test_a_single_precision_batch_takes_each_member_s_own_trial():
+    # The reference's batch arithmetic over the member axis is binary64: the
+    # single-precision members step in turn, each through its binary32 trial.
+    with ExitStack() as cleanup:
+        members = tuple(loaded(gnlse("single"), cleanup) for _ in range(2))
+        runner = select_batch(cast(Sequence[Backend], members))
+        cleanup.callback(runner.close)
+        assert type(runner) is LockstepRunner
+        mixed = (loaded(gnlse("single"), cleanup), loaded(gnlse("double"), cleanup))
+        with pytest.raises(BackendError, match="mixed precisions"):
+            select_batch(cast(Sequence[Backend], mixed))
+
+
 def test_a_weighted_controller_divides_by_its_bins():
     """A per-bin weight makes the controller's scale an array, applied in binary32."""
     n_omega = gnlse("single").translate().shape[-1]
@@ -1089,3 +1182,4 @@ def test_the_binary32_analytic_signal_is_the_hilbert_transforms(n):
     values = np.random.default_rng(n).standard_normal(n).astype(np.float32)
     expected = signal.hilbert(values.astype(np.float64))
     assert_within(analytic_single(values), expected, 64 * U32)
+

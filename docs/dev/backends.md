@@ -402,8 +402,13 @@ and rounds it once; evaluates Kerr, Raman (scalar, tensor, mixtures) and the fie
 plasma in binary32 with each term's homogeneity factor in one host coefficient, the
 stable population forms and blocked running integrals
 (`translate.precision.prefix_sum`); reduces the controller's norms as scaled sums of
-squares against `atol / s`; and checks after every trial that the state and stages stayed
-complex64 and after every step that the state is finite. The ionisation rate's table
+squares against `atol / s`; applies the split-step collar as the correction
+`a + F(F^-1(a)(f - 1))` in binary32, `f - 1` formed in binary64 and rounded once, as
+`mlx` does (a binary64 state keeps `F(F^-1(a) f)`); and checks after every trial that the
+state and stages stayed complex64, and after every step that the finished state is
+complex64 and finite. Its fixed-schedule batches are the plain `LockstepRunner`, each
+member through its own binary32 trial: `NumpyBatchBackend`'s stage arithmetic over the
+member axis is binary64. The ionisation rate's table
 lookup, the envelope-grid plasma's cycle moments and the statistics are evaluated in
 binary64 from the binary32 field, which is what the oracle defines. Its constructor, and
 so `mlx`'s, applies the settings' own admission (`translate.precision.admit_precision`):

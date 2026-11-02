@@ -553,7 +553,24 @@ def select_batch(owners: Sequence[Backend]) -> BatchBackend:
         from solprop.backends.numpy_ref.batch import (  # noqa: PLC0415 - lazy backend
             NumpyBatchBackend,
         )
+        from solprop.backends.numpy_ref.single import (  # noqa: PLC0415 - lazy backend
+            NumpySingleBackend,
+        )
 
+        single = [isinstance(owner, NumpySingleBackend) for owner in owners]
+        if any(single) and not all(single):
+            raise BackendError("Batch refuses mixed precisions")
+        if all(single):
+            # NumpyBatchBackend's stage arithmetic over the member axis is binary64;
+            # the single-precision path's members each take their own binary32 trial.
+            from solprop.backends.batch import (  # noqa: PLC0415 - lazy backend
+                LockstepRunner,
+            )
+            from solprop.backends.driver import (  # noqa: PLC0415 - lazy backend
+                StepDriver,
+            )
+
+            return LockstepRunner(cast(Sequence[StepDriver[object]], owners))
         return NumpyBatchBackend(cast(Sequence[NumpyRefBackend], owners))
     if name == "mlx":  # pragma: no cover - needs MLX, macOS on Apple silicon
         from solprop.backends.mlx_gpu.backend import (  # noqa: PLC0415 - lazy backend

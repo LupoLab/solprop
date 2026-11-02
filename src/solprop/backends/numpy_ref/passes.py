@@ -2199,11 +2199,18 @@ def apply_temporal_rate(
     rate the factors telescope, so the total is ``exp(-alpha(t) L / 2)`` however the
     steps fall. ``alpha`` is a power coefficient, hence the half on the field.
 
+    A complex128 state takes that product as written, in binary64. A complex64 state,
+    the single-precision path's (SEP 33), takes the same step in binary32 as the
+    correction ``y + F[F^-1[y] (f - 1)]``, with ``f - 1 = expm1(-alpha(t) h / 2)``
+    formed in binary64 and rounded once: the factor is exactly one outside the collar,
+    so the round trip's binary32 rounding falls on the collar's correction alone, not
+    on the whole state, as on the ``mlx`` backend.
+
     Parameters
     ----------
     state : numpy.ndarray
-        The state, complex128, shape ``(n_batch, n_modes, n_pol, n_omega)``, in the
-        square root of watts.
+        The state, complex128 or complex64, shape
+        ``(n_batch, n_modes, n_pol, n_omega)``, in the square root of watts.
     rate : numpy.ndarray
         ``alpha(t)`` on the coarse time grid, float64, shape ``(n_t,)``, in 1/m,
         non-negative.
@@ -2215,7 +2222,7 @@ def apply_temporal_rate(
     Returns
     -------
     numpy.ndarray
-        The absorbed state, same shape and units.
+        The absorbed state, same shape, units and precision.
 
     Examples
     --------
@@ -2225,6 +2232,13 @@ def apply_temporal_rate(
     >>> absorbed = apply_temporal_rate(state, np.zeros(4), 1.0, kind="field")
     >>> bool(np.allclose(absorbed, state))
     True
+    >>> narrow = apply_temporal_rate(state.astype(np.complex64), np.ones(4), 1.0,
+    ...                              kind="field")
+    >>> narrow.dtype
+    dtype('complex64')
     """
     time = fourier.inverse(state, kind=kind)
+    if state.dtype == np.complex64:
+        change = np.expm1(-0.5 * rate * dz).astype(np.float32)
+        return state + fourier.forward(time * change, kind=kind)
     return fourier.forward(time * np.exp(-0.5 * rate * dz), kind=kind)
