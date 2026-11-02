@@ -8,8 +8,8 @@
 :func:`importlib.util.find_spec` and **never cached**. The
 errors are two-tier, because the two failures need different answers from the reader: a
 name this package has never heard of is a :class:`ValueError` listing what is usable,
-and a known name whose dependencies are missing is an :class:`ImportError` naming the
-extra to install.
+and a known name whose dependencies are missing is an :class:`ImportError` saying what
+to install.
 
 The native backend is a second distribution, ``solprop-native``, built from ``native/``
 in this repository and a required dependency; probing availability does not import it.
@@ -448,7 +448,7 @@ def select(
     ----------
     name : str
         The backend's registry name, for example ``"numpy_ref"``, or ``"auto"``
-        to prefer the installed native backend and otherwise warn and use ``numpy_ref``.
+        for the native backend, with no fallback (:func:`resolve_name`).
     problem : solprop.translate.problem.KernelProblem
         The problem to step. The backend validates it again.
     grid : solprop.grid.TimeGrid, optional
@@ -475,8 +475,8 @@ def select(
         If ``name`` is a backend that has been removed, or one that does not form a
         statistic the problem asks for; the message says what to use instead.
     ImportError
-        If ``name`` is known but its dependencies are missing; the message names the
-        extra to install.
+        If ``name`` is known but its dependencies are missing; the message says what
+        to install.
 
     Examples
     --------
@@ -568,7 +568,7 @@ def select_batch(owners: Sequence[Backend]) -> BatchBackend:
 
         return MlxBatchRunner(cast(Sequence[MlxBackend], owners))
     if name == "native":
-        # The optional native package has its own strict type gate.
+        # The native package has its own strict type gate.
         from solprop_native import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
             NativeBackend,
         )

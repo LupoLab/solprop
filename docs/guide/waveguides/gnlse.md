@@ -172,9 +172,8 @@ fibre = SpecifiedMode.from_index_path(
 tapered bore, a fibre on a pressure gradient — hands both over by itself: the
 frozen callables forward the position to the source mode, and the area is sampled
 from that same mode over the positions its own declared paths kink at. So
-`prop_gnlse(..., fibre=MarcatiliMode(Linear(...), ...), backend="numpy_ref")` is a
-run, not a refusal — with the backend named, for the reason the next paragraph
-gives.
+`prop_gnlse(..., fibre=MarcatiliMode(Linear(...), ...))` is a run, not a refusal, on
+a CPU build, for the reason the next paragraph gives.
 
 **A provider channel's area is taken at the pump.** A general modal guide's
 {py:class}`~solprop.modes.guide.ProviderChannelMode` declares one surrogate area, the

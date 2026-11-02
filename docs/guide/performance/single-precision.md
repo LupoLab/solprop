@@ -17,7 +17,9 @@ measured, the survival record below was measured on the reference implementation
 `native`; build single-precision grids
 with `fft_size="pow2"` ([grid sizes on `mlx`](#grid-sizes-on-mlx)). `numpy_ref` runs
 every route below as the reference implementation, which defines the arithmetic and
-measures it but is not fast. `native` computes in binary64 only.
+measures it but is not fast; away from Apple silicon it is the supported way to run single
+precision, by name, because `native` computes in binary64 only
+([#342](https://github.com/LupoLab/solprop/issues/342)).
 ```
 
 ## Asking for it

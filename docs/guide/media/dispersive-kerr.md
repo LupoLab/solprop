@@ -567,7 +567,7 @@ negligible. Look at where the observable's band and its generating quartets lie.
 Both evaluators run on `numpy_ref` and the native backend's CPU build on
 every route but the GNLSE, agreeing with `numpy_ref` to a few times machine epsilon, and
 on the native backend's device builds, qualified on one AMD Instinct generation and one NVIDIA Hopper
-device. `backend="auto"` therefore runs them on the native backend where it is installed, as the
+device. `backend="auto"` therefore runs them on the native backend, as the
 carrier policy runs; nothing falls back.
 
 ## Reading what a run recorded

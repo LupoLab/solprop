@@ -167,7 +167,6 @@ run = Simulation.from_waveguide(
     fwhm=60e-15,
     energy=1e-12,
     save_planes=[1e-3],
-    backend="numpy_ref",
 ).run()
 ```
 

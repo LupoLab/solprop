@@ -1,16 +1,16 @@
 # solprop-native
 
-`solprop-native` is the optional compiled backend for
+`solprop-native` is the compiled backend of
 [solprop](https://solprop.readthedocs.io/en/latest/), a Python package for ultrafast
-nonlinear pulse propagation. It implements solprop's propagation kernels in C++20 on
+nonlinear pulse propagation, and a required dependency of it. It implements solprop's
+propagation kernels in C++20 on
 [Kokkos](https://github.com/kokkos/kokkos), bound to Python with
 [nanobind](https://github.com/wjakob/nanobind) and built with
 [scikit-build-core](https://github.com/scikit-build/scikit-build-core). One build runs
 either on the CPU (OpenMP, with FFTW and a vendor BLAS) or on a GPU (CUDA with cuFFT and
-cuBLAS, or HIP with rocFFT and rocBLAS). When it is installed beside solprop, solprop's
-default `backend="auto"` selects it. It is never needed for correctness: solprop's
-NumPy reference backend is the numerical oracle, and this package accelerates the
-problem classes it supports.
+cuBLAS, or HIP with rocFFT and rocBLAS). solprop's default `backend="auto"` selects it,
+with no fallback. solprop's NumPy reference backend is the numerical oracle this package
+is tested against.
 
 The distribution is `solprop-native` and the import package `solprop_native`. It is
 built from the `native/` directory of the
@@ -20,16 +20,17 @@ version.
 ## Installing
 
 ```sh
-pip install "solprop[native]"
+pip install solprop
 ```
 
 installs the precompiled wheel on macOS on Apple silicon (osx-arm64), Linux on x86-64
 (linux-64), Linux on aarch64 (linux-aarch64), Windows on x86-64 (win-64) and Windows on Arm
-(win-arm64); the x86-64 wheels need an x86-64-v2 processor (Intel Nehalem or AMD Bulldozer
-and newer) and run faster on x86-64-v3 (AVX2), the aarch64 wheel needs a Neoverse N1 or
-newer. Elsewhere,
-and for NVIDIA (CUDA) or AMD (HIP) GPUs, build it from source. The documentation
-covers both:
+(win-arm64), with no extra; the x86-64 wheels need an x86-64-v2 processor (Intel Nehalem or
+AMD Bulldozer and newer) and run faster on x86-64-v3 (AVX2), the aarch64 wheel needs a
+Neoverse N1 or newer. On any other platform the installer finds no matching distribution.
+A build from source is the way past a wheel's limits, for NVIDIA (CUDA) or AMD (HIP) GPUs
+above all; a new release replaces a source build with its CPU wheel, so rebuild on upgrading.
+The documentation covers both:
 
 - [Installation](https://solprop.readthedocs.io/en/latest/introduction/installation.html)
 - [Building the native backend](https://solprop.readthedocs.io/en/latest/guide/performance/building-native.html):
@@ -46,13 +47,13 @@ The package is a member of the repository's uv workspace and shares its environm
 lockfile. At the repository root,
 
 ```sh
-uv sync --extra native
+uv sync
 ```
 
-builds it from `native/` and installs it, editable, beside solprop; a plain `uv sync`
-leaves it out and removes a copy installed by hand. The editable install does not rebuild
-itself: after changing C++ sources or CMake options, run
-`uv sync --extra native --reinstall-package solprop-native`, passing options through
+builds it from `native/` and installs it, editable, beside solprop; a contributor with no
+compiler has `uv run --no-project tools/setup_light.py`, which leaves it out. The editable
+install does not rebuild itself: after changing C++ sources or CMake options, run
+`uv sync --reinstall-package solprop-native`, passing options through
 `CMAKE_ARGS` (a device build is made the same way, with the CUDA or HIP options). The
 contributor rules for this directory are in [`AGENTS.md`](https://github.com/LupoLab/solprop/blob/main/native/AGENTS.md), beside the
 repository's [`AGENTS.md`](https://github.com/LupoLab/solprop/blob/main/AGENTS.md).

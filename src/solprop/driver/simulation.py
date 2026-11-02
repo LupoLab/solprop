@@ -695,12 +695,11 @@ class SimulationSettings(Displayed):
         acts either way (``docs/guide/numerics/boundaries.md``).
     backend : str
         Registry name of the backend to execute the run. The default ``"auto"``
-        resolves to ``"native"`` when installed, otherwise, with a warning, to the
-        unthreaded and far slower ``"numpy_ref"``, at settings construction; under
-        single precision, to
+        resolves to ``"native"`` at settings construction, and refuses if it isn't
+        installed or this processor is below its baseline; under single precision, to
         ``"mlx"`` (`precision`).
-        The stored name is concrete, including in scan workers. An installed
-        backend's import or construction errors never trigger a fallback.
+        The stored name is concrete, including in scan workers. A backend's import or
+        construction errors never trigger a fallback.
     precision : {'double', 'single'}
         The arithmetic the run is held in (SEP 33,
         ``docs/guide/performance/single-precision.md``). ``"double"``, the default, is
@@ -1255,7 +1254,7 @@ def _single_backend(backend: str) -> str:
 
     ``"auto"`` resolves to ``"mlx"`` when MLX and a Metal device are present, and
     otherwise is refused: it never resolves to a binary64 backend, and
-    never to ``numpy_ref``, the oracle, which is not a production backend. An explicit
+    never to ``numpy_ref``, which runs single precision when it is named. An explicit
     name passes through to :func:`~solprop.translate.precision.admit_precision`.
 
     Parameters
@@ -1280,8 +1279,8 @@ def _single_backend(backend: str) -> str:
     msg = (
         "precision='single' with backend='auto' resolves to the mlx backend, which "
         "needs the mlx extra (pip install solprop[mlx]) on an Apple-silicon Mac with a "
-        "Metal GPU; pass backend='numpy_ref' for the single-precision reference (the "
-        "oracle, not a production backend) or use precision='double'"
+        "Metal GPU; elsewhere pass backend='numpy_ref', the reference, which runs "
+        "single precision unthreaded and far slower, or use precision='double'"
     )
     raise DriverError(msg, parameter=("precision", "backend"))
 
@@ -1325,8 +1324,7 @@ LOW_STORAGE_BACKENDS = ("native", "numpy_ref")
 
 ``numpy_ref`` from SEP 24's phase 1 and solprop-native from phase 3, on every route the
 translation admits the march on; ``backend="auto"`` resolves as for every other
-integrator (:func:`solprop.backends.registry.resolve_name`: the native backend when it
-is installed, otherwise ``numpy_ref``).
+integrator (:func:`solprop.backends.registry.resolve_name`: the native backend).
 """
 
 
@@ -4609,9 +4607,9 @@ class Simulation(Displayed):
             then stops, when light above the shot-noise floor reaches them; ``None``
             watches nothing, for a window kept narrow on purpose.
         backend : str, optional
-            Registry name, or ``"auto"`` (the default) to prefer ``native`` if installed
-            and otherwise warn and use ``numpy_ref``. Import or construction errors do
-            not fall back.
+            Registry name, or ``"auto"`` (the default) for ``native``, which refuses if
+            it isn't installed or this processor is below its baseline. There is no
+            fallback, and import or construction errors stay visible.
         precision : {'double', 'single'}, optional
             The arithmetic the run is held in (SEP 33): ``"double"``, the default, or
             ``"single"``, which takes ``rtol`` at the floor
@@ -5089,9 +5087,9 @@ class Simulation(Displayed):
         node_budget : int, optional
             Bytes of node-chunk buffers the response pass may hold.
         backend : str, optional
-            Registry name, or ``"auto"`` (the default) to prefer ``native`` if installed
-            and otherwise warn and use ``numpy_ref``. Import or construction errors do
-            not fall back.
+            Registry name, or ``"auto"`` (the default) for ``native``, which refuses if
+            it isn't installed or this processor is below its baseline. There is no
+            fallback, and import or construction errors stay visible.
         precision : {'double', 'single'}, optional
             The arithmetic the run is held in (SEP 33): ``"double"``, the default, or
             ``"single"``, which takes ``rtol`` at the floor
@@ -5615,9 +5613,9 @@ class Simulation(Displayed):
         node_budget : int, optional
             Bytes of node-chunk buffers the response pass may hold.
         backend : str, optional
-            Registry name, or ``"auto"`` (the default) to prefer ``native`` if installed
-            and otherwise warn and use ``numpy_ref``. Import or construction errors do
-            not fall back.
+            Registry name, or ``"auto"`` (the default) for ``native``, which refuses if
+            it isn't installed or this processor is below its baseline. There is no
+            fallback, and import or construction errors stay visible.
         precision : {'double', 'single'}, optional
             The arithmetic the run is held in (SEP 33): ``"double"``, the default, or
             ``"single"``, which keeps ``rtol`` at
@@ -6483,9 +6481,9 @@ class Simulation(Displayed):
         node_budget : int, optional
             Bytes of node-chunk buffers the response pass may hold.
         backend : str, optional
-            Registry name, or ``"auto"`` (the default) to prefer ``native`` if installed
-            and otherwise warn and use ``numpy_ref``. Import or construction errors do
-            not fall back.
+            Registry name, or ``"auto"`` (the default) for ``native``, which refuses if
+            it isn't installed or this processor is below its baseline. There is no
+            fallback, and import or construction errors stay visible.
         precision : {'double', 'single'}, optional
             The arithmetic the run is held in (SEP 33): ``"double"``, the default, or
             ``"single"``, which takes ``RungeKutta()``, carries no noise, and

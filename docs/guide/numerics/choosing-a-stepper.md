@@ -292,7 +292,7 @@ fourth order at fixed step too, so compare the two at equal error, not at equal 
 negative-real stability interval beside an in-stage collar, $h\alpha_\max/2 \le 2.785$
 against DOPRI5's 3.3 (about 45 steps over a run with the default temporal collar). A
 Every backend runs it, on every route it admits it on, and `backend="auto"` resolves
-as for any integrator: the native backend when it is installed, otherwise, with a warning, `numpy_ref`. On
+as for any integrator, to the native backend. On
 the native backend a step is one native call making the same four passes in
 the backend's own memory, and a plane that keeps no field holds its state there too.
 Without an in-stage collar each pass writes the next one's input straight into the

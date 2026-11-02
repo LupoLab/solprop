@@ -34,7 +34,7 @@ do not launch the full suite merely because a SEP is being committed or merged.
 | invariant | energy and photon number where conserved, Parseval, time reversal, symmetries, positivity, orthonormality of modes | grids, transforms, modes, responses |
 | convergence | halve the step or double the grid and the error scales at the expected order; three levels with an order gate that rejects `order > p + 3` | stepper, quadrature, tables, Chebyshev |
 | round trip | build → translate → run → process and recover a known input | pulses, output, processing |
-| parity | field vs envelope for narrowband pulses; mode-averaged vs one-mode multimode; batch vs sequential; backend vs reference | every nonlinear feature, on each backend that runs it (on both Tier 1 backends always; ADR-061) |
+| parity | field vs envelope for narrowband pulses; mode-averaged vs one-mode multimode; batch vs sequential; backend vs reference | every nonlinear feature, on each backend that runs it (on `numpy_ref` and `native` always; ADR-061) |
 | property-based | `hypothesis` over grid sizes, pulse parameters, pressures | grids, pulses, materials, Chebyshev |
 | golden regression | `pytest-regressions` (`num_regression`) with tolerance, reference stored next to the test | materials tables, stored Luna results |
 | reference problem | the ladder in [stepper.md §11](stepper.md#11-verification-ladder-for-solprops-solver-tests): P0 linear, P1 N-soliton with phase, P2 analytic z-varying loss and dispersion, P3 cross-scheme Richardson | solver work |
@@ -152,16 +152,17 @@ carry a claim that used to need four thousand.
 
 ### Tiers and backends
 
-Medium tests are parametrised over every installed compatible backend and stay medium. The
-base checkout has `numpy_ref`; an installed `solprop-native` adds `native`
-conditionally. The slow ladders run on the backend selected by `SOLPROP_TEST_BACKEND`,
-defaulting to what `backend="auto"` selects (`native` where installed, else `numpy_ref`); the backend-versus-reference parity test of §1, with the
+Medium tests are parametrised over every installed compatible backend and stay medium. A
+plain `uv sync` has `numpy_ref` and `native`; the
+[lightweight setup](contributing.md) has no native package, takes
+`SOLPROP_TEST_BACKEND=numpy_ref`, and skips the native-only tests. The slow ladders run on the backend selected by `SOLPROP_TEST_BACKEND`,
+defaulting to what `backend="auto"` selects, `native`; the backend-versus-reference parity test of §1, with the
 equivalence tolerance of §3, stands in for duplicate copies already known to agree.
 
 Spatial tests select their backends through the explicit spatial fixtures of
 `tests/backends/conftest.py`, which cover NumPy and an installed native backend.
 
-For native development, `uv sync --extra native` builds `native/` and installs it
+For native development, a plain `uv sync` builds `native/` and installs it
 editable into the repository's environment before a lane runs; how, and when a build
 must be rebuilt, is
 [Building the native backend](../guide/performance/building-native.md#a-development-build).
@@ -389,7 +390,7 @@ are done when:
   `SOLPROP_WRITE_RECORDS=1` on a clean tree, and says why they moved;
 - a hot-path change carries a benchmark entry ([benchmark rules](benchmarks.md#rules)).
 
-A change is qualified on `numpy_ref` and, when installed, the native CPU
+A change is qualified on `numpy_ref` and the native CPU
 build; device builds are exercised separately with `pytest -m gpu`. No test, lane or
 timing runs a full-length propagation: qualify on about ten steps or a fibre short enough
 to finish in seconds (`AGENTS.md`, qualification scope).

@@ -194,8 +194,8 @@ def estimate(
         stages = len(problem.stepper.tableau.nodes)
         rhs = statistics.median(timings) / stages
         reported = backend.metadata()
-        # Each backend names its own: native "thread_count", numba_cpu
-        # "numba_threads"; numpy_ref runs on one thread and names none.
+        # Each backend names its own: native "thread_count"; numpy_ref runs on one
+        # thread and names none. "numba_threads" was the retired numba_cpu's.
         threads = next(
             (
                 reported[key]

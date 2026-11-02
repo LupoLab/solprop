@@ -15,7 +15,7 @@ uv run python -m benchmarks ab --case rdw --baseline-python OLD/bin/python
 ```
 
 Every command uses the native CPU backend unless `--backend` says otherwise, and needs
-it installed (`uv sync --extra native`). Run on a quiet machine: a dedicated
+it installed, as a plain `uv sync` does. Run on a quiet machine: a dedicated
 workstation, or an exclusive allocation on a cluster node.
 
 ## The tracking set
@@ -138,7 +138,7 @@ with at least three repeats, and only when:
   same final field to rounding, with the native backend running the threads it was
   given;
 - the workers imported solprop from this checkout's `src/` (run from the checkout's
-  own environment, `uv sync --extra native`, not an installed copy), with, for a
+  own environment, `uv sync`, not an installed copy), with, for a
   native run, a native build from a commit after which nothing under `native/`
   changed but its documentation and tests;
 - nothing under `src/`, `native/` or `benchmarks/` is uncommitted (the history files
@@ -180,10 +180,10 @@ so that their rows stay one series:
 | `amd-mi325x-do` | cloud `gpu-mi325x1-256gb` instance, HIP build (`AMD_GFX942`) | device | `do` |
 
 - **CPU rows time the release's wheel.** A clean checkout of the release tag, its
-  environment made with `uv sync --python 3.14 --frozen` (no `native` extra), then
-  `uv pip install solprop-native==<version>` from PyPI, and every command run as
-  `.venv/bin/python -m benchmarks …`: a later `uv sync` or `uv run` removes the
-  wheel. The wheel records the tag's commit, so the history accepts it.
+  environment made with `uv sync --python 3.14 --frozen --no-install-package
+  solprop-native`, then `uv pip install solprop-native==<version>` from PyPI, and every
+  command run as `.venv/bin/python -m benchmarks …`: a later `uv sync` or `uv run` builds
+  native in the wheel's place. The wheel records the tag's commit, so the history accepts it.
 - **numba rows** exist only at 0.1.0: a second run in the same checkout with
   `--backend numba_cpu`, on the Apple M5 Max, the Xeon Gold 6240 and the EPYC 7763. A later
   release cannot add them.

@@ -6,7 +6,7 @@ the git tag ([SEP 29](seps/archive/sep-0029-compiled-backend-distribution.md)):
 - **`solprop`**, pure Python: a source distribution and one universal wheel.
 - **`solprop-native`**, the compiled backend built from `native/`: **wheels only**, one
   per supported platform. No source distribution is published, so that where no wheel
-  matches, `pip install "solprop[native]"` fails to resolve instead of starting a C++
+  matches, `pip install solprop` fails to resolve instead of starting a C++
   build; source builds are made from the repository
   ([Building the native backend](../guide/performance/building-native.md)).
 
@@ -115,14 +115,13 @@ copy, so the native package raises at import when pyFFTW is already loaded
 that says what to do. No CI job exercises that guard on a real pyFFTW any longer.
 
 **solprop's distributions.** The `solprop-dist` job builds solprop's sdist and wheel and
-installs each from the file in a fresh environment, outside the checkout: the wheel
-alone, then the wheel and the sdist each with the `native` extra beside this run's
+installs each from the file in a fresh environment, outside the checkout, beside this run's
 Linux x86-64 wheel. In each it runs the check of the
 [installation page](../introduction/installation.md#checking-the-installation): solprop
 imports at the distributions' version, which on a release tag must be the tag's, and
-`backend="auto"` resolves to `numpy_ref` without the extra and to `native` with it.
-The extra pins solprop-native at solprop's own version (`hatch_build.py`), so two
-distributions built at different versions fail here, before anything is published.
+`backend="auto"` resolves to `native`.
+solprop's built metadata pins solprop-native at solprop's own version (`hatch_build.py`), so
+two distributions built at different versions fail here, before anything is published.
 
 ## Making a release
 
@@ -237,14 +236,14 @@ Then, for every release:
 2. Publishing, through PyPI's trusted publishing, then waits for each environment's
    reviewer. `publish-native` uploads solprop-native's wheels from `pypi-native` first;
    `publish` uploads solprop's sdist and wheel from `pypi` only once every native wheel
-   is up, since `solprop[native]` requires solprop-native at the same version. If an
+   is up, since solprop requires solprop-native at the same version. If an
    upload fails partway, re-run the failed jobs: they upload the same files, and PyPI
    accepts a file identical to one it holds. It refuses different files under a name it
    has seen, so a release that needs a change takes a new version.
 3. Wait for `published-install`, which starts after both publish jobs succeed. On
    Linux x86-64, Linux aarch64, macOS arm64, Windows x64 and Windows on Arm it creates a
    fresh CPython 3.14 environment outside the checkout and uses pip to resolve and install
-   `solprop[native]==X.Y.Z` from PyPI. It checks both distributions' versions,
+   `solprop==X.Y.Z` from PyPI. It checks both distributions' versions,
    `pip check` and that `backend="auto"` resolves to `native`. It uses no local
    distribution, dependency lock or cached environment. Its per-platform artifacts
    retain the install report, logs, resolved versions and platform information,

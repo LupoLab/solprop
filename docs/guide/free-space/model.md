@@ -342,7 +342,6 @@ settings = SimulationSettings(
     dz_init=1e-4,
     dz_max=5e-4,
     stats=default_spec("radial"),
-    backend="numpy_ref",
 )
 simulation = Simulation.from_radial(
     grid,
@@ -496,8 +495,7 @@ at the soliton power and at half of it.
 
 ## CPU execution settings
 
-The default backend is the installed native package, and otherwise, with a warning,
-`numpy_ref`; see
+The default backend is the native package; see
 [backend selection](../performance/resources.md#backend-choice-and-scan-workers). Thread counts
 and the other performance settings shared by every route are on the
 [performance page](../performance/tuning.md); what follows is specific to free space.

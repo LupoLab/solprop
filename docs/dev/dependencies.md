@@ -18,6 +18,7 @@ need no exception for them.
 
 | package | purpose | notes |
 |---|---|---|
+| solprop-native, at solprop's own version | the backend solprop runs on ([SEP 43](seps/sep-0043-retire-numba-cpu.md)) | [below](#the-native-backend-package); no environment markers, so solprop's supported platforms are the ones it installs on |
 | numpy ≥ 2.5 | arrays | the array type at every layer; the APIs used are NumPy 2.0's (`concat`, `trapezoid`, `copy=`) and 2.3.2 is the first release with 3.14 wheels on all three platforms, but under 2.3 and 2.4 the free-space reference runs produce NaN and about 200 free-space and dispersive tests fail; the cause is not yet identified, so the floor stays at 2.5 until it is |
 | scipy ≥ 1.18 | `scipy.fft` (reference backend), `special`, `optimize`, `interpolate`, `integrate.quad_vec`, `signal`, `constants` | root finding, special functions, interpolation and adaptive quadrature throughout; the newest API used is `signal.ShortTimeFFT` (1.12), but optmat requires 1.18, the release its stored fits reproduce from |
 | matplotlib ≥ 3.10.7 | plotting | earlier 3.10 releases call pyparsing APIs that current pyparsing deprecates, which the test suite's warnings-as-errors refuses |
@@ -58,8 +59,12 @@ a pull request that runs the GPU lane and the arithmetic probes (Q9). Nothing ou
 
 ## The native backend package
 
-`solprop-native` is the repository's second distribution, built from `native/` and
-installed through solprop's `native` extra, which pins it to solprop's own version. Its
+`solprop-native` is the repository's second distribution, built from `native/` and a
+required dependency of solprop. `pyproject.toml` lists the bare name, so uv resolves it to
+the workspace member, and `hatch_build.py` writes solprop's own version into the built
+metadata as an exact pin. On a platform with no matching wheel the installer's resolution
+error is the answer, which [the installation page](../introduction/installation.md)
+explains. Its
 native build pins and fetches Kokkos 5.2.1, KokkosKernels 5.2.0 (BLAS component only) and
 Kokkos-FFT 2.0.0 and uses nanobind. A local build (the default) links the system
 Accelerate, oneAPI's MKL or OpenBLAS through KokkosKernels, whichever it finds, and

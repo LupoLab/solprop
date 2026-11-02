@@ -13,19 +13,24 @@ this page is out of date.
 - The package version comes from git tags (`hatch-vcs`, falling back to `0.0.0` before the
   first tag); there is no version string to edit.
 - The target-specific native backend, `solprop-native`, is the repository's second
-  distribution, built from `native/`. The root is a uv workspace with `native/` as its
-  member and one `uv.lock`; solprop's `native` extra pins `solprop-native` to solprop's own
-  version (`hatch_build.py`), and both take that version from the repository's tags.
-  `uv sync --extra native` builds and installs it editable; a plain `uv sync` leaves the
-  environment a compiler-free one on `numpy_ref` and removes it, as it removes a
-  hand-installed Pyroraptor (`uv sync --inexact` and `uv run --no-sync` keep them).
+  distribution, built from `native/`, and a required dependency. The root is a uv workspace
+  with `native/` as its member and one `uv.lock`; `hatch_build.py` pins `solprop-native` to
+  solprop's own version in the built metadata, and both take that version from the
+  repository's tags.
+  A plain `uv sync` builds and installs it editable. It removes a hand-installed Pyroraptor
+  (`uv sync --inexact` and `uv run --no-sync` keep it).
+  `uv run --no-project tools/setup_light.py` is the lightweight setup for Python and
+  documentation contributors, with no native package and no compiler: it supports the
+  reference backend and the lint, type, test and documentation checks, with the environment
+  activated or `UV_NO_SYNC=1`, because a plain `uv run` would build native.
   `poe fetch-wheel` installs the wheel CI built for the newest commit in this checkout's
-  history, using `gh` and no compiler.
+  history, using `gh` and no compiler, and refuses it if `native/` or a solprop module that
+  `solprop_native` imports differs from that commit, committed or not
+  ([contributing](contributing.md)).
 - Dependencies resolve from PyPI. No local-path or private source is committed.
-- Supported platforms: Linux, macOS and Windows for `numpy_ref`;
-  solprop-native as wheels for osx-arm64, linux-64, linux-aarch64, win-64 and win-arm64, and from
-  source on Linux and macOS; the Queue and Slurm scan executors are
-  POSIX-only and refuse to start on Windows.
+- Supported platforms: where solprop-native installs, as wheels for osx-arm64, linux-64,
+  linux-aarch64, win-64 and win-arm64; it builds from source on Linux and macOS; the Queue and
+  Slurm scan executors are POSIX-only and refuse to start on Windows.
 
 ## The gate: `uv run poe check`
 
@@ -215,7 +220,8 @@ jaxtyping hook) run in the coverage lane only; the other test lanes set
   `wheel` stage (the build and its isolated smoke test); on macOS and Windows it is
   cibuildwheel, as in `wheels.yml`. The docs and test lanes install the wheel. A
   documentation-only change builds only the Linux wheel. `poe fetch-wheel` installs the
-  newest one from this checkout's history, for a contributor without a compiler.
+  newest one from this checkout's history that fits the tree, for a contributor without a
+  compiler.
 - **test** (macOS arm64, Windows x64 and Windows on Arm, three shards each): `poe test`, the default lane,
   with the wheel installed, so `backend="auto"` and the driver tests select `native`.
 - **coverage** (Linux x86-64): `poe cov` as parallel jobs, with the wheel installed (its
@@ -230,8 +236,8 @@ jaxtyping hook) run in the coverage lane only; the other test lanes set
   --resolution lowest-direct`, so every dependency sits at its floor, then the wheel with
   `--no-deps`, then the default lane ([dependencies.md](dependencies.md)).
 - **no-native** (Linux): a few modules of the default lane with no native package and
-  `SOLPROP_TEST_BACKEND=numpy_ref`: what `backend="auto"` does on a platform without a
-  wheel, and a real run there.
+  `SOLPROP_TEST_BACKEND=numpy_ref`: that `backend="auto"` refuses there, and a real run on
+  `numpy_ref` by name.
 - **native-quality** (Linux, three jobs): `uv run poe check-native`, the native package's
   gate (`native/scripts/check.sh`), split by `SOLPROP_NATIVE_CHECK_STAGES`. The jobs are
   its lint and strict types, clang-format and its pytest suite (`lint pytest`);

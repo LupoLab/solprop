@@ -1,17 +1,19 @@
 # Building the native backend
 
 The [native backend](native.md) is the `solprop-native` package, built from the
-`native/` directory of the solprop repository at solprop's own version. On the four
+`native/` directory of the solprop repository at solprop's own version. On the five
 platforms with precompiled wheels — macOS on Apple silicon (osx-arm64), Linux on x86-64
-(linux-64), Linux on aarch64 (linux-aarch64) and Windows on x86-64 (win-64) —
-`pip install "solprop[native]"` installs it and nothing on this page is needed
-([installation](../../introduction/installation.md)). Build it from source to:
+(linux-64), Linux on aarch64 (linux-aarch64), Windows on x86-64 (win-64) and Windows on Arm
+(win-arm64) — `pip install solprop` installs it and nothing on this page is needed
+([installation](../../introduction/installation.md)). A source build is the way past a
+wheel's limits. Build it from source to:
 
 - run on a **GPU**: NVIDIA with CUDA or AMD with HIP. There are no GPU wheels;
 - get the **local** build, compiled for the machine that runs it with that machine's
   vendor BLAS, which is a few per cent faster than the wheel on most cases and more on
   some;
-- run on a platform without a wheel, or work on the backend itself.
+- run on a platform or processor no wheel serves, where it may work, with no support
+  promise, or work on the backend itself.
 
 The instructions cover Linux and macOS. One build is either a CPU build or a GPU build;
 the arithmetic is double precision throughout, and no build enables fast-math.
@@ -93,7 +95,7 @@ From the repository root, use a fresh, owned dependency prefix:
 native_deps="$PWD/native/build/neon-dependencies"
 MACOSX_DEPLOYMENT_TARGET=14.0 native/ci/build-deps.sh "$native_deps"
 export CMAKE_ARGS="-DFFTW_ROOT=$native_deps -DSOLPROP_NATIVE_LIBOMP_LIBRARY=$native_deps/lib/libomp.dylib -DSOLPROP_NATIVE_LIBOMP_INCLUDE_DIR=$native_deps/include -DSOLPROP_NATIVE_BUNDLED_LICENCES=$native_deps/licences"
-uv sync --extra native --reinstall-package solprop-native
+uv sync --reinstall-package solprop-native
 uv run --no-sync python -m solprop_native
 ```
 
@@ -133,15 +135,16 @@ it, including the configure summary line described [below](#build-profiles).
 
 ## A development build
 
-In a development checkout, one command builds the native package from `native/` and
+In a development checkout, a plain sync builds the native package from `native/` and
 installs it editable into the repository's environment beside solprop:
 
 ```sh
-uv sync --extra native
+uv sync
 ```
 
-A plain `uv sync` leaves it out, and removes a copy installed by hand. The editable
-install does not rebuild itself: run `uv sync --extra native --reinstall-package
+Without the C++ toolchain the sync stops with CMake's message; a contributor who needs no
+native build has the [lightweight setup](../../dev/contributing.md). The editable
+install does not rebuild itself: run `uv sync --reinstall-package
 solprop-native` after a native change, with any build options in `CMAKE_ARGS`
 ([below](#passing-cmake-options)); a device build is made the same way. `uv run poe
 check-native` runs the native gate and `uv run poe check-all` both gates. A build stays
@@ -150,6 +153,30 @@ changes or `check_build()` names a member the installed solprop lacks. Running s
 against the build is in the developer notes on
 [testing](../../dev/testing.md#tiers-and-backends), and the native package's own tests in
 `native/README.md`.
+
+## Upgrading a source build
+
+solprop requires solprop-native at its own version. Reinstalling or upgrading at the same
+version keeps a source build, and a new release replaces it with that release's CPU wheel,
+with no message, because the exact requirement asks for it. So upgrading means rebuilding
+from the new tag, and a GPU job sets `SOLPROP_REQUIRE_DEVICE`
+([a job that must run on a device](native.md#a-job-that-must-run-on-a-device)), so that one
+which lost its GPU build stops before it starts.
+
+**A released source build takes a version label**, a PEP 440 local version, so that
+`pip list` shows what it is. A real build makes the wheel and the version, and
+`solprop-native==0.3.0` accepts `0.3.0+cuda`:
+
+```sh
+SETUPTOOLS_SCM_PRETEND_VERSION_FOR_SOLPROP_NATIVE=0.3.0+cuda \
+    uv pip install --python /path/to/env/bin/python . ./native
+```
+
+**A development build** is already labelled with its commit, and a requirement that has a
+local label is matched exactly, so it takes no further label; `build_info()` says what it is.
+
+**The label is provenance, not evidence.** A CPU build labelled `+cuda` still reports
+`device_backend` `none`, which is why `SOLPROP_REQUIRE_DEVICE` reads the build itself.
 
 ## Checking a build
 
@@ -203,12 +230,12 @@ Then, in solprop:
 import solprop
 from solprop.backends.registry import resolve_name
 
-print(resolve_name("auto"))  # "native" when solprop_native is installed
+print(resolve_name("auto"))  # "native"
 solprop.configure_logging("INFO")  # each run logs "Using native backend"
 ```
 
-`resolve_name` only probes whether the package can be found; the log line reports the
-backend actually constructed.
+`resolve_name` only probes whether the package can be found and whether this processor
+meets its baseline; the log line reports the backend actually constructed.
 
 ## Build profiles
 
@@ -240,8 +267,9 @@ wheels are made with, for machines other than the build machine. It is a CPU pro
   way. The package records its baseline and refuses to import on a processor below it,
   naming the missing features (from `/proc/cpuinfo` on Linux, from
   `IsProcessorFeaturePresent` on Windows, where AVX2 stands for the other x86-64-v3
-  features Windows does not report); solprop's `backend="auto"` then uses `numpy_ref`
-  with a warning;
+  features Windows does not report). Where `/proc/cpuinfo` cannot answer, an x86-64 build
+  asks NumPy's own `cpuid` check, and if nothing can establish the features the package
+  refuses too. solprop's `backend="auto"` raises the same refusal;
 - a **BLAS** that every such machine has and that shares the extension's threads:
   Accelerate on macOS; on Linux an OpenBLAS 0.3.34 that the configure step builds with
   OpenMP and the extension's own compiler (`native/cmake/OpenMPOpenBLAS.cmake`), so that
@@ -293,7 +321,7 @@ In the repository's own environment, pass them to `uv sync` and force the rebuil
 
 ```sh
 CMAKE_ARGS="-DSOLPROP_NATIVE_BLAS_VENDOR=OPENBLAS" \
-  uv sync --extra native --reinstall-package solprop-native
+  uv sync --reinstall-package solprop-native
 ```
 
 Select the compiler with `CXX` or `-DCMAKE_CXX_COMPILER=...`. CMake caches compilers and
