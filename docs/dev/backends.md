@@ -408,7 +408,9 @@ squares against `atol / s`; applies the split-step collar as the correction
 state and stages stayed complex64, and after every step that the finished state is
 complex64 and finite. Its fixed-schedule batches are the plain `LockstepRunner`, each
 member through its own binary32 trial: `NumpyBatchBackend`'s stage arithmetic over the
-member axis is binary64. The ionisation rate's table
+member axis is binary64, so it refuses a single-precision member by name, and every
+lockstep batch refuses members of mixed precisions (`_validate_members`). The
+ionisation rate's table
 lookup, the envelope-grid plasma's cycle moments and the statistics are evaluated in
 binary64 from the binary32 field, which is what the oracle defines. Its constructor, and
 so `mlx`'s, applies the settings' own admission (`translate.precision.admit_precision`):

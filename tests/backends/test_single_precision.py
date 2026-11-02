@@ -27,6 +27,7 @@ from legacy_geometry import LEGACY_GRID, bare_absorber
 from solprop import fourier
 from solprop.backends import registry
 from solprop.backends.batch import LockstepRunner
+from solprop.backends.driver import StepDriver
 from solprop.backends.memory import (
     MLX_GRAPH_BUDGET,
     estimate_memory,
@@ -35,6 +36,7 @@ from solprop.backends.memory import (
     mlx_stage_bytes,
 )
 from solprop.backends.numpy_ref import NumpyRefBackend, passes
+from solprop.backends.numpy_ref.batch import NumpyBatchBackend
 from solprop.backends.numpy_ref.single import (
     NumpySingleBackend,
     analytic_single,
@@ -1020,17 +1022,88 @@ def test_a_binary64_collar_in_the_finish_is_refused(monkeypatch):
             backend._finish(state, 1e-4)
 
 
+def low_storage_split(route: str, precision: str) -> Simulation:
+    """Return a low-storage march under the split-step collar: a field-grid capillary
+    (Kerr only, 16 steps) or a Cartesian Kerr beam with its collars (10 steps), whose
+    finish transforms each row across the plane and back around the collar."""
+    if route == "capillary":
+        return capillary(precision, plasma=False, integrator=LowStorageRungeKutta())
+    simulation = spatial_kerr("cartesian", precision, absorbed=True)
+    simulation.settings = dataclasses.replace(
+        simulation.settings,
+        integrator=LowStorageRungeKutta(),
+        absorber_scheme="split_step",
+    )
+    return simulation
+
+
+@pytest.mark.parametrize("route", ["capillary", "cartesian"])
+def test_low_storage_with_the_split_collar_stays_in_binary32(route, monkeypatch):
+    """The low-storage register step commits through the same checked finish."""
+    original = passes.apply_temporal_rate
+    results: list[np.dtype] = []
+
+    def spy(state, rate, dz, *, kind):
+        absorbed = original(state, rate, dz, kind=kind)
+        results.append(absorbed.dtype)
+        return absorbed
+
+    monkeypatch.setattr(passes, "apply_temporal_rate", spy)
+    single = finish(low_storage_split(route, "single"))
+    assert results and set(results) == {np.dtype(np.complex64)}
+    monkeypatch.undo()
+    double = finish(low_storage_split(route, "double"))
+    simulation = low_storage_split(route, "double")
+    steps = 16 if route == "capillary" else 10
+    transverse = 0 if route == "capillary" else 2 * 4
+    depth = math.ceil(math.log2(simulation.translate().grids.n_to)) + transverse
+    # The four stages' transforms of the low-storage test, and the collar's round
+    # trip counted as a fifth: its rounding is further scaled by |f - 1| < 1.
+    bound = steps * (2 * U32 + 5 * 16 * EPS_32 * depth)
+    assert_within(single, double, bound)
+    if route == "cartesian":
+        # The plane's rows are written back into its own complex64 buffer, so a
+        # widened collar would be narrowed there, not refused: the spy above is
+        # this route's check.
+        return
+
+    def widened(state, rate, dz, *, kind):
+        return original(state.astype(np.complex128), rate, dz, kind=kind)
+
+    monkeypatch.setattr(passes, "apply_temporal_rate", widened)
+    with ExitStack() as cleanup:
+        backend = loaded(low_storage_split(route, "single"), cleanup)
+        with pytest.raises(BackendError, match="the finished state as complex128"):
+            backend.propagate_to(float(simulation.settings.save_planes[-1]))
+
+
 def test_a_single_precision_batch_takes_each_member_s_own_trial():
     # The reference's batch arithmetic over the member axis is binary64: the
     # single-precision members step in turn, each through its binary32 trial.
-    with ExitStack() as cleanup:
-        members = tuple(loaded(gnlse("single"), cleanup) for _ in range(2))
-        runner = select_batch(cast(Sequence[Backend], members))
-        cleanup.callback(runner.close)
+    members = tuple(loaded(gnlse("single")) for _ in range(2))
+    runner = select_batch(cast(Sequence[Backend], members))
+    try:
         assert type(runner) is LockstepRunner
-        mixed = (loaded(gnlse("single"), cleanup), loaded(gnlse("double"), cleanup))
+    finally:
+        runner.close()
+
+
+@pytest.mark.parametrize("order", [("single", "double"), ("double", "single")])
+def test_a_batch_of_mixed_precisions_is_refused(order):
+    with ExitStack() as cleanup:
+        mixed = tuple(loaded(gnlse(precision), cleanup) for precision in order)
         with pytest.raises(BackendError, match="mixed precisions"):
             select_batch(cast(Sequence[Backend], mixed))
+        # The shared member validation, whichever runner is built.
+        with pytest.raises(BackendError, match="mixed precisions"):
+            LockstepRunner(cast(Sequence[StepDriver[object]], mixed))
+
+
+def test_the_reference_s_binary64_batch_refuses_a_single_member():
+    with ExitStack() as cleanup:
+        member = cast(NumpySingleBackend, loaded(gnlse("single"), cleanup))
+        with pytest.raises(BackendError, match="refuses a single-precision member"):
+            NumpyBatchBackend([member])
 
 
 def test_a_weighted_controller_divides_by_its_bins():

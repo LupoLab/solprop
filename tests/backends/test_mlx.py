@@ -28,7 +28,6 @@ pytest.importorskip("mlx.core")
 
 import mlx.core as mx  # pyright: ignore[reportMissingImports] - macOS arm64 only
 
-from backends import test_monitor_reduction as reduction
 from backends.test_single_precision import (
     capillary,
     check_a_whole_run,
@@ -39,6 +38,15 @@ from backends.test_single_precision import (
     spatial_kerr,
 )
 from bounds import EPS_32, UNIT_ROUNDOFF_32, assert_within, fft_bound, higham_gamma
+from monitor_cases import (
+    MARCHES,
+    ROUTE_NAMES,
+    SCHEMES,
+    probe,
+    reading,
+    record_after_march,
+    watched,
+)
 from solprop.backends.memory import estimate_memory
 from solprop.backends.mlx_gpu.arithmetic import (
     DoubleFloatTerms,
@@ -69,6 +77,7 @@ from solprop.stepper import (
     RungeKutta,
 )
 from solprop.translate.precision import SINGLE, prefix_sum
+from solprop.translate.problem import KernelProblem
 from vector_raman_cases import vector_problem
 
 U32 = UNIT_ROUNDOFF_32
@@ -381,7 +390,7 @@ def test_the_propagator_drift_stays_linear_on_the_device():
 
 SINGLE_ROUTES = tuple(
     route
-    for route in reduction.ROUTE_NAMES
+    for route in ROUTE_NAMES
     if route not in ("general guide (constant)", "planar")
 )
 """The monitor probe's routes that single precision runs: it refuses the general
@@ -396,19 +405,13 @@ is warned of."""
 
 def watched_probe(route: str, scheme: str, march: str | None = None) -> Simulation:
     """Return the monitor test's probe in single precision; with a march, replayed."""
-    simulation = reduction._simulation(route, scheme)
-    settings: dict[str, object] = {"precision": "single"}
-    if march is not None:
-        length = reduction.LENGTH
-        settings["integrator"] = reduction.MARCHES[march]
-        settings["schedule"] = FixedSchedule.uniform(
-            0.0, length, length / PROBE_STEPS, save_planes=[length]
-        )
-    simulation.settings = dataclasses.replace(simulation.settings, **settings)
+    method = None if march is None else MARCHES[march]
+    simulation = probe(route, scheme, method, steps=PROBE_STEPS)
+    simulation.settings = dataclasses.replace(simulation.settings, precision="single")
     return simulation
 
 
-def reading_bound(simulation: Simulation) -> float:
+def reading_bound(problem: KernelProblem) -> float:
     """Return the device reading's rounding bound, relative to what it reads.
 
     The oracle reads the same binary32 state in binary64, so its own error is
@@ -420,30 +423,31 @@ def reading_bound(simulation: Simulation) -> float:
     below ``n_columns + n_t`` in whatever order the device takes: within ``gamma`` of
     that depth of the sum itself (``tests/bounds.py``, ``higham_gamma``).
     """
-    n_t = simulation.grid.n_t
-    columns = math.prod(simulation.translate().shape[:-1])
+    n_t = problem.grids.n_t
+    columns = math.prod(problem.shape[:-1])
     transform = 16 * EPS_32 * math.ceil(math.log2(n_t))
     return 2 * transform + transform**2 + higham_gamma(columns + n_t + 8, U32)
 
 
-@pytest.mark.parametrize("scheme", reduction.SCHEMES)
+@pytest.mark.parametrize("scheme", SCHEMES)
 @pytest.mark.parametrize("route", SINGLE_ROUTES)
 def test_a_check_on_the_device_reads_the_oracle_s_five_numbers(route, scheme):
     # The energy and the four weighted energies of a launch that reaches every
     # region, reduced on the device, against the oracle's host reading.
     simulation = watched_probe(route, scheme)
+    problem = simulation.translate()
     with ExitStack() as cleanup:
-        oracle = reduction._loaded(simulation, "numpy_ref")
+        oracle = watched(simulation, "numpy_ref", problem)
         cleanup.callback(oracle.close)
-        device = reduction._loaded(simulation, "mlx")
+        device = watched(simulation, "mlx", problem)
         cleanup.callback(device.close)
-        theirs, ours = reduction._reading(oracle), reduction._reading(device)
+        theirs, ours = reading(oracle), reading(device)
     monitor = simulation._boundary_monitor()
     assert monitor is not None
     largest = monitor.weights.max(axis=1)
     weighted = largest > 0.0
     assert np.all(theirs.regions[weighted] > 1e-6 * theirs.total)
-    bound = reading_bound(simulation)
+    bound = reading_bound(problem)
     assert ours.total == pytest.approx(theirs.total, rel=bound)
     # Each row's error is bounded by its largest weight times the energy.
     np.testing.assert_array_less(
@@ -466,10 +470,11 @@ def test_the_device_s_split_removal_is_the_oracle_s(route, march):
     taken to stay below the bound's worst-case sum, ``gamma`` of hundreds of terms.
     """
     simulation = watched_probe(route, "split_step", march)
-    theirs = reduction._march(simulation, "numpy_ref")
-    ours = reduction._march(simulation, "mlx")
+    problem = simulation.translate()
+    theirs = record_after_march(simulation, "numpy_ref", problem)
+    ours = record_after_march(simulation, "mlx", problem)
     assert theirs["raw_removed_fraction"] > 1e-6
-    bound = PROBE_STEPS * reading_bound(simulation)
+    bound = PROBE_STEPS * reading_bound(problem)
     for name in ("raw_removed_fraction", "removed_fraction", "collar_max"):
         assert ours[name] == pytest.approx(theirs[name], rel=bound), name
     assert ours["steps"] == theirs["steps"] == PROBE_STEPS

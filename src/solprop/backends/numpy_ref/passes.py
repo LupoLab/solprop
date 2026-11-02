@@ -2200,17 +2200,23 @@ def apply_temporal_rate(
     steps fall. ``alpha`` is a power coefficient, hence the half on the field.
 
     A complex128 state takes that product as written, in binary64. A complex64 state,
-    the single-precision path's (SEP 33), takes the same step in binary32 as the
-    correction ``y + F[F^-1[y] (f - 1)]``, with ``f - 1 = expm1(-alpha(t) h / 2)``
-    formed in binary64 and rounded once: the factor is exactly one outside the collar,
-    so the round trip's binary32 rounding falls on the collar's correction alone, not
-    on the whole state, as on the ``mlx`` backend.
+    the single-precision path's (SEP 33), takes it in binary32 as the correction
+    ``y + F[F^-1[y] (f - 1)]``, with ``f - 1 = expm1(-alpha(t) h / 2)`` formed in
+    binary64 and rounded once: the factor is exactly one outside the collar, so the
+    round trip's binary32 rounding falls on the collar's correction alone, not on the
+    whole state, as on the ``mlx`` backend. The two forms are the same step in exact
+    arithmetic only when ``F[F^-1[y]] = y``. On a field grid that needs the DC bin,
+    and the Nyquist bin of an even ``n_t``, to be real: the real inverse transform
+    drops their imaginary parts, which the product form loses and the correction
+    form keeps. The backends' finishes mask both bins before the collar, so the
+    forms agree there.
 
     Parameters
     ----------
     state : numpy.ndarray
         The state, complex128 or complex64, shape
-        ``(n_batch, n_modes, n_pol, n_omega)``, in the square root of watts.
+        ``(n_batch, n_modes, n_pol, n_omega)``, in the square root of watts. On a
+        field grid its DC and Nyquist bins are real (above).
     rate : numpy.ndarray
         ``alpha(t)`` on the coarse time grid, float64, shape ``(n_t,)``, in 1/m,
         non-negative.
