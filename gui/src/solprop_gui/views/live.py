@@ -30,12 +30,12 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QSlider,
-    QSplitter,
     QVBoxLayout,
     QWidget,
 )
 
 from solprop_gui.views.plotting import BLUE, HoverLayout, colormap, curve_lookup
+from solprop_gui.views.splitter import GripSplitter
 
 __all__ = ["DB_FLOOR", "MapPanel", "OverviewView", "decibels"]
 
@@ -277,7 +277,7 @@ class OverviewView(QWidget):
         middle_layout.setContentsMargins(0, 0, 0, 0)
         middle_layout.addLayout(controls)
         middle_layout.addWidget(self.slices, 1)
-        split = QSplitter(Qt.Orientation.Vertical)
+        split = GripSplitter(Qt.Orientation.Vertical)
         split.addWidget(self.maps)
         split.addWidget(middle)
         split.setStretchFactor(0, 3)

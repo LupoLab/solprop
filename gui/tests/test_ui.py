@@ -88,7 +88,7 @@ def test_a_boolean_row_shows_solprops_default_selected(qtbot: QtBot):
         meta("kerr", {"kind": "boolean"}, default="True", default_value=True)
     )
     qtbot.addWidget(row)
-    assert row.choice.currentText() == "on (solprop's default)"
+    assert row.choice.currentText() == "on (default)"
     seen = []
     row.edited.connect(lambda *args: seen.append(args))
     row.choice.setCurrentIndex(1)  # off
@@ -105,14 +105,14 @@ def test_a_choice_without_a_known_default_says_solprop_chooses(qtbot: QtBot):
         meta("integrator", {"kind": "choice", "choices": ["rk", "adams"]})
     )
     qtbot.addWidget(row)
-    assert row.choice.currentText() == "solprop chooses"
+    assert row.choice.currentText() == "automatic"
     row.set_resolved(["adams", "the route's rule"])
-    assert row.choice.currentText() == "adams (solprop's default)"
+    assert row.choice.currentText() == "adams (default)"
     row.set_resolved(["adams", "the route's rule"])  # unchanged: nothing redone
     row.set_value("rk")
     assert row.choice.currentText() == "rk"
     row.set_resolved(["other", "a rule"])
-    assert row.choice.itemText(0) == "solprop chooses (a rule)"
+    assert row.choice.itemText(0) == "automatic (a rule)"
     row.set_value("unknown")
     assert row.choice.currentIndex() == 0
 
@@ -211,7 +211,7 @@ def test_numbers_without_units_and_text_rows(qtbot: QtBot):
     assert plain.text.placeholderText() == "default: [1]"
     other = ParameterRow(meta("y", {"kind": "array"}))
     qtbot.addWidget(other)
-    assert "solprop chooses" in other.text.placeholderText()
+    assert "automatic" in other.text.placeholderText()
 
 
 def test_a_number_box_steps_with_keys_and_wheel(
@@ -406,6 +406,37 @@ def test_the_window_runs_the_whole_lifecycle(qtbot: QtBot, tmp_path: Path):  # n
     assert window.results.runs.count() == 2
     window.results.runs.itemActivated.emit(window.results.runs.item(0))
     assert window.results.path is not None
+    window.close()
+
+
+def test_panels_hide_and_come_back(qtbot: QtBot, tmp_path: Path):
+    from PySide6.QtCore import QEvent, QPointF, Qt  # noqa: PLC0415 - only here
+    from PySide6.QtGui import QEnterEvent, QMouseEvent  # noqa: PLC0415
+
+    window = MainWindow(workspace=tmp_path / "workspace")
+    qtbot.addWidget(window)
+    window.show()
+    handle = window.split.handle(1)
+    point = QPointF(2, 2)
+    handle.enterEvent(QEnterEvent(point, point, point))
+    shot(window, tmp_path, "lit-handle")
+    handle.leaveEvent(QEvent(QEvent.Type.Leave))
+    click = QMouseEvent(
+        QEvent.Type.MouseButtonDblClick,
+        point,
+        point,
+        Qt.MouseButton.LeftButton,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
+    )
+    handle.mouseDoubleClickEvent(click)
+    assert not window.panels.isVisible() and not window.settings_action.isChecked()
+    window.right.handle(1).mouseDoubleClickEvent(click)
+    assert not window.console.isVisible()
+    window.settings_action.trigger()
+    assert window.panels.isVisible()
+    window.reset_layout()
+    assert window.console.isVisible() and window.messages_action.isChecked()
     window.close()
 
 

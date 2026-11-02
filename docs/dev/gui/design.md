@@ -284,7 +284,11 @@ little room).
 - **Messages (bottom, under the views).** Tabs: the summary of derived numbers
   (`tools.capillary_params`, …) beside solprop's check (activating an issue goes to its
   step and field); the run's log; and the live Python equivalent of the setup. Later:
-  a console. Each panel can be hidden from the View menu.
+  a console.
+- **Panels.** The dividers between panels are drawn with a grip and darken under the
+  mouse; a drag resizes but cannot shut a panel. Double-clicking a divider hides its
+  panel; the Settings and Messages toggles at the step bar's right end (also in the
+  View menu, with View → Reset layout) bring it back.
 - **Status bar.** Passing messages, and the run's position, steps, boundary lamp and
   progress.
 

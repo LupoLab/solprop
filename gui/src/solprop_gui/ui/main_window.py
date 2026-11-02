@@ -40,7 +40,6 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QScrollArea,
     QSizePolicy,
-    QSplitter,
     QStackedWidget,
     QTabWidget,
     QToolBar,
@@ -58,6 +57,7 @@ from solprop_gui.ui.icons import icon
 from solprop_gui.ui.pages import ParameterPage, StartPage, issue_keyword
 from solprop_gui.ui.results import ResultsPage
 from solprop_gui.ui.run_panel import RunPanel
+from solprop_gui.views.splitter import GripSplitter
 
 __all__ = ["CHECK_DELAY_MS", "ROUTES", "STEPS", "MainWindow"]
 
@@ -225,7 +225,7 @@ class MainWindow(QMainWindow):
         checks_layout.setSpacing(2)
         checks_layout.addWidget(QLabel("solprop's check"))
         checks_layout.addWidget(self.issue_list, 1)
-        summary_body = QSplitter()
+        summary_body = GripSplitter()
         summary_body.setObjectName("summary-panel")
         summary_body.addWidget(summary_scroll)
         summary_body.addWidget(checks)
@@ -242,17 +242,17 @@ class MainWindow(QMainWindow):
         self.console.addTab(self.code_view, "Python")
         self.console.currentChanged.connect(self._console_changed)
 
-        right = QSplitter(Qt.Orientation.Vertical)
-        right.addWidget(self.views)
-        right.addWidget(self.console)
-        right.setStretchFactor(0, 1)
-        right.setSizes([560, 180])
-        split = QSplitter()
-        split.addWidget(self.panels)
-        split.addWidget(right)
-        split.setStretchFactor(1, 1)
-        split.setSizes([360, 920])
-        self.setCentralWidget(split)
+        self.console.setMinimumHeight(90)
+        self.views.setMinimumSize(320, 200)
+        self.right = GripSplitter(Qt.Orientation.Vertical)
+        self.right.addWidget(self.views)
+        self.right.addWidget(self.console)
+        self.right.setStretchFactor(0, 1)
+        self.split = GripSplitter()
+        self.split.addWidget(self.panels)
+        self.split.addWidget(self.right)
+        self.split.setStretchFactor(1, 1)
+        self.setCentralWidget(self.split)
 
         status = self.statusBar()
         status.addPermanentWidget(self.run_panel.steps)
@@ -261,6 +261,9 @@ class MainWindow(QMainWindow):
 
         self._make_toolbar()
         self._make_actions()
+        self.split.hide_asked.connect(lambda: self.settings_action.setChecked(False))
+        self.right.hide_asked.connect(lambda: self.messages_action.setChecked(False))
+        self.reset_layout()
         self.check_timer = QTimer(self)
         self.check_timer.setSingleShot(True)
         self.check_timer.timeout.connect(self.check)
@@ -356,12 +359,9 @@ class MainWindow(QMainWindow):
         run_menu.addSeparator()
         self._add_action(run_menu, "Run &workspace…", panel.choose_workspace)
         view_menu = menu.addMenu("&View")
-        for widget, text in ((self.panels, "&Settings"), (self.console, "&Messages")):
-            toggle = QAction(text, self)
-            toggle.setCheckable(True)
-            toggle.setChecked(True)
-            toggle.toggled.connect(widget.setVisible)
-            view_menu.addAction(toggle)
+        view_menu.addAction(self.settings_action)
+        view_menu.addAction(self.messages_action)
+        self._add_action(view_menu, "&Reset layout", self.reset_layout)
         view_menu.addSeparator()
         for index, name in enumerate(("Summary", "Log", "Python")):
             self._add_action(
@@ -419,8 +419,54 @@ class MainWindow(QMainWindow):
             panel.resume_action,
         ):
             bar.addAction(action)
+        bar.addSeparator()
+        self.settings_action = self._panel_action(
+            "Settings", "panel-left", self.panels, "Ctrl+Alt+S"
+        )
+        self.messages_action = self._panel_action(
+            "Messages", "panel-bottom", self.console, "Ctrl+Alt+M"
+        )
+        bar.addAction(self.settings_action)
+        bar.addAction(self.messages_action)
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, bar)
         self.step_bar = bar
+
+    def _panel_action(
+        self, text: str, drawing: str, panel: QWidget, shortcut: str
+    ) -> QAction:
+        """Make the action that shows and hides a panel.
+
+        Parameters
+        ----------
+        text : str
+            Its text.
+        drawing : str
+            Its icon's drawing.
+        panel : PySide6.QtWidgets.QWidget
+            The panel.
+        shortcut : str
+            Its shortcut.
+
+        Returns
+        -------
+        PySide6.QtGui.QAction
+            The action, checked while the panel shows.
+        """
+        colour = self.palette().windowText().color()
+        action = QAction(icon(drawing, colour), text, self)
+        action.setCheckable(True)
+        action.setChecked(True)
+        action.setShortcut(QKeySequence(shortcut))
+        action.setToolTip(f"Show or hide the {text.lower()} panel ({shortcut}).")
+        action.toggled.connect(panel.setVisible)
+        return action
+
+    def reset_layout(self) -> None:
+        """Show every panel, at its first size."""
+        self.settings_action.setChecked(True)
+        self.messages_action.setChecked(True)
+        self.split.setSizes([360, 920])
+        self.right.setSizes([560, 180])
 
     # ------------------------------------------------------------------ steps
 

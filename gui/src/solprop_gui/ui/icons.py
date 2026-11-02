@@ -55,6 +55,14 @@ DRAWINGS: Final = {
         '<path d="M5 4v23h24"/><path d="M8 23c4 0 4-14 8-14s4 10 7 10 3-6 5-6"/>'
         '<path d="M8 19h3M8 15h2" stroke-width="1"/>'
     ),
+    "panel-left": (
+        '<rect x="4" y="6" width="24" height="20" rx="2"/>'
+        '<rect x="4" y="6" width="9" height="20" rx="2" fill="currentColor"/>'
+    ),
+    "panel-bottom": (
+        '<rect x="4" y="6" width="24" height="20" rx="2"/>'
+        '<rect x="4" y="19" width="24" height="7" rx="2" fill="currentColor"/>'
+    ),
     "back": '<path d="M20 7 11 16l9 9"/>',
     "forward": '<path d="M12 7l9 9-9 9"/>',
     "run": '<path d="M10 6v20l16-10z" fill="currentColor"/>',

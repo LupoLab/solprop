@@ -195,7 +195,7 @@ class ParameterRow(QWidget):
         self.reset = QToolButton()
         self.reset.setText("↺")
         self.reset.setObjectName(f"reset-{self.name}")
-        self.reset.setToolTip("Back to solprop's default.")
+        self.reset.setToolTip("Back to the default.")
         self.reset.clicked.connect(lambda: self._emit(None))
         self.editor = self.editors[self.modes[0]]
         self.editor.setObjectName(f"field-{self.name}")
@@ -263,11 +263,11 @@ class ParameterRow(QWidget):
             default = self._default_choice()
             if default is None:
                 rule = f" ({self.resolved[1]})" if self.resolved is not None else ""
-                self.choice.addItem(f"solprop chooses{rule}", MISSING)
+                self.choice.addItem(f"automatic{rule}", MISSING)
             for index, value in enumerate(self.choices):
                 text = {True: "on", False: "off"}.get(value, str(value))  # pyright: ignore[reportArgumentType, reportCallIssue]
                 if index == default:
-                    text += " (solprop's default)"
+                    text += " (default)"
                 self.choice.addItem(text, value)
         finally:
             self._updating = False
@@ -449,7 +449,7 @@ class ParameterRow(QWidget):
         Returns
         -------
         str
-            ``required``, the default, or that solprop chooses.
+            ``required``, the default, or that it is automatic.
         """
         if self.meta.get("required"):
             return "required"
@@ -457,7 +457,7 @@ class ParameterRow(QWidget):
             return f"default: {inline(self.resolved[0])} ({self.resolved[1]})"
         if self.default_text is not None:
             return f"default: {self.default_text}"
-        return "default: solprop chooses"
+        return "default: automatic"
 
     def _show(self, value: object, mode: str) -> None:
         """Show a value in one editor, without announcing it.
