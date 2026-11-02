@@ -1,0 +1,30 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Linear transport through a capillary taper with the coherent wall: the script's first
+# run, a nanojoule pulse without noise.
+# mirrors: docs/examples/waveguides/plot_02_tapered_capillary.py
+
+[recipe]
+format = 1
+route = "capillary"
+title = "Tapered capillary, linear transport"
+
+[build]
+# Straight, tapering from 100 um to 60 um, straight; the radii in metres.
+radius = { type = "PiecewiseLinear", positions = ["0 m", "0.5 m", "0.7 m", "1 m"], values = [100e-6, 100e-6, 60e-6, 60e-6] }
+length = "1 m"
+gas = "He"
+pressure = "1.5 bar"
+wavelength_limits = ["90 nm", "3000 nm"]
+trange = "450 fs"
+modes = 4
+wall = { type = "CoherentWall" }
+taper_coupling = true
+dz_max = "2 mm"
+n_save = 200
+wavelength = "800 nm"
+fwhm = "10 fs"
+energy = "0.001 uJ"
+noise = "none"

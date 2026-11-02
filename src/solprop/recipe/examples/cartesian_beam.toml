@@ -1,0 +1,34 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# A weak 1.5 nJ beam with a 2 mm waist through 20 mm of argon at 4 bar, on a 32 by 40
+# Cartesian grid, under the envelope Kerr response.
+# mirrors: docs/tutorials/free_space/plot_02_cartesian.py
+
+[recipe]
+format = 1
+route = "free"
+title = "A Cartesian beam in argon"
+
+[build]
+grid = { type = "EnvelopeGrid.from_limits", length = "20 mm", reference_wavelength = "800 nm", wavelength_limits = ["400 nm", "2 um"], trange = "200 fs", thg = false }
+space = { type = "FreeGrid", radius_x = "6 mm", n_x = 32, radius_y = "7.5 mm", n_y = 40 }
+medium = { type = "SpatialMedium", material = "Ar", pressure = "4 bar" }
+responses = [
+    { type = "KerrResponse", chi3 = { type = "gamma3", gas = "Ar", wavelength = "800 nm" }, thg = false },
+]
+noise = "none"
+
+[build.initial]
+type = "SpatialPulse"
+temporal = { type = "GaussianPulse", wavelength = "800 nm", fwhm = "30 fs", energy = "1.5 nJ" }
+waist = "2 mm"
+
+[build.settings]
+type = "SimulationSettings"
+controller = { type = "PIController", rtol = 1e-6, atol = 1e-13 }
+save_planes = ["20 mm"]
+dz_init = "2 mm"
+dz_max = "2 mm"
+stats = { type = "StatsSpec", names = ["energy"] }

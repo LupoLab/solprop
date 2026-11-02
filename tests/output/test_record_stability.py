@@ -22,7 +22,7 @@ from a checkout of its tag (``docs/dev/releasing.md``). A folder goes, with the 
 values that name its release, once the next minor release after it is out (ADR-063).
 
 **Pinned skeletons.** The records were
-first pinned before five later changes, which the projection in :func:`split` takes
+first pinned before six later changes, which the projection in :func:`split` takes
 back out, so that the pins still hold everything else. Each is pinned as
 SEP 25 pins a record: its structure -- keys, strings, integers, flags and where every
 number sits -- by an exact SHA-256 (identity metadata, class P), and its numbers, stored
@@ -224,6 +224,15 @@ def split(kind: str):
         **hashed["stepper"],
         "method": method.replace(", carrier_frame='off'", ""),
     }
+    # SEP 41 records a free-space beam's displacement and tilt, at zero too; the
+    # projection leaves them out.
+    initial = hashed["configuration"].get("initial")
+    if isinstance(initial, dict) and "tilt" in initial:
+        hashed["configuration"]["initial"] = {
+            key: value
+            for key, value in initial.items()
+            if key not in ("displacement", "tilt")
+        }
     # SEP 21 records the absorber's spatial flag, and the runs that declared none
     # record the bare boundaries that stand for it; the projection takes both back.
     hashed = without_sep21_absorber(

@@ -1,0 +1,30 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# A modulational-instability supercontinuum in argon, mode-averaged: the first shot
+# (seed 0) of the script's eight-shot ensemble.
+# mirrors: docs/examples/supercontinuum/plot_03_modulational_instability_supercontinuum.py
+
+[recipe]
+format = 1
+route = "capillary"
+title = "Modulational-instability supercontinuum"
+
+[build]
+radius = "16 um"
+length = "0.4 m"
+gas = "Ar"
+pressure = "40 bar"
+wavelength = "1030 nm"
+fwhm = "400 fs"
+energy = "5 uJ"
+loss = false
+plasma = true
+raman = false
+trange = "4000 fs"
+wavelength_limits = ["170 nm", "4000 nm"]
+noise = "input"
+seed = 0
+n_save = 101
+mode_average = true

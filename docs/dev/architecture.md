@@ -720,7 +720,10 @@ kernel -- the default is instead a `BarReporter`: a `LogReporter` whose
 periodic event redraws a `tqdm` bar carrying the same content and the same measured ETA,
 with the plane line demoted to `DEBUG`; redirected or captured output always gets the
 lines. A reporter that implements `interrupted` (`InterruptibleReporter`) is told when
-the loop raises, before the error propagates, so a bar can give the terminal back. A bar
+the loop raises, before the error propagates, so a bar can give the terminal back. One
+that implements `observe_plane` (`PlaneObserver`, SEP 41) is shown each committed plane
+as a lazy view, and is detached if it fails; a scan reports to a `ScanReporter`, whose
+`point_reporter` may watch each point's run, relayed from a pool's workers. A bar
 writes the summary and the closing line to its stream unless a console handler would
 print them, because without a handler a record reaches nobody.
 
