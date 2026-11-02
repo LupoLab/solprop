@@ -25,3 +25,5 @@ def worker(width):
 for threads in (1, 2, 3, 4):
     for n_r in (18, 24, 28):
         go(f"pool-scan threads={threads} n_r={n_r}", "arm_scan.py", [str(n_r), backend, str(threads), "90"], {}, 90)
+go("warning OMP=1", "arm_warn.py", [], {"OMP_NUM_THREADS": "1"}, 60)
+go("warning none", "arm_warn.py", [], {}, 60)
