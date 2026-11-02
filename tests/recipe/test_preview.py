@@ -9,8 +9,10 @@ import warnings
 import numpy as np
 import pytest
 
-from solprop.modes.base import beta2, zdw
+from solprop.exceptions import ToolsError
+from solprop.modes.base import beta1, beta2, beta3, zdw
 from solprop.recipe import Recipe, RecipeError
+from solprop.tools import _fill_n2, nonlinear_coefficient
 
 
 @pytest.fixture(autouse=True)
@@ -38,6 +40,37 @@ def test_the_mode_preview_is_the_run_s_mode_set_at_the_launch():
     assert preview.modes[0].zdw == pytest.approx(zdw(first, wavelength_limits=limits))
     assert np.all(np.diff(preview.omega) > 0)
     assert preview.modes[0].aeff > preview.modes[1].aeff
+
+
+def test_the_mode_preview_carries_the_index_the_dispersion_and_gamma():
+    recipe = Recipe.example("rdw")
+    preview = recipe.modes()
+    simulation = recipe.build()
+    first, omega = simulation.modes[0], preview.omega
+    mode = preview.modes[0]
+    assert np.array_equal(mode.beta1, beta1(first, omega))
+    assert np.array_equal(mode.beta3, beta3(first, omega))
+    assert np.array_equal(mode.neff_minus_one, np.real(first.neff_minus_one(omega)))
+    index = mode.beta * 299_792_458.0 / omega  # beta = omega Re(n_eff) / c
+    assert mode.neff_minus_one == pytest.approx(index - 1.0, abs=1e-12)
+    carrier = simulation.grid.reference_wavelength
+    n2, _ = _fill_n2(getattr(first, "mixture"), carrier)  # noqa: B009 - not on Mode
+    wavelengths = 2 * np.pi * 299_792_458.0 / omega[[0, -1]]
+    expected = [nonlinear_coefficient(first, n2, w) for w in wavelengths]
+    assert mode.gamma is not None
+    assert mode.gamma[[0, -1]] == pytest.approx(expected, rel=1e-12)
+
+
+def test_a_mode_without_a_fill_or_kerr_data_has_no_gamma(monkeypatch):
+    assert all(
+        mode.gamma is None for mode in Recipe.example("planar_hybrid").modes().modes
+    )
+
+    def refuse(*_args):
+        raise ToolsError("no Kerr data")
+
+    monkeypatch.setattr("solprop.tools._fill_n2", refuse)
+    assert Recipe.example("rdw").modes().modes[0].gamma is None
 
 
 def test_the_mode_preview_is_taken_where_asked():

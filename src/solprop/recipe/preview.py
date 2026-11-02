@@ -4,8 +4,9 @@
 
 """Previews: what a recipe will build, shown before the run (SEP 41, S18).
 
-:func:`modes` gives the mode set a guided route builds, with its dispersion, loss and
-effective area over the grid's band; :func:`preview_input` gives the input pulse on the
+:func:`modes` gives the mode set a guided route builds, with its effective index,
+dispersion to third order, loss, effective area and nonlinear coefficient over the
+grid's band; :func:`preview_input` gives the input pulse on the
 run's grid as the launch sets it, without noise, through the same processing functions
 that read a run's file, and on the free-space routes the beam's fluence across the
 launch plane too. Both resolve the recipe's pins first.
@@ -18,12 +19,13 @@ import numpy as np
 from jaxtyping import Complex, Float
 
 from solprop._host import ObserverSpend
-from solprop.exceptions import ModeError
+from solprop.exceptions import ModeError, ToolsError
 from solprop.recipe.errors import RecipeError
 
 if TYPE_CHECKING:
     from solprop.driver.simulation import Simulation
     from solprop.grid import FreeGrid, RadialGrid
+    from solprop.modes.protocol import Mode
     from solprop.modes.slab import PlanarGrid
     from solprop.recipe.core import Recipe
     from solprop.spatial import SpatialMedium
@@ -53,10 +55,16 @@ class ModePreview:
     ----------
     label : str
         Its display label, as ``launch`` and ``channel`` name it.
+    neff_minus_one : numpy.ndarray
+        The real part of the effective index less one, formed without cancellation.
     beta : numpy.ndarray
         Propagation constant in 1/m.
+    beta1 : numpy.ndarray
+        Group delay per unit length in s/m, analytic.
     beta2 : numpy.ndarray
         Group-velocity dispersion in s^2/m.
+    beta3 : numpy.ndarray
+        Third-order dispersion in s^3/m (:func:`solprop.modes.base.beta3`).
     alpha : numpy.ndarray
         Power loss coefficient in 1/m.
     aeff : float
@@ -64,14 +72,23 @@ class ModePreview:
     zdw : float or None
         Zero-dispersion wavelength in m within the band, or ``None`` where the
         dispersion keeps one sign across it (or changes it more than once).
+    gamma : numpy.ndarray or None
+        The nonlinear coefficient ``n2 omega / (c A_eff)`` in rad/(W m), with the
+        fill's ``n2`` at the grid's reference wavelength, the carrier its Kerr data
+        are taken at (:func:`solprop.tools.nonlinear_coefficient` at each
+        frequency); ``None`` where the mode has no fill or the fill no Kerr data.
     """
 
     label: str
+    neff_minus_one: Float[np.ndarray, " n_omega"]
     beta: Float[np.ndarray, " n_omega"]
+    beta1: Float[np.ndarray, " n_omega"]
     beta2: Float[np.ndarray, " n_omega"]
+    beta3: Float[np.ndarray, " n_omega"]
     alpha: Float[np.ndarray, " n_omega"]
     aeff: float
     zdw: float | None
+    gamma: Float[np.ndarray, " n_omega"] | None
 
 
 @dataclass(frozen=True)
@@ -163,7 +180,15 @@ def modes(recipe: "Recipe", z: float | None = None) -> ModeSetPreview:  # noqa: 
     RecipeError
         If the route is not one of :data:`GUIDED`.
     """
-    from solprop.modes.base import aeff, alpha, beta, beta2, zdw  # noqa: PLC0415
+    from solprop.modes.base import (  # noqa: PLC0415
+        aeff,
+        alpha,
+        beta,
+        beta1,
+        beta2,
+        beta3,
+        zdw,
+    )
 
     if recipe.route not in GUIDED:
         msg = f"the {recipe.route} route builds no mode set"
@@ -187,20 +212,65 @@ def modes(recipe: "Recipe", z: float | None = None) -> ModeSetPreview:  # noqa: 
             zero: float | None = zdw(mode, at, wavelength_limits=limits)
         except ModeError:
             zero = None
+        area = aeff(mode, at)
         previews.append(
             ModePreview(
                 label=mode.channel_label.display_label,
+                neff_minus_one=np.real(mode.neff_minus_one(omega, at)),
                 beta=beta(mode, omega, at),
+                beta1=beta1(mode, omega, at),
                 beta2=beta2(mode, omega, at),
+                beta3=beta3(mode, omega, at),
                 alpha=alpha(mode, omega, at),
-                aeff=aeff(mode, at),
+                aeff=area,
                 zdw=zero,
+                gamma=_gamma(mode, omega, area, grid.reference_wavelength, at),
             )
         )
     return ModeSetPreview(at, omega, tuple(previews))
 
 
 _C = 299_792_458.0
+
+
+def _gamma(
+    mode: "Mode",  # noqa: UP037 - TYPE_CHECKING only
+    omega: Float[np.ndarray, " n_omega"],
+    area: float,
+    carrier: float,
+    z: float,
+) -> Float[np.ndarray, " n_omega"] | None:
+    """Return a mode's nonlinear coefficient over the band, if its fill has one.
+
+    Parameters
+    ----------
+    mode : solprop.modes.base.Mode
+        The mode.
+    omega : numpy.ndarray
+        Angular frequencies, rad/s.
+    area : float
+        Its effective area, m^2.
+    carrier : float
+        The wavelength the fill's Kerr data are taken at, m.
+    z : float
+        The position, m.
+
+    Returns
+    -------
+    numpy.ndarray or None
+        ``gamma`` in rad/(W m); ``None`` without a fill or its Kerr data.
+    """
+    from solprop.physdata.mixtures import Mixture  # noqa: PLC0415
+    from solprop.tools import _fill_n2  # noqa: PLC0415 - the tools' own n2
+
+    mixture = getattr(mode, "mixture", None)
+    if not isinstance(mixture, Mixture):
+        return None
+    try:
+        n2, _ = _fill_n2(mixture, carrier, z)
+    except ToolsError:
+        return None
+    return np.asarray(n2 * omega / (_C * area))
 
 
 def preview_input(recipe: "Recipe") -> InputPreview:  # noqa: UP037 - run time

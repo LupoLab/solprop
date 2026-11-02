@@ -124,12 +124,15 @@ chain runs through the analytic derivative of the gas susceptibility
 ({func}`~solprop.physdata.sellmeier.gamma`) and of the cladding index, and $v_n'$ follows
 from $\mathrm{d}v_n/\mathrm{d}\varepsilon_{\rm cl}$ in closed form per family.
 
-$\beta_2$ is the one quantity solprop differences: the second derivative of a gas
+$\beta_2$ and $\beta_3$ are the quantities solprop differences: the second derivative of a gas
 susceptibility is not part of the material interface, so
 {func}`~solprop.modes.base.beta2` is a Richardson difference of the *analytic* $\beta_1$.
 It reaches about $5\times10^{-9}$ relative on an evacuated capillary and $1.3\times10^{-8}$
 at worst against the symbolic result for a filled one, where a second difference of
 $\beta$ itself reaches only about $10^{-6}$.
+{func}`~solprop.modes.base.beta3` is a Richardson second difference of the same
+$\beta_1$: about $1.5\times10^{-6}$ relative on an evacuated capillary, and on a
+helium-filled one consistent between steps to about $10^{-5}$ of its largest value.
 
 The frequency derivative has independent contour-integral and symbolic checks.
 Their configurations and measured residuals are in the

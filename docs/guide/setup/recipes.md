@@ -272,8 +272,10 @@ call it and write its values in `[build]`.
 
 Before a run, `recipe.modes()` returns the mode set a guided route builds (the
 `capillary` and `waveguide` routes, and the slab channels of the `planar` route), at the
-launch position or at `z`: each mode's label, its `beta`, `beta2` and loss over the
-grid's band, its effective area (a slab mode's effective width) and its
+launch position or at `z`: each mode's label, its effective index (`neff_minus_one`),
+`beta`, `beta1`, `beta2`, `beta3` and loss over the grid's band, its effective area (a
+slab mode's effective width), its nonlinear coefficient `gamma` where its fill has Kerr
+data (with the fill's `n2` at the grid's reference wavelength), and its
 zero-dispersion wavelength in the band. Its cost is the mode solve. `recipe.preview_input()`
 returns the input pulse on the run's grid as the launch sets it, without noise, so a
 preview draws nothing: its power in time, its spectrum, its energy and its peak power,
