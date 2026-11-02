@@ -35,7 +35,7 @@ def case(request):
         else partial(EnvelopeGrid.from_limits, thg=False)
     )
     grid = constructor(1e-4, 800e-9, (600e-9, 1.2e-6), 150e-15)
-    space = RadialGrid(6e-4, 32, window_factor=0.0)
+    space = RadialGrid(6e-4, 32, collar_fraction=0.0)
     return grid, space
 
 

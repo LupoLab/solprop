@@ -55,6 +55,8 @@ def _run(  # noqa: PLR0913 - one case's physics and its numerical settings
     """Run 1 mm of `medium`; return the stored statistics, exit field and problem."""
     grid = _grid()
     settings = SimulationSettings(
+        # Exact flux transport is the subject: no safety ramp (SEP 40).
+        spatial_absorber=False,
         controller=PIController(rtol=rtol, atol=1e-14),
         absorber=bare_absorber(grid),
         save_planes=[LENGTH / 2, LENGTH],

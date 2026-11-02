@@ -9,7 +9,7 @@ import warnings
 import numpy as np
 from jaxtyping import Float
 
-from solprop.boundaries import TEMPORAL_ALPHA_LENGTH, Absorber
+from solprop.boundaries import Absorber
 from solprop.exceptions import GrazingIncidenceWarning, TranslationError
 from solprop.grid import FreeGrid, TimeGrid
 from solprop.spatial import SpatialDispersion
@@ -106,7 +106,7 @@ def free_transform(  # noqa: PLR0913 - geometry and shared translation controls
     *,
     n_pol: int,
     z_max: float,
-    absorber: Absorber | None = None,
+    collar_rate: Float[np.ndarray, " n_nodes"] | None = None,
     node_budget: int = DEFAULT_SPATIAL_NODE_BUDGET,
     margin: float = DEFAULT_MARGIN,
 ) -> Transform:
@@ -122,8 +122,10 @@ def free_transform(  # noqa: PLR0913 - geometry and shared translation controls
         State polarisation count, 1 or 2.
     z_max : float
         Positive run length in m.
-    absorber : solprop.boundaries.Absorber or None, optional
-        Spatial absorption reference length; None disables spatial absorption.
+    collar_rate : numpy.ndarray or None, optional
+        The real-space collar's power rate on the nodes, 1/m, from the run's
+        :class:`solprop.spatial_absorber.SpatialAbsorberDesign`; ``None`` for no
+        collar.
     node_budget : int, optional
         Shared node-buffer budget in bytes, positive.
     margin : float, optional
@@ -156,9 +158,7 @@ def free_transform(  # noqa: PLR0913 - geometry and shared translation controls
             (np.tile(space.x, space.n_y), np.repeat(space.y, space.n_x))
         ),
         window=space.window,
-        absorber_rate=np.zeros(space.n_columns)
-        if absorber is None or not absorber.spatial
-        else TEMPORAL_ALPHA_LENGTH * (1 - space.window) / absorber.in_stage_length,
+        absorber_rate=np.zeros(space.n_columns) if collar_rate is None else collar_rate,
         on_axis=space.on_axis,
         forward_scale=1.0,
         inverse_scale=1 / space.n_columns,
@@ -206,8 +206,8 @@ def free_operators(  # noqa: PLR0913 - geometry, operator settings and controls
     margin : float, optional
         Relative extension of the valid interval, nonnegative.
     transverse_rate : numpy.ndarray or None, optional
-        A transverse collar's power rate per column in m^-1
-        (:func:`solprop.boundaries.transverse_collar_rate`); ``None`` is zero.
+        The safety ramp's power rate per column in m^-1
+        (:class:`solprop.spatial_absorber.SpatialAbsorberDesign`); ``None`` is zero.
 
     Returns
     -------

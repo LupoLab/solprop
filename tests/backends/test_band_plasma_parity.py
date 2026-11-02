@@ -81,9 +81,9 @@ def spatial(kind):
     # The former 150 fs window had only 30 taper samples and residual 9.8e-9.
     grid = FieldGrid.from_limits(LENGTH, 800e-9, (600e-9, 1.2e-6), 200e-15)
     space = {
-        "radial": RadialGrid(6e-4, 16, window_factor=0.0),
-        "free": FreeGrid(3e-4, 9, 4e-4, 12, window_factor=0),
-        "line": LineGrid(4e-4, 24, window_factor=0.0),
+        "radial": RadialGrid(6e-4, 16, collar_fraction=0.0),
+        "free": FreeGrid(3e-4, 9, 4e-4, 12, collar_fraction=0),
+        "line": LineGrid(4e-4, 24, collar_fraction=0.0),
     }[kind]
     energy = 1e-3 if kind == "line" else 1e-7
     pulse = SpatialPulse(

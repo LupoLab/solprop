@@ -85,10 +85,10 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 </style>
 <rect x="0" y="0" width="560" height="500" class="ground" />
 <text x="20.0" y="26.0" font-size="15" class="bold">Radial free space</text>
-<text x="20.0" y="44.0" font-size="11" class="dim">RadialGrid(1 mm, 24): the order-zero QDHT samples at the zeros of J₀, and a Planck</text>
-<text x="20.0" y="58.0" font-size="11" class="dim">collar occupies the outer tenth. A Gaussian beam of 0.3 mm waist on the nodes.</text>
+<text x="20.0" y="44.0" font-size="11" class="dim">RadialGrid(R, 24, collar_fraction=0.1): the order-zero QDHT samples at the zeros of J₀;</text>
+<text x="20.0" y="58.0" font-size="11" class="dim">the outer tenth is room outside R for a collar on request. A Gaussian beam of 0.3 mm waist.</text>
 <circle cx="170.0" cy="210.0" r="118.0" class="gas" />
-<path d="M288.0,210.0 A118.0,118.0,0,1,0,52.0,210.0 A118.0,118.0,0,1,0,288.0,210.0 Z M276.2,210.0 A106.2,106.2,0,1,0,63.8,210.0 A106.2,106.2,0,1,0,276.2,210.0 Z" class="collar" fill-rule="evenodd" />
+<path d="M288.0,210.0 A118.0,118.0,0,1,0,52.0,210.0 A118.0,118.0,0,1,0,288.0,210.0 Z M277.27,210.0 A107.27,107.27,0,1,0,62.73,210.0 A107.27,107.27,0,1,0,277.27,210.0 Z" class="collar" fill-rule="evenodd" />
 <circle cx="170.0" cy="210.0" r="3.65" class="ring" />
 <circle cx="170.0" cy="210.0" r="8.38" class="ring" />
 <circle cx="170.0" cy="210.0" r="13.13" class="ring" />
@@ -154,21 +154,22 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 <text x="330.0" y="92.0" font-size="12.5" class="">E = 0 at R</text>
 <text x="330.0" y="106.0" font-size="11" class="dim">r_i = R α_i / α_(N+1),</text>
 <text x="330.0" y="120.0" font-size="11" class="dim">α_i the zeros of J₀</text>
-<circle cx="90.73" cy="289.27" r="2.2" class="node-dim" />
-<path d="M90.73,289.27 L325.0,148.0" class="leader" />
-<text x="330.0" y="152.0" font-size="12.5" class="">absorbing collar, outer 10 %</text>
-<text x="330.0" y="166.0" font-size="11" class="dim">a rate in every stage, not a mask</text>
+<circle cx="90.35" cy="289.65" r="2.2" class="node-dim" />
+<path d="M90.35,289.65 L325.0,148.0" class="leader" />
+<text x="330.0" y="152.0" font-size="12.5" class="">room outside R: a collar</text>
+<text x="330.0" y="166.0" font-size="11" class="dim">there on request, a rate</text>
+<text x="330.0" y="180.0" font-size="11" class="dim">in every stage</text>
 <text x="330.0" y="200.0" font-size="12.5" class="">each Cartesian component</text>
 <text x="330.0" y="214.0" font-size="11" class="dim">cylindrically symmetric;</text>
 <text x="330.0" y="228.0" font-size="11" class="dim">a gas may vary along z</text>
-<path d="M63.8,212.0 L63.8,470.0" class="guide" />
-<path d="M276.2,212.0 L276.2,470.0" class="guide" />
+<path d="M62.73,212.0 L62.73,470.0" class="guide" />
+<path d="M277.27,212.0 L277.27,470.0" class="guide" />
 <path d="M52.0,470.0 L300.0,470.0" class="axis" />
 <path d="M300.0,470.0 L291.0,473.6 L291.0,466.4 Z" class="head" />
 <path d="M52.0,470.0 L52.0,372.0" class="axis" />
 <text x="300.0" y="485.0" font-size="11" class="dim end">x</text>
 <text x="288.0" y="368.0" font-size="11" class="dim end">on the nodes</text>
-<path d="M56.77,439.27 L61.53,382.1 L66.3,380.52 L71.07,380.52 L75.84,380.52 L80.6,380.52 L85.37,380.52 L90.14,380.52 L94.91,380.52 L99.67,380.52 L104.44,380.52 L109.21,380.52 L113.98,380.52 L118.74,380.52 L123.51,380.52 L128.28,380.52 L133.04,380.52 L137.81,380.52 L142.58,380.52 L147.34,380.52 L152.11,380.52 L156.87,380.52 L161.62,380.52 L166.35,380.52 L173.65,380.52 L178.38,380.52 L183.13,380.52 L187.89,380.52 L192.66,380.52 L197.42,380.52 L202.19,380.52 L206.96,380.52 L211.72,380.52 L216.49,380.52 L221.26,380.52 L226.02,380.52 L230.79,380.52 L235.56,380.52 L240.33,380.52 L245.09,380.52 L249.86,380.52 L254.63,380.52 L259.4,380.52 L264.16,380.52 L268.93,380.52 L273.7,380.52 L278.47,382.1 L283.23,439.27" class="curve-c" />
+<path d="M56.77,432.56 L61.53,380.55 L66.3,380.52 L71.07,380.52 L75.84,380.52 L80.6,380.52 L85.37,380.52 L90.14,380.52 L94.91,380.52 L99.67,380.52 L104.44,380.52 L109.21,380.52 L113.98,380.52 L118.74,380.52 L123.51,380.52 L128.28,380.52 L133.04,380.52 L137.81,380.52 L142.58,380.52 L147.34,380.52 L152.11,380.52 L156.87,380.52 L161.62,380.52 L166.35,380.52 L173.65,380.52 L178.38,380.52 L183.13,380.52 L187.89,380.52 L192.66,380.52 L197.42,380.52 L202.19,380.52 L206.96,380.52 L211.72,380.52 L216.49,380.52 L221.26,380.52 L226.02,380.52 L230.79,380.52 L235.56,380.52 L240.33,380.52 L245.09,380.52 L249.86,380.52 L254.63,380.52 L259.4,380.52 L264.16,380.52 L268.93,380.52 L273.7,380.52 L278.47,380.55 L283.23,432.56" class="curve-c" />
 <path d="M56.77,465.74 L61.53,465.73 L66.3,465.72 L71.07,465.7 L75.84,465.67 L80.6,465.59 L85.37,465.46 L90.14,465.21 L94.91,464.79 L99.67,464.09 L104.44,462.98 L109.21,461.27 L113.98,458.78 L118.74,455.27 L123.51,450.55 L128.28,444.5 L133.04,437.08 L137.81,428.46 L142.58,418.98 L147.34,409.17 L152.11,399.74 L156.87,391.48 L161.62,385.16 L166.35,381.42 L173.65,381.42 L178.38,385.16 L183.13,391.48 L187.89,399.74 L192.66,409.17 L197.42,418.98 L202.19,428.46 L206.96,437.08 L211.72,444.5 L216.49,450.55 L221.26,455.27 L226.02,458.78 L230.79,461.27 L235.56,462.98 L240.33,464.09 L245.09,464.79 L249.86,465.21 L254.63,465.46 L259.4,465.59 L264.16,465.67 L268.93,465.7 L273.7,465.72 L278.47,465.73 L283.23,465.74" class="curve-a" />
 <circle cx="56.77" cy="465.74" r="1.9" class="dot-curve-a" />
 <circle cx="61.53" cy="465.73" r="1.9" class="dot-curve-a" />

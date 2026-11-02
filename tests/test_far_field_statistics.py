@@ -302,7 +302,7 @@ def test_tables_validate_their_shapes_and_derived_constants():
 
 
 def test_a_hole_enclosing_every_image_is_the_beam(grid):
-    space = FreeGrid(3e-4, 32, 2.5e-4, 24, window_factor=0.1)
+    space = FreeGrid(3e-4, 32, 2.5e-4, 24, collar_fraction=0.1)
     field = gaussian(grid, space, 60e-6)
     rng = np.random.default_rng(23)
     field = field * (1 + 0.2 * rng.standard_normal(field.shape))
@@ -358,7 +358,7 @@ def far_beam(grid):
     # A box of forty waists sampled at a quarter waist: the Gaussian's truncation
     # (exp(-400)) and aliasing (exp(-79)) are below rounding. The mask-plane lattice
     # is then pi w0 / L = 0.079 of the far-field radius at every frequency.
-    space = FreeGrid(20 * waist, 160, 20 * waist, 160, window_factor=0)
+    space = FreeGrid(20 * waist, 160, 20 * waist, 160, collar_fraction=0)
     return space, waist, flat(grid, space, gaussian(grid, space, waist))
 
 
@@ -505,7 +505,7 @@ def test_a_tilted_beam_lands_at_its_angle_at_every_frequency(grid):
     waist, angle = 60e-6, 20e-3
     # Ten waists sampled at about a tenth of one: the tilt and the beam's spectrum
     # stay inside the lattice at every in-band bin.
-    space = FreeGrid(3e-4, 96, 3e-4, 64, window_factor=0)
+    space = FreeGrid(3e-4, 96, 3e-4, 64, collar_fraction=0)
     x, y = np.meshgrid(space.x, space.y)
     temporal = GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-6).build(grid)
     profile = np.exp(-(x**2 + y**2) / waist**2)
@@ -539,7 +539,7 @@ def test_a_tilted_beam_lands_at_its_angle_at_every_frequency(grid):
 
 def test_a_fixed_wavevector_moves_as_one_over_omega(grid):
     waist = 300e-6
-    space = FreeGrid(1.5e-3, 96, 1.5e-3, 32, window_factor=0)
+    space = FreeGrid(1.5e-3, 96, 1.5e-3, 32, collar_fraction=0)
     kappa = -space.k_x[-24]  # a lattice wavevector, physical +x side
     assert kappa > 0
     x, y = np.meshgrid(space.x, space.y)
@@ -585,7 +585,7 @@ def test_quadrature_weighting_collects_the_hard_area():
     grid = EnvelopeGrid.from_limits(1e-3, 800e-9, (780e-9, 820e-9), 40e-15, thg=False)
     # 128 lattice cells either side of the axis: the disc of 40 and its tanh tail to
     # 15 widths (exp(-30)) fit inside.
-    space = FreeGrid(1e-3, 256, 1e-3, 256, window_factor=0)
+    space = FreeGrid(1e-3, 256, 1e-3, 256, collar_fraction=0)
     field = flat(grid, space, np.ones((space.n_columns, 1, grid.n_omega), complex))
     # The carrier's bin: an active one, where the plane has a forward measure.
     index = int(np.argmin(np.abs(grid.omega - grid.omega0)))
@@ -667,7 +667,7 @@ def test_quadrature_weighting_collects_the_hard_area():
 
 
 def test_the_beam_spectrum_integrates_to_the_energy(grid):
-    space = FreeGrid(3e-4, 32, 3e-4, 24, window_factor=0.1)
+    space = FreeGrid(3e-4, 32, 3e-4, 24, collar_fraction=0.1)
     field = gaussian(grid, space, 60e-6)
     spec = StatsSpec(names=("energy", "beam_spectrum"))
     values = far_field(spec, grid, space, field)
@@ -687,7 +687,7 @@ def test_occupied_end_bins_carry_no_axial_flux():
     # section 4.3), so occupied ends leave both statistics alone and the beam
     # spectrum integrates to the energy.
     grid = FieldGrid.from_limits(1e-3, 800e-9, (600e-9, 1.2e-6), 60e-15)
-    space = LineGrid(2e-4, 16, window_factor=0)
+    space = LineGrid(2e-4, 16, collar_fraction=0)
     rng = np.random.default_rng(5)
     field = rng.standard_normal((space.n_columns, 1, grid.n_omega)) + 0j
     assert not grid.active_mask[0] and not grid.active_mask[-1]
@@ -710,7 +710,7 @@ def test_occupied_end_bins_carry_no_axial_flux():
 
 
 def test_quadrants_tile_the_beam(grid):
-    space = FreeGrid(3e-4, 32, 2.5e-4, 24, window_factor=0.1)
+    space = FreeGrid(3e-4, 32, 2.5e-4, 24, collar_fraction=0.1)
     rng = np.random.default_rng(7)
     field = gaussian(grid, space, 60e-6) * (1 + rng.standard_normal((1, 1, 1)))
     quadrants = np.array(
@@ -739,7 +739,7 @@ def single_column(space, grid, column):
 
 
 def test_region_membership_is_exact_at_zero_nyquist_and_an_edge(grid):
-    space = FreeGrid(3e-4, 16, 2.5e-4, 8, window_factor=0.1)  # even: a Nyquist column
+    space = FreeGrid(3e-4, 16, 2.5e-4, 8, collar_fraction=0.1)  # even: a Nyquist column
     nyquist = space.n_x // 2
     assert space.k_x[nyquist] < 0  # stored -pi/dx, physical +pi/dx
     edge = -space.k_x[13]  # a physical wavevector on the lattice, 3 cells out
@@ -769,7 +769,7 @@ def test_region_membership_is_exact_at_zero_nyquist_and_an_edge(grid):
 
 
 def test_a_slit_on_a_line_and_its_refusals(grid):
-    space = LineGrid(4e-4, 64, window_factor=0)
+    space = LineGrid(4e-4, 64, collar_fraction=0)
     field = gaussian(grid, space, 60e-6)
     k_max = np.max(np.abs(space.k_x))
     slit = ApertureSet(
@@ -930,7 +930,7 @@ def test_a_spec_refuses_a_missing_or_malformed_table():
 
 
 def test_collect_refuses_the_operator_statistics_and_non_cartesian_grids(grid):
-    space = FreeGrid(3e-4, 8, 3e-4, 8, window_factor=0.1)
+    space = FreeGrid(3e-4, 8, 3e-4, 8, collar_fraction=0.1)
     field = gaussian(grid, space, 60e-6)
     for name in ("absorbed_power",):
         with pytest.raises(OutputError, match=f"{name}.*linear operator"):
@@ -958,7 +958,7 @@ def test_collect_refuses_the_operator_statistics_and_non_cartesian_grids(grid):
 
 
 def test_the_pass_refuses_what_its_tables_cannot_answer(grid):
-    space = FreeGrid(3e-4, 8, 3e-4, 8, window_factor=0.1)
+    space = FreeGrid(3e-4, 8, 3e-4, 8, collar_fraction=0.1)
     field = gaussian(grid, space, 60e-6)
     tables = aperture_tables(StatsSpec(names=("beam_spectrum",)), grid, space)
     assert tables is not None

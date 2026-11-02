@@ -1744,13 +1744,13 @@ def _enlarged(space: RadialGrid | FreeGrid) -> RadialGrid | FreeGrid:
         The doubled grid.
     """
     if isinstance(space, RadialGrid):
-        return RadialGrid(2.0 * space.radius, 2 * space.n_r, space.window_factor)
+        return RadialGrid(2.0 * space.radius, 2 * space.n_r, space.collar_fraction)
     return FreeGrid(
         2.0 * space.radius_x,
         2 * space.n_x,
         2.0 * space.radius_y,
         2 * space.n_y,
-        space.window_factor,
+        space.collar_fraction,
     )
 
 
@@ -1768,13 +1768,13 @@ def _refined(space: RadialGrid | FreeGrid) -> RadialGrid | FreeGrid:
         The refined grid.
     """
     if isinstance(space, RadialGrid):
-        return RadialGrid(space.radius, 2 * space.n_r, space.window_factor)
+        return RadialGrid(space.radius, 2 * space.n_r, space.collar_fraction)
     return FreeGrid(
         space.radius_x,
         2 * space.n_x,
         space.radius_y,
         2 * space.n_y,
-        space.window_factor,
+        space.collar_fraction,
     )
 
 
