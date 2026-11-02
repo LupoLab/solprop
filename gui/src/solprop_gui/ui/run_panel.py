@@ -13,17 +13,15 @@ solprop after every ending, and Resume follows that answer alone.
 from collections.abc import Callable
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtCore import QTimer, Signal
 from PySide6.QtWidgets import (
     QFileDialog,
-    QGroupBox,
     QHBoxLayout,
     QLabel,
-    QLineEdit,
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
-    QSplitter,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -86,10 +84,13 @@ class RunPanel(QWidget):
         Emitted with the results file when a run ends, however it ends.
     state_changed : Signal
         Emitted with the new execution state's value.
+    workspace_changed : Signal
+        Emitted with the workspace's path when the user picks another.
     """
 
     ended = Signal(str)
     state_changed = Signal(str)
+    workspace_changed = Signal(str)
 
     def __init__(  # noqa: PLR0915 - the panel's layout
         self,
@@ -112,30 +113,26 @@ class RunPanel(QWidget):
         self._last_index = -1
         self._z_end = 0.0
 
-        preflight = QGroupBox("Before the run")
-        self.workspace = QLineEdit(str(workspace))
-        self.workspace.setObjectName("workspace")
-        browse = QPushButton("Choose…")
-        browse.clicked.connect(self._choose_workspace)
-        self.estimate_button = QPushButton("Estimate the cost")
+        self.workspace = Path(workspace)
+        self.workspace_button = QToolButton()
+        self.workspace_button.setObjectName("workspace")
+        self.workspace_button.setText("Workspace…")
+        self.workspace_button.clicked.connect(self.choose_workspace)
+        self._show_workspace()
+        self.estimate_button = QToolButton()
         self.estimate_button.setObjectName("estimate")
+        self.estimate_button.setText("Estimate")
         self.estimate_button.setToolTip(
-            "Builds the run and times a few trial steps: it takes seconds."
+            "Ask solprop what the run will cost: it builds the run and times a few "
+            "trial steps, which takes seconds."
         )
         self.estimate_button.clicked.connect(self.estimate)
         self.estimate_text = QLabel("")
-        self.estimate_text.setWordWrap(True)
-        row = QHBoxLayout()
-        row.addWidget(QLabel("Workspace"))
-        row.addWidget(self.workspace, 1)
-        row.addWidget(browse)
-        row.addWidget(self.estimate_button)
-        pre = QVBoxLayout(preflight)
-        pre.addLayout(row)
-        pre.addWidget(self.estimate_text)
+        self.estimate_text.setObjectName("estimate-text")
 
         self.run_button = QPushButton("Run")
         self.run_button.setObjectName("run")
+        self.run_button.setDefault(True)
         self.run_button.clicked.connect(self.start)
         self.stop_button = QPushButton("Stop")
         self.stop_button.setObjectName("stop")
@@ -155,38 +152,49 @@ class RunPanel(QWidget):
         self.lamp.setToolTip("The time window's edges, as solprop's monitor reports.")
         self.progress = QProgressBar()
         self.progress.setRange(0, 1000)
+        self.progress.setMaximumWidth(240)
         self.steps = QLabel("")
-        controls = QHBoxLayout()
+        self.log_button = QToolButton()
+        self.log_button.setText("Log")
+        self.log_button.setCheckable(True)
+        self.log_button.setToolTip("Show solprop's log of the run.")
+
+        bar = QHBoxLayout()
         for widget in (
             self.run_button,
             self.stop_button,
             self.kill_button,
             self.resume_button,
         ):
-            controls.addWidget(widget)
-        controls.addWidget(self.state_label, 1)
-        controls.addWidget(self.lamp)
+            bar.addWidget(widget)
+        bar.addWidget(self.progress)
+        bar.addWidget(self.steps)
+        bar.addStretch(1)
+        bar.addWidget(self.lamp)
+        bar.addWidget(self.estimate_button)
+        bar.addWidget(self.workspace_button)
+        bar.addWidget(self.log_button)
         status = QHBoxLayout()
-        status.addWidget(self.progress, 1)
-        status.addWidget(self.steps)
+        status.addWidget(self.state_label)
+        status.addStretch(1)
+        status.addWidget(self.estimate_text)
 
         self.view = OverviewView()
         self.log = QPlainTextEdit()
         self.log.setReadOnly(True)
         self.log.setMaximumBlockCount(2000)
         self.log.setObjectName("run-log")
-        split = QSplitter(Qt.Orientation.Vertical)
-        split.addWidget(self.view)
-        split.addWidget(self.log)
-        split.setStretchFactor(0, 4)
-        split.setStretchFactor(1, 1)
+        self.log.setMaximumHeight(160)
+        self.log.hide()
+        self.log_button.toggled.connect(self.log.setVisible)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(preflight)
-        layout.addLayout(controls)
+        layout.setSpacing(2)
+        layout.addLayout(bar)
         layout.addLayout(status)
-        layout.addWidget(split, 1)
+        layout.addWidget(self.view, 1)
+        layout.addWidget(self.log)
 
         self._grace = QTimer(self)
         self._grace.setSingleShot(True)
@@ -245,13 +253,29 @@ class RunPanel(QWidget):
         )
         self.resume_button.setEnabled(not active and self.resume_mode is not None)
 
-    def _choose_workspace(self) -> None:
-        """Pick the workspace folder."""
+    def _show_workspace(self) -> None:
+        """Say on the workspace button where runs go."""
+        self.workspace_button.setToolTip(f"New runs go in {self.workspace}")
+
+    def choose_workspace(self) -> None:
+        """Pick the folder new runs are made in."""
         chosen = QFileDialog.getExistingDirectory(
-            self, "Workspace", self.workspace.text()
+            self, "Workspace", str(self.workspace)
         )
         if chosen:
-            self.workspace.setText(chosen)
+            self.set_workspace(Path(chosen))
+
+    def set_workspace(self, folder: Path) -> None:
+        """Make new runs in a folder.
+
+        Parameters
+        ----------
+        folder : pathlib.Path
+            The workspace.
+        """
+        self.workspace = folder
+        self._show_workspace()
+        self.workspace_changed.emit(str(folder))
 
     # ------------------------------------------------------------------ actions
 
@@ -269,7 +293,7 @@ class RunPanel(QWidget):
         if self.active:
             return
         text, base, title = self.recipe()
-        folder = new_run_folder(Path(self.workspace.text()).expanduser(), title)
+        folder = new_run_folder(self.workspace.expanduser(), title)
         self.view.clear()
         self.log.clear()
         self._launch(
@@ -278,7 +302,12 @@ class RunPanel(QWidget):
 
     def resume(self) -> None:
         """Continue the last run from its file, as solprop said it can."""
-        if self.active or self.folder is None or self.run_id is None:
+        if (
+            self.active
+            or self.folder is None
+            or self.run_id is None
+            or self.resume_mode is None
+        ):
             return
         mode = self.resume_mode
         self.resume_mode = None

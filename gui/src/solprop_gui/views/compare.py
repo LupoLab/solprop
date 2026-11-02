@@ -16,10 +16,11 @@ import pyqtgraph as pg
 from PySide6.QtWidgets import QVBoxLayout, QWidget
 
 from solprop_gui.views.live import decibels
+from solprop_gui.views.plotting import HoverLayout
 
 __all__ = ["CompareView"]
 
-_PENS = ("c", "y", "m", "g", "r", "w")
+_PENS = ("#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b")
 
 
 class CompareView(QWidget):
@@ -37,7 +38,7 @@ class CompareView(QWidget):
         self.runs: dict[
             str, tuple[Mapping[str, object], list[Mapping[str, object]]]
         ] = {}
-        self.plots = pg.GraphicsLayoutWidget()
+        self.plots = HoverLayout()
         self.spectra = self.plots.ci.addPlot(row=0, col=0)
         self.spectra.setTitle("Last plane: spectral energy density (dB, one reference)")
         self.spectra.setLabel("bottom", "Wavelength (nm)")
@@ -105,5 +106,10 @@ class CompareView(QWidget):
             wavelength = np.asarray(axes["wavelength"], dtype=float) * 1e9
             time = np.asarray(axes["time"], dtype=float) * 1e15
             db = np.maximum(decibels(np.asarray(last["density"]), reference), -80.0)
-            self.spectra.plot(wavelength, db, pen=pen, name=name)
-            self.power.plot(time, np.asarray(last["power"]) / 1e9, pen=pen, name=name)
+            self.spectra.plot(wavelength, db, pen=pg.mkPen(pen, width=1.5), name=name)
+            self.power.plot(
+                time,
+                np.asarray(last["power"]) / 1e9,
+                pen=pg.mkPen(pen, width=1.5),
+                name=name,
+            )

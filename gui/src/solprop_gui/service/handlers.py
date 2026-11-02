@@ -113,7 +113,8 @@ def _parameter(entry: Parameter) -> dict[str, object]:
     Returns
     -------
     dict
-        Its fields, the forms as a list of dicts and the default as written.
+        Its fields, the forms as a list of dicts, and the default as written
+        (``default``) and as plain data (``default_value``, in the keyword's unit).
     """
     return {
         "name": entry.name,
@@ -125,6 +126,7 @@ def _parameter(entry: Parameter) -> dict[str, object]:
         "none": entry.none,
         "required": entry.default is REQUIRED,
         "default": _default_text(entry),
+        "default_value": None if entry.default is REQUIRED else _plain(entry.default),
         "resolved_by_rule": entry.resolver is not None,
         "forms": [
             {

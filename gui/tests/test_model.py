@@ -130,3 +130,37 @@ def test_read_value_takes_the_other_forms():
         read_value("[1,", pair)
     with pytest.raises(FieldError):
         read_value("abc", [{"kind": "number", "unit": None}])
+
+
+# ---------------------------------------------------------------------- quantities
+
+
+def test_a_quantity_is_split_converted_and_written():
+    from solprop_gui.model.quantities import (  # noqa: PLC0415
+        number_in,
+        split,
+        unit_of,
+        write,
+    )
+
+    assert split("1.5e3 fs") == ("1.5e3", "fs")
+    assert split("nonsense 3") == ("", "")
+    assert unit_of("2 um", ("nm", "um"), "nm") == "um"
+    assert unit_of("2 pm", ("nm", "um"), "nm") == "nm"
+    assert unit_of(2e-6, ("nm",), "nm") == "nm"
+    assert number_in("1.2 bar", "bar", "mbar") == "1200"
+    assert number_in(2e-6, "m", "um") == "2"
+    assert write("3", "J", "uJ") == "3 uJ"
+    with pytest.raises(RecipeError):
+        write("3 fs", "J", "uJ")
+    with pytest.raises(RecipeError, match="not a number"):
+        write("uJ", "J", "uJ")
+
+
+def test_units_on_offer():
+    from solprop_gui.registry.units import pretty, unit_choices  # noqa: PLC0415
+
+    assert unit_choices("bar", "mbar") == ("mbar", "bar", "kPa", "Pa")
+    assert unit_choices("m", "km") == ("nm", "um", "mm", "cm", "m", "km")
+    assert unit_choices("rad") == ("rad",)
+    assert pretty("um") == "µm" and pretty("m^-1") == "m⁻¹" and pretty("W") == "W"

@@ -10,7 +10,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 from PySide6.QtCore import QSettings, QStandardPaths
-from PySide6.QtWidgets import QComboBox, QLineEdit, QWidget
+from PySide6.QtWidgets import QLineEdit, QWidget
 from pytestqt.qtbot import QtBot
 
 from conftest import TINY
@@ -77,67 +77,175 @@ def meta(name: str, *forms: dict[str, object], **more: object) -> dict[str, obje
     }
 
 
-def test_a_boolean_row_picks_default_on_or_off(qtbot: QtBot):
-    row = ParameterRow(meta("kerr", {"kind": "boolean"}, default="True"))
-    qtbot.addWidget(row)
-    assert isinstance(row.editor, QComboBox)
-    seen = []
-    row.edited.connect(lambda *args: seen.append(args))
-    row.editor.setCurrentIndex(2)
-    row.editor.setCurrentIndex(0)
-    assert seen == [("kerr", "build", False), ("kerr", "build", MISSING)]
-    row.set_value(True)
-    assert row.editor.currentIndex() == 1 and row.is_set
-    row.set_resolved([True, "the rule"])
-    assert "the rule" in row.editor.itemText(0)
+def leave(field: QLineEdit, text: str) -> None:
+    field.setText(text)
+    field.editingFinished.emit()
 
 
-def test_a_choice_row_lists_solprops_choices(qtbot: QtBot):
-    row = ParameterRow(meta("shape", {"kind": "choice", "choices": ["gauss", "sech"]}))
-    qtbot.addWidget(row)
-    assert isinstance(row.editor, QComboBox)
-    row.set_value("sech")
-    assert row.editor.currentIndex() == 2
-    row.set_value("other")
-    assert row.editor.currentIndex() == 0
-    seen = []
-    row.edited.connect(lambda *args: seen.append(args[2]))
-    row.editor.setCurrentIndex(1)
-    assert seen == ["gauss"]
-
-
-def test_a_text_row_reads_and_refuses_what_is_typed(qtbot: QtBot):
+def test_a_boolean_row_shows_solprops_default_selected(qtbot: QtBot):
     row = ParameterRow(
-        meta("energy", {"kind": "number", "unit": "J"}, display="uJ", required=True)
+        meta("kerr", {"kind": "boolean"}, default="True", default_value=True)
     )
     qtbot.addWidget(row)
-    assert isinstance(row.editor, QLineEdit)
-    assert row.editor.placeholderText() == "required"
+    assert row.choice.currentText() == "on (solprop's default)"
+    seen = []
+    row.edited.connect(lambda *args: seen.append(args))
+    row.choice.setCurrentIndex(1)  # off
+    row.choice.setCurrentIndex(0)  # the default: unset
+    assert seen == [("kerr", "build", False), ("kerr", "build", MISSING)]
+    row.set_value(False)
+    assert row.choice.currentIndex() == 1 and row.is_set
+    row.reset.click()
+    assert seen[-1] == ("kerr", "build", MISSING)
+
+
+def test_a_choice_without_a_known_default_says_solprop_chooses(qtbot: QtBot):
+    row = ParameterRow(
+        meta("integrator", {"kind": "choice", "choices": ["rk", "adams"]})
+    )
+    qtbot.addWidget(row)
+    assert row.choice.currentText() == "solprop chooses"
+    row.set_resolved(["adams", "the route's rule"])
+    assert row.choice.currentText() == "adams (solprop's default)"
+    row.set_resolved(["adams", "the route's rule"])  # unchanged: nothing redone
+    row.set_value("rk")
+    assert row.choice.currentText() == "rk"
+    row.set_resolved(["other", "a rule"])
+    assert row.choice.itemText(0) == "solprop chooses (a rule)"
+    row.set_value("unknown")
+    assert row.choice.currentIndex() == 0
+
+
+def test_a_quantity_row_converts_between_units(qtbot: QtBot):
+    row = ParameterRow(
+        meta(
+            "radius",
+            {"kind": "number", "unit": "m"},
+            {"kind": "object", "recipe": True},
+            display="um",
+            required=True,
+        )
+    )
+    qtbot.addWidget(row)
+    assert row.mode.isVisibleTo(row) and row.modes == ["number", "text"]
+    assert row.number.number.placeholderText() == "required"
     seen = []
     row.edited.connect(lambda *args: seen.append(args[2]))
-    row.editor.setText("10 fs")
-    row.editor.editingFinished.emit()
+    leave(row.number.number, "10 fs")
     assert not row.issue.isHidden() and seen == []
-    row.editor.setText("10 uJ")
-    row.editor.editingFinished.emit()
-    row.editor.editingFinished.emit()  # unchanged: announced once
-    row.editor.setText("")
-    row.editor.editingFinished.emit()
-    assert seen == ["10 uJ", MISSING] and row.issue.isHidden()
-    row.set_issue("solprop's word", "warning")
-    assert row.issue.text() == "solprop's word"
+    leave(row.number.number, "125")
+    assert seen == ["125 um"] and row.issue.isHidden()
+    assert row.number.units is not None
+    row.number.units.setCurrentIndex(row.number.units.findData("mm"))
+    assert row.number.number.text() == "0.125" and seen[-1] == "0.125 mm"
+    leave(row.number.number, "0.2 m")  # a whole quantity in another unit
+    assert seen[-1] == "0.2 m" and row.number.units.currentData() == "m"
+    leave(row.number.number, "")
+    assert seen[-1] is MISSING
+    row.set_value({"type": "profile"})  # a table: shown as text
+    assert row.stack.currentWidget() is row.text
+    row.mode.setCurrentIndex(0)
+    assert row.stack.currentWidget() is row.number
 
 
-def test_a_row_says_where_its_default_comes_from(qtbot: QtBot):
-    row = ParameterRow(meta("rtol", {"kind": "number", "unit": None}, default=None))
+def test_a_range_row_is_two_numbers_with_one_unit(qtbot: QtBot):
+    row = ParameterRow(
+        meta(
+            "wavelength_limits",
+            {"kind": "pair", "unit": "m"},
+            display="nm",
+            default_value=None,
+        )
+    )
     qtbot.addWidget(row)
-    assert "solprop chooses" in row.editor.placeholderText()
-    row.set_resolved([1e-6, "the route's tolerance"])
-    assert "1e-06" in row.editor.placeholderText()
-    row.set_resolved(None)
-    row2 = ParameterRow(meta("n", {"kind": "integer"}, default="3"))
-    qtbot.addWidget(row2)
-    assert row2.editor.placeholderText() == "default: 3"
+    seen = []
+    row.edited.connect(lambda *args: seen.append(args[2]))
+    row.set_value(["200 nm", "2 um"])
+    assert row.range.low.number.text() == "200"
+    assert row.range.high.number.text() == "2000"
+    leave(row.range.low.number, "")
+    assert "both ends" in row.issue.text()
+    leave(row.range.low.number, "100")
+    assert seen[-1] == ["100 nm", "2000 nm"]
+    row.range.units.setCurrentIndex(row.range.units.findData("um"))
+    assert seen[-1] == ["0.1 um", "2 um"]
+    leave(row.range.low.number, "")
+    leave(row.range.high.number, "")
+    assert seen[-1] is MISSING
+
+
+def test_numbers_without_units_and_text_rows(qtbot: QtBot):
+    rtol = ParameterRow(meta("rtol", {"kind": "number", "unit": None}, default=None))
+    qtbot.addWidget(rtol)
+    assert rtol.number.units is None
+    seen = []
+    rtol.edited.connect(lambda *args: seen.append(args[2]))
+    leave(rtol.number.number, "1e-6")
+    leave(rtol.number.number, "1 m")
+    assert seen == [1e-6] and "not a number" in rtol.issue.text()
+    count = ParameterRow(meta("n", {"kind": "integer"}, default="3", default_value=3))
+    qtbot.addWidget(count)
+    assert count.number.number.placeholderText() == "3"
+    count.edited.connect(lambda *args: seen.append(args[2]))
+    leave(count.number.number, "4")
+    leave(count.number.number, "4.5")
+    assert seen[-1] == 4 and "whole" in count.issue.text()
+    table = ParameterRow(meta("fill", {"kind": "mapping"}, required=True))
+    qtbot.addWidget(table)
+    assert table.text.placeholderText() == "required"
+    leave(table.text, "{ He = 1")
+    assert not table.issue.isHidden()
+    gas = ParameterRow(meta("gas", {"kind": "string"}, {"kind": "mapping"}))
+    qtbot.addWidget(gas)
+    gas.edited.connect(lambda *args: seen.append(args[2]))
+    leave(gas.text, "Ar")
+    leave(gas.text, "")
+    assert seen[-2:] == ["Ar", MISSING]
+    gas.set_resolved(["He", "a rule"])
+    assert "a rule" in gas.text.placeholderText()
+    gas.set_issue("solprop's word", "warning")
+    assert gas.issue.text() == "solprop's word"
+    plain = ParameterRow(meta("x", {"kind": "array"}, default="[1]"))
+    qtbot.addWidget(plain)
+    assert plain.text.placeholderText() == "default: [1]"
+    other = ParameterRow(meta("y", {"kind": "array"}))
+    qtbot.addWidget(other)
+    assert "solprop chooses" in other.text.placeholderText()
+
+
+def test_a_number_box_steps_with_keys_and_wheel(
+    qtbot: QtBot, monkeypatch: pytest.MonkeyPatch
+):
+    from PySide6.QtCore import QPoint, QPointF, Qt  # noqa: PLC0415 - only here
+    from PySide6.QtGui import QWheelEvent  # noqa: PLC0415
+
+    from solprop_gui.ui.quantity import NumberEdit, step  # noqa: PLC0415
+
+    assert step("x", 1) is None and step("0", 1) == "0.1"
+    box = NumberEdit()
+    qtbot.addWidget(box)
+    box.setPlaceholderText("125")
+    qtbot.keyClick(box, Qt.Key.Key_Up)
+    assert box.text() == "135"  # a tenth of the leading digit's place
+    qtbot.keyClick(box, Qt.Key.Key_Down)
+    qtbot.keyClick(box, Qt.Key.Key_A)
+    assert box.text() == "125a"
+    wheel = QWheelEvent(
+        QPointF(5, 5),
+        QPointF(5, 5),
+        QPoint(0, 0),
+        QPoint(0, 120),
+        Qt.MouseButton.NoButton,
+        Qt.KeyboardModifier.NoModifier,
+        Qt.ScrollPhase.NoScrollPhase,
+        False,
+    )
+    box.setText("1")
+    box.wheelEvent(wheel)  # no focus: left to the page's scroll
+    assert box.text() == "1"
+    monkeypatch.setattr(box, "hasFocus", lambda: True)  # no window to focus offscreen
+    box.wheelEvent(wheel)
+    assert box.text() == "1.1"
 
 
 # ---------------------------------------------------------------------- views
@@ -213,9 +321,7 @@ def test_the_window_runs_the_whole_lifecycle(qtbot: QtBot, tmp_path: Path):  # n
 
     # Edit, refuse, undo and redo.
     energy = window.pages["input"].rows["energy", "build"]
-    assert isinstance(energy.editor, QLineEdit)
-    energy.editor.setText("150 uJ")
-    energy.editor.editingFinished.emit()
+    leave(energy.number.number, "150")
     assert window.model is not None and window.model.get("energy") == "150 uJ"
     assert window.isWindowModified()
     window.undo.undo()

@@ -145,12 +145,14 @@ class MainWindow(QMainWindow):
         self.stack.addWidget(self.start)
         self.steps = QListWidget()
         self.steps.setObjectName("steps")
+        self.steps.setMinimumWidth(150)
         self.steps.setMaximumWidth(200)
         self.steps.addItem(QListWidgetItem("Start"))
         self.results = ResultsPage(self.bridge)
         self.results.setup_opened.connect(self.open_setup_text)
         self.run_panel = RunPanel(self.bridge, self.snapshot, self.workspace)
         self.run_panel.ended.connect(self._run_ended)
+        self.run_panel.workspace_changed.connect(lambda _path: self.refresh_runs())
         self.propagate_tabs = QTabWidget()
         self.propagate_tabs.setObjectName("propagate-tabs")
         for page in PAGES:
@@ -269,6 +271,7 @@ class MainWindow(QMainWindow):
         self._add_action(file_menu, "&Export as Python…", self.export_python)
         file_menu.addSeparator()
         self._add_action(file_menu, "Open &results…", self.results.choose)
+        self._add_action(file_menu, "Run &workspace…", self.run_panel.choose_workspace)
         file_menu.addSeparator()
         self._add_action(file_menu, "&Quit", self.close, keys.Quit)
         edit_menu = menu.addMenu("&Edit")
@@ -809,7 +812,7 @@ class MainWindow(QMainWindow):
 
     def refresh_runs(self) -> None:
         """List the workspace's runs on the start screen."""
-        self.start.show_runs(list_runs(Path(self.run_panel.workspace.text())))
+        self.start.show_runs(list_runs(self.run_panel.workspace))
 
     def _run_ended(self, path: str) -> None:
         """Show a finished run's results, and list it.
@@ -842,7 +845,7 @@ class MainWindow(QMainWindow):
         if not self._may_discard():
             event.ignore()
             return
-        self.settings.setValue("workspace", self.run_panel.workspace.text())
+        self.settings.setValue("workspace", str(self.run_panel.workspace))
         self.bridge.close()
         event.accept()
 

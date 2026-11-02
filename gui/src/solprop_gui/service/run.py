@@ -293,10 +293,11 @@ def _ending(output: Path, stopped: bool) -> tuple[str, dict[str, object]]:
         "z": None if outcome is None else outcome.z,
         "message": "" if outcome is None else outcome.message,
     }
+    if outcome is not None and outcome.status == "complete":
+        # A stop that came as the run reached its end found nothing left to stop.
+        return "finished", data
     if stopped:
         return "stopped", data
-    if outcome is not None and outcome.status == "complete":
-        return "finished", data
     return "failed", data
 
 

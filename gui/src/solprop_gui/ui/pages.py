@@ -85,6 +85,7 @@ class ParameterPage(QWidget):
         self.body = QWidget()
         self.form = QVBoxLayout(self.body)
         self.form.setAlignment(Qt.AlignmentFlag.AlignTop)
+        self.form.setSpacing(4)
         self.extra = QVBoxLayout()
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)

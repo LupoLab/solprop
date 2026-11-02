@@ -301,7 +301,8 @@ def test_a_new_run_needs_its_recipe(tmp_path: Path):
 
 def test_an_unfinished_run_that_is_not_stopped_is_a_failure(run_copy: Path):
     assert run._ending(run_copy, stopped=False)[0] == "finished"
-    assert run._ending(run_copy, stopped=True)[0] == "stopped"
+    # A stop that arrives as the run completes leaves it complete.
+    assert run._ending(run_copy, stopped=True)[0] == "finished"
 
 
 def test_a_run_whose_outcome_is_not_complete_failed(
