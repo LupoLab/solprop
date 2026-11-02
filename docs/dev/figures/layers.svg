@@ -238,8 +238,8 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 <rect x="307.0" y="1353.0" width="237.8" height="81.5" rx="7" ry="7" class="fill-d" />
 <text x="317.0" y="1375.0" font-size="15" class="bold ink-d">recipe/</text>
 <text x="317.0" y="1390.5" font-size="12" class="dim">core · document · errors · export</text>
-<text x="317.0" y="1406.0" font-size="12" class="dim">metadata · paths · provenance</text>
-<text x="317.0" y="1421.5" font-size="12" class="dim">quantity · registry</text>
+<text x="317.0" y="1406.0" font-size="12" class="dim">metadata · paths · pins · preview</text>
+<text x="317.0" y="1421.5" font-size="12" class="dim">provenance · quantity · registry</text>
 <rect x="554.8" y="1353.0" width="69.5" height="81.5" rx="7" ry="7" class="fill-d" />
 <text x="564.8" y="1375.0" font-size="15" class="bold ink-d">cli.py</text>
 <rect x="32" y="1493.5" width="1010.0" height="168.0" rx="7" ry="7" class="plain" />
@@ -255,14 +255,14 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 <text x="317.0" y="1544.0" font-size="12" class="dim">axes · fields · spectra · time</text>
 <text x="317.0" y="1559.5" font-size="12" class="dim">coherence · compression · mixtures</text>
 <text x="317.0" y="1575.0" font-size="12" class="dim">modal · planes · scans</text>
-<rect x="561.4" y="1506.5" width="178.4" height="81.5" rx="7" ry="7" class="fill-x" />
+<rect x="561.4" y="1506.5" width="224.60000000000002" height="81.5" rx="7" ry="7" class="fill-x" />
 <text x="571.4" y="1528.5" font-size="15" class="bold ink-x">plotting/</text>
 <text x="571.4" y="1544.0" font-size="12" class="dim">propagation · statistics</text>
-<text x="571.4" y="1559.5" font-size="12" class="dim">spectrograms · style</text>
-<rect x="749.8" y="1506.5" width="69.5" height="81.5" rx="7" ry="7" class="fill-x" />
-<text x="759.8" y="1528.5" font-size="15" class="bold ink-x">sol.py</text>
-<rect x="829.3" y="1506.5" width="143.75" height="81.5" rx="7" ry="7" class="fill-x" />
-<text x="839.3" y="1528.5" font-size="15" class="bold ink-x">capabilities.py</text>
+<text x="571.4" y="1559.5" font-size="12" class="dim">spectrograms · style · geometry</text>
+<rect x="796.0" y="1506.5" width="69.5" height="81.5" rx="7" ry="7" class="fill-x" />
+<text x="806.0" y="1528.5" font-size="15" class="bold ink-x">sol.py</text>
+<rect x="875.5" y="1506.5" width="143.75" height="81.5" rx="7" ry="7" class="fill-x" />
+<text x="885.5" y="1528.5" font-size="15" class="bold ink-x">capabilities.py</text>
 <rect x="307.0" y="1598.0" width="110.75000000000001" height="50.5" rx="7" ry="7" class="planned" />
 <text x="317.0" y="1620.0" font-size="15" class="bold dim">processing/</text>
 <text x="317.0" y="1635.5" font-size="12" class="dim">windows</text>

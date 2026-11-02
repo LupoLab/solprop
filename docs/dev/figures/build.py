@@ -819,6 +819,8 @@ MODULES = {
                 "export",
                 "metadata",
                 "paths",
+                "pins",
+                "preview",
                 "provenance",
                 "quantity",
                 "registry",
@@ -844,7 +846,7 @@ MODULES = {
         ),
         Module(
             "plotting/",
-            ("propagation", "statistics", "spectrograms", "style"),
+            ("propagation", "statistics", "spectrograms", "style", "geometry"),
         ),
         Module("sol.py"),
         Module("capabilities.py"),
