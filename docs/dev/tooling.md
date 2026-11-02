@@ -208,12 +208,15 @@ jaxtyping hook) run in the coverage lane only; the other test lanes set
 
 - **static** (Linux): `uv lock --check`, ruff (lint and format check), `poe types`,
   `poe docstrings`, `poe spell`, `poe reuse`.
-- **docs** (Linux): `poe docs`.
+- **docs** (Linux): `poe docs`, with the wheel installed, so a lesson or tutorial on
+  `backend="auto"` runs on `native`.
 - **native-wheel** (Linux x86-64, macOS arm64, Windows x64): this tree's `native/` built
   as its CPU distribution wheel, cached under a hash of the native sources, so a change
   outside `native/` reuses the last build. On Linux the build is the native gate's
   `wheel` stage (the build and its isolated smoke test); on macOS and Windows it is
-  cibuildwheel, as in `wheels.yml`. The test lanes below install the wheel.
+  cibuildwheel, as in `wheels.yml`. The docs and test lanes install the wheel. A
+  documentation-only change builds only the Linux wheel. `poe fetch-wheel` installs the
+  newest one from this checkout's history, for a contributor without a compiler.
 - **test** (macOS arm64 and Windows x64, three shards each): `poe test`, the default lane,
   with the wheel installed, so `backend="auto"` and the driver tests select `native`.
 - **coverage** (Linux x86-64): `poe cov` as parallel jobs, with the wheel installed (its
@@ -221,12 +224,15 @@ jaxtyping hook) run in the coverage lane only; the other test lanes set
   `numba_cpu`'s). One job runs `poe cov-kernels` and six shards run `poe cov-part`.
   **coverage-report** combines their data (`poe cov-report`), requires 100 % of
   statements and branches, and uploads the report to Codecov for the badge.
-- **slow** (Linux and macOS): `poe test-slow`; on macOS only its functional tests, with
-  the wheel installed, the statistics-cost timing being Linux's.
+- **slow** (Linux and macOS): `poe test-slow` with the wheel installed; on macOS only its
+  functional tests, the statistics-cost timing being Linux's. On Linux,
+  `SOLPROP_TEST_BACKEND=native` selects the ladders' backend.
 - **oldest** (Linux, three shards): the package installed with `uv pip install
-  --resolution lowest-direct`, so every dependency sits at its floor, then the default
-  lane ([dependencies.md](dependencies.md)). It has no native package, so this is also
-  the default lane on `numba_cpu`.
+  --resolution lowest-direct`, so every dependency sits at its floor, then the wheel with
+  `--no-deps`, then the default lane ([dependencies.md](dependencies.md)).
+- **no-native** (Linux): a few modules of the default lane with no native package and
+  `SOLPROP_TEST_BACKEND=numpy_ref`: what `backend="auto"` does on a platform without a
+  wheel, and a real run there.
 - **native-quality** (Linux, three jobs): `uv run poe check-native`, the native package's
   gate (`native/scripts/check.sh`), split by `SOLPROP_NATIVE_CHECK_STAGES`. The jobs are
   its lint and strict types, clang-format and its pytest suite (`lint pytest`);
@@ -245,9 +251,9 @@ wheel and checks a fresh install of each, and on a release tag, once enabled, pu
 solprop-native and then solprop ([Releasing and the native wheels](releasing.md), whose
 pre-flight checklist sets publishing up).
 
-`numba_cpu` runs in the coverage lane's driver tests, in the lowest-dependency lane and
-in the Linux slow lane; the parity tests check it against `numpy_ref` in every job. GPU
-tests run by hand on a node with a device (`pytest -m gpu`). The self-hosted
+`numba_cpu` runs in the coverage lane's driver tests; the parity tests check it against
+`numpy_ref` in every job. GPU tests run by hand on a node with a device
+(`pytest -m gpu`). The self-hosted
 `.github/workflows/cuda.yml`, started by hand, builds the CUDA extension and runs the
 native package's pytest suite and Compute Sanitizer on it. Keep the gate's steps identical to
 `poe check`; a change to one is a change to the other, in the same commit.
