@@ -44,6 +44,7 @@ from solprop_gui.registry.explore import (
     value_at,
 )
 from solprop_gui.registry.pages import label
+from solprop_gui.ui.quantity import QuantityField
 from solprop_gui.views.plotting import PALETTE, HoverLayout, colormap
 from solprop_gui.views.splitter import GripSplitter
 
@@ -71,16 +72,24 @@ class ExplorerView(QWidget):
     Attributes
     ----------
     sweep_changed : Signal
-        Emitted when the user applies a sweep, or clears it: the window asks again.
+        Emitted when the user applies a sweep, or clears it, or picks another
+        position: the window asks again.
+    design_wanted : Signal
+        Emitted when the user asks for the design tool.
     """
 
     sweep_changed = Signal()
+    design_wanted = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:  # noqa: PLR0915 - a layout
         """Make the controls and the empty plot."""
         super().__init__(parent)
         self.sets: list[Mapping[str, object]] = []
+        self.status = QLabel("Open a setup on a guided route to see its modes.")
+        self.status.setObjectName("explorer-status")
+        self.status.setWordWrap(True)
         self.pump: float | None = None
+        self.rdw: float | None = None
         self.swept: str | None = None
         self.hidden: set[str] = set()
         self.curves: list[Curve] = []
@@ -113,11 +122,26 @@ class ExplorerView(QWidget):
         self.export_button = QToolButton()
         self.export_button.setText("Export CSV…")
         self.export_button.clicked.connect(self.choose_export)
+        self.design_button = QToolButton()
+        self.design_button.setText("Design…")
+        self.design_button.setObjectName("explorer-design")
+        self.design_button.setToolTip(
+            "Solve the pressure (or radius) and the energy together from design "
+            "targets, and write them into the setup."
+        )
+        self.design_button.clicked.connect(self.design_wanted)
+        self.position = QuantityField("m", "cm")
+        self.position.setObjectName("explorer-z")
+        self.position.number.setPlaceholderText("entrance")
+        self.position.setToolTip(
+            "The position along the guide the modes are solved at, for a taper or a "
+            "gradient; empty for the entrance."
+        )
+        self.position.setMaximumWidth(140)
+        self.position.changed.connect(lambda _value: self.sweep_changed.emit())
+        self.position.refused.connect(self.status.setText)
         for box in (self.quantity, self.axis):
             box.currentIndexChanged.connect(self.redraw)
-        self.status = QLabel("Open a setup on a guided route to see its modes.")
-        self.status.setObjectName("explorer-status")
-        self.status.setWordWrap(True)
 
         controls = QHBoxLayout()
         controls.addWidget(self.quantity)
@@ -128,7 +152,11 @@ class ExplorerView(QWidget):
         controls.addWidget(self.sweep_name)
         controls.addWidget(self.sweep_text, 1)
         controls.addWidget(self.apply)
+        controls.addSpacing(12)
+        controls.addWidget(QLabel("at z"))
+        controls.addWidget(self.position)
         controls.addWidget(self.export_button)
+        controls.addWidget(self.design_button)
 
         self.plots = HoverLayout()
         self.plot = self.plots.add_plot(0, 0, "")
@@ -153,6 +181,20 @@ class ExplorerView(QWidget):
         layout.addWidget(split, 1)
 
     # ------------------------------------------------------------------ input
+
+    def z(self) -> object:
+        """Return the position the modes are asked at.
+
+        Returns
+        -------
+        object
+            The quantity typed (``"10 cm"``), or ``None`` for the entrance or a
+            position that does not read.
+        """
+        try:
+            return self.position.read()
+        except ValueError:
+            return None
 
     def set_route(self, route: str) -> None:
         """Offer the keywords a route's sweep can vary.
@@ -212,10 +254,14 @@ class ExplorerView(QWidget):
             for entry in self.sets
             if "error" in entry
         ]
+        z = next((entry.get("z") for entry in self.sets if "z" in entry), 0.0)
+        where = (
+            "at the entrance" if not z else f"at z = {float(z) * 100:.4g} cm"  # pyright: ignore[reportArgumentType]
+        )
         self.status.setText(
             "; ".join(errors)
             if errors
-            else "From solprop's mode preview (Recipe.modes) at the launch position."
+            else f"From solprop's mode preview (Recipe.modes) {where}."
         )
         self._fill_modes_menu()
         self.redraw()
@@ -339,7 +385,33 @@ class ExplorerView(QWidget):
                     labelOpts={"position": 0.88, "color": "#c62828"},
                 )
             )
+        if self.rdw is not None and drawn:
+            position = axis_values(
+                np.array([2 * np.pi * 299_792_458.0 / self.rdw]), axis
+            )[0]
+            self.plot.addItem(
+                pg.InfiniteLine(
+                    float(position),
+                    angle=90,
+                    pen=pg.mkPen("#6a1b9a", width=1.2, style=Qt.PenStyle.DashLine),
+                    label="RDW",
+                    labelOpts={"position": 0.81, "color": "#6a1b9a"},
+                )
+            )
         self._fill_table()
+
+    def set_rdw(self, wavelength: float | None) -> None:
+        """Mark the phase-matched dispersive wave of the setup's pulse.
+
+        Parameters
+        ----------
+        wavelength : float or None
+            Its wavelength in m (the summary's ``tools.lambda_rdw_all``), or ``None``
+            for none.
+        """
+        if wavelength != self.rdw:
+            self.rdw = wavelength
+            self.redraw()
 
     def _fill_table(self) -> None:
         """Write every quantity at the pump, one row per mode."""

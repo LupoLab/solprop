@@ -16,7 +16,7 @@ import re
 from solprop.recipe.errors import RecipeError
 from solprop.recipe.quantity import Unit, format_quantity, parse_quantity
 
-__all__ = ["number_in", "split", "unit_of", "write"]
+__all__ = ["number_in", "rounded", "split", "unit_of", "write"]
 
 _SPLIT = re.compile(r"\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)\s*(.*?)\s*")
 
@@ -142,3 +142,38 @@ def write(text: str, keyword_unit: str, unit: str) -> str:
     quantity = f"{number} {typed_unit or unit}"
     parse_quantity(quantity, Unit(keyword_unit))  # refuses a wrong dimension
     return quantity
+
+
+def rounded(value: float, keyword_unit: str, unit: str, digits: int = 6) -> str:
+    """Return a solved value as a recipe literal, rounded, in a unit.
+
+    A value solprop solves for (a design's pressure, say) has more digits than
+    anyone measures it to; written as a literal it keeps `digits` significant ones.
+
+    Parameters
+    ----------
+    value : float
+        The value in the keyword's unit.
+    keyword_unit : str
+        The keyword's unit.
+    unit : str
+        The unit to write it in, of the same dimension.
+    digits : int, optional
+        The significant digits kept.
+
+    Returns
+    -------
+    str
+        ``"<number> <unit>"``; a bare number for a dimensionless keyword.
+
+    Examples
+    --------
+    >>> rounded(1.2779114785253451, "bar", "bar"), rounded(1.2317608e-4, "J", "uJ")
+    ('1.27791 bar', '123.176 uJ')
+    >>> rounded(3.14159265, "1", "1")
+    '3.14159'
+    """
+    if keyword_unit in ("", "1"):
+        return f"{value:.{digits}g}"
+    number = float(number_in(value, keyword_unit, unit))
+    return f"{number:.{digits}g} {unit}"

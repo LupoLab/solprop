@@ -7,16 +7,19 @@
 from pathlib import Path
 
 import numpy as np
+import pytest
 from PySide6.QtWidgets import QTableWidgetItem
 from pytestqt.qtbot import QtBot
 
 from solprop_gui.model.recipe import MISSING, RecipeModel
 from solprop_gui.service.messages import Reply
+from solprop_gui.ui.design_tool import DesignDialog
 from solprop_gui.ui.fields import ParameterRow
 from solprop_gui.ui.launch import LaunchField, launch_rows
 from solprop_gui.ui.main_window import MainWindow
 from solprop_gui.ui.pin import PinField
 from solprop_gui.views.explorer import ExplorerView
+from solprop_gui.views.zdw_chart import ZdwChartView
 from test_design import MULTIMODE, PINNED
 from test_ui import WAIT_MS, leave, private_settings, shot  # noqa: F401 - a fixture
 
@@ -66,6 +69,9 @@ def test_the_explorer_draws_modes_sweeps_and_a_table(qtbot: QtBot, tmp_path: Pat
     }
     view.set_sets(reply)
     assert len(view.curves) == 2 and view.table.rowCount() == 2
+    view.set_rdw(2.5e-7)
+    view.set_rdw(2.5e-7)  # the same: not drawn again
+    assert view.rdw == 2.5e-7
     assert view.labels() == ["HE1,1", "HE1,2"]
     shot(view, tmp_path, "explorer")
     hit = view.lookup(1000.0, 0.0)
@@ -205,6 +211,108 @@ def cell(field: LaunchField, row: int, column: int) -> QTableWidgetItem:
     return item
 
 
+GUIDE = [
+    {
+        "name": "pressure",
+        "forms": [{"kind": "number", "unit": "bar"}],
+        "pins": PRESSURE_PINS,
+    },
+    {
+        "name": "radius",
+        "forms": [{"kind": "number", "unit": "m"}],
+        "display": "um",
+        "pins": PRESSURE_PINS[:1],
+    },
+]
+PULSE = {
+    "name": "energy",
+    "forms": [{"kind": "number", "unit": "J"}],
+    "display": "uJ",
+    "pins": [{"target": "soliton_order", "stage": "pulse", "required": ["order"]}],
+}
+
+
+def test_the_design_dialog_solves_and_writes_two_values(qtbot: QtBot, tmp_path: Path):
+    pins = {"pressure": {"target": "rdw", "rdw": "200 nm", "search": [1, 5]}}
+    dialog = DesignDialog(GUIDE, PULSE, pins)
+    qtbot.addWidget(dialog)
+    assert dialog.chosen() == ("pressure", "energy")
+    assert dialog.fields["pressure"].target.currentData() == "rdw"  # the setup's pin
+    asked, written = [], []
+    dialog.solve_wanted.connect(asked.append)
+    dialog.apply_wanted.connect(written.append)
+    dialog.solve()  # the order is missing
+    assert asked == [] and "every target" in dialog.outcome.text()
+    leave(dialog.fields["energy"].fields["soliton_order", "order"].number, "3")
+    dialog.solve()
+    assert asked[-1] == {
+        "pressure": {"target": "rdw", "rdw": "200 nm", "search": ["1 bar", "5 bar"]},
+        "energy": {"target": "soliton_order", "order": 3},
+    }
+    dialog.show_solution(
+        {
+            "values": {"pressure": 1.2779114785, "energy": 1.231760842e-4},
+            "design": {"soliton_order": 3.0},
+            "design_error": "a note",
+        }
+    )
+    assert dialog.apply_button.isEnabled() and "a note" in dialog.outcome.text()
+    shot(dialog, tmp_path, "design")
+    dialog.apply()
+    assert written[-1] == [("pressure", "1.27791 bar"), ("energy", "123.176 uJ")]
+    leave(dialog.fields["energy"].fields["soliton_order", "order"].number, "4")
+    assert not dialog.apply_button.isEnabled()  # a changed target: solve again
+    dialog.apply()
+    assert len(written) == 1
+    dialog.guide.setCurrentIndex(dialog.guide.findData("radius"))
+    assert dialog.chosen()[0] == "radius"
+    leave(dialog.fields["radius"].fields["zdw", "wavelength"].number, "x y")
+    assert "x y" in dialog.outcome.text()
+    dialog.show_error("no root")
+    assert dialog.outcome.text() == "no root"
+
+
+def test_the_zdw_chart_draws_its_contours(qtbot: QtBot, tmp_path: Path):
+    view = ZdwChartView()
+    qtbot.addWidget(view)
+    view.resize(800, 500)
+    asked = []
+    view.chart_wanted.connect(asked.append)
+    view.count.setValue(3)
+    view.ask()
+    assert asked[-1]["radii"] == pytest.approx([25e-6, 137.5e-6, 250e-6])
+    assert asked[-1]["wavelengths"] == [
+        "300 nm",
+        "400 nm",
+        "500 nm",
+        "600 nm",
+        "800 nm",
+    ]
+    chart = {
+        "radius": [25e-6, 137.5e-6, 250e-6],
+        "curves": [
+            {"zdw": 4e-7, "pressure": [3.0, 0.2, 0.05]},
+            {"zdw": 6e-7, "pressure": [None, 2.0, 0.5]},
+        ],
+        "setup": {"radius": 125e-6, "pressure": 1.0},
+        "error": "no pressure gives 600 nm",
+    }
+    view.show_chart(chart)
+    assert len(view.curves) == 2 and "600 nm" in view.status.text()
+    shot(view, tmp_path, "zdw-chart")
+    hit = view.lookup(137.5, np.log10(1.5))
+    assert hit is not None and "600 nm" in hit[2]
+    assert view.lookup(25.0, 0.0) is not None  # the gap is passed over
+    view.show_error("nothing")
+    assert view.lookup(1.0, 1.0) is None and view.status.text() == "nothing"
+    view.wavelengths.setText("")
+    assert view.request() is None and "Give" in view.status.text()
+    view.wavelengths.setText("400 kg")
+    assert view.request() is None
+    view.radii.set_value(None)
+    assert view.request() is None and "range" in view.status.text()
+
+
 def _ready(window: MainWindow) -> bool:
     return window.explorer.status.text().startswith("From solprop")
 
@@ -228,7 +336,6 @@ def test_the_window_explores_pins_and_launches(qtbot: QtBot, tmp_path: Path):
     window.explorer.sweep_text.setText("0.5, 2 bar")
     window.explorer.apply.click()
     qtbot.waitUntil(lambda: len(window.explorer.curves) == 8, timeout=WAIT_MS)
-
     # The launch table is offered the setup's modes.
     window.show_step("input")
     launch = window.pages["input"].rows["launch", "build"]
@@ -273,6 +380,70 @@ def test_the_window_explores_pins_and_launches(qtbot: QtBot, tmp_path: Path):
     assert "no modes to explore" in window.explorer.status.text()
     window.close()
     assert window.bridge.request("examples") == -1  # closed: no kernel is started
+
+
+def test_the_window_designs_charts_and_moves_along(qtbot: QtBot, tmp_path: Path):
+    window = MainWindow(workspace=tmp_path / "workspace")
+    qtbot.addWidget(window)
+    window.show()
+    window.confirm = lambda _title, _text: "discard"
+    window.open_design()  # nothing open yet
+    assert "Open a capillary" in window.statusBar().currentMessage()
+    window.open_explorer()
+    qtbot.waitUntil(lambda: _ready(window), timeout=WAIT_MS)
+
+    # The modes halfway along.
+    leave(window.explorer.position.number, "50")
+    qtbot.waitUntil(
+        lambda: "z = 50 cm" in window.explorer.status.text(), timeout=WAIT_MS
+    )
+
+    # The design tool writes the pressure and the energy, in one undo step.
+    qtbot.waitUntil(
+        lambda: window.descriptions.get("capillary") is not None, timeout=WAIT_MS
+    )
+    window.explorer.design_button.click()
+    dialog = window.design_dialog
+    assert dialog is not None
+    leave(dialog.fields["pressure"].fields["zdw", "wavelength"].number, "500")
+    leave(dialog.fields["energy"].fields["soliton_order", "order"].number, "3")
+    dialog.solve()
+    qtbot.waitUntil(dialog.apply_button.isEnabled, timeout=WAIT_MS)
+    dialog.apply()
+    assert window.model is not None
+    assert window.model.get("pressure").startswith("1.27")  # pyright: ignore[reportAttributeAccessIssue]
+    window.undo.undo()
+    assert window.model.get("pressure") == "1 bar"
+    assert window.model.get("energy") == "100 uJ"
+    leave(dialog.fields["pressure"].fields["zdw", "wavelength"].number, "50")
+    dialog.solve()
+    qtbot.waitUntil(lambda: "No design" in dialog.outcome.text(), timeout=WAIT_MS)
+    window.open_design()  # again: a fresh dialog
+    assert window.design_dialog is not dialog
+    window.design_dialog.close()  # pyright: ignore[reportOptionalMemberAccess]
+
+    # The ZDW chart of the setup's fill.
+    window.show_view("chart")
+    window.chart.count.setValue(3)
+    window.chart.wavelengths.setText("500 nm")
+    window.chart.draw_button.click()
+    qtbot.waitUntil(lambda: len(window.chart.curves) == 1, timeout=WAIT_MS)
+    window._show_tool("chart", _failed())
+    assert "No chart" in window.chart.status.text()
+
+    # Routes without either.
+    window.set_model(
+        RecipeModel(MULTIMODE.replace('route = "capillary"', 'route = "gnlse"')),
+        base=None,
+    )
+    window.request_chart({"radii": [1e-4], "wavelengths": ["500 nm"]})
+    assert "capillary setup" in window.chart.status.text()
+    qtbot.waitUntil(
+        lambda: window.descriptions.get("gnlse") is not None, timeout=WAIT_MS
+    )
+    window.open_design()
+    assert "no design targets" in window.statusBar().currentMessage()
+    window.close()
 
 
 def _failed() -> Reply:

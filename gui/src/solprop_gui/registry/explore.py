@@ -12,7 +12,7 @@ loss), and against a chosen axis: wavelength, frequency or photon energy.
 """
 
 import math
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Final
 
@@ -20,6 +20,8 @@ import numpy as np
 
 __all__ = [
     "AXES",
+    "DESIGN_GUIDE",
+    "DESIGN_PULSE",
     "PIN_KEYS",
     "PIN_SEARCH",
     "PIN_TITLES",
@@ -28,6 +30,8 @@ __all__ = [
     "Axis",
     "Quantity",
     "axis_values",
+    "design_keywords",
+    "design_lines",
     "quantity_values",
     "sweep_values",
     "table_rows",
@@ -116,6 +120,13 @@ PIN_KEYS: Final = {
 }
 """Each target key's label, its unit and the unit it is shown in; a test holds them
 to solprop's targets."""
+
+DESIGN_GUIDE: Final = ("pressure", "radius")
+"""The guide keywords the design tool can solve for, in the order offered."""
+
+DESIGN_PULSE: Final = ("energy", "peak_power")
+"""The pulse sizes the design tool can solve for: the one the setup gives is used."""
+
 
 PIN_SEARCH: Final = {
     "pressure": ["0.01 bar", "20 bar"],
@@ -328,3 +339,76 @@ def table_rows(
             )
         rows.append(row)
     return rows
+
+
+def design_keywords(
+    keywords: Sequence[Mapping[str, object]], given: Collection[str]
+) -> tuple[list[Mapping[str, object]], Mapping[str, object] | None]:
+    """Return the keywords the design tool solves for, as the kernel describes them.
+
+    Parameters
+    ----------
+    keywords : Sequence of Mapping
+        The route's keywords (``describe``), each with its ``pins``.
+    given : Collection of str
+        The keywords the setup gives, as value or pin.
+
+    Returns
+    -------
+    tuple
+        The pinnable guide keywords of :data:`DESIGN_GUIDE`, in its order, and the
+        pulse size: ``peak_power`` where the setup gives it, else ``energy``;
+        ``None`` where the route pins neither.
+
+    Examples
+    --------
+    >>> keywords = [{"name": name, "pins": [1]} for name in
+    ...             ("radius", "energy", "peak_power")] + [{"name": "gas", "pins": []}]
+    >>> guide, pulse = design_keywords(keywords, {"peak_power"})
+    >>> [entry["name"] for entry in guide], pulse["name"]
+    (['radius'], 'peak_power')
+    >>> design_keywords(keywords[3:], ())
+    ([], None)
+    """
+    pinnable = {str(entry["name"]): entry for entry in keywords if entry.get("pins")}
+    guide = [pinnable[name] for name in DESIGN_GUIDE if name in pinnable]
+    pulse = "peak_power" if "peak_power" in given else "energy"
+    return guide, pinnable.get(pulse)
+
+
+_DESIGN_NUMBERS: Final = (
+    ("soliton_order", "Soliton order N", 1.0, ""),
+    ("beta2", "β₂ at the pump", 1e30, "fs²/m"),
+    ("gamma", "γ", 1e3, "1/(W km)"),  # noqa: RUF001 - gamma
+    ("peak_intensity", "Peak intensity", 1e-4, "W/cm²"),
+    ("zdw", "ZDW", 1e9, "nm"),
+    ("rdw", "Phase-matched RDW", 1e9, "nm"),
+    ("fission_length", "Fission length", 1e2, "cm"),
+    ("critical_power", "Critical power", 1e-9, "GW"),
+)
+"""The summary's design numbers the tool shows: key, title, scale and unit."""
+
+
+def design_lines(numbers: Mapping[str, float]) -> list[str]:
+    """Return the design numbers at a solved design, one line each.
+
+    Parameters
+    ----------
+    numbers : Mapping
+        The kernel's ``design`` numbers, SI.
+
+    Returns
+    -------
+    list of str
+        ``"<title>: <value> <unit>"`` for each number given.
+
+    Examples
+    --------
+    >>> design_lines({"soliton_order": 3.0, "beta2": -7.23e-30})
+    ['Soliton order N: 3', 'β₂ at the pump: -7.23 fs²/m']
+    """
+    return [
+        f"{title}: {numbers[key] * scale:.4g} {unit}".rstrip()
+        for key, title, scale, unit in _DESIGN_NUMBERS
+        if key in numbers
+    ]

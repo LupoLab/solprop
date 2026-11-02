@@ -49,16 +49,19 @@ from PySide6.QtWidgets import (
 
 from solprop_gui.model.recipe import MISSING, RecipeModel
 from solprop_gui.model.workspace import DEFAULT_WORKSPACE, list_runs
+from solprop_gui.registry.explore import design_keywords, design_lines
 from solprop_gui.registry.pages import PAGES
 from solprop_gui.registry.routes import CARDS, EXPLORER_SETUP, GUIDED, card, card_of
 from solprop_gui.service.messages import Reply
 from solprop_gui.ui.bridge import ServiceBridge
+from solprop_gui.ui.design_tool import DesignDialog
 from solprop_gui.ui.icons import icon
 from solprop_gui.ui.pages import ParameterPage, StartPage, issue_keyword
 from solprop_gui.ui.results import ResultsPage
 from solprop_gui.ui.run_panel import RunPanel
 from solprop_gui.views.explorer import ExplorerView
 from solprop_gui.views.splitter import GripSplitter
+from solprop_gui.views.zdw_chart import ZdwChartView
 
 __all__ = ["CHECK_DELAY_MS", "ROUTES", "STEPS", "MainWindow"]
 
@@ -203,7 +206,12 @@ class MainWindow(QMainWindow):
         self.views.setDocumentMode(True)
         self.explorer = ExplorerView()
         self.explorer.sweep_changed.connect(lambda: self.request_modes(force=True))
+        self.explorer.design_wanted.connect(self.open_design)
+        self.design_dialog: DesignDialog | None = None
+        self.chart = ZdwChartView()
+        self.chart.chart_wanted.connect(self.request_chart)
         self.views.addTab(self.explorer, "Dispersion")
+        self.views.addTab(self.chart, "ZDW chart")
         self.views.addTab(self.run_panel.view, "Live run")
         self.views.addTab(self.results.overview, "Results")
         self.views.addTab(self.results.compare, "Compare")
@@ -363,6 +371,10 @@ class MainWindow(QMainWindow):
             run_menu.addAction(action)
         run_menu.addSeparator()
         self._add_action(run_menu, "Run &workspace…", panel.choose_workspace)
+        tools_menu = menu.addMenu("&Tools")
+        self._add_action(tools_menu, "Waveguide &explorer", self.open_explorer)
+        self._add_action(tools_menu, "&Design the capillary…", self.open_design)
+        self._add_action(tools_menu, "&ZDW chart", lambda: self.show_view("chart"))
         view_menu = menu.addMenu("&View")
         view_menu.addAction(self.settings_action)
         view_menu.addAction(self.messages_action)
@@ -522,10 +534,12 @@ class MainWindow(QMainWindow):
         Parameters
         ----------
         name : str
-            ``"dispersion"``, ``"live"``, ``"results"`` or ``"compare"``.
+            ``"dispersion"``, ``"chart"``, ``"live"``, ``"results"`` or
+            ``"compare"``.
         """
         widget = {
             "dispersion": self.explorer,
+            "chart": self.chart,
             "live": self.run_panel.view,
             "results": self.results.overview,
             "compare": self.results.compare,
@@ -646,6 +660,8 @@ class MainWindow(QMainWindow):
             self._show_modes(reply)
         elif purpose.startswith("roots-"):
             self._show_roots(purpose.removeprefix("roots-"), reply)
+        elif purpose in ("chart", "design"):
+            self._show_tool(purpose, reply)
         elif purpose in ("to_python", "export"):
             self.code = str(value) if reply.ok else f"# {reply.error}"
             self.code_view.setPlainText(self.code)
@@ -653,6 +669,28 @@ class MainWindow(QMainWindow):
                 self._save_code()
         if not reply.ok and reply.detail:
             self.statusBar().showMessage(f"{purpose}: {reply.error}", 10_000)
+
+    def _show_tool(self, purpose: str, reply: Reply) -> None:
+        """Show a design tool's reply: the ZDW chart, or the design dialog's solution.
+
+        Parameters
+        ----------
+        purpose : str
+            ``"chart"`` or ``"design"``.
+        reply : solprop_gui.service.messages.Reply
+            The reply.
+        """
+        value = reply.value if reply.ok and isinstance(reply.value, dict) else None
+        if purpose == "chart":
+            if value is None:
+                self.chart.show_error(f"No chart: {reply.error}")
+            else:
+                self.chart.show_chart(value)
+        elif self.design_dialog is not None:
+            if value is None:
+                self.design_dialog.show_error(f"No design: {reply.error}")
+            else:
+                self.design_dialog.show_solution(value)
 
     # ------------------------------------------------------------------ the recipe
 
@@ -795,8 +833,29 @@ class MainWindow(QMainWindow):
         value : object
             The new value or pin, or :data:`~solprop_gui.model.recipe.MISSING`.
         """
+        changes = self._changes(name, table, value)
+        if changes:
+            self.undo.push(_SetValues(self, changes))
+
+    def _changes(self, name: str, table: str, value: object) -> list[Change]:
+        """Return the changes that set one value or pin.
+
+        Parameters
+        ----------
+        name : str
+            The keyword.
+        table : str
+            Its table: ``"build"``, ``"execution"`` or ``"pins"``.
+        value : object
+            The new value or pin, or :data:`~solprop_gui.model.recipe.MISSING`.
+
+        Returns
+        -------
+        list of Change
+            The value's change, and the removal of the pin or value it replaces.
+        """
         if self.model is None:
-            return
+            return []
         old = self.model.get(name, table)
         changes: list[Change] = []
         if old != value:
@@ -806,8 +865,7 @@ class MainWindow(QMainWindow):
             replaced = self.model.get(name, other)
             if replaced is not MISSING:
                 changes.append((name, other, MISSING, replaced))
-        if changes:
-            self.undo.push(_SetValues(self, changes))
+        return changes
 
     def apply_values(self, values: list[tuple[str, str, object]]) -> None:
         """Set values in the recipe and show the change (the commands' action).
@@ -922,12 +980,10 @@ class MainWindow(QMainWindow):
             lines.append(f"Peak power {peak:.4g} GW")
             design = summary.get("design") or {}
             if isinstance(design, dict) and design:
-                lines.append(f"Soliton order {design['soliton_order']:.3g}")
-                lines.append(f"β₂ {design['beta2'] * 1e30:.4g} fs²/m")
-                lines.append(f"γ {design['gamma'] * 1e3:.4g} /(W km)")  # noqa: RUF001
-                intensity = design["peak_intensity"] * 1e-4
-                lines.append(f"Peak intensity {intensity:.3g} W/cm²")
+                lines += design_lines(design)
                 lines.append("<i>at the entrance (solprop.tools.capillary_params)</i>")
+            rdw = design.get("rdw") if isinstance(design, dict) else None
+            self.explorer.set_rdw(None if rdw is None else float(rdw))
             resolved = summary.get("resolved") or {}
             pinned = summary.get("pinned") or {}
             for page in self.pages.values():
@@ -1011,6 +1067,7 @@ class MainWindow(QMainWindow):
             "text": self.model.to_text(),
             "base": self.base,
             "sweep": self.explorer.sweep(),
+            "z": self.explorer.z(),
         }
         self._ask_kernel("modes", payload, "modes", revision=revision)
 
@@ -1068,6 +1125,84 @@ class MainWindow(QMainWindow):
         if self._may_discard():
             self.set_model(RecipeModel(EXPLORER_SETUP), base=None)
             self.show_view("dispersion")
+
+    def open_design(self) -> None:
+        """Open the design tool for the setup: two values from design targets."""
+        model = self.model
+        description = None if model is None else self.descriptions.get(model.route)
+        if model is None or description is None:
+            self.statusBar().showMessage("Open a capillary setup to design.", 10_000)
+            return
+        keywords: Sequence[Mapping[str, object]] = description["parameters"]  # pyright: ignore[reportAssignmentType]
+        given = {
+            str(entry["name"])
+            for entry in keywords
+            if model.get(str(entry["name"])) is not MISSING
+            or model.get(str(entry["name"]), "pins") is not MISSING
+        }
+        guide, pulse = design_keywords(keywords, given)
+        if not guide or pulse is None:
+            self.statusBar().showMessage(
+                f"The {model.route} route has no design targets.", 10_000
+            )
+            return
+        pins = {
+            str(entry["name"]): model.get(str(entry["name"]), "pins")
+            for entry in (*guide, pulse)
+        }
+        if self.design_dialog is not None:
+            self.design_dialog.close()
+        dialog = DesignDialog(guide, pulse, pins, self)
+        dialog.solve_wanted.connect(self.solve_design)
+        dialog.apply_wanted.connect(self.write_design)
+        self.design_dialog = dialog
+        dialog.show()
+
+    def request_chart(self, request: Mapping[str, object]) -> None:
+        """Ask the kernel for the ZDW chart of the setup's fill.
+
+        Parameters
+        ----------
+        request : Mapping
+            The chart's ``radii`` and ``wavelengths``.
+        """
+        if self.model is None or self.model.route != "capillary":
+            self.chart.show_error("The ZDW chart is drawn for a capillary setup.")
+            return
+        payload = {"text": self.model.to_text(), "base": self.base, **request}
+        self._ask_kernel("zdw_chart", payload, "chart")
+
+    def solve_design(self, pins: Mapping[str, object]) -> None:
+        """Ask the kernel to solve the design tool's pins.
+
+        Parameters
+        ----------
+        pins : Mapping
+            By keyword, the pin to solve it from.
+        """
+        if self.model is None:
+            return
+        payload = {"text": self.model.to_text(), "base": self.base, "pins": dict(pins)}
+        self._ask_kernel("design", payload, "design")
+
+    def write_design(self, literals: Sequence[tuple[str, str]]) -> None:
+        """Write a solved design's values, each replacing its pin, in one undo step.
+
+        Parameters
+        ----------
+        literals : Sequence of tuple
+            Each keyword and its value.
+        """
+        changes = [
+            change
+            for name, value in literals
+            for change in self._changes(name, "build", value)
+        ]
+        if changes:
+            self.undo.push(_SetValues(self, changes))
+            self.statusBar().showMessage(
+                "Wrote " + ", ".join(f"{n} = {v}" for n, v in literals), 10_000
+            )
 
     # ------------------------------------------------------------------ code
 

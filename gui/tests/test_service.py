@@ -154,6 +154,10 @@ def test_check_places_issues_at_their_paths(tmp_path: Path):
     assert conflict and conflict[0]["severity"] == "error"
 
 
+def summary_of(text: str) -> dict[str, float]:
+    return ask("summarise", {"text": text})["design"]
+
+
 def test_summarise_gives_the_pulse_and_the_design_numbers():
     summary = ask("summarise", {"text": TINY})
     assert summary["energy"] == pytest.approx(100e-6, rel=1e-3)
@@ -174,6 +178,12 @@ def test_summarise_gives_the_pulse_and_the_design_numbers():
     assert pinned["design"]["soliton_order"] == pytest.approx(3.0, rel=1e-4)
     power = TINY.replace('energy = "100 uJ"', 'peak_power = "5 GW"')
     assert ask("summarise", {"text": power})["design"]["soliton_order"] > 1
+    # The dispersive wave the pulse phase-matches, on the blue side of the ZDW.
+    numbers = summary_of(TINY)
+    assert 1e-7 < numbers["rdw"] < numbers["zdw"] < 8e-7
+    assert numbers["fission_length"] > 0 and numbers["critical_power"] > 0
+    normal = summary_of(TINY.replace('wavelength = "800 nm"', 'wavelength = "400 nm"'))
+    assert normal["beta2"] > 0 and "rdw" not in normal
 
 
 def test_previews_estimate_and_export():

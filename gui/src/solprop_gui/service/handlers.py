@@ -24,7 +24,7 @@ from solprop.processing.fields import get_power, get_spectral_density
 from solprop.recipe import Parameter, Recipe, parameters
 from solprop.recipe.metadata import REQUIRED
 from solprop.recipe.quantity import Unit, format_quantity
-from solprop.tools import capillary_params
+from solprop.tools import capillary_params, lambda_rdw_all
 
 from solprop_gui.service.design import DESIGN_HANDLERS, pin_targets
 from solprop_gui.service.reduce import Display, Reducer, stats_row
@@ -327,7 +327,10 @@ def _capillary_design(recipe: Recipe, energy: float) -> dict[str, float]:
     -------
     dict
         ``soliton_order``, ``beta2`` (s^2/m), ``gamma`` (1/(W m)), ``n2`` (m^2/W),
-        ``peak_intensity`` (W/m^2) and ``pressure`` (bar).
+        ``peak_intensity`` (W/m^2), ``pressure`` (bar), ``zdw`` (m),
+        ``fission_length`` (m), ``critical_power`` (W) and, where the pump is
+        anomalous and a wave is phase-matched, ``rdw`` (m, the shortest such
+        wavelength, ``tools.lambda_rdw_all``).
 
     Raises
     ------
@@ -355,14 +358,78 @@ def _capillary_design(recipe: Recipe, energy: float) -> dict[str, float]:
         wavelength=float(keywords["wavelength"]),  # pyright: ignore[reportArgumentType]
         **shared,  # pyright: ignore[reportArgumentType]
     )
-    return {
+    numbers = {
         "soliton_order": float(params.soliton_order),
         "beta2": float(params.beta2),
         "gamma": float(params.gamma),
         "n2": float(params.n2),
         "peak_intensity": float(params.peak_intensity),
         "pressure": float(params.pressure),
+        "zdw": float(params.zdw),
+        "fission_length": float(params.fission_length),
+        "critical_power": float(params.critical_power),
     }
+    # A pump in normal dispersion launches no soliton, so no wave is phase-matched.
+    roots = (
+        lambda_rdw_all(
+            params.mode,
+            params.wavelength,
+            peak_power=params.peak_power,
+            gamma=params.gamma,
+            fwhm=params.fwhm,
+            shape=params.shape,
+        )
+        if params.beta2 < 0
+        else ()
+    )
+    numbers.update({"rdw": float(root) for root in roots[:1]})
+    return numbers
+
+
+def design(payload: Payload) -> dict[str, object]:
+    """Solve a design that sets several values at once, without keeping its pins.
+
+    The design tool's request (design 7.5): the recipe is pinned as asked (each
+    pinned keyword's value replaced by its pin; a guide pin and a pulse pin solve in
+    solprop's two stages, as ``tools.capillary_design`` does) and resolved, and the
+    solved values come back for the tool to write as literals.
+
+    Parameters
+    ----------
+    payload : Mapping
+        ``text``, optionally ``base``, and ``pins``: by keyword, the ``[pins]`` entry
+        to solve it from.
+
+    Returns
+    -------
+    dict
+        ``values``, by keyword, the solved value in its unit; and the summary's
+        ``design`` numbers at the solved values, with ``design_error`` saying why
+        they are missing.
+
+    Raises
+    ------
+    solprop.exceptions.SolpropError
+        If a pin has no root, or the pinned recipe does not read.
+    """
+    document = _recipe(payload).to_dict()
+    pins: Mapping[str, object] = payload["pins"]  # pyright: ignore[reportAssignmentType]
+    build = document["build"]
+    for name in pins:
+        build.pop(name, None)
+    document["pins"] = {**document.get("pins", {}), **pins}
+    base = payload.get("base")
+    pinned = Recipe.from_dict(document, base=Path(str(base)) if base else None)
+    recipe = pinned.resolve()
+    values = {name: _plain(recipe.get(name)) for name in pins}
+    numbers: dict[str, float] = {}
+    error: str | None = None
+    if recipe.route == "capillary":
+        try:
+            numbers = _capillary_design(recipe, float(recipe.preview_input().energy))
+        except (SolpropError, KeyError, TypeError, ValueError) as failure:
+            error = str(failure)
+    return {"values": values, "design": numbers, "design_error": error}
 
 
 def preview_input(payload: Payload) -> dict[str, object]:
@@ -621,6 +688,7 @@ HANDLERS: dict[str, Callable[[Payload], object]] = {
     "check_resume": check_resume,
     "describe": describe,
     "describe_output": describe_output,
+    "design": design,
     "estimate": estimate,
     "example": example,
     "examples": examples,

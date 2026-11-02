@@ -11,6 +11,7 @@ from typing import Any
 
 import numpy as np
 import pytest
+from solprop.exceptions import SolpropError
 from solprop.recipe import Recipe, parameters
 from solprop.recipe.pins import TARGETS
 
@@ -132,3 +133,71 @@ def test_a_multimode_run_with_a_launch_streams_rows(tmp_path: Path):
     assert kinds[-1] == "finished", collector.events[-1].data
     rows = [event.data for event in collector.events if event.kind == "row"]
     assert len(rows) == 3 and np.all(np.isfinite(rows[-1]["power"]))
+
+
+DESIGN_PINS = {
+    "pressure": {
+        "target": "zdw",
+        "wavelength": "500 nm",
+        "search": ["0.1 bar", "10 bar"],
+    },
+    "energy": {"target": "soliton_order", "order": 3},
+}
+"""The design tool's two targets: the ZDW at 500 nm, then a third-order soliton."""
+
+
+def test_a_design_solves_two_values_without_keeping_its_pins():
+    solved = ask("design", {"text": TINY, "pins": DESIGN_PINS})
+    pressure, energy = solved["values"]["pressure"], solved["values"]["energy"]
+    # The pressure is tools.capillary_design's, and the pulse at it is a third-order
+    # soliton (the recipe's own pulse shape, Gaussian by default).
+    assert pressure == pytest.approx(1.27791, rel=1e-5)
+    assert solved["design"]["soliton_order"] == pytest.approx(3.0, rel=1e-4)
+    assert 50e-6 < energy < 500e-6 and solved["design_error"] is None
+    # A pin already in the setup is replaced, not added to.
+    pinned = ask("design", {"text": PINNED, "pins": DESIGN_PINS})
+    assert pinned["values"]["pressure"] == pytest.approx(pressure)
+    far = {
+        **DESIGN_PINS,
+        "pressure": {**DESIGN_PINS["pressure"], "wavelength": "50 nm"},
+    }
+    with pytest.raises(SolpropError):
+        ask("design", {"text": TINY, "pins": far})
+    no_width = TINY.replace('fwhm = "10 fs"', 'width = "6 fs"\nshape = "sech"')
+    found = ask(
+        "design", {"text": no_width, "pins": {"pressure": DESIGN_PINS["pressure"]}}
+    )
+    assert found["design"] == {} and found["design_error"]
+    soliton = Recipe.example("soliton").to_text()
+    assert ask("design", {"text": soliton, "pins": {}})["values"] == {}
+
+
+def test_the_zdw_chart_is_the_pressure_per_radius_and_wavelength():
+    chart = ask(
+        "zdw_chart",
+        {
+            "text": TINY,
+            "radii": ["20 um", 125e-6, "250 um"],
+            "wavelengths": ["200 nm", "500 nm"],
+            "pressure_max": 20,
+        },
+    )
+    assert chart["radius"] == pytest.approx([20e-6, 125e-6, 250e-6])
+    deep, shallow = (curve["pressure"] for curve in chart["curves"])
+    assert deep[0] > deep[1] > deep[2]  # a wider core needs less gas
+    assert shallow[0] is None and "500 nm" in chart["error"]
+    assert shallow[1] == pytest.approx(1.27791, rel=1e-5)  # the design's pressure
+    assert chart["setup"] == {"radius": 125e-6, "pressure": 1.0}
+    gradient = TINY.replace('pressure = "1 bar"', 'pressure = ["1 bar", "0 bar"]')
+    flat = ask("zdw_chart", {"text": gradient, "radii": [1e-4], "wavelengths": [3e-7]})
+    assert flat["setup"]["pressure"] is None and flat["error"] is None
+    with pytest.raises(ValueError, match="at most"):
+        ask("zdw_chart", {"text": TINY, "radii": [1e-4] * 401, "wavelengths": [5e-7]})
+
+
+def test_the_modes_along_a_gradient():
+    gradient = TINY.replace('pressure = "1 bar"', 'pressure = ["1 bar", "0.1 bar"]')
+    entrance = ask("modes", {"text": gradient})["sets"][0]
+    halfway = ask("modes", {"text": gradient, "z": "2.5 cm"})["sets"][0]
+    assert halfway["z"] == pytest.approx(0.025)
+    assert halfway["modes"][0]["zdw"] < entrance["modes"][0]["zdw"]  # less gas

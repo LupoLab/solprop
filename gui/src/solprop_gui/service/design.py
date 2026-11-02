@@ -18,8 +18,10 @@ import numpy as np
 from solprop.exceptions import SolpropError
 from solprop.recipe import Recipe
 from solprop.recipe.pins import GUIDE_PINS, PULSE_PINS, TARGETS
+from solprop.recipe.quantity import Unit, parse_quantity
+from solprop.tools import pressure_zdw
 
-__all__ = ["DESIGN_HANDLERS", "modes", "pin_roots", "pin_targets"]
+__all__ = ["DESIGN_HANDLERS", "modes", "pin_roots", "pin_targets", "zdw_chart"]
 
 Payload = Mapping[str, object]
 
@@ -151,7 +153,8 @@ def modes(payload: Payload) -> dict[str, object]:
     Parameters
     ----------
     payload : Mapping
-        ``text``, optionally ``base``, ``z`` (m, ``None`` for the launch) and
+        ``text``, optionally ``base``, ``z`` (a length, in m or as a quantity;
+        ``None`` for the launch) and
         ``sweep``: ``name``, a keyword, and ``values``, its values as a recipe
         writes them.
 
@@ -165,7 +168,7 @@ def modes(payload: Payload) -> dict[str, object]:
     """
     recipe = _recipe(payload)
     z = payload.get("z")
-    position = None if z is None else float(z)  # pyright: ignore[reportArgumentType]
+    position = None if z is None else parse_quantity(z, Unit("m"), path="z")
     sweep = payload.get("sweep")
     name: str | None = None
     variants: list[tuple[object, Recipe | SolpropError]] = [(None, recipe)]
@@ -259,5 +262,94 @@ def pin_roots(payload: Payload) -> dict[str, object]:
     }
 
 
-DESIGN_HANDLERS = {"modes": modes, "pin_roots": pin_roots, "pin_targets": pin_targets}
+_CHART_KEYWORDS = ("temperature", "model", "cladding", "materials")
+"""The capillary's keywords that ``tools.pressure_zdw`` also takes, by name."""
+
+CHART_POINTS = 400
+"""The most pressures one chart solves (radii times wavelengths), about 15 s."""
+
+
+def zdw_chart(payload: Payload) -> dict[str, object]:
+    """Return the pressure that puts the zero-dispersion point at each wavelength.
+
+    The design chart of a gas-filled capillary (design 7.4): for each wavelength,
+    the pressure ``tools.pressure_zdw`` solves for, against the core radius, with
+    the setup's fill (its gas, temperature, Marcatili model, cladding and
+    materials). It is the zero-dispersion wavelength over the pressure and radius
+    plane, drawn as its contours.
+
+    Parameters
+    ----------
+    payload : Mapping
+        ``text``, optionally ``base``, ``radii`` and ``wavelengths`` (lengths, in m
+        or as quantities) and ``pressure_max`` (bar, default 100).
+
+    Returns
+    -------
+    dict
+        ``radius`` (m); ``curves``, per wavelength its ``zdw`` (m) and ``pressure``
+        (bar per radius, ``None`` where no pressure up to the maximum gives it);
+        ``setup``, the setup's ``radius`` (m) and ``pressure`` (bar, ``None`` for a
+        gradient); and ``error``, the first reason a pressure was not found.
+
+    Raises
+    ------
+    solprop.exceptions.SolpropError
+        If the recipe does not resolve, or a radius or wavelength does not read.
+    ValueError
+        If the chart asks for more than :data:`CHART_POINTS` pressures.
+    """
+    keywords = _recipe(payload).resolve().keywords()
+    length = Unit("m")
+    radii = [parse_quantity(r, length, path="radii") for r in payload["radii"]]  # pyright: ignore[reportGeneralTypeIssues]
+    wavelengths = [
+        parse_quantity(w, length, path="wavelengths")
+        for w in payload["wavelengths"]  # pyright: ignore[reportGeneralTypeIssues]
+    ]
+    if len(radii) * len(wavelengths) > CHART_POINTS:
+        msg = f"a chart solves at most {CHART_POINTS} pressures"
+        raise ValueError(msg)
+    shared = {
+        name: keywords[name]
+        for name in _CHART_KEYWORDS
+        if keywords.get(name) is not None
+    }
+    pressure_max = float(payload.get("pressure_max") or 100.0)  # pyright: ignore[reportArgumentType]
+    error: str | None = None
+    curves: list[dict[str, object]] = []
+    for wavelength in wavelengths:
+        pressures: list[float | None] = []
+        for radius in radii:
+            try:
+                pressures.append(
+                    pressure_zdw(
+                        radius,
+                        keywords["gas"],  # pyright: ignore[reportArgumentType]
+                        wavelength,
+                        pressure_max=pressure_max,
+                        **shared,  # pyright: ignore[reportArgumentType]
+                    )
+                )
+            except SolpropError as failure:
+                pressures.append(None)
+                error = error or str(failure)
+        curves.append({"zdw": wavelength, "pressure": pressures})
+    pressure = keywords.get("pressure")
+    return {
+        "radius": radii,
+        "curves": curves,
+        "setup": {
+            "radius": float(keywords["radius"]),  # pyright: ignore[reportArgumentType]
+            "pressure": float(pressure) if isinstance(pressure, int | float) else None,
+        },
+        "error": error,
+    }
+
+
+DESIGN_HANDLERS = {
+    "modes": modes,
+    "pin_roots": pin_roots,
+    "pin_targets": pin_targets,
+    "zdw_chart": zdw_chart,
+}
 """The design requests, by kind."""
