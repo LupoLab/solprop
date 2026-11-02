@@ -30,6 +30,7 @@ from solprop.driver.memory import (
     DEFAULT_HEADROOM,
     MEMORY_BUDGET_VARIABLE,
     MemoryLimit,
+    _admit_history,
     _over_budget,
     admit_memory,
     format_bytes,
@@ -191,7 +192,7 @@ def test_over_budget_names_a_resident_initial_field_and_its_advice():
         "3.00 GiB of it, the general route's reference and the initial field, is "
         "already held by the translated problem" in message
     )
-    assert "initial_field: a read-only input array or a broadcast view" in message
+    assert "initial_field: a broadcast input (numpy.broadcast_to)" in message
 
 
 def _history_limit(problem, backend="numpy_ref"):
@@ -249,6 +250,26 @@ def test_an_adams_history_over_the_device_is_refused(build_simulation, monkeypat
     with pytest.raises(MemoryBudgetError, match="accelerator's free memory"):
         admit_memory(problem, "numpy_ref", "1 TiB")
     assert admit_memory(problem, "numpy_ref", "none").budget.limit is None
+
+
+def test_the_device_is_not_charged_the_host_held_initial_field(monkeypatch):
+    # The translated problem's initial field lives on the host: a run whose device
+    # part fits beside its history is admitted, even though the whole does not.
+    field, history = 2**30, 4 * 2**30
+    estimate = MemoryEstimate(
+        "native",
+        {"base": 2**30, "adams_history": history, "initial_field": field},
+        resident=field,
+    )
+    device = estimate.total - field
+    free = math.ceil(device / (1 - DEFAULT_HEADROOM))
+    monkeypatch.setattr(memory_module, "available_device_memory", lambda _: free)
+    budget = MemoryLimit(2**40, "refuse", "keyword")
+    assert math.floor(free * (1 - DEFAULT_HEADROOM)) < estimate.total
+    _admit_history(estimate, budget)
+    monkeypatch.setattr(memory_module, "available_device_memory", lambda _: free - 64)
+    with pytest.raises(MemoryBudgetError, match="accelerator's free memory"):
+        _admit_history(estimate, budget)
 
 
 def test_the_advice_for_an_adams_history_names_the_runge_kutta_march():

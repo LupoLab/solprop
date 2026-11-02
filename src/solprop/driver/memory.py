@@ -118,9 +118,8 @@ _ADVICE = {
     "base": "fewer time samples, modes or nodes, or propagator_mode='recompute'",
     "adams_history": "integrator=RungeKutta(), which keeps no Adams history",
     "output": "an HDF5 file as the output instead of memory, or fewer save planes",
-    "initial_field": "a read-only input array or a broadcast view "
-    "(numpy.broadcast_to), which the translated problem keeps without copying (a "
-    "writeable array is copied, and a modal launch is held in its internal amplitude)",
+    "initial_field": "a broadcast input (numpy.broadcast_to), of which the translated "
+    "problem copies only the block it repeats; any other input is copied whole",
 }
 
 _COUNTED_PER_PLANE = 3
@@ -580,7 +579,9 @@ def _admit_history(
     warn: under the default integrator it would page or fail to allocate. The limits
     are the machine's (an undeclared budget) and the accelerator's free memory less
     :data:`DEFAULT_HEADROOM`; a declared budget is checked by :func:`_admitted`, a
-    ``"warn:"`` one only warns, and ``"none"`` declares no check.
+    ``"warn:"`` one only warns, and ``"none"`` declares no check. The accelerator is
+    charged the estimate less what is held on the host alone, the translated problem's
+    initial field.
 
     Parameters
     ----------
@@ -605,7 +606,7 @@ def _admit_history(
         return
     limits = []
     if budget.source == "machine":
-        limits.append((budget.limit, "the machine's memory less its headroom"))
+        limits.append((budget.limit, "the machine's memory less its headroom", 0))
     free = available_device_memory(estimate.backend)
     if free is not None:
         limits.append(
@@ -613,27 +614,30 @@ def _admit_history(
                 math.floor(free * (1.0 - DEFAULT_HEADROOM)),
                 f"the accelerator's free memory less its headroom ({format_bytes(free)}"
                 " free)",
+                int(estimate.groups.get("initial_field", 0)),
             )
         )
-    for limit, where in limits:
-        if estimate.total - history <= limit < estimate.total:
+    for limit, where, host in limits:
+        total = estimate.total - host
+        if total - history <= limit < total:
             # The simulation module imports this one.
             from solprop.driver.simulation import LOW_STORAGE_BACKENDS  # noqa: PLC0415
 
             low_storage = (
                 ""
                 if march is None
-                or march > limit
+                or march - host > limit
                 or estimate.backend not in LOW_STORAGE_BACKENDS
                 else (
                     "; or replay a fixed schedule with "
                     "integrator=LowStorageRungeKutta(), which holds three copies of "
-                    f"the state beside its scratch, estimated at {format_bytes(march)}"
+                    "the state beside its scratch, estimated at "
+                    f"{format_bytes(march - host)}"
                 )
             )
             msg = (
                 f"the run's persistent memory on {estimate.backend} is estimated at "
-                f"{format_bytes(estimate.total)}, over {where}, "
+                f"{format_bytes(total)}, over {where}, "
                 f"{format_bytes(limit)}; {format_bytes(history)} of it is the Adams "
                 "method's history. Step it with integrator=RungeKutta(), which keeps "
                 f"no history and needs fewer copies of the state{low_storage}; or "
