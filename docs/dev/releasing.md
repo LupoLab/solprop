@@ -123,6 +123,51 @@ distributions built at different versions fail here, before anything is publishe
 
 ## Making a release
 
+### The rolling release PR
+
+Implementation PRs add independent Markdown fragments under `changelog.d/`, named
+`<short-slug>.<category>.md`. A PR number can be the slug; no separate issue is needed.
+The categories are `added`, `changed`, `breaking`, `deprecated`, `removed`, `fixed` and
+`security`; `breaking` becomes **Changed (breaking)**. Write one entry without a heading
+or leading bullet, including migration instructions for a break. Markdown links are
+relative to the repository-root changelog. Existing Unreleased entries remain in place;
+released sections are copied unchanged.
+
+After each push to `main`, `.github/workflows/release-notes.yml` creates or refreshes
+one draft PR, **Prepare the next release notes**, on
+`chore/release-after-<last-version>`. The latest released version comes from
+`CITATION.cff`; the next version is chosen by the maintainer. The draft groups every
+pending fragment into `CHANGELOG.md` and removes the collected fragments on its branch.
+Only this PR normally changes the shared changelog. Edit pending fragments in ordinary
+PRs, not the generated draft. A manual refresh is available with:
+
+```sh
+gh workflow run release-notes.yml --ref main
+```
+
+The updater verifies that its previous branch tree is exactly the generated result for
+its recorded base before writing another commit. It uses the current `main` tree for
+all other files and keeps the previous head as a parent, so updates are ordinary
+fast-forward pushes. It never force-pushes, approves, merges, tags or publishes. Manual
+branch edits stop the workflow without overwriting them. A closed PR or one marked
+ready pauses updates. If a draft was closed by mistake, reopen it to resume.
+
+**One-time setup:** under GitHub *Settings → Actions → General → Workflow permissions*,
+enable *Allow GitHub Actions to create and approve pull requests*. Keep the default
+token permissions read-only; only this job requests `contents: write` and
+`pull-requests: write`. The workflow only runs from trusted `main`. No personal token
+or additional dependency is needed. The required checks and branch rules stay in force.
+GitHub may require a maintainer to approve CI runs created by `GITHUB_TOKEN`; use
+*Approve workflows to run* on the PR before merging. See
+[GitHub's token documentation](https://docs.github.com/en/actions/concepts/security/github_token).
+
+When ready to release, **mark the PR ready before editing it**. This freezes automatic
+refreshes. If more changes arrive, bring `main` into the release worktree and run
+`uv run poe changelog-collect` before updating the release heading. Resolve any conflicts
+as usual; the command appends only fragments still present in that worktree. Follow the
+checklist below in this PR and wait for its required checks. Once the release commit
+reaches `main`, the next pending fragment starts a new draft for the next cycle.
+
 ### Pre-flight checklist
 
 A release tag builds and tests everything but publishes nothing until a maintainer with
@@ -157,11 +202,13 @@ before the first tag:
 
 Then, for every release:
 
-5. On `main`, check that the changelog's `Unreleased` section describes the release,
-   then move it under the new version, `## [X.Y.Z] - YYYY-MM-DD`, and give
+5. In the rolling release PR, marked ready to freeze refreshes, check that every pending
+   fragment has been collected and the changelog's `Unreleased` section describes the
+   release. Move it under the new version, `## [X.Y.Z] - YYYY-MM-DD`, retaining an empty
+   `## Unreleased` section above it, and give
    `CITATION.cff` the same `version` and `date-released`
    (`tests/test_release_metadata.py` checks that they agree). The commit that does so
-   is the release commit.
+   is the release commit; it reaches `main` through this PR, after the required checks.
 6. Freeze the release's run records (ADR-063). For 0.2.0, refresh
    `tests/output/test_record_stability/frozen/0.2.0` with `write_frozen("0.2.0")` in
    `tests/output/test_record_stability.py`, on the tree being released, and include it in
@@ -197,12 +244,58 @@ Then, for every release:
    upload fails partway, re-run the failed jobs: they upload the same files, and PyPI
    accepts a file identical to one it holds. It refuses different files under a name it
    has seen, so a release that needs a change takes a new version.
-3. Install the published release in a fresh environment, `pip install "solprop[native]"`
-   on each platform, and check that `backend="auto"` resolves to `native`.
+3. Wait for `published-install`, which starts after both publish jobs succeed. On
+   Linux x86-64, Linux aarch64, macOS arm64 and Windows x64 it creates a fresh CPython
+   3.14 environment outside the checkout and uses pip to resolve and install
+   `solprop[native]==X.Y.Z` from PyPI. It checks both distributions' versions,
+   `pip check` and that `backend="auto"` resolves to `native`. It uses no local
+   distribution, dependency lock or cached environment. Its per-platform artifacts
+   retain the install report, logs, resolved versions and platform information,
+   including on failure; each job also writes a summary. Check these before publishing
+   the GitHub release. A failed check does not undo the PyPI upload: record the failure
+   in an issue and repair it in a new version if the published files need changing.
+   If PyPI has not yet made the new files available, rerun the failed install jobs once
+   they appear; the check does not retry a failed resolution or hide its first result.
 4. Publish a GitHub release from the tag, with the version's changelog section as its
    notes: `gh release create vX.Y.Z --verify-tag --title "solprop X.Y.Z" --notes-file
    NOTES.md`. Zenodo archives it and gives it a DOI; on the first release, add the
    concept DOI, which names every version, to `CITATION.cff` and the README.
+
+### Rechecking a published release
+
+The **Published install** workflow can also be dispatched by hand with a required
+`version`, written as `X.Y.Z` or `vX.Y.Z`. It runs the same four-platform check without
+building or publishing anything:
+
+```sh
+gh workflow run published-install.yml -f version=0.1.0
+```
+
+Its optional `readme_example=true` input additionally runs the first Python block of
+that release's tagged README as a script, using Matplotlib's noninteractive `Agg`
+backend. The source and output join the evidence artifact. This full-length example
+is a manual release qualification, requested explicitly; the automatic post-publish
+check only installs and checks the backend. It does not propagate a pulse. The manual
+example is available to complete the first release's outstanding platform checks
+([issue 74](https://github.com/LupoLab/solprop/issues/74)).
+
+```sh
+gh workflow run published-install.yml -f version=0.1.0 -f readme_example=true
+```
+
+Before the new workflow is on `main`, GitHub cannot dispatch it by name. The existing
+**Wheels** workflow also accepts `published_version`: with that input it skips the
+wheel builds and their dependent checks and runs only the published-install check.
+The publishing jobs remain dependent on the skipped builds, so this mode cannot
+publish. It has a separate concurrency group and does not cancel a wheel build on the
+same branch. Select the branch whose workflow is being qualified:
+
+```sh
+gh workflow run wheels.yml --ref fix/published-install-checks \
+  -f published_version=0.1.0 -f readme_example=true
+```
+
+Leaving `published_version` empty keeps the ordinary Wheels workflow unchanged.
 
 The actions in the workflows are pinned by commit; when updating one, take the commit of
 its release tag and keep the version in the trailing comment.

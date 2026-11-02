@@ -256,41 +256,18 @@ def test_a_pool_of_no_threads_is_refused(name):
         )
 
 
-class FakeLimiter:
-    """A threadpoolctl limit that records whether it was entered and released."""
-
-    def __init__(self):
-        self.entered = False
-        self.released = False
-
-    def __enter__(self):
-        self.entered = True
-        return self
-
-    def __exit__(self, *exception):
-        self.released = True
-        return False
-
-
 class FakeSelection:
     """The result of selecting the BLAS libraries out of a controller's walk."""
 
-    def __init__(self, controllers, limiter):
+    def __init__(self, controllers):
         self.lib_controllers = controllers
-        self._limiter = limiter
-        self.limits = None
-
-    def limit(self, *, limits):
-        """Record the limit asked for and hand back the fake limiter."""
-        self.limits = limits
-        return self._limiter
 
 
 class FakeController:
     """A stand-in for threadpoolctl's library walk, with a chosen answer."""
 
-    def __init__(self, controllers, limiter=None):
-        self.selection = FakeSelection(controllers, limiter or FakeLimiter())
+    def __init__(self, controllers):
+        self.selection = FakeSelection(controllers)
 
     def select(self, **_):
         """Return the selection this controller was built with."""
@@ -300,8 +277,13 @@ class FakeController:
 class FakeLibrary:
     """One library the walk found."""
 
-    def __init__(self, internal_api):
+    def __init__(self, internal_api, filepath):
         self.internal_api = internal_api
+        self.filepath = filepath
+        self.num_threads = 32
+
+    def set_num_threads(self, threads):
+        self.num_threads = threads
 
 
 def test_a_controllable_blas_is_limited_and_released():
@@ -313,18 +295,18 @@ def test_a_controllable_blas_is_limited_and_released():
     threadpoolctl finds OpenBLAS is threadpoolctl's own tested behaviour, not this
     package's.
     """
-    limiter = FakeLimiter()
-    controller = FakeController(
-        [FakeLibrary("openblas"), FakeLibrary("openblas")], limiter
-    )
+    libraries = [
+        FakeLibrary("openblas", "/numpy/blas"),
+        FakeLibrary("openblas", "/scipy/blas"),
+    ]
+    controller = FakeController(libraries)
     pools = fft.choose_pools(1000, 1000, 1000, threads=1, blas_threads=2)
     reached, live = fft.apply_pools(pools, controller=controller)
     assert reached.blas_mechanism == "openblas"
     assert reached.blas == 2
-    assert controller.selection.limits == 2
-    assert limiter.entered and not limiter.released
+    assert [library.num_threads for library in libraries] == [2, 2]
     fft.release_pools(live)
-    assert limiter.released
+    assert [library.num_threads for library in libraries] == [32, 32]
 
 
 def test_a_blas_that_cannot_be_set_is_recorded_as_such():
