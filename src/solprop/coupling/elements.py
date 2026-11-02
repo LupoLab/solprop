@@ -61,7 +61,13 @@ from solprop.optics import (
     TransferFunction,
     stored_factor,
 )
-from solprop.spatial import SpatialFlux, SpatialMedium, aperture_profile, spatial_energy
+from solprop.spatial import (
+    SpatialFlux,
+    SpatialMedium,
+    aperture_profile,
+    spatial_energy,
+    spatial_energy_spectrum,
+)
 
 __all__ = [
     "Alignment",
@@ -620,38 +626,6 @@ def _flux(state: SpatialState) -> SpatialFlux:
     return SpatialFlux.resolve(state.grid, state.space, state.medium, z=0.0)
 
 
-def _energy_spectrum(
-    spectrum: Complex[np.ndarray, "n_modes n_pol n_omega"], flux: SpatialFlux
-) -> Float[np.ndarray, " n_omega"]:
-    """Split :func:`solprop.spatial.spatial_energy` into temporal bins.
-
-    The same weighted sum, accumulated per bin rather than in total: the axial
-    admittance of :meth:`solprop.spatial.SpatialFlux.admittance`, the transverse
-    Parseval weights and the analytic-signal endpoint weights of
-    :func:`solprop.fourier.energy_weights`.
-
-    Parameters
-    ----------
-    spectrum : numpy.ndarray
-        Stored spectrum, shape ``(n_modes, n_pol, n_omega)``.
-    flux : solprop.spatial.SpatialFlux
-        The plane's measure.
-
-    Returns
-    -------
-    numpy.ndarray
-        Energy per bin in J, shape ``(n_omega,)``.
-    """
-    grid = flux.grid
-    weights = fourier.energy_weights(grid.n_omega, grid.dt, kind=grid.kind)
-    total = np.zeros(grid.n_omega)
-    for columns in flux.chunks():
-        real = np.real(flux.admittance(columns))
-        density = np.sum(np.abs(spectrum[columns]) ** 2, axis=1)
-        total += np.sum(flux.space.spectral_weights[columns, None] * real * density, 0)
-    return flux.energy_scale * weights * total
-
-
 @dataclass(frozen=True)
 class _Measured:
     """The physical energy of a plane, in total and per bin.
@@ -684,7 +658,8 @@ def _measure(state: SpatialState, flux: SpatialFlux) -> _Measured:
         Total and per-bin energy, J.
     """
     return _Measured(
-        spatial_energy(state.spectrum, flux), _energy_spectrum(state.spectrum, flux)
+        spatial_energy(state.spectrum, flux),
+        spatial_energy_spectrum(state.spectrum, flux),
     )
 
 

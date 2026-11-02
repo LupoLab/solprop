@@ -76,6 +76,7 @@ __all__ = [
     "quadrature_half_width",
     "radial_fluence_widths",
     "spatial_energy",
+    "spatial_energy_spectrum",
     "spatial_fluence",
     "spatial_intensity",
     "spatial_power",
@@ -1020,6 +1021,66 @@ def spatial_energy(
     """
     _check_flux(spectrum, flux)
     return float(np.sum(_column_power(spectrum, flux)))
+
+
+def spatial_energy_spectrum(
+    spectrum: Complex[np.ndarray, "n_modes n_pol n_omega"], flux: SpatialFlux
+) -> Float[np.ndarray, " n_omega"]:
+    """Split the physical energy crossing the plane into temporal bins.
+
+    The same weighted sum as :func:`spatial_energy`, accumulated per bin rather
+    than in total: the axial admittance of :meth:`SpatialFlux.admittance`, the
+    transverse Parseval weights and the analytic-signal endpoint weights of
+    :func:`solprop.fourier.energy_weights`.
+
+    Parameters
+    ----------
+    spectrum : numpy.ndarray
+        Internal radial spectrum in V m or Cartesian spectrum in V/m, shape
+        ``(n_modes, n_pol, n_omega)``.
+    flux : SpatialFlux
+        The plane's measure (:meth:`SpatialFlux.resolve`).
+
+    Returns
+    -------
+    numpy.ndarray
+        Energy in J per temporal bin, shape ``(n_omega,)``. The bins sum to
+        :func:`spatial_energy`.
+
+    Raises
+    ------
+    GridError
+        If the spectrum's shape or finiteness is invalid.
+
+    See Also
+    --------
+    spatial_energy : The total energy crossing the plane.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from solprop.grid import EnvelopeGrid, RadialGrid
+    >>> from solprop.spatial import SpatialFlux, SpatialMedium
+    >>> from solprop.spatial import spatial_energy, spatial_energy_spectrum
+    >>> grid = EnvelopeGrid.from_limits(0.1, 800e-9, (650e-9, 1000e-9), 600e-15)
+    >>> space = RadialGrid(1e-3, 16)
+    >>> flux = SpatialFlux.resolve(grid, space, SpatialMedium("Ar", pressure=1.0))
+    >>> spectrum = np.zeros((16, 1, grid.n_omega), complex)
+    >>> per_bin = spatial_energy_spectrum(spectrum, flux)
+    >>> per_bin.shape == (grid.n_omega,)
+    True
+    >>> bool(np.isclose(per_bin.sum(), spatial_energy(spectrum, flux)))
+    True
+    """
+    _check_flux(spectrum, flux)
+    grid = flux.grid
+    weights = fourier.energy_weights(grid.n_omega, grid.dt, kind=grid.kind)
+    total = np.zeros(grid.n_omega)
+    for columns in flux.chunks():
+        real = np.real(flux.admittance(columns))
+        density = np.sum(np.abs(spectrum[columns]) ** 2, axis=1)
+        total += np.sum(flux.space.spectral_weights[columns, None] * real * density, 0)
+    return flux.energy_scale * weights * total
 
 
 def planar_mode_energy(

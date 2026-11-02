@@ -24,6 +24,10 @@ All notable changes to solprop are recorded here. The format follows
   `solprop.output.compatibility` hold the comparison; `RunOutcome.resumes` and
   `RunOutcome.forced_positions` read back how each session continued its file.
 
+- `solprop.spatial.spatial_energy_spectrum` splits the energy that `spatial_energy`
+  measures into temporal bins, in J; the bins sum to the total. It was the private
+  `_energy_spectrum` of the coupling elements, whose reports do not change.
+
 ### Changed
 
 - A resume compares the stored and requested run records path by path instead of

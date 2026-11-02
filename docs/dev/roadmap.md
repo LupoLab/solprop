@@ -1163,12 +1163,6 @@ outside the new temporal band in the record's norm. Reporting it in physical ene
 well, through the per-bin admittance the transport core already evaluates, would give the
 loss in joules beside the share ([SEP 31](seps/archive/sep-0031-simulation-coupling.md), phase 2).
 
-**A public per-bin spatial energy spectrum.** The transport elements use a private
-`_energy_spectrum` (`coupling/elements.py`); a public `spatial.spatial_energy_spectrum` per frequency bin would
-replace it. In the same change, `spatial.aperture_profile`'s docstring should say that its
-result is a field transmission under the default `"amplitude"` weighting and a power
-weight under `"quadrature"` ([SEP 31](seps/archive/sep-0031-simulation-coupling.md), phase 4).
-
 **Field planes from modified-noise runs.** `processing.field_plane` refuses every plane of
 a run with `noise="modified"`, whose saved field leaves the one-photon background to the
 auxiliary `noise_phase`. Reconstructing that phase into the plane, following the
