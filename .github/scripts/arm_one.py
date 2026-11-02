@@ -9,7 +9,7 @@ how, kind, n = sys.argv[1], sys.argv[2], int(sys.argv[3])
 import numpy as np
 if "limit" in how:
     import threadpoolctl
-    threadpoolctl.threadpool_limits(1)
+    threadpoolctl.threadpool_limits(2 if "limit2" in how else 1)
 rng = np.random.default_rng(n)
 a = rng.standard_normal((n, n))
 if "complex" in kind:

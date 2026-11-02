@@ -5,6 +5,7 @@
 """Spike only: a user's run on Windows on Arm, with no thread settings of their own."""
 import faulthandler, sys
 faulthandler.enable()
+faulthandler.dump_traceback_later(240, exit=True)
 from solprop.boundaries import SpatialAbsorber
 from solprop.driver import SimulationSettings, prop_radial
 from solprop.grid import EnvelopeGrid, RadialGrid

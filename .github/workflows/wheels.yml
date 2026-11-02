@@ -14,7 +14,7 @@ permissions:
 jobs:
   probe:
     runs-on: windows-11-arm
-    timeout-minutes: 60
+    timeout-minutes: 75
     defaults:
       run:
         shell: bash
@@ -29,42 +29,36 @@ jobs:
       - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
       - run: uv python install 3.14
       - run: uv sync --locked
-      - name: One call per process
-        run: |
-          set +e
-          PY=.venv/Scripts/python.exe
-          run() { # label env-assignment how
-            for kind in solve complex_solve inv det eig svd qr scipy matmul; do
-              line="$1 $kind:"
-              for n in 16 24 32 64 128 256; do
-                env $2 "$PY" .github/scripts/arm_one.py "$3" "$kind" "$n" > /dev/null 2>&1
-                line="$line $n=$?"
-              done
-              echo "$line"
-            done
-          }
-          run env1 OPENBLAS_NUM_THREADS=1 plain
-          run limit X=1 limit
-          run env2 OPENBLAS_NUM_THREADS=2 plain
-          run unset X=1 plain
-          run env1-bigstack OPENBLAS_NUM_THREADS=1 thread
+      - name: Which sizes crash at one thread
+        timeout-minutes: 10
+        run: .venv/Scripts/python.exe .github/scripts/arm_table.py .venv/Scripts/python.exe fine
       - name: A run with no thread settings, on the reference backend
+        timeout-minutes: 15
         run: |
           set +e
           for n in 16 32 64; do
             .venv/Scripts/python.exe .github/scripts/arm_real.py $n 2>&1 | tail -14 | cut -c1-110
             echo "real n_r=$n exit ${PIPESTATUS[0]}"
           done
+      - name: The same run at one thread by environment
+        timeout-minutes: 15
+        env:
+          OPENBLAS_NUM_THREADS: "1"
+        run: |
+          set +e
+          for n in 16 32 64; do
+            .venv/Scripts/python.exe .github/scripts/arm_real.py $n 2>&1 | tail -14 | cut -c1-110
+            echo "real-env1 n_r=$n exit ${PIPESTATUS[0]}"
+          done
       - name: Other NumPy releases
+        timeout-minutes: 8
         run: |
           set +e
           uv venv --python 3.14 other
           for v in 2.4.4 2.5.0; do
             VIRTUAL_ENV=other uv pip install -q "numpy==$v"
-            line="numpy $v env1 solve:"
-            for n in 16 24 32 64 128 256; do
-              OPENBLAS_NUM_THREADS=1 other/Scripts/python.exe .github/scripts/arm_one.py plain solve $n > /dev/null 2>&1
-              line="$line $n=$?"
-            done
-            echo "$line"
+            .venv/Scripts/python.exe .github/scripts/arm_table.py other/Scripts/python.exe $v
           done
+      - name: Other widths, with a time limit on each process
+        timeout-minutes: 25
+        run: .venv/Scripts/python.exe .github/scripts/arm_table.py .venv/Scripts/python.exe widths
