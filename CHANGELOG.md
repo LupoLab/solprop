@@ -304,6 +304,10 @@ All notable changes to solprop are recorded here. The format follows
   record's length from `t = 0` changed its phase by more than pi per bin, so it was moved
   by one record length with no warning: at 500 fs in a record from 0 to 800 fs it came out
   at −300 fs.
+- Correct the 0.1.0 limitation statement about `mlx`: its custom Metal kernels already
+  run in continuous integration's macOS default lane. That lane now requires Metal,
+  so losing the device fails the job rather than silently skipping the kernel tests.
+  MLX coverage, runtime type checks and an explicit CPU-device pass remain absent.
 
 ## [0.1.0] - 2026-10-31
 
