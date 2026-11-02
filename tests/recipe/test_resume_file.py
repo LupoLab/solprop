@@ -5,6 +5,7 @@
 """Resuming from a file alone, and what a file allows (SEP 41, S2 and S17)."""
 
 import dataclasses
+import json
 import threading
 
 import h5py
@@ -20,6 +21,7 @@ from solprop.output import resumable as resumable_module
 from solprop.output._writer_lock import WriterLock
 from solprop.output.hdf5 import open_file
 from solprop.recipe import Recipe, RecipeError, resume_file
+from solprop.stepper.multistep import Multistep
 
 pytestmark = [
     pytest.mark.filterwarnings("ignore::solprop.exceptions.BoundaryWarning"),
@@ -152,6 +154,33 @@ def test_a_failure_before_any_plane_leaves_nothing_to_continue(tmp_path):
     answer = resumability(path)
     assert not answer.resumable
     assert answer.reason is not None and "no state" in answer.reason
+
+
+def test_a_file_of_an_earlier_build_s_flat_orders_is_named(tmp_path):
+    # An earlier development build of this schema wrote a Multistep run's orders one
+    # per step: the file is said not to continue, for that reason, before a resume.
+    path = tmp_path / "flat.h5"
+    simulation = Simulation.from_gnlse(
+        0.11, 0.05, [0.0, 0.0, -1.183e-26], wavelength=835e-9,
+        wavelength_limits=(500e-9, 2e-6), trange=1e-12, width=100e-15,
+        peak_power=9.8, shape="sech", n_save=4, integrator=Multistep(),
+        backend="numpy_ref",
+    )  # fmt: skip
+    with pytest.raises(CrashError):
+        simulation.run(path, progress=CrashAt())
+    assert resumability(path).resumable
+    with h5py.File(path, "r+") as file:
+        dataset = file["meta/outcome"]
+        assert isinstance(dataset, h5py.Dataset)
+        outcome = json.loads(dataset[()])
+        runs = outcome["logical_calls"]["orders"]
+        flat = [order for order, count in runs for _ in range(count)]
+        outcome["logical_calls"]["orders"] = flat
+        dataset[()] = json.dumps(outcome)
+    answer = resumability(path)
+    assert not answer.resumable
+    assert answer.reason is not None
+    assert "flat form an earlier development build wrote" in answer.reason
 
 
 def test_a_forced_file_needs_force(tmp_path):

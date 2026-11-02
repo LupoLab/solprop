@@ -407,6 +407,67 @@ def test_a_flat_list_of_orders_is_refused_by_name(orders):
 
 
 @pytest.mark.parametrize(
+    ("steps", "orders"),
+    [(0, [[1, 1]]), (2, [[1, 3]]), (4, [[1, 1], [2, 2]]), (1, [[5, 10**12]])],
+)
+def test_orders_that_do_not_count_the_accepted_steps_are_refused(steps, orders):
+    """One order per accepted step: the counts are checked before they are expanded."""
+    record = CallLedger(accepted_steps=steps).to_record()
+    record["orders"] = orders
+    with pytest.raises(
+        BackendError, match=rf"orders count \d+ steps, and the ledger {steps}"
+    ):
+        CallLedger.from_record(record)
+
+
+class _CountedSlices(list):
+    """A list of orders that keeps the length of every slice taken of it."""
+
+    def __init__(self, values):
+        super().__init__(values)
+        self.slices: list[int] = []
+
+    def __getitem__(self, key):
+        item = super().__getitem__(key)
+        if isinstance(key, slice):
+            self.slices.append(len(item))
+        return item
+
+
+def test_the_record_encodes_only_the_orders_appended_since_the_last_one():
+    """The record is rewritten at every plane; its encoding is extended, not redone."""
+    orders = _CountedSlices([1, 2, 3, 3, 4, 5, 5, 5])
+    ledger = CallLedger(accepted_steps=len(orders), orders=orders)
+    first = ledger.to_record()
+    orders.extend([5, 5, 4])
+    ledger.accepted_steps += 3
+    second = ledger.to_record()
+    assert orders.slices == [8, 3]
+    assert second["orders"] == [[1, 1], [2, 1], [3, 2], [4, 1], [5, 5], [4, 1]]
+    # The records are the ledger's, not views of its encoding.
+    cast("list[list[int]]", first["orders"])[-1][1] = 99
+    assert ledger.to_record()["orders"] == second["orders"]
+
+
+@pytest.mark.parametrize("change", ["replaced", "truncated", "rewritten"])
+def test_the_record_is_encoded_afresh_when_the_orders_are_not_extended(change):
+    """A load or resume replaces the orders; anything but an extension starts over."""
+    ledger = CallLedger(accepted_steps=5, orders=[1, 2, 3, 3, 3])
+    ledger.to_record()
+    if change == "replaced":
+        ledger.orders = [4, 4]
+    elif change == "truncated":
+        del ledger.orders[2:]
+        ledger.orders.append(5)
+    else:
+        del ledger.orders[1:]
+        ledger.orders.extend([4, 4, 4, 4])
+    ledger.accepted_steps = len(ledger.orders)
+    fresh = CallLedger(accepted_steps=len(ledger.orders), orders=list(ledger.orders))
+    assert ledger.to_record() == fresh.to_record()
+
+
+@pytest.mark.parametrize(
     "orders", [[], [1], [1, 1, 1], [1, 2, 3, 4, 5, 5, 5, 4, 5], [3, 1, 3]]
 )
 def test_the_ledger_record_run_length_encodes_its_orders_losslessly(orders):

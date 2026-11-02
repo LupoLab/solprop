@@ -148,8 +148,20 @@ class CallLedger:
     dense_observations: int = 0
     orders: list[int] = field(default_factory=list)
 
+    def __post_init__(self) -> None:
+        """Start the record's encoding of the orders empty."""
+        # The encoded runs of `orders[:_encoded]`, of the list `_source`: the record
+        # is rewritten at every saved plane, and re-encoding every step's order each
+        # time made a run saved step by step quadratic in its steps.
+        self._source: list[int] | None = None
+        self._runs: list[list[int]] = []
+        self._encoded = 0
+
     def to_record(self) -> dict[str, object]:
         """Return the ledger as its run record holds it, the orders run-length encoded.
+
+        The encoding is extended from the orders appended since the last record. A
+        list of orders that was replaced, or shortened, is encoded afresh.
 
         Returns
         -------
@@ -163,16 +175,24 @@ class CallLedger:
         >>> CallLedger(accepted_steps=5, orders=[1, 2, 2, 3, 3]).to_record()["orders"]
         [[1, 1], [2, 2], [3, 2]]
         """
-        runs: list[list[int]] = []
-        for order in self.orders:
+        orders, runs = self.orders, self._runs
+        if (
+            orders is not self._source
+            or len(orders) < self._encoded
+            or (self._encoded and orders[self._encoded - 1] != runs[-1][0])
+        ):
+            self._source, runs, self._encoded = orders, [], 0
+            self._runs = runs
+        for order in orders[self._encoded :]:
             if runs and runs[-1][0] == order:
                 runs[-1][1] += 1
             else:
                 runs.append([order, 1])
+        self._encoded = len(orders)
         record: dict[str, object] = {
-            one.name: getattr(self, one.name) for one in fields(self)
+            name: getattr(self, name) for name in _LEDGER_FIELDS
         }
-        record["orders"] = runs
+        record["orders"] = [list(run) for run in runs]
         return record
 
     @classmethod
@@ -193,8 +213,9 @@ class CallLedger:
         Raises
         ------
         BackendError
-            If a counter is absent, unknown, negative or not an integer, or an order
-            run is not a pair of positive integers.
+            If a counter is absent, unknown, negative or not an integer, an order run
+            is not a pair of positive integers, or the runs do not count one order
+            per accepted step.
 
         Examples
         --------
@@ -203,16 +224,16 @@ class CallLedger:
         >>> CallLedger.from_record(ledger.to_record()) == ledger
         True
         """
-        if set(record) != {one.name for one in fields(cls)}:
+        if set(record) != set(_LEDGER_FIELDS):
             raise BackendError("logical call ledger fields do not match this schema")
         ledger = cls()
         for name, value in record.items():
             if name == "orders":
-                ledger.orders = _decoded_orders(value)
-            elif not isinstance(value, int) or isinstance(value, bool) or value < 0:
+                continue
+            if not isinstance(value, int) or isinstance(value, bool) or value < 0:
                 raise BackendError(f"invalid logical call counter {name}")
-            else:
-                setattr(ledger, name, value)
+            setattr(ledger, name, value)
+        ledger.orders = _decoded_orders(record["orders"], ledger.accepted_steps)
         return ledger
 
     @property
@@ -227,13 +248,19 @@ class CallLedger:
         return self.startup + self.predictor + self.corrected
 
 
-def _decoded_orders(runs: object) -> list[int]:
+_LEDGER_FIELDS = tuple(one.name for one in fields(CallLedger))
+"""The counters and the orders a ledger's record holds, in field order."""
+
+
+def _decoded_orders(runs: object, steps: int) -> list[int]:
     """Return the order of every accepted step from its run-length record.
 
     Parameters
     ----------
     runs : object
         The record's ``orders``: ``[order, count]`` pairs of positive integers.
+    steps : int
+        The record's accepted steps, each of which recorded one order.
 
     Returns
     -------
@@ -244,7 +271,8 @@ def _decoded_orders(runs: object) -> list[int]:
     ------
     BackendError
         If ``runs`` is not a list of such pairs, naming the flat list of orders an
-        earlier development build wrote under the same output schema.
+        earlier development build wrote under the same output schema, or if its
+        counts do not add up to `steps`.
     """
     if (
         isinstance(runs, list)
@@ -271,6 +299,13 @@ def _decoded_orders(runs: object) -> list[int]:
         raise BackendError(
             "logical call ledger orders must be [order, count] pairs of positive "
             "integers"
+        )
+    # Checked before the expansion, which the counts bound.
+    counted = sum(count for _, count in runs)
+    if counted != steps:
+        raise BackendError(
+            f"logical call ledger orders count {counted} steps, and the ledger "
+            f"{steps} accepted steps"
         )
     return [order for order, count in runs for _ in range(count)]
 

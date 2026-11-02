@@ -1982,16 +1982,19 @@ class RunOutcome:
         # One JSON round trip validates and copies every part: the record is built
         # at every saved plane, and one per part and per amended copy, nine a plane,
         # were about 5 % of a short capillary run on MemoryOutput.
-        owned = _outcome_record(
-            {
-                "logical_calls": dict(self.logical_calls),
-                "atomic_calls": dict(self.atomic_calls),
-                "execution": dict(self.execution),
-                "previous_executions": [
-                    dict(record) for record in self.previous_executions
-                ],
-            }
-        )
+        parts: dict[str, object] = {
+            "logical_calls": dict(self.logical_calls),
+            "atomic_calls": dict(self.atomic_calls),
+            "execution": dict(self.execution),
+            "previous_executions": [
+                dict(record) for record in self.previous_executions
+            ],
+        }
+        try:
+            owned = _outcome_record(parts)
+        except OutputError as error:
+            _name_the_failing_part(parts, error)
+            raise
         for name in ("logical_calls", "atomic_calls", "execution"):
             object.__setattr__(self, name, owned[name])
         object.__setattr__(
@@ -2050,6 +2053,58 @@ class RunOutcome:
         )
 
 
+def _name_the_failing_part(parts: Mapping[str, object], error: OutputError) -> None:
+    """Raise the error of the first part of an outcome that is not finite JSON.
+
+    The record is validated whole, once, on the way in; only when that fails is
+    each part checked alone, so that the error names the one to look at.
+
+    Parameters
+    ----------
+    parts : collections.abc.Mapping
+        The outcome's ledgers and execution records, by field name.
+    error : OutputError
+        The whole record's failure.
+
+    Raises
+    ------
+    OutputError
+        For the first part that fails alone, naming it.
+    """
+    for name, part in parts.items():
+        try:
+            json.dumps(part, allow_nan=False)
+        except (TypeError, ValueError) as one:
+            raise OutputError(
+                f"execution records must contain finite JSON values: the run "
+                f"outcome's {name} holds {one}"
+            ) from error
+
+
+def _json_copy(value: object) -> object:
+    """Return an independent copy of a value made of validated JSON values.
+
+    Cheaper than another JSON round trip, and than :func:`copy.deepcopy`, because the
+    value is known to hold only dicts, lists, strings, numbers, booleans and
+    ``None``.
+
+    Parameters
+    ----------
+    value : object
+        The value.
+
+    Returns
+    -------
+    object
+        Its copy: new dicts and lists, the same immutable leaves.
+    """
+    if isinstance(value, dict):
+        return {key: _json_copy(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_json_copy(item) for item in value]
+    return value
+
+
 def _amended_outcome(
     outcome: RunOutcome,
     *,
@@ -2060,7 +2115,9 @@ def _amended_outcome(
 
     :func:`dataclasses.replace` would validate the whole record again; the store's
     own parts -- its session's resume entry and its earlier closing records -- were
-    validated when it took them, so a saved plane validates its record once.
+    validated when it took them, so a saved plane validates its record once. The
+    caller hands over copies of them (:func:`_json_copy`), so that each outcome holds
+    its own and a change to one read back reaches no other.
 
     Parameters
     ----------
@@ -2074,7 +2131,8 @@ def _amended_outcome(
     Returns
     -------
     RunOutcome
-        The amended copy; the parts not given are shared with `outcome`.
+        The amended copy; the parts not given are shared with `outcome`, which the
+        store holds alone.
     """
     amended = copy.copy(outcome)
     if execution is not None:
@@ -4076,7 +4134,11 @@ class PlaneStore(Displayed, ABC):
         self._require_metadata()
         if self._session_resume is not None:
             outcome = _amended_outcome(
-                outcome, execution={**outcome.execution, "resume": self._session_resume}
+                outcome,
+                execution={
+                    **outcome.execution,
+                    "resume": _json_copy(self._session_resume),
+                },
             )
         previous = self._outcome
         if previous is not None:
@@ -4087,7 +4149,13 @@ class PlaneStore(Displayed, ABC):
                 closing = dataclasses.asdict(previous)
                 closing.pop("previous_executions")
                 history = (*history, closing)
-            outcome = _amended_outcome(outcome, previous_executions=history)
+            outcome = _amended_outcome(
+                outcome,
+                previous_executions=tuple(
+                    cast("dict[str, object]", _json_copy(dict(record)))
+                    for record in history
+                ),
+            )
         if checkpoint is not None:
             if checkpoint.plane.z != outcome.z:
                 raise OutputError("checkpoint and outcome positions must agree")
