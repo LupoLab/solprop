@@ -287,14 +287,16 @@ def test_a_reading_needs_a_monitor(backend: str) -> None:
         made.close()
 
 
-def test_a_monitor_for_another_grid_is_refused() -> None:
-    # Its weights would be read out of bounds by the compiled sums.
-    _require("numba_cpu")
+@pytest.mark.parametrize("backend", ["numpy_ref", *COMPILED])
+def test_a_monitor_for_another_grid_is_refused(backend: str) -> None:
+    # Its weights would be read out of bounds by the compiled sums, so every backend
+    # refuses them by name when the monitor is attached.
+    _require(backend)
     simulation = _simulation("gnlse", "nonlinear")
     problem = simulation.translate()
     other = _simulation("capillary (envelope)", "nonlinear")._boundary_monitor()
     assert other is not None
-    made = select("numba_cpu", problem, grid=simulation.grid)
+    made = select(backend, problem, grid=simulation.grid)
     try:
         driver = _driver(made)
         driver.set_initial(problem.initial.field0, None)
