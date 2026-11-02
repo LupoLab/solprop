@@ -17,9 +17,14 @@ if "complex" in kind:
 b = rng.standard_normal(n)
 def call():
     if "solve" in kind:
-        np.linalg.solve(a, b)
+        x = np.linalg.solve(a, b)
+        # A survivor must also be right: this bug may overwrite memory without crashing.
+        if np.linalg.norm(a @ x - b) > 1e-8 * np.linalg.norm(a) * np.linalg.norm(x):
+            sys.exit(7)
     elif kind == "inv":
-        np.linalg.inv(a)
+        ainv = np.linalg.inv(a)
+        if np.linalg.norm(a @ ainv - np.eye(n)) > 1e-8 * np.linalg.norm(a) * np.linalg.norm(ainv):
+            sys.exit(7)
     elif kind == "det":
         np.linalg.det(a)
     elif kind == "eig":
@@ -34,7 +39,7 @@ def call():
     elif kind == "matmul":
         a @ a
 if "thread" in how:
-    threading.stack_size(256 * 1024 * 1024)
+    print("stack", threading.stack_size(64 * 1024 * 1024), flush=True)
     worker = threading.Thread(target=call)
     worker.start()
     worker.join()

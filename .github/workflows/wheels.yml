@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   probe:
@@ -29,36 +30,22 @@ jobs:
       - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
       - run: uv python install 3.14
       - run: uv sync --locked
-      - name: Which sizes crash at one thread
-        timeout-minutes: 10
-        run: .venv/Scripts/python.exe .github/scripts/arm_table.py .venv/Scripts/python.exe fine
-      - name: A run with no thread settings, on the reference backend
+      - name: Other thread variables, sizes 20 to 34
         timeout-minutes: 15
-        run: |
-          set +e
-          for n in 16 32 64; do
-            .venv/Scripts/python.exe .github/scripts/arm_real.py $n 2>&1 | tail -14 | cut -c1-110
-            echo "real n_r=$n exit ${PIPESTATUS[0]}"
-          done
-      - name: The same run at one thread by environment
+        run: .venv/Scripts/python.exe .github/scripts/arm_table.py .venv/Scripts/python.exe vars
+      - name: Do survivors give the right answer
         timeout-minutes: 15
-        env:
-          OPENBLAS_NUM_THREADS: "1"
-        run: |
-          set +e
-          for n in 16 32 64; do
-            .venv/Scripts/python.exe .github/scripts/arm_real.py $n 2>&1 | tail -14 | cut -c1-110
-            echo "real-env1 n_r=$n exit ${PIPESTATUS[0]}"
-          done
-      - name: Other NumPy releases
-        timeout-minutes: 8
-        run: |
-          set +e
-          uv venv --python 3.14 other
-          for v in 2.4.4 2.5.0; do
-            VIRTUAL_ENV=other uv pip install -q "numpy==$v"
-            .venv/Scripts/python.exe .github/scripts/arm_table.py other/Scripts/python.exe $v
-          done
-      - name: Other widths, with a time limit on each process
+        run: .venv/Scripts/python.exe .github/scripts/arm_table.py .venv/Scripts/python.exe right
+      - name: Real runs on the reference backend
         timeout-minutes: 25
-        run: .venv/Scripts/python.exe .github/scripts/arm_table.py .venv/Scripts/python.exe widths
+        run: .venv/Scripts/python.exe .github/scripts/arm_runs.py .venv/Scripts/python.exe numpy_ref
+      - name: Install the native wheel from PR 395's run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download 41438647807 -R ${{ github.repository }} -n wheel-windows-arm64 -D armwheel
+          ls armwheel
+          VIRTUAL_ENV=.venv uv pip install --no-deps armwheel/*.whl
+      - name: Real runs on native
+        timeout-minutes: 25
+        run: .venv/Scripts/python.exe .github/scripts/arm_runs.py .venv/Scripts/python.exe native

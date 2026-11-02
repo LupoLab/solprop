@@ -7,27 +7,34 @@ import os, subprocess, sys
 here = os.path.dirname(os.path.abspath(__file__))
 python = sys.argv[1]
 print("cpus", os.cpu_count(), flush=True)
+errors = {}
 def cell(env, how, kind, n, limit=45):
     full = {**os.environ, **env}
     try:
-        code = subprocess.run([python, os.path.join(here, "arm_one.py"), how, kind, str(n)], env=full, capture_output=True, timeout=limit).returncode
+        done = subprocess.run([python, os.path.join(here, "arm_one.py"), how, kind, str(n)], env=full, capture_output=True, text=True, timeout=limit)
     except subprocess.TimeoutExpired:
         return "HANG"
-    return {0: ".", 3221225477: "AV"}.get(code, str(code))
+    if done.returncode == 1:
+        errors[how] = done.stderr[-400:]
+    return {0: ".", 7: "WRONG", 3221225477: "AV"}.get(done.returncode, str(done.returncode))
 def row(label, env, how, kinds, sizes):
     for kind in kinds:
         print(label, kind, " ".join(f"{n}={cell(env, how, kind, n)}" for n in sizes), flush=True)
-fine = list(range(2, 66)) + [80, 96, 128, 192, 256, 512]
+band = list(range(20, 35))
 usual = [16, 24, 32, 64, 128, 256]
-if sys.argv[2] == "fine":
-    row("env1", {"OPENBLAS_NUM_THREADS": "1"}, "plain", ["solve"], fine)
-    row("limit1", {}, "limit", ["solve"], fine)
-    row("env1-thread", {"OPENBLAS_NUM_THREADS": "1"}, "thread", ["solve"], usual)
-    row("limit1-thread", {}, "limit-thread", ["solve"], usual)
-elif sys.argv[2] == "widths":
-    for width in ("2", "3", "4"):
-        row("env" + width, {"OPENBLAS_NUM_THREADS": width}, "plain", ["solve", "inv", "matmul"], usual)
-    row("limit2", {}, "limit2", ["solve", "inv", "matmul"], usual)
-    row("unset", {}, "plain", ["solve", "inv", "matmul"], usual)
-else:
-    row("numpy-" + sys.argv[2], {"OPENBLAS_NUM_THREADS": "1"}, "plain", ["solve"], usual)
+one = {"OPENBLAS_NUM_THREADS": "1"}
+if sys.argv[2] == "vars":
+    for name in ("OMP_NUM_THREADS", "GOTO_NUM_THREADS", "OPENBLAS_NUM_THREADS"):
+        for width in ("1", "2"):
+            row(f"{name}={width}", {name: width}, "plain", ["solve"], band)
+    row("all-six=1", dict.fromkeys(("SOLPROP_THREADS", "OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"), "1"), "plain", ["solve", "inv"], band)
+elif sys.argv[2] == "right":
+    row("unset", {}, "plain", ["solve", "complex_solve", "inv"], band + usual)
+    row("limit1", {}, "limit", ["solve", "complex_solve", "inv"], band + usual)
+    row("limit2", {}, "limit2", ["solve", "complex_solve", "inv"], band + usual)
+    row("env3", {"OPENBLAS_NUM_THREADS": "3"}, "plain", ["solve", "complex_solve", "inv"], band + usual)
+    row("env4-limit1", {"OPENBLAS_NUM_THREADS": "4"}, "limit", ["solve", "complex_solve", "inv"], band + usual)
+    row("env1-stack64M", one, "thread", ["solve"], band)
+    row("unset-stack64M", {}, "thread", ["solve"], band)
+for how, text in errors.items():
+    print("error", how, text.replace("\n", " | "), flush=True)
