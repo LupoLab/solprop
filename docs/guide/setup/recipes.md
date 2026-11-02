@@ -276,7 +276,14 @@ launch position or at `z`: each mode's label, its effective index (`neff_minus_o
 `beta`, `beta1`, `beta2`, `beta3` and loss over the grid's band, its effective area (a
 slab mode's effective width), its nonlinear coefficient `gamma` where its fill has Kerr
 data (with the fill's `n2` at the grid's reference wavelength), and its
-zero-dispersion wavelength in the band. Its cost is the mode solve. `recipe.preview_input()`
+zero-dispersion wavelength in the band. It also gives each mode's phase matching to a
+soliton at the pump `wavelength` in the launch mode, the set's first: the
+`phase_mismatch` of a dispersive wave in that mode over the band, and the phase-matched
+wavelengths `rdw` between the band's short edge and 0.9 of the pump (intermodal for every
+mode but the first). With an unchirped sech or Gaussian pulse and a fill with Kerr data
+the soliton's nonlinear wavenumber is its largest constituent's, and the set says so
+(`nonlinear`, with `pump`); otherwise it is the linear condition. Its cost is the mode
+solve. `recipe.preview_input()`
 returns the input pulse on the run's grid as the launch sets it, without noise, so a
 preview draws nothing: its power in time, its spectrum, its energy and its peak power,
 read through the processing functions that read a run's file. On a free-space route it

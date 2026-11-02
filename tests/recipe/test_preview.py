@@ -12,7 +12,14 @@ import pytest
 from solprop.exceptions import ToolsError
 from solprop.modes.base import beta1, beta2, beta3, zdw
 from solprop.recipe import Recipe, RecipeError
-from solprop.tools import _fill_n2, nonlinear_coefficient
+from solprop.recipe.preview import _phase_matching, _pump
+from solprop.tools import (
+    _fill_n2,
+    lambda_rdw_all,
+    nonlinear_coefficient,
+    phase_mismatch,
+    pulse_peak_power,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -70,7 +77,10 @@ def test_a_mode_without_a_fill_or_kerr_data_has_no_gamma(monkeypatch):
         raise ToolsError("no Kerr data")
 
     monkeypatch.setattr("solprop.tools._fill_n2", refuse)
-    assert Recipe.example("rdw").modes().modes[0].gamma is None
+    linear = Recipe.example("rdw").modes()
+    assert linear.modes[0].gamma is None
+    # Without the fill's Kerr data the phase matching is the linear condition.
+    assert not linear.nonlinear and linear.modes[0].phase_mismatch is not None
 
 
 def test_the_mode_preview_is_taken_where_asked():
@@ -124,3 +134,63 @@ def test_a_mode_without_a_zero_in_the_band_has_none():
     document["build"]["wavelength_limits"] = ["700 nm", "900 nm"]
     preview = Recipe.from_dict(document).modes()
     assert preview.modes[0].zdw is None
+
+
+def test_each_mode_is_phase_matched_to_the_launch_soliton():
+    recipe = Recipe.example("rdw")
+    preview = recipe.modes()
+    simulation = recipe.build()
+    keywords = recipe.resolve().keywords()
+    soliton, omega, pump = simulation.modes[0], preview.omega, 800e-9
+    energy, fwhm = keywords["energy"], keywords["fwhm"]
+    assert isinstance(energy, float) and isinstance(fwhm, float)
+    assert preview.pump == pump and preview.nonlinear
+    n2, _ = _fill_n2(getattr(soliton, "mixture"), pump)  # noqa: B009 - not on Mode
+    pulse = {
+        "peak_power": pulse_peak_power(energy, fwhm, "gauss"),
+        "gamma": nonlinear_coefficient(soliton, n2, pump),
+        "fwhm": fwhm,
+        "shape": "gauss",  # the route's default
+    }
+    window = (2 * np.pi * 299_792_458.0 / omega[-1], 0.9 * pump)
+    for built, mode in zip(simulation.modes, preview.modes, strict=True):
+        expected = phase_mismatch(built, omega, pump, soliton_mode=soliton, **pulse)
+        assert mode.phase_mismatch == pytest.approx(expected, rel=1e-6)
+        roots = lambda_rdw_all(
+            built, pump, soliton_mode=soliton, wavelength_limits=window, **pulse
+        )
+        assert mode.rdw == pytest.approx(roots, rel=1e-9)
+    # The intermodal wave in the second mode is bluer than the launch mode's own.
+    assert 0 < preview.modes[1].rdw[0] < preview.modes[0].rdw[0] < pump
+
+
+def test_a_band_short_of_the_window_has_no_phase_matched_wave():
+    document = Recipe.example("rdw").to_dict()
+    document["build"]["wavelength_limits"] = ["750 nm", "900 nm"]
+    mode = Recipe.from_dict(document).modes().modes[0]
+    assert mode.rdw == () and mode.phase_mismatch is not None
+
+
+def test_without_a_pump_there_is_no_phase_matching(monkeypatch):
+    mode = Recipe.example("rdw").build().modes[0]
+    assert _pump({"wavelength": None}, mode) == (None, {})
+    assert _pump({"wavelength": 8e-7}, mode) == (8e-7, {})  # no width: linear
+    omega = np.linspace(2e15, 4e15, 8)
+    nothing = (None, ())
+    assert (
+        _phase_matching(
+            mode, mode, omega, z=0.0, pump=None, pulse={}, limits=(1e-7, 1e-6)
+        )
+        == nothing
+    )
+
+    def refuse(*_args, **_kwargs):
+        raise ToolsError("outside the band")
+
+    monkeypatch.setattr("solprop.tools.phase_mismatch", refuse)
+    assert (
+        _phase_matching(
+            mode, mode, omega, z=0.0, pump=8e-7, pulse={}, limits=(1e-7, 1e-6)
+        )
+        == nothing
+    )

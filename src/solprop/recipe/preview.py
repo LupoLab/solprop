@@ -6,13 +6,15 @@
 
 :func:`modes` gives the mode set a guided route builds, with its effective index,
 dispersion to third order, loss, effective area and nonlinear coefficient over the
-grid's band; :func:`preview_input` gives the input pulse on the
+grid's band, and each mode's phase matching to a soliton at the pump in the launch
+mode; :func:`preview_input` gives the input pulse on the
 run's grid as the launch sets it, without noise, through the same processing functions
 that read a run's file, and on the free-space routes the beam's fluence across the
 launch plane too. Both resolve the recipe's pins first.
 """
 
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, cast
 
 import numpy as np
@@ -77,6 +79,15 @@ class ModePreview:
         fill's ``n2`` at the grid's reference wavelength, the carrier its Kerr data
         are taken at (:func:`solprop.tools.nonlinear_coefficient` at each
         frequency); ``None`` where the mode has no fill or the fill no Kerr data.
+    phase_mismatch : numpy.ndarray or None
+        The phase mismatch in rad/m between a dispersive wave in this mode and a
+        soliton in the launch mode (the set's first) at the pump
+        (:func:`solprop.tools.phase_mismatch`); ``None`` without a pump. See
+        :func:`modes` for the pump and the nonlinear term.
+    rdw : tuple of float
+        The phase-matched wavelengths in m, shortest first, between the band's
+        short edge and 0.9 of the pump (:func:`solprop.tools.lambda_rdw_all`);
+        empty without a pump or a root.
     """
 
     label: str
@@ -89,6 +100,8 @@ class ModePreview:
     aeff: float
     zdw: float | None
     gamma: Float[np.ndarray, " n_omega"] | None
+    phase_mismatch: Float[np.ndarray, " n_omega"] | None = None
+    rdw: tuple[float, ...] = field(default=())
 
 
 @dataclass(frozen=True)
@@ -103,11 +116,20 @@ class ModeSetPreview:
         The in-band angular frequencies, rad/s, ascending.
     modes : tuple of ModePreview
         The modes, in the order the run holds them.
+    pump : float or None
+        The pump wavelength the phase matching is for, m: the recipe's
+        ``wavelength``; ``None`` when it gives none (a recipe of ``pulses``).
+    nonlinear : bool
+        Whether the phase matching has the soliton's nonlinear term: the recipe's
+        pulse is an unchirped sech or Gaussian and the launch mode's fill has Kerr
+        data; otherwise it is the linear condition.
     """
 
     z: float
     omega: Float[np.ndarray, " n_omega"]
     modes: tuple[ModePreview, ...]
+    pump: float | None = None
+    nonlinear: bool = False
 
 
 @dataclass(frozen=True)
@@ -179,6 +201,16 @@ def modes(recipe: "Recipe", z: float | None = None) -> ModeSetPreview:  # noqa: 
     ------
     RecipeError
         If the route is not one of :data:`GUIDED`.
+
+    Notes
+    -----
+    The phase matching is that of a soliton at the recipe's pump ``wavelength``
+    travelling in the launch mode, the set's first, and a dispersive wave in each
+    mode (the launch mode's own for the first; intermodal for the rest). With an
+    unchirped sech or Gaussian pulse given by its FWHM and its energy or peak power,
+    and a fill with Kerr data, the soliton's nonlinear wavenumber is that of its
+    largest constituent (:func:`solprop.tools.phase_mismatch`'s default); otherwise
+    the condition is the linear one.
     """
     from solprop.modes.base import (  # noqa: PLC0415
         aeff,
@@ -206,6 +238,8 @@ def modes(recipe: "Recipe", z: float | None = None) -> ModeSetPreview:  # noqa: 
         2 * np.pi * _C / float(omega[-1]),
         2 * np.pi * _C / float(omega[0]),
     )
+    keywords = recipe.resolve().keywords()
+    pump, pulse = _pump(keywords, channels[0] if channels else None)
     previews = []
     for mode in channels:
         try:
@@ -213,6 +247,9 @@ def modes(recipe: "Recipe", z: float | None = None) -> ModeSetPreview:  # noqa: 
         except ModeError:
             zero = None
         area = aeff(mode, at)
+        mismatch, roots = _phase_matching(
+            mode, channels[0], omega, z=at, pump=pump, pulse=pulse, limits=limits
+        )
         previews.append(
             ModePreview(
                 label=mode.channel_label.display_label,
@@ -225,12 +262,112 @@ def modes(recipe: "Recipe", z: float | None = None) -> ModeSetPreview:  # noqa: 
                 aeff=area,
                 zdw=zero,
                 gamma=_gamma(mode, omega, area, grid.reference_wavelength, at),
+                phase_mismatch=mismatch,
+                rdw=roots,
             )
         )
-    return ModeSetPreview(at, omega, tuple(previews))
+    return ModeSetPreview(at, omega, tuple(previews), pump, bool(pulse))
 
 
 _C = 299_792_458.0
+
+
+def _pump(
+    keywords: Mapping[str, object],
+    soliton: "Mode | None",  # noqa: UP037 - TYPE_CHECKING only
+) -> tuple[float | None, dict[str, object]]:
+    """Return the pump wavelength and the soliton's nonlinear numbers, where given.
+
+    Parameters
+    ----------
+    keywords : collections.abc.Mapping
+        The resolved recipe's route keywords.
+    soliton : solprop.modes.base.Mode or None
+        The launch mode.
+
+    Returns
+    -------
+    tuple
+        The pump wavelength in m (``None`` without a numeric ``wavelength``), and
+        the keywords :func:`solprop.tools.phase_mismatch` takes for the nonlinear
+        term (``peak_power``, ``gamma``, ``fwhm``, ``shape``), empty for the linear
+        condition.
+    """
+    from solprop.recipe.pins import _gamma as launch_gamma  # noqa: PLC0415
+    from solprop.recipe.pins import _route_pulse  # noqa: PLC0415
+    from solprop.tools import SolitonOrder  # noqa: PLC0415
+
+    wavelength = keywords.get("wavelength")
+    if not isinstance(wavelength, int | float) or soliton is None:
+        return None, {}
+    pump = float(wavelength)
+    try:
+        # The order is a placeholder: the target reads the pulse's numbers and
+        # refuses the pulses they are not defined for.
+        target = SolitonOrder(1.0, _route_pulse(keywords))  # type: ignore[arg-type]
+        gamma = launch_gamma(soliton, pump)
+    except KeyError, TypeError, ValueError, ToolsError:
+        # No width or size, a shape without design numbers, or no Kerr data.
+        return pump, {}
+    return pump, {
+        "peak_power": target.peak_power,
+        "gamma": gamma,
+        "fwhm": target.fwhm,
+        "shape": target.shape,
+    }
+
+
+def _phase_matching(  # noqa: PLR0913 - a mode pair, the band, the pump and its pulse
+    mode: "Mode",  # noqa: UP037 - TYPE_CHECKING only
+    soliton: "Mode",  # noqa: UP037 - TYPE_CHECKING only
+    omega: Float[np.ndarray, " n_omega"],
+    *,
+    z: float,
+    pump: float | None,
+    pulse: Mapping[str, object],
+    limits: tuple[float, float],
+) -> tuple[Float[np.ndarray, " n_omega"] | None, tuple[float, ...]]:
+    """Return a mode's phase mismatch to the soliton, and its phase-matched waves.
+
+    Parameters
+    ----------
+    mode : solprop.modes.base.Mode
+        The mode the dispersive wave is in.
+    soliton : solprop.modes.base.Mode
+        The launch mode, the soliton's.
+    omega : numpy.ndarray
+        The band, rad/s.
+    z : float
+        The position, m.
+    pump : float or None
+        The pump wavelength, m.
+    pulse : collections.abc.Mapping
+        The nonlinear term's keywords (:func:`_pump`), empty for the linear one.
+    limits : tuple of float
+        The band's shortest and longest wavelengths, m.
+
+    Returns
+    -------
+    tuple
+        ``phase_mismatch`` and ``rdw``, the :class:`ModePreview` fields.
+    """
+    from solprop.tools import lambda_rdw_all, phase_mismatch  # noqa: PLC0415
+
+    if pump is None:
+        return None, ()
+    arguments = {"soliton_mode": soliton, "z": z, **pulse}
+    window = (limits[0], min(limits[1], 0.9 * pump))
+    try:
+        mismatch = phase_mismatch(mode, omega, pump, **arguments)  # type: ignore[arg-type]
+        roots = (
+            lambda_rdw_all(mode, pump, wavelength_limits=window, **arguments)  # type: ignore[arg-type]
+            if window[0] < window[1]
+            else ()
+        )
+    except ToolsError:
+        # A pump outside the band the mode is defined on.
+        return None, ()
+    return np.asarray(mismatch), tuple(map(float, roots))
 
 
 def _gamma(
