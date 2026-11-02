@@ -75,7 +75,7 @@ _STEM = select_variant(Path(__file__).parent)
 if _STEM != "_core":
     _file = next(Path(__file__).parent.glob(f"{_STEM}.*"))
     _spec = importlib.util.spec_from_file_location(f"{__name__}._core", _file)
-    if _spec is None or _spec.loader is None:  # pragma: no cover - a file always has one
+    if _spec is None or _spec.loader is None:  # pragma: no cover - a file has one
         raise ImportError(f"cannot load {_file}")
     _module = importlib.util.module_from_spec(_spec)
     sys.modules[_spec.name] = _module
