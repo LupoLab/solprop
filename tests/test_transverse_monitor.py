@@ -29,7 +29,7 @@ from solprop.monitor import BoundaryCheck
 from solprop.output.hdf5 import resume
 from solprop.output.schema import PlaneStore
 from solprop.translate.transverse import _nodes_window
-from solprop.transverse_monitor import TransverseEdge
+from solprop.transverse_monitor import TransverseEdge, _row_energy
 from test_transverse_resolution import LENGTH, suite
 
 
@@ -548,3 +548,18 @@ def test_under_input_noise_a_collar_s_strip_is_judged_above_the_noise_s() -> Non
     floor = edge._strip_floor  # pyright: ignore[reportPrivateUsage]
     assert floor == pytest.approx(3 * edge._strip_inward(noise)[0])  # pyright: ignore[reportPrivateUsage]
     assert floor > 0.0
+
+
+@pytest.mark.parametrize("dtype", [np.complex128, np.complex64])
+def test_row_energy_sums_each_rows_squared_magnitude(dtype: type) -> None:
+    """A read's row sums equal ``sum |E|^2`` per row, in either precision.
+
+    Double precision takes the real-view sum, including on a non-contiguous slice;
+    single precision takes the plain one.
+    """
+    rng = np.random.default_rng(3)
+    real, imaginary = rng.standard_normal((2, 5, 14))
+    rows = (real + 1j * imaginary).astype(dtype)
+    sliced = rows[:, ::2]
+    expected = np.sum(np.abs(sliced.astype(np.complex128)) ** 2, axis=1)
+    np.testing.assert_allclose(_row_energy(sliced), expected, rtol=1e-6)
