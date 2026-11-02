@@ -96,7 +96,7 @@ checkout and run, in order:
 4. `uv run --no-sync poe test` with `SOLPROP_TEST_BACKEND=native`: solprop's default
    lane on the native backend. It runs a second time on Linux and on Windows x64 with the
    x86-64-v2 build forced. On Windows on Arm the test job does not run yet, since the suite
-   imports `numba_cpu` and pyFFTW has no wheel there (SEP 43); the build job's smoke test
+   imports `numba_cpu` and pyFFTW has no wheel there; the build job's smoke test
    qualifies that wheel.
 
 On Linux x86-64, the `cpu-floor` job runs the wheel under Intel's Software Development

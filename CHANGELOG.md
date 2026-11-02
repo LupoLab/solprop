@@ -9,12 +9,6 @@ All notable changes to solprop are recorded here. The format follows
 
 ### Added
 
-- A `solprop-native` wheel for Windows on Arm (`win-arm64`), and an x86-64-v2 build beside
-  the x86-64-v3 one in the Linux and Windows x86-64 wheels, chosen at import, so processors
-  without AVX2 now run the native backend. The v2 build runs about 20 to 25 % longer by
-  geometric mean. `SOLPROP_NATIVE_CPU_VARIANT=x86-64-v2` asks for it (SEP 43). pyFFTW is
-  not installed on Windows on Arm, where it has no wheel, so `numba_cpu` does not import
-  there.
 - The first performance-history rows (`benchmarks/history/`), recorded at 0.1.0 on
   six CPU and three GPU hardware sets, with numba runs beside the native ones on three
   of them; `docs/dev/benchmarking.md` lists how each is run. The history takes any

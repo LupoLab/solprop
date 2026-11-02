@@ -94,8 +94,8 @@ jobs:
           - { id: linux-aarch64, os: ubuntu-24.04-arm }
           - { id: macos-arm64, os: macos-15 }
           - { id: windows-amd64, os: windows-2025 }
-          # Windows on Arm joins this list when numba_cpu goes (SEP 43): the suite imports
-          # it, and pyFFTW has no wheel there. Its build job smoke-tests the wheel.
+          # Not Windows on Arm: the suite imports numba_cpu, and pyFFTW has no wheel there.
+          # Its build job smoke-tests the wheel.
           # The x86-64 wheels' second build, forced, on the same runners.
           - { id: linux-x86_64-v2, wheel: linux-x86_64, os: ubuntu-24.04, variant: x86-64-v2 }
           - { id: windows-amd64-v2, wheel: windows-amd64, os: windows-2025, variant: x86-64-v2 }
