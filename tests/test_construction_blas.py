@@ -89,6 +89,11 @@ class Controller:
 def own_blas_pools(monkeypatch):
     """Keep these checks apart from a backend an earlier test left open."""
     monkeypatch.setattr(_process, "_BLAS_POOLS", {})
+    native = _process.sys.modules.get("solprop_native._host_blas")
+    if native is not None:
+        monkeypatch.setattr(native, "_holders", 0)
+        monkeypatch.setattr(native, "_limiter", None)
+        monkeypatch.setattr(native, "_reached", native._reached)
 
 
 @pytest.fixture
