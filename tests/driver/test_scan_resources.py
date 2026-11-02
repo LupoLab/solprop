@@ -441,12 +441,13 @@ def test_the_posix_only_executors_refuse_windows_by_name(monkeypatch, build):
         build()
 
 
-class _FakeProcess:
+class _FakeProcess(BaseProcess):
     """Record the environment and arguments a worker would start with."""
 
     def __init__(self, target, args):
+        super().__init__(target=target, args=args)
         self.args = args
-        self.environment = None
+        self.environment: dict[str, str] = {}
 
     def start(self):
         self.environment = dict(os.environ)
@@ -463,8 +464,9 @@ def test_a_worker_sizes_blas_by_environment_or_after_load(monkeypatch, after_loa
     monkeypatch.setenv("GOTO_NUM_THREADS", "1")
     monkeypatch.setenv("OMP_NUM_THREADS", "7")
     monkeypatch.delenv("OPENBLAS_NUM_THREADS", raising=False)
-    process, connection = pool._spawn(print, 2, ())
+    spawned, connection = pool._spawn(print, 2, ())
     connection.close()
+    process = cast(_FakeProcess, spawned)
     seen = process.environment
     assert process.args[-1] == (2 if after_load else None)
     assert seen["SOLPROP_THREADS"] == "2"
@@ -488,6 +490,6 @@ def test_a_worker_limits_blas_after_load_before_any_command(monkeypatch):
     )
     parent, child = multiprocessing.get_context("spawn").Pipe()
     parent.send(None)
-    pool._serve(child, print, (), 2)
+    pool._serve(cast(Connection, child), print, (), 2)
     parent.close()
     assert calls == [(2, "blas")]
