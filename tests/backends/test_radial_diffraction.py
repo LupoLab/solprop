@@ -34,7 +34,7 @@ def case(request):
         else partial(EnvelopeGrid.from_limits, thg=False)
     )
     grid = constructor(0.1, 800e-9, (600e-9, 1.2e-6), 150e-15)
-    return grid, RadialGrid(1.2e-3, 64, window_factor=0.0)
+    return grid, RadialGrid(1.2e-3, 64, collar_fraction=0.0)
 
 
 def diffraction_reference(grid, space, index, waist, distance):

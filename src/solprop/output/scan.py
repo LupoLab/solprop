@@ -24,8 +24,13 @@ from solprop.driver._scan_model import Scan
 from solprop.exceptions import OutputError, ProcessingError
 from solprop.output._scan_lock import read_scan, write_scan
 from solprop.output.compatibility import RecordComparison
-from solprop.output.hdf5 import _dataset, _group
-from solprop.output.schema import RunMetadata, _refuse_schema, serialise
+from solprop.output.hdf5 import _dataset, _group, write_recipe
+from solprop.output.schema import (
+    RecipeRecord,
+    RunMetadata,
+    _refuse_schema,
+    serialise,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -100,7 +105,8 @@ class PointResult:
     index : int
         Global scan index.
     status : str
-        Done, failed, skipped or conflict.
+        Done, failed, skipped, conflict, or stopped: a point a stop flag stopped
+        (SEP 41, S17), which is never committed, so a rerun computes it.
     configuration_hash : str
         Single-run configuration digest, empty if construction failed.
     metadata_json : str
@@ -117,6 +123,10 @@ class PointResult:
         Attempted propagation steps.
     n_rejected : int
         Rejected propagation steps.
+    boundary_monitor : collections.abc.Mapping or None
+        The point's closing boundary-monitor record, without its per-plane rows
+        (:meth:`solprop.monitor.BoundaryMonitor.summary`), for a done or failed point
+        that was watched; ``None`` otherwise.
     """
 
     index: int
@@ -129,6 +139,7 @@ class PointResult:
     wall_time: float = 0.0
     n_steps: int = 0
     n_rejected: int = 0
+    boundary_monitor: Mapping[str, object] | None = None
 
 
 def _validate_metadata(result: PointResult) -> None:
@@ -254,6 +265,20 @@ class ScanWriter:
         except BaseException:
             self._session.close()
             raise
+
+    def record_recipe(self, record: RecipeRecord | None) -> None:
+        """Record the recipe the scan was built from, unless one is recorded already.
+
+        The authored recipe, so that a scan reopens with its setup (SEP 41, S2);
+        written once and never rewritten.
+
+        Parameters
+        ----------
+        record : solprop.output.schema.RecipeRecord or None
+            The recipe; ``None``, a scan from a script, records none.
+        """
+        if record is not None and "recipe" not in self.file:
+            write_recipe(self.file, record)
 
     def _initialise(self, scan: Scan, description: str) -> None:
         """Create scheduling columns before any point is dispatched.
@@ -501,6 +526,14 @@ class ScanWriter:
         )
         point.attrs["metadata_refs"] = _json(references)
         point.attrs["reductions"] = _json(dict(result.reductions))
+        if result.boundary_monitor is not None:
+            point.attrs["boundary_monitor"] = _json(
+                {
+                    name: value
+                    for name, value in result.boundary_monitor.items()
+                    if name != "planes"
+                }
+            )
         units = {
             f"reduced/{name}": record.get("units")
             for name, record in result.reductions.items()
@@ -877,7 +910,9 @@ def read_point(path: Path, index: int) -> Mapping[str, object]:
     Returns
     -------
     collections.abc.Mapping
-        Status, traceback, metadata and flat array paths.
+        Status, traceback, metadata and flat array paths; for a done or failed
+        point that was watched, its closing ``boundary_monitor`` record without the
+        per-plane rows.
 
     Raises
     ------
@@ -904,6 +939,10 @@ def read_point(path: Path, index: int) -> Mapping[str, object]:
             _refuse_point_schema(file, index, document)
             result["metadata"] = _expand(file, document)
             result["reductions"] = json.loads(str(group.attrs["reductions"]))
+            if "boundary_monitor" in group.attrs:
+                result["boundary_monitor"] = json.loads(
+                    str(group.attrs["boundary_monitor"])
+                )
         if state == "done":
             group = _group(file, f"staged/{index}")
             group.visititems(

@@ -97,7 +97,7 @@ checkout and run, in order:
 4. `uv run --no-sync poe test` with `SOLPROP_TEST_BACKEND=native`: solprop's default
    lane on the native backend. It runs a second time on Linux and on Windows x64 with the
    x86-64-v2 build forced. On Windows on Arm the test job does not run yet, since the suite
-   imports `numba_cpu` and pyFFTW has no wheel there (SEP 43); the build job's smoke test
+   imports `numba_cpu` and pyFFTW has no wheel there; the build job's smoke test
    qualifies that wheel.
 
 On Linux x86-64, the `cpu-floor` job runs the wheel under Intel's Software Development
@@ -133,6 +133,51 @@ distributions built at different versions fail here, before anything is publishe
 
 ## Making a release
 
+### The rolling release PR
+
+Implementation PRs add independent Markdown fragments under `changelog.d/`, named
+`<short-slug>.<category>.md`. A PR number can be the slug; no separate issue is needed.
+The categories are `added`, `changed`, `breaking`, `deprecated`, `removed`, `fixed` and
+`security`; `breaking` becomes **Changed (breaking)**. Write one entry without a heading
+or leading bullet, including migration instructions for a break. Markdown links are
+relative to the repository-root changelog. Existing Unreleased entries remain in place;
+released sections are copied unchanged.
+
+After each push to `main`, `.github/workflows/release-notes.yml` creates or refreshes
+one draft PR, **Prepare the next release notes**, on
+`chore/release-after-<last-version>`. The latest released version comes from
+`CITATION.cff`; the next version is chosen by the maintainer. The draft groups every
+pending fragment into `CHANGELOG.md` and removes the collected fragments on its branch.
+Only this PR normally changes the shared changelog. Edit pending fragments in ordinary
+PRs, not the generated draft. A manual refresh is available with:
+
+```sh
+gh workflow run release-notes.yml --ref main
+```
+
+The updater verifies that its previous branch tree is exactly the generated result for
+its recorded base before writing another commit. It uses the current `main` tree for
+all other files and keeps the previous head as a parent, so updates are ordinary
+fast-forward pushes. It never force-pushes, approves, merges, tags or publishes. Manual
+branch edits stop the workflow without overwriting them. A closed PR or one marked
+ready pauses updates. If a draft was closed by mistake, reopen it to resume.
+
+**One-time setup:** under GitHub *Settings → Actions → General → Workflow permissions*,
+enable *Allow GitHub Actions to create and approve pull requests*. Keep the default
+token permissions read-only; only this job requests `contents: write` and
+`pull-requests: write`. The workflow only runs from trusted `main`. No personal token
+or additional dependency is needed. The required checks and branch rules stay in force.
+GitHub may require a maintainer to approve CI runs created by `GITHUB_TOKEN`; use
+*Approve workflows to run* on the PR before merging. See
+[GitHub's token documentation](https://docs.github.com/en/actions/concepts/security/github_token).
+
+When ready to release, **mark the PR ready before editing it**. This freezes automatic
+refreshes. If more changes arrive, bring `main` into the release worktree and run
+`uv run poe changelog-collect` before updating the release heading. Resolve any conflicts
+as usual; the command appends only fragments still present in that worktree. Follow the
+checklist below in this PR and wait for its required checks. Once the release commit
+reaches `main`, the next pending fragment starts a new draft for the next cycle.
+
 ### Pre-flight checklist
 
 A release tag builds and tests everything but publishes nothing until a maintainer with
@@ -161,11 +206,13 @@ before the first tag:
 
 Then, for every release:
 
-5. On `main`, check that the changelog's `Unreleased` section describes the release,
-   then move it under the new version, `## [X.Y.Z] - YYYY-MM-DD`, and give
+5. In the rolling release PR, marked ready to freeze refreshes, check that every pending
+   fragment has been collected and the changelog's `Unreleased` section describes the
+   release. Move it under the new version, `## [X.Y.Z] - YYYY-MM-DD`, retaining an empty
+   `## Unreleased` section above it, and give
    `CITATION.cff` the same `version` and `date-released`
    (`tests/test_release_metadata.py` checks that they agree). The commit that does so
-   is the release commit.
+   is the release commit; it reaches `main` through this PR, after the required checks.
 6. Freeze the release's run records (ADR-063). For 0.2.0, refresh
    `tests/output/test_record_stability/frozen/0.2.0` with `write_frozen("0.2.0")` in
    `tests/output/test_record_stability.py`, on the tree being released, and include it in

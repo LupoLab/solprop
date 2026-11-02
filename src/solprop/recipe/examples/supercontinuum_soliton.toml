@@ -1,0 +1,26 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# A soliton-driven supercontinuum in a helium gradient: the first shot (seed 0) of the
+# script's twenty-shot ensemble.
+# mirrors: docs/examples/supercontinuum/plot_02_soliton_supercontinuum.py
+
+[recipe]
+format = 1
+route = "capillary"
+title = "Soliton supercontinuum in helium"
+
+[build]
+radius = "225 um"
+length = "5 m"
+gas = "He"
+pressure = ["0.2 bar", "0 bar"]  # entrance to exit
+wavelength = "800 nm"
+fwhm = "6 fs"
+energy = "1000 uJ"
+trange = "1000 fs"
+wavelength_limits = ["80 nm", "4000 nm"]
+noise = "input"
+seed = 0
+n_save = 101

@@ -85,7 +85,7 @@ def test_witness_cladding_keeps_signed_extinction_samples(tmp_path):
 
 def test_cartesian_observables_recover_uniform_plane_wave_energy_and_intensity():
     grid = EnvelopeGrid.from_limits(0.001, 800e-9, (600e-9, 1.2e-6), 100e-15)
-    space = FreeGrid(1e-3, 4, 2e-3, 6, window_factor=0)
+    space = FreeGrid(1e-3, 4, 2e-3, 6, collar_fraction=0)
     field = np.zeros((space.n_columns, 1, grid.n_omega), complex)
     amplitude = 3.0
     field[0, 0, 0] = amplitude * space.n_columns * grid.n_t
@@ -163,7 +163,7 @@ def test_comparison_records_failed_input_and_refuses_overwrite(tmp_path):
 
 def test_nonfinite_axis_intensity_is_a_failure(monkeypatch):
     grid = EnvelopeGrid.from_limits(0.001, 800e-9, (600e-9, 1.2e-6), 100e-15)
-    space = FreeGrid(1e-3, 4, 2e-3, 6, window_factor=0)
+    space = FreeGrid(1e-3, 4, 2e-3, 6, collar_fraction=0)
     monkeypatch.setattr(witness, "on_axis_intensity", lambda *args: np.nan)
     simulation = SimpleNamespace(grid=grid, spatial_grid=space)
     field = np.ones((space.n_columns, 1, grid.n_omega), complex)

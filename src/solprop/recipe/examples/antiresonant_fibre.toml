@@ -1,0 +1,34 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Five centimetres of an argon-filled antiresonant fibre, on an envelope grid.
+# mirrors: docs/tutorials/waveguides/plot_01_antiresonant_fibre.py
+
+[recipe]
+format = 1
+route = "capillary"
+title = "An argon-filled antiresonant fibre"
+
+[build]
+radius = "15 um"
+length = "0.05 m"
+gas = "Ar"
+pressure = "1 bar"
+lattice = { type = "TubeLattice", wall_thickness = "180 nm", tube_radius = "9 um", n_tubes = 6 }
+wavelength = "800 nm"
+wavelength_limits = ["300 nm", "1600 nm"]
+trange = "200 fs"
+fwhm = "30 fs"
+energy = "2 uJ"
+envelope = true
+modes = 1
+kerr = true
+plasma = false
+raman = false
+thg = false
+n_r = 8
+n_save = 11
+rtol = 1e-5
+stats = { type = "StatsSpec", names = ["energy"] }
+seed = 20261027

@@ -7,9 +7,10 @@ Simulation: 2 modes
   noise:     none
   settings:  SimulationSettings
                save planes: <200 planes, 500 um to 100 mm>
-               tolerances:  rtol 1e-06, atol 1e-10
+               integrator:  RungeKutta
+               tolerances:  rtol 1e-06, atol 1e-10 (capillary default)
                steps:       adaptive, dz_max 50 mm
                shock term:  True
-               absorber:    nonlinear
+               absorber:    nonlinear scheme (default)
                statistics:  StatsSpec
                backend:     <backend>

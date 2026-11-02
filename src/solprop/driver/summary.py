@@ -33,6 +33,7 @@ from solprop.monitor import BoundaryCheck
 from solprop.output.schema import Output, RunMetadata
 from solprop.stepper.multistep import Multistep
 from solprop.translate.problem import KernelProblem
+from solprop.transverse_monitor import READS
 
 __all__ = [
     "RunSummary",
@@ -192,10 +193,15 @@ def run_summary(  # noqa: PLR0913 - the run's parts, each a distinct object
         ),
         ("responses", _responses(problem, configuration)),
         ("shot noise", _noise(metadata)),
-        ("integrator", _integrator(problem)),
+        ("integrator", _defaulted(_integrator(problem), metadata, "integrator")),
         ("propagator", str(execution.get("propagator_mode", "not reported"))),
-        ("tolerances", _tolerances(problem)),
+        ("tolerances", _tolerances(problem, metadata)),
         ("absorber", _absorber(problem, boundary_check)),
+        *(
+            [("transverse edge", _transverse(problem, boundary_check, backend))]
+            if problem.transform.geometry is not None
+            else []
+        ),
         ("save planes", _planes(problem, planes)),
         ("output", _output(output)),
         ("start", _start(start_plane, planes.size, z_start)),
@@ -315,6 +321,11 @@ def resources(spent: Mapping[str, float | int | None]) -> str:
         parts.append(f"{_duration(float(cpu))} CPU")
     if peak is not None:
         parts.append(f"process peak memory {memory_size(peak)}")
+    observer = spent.get("observer_time_s")
+    if observer is not None:
+        transfers = int(spent.get("observer_transfers") or 0)
+        fetched = f", {transfers} fields fetched for it" if transfers else ""
+        parts.append(f"{_duration(float(observer))} in the plane observer{fetched}")
     return "resources: " + ", ".join(parts)
 
 
@@ -715,29 +726,60 @@ def _integrator(problem: KernelProblem) -> str:
             if integrator.variable_order
             else f"order {integrator.order}"
         )
-        return f"Multistep, {orders}, {integrator.formulation} formulation"
+        frame = (
+            ""
+            if integrator.carrier_frame == "off"
+            else f", {integrator.carrier_frame} carrier frame"
+        )
+        return f"Multistep, {orders}, {integrator.formulation} formulation{frame}"
     return f"LowStorageRungeKutta ({integrator.scheme})"
 
 
-def _tolerances(problem: KernelProblem) -> str:
+def _defaulted(text: str, metadata: RunMetadata, choice: str) -> str:
+    """Mark a row whose value is the route's default rather than the caller's.
+
+    Parameters
+    ----------
+    text : str
+        The row's description.
+    metadata : solprop.output.schema.RunMetadata
+        The run's record, whose ``defaults`` says which choices were defaults.
+    choice : str
+        The choice the row describes: ``"integrator"`` or ``"rtol"``.
+
+    Returns
+    -------
+    str
+        `text`, followed by ``"(capillary default)"`` or similar where the route's
+        default applied.
+    """
+    defaults = metadata.defaults
+    if defaults is None or defaults.route is None or choice not in defaults.defaulted:
+        return text
+    return f"{text} ({defaults.route} default)"
+
+
+def _tolerances(problem: KernelProblem, metadata: RunMetadata) -> str:
     """Describe the step control: tolerances and step bound, or a replayed schedule.
 
     Parameters
     ----------
     problem : solprop.translate.problem.KernelProblem
         The translated problem.
+    metadata : solprop.output.schema.RunMetadata
+        The run's record, which says whether the tolerance is the route's default.
 
     Returns
     -------
     str
-        For example ``"rtol 1e-06, atol 1e-10, dz_max 50 mm"``.
+        For example ``"rtol 1e-06, atol 1e-10 (capillary default), dz_max 50 mm"``.
     """
     stepper = problem.stepper
     controller = stepper.controller
-    text = (
-        f"rtol {controller.rtol:.3g}, atol {controller.atol:.3g}, "
-        f"dz_max {engineering(stepper.dz_max, 'm')}"
+    tolerances = _defaulted(
+        f"rtol {controller.rtol:.3g}, atol {controller.atol:.3g}", metadata, "rtol"
     )
+    text = f"{tolerances}, dz_max {engineering(stepper.dz_max, 'm')}"
     if stepper.schedule is not None:
         text += f"; replaying a fixed schedule of {stepper.schedule.steps.size} steps"
     return text
@@ -769,6 +811,53 @@ def _absorber(problem: KernelProblem, check: BoundaryCheck | None) -> str:
         f"{text}; edges watched (guards {check.guard_fraction:g} of the window, "
         f"budget {check.budget:.0e})"
     )
+
+
+def _transverse(
+    problem: KernelProblem, check: BoundaryCheck | None, backend: str
+) -> str:
+    """Describe a free-space run's transverse boundary and what its edge can report.
+
+    SEP 40 section 5.3: ``unwatched``, ``coarse`` and ``off`` are said before the
+    first step, so that a run that cannot reach a clean verdict says so.
+
+    Parameters
+    ----------
+    problem : solprop.translate.problem.KernelProblem
+        The translated problem.
+    check : solprop.monitor.BoundaryCheck or None
+        The edge thresholds, or ``None`` when nothing is watched.
+    backend : str
+        The backend's name.
+
+    Returns
+    -------
+    str
+        The boundary, then what the monitor will report.
+    """
+    design = problem.transverse
+    if design is None:
+        boundary = "wall or wrap, no safety ramp"
+    elif design.has_collar:
+        boundary = (
+            f"requested collar, alpha0 {design.alpha0:.3g} 1/m, design check "
+            f"{design.check.get('status', 'not run')}; safety ramp"
+        )
+    else:
+        boundary = "wall or wrap with the safety ramp"
+    if check is None:
+        return f"{boundary}; off (boundary_check=None)"
+    if backend != "numpy_ref":
+        return f"{boundary}; unwatched on {backend} (numpy_ref reads it)"
+    schedule = problem.stepper.schedule
+    if (
+        schedule is not None
+        and float(np.max(schedule.steps))
+        > (float(np.max(problem.stepper.save_planes)) - float(problem.initial.z))
+        / READS
+    ):
+        return f"{boundary}; coarse: the fixed schedule is sparser than its reads"
+    return f"{boundary}; watched (budget {check.edge_budget:.0e})"
 
 
 def _planes(problem: KernelProblem, planes: np.ndarray) -> str:

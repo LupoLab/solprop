@@ -24,7 +24,7 @@ import logging
 import math
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
-from typing import ClassVar, Final, Literal
+from typing import ClassVar, Final, Literal, cast
 
 import numpy as np
 from jaxtyping import Bool, Complex, Float
@@ -44,6 +44,7 @@ __all__ = [
     "EnvelopeGrid",
     "FieldGrid",
     "FreeGrid",
+    "GridSuggestion",
     "LineGrid",
     "RadialGrid",
     "TimeGrid",
@@ -51,6 +52,7 @@ __all__ = [
     "planck_taper",
     "planck_taper_derivative",
     "planck_taper_derivative_error",
+    "suggest",
 ]
 
 logger = logging.getLogger(__name__)
@@ -403,21 +405,29 @@ def _taper_edge_derivative(
 
 @dataclass(frozen=True, eq=False)
 class RadialGrid(Displayed):
-    """Construct an axisymmetric spatial grid with a declared outer collar.
+    """Construct an axisymmetric spatial grid, with room for a collar outside it.
 
     Attributes
     ----------
     radius : float
-        Outer Dirichlet boundary in m, finite and positive.
+        The requested aperture in m, finite and positive: the radius modelled flat,
+        with no absorption.
     n_r : int
-        Number of interior radial and spectral samples, at least 2.
-    window_factor : float
-        Fraction of the outer radius occupied by the absorbing collar, in [0, 1).
-        Zero disables the spatial collar; the default 0.1 uses its outer tenth.
+        Number of interior radial and spectral samples over the whole grid, the
+        collar's room included, at least 2.
+    collar_fraction : float
+        Room outside the aperture, as a fraction of `radius`, finite and at least 0.
+        The Dirichlet boundary is at ``radius * (1 + collar_fraction)``
+        (:attr:`outer_radius`). The default 0 puts it at the aperture. Room alone
+        absorbs nothing: a real-space collar there is requested separately
+        (:class:`solprop.boundaries.SpatialAbsorber`).
     hankel : solprop.hankel.QDHT
-        The raw transform, its physical scalings and integration weights.
+        The raw transform on the outer radius, its physical scalings and integration
+        weights.
     window : numpy.ndarray
-        Planck window on the radial samples, shape ``(n_r,)``, dimensionless.
+        Planck window on the radial samples, shape ``(n_r,)``, dimensionless: one
+        inside the aperture, falling to zero at the outer radius; it marks the region
+        outside the request.
 
     Raises
     ------
@@ -434,31 +444,35 @@ class RadialGrid(Displayed):
 
     radius: float
     n_r: int
-    window_factor: float = 0.1
+    collar_fraction: float = 0.0
     hankel: QDHT = field(init=False, repr=False)
     window: Float[np.ndarray, " n_r"] = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
-        """Build the transform and an immutable collar profile."""
-        if not math.isfinite(self.window_factor) or not 0 <= self.window_factor < 1:
-            msg = "window_factor must be finite and lie in [0, 1)"
-            raise GridError(msg)
-        hankel = QDHT(self.radius, self.n_r)
+        """Build the transform on the outer radius and the immutable window."""
+        _check_fraction("RadialGrid", self.collar_fraction)
+        outer = self.outer_radius
+        hankel = QDHT(outer, self.n_r)
         window = (
             np.ones(self.n_r)
-            if self.window_factor == 0
-            else planck_taper(
-                hankel.r,
-                -self.radius,
-                0.0,
-                self.radius * (1 - self.window_factor),
-                self.radius,
-            )
+            if self.collar_fraction == 0
+            else planck_taper(hankel.r, -outer, -self.radius, self.radius, outer)
         )
         window.setflags(write=False)
         object.__setattr__(self, "hankel", hankel)
         object.__setattr__(self, "window", window)
         self.validate()
+
+    @property
+    def outer_radius(self) -> float:
+        """Return the Dirichlet boundary: the aperture with its collar's room.
+
+        Returns
+        -------
+        float
+            ``radius * (1 + collar_fraction)``, m.
+        """
+        return self.radius * (1.0 + self.collar_fraction)
 
     @property
     def r(self) -> Float[np.ndarray, " n_r"]:
@@ -543,8 +557,10 @@ class RadialGrid(Displayed):
         if np.any(np.diff(self.r) <= 0) or np.any(np.diff(self.k_r) <= 0):
             msg = "RadialGrid axes must be strictly increasing"
             raise GridError(msg)
-        if self.r[-1] >= self.radius or np.any((self.window < 0) | (self.window > 1)):
-            msg = "RadialGrid samples must lie inside radius and window in [0, 1]"
+        if self.r[-1] >= self.outer_radius or np.any(
+            (self.window < 0) | (self.window > 1)
+        ):
+            msg = "RadialGrid samples must lie inside outer_radius and window in [0, 1]"
             raise GridError(msg)
 
     def __repr__(self) -> str:
@@ -576,12 +592,38 @@ class RadialGrid(Displayed):
                 f"{engineering(float(self.r[-1]), 'm')}",
             ),
             ("largest k_r", f"{float(self.k_r[-1]):.4g} rad/m"),
-            ("window factor", f"{self.window_factor:g}"),
+            ("collar fraction", f"{self.collar_fraction:g}"),
+            ("outer radius", engineering(self.outer_radius, "m")),
         ]
 
 
+def _check_fraction(owner: str, fraction: float) -> None:
+    """Refuse a collar fraction that is not finite and at least zero.
+
+    Parameters
+    ----------
+    owner : str
+        The grid class, named in the message.
+    fraction : float
+        The room outside the requested size, as a fraction of it.
+
+    Raises
+    ------
+    GridError
+        If the fraction is negative or not finite.
+    """
+    if (
+        isinstance(fraction, bool)
+        or not isinstance(fraction, int | float)
+        or not math.isfinite(fraction)
+        or fraction < 0
+    ):
+        msg = f"{owner}.collar_fraction must be finite and at least 0"
+        raise GridError(msg)
+
+
 def _periodic_axis(
-    owner: str, radius: float, count: int, window_factor: float
+    owner: str, radius: float, count: int, collar_fraction: float
 ) -> tuple[
     Float[np.ndarray, " n"], Float[np.ndarray, " n"], Float[np.ndarray, " n"], float
 ]:
@@ -595,8 +637,8 @@ def _periodic_axis(
         Requested physical half-width in m, finite and positive.
     count : int
         Number of samples, at least 1 (validated by the caller).
-    window_factor : float
-        Added collar width divided by the half-width, in [0, 1).
+    collar_fraction : float
+        Room outside the requested half-width, as a fraction of it, at least 0.
 
     Returns
     -------
@@ -609,7 +651,7 @@ def _periodic_axis(
     GridError
         If the extent, the spacing or the wave-number squares are not representable.
     """
-    outer = radius * (1 + window_factor)
+    outer = radius * (1 + collar_fraction)
     spacing = 2 * (outer / count)
     if not math.isfinite(outer) or not math.isfinite(spacing) or spacing <= 0:
         msg = f"{owner} extent or spacing is not representable"
@@ -621,7 +663,7 @@ def _periodic_axis(
     frequencies = np.fft.fftfreq(count) * (2 * np.pi / spacing)
     window = (
         np.ones(count)
-        if window_factor == 0
+        if collar_fraction == 0
         else planck_taper(axis, -outer, -radius, radius, outer)
     )
     return axis, frequencies, window, spacing
@@ -637,10 +679,12 @@ class FreeGrid(Displayed):
         Requested physical half-widths in m, finite and positive.
     n_x, n_y : int
         Independent sample counts, each an integer of at least 2.
-    window_factor : float
-        Added collar width divided by each requested half-width, in [0, 1).
-        The periodic half-width is ``radius * (1 + window_factor)``. Zero
-        disables the collar. The default is 0.1.
+    collar_fraction : float
+        Room outside each requested half-width, as a fraction of it, finite and at
+        least 0. The periodic half-width is ``radius * (1 + collar_fraction)``, and
+        ``n_x``, ``n_y`` count every sample. The default 0 wraps at the requested
+        half-width. Room alone absorbs nothing: a real-space collar there is
+        requested separately (:class:`solprop.boundaries.SpatialAbsorber`).
     x, y : numpy.ndarray
         Centred physical axes in m, shapes ``(n_x,)`` and ``(n_y,)``. Odd
         sample counts place zero halfway between samples.
@@ -673,7 +717,7 @@ class FreeGrid(Displayed):
     n_x: int
     radius_y: float
     n_y: int
-    window_factor: float = 0.1
+    collar_fraction: float = 0.0
     x: Float[np.ndarray, " n_x"] = field(init=False, repr=False)
     y: Float[np.ndarray, " n_y"] = field(init=False, repr=False)
     k_x: Float[np.ndarray, " n_x"] = field(init=False, repr=False)
@@ -697,14 +741,12 @@ class FreeGrid(Displayed):
             if isinstance(value, bool) or not isinstance(value, int) or value < 2:
                 msg = f"FreeGrid.{name} must be an integer of at least 2"
                 raise GridError(msg)
-        if not math.isfinite(self.window_factor) or not 0 <= self.window_factor < 1:
-            msg = "FreeGrid.window_factor must be finite and lie in [0, 1)"
-            raise GridError(msg)
+        _check_fraction("FreeGrid", self.collar_fraction)
         x, k_x, window_x, spacing_x = _periodic_axis(
-            "FreeGrid", self.radius_x, self.n_x, self.window_factor
+            "FreeGrid", self.radius_x, self.n_x, self.collar_fraction
         )
         y, k_y, window_y, spacing_y = _periodic_axis(
-            "FreeGrid", self.radius_y, self.n_y, self.window_factor
+            "FreeGrid", self.radius_y, self.n_y, self.collar_fraction
         )
         self._adopt(x, y, (k_x, k_y), (window_x, window_y), spacing_x * spacing_y)
 
@@ -864,7 +906,7 @@ class FreeGrid(Displayed):
                 f"{engineering(float(self.x[1] - self.x[0]), 'm')}, "
                 f"{engineering(float(self.y[1] - self.y[0]), 'm')}",
             ),
-            ("window factor", f"{self.window_factor:g}"),
+            ("collar fraction", f"{self.collar_fraction:g}"),
         ]
 
 
@@ -888,10 +930,10 @@ class LineGrid(FreeGrid):
         Requested physical half-width in m, finite and positive.
     n_x : int
         Number of samples in x, an integer of at least 2.
-    window_factor : float
-        Added collar width divided by the half-width, in [0, 1). The periodic
-        half-width is ``radius_x * (1 + window_factor)``; zero disables the collar.
-        The default is 0.1.
+    collar_fraction : float
+        Room outside the requested half-width, as a fraction of it, finite and at
+        least 0. The periodic half-width is ``radius_x * (1 + collar_fraction)``; the
+        default 0 wraps at the requested half-width.
     radius_y : float
         ``math.inf``: the field is uniform and unbounded in y.
     n_y : int
@@ -931,7 +973,7 @@ class LineGrid(FreeGrid):
     >>> line.n_columns, line.y.tolist(), line.transverse_measure
     (64, [0.0], 'per_unit_width')
     >>> f"{line.spatial_weights[0]:.4e} m"
-    '3.4375e-05 m'
+    '3.1250e-05 m'
     """
 
     radius_y: float = field(init=False, repr=False)
@@ -945,13 +987,11 @@ class LineGrid(FreeGrid):
         if isinstance(self.n_x, bool) or not isinstance(self.n_x, int) or self.n_x < 2:
             msg = "LineGrid.n_x must be an integer of at least 2"
             raise GridError(msg)
-        if not math.isfinite(self.window_factor) or not 0 <= self.window_factor < 1:
-            msg = "LineGrid.window_factor must be finite and lie in [0, 1)"
-            raise GridError(msg)
+        _check_fraction("LineGrid", self.collar_fraction)
         object.__setattr__(self, "radius_y", math.inf)
         object.__setattr__(self, "n_y", 1)
         x, k_x, window_x, spacing_x = _periodic_axis(
-            "LineGrid", self.radius_x, self.n_x, self.window_factor
+            "LineGrid", self.radius_x, self.n_x, self.collar_fraction
         )
         # One y sample of unit measure: every transverse integral is then per
         # metre of y, and k_y = 0 makes the operator and the collar the x axis's.
@@ -997,7 +1037,7 @@ class LineGrid(FreeGrid):
                 f"{engineering(self.radius_x, 'm')}, {self.n_x} samples",
             ),
             ("spacing", engineering(float(self.x[1] - self.x[0]), "m")),
-            ("window factor", f"{self.window_factor:g}"),
+            ("collar fraction", f"{self.collar_fraction:g}"),
             ("measure", "per metre of y: energy J/m, power W/m"),
         ]
 
@@ -1816,14 +1856,14 @@ def _frequency_limits(wavelength_limits: Sequence[float]) -> tuple[float, float]
         msg = (
             f"wavelength_limits must hold exactly two values, got {wavelength_limits!r}"
         )
-        raise GridError(msg)
+        raise GridError(msg, parameter="wavelength_limits")
     low, high = (float(value) for value in wavelength_limits)
     if not 0.0 < low < high:
         msg = (
             "wavelength_limits must be a strictly increasing pair of positive "
             f"wavelengths in metres, got {wavelength_limits!r}"
         )
-        raise GridError(msg)
+        raise GridError(msg, parameter="wavelength_limits")
     return 2.0 * np.pi * C / high, 2.0 * np.pi * C / low
 
 
@@ -1859,31 +1899,31 @@ def _check_common(
     """
     if length < 0.0:
         msg = f"length must be a non-negative distance in metres, got {length!r}"
-        raise GridError(msg)
+        raise GridError(msg, parameter="length")
     if reference_wavelength <= 0.0:
         msg = (
             "reference_wavelength must be positive, in metres, got "
             f"{reference_wavelength!r}"
         )
-        raise GridError(msg)
+        raise GridError(msg, parameter="reference_wavelength")
     if trange <= 0.0:
         msg = f"trange must be a positive time window in seconds, got {trange!r}"
-        raise GridError(msg)
+        raise GridError(msg, parameter="trange")
     if dt is not None and dt <= 0.0:
         msg = f"dt must be a positive sample spacing in seconds, got {dt!r}"
-        raise GridError(msg)
+        raise GridError(msg, parameter="dt")
     if ffac < 2.0:
         msg = (
             "ffac must be at least 2 so that the fine grid resolves the frequency "
             f"window itself, got {ffac!r}"
         )
-        raise GridError(msg)
+        raise GridError(msg, parameter="ffac")
     if not 0.0 <= collar_fraction < 0.5:
         msg = (
             "collar_fraction must lie in [0, 0.5): zero leaves no temporal collar, and "
             f"half or more leaves no window, got {collar_fraction!r}"
         )
-        raise GridError(msg)
+        raise GridError(msg, parameter="collar_fraction")
 
 
 def _temporal_collar(
@@ -2339,3 +2379,204 @@ def _fft_order(n: int) -> Float[np.ndarray, " n"]:
     index = np.arange(n, dtype=float)
     index[n // 2 :] -= n
     return index
+
+
+# ------------------------------------------------------------------ grid suggestions
+
+_TIME_BANDWIDTH: Final = {
+    "GaussianPulse": 2.0 * math.log(2.0) / math.pi,
+    "SechPulse": 0.315,
+}
+"""Transform-limited intensity time-bandwidth products of the shaped pulses."""
+
+_SUGGESTED_HALF_WIDTH: Final = {"gnlse": 0.5, "capillary": 1.0}
+"""The least half-width of a suggested band, as a fraction of the carrier, by route.
+
+A fibre supercontinuum spans about an octave about its pump; a gas-filled capillary's
+dispersive waves and blue shift reach several times the pump frequency.
+"""
+
+_SUGGESTED_BROADENING: Final = 10.0
+"""How many input bandwidths a suggested band spans each side of the carrier."""
+
+_SUGGESTED_DURATIONS: Final = 30.0
+"""How many input durations a suggested window spans, beyond the pulses' delays."""
+
+
+@dataclass(frozen=True)
+class GridSuggestion:
+    """A starting point for a route's ``wavelength_limits`` and ``trange``.
+
+    Attributes
+    ----------
+    wavelength_limits : tuple of float
+        Shortest and longest wavelength, m.
+    trange : float
+        Length of the time window, s.
+    note : str
+        What the suggestion assumed, and what to check.
+
+    Examples
+    --------
+    >>> from solprop.grid import GridSuggestion
+    >>> GridSuggestion((5e-7, 2e-6), 1e-12, "a starting point").trange
+    1e-12
+    """
+
+    wavelength_limits: tuple[float, float]
+    trange: float
+    note: str
+
+
+def _rounded(value: float, *, up: bool) -> float:
+    """Round a positive value to two significant figures, outwards.
+
+    Parameters
+    ----------
+    value : float
+        The value.
+    up : bool
+        Round up rather than down.
+
+    Returns
+    -------
+    float
+        The value with two significant figures.
+    """
+    scale = 10.0 ** (math.floor(math.log10(value)) - 1)
+    steps = value / scale
+    steps = math.ceil(steps - 1e-9) if up else math.floor(steps + 1e-9)
+    return float(f"{steps * scale:.2g}")
+
+
+def _extent(pulse: object) -> tuple[float, float, float, float]:
+    """Return a pulse's carrier and bandwidth, its duration and its delay.
+
+    Parameters
+    ----------
+    pulse : object
+        A shaped pulse, a sum of pulses or a measured spectrum.
+
+    Returns
+    -------
+    tuple of float
+        The centre frequency and the intensity full width at half maximum in
+        frequency, Hz; the intensity full width at half maximum in time and the
+        largest delay, s.
+
+    Raises
+    ------
+    GridError
+        For a pulse whose extent cannot be read, such as a continuous wave or a
+        custom shape.
+    """
+    from solprop.pulses import (  # noqa: PLC0415 - pulses import this module
+        SECH_FWHM_TO_WIDTH,
+        DataPulse,
+        GaussianPulse,
+        SechPulse,
+    )
+
+    if isinstance(pulse, GaussianPulse | SechPulse):
+        fwhm = pulse.fwhm
+        if fwhm is None and isinstance(pulse, SechPulse):
+            fwhm = float(cast("float", pulse.width)) / SECH_FWHM_TO_WIDTH
+        fwhm = float(cast("float", fwhm))
+        product = _TIME_BANDWIDTH[type(pulse).__name__]
+        return C / pulse.wavelength, product / fwhm, fwhm, abs(pulse.t0)
+    if isinstance(pulse, DataPulse):
+        frequency = np.asarray(pulse.omega) / (2.0 * math.pi)
+        power = np.abs(np.asarray(pulse.spectrum)) ** 2
+        above = frequency[power >= 0.5 * power.max()]
+        bandwidth = float(above.max() - above.min()) or float(np.ptp(frequency))
+        centre = float(np.sum(frequency * power) / np.sum(power))
+        # Its duration if it were transform-limited and Gaussian.
+        limited = _TIME_BANDWIDTH["GaussianPulse"] / bandwidth
+        return centre, bandwidth, limited, abs(pulse.t0)
+    msg = (
+        f"no grid can be suggested for a {type(pulse).__name__}: give a "
+        "GaussianPulse, a SechPulse or a DataPulse, or choose wavelength_limits and "
+        "trange by hand"
+    )
+    raise GridError(msg, parameter="pulses")
+
+
+def suggest(pulses: object, *, route: str = "capillary") -> GridSuggestion:
+    """Suggest ``wavelength_limits`` and ``trange`` for an input, as a starting point.
+
+    The band is centred on the input's carrier and spans, each side, ten times the
+    input's transform-limited bandwidth or a fraction of the carrier frequency, the
+    larger: half of it on the ``gnlse`` route, where a supercontinuum spans about an
+    octave, and all of it on the ``capillary`` route, whose dispersive waves and
+    ionisation blue shift reach far above the pump. The window spans thirty input
+    durations beyond the pulses' delays. Both are rounded outwards to two significant
+    figures. A suggestion knows nothing of the medium or the length: it does not
+    cover a chirp in the input's phase, nor a dispersive wave further than it allows,
+    nor walk-off over a long fibre. Check a run's spectrum at the band's edges and
+    the boundary monitor's verdict on the window.
+
+    Parameters
+    ----------
+    pulses : object
+        A pulse (:class:`~solprop.pulses.GaussianPulse`,
+        :class:`~solprop.pulses.SechPulse`, :class:`~solprop.pulses.DataPulse`), a
+        sum of them, or a sequence of them.
+    route : {'gnlse', 'capillary'}, optional
+        The route the grid is for.
+
+    Returns
+    -------
+    GridSuggestion
+        The limits, the window and what they assumed.
+
+    Raises
+    ------
+    GridError
+        For a route without a rule, or a pulse whose extent cannot be read.
+
+    Examples
+    --------
+    >>> from solprop.grid import suggest
+    >>> from solprop.pulses import GaussianPulse
+    >>> suggestion = suggest(
+    ...     GaussianPulse(wavelength=800e-9, fwhm=7.5e-15, energy=275e-6)
+    ... )
+    >>> suggestion.wavelength_limits, suggestion.trange
+    ((3.1e-07, 4e-06), 2.3e-13)
+    """
+    if route not in _SUGGESTED_HALF_WIDTH:
+        msg = f"no grid suggestion for route {route!r}; the routes are gnlse, capillary"
+        raise GridError(msg, parameter="route")
+    members = list(pulses) if isinstance(pulses, Sequence) else [pulses]
+    flat: list[object] = []
+    while members:
+        member = members.pop(0)
+        inner = getattr(member, "pulses", None)
+        if type(member).__name__ == "PulseSum" and inner is not None:
+            members.extend(inner)
+        else:
+            flat.append(member)
+    if not flat:
+        msg = "no pulses to suggest a grid for"
+        raise GridError(msg, parameter="pulses")
+    extents = [_extent(pulse) for pulse in flat]
+    fraction = _SUGGESTED_HALF_WIDTH[route]
+    low = min(
+        max(
+            centre - max(_SUGGESTED_BROADENING * width, fraction * centre), 0.2 * centre
+        )
+        for centre, width, _, _ in extents
+    )
+    high = max(
+        centre + max(_SUGGESTED_BROADENING * width, fraction * centre)
+        for centre, width, _, _ in extents
+    )
+    duration = max(fwhm for _, _, fwhm, _ in extents)
+    delay = max(delay for _, _, _, delay in extents)
+    trange = 2.0 * delay + _SUGGESTED_DURATIONS * duration
+    return GridSuggestion(
+        (_rounded(C / high, up=False), _rounded(C / low, up=True)),
+        _rounded(trange, up=True),
+        "a starting point from the input's bandwidth and duration: check the "
+        "spectrum at the band's edges and the boundary monitor's verdict on the window",
+    )

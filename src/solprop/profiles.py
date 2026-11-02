@@ -3178,7 +3178,8 @@ def _checked_temperature(value: object, owner: str = "") -> float | ZProfile:
             raise MaterialError(
                 f"the temperature{where} must be finite and positive in K at every "
                 f"position; the path reaches {samples[first]:g} at "
-                f"z = {probes[first]:g} m"
+                f"z = {probes[first]:g} m",
+                parameter="temperature",
             )
         if value.is_constant:
             return float(samples[0])
@@ -3188,12 +3189,14 @@ def _checked_temperature(value: object, owner: str = "") -> float | ZProfile:
     if isinstance(value, bool | np.bool_) or not isinstance(value, numbers.Real):
         raise MaterialError(
             f"the temperature{where} must be a number in K or a ZProfile of it, got "
-            f"{type(value).__name__}"
+            f"{type(value).__name__}",
+            parameter="temperature",
         )
     number = float(value)
     if not (math.isfinite(number) and number > 0.0):
         raise MaterialError(
-            f"the temperature{where} must be finite and positive, got {value} K"
+            f"the temperature{where} must be finite and positive, got {value} K",
+            parameter="temperature",
         )
     # A Python number is kept as given, so a run record states what was declared.
     return cast("float", value) if type(value) in (float, int) else number

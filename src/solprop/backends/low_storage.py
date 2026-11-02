@@ -581,6 +581,7 @@ class LowStorageMarch:
         while (
             backend._schedule_index < schedule.n_steps and backend._z < target - slack
         ):
+            backend._poll_stop()
             dz = float(schedule.steps[backend._schedule_index])
             end = float(edges[backend._schedule_index + 1])
             norm = self.replay_step(dz, end, slack)

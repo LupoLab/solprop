@@ -256,7 +256,7 @@ def spatial_grids(
             fft_size="smooth",
         )
         return grid, FreeGrid(
-            half_width * 1.1, size, half_width * 1.1, size, window_factor=0.0
+            half_width * 1.1, size, half_width * 1.1, size, collar_fraction=0.0
         )
     plasma = "filament" in name
     field = FieldGrid.from_limits(
@@ -265,8 +265,14 @@ def spatial_grids(
         (350e-9, 2e-6) if plasma else (500e-9, 1.6e-6),
         250e-15,
     )
-    if name.startswith("radial") or name == "spatial_absorber":
-        return field, RadialGrid(3e-4 if name == "spatial_absorber" else 1e-3, size)
+    if name == "spatial_absorber":
+        # SEP 40: the aperture of three waists with 2.6 radii of room outside it, for
+        # the requested collar, at the former spacing (64 samples over the aperture).
+        return field, RadialGrid(3e-4, size, collar_fraction=2.6)
+    if name.startswith("radial"):
+        # 1.5 mm since revision 2 (SEP 40): on 1 mm the filament's light reaches the
+        # wall at 2.9 cm, and the transverse edge stops the run.
+        return field, RadialGrid(1.5e-3, size)
     if name == "line":
         return field, LineGrid(1e-3, size)
     if name.startswith("cartesian_filament"):
@@ -350,6 +356,12 @@ def spatial(name: str, settings: SimulationSettings) -> Simulation:
         responses.append(PlasmaResponse("Ar", OptmatRate("Ar", 800e-9)))
     if plasma:
         settings = dataclasses.replace(settings, ionisation_field_range=(1e7, 1e11))
+    if name == "spatial_absorber":
+        from solprop.boundaries import SpatialAbsorber  # noqa: PLC0415
+
+        # The collar's cost path (SEP 40 section 9): designed from the launch, checked
+        # at translation, its error measured at 1.7e-6 in field.
+        settings = dataclasses.replace(settings, spatial_absorber=SpatialAbsorber())
     if isinstance(space, RadialGrid):
         return Simulation.from_radial(
             grid, space, medium, responses, pulse, settings=settings, seed=SEED

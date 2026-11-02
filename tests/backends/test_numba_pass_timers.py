@@ -16,6 +16,7 @@ import pytest
 from backends.planar_cases import planar_case
 from backends.test_dispersive_kerr_routes import ARGON, free_grid, free_problem
 from backends.test_envelope_plasma_geometries import envelope_mixture, geometry_case
+from legacy_geometry import with_collar_rate
 from solprop.backends.numba_cpu import NumbaCpuBackend
 from solprop.backends.numba_cpu.pass_timers import (
     ENVIRONMENT,
@@ -65,7 +66,7 @@ def test_laps_accumulate_per_name_and_reset_forgets_them():
 def cartesian(integrator, *, collar: bool):
     """Return a small Cartesian envelope Kerr problem of two prescribed steps."""
     grid = EnvelopeGrid.from_limits(LENGTH, 800e-9, (600e-9, 1.2e-6), 100e-15)
-    space = FreeGrid(3e-4, 8, 3e-4, 6, window_factor=0.3 if collar else 0.0)
+    space = FreeGrid(3e-4, 8, 3e-4, 6, collar_fraction=0.3 if collar else 0.0)
     pulse = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-7), 8e-5
     )
@@ -97,6 +98,10 @@ def cartesian(integrator, *, collar: bool):
         schedule=FixedSchedule.uniform(0.0, LENGTH, LENGTH / 2),
         integrator=integrator,
     )
+    if collar:
+        # A requested collar cannot be designed on this coarse box (SEP 40's floor);
+        # the subject is the stage's in-stage term, so its rate is put on directly.
+        problem = with_collar_rate(problem, 12.6 / (5 * LENGTH))
     return problem, grid
 
 

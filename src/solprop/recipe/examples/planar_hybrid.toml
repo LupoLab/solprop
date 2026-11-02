@@ -1,0 +1,45 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# A 1 mJ, 100 fs pulse launched into TE1, TE3 and TE5 of a 127 um argon-filled planar
+# guide, resolved in y on 64 samples, through 10 cm under the Kerr effect.
+# mirrors: docs/tutorials/free_space/plot_04_planar_hybrid.py
+
+[recipe]
+format = 1
+route = "planar"
+title = "A planar guide resolved in y"
+
+[build]
+grid = { type = "EnvelopeGrid.from_limits", length = "10 cm", reference_wavelength = "800 nm", wavelength_limits = ["650 nm", "1000 nm"], trange = "400 fs" }
+responses = [
+    { type = "KerrResponse", chi3 = { type = "gamma3", gas = "Ar", wavelength = "800 nm" }, thg = false },
+]
+
+# The slab channels carry the run's fill on this route.
+[build.space]
+type = "PlanarGrid"
+modes = [
+    { type = "SlabMode", half_gap = "63.5 um", gas = "Ar", pressure = "1 bar", order = 1 },
+    { type = "SlabMode", half_gap = "63.5 um", gas = "Ar", pressure = "1 bar", order = 3 },
+    { type = "SlabMode", half_gap = "63.5 um", gas = "Ar", pressure = "1 bar", order = 5 },
+]
+radius_y = "1.5 mm"
+n_y = 64
+
+[build.initial]
+type = "PlanarPulse"
+temporal = { type = "GaussianPulse", wavelength = "800 nm", fwhm = "100 fs", energy = "1 mJ" }
+waist = "0.5 mm"
+waist_x = "46.6725 um"  # 0.735 of the half gap
+
+[build.settings]
+type = "SimulationSettings"
+controller = { type = "PIController", rtol = 1e-3, atol = 1e-9 }
+save_planes = ["10 cm"]
+dz_max = "1 cm"
+dz_init = "1 mm"
+absorber = { type = "absorber", boundary_length = 1.0 }
+stats = { type = "default_spec", kind = "free" }
+backend = "numpy_ref"

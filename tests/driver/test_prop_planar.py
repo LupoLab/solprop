@@ -10,6 +10,7 @@ Every run is at most ten fixed steps of an argon-filled gap on ``numpy_ref``;
 Energies are in J: the geometry integrates over y.
 """
 
+import dataclasses
 import json
 import math
 import warnings
@@ -21,7 +22,6 @@ from numpy.testing import assert_allclose
 
 from legacy_geometry import LEGACY_GRID, bare_absorber
 from solprop import fourier
-from solprop.boundaries import absorber
 from solprop.constants import C
 from solprop.driver import Simulation, SimulationSettings, prop_planar
 from solprop.driver.executors import Local
@@ -528,7 +528,11 @@ def test_a_planar_scan_records_its_field_units_and_refuses_modal_reductions(
             space,
             [],
             pulse(energy=float(point.values["energy"])),
-            settings=settings(steps=2),
+            # The scan's beam reaches the safety ramp's band and the y edge (SEP 40
+            # section 5.3); the subject is its field units, not its boundary.
+            settings=dataclasses.replace(
+                settings(steps=2), spatial_absorber=False, boundary_check=None
+            ),
         )
 
     path = tmp_path / "scan.h5"
@@ -573,46 +577,6 @@ def test_the_planar_statistics_refuse_a_wrong_spectrum():
 
 
 @pytest.mark.medium
-def test_the_y_collar_absorbs_what_reaches_it_when_an_absorber_is_declared():
-    """The Cartesian collar, applied (unlike the Luna planar branch's y window).
-
-    A Gaussian in y centred in the collar: with an absorber declared the in-stage
-    rate removes energy the linear flow otherwise keeps, save the modal loss; the
-    same run without one keeps it. Both schemes of the temporal absorber run. The
-    spatial collar is always in-stage: the default Adams history steps it only
-    below 1.4 mm here, so the runs take eighty steps of 1.25 mm.
-    """
-    space = PlanarGrid(slab_modes((1,)), 0.5e-3, 32, window_factor=0.5)
-    profile = np.exp(-(((space.y - 0.62e-3) / 60e-6) ** 2))
-    temporal = GaussianPulse(wavelength=800e-9, fwhm=100e-15, energy=1e-3).build(GRID)
-    field0 = (np.fft.fft(profile)[:, None, None] * temporal[0][None]).astype(complex)
-    energies = {}
-    collar = absorber(GRID, boundary_length=0.2)
-    for name, declared, scheme in (
-        ("none", bare_absorber(GRID), "nonlinear"),
-        ("nonlinear", collar, "nonlinear"),
-        ("split_step", collar, "split_step"),
-    ):
-        output = Simulation.from_planar(
-            GRID,
-            space,
-            [],
-            field0,
-            settings=settings(
-                steps=80,
-                stats=default_spec("free"),
-                absorber=declared,
-                absorber_scheme=scheme,
-            ),
-        ).run(progress="none")
-        energy = np.ravel(output["stats/energy"])
-        energies[name] = energy[-1] / energy[0]
-    loss = math.exp(-2 * 0.149 * LENGTH)
-    assert energies["none"] == pytest.approx(loss, rel=1e-3)
-    assert energies["nonlinear"] < 0.5 * loss
-    assert energies["split_step"] < 0.5 * loss
-
-
 @pytest.mark.parametrize(
     ("shape", "match"),
     [("two_columns", "scalar single-column"), ("nonfinite", "nonfinite")],

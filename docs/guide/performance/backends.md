@@ -150,11 +150,14 @@ accuracy record of [single precision](single-precision.md); it is validated agai
 reference backend's single-precision path. It runs the capillary and fibre routes
 (mode-averaged and multimode, field and envelope grids, Kerr, Raman, field-grid plasma,
 both absorber schemes, Runge–Kutta and the low-storage march, lockstep batches) and
-radial and Cartesian free space, including a line, with their transverse collars, and
-the envelope-grid plasma.
+radial and Cartesian free space, including a line, with the safety ramp, and the
+envelope-grid plasma. It reads the transverse edge on the host, from its state widened
+to binary64 ([transverse boundaries](../free-space/model.md#transverse-boundaries)).
 
-The backend is **experimental** in this release. Its Metal kernels are tested on a
-Metal device by hand rather than in continuous integration, and its speed has not been
+The backend is **experimental** in this release. Its Metal kernels run in the macOS
+default lane of continuous integration, which requires a usable Metal device, but
+coverage and runtime type checks remain absent there
+([the remaining CI gaps](../../dev/testing.md#the-mlx-omission)). Its speed has not been
 re-measured on the default grids, whose 2-3-5-smooth sizes MLX's GPU transform runs
 four to eight times slower than powers of two: build single-precision grids with
 `fft_size="pow2"` ([grid sizes on `mlx`](single-precision.md#grid-sizes-on-mlx)).

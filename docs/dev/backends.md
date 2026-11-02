@@ -423,9 +423,30 @@ coefficients through `problem.flux.at(z)` (kernel schema 35): energy and the far
 spectra weight each column and bin by the real admittance `c Re k_z/omega` of that root,
 and fluence, intensities and the on-axis spectrum synthesise the closure `G` from the
 complex admittance before forming `Re(E conj(G))/2`, signed and not clipped. The widths
-refuse a fluence negative beyond its rounding budget. The collar diagnostic,
-`backends.spatial.collar_field_fraction`, stays an electric-field-norm share and is named
-as one. A backend whose own statistics do not apply this measure refuses the schema.
+refuse a fluence negative beyond its rounding budget. The helper
+`backends.spatial.collar_field_fraction` stays an electric-field-norm share and is named
+as one; its end-of-plane log is retired, and the boundary monitor's transverse edge
+(SEP 40) judges the boundary instead. A backend whose own statistics do not apply this measure refuses the schema.
+
+**The transverse edge is read on the host** ([SEP 40](seps/archive/sep-0040-transverse-absorbing-boundaries.md)).
+A backend whose `StepDriver.reads_transverse_edge` is set hands the monitor's
+`TransverseEdge` its observed field at the edge's reads, at saved planes, and with a
+requested collar at every committed step. The read spacing is a ceiling on the step, and
+a step is not made to land on a read: the edge is read at the last committed position
+from which the next proposal would carry past the next read (`TransverseEdge.due`), so
+reads stay at most a spacing apart without shortening the steps between them (landing on
+each read cost 10-35 % more steps on the suite's line and planar cases). Every solprop
+backend sets it; `numba_cpu` keeps its state on the host and steps from there, under the
+driver's ceiling, as mlx does from its widened device state. The native Adams march
+takes the next read and the spacing as the call's `read_at` and `read_spacing` bounds:
+an adaptive step is capped at the spacing, and the call returns at the committed
+position from which the next proposal would pass the read, so the host reads the state
+there. With a collar the host step is one, so the march returns at every committed step.
+A native device build reads the edge the same way, copying its state to the host at each
+read; it is compiled, not qualified on a device. A backend that does not set it reports
+`unwatched` and refuses a requested collar by name. The edge's reductions run on the
+host copy of the field; moving them into the native memory space is left to the cost
+measurement of SEP 40 section 7.7.
 
 ## 3. `numba_cpu`: the compiled in-tree backend
 
@@ -1727,9 +1748,10 @@ matrix product (`passes.project_many`), measured at 1.18 times faster on a one-m
 plasma capillary, where launches bound the stage, and neutral on larger ones.
 
 **Status: experimental** in the first release. The custom Metal kernels (`gpu_only` in
-`tests/backends/test_mlx.py`) run only on a Metal device, by hand; CI's macOS lane runs
-the module on MLX's CPU device without the runtime type checks, basedpyright on Linux
-cannot resolve `mlx.core`, and the coverage lane omits `mlx_gpu`
+`tests/backends/test_mlx.py`) run on Metal in CI's macOS default lane, which asserts
+that the device is available. That lane runs without coverage or the runtime type
+checks, no CI pass selects MLX's CPU device, basedpyright on Linux cannot resolve
+`mlx.core`, and the coverage lane omits `mlx_gpu`
 ([testing](testing.md#the-mlx-omission)). The default `fft_size="auto"` takes the smooth
 size that a cost model fitted to FFTW's CPU transforms ranks cheapest
 (`grid._RADIX_PENALTY`); MLX's GPU FFT runs such sizes four to eight times slower than
@@ -1786,11 +1808,12 @@ each stage and each running integral is evaluated as it is formed.
 graph the backend keeps, and bounds MLX's measured peak; on the spatial routes a stage
 also holds the transverse transforms' copies and the reference's in-place passes as
 separate arrays, measured at up to 18 fine-grid columns per column on the Cartesian
-route and 6 on the radial one (`memory._MLX_TRANSIENT_COLUMNS`), and with the envelope
+route and 9 on the radial one, whose operator carries SEP 40's safety ramp
+(`memory._MLX_TRANSIENT_COLUMNS`), and with the envelope
 plasma the device's own arrays per node sample (drive, loss and current; rate,
-exposure, populations, flag and scan scratch per channel). On MLX's CPU device, which CI
-uses where no Metal GPU is present, the kernels are replaced by MLX operations (the
-propagator by NumPy in binary64) and their tests skip.
+exposure, populations, flag and scan scratch per channel). On MLX's CPU device, available
+for local tests with `SOLPROP_MLX_DEVICE=cpu`, the kernels are replaced by MLX operations
+(the propagator by NumPy in binary64) and their tests skip. CI requires Metal instead.
 
 ## 5. JAX: evaluated, not adopted
 

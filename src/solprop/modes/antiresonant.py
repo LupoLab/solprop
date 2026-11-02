@@ -61,7 +61,7 @@ DISPERSION_WIDTH: Final = 0.03
 
 ``gamma_d`` of Rosa, Melli and Vincetti (2021) eq. 2. The paper prints 0.003; earlier
 implementations carry 0.03, which fits the FEM index near the resonances 3.2 (vacuum)
-and 2.3 (argon) times better.
+and 1.9 (argon) times better.
 """
 
 RADIUS_COEFFICIENT: Final = 10.0
