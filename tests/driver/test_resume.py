@@ -173,6 +173,8 @@ def test_a_replayed_schedule_resumed_matches_the_uninterrupted_run(
     last stage as the next one's first across planes (ADR-039), which a resume evaluates
     afresh, and no run is promised bitwise anyway (SEP 25).
     """
+    if backend == "native":
+        pytest.importorskip("solprop_native")
     whole, interrupted, again = (
         scheduled(build_simulation, backend=backend) for _ in range(3)
     )

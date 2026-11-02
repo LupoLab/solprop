@@ -798,6 +798,8 @@ def test_both_backends_check_the_whitelist_before_the_spatial_branch(name):
     E/H reference at all. Both backends now check first, which is also where the
     four-door claim of `solprop.output.capability` is true.
     """
+    if name == "native":
+        pytest.importorskip("solprop_native")
     grid, problem = spatial_case()
     built = select(name, problem, grid=grid)
     try:
@@ -824,6 +826,8 @@ def test_a_general_statistic_under_a_weight_that_is_not_one_is_refused(strand, n
     is handed the weight past its own admission, which is the only way to exercise a
     guard written for the day either side is loosened.
     """
+    if name == "native":
+        pytest.importorskip("solprop_native")
     _, state = continuous_wave(strand, [1.0])
     grid, problem = strand.grid, general_problem(strand, state)
     built = select(name, problem, grid=grid)
