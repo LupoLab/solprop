@@ -47,6 +47,13 @@ cpu-performance
 
 ```{toctree}
 :maxdepth: 1
+:caption: The desktop front end
+
+gui/design
+```
+
+```{toctree}
+:maxdepth: 1
 :caption: Decisions, proposals, and ongoing work
 
 decisions

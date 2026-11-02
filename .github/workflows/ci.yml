@@ -23,8 +23,10 @@ env:
 jobs:
   # Which lanes to run. A change confined to docs/ and Markdown files runs the static
   # checks, the documentation build and the tests that read the documentation
-  # (docs-tests), not the test lanes; anything else, or a push whose base is unknown,
-  # runs everything. A push to main that merges a pull request runs nothing when the
+  # (docs-tests), not the test lanes; one confined to the front end (gui/, with docs/
+  # and Markdown) runs the static checks, the documentation build and the front end's
+  # own job; anything else, or a push whose base is unknown, runs everything, the front
+  # end's job included, so a change to solprop is checked against the front end. A push to main that merges a pull request runs nothing when the
   # pushed tree is the pull request head's tree and CI passed on that head: the pull
   # request was up to date with main, so its run already tested exactly this tree.
   changes:
@@ -51,7 +53,11 @@ jobs:
           if [ -n "$BASE" ] && git cat-file -e "$BASE^{commit}" 2>/dev/null; then
             git diff --name-only "$BASE" HEAD > changed.txt
             cat changed.txt
-            if ! grep -qvE '^docs/|\.md$' changed.txt; then lanes=docs; fi
+            if ! grep -qvE '^docs/|\.md$' changed.txt; then
+              lanes=docs
+            elif ! grep -qvE '^gui/|^docs/|\.md$' changed.txt; then
+              lanes=gui
+            fi
           fi
           if [ "$EVENT" = push ]; then
             tree=$(git rev-parse "HEAD^{tree}")
@@ -477,6 +483,35 @@ jobs:
       - run: uv python install 3.14
       - run: uv run --locked poe check-native
 
+  # The front end's gate (`poe check-gui`: its types, docstrings and tests, the layers
+  # without Qt held to 100 % coverage) on each desktop platform, with the widgets drawn
+  # offscreen. Its lint, format, spelling and licence checks are the static job's.
+  gui:
+    needs: changes
+    if: needs.changes.outputs.lanes == 'full' || needs.changes.outputs.lanes == 'gui'
+    name: gui (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # hatch-vcs derives the version from tags
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          enable-cache: true
+      # Qt's offscreen platform still loads EGL, OpenGL, xkbcommon and fontconfig.
+      - if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes libegl1 libgl1 libxkbcommon0 libfontconfig1 libdbus-1-3
+      - run: uv python install 3.14
+      - run: uv sync --locked --extra gui --group gui-test
+      - run: uv run --no-sync poe check-gui
+
   # The one check the main branch's ruleset requires. Which lanes run depends on what a
   # change touches (above), and a required check is matched by its reported name: a
   # skipped matrix job reports its unexpanded name, so no fixed list of job names fits
@@ -497,6 +532,7 @@ jobs:
       - coverage-report
       - oldest
       - native-quality
+      - gui
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
