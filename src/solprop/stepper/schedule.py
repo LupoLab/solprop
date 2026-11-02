@@ -246,14 +246,14 @@ class FixedSchedule:  # numpydoc ignore=PR02
           stable step under the default ``absorber_scheme="nonlinear"``, nor, on a
           spatial route, than a requested spatial collar's stable step or its
           fixed-schedule crossing and damping bounds; translation refuses a schedule
-          that breaks one, printing the limit rounded down. An adaptive run is not held to these
-          limits (an empty collar produces no error, and a spatial collar holds an
-          adaptive step only to its looser crossing limit), so a run's own history
-          can be refused. Holding the discovery run to ``dz_max`` at or under the
-          printed limit clears that refusal; for the temporal collar alone,
-          ``absorber_scheme="split_step"`` in both runs does too. A stability limit
-          is the integrator's, so run the discovery with the replay's integrator
-          (``docs/guide/numerics/fixed-schedules.md``).
+          that breaks one, printing the limit rounded down. An adaptive run is not
+          held to these limits (an empty collar produces no error, and a spatial
+          collar holds an adaptive step only to its looser crossing limit), so a
+          run's own history can be refused. Holding the discovery run to ``dz_max``
+          at or under the printed limit clears that refusal; for the temporal collar
+          alone, ``absorber_scheme="split_step"`` in both runs does too. A stability
+          limit is the integrator's, so run the discovery with the replay's
+          integrator (``docs/guide/numerics/fixed-schedules.md``).
         - *Save planes.* A replay lands on its save planes, so
           ``interpolate_planes=True`` is refused beside a schedule; and a discovery
           run with ``interpolate_planes=True`` steps past its planes, so its history
