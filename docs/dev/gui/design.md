@@ -168,9 +168,10 @@ door open); replacing scripts for production campaigns.
 | D6 | Same machine first; remote work stays scripted in the short term. | 2026-10-31 |
 | D7 | solprop's API and way of working may change to help the GUI (nothing is public yet, so without aliases). | 2026-10-31 |
 | D8 | The recipe lives in solprop (`solprop.recipe`, change S1): its format, builders, Python export and `solprop run`; the GUI adds only presentation. Q1 closed. | 2026-10-31 |
-| D9 | This design is a living page under `docs/dev/gui/`, not a SEP; the work is a tracking issue and one issue, branch and pull request per milestone of section 16. A change to solprop the GUI needs follows solprop's own rules (an issue, or a SEP for a major change). | 2026-11-02 |
+| D9 | This design is a living page under `docs/dev/gui/`, not a SEP; the work is a tracking issue and one issue and branch per milestone of section 16. A change to solprop the GUI needs follows solprop's own rules (an issue, or a SEP for a major change) and is merged on its own. | 2026-11-02 |
 | D10 | Questions Q3–Q12 of section 14 are decided as recommended there. | 2026-11-02 |
 | D11 | The quality bar is split by layer: `model`, `registry`, `service` and `help` meet solprop's standard in full, 100 % coverage included; `ui` and `views` are typed, documented and linted the same way and tested by `pytest-qt` smoke tests and offscreen screenshots, outside the coverage measure. | 2026-11-02 |
+| D12 | The GUI is built out and tested locally, milestone on milestone, and iterated on by hand before any of it is merged: the milestone branches stack locally and are not pushed while that goes on, and the local gate (`poe check-gui`) stands in for CI. The solprop changes the GUI needs still go to main as their own pull requests. | 2026-11-02 |
 
 ## 3. Users and the work they do
 
