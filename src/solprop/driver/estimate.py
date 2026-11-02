@@ -180,7 +180,7 @@ def estimate(
         profiles=simulation.profiles,
     )
     try:
-        backend.set_initial(problem.initial.launch_state(), None, z=problem.initial.z)
+        backend.set_initial(problem.initial.field0, None, z=problem.initial.z)
         z0 = float(problem.initial.z)
         dz = float(problem.stepper.dz_init)
         trial = getattr(backend, "_trial_step")  # noqa: B009 - every StepDriver has it

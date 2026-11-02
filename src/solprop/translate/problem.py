@@ -32,13 +32,14 @@ import json
 import logging
 import math
 import warnings
+import weakref
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, fields, is_dataclass, replace
 from types import MappingProxyType
 from typing import Any, Literal, cast
 
 import numpy as np
-from jaxtyping import Bool, Complex, Float
+from jaxtyping import Bool, Complex, Float, Num
 
 from solprop._process import host_blas
 from solprop.adiabatic import AdiabaticAccuracy, certify_radial_path
@@ -202,7 +203,7 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-KERNEL_SCHEMA_VERSION = 41
+KERNEL_SCHEMA_VERSION = 42
 """Version of the kernel contract this module implements.
 
 Incremented on every change to the field list of ``docs/dev/kernel-contract.md``. A
@@ -472,6 +473,12 @@ ramp, is admitted on the radial kind, where it rides the dense operator, and on 
 hybrid planar kind per ``(p, k_y)`` column, which the slab element now takes as its
 ``transverse_rate``. The geometry's ``absorber_rate`` is the design's collar, zero
 without one, and an adaptive run's ``dz_max`` is held to the collar's crossing limit.
+
+Version 42 lets ``initial.field0`` be strided: a broadcast input is held as a
+zero-stride view of the block it repeats rather than as a full copy, and
+``StepDriver.set_initial`` accepts a state of any strides, copying it contiguous. Every
+other array stays C-contiguous; no ``KernelProblem`` field, stage bundle or
+``StepDriver`` signature moves.
 """
 
 DEFAULT_COMPONENTS = ("x",)
@@ -550,9 +557,9 @@ _STRIDED_LEAVES = frozenset({"initial.field0"})
 """The leaves that need not be C-contiguous, by dotted name.
 
 The initial state is never indexed by a kernel: a backend takes it through
-``set_initial``, which copies it into its own state, and solprop's callers hand it
-over through :meth:`Initial.launch_state`, contiguous. So it may be a zero-stride
-broadcast view, which the problem keeps instead of a copy (:class:`Initial`).
+``set_initial``, which accepts any strides and copies it into its own state. So it may
+be a zero-stride broadcast view, which the problem keeps instead of a full copy
+(:class:`Initial`; kernel schema 42).
 """
 
 
@@ -711,17 +718,17 @@ class Initial:
     convention and read-only; the noise is C-contiguous, and so is the state unless it
     is a broadcast view.
 
-    The state is held without a copy whenever that is safe, because a backend copies it
-    into its own state on ``set_initial`` and the problem only reads it after that:
+    Every array is the problem's own, so that nothing the caller does to an array it
+    passed, afterwards, changes the problem, and the caller's array is never frozen:
 
-    - a read-only array whose owner is read-only too, C-contiguous or a broadcast view,
-      is kept as it is. NumPy's flags are taken as the caller's promise not to change
-      it;
-    - a broadcast view of anything else (zero strides, as from
-      :func:`numpy.broadcast_to`) keeps a read-only copy of the block it repeats and
-      broadcasts that, so it costs the block's bytes, not one state's;
-    - anything else, a writeable array in particular, is copied, C-contiguous and
-      read-only, so that changing the caller's array later never changes the problem.
+    - the state, the noise and the batch parameters are copied, complex128 (float64
+      for the parameters), C-contiguous and read-only;
+    - a broadcast state (zero strides, as from :func:`numpy.broadcast_to`) copies only
+      the block it repeats, converted first, and broadcasts that copy, so it costs the
+      block's bytes rather than one state's;
+    - an array the problem already holds, which a replaced or re-translated problem
+      passes back, is taken as it is, and so is one solprop built for the problem
+      itself (``_hold``), so that neither is copied twice.
 
     Attributes
     ----------
@@ -784,8 +791,7 @@ class Initial:
         state = _held_state(self.field0)
         object.__setattr__(self, "field0", state)
         if self.noise0 is not None:
-            noise = np.ascontiguousarray(self.noise0, dtype=np.complex128)
-            noise.setflags(write=False)
+            noise = _held_copy(self.noise0, np.complex128)
             object.__setattr__(self, "noise0", noise)
             if noise.shape != state.shape:
                 msg = (
@@ -801,7 +807,10 @@ class Initial:
             raise TranslationError(msg)
         parameters = {}
         for name, values in self.batch_params.items():
-            entry = _readonly(np.asarray(values, dtype=np.float64).reshape(-1))
+            entry = _held_copy(
+                values if _is_held(values) else np.asarray(values).reshape(-1),
+                np.float64,
+            )
             if entry.size != state.shape[0]:
                 msg = (
                     f"batch_params[{name!r}] has {entry.size} entries, expected "
@@ -810,31 +819,6 @@ class Initial:
                 raise TranslationError(msg)
             parameters[name] = entry
         object.__setattr__(self, "batch_params", MappingProxyType(parameters))
-
-    def launch_state(self) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
-        """Return the state C-contiguous, as a backend's ``set_initial`` loads it.
-
-        A broadcast state is expanded here, into an array that lives only as long as
-        the caller keeps it: hand it straight to ``set_initial``, which copies it.
-
-        Returns
-        -------
-        numpy.ndarray
-            :attr:`field0` itself when it is C-contiguous, otherwise a read-only
-            C-contiguous copy of it.
-
-        Examples
-        --------
-        >>> import numpy as np
-        >>> from solprop.translate.problem import Initial
-        >>> row = np.ones((1, 1, 1, 8), dtype=complex)
-        >>> initial = Initial(np.broadcast_to(row, (4, 1, 1, 8)), None, "none", {})
-        >>> initial.launch_state().flags.c_contiguous
-        True
-        """
-        if self.field0.flags.c_contiguous:
-            return self.field0
-        return _readonly(self.field0)
 
 
 _ADAMS_CONTROL = frozenset({"rtol", "atol", "weights", "region"})
@@ -1088,8 +1072,20 @@ def _readonly(values: np.ndarray) -> np.ndarray:
     return frozen
 
 
-def _frozen(values: np.ndarray) -> bool:
-    """Return whether neither an array nor its owner can write the data.
+_HELD: weakref.WeakValueDictionary[int, np.ndarray] = weakref.WeakValueDictionary()
+"""The arrays an :class:`Initial` holds as its own, by ``id``.
+
+An array is in it because solprop made it -- a copy :class:`Initial` took, or one the
+translation built for the problem (:func:`_hold`) -- never because of its flags, which
+the owner of an array, or a writeable buffer beneath it, can change. Entries leave with
+their arrays.
+"""
+
+
+def _hold(values: np.ndarray) -> np.ndarray:
+    """Return an array solprop made for a problem, frozen and marked as held.
+
+    Only for an array no one else refers to: a copy, a quotient or a fresh build.
 
     Parameters
     ----------
@@ -1098,57 +1094,79 @@ def _frozen(values: np.ndarray) -> bool:
 
     Returns
     -------
-    bool
-        False if the array or any array its data belongs to is writeable. A base that
-        is not an array (``bytes``, a read-only memory map) is taken as it is.
+    numpy.ndarray
+        The same array, read-only, which :class:`Initial` takes without a copy.
     """
-    owner: object = values
-    while isinstance(owner, np.ndarray):
-        if owner.flags.writeable:
-            return False
-        owner = owner.base
-    return True
+    values.setflags(write=False)
+    _HELD[id(values)] = values
+    return values
 
 
-def _held_state(
-    field0: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
-) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
-    """Return the initial state as :class:`Initial` holds it, copying only what it must.
+def _is_held(values: object) -> bool:
+    """Return whether an array is one :func:`_hold` marked.
 
     Parameters
     ----------
-    field0 : numpy.ndarray
-        The state the caller passed.
+    values : object
+        Anything.
+
+    Returns
+    -------
+    bool
+        True for the very array that was marked, while it lives.
+    """
+    return _HELD.get(id(values)) is values
+
+
+def _held_copy(values: np.ndarray, dtype: type[np.generic]) -> np.ndarray:
+    """Return a held, C-contiguous copy of an array, or the array if already held.
+
+    Parameters
+    ----------
+    values : numpy.ndarray
+        The caller's array, or one already held.
+    dtype : type
+        The element type of the copy.
 
     Returns
     -------
     numpy.ndarray
-        Read-only complex128: `field0` itself when it and its owner are read-only and it
-        is C-contiguous or a broadcast view; a broadcast view of a read-only copy of
-        the repeated block when it is any other broadcast view; otherwise a read-only
-        C-contiguous copy.
+        Read-only and the problem's own.
     """
-    if isinstance(field0, np.ndarray) and field0.dtype != np.complex128:
-        # The conversion is already a new array of the problem's own.
-        return _readonly(field0.astype(np.complex128))
-    # Anything else that is not an array may share writeable memory, as an array does.
-    field0 = np.asarray(field0, dtype=np.complex128)
+    if _is_held(values):
+        return values
+    return _hold(np.array(values, dtype=dtype, order="C"))
+
+
+def _held_state(field0: Num[np.ndarray, "*shape"]) -> Complex[np.ndarray, "*shape"]:
+    """Return the initial state as :class:`Initial` holds it, copying only the block.
+
+    Parameters
+    ----------
+    field0 : numpy.ndarray
+        The state the caller passed, of any numeric dtype.
+
+    Returns
+    -------
+    numpy.ndarray
+        Complex128 and read-only: `field0` itself when it is already held; for a
+        broadcast view, a broadcast of a held copy of the block it repeats; otherwise a
+        held C-contiguous copy.
+    """
+    if _is_held(field0):
+        return field0
+    values = np.asarray(field0)
     repeated = tuple(
         size > 1 and stride == 0
-        for size, stride in zip(field0.shape, field0.strides, strict=True)
+        for size, stride in zip(values.shape, values.strides, strict=True)
     )
-    if _frozen(field0) and (field0.flags.c_contiguous or any(repeated)):
-        return field0
     if not any(repeated):
-        held = np.array(field0, order="C")
-        held.setflags(write=False)
-        return held
-    block = np.array(
-        field0[tuple(slice(0, 1) if axis else slice(None) for axis in repeated)],
-        order="C",
+        return _held_copy(values, np.complex128)
+    block = _held_copy(
+        values[tuple(slice(0, 1) if axis else slice(None) for axis in repeated)],
+        np.complex128,
     )
-    block.setflags(write=False)
-    return np.broadcast_to(block, field0.shape)
+    return _hold(np.broadcast_to(block, values.shape))
 
 
 @dataclass(frozen=True, eq=False)
@@ -1214,7 +1232,7 @@ class KernelProblem:
     ...     dz_max=0.1, dz_init=1e-3, shock=False, prefactor_index=1.0, density=1.0,
     ... )
     >>> problem.shape, problem.grid_kind, problem.schema_version
-    ((1, 1, 1, 3072), 'envelope', 41)
+    ((1, 1, 1, 3072), 'envelope', 42)
     """
 
     schema_version: int
@@ -5877,28 +5895,31 @@ def _state(
     Returns
     -------
     numpy.ndarray
-        The state with four axes, complex128.
+        The state with four axes, complex128, the problem's own: copied once here as
+        :class:`Initial` holds it, so that it is not copied again there.
 
     Raises
     ------
     TranslationError
         If the array has neither three nor four axes or the grid extent differs.
     """
-    values = np.asarray(field0, dtype=np.complex128)
+    values = np.asarray(field0)
     if values.ndim in (3, 4) and values.shape[-1] != n_omega:
         raise TranslationError(
             f"field0 has {values.shape[-1]} spectral bins, expected {n_omega} "
             "to match the grid"
         )
     if values.ndim == 3:
-        return values[np.newaxis]
+        expanded = values[np.newaxis]
+        # The batch axis on a held state is a view of the problem's own array.
+        return _hold(expanded) if _is_held(values) else _held_state(expanded)
     if values.ndim != 4:
         msg = (
             "field0 must have shape (n_modes, n_pol, n_omega) or (n_batch, n_modes, "
             f"n_pol, n_omega), got {values.shape}"
         )
         raise TranslationError(msg)
-    return values
+    return _held_state(values)
 
 
 def _material_mixture(
@@ -6668,7 +6689,7 @@ def debug_summary(problem: KernelProblem) -> str:
     ...     width=100e-15, peak_power=9.8, shape="sech", n_save=3,
     ... )
     >>> print(debug_summary(simulation.translate()).splitlines()[0])
-    kernel problem schema 41: envelope grid, route modal
+    kernel problem schema 42: envelope grid, route modal
     """
     linear, transform = problem.linear, problem.transform
     tables, metric = transform.modal_tables, linear.modal_metric
@@ -6762,13 +6783,13 @@ def _power_initial(
     """
     if linear.power_weight_representation is not None and index != 1.0:
         root_weight = np.sqrt(power_weight_row(linear, initial.z))
-        launch = initial.field0 / root_weight
-        # The quotient is the problem's own: frozen, it is held without a second copy.
-        launch.setflags(write=False)
+        # The quotients are the problem's own, held without a second copy.
         initial = replace(
             initial,
-            field0=launch,
-            noise0=None if initial.noise0 is None else initial.noise0 / root_weight,
+            field0=_hold(initial.field0 / root_weight),
+            noise0=None
+            if initial.noise0 is None
+            else _hold(initial.noise0 / root_weight),
         )
     if (
         reused is not None

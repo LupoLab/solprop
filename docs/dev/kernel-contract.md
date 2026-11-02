@@ -94,7 +94,7 @@ expansion. A
 total-degree expansion is not part of the contract: it failed the joint memory and
 build-cost criterion on the short fixture.
 
-The current version is kernel schema **41**
+The current version is kernel schema **42**
 (`solprop.translate.problem.KERNEL_SCHEMA_VERSION`), and the tables of this document
 describe it. A version bump that adds an optional field
 leaves every problem that does not use it unchanged, `schema_version` itself being the
@@ -1042,15 +1042,16 @@ The initial-state fields below are independent of that optional binding.
 | `batch_params` | dict of `(n_batch,) float64` | per-member scalars recorded in the output; per-member table indices where tables differ |
 | `z` | `float` | absolute initial position in m, non-negative and before the first requested save; true-power input is normalised at this position |
 
-No kernel indexes `field0`: a backend copies it into its own state in `set_initial`, and
-solprop's callers pass `Initial.launch_state()`, which is `field0` itself or, for a
-broadcast, a C-contiguous expansion that lives for the load. So `Initial` holds the
-state without a copy wherever that is safe: a read-only array whose owner is read-only
-too is kept as it is; any other broadcast view (zero strides, as from
-`numpy.broadcast_to`) keeps a read-only copy of the block it repeats, broadcast again;
-anything else, a writeable array in particular, is copied, so that changing the
-caller's array later never changes the problem. `estimate_memory` counts what is held
-as its `initial_field` group (`backends.md` section 8).
+No kernel indexes `field0`: `StepDriver.set_initial` accepts a state of any strides and
+copies it contiguous into the backend's own state, so since version 42 `field0` may be a
+zero-stride broadcast view. Every array of `Initial` is the problem's own, so that
+nothing a caller does afterwards to an array it passed changes the problem, and the
+caller's array is never frozen: the state, the noise and the batch parameters are
+copied; a broadcast state (as from `numpy.broadcast_to`) copies only the block it
+repeats, converted to complex128, and broadcasts that copy; and an array the problem
+already holds, or one the translation built for it, is taken without a second copy.
+`estimate_memory` counts what is held as its `initial_field` group (`backends.md`
+section 8).
 
 ## 7. Stepper settings and schedule
 

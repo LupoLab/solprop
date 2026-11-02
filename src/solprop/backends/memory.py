@@ -65,10 +65,11 @@ allowance with the selected compiled backend's current buffers, projection rows,
 spectra and tables. FFT-provider allocator growth remains a measured ledger row.
 
 ``initial_field`` is beside those groups, because no backend's ledger holds it: the
-translated problem's initial state, ``problem.initial.field0``, at the bytes it holds,
-one state's bytes, or a broadcast view's repeated block alone
-(:class:`~solprop.translate.problem.Initial` says which inputs it keeps without a
-copy). **Already resident** when the estimate is formed, as the general reference is.
+translated problem's initial state, ``problem.initial.field0``, at the bytes it holds:
+one state's bytes, or a broadcast input's repeated block alone
+(:class:`~solprop.translate.problem.Initial`). **Already resident** when the estimate is
+formed, as the general reference is, and held on the host, so the admission charges it
+to the host alone.
 
 What is **not counted** is named on every estimate (:attr:`MemoryEstimate.not_counted`).
 

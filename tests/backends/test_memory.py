@@ -166,19 +166,19 @@ def _frozen_copy(field):
 
 @pytest.mark.parametrize(
     ("launch", "kept"),
-    [(lambda field: field, "column"), (np.copy, "state"), (_frozen_copy, "shared")],
-    ids=["broadcast", "writeable", "frozen"],
+    [(lambda field: field, "column"), (np.copy, "state"), (_frozen_copy, "state")],
+    ids=["broadcast", "writeable", "read-only"],
 )
 def test_estimate_memory_counts_the_initial_field_the_problem_holds(launch, kept):
-    # A broadcast input is held as its repeated column, a writeable one as the
-    # problem's copy, a frozen one as the caller's array itself: the estimate counts
-    # what is held, and no ledger holds it.
+    # A broadcast input is held as a copy of its repeated column, any other as the
+    # problem's copy of the state: the estimate counts what is held, and no ledger
+    # holds it.
     problem, grid, field, column = _free_problem(launch)
     state = 16 * int(np.prod(problem.shape))
     held = problem.initial.field0
-    expected = {"column": column.nbytes, "state": state, "shared": state}[kept]
-    assert np.shares_memory(held, field) == (kept == "shared")
-    assert held.flags.owndata == (kept == "state")
+    expected = {"column": column.nbytes, "state": state}[kept]
+    assert not np.shares_memory(held, field)
+    assert (held.strides[1] == 0) == (kept == "column")
     estimate = estimate_memory(problem, "numpy_ref")
     assert estimate.groups["initial_field"] == estimate.resident == expected
     constructed = select("numpy_ref", problem, grid=grid)

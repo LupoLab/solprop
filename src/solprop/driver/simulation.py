@@ -41,7 +41,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Final, Literal, Protocol, cast
 
 import numpy as np
-from jaxtyping import Complex, Float, Shaped
+from jaxtyping import Complex, Float
 from scipy.special import j0, jn_zeros
 
 import solprop.driver.tdse as tdse_runtime
@@ -339,6 +339,9 @@ from solprop.translate.problem import (
     PropagatorMode,
     StepperSettings,
     TranslationReuse,
+    _held_state,
+    _hold,
+    _state,
     assemble,
 )
 from solprop.translate.responses import KerrForm
@@ -2170,9 +2173,12 @@ class Simulation(Displayed):
                 self.frame = Frame.comoving(
                     grid, thg=any(bool(getattr(one, "thg", False)) for one in responses)
                 )
-            self._field0 = _frozen_build(
-                initial.build(
-                    grid, spatial_grid, medium=medium, z=initial_z, frame=self.frame
+            # Copied as the problem holds it: the build may be the pulse's own array.
+            self._field0 = _held_state(
+                np.asarray(
+                    initial.build(
+                        grid, spatial_grid, medium=medium, z=initial_z, frame=self.frame
+                    )
                 )
             )
         else:
@@ -2653,17 +2659,8 @@ class Simulation(Displayed):
         record = dataclasses.replace(
             original.initial,
             z=launch_z,
-            field0=np.asarray(updated._field0[np.newaxis], dtype=np.complex128),
+            field0=_replaced_launch(original, updated._field0, launch_z),
         )
-        if original.transform.geometry is None:
-            record = dataclasses.replace(
-                record,
-                field0=_frozen_build(
-                    power_amplitude(
-                        record.field0, power_weight_at(original, launch_z), inverse=True
-                    )
-                ),
-            )
         updated._problem = _with_noise(
             dataclasses.replace(
                 original,
@@ -3843,9 +3840,7 @@ class Simulation(Displayed):
             Index of the first save plane still to propagate to.
         """
         if state is None:
-            backend.set_initial(
-                problem.initial.launch_state(), None, z=problem.initial.z
-            )
+            backend.set_initial(problem.initial.field0, None, z=problem.initial.z)
             return 0
         next_plane = _validate_resume(problem, state, self.settings.tdse_execution)
         logger.info(
@@ -7171,7 +7166,7 @@ class SimulationRunner(Displayed):
                 retention=retention,
             )
             self._backend.set_initial(
-                problem.initial.launch_state(),
+                problem.initial.field0,
                 None if isinstance(noise, str) else _realisation(problem),
                 z=problem.initial.z,
             )
@@ -8433,6 +8428,37 @@ def _refined_tdse_collar(
     )
 
 
+def _replaced_launch(
+    original: KernelProblem,
+    field0: Complex[np.ndarray, "n_modes n_pol n_omega"],
+    launch_z: float,
+) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
+    """Return a replaced input as the derived problem's launch, copied at most once.
+
+    Parameters
+    ----------
+    original : KernelProblem
+        The problem the input replaces the launch of.
+    field0 : numpy.ndarray
+        The replacement input, in true sqrt(W) on a modal route.
+    launch_z : float
+        Where it is launched, m.
+
+    Returns
+    -------
+    numpy.ndarray
+        The launch with its batch axis, which :class:`~solprop.translate.problem.
+        Initial` takes without a further copy.
+    """
+    if original.transform.geometry is not None:
+        return _state(field0, original.shape[-1])
+    # Converted first, so that the conversion is the launch's one copy.
+    converted = power_amplitude(
+        field0[np.newaxis], power_weight_at(original, launch_z), inverse=True
+    )
+    return _hold(np.asarray(converted, dtype=np.complex128))
+
+
 def _built(
     initial: Pulse | np.ndarray, grid: TimeGrid
 ) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
@@ -8456,7 +8482,13 @@ def _built(
         If `initial` is neither an array nor a pulse.
     """
     if isinstance(initial, np.ndarray):
-        return np.asarray(initial, dtype=np.complex128)
+        # The caller's array as it is; another dtype is converted as the problem holds
+        # it, so that a broadcast converts its block alone.
+        return (
+            np.asarray(initial)
+            if initial.dtype == np.complex128
+            else _held_state(initial)
+        )
     # A runtime-checkable protocol is satisfied by the presence of `build`, not by its
     # being callable, so the guard below is still the one that names the mistake.
     build = getattr(initial, "build", None)
@@ -8466,29 +8498,8 @@ def _built(
             f"got {type(initial).__name__}"
         )
         raise DriverError(msg)
-    return _frozen_build(np.asarray(build(grid)))
-
-
-def _frozen_build(built: Shaped[np.ndarray, "*shape"]) -> Complex[np.ndarray, "*shape"]:
-    """Return a spectrum the simulation made for itself, complex128 and read-only.
-
-    Frozen, it is the simulation's own, and the translated problem holds it rather than
-    a copy (:class:`~solprop.translate.problem.Initial`). An array the caller passed is
-    the caller's and is never frozen.
-
-    Parameters
-    ----------
-    built : numpy.ndarray
-        What a pulse's ``build`` returned, or a launch converted from one.
-
-    Returns
-    -------
-    numpy.ndarray
-        The spectrum, complex128, read-only.
-    """
-    spectrum = np.asarray(built, dtype=np.complex128)
-    spectrum.setflags(write=False)
-    return spectrum
+    # Copied as the problem holds it: the build may be the pulse's own array.
+    return _held_state(np.asarray(build(grid)))
 
 
 def _interpolated(state: ResumeState) -> bool:

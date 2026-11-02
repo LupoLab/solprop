@@ -379,7 +379,7 @@ class NativeBackend(StepDriver[_core.State]):
         z: float = 0.0,
         resume: bool = False,
     ) -> None:
-        """Load an exact host `complex128` state and optional noise realization."""
+        """Load a host `complex128` state, of any strides, and optional noise."""
         _require_initial_array(field, self._problem.shape)
         self._loading = True
         try:
@@ -1787,8 +1787,8 @@ def _require_initial_array(field: object, shape: tuple[int, ...]) -> None:
         raise BackendError(
             f"the initial state has shape {array.shape}, expected {shape}"
         )
-    if not array.flags.c_contiguous:
-        raise ValueError("field must be C-contiguous")
+    # Any strides: a problem's initial state may be a broadcast view (kernel schema
+    # 42), and the driver's load copies the field into a contiguous state first.
 
 
 type _TrialArrays = tuple[

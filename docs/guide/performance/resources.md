@@ -79,14 +79,12 @@ a narrower frequency window for all of them. Nothing is ever approximated to fit
 counted, and named on every estimate: FFTW's planning heap and per-stage transients.
 
 **The initial field.** The translated problem keeps the run's initial state for as long
-as it lives, and the estimate counts it as the group `initial_field`. What it keeps
-depends on what you pass. A read-only array (one whose owner is read-only too) is kept
-as it is, without a copy, and a broadcast view such as
-`numpy.broadcast_to(column, shape)` costs only the block it repeats. A writeable array is
-copied, one state's bytes, so that changing it afterwards cannot change the run; and a
-modal launch is held converted to its internal amplitude. A caller who loads its own
-state into one backend for run after run can pass a broadcast placeholder and pay for no
-held copy at all.
+as it lives, and the estimate counts it as the group `initial_field`, on the host. The
+problem copies what you pass, so that changing your array afterwards cannot change the
+run: one state's bytes, held converted to the internal amplitude on a modal route. A
+broadcast view such as `numpy.broadcast_to(column, shape)` is the exception: the problem
+copies only the block it repeats. A caller who loads its own state into one backend for
+run after run can pass a broadcast placeholder and pay for almost no held copy at all.
 
 ```python
 import numpy as np

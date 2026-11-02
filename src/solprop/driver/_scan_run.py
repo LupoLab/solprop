@@ -714,7 +714,7 @@ class _Work:
             # None, not `simulation.noise`: the realisation the builders return is in
             # true sqrt(W), while `initial.noise0` has already been divided by the
             # entrance weight, and StepDriver prefers a passed realisation over it.
-            backend.set_initial(simulation.translate().initial.launch_state(), None)
+            backend.set_initial(simulation.translate().initial.field0, None)
             return {
                 "baseline_rss": baseline,
                 "rss": peak_rss(),

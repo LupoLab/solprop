@@ -54,6 +54,7 @@ from solprop.spatial import SpatialMedium
 from solprop.stats import StatsSpec
 from solprop.stepper import PIController
 from solprop.stepper.multistep import Multistep
+from solprop.translate import problem as problem_module
 from solprop.translate.tdse import AtomicCallLedger
 
 # These fixtures run a TDSE response on a multi-node Gauss-Kronrod rule on purpose;
@@ -150,6 +151,29 @@ def test_with_input_retains_absolute_tables_and_filters_only_explicit_launch():
     again = launch.with_input(launch._field0)
     assert again.initial_z == 5e-6
     assert_array_equal(again.settings.save_planes, launch.settings.save_planes)
+
+
+def test_a_replaced_modal_input_is_copied_once_by_its_conversion(monkeypatch):
+    # The power conversion is the launch's one copy: the problem takes the quotient
+    # as its own, and a later change to the caller's array reaches neither.
+    simulation = tiny_simulation()
+    simulation.translate()
+    copies = []
+    original_copy = problem_module._held_copy
+
+    def counted(values, dtype):
+        copies.append(values.shape)
+        return original_copy(values, dtype)
+
+    monkeypatch.setattr(problem_module, "_held_copy", counted)
+    field = np.array(simulation._field0)
+    problem = simulation.with_input(field).translate()
+    assert problem.transform.geometry is None
+    assert problem.shape not in copies
+    launch = problem.initial.field0.copy()
+    field[...] = 0.0
+    assert_array_equal(problem.initial.field0, launch)
+    assert np.any(launch)
 
 
 def test_interior_input_uses_actual_z_modal_weight():
