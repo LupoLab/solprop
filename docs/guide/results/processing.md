@@ -132,8 +132,12 @@ space = RadialGrid(6e-4, 16)
 medium = SpatialMedium("Ar", 1.0)
 pulse = SpatialPulse(GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=3e-9), 6e-5)
 settings = SimulationSettings(
-    controller=PIController(rtol=1e-8, atol=1e-14), save_planes=[1e-3],
-    dz_init=5e-4, dz_max=5e-4, backend="numpy_ref", spatial_absorber=False,
+    controller=PIController(rtol=1e-8, atol=1e-14),
+    save_planes=[1e-3],
+    dz_init=5e-4,
+    dz_max=5e-4,
+    backend="numpy_ref",
+    spatial_absorber=False,
 )
 run = Simulation.from_radial(
     grid, space, medium, [], pulse, settings=settings, noise=None
