@@ -35,6 +35,8 @@ from solprop.driver import SimulationSettings
 from solprop.exceptions import BackendError
 from solprop.stepper import PIController
 
+pytestmark = pytest.mark.real_auto
+
 LENGTH = 0.01  # m
 
 

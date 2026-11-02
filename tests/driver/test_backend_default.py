@@ -37,6 +37,8 @@ from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stepper import PIController
 
+pytestmark = pytest.mark.real_auto
+
 
 class _BackendChoice(TypedDict, total=False):
     backend: str

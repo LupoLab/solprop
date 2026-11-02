@@ -338,7 +338,7 @@ def _check_required_device(name: str) -> None:
     try:
         import solprop_native  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
     except Exception as error:
-        # A device build with no visible device stops inside Kokkos as the package loads.
+        # A device build with no visible device stops in Kokkos as the package loads.
         msg = (
             f"{REQUIRE_DEVICE_SETTING}={value}: solprop-native did not load, so this "
             f"run wouldn't execute on a device: {error}"

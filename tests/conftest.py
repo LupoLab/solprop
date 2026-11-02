@@ -67,29 +67,32 @@ if _process.sizes_blas_after_load():
     threadpoolctl.threadpool_limits(1, user_api="blas")
 
 
+# Outside tests, backend="auto" refuses where no native package is installed (SEP 43
+# section 5). A lightweight environment or the `no-native` lane names numpy_ref in
+# SOLPROP_TEST_BACKEND, and most tests take the default backend, including in fixtures
+# that outlive a test, so `auto` means that name for the session. A test of the refusal
+# itself says `real_auto`.
+_NAMED_BACKEND = os.environ.get("SOLPROP_TEST_BACKEND")
+_REAL_AUTO = {"on": False}
+_REAL_RESOLVE = registry.resolve_name
+
+
+def _resolve_for_tests(backend="auto"):
+    named = backend == "auto" and not _REAL_AUTO["on"]
+    return _NAMED_BACKEND if named else _REAL_RESOLVE(backend)
+
+
+if _NAMED_BACKEND and importlib.util.find_spec("solprop_native") is None:
+    registry.resolve_name = _resolve_for_tests
+    simulation.resolve_name = _resolve_for_tests
+    memory.resolve_name = _resolve_for_tests
+
+
 @pytest.fixture(autouse=True)
-def _auto_is_the_named_backend_without_native(request, monkeypatch):
-    """Let ``auto`` mean ``SOLPROP_TEST_BACKEND`` where no native package is installed.
-
-    Outside tests it refuses there (SEP 43 section 5). A lightweight environment or the
-    ``no-native`` lane names ``numpy_ref``, and most tests take the default backend. A
-    test of the refusal itself says ``real_auto``.
-    """
-    name = os.environ.get("SOLPROP_TEST_BACKEND")
-    if (
-        not name
-        or request.node.get_closest_marker("real_auto") is not None
-        or importlib.util.find_spec("solprop_native") is not None
-    ):
-        return
-    real = registry.resolve_name
-
-    def resolve(backend="auto"):
-        return name if backend == "auto" else real(backend)
-
-    monkeypatch.setattr(registry, "resolve_name", resolve)
-    monkeypatch.setattr(simulation, "resolve_name", resolve)
-    monkeypatch.setattr(memory, "resolve_name", resolve)
+def _keep_the_real_auto(request, monkeypatch):
+    """Give a ``real_auto`` test the refusal that the session otherwise replaces."""
+    if request.node.get_closest_marker("real_auto") is not None:
+        monkeypatch.setitem(_REAL_AUTO, "on", True)
 
 
 # ------------------------------------------------------------------------- the tiers

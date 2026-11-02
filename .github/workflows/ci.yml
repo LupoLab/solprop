@@ -195,8 +195,9 @@ jobs:
           CXX: g++-14
         run: |
           uv python install 3.14
+          uv sync --locked --no-install-package solprop-native
           SOLPROP_NATIVE_CHECK_STAGES=wheel SOLPROP_NATIVE_CHECK_WHEEL_DIR="$PWD/wheelhouse" \
-            uv run --locked poe check-native
+            uv run poe check-native
       - if: steps.cache.outputs.cache-hit != 'true' && runner.os == 'macOS'
         run: brew install llvm ninja
       - if: steps.cache.outputs.cache-hit != 'true' && runner.os == 'Windows'
@@ -538,7 +539,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes clang-tidy cmake g++-14 libfftw3-dev ninja-build pkg-config
       - run: uv python install 3.14
-      - run: uv run --locked poe check-native
+      - run: uv sync --locked --no-install-package solprop-native
+      - run: uv run poe check-native
 
   # The one check the main branch's ruleset requires. Which lanes run depends on what a
   # change touches (above), and a required check is matched by its reported name: a
