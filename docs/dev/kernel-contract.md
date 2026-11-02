@@ -280,7 +280,8 @@ host and never sees a Python `ZProfile`. Where a path is exactly zero at an inte
 too, within the table's tolerance, so the non-negativity check on density tables never
 meets the fit's rounding.
 
-`validate()` checks: all arrays finite, C-contiguous, read-only, and of the stated dtype
+`validate()` checks: all arrays finite, read-only, C-contiguous (but `initial.field0`,
+which may be a broadcast view: section 6), and of the stated dtype
 (float64, complex128, bool and intp everywhere, and `int32` at exactly three declared
 index leaves — `transform.modal_tables.region_index`,
 `responses.regional_responses.response_region` and
@@ -1035,11 +1036,21 @@ The initial-state fields below are independent of that optional binding.
 
 | field | shape / dtype | meaning |
 |---|---|---|
-| `field0` | `(n_batch, n_modes, n_pol, n_omega) complex128` | initial state in the lab frame, FFT convention |
+| `field0` | `(n_batch, n_modes, n_pol, n_omega) complex128` | initial state in the lab frame, FFT convention; read-only, and C-contiguous unless it is a zero-stride broadcast view (below) |
 | `noise0` | same or `None` | modified shot-noise realisation |
 | `noise_model` | `"none" \| "input" \| "modified"` | |
 | `batch_params` | dict of `(n_batch,) float64` | per-member scalars recorded in the output; per-member table indices where tables differ |
 | `z` | `float` | absolute initial position in m, non-negative and before the first requested save; true-power input is normalised at this position |
+
+No kernel indexes `field0`: a backend copies it into its own state in `set_initial`, and
+solprop's callers pass `Initial.launch_state()`, which is `field0` itself or, for a
+broadcast, a C-contiguous expansion that lives for the load. So `Initial` holds the
+state without a copy wherever that is safe: a read-only array whose owner is read-only
+too is kept as it is; any other broadcast view (zero strides, as from
+`numpy.broadcast_to`) keeps a read-only copy of the block it repeats, broadcast again;
+anything else, a writeable array in particular, is copied, so that changing the
+caller's array later never changes the problem. `estimate_memory` counts what is held
+as its `initial_field` group (`backends.md` section 8).
 
 ## 7. Stepper settings and schedule
 

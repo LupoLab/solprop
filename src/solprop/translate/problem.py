@@ -546,6 +546,15 @@ documents. Both are read by the statistics alone, only in comparisons, and never
 a kernel's arithmetic. NaN stays refused.
 """
 
+_STRIDED_LEAVES = frozenset({"initial.field0"})
+"""The leaves that need not be C-contiguous, by dotted name.
+
+The initial state is never indexed by a kernel: a backend takes it through
+``set_initial``, which copies it into its own state, and solprop's callers hand it
+over through :meth:`Initial.launch_state`, contiguous. So it may be a zero-stride
+broadcast view, which the problem keeps instead of a copy (:class:`Initial`).
+"""
+
 
 DEFAULT_STRETCH = 1.1
 """Landing stretch factor (``stepper.md`` section 3).
@@ -699,13 +708,26 @@ class Initial:
     """The initial state, the noise realisation and the batch parameters.
 
     Section 6 of the kernel contract. Both arrays are in the lab frame and the FFT
-    convention, read-only and C-contiguous.
+    convention and read-only; the noise is C-contiguous, and so is the state unless it
+    is a broadcast view.
+
+    The state is held without a copy whenever that is safe, because a backend copies it
+    into its own state on ``set_initial`` and the problem only reads it after that:
+
+    - a read-only array whose owner is read-only too, C-contiguous or a broadcast view,
+      is kept as it is. NumPy's flags are taken as the caller's promise not to change
+      it;
+    - a broadcast view of anything else (zero strides, as from
+      :func:`numpy.broadcast_to`) keeps a read-only copy of the block it repeats and
+      broadcasts that, so it costs the block's bytes, not one state's;
+    - anything else, a writeable array in particular, is copied, C-contiguous and
+      read-only, so that changing the caller's array later never changes the problem.
 
     Attributes
     ----------
     field0 : numpy.ndarray
         Initial state, complex128, shape ``(n_batch, n_modes, n_pol, n_omega)``, in the
-        square root of watts.
+        square root of watts; possibly a read-only broadcast view, never written.
     noise0 : numpy.ndarray or None
         The shot-noise realisation in the same layout, or ``None``. It is carried along
         z by the unitary part of the linear flow and added at every stage; the
@@ -734,6 +756,13 @@ class Initial:
     >>> state = np.zeros((1, 1, 1, 8), dtype=complex)
     >>> Initial(state, None, "none", {}).noise_model
     'none'
+
+    A broadcast input stays a broadcast, over a copy of the row it repeats:
+
+    >>> row = np.ones((1, 1, 1, 8), dtype=complex)
+    >>> held = Initial(np.broadcast_to(row, (4, 1, 1, 8)), None, "none", {}).field0
+    >>> held.shape, held.strides[0], np.shares_memory(held, row)
+    ((4, 1, 1, 8), 0, False)
     """
 
     field0: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]
@@ -743,7 +772,7 @@ class Initial:
     z: float = 0.0
 
     def __post_init__(self) -> None:
-        """Adopt read-only copies and check the noise against the state.
+        """Adopt the state as the class docstring says and check the noise against it.
 
         Raises
         ------
@@ -752,8 +781,7 @@ class Initial:
         """
         if not math.isfinite(self.z) or self.z < 0.0:
             raise TranslationError("initial.z must be finite and non-negative")
-        state = np.ascontiguousarray(self.field0, dtype=np.complex128)
-        state.setflags(write=False)
+        state = _held_state(self.field0)
         object.__setattr__(self, "field0", state)
         if self.noise0 is not None:
             noise = np.ascontiguousarray(self.noise0, dtype=np.complex128)
@@ -782,6 +810,31 @@ class Initial:
                 raise TranslationError(msg)
             parameters[name] = entry
         object.__setattr__(self, "batch_params", MappingProxyType(parameters))
+
+    def launch_state(self) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
+        """Return the state C-contiguous, as a backend's ``set_initial`` loads it.
+
+        A broadcast state is expanded here, into an array that lives only as long as
+        the caller keeps it: hand it straight to ``set_initial``, which copies it.
+
+        Returns
+        -------
+        numpy.ndarray
+            :attr:`field0` itself when it is C-contiguous, otherwise a read-only
+            C-contiguous copy of it.
+
+        Examples
+        --------
+        >>> import numpy as np
+        >>> from solprop.translate.problem import Initial
+        >>> row = np.ones((1, 1, 1, 8), dtype=complex)
+        >>> initial = Initial(np.broadcast_to(row, (4, 1, 1, 8)), None, "none", {})
+        >>> initial.launch_state().flags.c_contiguous
+        True
+        """
+        if self.field0.flags.c_contiguous:
+            return self.field0
+        return _readonly(self.field0)
 
 
 _ADAMS_CONTROL = frozenset({"rtol", "atol", "weights", "region"})
@@ -1035,6 +1088,69 @@ def _readonly(values: np.ndarray) -> np.ndarray:
     return frozen
 
 
+def _frozen(values: np.ndarray) -> bool:
+    """Return whether neither an array nor its owner can write the data.
+
+    Parameters
+    ----------
+    values : numpy.ndarray
+        The array.
+
+    Returns
+    -------
+    bool
+        False if the array or any array its data belongs to is writeable. A base that
+        is not an array (``bytes``, a read-only memory map) is taken as it is.
+    """
+    owner: object = values
+    while isinstance(owner, np.ndarray):
+        if owner.flags.writeable:
+            return False
+        owner = owner.base
+    return True
+
+
+def _held_state(
+    field0: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
+) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
+    """Return the initial state as :class:`Initial` holds it, copying only what it must.
+
+    Parameters
+    ----------
+    field0 : numpy.ndarray
+        The state the caller passed.
+
+    Returns
+    -------
+    numpy.ndarray
+        Read-only complex128: `field0` itself when it and its owner are read-only and it
+        is C-contiguous or a broadcast view; a broadcast view of a read-only copy of
+        the repeated block when it is any other broadcast view; otherwise a read-only
+        C-contiguous copy.
+    """
+    if isinstance(field0, np.ndarray) and field0.dtype != np.complex128:
+        # The conversion is already a new array of the problem's own.
+        return _readonly(field0.astype(np.complex128))
+    # Anything else that is not an array may share writeable memory, as an array does.
+    field0 = np.asarray(field0, dtype=np.complex128)
+    repeated = tuple(
+        size > 1 and stride == 0
+        for size, stride in zip(field0.shape, field0.strides, strict=True)
+    )
+    if _frozen(field0) and (field0.flags.c_contiguous or any(repeated)):
+        return field0
+    if not any(repeated):
+        held = np.array(field0, order="C")
+        held.setflags(write=False)
+        return held
+    block = np.array(
+        field0[tuple(slice(0, 1) if axis else slice(None) for axis in repeated)],
+        order="C",
+    )
+    block.setflags(write=False)
+    return np.broadcast_to(block, field0.shape)
+
+
 @dataclass(frozen=True, eq=False)
 class KernelProblem:
     """Everything a backend needs, and nothing it does not.
@@ -1165,7 +1281,8 @@ class KernelProblem:
 
         A backend calls this and refuses anything inconsistent
         (``docs/dev/architecture.md`` section 7). What is checked: the schema version;
-        every array finite, C-contiguous, read-only and of the stated dtype and shape;
+        every array finite, read-only, of the stated dtype and shape, and C-contiguous
+        but for the initial state, which may be a broadcast view (:class:`Initial`);
         the masks Boolean; the breakpoints strictly increasing and covering the run
         including its margin; the hard kinks interval edges; every table along z
         spanning the same range and, for the prefactor, carrying the state's value
@@ -1512,13 +1629,15 @@ class KernelProblem:
     def _check_arrays(self) -> None:
         """Check every stored array is finite, contiguous, read-only and typed.
 
+        The initial state alone may be strided (:data:`_STRIDED_LEAVES`).
+
         Raises
         ------
         TranslationError
             Naming the field that failed.
         """
         for name, values in _walk_arrays(self):
-            if not values.flags.c_contiguous:
+            if not values.flags.c_contiguous and name not in _STRIDED_LEAVES:
                 msg = f"{name} is not C-contiguous; a kernel indexes it directly"
                 raise TranslationError(msg)
             if values.flags.writeable:
@@ -6643,9 +6762,12 @@ def _power_initial(
     """
     if linear.power_weight_representation is not None and index != 1.0:
         root_weight = np.sqrt(power_weight_row(linear, initial.z))
+        launch = initial.field0 / root_weight
+        # The quotient is the problem's own: frozen, it is held without a second copy.
+        launch.setflags(write=False)
         initial = replace(
             initial,
-            field0=initial.field0 / root_weight,
+            field0=launch,
             noise0=None if initial.noise0 is None else initial.noise0 / root_weight,
         )
     if (

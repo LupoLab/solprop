@@ -69,7 +69,7 @@ def _load(simulation: Simulation, cleanup: ExitStack) -> Backend:
         profiles=simulation.profiles,
     )
     cleanup.callback(owner.close)
-    owner.set_initial(problem.initial.field0, None)
+    owner.set_initial(problem.initial.launch_state(), None)
     return owner
 
 

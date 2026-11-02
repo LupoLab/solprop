@@ -2170,8 +2170,10 @@ class Simulation(Displayed):
                 self.frame = Frame.comoving(
                     grid, thg=any(bool(getattr(one, "thg", False)) for one in responses)
                 )
-            self._field0 = initial.build(
-                grid, spatial_grid, medium=medium, z=initial_z, frame=self.frame
+            self._field0 = _frozen_build(
+                initial.build(
+                    grid, spatial_grid, medium=medium, z=initial_z, frame=self.frame
+                )
             )
         else:
             self._field0 = _built(initial, grid)
@@ -2656,8 +2658,10 @@ class Simulation(Displayed):
         if original.transform.geometry is None:
             record = dataclasses.replace(
                 record,
-                field0=power_amplitude(
-                    record.field0, power_weight_at(original, launch_z), inverse=True
+                field0=_frozen_build(
+                    power_amplitude(
+                        record.field0, power_weight_at(original, launch_z), inverse=True
+                    )
                 ),
             )
         updated._problem = _with_noise(
@@ -3839,7 +3843,9 @@ class Simulation(Displayed):
             Index of the first save plane still to propagate to.
         """
         if state is None:
-            backend.set_initial(problem.initial.field0, None, z=problem.initial.z)
+            backend.set_initial(
+                problem.initial.launch_state(), None, z=problem.initial.z
+            )
             return 0
         next_plane = _validate_resume(problem, state, self.settings.tdse_execution)
         logger.info(
@@ -7165,7 +7171,7 @@ class SimulationRunner(Displayed):
                 retention=retention,
             )
             self._backend.set_initial(
-                problem.initial.field0,
+                problem.initial.launch_state(),
                 None if isinstance(noise, str) else _realisation(problem),
                 z=problem.initial.z,
             )
@@ -8460,7 +8466,31 @@ def _built(
             f"got {type(initial).__name__}"
         )
         raise DriverError(msg)
-    return np.asarray(build(grid), dtype=np.complex128)
+    return _frozen_build(np.asarray(build(grid)))
+
+
+def _frozen_build(
+    built: Complex[np.ndarray, "*shape"],
+) -> Complex[np.ndarray, "*shape"]:
+    """Return a spectrum the simulation made for itself, complex128 and read-only.
+
+    Frozen, it is the simulation's own, and the translated problem holds it rather than
+    a copy (:class:`~solprop.translate.problem.Initial`). An array the caller passed is
+    the caller's and is never frozen.
+
+    Parameters
+    ----------
+    built : numpy.ndarray
+        What a pulse's ``build`` returned, or a launch converted from one.
+
+    Returns
+    -------
+    numpy.ndarray
+        The spectrum, complex128, read-only.
+    """
+    spectrum = np.asarray(built, dtype=np.complex128)
+    spectrum.setflags(write=False)
+    return spectrum
 
 
 def _interpolated(state: ResumeState) -> bool:
