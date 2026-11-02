@@ -538,6 +538,36 @@ def test_species_metadata_validation_and_inverse_eos(absorbing_species):
     )
 
 
+def test_floor_beside_constant_or_profile_pressure_is_refused():
+    # #165: floor only shapes endpoint pairs / stage tables; beside a scalar or
+    # profile it used to be dropped, so a nonsense floor looked accepted.
+    with pytest.raises(MaterialError, match="floor"):
+        Mixture.fill({"He": 1.0}, 1.0, floor=-5.0)
+    with pytest.raises(MaterialError, match="floor"):
+        Mixture.fill({"He": 1.0}, Constant(1.0, (0.0, 0.1)), floor=0.01)
+    with pytest.raises(MaterialError, match="floor"):
+        Mixture.air(1.0, floor=-5.0)
+    # Endpoint pairs still validate the floor themselves.
+    with pytest.raises(TranslationError, match="pressure floor"):
+        Mixture.fill({"He": 1.0}, (1.0, 0.0), length=0.1, floor=-5.0)
+    # from_capillary routes pressure_floor through the same _pressure_path.
+    from solprop.driver import Simulation
+
+    with pytest.raises(MaterialError, match="floor"):
+        Simulation.from_capillary(
+            100e-6,
+            0.05,
+            "He",
+            1.0,
+            wavelength=800e-9,
+            wavelength_limits=(300e-9, 2e-6),
+            trange=400e-15,
+            pressure_floor=-5.0,
+            plasma=False,
+            noise=None,
+        )
+
+
 def test_air_without_argon_is_the_same_fractions_renormalised():
     two = Mixture.air(1.0, argon=False)
     three = Mixture.air(1.0)

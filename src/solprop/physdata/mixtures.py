@@ -261,6 +261,13 @@ def _pressure_path(  # noqa: PLR0913 - the fill vocabulary and what the flow nee
             f"vacuum_end must be 'choked' or 'floor', got {vacuum_end!r}"
         )
     if isinstance(value, (ZProfile, float, int)):
+        # floor only shapes endpoint pairs / stage tables. Beside a scalar or
+        # profile there is nothing to clamp, so refuse rather than drop it (#165).
+        if floor is not None:
+            raise MaterialError(
+                "floor is only used with endpoint pressure pairs or stage tables, "
+                f"got floor={floor!r} beside a constant or profile pressure"
+            )
         return _endless_path(
             value, length, vacuum_end, radius, temperature, composition
         )
@@ -846,7 +853,9 @@ class Mixture(Displayed):
             the species' transport data; a varying pressure profile given beside a
             varying temperature must carry that weight.
         floor : float or None, optional
-            Pressure-gradient floor in bar; None uses the standard floor.
+            Pressure-gradient floor in bar for endpoint pairs or stage tables;
+            None uses the standard floor. Refused beside a constant pressure or a
+            profile, which have no ends to clamp.
         length : float or None, optional
             Positive length in m, required for endpoint pressure pairs.
         radius : float, ZProfile or None, optional
@@ -875,7 +884,8 @@ class Mixture(Displayed):
         Raises
         ------
         MaterialError
-            If fractions, species or the pressure specification are invalid.
+            If fractions, species or the pressure specification are invalid, or if
+            `floor` is given beside a constant or profile pressure.
         """
         weights = _fractions(tuple(fractions.values()))
         materials = tuple(_resolved(key, selection) for key in fractions)
@@ -1007,7 +1017,8 @@ class Mixture(Displayed):
         length : float or None, optional
             Positive length in m, required for endpoint pressure pairs.
         floor : float or None, optional
-            Pressure-gradient floor in bar.
+            Pressure-gradient floor in bar for endpoint pairs or stage tables, as
+            in :meth:`fill`. Refused beside a constant or profile pressure.
         radius : float, ZProfile or None, optional
             Core radius in m for a steady-flow gradient, as in :meth:`fill`.
         vacuum_end : {'choked', 'floor'} or None, optional
@@ -1321,7 +1332,8 @@ class Mixture(Displayed):
         length : float or None, optional
             Length in m required for new endpoint pressures.
         floor : float or None, optional
-            New pressure-gradient floor in bar.
+            New pressure-gradient floor in bar for endpoint pairs or stage tables,
+            as in :meth:`fill`. Refused beside a constant or profile pressure.
         radius : float, ZProfile or None, optional
             Core radius in m for a new steady-flow gradient, as in :meth:`fill`.
         vacuum_end : {'choked', 'floor'} or None, optional
@@ -1337,7 +1349,8 @@ class Mixture(Displayed):
         MaterialError
             If fractions or pressure are missing for an independent mixture, or new
             fractions are given beside a retained fill whose choked end or flow
-            weight was computed for the old composition.
+            weight was computed for the old composition, or if `floor` is given
+            beside a constant or profile pressure.
         """
         if fractions is not None and set(fractions) != set(self.labels):
             raise MaterialError(f"fill fractions must name exactly {self.labels}")
