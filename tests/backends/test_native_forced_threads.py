@@ -145,8 +145,8 @@ def test_adaptive_adams_agrees_across_threads_on_the_other_routes(
 
     At the retired test's bound, which ``test_exponential_routes.py`` holds these routes
     to against the reference, or at :data:`FORKED_BOUND` where the two forked. The
-    exponential runs of the capillaries are left out: their in-stage collar holds them at
-    its stable step, where rounding sets the steps (``COLLAR_HELD`` there; on the
+    exponential runs of the capillaries are left out: their in-stage collar holds them
+    at its stable step, where rounding sets the steps (``COLLAR_HELD`` there; on the
     pressure gradient, 4 % apart, 2026-11-03), so they are not one discrete march.
     """
     case = f"adams_route:{route}|{formulation}"
