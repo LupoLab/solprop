@@ -43,11 +43,13 @@ from solprop.modes.protocol import Mode
 
 __all__ = [
     "BETA2_RELATIVE_STEP",
+    "BETA3_RELATIVE_STEP",
     "aeff",
     "alpha",
     "beta",
     "beta1",
     "beta2",
+    "beta3",
     "db_per_m",
     "loss_length",
     "transmission",
@@ -71,6 +73,18 @@ That is three orders better than differencing ``beta`` itself, and it is
 enough: nothing in the solver consumes ``beta_2``. The co-moving frame uses ``beta_1``,
 which is analytic. Making this analytic too needs the second derivative of the gas
 susceptibility, which is not part of the material interface.
+"""
+
+BETA3_RELATIVE_STEP: Final = 4e-3
+"""Relative frequency step of the Richardson second difference behind :func:`beta3`.
+
+A second difference divides the rounding of ``beta_1`` by the step squared, while the
+truncation grows with the structure the fill puts into ``beta_1``, and the two pull
+the step opposite ways. Against the closed form of an evacuated capillary
+(``tests/modes/test_base.py``), which has little structure, the error is 3.8e-6 at a
+relative step of 3e-3, 1.5e-6 at 4e-3 and 4.8e-7 at 8e-3. A helium-filled capillary
+(125 um, one bar, 400 nm to 2 um) has more: there, steps of 3e-3 and 5e-3 agree with
+4e-3 to 1.5e-5 of the largest value, while a step of 2e-2 is off by 4e-4.
 """
 
 _DECIBEL_PER_NEPER: Final = 10.0 / math.log(10.0)
@@ -256,6 +270,88 @@ def beta2(
         2.0 * half
     )
     return np.asarray((4.0 * narrow - wide) / 3.0)
+
+
+def beta3(
+    mode: Mode, omega: Float[np.ndarray, " n_omega"], z: float = 0.0
+) -> Float[np.ndarray, " n_omega"]:
+    """Return the third-order dispersion, by differencing the analytic `beta1` twice.
+
+    A Richardson-extrapolated second central difference of :func:`beta1` at a relative
+    step of :data:`BETA3_RELATIVE_STEP`, for the reason :func:`beta2` gives: the
+    material interface has no higher derivative of a gas susceptibility.
+
+    Parameters
+    ----------
+    mode : Mode
+        The mode.
+    omega : numpy.ndarray
+        Angular frequencies in rad/s, shape ``(n_omega,)``, > 0.
+    z : float, optional
+        Position along the waveguide, m.
+
+    Returns
+    -------
+    numpy.ndarray
+        ``beta_3 = d^3(beta)/d(omega)^3`` in s^3/m, shape ``(n_omega,)``.
+
+    Raises
+    ------
+    ModeError
+        If any frequency is not finite or not positive, since the step is relative.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from solprop.modes import MarcatiliMode
+    >>> from solprop.modes.base import beta3
+    >>> mode = MarcatiliMode(125e-6, "He", 1.0)
+    >>> f"{beta3(mode, np.array([2.356e15]))[0]:.3e}"
+    '1.124e-44'
+    """
+    values = _as_omega(omega)
+    if np.any(values <= 0.0):
+        raise ModeError(
+            "beta3 differences beta1 with a relative step, so the frequency must be "
+            "positive"
+        )
+    centre = beta1(mode, values, z)
+    step = BETA3_RELATIVE_STEP * values
+    wide = _second_difference(mode, values, centre, step, z)
+    narrow = _second_difference(mode, values, centre, step / 2.0, z)
+    return np.asarray((4.0 * narrow - wide) / 3.0)
+
+
+def _second_difference(
+    mode: Mode,
+    omega: Float[np.ndarray, " n_omega"],
+    centre: Float[np.ndarray, " n_omega"],
+    step: Float[np.ndarray, " n_omega"],
+    z: float,
+) -> Float[np.ndarray, " n_omega"]:
+    """Return the central second difference of `beta1` at one step.
+
+    Parameters
+    ----------
+    mode : Mode
+        The mode.
+    omega : numpy.ndarray
+        Angular frequencies in rad/s.
+    centre : numpy.ndarray
+        ``beta1`` at `omega`, s/m.
+    step : numpy.ndarray
+        The step at each frequency, rad/s.
+    z : float
+        Position along the waveguide, m.
+
+    Returns
+    -------
+    numpy.ndarray
+        The difference, s^3/m.
+    """
+    above = beta1(mode, omega + step, z)
+    below = beta1(mode, omega - step, z)
+    return np.asarray((above - 2.0 * centre + below) / step**2)
 
 
 def zdw(

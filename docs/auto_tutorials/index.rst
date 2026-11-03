@@ -362,7 +362,8 @@ Waveguide models
 
 Antiresonant fibres, tabulated modes, step-index, graded-index and rectangular guides,
 the general modal route for guides that supply their own vector fields, a declared basis
-over a split pair, and hollow planar guides per unit width.
+over a split pair, hollow planar guides per unit width, and a gas-filled hollow
+rectangular guide built from a supplied mode.
 
 
 .. raw:: html
@@ -512,6 +513,23 @@ over a split pair, and hollow planar guides per unit width.
     </div>
 
 
+.. raw:: html
+
+    <div class="sphx-glr-thumbcontainer" tooltip="A hollow silica channel 250 um wide and 100 um high, filled with 5 bar of argon, guides a 30 fs, 800 nm pulse in its lowest x-polarised mode. The mode is supplied as an object (~solprop.modes.rectangular.RectMode) to the waveguide route, which binds it to the route&#x27;s fill, and the run is a plain prop_waveguide: the waveguide route&#x27;s starting point, and the call its example recipe mirrors (``Recipe.example(&quot;hollow_rectangular&quot;)``).">
+
+.. only:: html
+
+  .. image:: /auto_tutorials/waveguides/images/thumb/sphx_glr_plot_09_hollow_rectangular_thumb.png
+    :alt:
+
+  :doc:`/auto_tutorials/waveguides/plot_09_hollow_rectangular`
+
+.. raw:: html
+
+      <div class="sphx-glr-thumbnail-title">A gas-filled hollow rectangular waveguide</div>
+    </div>
+
+
 .. thumbnail-parent-div-close
 
 .. raw:: html
@@ -526,7 +544,8 @@ one direction, a planar guide resolved across its width, a weak band calibrated 
 the low-storage march, a four-wave-mixing delay scan run through one backend with
 statistics-only planes, far-field spectra collected through apertures in a mask
 plane, a beam prepared by Kerr self-focusing in a gas gap and coupled into a
-capillary, and a transverse window sized with the boundary monitor.
+capillary, a transverse window sized with the boundary monitor, and a radial beam
+under the Kerr effect built from plain objects.
 
 For the full filament and crossing-beam lessons, begin with the
 :doc:`/introduction/index`.
@@ -693,6 +712,23 @@ For the full filament and crossing-beam lessons, begin with the
 .. raw:: html
 
       <div class="sphx-glr-thumbnail-title">Is my transverse window big enough?</div>
+    </div>
+
+
+.. raw:: html
+
+    <div class="sphx-glr-thumbcontainer" tooltip="A collimated 800 nm, 30 fs beam of 1 mm waist and 0.2 mJ, in 1 bar of argon, on a radial (Hankel) grid, below the critical power for self-focusing. Over 50 cm the Kerr lens offsets about half of the beam&#x27;s diffraction: its second-moment radius grows by 0.45 %, where diffraction alone (a Rayleigh length of 3.9 m) gives 0.81 %. The run is a plain prop_radial, every argument an object a recipe writes as a table, and it is the call the radial route&#x27;s example recipe mirrors (``Recipe.example(&quot;radial_kerr&quot;)``).">
+
+.. only:: html
+
+  .. image:: /auto_tutorials/free_space/images/thumb/sphx_glr_plot_10_radial_kerr_thumb.png
+    :alt:
+
+  :doc:`/auto_tutorials/free_space/plot_10_radial_kerr`
+
+.. raw:: html
+
+      <div class="sphx-glr-thumbnail-title">A radially symmetric beam under the Kerr effect</div>
     </div>
 
 
