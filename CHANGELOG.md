@@ -416,6 +416,14 @@ All notable changes to solprop are recorded here. The format follows
   reads, not one per accepted step
   ([#80](https://github.com/LupoLab/solprop/issues/80)).
 - With `/proc/cpuinfo` unreadable, native chose its x86-64-v3 build, so a lower processor could reach an illegal instruction ([#443](https://github.com/LupoLab/solprop/issues/443)). It now asks NumPy, and refuses before loading if neither answers. The Windows on Arm wheel gains a processor check too, for the Armv8.2-A OpenBLAS it links.
+- A `Simulation` built from an array input now copies the array at construction, so
+  changing it before the run no longer changes the run, its construction-time checks or
+  its recorded configuration (#434). `Simulation.initial` is a read-only view of that copy
+  as the caller gave it, so an input of another dtype is recorded unchanged and older
+  files resume. On free-space and spatial routes the translated problem holds the same
+  copy; on a modal route it holds the converted launch beside it, two states, which the
+  memory admission counts as `simulation_input`. A `numpy.broadcast_to` input copies only
+  the block it repeats.
 - Fixed the reference's single-precision path leaving binary32 on two paths that it then narrowed without a check: the split-step collar now keeps a complex64 state in binary32, as the correction `a + F(F^-1(a)(f - 1))` that `mlx` uses (binary64 runs are unchanged), and a fixed-schedule batch of single-precision `numpy_ref` members now steps each member through its own binary32 trial instead of the binary64 batch arithmetic, and a lockstep batch refuses members of mixed precisions. The finished state is now refused by name if it is not complex64 (#79).
 - On a radial, Cartesian, line or planar output, the processing readers that read each
   transverse column as a modal amplitude in sqrt(W) now refuse the file by name with an

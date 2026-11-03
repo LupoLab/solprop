@@ -41,7 +41,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Final, Literal, Protocol, cast
 
 import numpy as np
-from jaxtyping import Complex, Float
+from jaxtyping import Complex, Float, Shaped
 from scipy.special import j0, jn_zeros
 
 import solprop.driver.tdse as tdse_runtime
@@ -339,6 +339,7 @@ from solprop.translate.problem import (
     PropagatorMode,
     StepperSettings,
     TranslationReuse,
+    _held_block,
     _held_state,
     _hold,
     _state,
@@ -2023,7 +2024,15 @@ class Simulation(Displayed):
         method -- or an already-built spectrum of shape ``(n_modes, n_pol, n_omega)`` in
         the square root of watts and the internal convention. A pulse is the better
         choice: it is a small specification, while a built array is recorded in the
-        metadata as itself.
+        metadata as itself. An array is copied here, so that changing the caller's
+        array afterwards changes neither the run nor its record: once in complex128,
+        which runs, and, for another dtype, once more as given, which is recorded;
+        ``Simulation.initial`` is a read-only view of the copy as given. A broadcast
+        view (:func:`numpy.broadcast_to`) copies only the block it repeats. On a
+        free-space or spatial route the translated problem holds the same complex128
+        copy rather than another; on a modal route it holds the launch converted to
+        its internal amplitude beside the simulation's copy, two states in all, which
+        the memory admission counts (``simulation_input`` and ``initial_field``).
     settings : SimulationSettings
         How to step it, what to record and which backend to use.
     initial_z : float, optional
@@ -2196,22 +2205,75 @@ class Simulation(Displayed):
         self._mixture_selection: ResponseSelection | None = None
         self._peak_fields: tuple[PeakFieldReport, ...] = ()
         self._reuse: TranslationReuse | None = None
-        if isinstance(initial, SpatialPulse):
-            if spatial_grid is None or medium is None:
-                msg = "a SpatialPulse requires spatial_grid and medium"
-                raise DriverError(msg)
-            if self.frame is None:
-                self.frame = Frame.comoving(
-                    grid, thg=declares_harmonic_carrier(responses, grid)
-                )
-            self._field0 = _built_state(
-                initial,
-                initial.build(
-                    grid, spatial_grid, medium=medium, z=initial_z, frame=self.frame
-                ),
+        self._field0 = self._built_input(initial, grid, initial_z)
+        if isinstance(initial, np.ndarray):
+            # What was passed is what runs and what is recorded: a read-only view of
+            # the simulation's own copy, as the caller gave it (`_given_input`).
+            self.initial = _given_input(initial, self._field0)
+
+    def _held_inputs(self) -> tuple[np.ndarray, ...]:
+        """Return the arrays the simulation holds for its input, for the admission.
+
+        Returns
+        -------
+        tuple of numpy.ndarray
+            Its own copy of the input and, for an array input of another dtype than
+            complex128, the copy it records; nothing for an input it does not hold.
+        """
+        held = [self._field0]
+        if isinstance(self.initial, np.ndarray):
+            held.append(self.initial)
+        return tuple(held)
+
+    def _built_input(
+        self,
+        initial: Pulse | SpatialPulse | np.ndarray,
+        grid: TimeGrid,
+        initial_z: float,
+    ) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
+        """Return the input as the simulation holds it, building a pulse on its grids.
+
+        A spatial pulse is built on the spatial grid in the medium, in the simulation's
+        frame, which it sets to the comoving frame when none was given.
+
+        Parameters
+        ----------
+        initial : Pulse, SpatialPulse or numpy.ndarray
+            The constructor's input.
+        grid : solprop.grid.TimeGrid
+            The temporal grid.
+        initial_z : float
+            The launch position, m.
+
+        Returns
+        -------
+        numpy.ndarray
+            The spectrum, complex128, read-only and the simulation's own (`_built`).
+
+        Raises
+        ------
+        DriverError
+            If a spatial pulse comes without a spatial grid and a medium.
+        """
+        if not isinstance(initial, SpatialPulse):
+            return _built(initial, grid)
+        if self.spatial_grid is None or self.medium is None:
+            msg = "a SpatialPulse requires spatial_grid and medium"
+            raise DriverError(msg)
+        if self.frame is None:
+            self.frame = Frame.comoving(
+                grid, thg=declares_harmonic_carrier(self.responses, grid)
             )
-        else:
-            self._field0 = _built(initial, grid)
+        return _built_state(
+            initial,
+            initial.build(
+                grid,
+                self.spatial_grid,
+                medium=self.medium,
+                z=initial_z,
+                frame=self.frame,
+            ),
+        )
 
     @property
     def settings(self) -> SimulationSettings:
@@ -2563,6 +2625,8 @@ class Simulation(Displayed):
             Pulse or internal-convention spectrum on the existing grid. The built
             shape must match the original input, including modes and polarisation.
             Modal amplitudes are in sqrt(W); spatial units follow the spatial grid.
+            An array is copied when the derived simulation is built, as by the
+            constructor.
             A :class:`~solprop.coupling.port.CouplingLaunch` (SEP 31) must be bound to
             this simulation's :meth:`input_port` -- its route, lattice, basis,
             entrance and metric -- or it is refused whatever its shape; its
@@ -2654,7 +2718,10 @@ class Simulation(Displayed):
             # spectrum may already carry the realisation of an earlier run.
             replacement_noise = None
             resolution = NoiseResolution("default", None, INTERIOR_LAUNCH_NOISE)
-        recorded = self._derived_configuration(initial, configuration, coupling)
+        # An array is refused before the derived simulation copies it.
+        self._check_replaced_array(
+            initial, None if isinstance(noise, str) else replacement_noise
+        )
         updated = Simulation(
             self._base_grid,
             self.modes,
@@ -2665,7 +2732,6 @@ class Simulation(Displayed):
             noise=replacement_noise,
             noise_resolution=resolution,
             profiles=self.profiles,
-            configuration=recorded,
             spatial_grid=self.spatial_grid,
             medium=self.medium,
             frame=self.frame,
@@ -2675,6 +2741,10 @@ class Simulation(Displayed):
             taper_coupling=self.taper_coupling,
             materials=self.materials,
         )
+        # Recorded from what the derived run holds, not from the caller's input.
+        updated.configuration = self._derived_configuration(
+            updated.initial, configuration, coupling
+        )
         # A derived run starts from what its parent's run has warned and recorded,
         # and keeps its own from here: its siblings never see each other's.
         updated._material_log = self._material_log.copy()
@@ -2682,9 +2752,10 @@ class Simulation(Displayed):
             updated._noise_redraw = self._noise_redraw
         if self._recipe is not None:
             self._warn_recipe_dropped("with_input")
-        self._check_replaced_input(
-            updated._field0, None if isinstance(noise, str) else replacement_noise
-        )
+        if not isinstance(initial, np.ndarray):
+            self._check_replaced_input(
+                updated._field0, None if isinstance(noise, str) else replacement_noise
+            )
         record = dataclasses.replace(
             original.initial,
             z=launch_z,
@@ -2710,7 +2781,7 @@ class Simulation(Displayed):
             updated._problem.validate_launch()
         updated._mixture_selection = self._mixture_selection
         with _optmat.material_context(updated._material_log):
-            _check_rate_inputs(updated, initial)
+            _check_rate_inputs(updated, updated.initial)
         return updated
 
     def _derived_configuration(
@@ -2769,9 +2840,31 @@ class Simulation(Displayed):
             recorded["coupling"] = dict(coupling)
         return recorded
 
+    def _check_replaced_array(
+        self,
+        initial: Pulse | SpatialPulse | np.ndarray,
+        noise: NoiseRealisation | None,
+    ) -> None:
+        """Validate a replaced array input before it is copied; a pulse is built first.
+
+        Parameters
+        ----------
+        initial : Pulse, SpatialPulse or numpy.ndarray
+            The replacement input.
+        noise : solprop.noise.NoiseRealisation or None
+            A replacement realisation, or ``None`` when the noise is kept or removed.
+
+        Raises
+        ------
+        DriverError
+            As :meth:`_check_replaced_input`, for an array.
+        """
+        if isinstance(initial, np.ndarray):
+            self._check_replaced_input(initial, noise)
+
     def _check_replaced_input(
         self,
-        field0: Complex[np.ndarray, "n_modes n_pol n_omega"],
+        field0: Shaped[np.ndarray, "*shape"],
         noise: NoiseRealisation | None,
     ) -> None:
         """Validate a replaced input alone: its shape and one finiteness pass.
@@ -3471,6 +3564,7 @@ class Simulation(Displayed):
                 memory_budget,
                 output=handler,
                 retention=retention,
+                inputs=self._held_inputs(),
             )
             if problem.tdse is not None and not isinstance(handler, CheckpointOutput):
                 raise DriverError(
@@ -4298,6 +4392,9 @@ class Simulation(Displayed):
             chosen_frame = Frame.comoving(
                 grid, thg=declares_harmonic_carrier(responses, grid)
             )
+        if isinstance(initial, np.ndarray):
+            # Refused before the simulation copies it.
+            _check_planar_input(initial.shape, space.n_columns, grid.n_omega)
         settings = _spatial_default(
             _bounded(
                 _watched(
@@ -4321,13 +4418,7 @@ class Simulation(Displayed):
             frame=chosen_frame,
             materials=materials,
         )
-        field = simulation._field0
-        if field.shape != (space.n_columns, 1, grid.n_omega):
-            msg = (
-                "a planar input has shape (n_p*n_y, 1, n_omega) = "
-                f"{(space.n_columns, 1, grid.n_omega)}, got {field.shape}"
-            )
-            raise DriverError(msg)
+        _check_planar_input(simulation._field0.shape, space.n_columns, grid.n_omega)
         _bind_spatial_rates(simulation, initial)
         return simulation
 
@@ -4411,6 +4502,9 @@ class Simulation(Displayed):
                 ),
             )
         settings = _spatial_default(settings, grid)
+        if isinstance(initial, np.ndarray):
+            # Refused before the simulation copies it.
+            _check_spatial_input(initial.shape, space.n_columns, grid.n_omega)
         simulation = cls(
             grid,
             (),
@@ -4427,14 +4521,7 @@ class Simulation(Displayed):
             frame=chosen_frame,
             materials=materials,
         )
-        field = simulation._field0
-        if (
-            field.ndim != 3
-            or field.shape[0] != space.n_columns
-            or field.shape[2] != grid.n_omega
-        ):
-            msg = "spatial input must have shape (n_columns, n_pol, n_omega)"
-            raise DriverError(msg)
+        _check_spatial_input(simulation._field0.shape, space.n_columns, grid.n_omega)
         noise_model, resolution = resolve_noise(
             "radial" if isinstance(space, RadialGrid) else "free",
             noise,
@@ -6981,7 +7068,12 @@ class SimulationRunner(Displayed):
         with _optmat.material_context(simulation._material_log):
             _warn_sampled_peak(settings.quadrature, problem.stats_spec)
             # Admitted before the backend allocates, so a refused runner holds nothing.
-            admit_memory(problem, settings.backend, memory_budget)
+            admit_memory(
+                problem,
+                settings.backend,
+                memory_budget,
+                inputs=simulation._held_inputs(),
+            )
             self._backend = select(
                 settings.backend,
                 problem,
@@ -7198,6 +7290,7 @@ class SimulationRunner(Displayed):
                 self._memory_budget,
                 output=handler,
                 retention=retention,
+                inputs=derived._held_inputs(),
             )
             self._backend.set_initial(
                 problem.initial.field0,
@@ -8467,7 +8560,11 @@ def _replaced_launch(
     field0: Complex[np.ndarray, "n_modes n_pol n_omega"],
     launch_z: float,
 ) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
-    """Return a replaced input as the derived problem's launch, copied at most once.
+    """Return a replaced input as the derived problem's launch, without a further copy.
+
+    On a free-space or spatial route the launch is a view of the derived simulation's
+    own copy; on a modal route it is the power conversion of that copy, a second array
+    beside it, which the memory admission counts.
 
     Parameters
     ----------
@@ -8486,11 +8583,85 @@ def _replaced_launch(
     """
     if original.transform.geometry is not None:
         return _state(field0, original.shape[-1])
-    # Converted first, so that the conversion is the launch's one copy.
+    # The conversion is a new array, held as it is rather than copied again.
     converted = power_amplitude(
         field0[np.newaxis], power_weight_at(original, launch_z), inverse=True
     )
     return _hold(np.asarray(converted, dtype=np.complex128))
+
+
+def _given_input(
+    given: np.ndarray, held: Complex[np.ndarray, "n_modes n_pol n_omega"]
+) -> np.ndarray:
+    """Return an array input as the caller gave it, for the record: a read-only view.
+
+    The record keeps the caller's dtype and values, so that a file written from such
+    an input before the simulation copied it still resumes; a view of a read-only owner
+    cannot be made writeable, so the record and the run cannot be changed through it.
+
+    Parameters
+    ----------
+    given : numpy.ndarray
+        The caller's array.
+    held : numpy.ndarray
+        The simulation's complex128 copy of it.
+
+    Returns
+    -------
+    numpy.ndarray
+        A read-only view of `held` when `given` is complex128, otherwise of a held copy
+        of `given` in its own dtype; :class:`~solprop.translate.problem.Initial` takes
+        either as held.
+    """
+    source = held if given.dtype == held.dtype else _held_block(given, given.dtype.type)
+    return _hold(source.view())
+
+
+def _check_planar_input(shape: tuple[int, ...], n_columns: int, n_omega: int) -> None:
+    """Refuse a planar input whose shape is not ``(n_p*n_y, 1, n_omega)``.
+
+    Parameters
+    ----------
+    shape : tuple of int
+        The input's shape.
+    n_columns : int
+        The planar grid's ``(p, k_y)`` columns.
+    n_omega : int
+        The grid's frequency bins.
+
+    Raises
+    ------
+    DriverError
+        Naming both shapes.
+    """
+    if shape != (n_columns, 1, n_omega):
+        msg = (
+            "a planar input has shape (n_p*n_y, 1, n_omega) = "
+            f"{(n_columns, 1, n_omega)}, got {shape}"
+        )
+        raise DriverError(msg)
+
+
+def _check_spatial_input(shape: tuple[int, ...], n_columns: int, n_omega: int) -> None:
+    """Refuse a spatial input whose shape is not ``(n_columns, n_pol, n_omega)``.
+
+    Parameters
+    ----------
+    shape : tuple of int
+        The input's shape.
+    n_columns : int
+        The spatial grid's columns.
+    n_omega : int
+        The grid's frequency bins.
+
+    Raises
+    ------
+    DriverError
+        Naming the shape it requires.
+    """
+    if len(shape) != 3 or shape[0] != n_columns or shape[2] != n_omega:
+        msg = "spatial input must have shape (n_columns, n_pol, n_omega)"
+        raise DriverError(msg)
 
 
 def _built(
@@ -8508,7 +8679,9 @@ def _built(
     Returns
     -------
     numpy.ndarray
-        The spectrum, complex128, shape ``(n_modes, n_pol, n_omega)``.
+        The spectrum, complex128, shape ``(n_modes, n_pol, n_omega)``, read-only and
+        the simulation's own: a copy of an array (of its repeated block for a
+        broadcast), or a solprop pulse's new build.
 
     Raises
     ------
@@ -8516,13 +8689,10 @@ def _built(
         If `initial` is neither an array nor a pulse.
     """
     if isinstance(initial, np.ndarray):
-        # The caller's array as it is; another dtype is converted as the problem holds
-        # it, so that a broadcast converts its block alone.
-        return (
-            np.asarray(initial)
-            if initial.dtype == np.complex128
-            else _held_state(initial)
-        )
+        # Copied now, so that changing the caller's array later changes nothing, as
+        # the problem holds it: a broadcast copies its block alone, and an array a
+        # simulation already holds (its own, passed back) is taken as it is.
+        return _held_state(initial)
     # A runtime-checkable protocol is satisfied by the presence of `build`, not by its
     # being callable, so the guard below is still the one that names the mistake.
     build = getattr(initial, "build", None)

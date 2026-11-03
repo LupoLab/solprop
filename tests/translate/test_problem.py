@@ -1001,7 +1001,7 @@ def test_a_broadcast_free_space_input_runs_as_its_expansion():
     assert single._field0.strides[0] == 0
     converted = single.translate().initial.field0
     assert converted.dtype == np.complex128 and converted.strides[1] == 0
-    assert expanded.initial.field0.flags.owndata
+    assert expanded.initial.field0.strides[1] != 0
     # Both runs load the same copied state, so the entrance plane is the same bits.
     np.testing.assert_array_equal(held.plane_field(0), reference.plane_field(0))
 

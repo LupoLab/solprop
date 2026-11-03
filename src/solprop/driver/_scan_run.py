@@ -702,7 +702,11 @@ class _Work:
         """
         baseline = peak_rss()
         simulation = self.simulation(job)
-        admit_memory(simulation.translate(), simulation.settings.backend)
+        admit_memory(
+            simulation.translate(),
+            simulation.settings.backend,
+            inputs=simulation._held_inputs(),
+        )
         backend = select(
             simulation.settings.backend,
             simulation.translate(),
