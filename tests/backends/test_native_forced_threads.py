@@ -79,7 +79,9 @@ is not a matched computation's rounding. Two adaptive runs can make the same dec
 and differ in step length, since the error norm's rounding moves the step the controller
 chooses, and a threaded FFTW plan (or a measured one, process to process) rounds
 differently: on the multimode capillary at one thread, repeats differ by 1.3e-10 under
-``measure`` planning with their steps 1.9e-12 apart, and by nothing under ``estimate``.
+``measure`` planning, and by nothing under ``estimate``. The in-stage collar amplifies
+that rounding, past its stable step, rather than the steps' difference
+(``docs/dev/accuracy.md``, "An adaptive run under measured plans").
 """
 
 FORKED_BOUND = 100 * 1e-8
