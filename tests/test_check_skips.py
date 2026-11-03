@@ -19,7 +19,9 @@ CASE = """<testcase classname="tests.test_x" name="test_{name}">{body}</testcase
 def junit(tmp_path, *cases):
     path = tmp_path / "junit.xml"
     body = "".join(CASE.format(name=name, body=inner) for name, inner in cases)
-    path.write_text(f'<testsuites><testsuite name="pytest">{body}</testsuite></testsuites>')
+    path.write_text(
+        f'<testsuites><testsuite name="pytest">{body}</testsuite></testsuites>'
+    )
     return path
 
 

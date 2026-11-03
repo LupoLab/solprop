@@ -7,8 +7,8 @@
 
 A test that skips because native is missing, or short of something, otherwise passes
 silently. ``python native/ci/check_skips.py junit.xml [...]`` reads pytest's JUnit files
-and exits 1, naming every test skipped for a reason ``EXPECTED`` doesn't list. To accept a
-new reason, add it here with why it can't run.
+and exits 1, naming every test skipped for a reason ``EXPECTED`` doesn't list. To accept
+a new reason, add it here with why it can't run.
 
 Standard library only, so that it runs in any environment that holds the files.
 """
