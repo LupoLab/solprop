@@ -896,6 +896,127 @@ lets the linked OpenBLAS use, and the lowest Windows hardware admitted.
 - **Handoff:** #395 brought the wheels over without the spike's rehearsal jobs, and phase 1 takes
   the lanes.
 
+### Phases 1 to 3 report — all on one branch
+
+The status of each gate is at the end of this report, and it says plainly which aren't met.
+
+- **Scope:** 2026-11-02 and 2026-11-03, Opus 5.5 for John C. Travers, on
+  `feature/sep-0043-retire-numba-cpu` ([#415](https://github.com/LupoLab/solprop/pull/415)),
+  taking in #394, #398 and #401, which closed unmerged, as §11 says.
+- **Delivered:**
+  - **Selection and floor:** `src/solprop/backends/registry.py` (no fallback, the tombstone,
+    `SOLPROP_REQUIRE_DEVICE`) and `native/src/solprop_native/_cpu.py` (`/proc/cpuinfo`, then
+    NumPy, then `CpuFeaturesUnknownError`; `armv8.2-a` on Windows on Arm, recorded by
+    `native/cmake/HostLibraries.cmake`).
+  - **Packaging:** `pyproject.toml`, `hatch_build.py`, `uv.lock`, `tools/setup_light.py`,
+    `native/scripts/fetch_wheel.py` (strict), `native/ci/install_solprop.py`,
+    `native/scripts/check.sh`, `.readthedocs.yaml` and the three workflows.
+  - **Removal:** `backends/numba_cpu/`, `backends/bodies.py`, `_numba_cache.py`, the 28
+    `test_numba_*` modules and the 7 golden files, as accounted for in the inventory below.
+  - **Tests:** `tests/driver/test_retired_backend_runs.py` with real files in
+    `tests/data/retired_backends/`, and the ported obligations below. `native/ci/coexistence.py`
+    keeps pyFFTW and Numba as outside packages.
+  - **Documentation:** the pages §8 lists, ADR-064, the gallery on `auto` with regenerated
+    output, and `changelog.d/sep-0043-*`.
+- **Deviations from the proposal:**
+  1. **Files written by 0.1.0 don't load (§9 says they do).** Published 0.1.0 wrote output
+     schema 1, and this tree reads schema 2 only, by a policy that predates this SEP
+     (`output/schema.py`, `_refuse_schema`). A real 0.1.0 file is refused on either backend,
+     saying to read it with the version that wrote it. §9's table holds for a schema 2 file:
+     a real stopped run from the last commit before the removal continues on `native` and
+     `numpy_ref`. A resumed run's own record wasn't checked beyond the saved planes staying as
+     written.
+  2. **An unpinned install doesn't always fail (§5, §6.7 say the installer's error is the
+     answer).** Resolvers backtrack: on a platform with no native wheel, `pip install solprop`
+     and `uv pip install solprop` install 0.1.0, with Numba and pyFFTW, and no error. On a local
+     index with fake wheels, yanking 0.1.0 restores the error, and `solprop==0.1.0` still
+     installs. Yanking is the maintainer's decision. Until then the installation page says so
+     and suggests `solprop>=0.2`.
+  3. **§5's fourth `numpy_ref` feature isn't one.** "Beyond six terms on three components"
+     misread `PAIR_HISTORIES = 6`. `numpy_ref` also requires `DELAYED_TERMS = 2`, and the only
+     case native refuses and it accepts is two terms on other than three components, which the
+     public route doesn't produce. The guide leaves the row out. The drafter's error, from
+     Part II of the spike's report.
+  4. **The processor check and Windows on Arm's floor went on the one branch, not standalone
+     (§11).** The maintainer asked to consolidate.
+  5. **With no visible device, the guard reports a load failure.** Kokkos stops as the package
+     loads, before the guard can read the build, so `_check_required_device` turns that into the
+     `BackendError` §5 promises, carrying Kokkos's message.
+  6. **Class T in the old-run test uses `tests/march_bounds.py`'s reference at `rtol`/100 and
+     factor 4,** the suite's standing rule, not §7's `rtol`/10 and 2, and it takes every plane:
+     at the last plane an uninterrupted run is about 1e-11 from the reference by coincidence,
+     against about 1e-8 at the third, on every backend.
+  7. **`pip install "solprop[native]"` wasn't tried** after the extra went, so §9's "should still
+     install" stays unverified.
+- **Decisions:** the coexistence environment installs pyFFTW only where it has a wheel. A test
+  environment with no native package takes `auto` as `SOLPROP_TEST_BACKEND` for the session, and
+  `real_auto` keeps the refusal; a test whose child process runs `auto` skips there
+  (`child_runs_auto`). Windows on Arm's lane is `poe test-windows-arm`, which sets no small BLAS
+  thread variables and limits the pools after they load.
+- **Verification:**
+
+  | Check | Result | Where |
+  |---|---|---|
+  | Default lane on native, local | 17,530 passed, 46 skipped, 3 xfailed | Xeon Gold 6240, typecheck off |
+  | Lightweight setup, no compiler on `PATH` for the sync | 15,656 passed, 769 skipped, 2 xfailed; documentation build clean under `-W` | Xeon, numpy_ref |
+  | Gallery on native under `-W` | Built. Printed values match apart from wall times. Two figures moved visibly through the default shot-noise draw: with `noise=None`, native and `numpy_ref` agree to 1e-16 in the field and 7e-14 in the ionised fraction | Xeon |
+  | Helper budgets, §6.3 | Tracking set geometric mean 1.0009, the same work on all 22. `construction_s`: at most +0.053 s and +0.9 %, against the larger of 0.5 s and 20 %. Host march 1.0001, 0.9999, 0.9935 against A/A 1.0020, 0.9957, 0.9946. `numpy_ref` 1.0016 against A/A 1.0038, fields bit-identical | EPYC 7763, whole node, fresh processes, against `main` at `ff29371` |
+  | Field differences in that comparison | At most 1.0e-10 (`he_rdw_averaged` at 16 threads, 9.1e-11 on `ctc`), the cases with the spike's known floor; the rest at or below 1.1e-12 | EPYC 7763 |
+  | `SOLPROP_REQUIRE_DEVICE`, real CUDA build labelled `0.3.0+cuda` | Every case as §5 says. Device suites 31 and 63 passed, 2 `mlx` skips | NVIDIA A40 |
+  | Labelled builds, real wheels, pip 26.2.2 and uv 0.12.7 | `0.3.0+cuda` kept at 0.3.0 through install, `-U` and eager; replaced by the CPU wheel at 0.3.1 | Xeon, a CPU build |
+  | Pin in built metadata, through the real hook | `Requires-Dist: solprop-native==<version>` in the wheel and the sdist's `PKG-INFO` | Xeon |
+  | Coexistence | Passed locally with no outside packages. The run with pyFFTW and Numba installed is CI's | Xeon |
+  | Informational native coverage, §6.4 | Migrated Python suite and `native/tests`: lines 87.48 %, functions 87.80 %, regions 87.99 %, branches 80.80 %. `core.cpp` at 15.7 % is the `Workspace` class, 101 of 120 functions, which the gtest binary tests and this run left out | Xeon, Clang 23, `results/native-coverage` |
+
+- **The inventory (§6.4):** `results/sep43-test-inventory.md` in the campaign directory, not in
+  git: 446 removed functions, of which 192 carried, 147 only the deleted implementation, 102 lost
+  and 5 unconfirmed, under a strict rule that counts a looser bound as lost. Ports followed, with
+  no bound loosened except as listed:
+  - **P1, items 1 to 16:** all ported. Items 1, 2, 10 and 16 have weaker witnesses, because native
+    exposes no time-domain current: the plasma column's per-sample budget is held at the stage, so
+    an error confined to a few samples could pass. A test-only binding would restore it.
+  - **P2, items 17 to 40:** ported or weaker, with item 30 not portable, since translation refuses
+    a flow on the only non-identity crop.
+  - **P3 and P4, items 41 to 83:** ported or weaker. Items 62, 65 and 82 aren't ported, and neither
+    are the pad and the 1 ulp rate from the unconfirmed rows.
+  - **Self-comparisons:** `test_the_two_propagator_modes_agree` and the coupled carry's "no route"
+    are fixed. In a lane with no native package, parity tests still compare `numpy_ref` with
+    itself, and the terminal says so.
+  - **Changed after measuring, for review:** item 55's flow factors are exact on constant flows
+    only. On tapers, the frozen block varies at about 1e-17 with BLAS width and Schur vectors aren't
+    unique, so these took `2 gamma(n_deg)` and `10 n^2 u`. One accept residual went from per column
+    to normwise, since transverse FFT rounding is normwise.
+- **Sources checked:** NumPy's `npy_cpu_features.c`, FFTW's `x86-cpuid.h`, `avx2.c` and `neon.c`, and
+  OpenBLAS's `dynamic.c`, `dynamic_arm64.c`, `cmake/cc.cmake` and `Makefile.arm64`, for how each
+  reads a processor and what `TARGET=NEOVERSEN1` compiles for: `-march=armv8.2-a -mtune=neoverse-n1`.
+  So Windows on Arm's floor is `armv8.2-a`, checked through CRC32 and the LSE atomics, the two parts
+  Windows can report. The lowest Windows hardware admitted wasn't established.
+- **Limitations:**
+  - No hardware below the floor was run. Selection is by stand-ins and Intel SDE in CI.
+  - `PF_ARM_*` has run only against a fake `kernel32`, until CI's Windows on Arm lane.
+  - The Windows 10 minimum isn't qualified, so that claim narrows until #313 has a machine.
+- **Open questions, each for the maintainer:**
+  - **Q6.** Yank 0.1.0, so that deviation 2 becomes the error §5 describes?
+  - **Q7.** `envelope_axes` and `envelope_moments` in `envelope_plasma.hpp` aren't protected from
+    contraction, as Numba's were. Protect them, or drop them from the licence? Strict xfails in
+    `test_native_floating_point_licence.py`; no numerical error seen.
+  - **Q8.** A mistyped `SOLPROP_FFTW_PLAN` is silently MEASURE (`fft_plan.hpp`). Refuse it? Strict
+    xfail in `native/tests/test_fftw_plan_refusal.py`.
+  - **Q9.** Native's finish with content off the band differs from the reference by 1.09e-8 against
+    3.2e-12, since the reference masks before and after the temporal absorber and native only after.
+    No march reaches it, and on-band content measures 7.6e-16. Strict xfail.
+  - **Q10.** Native ignores a truncated `response_order`, with no refusal; it exists only at contract
+    level.
+  - **Q11.** The multimode capillary's interaction march differs by 1.5e-10 across 1 and 4 threads and
+    1.3e-10 between repeats, and by 0.0 under `SOLPROP_FFTW_PLAN=estimate`: steps 1.9e-12 apart,
+    amplified about 65 times, unexplained. Above §7's flag, within the retired 3e-9.
+  - **Q12.** Surviving thread tests may compare serial with serial, since native sizes each operation
+    by its work (`test_the_flow_is_invariant_under_the_thread_count`). The new ones force the pools.
+    The others weren't audited.
+  - **Q13.** The issue audit (`results/sep43-issue-audit.md`, not in git) has closing and trimming
+    text for 60 of 79 issues, and nothing has been posted. #300 needs a timing on an idle machine.
+    #92's priority should rise, since a wrong refusal under `auto` now stops a run.
+
 ## Part III — History
 
 - 2026-11-02: Drafted. Tracking issue [#392](https://github.com/LupoLab/solprop/issues/392).
