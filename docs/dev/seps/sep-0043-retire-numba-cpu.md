@@ -997,7 +997,7 @@ The status of each gate is at the end of this report, and it says plainly which 
   - No hardware below the floor was run. Selection is by stand-ins and Intel SDE in CI.
   - `PF_ARM_*`'s refusal has run only against a fake `kernel32`. Its accepting path runs for real
     on CI's Windows on Arm lanes.
-  - The Windows 10 minimum isn't qualified, so that claim narrows until #313 has a machine.
+  - Windows 10 isn't tested. The installation page says it's expected to work, but untested (Q15).
 - **`plasma_band` on Windows on Arm, explained.** The record's `boundary` row at `lambda = 1e-8`
   stores 3.7545630e-06 under `rtol = 1e-6`, and Windows on Arm gives 3.7545680e-06: 1.33e-6 above,
   5.0e-12 absolute. It's rounding, and the tolerance sits inside its spread. The probe
@@ -1016,8 +1016,8 @@ The status of each gate is at the end of this report, and it says plainly which 
   LAPACK adds the rest. On the Xeon, jittering the spectrum by 1 ulp over 400 draws moved the row by
   up to 1.17e-6, and 0.8 % of draws fell outside the tolerance. So this is not specific to Windows
   on Arm, and Windows x64 is a few parts in 1e7 from failing the other way. The test's real
-  assertion, `errors[0] <= 1e-5`, holds everywhere. No tolerance has been changed, so the test still
-  fails on this lane: see Q14.
+  assertion, `errors[0] <= 1e-5`, holds everywhere. On this evidence the maintainer raised the
+  column's `rtol` to 3e-6 (Q14). The stored rows are unchanged.
 - **Windows on Arm's other failure:** the `gaussian_projection` docstring asserted exact equality of
   two mirrored sums, which that platform's dot product doesn't give. It now compares to 1e-12.
 - **The gates of §7, on `1e4bfbc`:**
@@ -1028,8 +1028,8 @@ The status of each gate is at the end of this report, and it says plainly which 
   | Forced v2 and slow lanes | Met |
   | No silent skips | Met where the check runs: no unexpected skip on any default shard, coverage shard or wheel lane. The slow, lowest-dependency and no-native lanes don't carry the check |
   | Fresh installs | Partly. `uv pip` from the built wheel and sdist on Linux, and from the wheel on the minimum systems. `pip` on the built files is local only; every platform is `qualify-published`'s, after a release |
-  | Minimum systems | The claim narrows. macOS 14, a `manylinux_2_28`-age Linux container and Windows Server 2022 pass from the built wheels, with no compiler on Linux's `PATH`. Windows 10 isn't qualified: no hosted machine. Windows Server 2022 is its nearest, so the claim narrows until #313 has a machine (Q15) |
-  | Windows on Arm's open items | Explained; Q14 decides the record |
+  | Minimum systems | The claim narrows. macOS 14, a `manylinux_2_28`-age Linux container and Windows Server 2022 pass from the built wheels, with no compiler on Linux's `PATH`. Windows 10 has no hosted machine, so the installation page says it's expected to work, but untested (Q15). #313 keeps the rest |
+  | Windows on Arm's open items | Explained; the record's tolerance raised by the maintainer's decision (Q14) |
   | Selection, no package, v2 selection, unreadable processors, Arm's floor | Met. `PF_ARM_*` now runs for real on the Arm lanes |
   | v2 is correct | Met |
   | v2's cost | Spike's measurement only: Numba is gone from the final tree |
@@ -1064,12 +1064,11 @@ The status of each gate is at the end of this report, and it says plainly which 
   - **Q13.** The issue audit (`results/sep43-issue-audit.md`, not in git) has closing and trimming
     text for 60 of 79 issues, and nothing has been posted. #300 needs a timing on an idle machine.
     #92's priority should rise, since a wrong refusal under `auto` now stops a run.
-  - **Q14.** Raise `plasma_band`'s `deviation` tolerance so the record's `lambda = 1e-8` row passes
-    on Windows on Arm? This is a recorded value's regression tolerance, with `bound: null`, not an
-    accuracy bound. `rtol = 3e-6` would hold everything measured with a small margin. It's the last
-    test keeping the Arm lanes red.
-  - **Q15.** Windows 10 version 2004 stays on the installation page with no machine qualifying it.
-    Keep it as declared, or state Windows Server 2022 and Windows 11 as what's checked?
+  - **Q14, settled 2026-11-03.** The maintainer raised `plasma_band`'s `deviation` tolerance from
+    `rtol = 1e-6` to `3e-6`. It's a recorded value's regression tolerance, with `bound: null`, not an
+    accuracy bound, and the tolerance applies to the whole column.
+  - **Q15, settled 2026-11-03.** The maintainer chose to say that Windows 10 version 2004 or newer
+    is expected to work, but untested.
   - **Q16.** `kerr_beam` runs 10 to 28 % slower than at 0.1.0. It isn't this branch, which is 0.9956 and
     0.9994 of `main` on those cases, and its size matches SEP 40's read cost (#396), though nothing
     here bisected it. Leave it to #396?

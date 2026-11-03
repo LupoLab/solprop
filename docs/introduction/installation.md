@@ -40,7 +40,7 @@ supports:
 | osx-arm64 | macOS 14 or newer on Apple silicon |
 | linux-64 | Linux on x86-64, glibc 2.28 or newer |
 | linux-aarch64 | Linux on aarch64, glibc 2.28 or newer |
-| win-64 | Windows on x86-64, Windows 10 version 2004 or newer |
+| win-64 | Windows on x86-64: Windows Server 2022 or newer is tested; Windows 10 version 2004 or newer is expected to work, but untested |
 | win-arm64 | Windows on Arm |
 
 `backend="auto"` uses the native backend
