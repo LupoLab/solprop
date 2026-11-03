@@ -1,0 +1,1 @@
+A native run under Runge-Kutta or Adams now records the `propagator_mode` it used, `recompute`, when `tabulate` was asked for; it had recorded `tabulate`, which that march can't do. The run's configuration still keeps what was asked (#464).
