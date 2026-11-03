@@ -262,6 +262,7 @@ All notable changes to solprop are recorded here. The format follows
   amplitude −0.9, came out 85 % wrong with no warning. The class evaluates the record's
   transform exactly at the grid's frequencies, 3e-12 from the direct sum on that case,
   less its mean: a baseline is an offset of the instrument, not part of the field.
+- An envelope run's frame beside a third harmonic now follows one rule, `solprop.translate.responses.declares_harmonic_carrier`, which translation checks against the compiled harmonic carrier (#77). Two things change for users. First, an explicit `Frame(omega0, subtract_beta0=True)` beside a `KerrResponse` or `DispersiveKerrResponse` with `thg=True` on an envelope grid is now refused with a `TranslationError`, where it was accepted and drove the harmonic with a spurious phase mismatch: drop the explicit `frame=` to take the co-moving frame, which keeps `beta_0` there, or pass `Frame(omega0, subtract_beta0=False)`. Second, a Raman response's `thg` (the `RamanResponse` default is `True`), which an envelope grid ignores, no longer keeps `beta_0` beside `KerrResponse(thg=False)` when no frame is given: such a run, built from explicit responses or on a spatial route, now removes `beta_0`, so its stored envelope's carrier phase differs from before while intensities and spectral densities agree to the stepper's accuracy, and its run record now states the frame its operator used. A file saved by such a run before this change is refused on resume, naming `configuration: frame`, because continuing it would change frame mid-run: run it again from the start. The keyword interfaces, which set the Raman flag from `thg`, are unaffected.
 
 ### Fixed
 
@@ -334,6 +335,7 @@ All notable changes to solprop are recorded here. The format follows
   before a backend starts.
   Vendor thread defaults are overridden only during construction; the native
   backend's own BLAS keeps its fitted width.
+- Documented the limits of `FixedSchedule.from_history`. Every collar refusal a replayed history can reach (the temporal collar's stable step, and a requested spatial collar's stable step and its fixed-schedule crossing and damping bounds) now prints its limit rounded down and names the remedy: `dz_max` at or under the printed limit in the discovery run, run with the replay's integrator where the limit is a stability limit, or, for the temporal collar alone, `absorber_scheme="split_step"` in both runs. The docstring and the [fixed schedules guide](docs/guide/numerics/fixed-schedules.md) state these limits and the interpolated-plane and non-abutting-history ones, relate `from_history` to `discover`, and replace the claim that a `Multistep` replay makes its adaptive run's truncation errors: compare two replays of one schedule instead (#82).
 - A boundary monitor built for another grid is now refused by name on every backend, instead
   of a bare `ValueError` on `native` and an accident in `matmul` on `numpy_ref`. A direct call
   to `native`'s `stats` now checks every route for names the route doesn't define, and refuses

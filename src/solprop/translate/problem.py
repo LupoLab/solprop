@@ -34,6 +34,7 @@ import math
 import warnings
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, fields, is_dataclass, replace
+from decimal import ROUND_FLOOR, Decimal
 from types import MappingProxyType
 from typing import Any, Literal, cast
 
@@ -154,6 +155,7 @@ from solprop.translate.responses import (
     CompiledResponses,
     ResponseStage,
     compile_responses,
+    declares_harmonic_carrier,
     dispersive_regions,
     response_kinks,
     unlanded_kinks,
@@ -1824,15 +1826,22 @@ class KernelProblem:
         )
         if longest <= limit:
             return
+        printed = _printed_down(limit)
+        advice = (
+            _history_replay_advice(printed, split_step=True, integrator=True)
+            if schedule is not None
+            else ""
+        )
         msg = (
             f"{source} is {longest:.3e} m and the temporal collar is stable in the "
-            f"nonlinear absorber scheme only up to {limit:.3e} m: the collar reaches "
+            f"nonlinear absorber scheme only up to {printed} m: the collar reaches "
             f"{float(np.max(rate)):.3e} 1/m, and an explicit method needs "
             f"h alpha / 2 below {radius}, so the run would diverge. "
             "Take shorter steps, weaken the collar with a larger boundary_length, "
             f"{self._runge_kutta_advice()}or "
             'ask for absorber_scheme="split_step", which integrates the rate exactly '
             "and is unconditionally stable at the cost of first-order convergence."
+            f"{advice}"
         )
         raise TranslationError(msg)
 
@@ -1975,13 +1984,19 @@ class KernelProblem:
             self.stepper.dz_min if schedule is None else float(np.max(schedule.steps))
         )
         if longest > limit:
+            printed = _printed_down(limit)
+            advice = (
+                _history_replay_advice(printed, split_step=False, integrator=True)
+                if schedule is not None
+                else ""
+            )
             msg = (
                 f"the fixed step or step floor {longest:.3e} m exceeds the spatial "
-                f"collar stability limit {limit:.3e} m (effective power rate at most "
+                f"collar stability limit {printed} m (effective power rate at most "
                 f"{largest:.3e} 1/m). Take shorter steps, "
                 f"{self._runge_kutta_advice()}or widen the collar (a larger "
                 "collar_fraction designs a weaker one); the spatial absorber is "
-                "always in-stage and cannot use split_step."
+                f"always in-stage and cannot use split_step.{advice}"
             )
             raise TranslationError(msg)
 
@@ -2010,12 +2025,14 @@ class KernelProblem:
             (crossing, "the collar-crossing limit"), (damping, "the damping bound")
         )
         if longest > bound:
+            printed = _printed_down(bound)
+            advice = _history_replay_advice(printed, split_step=False, integrator=False)
             msg = (
                 f"the fixed schedule's longest step {longest:.3e} m exceeds {name} of "
-                f"the requested collar, {bound:.3e} m (SEP 40 section 4.7): a step "
+                f"the requested collar, {printed} m (SEP 40 section 4.7): a step "
                 "that long could carry the protected band across the collar unseen or "
                 "damp it inaccurately. Take shorter steps, or an adaptive run, which "
-                "the crossing limit holds"
+                f"the crossing limit holds.{advice}"
             )
             raise TranslationError(msg)
 
@@ -5982,6 +5999,140 @@ def _stepper_settings(
     )
 
 
+def _printed_down(value: float) -> str:
+    """Return a positive limit in the ``.3e`` form, rounded down rather than to nearest.
+
+    A refusal prints the step a caller has to stay under, so the printed number must
+    not exceed the limit itself: ``5.2386e-03`` prints as ``5.238e-03``, where rounding
+    to nearest would give ``5.239e-03``, a step the check still refuses. The decimal
+    expansion of the double is exact, so the floor is too.
+
+    Parameters
+    ----------
+    value : float
+        The limit, positive and finite.
+
+    Returns
+    -------
+    str
+        Four significant digits, as ``f"{value:.3e}"`` writes them, never above `value`.
+    """
+    exact = Decimal(value)
+    exponent = exact.adjusted()
+    mantissa = exact.scaleb(-exponent).quantize(Decimal("0.001"), rounding=ROUND_FLOOR)
+    return f"{mantissa}e{exponent:+03d}"
+
+
+def _history_replay_advice(printed: str, *, split_step: bool, integrator: bool) -> str:
+    """Return the remedies for replaying an adaptive run's own step history.
+
+    An adaptive run is not held to a fixed schedule's limits: an empty collar produces
+    no error, and a requested spatial collar holds an adaptive step only to its
+    crossing limit, so its accepted steps can be longer than a replay may take, and
+    a schedule read from them
+    (:meth:`solprop.stepper.schedule.FixedSchedule.from_history`) is then refused.
+    Capping the discovery run with ``dz_max`` under the limit always replays; the
+    split temporal collar lifts the temporal collar's limit alone.
+
+    Parameters
+    ----------
+    printed : str
+        The limit as the refusal prints it, rounded down, m.
+    split_step : bool
+        Whether ``absorber_scheme="split_step"`` lifts the limit, as it does the
+        temporal collar's.
+    integrator : bool
+        Whether the limit is a stability limit, which depends on the integrator.
+
+    Returns
+    -------
+    str
+        Sentences, starting with a space, naming the remedies.
+    """
+    split = (
+        'either give absorber_scheme="split_step" to both the discovery run and '
+        "the replay, or "
+        if split_step
+        else ""
+    )
+    method = (
+        " The limit is the replay's integrator's, so run the discovery with that "
+        "integrator."
+        if integrator
+        else ""
+    )
+    return (
+        " To replay an adaptive run's own steps (FixedSchedule.from_history), "
+        f"{split}hold the discovery run below this limit with dz_max at or under "
+        f"{printed} m and replay its history.{method}"
+    )
+
+
+def _check_harmonic_frame(harmonic: bool, compiled: CompiledResponses) -> None:
+    """Check the frame's harmonic rule against the compiled carrier.
+
+    The frame is chosen before anything compiles, from
+    :func:`solprop.translate.responses.declares_harmonic_carrier`; the operator it
+    writes is right only if the compiled pass agrees on whether it carries the
+    harmonic (:attr:`solprop.translate.responses.CompiledResponses.harmonic_carrier`).
+
+    Parameters
+    ----------
+    harmonic : bool
+        What the declared responses said.
+    compiled : solprop.translate.responses.CompiledResponses
+        The compiled responses.
+
+    Raises
+    ------
+    TranslationError
+        If the two disagree, an internal inconsistency that no input should reach.
+    """
+    if compiled.harmonic_carrier != harmonic:
+        msg = (
+            "internal inconsistency: the frame was chosen for "
+            f"{'a' if harmonic else 'no'} third-harmonic carrier "
+            "(declares_harmonic_carrier), but the compiled responses "
+            f"{'do not carry' if harmonic else 'carry'} one, so the linear operator "
+            "would be written in the wrong frame"
+        )
+        raise TranslationError(msg)
+
+
+def _refuse_carrier_removing_frame(frame: Frame | None, harmonic: bool) -> None:
+    """Refuse a frame that removes ``beta_0`` beside the third harmonic's carrier.
+
+    Removing ``beta_0``, and measuring the delay from ``omega_0`` with it, takes a
+    constant phase rate out of the envelope that the harmonic term's
+    ``A**3 exp(2 i omega_0 t)`` does not share, so the harmonic would be driven with a
+    spurious mismatch (:class:`solprop.linear.Frame`,
+    :func:`solprop.linear.frame_origin`).
+
+    Parameters
+    ----------
+    frame : solprop.linear.Frame or None
+        The frame the caller gave, or ``None`` for the co-moving one.
+    harmonic : bool
+        Whether the declared responses compile the harmonic carrier
+        (:func:`solprop.translate.responses.declares_harmonic_carrier`).
+
+    Raises
+    ------
+    TranslationError
+        Naming ``subtract_beta0``, if `frame` removes ``beta_0`` beside the harmonic.
+    """
+    if frame is not None and frame.subtract_beta0 and harmonic:
+        msg = (
+            "a frame with subtract_beta0=True was given beside a third-harmonic term "
+            "on an envelope grid: the harmonic's exp(2i omega0 t) carrier is tied to "
+            "the whole carrier phase, so removing beta_0 would drive it with a "
+            "spurious phase mismatch. Give "
+            "Frame(omega0, subtract_beta0=False), or leave frame=None for "
+            "Frame.comoving, which keeps beta_0 here"
+        )
+        raise TranslationError(msg)
+
+
 @host_blas()
 def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a run
     grid: TimeGrid,
@@ -6075,7 +6226,9 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
     frame : solprop.linear.Frame or None, optional
         The co-moving frame. ``None`` builds
         :meth:`solprop.linear.Frame.comoving` for the grid, keeping ``beta_0`` when a
-        third-harmonic Kerr term is present on an envelope grid.
+        third-harmonic term is present on an envelope grid
+        (:func:`solprop.translate.responses.declares_harmonic_carrier`). A frame given
+        with ``subtract_beta0=True`` beside that term is refused.
     loss : solprop.linear.LossPolicy, optional
         What to do with an attenuation too large to represent.
     absorber : solprop.boundaries.Absorber or None, optional
@@ -6225,8 +6378,9 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
     Raises
     ------
     TranslationError
-        If a response cannot be compiled, an argument is out of range, or the assembled
-        problem fails :meth:`KernelProblem.validate`.
+        If a response cannot be compiled, an argument is out of range, a frame that
+        removes ``beta_0`` is given beside a third-harmonic term on an envelope grid,
+        or the assembled problem fails :meth:`KernelProblem.validate`.
 
     Examples
     --------
@@ -6324,8 +6478,9 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
         raise TranslationError(msg)
     _refuse_planes_at_jumps(medium, planes)
 
-    thg = any(getattr(one, "thg", False) for one in responses)
-    working_frame = frame if frame is not None else Frame.comoving(grid, thg=thg)
+    harmonic = declares_harmonic_carrier(responses, grid)
+    _refuse_carrier_removing_frame(frame, harmonic)
+    working_frame = frame if frame is not None else Frame.comoving(grid, thg=harmonic)
     build = _Assembly(
         quadrature=quadrature,
         components=components,
@@ -6421,6 +6576,9 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
             reuse_prefactor=None if reuse is None else reuse.prefactor_expansion,
             reuse_raman=None if reuse is None else reuse.raman_undamped,
         )
+    # The frame above was chosen from the declared responses; the operator it wrote is
+    # only right if the compiled pass agrees on whether it carries the harmonic.
+    _check_harmonic_frame(harmonic, compiled)
     # SEP 6, section 4.10: classified once, at translation, on the whole active band;
     # a field reaching beyond a gas's support is logged here and never refused.
     dispersive_regions(responses, grid, vector=transform.n_pol * n_pol > 1)
