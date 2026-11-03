@@ -2173,13 +2173,11 @@ class Simulation(Displayed):
                 self.frame = Frame.comoving(
                     grid, thg=any(bool(getattr(one, "thg", False)) for one in responses)
                 )
-            # Copied as the problem holds it: the build may be the pulse's own array.
-            self._field0 = _held_state(
-                np.asarray(
-                    initial.build(
-                        grid, spatial_grid, medium=medium, z=initial_z, frame=self.frame
-                    )
-                )
+            self._field0 = _built_state(
+                initial,
+                initial.build(
+                    grid, spatial_grid, medium=medium, z=initial_z, frame=self.frame
+                ),
             )
         else:
             self._field0 = _built(initial, grid)
@@ -8498,8 +8496,40 @@ def _built(
             f"got {type(initial).__name__}"
         )
         raise DriverError(msg)
-    # Copied as the problem holds it: the build may be the pulse's own array.
-    return _held_state(np.asarray(build(grid)))
+    return _built_state(initial, build(grid))
+
+
+def _built_state(
+    pulse: object, built: object
+) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
+    """Return a pulse's built spectrum as the problem holds it, copied only if foreign.
+
+    A build of solprop's own pulse classes is a new array solprop made, so it is held
+    as it is; any other pulse's build may be an array the pulse keeps, and is copied
+    (:class:`~solprop.translate.problem.Initial`).
+
+    Parameters
+    ----------
+    pulse : object
+        The pulse that built it.
+    built : object
+        What its ``build`` returned.
+
+    Returns
+    -------
+    numpy.ndarray
+        The spectrum, complex128, read-only and held.
+    """
+    spectrum = np.asarray(built)
+    build = getattr(type(pulse), "build", None)
+    own = getattr(build, "__module__", None) == _PULSE_MODULE
+    if own and spectrum.dtype == np.complex128:
+        return _hold(spectrum)
+    return _held_state(spectrum)
+
+
+_PULSE_MODULE: Final = SpatialPulse.__module__
+"""The module of solprop's pulse classes, whose ``build`` always makes a new array."""
 
 
 def _interpolated(state: ResumeState) -> bool:
