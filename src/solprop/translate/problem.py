@@ -1140,15 +1140,15 @@ def _is_held(values: object) -> bool:
     return _HELD.get(id(values)) is values
 
 
-def _held_copy(values: np.ndarray, dtype: type[np.generic]) -> np.ndarray:
+def _held_copy(values: np.ndarray, dtype: np.dtype | type[np.generic]) -> np.ndarray:
     """Return a held, C-contiguous copy of an array, or the array if already held.
 
     Parameters
     ----------
     values : numpy.ndarray
         The caller's array, or one already held.
-    dtype : type
-        The element type of the copy.
+    dtype : numpy.dtype or type
+        The element type of the copy, byte order included.
 
     Returns
     -------
@@ -1160,15 +1160,15 @@ def _held_copy(values: np.ndarray, dtype: type[np.generic]) -> np.ndarray:
     return _hold(np.array(values, dtype=dtype, order="C"))
 
 
-def _held_block(values: np.ndarray, dtype: type[np.generic]) -> np.ndarray:
+def _held_block(values: np.ndarray, dtype: np.dtype | type[np.generic]) -> np.ndarray:
     """Return a held copy of an array of `dtype`, a broadcast copying its block alone.
 
     Parameters
     ----------
     values : numpy.ndarray
         The caller's array, of any numeric dtype, or one already held.
-    dtype : type
-        The element type of the copy.
+    dtype : numpy.dtype or type
+        The element type of the copy, byte order included.
 
     Returns
     -------
