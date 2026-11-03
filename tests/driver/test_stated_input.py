@@ -163,7 +163,7 @@ def test_a_stated_input_resumes_by_its_statement_alone(tmp_path):
             output=path, resume=True, progress="none"
         )
     # Nor does the array's own record continue a stated file.
-    with pytest.raises(OutputError, match="initial .*'stated a' -> "):
+    with pytest.raises(OutputError, match=r"initial .*'stated a' -> "):
         simulation.with_input(first).run(output=path, resume=True, progress="none")
 
 
