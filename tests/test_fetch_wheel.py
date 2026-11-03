@@ -142,3 +142,22 @@ def test_an_expired_artifact_leaves_nothing_to_install(monkeypatch, capsys):
     monkeypatch.setattr(fetch_wheel, "_is_ancestor", lambda sha: True)
     assert fetch_wheel.main() == 1
     assert "tools/setup_light.py" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    ("system", "machine", "wheel"),
+    [
+        ("Linux", "x86_64", "linux-x86_64"),
+        ("Darwin", "arm64", "macos-arm64"),
+        ("Windows", "AMD64", "windows-amd64"),
+        ("Windows", "ARM64", "windows-arm64"),
+    ],
+)
+def test_each_platform_asks_for_the_wheel_ci_builds_for_it(
+    monkeypatch, capsys, system, machine, wheel
+):
+    monkeypatch.setattr(fetch_wheel.platform, "system", lambda: system)
+    monkeypatch.setattr(fetch_wheel.platform, "machine", lambda: machine)
+    monkeypatch.setattr(fetch_wheel, "_artifacts", lambda name: [])
+    assert fetch_wheel.main() == 1
+    assert f"native-wheel-{wheel} " in capsys.readouterr().err

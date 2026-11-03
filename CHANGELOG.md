@@ -158,6 +158,7 @@ All notable changes to solprop are recorded here. The format follows
   soliton's nonlinear wavenumber where the recipe's pulse and fill give one. The mode set
   says which (`pump`, `nonlinear`). The GNLSE route has a mode preview too: its one specified
   mode, phase-matched with the recipe's `gamma`.
+- The installation page now explains how to install a development version from CI's wheels with no compiler, and `poe fetch-wheel` now finds CI's Windows on Arm wheel.
 - `solprop-native` wheels use CPython's stable ABI, so one wheel serves Python 3.14 and later.
   solprop itself still needs pyFFTW and h5py wheels on 3.15.
 - `solprop-native` wheels for Windows on Arm (`win-arm64`), and an x86-64-v2 build beside the
