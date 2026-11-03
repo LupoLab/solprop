@@ -477,6 +477,12 @@ class NumpySingleBackend(NumpyRefBackend):
     ) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
         """Mask the accepted state and apply a split-step collar, in binary32.
 
+        The reference's finish runs on the complex64 state. A split-step collar takes
+        the correction form of
+        :func:`~solprop.backends.numpy_ref.passes.apply_temporal_rate`: its
+        ``exp(-alpha(t) h / 2) - 1`` is formed in binary64 and rounded once, and its
+        transforms and products are binary32.
+
         Parameters
         ----------
         state : numpy.ndarray
@@ -487,10 +493,18 @@ class NumpySingleBackend(NumpyRefBackend):
         Returns
         -------
         numpy.ndarray
-            The finished complex64 state; a split-step collar's factor is formed in
-            binary64 and the product rounded once.
+            The finished complex64 state.
+
+        Raises
+        ------
+        BackendError
+            If the finished state is not complex64: a binary64 array reached the
+            finish, which would have computed it in binary64 (SEP 33 6.2).
+        ConvergenceError
+            If the finished state is not finite.
         """
-        finished = np.asarray(super()._finish(state, dz)).astype(self._complex)
+        finished = np.asarray(super()._finish(state, dz))
+        _require_dtype(finished, self._complex, "the finished state")
         if not bool(np.all(np.isfinite(finished))):
             msg = (
                 f"numpy_ref: the single-precision state is not finite after a step of "

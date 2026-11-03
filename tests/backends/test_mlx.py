@@ -30,6 +30,7 @@ import mlx.core as mx  # pyright: ignore[reportMissingImports] - macOS arm64 onl
 
 from backends.test_single_precision import (
     capillary,
+    check_a_whole_run,
     gnlse,
     overflowing_beam,
     plasma_beam,
@@ -37,6 +38,15 @@ from backends.test_single_precision import (
     spatial_kerr,
 )
 from bounds import EPS_32, UNIT_ROUNDOFF_32, assert_within, fft_bound, higham_gamma
+from monitor_cases import (
+    MARCHES,
+    ROUTE_NAMES,
+    SCHEMES,
+    probe,
+    reading,
+    record_after_march,
+    watched,
+)
 from solprop.backends.memory import estimate_memory
 from solprop.backends.mlx_gpu.arithmetic import (
     DoubleFloatTerms,
@@ -67,6 +77,7 @@ from solprop.stepper import (
     RungeKutta,
 )
 from solprop.translate.precision import SINGLE, prefix_sum
+from solprop.translate.problem import KernelProblem
 from vector_raman_cases import vector_problem
 
 U32 = UNIT_ROUNDOFF_32
@@ -373,6 +384,105 @@ def test_the_propagator_drift_stays_linear_on_the_device():
         exact = finish(gnlse("double", steps=steps, **linear))
         actual = finish(on("mlx", gnlse("single", steps=steps, **linear)))
         assert_within(actual, exact, steps * U32, what=f"{steps} steps")
+
+
+# The boundary monitor's reading on the device, against the oracle's on the host.
+
+SINGLE_ROUTES = tuple(
+    route
+    for route in ROUTE_NAMES
+    if route not in ("general guide (constant)", "planar")
+)
+"""The monitor probe's routes that single precision runs: it refuses the general
+modal route and the planar hybrid."""
+
+PROBE_STEPS = 8
+"""Fixed steps over the probe's fifth of a millimetre. The probes' spectral collar
+reaches ``|Re dPhi| = 150`` over the binary64 test's 50 um steps, past binary32's
+``exp(88.72)``; 25 um steps take it to 75, below the last tenth of the range, which
+is warned of."""
+
+
+def watched_probe(route: str, scheme: str, march: str | None = None) -> Simulation:
+    """Return the monitor test's probe in single precision; with a march, replayed."""
+    method = None if march is None else MARCHES[march]
+    simulation = probe(route, scheme, method, steps=PROBE_STEPS)
+    simulation.settings = dataclasses.replace(simulation.settings, precision="single")
+    return simulation
+
+
+def reading_bound(problem: KernelProblem) -> float:
+    """Return the device reading's rounding bound, relative to what it reads.
+
+    The oracle reads the same binary32 state in binary64, so its own error is
+    negligible here. The device's inverse transform errs by at most the oracle tests'
+    ``d = 16 eps ceil(log2 n_t)`` of the state's norm, which moves an energy weighted
+    by at most ``w`` by ``(2 d + d**2) w E``. Each term's square, its narrowed weight
+    and column quadrature and their products round eight times at most, and the sums
+    -- over the columns, then over the samples -- add non-negative terms at a depth
+    below ``n_columns + n_t`` in whatever order the device takes: within ``gamma`` of
+    that depth of the sum itself (``tests/bounds.py``, ``higham_gamma``).
+    """
+    n_t = problem.grids.n_t
+    columns = math.prod(problem.shape[:-1])
+    transform = 16 * EPS_32 * math.ceil(math.log2(n_t))
+    return 2 * transform + transform**2 + higham_gamma(columns + n_t + 8, U32)
+
+
+@pytest.mark.parametrize("scheme", SCHEMES)
+@pytest.mark.parametrize("route", SINGLE_ROUTES)
+def test_a_check_on_the_device_reads_the_oracle_s_five_numbers(route, scheme):
+    # The energy and the four weighted energies of a launch that reaches every
+    # region, reduced on the device, against the oracle's host reading.
+    simulation = watched_probe(route, scheme)
+    problem = simulation.translate()
+    with ExitStack() as cleanup:
+        oracle = watched(simulation, "numpy_ref", problem)
+        cleanup.callback(oracle.close)
+        device = watched(simulation, "mlx", problem)
+        cleanup.callback(device.close)
+        theirs, ours = reading(oracle), reading(device)
+    monitor = simulation._boundary_monitor()
+    assert monitor is not None
+    largest = monitor.weights.max(axis=1)
+    weighted = largest > 0.0
+    assert np.all(theirs.regions[weighted] > 1e-6 * theirs.total)
+    bound = reading_bound(problem)
+    assert ours.total == pytest.approx(theirs.total, rel=bound)
+    # Each row's error is bounded by its largest weight times the energy.
+    np.testing.assert_array_less(
+        np.abs(ours.regions - theirs.regions)[weighted],
+        (bound * theirs.total * largest)[weighted],
+    )
+    assert np.all(ours.regions[~weighted] == 0.0)
+    assert ours.removed == theirs.removed == 0.0
+
+
+@pytest.mark.parametrize("march", ["low_storage", "runge_kutta"])
+@pytest.mark.parametrize("route", SINGLE_ROUTES)
+def test_the_device_s_split_removal_is_the_oracle_s(route, march):
+    """Every accepted step's removal, summed by each backend's own finish.
+
+    Each step's removal and each check's collar occupancy is a non-negative weighted
+    sum, within :func:`reading_bound` of itself, so the record is within the steps'
+    sum of them. This is a budget, not a proof, for the matched states the readings
+    are taken from: their class R departure, a few binary32 roundings a step, is
+    taken to stay below the bound's worst-case sum, ``gamma`` of hundreds of terms.
+    """
+    simulation = watched_probe(route, "split_step", march)
+    problem = simulation.translate()
+    theirs = record_after_march(simulation, "numpy_ref", problem)
+    ours = record_after_march(simulation, "mlx", problem)
+    assert theirs["raw_removed_fraction"] > 1e-6
+    bound = PROBE_STEPS * reading_bound(problem)
+    for name in ("raw_removed_fraction", "removed_fraction", "collar_max"):
+        assert ours[name] == pytest.approx(theirs[name], rel=bound), name
+    assert ours["steps"] == theirs["steps"] == PROBE_STEPS
+
+
+@pytest.mark.medium
+def test_a_whole_run_on_the_device_reports_what_it_ran():
+    check_a_whole_run("mlx")
 
 
 # The protected operations.
