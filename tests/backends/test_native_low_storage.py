@@ -50,6 +50,7 @@ from general_parity import nonlinear_scale, problem_for, scaled_case, source_bou
 from solprop._interrupts import handled
 from solprop.backends.memory import (
     estimate_memory,
+    ledger_groups,
     low_storage_flows,
     low_storage_stage_register,
 )
@@ -551,16 +552,15 @@ def test_the_native_state_holds_the_registers_and_no_runge_kutta_view(mode, coll
 def test_the_estimate_is_the_ledger_to_the_byte(mode, collar):
     """The march's field-sized rows of the estimate, row by row, as numpy_ref counts.
 
-    The estimate's base is the reference's rows less the elided register; its march
-    rows -- the state, the scratch, the registers and the flows -- are the native
-    ledger's own, to the byte.
+    The march rows -- the state, the scratch, the registers and the flows -- are the
+    reference's less the elided register, and the estimate's whole base is the native
+    ledger's own, to the byte (``free_space_memory``).
     """
     from solprop.backends.memory import (  # noqa: PLC0415
         reference_base_memory,
     )
 
     problem, grid, _ = cartesian_march(mode, collar=collar)
-    field = 16 * math.prod(problem.shape)
     reference = reference_base_memory(
         problem,
         tabulating=mode == "tabulate",
@@ -576,7 +576,7 @@ def test_the_estimate_is_the_ledger_to_the_byte(mode, collar):
         expected = 0 if row == "register_stage" and not collar else reference[row]
         assert ledger[row] == expected, row
     estimate = estimate_memory(problem, "native")
-    assert estimate.groups["base"] == sum(reference.values()) - (0 if collar else field)
+    assert estimate.groups["base"] == ledger_groups(ledger)["base"]
 
 
 def test_the_low_storage_estimate_counts_the_elided_register():
@@ -585,7 +585,6 @@ def test_the_low_storage_estimate_counts_the_elided_register():
 
     for collar in (False, True):
         problem, _, _ = cartesian_march("tabulate", collar=collar)
-        field = 16 * math.prod(problem.shape)
         under_march = estimate_memory(problem, "native").total
         assert low_storage_memory(problem, "native") == under_march
         # The same problem under the Runge-Kutta march: the march's figure is its own.
@@ -596,11 +595,7 @@ def test_the_low_storage_estimate_counts_the_elided_register():
             ),
         )
         assert low_storage_memory(runge_kutta, "native") == under_march
-        held = low_storage_stage_register(problem, "native")
-        assert held == collar
-        assert low_storage_memory(problem, "numpy_ref") - under_march == (
-            0 if held else field
-        )
+        assert low_storage_stage_register(problem, "native") == collar
 
 
 def test_a_varying_operator_holds_its_pair_tabulated_and_none_recomputed():

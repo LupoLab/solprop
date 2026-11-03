@@ -53,10 +53,17 @@ buffers, not the backend's own**, plus the far-field band partials
 (:func:`far_field_memory`, to the byte) and SEP 6's dispersive response's
 (:func:`dispersive_memory`): its filtered fields, node slots, products and their
 spectra, the ledger rows to the byte. On twelve measured
-cases (without the response) Kokkos's own base is 1.05 to 2.48 times the
-reference's count (up to 5.4 MB more on the varying
+cases (without the response, and none in free space) Kokkos's own base is 1.05 to 2.48
+times the reference's count (up to 5.4 MB more on the varying
 wall), because the native base also counts the backend's host copies of the problem's
 tables, its statistics buffers and a device copy of each z table.
+On the Cartesian and line routes the estimate counts ``native``'s own rows instead
+(:func:`free_space_memory`), where the reference's count fell furthest short when one
+chunk holds the whole grid, by factors of 1.46 on an envelope grid and 1.80 on a field
+grid in the measured set: a Kerr beam's ledger and estimate now agree to the byte, one chunk or several, on each march (the Adams march's norms
+aside, 24 bytes), and Raman and plasma beams to within 0.2 % under and 1.1 % over
+(``tests/backends/test_free_space_estimate.py``). The heap FFT planning grows stays
+apart from the group, in the ledger's own row.
 For SEP 27's held field-current source, the estimate replaces the reference's
 allowance with the native backend's current buffers, projection rows,
 spectra and tables. FFT-provider allocator growth remains a measured ledger row.
@@ -122,6 +129,7 @@ __all__ = [
     "estimate_memory",
     "far_field_memory",
     "flux_closure_memory",
+    "free_space_memory",
     "held_current_memory",
     "ledger_groups",
     "low_storage_flows",
@@ -203,8 +211,9 @@ _NOT_COUNTED = {
     "native": (
         "SEP 6's dispersive response's multipliers and packed projections",
         "the heap FFT planning grows at construction (fft_plan_heap_growth), measured",
-        "the backend's own base buffers beyond the reference's count of them (its "
-        "host copies of the problem's tables are counted natively)",
+        "the backend's own base buffers beyond the reference's count of them, outside "
+        "free space, where they are counted (its host copies of the problem's tables "
+        "are counted natively), and a free-space response's tables beyond a Kerr term",
         "the Schur factors of a coupled flow, formed on the host",
         "a noise field loaded after construction (one state's bytes)",
         "the translated problem's own tables other than the general reference",
@@ -287,8 +296,9 @@ def estimate_memory(problem: KernelProblem, backend: str) -> MemoryEstimate:
 
     Construction-free: nothing the backend would allocate is allocated here. The route
     groups are the formulas of the module docstring for the named backend; the
-    ``base`` group is the reference's count on every backend; ``initial_field`` is
-    what the problem's own initial state holds.
+    ``base`` group is the reference's count on every backend, ``native``'s own rows
+    where it counts them (:func:`free_space_memory`); ``initial_field`` is what the
+    problem's own initial state holds.
 
     Parameters
     ----------
@@ -344,6 +354,7 @@ def estimate_memory(problem: KernelProblem, backend: str) -> MemoryEstimate:
             if not key.startswith("held_current_")
         }
         base.update(_native_held_current_memory(problem))
+    base |= free_space_memory(problem, name)
     groups["base"] = (
         sum(base.values())
         + sum(dispersive_memory(problem, name).values())
@@ -1301,6 +1312,11 @@ def low_storage_memory(problem: KernelProblem, backend: str) -> int:
     ) and not low_storage_stage_register(problem, estimate.backend):
         # The estimate already took the elided register out of its base.
         current["register_stage"] = 0
+    if not isinstance(
+        problem.stepper.integrator, LowStorageRungeKutta
+    ) and free_space_memory(problem, estimate.backend):
+        # Its base holds native's own stepping rows, which the march would drop.
+        current |= _native_free_stepping(field_bytes)
     return (
         estimate.total
         - int(estimate.groups["adams_history"])
@@ -1578,6 +1594,168 @@ def flux_closure_memory(problem: KernelProblem, backend: str) -> dict[str, int]:
     ):
         return {}
     return {"flux_closure_transverse": 16 * math.prod(problem.shape[1:])}
+
+
+def free_space_memory(problem: KernelProblem, backend: str) -> dict[str, int]:
+    """Return the rows a backend holds apart from the reference's, in free space.
+
+    On the Cartesian and line routes the reference allocates its statistics and absorber
+    buffers per call and ``native`` holds them, one set per chunk of the node budget.
+    The difference is largest when one chunk holds the whole grid: at 128 x 128 x 80
+    with a 1 GiB node budget, the ledger's base was 1.41 times the reference's count
+    until this was counted. Empty on every other route, and on any other backend.
+
+    These rows replace the reference's by name. The node field and polarisation
+    alias the chunk's own temporal rows on ``native``, so they hold nothing unless a
+    dispersive response needs them apart. What they count, with ``K`` the chunk's
+    temporal rows and ``M`` the transverse columns:
+
+    - ``K`` rows of the forward spectrum and the absorber's spectrum and time;
+    - ``K`` rows of the statistics' spectrum and time, and the power of a chunk's nodes;
+    - the statistics' outputs, the norm's partials, and each column's spatial
+      coefficients and statistics weights;
+    - the host copies of the problem's arrays a Kerr beam carries, ``M`` of them per
+      column and the rest on the frequency axis. Further responses add small tables
+      that are not counted here (:data:`_NOT_COUNTED`).
+
+    Sizes are those of a CPU build; a device build's norm holds several partials per
+    column.
+
+    Parameters
+    ----------
+    problem : solprop.translate.problem.KernelProblem
+        The translated problem.
+    backend : str
+        One of :data:`ESTIMATED_BACKENDS`.
+
+    Returns
+    -------
+    dict
+        Row name to bytes, empty unless ``native`` runs a free-space route.
+
+    Examples
+    --------
+    >>> from solprop.backends.memory import free_space_memory
+    >>> from solprop.grid import EnvelopeGrid
+    >>> from solprop.nonlinear.gnlse import problem_from
+    >>> from solprop.pulses import SechPulse
+    >>> from solprop.stepper import PIController
+    >>> from solprop.translate.problem import assemble
+    >>> grid = EnvelopeGrid.from_limits(1.0, 835e-9, (500e-9, 2e-6), 1e-12)
+    >>> gnlse = problem_from([0.0, 0.0, -1.183e-26], omega_ref=grid.omega0,
+    ...                      gamma=0.11, shock=False)
+    >>> start = SechPulse(wavelength=835e-9, width=1e-13, peak_power=1.0).build(grid)
+    >>> problem = assemble(grid, gnlse.mode, [gnlse.kerr], start,
+    ...                    controller=PIController(rtol=1e-8, atol=1e-14),
+    ...                    save_planes=[1.0], dz_max=0.1, dz_init=1e-3, shock=False,
+    ...                    prefactor_index=1.0, density=1.0)
+    >>> free_space_memory(problem, "native")
+    {}
+    """
+    transform = problem.transform
+    geometry = transform.geometry
+    if backend != "native" or geometry is None or geometry.kind != "free":
+        return {}
+    _, n_modes, n_pol, n_omega = problem.shape
+    grids = problem.grids
+    n_to, n_t = grids.n_to, grids.n_t
+    envelope = problem.grid_kind == "envelope"
+    temporal = transform.node_chunk * transform.n_pol * n_pol
+    forward = n_to if envelope else n_to // 2 + 1
+    responses = problem.responses
+    kerr, dispersive = responses.kerr_coefficients, responses.dispersive_kerr
+    # The analytic signal of a field's Kerr or number-conserving term is complex.
+    complex_time = (
+        envelope
+        or (kerr is not None and kerr.analytic_signal)
+        or (dispersive is not None and dispersive.sector == "conserving")
+    )
+    fine = n_to if complex_time else n_to // 2 + 1
+    axes = geometry.shape[0] + geometry.shape[1]
+    n_stages = problem.stepper.tableau.n_stages
+    split = responses.absorber_scheme == "split_step"
+    rates = sum(
+        0 if rate is None else rate.size * 8
+        for rate in (
+            responses.temporal_absorber,
+            None if split else responses.temporal_absorber_fine,
+        )
+    )
+    rows = {
+        "modal_time": temporal * n_to * (16 if complex_time else 8),
+        "fine_spectrum": temporal * fine * 16,
+        "fine_gaps": (fine - n_omega) * 8,
+        "projected_spectrum": temporal * forward * 16,
+        "absorber_spectrum": temporal * forward * 16,
+        "absorber_time": temporal * n_to * (16 if envelope else 8),
+        "statistics_spectrum": temporal * n_t * 16,
+        "statistics_time": temporal * n_t * 16,
+        "statistics_power": transform.node_chunk * n_t * 8,
+        "statistics_outputs": (
+            n_t + 2 * n_modes + n_t + 2 * n_modes * n_pol + 3 * n_modes + 5
+        )
+        * 8,
+        "error_partials": 3 * n_modes * n_pol * 8,
+        "spatial_coefficients": 4 * n_omega * 16 + 2 * n_omega * 8 + 4 * n_modes * 8,
+        "spatial_statistics_geometry": n_modes * (8 + 16),
+        "spatial_statistics_partials": max(n_modes, transform.n_nodes) * 3 * 8,
+        "host_problem_arrays": (
+            # Per column: the on-axis factors, the four transverse rows and the weights.
+            n_modes * (16 + 5 * 8)
+            # On the frequency axis: five complex rows, five real ones, the crop's index
+            # and the two masks; the time window; the wavenumbers along the two axes;
+            # the tableau's matrix, nodes and two rows of weights.
+            + n_omega * (4 * 16 + 4 * 8 + 8 + 2)
+            + n_to * (16 + 8)
+            + axes * 8
+            + (n_stages * n_stages + 3 * n_stages) * 8
+            + rates
+        ),
+        "far_field_tables": axes * 8,
+        "carrier": n_to * 16,
+        "crop_index": n_omega * 8,
+        "masks": 2 * n_omega,
+        "windows": (n_omega + n_to) * 8,
+        "statistics_frequency_axis": n_omega * 8,
+        "tableau": n_stages * n_stages * 8,
+        "stage_scalars": 2 * (6 * n_stages + 2) * 8,
+        "material_stage_values": 2 * 3 * n_stages * 8,
+        "absorber_rates": rates,
+    }
+    if not isinstance(problem.stepper.integrator, LowStorageRungeKutta):
+        rows |= _native_free_stepping(16 * n_modes * n_pol * n_omega)
+    if split and responses.temporal_absorber is not None:
+        rows |= {
+            "split_absorber_spectrum": temporal * n_omega * 16,
+            "split_absorber_time": temporal * n_t * (16 if envelope else 8),
+        }
+    if problem.responses.dispersive_kerr is None:
+        rows |= {"node_field": 0, "node_polarisation": 0}
+    return rows
+
+
+def _native_free_stepping(field_bytes: int) -> dict[str, int]:
+    """Return what ``native`` holds beside its stages in free space, in other marches.
+
+    The state's next value, the recycled last stage and the weighted residual are held,
+    and of the propagators only the whole step's, however the stages form it.
+
+    Parameters
+    ----------
+    field_bytes : int
+        One state's bytes.
+
+    Returns
+    -------
+    dict
+        Row name to bytes.
+    """
+    return {
+        "advanced": field_bytes,
+        "recycled_stage": field_bytes,
+        "weighted_residual": field_bytes,
+        "propagators": field_bytes,
+    }
 
 
 def dispersive_memory(problem: KernelProblem, backend: str) -> dict[str, int]:

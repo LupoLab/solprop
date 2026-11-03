@@ -1744,7 +1744,9 @@ problem does not share, on a modal route). The route groups equal each
 backend's ledger to the byte. `base` is the reference's count of its buffers on every
 backend, plus the native backend's own rows where the
 two differ (the far-field partials, the dispersive response's buffers, the held
-field-current source's). What is not counted is named on every estimate: FFTW's planning
+field-current source's, and on the Cartesian and line routes its statistics and absorber
+buffers per chunk, `free_space_memory`, where a Kerr beam's ledger is matched to the
+byte). What is not counted is named on every estimate: FFTW's planning
 heap, per-stage transients and the problem's
 own tables. A run over its budget is refused by name before anything is written — the
 estimate, the budget, the largest groups and what to change — rather than paging or being
