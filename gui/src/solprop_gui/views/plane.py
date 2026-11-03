@@ -474,7 +474,7 @@ class PlaneView(QWidget):
         peak = float(values.max()) if values.size else 0.0
         notes.insert(0, f"Peak power {si(peak, 'W')}.")
         if self.options.bandpass is not None:
-            notes.insert(1, f"Power {self.options.describe()}.")
+            notes.insert(1, f"{self.options.describe().capitalize()}.")
         self.status.setText(" ".join(notes))
         self._frame()
 
