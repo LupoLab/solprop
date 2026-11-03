@@ -137,7 +137,18 @@ def test_the_reference_carry_keeps_a_span_zero_sample_on_and_off_the_route():
     reference = CoupledExponentialKernels()
     # The object's coupled passes are itself.
     assert reference.coupled() is reference
-    unrouted = reference.carry_coupled(exponent, dz, rows, slots, spans, plain)
+    # The carry written out with SciPy's matrix exponential, by no route of the
+    # kernels', so that "no route" is compared with something other than itself.
+    unrouted = np.empty_like(rates)
+    for row, span in enumerate(spans):
+        for index in range(generator.shape[0]):
+            action = expm(
+                span * (exponent[0, 0, 0, 0] * np.eye(3) + dz * generator[index])
+            )
+            term = (rates[row] - exponent / dz)[0, :, 0, index] * states[row][
+                0, :, 0, index
+            ]
+            unrouted[row, 0, :, 0, index] = action @ term
     for name, block in blocks.items():
         expected = reference.carry_coupled(exponent, dz, rows, slots, spans, block)
         # The route forms W f(x + h lambda) Y where its absence forms the augmented

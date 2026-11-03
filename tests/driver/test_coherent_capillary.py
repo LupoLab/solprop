@@ -1479,8 +1479,9 @@ def test_the_legacy_entry_points_are_what_they_were(
     the rounding this is about.
 
     Kokkos, whose local and distribution builds (vendor BLAS, CPU target) move last
-    bits, has no record of its own: two runs agree within the same budget, and the
-    reference's field within :func:`legacy_parity_bound`.
+    bits, has no record of its own. Its two runs agreeing is a repeatability check only,
+    a build against itself, which a wrong operator passes; what holds its answer is the
+    reference's field within :func:`legacy_parity_bound`, looser than the record's.
     """
     if backend not in available():
         pytest.skip(f"the {backend} backend is not installed")
