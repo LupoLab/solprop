@@ -40,16 +40,6 @@ NATIVE = Path(__file__).resolve().parents[2] / "native"
 STRICT_ATTRIBUTE = "SOLPROP_NATIVE_STRICT_FUNCTION"
 STRICT_BLOCK = "SOLPROP_NATIVE_STRICT_BLOCK"
 
-ENVELOPE_NOT_STRICT = pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "SEP 43 inventory: the shared Numba body was protected from contraction "
-        "(bodies.py @protect, test_numba_licence's PROTECTED), and native's is not; "
-        "SEP 25 section 4.2 does not name it and fp.hpp's list omits it, so this "
-        "wants a decision: protect it, or take it off the licence"
-    ),
-)
-
 PROTECTED = [
     # The ionised fraction (Numba's fraction_at, envelope_population).
     ("src/general.cpp", "decayed_fraction"),
@@ -81,19 +71,13 @@ PROTECTED = [
     ("src/general.cpp", "adams_defect_block"),
     # The far field's plane radius (mask_plane_radius).
     ("include/solprop_native/far_field.hpp", "far_field_radius"),
-    # The ellipse's axes and its cycle moments.
-    pytest.param(
-        "include/solprop_native/envelope_plasma.hpp",
-        "envelope_axes",
-        marks=ENVELOPE_NOT_STRICT,
-    ),
-    pytest.param(
-        "include/solprop_native/envelope_plasma.hpp",
-        "envelope_moments",
-        marks=ENVELOPE_NOT_STRICT,
-    ),
 ]
-"""Each helper the licence protects, and the file that defines it."""
+"""Each helper the licence protects, and the file that defines it.
+
+The ellipse's `envelope_axes` and `envelope_moments` aren't here: contraction is the
+default, and neither relies on an exact cancellation (SEP 43, Q7). The scale makes one
+factor of an exactly linear field's determinant 1, and the moments' cut stays in [0, 1].
+"""
 
 
 def definition(text, name):

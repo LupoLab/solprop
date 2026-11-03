@@ -1044,34 +1044,35 @@ The status of each gate is at the end of this report, and it says plainly which 
   | Python 3.15 | Short runs on all five platforms, class T on Linux. Linux's default lane is the standalone step after this merges |
 
 - **Open questions, each for the maintainer:**
-  - **Q6.** Yank 0.1.0, so that deviation 2 becomes the error §5 describes?
-  - **Q7.** `envelope_axes` and `envelope_moments` in `envelope_plasma.hpp` aren't protected from
-    contraction, as Numba's were. Protect them, or drop them from the licence? Strict xfails in
-    `test_native_floating_point_licence.py`; no numerical error seen.
-  - **Q8.** A mistyped `SOLPROP_FFTW_PLAN` is silently MEASURE (`fft_plan.hpp`). Refuse it? Strict
-    xfail in `native/tests/test_fftw_plan_refusal.py`.
-  - **Q9.** Native's finish with content off the band differs from the reference by 1.09e-8 against
-    3.2e-12, since the reference masks before and after the temporal absorber and native only after.
-    No march reaches it, and on-band content measures 7.6e-16. Strict xfail.
-  - **Q10.** Native ignores a truncated `response_order`, with no refusal; it exists only at contract
-    level.
-  - **Q11.** The multimode capillary's interaction march differs by 1.5e-10 across 1 and 4 threads and
-    1.3e-10 between repeats, and by 0.0 under `SOLPROP_FFTW_PLAN=estimate`: steps 1.9e-12 apart,
-    amplified about 65 times, unexplained. Above §7's flag, within the retired 3e-9.
-  - **Q12.** Surviving thread tests may compare serial with serial, since native sizes each operation
-    by its work (`test_the_flow_is_invariant_under_the_thread_count`). The new ones force the pools.
-    The others weren't audited.
-  - **Q13.** The issue audit (`results/sep43-issue-audit.md`, not in git) has closing and trimming
-    text for 60 of 79 issues, and nothing has been posted. #300 needs a timing on an idle machine.
-    #92's priority should rise, since a wrong refusal under `auto` now stops a run.
+  - **Q6, settled 2026-11-03.** 0.1.0 is yanked right after 0.2 is published, so that deviation 2
+    becomes the error §5 describes. That release step is the maintainer's.
+  - **Q7, settled 2026-11-03.** `envelope_axes` and `envelope_moments` stay contracted, and leave
+    the licence's list, as the maintainer asked. Contraction is the default, whose one hazard is an
+    exact cancellation (SEP 25). The only candidate is the determinant, and scaling makes one factor
+    1 when the two components are equal, or one is twice the other. Over 200,000 random
+    linear fields per case in plain Python, with each product fused either way, the ratio's largest
+    value was 5.96e-17 with or without fusing, and no moment cut left [0, 1]. Numba's protection
+    isn't carried over.
+  - **Q8, settled 2026-11-03.** A mistyped `SOLPROP_FFTW_PLAN` is silently MEASURE (`fft_plan.hpp`).
+    It is to be refused, in a follow-up. Strict xfail in `native/tests/test_fftw_plan_refusal.py`.
+  - **Q9, settled 2026-11-03.** No code change: `kernel-contract.md` §7 states the precondition, and
+    the strict xfail stays.
+  - **Q10, settled 2026-11-03.** Native ignores a truncated `response_order`, which exists only at
+    contract level. It is to be refused, in a follow-up.
+  - **Q11, settled 2026-11-03.** Accepted as the rounding of plan choice and recorded in
+    `accuracy.md`, with an issue, after this merges, for the unexplained factor of 65.
+  - **Q12, settled 2026-11-03.** An issue and an audit after this merges, each thread test asserting
+    from `execution_sizing` that the operation really threaded.
+  - **Q13, settled 2026-11-03.** The closing and trimming text of `results/sep43-issue-audit.md`, not
+    in git, is posted after this merges. #300 needs a timing on an idle machine.
   - **Q14, settled 2026-11-03.** The maintainer raised `plasma_band`'s `deviation` tolerance from
     `rtol = 1e-6` to `3e-6`. It's a recorded value's regression tolerance, with `bound: null`, not an
     accuracy bound, and the tolerance applies to the whole column.
   - **Q15, settled 2026-11-03.** The maintainer chose to say that Windows 10 version 2004 or newer
     is expected to work, but untested.
-  - **Q16.** `kerr_beam` runs 10 to 28 % slower than at 0.1.0. It isn't this branch, which is 0.9956 and
-    0.9994 of `main` on those cases, and its size matches SEP 40's read cost (#396), though nothing
-    here bisected it. Leave it to #396?
+  - **Q16, settled 2026-11-03.** #453, on the 0.2 milestone, tracks `kerr_beam`'s rise and `ctc`'s
+    construction, which takes 9.8 s longer than at 0.1.0. Neither comes from this branch. The
+    maintainer handles it there.
 
 ## Part III — History
 

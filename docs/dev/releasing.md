@@ -103,7 +103,8 @@ Emulator: the smoke test on a Haswell, which loads the x86-64-v3 build; a Nehale
 and a Sandy Bridge (AVX without AVX2, FMA or BMI), which load the x86-64-v2 build, with
 `backend="auto"` resolving to `native` and no warning; and a refusal before any native code
 runs on a Penryn (no SSE4.2). It runs when the repository variables `SDE_URL` and
-`SDE_SHA256` name an SDE release. The other platforms' checks (Windows through
+`SDE_SHA256` name an SDE release, and publishing waits for it then, as it always waits for
+`minimum-systems`. The other platforms' checks (Windows through
 `IsProcessorFeaturePresent`, Linux aarch64 through `/proc/cpuinfo`'s `Features`) are
 unit-tested with stand-in processors in `native/tests/test_cpu_baseline.py`; no CI job
 runs them on a processor below the baseline.

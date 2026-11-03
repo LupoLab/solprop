@@ -1903,7 +1903,8 @@ Which backend and build to choose for a run is the user guide's
 - Batches are fixed-schedule only; adaptive and spatial batches, and batches carrying a
   coupled flow, are refused.
 - No native build runs on Intel macOS, ppc64le, Arm below Neoverse N1 or Windows before 10
-  version 2004, nor on x86-64 below x86-64-v2. These use `numpy_ref` where it installs,
-  unthreaded (§1); NumPy's own baseline may refuse x86-64 below v2.
+  version 2004, nor on x86-64 below x86-64-v2, and solprop doesn't support them. With no
+  wheel the installer refuses; where a wheel installs, `auto` and `native` refuse on the
+  processor. NumPy's own baseline may refuse x86-64 below v2.
 - A GPU build of `native` runs nothing on the CPU in process. A CPU run beside one needs a
   second environment with the CPU wheel, or `numpy_ref` in process.

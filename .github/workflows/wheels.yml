@@ -447,8 +447,17 @@ jobs:
   # its own environment `pypi-gui` once PUBLISH_GUI is "true" too; until then
   # `solprop[gui]` resolves only in the repository's workspace.
   publish-native:
-    needs: [test, python-3-15, solprop-dist]
-    if: vars.PUBLISH == 'true' && startsWith(github.ref, 'refs/tags/v')
+    # cpu-floor runs only when SDE_URL names an emulator, so it may be skipped only then.
+    needs: [test, python-3-15, solprop-dist, cpu-floor, minimum-systems]
+    if: >-
+      ${{ !cancelled()
+      && vars.PUBLISH == 'true' && startsWith(github.ref, 'refs/tags/v')
+      && needs.test.result == 'success'
+      && needs.python-3-15.result == 'success'
+      && needs.solprop-dist.result == 'success'
+      && needs.minimum-systems.result == 'success'
+      && (needs.cpu-floor.result == 'success'
+          || (needs.cpu-floor.result == 'skipped' && vars.SDE_URL == '')) }}
     runs-on: ubuntu-24.04
     environment:
       name: pypi-native

@@ -448,6 +448,14 @@ phases to `1e15` with the multiples of `pi / 2`; every block length, the C99 spe
 values and agreement with the system libm are `native/tests/native/test_vmath.cpp`.
 The full suite passes against both routes, on x86-64 (AVX2) and arm64 (AdvSIMD, forced).
 
+**An adaptive run under measured plans.** FFTW's measured planning needn't choose one plan,
+so an adaptive native run needn't repeat exactly. On the multimode capillary's interaction
+march, fields differ by 1.5e-10 between one and four threads and by 1.3e-10 between repeats,
+and by 0.0 under `SOLPROP_FFTW_PLAN=estimate`. Steps sit 1.9e-12 apart, so the field's
+difference is about 65 times theirs, a factor nobody has explained. That is above the
+1e-10 flag and far below the run's `rtol`, and it's accepted as the rounding of plan choice
+(SEP 43, Q11).
+
 **Scans and batches** are execution paths, not numerical models: a scan point agrees with
 the same simulation run alone, and a batch member with the same member run singly under
 the same fixed schedule, within a matched-discrete rounding budget, on every backend (scan

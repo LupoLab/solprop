@@ -1069,6 +1069,12 @@ section 8).
 | `interpolate_planes` | bool | steps across the save planes and observes each inside its accepted step, through DOPRI5's continuous extension or, with an `integrator`, the Adams march's own polynomial (ADR-039); the end of the run and the hard kinks are still landed on. Refused with a schedule, a Runge-Kutta tableau without an extension, the per-step collar, a coupled flow and the `modified` noise |
 | `step_planes` | int | a positive `k` also saves the end of every `k`-th accepted step since the load: the shared march returns from `propagate_to` there, short of its target, and the driver saves the plane and asks for the target again (ADR-039). `0` never stops short |
 
+**The finish's input is on the band.** Under the split-step absorber scheme the reference
+masks before and after the temporal absorber, and native masks only after it. With content
+off the band they differ by 1.09e-8 against a 3.2e-12 bound; on the band, by 7.6e-16. No march
+hands the finish such a state, so a change that could is a change to this contract. A strict
+xfail in `tests/backends/test_native_planar_statistics.py` records the difference.
+
 ## 8. Statistics requests
 
 | field | type | meaning |
