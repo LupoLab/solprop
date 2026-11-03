@@ -782,7 +782,8 @@ accumulate` for a problem declaring both a Kerr and a plasma response; `dispersi
 follows `kerr` when a dispersive electronic response is compiled; `raman_drive` joins
 it after them when a Raman response is compiled, so a gas-filled capillary with all three
 reaches `intensity, ionisation_rate, plasma_scan, plasma_current, kerr, raman_drive,
-accumulate`.
+accumulate`. `native` takes each response from its own leaf rather than from this order,
+so it refuses an order that omits a response the problem holds.
 
 **Each member of `raman_terms` is a leaf**, like a plasma channel, so its fields are not
 rows of this document; they are `undamped` (`(n_terms, n_to_doubled) float64`: each

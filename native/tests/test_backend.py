@@ -303,6 +303,29 @@ def test_the_low_storage_march_steps_as_the_reference(
     assert_within(field, reference, bound, what=f"the low-storage march, {mode}")
 
 
+def test_an_order_that_omits_a_held_response_is_refused(
+    phase_a_case: PhaseACase,
+) -> None:
+    # Native reads each response's own leaf, not the order, so the omitted Kerr term
+    # would still run. Removing the response as well is a consistent, linear problem.
+    problem, grid = phase_a_case
+    responses = problem.responses
+    accumulate_only = responses.response_order[-1:]
+    omitted = dataclasses.replace(
+        problem,
+        responses=dataclasses.replace(responses, response_order=accumulate_only),
+    )
+    with pytest.raises(BackendError, match="response_order omits kerr"):
+        NativeBackend(omitted, grid=grid)
+    linear = dataclasses.replace(
+        problem,
+        responses=dataclasses.replace(
+            responses, response_order=accumulate_only, kerr_coefficients=None
+        ),
+    )
+    NativeBackend(linear, grid=grid).close()
+
+
 def test_a_low_storage_table_never_built_is_refused(phase_a_case: PhaseACase) -> None:
     # solprop SEP 24's closing guard: the native state refuses to reuse a constant
     # operator's table it has not built since the field was loaded, rather than step
