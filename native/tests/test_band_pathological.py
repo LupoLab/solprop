@@ -25,9 +25,9 @@ translated table, and each test checks that they occur:
   its fields stay within the table's range: ``general.cpp``'s two clamps.
 
 **Where this is weaker than the original.** A 1e-170 sample beside samples of order
-one is out of reach, because a transform would round it away: the tiny sample here comes
-with a tiny row. The zeros are every fourth sample rather than every seventh, and the Numba
-column's reuse of an unchanged fraction has no native counterpart to compare.
+one is out of reach, because a transform would round it away: the tiny sample here
+comes with a tiny row. The zeros are every fourth sample rather than every seventh, and
+the Numba column's reuse of an unchanged fraction has no native counterpart to compare.
 """
 
 # ruff: noqa: I001 -- Kokkos loads first, before any other OpenMP runtime on macOS.
@@ -383,7 +383,7 @@ def test_fixed_steps_from_the_inputs_match_the_reference(
 def test_the_launch_statistics_match_the_reference(
     preionisation: float, peak: float, floor: float
 ) -> None:
-    """The stash's fraction and rate, from zeros and tiny rows, at every initial share."""
+    """The stash's fraction and rate, from zeros and tiny rows, at every initial one."""
     grid, problem = capillary(peak=peak, floor=floor, preionisation=preionisation)
     bound = (
         evaluation_bound(problem, grid)
@@ -445,7 +445,7 @@ def test_the_knot_index_is_clamped_at_both_ends_of_the_table(
 
 
 def test_a_two_component_row_with_an_exactly_zero_component_matches_the_reference():
-    """The original's ``n_pol = 2``: exact zeros in x and a y of exact zeros, radially."""
+    """The original's ``n_pol = 2``: exact zeros in x, a y of exact zeros, radially."""
     grid, problem = vector(1)
     launch = np.asarray(problem.initial.field0)
     field = np.zeros(problem.shape, complex)
