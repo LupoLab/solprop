@@ -548,10 +548,10 @@ def test_the_flow_is_invariant_under_the_thread_count(tmp_path):
 
     Every pool is forced (:func:`thread_states`). The flow's own kernels are fixed-order
     loops inside one output element, and the engine plans transforms as small as the
-    split block's 256-point two-column inverse on one FFTW thread. Bitwise invariance
-    is not promised, though (SEP 25): two thread layouts are two orderings of one discrete march, held to the bound that holds two
-    implementations of it, :func:`parity_bound`, fixed from the reference before the
-    threads are compared.
+    split block's 256-point two-column inverse on one FFTW thread. Bitwise invariance is
+    not promised, though (SEP 25): two thread layouts are two orderings of one discrete
+    march, held to the bound that holds two implementations of it, :func:`parity_bound`,
+    fixed from the reference before the threads are compared.
     """
     names = sorted(CASES)
     one = thread_states(PROBE, 1, names, tmp_path)
