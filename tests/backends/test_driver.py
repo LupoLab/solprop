@@ -1130,8 +1130,14 @@ def test_the_surface_a_backend_subclasses_is_frozen(driver):
     whether a backend reads a free-space run's transverse edge (SEP 40), without
     changing these signatures. Version 42 lets the initial state be strided, which
     ``set_initial`` accepts, without changing its signature.
+    Version 43 widens what ``_boundary_energies`` returns under the split scheme,
+    without changing its signature: the energies of what each step's split found
+    (``_split_found``) and the state's occupancy of the split collar's walk-off buckets
+    (``KernelProblem.split_crossing``); the native reading's ``bind_occupancy`` and its
+    ``10 + 128`` numbers, and the native march's required ``step_cap`` bound. It adds
+    ``_split_capped``, the cap on adaptive steps.
     """
-    assert KERNEL_SCHEMA_VERSION == 42, (
+    assert KERNEL_SCHEMA_VERSION == 43, (
         "the seam changed: rewrite the literals of this test"
     )
     assert StepDriver.reads_transverse_edge is False

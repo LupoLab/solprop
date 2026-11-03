@@ -145,6 +145,52 @@ better at, and why it stays selectable.
 The two agree to first order in the step and differ at second, by `(αh/2)²/2` — which is
 what the tests assert, and what would be false if the factor of one half were dropped.
 
+**The split's crossing limit.** The split damps the collar once per accepted step, at the
+step's end. A step whose group-delay walk-off exceeds the collar's width carries light
+through the collar and round the periodic window into the interior, where the factor
+does not touch it; on a nearly linear stretch the error estimate sees nothing, and a
+low-source run's steps grow long. So under `absorber_scheme="split_step"` no step walks
+the light more than half the collar:
+
+$$ h \le c\,\frac{w}{\max |\mathrm{d}\tau/\mathrm{d}z|}, \qquad c = 0.5, $$
+
+with `w` the collar's width and `dτ/dz = ∂(β − β_frame)/∂ω` the group-delay walk-off
+against the frame ({py:func}`solprop.boundaries.split_crossing_step`,
+{py:data}`solprop.boundaries.SPLIT_CROSSING`), taken over **the bins that hold light**.
+Every `(mode, frequency)` bin's walk-off is read from the translated operator into one of
+128 rate buckets ({py:class}`solprop.boundaries.SplitCrossing`,
+{py:func}`solprop.translate.linop.walk_off_buckets`: centred differences, one-sided at
+the active band's edges and the last propagating bin before evanescence, a z-varying
+guide read at its operator's own nodes, a coupled taper's modes each at their own
+propagation constant from the flow's generator); the fastest buckets that between
+them hold at most `1e-6` of the energy ({py:data}`solprop.boundaries.SPLIT_OCCUPIED_SHARE`)
+are set aside, since all of that light wrapping would be a field error within the
+monitor's default budget, and the fastest bucket left gives the rate.
+
+- At translation the rate is read from the launch. It holds an adaptive run's `dz_max`,
+  which is logged at `INFO` when it is lowered, and a fixed schedule whose longest step
+  exceeds it is refused with a `TranslationError` that names the limit.
+- The boundary monitor reads it again from the state at every check, where each
+  backend sums the state's energy per bucket beside its other numbers, and the steps
+  until the next check are capped by it, on every march, the native one included. Light
+  that spreads into faster bins, a filament's or a pulse's broadening spectrum, so
+  shortens the steps as it goes: on the 256-node radial filament of the benchmark suite
+  the cap falls from 0.28 m at the launch to about 6 mm within 2 mm, above every step
+  the run takes. A fixed schedule cannot shorten its steps, so a check whose cap falls
+  below any of the schedule's steps before the next check stops the run with a
+  `BoundaryError` naming the cap, and a resumed schedule is held to the state it
+  resumes from at once.
+- A run with `boundary_check=None` is held to the launch's limit alone.
+
+Read over every bin, outer transverse columns near their cutoff would set the limit even
+where they hold nothing: a 100 µm beam on a 1 mm radial grid of 512 nodes with a 70 fs
+collar took 109 steps over 5 cm instead of 25. Read where the light is, it takes 25 again,
+and the benchmark suite's cases take the steps they took before. On a linear GNLSE pulse
+walking one window per metre, the limit takes `Multistep` from 14 steps of up to 0.3 m,
+which left 0.12 of the launch wrapped into the window, to 27 steps of 0.054 m, which leave
+2e-4, the share a 1423 fs window should still hold. The in-stage scheme absorbs inside
+every stage and has no such limit.
+
 ## Geometry, and the collar that is not one
 
 The collar geometry comes from the grid: the spectral collar rises over `[ω_min/2, ω_min]`
@@ -394,7 +440,8 @@ a scheme or interpolate their planes, which the split refuses: on the spatial ca
 performance-tracking suite the in-stage collar took 1.2 to 4.6 times the steps of the
 split one, at equal or worse accuracy inside the requested window
 ([SEP 21](../../dev/seps/archive/sep-0021-absorbing-boundaries.md)). The split is unconditionally
-stable, so a fixed schedule on a spatial route keeps its collar.
+stable, so a fixed schedule on a spatial route keeps its collar, within the split's
+[crossing limit](#the-two-temporal-schemes).
 
 On a spatial grid an absorber given explicitly also switches on the real-space transverse
 collar ([free-space propagation](../free-space/model.md#spatial-collar-and-statistics)).
@@ -475,6 +522,18 @@ each accepted step's split takes of the power it finds, `P(1 − e^{−αh})`, s
 is exact on every step, checked or not. Read back from the state the split leaves, the
 same removal would multiply whatever the band mask left deep in the collar by `e^{αh}`,
 into removals larger than the launch and false warnings.
+
+The same finish keeps the energy and the guards' and collar's energies of that power
+taken halfway through the split's factor, `P e^{−αh/2}`, and under the split every share
+of a check is judged on them, the no-light test included; a backend whose reading after
+a step lacks them is refused rather than judged on the state the split left. The state the split leaves has its guards, deep in the collar, damped by `e^{−αh}`,
+about `e^{−10}` at an adaptive step, so a pulse walking out showed nothing there and ran
+to the end of its fibre; the state before the split holds what walked into the guard
+during the step unabsorbed, and stopped the same pulse 40 % early. Half the factor is
+the symmetric (Strang) splitting's state at the step's end, second order in the step
+where the one-sided split is first. On a GNLSE pulse walking out of its window, the
+split's stop falls within 1 % of the in-stage scheme's at every `dz_max` from adaptive to
+2.5e-4 m, and a radial one's within 6 %.
 
 A check reads five numbers of the state, its energy and the four weighted energies above,
 and each backend forms them where the state lives: on the GPU for `mlx` and a device build

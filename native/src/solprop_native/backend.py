@@ -68,6 +68,7 @@ from solprop.backends.spatial import (
     radial_absorber_matrix,
     signed_fluence_widths,
 )
+from solprop.boundaries import SPLIT_RATE_BUCKETS
 from solprop.constants import EPS0, C
 from solprop.exceptions import (
     BackendError,
@@ -1098,19 +1099,37 @@ class NativeBackend(StepDriver[_core.State]):
         self._native_state.bind_monitor(
             np.ascontiguousarray(monitor.weights, dtype=np.float64).reshape(-1), columns
         )
+        crossing = monitor.crossing
+        if crossing is not None:
+            # The split collar's crossing limit, read from the state's occupancy of
+            # its walk-off buckets at every check (solprop #440).
+            self._native_state.bind_occupancy(
+                np.ascontiguousarray(crossing.buckets, dtype=np.uint8).reshape(-1),
+                SPLIT_RATE_BUCKETS,
+            )
 
     def _boundary_energies(self, state: _core.State) -> BoundaryEnergies:
         """Reduce the monitor's five numbers where the state lives (solprop SEP 21).
 
-        Only they and the split's removal since the last reading cross to the host.
+        Only they, the split's removal since the last reading and the energies of
+        what the last step's split found cross to the host.
         """
         if state is not self._native_state:
             raise BackendError("the monitored state does not belong to this backend")
         if self._monitor is None:
             raise BackendError(f"{self.name}: no boundary monitor is attached")
         reading = np.asarray(state.monitor_reading(), dtype=np.float64).reshape(-1)
+        # Zeros until the first accepted step's split, which the monitor passes over.
+        found = reading[6:10].copy() if self._monitor.split else None
+        occupancy = None
+        if self._monitor.crossing is not None:
+            occupancy = reading[10 : 10 + SPLIT_RATE_BUCKETS].copy()
         return BoundaryEnergies(
-            float(reading[0]), reading[1:5].copy(), removed=float(reading[5])
+            float(reading[0]),
+            reading[1:5].copy(),
+            removed=float(reading[5]),
+            found=found,
+            occupancy=occupancy,
         )
 
     def _finish(self, state: _core.State, dz: float) -> _core.State:
@@ -2651,6 +2670,9 @@ class _NativeAdamsMarch(AdamsMarch):
             "last_check": 0.0 if checked is None else float(checked),
             "read_at": read_at,
             "read_spacing": spacing,
+            # The split collar's crossing limit, read at the last check (solprop
+            # #440): a ceiling on every adaptive step until the next.
+            "step_cap": math.inf if monitor is None else float(monitor.step_cap),
             "max_attempts": self.MAX_ATTEMPTS,
             "max_seconds": self.MAX_SECONDS,
             "replay": slack is not None,

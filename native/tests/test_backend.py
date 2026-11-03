@@ -263,7 +263,7 @@ def test_schema_mismatch_names_both_versions(
     # The two independently qualified schema-18 branches are not the combined seam.
     problem, _ = phase_a_case
     spoiled = dataclasses.replace(problem, schema_version=declared)
-    with pytest.raises(BackendError, match=rf"version 42.*version {declared}"):
+    with pytest.raises(BackendError, match=rf"version 43.*version {declared}"):
         check_build(spoiled)
 
 
@@ -741,7 +741,7 @@ def test_metadata_and_memory_ledger_are_self_consistent(
     n = problem.shape[-1]
     stages = problem.stepper.tableau.n_stages
     assert metadata["backend"] == "native"
-    assert metadata["schema_version"] == 42
+    assert metadata["schema_version"] == 43
     assert metadata["openmp_wait_policy"] == solprop_native.WAIT_POLICY
     assert metadata["openmp_proc_bind"] == solprop_native.PROC_BIND
     # NumPy's own BLAS pool is held while the backend lives (solprop_native._host_blas).

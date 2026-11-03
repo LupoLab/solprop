@@ -7,6 +7,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -263,6 +264,9 @@ struct Bounds {
   bool has_read_at = false;
   double read_at = 0.0;
   double read_spacing = 0.0;
+  /** The split collar's crossing limit the last check read, a ceiling on every
+   *  adaptive step; infinite without one. */
+  double step_cap = std::numeric_limits<double>::infinity();
   /** The call's own bound: its attempts and its wall time, s. */
   std::size_t max_attempts = 256;
   double max_seconds = 0.1;

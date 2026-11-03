@@ -444,6 +444,7 @@ Result run(const Policy& policy, State& state, Engine& engine, const Bounds& bou
       }
       proposed = quiet_capped(policy, proposed, bounds.quiet);
       proposed = read_capped(bounds, proposed);
+      proposed = py_min(proposed, bounds.step_cap);
       proposed = collar_reentry(policy, proposed, state.order, state.collar_was_quiet,
                                 bounds.quiet);
       state.collar_was_quiet = bounds.quiet;
