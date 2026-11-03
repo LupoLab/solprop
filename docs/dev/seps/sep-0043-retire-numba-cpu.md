@@ -995,7 +995,8 @@ The status of each gate is at the end of this report, and it says plainly which 
   Windows can report. The lowest Windows hardware admitted wasn't established.
 - **Limitations:**
   - No hardware below the floor was run. Selection is by stand-ins and Intel SDE in CI.
-  - `PF_ARM_*` has run only against a fake `kernel32`, until CI's Windows on Arm lane.
+  - `PF_ARM_*`'s refusal has run only against a fake `kernel32`. Its accepting path runs for real
+    on CI's Windows on Arm lanes.
   - The Windows 10 minimum isn't qualified, so that claim narrows until #313 has a machine.
 - **`plasma_band` on Windows on Arm, explained.** The record's `boundary` row at `lambda = 1e-8`
   stores 3.7545630e-06 under `rtol = 1e-6`, and Windows on Arm gives 3.7545680e-06: 1.33e-6 above,

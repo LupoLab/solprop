@@ -139,7 +139,7 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 <path d="M600.0,526.0 L600.0,542.0 L893.0,542.0 L893.0,558.0" class="arrow" />
 <path d="M893.0,558.0 L889.4,549.0 L896.6,549.0 Z" class="head" />
 <rect x="618.0" y="564.0" width="550.0" height="97.0" rx="7" ry="7" class="fill-b" />
-<text x="628.0" y="586.0" font-size="15" class="bold ink-b">native  ·  preferred if installed</text>
+<text x="628.0" y="586.0" font-size="15" class="bold ink-b">native  ·  what auto selects</text>
 <text x="628.0" y="601.5" font-size="12" class="dim">solprop-native distribution, native/</text>
 <text x="628.0" y="617.0" font-size="12" class="dim">C++20 Kokkos + persistent Kokkos-FFT plans</text>
 <text x="628.0" y="632.5" font-size="12" class="dim">one native call per seven-stage trial</text>

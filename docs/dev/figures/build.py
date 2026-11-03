@@ -2504,7 +2504,7 @@ def backends() -> drawsvg.Drawing:
     )
     cards = (
         ("numpy_ref  ·  the oracle", NUMPY_REF, Paint("fill-b", "ink-b")),
-        ("native  ·  preferred if installed", DEVICE_SLOT, Paint("fill-b", "ink-b")),
+        ("native  ·  what auto selects", DEVICE_SLOT, Paint("fill-b", "ink-b")),
     )
     card_height = max(node_height(lines) for _, lines, _ in cards) + 22
     row_gap = 44.0
