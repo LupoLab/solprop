@@ -87,6 +87,7 @@ from solprop.output.schema import (
     StepHistory,
     StepStats,
     TerminalCheckpoint,
+    _adopted,
     field_retention_refusal,
 )
 from solprop.output.snapshots import SnapshotController
@@ -241,6 +242,39 @@ def plane_from_observation(
         noise_phase=None
         if observation.noise_phase is None or not field
         else observation.noise_phase[member],
+    )
+
+
+def _adopted_plane(observation: Observation, *, field: bool = True) -> SavedPlane:
+    """Turn an observation of an unbatched run into a plane without copying its arrays.
+
+    An observation's arrays are read-only and nothing writes to them again
+    (:meth:`solprop.backends.protocol.Backend.observe`), so the plane can hold them as
+    they are: this is what lets a handler reduce a plane and drop it for no more than
+    the backend's own observation, and keep it if it wants to. A batch member is not
+    adopted, since its view would pin the whole batch: that route takes
+    :func:`plane_from_observation`, which copies.
+
+    Parameters
+    ----------
+    observation : solprop.backends.protocol.Observation
+        The observation of an unbatched run.
+    field : bool, optional
+        Whether the plane keeps the field and its noise phase.
+
+    Returns
+    -------
+    solprop.output.schema.SavedPlane
+        The plane, with its statistics still to add.
+    """
+    plane = plane_from_observation(observation, field=False)
+    if not field or observation.field is None:
+        return plane
+    phase = observation.noise_phase
+    return dataclasses.replace(
+        plane,
+        field=_adopted(observation.field[0]),
+        noise_phase=None if phase is None else _adopted(phase[0]),
     )
 
 
@@ -526,9 +560,7 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
         # starts at plane zero again without wanting a second copy of it.
         if output.n_saved == 0 or missing_current_save:
             keep = retention.keeps(output.n_saved)
-            pending = plane_from_observation(
-                _observed(problem, backend, keep=keep), field=keep
-            )
+            pending = _adopted_plane(_observed(problem, backend, keep=keep), field=keep)
             pending = dataclasses.replace(
                 pending,
                 stats={
@@ -576,9 +608,7 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
                     summary.max_norm,
                 )
             keep = retention.keeps(output.n_saved)
-            pending = plane_from_observation(
-                _observed(problem, backend, keep=keep), field=keep
-            )
+            pending = _adopted_plane(_observed(problem, backend, keep=keep), field=keep)
             pending_save_count = output.n_saved
             pending = dataclasses.replace(
                 pending,
@@ -826,7 +856,7 @@ def _fetched(problem: KernelProblem, backend: Backend) -> np.ndarray:
     numpy.ndarray
         The field, as a saved plane holds it.
     """
-    plane = plane_from_observation(_observed(problem, backend, keep=True), field=True)
+    plane = _adopted_plane(_observed(problem, backend, keep=True))
     assert plane.field is not None  # observed with its field
     return plane.field
 
@@ -1271,18 +1301,14 @@ def _persist_failure(
             # The low-storage step in flight holds neither end, and the last plane
             # kept no field: the state held there is checkpointed (SEP 22, Q14).
             # Its history went out with the plane, so the checkpoint carries none.
-            pending = plane_from_observation(_power_observation(problem, held))
+            pending = _adopted_plane(_power_observation(problem, held))
         elif pending is None:
-            pending = plane_from_observation(
-                _power_observation(problem, backend.observe())
-            )
+            pending = _adopted_plane(_power_observation(problem, backend.observe()))
         elif pending.field is None:
             # A field-free plane keeps no field, and a checkpoint always does (SEP
             # 22, Q1): the state still stands where the plane was observed, so it is
             # observed again for its field alone, the history being the plane's.
-            again = plane_from_observation(
-                _power_observation(problem, backend.observe())
-            )
+            again = _adopted_plane(_power_observation(problem, backend.observe()))
             pending = dataclasses.replace(
                 pending, field=again.field, noise_phase=again.noise_phase
             )

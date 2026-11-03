@@ -52,6 +52,7 @@ import math
 import platform
 import re
 import subprocess
+import weakref
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
@@ -1819,6 +1820,57 @@ class StepStats(Displayed):
         return tuple(sorted(self.values))
 
 
+_ADOPTED: weakref.WeakValueDictionary[int, np.ndarray] = weakref.WeakValueDictionary()
+"""The arrays :func:`_adopted` marked, by id, for as long as each lives."""
+
+
+def _adopted(values: np.ndarray) -> np.ndarray:
+    """Mark an array a :class:`SavedPlane` takes as it is, instead of copying it.
+
+    The driver's route (:func:`solprop.driver.run.run_problem`) for what an observation
+    holds. Only for an array that nothing writes to again, as
+    :meth:`solprop.backends.protocol.Backend.observe` promises, and never for a batch
+    member, whose view would pin the whole batch.
+
+    Parameters
+    ----------
+    values : numpy.ndarray
+        The array, of the type a plane holds.
+
+    Returns
+    -------
+    numpy.ndarray
+        The same array, read-only.
+    """
+    values.setflags(write=False)
+    _ADOPTED[id(values)] = values
+    return values
+
+
+def _plane_array(
+    values: np.ndarray, dtype: type[np.complex128] | type[np.float64]
+) -> np.ndarray:
+    """Return an array as a :class:`SavedPlane` holds it: read-only, nobody else's.
+
+    Parameters
+    ----------
+    values : numpy.ndarray
+        The array given to the plane, of any numeric dtype.
+    dtype : type
+        The element type the plane holds.
+
+    Returns
+    -------
+    numpy.ndarray
+        `values` itself when :func:`_adopted` marked it, a frozen copy otherwise.
+    """
+    if _ADOPTED.get(id(values)) is values:
+        return values
+    held = np.array(values, dtype=dtype, copy=True)
+    held.setflags(write=False)
+    return held
+
+
 @dataclass(frozen=True, eq=False, kw_only=True)
 class SavedPlane(Displayed):
     """One saved position: the field there, its statistics and how it was reached.
@@ -1933,18 +1985,16 @@ class SavedPlane(Displayed):
                 msg = "a field-free plane carries no noise phase"
                 raise OutputError(msg)
             return
-        field = np.array(self.field, dtype=np.complex128, copy=True)
-        field.setflags(write=False)
+        field = _plane_array(self.field, np.complex128)
         object.__setattr__(self, "field", field)
         if self.noise_phase is not None:
-            phase = np.array(self.noise_phase, dtype=np.float64, copy=True)
+            phase = _plane_array(self.noise_phase, np.float64)
             if phase.shape != field.shape:
                 msg = (
                     f"noise_phase has shape {phase.shape}, expected the field's "
                     f"{field.shape}"
                 )
                 raise OutputError(msg)
-            phase.setflags(write=False)
             object.__setattr__(self, "noise_phase", phase)
 
     @property

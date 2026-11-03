@@ -144,6 +144,13 @@ A {py:class}`~solprop.output.schema.SavedPlane` is what a driver hands over: the
 step history since the previous plane, and the accumulated noise phase when a noise
 model is running and the plane keeps its field.
 
+A plane's arrays are read-only. A run gives its handler the backend's own observation
+rather than a copy of it, and nothing writes to that again, so a handler
+that reduces each plane to a few numbers and drops it costs one field volume on the host at
+that plane, the one the observation already crossed with, and a handler may equally keep
+`plane.field` for as long as it likes. A `SavedPlane` you construct yourself copies what it
+is given.
+
 The handler converts the field on the way out, because the file is where the internal
 FFT convention meets the user's optics convention: stored spectra go through
 {py:func}`~solprop.fourier.spectrum_to_optics`, which conjugates *and* moves the phase
