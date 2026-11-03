@@ -111,7 +111,7 @@ def test_a_runner_digests_no_input_when_each_is_stated(backend):
 
 
 def test_a_runner_digests_each_input_once_and_never_its_parent(monkeypatch):
-    """Without a statement: its parent's digest would read a placeholder at full size."""
+    """Without a statement: a parent's digest would read a placeholder at full size."""
     simulation = capillary("numpy_ref")
     fields = inputs(simulation)
     monkeypatch.setattr(output_schema, "INLINE_ARRAY_LIMIT", 0)
