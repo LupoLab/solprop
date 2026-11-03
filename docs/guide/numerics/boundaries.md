@@ -64,6 +64,28 @@ so that propagating through one reference length `ℓ` applies the collar profil
 propagation", with `boundary_N = 20`. The strength of the absorber is then a physical
 distance rather than a step count.
 
+**A slice of a run.** That distance follows the grid's length, so `boundary_N` gives a slice
+its own strength: a quarter of a run, rebuilt from its own grid, has a collar four times as
+strong as its parent's, and the in-stage collar's stability limit and the steps follow.
+`boundary_length=parent.reference_length` keeps the parent's. A continuation through
+`with_input` is not affected, since it [keeps the tables](../results/interior-launch.md).
+
+```python
+from solprop.boundaries import absorber
+from solprop.grid import FieldGrid
+
+
+def grid_of(length):
+    return FieldGrid.from_limits(length, 800e-9, (400e-9, 2e-6), 400e-15)
+
+
+whole = absorber(grid_of(1.0))
+piece = absorber(grid_of(0.25))
+kept = absorber(grid_of(0.25), boundary_length=whole.reference_length)
+assert abs(piece.temporal_rate.max() / whole.temporal_rate.max() - 4.0) < 1e-9
+assert kept.temporal_rate.max() == whole.temporal_rate.max()
+```
+
 Where each part goes is decided by what can be applied *exactly*:
 
 | part | mechanism | why |
@@ -266,6 +288,55 @@ band edges carrying nothing but shot noise, fires on almost every run — and a 
 is usually wrong is one people learn to ignore. A caller who passes the span of the band
 it cares about does not have that problem.
 
+### Sizing the collar from a walk-off
+
+A run that knows its drift can ask for the collar that stops it, rather than turn the drift
+into a strength by hand. Setting the attenuation above to `Γ` and the rate to
+`α(t) = A(1 − W(t))/ℓ_c` gives
+
+$$ \ell_c = \frac{L}{\Delta\tau\,\Gamma}\,\frac{A}{2}\int (1 - W)\,\mathrm{d}t
+         = \frac{6.3\,w\,L}{\Gamma\,\Delta\tau}, $$
+
+since by the Planck taper's symmetry `W(x) + W(w − x) = 1` each edge of width `w` contributes
+`w/2` to the integral. Both edges count: on the periodic axis they meet at the end of the
+window, and a packet re-enters the flat region only after crossing both. With
+`Γ = log(10³)`, the condition {py:func}`~solprop.boundaries.warn_walkoff` checks, the default
+strength `A·boundary_N = 252` stops a drift of `252 w/(2Γ) = 18.2 w`
+([SEP 21](../../dev/seps/archive/sep-0021-absorbing-boundaries.md) §4.2).
+
+```python
+drift = 1.5e-12  # s, over the grid's length
+walking = absorber(grid_of(1.0), walkoff=drift)
+assert (walking.spectral_rate == whole.spectral_rate).all()  # the spectral collar stays
+print(f"{walking.in_stage_length:.4f} m against {whole.in_stage_length:.4f} m")
+```
+
+`walkoff` fills `collar_length` ([below](#two-lengths-the-spectral-rate-and-the-in-stage-collars))
+and nothing else. So:
+
+- **Which length.** The drift is measured over the grid's own `length`. The rate depends only
+  on the speed `Δτ/L`, so a slice given its own drift, a quarter of the length and a quarter
+  of the walk-off, gets its parent's temporal collar. Given its parent's whole drift it gets
+  a collar four times as strong.
+- **Beside `boundary_N` or `boundary_length`.** Neither conflicts with it, and neither is
+  refused: they keep setting `reference_length` and the spectral rate, and `walkoff` sets the
+  temporal rates. A slice that keeps both of its parent's strengths passes
+  `boundary_length=parent.reference_length` and its own drift.
+- **Beside `temporal=False`.** Refused: there is no temporal collar to size.
+- **The window.** It does not bound the drift. The attenuation depends on the collar's width
+  and not the window's, and a drift of several windows is absorbed on its first crossing. It
+  costs steps instead: at this strength an explicit method's step is held to `r w/(Γ v)`,
+  about `0.48 w/v` for DOPRI5 (`r = 3.3`, the [stable step](#the-two-temporal-schemes)), so a
+  long drift through a narrow collar is better served by a wider window.
+
+A linear packet walking through this collar at the stated drift leaves `exp(−2Γ)` of its
+power, a millionth, to within the one sample the sizing's integral leaves out of the period.
+The sizing assumes a steady drift over the run, as `warn_walkoff` does. Walk-off that starts
+late, after fission or as a soliton decelerates, crosses faster than the mean and is absorbed
+less, so the [monitor](#watching-the-windows-edges) stays the measurement. The default
+strength stays what it is for that reason: weak light that walks far needs its margin
+([SEP 21](../../dev/seps/archive/sep-0021-absorbing-boundaries.md), decision D3).
+
 ```{eval-rst}
 .. plot::
    :caption: Left: the temporal collar of the RDW field grid and the absorption rate it becomes, for two absorber strengths. Right: the property the whole scheme exists for -- the surviving field after 0.3 m is the same however that distance is subdivided, while a per-step multiply gives a different answer for every step count.
@@ -348,10 +419,14 @@ to 6 µm; the spatial collar's peak would rise from `2.5 × 10⁵` to `2.1 × 10
 DOPRI5 stable step fall from 26 µm to 3.1 µm. With two lengths the spectral rate moves
 and the collars do not.
 
-`collar_length` is whatever sets the temporal collar's strength — `boundary_N` or
-`boundary_length` today. [SEP 21](../../dev/seps/archive/sep-0021-absorbing-boundaries.md), which
-owns the temporal collar, may parameterise that strength by a protected walk-off; the
-spatial collar follows the same length until its findings say otherwise.
+`collar_length` is whatever sets the temporal collar's strength: `walkoff`, when
+[it is given](#sizing-the-collar-from-a-walk-off), or else `boundary_N` or `boundary_length`.
+Nothing but the temporal collar reads it. A free-space run's real-space collar, which
+[SEP 21](../../dev/seps/archive/sep-0021-absorbing-boundaries.md) and
+[SEP 22](../../dev/seps/archive/sep-0022-memory-lean-spatial-execution.md) expected to share
+this length, is designed from its own protected band
+([SEP 40](../../dev/seps/archive/sep-0040-transverse-absorbing-boundaries.md)), so a walk-off
+moves no transverse strength.
 
 ### A custom spectral absorber
 
@@ -443,8 +518,9 @@ split one, at equal or worse accuracy inside the requested window
 stable, so a fixed schedule on a spatial route keeps its collar, within the split's
 [crossing limit](#the-two-temporal-schemes).
 
-On a spatial grid an absorber given explicitly also switches on the real-space transverse
-collar ([free-space propagation](../free-space/model.md#spatial-collar-and-statistics)).
+An absorber given explicitly does not switch on the real-space transverse collar, which is
+[asked for on its own](../free-space/model.md#spatial-collar-and-statistics) with
+`spatial_absorber`.
 
 ## Watching the window's edges
 

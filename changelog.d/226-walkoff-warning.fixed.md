@@ -1,0 +1,1 @@
+`warn_walkoff` suggested a `boundary_N` counted from the default strength when it was given a `boundary_length`; it now counts from the length in force. The guide and the docstring of `no_absorber` no longer say that an explicit absorber switches on a free-space run's real-space collar or that the collar reads the reference length (#226).

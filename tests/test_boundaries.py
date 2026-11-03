@@ -16,17 +16,26 @@ from solprop.boundaries import (
     MIN_COLLAR_SAMPLES,
     TEMPORAL_ALPHA_LENGTH,
     Absorber,
+    SpatialAbsorber,
     absorber,
     apply_band_mask,
     apply_split_step,
     collar_rate,
+    custom_absorber,
     nonlinear_absorber_term,
     split_step_factor,
     temporal_collar_rate,
     warn_walkoff,
 )
+from solprop.driver import Simulation, SimulationSettings
 from solprop.exceptions import GridError, SolpropWarning
-from solprop.grid import Collar, EnvelopeGrid, FieldGrid
+from solprop.grid import Collar, EnvelopeGrid, FieldGrid, FreeGrid
+from solprop.linear import Frame
+from solprop.nonlinear.gnlse import SpecifiedMode
+from solprop.output.schema import serialise
+from solprop.pulses import GaussianPulse, SpatialPulse
+from solprop.spatial import SpatialMedium
+from solprop.stepper import PIController, RungeKutta
 
 EPS = np.finfo(np.float64).eps
 
@@ -501,6 +510,338 @@ def test_a_non_finite_walk_off_span_is_rejected(bad, field_grid):
 def test_the_walk_off_check_validates_its_reference_length(field_grid):
     with pytest.raises(GridError, match="boundary_N must be positive"):
         warn_walkoff(field_grid, 1e-13, boundary_N=0.0)
+
+
+def test_the_suggested_boundary_n_holds_for_a_collar_of_its_own_length(field_grid):
+    """The suggestion counts from the length in force, not from the default strength."""
+    span = 2e-12
+    length = field_grid.length / 3.0
+    with pytest.warns(SolpropWarning) as record:
+        warn_walkoff(field_grid, span, boundary_length=length)
+    message = str(record[0].message)
+    assert f"walkoff={span:.3g}" in message
+    suggested = float(message.rsplit("above", 1)[1])
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        warn_walkoff(field_grid, span, boundary_N=suggested * 1.01)
+    with pytest.warns(SolpropWarning):
+        warn_walkoff(field_grid, span, boundary_N=suggested * 0.99)
+
+
+# --------------------------------------------------- a collar sized from a walk-off
+
+
+def edge_width(grid):
+    """The width of one edge of a grid's symmetric temporal collar, s."""
+    collar = grid.t_collar
+    assert collar.width_low == pytest.approx(collar.width_high)
+    return collar.width_low
+
+
+def test_a_walkoff_sets_the_length_the_derivation_gives(field_grid):
+    """``ell_c = 6.3 w L / (Gamma dtau)``, on the integral ``warn_walkoff`` reads.
+
+    The integral of ``1 - W`` over both edges is ``w`` by the Planck taper's symmetry;
+    the trapezoid on the axis, which stops one sample short of closing the period,
+    reads ``w - dt``. So the bound is that one sample, and the sampled form is exact.
+    """
+    drift = 3e-12
+    width = edge_width(field_grid)
+    collar = absorber(field_grid, walkoff=drift)
+    closed_form = 6.3 * width * field_grid.length / (MIN_COLLAR_ATTENUATION * drift)
+    assert collar.in_stage_length == pytest.approx(
+        closed_form, rel=2.0 * field_grid.dt / width
+    )
+    assert collar.in_stage_length == pytest.approx(
+        closed_form * (width - field_grid.dt) / width, rel=1e-6
+    )
+    assert float(collar.temporal_rate.max()) == pytest.approx(
+        TEMPORAL_ALPHA_LENGTH / collar.in_stage_length, rel=1e-3
+    )
+
+
+def test_a_walkoff_of_eighteen_collar_widths_is_the_default_strength(field_grid):
+    """SEP 21's figure: ``AN = 252`` protects ``252 w / (2 Gamma) = 18.2 w``."""
+    width = edge_width(field_grid)
+    drift = 252.0 * width / (2.0 * MIN_COLLAR_ATTENUATION)
+    assert drift / width == pytest.approx(18.2, abs=0.05)
+    collar = absorber(field_grid, walkoff=drift)
+    assert collar.in_stage_length == pytest.approx(
+        field_grid.length / DEFAULT_BOUNDARY_N, rel=2.0 * field_grid.dt / width
+    )
+
+
+@pytest.mark.parametrize(
+    "strength",
+    [{}, {"boundary_N": 60.0}, {"boundary_length": 0.01}],
+    ids=["default", "boundary_N", "boundary_length"],
+)
+def test_a_walkoff_moves_only_the_temporal_rates(field_grid, strength):
+    plain = absorber(field_grid, **strength)
+    collar = absorber(field_grid, walkoff=1e-12, **strength)
+    assert collar.reference_length == plain.reference_length
+    assert collar.collar_length is not None
+    assert np.array_equal(collar.spectral_rate, plain.spectral_rate)
+    assert np.array_equal(collar.band_mask, plain.band_mask)
+    assert not np.array_equal(collar.temporal_rate, plain.temporal_rate)
+    # The temporal collar is the one the walk-off asks for, whatever set the spectral.
+    assert np.array_equal(
+        collar.temporal_rate,
+        temporal_collar_rate(field_grid.t, field_grid.t_collar, collar.in_stage_length),
+    )
+    assert np.array_equal(
+        collar.temporal_rate_fine,
+        temporal_collar_rate(
+            field_grid.t_fine, field_grid.t_collar, collar.in_stage_length
+        ),
+    )
+    assert collar.in_stage_length == absorber(field_grid, walkoff=1e-12).in_stage_length
+
+
+def test_no_walkoff_leaves_the_absorber_as_it_was(field_grid):
+    """The default run's rates, record and so its configuration hash do not move."""
+    collar = absorber(field_grid)
+    assert collar.collar_length is None
+    length = collar.reference_length
+    assert np.array_equal(
+        collar.temporal_rate,
+        temporal_collar_rate(field_grid.t, field_grid.t_collar, length),
+    )
+    assert serialise(collar) == serialise(absorber(field_grid, walkoff=None))
+
+
+def test_the_configuration_hash_follows_the_walkoff_and_nothing_else():
+    grid = EnvelopeGrid.from_limits(1.0, 800e-9, (600e-9, 1200e-9), 2e-12, thg=False)
+
+    def configuration_hash(collar):
+        built = walking_settings(1.0, absorber=collar, prefactor_index=1.0)
+        simulation = Simulation(
+            grid,
+            SpecifiedMode.from_taylor([7e6, 4.8e-9], omega_ref=grid.omega0),
+            [],
+            GaussianPulse(wavelength=800e-9, fwhm=60e-15, energy=1e-9),
+            settings=built,
+        )
+        return simulation.metadata().configuration_hash()
+
+    plain = absorber(grid)
+    # Built field by field as an absorber was before the keyword existed.
+    before = Absorber(
+        spectral_rate=plain.spectral_rate,
+        temporal_rate=temporal_collar_rate(
+            grid.t, grid.t_collar, plain.reference_length
+        ),
+        temporal_rate_fine=temporal_collar_rate(
+            grid.t_fine, grid.t_collar, plain.reference_length
+        ),
+        band_mask=plain.band_mask,
+        reference_length=plain.reference_length,
+    )
+    assert configuration_hash(plain) == configuration_hash(before)
+    assert configuration_hash(plain) != configuration_hash(
+        absorber(grid, walkoff=1e-12)
+    )
+
+
+@pytest.mark.parametrize("fields", [RDW, SCG], ids=["rdw", "scg"])
+@pytest.mark.parametrize("drift", [1e-15, 1e-13, 3e-13, 1e-12, 7e-12, 1e-10])
+def test_a_collar_sized_for_a_drift_passes_the_walk_off_check_at_that_drift(
+    fields, drift
+):
+    """The keyword and the warning are one condition; a little more drift fails it."""
+    grid = FieldGrid.from_limits(**fields)
+    length = absorber(grid, walkoff=drift).in_stage_length
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        warn_walkoff(grid, drift, boundary_length=length)
+    with pytest.raises(SolpropWarning, match="walkoff="), warnings.catch_warnings():
+        warnings.simplefilter("error")
+        warn_walkoff(grid, 1.01 * drift, boundary_length=length)
+
+
+def test_a_slice_given_its_own_drift_keeps_its_parent_s_temporal_collar():
+    """The rate depends on the speed, ``walkoff / length``, and not on the length."""
+
+    def built(length):
+        return FieldGrid.from_limits(length, 800e-9, (400e-9, 2e-6), 400e-15)
+
+    drift = 1e-12
+    parent = absorber(built(1.0), walkoff=drift)
+    piece = absorber(
+        built(0.25),
+        walkoff=0.25 * drift,
+        boundary_length=parent.reference_length,
+    )
+    # A few operations on the same numbers apart, so a few ulps of the rate.
+    np.testing.assert_allclose(
+        piece.temporal_rate, parent.temporal_rate, rtol=8 * EPS, atol=0.0
+    )
+    np.testing.assert_allclose(
+        piece.spectral_rate, parent.spectral_rate, rtol=8 * EPS, atol=0.0
+    )
+    assert piece.reference_length == parent.reference_length
+    # Its parent's whole drift over a quarter of the length is four times the speed.
+    fast = absorber(built(0.25), walkoff=drift)
+    assert fast.in_stage_length == pytest.approx(parent.in_stage_length / 4.0)
+
+
+def test_a_custom_rate_keeps_the_walkoff_s_strength(field_grid):
+    collar = absorber(field_grid, walkoff=1e-12)
+    summed = custom_absorber(field_grid, 1e5, collar=collar)
+    assert summed.in_stage_length == collar.in_stage_length
+    assert np.array_equal(summed.temporal_rate, collar.temporal_rate)
+
+
+@pytest.mark.parametrize("bad", [0.0, -1e-12, math.inf, -math.inf, math.nan])
+def test_a_walkoff_must_be_positive_and_finite(field_grid, bad):
+    with pytest.raises(GridError, match="walkoff must be positive and finite"):
+        absorber(field_grid, walkoff=bad)
+
+
+@pytest.mark.parametrize("extreme", [5e-324, 1e308])
+def test_a_walkoff_whose_length_is_not_representable_is_refused(field_grid, extreme):
+    with pytest.raises(GridError, match="asks for a collar length"):
+        absorber(field_grid, walkoff=extreme)
+
+
+def test_a_walkoff_is_refused_beside_a_spectral_only_collar(field_grid):
+    with pytest.raises(GridError, match="temporal=False has none"):
+        absorber(field_grid, walkoff=1e-12, temporal=False)
+
+
+def test_a_walkoff_is_not_bounded_by_the_window(field_grid):
+    """A drift of ten windows: the packet is absorbed on its first crossing."""
+    window = field_grid.n_t * field_grid.dt
+    collar = absorber(field_grid, walkoff=10.0 * window)
+    assert collar.in_stage_length < absorber(field_grid).in_stage_length
+    assert np.all(np.isfinite(collar.temporal_rate))
+
+
+def test_a_walkoff_needs_a_collar_to_size(field_grid):
+    half = field_grid.t_collar.zero_high
+    bare = dataclasses.replace(field_grid, t_collar=Collar(-half, -half, half, half))
+    with pytest.raises(GridError, match="zero width"):
+        absorber(bare, walkoff=1e-12)
+
+
+def test_a_walkoff_leaves_a_free_space_transverse_collar_alone():
+    """SEP 21 feared this field also set the spatial strength; SEP 40 separated them."""
+    grid = EnvelopeGrid.from_limits(2e-4, 800e-9, (650e-9, 1000e-9), 600e-15)
+    space = FreeGrid(1e-4, 40, 1e-4, 40, collar_fraction=1.0)
+
+    def design(collar):
+        simulation = Simulation.from_free(
+            grid,
+            space,
+            SpatialMedium(),
+            [],
+            SpatialPulse(
+                GaussianPulse(wavelength=800e-9, fwhm=100e-15, energy=1e-9), 20e-6
+            ),
+            settings=walking_settings(2e-4, absorber=collar),
+            noise=None,
+            spatial_absorber=SpatialAbsorber(kappa=2.5e5),
+        )
+        return simulation.translate().transverse
+
+    plain, walking = design(absorber(grid)), design(absorber(grid, walkoff=1e-14))
+    assert plain is not None
+    assert walking is not None
+    assert plain.collar_rate is not None
+    assert walking.collar_rate is not None
+    assert plain.has_collar
+    assert plain.alpha0 == walking.alpha0
+    assert np.array_equal(plain.collar_rate, walking.collar_rate)
+    assert np.array_equal(plain.ramp_rate, walking.ramp_rate)
+
+
+def walking_settings(length, *, backend="numpy_ref", **extra):
+    """Settings for a linear run of ``length`` with a tight controller."""
+    return SimulationSettings(
+        controller=PIController(rtol=1e-7, atol=1e-14),
+        save_planes=[length],
+        dz_max=length / 20.0,
+        dz_init=length / 100.0,
+        integrator=RungeKutta(),
+        backend=backend,
+        boundary_check=None,
+        **extra,
+    )
+
+
+def transmitted_power(grid, collar, drift, *, backend="numpy_ref", scheme=None):
+    """The share of a packet's energy left after it drifts by ``drift`` over the grid.
+
+    A mode whose only dispersion is ``beta_1``, in a frame that does not follow it, is a
+    rigid translation at ``drift / length``: nothing else in the run moves the energy.
+    """
+    beta0, beta1 = 7e6, 4.8e-9
+    mode = SpecifiedMode.from_taylor([beta0, beta1], omega_ref=grid.omega0)
+    frame = Frame(
+        grid.omega0,
+        subtract_beta0=True,
+        beta0=beta0,
+        beta1=beta1 - drift / grid.length,
+    )
+    settings = walking_settings(
+        grid.length,
+        backend=backend,
+        absorber=collar,
+        absorber_scheme=scheme,
+        prefactor_index=1.0,
+    )
+    pulse = GaussianPulse(wavelength=800e-9, fwhm=60e-15, energy=1e-9)
+    output = Simulation(grid, mode, [], pulse, settings=settings, frame=frame).run()
+    field = np.asarray(output["field"])
+    return float(np.sum(np.abs(field[-1]) ** 2) / np.sum(np.abs(field[0]) ** 2))
+
+
+@pytest.mark.parametrize("backend", ["numpy_ref", "native"])
+@pytest.mark.parametrize("stretch", [1.0, 0.5, 2.0])
+def test_a_walkoff_collar_removes_light_of_the_stated_walk_off(backend, stretch):
+    """A packet of the stated drift leaves a millionth of its power, and no more.
+
+    The packet crosses both edges rigidly, so its power falls by exactly the integral
+    of the rate over the ring divided by the speed: ``exp(-2 Gamma)`` of the sizing,
+    corrected by the one sample the sizing's trapezoid leaves out of the periodic sum.
+    A drift of half the collar's or twice its stated value shows the exponent is
+    linear in the speed, and that the light has no other way out. The bound on the
+    exponent is the controller's ``rtol``; measured 6e-9 on both backends.
+    """
+    if backend == "native":
+        pytest.importorskip("solprop_native")
+    grid = EnvelopeGrid.from_limits(1.0, 800e-9, (600e-9, 1200e-9), 2e-12, thg=False)
+    window = grid.n_t * grid.dt
+    # Long enough to clear the far edge entirely, and short of the launch's own image.
+    drift = 0.8 * window
+    collar = absorber(grid, walkoff=drift / stretch)
+    closed_period = np.sum(temporal_collar_rate(grid.t, grid.t_collar, 1.0)) * grid.dt
+    expected = closed_period * grid.length / (collar.in_stage_length * drift)
+    assert expected == pytest.approx(2.0 * MIN_COLLAR_ATTENUATION / stretch, rel=0.02)
+    power = transmitted_power(grid, collar, drift, backend=backend)
+    assert -math.log(power) == pytest.approx(expected, rel=1e-7)
+
+
+def test_without_a_temporal_collar_the_same_packet_loses_nothing():
+    """So what the walk-off collar removes above is the collar's."""
+    grid = EnvelopeGrid.from_limits(1.0, 800e-9, (600e-9, 1200e-9), 2e-12, thg=False)
+    collar = absorber(grid, temporal=False)
+    power = transmitted_power(grid, collar, 0.8 * grid.n_t * grid.dt)
+    assert power == pytest.approx(1.0, abs=1e-6)
+
+
+def test_the_split_scheme_removes_the_same_light():
+    """The split's factors telescope, within its crossing limit, to the same exponent.
+
+    The split's first-order error in the step and the sizing's left-out sample, 0.7 %
+    here, set the bound; measured 0.5 %.
+    """
+    grid = EnvelopeGrid.from_limits(1.0, 800e-9, (600e-9, 1200e-9), 2e-12, thg=False)
+    drift = 0.8 * grid.n_t * grid.dt
+    power = transmitted_power(
+        grid, absorber(grid, walkoff=drift), drift, scheme="split_step"
+    )
+    assert -math.log(power) == pytest.approx(2.0 * MIN_COLLAR_ATTENUATION, rel=0.02)
 
 
 @pytest.mark.parametrize("bad", [0.0, -1.0, math.inf, math.nan])
