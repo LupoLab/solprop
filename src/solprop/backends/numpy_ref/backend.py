@@ -1778,10 +1778,10 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
             # The time factor acts alike on every column of any transverse basis, so
             # the stored state's power is what the split takes of, wherever it acts;
             # read as the physical state, which a single-precision state is scaled
-            # from.
-            self._split_removed += monitor.split_removal(
-                self._observed_field(masked), dz
-            )
+            # from. What it finds is what the occupancies are judged on.
+            sums = monitor.split_sums(self._observed_field(masked), dz)
+            self._split_removed += float(sums[0])
+            self._split_found = sums[1:]
         geometry = self._problem.transform.geometry
         if geometry is not None and geometry.kind == "slab":
             # A (p, y) row is a modal amplitude whose time signal is a real field's,

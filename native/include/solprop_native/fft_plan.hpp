@@ -29,15 +29,23 @@ enum class FftShape { rows, planes };
 // every transform at every width. Unset, it is `measure`, except for threaded rows,
 // which stay at ESTIMATE: there measured planning chose a slower threaded decomposition
 // (solprop's docs/dev/benchmarks.md, "Threaded FFT plan selection"). Transverse planes
-// are measured at any width (solprop SEP 28: 3.2-3.4 times faster than ESTIMATE).
+// are measured at any width (solprop SEP 28: 3.2-3.4 times faster than ESTIMATE). An
+// empty value is unset, as for the thread variables; any other is refused, since a typo
+// would otherwise change a run's plans in silence.
 inline unsigned fftw_seed_effort(const FftShape shape, const int threads) {
   const char* text = std::getenv("SOLPROP_FFTW_PLAN");
-  if (text == nullptr)
+  if (text == nullptr || *text == '\0')
     return shape == FftShape::rows && threads > 1 ? FFTW_ESTIMATE : FFTW_MEASURE;
   const std::string_view effort = text;
   if (effort == "estimate")
     return FFTW_ESTIMATE;
-  return effort == "patient" ? FFTW_PATIENT : FFTW_MEASURE;
+  if (effort == "measure")
+    return FFTW_MEASURE;
+  if (effort == "patient")
+    return FFTW_PATIENT;
+  throw std::invalid_argument("SOLPROP_FFTW_PLAN must be estimate, measure or patient, "
+                              "and is '" +
+                              std::string(effort) + "'");
 }
 
 // Seed only last-axis, contiguous, out-of-place row transforms. Planning may

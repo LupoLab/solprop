@@ -976,10 +976,29 @@ class Recipe:
         solprop.output.schema.Output
             The run's output.
         """
+        return self.build().run(output, **{**self.run_keywords(), **run_keywords})  # type: ignore[arg-type]
+
+    def run_keywords(self) -> dict[str, object]:
+        """Return the keywords of ``Simulation.run`` the ``[execution]`` table sets.
+
+        :meth:`run` is ``build().run(output, **run_keywords(), ...)``; a caller that
+        builds the simulation itself, to keep it while it runs, passes these.
+
+        Returns
+        -------
+        dict
+            ``memory_budget``, where the table gives it.
+
+        Examples
+        --------
+        >>> from solprop.recipe import Recipe
+        >>> Recipe.example("soliton").run_keywords()
+        {}
+        """
         execution = self._execution()
-        if "memory_budget" in execution and "memory_budget" not in run_keywords:
-            run_keywords["memory_budget"] = execution["memory_budget"]
-        return self.build().run(output, **run_keywords)  # type: ignore[arg-type]
+        if "memory_budget" in execution:
+            return {"memory_budget": execution["memory_budget"]}
+        return {}
 
     # ------------------------------------------------------------------ scanning
 

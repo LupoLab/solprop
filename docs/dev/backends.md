@@ -243,7 +243,10 @@ alike). Only the five cross to the host; `numpy_ref`'s host reduction
 monitor when it is attached, and `None` when a state is loaded. Under the `split_step`
 scheme the backend's `_finish` — and the native engine's own finish, on every march —
 adds what each accepted step's split takes of the power it finds, `P (1 − e^{−αh})`, to an
-accumulator the next reading drains, so the removal is exact on unchecked steps too. The
+accumulator the next reading drains, so the removal is exact on unchecked steps too, and
+keeps the energy and the guards' and collar's energies of that power halfway through the
+factor, `P e^{−αh/2}`, which the reading returns beside the five (`BoundaryEnergies.found`,
+kernel schema 43) and the monitor judges the occupancies on. The
 input-noise floor is read on the host, once, at the launch.
 
 ## 2. `numpy_ref`: the oracle
@@ -1735,8 +1738,9 @@ frequency bin, the largest group on a guide with many channels), `general_chunk`
 `adams_history` for the Adams integrator's history rows (on the native backend the resident
 engine's); beside them `initial_field`, the translated problem's initial state at the
 bytes it holds (a broadcast input's repeated block alone, `kernel-contract.md` section 6),
-resident like the general reference and in no backend's ledger; the driver adds `output`
-and `held_plane`. The route groups equal each
+resident like the general reference and in no backend's ledger; the driver adds `output`,
+`held_plane` and `simulation_input` (a simulation's own copy of an array input that the
+problem does not share, on a modal route). The route groups equal each
 backend's ledger to the byte. `base` is the reference's count of its buffers on every
 backend, plus the native backend's own rows where the
 two differ (the far-field partials, the dispersive response's buffers, the held

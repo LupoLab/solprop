@@ -51,11 +51,12 @@ from dataclasses import dataclass, field, fields, replace
 from typing import Literal, Protocol, cast, runtime_checkable
 
 import numpy as np
-from jaxtyping import Complex, Float, Int
+from jaxtyping import Bool, Complex, Float, Int, UInt8
 from numpy.polynomial import chebyshev as chebyshev_basis
 from scipy.integrate import quad_vec
 
 from solprop._helpers import Helpers
+from solprop.boundaries import split_rate_buckets
 from solprop.exceptions import TranslationError
 from solprop.grid import TimeGrid
 from solprop.linear import (
@@ -81,7 +82,11 @@ from solprop.translate.chebyshev import (
     lobatto_points,
     resolve_axis,
 )
-from solprop.translate.coupled import CoupledFlowTables, ModalMetricTables
+from solprop.translate.coupled import (
+    CoupledFlowTables,
+    ModalMetricTables,
+    flow_weights,
+)
 from solprop.translate.expansion import (
     ParameterExpansion,
     append_endpoint_expansion,
@@ -89,7 +94,11 @@ from solprop.translate.expansion import (
     parameter_roundoff_floor,
     reweight_expansion,
 )
-from solprop.translate.spatial import SeparableOperator, separable_values
+from solprop.translate.spatial import (
+    SeparableOperator,
+    longitudinal_root,
+    separable_values,
+)
 
 __all__ = [
     "DEFAULT_MARGIN",
@@ -115,6 +124,7 @@ __all__ = [
     "tabulate",
     "unitary_phase",
     "verify_phi",
+    "walk_off_buckets",
     "with_power_weight",
 ]
 
@@ -2973,6 +2983,248 @@ def _separable_phase(
         operator, _ = separable_values(coefficients, rows)
         result[:, rows] = (np.imag(operator) if imaginary else operator) * distance
     return result
+
+
+def walk_off_buckets(
+    table: LinearOperator,
+    omega: Float[np.ndarray, " n_omega"],
+    active: Bool[np.ndarray, " n_omega"],
+) -> tuple[UInt8[np.ndarray, "n_modes n_omega"], float]:
+    """Return each bin's walk-off bucket, for the split collar's crossing limit.
+
+    The rate ``|d(beta - beta_frame)/d omega|`` (the frame's ``beta_1`` subtracted) of
+    every ``(mode, frequency)`` bin, read from the operator ``D = -i (beta -
+    beta_frame) - alpha / 2`` by centred differences along the sorted frequency axis,
+    one-sided at the edges of what may be read (the axis's ends, the active band's
+    edges, the last propagating bin before evanescence), the fastest of its batch
+    members and polarisations, as its bucket
+    (:func:`solprop.boundaries.split_rate_buckets`). Inactive bins, and a separable
+    operator's evanescent bins, are in the slowest bucket: no propagating light sits
+    there. A tabulated operator's columns, modes or a radial grid's, are read as they
+    are, which on a radial grid fine enough to hold an evanescent column reads that
+    column's frame rate. A separable operator is constant along z and is read in
+    chunks of columns; a tabulated one that varies is read at its own nodes, every
+    interval's start, middle and end, and each bin takes its
+    fastest. Between the nodes a smooth guide's rate is the interval's interpolant's,
+    whose excursion from its samples is not bounded here. A coupled flow's operator
+    carries the shared carrier for every channel, so each channel adds the diagonal of
+    the flow's generator, its own ``-i delta beta`` (and loss), read at the flow's
+    sections' starts, middles and ends too; a factored flow, which no backend executes,
+    is refused (:class:`~solprop.exceptions.TranslationError`).
+
+    Parameters
+    ----------
+    table : LinearOperator
+        The cumulative operator.
+    omega : numpy.ndarray
+        The coarse angular frequency axis, rad/s, shape ``(n_omega,)``, in the state's
+        order.
+    active : numpy.ndarray
+        Boolean, shape ``(n_omega,)``: the active band's bins.
+
+    Returns
+    -------
+    buckets : numpy.ndarray
+        ``uint8``, shape ``(n_modes, n_omega)``, in the state's frequency order.
+    fastest : float
+        The fastest rate read, s/m, which a rate past the fastest bucket's edge
+        takes as that bucket's (:class:`solprop.boundaries.SplitCrossing`).
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from solprop.boundaries import split_bucket_rates
+    >>> from solprop.translate.linop import constant_phi, walk_off_buckets
+    >>> omega = np.linspace(1.0e15, 3.0e15, 201)
+    >>> beta2, omega0 = 2e-26, 2.0e15
+    >>> operator = -1j * 0.5 * beta2 * (omega - omega0) ** 2
+    >>> buckets, _ = walk_off_buckets(constant_phi(operator, 1.0), omega, omega > 0)
+    >>> # The bin 5e14 rad/s from the reference walks at beta2 times that, 1e-11 s/m.
+    >>> rate = float(split_bucket_rates()[buckets[0, 150]])
+    >>> bool(1e-11 <= rate < 1.2e-11)
+    True
+    """
+    order = np.argsort(omega)
+    axis = np.asarray(omega, dtype=np.float64)[order]
+    sorted_active = np.asarray(active, dtype=bool)[order]
+
+    def rates(phase: np.ndarray, valid: np.ndarray) -> np.ndarray:
+        """Return the slopes of sorted phases, zero where unreadable.
+
+        Centred where a bin and both its neighbours may be read, one-sided where only
+        one neighbour may: the last propagating bin before evanescence and the
+        active band's edges, which walk fastest, keep their rates.
+
+        Parameters
+        ----------
+        phase : numpy.ndarray
+            Phases per metre on the sorted bins, rad/m, ``(n_rows, n_omega)``.
+        valid : numpy.ndarray
+            Which bins may be read.
+
+        Returns
+        -------
+        numpy.ndarray
+            ``|d phase / d omega|``, s/m, the shape of `phase`.
+        """
+        step = np.abs(np.diff(phase, axis=1)) / np.diff(axis)
+        pair = valid[:, 1:] & valid[:, :-1]
+        forward = np.zeros(phase.shape, dtype=bool)  # (i, i + 1) readable
+        backward = np.zeros(phase.shape, dtype=bool)  # (i - 1, i) readable
+        forward[:, :-1] = pair
+        backward[:, 1:] = pair
+        one_sided = np.zeros(phase.shape)
+        one_sided[:, :-1] = np.where(pair, step, 0.0)
+        one_sided[:, 1:] = np.maximum(one_sided[:, 1:], np.where(pair, step, 0.0))
+        centred = np.zeros(phase.shape)
+        centred[:, 1:-1] = np.abs(phase[:, 2:] - phase[:, :-2]) / (axis[2:] - axis[:-2])
+        return np.where(forward & backward, centred, one_sided)
+
+    fastest = 0.0
+    if table.separable is not None:
+        coefficients = table.separable
+        inverse = None
+        if coefficients.kappa_sq is None:
+            # A column's rate depends on its transverse squares and its ramp alone: a
+            # Cartesian grid repeats each about eight times, so each distinct one is
+            # read once.
+            rate_field = coefficients.kperp_rate
+            assert rate_field is not None  # adopted as zeros
+            keys = np.stack(
+                [coefficients.kperp_sq, coefficients.kperp_sq_low, rate_field], axis=1
+            )
+            _, index, inverse = np.unique(
+                keys, axis=0, return_index=True, return_inverse=True
+            )
+            coefficients = replace(
+                coefficients,
+                kperp_sq=coefficients.kperp_sq[index],
+                kperp_sq_low=coefficients.kperp_sq_low[index],
+                kperp_rate=rate_field[index],
+            )
+        n_columns = len(coefficients.kperp_sq)
+        buckets = np.empty((n_columns, len(axis)), dtype=np.uint8)
+        # Chunks of columns, as the host operator is evaluated: no state-sized scratch.
+        chunk = max(1, (64 << 20) // (8 * 16 * len(coefficients.k_squared)))
+        for first in range(0, n_columns, chunk):
+            columns = slice(first, min(first + chunk, n_columns))
+            root, propagating, _ = longitudinal_root(coefficients, columns)
+            phase = (np.real(root) - coefficients.frame[None, :])[:, order]
+            valid = propagating[:, order] & sorted_active[None, :]
+            each = rates(phase, valid)
+            fastest = max(fastest, float(np.max(each, initial=0.0)))
+            buckets[columns][:, order] = split_rate_buckets(each)
+        if inverse is not None:
+            buckets = buckets[np.ravel(inverse)]
+        return buckets, fastest
+    widest: np.ndarray | None = None
+    for z, before, section in _rate_positions(table):
+        rate = _channel_rate(table, z, before, section)
+        n_batch, n_modes, n_pol, n_omega = rate.shape
+        phase = -np.imag(rate.reshape(-1, n_omega))[:, order]
+        valid = np.broadcast_to(sorted_active[None, :], phase.shape)
+        each = rates(phase, valid).reshape(n_batch, n_modes, n_pol, n_omega)
+        each = each.max(axis=(0, 2))
+        widest = each if widest is None else np.maximum(widest, each)
+    assert widest is not None
+    buckets = np.empty(widest.shape, dtype=np.uint8)
+    buckets[:, order] = split_rate_buckets(widest)
+    return buckets, float(np.max(widest, initial=0.0))
+
+
+def _rate_positions(
+    table: LinearOperator,
+) -> list[tuple[float, bool, int | None]]:
+    """Return where :func:`walk_off_buckets` reads a tabulated operator.
+
+    A constant operator once. A z-varying one at its own nodes: every interval's
+    start, middle and end, each end read from the interval it closes, since ``D``
+    jumps at a hard kink. A coupled flow's sections are read the same way, their ends
+    from the section each closes, beside ``D`` at the same positions.
+
+    Parameters
+    ----------
+    table : LinearOperator
+        A tabulated operator.
+
+    Returns
+    -------
+    list of tuple
+        ``(z, before, section)``: the position, m, whether :func:`phi_rate` reads it
+        from the interval ending there, and the coupled flow's section it is read in
+        (``None`` without a flow, or for the section containing it).
+    """
+    edges = np.asarray(table.phi_breakpoints, dtype=np.float64)
+    positions: list[tuple[float, bool, int | None]] = []
+    if table.phi_constant is not None:
+        positions.append((float(edges[0]), False, None))
+    else:
+        for low, high in itertools.pairwise(edges.tolist()):
+            positions += [
+                (low, False, None),
+                (0.5 * (low + high), False, None),
+                (high, True, None),
+            ]
+    flow = table.coupled_flow
+    if flow is not None:
+        lo, hi = float(edges[0]), float(edges[-1])
+        flow_edges = np.clip(np.asarray(flow.z_edges, dtype=np.float64), lo, hi)
+        for index, (low, high) in enumerate(itertools.pairwise(flow_edges.tolist())):
+            positions += [
+                (low, False, index),
+                (0.5 * (low + high), False, index),
+                (high, True, index),
+            ]
+    return positions
+
+
+def _channel_rate(
+    table: LinearOperator, z: float, before: bool, section: int | None
+) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
+    """Return each channel's own operator at one position, ``D`` plus its flow's.
+
+    A coupled flow's channels share the carrier's ``D``: each one's own propagation
+    constant, relative to the carrier's, is the diagonal of the flow's generator
+    ``G``, applied beside it. The taper's connection is antisymmetric, a rotation of
+    the moving basis, and adds nothing to the diagonal.
+
+    Parameters
+    ----------
+    table : LinearOperator
+        A tabulated operator.
+    z : float
+        Position in m.
+    before : bool
+        Read an edge of ``D`` from the interval ending there.
+    section : int or None
+        The flow's section the position is read in (:func:`flow_weights`).
+
+    Returns
+    -------
+    numpy.ndarray
+        ``D + diag(G)`` in 1/m, canonical layout.
+
+    Raises
+    ------
+    TranslationError
+        For a factored coupled flow, which no backend executes and whose generator
+        diagonal is not read here.
+    """
+    rate = phi_rate(table, z, before=before)
+    flow = table.coupled_flow
+    if flow is None:
+        return rate
+    if flow.generator is None:
+        msg = (
+            "the split temporal collar's crossing limit reads each channel's walk-off "
+            "from a coupled flow's dense generator, and this flow is factored, which "
+            'no backend executes; use absorber_scheme="nonlinear"'
+        )
+        raise TranslationError(msg)
+    diagonal = np.diagonal(flow.generator, axis1=2, axis2=3)  # (i, d, w, m)
+    flat = diagonal.reshape(-1, *diagonal.shape[2:])
+    own = np.tensordot(flow_weights(flow, z, section), flat, axes=1).T
+    return rate + own[None, :, None, :]
 
 
 def unitary_phase(

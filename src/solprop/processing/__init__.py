@@ -51,6 +51,7 @@ from solprop.processing.fields import (
     get_phase,
     get_power,
     get_spectral_density,
+    get_spectrogram,
     get_spectrum,
     nearest_plane,
 )
@@ -145,6 +146,7 @@ __all__ = [
     "get_power",
     "get_power_weight",
     "get_spectral_density",
+    "get_spectrogram",
     "get_spectrum",
     "grid_from_record",
     "grid_of",

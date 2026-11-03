@@ -134,12 +134,13 @@ def reading(backend: Backend) -> BoundaryEnergies:
 def record_after_march(
     simulation: Simulation, name: str, problem: KernelProblem | None = None
 ) -> dict[str, Any]:
-    """Return a backend's monitor record after the probe's fixed steps."""
+    """Return a backend's monitor record after the probe's fixed steps, with the split
+    collar's crossing cap the last check read (``step_cap``)."""
     backend = watched(simulation, name, problem)
     try:
         backend.propagate_to(LENGTH)
         monitor = as_driver(backend)._monitor
         assert monitor is not None
-        return monitor.summary()
+        return {**monitor.summary(), "step_cap": monitor.step_cap}
     finally:
         backend.close()

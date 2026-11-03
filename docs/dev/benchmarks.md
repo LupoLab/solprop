@@ -729,6 +729,46 @@ Cartesian 128² 1.28 → 1.06. The unmonitored path is unchanged:
 `python -m benchmarks ab` at one thread on the same node gives 1.000 (GNLSE soliton),
 1.005 (radial filament) and 1.005 (Kerr beam) for the three cases above.
 
+**What the split finds** (the guards judged on the power each step's split finds,
+halfway through its factor, and the split collar's crossing limit, #127 and #149). The
+finish's removal pass sums four more numbers of the samples it already holds, on every
+accepted step under the split scheme while a monitor is attached. Only a check reads
+them, but a saved plane is checked whatever the cadence said of its step, and the
+native marches decide their own steps; forming them only on the steps that end at a
+check would save a few multiply-adds per sample already in hand, at the cost of telling
+every march which steps those are. They are formed on every step. Measured on an Apple M5 Max (Homebrew Clang 23, NEON FFTW
+3.3.11, one thread, a shared machine: ratios only), a tenth of each guide, before the
+change (its parent on `main`) and after:
+
+| case, a tenth of the guide | backend | monitored / unmonitored, before | after | `ab`, unmonitored |
+|---|---|---:|---:|---:|
+| radial filament 256 | native | 1.028 | 1.030 | 1.018 |
+| line | native | 1.666 | 1.660 | 1.001 |
+| planar | native | 1.469 | 1.470 | 1.001 |
+
+The first two columns are the same-process comparison above (shortest of five after a
+warm-up, alternated); the last is `python -m benchmarks ab --length 0.1 --rounds 3`,
+the median ratio of candidate to baseline over paired rounds. Within the machine's
+spread both ways; the line and planar cases' monitored cost is the transverse edge's
+reads (#396). The steps are the same: on these cases the crossing limit does not bind.
+
+**The crossing cap read at every check** (#440). Under the split scheme each check also
+sums the state's energy per walk-off bucket, one more pass over the state where it lives
+(a histogram of 128 buckets: NumPy's `bincount` on the host, a Kokkos `ScatterView` in
+native, a scatter-add on the `mlx` device). Measured as above, the same machine and
+window, before (the previous head of this branch) and after:
+
+| case, a tenth of the guide | backend | monitored / unmonitored, before | after |
+|---|---|---:|---:|
+| radial filament 256 | native | 1.031 | 1.039 |
+| line | native | 1.658 | 1.698 |
+| planar | native | 1.470 | 1.484 |
+
+One to two and a half per cent of the run on the shared machine, about a third of a check's own
+cost. The Cartesian filament 128² takes 1.158 monitored over unmonitored before; its
+after was not timed, at fifteen minutes a pair at one thread. The steps are unchanged
+on every case: the cap never fell below a step these runs took.
+
 ### The transverse edge and a requested collar
 
 [SEP 40](seps/archive/sep-0040-transverse-absorbing-boundaries.md) puts a k⊥ safety ramp

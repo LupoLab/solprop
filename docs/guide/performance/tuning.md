@@ -96,7 +96,7 @@ These settings apply whatever the pool:
 | `SOLPROP_THREADS` | the process's thread budget, which the native backend's pools stay within; it may exceed the physical cores, up to the CPUs | the affinity mask, its physical cores and the quota |
 | `SOLPROP_OVERSUBSCRIBE` | `1` lets an explicit count exceed the CPUs and the quota | `0` |
 | `SOLPROP_BLAS_THREADS` | the width of every BLAS other than the native backend's own while a native backend lives ([below](#blas-and-vendor-libraries)) | 1 |
-| `SOLPROP_FFTW_PLAN` | the native backend's FFTW planner effort: `estimate`, `measure` or `patient` | `measure`, except threaded row transforms, which stay at `estimate` |
+| `SOLPROP_FFTW_PLAN` | the native backend's FFTW planner effort: `estimate`, `measure` or `patient`; any other value is refused | `measure`, except threaded row transforms, which stay at `estimate` |
 | `SOLPROP_FFTW_WISDOM` | a file name, beside which the native backend keeps its FFTW wisdom ([below](#the-native-backends-pools)) | none |
 
 **Free-space node groups.** A free-space, line or planar evaluation works through the
