@@ -66,6 +66,8 @@ def test_install_failure_records_platform_and_job_summary(
         raise OSError("could not create the environment")
 
     monkeypatch.setattr(check_script["venv"].EnvBuilder, "create", fail_environment)
+    # The script's interpreter gate comes first; this test is about what follows it.
+    monkeypatch.setattr(check_script["sys"], "version_info", (3, 14, 0))
     summary = tmp_path / "summary.md"
     monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
     directory = tmp_path / "install"

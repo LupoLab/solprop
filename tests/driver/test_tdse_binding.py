@@ -301,6 +301,12 @@ class _Provider:
     ResponsePlan = response_plan
 
 
+@pytest.fixture
+def pinned_python(monkeypatch):
+    """Pass the provider's interpreter gate: these tests fake the provider itself."""
+    monkeypatch.setattr(tdse.sys, "version_info", (3, 14, 0))
+
+
 def _basis():
     return TDSEBasis("contract-test", (0.0, 1e-9), (4,), 3, 1e-17, source="synthetic")
 
@@ -501,7 +507,7 @@ def test_basis_preset_is_resolved_without_native_assembly(provider):
         tdse.basis_from_preset("argon", "production")
 
 
-def test_binding_missing_optional_provider_is_actionable(monkeypatch):
+def test_binding_missing_optional_provider_is_actionable(monkeypatch, pinned_python):
     def missing(name):
         raise ImportError("synthetic missing dependency")
 
@@ -539,7 +545,7 @@ def test_binding_rejects_unsupported_interpreter_before_native_import(monkeypatc
 
 
 def test_binding_without_distribution_metadata_still_records_native_identity(
-    monkeypatch,
+    monkeypatch, pinned_python
 ):
     provider = _Provider()
     monkeypatch.setattr(tdse.importlib, "import_module", lambda name: provider)
@@ -558,7 +564,9 @@ def test_binding_without_distribution_metadata_still_records_native_identity(
 
 
 @pytest.mark.parametrize("direct_url", [None, '{"url": "file:///provider"}'])
-def test_binding_records_an_installed_distribution(monkeypatch, direct_url):
+def test_binding_records_an_installed_distribution(
+    monkeypatch, pinned_python, direct_url
+):
     """The optional extra, when installed, adds its version and source to the record."""
     provider = _Provider()
     monkeypatch.setattr(tdse.importlib, "import_module", lambda name: provider)
