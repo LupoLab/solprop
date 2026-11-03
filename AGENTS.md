@@ -24,7 +24,7 @@ rather than style, ask rather than guess.
 
 | | |
 |---|---|
-| Packages | `solprop` (`src/solprop/`) and the native backend `solprop-native` (`native/`, its own rules in [`native/AGENTS.md`](native/AGENTS.md)): one repository, two distributions, one version |
+| Packages | `solprop` (`src/solprop/`), the native backend `solprop-native` (`native/`, its own rules in [`native/AGENTS.md`](native/AGENTS.md)) and the desktop front end `solprop-gui` (`gui/`, its own rules in [`gui/AGENTS.md`](gui/AGENTS.md)): one repository, three distributions, one version |
 | Purpose | Ultrafast nonlinear pulse propagation (UPPE and GNLSE; field and envelope; single-mode, multimode and general modal guides; radial, Cartesian, planar and line free space) |
 | Python | 3.14 — equal to `requires-python` in `pyproject.toml` |
 | Platforms | Linux, macOS and Windows for `numpy_ref` and `numba_cpu`; solprop-native as wheels for osx-arm64, linux-64, linux-aarch64 and win-64, from source on Linux and macOS (GPU builds on Linux); the Queue and Slurm scan executors POSIX-only |
@@ -41,9 +41,10 @@ rather than style, ask rather than guess.
 
 | Task | Command |
 |---|---|
-| Sync environment | `uv sync`; `uv sync --extra native` also builds and installs the native backend from `native/` (editable). A plain `uv sync` removes it; `uv sync --inexact` keeps a hand-installed one or Pyroraptor |
+| Sync environment | `uv sync`; `uv sync --extra native` also builds and installs the native backend from `native/` (editable), and `--extra gui --group gui-test` the front end from `gui/` with its test plugin. A sync removes every extra it does not name, so name all you work with; `uv sync --inexact` keeps a hand-installed one or Pyroraptor |
 | Full gate (see below) | `uv run poe check` |
-| Native gate | `uv run poe check-native` (`native/scripts/check.sh`); `uv run poe check-all` runs both gates |
+| Native gate | `uv run poe check-native` (`native/scripts/check.sh`); `uv run poe check-all` runs the three gates |
+| Front-end gate | `uv run poe check-gui` (its types, docstrings and tests; needs `--extra gui --group gui-test`) |
 | Lint with autofix | `uv run ruff check --fix .` |
 | Format | `uv run ruff format .` |
 | Type-check | `uv run basedpyright` |
@@ -104,6 +105,9 @@ checks); the slow lane on Linux and macOS; and the default lane at the lowest de
 versions. The long lanes run as shards of whole modules (`SOLPROP_TEST_SHARD`), and only
 the coverage lane runs the type checks (ADR-053; `docs/dev/tooling.md`, "CI"). Between
 them the jobs run exactly `poe check`'s steps: change both in the same commit.
+
+**Changes touching `gui/`** follow [`gui/AGENTS.md`](gui/AGENTS.md); its gate runs in CI
+as the `gui` jobs, on Linux, macOS and Windows, for every change to `gui/` or to solprop.
 
 **Changes touching `native/`** follow [`native/AGENTS.md`](native/AGENTS.md). Their full
 gate, `uv run poe check-native` (`uv run poe check-all` for both gates), also runs in CI:
