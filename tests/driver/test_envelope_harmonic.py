@@ -64,7 +64,7 @@ def harmonic_fraction(kind: str) -> float:
         rtol=1e-8,
         atol=1e-10,
         n_save=2,
-        backend="numba_cpu",
+        backend="native",
         thg=True,
     )
     output = simulation.run(progress="none")
@@ -98,6 +98,7 @@ def weak_conversion_fraction() -> float:
 
 
 def test_the_envelope_harmonic_matches_the_field_grid_and_the_estimate():
+    pytest.importorskip("solprop_native")
     field = harmonic_fraction("field")
     envelope = harmonic_fraction("envelope")
     estimate = weak_conversion_fraction()

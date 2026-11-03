@@ -15,6 +15,6 @@ def selected_backend() -> str:
     """Return ``SOLPROP_TEST_BACKEND``, or what ``backend="auto"`` selects when unset.
 
     So a lane with the native package installed runs on ``native``, as a user's run
-    would, and one without it on ``numba_cpu``; a lane names a backend to override.
+    would, and one without it on ``numpy_ref``; a lane names a backend to override.
     """
     return os.environ.get("SOLPROP_TEST_BACKEND") or resolve_name("auto")

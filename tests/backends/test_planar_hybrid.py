@@ -24,7 +24,7 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose, assert_array_equal
 
-from backends.test_numba_band_bounds import rate_error_bound
+from backends.rate_bounds import rate_error_bound
 from bounds import fft_bound, gamma, step_evaluations
 from legacy_geometry import LEGACY_GRID, bare_absorber
 from solprop.backends.numpy_ref import NumpyRefBackend, passes

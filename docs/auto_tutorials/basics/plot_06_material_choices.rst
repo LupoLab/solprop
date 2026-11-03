@@ -160,7 +160,7 @@ A 50 um-radius, 0.4 mm argon capillary at 1 bar with a 30 fs, 100 uJ pulse at
 witness. The absorbing collar is lengthened, as the witness's was, because the
 default collar of so short a guide is too stiff for ten fixed steps.
 
-.. GENERATED FROM PYTHON SOURCE LINES 89-136
+.. GENERATED FROM PYTHON SOURCE LINES 89-135
 
 .. code-block:: Python
 
@@ -188,7 +188,6 @@ default collar of so short a guide is too stiff for ten fixed steps.
                 plasma=True,
                 schedule=FixedSchedule(np.full(10, LENGTH / 10)),
                 n_save=2,
-                backend="numpy_ref",
                 progress=None,
                 seed=20261027,
                 **choices,
@@ -218,7 +217,7 @@ default collar of so short a guide is too stiff for ten fixed steps.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 137-144
+.. GENERATED FROM PYTHON SOURCE LINES 136-143
 
 Which family each change touched
 --------------------------------
@@ -228,7 +227,7 @@ kind by kind says which family a change reached, whatever the change was declare
 as. The other columns are the change of the output: the spectrum's relative change
 in norm, and the ionised fraction and peak power at the exit.
 
-.. GENERATED FROM PYTHON SOURCE LINES 144-202
+.. GENERATED FROM PYTHON SOURCE LINES 143-201
 
 .. code-block:: Python
 
@@ -312,7 +311,7 @@ in norm, and the ionised fraction and peak power at the exit.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 203-210
+.. GENERATED FROM PYTHON SOURCE LINES 202-209
 
 The rate dominates: twice the rate raises the ionised fraction at the exit by
 three quarters and changes the spectrum by more than ten per cent. Another gas index
@@ -322,7 +321,7 @@ reaches the wall of a 50 um core in 0.4 mm.
 
 The figure compares the exit spectra.
 
-.. GENERATED FROM PYTHON SOURCE LINES 210-234
+.. GENERATED FROM PYTHON SOURCE LINES 209-233
 
 .. code-block:: Python
 
@@ -363,12 +362,12 @@ The figure compares the exit spectra.
 
  .. code-block:: none
 
-    run time 1.1 s
+    run time 3.0 s
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 235-242
+.. GENERATED FROM PYTHON SOURCE LINES 234-241
 
 Related reading
 ---------------
@@ -381,7 +380,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 1.112 seconds)
+   **Total running time of the script:** (0 minutes 3.093 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_basics_plot_06_material_choices.py:

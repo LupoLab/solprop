@@ -19,10 +19,8 @@ from solprop import backends, exceptions
 from solprop.physdata.sellmeier import _wavelength_extremes
 
 HEAVY_MODULES = (
-    "numba",
     "matplotlib",
     "h5py",
-    "pyfftw",
     "tqdm",
 )
 
@@ -159,6 +157,6 @@ def test_the_runtime_imports_without_posix_only_modules():
         "import sys; sys.modules['fcntl'] = None; sys.modules['resource'] = None; "
         "import solprop, solprop.sol, solprop.scan, solprop.output.scan, "
         "solprop.processing.scans, solprop.driver.executors, "
-        "solprop.backends.numba_cpu"
+        "solprop.backends.numpy_ref"
     )
     subprocess.run([sys.executable, "-c", code], check=True)

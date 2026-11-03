@@ -2,10 +2,10 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Three-backend parity of the axial-flux statistics (SEP 34 sections 4.2 and 5.1).
+"""Backend parity of the axial-flux statistics (SEP 34 sections 4.2 and 5.1).
 
-The same state, loaded at the same plane, is measured by ``numpy_ref``,
-``numba_cpu`` and, when it is installed, the native CPU backend: energy, the beam,
+The same state, loaded at the same plane, is measured by ``numpy_ref`` and, when it is
+installed, the native CPU backend: energy, the beam,
 aperture and region spectra, the aperture's on-axis spectrum, ``absorbed_power``,
 the on-axis spectrum and intensity, ``peak_intensity`` and the fluence widths. The
 media are lossy (or the planar walls are), so the admittance is complex and the
@@ -43,7 +43,7 @@ pytestmark = [
     ),
 ]
 
-BACKENDS = ["numpy_ref", "numba_cpu"] + (
+BACKENDS = ["numpy_ref"] + (
     ["native"] if importlib.util.find_spec("solprop_native") is not None else []
 )
 
@@ -222,9 +222,9 @@ def test_the_native_closure_buffers_are_in_the_ledger():
     grid, problem = _free(FreeGrid(3e-4, 24, 3e-4, 16))
     rows = flux_closure_memory(problem, "native")
     # One state's bytes beside the transverse scratch, sized for the problem's own
-    # local statistics; the CPU backends form the closure per call.
+    # local statistics; the reference forms the closure per call.
     assert rows == {"flux_closure_transverse": 16 * int(np.prod(problem.shape[1:]))}
-    assert flux_closure_memory(problem, "numba_cpu") == {}
+    assert flux_closure_memory(problem, "numpy_ref") == {}
     owner = select("native", problem, grid=grid)
     try:
         ledger = owner.memory_ledger()

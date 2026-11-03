@@ -5,8 +5,8 @@
 """The general modal route's and the coupled flow's admission, for every backend.
 
 One list, run by each backend under its own name: ``numpy_ref`` calls
-:func:`refuse_general_route` from its own admission, the native backend calls
-it from its adapter, and ``numba_cpu`` runs the same checks. A combination admitted or
+:func:`refuse_general_route` from its own admission and the native backend calls
+it from its adapter. A combination admitted or
 refused here is admitted or refused on every backend that calls it, and each refusal
 names the calling backend and the leaf, so a new refusal is written once and cannot
 drift between copies.
@@ -52,7 +52,7 @@ FLOW_METHODS: Final[tuple[SectionMethod, ...]] = (
 ``"diagonal"`` is not among them: it is the existing cumulative flow and needs no
 leaf. A backend that executes fewer passes its own subset to
 :func:`refuse_coupled_flow`; ``"cf4"`` is executed by the reference alone: it is not yet
-implemented on the compiled backends.
+implemented on the native backend.
 """
 
 
@@ -89,7 +89,7 @@ def refuse_general_route(
         projection of more than one coefficient along z, combined per stage over
         the bundle's ``transform_weights`` (kernel schema 14). False by default, so
         a backend that has not built them refuses them by name whatever else it
-        admits; ``numpy_ref``, ``numba_cpu`` and the native backend pass True.
+        admits; ``numpy_ref`` and the native backend pass True.
 
     Raises
     ------
@@ -206,7 +206,7 @@ def _refuse_flow_representation(
             f"{', '.join(map(repr, sorted(flow_methods)))} sections, and a section "
             "method silently integrated by another would run, converge and be a "
             "different approximation. The commutator-free CF4 flow is not yet "
-            "implemented on the compiled backends; pass backend='numpy_ref', or "
+            "implemented on the native backend; pass backend='numpy_ref', or "
             "declare the default frozen split"
         )
         raise BackendError(msg)
@@ -614,7 +614,7 @@ def _refuse_moving_maps(
     """Refuse a moving guide's maps where they are not executed, or not composed.
 
     A backend that has not built the per-stage combination refuses them by name.
-    ``numpy_ref`` and ``numba_cpu`` execute them, and only beside what a moving
+    ``numpy_ref`` and the native backend execute them, and only beside what a moving
     guide is propagated with: a coupled flow carrying the connection, integrated as
     ``"frozen_residual"`` on every section. Moving maps with no connection are a
     guide whose modes change shape and exchange no power, which is the adiabatic
@@ -647,7 +647,7 @@ def _refuse_moving_maps(
             f"transform.modal_tables carries moving maps -- {intervals} section(s) "
             f"of degree {degrees - 1} along z, combined per stage over the bundle's "
             "transform_weights (kernel schema 14), which it does not build: a moving "
-            "solid guide runs on numpy_ref, numba_cpu and native"
+            "solid guide runs on numpy_ref and native"
         )
         raise BackendError(msg)
     flow = problem.linear.coupled_flow

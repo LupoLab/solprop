@@ -24,7 +24,7 @@ syntheses and ``D = n_to + T + 2K + 6``; the fraction moves by ``(1 - f_0) e^{-X
 times that plus each side's roundings on the actual survival and fraction.
 """
 
-# ruff: noqa: I001 -- Kokkos must load before solprop imports pyFFTW on macOS.
+# ruff: noqa: I001 -- Kokkos loads first, before any other OpenMP runtime on macOS.
 
 from __future__ import annotations
 

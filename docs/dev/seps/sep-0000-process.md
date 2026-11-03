@@ -235,7 +235,7 @@ A SEP becomes `Final` when:
 
 - every phase is merged and reported;
 - the functionality runs on the Tier 1 backends (`numpy_ref` and the native CPU build;
-  [ADR-061](../decisions.md)), with parity tests, and on `numba_cpu` or `mlx` too where
+  [ADR-061](../decisions.md)), with parity tests, and on `mlx` too where
   the accepted SEP says so — or the accepted SEP records a justified exception, which
   then has an issue;
 - the manual documents it, and each manual page it produced ends with a link to the SEP;
@@ -286,7 +286,7 @@ and compares options; it is not a line-by-line plan, which belongs to the implem
 - **Backends in order.** A feature is implemented first on `numpy_ref`, the oracle, with
   its tests and its manual page; then on the native CPU build in `native/`. Device (GPU)
   qualification follows the standing policy of [backends.md](../backends.md), later and
-  in one pass. `numba_cpu` (Tier 2) and `mlx` (Tier 3) take the feature only where the
+  in one pass. `mlx` (Tier 3) takes the feature only where the
   SEP says so ([ADR-061](../decisions.md)); the SEP weighs who would run it there.
 - **Parity, eventually.** Until a backend implements the feature it refuses the problem by
   name, with an error saying which backend does support it; it never falls back silently.

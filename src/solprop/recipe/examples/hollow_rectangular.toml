@@ -1,0 +1,30 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Twenty centimetres of an argon-filled hollow silica channel, 250 um by 100 um, in its
+# lowest x-polarised mode, on an envelope grid: self-phase modulation of 20 uJ, 30 fs.
+# mirrors: docs/tutorials/waveguides/plot_09_hollow_rectangular.py
+
+[recipe]
+format = 1
+route = "waveguide"
+title = "An argon-filled hollow rectangular waveguide"
+
+[build]
+modes = [{ type = "RectMode", half_width_x = "125 um", half_width_y = "50 um" }]
+length = "20 cm"
+gas = "Ar"
+pressure = "5 bar"
+wavelength = "800 nm"
+wavelength_limits = ["450 nm", "1200 nm"]
+trange = "200 fs"
+fwhm = "30 fs"
+energy = "20 uJ"
+envelope = true
+plasma = false
+n_r = 12
+n_theta = 12
+n_save = 11
+stats = { type = "StatsSpec", names = ["energy"] }
+seed = 1

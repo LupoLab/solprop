@@ -1,0 +1,1 @@
+A plain `uv sync` in a checkout now compiles the native backend, and `uv sync --extra native` is gone. Python and documentation contributors with no compiler can use `uv run --no-project tools/setup_light.py`, and `poe fetch-wheel` installs the wheel CI built, refusing one that doesn't fit the tree.

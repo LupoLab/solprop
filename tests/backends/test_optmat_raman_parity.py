@@ -50,7 +50,7 @@ DETECTION = 1e3
 @pytest.mark.parametrize("name", CASES)
 def test_every_rung_agrees_with_the_reference(name, equivalence_backend_class):
     # air_vacuum's three independent density paths take the z table, which the native
-    # CPU build evaluates natively (SEP 29 section 6.6), as numba_cpu does on the host.
+    # CPU build evaluates natively (SEP 29 section 6.6).
     check_ladder(name, equivalence_backend_class)
 
 

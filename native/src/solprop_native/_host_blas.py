@@ -10,8 +10,7 @@ case). NumPy's OpenBLAS is a separate, pthreads library with its own pool, sized
 ``OPENBLAS_NUM_THREADS`` or every CPU: after each call its workers spin, waiting for the
 next one, on the cores the native pool needs, and saved planes come often enough that
 they never sleep. On 16 cores of a Xeon Gold 6240 that pool took 1.09 s of CPU per
-worker in a 1.24 s window and doubled the window's time. So, as ``numba_cpu`` holds
-its BLAS pool while it lives (``solprop.backends.numba_cpu.fft.apply_pools``), the
+worker in a 1.24 s window and doubled the window's time. So the
 first native backend of a process limits every BLAS that threadpoolctl finds, except
 this package's own (whose width is fitted at import), to one thread, or to
 ``SOLPROP_BLAS_THREADS`` within the thread budget; the last one to close gives the

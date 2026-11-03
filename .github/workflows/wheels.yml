@@ -45,6 +45,10 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  # solprop-native is a required workspace member, so a plain `uv sync` or `uv run` builds
+  # it. These lanes use CI's wheel or need no native package, so each `uv sync` skips it
+  # and this stops a later `uv run` from building it (`uv sync` ignores this setting).
+  UV_NO_SYNC: "1"
   # FFTW's measured planning is slow and machine-specific; CI plans by estimate.
   SOLPROP_FFTW_PLAN: estimate
 
@@ -94,7 +98,7 @@ jobs:
 
   # Each repaired wheel in a fresh environment beside solprop from this checkout: the
   # smoke test, the build record, solprop's default lane on the native backend and the
-  # coexistence check with NumPy, SciPy, pyFFTW and Numba.
+  # coexistence check with NumPy and SciPy.
   test:
     name: test (${{ matrix.id }})
     needs: build
@@ -108,8 +112,7 @@ jobs:
           - { id: linux-aarch64, os: ubuntu-24.04-arm }
           - { id: macos-arm64, os: macos-15 }
           - { id: windows-amd64, os: windows-2025 }
-          # Not Windows on Arm: the suite imports numba_cpu, and pyFFTW has no wheel there.
-          # Its build job smoke-tests the wheel.
+          - { id: windows-arm64, os: windows-11-arm }
           # The x86-64 wheels' second build, forced, on the same runners.
           - { id: linux-x86_64-v2, wheel: linux-x86_64, os: ubuntu-24.04, variant: x86-64-v2 }
           - { id: windows-amd64-v2, wheel: windows-amd64, os: windows-2025, variant: x86-64-v2 }
@@ -133,7 +136,7 @@ jobs:
       - run: uv python install 3.14
       # solprop and its test tools, without the native extra; then the wheel, which a
       # later plain `uv sync` or `uv run` would remove (hence --no-sync below).
-      - run: uv sync --locked
+      - run: uv sync --locked --no-install-package solprop-native
       - run: uv pip install --no-deps wheelhouse/*.whl
       - name: Smoke test
         run: |
@@ -149,8 +152,16 @@ jobs:
           print(baseline)
           assert baseline == os.environ['SOLPROP_NATIVE_CPU_VARIANT'], baseline
           "
-      - name: Coexistence with NumPy, SciPy, pyFFTW and Numba
-        run: uv run --no-sync python -I native/ci/coexistence.py --bypass-guard
+      - name: Coexistence with NumPy and SciPy
+        run: uv run --no-sync python -I native/ci/coexistence.py
+      # pyFFTW and Numba as a notebook's other packages would load them, in an environment
+      # of their own: solprop doesn't depend on them. pyFFTW has no Windows on Arm wheel.
+      - name: Coexistence with pyFFTW and Numba as outside packages
+        run: |
+          uv venv --python 3.14 ../coexist
+          uv pip install --python ../coexist --no-sources --find-links wheelhouse . \
+            ${{ matrix.id != 'windows-arm64' && 'pyfftw numba' || 'numba' }}
+          uv run --no-project --python ../coexist python -I native/ci/coexistence.py
       # The default lane's peak memory with four test workers is at the edge of a 16 GB
       # runner (the aarch64 runner shut down mid-suite, as CI's did): swap on Linux and
       # three workers, as in CI's native-suite job.
@@ -169,7 +180,10 @@ jobs:
           # The runtime type checks run in ci.yml's coverage lane (ADR-053); here they
           # would more than double the lane's time without checking anything new.
           SOLPROP_TEST_TYPECHECK: "0"
-        run: uv run --no-sync poe test
+        run: uv run --no-sync poe ${{ matrix.id == 'windows-arm64' && 'test-windows-arm' || 'test' }} --junitxml=junit.xml
+      - name: No unexpected skips
+        if: ${{ !cancelled() }}
+        run: uv run --no-sync python -I native/ci/check_skips.py junit.xml
 
   # One wheel serves every CPython from 3.14: it holds nothing beyond the stable ABI, and
   # the newest release loads it on every platform.
@@ -220,7 +234,7 @@ jobs:
           name: wheel-linux-x86_64
           path: wheelhouse
       - run: uv python install 3.14
-      - run: uv sync --locked
+      - run: uv sync --locked --no-install-package solprop-native
       - run: uv pip install --no-deps wheelhouse/*.whl
       - name: Fetch Intel SDE
         env:
@@ -283,13 +297,37 @@ jobs:
           # never an instruction the emulated processor lacks.
           test "$status" -eq 1
           ! grep -q "SDE-ERROR" refusal.log
+      # With /proc/cpuinfo unreadable the check asks NumPy, whose CPUID SDE emulates, and
+      # a file that says nothing is the same as none (SEP 43 section 6.1).
+      - name: With nothing in /proc/cpuinfo, NumPy's answer chooses the build
+        run: |
+          : > cpuinfo-empty
+          sudo mount --bind cpuinfo-empty /proc/cpuinfo
+          status=0
+          for pair in hsw:x86-64-v3 nhm:x86-64-v2 snb:x86-64-v2; do
+            sde/sde64 -${pair%:*} -chip_check_zcnt 1 -- .venv/bin/python -I -c "
+          import solprop_native
+          baseline = solprop_native.build_info().cpu_baseline
+          print(baseline)
+          assert baseline == '${pair#*:}', baseline
+          " || status=1
+          done
+          set +e
+          sde/sde64 -pnr -chip_check_zcnt 1 -- .venv/bin/python -I -c "import solprop_native" > refusal.log 2>&1
+          refused=$?
+          set -e
+          sudo umount /proc/cpuinfo
+          cat refusal.log
+          test "$status" -eq 0
+          test "$refused" -eq 1
+          ! grep -q "SDE-ERROR" refusal.log
 
   # solprop's own distributions (pure Python): sdist and wheel, each then installed from
   # the file in a fresh environment, outside the checkout, and given the installation
   # page's check (docs/introduction/installation.md). It imports at the files' version,
-  # which on a release tag is the tag's; `backend="auto"` resolves to numba_cpu for the
-  # wheel alone and to native with the `native` extra, whose pin (hatch_build.py) this
-  # run's Linux x86-64 wheel meets before anything is published.
+  # which on a release tag is the tag's. Native is a required dependency, whose pin
+  # (hatch_build.py) this run's Linux x86-64 wheel meets before anything is published, so
+  # `backend="auto"` resolves to native and a short run finishes and saves.
   solprop-dist:
     needs: build
     runs-on: ubuntu-24.04
@@ -320,19 +358,7 @@ jobs:
         env:
           DIST: ${{ github.workspace }}/dist
           WHEELHOUSE: ${{ github.workspace }}/wheelhouse
-          CHECK: |
-            import sys
-
-            import optmat
-
-            import solprop
-            from solprop.backends.registry import available, resolve_name
-
-            version, backend = sys.argv[1:]
-            print("solprop", solprop.__version__, "with optmat", optmat.__version__)
-            print("backends:", available(), "- auto means", resolve_name("auto"))
-            assert solprop.__version__ == version, f"expected solprop {version}"
-            assert resolve_name("auto") == backend, f"expected auto to mean {backend}"
+          CHECK: ${{ github.workspace }}/native/ci/check_install.py
         run: |
           sdist=$(echo "$DIST"/solprop-*.tar.gz)
           wheel=$(echo "$DIST"/solprop-*.whl)
@@ -345,11 +371,10 @@ jobs:
           check() { # environment, requirement, what backend="auto" must resolve to
             uv venv --python 3.14 "$1"
             uv pip install --python "$1/bin/python" --find-links "$WHEELHOUSE" "$2"
-            "$1/bin/python" -I -c "$CHECK" "$version" "$3"
+            "$1/bin/python" -I "$CHECK" "$version" "$3"
           }
-          check wheel "$wheel" numba_cpu
-          check wheel-native "${wheel}[native]" native
-          check sdist-native "${sdist}[native]" native
+          check wheel "$wheel" native
+          check sdist "$sdist" native
       # The front end with solprop's `gui` extra, from these files: the two pins
       # (hatch_build.py, gui/hatch_build.py) meet, and the command answers at the
       # version without loading Qt.
@@ -358,18 +383,61 @@ jobs:
         env:
           DIST: ${{ github.workspace }}/dist
           DIST_GUI: ${{ github.workspace }}/dist-gui
+          WHEELHOUSE: ${{ github.workspace }}/wheelhouse
         run: |
           wheel=$(echo "$DIST"/solprop-*.whl)
           version=$(basename "$(echo "$DIST"/solprop-*.tar.gz)" .tar.gz)
           version=${version#solprop-}
           uv venv --python 3.14 gui
-          uv pip install --python gui/bin/python --find-links "$DIST_GUI" "${wheel}[gui]"
+          uv pip install --python gui/bin/python --find-links "$DIST_GUI" --find-links "$WHEELHOUSE" "${wheel}[gui]"
           test "$(gui/bin/solprop-gui --version)" = "$version"
+
+  # SEP 43 section 7's minimum systems, as far as a hosted machine reaches them: the
+  # oldest macOS, a RHEL 8 age container with no compiler (glibc 2.28, what the
+  # manylinux_2_28 wheels promise) and the oldest Windows runner, which isn't Windows 10.
+  # The macOS and Windows images do carry compilers.
+  minimum-systems:
+    name: minimum (${{ matrix.id }})
+    needs: [build, solprop-dist]
+    runs-on: ${{ matrix.os }}
+    container: ${{ matrix.container }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { id: macos-14, os: macos-14, wheel: macos-arm64 }
+          - { id: almalinux-8, os: ubuntu-24.04, wheel: linux-x86_64, container: "almalinux:8" }
+          - { id: windows-2022, os: windows-2022, wheel: windows-amd64 }
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: wheel-${{ matrix.wheel }}
+          path: wheelhouse
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: solprop-dist
+          path: dist
+      - name: Install from the files and run
+        run: |
+          wheel=$(echo dist/solprop-*.whl)
+          version=$(basename "$(echo dist/solprop-*.tar.gz)" .tar.gz)
+          version=${version#solprop-}
+          (command -v gcc cc clang cl || echo "no compiler on PATH")
+          uv python install 3.14
+          uv venv --python 3.14 ../fresh
+          uv pip install --python ../fresh --find-links wheelhouse "$wheel"
+          cd ..
+          uv run --no-project --python fresh python -I "$GITHUB_WORKSPACE/native/ci/check_install.py" "$version" native
 
   # Trusted publishing to PyPI on a release tag, one job and GitHub environment per
   # project (PyPI ties a pending trusted publisher to one project name per workflow and
   # environment). solprop-native's wheels go first, from `pypi-native`, and only wheels
-  # (no sdist: where no wheel matches, `solprop[native]` fails to resolve instead of
+  # (no sdist: where no wheel matches, `solprop` fails to resolve instead of
   # building from source). solprop's sdist and wheel follow from `pypi` once every
   # native wheel is up: the `native` extra pins solprop-native at this version
   # (hatch_build.py), so a failed native upload leaves no solprop release behind.
@@ -379,8 +447,17 @@ jobs:
   # its own environment `pypi-gui` once PUBLISH_GUI is "true" too; until then
   # `solprop[gui]` resolves only in the repository's workspace.
   publish-native:
-    needs: [test, python-3-15, solprop-dist]
-    if: vars.PUBLISH == 'true' && startsWith(github.ref, 'refs/tags/v')
+    # cpu-floor runs only when SDE_URL names an emulator, so it may be skipped only then.
+    needs: [test, python-3-15, solprop-dist, cpu-floor, minimum-systems]
+    if: >-
+      ${{ !cancelled()
+      && vars.PUBLISH == 'true' && startsWith(github.ref, 'refs/tags/v')
+      && needs.test.result == 'success'
+      && needs.python-3-15.result == 'success'
+      && needs.solprop-dist.result == 'success'
+      && needs.minimum-systems.result == 'success'
+      && (needs.cpu-floor.result == 'success'
+          || (needs.cpu-floor.result == 'skipped' && vars.SDE_URL == '')) }}
     runs-on: ubuntu-24.04
     environment:
       name: pypi-native

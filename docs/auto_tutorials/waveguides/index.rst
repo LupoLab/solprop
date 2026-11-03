@@ -7,7 +7,8 @@ Waveguide models
 
 Antiresonant fibres, tabulated modes, step-index, graded-index and rectangular guides,
 the general modal route for guides that supply their own vector fields, a declared basis
-over a split pair, and hollow planar guides per unit width.
+over a split pair, hollow planar guides per unit width, and a gas-filled hollow
+rectangular guide built from a supplied mode.
 
 
 .. raw:: html
@@ -157,6 +158,23 @@ over a split pair, and hollow planar guides per unit width.
     </div>
 
 
+.. raw:: html
+
+    <div class="sphx-glr-thumbcontainer" tooltip="A hollow silica channel 250 um wide and 100 um high, filled with 5 bar of argon, guides a 30 fs, 800 nm pulse in its lowest x-polarised mode. The mode is supplied as an object (~solprop.modes.rectangular.RectMode) to the waveguide route, which binds it to the route&#x27;s fill, and the run is a plain prop_waveguide: the waveguide route&#x27;s starting point, and the call its example recipe mirrors (``Recipe.example(&quot;hollow_rectangular&quot;)``).">
+
+.. only:: html
+
+  .. image:: /auto_tutorials/waveguides/images/thumb/sphx_glr_plot_09_hollow_rectangular_thumb.png
+    :alt:
+
+  :doc:`/auto_tutorials/waveguides/plot_09_hollow_rectangular`
+
+.. raw:: html
+
+      <div class="sphx-glr-thumbnail-title">A gas-filled hollow rectangular waveguide</div>
+    </div>
+
+
 .. thumbnail-parent-div-close
 
 .. raw:: html
@@ -175,4 +193,5 @@ over a split pair, and hollow planar guides per unit width.
    /auto_tutorials/waveguides/plot_06_graded_index
    /auto_tutorials/waveguides/plot_07_split_block
    /auto_tutorials/waveguides/plot_08_planar
+   /auto_tutorials/waveguides/plot_09_hollow_rectangular
 

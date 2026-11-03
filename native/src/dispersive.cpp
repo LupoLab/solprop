@@ -1881,7 +1881,7 @@ std::map<std::string, std::size_t> GeneralDispersive::memory_ledger() const {
   ledger["dispersive_filtered_time"] = filtered_.size() * complex;
   ledger["dispersive_products"] =
       products_real_.size() * real + products_complex_.size() * complex;
-  // As `numba_cpu` counts them: the filtered spectra beside the products'.
+  // The filtered spectra beside the products'.
   ledger["dispersive_product_spectra"] =
       (spectra_.size() + filtered_spectrum_.size()) * complex;
   ledger["dispersive_multipliers"] = weights_.bytes() + dc_.size() * complex +

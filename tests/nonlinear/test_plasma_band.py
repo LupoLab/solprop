@@ -161,8 +161,10 @@ PLASMA_BAND = Study(
             name="deviation",
             unit="1 (relative)",
             why="sums of a few thousand terms, compared well above their round-off; "
-            "atol is that floor, about 8193 eps",
-            rtol=1e-6,
+            "atol is that floor, about 8193 eps; rtol covers the boundary rung at "
+            "lambda = 1e-8, which amplifies rounding: five platforms measured up to "
+            "1.33e-6 from the stored value, and 1 ulp of spectrum jitter up to 1.17e-6",
+            rtol=3e-6,
             atol=2e-12,
         ),
         Column(

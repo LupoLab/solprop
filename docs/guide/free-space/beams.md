@@ -308,7 +308,7 @@ intensities, the beam radius, the full width and the on-axis spectrum
 
 ## Where it runs
 
-Radial, Cartesian and line runs execute on `numpy_ref`, `numba_cpu` and the native
+Radial, Cartesian and line runs execute on `numpy_ref` and the native
 backend's CPU build; its CUDA build runs them too. A Cartesian run's memory grows
 as $n_x n_y n_t$, and the [backends chapter](../performance/resources.md#memory) says how it is budgeted.
 The thread pools a free-space run uses, including its separate transverse FFT pool, are

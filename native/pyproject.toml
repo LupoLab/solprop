@@ -87,7 +87,7 @@ config-settings = { "cmake.define.SOLPROP_NATIVE_PROFILE" = "DISTRIBUTION", "bui
 # A first smoke test in cibuildwheel's test environment, beside solprop from the same
 # checkout (check_build reads solprop's kernel contract); the suite and the
 # coexistence check run in the workflow's test jobs.
-before-test = "python -m pip install {project}"
+before-test = "python {package}/ci/install_solprop.py {project}"
 test-command = "python -I {package}/ci/smoke.py"
 
 # manylinux_2_28 (glibc 2.28, GCC 14): x86-64-v3 or Neoverse N1 baseline, the OpenMP

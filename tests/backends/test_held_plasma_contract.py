@@ -12,7 +12,6 @@ from tests.backends import test_numpy_ref_plasma as plasma_fixtures
 
 from gated_source import _gated_source
 from solprop.backends import registry
-from solprop.backends.numba_cpu import NumbaCpuBackend
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.driver.simulation import _open_output, metadata_for
 from solprop.exceptions import BackendError, DriverError, OutputError, TranslationError
@@ -65,10 +64,7 @@ def test_gated_hook_refuses_compiled_execution_and_resets_after_exception(
 ):
     problem, _, _ = ionising_capillary()
     with pytest.raises(BackendError, match="requires numpy_ref"), _gated_source():
-        NumbaCpuBackend(problem)
-    assert not _BENCHMARK_GATED.get()
-    with pytest.raises(BackendError, match="requires numpy_ref"), _gated_source():
-        registry.select("numba_cpu", problem)
+        registry.select("native", problem)
     assert not _BENCHMARK_GATED.get()
 
 
@@ -124,6 +120,6 @@ def test_private_historical_collar_cannot_bypass_production_admission(
             "resumable": False,
         }
         with pytest.raises(BackendError, match="requires numpy_ref"):
-            NumbaCpuBackend(historical)
+            registry.select("native", historical)
     with pytest.raises(TranslationError, match="collar certificate"):
         historical.validate()

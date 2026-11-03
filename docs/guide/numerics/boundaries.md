@@ -346,8 +346,7 @@ pass under either scheme: no in-stage term, no split pass and its transverse tra
 pair, and the first-same-as-last stage recycled. `absorber_scheme` is still recorded and
 applies to nothing, and its refusal of interpolated planes does not fire. The grid is
 unchanged. Measured on a Cartesian envelope grid of 192 × 192 × 300 with a spectral-only
-collar, the pass that compiling away removes cost 1.3–2.3 times a step on `numba_cpu` and
-1.2–1.6 times on native CPU
+collar, the pass that compiling away removes cost 1.2–1.6 times a step on native CPU
 ([SEP 22](../../dev/seps/archive/sep-0022-memory-lean-spatial-execution.md) §3; the phase-1
 re-measurement is in its
 [implementation record](../../dev/seps/archive/sep-0022-memory-lean-spatial-execution.md#phase-1-report--driver-output-and-absorber)). Under the in-stage
@@ -438,7 +437,7 @@ long step, and the exponential Adams march no longer limits its order by the col
 stability; the first step after the term returns is held to that limit. Under input
 noise the floor alone fills the collar far above the threshold, so the option only acts
 on noise-free runs; on a 2 cm noise-free GNLSE Raman/shock run whose pulse stays clear it
-saved 6 to 9 % per step on `numba_cpu` and `native` (Apple M5 Max). It is off by default
+saved 6 to 9 % per step across `native` and the since-retired `numba_cpu` (Apple M5 Max). It is off by default
 because a run cannot know in advance whether its light stays clear, and an omission
 judged too early is an error nothing reports (ADR-057). It applies to binary64 modal and
 radial stages with the in-stage scheme; the split scheme, the low-storage march, the
@@ -479,7 +478,7 @@ into removals larger than the launch and false warnings.
 
 A check reads five numbers of the state, its energy and the four weighted energies above,
 and each backend forms them where the state lives: on the GPU for `mlx` and a device build
-of `native`, in compiled code for `numba_cpu` and `native` on the CPU, and with NumPy for
+of `native`, in compiled code for `native` on the CPU, and with NumPy for
 `numpy_ref`, the reference the others are tested against. The field is not copied to the
 host to be watched.
 

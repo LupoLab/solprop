@@ -91,7 +91,7 @@ of the profile are where the sections start and end, and the fixed schedule land
 on every one of them (a schedule that comes near a corner without landing on it
 is refused by name).
 
-.. GENERATED FROM PYTHON SOURCE LINES 66-133
+.. GENERATED FROM PYTHON SOURCE LINES 66-132
 
 .. code-block:: Python
 
@@ -121,7 +121,6 @@ is refused by name).
                 energy=1e-9,
                 modes=3,
                 n_save=11,
-                backend="numpy_ref",
                 wall=wall,
                 taper_coupling=taper_coupling,
                 schedule=FixedSchedule(np.full(steps, length / steps)),
@@ -179,14 +178,14 @@ is refused by name).
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 134-138
+.. GENERATED FROM PYTHON SOURCE LINES 133-137
 
 What the record says about the sectioning: how many frozen sections the run was
 cut into, the Chebyshev degree along z the generator was resolved at, whether a
 connection was carried, and the advisory step a declared ``dz_max`` is warned
 against. Ten steps of 20 um sit inside it.
 
-.. GENERATED FROM PYTHON SOURCE LINES 138-144
+.. GENERATED FROM PYTHON SOURCE LINES 137-143
 
 .. code-block:: Python
 
@@ -209,7 +208,7 @@ against. Ten steps of 20 um sit inside it.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 145-150
+.. GENERATED FROM PYTHON SOURCE LINES 144-149
 
 Freezing is a rearrangement. Four frozen sections per interval freeze four
 different blocks and carry four different residuals, and the answer does not
@@ -217,7 +216,7 @@ move: the residual is evaluated exactly, so what ``sections`` buys is a smaller
 explicit term, not a new physical model. At finite step size, changing this split can
 still change the numerical error, so section and step refinement are distinct checks.
 
-.. GENERATED FROM PYTHON SOURCE LINES 150-183
+.. GENERATED FROM PYTHON SOURCE LINES 149-182
 
 .. code-block:: Python
 
@@ -272,7 +271,7 @@ still change the numerical error, so section and step refinement are distinct ch
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 184-191
+.. GENERATED FROM PYTHON SOURCE LINES 183-190
 
 Related reading
 ---------------
@@ -285,7 +284,7 @@ For a paced introduction to propagation, start with the
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 2.217 seconds)
+   **Total running time of the script:** (0 minutes 7.224 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_capillaries_plot_08_coherent_wall_taper.py:

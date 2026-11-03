@@ -91,10 +91,10 @@ studies: vary the uncertain input by its plausible range and see whether the con
 
 ## 13.5 Backends
 
-solprop runs the same problem on a NumPy reference, a Numba CPU backend and a compiled native backend for CPUs and
+solprop runs the same problem on a NumPy reference and a compiled native backend for CPUs and
 GPUs. A faster backend introduces no different physics, and an unsupported combination is refused, not quietly
-substituted. Agreement between backends, and between repeats, is not bitwise, and is not required to be: NumPy contracts complex multiplies into fused
-multiply-adds and Numba does not, and a GPU orders its arithmetic differently. So every comparison is held to a bound
+substituted. Agreement between backends, and between repeats, is not bitwise, and is not required to be: NumPy and a compiled build contract different operations into fused
+multiply-adds, and a GPU orders its arithmetic differently. So every comparison is held to a bound
 derived in advance from the operations involved, as a multiple of the machine precision. For example, the bound
 for a full adaptive soliton is 1600 times the precision, against a measured deviation of $6\times10^{-16}$
 ([backend equivalence](../dev/accuracy.md#7-backend-equivalence)). The comparisons are against nontrivial

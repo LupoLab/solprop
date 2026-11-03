@@ -283,7 +283,6 @@ settings = SimulationSettings(
     save_planes=[0.1],
     dz_max=0.02,
     dz_init=0.02,
-    backend="numpy_ref",
 )
 simulation = Simulation.from_planar(grid, space, [], launch, settings=settings)
 print(simulation.translate().transform.geometry.kind, space.n_columns)
@@ -305,10 +304,10 @@ the whole-beam self-focusing length $L_{\rm sf}$ and the modulational-instabilit
 $L_{\rm mi}$ in terms of $P/P_c$ of the power in the guide. The plates stop the whole
 beam collapsing as it would in free space, but a multimode x basis can still focus in
 x. Their $P_c$ is $2n_0^2/1.86226$ times the function's value (called with `index=n0`),
-the Gaussian mass against the Townes one and the $n_0^2$ of their $n_2$ convention. `numpy_ref`, `numba_cpu` and the native CPU backend execute the
+the Gaussian mass against the Townes one and the $n_0^2$ of their $n_2$ convention. `numpy_ref` and the native CPU backend execute the
 transform: the y FFT around the slab rule's synthesis and projection, each column's
 operator with its channel's wall term, every response family, both absorber schemes and
-the statistics, and both compiled backends agree with `numpy_ref` within derived
+the statistics, and the native backend agrees with `numpy_ref` within derived
 bounds. The hybrid planar transform has not been qualified on a GPU build of the native backend.
 
 ## Planar compressors

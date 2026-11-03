@@ -27,15 +27,14 @@ from solprop.translate.linop import _dispersion_phi, power_weight_at
 from solprop.translate.problem import assemble
 
 
-# One backend of the three is enough to hold the medium tier's budget: the identity is
+# One backend of the two is enough to hold the medium tier's budget: the identity is
 # a property of the translation, and `numpy_ref` is the oracle every other backend is
-# validated against. The two compiled arms replay the same ten steps and are worth their
+# validated against. The compiled arm replays the same ten steps and is worth its
 # seconds only in the slow lane. One tier marker each, as `test_tiers.py` requires.
 @pytest.mark.parametrize(
     "backend_name",
     [
         pytest.param("numpy_ref", marks=pytest.mark.medium),
-        pytest.param("numba_cpu", marks=pytest.mark.slow),
         pytest.param("native", marks=pytest.mark.slow),
     ],
     indirect=True,

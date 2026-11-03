@@ -9,17 +9,20 @@ import math
 import numpy as np
 import pytest
 
-from envelope_oracle_angular import BUDGETS, order_record
-from envelope_oracle_propagation import mixture_propagation, propagate_pair
-from envelope_oracle_qualification import (
+from backends.host_cases_envelope_propagation import (
+    mixture_propagation,
+    propagate_pair,
+)
+from backends.host_cases_envelope_qualification import (
     carrier_comparison,
     controlled_cases,
     mixture_work_convergence,
     window_cases,
     work_convergence,
 )
+from envelope_oracle_angular import BUDGETS, order_record
 from rate_oracles import adk_oracle
-from solprop.backends.numba_cpu import NumbaCpuBackend
+from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.constants import CHARGE_MASS_RATIO, EPS0, C
 from solprop.grid import EnvelopeGrid
 from solprop.nonlinear import EnvelopePlasmaResponse
@@ -170,14 +173,7 @@ def test_prescribed_density_drude_conserves_energy_with_fifth_order_steps():
             schedule=FixedSchedule.uniform(0.0, grid.length, grid.length / steps),
             ionisation_field_range=(1e7, 1e11),
         )
-        owner = NumbaCpuBackend(
-            problem,
-            grid=grid,
-            threads=1,
-            fftw_threads=1,
-            blas_threads=1,
-            plan_flag="estimate",
-        )
+        owner = NumpyRefBackend(problem, grid=grid)
         try:
             owner.set_initial(problem.initial.field0, None)
             owner.propagate_to(grid.length)

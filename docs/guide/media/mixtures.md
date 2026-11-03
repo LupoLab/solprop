@@ -177,7 +177,7 @@ declares the populations as its parameters, `density:<label>`, instead of `press
 Two species in a uniform bore are two parameters and keep the tensor expansion of the
 linear operator on every backend; three species, or two in a taper (whose radius is a
 third), exceed its two parameters (`MAX_PARAMETERS`), so the operator is tabulated
-along z, which `numpy_ref`, `numba_cpu` and a native CPU build evaluate and a native GPU
+along z, which `numpy_ref` and a native CPU build evaluate and a native GPU
 build refuses by name, as for any three independent profiles. A single gas keeps its one `density` parameter. The
 rotational Raman populations take one reference temperature
 ({func}`~solprop.nonlinear.mixtures.raman_temperature`,
@@ -241,7 +241,7 @@ The operator has three possible representations:
    as a single-gas run, including its density spline.
 2. Independent populations declare `density:<label>`. The tensor expansion supports at
    most two varying parameters (`MAX_PARAMETERS`); beyond that the operator is
-   tabulated along z. `numpy_ref` and `numba_cpu` evaluate that table on the host, and a
+   tabulated along z. `numpy_ref` evaluates that table on the host, and a
    native CPU build in its own kernels; a native GPU build refuses it, naming the table's
    size and the CPU backends. Cartesian
    media must be constant in every component, including mixtures whose total density

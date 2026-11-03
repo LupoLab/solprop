@@ -14,10 +14,10 @@ coupling's reported defects, and the receiving run's entrance carries exactly th
 launch. The mandatory field-grid Kerr/plasma/THG case checks that the generated
 third-harmonic band is transferred with its energy and its reference.
 
-Several compositions pair different backends: the source on ``numpy_ref`` or
-``numba_cpu``, the receiver on the native CPU backend when it is installed (else
-``numba_cpu``). The physics of each piece is qualified by its own module's tests;
-these check the seams between them.
+Several compositions pair different backends: the source on ``numpy_ref``, the
+receiver on the native CPU backend when it is installed (else ``numpy_ref``). The
+physics of each piece is qualified by its own module's tests; these check the seams
+between them.
 """
 
 import math
@@ -63,7 +63,7 @@ from solprop.stepper import PIController
 
 pytestmark = pytest.mark.medium
 
-RECEIVER = "native" if "native" in available() else "numba_cpu"
+RECEIVER = "native" if "native" in available() else "numpy_ref"
 """The receiving runs' backend in the mixed-backend compositions."""
 
 PRESSURE = 3.0
@@ -228,7 +228,7 @@ def test_a_kerr_prepared_radial_beam_into_a_capillary():
     """(b) A Kerr gas gap on a radial grid, its entrance plane, couple, capillary.
 
     5 mm of 3 bar argon on an envelope grid, the beam 37.5 um (w/a = 0.5), run on
-    ``numba_cpu``; the capillary receives on the native CPU backend. The same gap
+    ``numpy_ref``; the capillary receives on the native CPU backend. The same gap
     without Kerr is the control: Kerr changes the fundamental's share (0.8715
     linear, 0.8805 with Kerr, measured), so the prepared field, not a fitted
     Gaussian, is what the capillary receives.
@@ -243,7 +243,7 @@ def test_a_kerr_prepared_radial_beam_into_a_capillary():
         save_planes=[gap],
         dz_max=gap / 10,
         dz_init=gap / 10,
-        backend="numba_cpu",
+        backend="numpy_ref",
     )
     receiver = Simulation.from_capillary(
         75e-6,
@@ -467,7 +467,7 @@ def test_a_solid_fibre_into_another_fibre():
             noise=None,
         )
 
-    source = fibre(2.18e-6, "numba_cpu")
+    source = fibre(2.18e-6, "numpy_ref")
     target = fibre(2.57e-6, RECEIVER)
     plane = field_plane(source.run(progress="none"), source=source)
     model = CouplingModel("scalar_paraxial", model_error=0.1)

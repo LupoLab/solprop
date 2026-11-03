@@ -334,9 +334,6 @@ def test_precision_is_the_state_s():
 
 
 def test_threads_come_from_the_backend_s_record():
-    numba: dict[str, object] = {"numba_threads": 4, "fftw_threads": 2}
-    numba |= {"thread_budget": 8, "thread_budget_source": "affinity"}
-    assert _threads("numba_cpu", numba) == "4 kernel, 2 FFTW; budget 8 (affinity)"
     native = {"thread_budget": 6, "thread_budget_source": "SOLPROP_THREADS"}
     assert _threads("native", native) == "budget 6 (SOLPROP_THREADS)"
     assert _threads("numpy_ref", {}).startswith("1 (NumPy reference); budget ")

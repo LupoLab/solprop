@@ -6583,8 +6583,8 @@ void GeneralWorkspace::adams_observe(const AdamsWeights& weights, const bool her
 // The exponential formulation's passes (solprop ADR-041, ADR-043): untransported
 // samples integrated exactly against the step's flow exp(x), x = Phi(z + h) - Phi(z).
 // The moments M_k = k! phi_{k+1}(x) are formed once a trial per element by the
-// reference's algorithm (solprop backends/exponential.py, phi_functions; the compiled
-// form of solprop's numba_cpu/multistep.py, _phi), then every formula of the trial is
+// reference's algorithm (solprop backends/exponential.py, phi_functions), then every
+// formula of the trial is
 // applied in the monomial basis of its interpolant; the defects use the factored form
 // (a divided difference of the samples times one moment combination).
 
@@ -9373,7 +9373,7 @@ StageTerms GeneralWorkspace::stage_terms(const std::size_t stage) const {
 // kernels, so fusing them moves no rounding. A lossless problem's kernel makes no
 // `exp` calls, and a lossless stage repeating the stage before's phase (the last two
 // stages of a FSAL tableau, and the whole step's at the last) reuses its pair
-// (`StageTerms::combine`), as numba_cpu's propagator cache does.
+// (`StageTerms::combine`).
 void GeneralWorkspace::stage_entry(const std::size_t stage, const double dz) {
   const bool repeated = lossless_phase_ && stage > 0 && entered_stage_ == stage - 1 &&
                         phase_repeats_[stage];

@@ -336,7 +336,7 @@ def apply_channel_basis(sample: ModalSample, basis: ChannelBasis) -> ModalSample
     * an **exactly degenerate** block leaves the generator diagonal, and the
       generator is carried over rather than multiplied out (below);
     * a **split** block leaves it coupled, and the product is evaluated. That block
-      is ``linear.coupled_flow``, executed by ``numpy_ref`` and ``numba_cpu`` and
+      is ``linear.coupled_flow``, executed by ``numpy_ref`` and ``native`` and
       built by the general modal route from the transformed generator
       (:func:`solprop.translate.general.coupled_block`). Any refusal is the
       *route's*, where a flow can be built, and this function's job is only to say

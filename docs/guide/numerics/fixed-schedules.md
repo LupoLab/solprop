@@ -57,8 +57,9 @@ Two functions turn an adaptive run into a schedule.
 reads the `step_history` a run writes to its output, which records every attempt with its
 start, its length and whether it was accepted, and drops the rejected attempts. Replaying
 the schedule with the same save planes repeats the run's step positions without its
-controller, which is how two precisions or two backends are compared on one
-discretisation (a few seconds):
+controller. With a method whose orders are fixed (below), that is how two precisions or
+two backends are compared on one discretisation; `prop_gnlse` steps with `RungeKutta()`
+(a few seconds):
 
 ```python
 import numpy as np
@@ -104,14 +105,28 @@ print(np.array_equal(steps_of(one).steps, schedule.steps))  # True
 ```
 
 **What a replay repeats.** Under `RungeKutta()` a step is fixed by its length, so a
-replay takes the adaptive run's discretisation. Under `Multistep()` the replay chooses
-each step's order afresh, by the adaptive run's rule from the same estimates; where the
-adaptive run rejected a step it waits a step before raising the order, which a replay
-never has to. So a replay can differ from the adaptive run where that run rejected,
-while a replay of a replay is identical: compare **two replays** of one schedule, not a
-replay with its adaptive run. Recording the order sequence in the schedule would make a
-replay match its adaptive run exactly; that would extend the saved schedule and is not
-done, because two replays already share one discretisation.
+replay takes the adaptive run's discretisation, and so does `LowStorageRungeKutta()`.
+The default `Multistep()` chooses its order as it goes: after each accepted step it
+weighs the neighbouring orders' defect estimates and adopts one only when it beats the
+current order by a hysteresis margin. A replay keeps the schedule's step positions but
+makes that choice afresh, so its orders can differ in two ways:
+
+- from the adaptive run's, where that run rejected a step: it then waits a step before
+  raising the order, which a replay never has to;
+- from another replay's in another precision or on another backend, where an estimate
+  lies near the margin: rounding decides the choice there, and a different order
+  sequence makes a different truncation error.
+
+Two replays in one precision on one backend are identical. To compare the arithmetic
+alone, replay with fixed orders: `RungeKutta()`, as above, or
+`Multistep(variable_order=False)`, whose order rises from one as its history accrues to
+`order` and stays there, by a rule that reads no estimate. Two such replays of one
+schedule make the same truncation errors, so their difference is rounding alone.
+Single precision steps with `RungeKutta()`, and refuses `Multistep()`, so a comparison
+across precisions is a Runge–Kutta one. Recording the order sequence in the schedule
+would also fix a variable-order replay's orders, and make it match its adaptive run;
+that would extend the saved schedule and is not done, since a fixed order gives the
+comparison without it.
 
 **The collars.** Under the default `absorber_scheme="nonlinear"` the temporal collar's
 largest rate is an eigenvalue of the step, so a replayed step may be no longer than the
@@ -201,7 +216,7 @@ outside, on the quantity you will report, with `calibrate(..., order=4)`:
   four; a coarser base reads lower and is not yet a calibration.
 - **A weak observable needs its floor.** The strong field's rounding leaks into a weak
   band and sets the floor `calibrate(floor=...)` must be told. The difference between two
-  backends on one schedule is pure rounding and measures it: `numba_cpu` or `native` against
+  backends on one schedule is pure rounding and measures it: `native` against
   `numpy_ref`, or one backend's two flow treatments (`propagator_mode="tabulate"` and
   `"recompute"`).
 - **The flow table follows the schedule.** Tabulating a constant operator holds one

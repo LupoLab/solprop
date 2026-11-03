@@ -4,10 +4,9 @@
 
 """Shared problem fixtures.
 
-Import the extension before solprop's Numba backend can load pyFFTW's private OpenMP
-runtime. The reverse order is refused on macOS; import ordering alone does not remove
-bundled runtimes. Cross-backend timings run in separate processes, and mixed-runtime
-qualification uses a pyFFTW build linked to the same Homebrew libraries.
+Import the extension before anything else can load a private OpenMP runtime. Import
+ordering alone does not remove bundled runtimes. Cross-backend timings run in separate
+processes.
 """
 
 from __future__ import annotations

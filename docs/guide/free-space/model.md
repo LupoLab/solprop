@@ -342,7 +342,6 @@ settings = SimulationSettings(
     dz_init=1e-4,
     dz_max=5e-4,
     stats=default_spec("radial"),
-    backend="numpy_ref",
 )
 simulation = Simulation.from_radial(
     grid,
@@ -457,7 +456,7 @@ column and bin per metre of y, a declared convention.
 
 The run is the Cartesian one with $n_y = 1$: the same separable exact operator with
 $k_\perp^2 = k_x^2$, the same two-axis FFT with a unit y extent, and the same collar,
-statistics and memory layout, on `numpy_ref`, `numba_cpu` and `native` (its CPU build and
+statistics and memory layout, on `numpy_ref` and `native` (its CPU build and
 its CUDA build). The widths are one-dimensional: the
 second moment $2\sqrt{\langle(x-\bar x)^2\rangle}$ is the 1/e² half-width of a Gaussian
 fluence, as the plane's $\sqrt{2\langle r^2\rangle}$ is its radius, and the threshold
@@ -496,35 +495,10 @@ at the soliton power and at half of it.
 
 ## CPU execution settings
 
-The default backend is the installed native package, and otherwise `numba_cpu`; see
+The default backend is the native package; see
 [backend selection](../performance/resources.md#backend-choice-and-scan-workers). Thread counts
 and the other performance settings shared by every route are on the
 [performance page](../performance/tuning.md); what follows is specific to free space.
-
-On `numba_cpu`, radial envelopes use real BLAS products for both parts of the complex
-field, including vector and chunked transforms. Cartesian envelopes arrange their shared
-transverse scratch for contiguous x/y FFTs; field runs keep contiguous frequency columns.
-Large Cartesian problems parallelise independent stage columns, and envelopes also
-parallelise the strided copies to and from the bounded temporal buffers. These choices
-preserve the transform scaling and each component's arithmetic.
-
-A free-space run has two FFT pools, one for the temporal transforms and one for the
-transverse ones. `SOLPROP_FFTW_THREADS` sets the temporal pool and
-`SOLPROP_TRANSVERSE_FFTW_THREADS` the transverse pool; unset, each uses a size-based rule
-of one or four workers, capped by the available CPUs. Direct `NumbaCpuBackend`
-construction also accepts `fftw_threads` and `transverse_fftw_threads`, and
-`SOLPROP_NUMBA_THREADS` sets the kernel pool. Set them before starting Python, for
-example
-
-```console
-SOLPROP_NUMBA_THREADS=12 SOLPROP_FFTW_THREADS=4 \
-SOLPROP_TRANSVERSE_FFTW_THREADS=12 python beam.py
-```
-
-These counts were measured as a starting point for a large Cartesian beam on one
-twelve-core machine; they are not defaults, and the best counts depend on the machine and
-the grid, so time a few steps before a long run. The run's metadata records both FFT pools, the
-scratch layout, the parallel passes and the radial GEMM selection.
 
 The native backend uses column loops for Cartesian stage operations. Its builds that
 link a vendor BLAS can pack whole scalar radial envelopes into real BLAS buffers when the

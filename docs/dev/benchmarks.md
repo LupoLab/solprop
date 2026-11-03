@@ -4,7 +4,9 @@ How solprop's performance is measured and judged, and what the measurements so f
 indicate. A performance claim names what it measured, the build, the machine and the
 result; the rules below say how to take it. The numbers in the indicative sections are
 indicative: each was measured once, on one machine, for one change. Re-measure before
-relying on any of them.
+relying on any of them. Rows naming `numba_cpu` record a backend that
+[SEP 43](seps/archive/sep-0043-retire-numba-cpu.md) retired; they can no longer be re-measured, and
+stay as what was measured.
 
 ## Where things are
 
@@ -82,12 +84,6 @@ machine record, the per-case table with medians and spreads, the declared aggreg
 its verdict, and any case that regressed. Concise evidence belongs in the change
 description; raw runs stay local.
 
-**Numba's on-disk cache.** Clear it
-(`find src -name '__pycache__' -type d -prune -exec rm -rf {} +`) before timing in a
-worktree that has run the suite many times: tens of thousands of cache files slow every
-tool that walks the tree. Numba's startup includes compilation or cache loading and is
-not a reproducible cold-compilation measurement.
-
 (benchmark-results)=
 ## Indicative results
 
@@ -149,6 +145,49 @@ the MKL build keeps the custom complex kernel, and level elsewhere.
 data-centre NVIDIA GPU and the HIP build on an AMD Instinct GPU ran 2.7 to 18 times faster
 than the Kokkos OpenMP build on all 18 cores of the server, the graded-index general route
 most. These grids are small for a device; the ratios say nothing about large grids.
+
+### The tracking set on the release wheel, without Numba
+
+[SEP 43](seps/archive/sep-0043-retire-numba-cpu.md)'s final tree against the history's 0.1.0 rows:
+`python -m benchmarks track` with CI's `cp314-abi3` wheel at its x86-64-v3 build, three repeats,
+passive threading, an exclusively allocated AMD EPYC 7763 node at 1 and 16 threads. The rows
+aren't appended, because the history holds releases.
+
+| case | threads | now, s | 0.1.0 native, s | ratio | 0.1.0 `numba_cpu` over now |
+|---|---:|---:|---:|---:|---:|
+| `gnlse_raman_shock` | 1 | 43.57 | 44.16 | 0.987 | 1.24 |
+| `gnlse_soliton` | 1 | 0.583 | 0.578 | 1.009 | 1.60 |
+| `rdw` | 1 | 11.71 | 11.63 | 1.007 | 1.80 |
+| `he_rdw_averaged` | 1 | 1.075 | 1.058 | 1.016 | 2.63 |
+| `argon_blueshift` | 1 | 26.50 | 26.44 | 1.002 | 1.86 |
+| `argon_blueshift_averaged` | 1 | 3.941 | 3.920 | 1.005 | 2.79 |
+| `argon_blueshift_envelope` | 1 | 1.250 | 1.240 | 1.008 | 1.98 |
+| `h2_raman_averaged` | 1 | 6.101 | 6.119 | 0.997 | 2.40 |
+| `kerr_beam_192` | 1 | 13.34 | 12.07 | 1.105 | 1.45 |
+| `gnlse_raman_shock` | 16 | 39.05 | 37.84 | 1.032 | 1.37 |
+| `gnlse_soliton` | 16 | 0.587 | 0.582 | 1.007 | 1.62 |
+| `rdw` | 16 | 5.112 | 5.148 | 0.993 | 3.18 |
+| `he_rdw_averaged` | 16 | 0.770 | 0.785 | 0.980 | 3.70 |
+| `argon_blueshift` | 16 | 9.852 | 9.861 | 0.999 | 2.30 |
+| `argon_blueshift_averaged` | 16 | 3.271 | 3.261 | 1.003 | 3.37 |
+| `argon_blueshift_envelope` | 16 | 1.123 | 1.322 | 0.850 | 2.22 |
+| `h2_raman_averaged` | 16 | 5.163 | 5.250 | 0.983 | 2.82 |
+| `ctc` | 16 | 108.4 | 111.5 | 0.972 | 2.44 |
+| `grin_nonlinear` | 16 | 20.50 | 21.17 | 0.969 | 1.79 |
+| `kerr_beam_384` | 16 | 29.10 | 25.26 | 1.152 | 1.24 |
+
+The geometric mean is 1.002, with the same steps on all twenty, and Numba's rows are 2.08 times
+slower. These are runs on different days, so a few per cent is not a result. `radial_filament_256`
+is left out, since its guide changed at revision 2.
+
+- **`kerr_beam`:** the rise isn't the removal. The branch against the `main` it came from gave 0.9956
+  and 0.9994 on these rows, with identical fields. Its size matches
+  [the transverse edge's read cost](#the-transverse-edge-and-a-requested-collar), +10.5 % on the
+  Cartesian case there, though this comparison didn't bisect it.
+- **The same work on the Xeon Gold 6240:** at one thread, the same steps and ratios of 0.99 to 1.04
+  in two runs, apart from `kerr_beam_192` at 1.18 to 1.20 and `rdw` at 0.99 to 1.09. At 36 threads
+  the two runs of one wheel differ from each other by 0.84 to 1.57 per configuration, unpinned across two
+  sockets, so the 36-thread column gives no verdict.
 
 ### Kokkos CPU operation-size threading
 
@@ -1715,6 +1754,83 @@ For `kerr_beam_384`'s 1.77 GB field that is about 3 s per plane:
 - the native observation, 0.35 s.
 
 A capillary or radial plane costs 7–25 ms.
+
+### The run record per plane
+
+[#427](https://github.com/LupoLab/solprop/pull/427) bounds the controller's norm history
+(a `deque` of the controller's lag plus two, on the per-step Runge–Kutta and batch path)
+and makes the per-plane run record incremental: one `RunOutcome` and one validation of
+its record per plane, `CallLedger.orders` run-length encoded as it grows, and
+`/meta/outcome` rewritten in place. Before: `main` at `76eb2e57`; after: the same with
+the pull request merged. One thread, `numba_cpu`, on an Apple M5 Max (18 cores, 128 GB,
+macOS 27.0.1, Python 3.14.5, NumPy 2.5.2, numba 0.67.0, h5py 3.16.0), a machine in
+ordinary use (load 4–10): a labelled A/B, to be read as ratios, not times.
+
+`python -m benchmarks ab --length 0.02 --rounds 4 --repeats 7` (the harness's
+`MemoryOutput`, its 11 planes inside the window, so a plane every one to four steps):
+
+| case | stepper | steps (rejected) | before → after | ratio | A/A |
+|---|---|---:|---:|---:|---:|
+| `gnlse_soliton` | `rk` | 12 (0) | 14 → 14 ms | 0.962 [0.906, 1.127] | 1.009 [0.994, 1.057] |
+| `gnlse_soliton` | `multistep` | 18 (1) | 16 → 15 ms | 0.955 [0.887, 0.987] | 0.991 [0.982, 1.034] |
+| `he_rdw_averaged` | `rk` | 12 (0) | 46 → 46 ms | 1.002 [0.992, 1.012] | 0.990 [0.924, 1.036] |
+| `he_rdw_averaged` | `multistep` | 37 (1) | 54 → 54 ms | 0.990 [0.882, 1.026] | 0.992 [0.986, 1.034] |
+
+Geometric mean 0.977 (A/A 0.996); the same steps and final fields in both builds. The
+harness writes no file, so the in-place `/meta/outcome` was timed by a hand script with
+the same alternation (fresh processes, four rounds of five repeats after a warm-up): the
+first centimetre of `gnlse_soliton`'s fibre (1536 bins) with 40 save planes, through
+`run_problem` into an `HDF5Output`:
+
+| stepper | steps | before → after | ratio | A/A | file |
+|---|---:|---:|---:|---:|---:|
+| `Multistep()` | 243 | 101.2 → 95.0 ms | 0.947 [0.930, 0.968] | 0.988 [0.837, 1.012] | 1.50 → 1.35 MB |
+| `RungeKutta()` | 48 | 48.6 → 48.2 ms | 0.987 [0.903, 1.001] | 0.955 [0.714, 1.025] | 1.21 → 1.13 MB |
+
+Nothing measured is slower. The Multistep file run, a plane every six steps, is 5 %
+faster, outside its A/A range; the others sit inside theirs. The record's old cost grew
+with the steps times the planes, so these windows show only its start.
+
+### Single-precision collar and batches
+
+[#428](https://github.com/LupoLab/solprop/pull/428) keeps the reference backend's split
+collar (`apply_temporal_rate`) in binary32 under single precision, as the correction
+`a + F(F^-1(a)(f - 1))`; before, the product promoted to binary64 and was narrowed. Its
+single-precision batches now run through the plain `LockstepRunner`, each member its own
+binary32 trial; before, `NumpyBatchBackend` computed them in binary64 and narrowed the
+result, so the before column is the wrong arithmetic's cost and the fields are not
+compared. `ab` selects neither a precision nor a batch, so both were timed by the hand
+script above, same machine and builds (`main` at `76eb2e57`, then #428 merged), one
+thread, `numpy_ref`, on the same soliton.
+
+**The collar**, 5 mm of `RungeKutta()` (43 accepted steps, one collar pass each),
+`absorber_scheme="split_step"`, four rounds of five repeats:
+
+| bins | before → after | ratio | A/A |
+|---:|---:|---:|---:|
+| 1536 | 34.0 → 34.0 ms | 1.003 [0.999, 1.169] | 0.993 [0.957, 1.003] |
+| 16384 (8 ps, 300 nm–4 µm) | 183.1 → 180.2 ms | 0.989 [0.971, 1.019] | 0.992 [0.960, 1.020] |
+
+The pass alone, same process (best of seven times 200 calls): 18.3 → 15.9 µs at 1536
+bins and 191 → 125 µs at 16384, 2–5 % of a step, which the runs do not resolve.
+
+**Batches**, ten fixed steps over 2 cm with no collar, members 1 % apart in peak power,
+the stepping alone timed (`propagate_to`; the members' construction is not):
+
+| bins | members | rounds | before → after | ratio | A/A |
+|---:|---:|---:|---:|---:|---:|
+| 1536 | 4 | 4 | 29.8 → 30.1 ms | 1.003 [0.963, 1.029] | 1.025 [1.011, 1.059] |
+| 1536 | 16 | 4 | 116.5 → 122.3 ms | 1.048 [1.036, 1.075] | 1.028 [0.958, 1.072] |
+| 1536 | 16 | 8 | 136.5 → 141.5 ms | 1.059 [0.984, 1.119] | 0.981 [0.930, 1.030] |
+| 16384 | 8 | 8 | 496.6 → 389.7 ms | 0.779 [0.676, 0.852] | 0.971 [0.890, 1.017] |
+
+On a small grid with many members the member-by-member trials cost 3–6 %, at the edge of
+the A/A spread; on a 16384-bin grid they are 22 % faster, binary32 transforms replacing
+the binary64 ones. What vectorising over the members is worth was read from the binary64
+batch, `NumpyBatchBackend` against `LockstepRunner` on the same members (unpaired medians
+of the same runs): 108.7 against 117.5 ms (16 members, 1536 bins) and 469 against 491 ms
+(8 members, 16384 bins), 4–8 %. A vectorised binary32 batch would recover at most that,
+so the reference keeps the plain runner.
 
 ## Reference tables
 

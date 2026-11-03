@@ -9,7 +9,7 @@ perform the same discrete computation and differ by rounding alone (solprop SEP 
 Usage: ``thread_probe.py <out.npy> [native|numpy_ref]``.
 """
 
-# ruff: noqa: I001 -- Kokkos must load before solprop can import pyFFTW on macOS.
+# ruff: noqa: I001 -- Kokkos loads first, before any other OpenMP runtime on macOS.
 
 from __future__ import annotations
 

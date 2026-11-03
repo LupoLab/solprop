@@ -367,8 +367,7 @@ def refuse_regional_responses(
     regional : solprop.translate.responses.RegionalResponseTables or None
         The compiled per-region responses, or ``None`` for a linear guide.
     backend : str, optional
-        The registry name each refusal names: ``numba_cpu`` executes the same
-        responses and runs this same list.
+        The registry name each refusal names.
 
     Raises
     ------
