@@ -534,28 +534,52 @@ def test_statistics_without_a_grid_say_what_is_missing(
 # ------------------------------------------------------- the two propagator modes
 
 
-def test_the_two_propagator_modes_agree(backend_class, soliton_problem, soliton_grid):
+def _both_propagator_modes(soliton_problem, soliton_grid):
+    """Return the third-order soliton on the schedule, each mode asked for by name."""
+    return [
+        soliton_problem(
+            soliton_grid,
+            3,
+            save_planes=[LENGTH],
+            schedule=SCHEDULE,
+            propagator_mode=mode,
+        )
+        for mode in ("tabulate", "recompute")
+    ]
+
+
+def test_the_two_propagator_modes_agree(soliton_problem, soliton_grid):
     """Memoising the exponents within a step changes the work, not the numbers.
 
     The memoised path evaluates delta_phi once per distinct stage fraction and the
     other once per stage, on the same constant table: one method by two routes on
-    one schedule, within the eight-step rung's budget.
+    one schedule, within the eight-step rung's budget. On the reference alone: native's
+    Runge-Kutta march has one route and ignores the mode, so there it would compare a
+    run with itself (the next test holds it to this one instead).
     """
-    tabulated = soliton_problem(
-        soliton_grid, 3, save_planes=[LENGTH], schedule=SCHEDULE
-    )
-    recomputed = soliton_problem(
-        soliton_grid,
-        3,
-        save_planes=[LENGTH],
-        schedule=SCHEDULE,
-        propagator_mode="recompute",
-    )
-    backend, first = run_to(backend_class, tabulated, soliton_grid, LENGTH)
+    tabulated, recomputed = _both_propagator_modes(soliton_problem, soliton_grid)
+    backend, first = run_to(NumpyRefBackend, tabulated, soliton_grid, LENGTH)
     backend.close()
-    backend, second = run_to(backend_class, recomputed, soliton_grid, LENGTH)
+    backend, second = run_to(NumpyRefBackend, recomputed, soliton_grid, LENGTH)
     backend.close()
     assert_within(second.field, first.field, REPEAT_BOUND, what="propagator modes")
+
+
+def test_native_is_the_reference_under_either_propagator_mode(
+    soliton_problem, soliton_grid
+):
+    """Native's one route, asked for by either name, against the reference's tabulation.
+
+    Within the same budget, which is the eight-step rung's for two backends too.
+    """
+    native = pytest.importorskip("solprop_native")
+    problems = _both_propagator_modes(soliton_problem, soliton_grid)
+    backend, reference = run_to(NumpyRefBackend, problems[0], soliton_grid, LENGTH)
+    backend.close()
+    for problem, mode in zip(problems, ("tabulate", "recompute"), strict=True):
+        backend, plane = run_to(native.NativeBackend, problem, soliton_grid, LENGTH)
+        backend.close()
+        assert_within(plane.field, reference.field, REPEAT_BOUND, what=mode)
 
 
 # -------------------------------------------------- the third harmonic on an envelope

@@ -279,7 +279,17 @@ def thread_budget_lifted(monkeypatch):
 
 
 def pytest_terminal_summary(terminalreporter):
-    """Name every convergence record this session wrote."""
+    """Name every convergence record this session wrote, and say what a lane cannot.
+
+    A lane without native still runs the tests that take ``backend_class``, whose only
+    backend is then the reference: their parity comparisons are ``numpy_ref`` against
+    itself and pass by construction, so a green run there says nothing about parity.
+    """
+    if importlib.util.find_spec("solprop_native") is None:
+        terminalreporter.write_line(
+            "solprop_native is not installed: parity tests ran numpy_ref against "
+            "itself, so this run is no evidence of parity"
+        )
     written = convergence_records.written_paths()
     if not written:
         return
