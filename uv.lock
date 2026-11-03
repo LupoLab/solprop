@@ -1687,7 +1687,7 @@ dev = [
     { name = "scikit-build-core", specifier = ">=0.11" },
     { name = "scipy-openblas32", marker = "sys_platform == 'linux' or sys_platform == 'win32'", specifier = ">=0.3.34" },
     { name = "scipy-stubs" },
-    { name = "setuptools-scm", specifier = ">=8" },
+    { name = "setuptools-scm", specifier = ">=9" },
     { name = "sphinx", specifier = ">=8" },
     { name = "sphinx-gallery" },
     { name = "sympy" },
@@ -1718,7 +1718,7 @@ dependencies = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "numpy", specifier = ">=2.3" }]
+requires-dist = [{ name = "numpy", specifier = ">=2.5" }]
 
 [[package]]
 name = "sortedcontainers"
