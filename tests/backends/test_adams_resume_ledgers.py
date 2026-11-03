@@ -4,7 +4,7 @@
 
 """Preserve logical Adams budgets across every CPU backend's saved-run resume."""
 
-import dataclasses
+from typing import cast
 
 import numpy as np
 import pytest
@@ -79,7 +79,7 @@ def test_restored_adams_ledger_charges_fresh_startup(backend_name, backend_class
         resumed.set_initial(field, None, z=1e-6)
         resumed.restore_call_ledgers(saved)
         # The saved metadata must be independently owned by the resumed march.
-        saved["orders"].append(5)
+        cast("list[list[int]]", saved["orders"]).append([5, 1])
         with pytest.raises(ResponseBudgetError, match="budget of 4") as caught:
             resumed.propagate_to(1e-5)
         record = resumed.metadata()["response_calls"]
@@ -102,7 +102,7 @@ def test_adams_restore_rejects_invalid_logical_counts(
     backend = backend_class(
         simulation.translate(), grid=simulation.grid, modes=simulation.modes
     )
-    valid = dataclasses.asdict(CallLedger())
+    valid = CallLedger().to_record()
     invalid = dict(valid)
     if kind == "missing":
         invalid.pop("startup")
@@ -126,8 +126,8 @@ def test_compiled_adams_refuses_atomic_ledger_without_changing_logical_counts(
     try:
         with pytest.raises(BackendError, match="does not restore atomic"):
             backend.restore_call_ledgers(
-                dataclasses.asdict(CallLedger(startup=2)), {"attempted": 1}
+                CallLedger(startup=2).to_record(), {"attempted": 1}
             )
-        assert backend.metadata()["response_calls"] == dataclasses.asdict(CallLedger())
+        assert backend.metadata()["response_calls"] == CallLedger().to_record()
     finally:
         backend.close()
