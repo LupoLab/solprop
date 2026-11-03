@@ -4,6 +4,7 @@
 
 """A point's noise seed on a simulation derived from, or shared with, other points."""
 
+from collections.abc import Mapping
 from functools import cache
 from typing import cast
 
@@ -12,7 +13,13 @@ import numpy as np
 import pytest
 
 from legacy_geometry import LEGACY_GRID, bare_absorber
-from march_bounds import FIXED_ORDER, assert_points_matched
+from march_bounds import (
+    FIXED_ORDER,
+    PRESCRIBED,
+    assert_points_matched,
+    assert_stored_matched,
+    simulation_bound,
+)
 from solprop.driver import Simulation, SimulationSettings
 from solprop.driver._scan_model import name_seed
 from solprop.driver.executors import Batch, Local, Pool, pool
@@ -44,17 +51,17 @@ def _controller_without_history(monkeypatch):
     monkeypatch.setattr(pool, "peak_rss", lambda: 0)
 
 
-def capillary(**overrides):
+def capillary(pressure=1.0, energy=200e-6, **overrides):
     """Return the scans guide's base on the reference backend, a few steps long."""
     return Simulation.from_capillary(
         125e-6,
         LENGTH,
-        Mixture.fill({"He": 1.0}, 1.0),
+        Mixture.fill({"He": 1.0}, pressure),
         wavelength=800e-9,
         wavelength_limits=(200e-9, 1.5e-6),
         trange=200e-15,
         fwhm=7.5e-15,
-        energy=200e-6,
+        energy=energy,
         modes=1,
         raman=False,
         plasma=False,
@@ -70,14 +77,25 @@ def capillary(**overrides):
 
 @cache
 def base():
-    return capillary()
+    simulation = capillary()
+    simulation.translate()
+    return simulation
 
 
 def recipe(point):
     """Derive a point as the guide does: one base per process, a new fill and input."""
     mixture = Mixture.fill({"He": 1.0}, float(point.values["pressure"]))
-    pulse = GaussianPulse(wavelength=800e-9, fwhm=7.5e-15, energy=200e-6)
+    energy = float(point.values.get("energy", 200e-6))
+    pulse = GaussianPulse(wavelength=800e-9, fwhm=7.5e-15, energy=energy)
     return base().with_mixture(mixture).with_input(pulse)
+
+
+def fresh(point):
+    """Build the same point from nothing."""
+    return capillary(
+        pressure=float(point.values["pressure"]),
+        energy=float(point.values.get("energy", 200e-6)),
+    )
 
 
 def fibre(**overrides):
@@ -205,6 +223,62 @@ def test_the_recipe_takes_the_base_seed(tmp_path):
     result = run_scan(scan, recipe, executor=Local(), output=path, progress="none")
     assert result.status.tolist() == ["done", "done"]
     assert recorded_seeds(path) == [point.seed for point in scan.points()]
+
+
+def test_the_recipe_matches_points_built_from_nothing(tmp_path):
+    scan = Scan("pressure_energy", pressure=TWO, energy=[200e-6, 275e-6])
+    base.cache_clear()
+    local = run_scan(
+        scan,
+        recipe,
+        executor=Local(),
+        output=tmp_path / "local.h5",
+        fields="all",
+        progress="none",
+    )
+    in_pool = run_scan(
+        scan,
+        recipe,
+        executor=Pool(workers=2),
+        output=tmp_path / "pool.h5",
+        fields="all",
+        progress="none",
+    )
+    reference = run_scan(
+        scan,
+        fresh,
+        executor=Local(),
+        output=tmp_path / "fresh.h5",
+        fields="all",
+        progress="none",
+    )
+    assert local.status.tolist() == ["done"] * 4
+    assert in_pool.status.tolist() == ["done"] * 4
+    assert_points_matched(in_pool, local, scan, fresh, what="pool derived point")
+    # `from_capillary` records the evaluated spectrum under `initial` alongside `pulse`,
+    # while `with_input(pulse)` records the `Pulse` object under both; every other
+    # configuration entry and every stored dataset agree with the freshly built point.
+    skip = {"metadata", "configuration_hash"}
+    for point in scan.points():
+        actual, expected = local.point(point.index), reference.point(point.index)
+        actual_cfg = cast(
+            "Mapping[str, object]",
+            cast("Mapping[str, object]", actual["metadata"])["configuration"],
+        )
+        expected_cfg = cast(
+            "Mapping[str, object]",
+            cast("Mapping[str, object]", expected["metadata"])["configuration"],
+        )
+        assert {k: v for k, v in actual_cfg.items() if k != "initial"} == {
+            k: v for k, v in expected_cfg.items() if k != "initial"
+        }
+        assert_stored_matched(
+            {name: value for name, value in expected.items() if name not in skip},
+            {name: value for name, value in actual.items() if name not in skip},
+            simulation_bound(fresh(point)),
+            exact=PRESCRIBED,
+            what=f"derived point {point.index}",
+        )
 
 
 def test_one_object_under_batch_matches_local_member_for_member(tmp_path):
