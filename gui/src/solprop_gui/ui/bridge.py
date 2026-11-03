@@ -49,6 +49,9 @@ class ServiceBridge(QObject):
         request starts it again.
     runs_listed : Signal
         Emitted with the service's runs, after :meth:`list_runs`.
+    service_failed : Signal
+        Emitted with the reason when the service cannot be reached; the bridge then
+        goes on with the kernel and workers of its own (option B).
     service : bool
         Whether the bridge speaks to the service (option C).
     """
@@ -57,6 +60,7 @@ class ServiceBridge(QObject):
     run_event = Signal(object)
     kernel_lost = Signal()
     runs_listed = Signal(object)
+    service_failed = Signal(str)
 
     def __init__(
         self, parent: QObject | None = None, *, service: bool | None = None
@@ -83,12 +87,17 @@ class ServiceBridge(QObject):
             if self._kernel is not None:
                 self._kernel.close(timeout=0.5)
             if self.service:
-                self._kernel = ServiceConnection(
-                    self.replied.emit,
-                    self.run_event.emit,
-                    on_runs=self.runs_listed.emit,
-                    on_lost=self.kernel_lost.emit,
-                )
+                try:
+                    self._kernel = ServiceConnection(
+                        self.replied.emit,
+                        self.run_event.emit,
+                        on_runs=self.runs_listed.emit,
+                        on_lost=self.kernel_lost.emit,
+                    )
+                except ConnectionError as error:
+                    self.service = False
+                    self.service_failed.emit(str(error))
+                    return self._client()
             else:
                 self._kernel = KernelClient(
                     self.replied.emit, on_lost=self.kernel_lost.emit

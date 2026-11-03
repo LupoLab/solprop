@@ -331,6 +331,13 @@ class MainWindow(QMainWindow):
         self.autosave.start(30_000)
         self.bridge.replied.connect(self.on_reply)
         self.bridge.runs_listed.connect(self._runs_listed)
+        self.bridge.service_failed.connect(
+            lambda reason: self.statusBar().showMessage(
+                f"The solprop service is not available ({reason}): runs end with "
+                "the window.",
+                20_000,
+            )
+        )
         self.views.currentChanged.connect(lambda _index: self.request_modes())
 
         self.show_step("start")

@@ -51,3 +51,22 @@ def test_a_new_window_re_attaches_to_the_run_the_last_one_left(
     assert "No run is going" in second.statusBar().currentMessage()
     second.close()
     thread.join(60)
+
+
+def test_a_service_out_of_reach_falls_back_to_the_window_s_own(
+    qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    from solprop_gui.service import remote  # noqa: PLC0415 - only here
+
+    monkeypatch.setenv("SOLPROP_GUI_STATE", str(tmp_path / "none"))
+    monkeypatch.setattr(remote, "start_service", lambda _state: None)
+    monkeypatch.setattr(remote, "START_SECONDS", 0.2)
+    bridge = ServiceBridge(service=True)
+    failed: list[str] = []
+    bridge.service_failed.connect(failed.append)
+    window = MainWindow(bridge=bridge, workspace=tmp_path / "ws")
+    qtbot.addWidget(window)
+    qtbot.waitUntil(lambda: bool(failed), timeout=WAIT_MS)
+    assert not bridge.service and "did not start" in failed[0]
+    qtbot.waitUntil(lambda: window.start.examples.count() > 0, timeout=WAIT_MS)
+    window.close()
