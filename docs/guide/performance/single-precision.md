@@ -90,7 +90,8 @@ interfaces. Under single precision:
 | envelope-grid plasma | yes | yes, each sample's ellipse and cycle moments in one GPU kernel |
 | radial and Cartesian free space, including a line, with their transverse collars | yes | yes |
 | gradients, tapers, loss, both temporal absorber schemes, the polarisation taper | yes | yes, where the operator is device-ready (not a z table) |
-| Runge–Kutta, the low-storage march, fixed-schedule batches | yes | yes |
+| Runge–Kutta, the low-storage march | yes | yes |
+| fixed-schedule batches through `Batch` | yes | refused |
 | the Adams integrator | refused, pending its accuracy record | refused |
 | noise models | refused (a known limitation, below) | refused |
 | the general modal route, the hybrid planar kind, coupled flows, TDSE responses, the dispersive electronic response, the far-field statistics | refused | refused |
