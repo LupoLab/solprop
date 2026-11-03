@@ -755,41 +755,25 @@ Issues and pull requests of the solprop repository:
 
 ## Part II — Implementation record
 
-### What has been delivered, and which evidence applies to what — 2026-11-02
+### What has been delivered, and which evidence applies to what — 2026-11-03
 
-The SEP isn't accepted, so nothing here is an implementation report under SEP 0 §8. It separates what
-has landed from what is only rehearsed, since the phases below were written before any of it.
+The maintainer accepted the SEP on 2026-11-02. The phases below were written before most of this.
 
 | Item | Pull request | State | Evidence |
 |---|---|---|---|
-| Two x86-64 builds, Windows on Arm wheels | #395 | Merged at `673f6ae` | Wheels run 41483897780 on `f8fd5f0`, success. Windows on Arm has its smoke test, not the suite |
+| Two x86-64 builds, Windows on Arm wheels | #395 | Merged at `673f6ae` | Wheels run 41483897780 on `f8fd5f0`, success |
 | Windows on Arm scan workers | #430 | Merged at `6dcf4f5` | Scans on the Arm runner, in its description |
 | Installation page's pointer to that warning | #441 | Merged | Documentation lanes |
 | Native refusal fixes | #419 | Merged | Full CI |
-| Stable-ABI wheel, 3.15 source builds | #399 | Open | A source build on CPython 3.15.2 on the Xeon. CI on `be1fcb8` still running when this was written |
-| Lanes on the wheel, `poe fetch-wheel` | #398 | Draft, with conflicts | CI run 41401116888 on `f2ead18`, success. That is `ci.yml`'s wheel, not the spike's |
-| Shared helpers | #394 | Draft | Local tests only. No benchmark |
-| Tests retargeted | #401 | Draft | Local and CI |
-| The removal | #415 | Draft | Windows on Arm and coverage failing, listed below |
+| Stable-ABI wheel, 3.15 source builds | #399 | Merged | Its CI; a source build on CPython 3.15.2 on the Xeon |
+| Lanes on the wheel, `poe fetch-wheel` | #398 | Closed into #415 | #415's CI |
+| Shared helpers | #394 | Closed into #415 | §6.3's budgets, in the report below |
+| Tests retargeted | #401 | Closed into #415 | The inventory, in the report below |
+| The removal, and all of phases 1 to 3 | #415 | Draft | The report below |
 
 **Which numbers belong to which build.** The v2 cost, accuracy and stable-ABI measurements in the
-phase 0 report come from the spike branch, and they are exploratory. They aren't §7's gates, which
-run on the final tree. The 3.1e-10 field difference on `he_rdw_averaged`, beside a 3.8e-10
-difference between two v3 builds on that case, remains an open qualification item.
-
-**Open items from #415, for §7's gates:**
-
-- **`plasma_band` on Windows on Arm** deviates from its stored value by 3.75457e-06. It isn't
-  explained, and no bound has been changed.
-- **Windows on Arm's thread variables:** NumPy's own solves crash or hang with small values of them,
-  with solprop not involved (#430). The Arm test lane must stop setting them, which also makes it the
-  first full suite run on that platform.
-- **Python coverage:** 10 lines and 8 branches are missing, in `backends/driver.py`,
-  `numpy_ref/admission.py`, `numpy_ref/backend.py`, `numpy_ref/general_modal.py`, `backends/spatial.py`,
-  `driver/executors/pool.py` and `translate/problem.py`. The gate isn't lowered: they get tests.
-
-**Windows on Arm's floor** (§6.2) is recorded here when the check lands: what `TARGET=NEOVERSEN1`
-lets the linked OpenBLAS use, and the lowest Windows hardware admitted.
+phase 0 report come from the spike branch, and they are exploratory. The report on phases 1 to 3
+measures the final tree, except v2's cost against Numba, which has no Numba left to run against.
 
 ### Phase 0 report — the coverage spike
 
@@ -951,8 +935,11 @@ The status of each gate is at the end of this report, and it says plainly which 
      default, runs no metadata hooks: it kept the bare name, and CI's distribution check installed
      native 0.1.0 from PyPI and failed on the kernel contract. So the list is in `hatch_build.py`,
      as `gui/hatch_build.py` already does.
-  8. **`pip install "solprop[native]"` wasn't tried** after the extra went, so §9's "should still
-     install" stays unverified.
+  8. **Provenance mentions Numba outside §7's four places.** The search finds it in no live code:
+     the only imports are `native/ci/coexistence.py`'s. The word stays in test comments and
+     docstrings that say which retired test a bound came from, the guide's "removed backend"
+     section, measurements in `docs/dev/` labelled as taken on the retired backend, gallery
+     CSVs recorded on it, open SEPs' notes and ADRs. Rewriting those would lose the record.
 - **Decisions:** the coexistence environment installs pyFFTW only where it has a wheel. A test
   environment with no native package takes `auto` as `SOLPROP_TEST_BACKEND` for the session, and
   `real_auto` keeps the refusal; a test whose child process runs `auto` skips there
@@ -970,7 +957,17 @@ The status of each gate is at the end of this report, and it says plainly which 
   | `SOLPROP_REQUIRE_DEVICE`, real CUDA build labelled `0.3.0+cuda` | Every case as §5 says. Device suites 31 and 63 passed, 2 `mlx` skips | NVIDIA A40 |
   | Labelled builds, real wheels, pip 26.2.2 and uv 0.12.7 | `0.3.0+cuda` kept at 0.3.0 through install, `-U` and eager; replaced by the CPU wheel at 0.3.1 | Xeon, a CPU build |
   | Pin in built metadata, through the real hook | `Requires-Dist: solprop-native==<version>` in the wheel and the sdist's `PKG-INFO` | Xeon |
-  | Coexistence | Passed locally with no outside packages. The run with pyFFTW and Numba installed is CI's | Xeon |
+  | Coexistence | With pyFFTW and Numba as outside packages, every wheel lane | CI, `wheels.yml` |
+  | `pip install "solprop[native]"` and with `uv pip` (§9) | Both install solprop and native; pip warns that the extra is gone, uv says nothing | Xeon, CI's wheels |
+  | Default lanes from the wheels | Linux x86-64, Linux aarch64 and macOS 17,537 passed, 46 skipped, 3 xfailed; Windows x64 17,457 passed, 126 skipped, 3 xfailed; Windows on Arm 17,456 passed, 126 skipped, 3 xfailed and the one failure below | CI on `1e4bfbc` |
+  | Slow lanes from the wheel | Linux and macOS 243 passed, 1 skipped | CI on `1e4bfbc` |
+  | Forced x86-64-v2 | Linux 17,537 passed and Windows 17,457 passed, with the skips above, including Windows' two earlier BLAS failures | CI on `1e4bfbc` |
+  | Selection under Intel SDE, with `/proc/cpuinfo` masked | Green | CI on `1e4bfbc`, `cpu-floor` |
+  | Minimum systems | `almalinux:8` with glibc 2.28 and no compiler on `PATH`, Windows Server 2022: installed from the files, `auto` is `native`, a short run saved. macOS 14.8 the same | CI on `1e4bfbc` |
+  | Class T, x86-64-v2 and CPython 3.15.2 against v3 on 3.14, reference at `rtol`/10, factor 2 | All 11 adaptive cases within, at a ratio of 1.000 on both, with the same steps. `kerr_beam_384` is fixed-step, so class R applies: v2 differs by 7.1e-16 | Xeon Gold 6240, 16 threads, the release wheel |
+  | §7's flag, the same steps above 1e-10 | v2 over v3: `he_rdw_averaged` 1.27e-10, `ctc` 1.08e-10. 3.15 over 3.14: `ctc` 8.2e-11, the rest at or below 3.6e-12. These two have the floor already recorded: two v3 builds differing only in ABI gave 3.8e-10 and 2.0e-10 | Xeon |
+  | Plain `uv sync` in a fresh clone | Built native in 162 s on 18 cores, and `auto` is `native`. GCC 16.2 and the libraries came from this machine's environment | Xeon |
+  | Tracking set, against 0.1.0's native rows | EPYC 7763: geometric mean 1.0023 over the 20 configurations of unchanged revision, the same steps on all. Numba's 0.1.0 rows are 2.08 times slower. Ledger: `docs/dev/benchmarks.md` | EPYC 7763, the release wheel |
   | Informational native coverage, §6.4 | Migrated Python suite and `native/tests`: lines 87.48 %, functions 87.80 %, regions 87.99 %, branches 80.80 %. `core.cpp` at 15.7 % is the `Workspace` class, 101 of 120 functions, which the gtest binary tests and this run left out | Xeon, Clang 23, `results/native-coverage` |
 
 - **The inventory (§6.4):** `results/sep43-test-inventory.md` in the campaign directory, not in
@@ -1000,6 +997,51 @@ The status of each gate is at the end of this report, and it says plainly which 
   - No hardware below the floor was run. Selection is by stand-ins and Intel SDE in CI.
   - `PF_ARM_*` has run only against a fake `kernel32`, until CI's Windows on Arm lane.
   - The Windows 10 minimum isn't qualified, so that claim narrows until #313 has a machine.
+- **`plasma_band` on Windows on Arm, explained.** The record's `boundary` row at `lambda = 1e-8`
+  stores 3.7545630e-06 under `rtol = 1e-6`, and Windows on Arm gives 3.7545680e-06: 1.33e-6 above,
+  5.0e-12 absolute. It's rounding, and the tolerance sits inside its spread. The probe
+  (`spike/band-probe`, never merged) ran the row on the five platforms, with each one's own taps
+  and with one fixed set:
+
+  | Platform | Own taps, against the stored value | Fixed taps | Largest tap difference |
+  |---|---:|---:|---:|
+  | Windows on Arm | +1.33e-6 | +9.8e-7 | 1.7e-13 |
+  | Linux aarch64 | +3.3e-7 | +2.8e-7 | 1.5e-14 |
+  | macOS | +2.9e-7 | -8.6e-8 | 2.3e-13 |
+  | Linux x86-64 | -3.0e-7 | -1.4e-7 | 1.3e-14 |
+  | Windows x64 | -8.5e-7 | -6.5e-7 | 1.6e-13 |
+
+  The spread with fixed taps, 1.6e-6, is the FFT's and the C library's; `lstsq` on each platform's
+  LAPACK adds the rest. On the Xeon, jittering the spectrum by 1 ulp over 400 draws moved the row by
+  up to 1.17e-6, and 0.8 % of draws fell outside the tolerance. So this is not specific to Windows
+  on Arm, and Windows x64 is a few parts in 1e7 from failing the other way. The test's real
+  assertion, `errors[0] <= 1e-5`, holds everywhere. No tolerance has been changed, so the test still
+  fails on this lane: see Q14.
+- **Windows on Arm's other failure:** the `gaussian_projection` docstring asserted exact equality of
+  two mirrored sums, which that platform's dot product doesn't give. It now compares to 1e-12.
+- **The gates of §7, on `1e4bfbc`:**
+
+  | Gate | State |
+  |---|---|
+  | The final suite everywhere | Not met, by one test on one platform. Every lane passes on `1e4bfbc` except `plasma_band`'s record on Windows on Arm, in its wheel lane and in shard 1 of 3 of its test lane, so `Wheels` and `ci-passed` are red until Q14 is settled |
+  | Forced v2 and slow lanes | Met |
+  | No silent skips | Met where the check runs: no unexpected skip on any default shard, coverage shard or wheel lane. The slow, lowest-dependency and no-native lanes don't carry the check |
+  | Fresh installs | Partly. `uv pip` from the built wheel and sdist on Linux, and from the wheel on the minimum systems. `pip` on the built files is local only; every platform is `qualify-published`'s, after a release |
+  | Minimum systems | The claim narrows. macOS 14, a `manylinux_2_28`-age Linux container and Windows Server 2022 pass from the built wheels, with no compiler on Linux's `PATH`. Windows 10 isn't qualified: no hosted machine. Windows Server 2022 is its nearest, so the claim narrows until #313 has a machine (Q15) |
+  | Windows on Arm's open items | Explained; Q14 decides the record |
+  | Selection, no package, v2 selection, unreadable processors, Arm's floor | Met. `PF_ARM_*` now runs for real on the Arm lanes |
+  | v2 is correct | Met |
+  | v2's cost | Spike's measurement only: Numba is gone from the final tree |
+  | Windows v2's BLAS | Met |
+  | A numba-free tree, helpers, inventory | Met; the inventory's unported items are listed above |
+  | Coverage | Met: 100 % on `solprop`, 50,241 statements and 14,912 branches with none missed, on the `coverage-report` job. The informational native run is reported above |
+  | No regressions | Met on the EPYC. The Xeon gives no verdict at 36 threads; see the ledger |
+  | Metadata, workspace, lightweight setup, `poe fetch-wheel`, labelled build, GPU safeguard | Met |
+  | Old runs | Met, with deviation 1 |
+  | Coexistence | Met |
+  | Removal is complete | Met, with deviation 8 |
+  | Python 3.15 | Short runs on all five platforms, class T on Linux. Linux's default lane is the standalone step after this merges |
+
 - **Open questions, each for the maintainer:**
   - **Q6.** Yank 0.1.0, so that deviation 2 becomes the error §5 describes?
   - **Q7.** `envelope_axes` and `envelope_moments` in `envelope_plasma.hpp` aren't protected from
@@ -1021,6 +1063,15 @@ The status of each gate is at the end of this report, and it says plainly which 
   - **Q13.** The issue audit (`results/sep43-issue-audit.md`, not in git) has closing and trimming
     text for 60 of 79 issues, and nothing has been posted. #300 needs a timing on an idle machine.
     #92's priority should rise, since a wrong refusal under `auto` now stops a run.
+  - **Q14.** Raise `plasma_band`'s `deviation` tolerance so the record's `lambda = 1e-8` row passes
+    on Windows on Arm? This is a recorded value's regression tolerance, with `bound: null`, not an
+    accuracy bound. `rtol = 3e-6` would hold everything measured with a small margin. It's the last
+    test keeping the Arm lanes red.
+  - **Q15.** Windows 10 version 2004 stays on the installation page with no machine qualifying it.
+    Keep it as declared, or state Windows Server 2022 and Windows 11 as what's checked?
+  - **Q16.** `kerr_beam` runs 10 to 28 % slower than at 0.1.0. It isn't this branch, which is 0.9956 and
+    0.9994 of `main` on those cases, and its size matches SEP 40's read cost (#396), though nothing
+    here bisected it. Leave it to #396?
 
 ## Part III — History
 
@@ -1038,6 +1089,7 @@ The status of each gate is at the end of this report, and it says plainly which 
   features, then a refusal (§6.1, R8).
 - 2026-11-02: Accepted by John C. Travers. Part I is frozen.
 - 2026-11-02: Implementation started on `feature/sep-0043-retire-numba-cpu`, taking in #394, #398 and #401.
+- 2026-11-03: Phases 1 to 3 delivered on that branch, with the report in Part II. `Final` waits for the gates and the maintainer.
 
 ### AI review — 2026-11-02
 

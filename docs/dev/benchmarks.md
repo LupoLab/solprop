@@ -146,6 +146,49 @@ data-centre NVIDIA GPU and the HIP build on an AMD Instinct GPU ran 2.7 to 18 ti
 than the Kokkos OpenMP build on all 18 cores of the server, the graded-index general route
 most. These grids are small for a device; the ratios say nothing about large grids.
 
+### The tracking set on the release wheel, without Numba
+
+[SEP 43](seps/sep-0043-retire-numba-cpu.md)'s final tree against the history's 0.1.0 rows:
+`python -m benchmarks track` with CI's `cp314-abi3` wheel at its x86-64-v3 build, three repeats,
+passive threading, an exclusively allocated AMD EPYC 7763 node at 1 and 16 threads. The rows
+aren't appended, because the history holds releases.
+
+| case | threads | now, s | 0.1.0 native, s | ratio | 0.1.0 `numba_cpu` over now |
+|---|---:|---:|---:|---:|---:|
+| `gnlse_raman_shock` | 1 | 43.57 | 44.16 | 0.987 | 1.24 |
+| `gnlse_soliton` | 1 | 0.583 | 0.578 | 1.009 | 1.60 |
+| `rdw` | 1 | 11.71 | 11.63 | 1.007 | 1.80 |
+| `he_rdw_averaged` | 1 | 1.075 | 1.058 | 1.016 | 2.63 |
+| `argon_blueshift` | 1 | 26.50 | 26.44 | 1.002 | 1.86 |
+| `argon_blueshift_averaged` | 1 | 3.941 | 3.920 | 1.005 | 2.79 |
+| `argon_blueshift_envelope` | 1 | 1.250 | 1.240 | 1.008 | 1.98 |
+| `h2_raman_averaged` | 1 | 6.101 | 6.119 | 0.997 | 2.40 |
+| `kerr_beam_192` | 1 | 13.34 | 12.07 | 1.105 | 1.45 |
+| `gnlse_raman_shock` | 16 | 39.05 | 37.84 | 1.032 | 1.37 |
+| `gnlse_soliton` | 16 | 0.587 | 0.582 | 1.007 | 1.62 |
+| `rdw` | 16 | 5.112 | 5.148 | 0.993 | 3.18 |
+| `he_rdw_averaged` | 16 | 0.770 | 0.785 | 0.980 | 3.70 |
+| `argon_blueshift` | 16 | 9.852 | 9.861 | 0.999 | 2.30 |
+| `argon_blueshift_averaged` | 16 | 3.271 | 3.261 | 1.003 | 3.37 |
+| `argon_blueshift_envelope` | 16 | 1.123 | 1.322 | 0.850 | 2.22 |
+| `h2_raman_averaged` | 16 | 5.163 | 5.250 | 0.983 | 2.82 |
+| `ctc` | 16 | 108.4 | 111.5 | 0.972 | 2.44 |
+| `grin_nonlinear` | 16 | 20.50 | 21.17 | 0.969 | 1.79 |
+| `kerr_beam_384` | 16 | 29.10 | 25.26 | 1.152 | 1.24 |
+
+The geometric mean is 1.002, with the same steps on all twenty, and Numba's rows are 2.08 times
+slower. These are runs on different days, so a few per cent is not a result. `radial_filament_256`
+is left out, since its guide changed at revision 2.
+
+- **`kerr_beam`:** the rise isn't the removal. The branch against the `main` it came from gave 0.9956
+  and 0.9994 on these rows, with identical fields. Its size matches
+  [the transverse edge's read cost](#the-transverse-edge-and-a-requested-collar), +10.5 % on the
+  Cartesian case there, though this comparison didn't bisect it.
+- **The same work on the Xeon Gold 6240:** at one thread, the same steps and ratios of 0.99 to 1.04
+  in two runs, apart from `kerr_beam_192` at 1.18 to 1.20 and `rdw` at 0.99 to 1.09. At 36 threads
+  the two runs of one wheel differ from each other by 0.84 to 1.57 per configuration, unpinned across two
+  sockets, so the 36-thread column gives no verdict.
+
 ### Kokkos CPU operation-size threading
 
 The Kokkos CPU backend chooses each operation's thread width from its dimensions at
