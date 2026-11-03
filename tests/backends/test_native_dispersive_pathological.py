@@ -146,8 +146,9 @@ def test_a_general_chunk_without_a_gas_node_adds_nothing(monkeypatch, evaluator)
     """A chunk of the solid core's nodes alone, on native as on the reference.
 
     The original's construction, the chunk cut at the first gas node; native reads it
-    from the same function through its own import, so both are patched. With no regional
-    tensor in the core, the chunk's polarisation is zero and the evaluation still agrees.
+    from the same function through its own import, so both are patched. With no
+    regional tensor in the core, the chunk's polarisation is zero and the evaluation
+    still agrees.
     """
     problem, grid = general_problem(strand(ARGON_FILL), evaluator, "real")
     tables = problem.transform.modal_tables

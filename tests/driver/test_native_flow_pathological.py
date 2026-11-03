@@ -67,7 +67,7 @@ def scalar_case():
 
 
 def with_factors(held, triangular):
-    """Return `held` with section 0's Schur factor replaced, and its route recomputed."""
+    """Return `held` with section 0's Schur factor replaced and its route recomputed."""
     stack = held.triangular.copy()
     stack[0] = triangular
     left, right, eigenvalues, route = schur_eigenbasis(held.vectors[0], triangular)
