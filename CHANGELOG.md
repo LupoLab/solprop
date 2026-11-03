@@ -171,7 +171,12 @@ All notable changes to solprop are recorded here. The format follows
   x86-64-v3 one in the Linux and Windows x86-64 wheels, chosen at import, so processors
   without AVX2 now run the native backend. The v2 build runs about 20 to 25 % longer by
   geometric mean. `SOLPROP_NATIVE_CPU_VARIANT=x86-64-v2` asks for it.
+- A plane observer can measure a spatial run's planes while it runs: `PlaneView.stored()` returns the plane's stored spectrum (what the `solprop.spatial` functionals take with the run's `SpatialFlux`) and `PlaneView.field_plane()` the plane as `processing.field_plane` reads it, whose `spectral_energy` is the beam's energy per bin.
+- `Recipe.run_keywords()` returns the keywords of `Simulation.run` the recipe's `[execution]` table sets (`memory_budget`), so a caller that builds the simulation itself, to keep it while it runs, runs it as `Recipe.run` would.
 - `SOLPROP_REQUIRE_DEVICE` (`cuda`, `hip` or `any`) makes a run refuse before allocating anything unless it would execute on a native device build that sees a device, so a job doesn't fall onto a CPU wheel that a new release installed over its source build.
+- `solprop.processing.get_spectrogram` returns a plane's spectrogram as data (gate positions,
+  spectral axis and map, per unit of the axis asked for, with a `bandpass=` window), the map
+  `plotting.spectrogram` draws, so a front end can draw it interactively.
 
 ### Changed
 

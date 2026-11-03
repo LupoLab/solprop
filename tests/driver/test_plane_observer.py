@@ -178,3 +178,30 @@ def test_a_stop_from_an_observer_stops_the_run_and_a_resume_shows_the_rest(
     _scheduled(build_simulation, "numpy_ref").run(path, resume=True, progress=second)
     # A resume does not show again the planes it continues after.
     assert second.z == pytest.approx(list(np.linspace(0.0, LENGTH, N_SAVE)[2:]))
+
+
+class SpatialWatcher(NullReporter):
+    """Keep a spatial run's stored planes and energy per bin, as a front end would."""
+
+    def __init__(self):
+        self.stored = []
+        self.energy = []
+
+    def observe_plane(self, z, plane):
+        self.stored.append(plane.stored())
+        self.energy.append(np.array(plane.field_plane().spectral_energy()))
+
+
+def test_a_spatial_plane_is_read_while_it_runs_as_the_file_holds_it(tmp_path):
+    from solprop.processing import field_plane  # noqa: PLC0415 - only here
+    from solprop.recipe import Recipe  # noqa: PLC0415 - only here
+
+    watcher = SpatialWatcher()
+    path = tmp_path / "beam.h5"
+    Recipe.example("cartesian_beam").run(path, progress=watcher)
+    with open_file(path) as saved:
+        assert len(watcher.stored) == saved.n_saved
+        for index, stored in enumerate(watcher.stored):
+            assert np.array_equal(stored, np.asarray(saved.fields("fft")[index]))
+            energy = field_plane(saved, index).spectral_energy()
+            assert np.array_equal(watcher.energy[index], energy)
