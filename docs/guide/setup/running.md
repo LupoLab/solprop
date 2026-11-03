@@ -494,6 +494,19 @@ backend that closed itself closes the runner. The runner admits the backend's me
 once, before constructing it, and admits each run's in-memory output beside it when the
 run starts.
 
+The march holds no input. An array the record keeps by its digest (below) is read in
+place rather than copied, and the runner drops every reference to it, and to the launch
+a modal route converts it to, as soon as the backend has loaded it. So an input formed in
+the call, as above, is freed before the first step. Two arrays are kept all the same: a
+smaller array, which the record carries inline, is copied into it, and the simulation the
+runner was built from keeps its own input for as long as it lives. For a scan over large
+arrays, build that simulation from a broadcast, which holds one repeated block:
+
+```{code-block} python
+placeholder = np.broadcast_to(np.zeros((1, 1, 1), dtype=np.complex128), shape)
+simulation = Simulation(grid, (), responses, placeholder, settings=settings, ...)
+```
+
 `with_input` itself validates only what changed: the replaced input's shape, dtype and
 one finiteness pass, and the replaced noise's, with every other leaf of the translated
 problem shared rather than scanned again; a new `initial_z` keeps the stepper's checks.

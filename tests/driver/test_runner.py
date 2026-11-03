@@ -11,8 +11,10 @@ pieces of state a load restores (section 4.7) are structural and compared exactl
 """
 
 import dataclasses
+import gc
 import threading
 import types
+import weakref
 from typing import cast
 
 import numpy as np
@@ -20,6 +22,7 @@ import pytest
 
 from bounds import assert_within, fft_bound, step_evaluations
 from driver.test_field_free_planes import cartesian, low_storage, replay_bound
+from runtime_types import unchecked
 from solprop.backends.driver import StepDriver
 from solprop.backends.registry import available, select
 from solprop.boundaries import absorber
@@ -28,7 +31,7 @@ from solprop.driver.simulation import check_derived_problem
 from solprop.exceptions import DriverError, TranslationError
 from solprop.log import NullReporter
 from solprop.noise import NoiseRealisation, spatial_noise
-from solprop.output import open_file
+from solprop.output import MemoryOutput, open_file
 from solprop.output import schema as output_schema
 from solprop.output.schema import (
     PEAK_FIELDS_ANNOTATION,
@@ -373,6 +376,111 @@ def test_a_large_array_input_is_recorded_by_its_digest(monkeypatch):
     monkeypatch.setattr(output_schema, "INLINE_ARRAY_LIMIT", field.size)
     inline = simulation.with_input(field).metadata().configuration["initial"]
     assert isinstance(inline, np.ndarray)
+
+
+class _Watching(MemoryOutput):
+    """Note at every save whether each watched array is still alive."""
+
+    def __init__(self, *watched: weakref.ref[np.ndarray]) -> None:
+        super().__init__()
+        self.watched = watched
+        self.alive: list[bool] = []
+
+    def save(self, plane) -> None:
+        self.alive.extend(ref() is not None for ref in self.watched)
+        super().save(plane)
+
+
+@pytest.fixture
+def no_collector():
+    """Hold the cycle collector off: a volume must go by its count, not by a pass."""
+    gc.disable()
+    yield
+    gc.enable()
+
+
+def _spied_load(backend, monkeypatch) -> list[weakref.ref[np.ndarray]]:
+    """Return a list that keeps a weak reference to each array the backend loads."""
+    loads: list[weakref.ref[np.ndarray]] = []
+    load = backend.set_initial
+
+    def spy(field, noise, *, z=0.0, resume=False) -> None:
+        loads.append(weakref.ref(field))
+        load(field, noise, z=z, resume=resume)
+
+    monkeypatch.setattr(backend, "set_initial", spy)
+    return loads
+
+
+@pytest.mark.parametrize("backend", available())
+@pytest.mark.parametrize("route", ["modal", "spatial"])
+@pytest.mark.parametrize("digested", [True, False], ids=["digest", "inline"])
+@pytest.mark.usefixtures("no_collector")
+def test_a_runner_holds_no_input_through_the_march(
+    backend, route, digested, monkeypatch
+):
+    """Neither the caller's array, nor a copy, nor a launch outlives the load.
+
+    Called past the runtime type checks' wrappers, as production calls it: their frames
+    keep the caller's arguments for the call, the runner's own hold nothing.
+    """
+    simulation = capillary(backend) if route == "modal" else cartesian(backend)
+    limit = 0 if digested else simulation._field0.size
+    monkeypatch.setattr(output_schema, "INLINE_ARRAY_LIMIT", limit)
+    run = unchecked(SimulationRunner.run)
+    with simulation.runner() as runner:
+        loads = _spied_load(runner.backend, monkeypatch)
+        field = np.array(simulation._field0)
+        given = weakref.ref(field)
+        handler = _Watching(given)
+        # The call takes the only reference: the name is gone before the body runs.
+        arguments = [field]
+        del field
+        output = run(runner, arguments.pop(), output=handler, progress="none")
+        assert output is handler
+        assert handler.n_saved > 1
+        assert handler.alive == [False] * handler.n_saved
+        assert loads[0]() is None
+
+
+@pytest.mark.parametrize("backend", available())
+def test_a_runner_reads_a_digested_input_without_a_copy(backend, monkeypatch):
+    """The derived simulation views the caller's array, which it leaves as it was."""
+    simulation = cartesian(backend)
+    monkeypatch.setattr(output_schema, "INLINE_ARRAY_LIMIT", 0)
+    field = 0.9 * simulation._field0
+    before = field.copy()
+    with simulation.runner() as runner:
+        load = runner.backend.set_initial
+        shared: list[bool] = []
+
+        def spy(given, noise, *, z=0.0, resume=False) -> None:
+            shared.append(np.shares_memory(given, field))
+            load(given, noise, z=z, resume=resume)
+
+        monkeypatch.setattr(runner.backend, "set_initial", spy)
+        output = stored(runner.run(field, progress="none"))
+        fresh = stored(simulation.with_input(field).run(progress="none"))
+    assert shared == [True]
+    assert field.flags.writeable
+    assert np.array_equal(field, before)
+    # One record with a fresh run, whichever route the input took to the load.
+    assert output.metadata is not None and fresh.metadata is not None
+    assert output.metadata.configuration_hash() == fresh.metadata.configuration_hash()
+    assert_within(output["field"], fresh["field"], replay_bound(simulation))
+
+
+def test_a_runner_s_inline_record_outlives_the_caller_s_changes():
+    """An array small enough to be recorded inline is copied: the record stays."""
+    simulation = cartesian("numpy_ref")
+    field = 0.9 * simulation._field0
+    before = field.copy()
+    with simulation.runner() as runner:
+        output = stored(runner.run(field, progress="none"))
+    field *= 2.0
+    assert output.metadata is not None
+    recorded = cast("np.ndarray", output.metadata.configuration["initial"])
+    assert np.array_equal(recorded, before)
 
 
 @pytest.mark.medium

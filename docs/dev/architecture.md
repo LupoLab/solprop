@@ -702,7 +702,9 @@ otherwise, with a warning, `numpy_ref` (ADR-029, ADR-064); the installed native 
 - A `SimulationRunner` keeps one backend's buffers and plans across many inputs, and is
   admitted once; `StepDriver.set_initial` restores everything a march reads, so a reused
   backend repeats a fresh one's run. An input array of more than 2²⁰ elements is
-  recorded by its SHA-256 digest, not inline, so the run record stays small.
+  recorded by its SHA-256 digest, not inline, so the run record stays small; the runner
+  reads such an array in place and marches on a problem without it, so no input outlives
+  its load.
 - Φ tables are shared where possible; the constant-D fast path stores one array.
 - Fine-grid buffers use the smallest `ffac` the declared responses need.
 

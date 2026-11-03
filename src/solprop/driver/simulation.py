@@ -234,6 +234,7 @@ from solprop.output.schema import (
     PEAK_FIELDS_ANNOTATION,
     CheckpointOutput,
     DefaultsResolution,
+    FieldRetention,
     FieldsChoice,
     GridRecord,
     ModeRecord,
@@ -245,6 +246,7 @@ from solprop.output.schema import (
     RunMetadata,
     StepLimits,
     StepperRecord,
+    _recorded_inline,
     field_retention_refusal,
     recorded_input,
     serialise,
@@ -6987,6 +6989,37 @@ class Simulation(Displayed):
         return _redrawable(simulation, draw, seed)
 
 
+@dataclasses.dataclass(frozen=True)
+class _LoadedRun:
+    """What a runner's march needs once its input is in the backend, and nothing more.
+
+    Attributes
+    ----------
+    problem : solprop.translate.problem.KernelProblem
+        The derived problem, without its input (:func:`_without_input`).
+    handler : solprop.output.schema.Output
+        Where the planes go.
+    metadata : solprop.output.schema.RunMetadata
+        The run's record.
+    retention : solprop.output.schema.FieldRetention
+        Which planes keep their field.
+    admission : solprop.driver.memory.MemoryAdmission
+        The run's memory admission.
+    boundary_monitor : solprop.monitor.BoundaryMonitor or None
+        The run's monitor of the window's edges.
+    material_log : solprop.physdata.selection.MaterialLog
+        The derived run's material log, which the march goes on with.
+    """
+
+    problem: KernelProblem
+    handler: Output
+    metadata: RunMetadata
+    retention: FieldRetention
+    admission: MemoryAdmission
+    boundary_monitor: BoundaryMonitor | None
+    material_log: MaterialLog
+
+
 class SimulationRunner(Displayed):
     """One translated problem and one backend, run for many inputs (SEP 22 section 5.2).
 
@@ -7186,7 +7219,11 @@ class SimulationRunner(Displayed):
         Parameters
         ----------
         initial : Pulse, SpatialPulse or numpy.ndarray
-            The input, as :meth:`Simulation.with_input` takes it.
+            The input, as :meth:`Simulation.with_input` takes it. An array the record
+            keeps by digest (:func:`~solprop.output.schema.recorded_input`) is not
+            copied: it is read while this call loads it, and the runner holds no
+            reference to it, nor to any copy, once it is loaded, so a caller that
+            keeps none itself has it freed before the first step.
         output : solprop.output.schema.Output or pathlib.Path or str or None, optional
             Where this input's planes go: a handler, a path for an HDF5 file, or
             ``None`` for a new :class:`~solprop.output.memory.MemoryOutput`.
@@ -7226,13 +7263,14 @@ class SimulationRunner(Displayed):
             if self._closed:
                 msg = "this runner is closed; build another with simulation.runner()"
                 raise DriverError(msg)
-            return self._run(
-                initial,
-                output=output,
-                configuration=configuration,
-                noise=noise,
-                progress=progress,
-                progress_period=progress_period,
+            loaded = self._load(
+                initial, output=output, configuration=configuration, noise=noise
+            )
+            # The load is the last to read the input, and every frame that saw it has
+            # returned but this one: the march holds no volume for it (issue #447).
+            del initial
+            return self._march(
+                loaded, progress=progress, progress_period=progress_period
             )
         except BaseException:
             # A backend that closed itself cannot run another input.
@@ -7242,17 +7280,19 @@ class SimulationRunner(Displayed):
         finally:
             self._lock.release()
 
-    def _run(
+    def _load(
         self,
         initial: Pulse | SpatialPulse | np.ndarray,
         *,
         output: Output | Path | str | None,
         configuration: Mapping[str, object] | None,
         noise: NoiseRealisation | Literal["keep"] | None,
-        progress: ProgressReporter | ProgressChoice | None,
-        progress_period: float,
-    ) -> Output:
-        """Derive, load and run one input; :meth:`run` without its guards.
+    ) -> _LoadedRun:
+        """Derive one input's run, open its handler and load the input into the backend.
+
+        The derived simulation and its problem are this frame's alone: they, the
+        converted launch of a modal route and the view of the input all go when it
+        returns.
 
         Parameters
         ----------
@@ -7264,18 +7304,14 @@ class SimulationRunner(Displayed):
             Caller keys for its record.
         noise : NoiseRealisation, {'keep'} or None
             Its noise.
-        progress : ProgressReporter, {'auto', 'bar', 'log', 'none'} or None
-            Where progress goes.
-        progress_period : float
-            Seconds between periodic lines, s.
 
         Returns
         -------
-        solprop.output.schema.Output
-            The handler.
+        _LoadedRun
+            What the march needs, which holds no input.
         """
         derived = self._simulation.with_input(
-            initial, noise=noise, configuration=configuration
+            _borrowed_input(initial), noise=noise, configuration=configuration
         )
         problem = derived.translate()
         check_derived_problem(self._problem, problem)
@@ -7292,38 +7328,126 @@ class SimulationRunner(Displayed):
                 retention=retention,
                 inputs=derived._held_inputs(),
             )
+            monitor = derived._boundary_monitor()
             self._backend.set_initial(
                 problem.initial.field0,
                 None if isinstance(noise, str) else _realisation(problem),
                 z=problem.initial.z,
             )
+        return _LoadedRun(
+            _without_input(problem),
+            handler,
+            metadata,
+            retention,
+            admission,
+            monitor,
+            derived._material_log,
+        )
+
+    def _march(
+        self,
+        loaded: _LoadedRun,
+        *,
+        progress: ProgressReporter | ProgressChoice | None,
+        progress_period: float,
+    ) -> Output:
+        """Run the loaded input's save-plane loop and finish its handler.
+
+        Parameters
+        ----------
+        loaded : _LoadedRun
+            The run :meth:`_load` left ready.
+        progress : ProgressReporter, {'auto', 'bar', 'log', 'none'} or None
+            Where progress goes.
+        progress_period : float
+            Seconds between periodic lines, s.
+
+        Returns
+        -------
+        solprop.output.schema.Output
+            The handler.
+        """
+        settings = self._simulation.settings
+        problem, handler = loaded.problem, loaded.handler
+        with _optmat.material_context(loaded.material_log):
             run_problem(
                 problem,
                 self._backend,
                 handler,
-                metadata=metadata,
+                metadata=loaded.metadata,
                 stats_spec=problem.stats_spec,
                 progress=progress,
                 progress_period=progress_period,
-                memory=admission,
+                memory=loaded.admission,
                 resume_history=settings.resume_history,
-                fields=retention.fields,
-                field_planes=retention.field_planes,
-                boundary_monitor=derived._boundary_monitor(),
+                fields=loaded.retention.fields,
+                field_planes=loaded.retention.field_planes,
+                boundary_monitor=loaded.boundary_monitor,
             )
-            derived._peak_fields = _peak_field_reports(
-                problem, handler, derived.responses
-            )
-        if derived._peak_fields and isinstance(handler, PlaneStore):
+            reports = _peak_field_reports(problem, handler, self._simulation.responses)
+        if reports and isinstance(handler, PlaneStore):
             handler.annotate(
                 PEAK_FIELDS_ANNOTATION,
-                [
-                    cast("JsonValue", report.to_dict())
-                    for report in derived._peak_fields
-                ],
+                [cast("JsonValue", report.to_dict()) for report in reports],
             )
         self.runs += 1
         return handler
+
+
+def _borrowed_input(
+    initial: Pulse | SpatialPulse | np.ndarray,
+) -> Pulse | SpatialPulse | np.ndarray:
+    """Return a runner's input as its private derived simulation may take it, uncopied.
+
+    A derived simulation copies an array so that its record and its run outlive the
+    caller's changes. A runner's lives only until the load, on the caller's thread and
+    inside the call, so an array needs no copy unless the record outlives it: one
+    recorded inline stays a copy, in the handler's record.
+
+    Parameters
+    ----------
+    initial : Pulse, SpatialPulse or numpy.ndarray
+        The runner's input.
+
+    Returns
+    -------
+    Pulse, SpatialPulse or numpy.ndarray
+        A read-only view of a complex128 array recorded by its digest, marked as held
+        so that nothing copies it; `initial` itself otherwise. The caller's own flags
+        are not touched.
+    """
+    if (
+        isinstance(initial, np.ndarray)
+        and initial.dtype == np.complex128
+        and not _recorded_inline(initial)
+    ):
+        return _hold(np.asarray(initial).view())
+    return initial
+
+
+def _without_input(problem: KernelProblem) -> KernelProblem:
+    """Return a loaded problem without its input, for the march that follows the load.
+
+    The save-plane loop reads the launch position and never the launch, so the state
+    is replaced by a broadcast of one zero, which holds no volume (:class:`~solprop.
+    translate.problem.Initial`). The problem is good for the march alone.
+
+    Parameters
+    ----------
+    problem : solprop.translate.problem.KernelProblem
+        The derived problem, whose input is already in the backend.
+
+    Returns
+    -------
+    solprop.translate.problem.KernelProblem
+        The problem, sharing every leaf but ``initial.field0``.
+    """
+    placeholder = np.broadcast_to(
+        np.zeros(1, dtype=np.complex128), problem.initial.field0.shape
+    )
+    return dataclasses.replace(
+        problem, initial=dataclasses.replace(problem.initial, field0=_hold(placeholder))
+    )
 
 
 def _realisation(problem: KernelProblem) -> NoiseRealisation | None:

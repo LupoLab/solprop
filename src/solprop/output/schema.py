@@ -514,9 +514,25 @@ def recorded_input(value: object) -> object:
     >>> type(recorded_input(np.zeros(2**20 + 1))).__name__
     'ArrayDigest'
     """
-    if isinstance(value, np.ndarray) and value.size > INLINE_ARRAY_LIMIT:
+    if isinstance(value, np.ndarray) and not _recorded_inline(value):
         return ArrayDigest.of(value)
     return value
+
+
+def _recorded_inline(values: np.ndarray) -> bool:
+    """Return whether a run record carries an array input itself, not its digest.
+
+    Parameters
+    ----------
+    values : numpy.ndarray
+        The array input.
+
+    Returns
+    -------
+    bool
+        True for at most :data:`INLINE_ARRAY_LIMIT` elements.
+    """
+    return values.size <= INLINE_ARRAY_LIMIT
 
 
 def _canonical_json(value: JsonValue) -> str:
