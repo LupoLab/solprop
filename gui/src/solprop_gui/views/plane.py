@@ -222,6 +222,7 @@ class PlaneView(QWidget):
         self.spectrogram = _Image("Spectrogram: press the button.")
         self.spectrogram.setObjectName("plane-spectrogram-image")
         self._spectrum: tuple[np.ndarray, np.ndarray] | None = None
+        self._quantity = ""
 
         controls = QHBoxLayout()
         controls.addWidget(QLabel("Plane"))
@@ -432,13 +433,19 @@ class PlaneView(QWidget):
         spectrum: Mapping[str, object] = plane["spectrum"]  # pyright: ignore[reportAssignmentType]
         power: Mapping[str, object] = plane["power"]  # pyright: ignore[reportAssignmentType]
         phase: Mapping[str, object] = plane["phase"]  # pyright: ignore[reportAssignmentType]
-        x = np.asarray(spectrum["x"], dtype=float) * 1e9
-        self._spectrum = (x, np.asarray(spectrum["y"], dtype=float))
-        self._redraw_spectrum()
+        notes = []
+        self._quantity = str(spectrum.get("unit") or "")
+        if "error" in spectrum:
+            self._spectrum = None
+            self.spectrum_curve.setData([], [])
+            notes.append(f"No spectrum: {spectrum['error']}")
+        else:
+            x = np.asarray(spectrum["x"], dtype=float) * 1e9
+            self._spectrum = (x, np.asarray(spectrum["y"], dtype=float))
+            self._redraw_spectrum()
         t = np.asarray(power["t"], dtype=float) * 1e15
         self.power_curve.setData(t, np.asarray(power["y"], dtype=float))
         self._clear_compression()
-        notes = []
         fluence = plane.get("fluence")
         if isinstance(fluence, Mapping):
             self._show_fluence(fluence, notes)
@@ -450,7 +457,7 @@ class PlaneView(QWidget):
             omega = np.asarray(phase["omega"], dtype=float)
             wavelength = 2 * np.pi * _C / omega * 1e9
             values = np.asarray(phase["y"], dtype=float)
-            x, y = self._spectrum
+            x, y = self._spectrum or (np.zeros(0), np.zeros(0))
             if x.size and y.size and np.max(y) > 0:
                 # Where there is no light the phase is noise: drawn as gaps.
                 order = np.argsort(x)
@@ -461,18 +468,8 @@ class PlaneView(QWidget):
             if self.selection() == "sum" and self.modes.count() > 2:
                 notes.append("The phase is the first mode's: a sum of modes has none.")
         values = np.asarray(power["y"], dtype=float)
-        coordinate = "power" in (plane.get("coordinate") or [])  # pyright: ignore[reportOperatorIssue]
-        self.power_plot.setLabel(
-            "left", "Coordinate power" if coordinate else "Power", units="W"
-        )
-        if coordinate:
-            notes.append(
-                "The power and the spectrum are coordinate quantities (sums over the "
-                "grid's nodes), not physical fluxes; the fluence is physical."
-            )
-        else:
-            peak = float(values.max()) if values.size else 0.0
-            notes.insert(0, f"Peak power {si(peak, 'W')}.")
+        peak = float(values.max()) if values.size else 0.0
+        notes.insert(0, f"Peak power {si(peak, 'W')}.")
         self.status.setText(" ".join(notes))
 
     def _phase_axes(self) -> None:
@@ -536,6 +533,16 @@ class PlaneView(QWidget):
             "and the transform limit."
         )
 
+    def _spectrum_title(self) -> str:
+        """Return what the spectrum plot shows.
+
+        Returns
+        -------
+        str
+            The spectral density, or a beam's energy per frequency bin.
+        """
+        return "Energy per bin" if self._quantity == "J per bin" else "Spectral density"
+
     def _redraw_spectrum(self, *_args: object) -> None:
         """Draw the spectrum, in dB of its peak or linear.
 
@@ -550,11 +557,11 @@ class PlaneView(QWidget):
         if self.log.isChecked():
             peak = float(np.max(y)) if y.size and np.max(y) > 0 else 1.0
             shown = 10 * np.log10(np.maximum(y / peak, 1e-12))
-            self.spectrum_plot.setLabel("left", "Spectral density (dB)")
+            self.spectrum_plot.setLabel("left", f"{self._spectrum_title()} (dB)")
             self.spectrum_plot.getViewBox().setYRange(-60, 3)
         else:
             shown = y
-            self.spectrum_plot.setLabel("left", "Spectral density")
+            self.spectrum_plot.setLabel("left", self._spectrum_title())
             self.spectrum_plot.getViewBox().enableAutoRange(axis="y")
         order = np.argsort(x)
         self.spectrum_curve.setData(x[order], shown[order])

@@ -31,7 +31,7 @@ from solprop.tools import capillary_params, lambda_rdw_all
 from solprop_gui.service.design import DESIGN_HANDLERS, pin_targets
 from solprop_gui.service.figures import FIGURE_HANDLERS
 from solprop_gui.service.reduce import Display, Reducer, stats_row
-from solprop_gui.service.results import RESULTS_HANDLERS
+from solprop_gui.service.results import RESULTS_HANDLERS, spatial_plane
 
 __all__ = ["HANDLERS"]
 
@@ -678,10 +678,19 @@ def overview(payload: Payload) -> dict[str, object]:
     with open_file(path) as handler:
         z = np.asarray(handler["z"])
         for index in planes:
-            lam, density = get_spectral_density(
-                handler, "wavelength", plane=index, modes="sum"
-            )
-            t, power = get_power(handler, plane=index, modes="sum")
+            if caps.basis == "spatial":
+                # A beam's columns are field samples: solprop's spatial readings.
+                beam = spatial_plane(path, handler, index)
+                spectrum, flux = beam["spectrum"], beam["power"]
+                if "error" in spectrum:  # pyright: ignore[reportOperatorIssue]
+                    raise SolpropError(str(spectrum["error"]))  # pyright: ignore[reportIndexIssue]
+                lam, density = spectrum["x"], spectrum["y"]  # pyright: ignore[reportIndexIssue]
+                t, power = flux["t"], flux["y"]  # pyright: ignore[reportIndexIssue]
+            else:
+                lam, density = get_spectral_density(
+                    handler, "wavelength", plane=index, modes="sum"
+                )
+                t, power = get_power(handler, plane=index, modes="sum")
             reduced_density, reduced_power = reducer.reduce(lam, density, t, power)
             rows.append(
                 {

@@ -365,7 +365,7 @@ class ResultsPage(QWidget):
         )
         refused: Mapping[str, str] = value.get("refused") or {}  # pyright: ignore[reportAssignmentType]
         self.plane.set_refused(refused)
-        self.overview.set_coordinate(value.get("basis") == "spatial")
+        self.overview.set_spatial(value.get("basis") == "spatial")
 
     def _show_view_reply(self, purpose: str, value: object) -> None:
         """Hand a view its reply.

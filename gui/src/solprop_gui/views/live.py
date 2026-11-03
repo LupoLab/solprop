@@ -288,18 +288,20 @@ class OverviewView(QWidget):
 
     # ------------------------------------------------------------------ data
 
-    def set_coordinate(self, coordinate: bool) -> None:
-        """Say on the power plots whether the power is a coordinate quantity.
+    def set_spatial(self, spatial: bool) -> None:
+        """Name what the maps show: a beam's energy per bin and axial power, or not.
 
         Parameters
         ----------
-        coordinate : bool
-            Whether it is (a spatial run's, summed over the grid's nodes), as
-            ``capabilities.output`` says.
+        spatial : bool
+            Whether the file is a free-space run's, read through solprop's spatial
+            functions (the plane's energy per frequency bin, the axial flux).
         """
-        word = "Coordinate power" if coordinate else "Power"
-        self.power_map.plot.setTitle(f"{word} (display-binned)")
-        self.power_line.setTitle(f"{word} at z")
+        spectrum = "Energy per bin" if spatial else "Spectral energy density"
+        power = "Axial power" if spatial else "Power"
+        self.spectrum_map.plot.setTitle(f"{spectrum} (display-binned)")
+        self.power_map.plot.setTitle(f"{power} (display-binned)")
+        self.power_line.setTitle(f"{power} at z")
 
     def clear(self) -> None:
         """Forget every row and the axes."""

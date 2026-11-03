@@ -131,13 +131,22 @@ def test_a_spatial_plane_has_its_fluence_map(beam: str, monkeypatch):
     found = ask("plane", {"path": beam, "index": 1})
     fluence = found["fluence"]
     assert fluence["values"].shape == (40, 32) and fluence["unit"] == "J/m^2"
-    assert set(fluence["axes"]) == {"x", "y"} and "power" in found["coordinate"]
+    assert set(fluence["axes"]) == {"x", "y"}
     assert ask("describe_output", {"path": beam})["refused"]["compression"]
+    # The physical readings: the axial flux, and the energy per bin, which sums to
+    # the beam's recorded energy.
+    spectrum = found["spectrum"]
+    assert spectrum["unit"] == "J per bin" and np.all(np.diff(spectrum["x"]) > 0)
+    energy = ask("statistics", {"path": beam})["stats"][0]["columns"][0]["y"][1]
+    assert spectrum["y"].sum() == pytest.approx(energy, rel=1e-6)
+    assert found["power"]["y"].max() > 0 and "error" in found["phase"]
+    rows = ask("overview", {"path": beam})["rows"]
+    assert len(rows) == 2
     # A radial grid and a line give a profile; another grid, or a refusal, says so.
     from solprop.grid import LineGrid, RadialGrid  # noqa: PLC0415
 
     for space, axis in ((RadialGrid(1e-3, 8), "r"), (LineGrid(1e-3, 8), "x")):
-        monkeypatch.setattr(results, "_space", lambda *_a, space=space: space)
+        monkeypatch.setattr(results, "_space", lambda _path, space=space: space)
         monkeypatch.setattr(results, "node_fluence", lambda _h: np.ones((2, 8)))
         profile = ask("plane", {"path": beam, "index": 1})["fluence"]
         assert list(profile["axes"]) == [axis] and profile["values"].shape == (8,)
@@ -200,3 +209,14 @@ def test_a_scan_with_no_point_done_has_no_results(scanned: str, monkeypatch):
     monkeypatch.setattr(results, "ScanOutput", NoneDone)
     found = ask("scan_overview", {"path": scanned})
     assert found["results"] == {} and found["status"] == ["failed"] * 3
+
+
+def test_a_planar_plane_says_why_it_has_no_spectrum(tmp_path: Path):
+    path = tmp_path / "planar.h5"
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        Recipe.example("planar_hybrid").run(path)
+    found = ask("plane", {"path": str(path), "index": 1})
+    assert "planar" in found["spectrum"]["error"] and found["power"]["y"].max() > 0
+    with pytest.raises(SolpropError, match="planar"):
+        ask("overview", {"path": str(path)})

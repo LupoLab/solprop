@@ -21,6 +21,7 @@ from pathlib import Path
 import numpy as np
 from matplotlib.figure import Figure
 from solprop import capabilities, plotting
+from solprop.driver import Simulation
 from solprop.exceptions import SolpropError
 from solprop.grid import FreeGrid, LineGrid, RadialGrid
 from solprop.output import Output, open_file
@@ -28,6 +29,7 @@ from solprop.processing import (
     ModeSelection,
     channel_labels,
     compress_taylor,
+    field_plane,
     get_phase,
     get_power,
     get_spectral_density,
@@ -36,9 +38,10 @@ from solprop.processing import (
 )
 from solprop.processing.scans import ScanOutput
 from solprop.recipe import Recipe
+from solprop.spatial import SpatialFlux, spatial_power
 from solprop.stats import CATALOGUE
 
-__all__ = ["RESULTS_HANDLERS"]
+__all__ = ["RESULTS_HANDLERS", "spatial_plane"]
 
 Payload = Mapping[str, object]
 
@@ -82,8 +85,8 @@ def _labels(handler: Output) -> list[str]:
 
 
 @functools.lru_cache(maxsize=4)
-def _space(path: str, stamp: float) -> object:
-    """Return the transverse grid of a run, rebuilt from the recipe it records.
+def _simulation(path: str, stamp: float) -> Simulation:
+    """Return a run rebuilt from the recipe it records, for its grids and medium.
 
     Parameters
     ----------
@@ -94,11 +97,81 @@ def _space(path: str, stamp: float) -> object:
 
     Returns
     -------
-    object
-        The simulation's ``spatial_grid``.
+    solprop.driver.Simulation
+        The run's simulation, built and not run.
     """
     del stamp  # the cache's key only
-    return Recipe.from_output(path, resolved=True).build().spatial_grid
+    return Recipe.from_output(path, resolved=True).build()
+
+
+def _space(path: str) -> object:
+    """Return a spatial run's transverse grid (:func:`_simulation`'s).
+
+    Parameters
+    ----------
+    path : str
+        The results file.
+
+    Returns
+    -------
+    object
+        The ``spatial_grid``.
+    """
+    return _simulation(path, Path(path).stat().st_mtime).spatial_grid
+
+
+def spatial_plane(path: str, handler: Output, index: int) -> dict[str, object]:
+    """Return a spatial plane's physical spectrum and power, as solprop reads them.
+
+    The column readers refuse a spatial file (its columns are field samples); the
+    physical readings are the plane's energy per frequency bin
+    (``field_plane(...).spectral_energy``) and the axial flux through it
+    (``spatial.spatial_power``), the latter with the run's grids and medium.
+
+    Parameters
+    ----------
+    path : str
+        The results file.
+    handler : solprop.output.Output
+        It, open.
+    index : int
+        The plane.
+
+    Returns
+    -------
+    dict
+        ``spectrum`` (``x``, the wavelength in m of each in-band bin, and ``y``,
+        J per bin) and ``power`` (``t`` and ``y`` in W), each with ``error``
+        instead where solprop gives none (a planar run's spectrum).
+    """
+    simulation = _simulation(path, Path(path).stat().st_mtime)
+    z = float(np.asarray(handler["z"])[index])
+    found: dict[str, object] = {}
+    try:
+        energy = np.asarray(field_plane(handler, index).spectral_energy())
+        omega = np.asarray(simulation.grid.omega)
+        light = omega > 0
+        wavelength = 2 * np.pi * C / omega[light]
+        order = np.argsort(wavelength)  # ascending, as the modal readers give it
+        found["spectrum"] = {
+            "x": wavelength[order],
+            "y": energy[light][order],
+            "unit": "J per bin",
+        }
+    except SolpropError as error:
+        found["spectrum"] = {"error": str(error)}
+    flux = SpatialFlux.resolve(
+        simulation.grid,
+        simulation.spatial_grid,  # pyright: ignore[reportArgumentType]
+        simulation.medium,  # pyright: ignore[reportArgumentType]
+        z=z,
+    )
+    stored = handler.fields("fft")[index]  # pyright: ignore[reportAttributeAccessIssue]
+    found["power"] = {
+        "t": np.asarray(simulation.grid.t),
+        "y": np.asarray(spatial_power(stored, flux)),
+    }
+    return found
 
 
 def _fluence(path: str, handler: Output, index: int) -> dict[str, object]:
@@ -121,7 +194,7 @@ def _fluence(path: str, handler: Output, index: int) -> dict[str, object]:
         where the run's grid cannot be rebuilt or laid out.
     """
     try:
-        space = _space(path, Path(path).stat().st_mtime)
+        space = _space(path)
         values = np.asarray(node_fluence(handler))[index]
     except SolpropError as error:
         return {"error": str(error)}
@@ -153,14 +226,24 @@ def plane(payload: Payload) -> dict[str, object]:
         ``z``, ``labels`` (the file's modes), ``spectrum`` (``x`` and ``y``, the
         spectral density on the axis), ``power`` (``t`` and ``y``) and ``phase``
         (``omega`` and ``y``, of one mode; with ``error`` instead for a sum, which
-        has no phase); on a spatial file also ``fluence`` (:func:`_fluence`) and
-        ``coordinate``, the quantities solprop marks as sums over the grid's nodes
-        rather than physical fluxes.
+        has no phase). On a spatial file the spectrum is the plane's energy per
+        bin and the power the axial flux (:func:`spatial_plane`), with
+        ``fluence`` (:func:`_fluence`) and no phase.
     """
     index = int(payload["index"])  # pyright: ignore[reportArgumentType]
     modes = _modes(payload)
     axis = str(payload.get("axis", "wavelength"))
-    with open_file(str(payload["path"])) as handler:
+    path = str(payload["path"])
+    caps = capabilities.output(path)
+    with open_file(path) as handler:
+        if caps.basis == "spatial":
+            return {
+                "z": float(np.asarray(handler["z"])[index]),
+                "labels": [],
+                **spatial_plane(path, handler, index),
+                "phase": {"error": "a beam's columns are field samples: no phase"},
+                "fluence": _fluence(path, handler, index),
+            }
         x, density = get_spectral_density(handler, axis, plane=index, modes=modes)  # pyright: ignore[reportArgumentType]
         t, power = get_power(handler, plane=index, modes=modes)
         phase: dict[str, object]
@@ -171,20 +254,13 @@ def plane(payload: Payload) -> dict[str, object]:
             phase = {"omega": np.asarray(omega), "y": np.asarray(values)}
         except SolpropError as error:
             phase = {"error": str(error)}
-        found: dict[str, object] = {
+        return {
             "z": float(np.asarray(handler["z"])[index]),
             "labels": _labels(handler),
             "spectrum": {"x": np.asarray(x), "y": np.asarray(density)},
             "power": {"t": np.asarray(t), "y": np.asarray(power)},
             "phase": phase,
         }
-        caps = capabilities.output(str(payload["path"]))
-        if caps.basis == "spatial":
-            found["fluence"] = _fluence(str(payload["path"]), handler, index)
-            found["coordinate"] = sorted(
-                name for name, q in caps.quantities.items() if q.kind == "coordinate"
-            )
-        return found
 
 
 def statistics(payload: Payload) -> dict[str, object]:

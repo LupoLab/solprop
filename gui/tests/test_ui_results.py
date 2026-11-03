@@ -115,9 +115,10 @@ def test_a_spatial_plane_shows_its_fluence(qtbot: QtBot, tmp_path: Path):
     qtbot.addWidget(view)
     view.set_planes([0, 1], [0.0, 0.02])
     x, y = np.linspace(-1e-3, 1e-3, 4), np.linspace(-2e-3, 2e-3, 5)
+    reply = plane_reply()
     spatial = {
-        **plane_reply(),
-        "coordinate": ["power", "spectral_density"],
+        **reply,
+        "spectrum": {**reply["spectrum"], "unit": "J per bin"},  # pyright: ignore[reportGeneralTypeIssues]
         "fluence": {
             "axes": {"y": y, "x": x},
             "values": np.ones((5, 4)),
@@ -125,14 +126,19 @@ def test_a_spatial_plane_shows_its_fluence(qtbot: QtBot, tmp_path: Path):
         },
     }
     view.show_plane(spatial)
-    assert view.image.isVisible() and "coordinate quantities" in view.status.text()
-    assert "Coordinate" in view.power_plot.getAxis("left").labelText
+    assert (
+        view.image.isVisible()
+        and "Energy per bin" in view.spectrum_plot.getAxis("left").labelText
+    )
     shot(view, tmp_path, "fluence")
     radial = {"axes": {"r": x}, "values": np.ones(4), "unit": "J/m^2"}
     view.show_plane({**spatial, "fluence": radial})
     assert not view.image.isVisible()
     view.show_plane({**spatial, "fluence": {"error": "not rebuilt"}})
     assert "No fluence: not rebuilt" in view.status.text()
+    # A planar plane: no spectrum, solprop says why; the phase still drawn.
+    view.show_plane({**reply, "spectrum": {"error": "planar planes are not exchanged"}})
+    assert "No spectrum: planar" in view.status.text()
     view.set_refused({"compression": "no compression on a beam"})
     assert not view.compress_button.isEnabled()
     assert view.compress_button.toolTip() == "no compression on a beam"
@@ -225,12 +231,13 @@ def test_the_results_open_a_run_s_planes_and_statistics(
     window.close()
 
 
-def test_the_overview_says_when_the_power_is_a_coordinate(qtbot: QtBot):
+def test_the_overview_names_a_beam_s_readings(qtbot: QtBot):
     from solprop_gui.views.live import OverviewView  # noqa: PLC0415 - only here
 
     view = OverviewView()
     qtbot.addWidget(view)
-    view.set_coordinate(True)
-    assert "Coordinate power" in view.power_map.plot.titleLabel.text
-    view.set_coordinate(False)
+    view.set_spatial(True)
+    assert "Axial power" in view.power_map.plot.titleLabel.text
+    assert "Energy per bin" in view.spectrum_map.plot.titleLabel.text
+    view.set_spatial(False)
     assert view.power_line.titleLabel.text == "Power at z"
