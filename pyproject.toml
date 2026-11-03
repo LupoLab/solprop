@@ -111,8 +111,9 @@ source = "vcs"
 # Before the first tag the version is 0.0.1.devN, from the commit count; without git
 # metadata (an archive of the tree) it is 0.0.0.
 fallback_version = "0.0.0"
-# Release tags only: another tag need not parse as a version.
-scm.git.describe_command = ["git", "describe", "--dirty", "--tags", "--long", "--match", "v*"]
+# Release tags only: another tag need not parse as a version. Otherwise setuptools-scm's
+# default command, as in native/ and gui/ (tests/test_release_tags.py).
+scm.git.describe_command = ["git", "describe", "--dirty", "--tags", "--long", "--abbrev=40", "--match", "v*"]
 
 [tool.hatch.metadata.hooks.custom]
 

@@ -106,7 +106,7 @@ if [[ -z "$qualification_python" ]] && { stage lint || stage pytest; }; then
 fi
 # The repository's version, as hatch-vcs gives solprop and setuptools-scm gives this
 # package: the native wheel built below must carry it (one version for both).
-expected_version=$("$python_executable" -c 'import sys; from setuptools_scm import get_version; print(get_version(root=sys.argv[1], fallback_version="0.0.0"))' "$workspace_root")
+expected_version=$("$python_executable" -m setuptools_scm --config "$repo_root/pyproject.toml")
 mkdir -p build
 if stage lint; then
 uv run ruff format --check .

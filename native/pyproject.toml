@@ -138,8 +138,8 @@ repair-wheel-command = "python {package}/ci/merge_variant.py {wheel} C:/sp-varia
 [tool.setuptools_scm]
 root = ".."
 fallback_version = "0.0.0"
-# Release tags only, as solprop: another tag need not parse as a version.
-scm.git.describe_command = ["git", "describe", "--dirty", "--tags", "--long", "--match", "v*"]
+# Release tags only, as in solprop and gui/ (tests/test_release_tags.py).
+scm.git.describe_command = ["git", "describe", "--dirty", "--tags", "--long", "--abbrev=40", "--match", "v*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
