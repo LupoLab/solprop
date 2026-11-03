@@ -12,7 +12,9 @@ limit. A mode sum has a power and a spectrum but no phase or field, so the phase
 spectrogram take the first mode then, and say so.
 """
 
+import csv
 from collections.abc import Mapping, Sequence
+from pathlib import Path
 
 import numpy as np
 import pyqtgraph as pg
@@ -21,6 +23,7 @@ from PySide6.QtGui import QPixmap, QResizeEvent
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
+    QFileDialog,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -171,6 +174,7 @@ class PlaneView(QWidget):
             ("the maps along z", "prop_2d"),
         ):
             self.figure.addItem(title, kind)
+        self.figure.addItem("this plane's curves as CSV", "csv")
         self.figure.activated.connect(self._figure_picked)
         self.status = QLabel("")
         self.status.setObjectName("plane-status")
@@ -348,9 +352,47 @@ class PlaneView(QWidget):
         self.figure.setCurrentIndex(0)
         if kind is None:
             return
+        if kind == "csv":
+            chosen, _ = QFileDialog.getSaveFileName(
+                self, "Export the plane", "plane.csv", "CSV (*.csv)"
+            )
+            if chosen:
+                self.export_data(chosen)
+            return
         path = choose_figure(self, f"{kind}.pdf")
         if path:
             self.export_figure(path, str(kind))
+
+    def export_data(self, path: str | Path) -> None:
+        """Write the plane's curves as CSV, as the kernel gave them (full resolution).
+
+        Parameters
+        ----------
+        path : str or pathlib.Path
+            The file: a column per abscissa and value, the shorter ones padded.
+        """
+        columns: list[tuple[str, np.ndarray]] = []
+        for name, curve, x_title, y_title in (
+            ("spectrum", self.spectrum_curve, "wavelength (nm)", "spectral density"),
+            ("power", self.power_curve, "time (fs)", "power (W)"),
+            ("phase", self.phase_curve, "wavelength (nm)", "phase (rad)"),
+        ):
+            x, y = curve.getData()
+            if x is None or y is None:
+                continue
+            if name == "spectrum" and self._spectrum is not None:
+                order = np.argsort(self._spectrum[0])
+                x, y = self._spectrum[0][order], self._spectrum[1][order]
+            columns.append((f"{name}: {x_title}", np.asarray(x, dtype=float)))
+            columns.append((f"{name}: {y_title}", np.asarray(y, dtype=float)))
+        length = max((len(values) for _, values in columns), default=0)
+        with Path(path).open("w", newline="", encoding="utf-8") as stream:
+            writer = csv.writer(stream)
+            writer.writerow([title for title, _ in columns])
+            for row in range(length):
+                writer.writerow(
+                    [repr(float(v[row])) if row < len(v) else "" for _, v in columns]
+                )
 
     def export_figure(self, path: str, kind: str) -> None:
         """Ask for one of solprop's plots of the plane as a figure.

@@ -58,7 +58,9 @@ def test_a_plane_whose_phase_solprop_refuses_says_why(run: str, monkeypatch):
         raise SolpropError("no phase here")
 
     monkeypatch.setattr(results, "get_phase", refuse)
-    assert ask("plane", {"path": run, "index": 0})["phase"] == {"error": "no phase here"}
+    assert ask("plane", {"path": run, "index": 0})["phase"] == {
+        "error": "no phase here"
+    }
 
 
 def test_the_statistics_are_labelled_by_mode(run: str, monkeypatch):

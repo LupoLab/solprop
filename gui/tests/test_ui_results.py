@@ -92,6 +92,9 @@ def test_the_plane_view_asks_and_draws(qtbot: QtBot, tmp_path: Path):
     )
     assert "φ2 = 1 fs^2" in view.status.text() and len(view.compressed) == 2
     shot(view, tmp_path, "plane")
+    view.export_data(tmp_path / "plane.csv")
+    lines = (tmp_path / "plane.csv").read_text(encoding="utf-8").splitlines()
+    assert lines[0].startswith("spectrum: wavelength (nm)") and len(lines) == 1 + 64
     view.show_plane(plane_reply(phase=False))
     assert "No phase" in view.status.text() and view.compressed == []
     view.export_figure("x.pdf", "spec_1d")
