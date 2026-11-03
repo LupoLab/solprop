@@ -101,7 +101,7 @@ the same object as in its home module:
    * - plots
      - ``prop_2d``, ``time_1d``, ``spec_1d``, ``spectrogram``, ``plot_energy``, ``plot_stats``, ``wavelength_to_axis``
    * - processing
-     - ``grid_of``, ``get_field``, ``get_power``, ``get_power_weight``, ``get_spectrum``, ``get_spectral_density``, ``get_phase``, ``bandpass``, ``energy``, ``peak_power``, ``fwhm``, ``fwhm_t``, ``fwhm_f``, ``arrival_time``, ``time_bandwidth``, ``specres``, ``g12``, the autocorrelations and ``coherence_time``, and the general modal accessors ``electric_field``, ``magnetic_field``, ``reconstructed_flux``, ``physical_energy`` and their companions (:doc:`../results/processing`)
+     - ``grid_of``, ``get_field``, ``get_power``, ``get_power_weight``, ``get_spectrum``, ``get_spectral_density``, ``get_spectrogram``, ``get_phase``, ``bandpass``, ``energy``, ``peak_power``, ``fwhm``, ``fwhm_t``, ``fwhm_f``, ``arrival_time``, ``time_bandwidth``, ``specres``, ``g12``, the autocorrelations and ``coherence_time``, and the general modal accessors ``electric_field``, ``magnetic_field``, ``reconstructed_flux``, ``physical_energy`` and their companions (:doc:`../results/processing`)
    * - optics and compression
      - ``TaylorPhase``, ``Material``, ``ChirpedMirror``, ``Chain``, ``chirped_mirrors``, ``GratingPair``, ``PrismPair``, ``PrismGeometry``, ``littrow_angle``, ``brewster_angle``, ``brewster_apex``, ``compress_taylor``, ``compress_material``, ``compress_mirrors``, ``compress_gratings``, ``compress_prisms``, ``optimise_cep``, ``transform_limit``, ``apply_transfer``, ``Compression``, ``CepOptimum`` (:doc:`compression`)
    * - the session
