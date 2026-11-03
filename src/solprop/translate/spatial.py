@@ -24,12 +24,13 @@ from solprop.exceptions import OutputError, TranslationError
 from solprop.grid import FreeGrid, RadialGrid, TimeGrid
 from solprop.spatial import (
     FAR_FIELD_STATISTICS,
+    ApertureOutline,
     ApertureTables,
+    aperture_outline,
     aperture_scale,
     attenuation_extremes,
-    quadrature_half_width,
 )
-from solprop.stats import StatsSpec
+from solprop.stats import ApertureSet, StatsSpec
 from solprop.translate.chebyshev import PiecewiseChebyshev
 from solprop.translate.masks import Grids
 
@@ -956,12 +957,15 @@ def aperture_tables(
 ) -> ApertureTables | None:
     """Form the far-field statistics' tables once, for every backend (SEP 23 §6).
 
-    The per-aperture constants -- the profile's half-width, ``D/2`` or, under
-    quadrature weighting, the corrected ``D_q/2`` of
-    :func:`solprop.spatial.quadrature_half_width` (unchanged on a line, whose edges
-    are straight) -- and the scale table of :func:`solprop.spatial.aperture_scale`,
-    with the geometry's column axes, weights and on-axis vector and the spec's
-    regions. Every backend calls this at construction and
+    The per-aperture constants -- each row's outline of
+    :func:`solprop.spatial.aperture_outline`, whose half-width under quadrature
+    weighting is the corrected ``D_q/2`` of a circle or an ellipse (unchanged on a
+    line, whose edges are straight, and on the straight edges of a rectangle or a
+    half-plane) -- and the scale table of :func:`solprop.spatial.aperture_scale`, with
+    the geometry's column axes, weights and on-axis vector and the spec's regions. On
+    a line every column has ``kappa_y = 0`` and the light is uniform in y, so a
+    rectangle has no y edges to meet: it is a slit of its x width, the row a circle of
+    that diameter forms. Every backend calls this at construction and
     :func:`solprop.stats.collect` calls it for a saved plane, so all of them use the
     same scale to the bit.
 
@@ -983,7 +987,8 @@ def aperture_tables(
     ------
     OutputError
         For a radial or planar-hybrid geometry or none at all; and on a line, for an
-        aperture whose centre is off ``y = 0`` or a region whose ``kappa_y`` interval
+        aperture whose centre is off ``y = 0``, a half-plane bounded in y or an ellipse,
+        which have no meaning uniform in y, or a region whose ``kappa_y`` interval
         excludes zero, which would select nothing.
     """
     if not set(spec.names) & set(FAR_FIELD_STATISTICS):
@@ -999,6 +1004,8 @@ def aperture_tables(
                 "must be zero"
             )
             raise OutputError(msg)
+        if apertures is not None:
+            _refuse_off_line(apertures)
         excluded = np.flatnonzero(~((regions[:, 2] <= 0) & (regions[:, 3] > 0)))
         if excluded.size:
             msg = (
@@ -1021,15 +1028,7 @@ def aperture_tables(
             distances=empty,
             scale=np.empty((0, grids.omega.size)),
         )
-    diameters = np.asarray(apertures.diameters)
-    edges = (
-        np.zeros(diameters.size)
-        if apertures.edges is None
-        else np.asarray(apertures.edges)
-    )
-    half_widths = diameters / 2
-    if apertures.weighting == "quadrature" and not line:
-        half_widths = quadrature_half_width(half_widths, edges, apertures.profile)
+    outlines = _outlines(apertures, line=line)
     distances = np.asarray(apertures.distances)
     return ApertureTables(
         k_x=k_x,
@@ -1038,10 +1037,83 @@ def aperture_tables(
         on_axis=on_axis,
         regions=regions,
         centres=np.asarray(apertures.centres),
-        half_widths=half_widths,
-        edges=edges,
+        half_widths=np.array([one.half_width for one in outlines]),
+        edges=np.array([one.edge for one in outlines]),
         distances=distances,
         scale=aperture_scale(distances, grids.omega),
-        profile=apertures.profile,
+        profiles=tuple(one.kind for one in outlines),
         exponent=1 if apertures.weighting == "quadrature" else 2,
+        shapes=tuple(one.shape for one in outlines),
+        half_heights=np.array([one.half_height for one in outlines]),
+        stretches=np.array([one.stretch for one in outlines]),
     )
+
+
+def _refuse_off_line(apertures: ApertureSet) -> None:
+    """Refuse the outlines a line uniform in y gives no meaning.
+
+    Parameters
+    ----------
+    apertures : solprop.stats.ApertureSet
+        The set.
+
+    Raises
+    ------
+    OutputError
+        For a half-plane bounded in y, which holds every column or none, or an
+        ellipse, which is an edge in y as well as in x.
+    """
+    for row, shape in enumerate(apertures.row_shapes):
+        if shape == "ellipse" or shape.startswith("half_plane_y"):
+            msg = (
+                f"on a line every column has kappa_y = 0 and the light is uniform in "
+                f"y, so aperture {row}, a {shape}, has no meaning there; a line takes "
+                "a circle or a rectangle, each a slit along x, or a half-plane bounded "
+                "in x"
+            )
+            raise OutputError(msg)
+
+
+def _outlines(apertures: ApertureSet, *, line: bool) -> list[ApertureOutline]:
+    """Return each row's outline on a plane or a line.
+
+    Parameters
+    ----------
+    apertures : solprop.stats.ApertureSet
+        The set.
+    line : bool
+        Whether the columns are a line's.
+
+    Returns
+    -------
+    list of solprop.spatial.ApertureOutline
+        One per aperture.
+    """
+    count = apertures.n_apertures
+    diameters = np.asarray(apertures.diameters)
+    edges = np.zeros(count) if apertures.edges is None else np.asarray(apertures.edges)
+    extents = (
+        np.zeros((count, 2))
+        if apertures.extents is None
+        else np.asarray(apertures.extents)
+    )
+    corrected = apertures.weighting == "quadrature" and not line
+    outlines = []
+    for row in range(count):
+        shape = apertures.row_shapes[row]
+        diameter, extent = float(diameters[row]), extents[row]
+        if line and shape == "rectangle":
+            # sqrt(x*x) is |x| in correctly rounded arithmetic, so the slit decides a
+            # hard edge as a circle of this diameter does (SEP 23 section 4.10).
+            shape, diameter = "circle", float(extent[0])
+        outlines.append(
+            aperture_outline(
+                shape,
+                diameter,
+                (float(extent[0]), float(extent[1])),
+                float(edges[row]),
+                apertures.row_profiles[row],
+                corrected=corrected,
+            )
+        )
+    return outlines

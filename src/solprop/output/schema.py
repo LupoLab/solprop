@@ -247,6 +247,11 @@ def _serialise_dataclass(value: object) -> dict[str, JsonValue]:
     :class:`~solprop.modes.guide.ChannelSource` holds the provider object, whose
     identity the run records once beside its channels.
 
+    A field whose metadata says ``record_none=False`` is left out while it is ``None``:
+    an optional extension whose absence means what every earlier record means, so a run
+    that does not use it keeps its record and its hash (an aperture's shape, an
+    absorber's ``user_rate``). Set, it is recorded, and two different values hash apart.
+
     Parameters
     ----------
     value : object
@@ -266,7 +271,10 @@ def _serialise_dataclass(value: object) -> dict[str, JsonValue]:
     for entry in dataclasses.fields(value):  # type: ignore[arg-type] - checked by the caller
         if not entry.init or not entry.metadata.get("record", True):
             continue
-        record[entry.name] = serialise(getattr(value, entry.name))
+        held = getattr(value, entry.name)
+        if held is None and not entry.metadata.get("record_none", True):
+            continue
+        record[entry.name] = serialise(held)
     return record
 
 

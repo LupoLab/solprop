@@ -3530,6 +3530,12 @@ def _aperture_payload(
     """
     if tables is None:
         return np.empty((0, 6 + n_omega)), np.empty((0, 4)), 0, 2
+    assert tables.shapes is not None and tables.profiles is not None
+    if set(tables.shapes) != {"circle"} or len(set(tables.profiles)) > 1:
+        raise BackendError(
+            "the native far-field pass holds one edge profile per call and circles "
+            "only; use backend='numpy_ref' for other shapes or mixed profiles"
+        )
     constants = np.column_stack(
         (
             tables.centres,
@@ -3543,7 +3549,7 @@ def _aperture_payload(
     return (
         apertures,
         np.ascontiguousarray(tables.regions, dtype=np.float64),
-        tables.profile_code,
+        int(tables.profile_codes[0]) if tables.n_apertures else 0,
         tables.exponent,
     )
 
