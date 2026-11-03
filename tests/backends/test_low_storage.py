@@ -1460,11 +1460,12 @@ def test_the_ledger_holds_three_registers_the_scratch_and_the_table(mode, collar
     assert sum(volumes.values()) == (5 if mode == "tabulate" else 4) * field
     # Every other row is a node chunk's, bounded by the chunk and not the state.
     assert all(size < field for row, size in ledger.items() if row not in FIELD_ROWS)
-    # The construction-free estimate is the ledger to the byte.
+    # The construction-free estimate is the ledger to the byte, beside the problem's
+    # own initial state, which no ledger holds.
     estimate = estimate_memory(problem, "numpy_ref")
     assert estimate.groups == {
         name: size for name, size in ledger_groups(ledger).items() if name != "measured"
-    }
+    } | {"initial_field": problem.initial.field0.nbytes}
 
 
 def test_the_noise_adds_one_volume_and_the_estimate_names_it():

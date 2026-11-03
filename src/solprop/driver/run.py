@@ -33,7 +33,7 @@ import logging
 import math
 import time
 from collections.abc import Mapping, Sequence
-from typing import cast
+from typing import Literal, cast
 
 import numpy as np
 
@@ -517,7 +517,7 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
             checkpoint_output,
             backend,
             tdse_binding,
-            RunOutcome("running", reached),
+            _Status("running", reached),
             clock=clock,
         )
         # The entrance is saved when the handler holds nothing, rather than whenever the
@@ -542,7 +542,7 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
                     checkpoint_output,
                     backend,
                     tdse_binding,
-                    RunOutcome("running", reached),
+                    _Status("running", reached),
                     clock=clock,
                 )
             watch.show(pending, output.n_saved - 1)
@@ -597,7 +597,7 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
                     checkpoint_output,
                     backend,
                     tdse_binding,
-                    RunOutcome("running", reached),
+                    _Status("running", reached),
                     clock=clock,
                 )
             if snapshots is not None:
@@ -612,7 +612,7 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
                         checkpoint_output,
                         backend,
                         tdse_binding,
-                        RunOutcome("running", z),
+                        _Status("running", z),
                         clock=clock,
                     )
 
@@ -636,7 +636,7 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
                 checkpoint_output,
                 backend,
                 tdse_binding,
-                RunOutcome("complete", reached),
+                _Status("complete", reached),
                 clock=clock,
             )
         reporter.finished(time.perf_counter() - started)
@@ -1315,12 +1315,12 @@ def _persist_failure(
                 output,
                 backend,
                 binding,
-                RunOutcome(
+                _Status(
                     "budget_exhausted"
                     if isinstance(failure.error, ResponseBudgetError)
                     else "failed",
                     reached,
-                    message=f"{type(failure.error).__name__}: {failure.error}",
+                    f"{type(failure.error).__name__}: {failure.error}",
                 ),
                 clock=failure.clock,
                 checkpoint=checkpoint,
@@ -1379,11 +1379,10 @@ def _record_abandoned_step(
                 output,
                 backend,
                 binding,
-                RunOutcome(
+                _Status(
                     "failed",
                     failure.reached,
-                    message=f"{type(failure.error).__name__}: {failure.error}; "
-                    f"{reason}",
+                    f"{type(failure.error).__name__}: {failure.error}; {reason}",
                 ),
                 clock=failure.clock,
             )
@@ -1392,11 +1391,30 @@ def _record_abandoned_step(
         logger.exception("could not record the failure")
 
 
+@dataclasses.dataclass(frozen=True)
+class _Status:
+    """What an execution record says of the run, before its accounting is added.
+
+    Attributes
+    ----------
+    status : {'running', 'complete', 'budget_exhausted', 'failed'}
+        The run's status (:class:`~solprop.output.schema.RunOutcome`).
+    z : float
+        Last accepted or saved position, m.
+    message : str
+        Explanation of a stop or failure; empty on ordinary progress.
+    """
+
+    status: Literal["running", "complete", "budget_exhausted", "failed"]
+    z: float
+    message: str = ""
+
+
 def _record_execution(
     output: CheckpointOutput | None,
     backend: Backend,
     binding: TDSEBinding | None,
-    outcome: RunOutcome,
+    status: _Status,
     *,
     clock: RunClock,
     checkpoint: TerminalCheckpoint | None = None,
@@ -1415,7 +1433,7 @@ def _record_execution(
         Optical backend supplying cumulative logical calls and execution facts.
     binding : TDSEBinding or None
         Optional atomic runtime supplying attempted native calls.
-    outcome : RunOutcome
+    status : _Status
         Requested status, absolute position in m and any error message.
     clock : solprop._host.RunClock
         When the run started.
@@ -1426,7 +1444,7 @@ def _record_execution(
         return
     record = {**backend.metadata(), "host": machine(), "resources": usage(clock)}
     monitor = record.get("boundary_monitor")
-    if outcome.status == "running" and isinstance(monitor, Mapping):
+    if status.status == "running" and isinstance(monitor, Mapping):
         # The monitor's per-plane rows go out with the closing record alone: rewritten
         # at every plane, the record grew with them and the file with their square.
         record["boundary_monitor"] = {
@@ -1441,9 +1459,12 @@ def _record_execution(
         if binding is None
         else dataclasses.asdict(binding.ledger)
     )
+    # Built once, so that a saved plane validates its record once (RunOutcome).
     output.record_outcome(
-        dataclasses.replace(
-            outcome,
+        RunOutcome(
+            status.status,
+            status.z,
+            status.message,
             logical_calls=logical,
             atomic_calls=cast("Mapping[str, object]", atomic)
             if isinstance(atomic, Mapping)

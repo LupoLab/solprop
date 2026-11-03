@@ -27,7 +27,7 @@ from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
-from typing import Final, cast
+from typing import TYPE_CHECKING, Final, cast
 
 from solprop.backends.protocol import Backend, BatchBackend
 from solprop.exceptions import BackendError
@@ -39,6 +39,9 @@ from solprop.translate.plasma_source import _BENCHMARK_GATED
 from solprop.translate.precision import SINGLE_PRECISION_BACKENDS
 from solprop.translate.problem import KernelProblem
 from solprop.translate.tdse import TDSEBinding
+
+if TYPE_CHECKING:
+    from solprop.backends.driver import StepDriver
 
 __all__ = [
     "BACKENDS",
@@ -564,7 +567,19 @@ def select_batch(owners: Sequence[Backend]) -> BatchBackend:
         from solprop.backends.numpy_ref.batch import (  # noqa: PLC0415 - lazy backend
             NumpyBatchBackend,
         )
+        from solprop.backends.numpy_ref.single import (  # noqa: PLC0415 - lazy backend
+            NumpySingleBackend,
+        )
 
+        if any(isinstance(owner, NumpySingleBackend) for owner in owners):
+            # NumpyBatchBackend's stage arithmetic over the member axis is binary64;
+            # the single-precision path's members each take their own binary32
+            # trial. The runner's member validation refuses mixed precisions.
+            from solprop.backends.batch import (  # noqa: PLC0415 - lazy backend
+                LockstepRunner,
+            )
+
+            return LockstepRunner(cast("Sequence[StepDriver[object]]", owners))
         return NumpyBatchBackend(cast(Sequence[NumpyRefBackend], owners))
     if name == "mlx":  # pragma: no cover - needs MLX, macOS on Apple silicon
         from solprop.backends.mlx_gpu.backend import (  # noqa: PLC0415 - lazy backend

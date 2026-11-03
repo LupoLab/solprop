@@ -36,7 +36,8 @@ class NumpyBatchBackend(LockstepRunner):
     Raises
     ------
     BackendError
-        If the fixed-schedule contract, backend or tableau differs between members.
+        If the fixed-schedule contract, backend or tableau differs between members,
+        or a member is single precision.
     """
 
     helpers = PLAIN
@@ -63,6 +64,18 @@ class NumpyBatchBackend(LockstepRunner):
                     "its explicit residual, so a coupled member would propagate "
                     "only the diagonal half of its own equation. Run each member "
                     "on its own"
+                )
+                raise BackendError(msg)
+            # Its stage arithmetic over the member axis is binary64: binary64
+            # propagators and the plain error norm. Single-precision members each
+            # take their own binary32 trial through `LockstepRunner`, which
+            # `registry.select_batch` builds for them.
+            if member._problem.precision.single:
+                msg = (
+                    "the numpy_ref lockstep batch evaluates its stage arithmetic in "
+                    "binary64 and refuses a single-precision member; batch "
+                    "single-precision members with LockstepRunner, as "
+                    "registry.select_batch does"
                 )
                 raise BackendError(msg)
         super().__init__([cast(StepDriver[object], member) for member in members])

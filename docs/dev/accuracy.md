@@ -649,6 +649,8 @@ These are one-fibre witnesses and numerical integration checks.
 |---|---|---|
 | 40-digit step-index index witness | 2.22e-16 relative | 1e-13 |
 | Implicit derivative witness | 8.82e-14 relative | 1e-12 |
+| Large-V roots against a 40-digit solve of the unreduced equation, V = 67 to 19990, n = 0 to 3 and 40 to 300 | 6.66e-16 relative in u, 2.54e-16 in the index | 8 ε, the root solves' 4 ulp stop |
+| Modified Bessel quotients by recurrence where `kve` overflows, n = 40 to 300, w = 6e-4 to 40, against mpmath | 2.2e-13 relative | 4nε, one rounding per step |
 | Richardson derivative | 1.10e-11 relative | 1e-9 |
 | HE11 parity Gram, 24 radial nodes per panel | 6.66e-16 | 1e-12 |
 | HE11/HE12 adaptive electric-field overlap, delta = 0.005/0.05 | 2.536e-4 / 3.026e-3 | exceeds the unchanged 1e-6 multimode gate |

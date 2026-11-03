@@ -413,8 +413,15 @@ and rounds it once; evaluates Kerr, Raman (scalar, tensor, mixtures) and the fie
 plasma in binary32 with each term's homogeneity factor in one host coefficient, the
 stable population forms and blocked running integrals
 (`translate.precision.prefix_sum`); reduces the controller's norms as scaled sums of
-squares against `atol / s`; and checks after every trial that the state and stages stayed
-complex64 and after every step that the state is finite. The ionisation rate's table
+squares against `atol / s`; applies the split-step collar as the correction
+`a + F(F^-1(a)(f - 1))` in binary32, `f - 1` formed in binary64 and rounded once, as
+`mlx` does (a binary64 state keeps `F(F^-1(a) f)`); and checks after every trial that the
+state and stages stayed complex64, and after every step that the finished state is
+complex64 and finite. Its fixed-schedule batches are the plain `LockstepRunner`, each
+member through its own binary32 trial: `NumpyBatchBackend`'s stage arithmetic over the
+member axis is binary64, so it refuses a single-precision member by name, and every
+lockstep batch refuses members of mixed precisions (`_validate_members`). The
+ionisation rate's table
 lookup, the envelope-grid plasma's cycle moments and the statistics are evaluated in
 binary64 from the binary32 field, which is what the oracle defines. Its constructor, and
 so `mlx`'s, applies the settings' own admission (`translate.precision.admit_precision`):
@@ -1723,7 +1730,10 @@ general modal route `general_maps`, `general_reference` (the dense E/H reference
 frequency bin, the largest group on a guide with many channels), `general_chunk` and
 `general_delayed`, `coupled_flow` for a coherent wall or a varying guide, and
 `adams_history` for the Adams integrator's history rows (on the native backend the resident
-engine's); the driver adds `output` and `held_plane`. The route groups equal each
+engine's); beside them `initial_field`, the translated problem's initial state at the
+bytes it holds (a broadcast input's repeated block alone, `kernel-contract.md` section 6),
+resident like the general reference and in no backend's ledger; the driver adds `output`
+and `held_plane`. The route groups equal each
 backend's ledger to the byte. `base` is the reference's count of its buffers on every
 backend, plus the native backend's own rows where the
 two differ (the far-field partials, the dispersive response's buffers, the held

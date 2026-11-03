@@ -61,6 +61,13 @@ For SEP 27's held field-current source, the estimate replaces the reference's
 allowance with the native backend's current buffers, projection rows,
 spectra and tables. FFT-provider allocator growth remains a measured ledger row.
 
+``initial_field`` is beside those groups, because no backend's ledger holds it: the
+translated problem's initial state, ``problem.initial.field0``, at the bytes it holds:
+one state's bytes, or a broadcast input's repeated block alone
+(:class:`~solprop.translate.problem.Initial`). **Already resident** when the estimate is
+formed, as the general reference is, and held on the host, so the admission charges it
+to the host alone.
+
 What is **not counted** is named on every estimate (:attr:`MemoryEstimate.not_counted`).
 
 **Before translation.** The general route's reference and maps are the largest
@@ -220,13 +227,15 @@ class MemoryEstimate:
     backend : str
         The registry name the estimate is for.
     groups : collections.abc.Mapping
-        Bytes by group, every one of :data:`MEMORY_GROUPS` present, non-negative.
+        Bytes by group, every one of :data:`MEMORY_GROUPS` present, non-negative;
+        :func:`estimate_memory` adds ``initial_field``.
     not_counted : tuple of str
         What the estimate leaves out, each in words (the backend's measured planning
         heap, per-stage transients, a noise field loaded later).
     resident : int
         Bytes of the estimate already allocated when it was formed: the general
-        route's reference, which the translated problem holds. Non-negative.
+        route's reference and the initial field, which the translated problem holds.
+        Non-negative.
 
     Examples
     --------
@@ -278,7 +287,8 @@ def estimate_memory(problem: KernelProblem, backend: str) -> MemoryEstimate:
 
     Construction-free: nothing the backend would allocate is allocated here. The route
     groups are the formulas of the module docstring for the named backend; the
-    ``base`` group is the reference's count on every backend.
+    ``base`` group is the reference's count on every backend; ``initial_field`` is
+    what the problem's own initial state holds.
 
     Parameters
     ----------
@@ -315,7 +325,9 @@ def estimate_memory(problem: KernelProblem, backend: str) -> MemoryEstimate:
     ...                    save_planes=[0.01], dz_max=0.01, dz_init=1e-3,
     ...                    density=1.0, shock=False, prefactor_index=1.0)
     >>> estimate = estimate_memory(problem, "numpy_ref")
-    >>> estimate.total == estimate.groups["base"] > 0
+    >>> estimate.groups["initial_field"] == problem.initial.field0.nbytes
+    True
+    >>> estimate.total == estimate.groups["base"] + estimate.resident
     True
     """
     name = _estimated(backend)
@@ -346,12 +358,38 @@ def estimate_memory(problem: KernelProblem, backend: str) -> MemoryEstimate:
     groups |= _general_groups(problem, name)
     groups["coupled_flow"] = _flow_bytes(problem, name)
     groups["adams_history"] = sum(adams_memory(problem, name).values())
+    groups["initial_field"] = _initial_field_bytes(problem)
     return MemoryEstimate(
         name,
         groups,
         not_counted=_NOT_COUNTED[name],
-        resident=groups["general_reference"],
+        resident=groups["general_reference"] + groups["initial_field"],
     )
+
+
+def _initial_field_bytes(problem: KernelProblem) -> int:
+    """Return the bytes the translated problem's initial state holds.
+
+    A broadcast view holds only the block it repeats: an axis of zero stride adds no
+    bytes, whatever its length.
+
+    Parameters
+    ----------
+    problem : solprop.translate.problem.KernelProblem
+        The translated problem.
+
+    Returns
+    -------
+    int
+        Bytes, one state's for an array of its own.
+    """
+    field = problem.initial.field0
+    held = math.prod(
+        size
+        for size, stride in zip(field.shape, field.strides, strict=True)
+        if stride != 0
+    )
+    return held * field.itemsize
 
 
 # The reference's rows that stay binary64 on the single-precision path: the exponents

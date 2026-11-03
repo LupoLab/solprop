@@ -339,9 +339,12 @@ from solprop.translate.problem import (
     PropagatorMode,
     StepperSettings,
     TranslationReuse,
+    _held_state,
+    _hold,
+    _state,
     assemble,
 )
-from solprop.translate.responses import KerrForm
+from solprop.translate.responses import KerrForm, declares_harmonic_carrier
 from solprop.translate.tdse import AtomicCallLedger, TDSEBinding, refine_response_grid
 from solprop.translate.tdse_source import TDSE_UNAVAILABLE_STATISTICS
 from solprop.translate.transverse import (
@@ -1623,6 +1626,36 @@ def metadata_for(  # noqa: PLR0913 - the record's parts, each a distinct object
     )
 
 
+def _frame_follows_the_electronic_rule(
+    responses: Sequence[object], grid: TimeGrid
+) -> bool:
+    """Return whether a run's co-moving frame changed when it stopped reading Raman.
+
+    Before the frame followed
+    :func:`solprop.translate.responses.declares_harmonic_carrier`, any response's
+    ``thg`` kept ``beta_0`` on an envelope grid. The two rules disagree exactly when a
+    response other than the electronic ones declares ``thg=True`` and no electronic one
+    does.
+
+    Parameters
+    ----------
+    responses : collections.abc.Sequence
+        The run's declared responses.
+    grid : solprop.grid.TimeGrid
+        Its temporal grid.
+
+    Returns
+    -------
+    bool
+        True when the earlier rule would have kept ``beta_0`` and this one removes it.
+    """
+    return (
+        grid.kind == "envelope"
+        and any(bool(getattr(one, "thg", False)) for one in responses)
+        and not declares_harmonic_carrier(responses, grid)
+    )
+
+
 def _plane_reference_record(
     problem: KernelProblem,
     grid: TimeGrid,
@@ -1657,8 +1690,10 @@ def _plane_reference_record(
     """
     # The co-moving frame keeps the carrier phase exactly when a harmonic term is
     # present, and then measures its delay from zero frequency (`frame_origin`).
+    # `assemble` chose it from the declared responses and checked that choice against
+    # the compiled carrier, so reading the compiled one here records the same frame.
     if frame is None:
-        frame = Frame.comoving(grid, thg=problem.grids.carrier_2w0 is not None)
+        frame = Frame.comoving(grid, thg=problem.responses.harmonic_carrier)
     coupling = configuration.get("coupling")
     origin: object = PlaneReference().record()
     parent: object = None
@@ -2167,10 +2202,13 @@ class Simulation(Displayed):
                 raise DriverError(msg)
             if self.frame is None:
                 self.frame = Frame.comoving(
-                    grid, thg=any(bool(getattr(one, "thg", False)) for one in responses)
+                    grid, thg=declares_harmonic_carrier(responses, grid)
                 )
-            self._field0 = initial.build(
-                grid, spatial_grid, medium=medium, z=initial_z, frame=self.frame
+            self._field0 = _built_state(
+                initial,
+                initial.build(
+                    grid, spatial_grid, medium=medium, z=initial_z, frame=self.frame
+                ),
             )
         else:
             self._field0 = _built(initial, grid)
@@ -2650,15 +2688,8 @@ class Simulation(Displayed):
         record = dataclasses.replace(
             original.initial,
             z=launch_z,
-            field0=np.asarray(updated._field0[np.newaxis], dtype=np.complex128),
+            field0=_replaced_launch(original, updated._field0, launch_z),
         )
-        if original.transform.geometry is None:
-            record = dataclasses.replace(
-                record,
-                field0=power_amplitude(
-                    record.field0, power_weight_at(original, launch_z), inverse=True
-                ),
-            )
         updated._problem = _with_noise(
             dataclasses.replace(
                 original,
@@ -3003,6 +3034,13 @@ class Simulation(Displayed):
             )
             if self.frame is not None:
                 configuration["frame"] = self.frame
+            elif _frame_follows_the_electronic_rule(self.responses, self.grid):
+                # A Raman thg flag kept beta_0 on an envelope grid before the frame
+                # followed the electronic responses alone (issue #77). Recording the
+                # co-moving frame here, and only here, refuses a resume of such an
+                # earlier run by name, which would otherwise continue under another
+                # frame with the same digest; every other run keeps its digest.
+                configuration["frame"] = Frame.comoving(self.grid)
             # The operator settings of SEP 22 phase 2, recorded only where set, so
             # every earlier run keeps its digest; a collar as its two numbers.
             if self.settings.evanescent_rate is not None:
@@ -4258,10 +4296,7 @@ class Simulation(Displayed):
         chosen_frame = frame
         if chosen_frame is None:
             chosen_frame = Frame.comoving(
-                grid,
-                thg=any(
-                    bool(getattr(response, "thg", False)) for response in responses
-                ),
+                grid, thg=declares_harmonic_carrier(responses, grid)
             )
         settings = _spatial_default(
             _bounded(
@@ -4357,10 +4392,7 @@ class Simulation(Displayed):
         chosen_frame = frame
         if chosen_frame is None:
             chosen_frame = Frame.comoving(
-                grid,
-                thg=any(
-                    bool(getattr(response, "thg", False)) for response in responses
-                ),
+                grid, thg=declares_harmonic_carrier(responses, grid)
             )
         if isinstance(medium.material, Mixture) and settings.stats is None:
             base = default_spec("radial" if isinstance(space, RadialGrid) else "free")
@@ -8430,6 +8462,37 @@ def _refined_tdse_collar(
     )
 
 
+def _replaced_launch(
+    original: KernelProblem,
+    field0: Complex[np.ndarray, "n_modes n_pol n_omega"],
+    launch_z: float,
+) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
+    """Return a replaced input as the derived problem's launch, copied at most once.
+
+    Parameters
+    ----------
+    original : KernelProblem
+        The problem the input replaces the launch of.
+    field0 : numpy.ndarray
+        The replacement input, in true sqrt(W) on a modal route.
+    launch_z : float
+        Where it is launched, m.
+
+    Returns
+    -------
+    numpy.ndarray
+        The launch with its batch axis, which :class:`~solprop.translate.problem.
+        Initial` takes without a further copy.
+    """
+    if original.transform.geometry is not None:
+        return _state(field0, original.shape[-1])
+    # Converted first, so that the conversion is the launch's one copy.
+    converted = power_amplitude(
+        field0[np.newaxis], power_weight_at(original, launch_z), inverse=True
+    )
+    return _hold(np.asarray(converted, dtype=np.complex128))
+
+
 def _built(
     initial: Pulse | np.ndarray, grid: TimeGrid
 ) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
@@ -8453,7 +8516,13 @@ def _built(
         If `initial` is neither an array nor a pulse.
     """
     if isinstance(initial, np.ndarray):
-        return np.asarray(initial, dtype=np.complex128)
+        # The caller's array as it is; another dtype is converted as the problem holds
+        # it, so that a broadcast converts its block alone.
+        return (
+            np.asarray(initial)
+            if initial.dtype == np.complex128
+            else _held_state(initial)
+        )
     # A runtime-checkable protocol is satisfied by the presence of `build`, not by its
     # being callable, so the guard below is still the one that names the mistake.
     build = getattr(initial, "build", None)
@@ -8463,7 +8532,40 @@ def _built(
             f"got {type(initial).__name__}"
         )
         raise DriverError(msg)
-    return np.asarray(build(grid), dtype=np.complex128)
+    return _built_state(initial, build(grid))
+
+
+def _built_state(
+    pulse: object, built: object
+) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
+    """Return a pulse's built spectrum as the problem holds it, copied only if foreign.
+
+    A build of solprop's own pulse classes is a new array solprop made, so it is held
+    as it is; any other pulse's build may be an array the pulse keeps, and is copied
+    (:class:`~solprop.translate.problem.Initial`).
+
+    Parameters
+    ----------
+    pulse : object
+        The pulse that built it.
+    built : object
+        What its ``build`` returned.
+
+    Returns
+    -------
+    numpy.ndarray
+        The spectrum, complex128, read-only and held.
+    """
+    spectrum = np.asarray(built)
+    build = getattr(type(pulse), "build", None)
+    own = getattr(build, "__module__", None) == _PULSE_MODULE
+    if own and spectrum.dtype == np.complex128:
+        return _hold(spectrum)
+    return _held_state(spectrum)
+
+
+_PULSE_MODULE: Final = SpatialPulse.__module__
+"""The module of solprop's pulse classes, whose ``build`` always makes a new array."""
 
 
 def _interpolated(state: ResumeState) -> bool:

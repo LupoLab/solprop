@@ -58,7 +58,7 @@ from solprop.nonlinear.gnlse import problem_from
 from solprop.nonlinear.responses import KerrResponse
 from solprop.pulses import GaussianPulse, SechPulse
 from solprop.stepper import FixedSchedule, PIController
-from solprop.translate.problem import assemble
+from solprop.translate.problem import _printed_down, assemble
 
 BETA2 = -11.83e-27  # s^2/m
 GAMMA = 0.11  # 1/(W m)
@@ -227,7 +227,7 @@ def test_a_schedule_too_long_for_an_in_stage_collar_is_refused_before_the_run(gr
     limit = stable_step(rate)
     assert limit == pytest.approx(2.0 * STABILITY_RADIUS / float(np.max(rate)))
     too_few = max(int(LENGTH / limit) // 2, 1)
-    with pytest.raises(TranslationError, match=f"only up to {limit:.3e} m"):
+    with pytest.raises(TranslationError, match=f"only up to {_printed_down(limit)} m"):
         biting_case(grid, "nonlinear", too_few)
     # Steps inside the limit are accepted, and the same too-long schedule under the
     # split factor is unconditionally stable; neither says anything.
