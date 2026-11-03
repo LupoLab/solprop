@@ -2024,7 +2024,11 @@ class Simulation(Displayed):
         method -- or an already-built spectrum of shape ``(n_modes, n_pol, n_omega)`` in
         the square root of watts and the internal convention. A pulse is the better
         choice: it is a small specification, while a built array is recorded in the
-        metadata as itself.
+        metadata as itself. An array is copied here, complex128 and read-only, and
+        :attr:`initial` becomes that copy, so changing the caller's array afterwards
+        changes neither the run nor its record; a broadcast view
+        (:func:`numpy.broadcast_to`) copies only the block it repeats. The translated
+        problem holds the same copy rather than another.
     settings : SimulationSettings
         How to step it, what to record and which backend to use.
     initial_z : float, optional
@@ -2197,22 +2201,61 @@ class Simulation(Displayed):
         self._mixture_selection: ResponseSelection | None = None
         self._peak_fields: tuple[PeakFieldReport, ...] = ()
         self._reuse: TranslationReuse | None = None
-        if isinstance(initial, SpatialPulse):
-            if spatial_grid is None or medium is None:
-                msg = "a SpatialPulse requires spatial_grid and medium"
-                raise DriverError(msg)
-            if self.frame is None:
-                self.frame = Frame.comoving(
-                    grid, thg=declares_harmonic_carrier(responses, grid)
-                )
-            self._field0 = _built_state(
-                initial,
-                initial.build(
-                    grid, spatial_grid, medium=medium, z=initial_z, frame=self.frame
-                ),
+        self._field0 = self._built_input(initial, grid, initial_z)
+        if isinstance(initial, np.ndarray):
+            # What was passed is what runs and what is recorded: the simulation's own
+            # copy, which the translated problem then holds without another.
+            self.initial = self._field0
+
+    def _built_input(
+        self,
+        initial: Pulse | SpatialPulse | np.ndarray,
+        grid: TimeGrid,
+        initial_z: float,
+    ) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
+        """Return the input as the simulation holds it, building a pulse on its grids.
+
+        A spatial pulse is built on the spatial grid in the medium, in the simulation's
+        frame, which it sets to the comoving frame when none was given.
+
+        Parameters
+        ----------
+        initial : Pulse, SpatialPulse or numpy.ndarray
+            The constructor's input.
+        grid : solprop.grid.TimeGrid
+            The temporal grid.
+        initial_z : float
+            The launch position, m.
+
+        Returns
+        -------
+        numpy.ndarray
+            The spectrum, complex128, read-only and the simulation's own (`_built`).
+
+        Raises
+        ------
+        DriverError
+            If a spatial pulse comes without a spatial grid and a medium.
+        """
+        if not isinstance(initial, SpatialPulse):
+            return _built(initial, grid)
+        if self.spatial_grid is None or self.medium is None:
+            msg = "a SpatialPulse requires spatial_grid and medium"
+            raise DriverError(msg)
+        if self.frame is None:
+            self.frame = Frame.comoving(
+                grid, thg=declares_harmonic_carrier(self.responses, grid)
             )
-        else:
-            self._field0 = _built(initial, grid)
+        return _built_state(
+            initial,
+            initial.build(
+                grid,
+                self.spatial_grid,
+                medium=self.medium,
+                z=initial_z,
+                frame=self.frame,
+            ),
+        )
 
     @property
     def settings(self) -> SimulationSettings:
@@ -2564,6 +2607,8 @@ class Simulation(Displayed):
             Pulse or internal-convention spectrum on the existing grid. The built
             shape must match the original input, including modes and polarisation.
             Modal amplitudes are in sqrt(W); spatial units follow the spatial grid.
+            An array is copied when the derived simulation is built, as by the
+            constructor.
             A :class:`~solprop.coupling.port.CouplingLaunch` (SEP 31) must be bound to
             this simulation's :meth:`input_port` -- its route, lattice, basis,
             entrance and metric -- or it is refused whatever its shape; its
@@ -8505,7 +8550,9 @@ def _built(
     Returns
     -------
     numpy.ndarray
-        The spectrum, complex128, shape ``(n_modes, n_pol, n_omega)``.
+        The spectrum, complex128, shape ``(n_modes, n_pol, n_omega)``, read-only and
+        the simulation's own: a copy of an array (of its repeated block for a
+        broadcast), or a solprop pulse's new build.
 
     Raises
     ------
@@ -8513,13 +8560,10 @@ def _built(
         If `initial` is neither an array nor a pulse.
     """
     if isinstance(initial, np.ndarray):
-        # The caller's array as it is; another dtype is converted as the problem holds
-        # it, so that a broadcast converts its block alone.
-        return (
-            np.asarray(initial)
-            if initial.dtype == np.complex128
-            else _held_state(initial)
-        )
+        # Copied now, so that changing the caller's array later changes nothing, as
+        # the problem holds it: a broadcast copies its block alone, and an array a
+        # simulation already holds (its own, passed back) is taken as it is.
+        return _held_state(initial)
     # A runtime-checkable protocol is satisfied by the presence of `build`, not by its
     # being callable, so the guard below is still the one that names the mistake.
     build = getattr(initial, "build", None)

@@ -79,11 +79,13 @@ a narrower frequency window for all of them. Nothing is ever approximated to fit
 counted, and named on every estimate: FFTW's planning heap and per-stage transients.
 
 **The initial field.** The translated problem keeps the run's initial state for as long
-as it lives, and the estimate counts it as the group `initial_field`, on the host. The
-problem copies what you pass, so that changing your array afterwards cannot change the
-run: one state's bytes, held converted to the internal amplitude on a modal route. A
-broadcast view such as `numpy.broadcast_to(column, shape)` is the exception: the problem
-copies only the block it repeats. A caller who loads its own state into one backend for
+as it lives, and the estimate counts it as the group `initial_field`, on the host. A
+`Simulation` copies an array you pass when it is built, so that changing your array
+afterwards changes neither the run nor its record, and the translated problem holds that
+same copy, one state's bytes (on a modal route the problem holds the launch converted to
+its internal amplitude instead, beside the simulation's copy). A broadcast view such as
+`numpy.broadcast_to(column, shape)` is the exception: only the block it repeats is
+copied. A solprop pulse's build is a new array and is not copied at all. A caller who loads its own state into one backend for
 run after run can pass a broadcast placeholder and pay for almost no held copy at all.
 
 ```python

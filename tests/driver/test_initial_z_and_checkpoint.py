@@ -227,6 +227,77 @@ def test_another_pulse_s_build_is_copied(state_copies):
     assert not np.shares_memory(derived._field0, kept.spectrum)
 
 
+def _free_from(field):
+    """Return a small vacuum Cartesian simulation launched from the array `field`."""
+    grid = EnvelopeGrid.from_limits(1e-4, 800e-9, (700e-9, 950e-9), 150e-15, thg=False)
+    space = FreeGrid(4e-4, 4, 3e-4, 3, collar_fraction=0)
+    # A flat transverse launch is the subject, not the boundary: no ramp, no monitor.
+    settings = SimulationSettings(
+        save_planes=[1e-4],
+        dz_max=5e-5,
+        dz_init=5e-5,
+        backend="numpy_ref",
+        spatial_absorber=False,
+        boundary_check=None,
+    )
+    return Simulation.from_free(
+        grid, space, SpatialMedium(), [], field, settings=settings, noise=None
+    )
+
+
+def _column_field():
+    """Return a writeable launch for `_free_from`: one Gaussian column per column."""
+    grid = EnvelopeGrid.from_limits(1e-4, 800e-9, (700e-9, 950e-9), 150e-15, thg=False)
+    column = GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-9).build(grid)
+    return np.broadcast_to(column, (12, 1, grid.n_omega)).copy()
+
+
+def test_changing_the_input_array_after_construction_changes_nothing(state_copies):
+    # What was passed is what runs: the array is copied once, when the simulation is
+    # built, and the translated problem holds that copy rather than a second one.
+    field = _column_field()
+    reference = _free_from(field.copy())
+    simulation = _free_from(field)
+    field *= 10.0
+    assert state_copies.count(field.shape) == 2  # one per simulation, no more
+    problem = simulation.translate()
+    assert np.shares_memory(problem.initial.field0, simulation._field0)
+    assert simulation.initial is simulation._field0
+    assert field.flags.writeable
+    estimated = simulation.estimate()
+    output = simulation.run(progress="none")
+    expected = reference.run(progress="none")
+    assert isinstance(output, MemoryOutput) and isinstance(expected, MemoryOutput)
+    assert state_copies.count(field.shape) == 2
+    assert estimated.memory == reference.estimate().memory
+    # The same copied launch on the same backend: the entrance plane is the same bits.
+    assert_array_equal(output.plane_field(0), expected.plane_field(0))
+    assert (
+        simulation.metadata().configuration_hash()
+        == reference.metadata().configuration_hash()
+    )
+
+
+def test_a_broadcast_input_is_copied_as_its_block_at_construction(state_copies):
+    field = _column_field()
+    row = np.array(field[:1])
+    simulation = _free_from(np.broadcast_to(row, field.shape))
+    row[...] = 0.0
+    assert state_copies == [row.shape]
+    assert simulation._field0.strides[0] == 0 and np.any(simulation._field0)
+    assert np.shares_memory(simulation.translate().initial.field0, simulation._field0)
+
+
+def test_a_replaced_array_input_is_copied_when_derived(state_copies):
+    simulation = _free_from(_column_field())
+    replacement = _column_field()
+    derived = simulation.with_input(replacement)
+    launch = np.array(derived.translate().initial.field0)
+    replacement[...] = 0.0
+    assert_array_equal(derived.translate().initial.field0, launch)
+    assert state_copies.count(replacement.shape) == 2
+
+
 def test_interior_input_uses_actual_z_modal_weight():
     simulation = Simulation.from_capillary(
         256e-6,
