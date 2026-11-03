@@ -22,7 +22,9 @@ from test_envelope_plasma import envelope_case, terms
 
 import solprop_native.backend as adapter
 from solprop_native import NativeBackend
-from solprop_native.backend import _native_problem
+from solprop_native.backend import (
+    _native_problem,  # pyright: ignore[reportPrivateUsage]
+)
 
 SPEC = StatsSpec(names=("electron_density", "peak_ionisation_rate"))
 

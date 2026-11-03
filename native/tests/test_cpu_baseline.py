@@ -131,21 +131,21 @@ def test_a_capable_processor_or_a_build_with_no_record_passes(
 def test_linux_x86_is_checked_only_on_linux(tmp_path: Path) -> None:
     package, info = write_build(tmp_path, "x86-64-v3", V2_FLAGS)
     error = _cpu.baseline_shortfall(package, platform="linux", cpuinfo=info)
-    assert error is not None
+    assert isinstance(error, _cpu.CpuBaselineError)
     assert "avx2" in error.missing_features
     # Elsewhere, such as a source build on an Intel Mac, NumPy is asked.
     v2 = frozenset(V2_FLAGS.split())
     error = _cpu.baseline_shortfall(
         package, platform="darwin", cpuinfo=info, numpy_query=lambda: v2
     )
-    assert error is not None
+    assert isinstance(error, _cpu.CpuBaselineError)
     assert "avx2" in error.missing_features
 
 
 def test_linux_aarch64_needs_the_neoverse_n1_features(tmp_path: Path) -> None:
     package, info = write_build(tmp_path, "neoverse-n1", A72_FEATURES, "Features")
     error = _cpu.baseline_shortfall(package, platform="linux", cpuinfo=info)
-    assert error is not None
+    assert isinstance(error, _cpu.CpuBaselineError)
     # Armv8.0 lacks the Armv8.1 atomics and RDM and the N1's Armv8.2 extensions.
     assert error.missing_features == (
         "asimddp",
@@ -213,7 +213,7 @@ def test_windows_asks_kernel32(
     if not missing:
         assert error is None
         return
-    assert error is not None
+    assert isinstance(error, _cpu.CpuBaselineError)
     assert error.missing_features == missing
     assert f"requires an {baseline} processor" in str(error)
     assert f"lacks {', '.join(missing)}" in str(error)
@@ -497,14 +497,16 @@ def test_numpys_private_features_are_still_where_we_look() -> None:
     features = _cpu.numpy_features()
     assert features is not None
     if _cpu.sys.platform != "darwin":
-        from numpy._core._multiarray_umath import __cpu_features__ as present
+        from numpy._core._multiarray_umath import (
+            __cpu_features__ as present,  # pyright: ignore[reportUnknownVariableType]
+        )
 
-        assert ("avx2" in features) == bool(present["AVX2"])
+        assert ("avx2" in features) == bool(present["AVX2"])  # pyright: ignore[reportUnknownArgumentType]
 
 
 @pytest.mark.parametrize(
     ("present", "missing"),
-    [
+    [  # pyright: ignore[reportUnknownArgumentType]
         ({31, 34}, ()),
         ({31}, ("atomics",)),
         ({34}, ("crc32",)),

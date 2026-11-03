@@ -16,7 +16,7 @@ import pytest
 pytest.importorskip("solprop_native")
 
 
-from solprop_native import NativeBackend
+from solprop_native import NativeBackend  # pyright: ignore[reportMissingImports]
 
 from backends.forced_thread_cases import route_adams_problem
 from backends.low_storage_cases import varying_capillary, with_mode

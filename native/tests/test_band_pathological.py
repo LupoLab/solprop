@@ -121,7 +121,7 @@ def capillary(
             LENGTH,
             "Ar",
             1.0,
-            plasma=ConstantRate(floor) if rate is None else rate,
+            plasma=ConstantRate(floor) if rate is None else rate,  # pyright: ignore[reportArgumentType]
             ionisation_field_range=(floor, 1e11),
             preionisation=preionisation,
             wavelength=800e-9,

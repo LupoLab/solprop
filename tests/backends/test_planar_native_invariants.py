@@ -187,7 +187,7 @@ def test_the_safety_ramp_joins_the_slab_on_either_backend():
     separable = problem.linear.separable
     assert float(np.max(np.abs(separable.kperp_rate))) > 0.0  # pyright: ignore[reportArgumentType, reportCallIssue, reportOptionalMemberAccess]
     bare = dataclasses.replace(
-        separable,
+        separable,  # pyright: ignore[reportArgumentType]
         kperp_rate=np.zeros_like(separable.kperp_rate),  # pyright: ignore[reportArgumentType, reportOptionalMemberAccess]
     )
     without = dataclasses.replace(

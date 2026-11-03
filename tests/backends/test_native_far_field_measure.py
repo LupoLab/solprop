@@ -16,7 +16,7 @@ import pytest
 pytest.importorskip("solprop_native")
 
 
-from solprop_native import NativeBackend
+from solprop_native import NativeBackend  # pyright: ignore[reportMissingImports]
 
 from backends.test_native_far_field import (
     holes,

@@ -344,7 +344,9 @@ def numpy_features() -> frozenset[str] | None:
         name, or lacks one of the features asked for.
     """
     try:
-        from numpy._core._multiarray_umath import __cpu_features__ as present
+        from numpy._core._multiarray_umath import (
+            __cpu_features__ as present,  # pyright: ignore[reportUnknownVariableType]
+        )
     except ImportError:
         return None
     if not all(key in present for key in _NUMPY_FEATURES.values()):

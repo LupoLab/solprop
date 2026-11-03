@@ -21,7 +21,7 @@ from numpy.testing import assert_allclose
 pytest.importorskip("solprop_native")
 
 
-from solprop_native import NativeBackend
+from solprop_native import NativeBackend  # pyright: ignore[reportMissingImports]
 
 from backends.test_radial_absorber import LENGTH, absorber_case, problem_for
 from solprop.backends.numpy_ref import NumpyRefBackend, passes
