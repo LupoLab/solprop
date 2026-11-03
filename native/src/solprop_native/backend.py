@@ -620,6 +620,11 @@ class NativeBackend(StepDriver[_core.State]):
         self._native_state.hold_plane()
         self._held_z = self._z
 
+    def _drop_held(self) -> None:
+        """Release the held plane's volume in the native memory space."""
+        self._native_state.release_plane()
+        self._held_z = None
+
     def _held_field(self) -> ComplexArray:
         """Return the held plane's state, copied to the host once."""
         return self._native_state.held_to_host().reshape(self._problem.shape)

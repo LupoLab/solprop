@@ -696,7 +696,8 @@ otherwise, with a warning, `numpy_ref` (ADR-029, ADR-064); the installed native 
   record) and forms no noise-phase volume, so a field-free plane costs its statistics
   alone. Under the low-storage march a field-free plane holds one state volume so that a
   run stopped in flight can resume (`held_plane`, in the ledger and as its own admission
-  group; on the native backend in the memory space).
+  group; on the native backend in the memory space), unless `held_plane=False` or the
+  output has nowhere to put a checkpoint.
 - The Cartesian and planar collar diagnostic reconstructs the physical field by block of
   frequency, at most a node chunk's worth of samples at a time, never the whole volume.
 - A `SimulationRunner` keeps one backend's buffers and plans across many inputs, and is

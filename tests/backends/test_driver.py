@@ -937,6 +937,8 @@ DRIVER_SURFACE = {
     "observe": "(self, *, field: bool = True) -> solprop.backends.protocol.Observation",
     "held_observation": "(self) -> solprop.backends.protocol.Observation | None",
     "_hold": "(self, state: _StateT | None) -> None",
+    "_drop_held": "(self) -> None",
+    "set_held_plane": "(self, held: bool) -> None",
     "_held_field": f"(self) -> {FIELD}",
     "set_initial": (
         "(self, field: jaxtyping.Complex[ndarray, 'n_batch n_modes n_pol n_omega'], "
@@ -1135,9 +1137,11 @@ def test_the_surface_a_backend_subclasses_is_frozen(driver):
     (``_split_found``) and the state's occupancy of the split collar's walk-off buckets
     (``KernelProblem.split_crossing``); the native reading's ``bind_occupancy`` and its
     ``10 + 128`` numbers, and the native march's required ``step_cap`` bound. It adds
-    ``_split_capped``, the cap on adaptive steps.
+    ``_split_capped``, the cap on adaptive steps. Version 44 adds ``set_held_plane``,
+    with which a driver turns the low-storage march's held plane off for a run, and
+    ``_drop_held``, which releases its buffer.
     """
-    assert KERNEL_SCHEMA_VERSION == 43, (
+    assert KERNEL_SCHEMA_VERSION == 44, (
         "the seam changed: rewrite the literals of this test"
     )
     assert StepDriver.reads_transverse_edge is False

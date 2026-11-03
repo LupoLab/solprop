@@ -107,6 +107,16 @@ state to checkpoint for a step abandoned in flight, the backend holds the state 
 last field-free plane, one more copy of the state, charged at
 [admission](../performance/resources.md#memory) as `held_plane`: a run stopped in flight
 after such a plane writes its terminal checkpoint from it and resumes there.
+`SimulationSettings(held_plane=False)` drops that volume, for a run that will never resume,
+such as one of many short runs in a scan, and an output with no
+{py:class}`~solprop.output.schema.CheckpointOutput` holds nothing whatever it says, having
+nowhere to put a checkpoint. Then a step abandoned in flight leaves no checkpoint: the
+execution record says `failed` and why, and a file whose last plane kept no field cannot be
+resumed from there (`resume=True` refuses it by name), while one that kept its field
+resumes from that plane. On the native backend only an exception inside the engine can do
+that, since a signal waits for the step; a stop between steps checkpoints as ever. The
+setting is outside the configuration hash and changes nothing the march computes, and the
+backend's record says `held_plane: false` where nothing was held.
 `fields` is outside the configuration hash, like
 `resume_history`: it changes what is kept, not what is computed, and it may be changed
 after the simulation is translated.

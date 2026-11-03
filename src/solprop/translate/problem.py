@@ -207,7 +207,7 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-KERNEL_SCHEMA_VERSION = 43
+KERNEL_SCHEMA_VERSION = 44
 """Version of the kernel contract this module implements.
 
 Incremented on every change to the field list of ``docs/dev/kernel-contract.md``. A
@@ -497,6 +497,12 @@ check: ``StepDriver._split_capped`` on the host marches, the native Adams march'
 required ``step_cap`` bound per call. The native reading, after ``bind_occupancy``
 hands it the table, grows from six numbers to ten and the 128 buckets. No stage
 bundle or existing driver signature moves.
+
+Version 44 adds ``StepDriver.set_held_plane``, which a driver calls at the start of a
+run to say whether the low-storage march holds its last field-free plane's state, and
+``StepDriver._drop_held``, which releases the buffer; the native backend overrides the
+second with ``State.release_plane``. No ``KernelProblem`` field, stage bundle or
+existing driver signature moves.
 """
 
 DEFAULT_COMPONENTS = ("x",)

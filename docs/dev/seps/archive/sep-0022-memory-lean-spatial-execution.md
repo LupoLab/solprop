@@ -1178,6 +1178,11 @@ following the skeleton in [the template](../template.md).*
     hold the last saved plane's field, one volume, so that a step abandoned in flight
     still leaves a resumable state, or keep this phase's refusal. Destination: phase 2,
     beside `observe(field=False)`.
+    *Amended after the SEP closed (issue #345):* the hold stays the default, and
+    `SimulationSettings(held_plane=False)` opts out for a run that will never resume; an
+    output without `CheckpointOutput` holds nothing, since it would never read the state.
+    A step then abandoned in flight records `failed` with no checkpoint, and a file whose
+    last plane kept no field is refused a resume by name (kernel schema 44).
 - **Handoff:** phase 2's `observe(field=False)` has one caller to change: `_observed` in
   `driver/run.py`, which already knows whether the plane keeps its field (`keep`), and
   `_persist_failure`, which already observes again for a checkpoint's field. The

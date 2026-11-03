@@ -464,6 +464,7 @@ _EXECUTION_SETTINGS = (
     "fields",
     "field_planes",
     "boundary_check",
+    "held_plane",
 )
 """The settings read when a run executes, not when it is translated."""
 
@@ -741,7 +742,8 @@ class SimulationSettings(Displayed):
         decide, and a builder that sets this is refused. Beside
         ``LowStorageRungeKutta()`` the backend holds the last field-free plane's
         state, one more state volume charged at admission, so a step abandoned in
-        flight still leaves a resumable checkpoint (SEP 22, Q14).
+        flight still leaves a resumable checkpoint (SEP 22, Q14); `held_plane` turns
+        that off.
     field_planes : sequence of int
         Saved-plane indices for ``fields='planes'``, the entrance as 0 and negative
         from the end; empty otherwise. Refused beside `step_planes`, whose plane count
@@ -776,6 +778,16 @@ class SimulationSettings(Displayed):
         when light reaches the edge, and the energy the temporal collar removed at the
         end. The default :class:`~solprop.monitor.BoundaryCheck` warns at a field-error
         budget of 1e-3 and stops at ten times it; ``None`` watches nothing.
+    held_plane : bool
+        Whether ``LowStorageRungeKutta()`` holds the last field-free plane's state, one
+        state volume, for a checkpoint if a step is abandoned in flight. ``False``
+        drops the volume from the backend's ledger and the admission, for a run that
+        will never resume: such a step then leaves no terminal checkpoint, and a file
+        whose last plane kept no field cannot be resumed from it (a stop between steps
+        checkpoints as ever). An output without
+        :class:`~solprop.output.schema.CheckpointOutput` has nowhere to put a
+        checkpoint, and holds nothing whatever this says. Outside the resume key: it
+        changes what the run could recover, not what it computes.
 
     Raises
     ------
@@ -833,6 +845,7 @@ class SimulationSettings(Displayed):
     spatial_absorber: SpatialAbsorber | Literal[False] | None = None
     adiabatic_accuracy: AdiabaticAccuracy | None = None
     boundary_check: BoundaryCheck | None = DEFAULT_BOUNDARY_CHECK
+    held_plane: bool = True
     _default_integrator: Multistep | RungeKutta | None = dataclasses.field(
         default=None, repr=False, compare=False
     )
@@ -3658,6 +3671,7 @@ class Simulation(Displayed):
                 output=handler,
                 retention=retention,
                 inputs=self._held_inputs(),
+                held_plane=self.settings.held_plane,
             )
             if problem.tdse is not None and not isinstance(handler, CheckpointOutput):
                 raise DriverError(
@@ -3730,6 +3744,7 @@ class Simulation(Displayed):
                     boundary_monitor=self._boundary_monitor(),
                     resume_record=None if continuation is None else continuation.entry,
                     stop=stop,
+                    held_plane=self.settings.held_plane,
                     recipe=None if self._recipe is None else self._recipe.record(self),
                 )
             except StopRequested as error:
@@ -7434,6 +7449,7 @@ class SimulationRunner(Displayed):
                 output=handler,
                 retention=retention,
                 inputs=derived._held_inputs(),
+                held_plane=settings.held_plane,
             )
             monitor = derived._boundary_monitor()
             self._backend.set_initial(
@@ -7490,6 +7506,7 @@ class SimulationRunner(Displayed):
                 fields=loaded.retention.fields,
                 field_planes=loaded.retention.field_planes,
                 boundary_monitor=loaded.boundary_monitor,
+                held_plane=settings.held_plane,
             )
             reports = _peak_field_reports(problem, handler, self._simulation.responses)
         if reports and isinstance(handler, PlaneStore):
