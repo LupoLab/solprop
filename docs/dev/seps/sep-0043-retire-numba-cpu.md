@@ -946,7 +946,12 @@ The status of each gate is at the end of this report, and it says plainly which 
      factor 4,** the suite's standing rule, not §7's `rtol`/10 and 2, and it takes every plane:
      at the last plane an uninterrupted run is about 1e-11 from the reference by coincidence,
      against about 1e-8 at the third, on every backend.
-  7. **`pip install "solprop[native]"` wasn't tried** after the extra went, so §9's "should still
+  7. **The dependency list is dynamic, as §6.7 allowed for.** A pin written over a static list
+     passed the wheel and sdist built separately, but a wheel built from the sdist, `uv build`'s
+     default, runs no metadata hooks: it kept the bare name, and CI's distribution check installed
+     native 0.1.0 from PyPI and failed on the kernel contract. So the list is in `hatch_build.py`,
+     as `gui/hatch_build.py` already does.
+  8. **`pip install "solprop[native]"` wasn't tried** after the extra went, so §9's "should still
      install" stays unverified.
 - **Decisions:** the coexistence environment installs pyFFTW only where it has a wheel. A test
   environment with no native package takes `auto` as `SOLPROP_TEST_BACKEND` for the session, and

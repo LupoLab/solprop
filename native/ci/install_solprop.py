@@ -11,23 +11,21 @@ solprop with no dependencies, then its dependencies but for that one::
     python native/ci/install_solprop.py path/to/solprop
 """
 
+import importlib.metadata
 import subprocess
 import sys
-import tomllib
-from pathlib import Path
 
 
 def main() -> None:
     """Install the project named on the command line."""
-    project = Path(sys.argv[1])
-    metadata = tomllib.loads((project / "pyproject.toml").read_text(encoding="utf-8"))
+    pip = [sys.executable, "-m", "pip", "install"]
+    subprocess.run([*pip, "--no-deps", sys.argv[1]], check=True)
     requirements = [
         requirement
-        for requirement in metadata["project"]["dependencies"]
-        if requirement != "solprop-native"
+        for requirement in importlib.metadata.requires("solprop") or []
+        if not requirement.startswith("solprop-native")
+        and "extra ==" not in requirement
     ]
-    pip = [sys.executable, "-m", "pip", "install"]
-    subprocess.run([*pip, "--no-deps", str(project)], check=True)
     subprocess.run([*pip, *requirements], check=True)
 
 

@@ -16,9 +16,9 @@ authors = [
     { name = "Christian Brahms" },
 ]
 requires-python = ">=3.14"
-# hatch_build.py pins solprop-native to this version in the built metadata, and the `gui`
-# extra to solprop-gui at it.
-dynamic = ["version", "optional-dependencies"]
+# hatch_build.py writes the dependencies, with solprop-native at this version, and the
+# `gui` extra, with solprop-gui at it.
+dynamic = ["version", "dependencies", "optional-dependencies"]
 classifiers = [
     # 0.x: the interfaces may still change between minor releases.
     "Development Status :: 3 - Alpha",
@@ -27,38 +27,7 @@ classifiers = [
     "Programming Language :: Python :: 3.14",
     "Topic :: Scientific/Engineering :: Physics",
 ]
-# Each floor is the oldest release that has CPython 3.14 wheels for Linux, macOS and
-# Windows and provides the APIs solprop uses, unless a comment names a stricter reason;
-# the `oldest` CI job tests them (docs/dev/dependencies.md).
-dependencies = [
-    # The backend solprop runs on (SEP 43), with no extra and no markers. This bare name
-    # is what uv resolves to the workspace member below; built metadata has the exact
-    # version, and a platform with no wheel gets the installer's resolution error.
-    "solprop-native",
-    # 2.5: under 2.3 and 2.4 the free-space reference runs produce NaN (cause not yet
-    # identified; docs/dev/dependencies.md).
-    "numpy>=2.5",
-    # optmat's floor: its stored fits reproduce bit for bit from SciPy 1.18.
-    "scipy>=1.18",
-    # 3.10.7: earlier releases call pyparsing APIs that current pyparsing deprecates.
-    "matplotlib>=3.10.7",
-    "h5py>=3.15",
-    # Every built-in material model (SEP 3): gases with their equation of state and
-    # transport, solids, Raman responses and ionisation rates.
-    "optmat[gas]>=0.9.1",
-    # The native backend limits the other BLAS pools in its process through this
-    # (solprop_native/_host_blas.py): no BLAS exposes a runtime thread count except
-    # through the library walk this does.
-    "threadpoolctl>=3.1",
-    # Array annotations are evaluated at import time in every module (AGENTS.md, Typing),
-    # so the annotation package is a runtime dependency; beartype (the checker) is dev-only.
-    # 0.3.11: the oldest release the `oldest` CI job has tested.
-    "jaxtyping>=0.3.11",
-    "tqdm>=4.67",
-    # Writes recipes (SEP 41); 1.0, the first release, already writes every form a recipe
-    # uses (nested tables, arrays of inline tables, quoted keys) back through tomllib.
-    "tomli-w>=1.0",
-]
+# The runtime dependencies are in hatch_build.py, which pins solprop-native to this version.
 
 [project.scripts]
 solprop = "solprop.cli:main"
