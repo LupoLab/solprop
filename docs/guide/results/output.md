@@ -437,7 +437,9 @@ the value that reproduces the code before it existed
 records of a modal, a radial and two Cartesian runs, and of a custom absorber at its
 defaults, and keeps each release's whole records, so that such a change is deliberate.
 An array input of more than 2²⁰ elements is recorded by the SHA-256 of its bytes, with
-its dtype and shape (`ArrayDigest`), rather than inline.
+its dtype and shape (`ArrayDigest`), rather than inline; one whose caller states its
+identity by that string instead (`StatedInput`,
+[`input_identity`](../setup/running.md#many-inputs-one-backend-the-runner)).
 
 **When the schema is bumped.** Only for a change an older reader would misread, or
 could not append to: a dataset renamed, re-laid or given new units; an attribute that

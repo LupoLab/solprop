@@ -770,10 +770,11 @@ def _normalised(record: Mapping[str, JsonValue]) -> dict[str, JsonValue]:
 
 _TAGS: Final = ("__ndarray__", "__complex__", "__enum__", "__callable__", "__repr__")
 _DIGEST_CLASS: Final = "solprop.output.schema.ArrayDigest"
+_STATED_CLASS: Final = "solprop.output.schema.StatedInput"
 
 
 def _is_tagged_leaf(value: JsonValue) -> bool:
-    """Say whether a mapping is a leaf: an array, a complex number, a tag or a digest.
+    """Say whether a mapping is a leaf: an array, a complex number, a tag or an input.
 
     Parameters
     ----------
@@ -787,7 +788,10 @@ def _is_tagged_leaf(value: JsonValue) -> bool:
     """
     if not isinstance(value, dict):
         return False
-    return any(tag in value for tag in _TAGS) or value.get("__class__") == _DIGEST_CLASS
+    return any(tag in value for tag in _TAGS) or value.get("__class__") in (
+        _DIGEST_CLASS,
+        _STATED_CLASS,
+    )
 
 
 def _is_number(value: JsonValue) -> bool:
@@ -971,6 +975,8 @@ def _summarised(value: JsonValue) -> object:
         summary = array.item() if array.ndim == 0 else tuple(array.shape)
     elif value.get("__class__") == _DIGEST_CLASS:
         summary = f"digest {str(value.get('sha256', ''))[:12]}"
+    elif value.get("__class__") == _STATED_CLASS:
+        summary = f"stated {value.get('identity', '')}"
     else:
         summary = f"<{value.get('__class__', 'mapping')}>"
     return summary

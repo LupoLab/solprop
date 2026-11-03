@@ -244,6 +244,7 @@ from solprop.output.schema import (
     PlaneStore,
     RecipeRecord,
     RunMetadata,
+    StatedInput,
     StepLimits,
     StepperRecord,
     _recorded_inline,
@@ -2207,6 +2208,8 @@ class Simulation(Displayed):
         self._mixture_selection: ResponseSelection | None = None
         self._peak_fields: tuple[PeakFieldReport, ...] = ()
         self._reuse: TranslationReuse | None = None
+        self._input_identity: str | None = None
+        self._record_keys: set[str] | None = None
         self._field0 = self._built_input(initial, grid, initial_z)
         if isinstance(initial, np.ndarray):
             # What was passed is what runs and what is recorded: a read-only view of
@@ -2609,6 +2612,7 @@ class Simulation(Displayed):
         noise: NoiseRealisation | Literal["keep"] | None = "keep",
         initial_z: float | None = None,
         configuration: Mapping[str, object] | None = None,
+        input_identity: str | None = None,
     ) -> "Simulation":  # noqa: UP037 - runtime hook evaluates the class body
         """Replace the input while sharing the translated propagation problem.
 
@@ -2619,7 +2623,8 @@ class Simulation(Displayed):
         stepper's checks: the launch before the first plane, and a replayed schedule
         containing every plane. An array input above
         :data:`~solprop.output.schema.INLINE_ARRAY_LIMIT` elements is recorded by its
-        digest (:class:`~solprop.output.schema.ArrayDigest`), not inline.
+        digest (:class:`~solprop.output.schema.ArrayDigest`), not inline, unless its
+        identity is stated (`input_identity`).
 
         Parameters
         ----------
@@ -2649,6 +2654,14 @@ class Simulation(Displayed):
             Caller keys merged into the derived run's configuration record, and so
             into its configuration hash: the delay of a scan, the label of an input.
             A key the run already records is refused.
+        input_identity : str or None, optional
+            What an array input is, stated by the caller who already knows: the record
+            then holds this string, the dtype and the shape
+            (:class:`~solprop.output.schema.StatedInput`) in place of the array's own
+            record, and its bytes are not digested. **It is not checked**: two
+            different arrays stated alike have one configuration hash, so a resume or
+            a scan's cache accepts one for the other. ``None``, the default, records
+            the array as itself or by its digest. Refused for anything but an array.
 
         Returns
         -------
@@ -2663,8 +2676,9 @@ class Simulation(Displayed):
         ------
         DriverError
             If the new field or noise shape differs or any sample is not finite, a
-            `configuration` key is one the run records itself, or a launch is bound
-            to another port or given beside an `initial_z`.
+            `configuration` key is one the run records itself, a launch is bound
+            to another port or given beside an `initial_z`, or `input_identity` is
+            empty or names anything but an array input.
 
         Warns
         -----
@@ -2675,21 +2689,12 @@ class Simulation(Displayed):
         """
         if isinstance(noise, str) and noise != "keep":
             raise DriverError("noise must be keep, None, or a NoiseRealisation")
+        _check_input_identity(input_identity, initial)
         coupling = None
         if isinstance(initial, CouplingLaunch):
-            if initial_z is not None:
-                msg = "a launch carries its own entrance: give no initial_z beside it"
-                raise DriverError(msg)
-            entrance = initial.port.geometry.z
-            interior = None if entrance == self.initial_z else entrance
-            refusal = self.input_port(interior).accepts(initial.port)
-            if refusal is not None:
-                msg = f"this launch was computed for another input port: {refusal}"
-                raise DriverError(msg)
-            coupling = initial.record()
-            initial_z = interior
-            noise = None if isinstance(noise, str) else noise
-            initial = initial.internal()
+            launch = initial
+            initial, initial_z, noise = self._launched(launch, initial_z, noise)
+            coupling = launch.record()
         original = self.translate()
         launch_z = self.initial_z if initial_z is None else initial_z
         settings = self.settings
@@ -2747,6 +2752,7 @@ class Simulation(Displayed):
         updated.configuration = self._derived_configuration(
             updated.initial, configuration, coupling
         )
+        updated._input_identity = input_identity
         # A derived run starts from what its parent's run has warned and recorded,
         # and keeps its own from here: its siblings never see each other's.
         updated._material_log = self._material_log.copy()
@@ -2785,6 +2791,46 @@ class Simulation(Displayed):
         with _optmat.material_context(updated._material_log):
             _check_rate_inputs(updated, updated.initial)
         return updated
+
+    def _launched(
+        self,
+        launch: CouplingLaunch,
+        initial_z: float | None,
+        noise: NoiseRealisation | Literal["keep"] | None,
+    ) -> tuple[np.ndarray, float | None, NoiseRealisation | None]:
+        """Return what a coupling launch means for :meth:`with_input`, or refuse it.
+
+        Parameters
+        ----------
+        launch : solprop.coupling.CouplingLaunch
+            The launch.
+        initial_z : float or None
+            The position asked for beside it, which it refuses.
+        noise : NoiseRealisation, {'keep'} or None
+            The noise asked for: a launch carries its source's realised field, so
+            ``'keep'`` draws no second floor.
+
+        Returns
+        -------
+        tuple
+            The launch's spectrum, its interior position (``None`` at this run's own
+            entrance) and its noise.
+
+        Raises
+        ------
+        DriverError
+            If a position is given beside it, or it is bound to another port.
+        """
+        if initial_z is not None:
+            msg = "a launch carries its own entrance: give no initial_z beside it"
+            raise DriverError(msg)
+        entrance = launch.port.geometry.z
+        interior = None if entrance == self.initial_z else entrance
+        refusal = self.input_port(interior).accepts(launch.port)
+        if refusal is not None:
+            msg = f"this launch was computed for another input port: {refusal}"
+            raise DriverError(msg)
+        return launch.internal(), interior, None if isinstance(noise, str) else noise
 
     def _derived_configuration(
         self,
@@ -2828,9 +2874,7 @@ class Simulation(Displayed):
             if not isinstance(initial, np.ndarray):
                 recorded["pulse"] = initial
         if configuration:
-            clash = sorted(
-                set(configuration) & ({"coupling"} | set(self.metadata().configuration))
-            )
+            clash = sorted(set(configuration) & ({"coupling"} | self._recorded_keys()))
             if clash:
                 msg = (
                     f"configuration keys {clash} are recorded by the run itself; "
@@ -3073,6 +3117,7 @@ class Simulation(Displayed):
         if self._recipe is not None:
             self._warn_recipe_dropped("with_mixture")
         updated.initial = self.initial
+        updated._input_identity = self._input_identity
         updated._mixture_selection = self._mixture_selection
         updated._reuse = _mixture_reuse(self, updated, old, mixture, original)
         updated.translate()
@@ -3109,65 +3154,111 @@ class Simulation(Displayed):
         # the digest keys on the problem and the state alone. What executed the run
         # is recorded instead, outside the key, in `RunMetadata.backend`.
         if self._metadata is None:
-            configuration = dict(self.configuration)
-            configuration.update(
-                {
-                    "responses": list(self.responses),
-                    # A gigabyte array is recorded by its digest (SEP 22, Q4).
-                    "initial": recorded_input(self.initial),
-                    "profiles": dict(self.profiles),
-                    "density": self.settings.density,
-                    "shock": self.settings.shock,
-                    "prefactor_index": self.settings.prefactor_index,
-                    "absorber": self.settings.absorber,
-                    "absorber_scheme": _scheme(self.settings),
-                    "propagator_mode": self.settings.propagator_mode,
-                    # Every run records its precision, double included (SEP 33
-                    # section 5.3, ADR-051), so a resume in the other is refused.
-                    "precision": self.settings.precision,
-                }
-            )
-            if self.frame is not None:
-                configuration["frame"] = self.frame
-            elif _frame_follows_the_electronic_rule(self.responses, self.grid):
-                # A Raman thg flag kept beta_0 on an envelope grid before the frame
-                # followed the electronic responses alone (issue #77). Recording the
-                # co-moving frame here, and only here, refuses a resume of such an
-                # earlier run by name, which would otherwise continue under another
-                # frame with the same digest; every other run keeps its digest.
-                configuration["frame"] = Frame.comoving(self.grid)
-            # The operator settings of SEP 22 phase 2, recorded only where set, so
-            # every earlier run keeps its digest; a collar as its two numbers.
-            if self.settings.evanescent_rate is not None:
-                configuration["evanescent_rate"] = self.settings.evanescent_rate
-            if self.settings.spatial_absorber is not None:
-                configuration["spatial_absorber"] = self.settings.spatial_absorber
-            if self.settings.adiabatic_accuracy is not None:
-                configuration["adiabatic_accuracy"] = self.settings.adiabatic_accuracy
-            # A quiet collar changes what the stages compute (ADR-057), so the opt-in
-            # is part of the resume key, recorded only where taken; the rest of the
-            # check is the execution's, recorded in its record.
-            if _quiet_collar(self.settings):
-                configuration["quiet_collar"] = True
-            if self.spatial_grid is not None:
-                configuration.update(
-                    spatial_grid=self.spatial_grid, medium=self.medium, frame=self.frame
-                )
-            with _optmat.material_context(self._material_log):
-                self._metadata = metadata_for(
-                    self.translate(),
-                    self.grid,
-                    modes=self.modes,
-                    configuration=configuration,
-                    noise=self.noise,
-                    modal=self._modal_identity(),
-                    materials=self.material_manifest(),
-                    quadrature=self.settings.quadrature,
-                    frame=self.frame,
-                    noise_resolution=self.noise_resolution,
-                    defaults=self.settings.defaults_resolution(),
-                )
+            self._metadata = self._record(self._recorded_input())
         return self._metadata
+
+    def _recorded_input(self) -> object:
+        """Return the input as this run's record holds it, digesting a large array.
+
+        Returns
+        -------
+        object
+            The caller's statement of it, or what
+            :func:`~solprop.output.schema.recorded_input` makes of it.
+        """
+        if self._input_identity is not None:
+            return StatedInput.of(
+                cast("np.ndarray", self.initial), self._input_identity
+            )
+        # A gigabyte array is recorded by its digest (SEP 22, Q4).
+        return recorded_input(self.initial)
+
+    def _recorded_keys(self) -> set[str]:
+        """Return the keys of this run's configuration record, digesting nothing.
+
+        What a derived run's caller keys are checked against, which a parent that is
+        only a placeholder for its inputs should not pay a digest of itself for.
+
+        Returns
+        -------
+        set of str
+            The keys.
+        """
+        if self._record_keys is None:
+            record = self._metadata or self._record(None)
+            self._record_keys = set(record.configuration)
+        return self._record_keys
+
+    def _record(self, initial: object) -> RunMetadata:
+        """Build this run's record around what it says of its input.
+
+        Parameters
+        ----------
+        initial : object
+            The input's entry in the configuration record.
+
+        Returns
+        -------
+        solprop.output.schema.RunMetadata
+            What produced the run, and the key a resume is checked against.
+        """
+        configuration = dict(self.configuration)
+        configuration.update(
+            {
+                "responses": list(self.responses),
+                "initial": initial,
+                "profiles": dict(self.profiles),
+                "density": self.settings.density,
+                "shock": self.settings.shock,
+                "prefactor_index": self.settings.prefactor_index,
+                "absorber": self.settings.absorber,
+                "absorber_scheme": _scheme(self.settings),
+                "propagator_mode": self.settings.propagator_mode,
+                # Every run records its precision, double included (SEP 33
+                # section 5.3, ADR-051), so a resume in the other is refused.
+                "precision": self.settings.precision,
+            }
+        )
+        if self.frame is not None:
+            configuration["frame"] = self.frame
+        elif _frame_follows_the_electronic_rule(self.responses, self.grid):
+            # A Raman thg flag kept beta_0 on an envelope grid before the frame
+            # followed the electronic responses alone (issue #77). Recording the
+            # co-moving frame here, and only here, refuses a resume of such an
+            # earlier run by name, which would otherwise continue under another
+            # frame with the same digest; every other run keeps its digest.
+            configuration["frame"] = Frame.comoving(self.grid)
+        # The operator settings of SEP 22 phase 2, recorded only where set, so
+        # every earlier run keeps its digest; a collar as its two numbers.
+        if self.settings.evanescent_rate is not None:
+            configuration["evanescent_rate"] = self.settings.evanescent_rate
+        if self.settings.spatial_absorber is not None:
+            configuration["spatial_absorber"] = self.settings.spatial_absorber
+        if self.settings.adiabatic_accuracy is not None:
+            configuration["adiabatic_accuracy"] = self.settings.adiabatic_accuracy
+        # A quiet collar changes what the stages compute (ADR-057), so the opt-in
+        # is part of the resume key, recorded only where taken; the rest of the
+        # check is the execution's, recorded in its record.
+        if _quiet_collar(self.settings):
+            configuration["quiet_collar"] = True
+        if self.spatial_grid is not None:
+            configuration.update(
+                spatial_grid=self.spatial_grid, medium=self.medium, frame=self.frame
+            )
+        with _optmat.material_context(self._material_log):
+            return metadata_for(
+                self.translate(),
+                self.grid,
+                modes=self.modes,
+                configuration=configuration,
+                noise=self.noise,
+                modal=self._modal_identity(),
+                materials=self.material_manifest(),
+                quadrature=self.settings.quadrature,
+                frame=self.frame,
+                noise_resolution=self.noise_resolution,
+                defaults=self.settings.defaults_resolution(),
+            )
 
     def material_manifest(self) -> MaterialManifest:
         """Collect the run's material manifest: what it took from optmat, and how.
@@ -7204,7 +7295,7 @@ class SimulationRunner(Displayed):
         self._closed = True
         self._backend.close()
 
-    def run(
+    def run(  # noqa: PLR0913 - one input's run, as with_input and run_problem take it
         self,
         initial: Pulse | SpatialPulse | np.ndarray,
         *,
@@ -7213,6 +7304,7 @@ class SimulationRunner(Displayed):
         noise: NoiseRealisation | Literal["keep"] | None = "keep",
         progress: ProgressReporter | ProgressChoice | None = None,
         progress_period: float = DEFAULT_PROGRESS_PERIOD,
+        input_identity: str | None = None,
     ) -> Output:
         """Run one input on the runner's backend and return its handler.
 
@@ -7237,6 +7329,10 @@ class SimulationRunner(Displayed):
             Where progress goes (:func:`solprop.driver.run.run_problem`).
         progress_period : float, optional
             Seconds between the line reporter's periodic lines, s.
+        input_identity : str or None, optional
+            What an array input is, recorded in its place and not checked, so that its
+            bytes are not digested (:meth:`Simulation.with_input`, whose warning
+            applies: a wrong identity passes a resume and a scan's cache).
 
         Returns
         -------
@@ -7248,8 +7344,9 @@ class SimulationRunner(Displayed):
         DriverError
             If the runner is closed or already running an input; if the derived
             problem is not the runner's but for its input (a different launch
-            position, or a shared leaf replaced); or if the noise model differs from
-            the runner's, which the backend could not carry.
+            position, or a shared leaf replaced); if the noise model differs from
+            the runner's, which the backend could not carry; or if `input_identity`
+            is empty or names anything but an array input.
         MemoryBudgetError
             If this input's in-memory output does not fit beside the backend.
         """
@@ -7264,7 +7361,11 @@ class SimulationRunner(Displayed):
                 msg = "this runner is closed; build another with simulation.runner()"
                 raise DriverError(msg)
             loaded = self._load(
-                initial, output=output, configuration=configuration, noise=noise
+                initial,
+                output=output,
+                configuration=configuration,
+                noise=noise,
+                input_identity=input_identity,
             )
             # The load is the last to read the input, and every frame that saw it has
             # returned but this one: the march holds no volume for it (issue #447).
@@ -7287,6 +7388,7 @@ class SimulationRunner(Displayed):
         output: Output | Path | str | None,
         configuration: Mapping[str, object] | None,
         noise: NoiseRealisation | Literal["keep"] | None,
+        input_identity: str | None,
     ) -> _LoadedRun:
         """Derive one input's run, open its handler and load the input into the backend.
 
@@ -7304,6 +7406,8 @@ class SimulationRunner(Displayed):
             Caller keys for its record.
         noise : NoiseRealisation, {'keep'} or None
             Its noise.
+        input_identity : str or None
+            What the caller states an array input to be.
 
         Returns
         -------
@@ -7311,7 +7415,10 @@ class SimulationRunner(Displayed):
             What the march needs, which holds no input.
         """
         derived = self._simulation.with_input(
-            _borrowed_input(initial), noise=noise, configuration=configuration
+            _borrowed_input(initial, stated=input_identity is not None),
+            noise=noise,
+            configuration=configuration,
+            input_identity=input_identity,
         )
         problem = derived.translate()
         check_derived_problem(self._problem, problem)
@@ -7395,7 +7502,7 @@ class SimulationRunner(Displayed):
 
 
 def _borrowed_input(
-    initial: Pulse | SpatialPulse | np.ndarray,
+    initial: Pulse | SpatialPulse | np.ndarray, *, stated: bool
 ) -> Pulse | SpatialPulse | np.ndarray:
     """Return a runner's input as its private derived simulation may take it, uncopied.
 
@@ -7408,18 +7515,20 @@ def _borrowed_input(
     ----------
     initial : Pulse, SpatialPulse or numpy.ndarray
         The runner's input.
+    stated : bool
+        Whether the caller states its identity, which is then all the record keeps.
 
     Returns
     -------
     Pulse, SpatialPulse or numpy.ndarray
-        A read-only view of a complex128 array recorded by its digest, marked as held
+        A read-only view of a complex128 array the record does not hold, marked as held
         so that nothing copies it; `initial` itself otherwise. The caller's own flags
         are not touched.
     """
     if (
         isinstance(initial, np.ndarray)
         and initial.dtype == np.complex128
-        and not _recorded_inline(initial)
+        and (stated or not _recorded_inline(initial))
     ):
         return _hold(np.asarray(initial).view())
     return initial
@@ -8712,6 +8821,35 @@ def _replaced_launch(
         field0[np.newaxis], power_weight_at(original, launch_z), inverse=True
     )
     return _hold(np.asarray(converted, dtype=np.complex128))
+
+
+def _check_input_identity(
+    identity: str | None, initial: Pulse | SpatialPulse | np.ndarray | CouplingLaunch
+) -> None:
+    """Refuse a stated identity that is empty, or of anything but an array input.
+
+    Parameters
+    ----------
+    identity : str or None
+        What the caller states the input to be.
+    initial : Pulse, SpatialPulse, numpy.ndarray or solprop.coupling.CouplingLaunch
+        The input.
+
+    Raises
+    ------
+    DriverError
+        Saying which.
+    """
+    if identity is None:
+        return
+    if not identity:
+        raise DriverError("input_identity must say what the input is: it is empty")
+    if not isinstance(initial, np.ndarray):
+        msg = (
+            "input_identity states an array input's identity; "
+            f"a {type(initial).__name__} is recorded as itself"
+        )
+        raise DriverError(msg)
 
 
 def _given_input(

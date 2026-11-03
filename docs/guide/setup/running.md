@@ -516,3 +516,29 @@ the simulation is built, so changing it afterwards changes neither the run nor i
 record; an array input of more than 2²⁰ elements is recorded by
 the SHA-256 of its bytes rather than inline, so a gigabyte launch costs seconds of
 hashing per input rather than gigabytes of JSON.
+
+A caller that already knows what its input is need not pay even that. Both `with_input`
+and `SimulationRunner.run` take `input_identity=`, a string the record then holds with the
+array's dtype and shape ({py:class}`~solprop.output.schema.StatedInput`) in place of the
+array's own record, without reading its bytes, so the run's hash follows the string:
+
+```{code-block} python
+output = runner.run(
+    build_input(delay),
+    input_identity=f"pump {pump_label}, delay {delay:.6e} s",
+    progress="none",
+)
+```
+
+```{warning}
+An identity is taken on trust. Two different arrays stated alike have one configuration
+hash, so **a wrong identity passes a resume and a scan's cache**: the resumed run or the
+cached point is then the wrong one, and nothing can tell. Say everything that makes the
+input what it is, and leave `input_identity` out unless the digest is a measured cost.
+```
+
+Only an array can be stated; a pulse is a small record of itself and is refused. A file
+written with a statement is continued only under the same statement, not by the same array
+without one, since the two records differ. The finiteness pass stays: it costs a few
+percent of a digest, about 0.6 s and 9 s for a 4 GiB input on a Xeon without SHA
+instructions, and it refuses a bad input before it is loaded.

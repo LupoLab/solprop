@@ -113,6 +113,7 @@ __all__ = [
     "RunOutcome",
     "SavedPlane",
     "SimulationKind",
+    "StatedInput",
     "StepHistory",
     "StepLimits",
     "StepStats",
@@ -158,7 +159,8 @@ INLINE_ARRAY_LIMIT = 2**20
 
 A larger array -- a gigabyte spatial launch -- is recorded by an :class:`ArrayDigest`
 of its bytes, dtype and shape instead, which costs seconds of hashing per input rather
-than tens of gigabytes of JSON, and still changes with any one sample.
+than tens of gigabytes of JSON, and still changes with any one sample. A caller may
+state its identity instead, with a :class:`StatedInput`.
 """
 
 SPECTRAL_CONVENTION = "optics"
@@ -490,6 +492,62 @@ class ArrayDigest:
             sha256=hashlib.sha256(memoryview(ordered).cast("B")).hexdigest(),
             dtype=str(ordered.dtype),
             shape=tuple(int(size) for size in array.shape),
+        )
+
+
+@dataclass(frozen=True)
+class StatedInput:
+    """An array input recorded by the identity its caller states, its bytes unread.
+
+    What a run record holds under ``input_identity``
+    (:meth:`solprop.driver.simulation.Simulation.with_input`): for a caller that
+    already identifies its input, such as by a scan's delay and its own configuration,
+    and has no use for a digest of it. The identity is taken on trust: unlike an
+    :class:`ArrayDigest`, two arrays that differ record the same thing if they are
+    stated alike, so a resume and a scan's cache accept one for the other.
+
+    Attributes
+    ----------
+    identity : str
+        What the caller says the input is.
+    dtype : str
+        The array's dtype, as NumPy names it (``"complex128"``), little-endian as an
+        :class:`ArrayDigest` records it.
+    shape : tuple of int
+        The array's shape.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from solprop.output.schema import StatedInput
+    >>> StatedInput.of(np.zeros((2, 3), complex), "delay 12 fs")
+    StatedInput(identity='delay 12 fs', dtype='complex128', shape=(2, 3))
+    """
+
+    identity: str
+    dtype: str
+    shape: tuple[int, ...]
+
+    @classmethod
+    def of(cls, values: np.ndarray, identity: str) -> "StatedInput":  # noqa: UP037 - bound after the class body
+        """Return the record of an array input under a stated identity.
+
+        Parameters
+        ----------
+        values : numpy.ndarray
+            The array, of which only the dtype and the shape are read.
+        identity : str
+            What the caller says it is.
+
+        Returns
+        -------
+        StatedInput
+            The identity, the dtype and the shape.
+        """
+        return cls(
+            identity=identity,
+            dtype=str(values.dtype.newbyteorder("<")),
+            shape=tuple(int(size) for size in values.shape),
         )
 
 
