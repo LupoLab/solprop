@@ -681,3 +681,11 @@ def test_a_launch_table_builds_the_call_s_launch():
         )
     record = cast("dict[str, Any]", built.configuration["modal_launch"])
     assert record["pulses"][0]["shares"] == [0.9, 0.1]
+
+
+def test_the_run_keywords_are_the_execution_table_s():
+    assert Recipe.loads(GNLSE).run_keywords() == {}
+    unbounded = Recipe.loads(GNLSE + '\n[execution]\nmemory_budget = "none"\n')
+    assert unbounded.run_keywords() == {"memory_budget": None}
+    bounded = Recipe.loads(GNLSE + '\n[execution]\nmemory_budget = "2 GiB"\n')
+    assert bounded.run_keywords()["memory_budget"] == "2 GiB"
