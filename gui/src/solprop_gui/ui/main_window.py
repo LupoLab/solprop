@@ -51,17 +51,25 @@ from solprop_gui.model.recipe import MISSING, RecipeModel
 from solprop_gui.model.workspace import DEFAULT_WORKSPACE, list_runs
 from solprop_gui.registry.explore import design_keywords, design_lines
 from solprop_gui.registry.pages import PAGES
-from solprop_gui.registry.routes import CARDS, EXPLORER_SETUP, GUIDED, card, card_of
+from solprop_gui.registry.routes import (
+    CARDS,
+    EXPLORER_SETUP,
+    GUIDED,
+    RouteCard,
+    card,
+    card_of,
+)
 from solprop_gui.registry.units import si
 from solprop_gui.service.messages import Reply
 from solprop_gui.service.worker import SCAN_OUTPUT
 from solprop_gui.ui.bridge import ServiceBridge
 from solprop_gui.ui.design_tool import DesignDialog
 from solprop_gui.ui.icons import icon
-from solprop_gui.ui.pages import ParameterPage, StartPage, issue_keyword
+from solprop_gui.ui.pages import ParameterPage, issue_keyword
 from solprop_gui.ui.results import ResultsPage
 from solprop_gui.ui.run_panel import RunPanel
 from solprop_gui.ui.scan_editor import ScanEditor
+from solprop_gui.ui.start import NewSetupDialog, StartPage
 from solprop_gui.views.explorer import ExplorerView
 from solprop_gui.views.splitter import GripSplitter
 from solprop_gui.views.zdw_chart import ZdwChartView
@@ -88,6 +96,10 @@ STEPS: Final = ("start", *(page.key for page in PAGES))
 """The steps' keys, in order: the start, then the pages."""
 
 Confirm = Callable[[str, str], str]
+
+Choose = Callable[[RouteCard, Sequence[Mapping[str, object]]], str | None]
+"""Asks how to begin a geometry class: ``""`` for its template, an example's name,
+or ``None`` when cancelled."""
 """Asks the user a question; returns ``"save"``, ``"discard"``, ``"stop"`` or
 ``"cancel"``."""
 
@@ -198,6 +210,7 @@ class MainWindow(QMainWindow):
         self.issues: list[Mapping[str, object]] = []
         self.code = ""
         self.confirm: Confirm = self._ask
+        self.choose_setup: Choose = self._choose_setup
         self._pending: dict[int, str] = {}
         self._built_route: str | None = None
         self._modes_revision: int | None = None
@@ -207,7 +220,7 @@ class MainWindow(QMainWindow):
         self.workspace = workspace or (Path(str(saved)) if saved else DEFAULT_WORKSPACE)
 
         self.start = StartPage()
-        self.start.card_chosen.connect(self.new_from_card)
+        self.start.card_chosen.connect(self.begin_class)
         self.start.example_chosen.connect(self.open_example)
         self.start.open_button.clicked.connect(self.choose_recipe)
         self.start.explorer_button.clicked.connect(self.open_explorer)
@@ -574,6 +587,8 @@ class MainWindow(QMainWindow):
         """
         index = STEPS.index(key)
         self.panels.setCurrentIndex(index)
+        # The welcome screen has the window to itself; the views come with a setup.
+        self.right.setVisible(key != "start")
         self.step_actions[key].setChecked(True)
         self.back_action.setEnabled(index > 0)
         self.forward_action.setEnabled(index < len(STEPS) - 1)
@@ -766,6 +781,42 @@ class MainWindow(QMainWindow):
                 self.design_dialog.show_solution(value)
 
     # ------------------------------------------------------------------ the recipe
+
+    def _choose_setup(
+        self, entry: RouteCard, examples: Sequence[Mapping[str, object]]
+    ) -> str | None:  # pragma: no cover - a modal dialog
+        """Ask how to begin a geometry class, in a dialog.
+
+        Parameters
+        ----------
+        entry : RouteCard
+            The class.
+        examples : Sequence of Mapping
+            Its examples.
+
+        Returns
+        -------
+        str or None
+            ``""`` for the template, an example's name, or ``None`` if cancelled.
+        """
+        dialog = NewSetupDialog(entry, examples, self)
+        return dialog.choice if dialog.exec() else None
+
+    def begin_class(self, key: str) -> None:
+        """Begin a setup of a geometry class: its template or one of its examples.
+
+        Parameters
+        ----------
+        key : str
+            The class's card key.
+        """
+        choice = self.choose_setup(card(key), self.start.examples_of(key))
+        if choice is None:
+            return
+        if choice:
+            self.open_example(choice)
+        else:
+            self.new_from_card(key)
 
     def new_from_card(self, key: str) -> None:
         """Start a new setup from a route card.
@@ -1108,7 +1159,9 @@ class MainWindow(QMainWindow):
             return
         lines = [f"<b>{self.model.title or 'Untitled setup'}</b>"]
         entry = card_of(self.model.route, self.model.document.get("build", {}))
-        lines.append(entry.title if entry else f"route: {self.model.route}")
+        lines.append(
+            f"Geometry class: {entry.title}" if entry else f"route: {self.model.route}"
+        )
         if summary is None:
             lines.append(f"<i>No summary: {error}</i>")
         else:

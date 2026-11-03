@@ -162,12 +162,20 @@ def examples(payload: Payload) -> list[dict[str, object]]:  # noqa: ARG001 - non
     Returns
     -------
     list of dict
-        ``name``, ``title`` and ``route`` of each.
+        ``name``, ``title``, ``route`` and ``build`` (its ``[build]`` table, as the
+        recipe writes it, for the window to tell its geometry class) of each.
     """
     out: list[dict[str, object]] = []
     for name in Recipe.examples():
         recipe = Recipe.example(name)
-        out.append({"name": name, "title": recipe.title, "route": recipe.route})
+        out.append(
+            {
+                "name": name,
+                "title": recipe.title,
+                "route": recipe.route,
+                "build": recipe.to_dict().get("build", {}),
+            }
+        )
     return out
 
 

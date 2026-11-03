@@ -11,6 +11,7 @@ what else the route requires, solprop's check says. A card whose milestone has n
 come yet is shown disabled, with the reason.
 """
 
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Final
 
@@ -22,6 +23,7 @@ __all__ = [
     "RouteCard",
     "card",
     "card_of",
+    "group_examples",
 ]
 
 
@@ -191,6 +193,7 @@ CARDS: Final = (
         "Planar waveguide",
         "A slab waveguide, its modes across and free space along.",
         "planar",
+        reason="Planar guides are disabled for now.",
         example="planar_hybrid",
     ),
 )
@@ -221,7 +224,9 @@ def card(key: str) -> RouteCard:
     raise KeyError(key)
 
 
-def card_of(route: str, build: dict[str, object]) -> RouteCard | None:
+def card_of(
+    route: str, build: dict[str, object], *, enabled_only: bool = True
+) -> RouteCard | None:
     """Return the enabled card a recipe is, if any.
 
     Parameters
@@ -230,6 +235,9 @@ def card_of(route: str, build: dict[str, object]) -> RouteCard | None:
         The recipe's route.
     build : dict
         Its ``[build]`` table.
+    enabled_only : bool, optional
+        Whether only an enabled card counts (the default); ``False`` names the
+        class of an example on a route the window does not offer yet.
 
     Returns
     -------
@@ -252,7 +260,7 @@ def card_of(route: str, build: dict[str, object]) -> RouteCard | None:
     """
     for entry in sorted(CARDS, key=lambda c: -len(c.marker)):
         if (
-            entry.enabled
+            (entry.enabled or not enabled_only)
             and entry.route == route
             and all(build.get(k, IMPLIED.get(k)) == v for k, v in entry.preset.items())
             and all(k in build for k in entry.marker)
@@ -284,3 +292,39 @@ trange = "400 fs"
 """
 """The setup the standalone waveguide explorer opens with: a helium-filled capillary
 and its first four modes, a starting point to change and sweep."""
+
+
+def group_examples(
+    examples: Sequence[Mapping[str, object]],
+) -> dict[str, list[Mapping[str, object]]]:
+    """Sort solprop's examples into the geometry classes the cards name.
+
+    Parameters
+    ----------
+    examples : Sequence of Mapping
+        Each example's ``name``, ``title``, ``route`` and ``build`` table.
+
+    Returns
+    -------
+    dict
+        By card key, in the cards' order, the examples it recognises as its own
+        (:func:`card_of`, disabled cards included); ``"other"`` for the rest.
+
+    Examples
+    --------
+    >>> grouped = group_examples([
+    ...     {"name": "a", "route": "capillary", "build": {"mode_average": True}},
+    ...     {"name": "b", "route": "gnlse", "build": {}},
+    ...     {"name": "c", "route": "nope", "build": {}},
+    ... ])
+    >>> {key: [e["name"] for e in found] for key, found in grouped.items()}
+    {'capillary-averaged': ['a'], 'gnlse': ['b'], 'other': ['c']}
+    """
+    grouped: dict[str, list[Mapping[str, object]]] = {}
+    for example in examples:
+        given = example.get("build")
+        build: dict[str, object] = dict(given) if isinstance(given, Mapping) else {}
+        entry = card_of(str(example["route"]), build, enabled_only=False)
+        grouped.setdefault("other" if entry is None else entry.key, []).append(example)
+    order = [card.key for card in CARDS] + ["other"]
+    return {key: grouped[key] for key in order if key in grouped}

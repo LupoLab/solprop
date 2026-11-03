@@ -68,5 +68,7 @@ def test_a_service_out_of_reach_falls_back_to_the_window_s_own(
     qtbot.addWidget(window)
     qtbot.waitUntil(lambda: bool(failed), timeout=WAIT_MS)
     assert not bridge.service and "did not start" in failed[0]
-    qtbot.waitUntil(lambda: window.start.examples.count() > 0, timeout=WAIT_MS)
+    qtbot.waitUntil(
+        lambda: window.start.examples.topLevelItemCount() > 0, timeout=WAIT_MS
+    )
     window.close()

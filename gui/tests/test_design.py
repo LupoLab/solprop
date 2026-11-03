@@ -241,7 +241,8 @@ def test_each_card_s_example_is_solprop_s_and_the_card_s():
             continue
         recipe = Recipe.example(entry.example)
         assert recipe.route == entry.route
-        assert card_of(recipe.route, recipe.to_dict()["build"]) is entry, entry.key
+        build = recipe.to_dict()["build"]
+        assert card_of(recipe.route, build, enabled_only=False) is entry, entry.key
 
 
 def test_a_route_s_description_carries_the_types_its_keywords_name():

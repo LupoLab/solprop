@@ -12,9 +12,6 @@ from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
-    QListWidget,
-    QListWidgetItem,
-    QPushButton,
     QScrollArea,
     QToolButton,
     QVBoxLayout,
@@ -23,11 +20,10 @@ from PySide6.QtWidgets import (
 
 from solprop_gui.model.recipe import MISSING, RecipeModel
 from solprop_gui.registry.pages import GROUP_TITLES, Page
-from solprop_gui.registry.routes import CARDS
 from solprop_gui.ui.fields import ParameterRow
 from solprop_gui.ui.objects import Catalog
 
-__all__ = ["PER_WIDTH", "ParameterPage", "Section", "StartPage", "issue_keyword"]
+__all__ = ["PER_WIDTH", "ParameterPage", "Section", "issue_keyword"]
 
 PER_WIDTH = ("energy", "peak_power")
 """The keywords per metre of y on a slab set (solprop's ``PER_WIDTH_KEYWORDS``)."""
@@ -153,6 +149,13 @@ class ParameterPage(QWidget):
         self.advanced = QCheckBox("Advanced")
         self.advanced.setToolTip("Show the expert settings too.")
         self.advanced.toggled.connect(self._show_levels)
+        self.empty = QLabel(
+            "<p><b>Select a setup first.</b></p><p>Choose a geometry class or one of "
+            "solprop's examples on the Start step, or open a setup file.</p>"
+        )
+        self.empty.setObjectName("select-setup-first")
+        self.empty.setWordWrap(True)
+        self.empty.setAlignment(Qt.AlignmentFlag.AlignTop)
         self.body = QWidget()
         self.form = QVBoxLayout(self.body)
         self.form.setAlignment(Qt.AlignmentFlag.AlignTop)
@@ -179,7 +182,22 @@ class ParameterPage(QWidget):
         layout.setSpacing(2)
         layout.addLayout(header)
         layout.addWidget(self.help)
+        layout.addWidget(self.empty, 1)
         layout.addWidget(scroll, 1)
+        self.fields_area = scroll
+        self._show_empty(True)
+
+    def _show_empty(self, empty: bool) -> None:
+        """Show the page's fields, or that a setup must be chosen first.
+
+        Parameters
+        ----------
+        empty : bool
+            Whether there is no setup yet.
+        """
+        self.empty.setVisible(empty)
+        self.fields_area.setVisible(not empty)
+        self.advanced.setVisible(not empty)
 
     def add_section(self, title: str, widget: QWidget) -> Section:
         """Put a section of the window's own above the keywords' sections.
@@ -234,6 +252,7 @@ class ParameterPage(QWidget):
             section = self.sections[str(meta.get("group"))]
             section.add(row)
             section.setVisible(True)
+        self._show_empty(False)
         # One group needs no heading of its own: the page's title says it.
         for section in self.sections.values():
             section.header.setVisible(len(self.sections) > 1)
@@ -375,99 +394,3 @@ class ParameterPage(QWidget):
                     if worst != "error":
                         worst = severity
         return worst
-
-
-class StartPage(QWidget):
-    """Where a setup begins: a route card, one of solprop's examples, or a file.
-
-    Parameters
-    ----------
-    parent : PySide6.QtWidgets.QWidget or None, optional
-        The owner.
-
-    Attributes
-    ----------
-    card_chosen : Signal
-        Emitted with a card's key.
-    example_chosen : Signal
-        Emitted with an example's name.
-    """
-
-    card_chosen = Signal(str)
-    example_chosen = Signal(str)
-
-    def __init__(self, parent: QWidget | None = None) -> None:
-        """Make the panel; the examples are filled in later."""
-        super().__init__(parent)
-        title = QLabel(
-            "<b>solprop</b><br>Set up, run and read an ultrafast propagation "
-            "simulation. Every setup is a solprop recipe, and can leave as a recipe "
-            "file or a Python script."
-        )
-        title.setWordWrap(True)
-        self.open_button = QPushButton("Open setup…")
-        self.open_button.setObjectName("open-setup-file")
-        self.results_button = QPushButton("Open results…")
-        self.results_button.setObjectName("open-results-file")
-        self.explorer_button = QPushButton("Waveguide explorer")
-        self.explorer_button.setObjectName("explorer")
-        self.explorer_button.setToolTip(
-            "A capillary to explore: its modes' dispersion, loss and nonlinearity, "
-            "swept over a keyword, before any run."
-        )
-        files = QHBoxLayout()
-        files.addWidget(self.open_button)
-        files.addWidget(self.results_button)
-
-        cards = Section("New setup")
-        self.card_buttons: dict[str, QPushButton] = {}
-        for card in CARDS:
-            button = QPushButton(card.title)
-            button.setObjectName(f"card-{card.key}")
-            button.setToolTip(card.reason or card.summary)
-            button.setEnabled(card.enabled)
-            button.setStyleSheet("text-align: left; padding: 3px 8px;")
-            button.clicked.connect(
-                lambda _checked=False, key=card.key: self.card_chosen.emit(key)
-            )
-            cards.add(button)
-            self.card_buttons[card.key] = button
-
-        examples = Section("Start from one of solprop's examples")
-        self.examples = QListWidget()
-        self.examples.setObjectName("examples")
-        self.examples.itemActivated.connect(
-            lambda item: self.example_chosen.emit(item.data(Qt.ItemDataRole.UserRole))
-        )
-        examples.add(self.examples)
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(6, 6, 2, 2)
-        layout.addWidget(title)
-        layout.addLayout(files)
-        layout.addWidget(self.explorer_button)
-        layout.addWidget(cards)
-        layout.addWidget(examples, 1)
-
-    def show_examples(
-        self, examples: Sequence[Mapping[str, object]], routes: Iterable[str]
-    ) -> None:
-        """List solprop's examples, those of routes the window offers enabled.
-
-        Parameters
-        ----------
-        examples : Sequence of Mapping
-            ``name``, ``title`` and ``route`` of each.
-        routes : Iterable of str
-            The routes the window can show.
-        """
-        allowed = set(routes)
-        self.examples.clear()
-        for example in examples:
-            item = QListWidgetItem(f"{example.get('title') or example['name']}")
-            item.setData(Qt.ItemDataRole.UserRole, example["name"])
-            item.setToolTip(f"{example['name']} ({example['route']})")
-            if example["route"] not in allowed:
-                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEnabled)
-                item.setToolTip(f"The {example['route']} route comes later.")
-            self.examples.addItem(item)

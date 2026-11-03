@@ -214,7 +214,6 @@ def test_the_cards_are_presentation_over_routes():
         "gnlse",
         "free",
         "radial",
-        "planar",
     }
     with pytest.raises(KeyError):
         card("nope")

@@ -310,7 +310,9 @@ def test_the_window_runs_the_whole_lifecycle(qtbot: QtBot, tmp_path: Path):  # n
     window = MainWindow(workspace=tmp_path / "workspace")
     qtbot.addWidget(window)
     window.show()
-    qtbot.waitUntil(lambda: window.start.examples.count() > 0, timeout=WAIT_MS)
+    qtbot.waitUntil(
+        lambda: window.start.examples.topLevelItemCount() > 0, timeout=WAIT_MS
+    )
     shot(window, tmp_path, "start")
 
     # A new setup from the card: solprop's check says what is required.
@@ -416,6 +418,9 @@ def test_panels_hide_and_come_back(qtbot: QtBot, tmp_path: Path):
     window = MainWindow(workspace=tmp_path / "workspace")
     qtbot.addWidget(window)
     window.show()
+    assert not window.right.isVisible()  # the welcome screen has the window
+    window.show_step("geometry")
+    assert window.right.isVisible()
     handle = window.split.handle(1)
     point = QPointF(2, 2)
     handle.enterEvent(QEnterEvent(point, point, point))
