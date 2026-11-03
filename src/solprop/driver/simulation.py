@@ -2025,8 +2025,8 @@ class Simulation(Displayed):
         the square root of watts and the internal convention. A pulse is the better
         choice: it is a small specification, while a built array is recorded in the
         metadata as itself. An array is copied here, complex128 and read-only, and
-        :attr:`initial` becomes that copy, so changing the caller's array afterwards
-        changes neither the run nor its record; a broadcast view
+        ``Simulation.initial`` becomes that copy, so changing the caller's array
+        afterwards changes neither the run nor its record; a broadcast view
         (:func:`numpy.broadcast_to`) copies only the block it repeats. The translated
         problem holds the same copy rather than another.
     settings : SimulationSettings
