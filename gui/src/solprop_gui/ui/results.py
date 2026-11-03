@@ -306,6 +306,7 @@ class ResultsPage(QWidget):
                 [z[p] for p in planes if p < len(z)],
                 list(value.get("labels") or []),  # pyright: ignore[reportArgumentType]
             )
+            self.plane.set_refused(dict(value.get("refused") or {}))  # pyright: ignore[reportArgumentType]
         elif purpose == "overview" and path == self.path and isinstance(value, dict):
             self.overview.set_rows(value.get("axes", {}), value.get("rows", []))  # pyright: ignore[reportArgumentType]
         elif purpose == "compare" and isinstance(value, dict):

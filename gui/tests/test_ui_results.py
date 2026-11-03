@@ -110,6 +110,36 @@ def test_the_plane_view_asks_and_draws(qtbot: QtBot, tmp_path: Path):
     assert len(asked) == count
 
 
+def test_a_spatial_plane_shows_its_fluence(qtbot: QtBot, tmp_path: Path):
+    view = PlaneView()
+    qtbot.addWidget(view)
+    view.set_planes([0, 1], [0.0, 0.02])
+    x, y = np.linspace(-1e-3, 1e-3, 4), np.linspace(-2e-3, 2e-3, 5)
+    spatial = {
+        **plane_reply(),
+        "coordinate": ["power", "spectral_density"],
+        "fluence": {
+            "axes": {"y": y, "x": x},
+            "values": np.ones((5, 4)),
+            "unit": "J/m^2",
+        },
+    }
+    view.show_plane(spatial)
+    assert view.image.isVisible() and "coordinate quantities" in view.status.text()
+    assert "Coordinate" in view.power_plot.getAxis("left").labelText
+    shot(view, tmp_path, "fluence")
+    radial = {"axes": {"r": x}, "values": np.ones(4), "unit": "J/m^2"}
+    view.show_plane({**spatial, "fluence": radial})
+    assert not view.image.isVisible()
+    view.show_plane({**spatial, "fluence": {"error": "not rebuilt"}})
+    assert "No fluence: not rebuilt" in view.status.text()
+    view.set_refused({"compression": "no compression on a beam"})
+    assert not view.compress_button.isEnabled()
+    assert view.compress_button.toolTip() == "no compression on a beam"
+    view.set_refused({})
+    assert view.compress_button.isEnabled()
+
+
 def test_the_statistics_view_draws_every_statistic(qtbot: QtBot, tmp_path: Path):
     view = StatisticsView()
     qtbot.addWidget(view)

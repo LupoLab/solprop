@@ -127,8 +127,6 @@ def _toml(value: object) -> str:
     return '"' + str(value).replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
-_LATER = "Comes with milestone {} of the front end."
-
 IMPLIED: Final = {"mode_average": False}
 """solprop's defaults of the keywords the cards' presets name; a test holds them to
 solprop's metadata."""
@@ -176,17 +174,24 @@ CARDS: Final = (
     ),
     RouteCard(
         "free",
-        "Free space",
-        "A beam in a bulk medium or gas, radially symmetric or in full.",
+        "Free space, Cartesian",
+        "A beam in a bulk medium or gas on a transverse x-y grid (or a line in x).",
         "free",
-        reason=_LATER.format("M5"),
+        example="cartesian_beam",
+    ),
+    RouteCard(
+        "radial",
+        "Free space, radial",
+        "A radially symmetric beam in a bulk medium or gas, on a Hankel grid.",
+        "radial",
+        reason="Needs a radial example recipe in solprop to start from (#405).",
     ),
     RouteCard(
         "planar",
         "Planar waveguide",
         "A slab waveguide, its modes across and free space along.",
         "planar",
-        reason=_LATER.format("M5"),
+        example="planar_hybrid",
     ),
 )
 """The cards, in the order the page shows them."""
@@ -240,7 +245,7 @@ def card_of(route: str, build: dict[str, object]) -> RouteCard | None:
     'capillary-modal'
     >>> card_of("capillary", {"lattice": {"type": "TubeLattice"}}).key
     'antiresonant'
-    >>> card_of("planar", {}) is None
+    >>> card_of("radial", {}) is None
     True
     """
     for entry in sorted(CARDS, key=lambda c: -len(c.marker)):

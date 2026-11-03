@@ -13,14 +13,16 @@ compression of a plane; and a figure of any of these written by solprop's own pl
 runs only in the kernel process.
 """
 
+import functools
 import io
 from collections.abc import Mapping
 from pathlib import Path
 
 import numpy as np
 from matplotlib.figure import Figure
-from solprop import plotting
+from solprop import capabilities, plotting
 from solprop.exceptions import SolpropError
+from solprop.grid import FreeGrid, LineGrid, RadialGrid
 from solprop.output import Output, open_file
 from solprop.processing import (
     ModeSelection,
@@ -29,7 +31,10 @@ from solprop.processing import (
     get_phase,
     get_power,
     get_spectral_density,
+    node_fluence,
+    transverse_units,
 )
+from solprop.recipe import Recipe
 from solprop.stats import CATALOGUE
 
 __all__ = ["RESULTS_HANDLERS"]
@@ -75,6 +80,63 @@ def _labels(handler: Output) -> list[str]:
         return []
 
 
+@functools.lru_cache(maxsize=4)
+def _space(path: str, stamp: float) -> object:
+    """Return the transverse grid of a run, rebuilt from the recipe it records.
+
+    Parameters
+    ----------
+    path : str
+        The results file.
+    stamp : float
+        Its modification time, so that a rewritten file is rebuilt.
+
+    Returns
+    -------
+    object
+        The simulation's ``spatial_grid``.
+    """
+    del stamp  # the cache's key only
+    return Recipe.from_output(path, resolved=True).build().spatial_grid
+
+
+def _fluence(path: str, handler: Output, index: int) -> dict[str, object]:
+    """Return a spatial plane's fluence on its transverse axes.
+
+    Parameters
+    ----------
+    path : str
+        The results file.
+    handler : solprop.output.Output
+        It, open.
+    index : int
+        The plane.
+
+    Returns
+    -------
+    dict
+        ``axes`` (their names and values, m: ``r``, ``x``, or ``y`` and ``x``),
+        ``values`` (``node_fluence`` on them) and ``unit``; ``error`` instead
+        where the run's grid cannot be rebuilt or laid out.
+    """
+    try:
+        space = _space(path, Path(path).stat().st_mtime)
+        values = np.asarray(node_fluence(handler))[index]
+    except SolpropError as error:
+        return {"error": str(error)}
+    unit = transverse_units(handler).fluence
+    if isinstance(space, RadialGrid):
+        axes = {"r": np.asarray(space.r)}
+    elif isinstance(space, LineGrid):
+        axes = {"x": np.asarray(space.x)}
+    elif isinstance(space, FreeGrid):
+        axes = {"y": np.asarray(space.y), "x": np.asarray(space.x)}
+        values = values.reshape(space.n_y, space.n_x)
+    else:
+        return {"error": "this run's transverse grid has no fluence map here"}
+    return {"axes": axes, "values": values, "unit": unit}
+
+
 def plane(payload: Payload) -> dict[str, object]:
     """Return one plane's spectrum, power and spectral phase.
 
@@ -90,7 +152,9 @@ def plane(payload: Payload) -> dict[str, object]:
         ``z``, ``labels`` (the file's modes), ``spectrum`` (``x`` and ``y``, the
         spectral density on the axis), ``power`` (``t`` and ``y``) and ``phase``
         (``omega`` and ``y``, of one mode; with ``error`` instead for a sum, which
-        has no phase).
+        has no phase); on a spatial file also ``fluence`` (:func:`_fluence`) and
+        ``coordinate``, the quantities solprop marks as sums over the grid's nodes
+        rather than physical fluxes.
     """
     index = int(payload["index"])  # pyright: ignore[reportArgumentType]
     modes = _modes(payload)
@@ -106,13 +170,20 @@ def plane(payload: Payload) -> dict[str, object]:
             phase = {"omega": np.asarray(omega), "y": np.asarray(values)}
         except SolpropError as error:
             phase = {"error": str(error)}
-        return {
+        found: dict[str, object] = {
             "z": float(np.asarray(handler["z"])[index]),
             "labels": _labels(handler),
             "spectrum": {"x": np.asarray(x), "y": np.asarray(density)},
             "power": {"t": np.asarray(t), "y": np.asarray(power)},
             "phase": phase,
         }
+        caps = capabilities.output(str(payload["path"]))
+        if caps.basis == "spatial":
+            found["fluence"] = _fluence(str(payload["path"]), handler, index)
+            found["coordinate"] = sorted(
+                name for name, q in caps.quantities.items() if q.kind == "coordinate"
+            )
+        return found
 
 
 def statistics(payload: Payload) -> dict[str, object]:

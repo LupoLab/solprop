@@ -115,3 +115,38 @@ def test_a_file_says_its_planes_positions_and_modes(run: str, monkeypatch):
 
     monkeypatch.setattr(handlers, "channel_labels", refuse)
     assert ask("describe_output", {"path": run})["labels"] == []
+
+
+@pytest.fixture(scope="module")
+def beam(tmp_path_factory: pytest.TempPathFactory) -> str:
+    """Return a Cartesian beam's results file (solprop's example), made once."""
+    path = tmp_path_factory.mktemp("beam") / "beam.h5"
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        Recipe.example("cartesian_beam").run(path)
+    return str(path)
+
+
+def test_a_spatial_plane_has_its_fluence_map(beam: str, monkeypatch):
+    found = ask("plane", {"path": beam, "index": 1})
+    fluence = found["fluence"]
+    assert fluence["values"].shape == (40, 32) and fluence["unit"] == "J/m^2"
+    assert set(fluence["axes"]) == {"x", "y"} and "power" in found["coordinate"]
+    assert ask("describe_output", {"path": beam})["refused"]["compression"]
+    # A radial grid and a line give a profile; another grid, or a refusal, says so.
+    from solprop.grid import LineGrid, RadialGrid  # noqa: PLC0415
+
+    for space, axis in ((RadialGrid(1e-3, 8), "r"), (LineGrid(1e-3, 8), "x")):
+        monkeypatch.setattr(results, "_space", lambda *_a, space=space: space)
+        monkeypatch.setattr(results, "node_fluence", lambda _h: np.ones((2, 8)))
+        profile = ask("plane", {"path": beam, "index": 1})["fluence"]
+        assert list(profile["axes"]) == [axis] and profile["values"].shape == (8,)
+    monkeypatch.setattr(results, "_space", lambda *_a: object())
+    assert "error" in ask("plane", {"path": beam, "index": 1})["fluence"]
+
+    def refuse(_handler: object) -> None:
+        raise SolpropError("no reconstruction")
+
+    monkeypatch.setattr(results, "node_fluence", refuse)
+    no_map = ask("plane", {"path": beam, "index": 1})["fluence"]
+    assert no_map == {"error": "no reconstruction"}

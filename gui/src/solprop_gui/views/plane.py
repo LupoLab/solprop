@@ -35,7 +35,13 @@ from PySide6.QtWidgets import (
 )
 
 from solprop_gui.registry.units import si
-from solprop_gui.views.plotting import PALETTE, HoverLayout, choose_figure, curve_lookup
+from solprop_gui.views.plotting import (
+    PALETTE,
+    HoverLayout,
+    choose_figure,
+    colormap,
+    curve_lookup,
+)
 
 __all__ = ["PlaneView"]
 
@@ -209,6 +215,10 @@ class PlaneView(QWidget):
             self.phase_plot, curve_lookup(self.phase_curve, "{0:.1f} nm, {1:.3g} rad")
         )
         self.compressed: list[pg.PlotDataItem] = []
+        self.image = pg.ImageItem()
+        self.image.setColorMap(colormap("viridis"))
+        self.phase_plot.addItem(self.image)
+        self.image.hide()
         self.spectrogram = _Image("Spectrogram: press the button.")
         self.spectrogram.setObjectName("plane-spectrogram-image")
         self._spectrum: tuple[np.ndarray, np.ndarray] | None = None
@@ -429,10 +439,14 @@ class PlaneView(QWidget):
         self.power_curve.setData(t, np.asarray(power["y"], dtype=float))
         self._clear_compression()
         notes = []
-        if "error" in phase:
+        fluence = plane.get("fluence")
+        if isinstance(fluence, Mapping):
+            self._show_fluence(fluence, notes)
+        elif "error" in phase:
             self.phase_curve.setData([], [])
             notes.append(f"No phase: {phase['error']}")
         else:
+            self._phase_axes()
             omega = np.asarray(phase["omega"], dtype=float)
             wavelength = 2 * np.pi * _C / omega * 1e9
             values = np.asarray(phase["y"], dtype=float)
@@ -447,9 +461,80 @@ class PlaneView(QWidget):
             if self.selection() == "sum" and self.modes.count() > 2:
                 notes.append("The phase is the first mode's: a sum of modes has none.")
         values = np.asarray(power["y"], dtype=float)
-        peak = float(values.max()) if values.size else 0.0
-        notes.insert(0, f"Peak power {si(peak, 'W')}.")
+        coordinate = "power" in (plane.get("coordinate") or [])  # pyright: ignore[reportOperatorIssue]
+        self.power_plot.setLabel(
+            "left", "Coordinate power" if coordinate else "Power", units="W"
+        )
+        if coordinate:
+            notes.append(
+                "The power and the spectrum are coordinate quantities (sums over the "
+                "grid's nodes), not physical fluxes; the fluence is physical."
+            )
+        else:
+            peak = float(values.max()) if values.size else 0.0
+            notes.insert(0, f"Peak power {si(peak, 'W')}.")
         self.status.setText(" ".join(notes))
+
+    def _phase_axes(self) -> None:
+        """Show the third plot as the spectral phase."""
+        self.image.hide()
+        self.phase_plot.setTitle("Spectral phase")
+        self.phase_plot.setLabel("bottom", "Wavelength (nm)")
+        self.phase_plot.setLabel("left", "Phase (rad)")
+
+    def _show_fluence(self, fluence: Mapping[str, object], notes: list[str]) -> None:
+        """Show a spatial plane's fluence in the third plot, a map or a profile.
+
+        Parameters
+        ----------
+        fluence : Mapping
+            The plane's ``fluence``: ``axes``, ``values`` and ``unit``, or
+            ``error``.
+        notes : list of str
+            The status line's notes, added to.
+        """
+        self.phase_curve.setData([], [])
+        if "error" in fluence:
+            self._phase_axes()
+            notes.append(f"No fluence: {fluence['error']}")
+            return
+        axes: Mapping[str, object] = fluence["axes"]  # pyright: ignore[reportAssignmentType]
+        values = np.asarray(fluence["values"], dtype=float)
+        unit = str(fluence["unit"])
+        self.phase_plot.setTitle(f"Fluence ({unit})")
+        if values.ndim == 2:
+            x = np.asarray(axes["x"], dtype=float) * 1e3
+            y = np.asarray(axes["y"], dtype=float) * 1e3
+            self.image.setImage(values.T)
+            self.image.setRect(
+                float(x.min()), float(y.min()), float(np.ptp(x)), float(np.ptp(y))
+            )
+            self.image.show()
+            self.phase_plot.setLabel("bottom", "x (mm)")
+            self.phase_plot.setLabel("left", "y (mm)")
+            self.phase_plot.getViewBox().autoRange(items=[self.image])
+            return
+        self.image.hide()
+        name = "r" if "r" in axes else "x"
+        self.phase_curve.setData(np.asarray(axes[name], dtype=float) * 1e3, values)
+        self.phase_plot.setLabel("bottom", f"{name} (mm)")
+        self.phase_plot.setLabel("left", f"Fluence ({unit})")
+
+    def set_refused(self, refused: Mapping[str, str]) -> None:
+        """Disable what solprop refuses for the file, saying why.
+
+        Parameters
+        ----------
+        refused : Mapping
+            By operation, solprop's reason (``capabilities.output``).
+        """
+        reason = refused.get("compression")
+        self.compress_button.setEnabled(reason is None and bool(self.planes))
+        self.compress_button.setToolTip(
+            reason
+            or "The Taylor phase that best compresses this plane (compress_taylor), "
+            "and the transform limit."
+        )
 
     def _redraw_spectrum(self, *_args: object) -> None:
         """Draw the spectrum, in dB of its peak or linear.
