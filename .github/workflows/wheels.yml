@@ -223,13 +223,14 @@ jobs:
     needs: build
     if: github.event_name != 'workflow_dispatch' || inputs.published_version == ''
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    timeout-minutes: 120
     env:
       PYTHONUTF8: "1"
       # The runtime type checks run in CI's coverage lane only (ADR-053), and
       # jaxtyping's import hook doesn't load on 3.15 yet.
       SOLPROP_TEST_TYPECHECK: "0"
-      PYTEST_XDIST_AUTO_NUM_WORKERS: "4"
+      # Three workers, with swap below: four exhausted the runner's 16 GB, as in `test`.
+      PYTEST_XDIST_AUTO_NUM_WORKERS: "3"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -253,6 +254,12 @@ jobs:
           uv run --no-sync python -c "import sys; from solprop.backends.registry import
           resolve_name; assert sys.version_info[:2] == (3, 15), sys.version;
           assert resolve_name() == 'native', resolve_name()"
+      - name: Add swap
+        run: |
+          sudo fallocate -l 12G /swap.extra
+          sudo chmod 600 /swap.extra
+          sudo mkswap /swap.extra
+          sudo swapon /swap.extra
       - run: uv run --no-sync poe test --junitxml=junit.xml
       - name: No unexpected skips
         if: ${{ !cancelled() }}
