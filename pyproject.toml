@@ -16,7 +16,8 @@ authors = [
     { name = "Christian Brahms" },
 ]
 requires-python = ">=3.14"
-# hatch_build.py pins solprop-native to this version in the built metadata.
+# hatch_build.py pins solprop-native to this version in the built metadata, and the `gui`
+# extra to solprop-gui at it.
 dynamic = ["version", "optional-dependencies"]
 classifiers = [
     # 0.x: the interfaces may still change between minor releases.
@@ -70,7 +71,9 @@ Issues = "https://github.com/LupoLab/solprop/issues"
 Changelog = "https://github.com/LupoLab/solprop/blob/main/CHANGELOG.md"
 
 # The `mlx` extra, pinned by hatch_build.py, is the Apple-GPU backend, on macOS on Apple
-# silicon (SEP 33): `pip install solprop[mlx]`. Until it is published, the TDSE provider
+# silicon (SEP 33): `pip install solprop[mlx]`. The `gui` extra installs the desktop front
+# end, the distribution solprop-gui built from gui/, at solprop's own version:
+# `pip install solprop[gui]`, then `solprop-gui`. Until it is published, the TDSE provider
 # Pyroraptor is installed separately (docs/guide/media/tdse.md).
 
 [dependency-groups]
@@ -120,6 +123,11 @@ dev = [
     "setuptools-scm>=8",
     "scipy-openblas32>=0.3.34; sys_platform == 'linux' or sys_platform == 'win32'",
 ]
+# The front end's test plugin, synced with the `gui` extra by the GUI lane
+# (`uv sync --extra gui --group gui-test`). It is not in `dev`: pytest-qt refuses to start
+# without a Qt binding, which would stop every pytest run of an environment without
+# the front end.
+gui-test = ["pytest-qt>=4.5"]
 
 # ------------------------------------------------------------------- build / version
 [build-system]
@@ -179,14 +187,16 @@ exclude = [
 ]
 
 # --------------------------------------------------------------------------- uv workspace
-# One lock for both distributions. `uv sync` builds and installs the native package
-# from native/ (editable), since anyone in a checkout is developing (SEP 43). The
-# lightweight setup, tools/setup_light.py, is for contributors with no compiler.
+# One lock for the three distributions. `uv sync` builds and installs the native package
+# from native/ (editable), since anyone in a checkout is developing (SEP 43), and
+# `--extra gui` adds the front end from gui/. The lightweight setup,
+# tools/setup_light.py, is for contributors with no compiler.
 [tool.uv.workspace]
-members = ["native"]
+members = ["native", "gui"]
 
 [tool.uv.sources]
 solprop-native = { workspace = true }
+solprop-gui = { workspace = true }
 
 # ------------------------------------------------------------------------------ ruff
 [tool.ruff]
@@ -450,6 +460,28 @@ help = "The native package's gate (C++ and its Python adapter)."
 cmd = "python native/scripts/fetch_wheel.py"
 help = "Install the native wheel CI built for this checkout; needs `gh`, and no compiler."
 
+# The front end's gate (gui/, its own tool configuration in gui/pyproject.toml): its
+# types, docstrings and tests, the layers without Qt held to 100 % coverage. Its lint,
+# format, spelling and licence checks are the repository's, in `check`. It needs the
+# front end and its test plugin: `uv sync --extra gui --group gui-test`.
+[tool.poe.tasks.gui-types]
+cmd = "basedpyright --project gui"
+help = "Type-check the front end against its own configuration."
+
+[tool.poe.tasks.gui-docstrings]
+cmd = "python -m numpydoc lint gui/src/solprop_gui/*.py gui/src/solprop_gui/**/*.py gui/hatch_build.py"
+help = "Validate the front end's public docstrings."
+
+[tool.poe.tasks.gui-test]
+cmd = "pytest --cov --cov-report=term-missing"
+cwd = "gui"
+env = { PYTHONUTF8 = "1", QT_QPA_PLATFORM = "offscreen" }
+help = "The front end's tests, offscreen; 100 % coverage of the layers without Qt."
+
+[tool.poe.tasks.check-gui]
+sequence = ["gui-types", "gui-docstrings", "gui-test"]
+help = "The front end's gate (needs `uv sync --extra gui --group gui-test`)."
+
 [tool.poe.tasks.check-all]
-sequence = ["check", "check-native"]
-help = "The repository's whole gate: solprop's, then the native package's."
+sequence = ["check", "check-native", "check-gui"]
+help = "The repository's whole gate: solprop's, the native package's and the front end's."

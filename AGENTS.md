@@ -24,7 +24,7 @@ rather than style, ask rather than guess.
 
 | | |
 |---|---|
-| Packages | `solprop` (`src/solprop/`) and the native backend `solprop-native` (`native/`, its own rules in [`native/AGENTS.md`](native/AGENTS.md)): one repository, two distributions, one version |
+| Packages | `solprop` (`src/solprop/`), the native backend `solprop-native` (`native/`, its own rules in [`native/AGENTS.md`](native/AGENTS.md)) and the desktop front end `solprop-gui` (`gui/`, its own rules in [`gui/AGENTS.md`](gui/AGENTS.md)): one repository, three distributions, one version |
 | Purpose | Ultrafast nonlinear pulse propagation (UPPE and GNLSE; field and envelope; single-mode, multimode and general modal guides; radial, Cartesian, planar and line free space) |
 | Python | 3.14 — equal to `requires-python` in `pyproject.toml` |
 | Platforms | solprop runs where solprop-native installs: wheels for osx-arm64, linux-64, linux-aarch64, win-64 and win-arm64; from source on Linux and macOS (GPU builds on Linux), with no support promise elsewhere; the Queue and Slurm scan executors POSIX-only |
@@ -41,9 +41,10 @@ rather than style, ask rather than guess.
 
 | Task | Command |
 |---|---|
-| Sync environment | `uv sync` builds and installs the native backend from `native/` (editable), and needs a C++20 compiler; `uv sync --inexact` keeps a hand-installed Pyroraptor. `uv run --no-project tools/setup_light.py` is the lightweight setup, with no native package and no compiler: then `UV_NO_SYNC=1` or an activated environment, and `SOLPROP_TEST_BACKEND=numpy_ref`. It supports the reference backend and the lint, type, test and documentation checks; `auto` refuses there, and a native change needs a native build. `uv run poe fetch-wheel` installs the wheel CI built, with no compiler, and refuses one that doesn't fit this tree (`docs/dev/contributing.md`) |
+| Sync environment | `uv sync` builds and installs the native backend from `native/` (editable), and needs a C++20 compiler; `--extra gui --group gui-test` adds the front end from `gui/` with its test plugin. A sync removes every extra it does not name; `uv sync --inexact` keeps a hand-installed Pyroraptor. `uv run --no-project tools/setup_light.py` is the lightweight setup, with no native package and no compiler: then `UV_NO_SYNC=1` or an activated environment, and `SOLPROP_TEST_BACKEND=numpy_ref`. It supports the reference backend and the lint, type, test and documentation checks; `auto` refuses there, and a native change needs a native build. `uv run poe fetch-wheel` installs the wheel CI built, with no compiler, and refuses one that doesn't fit this tree (`docs/dev/contributing.md`) |
 | Full gate (see below) | `uv run poe check` |
-| Native gate | `uv run poe check-native` (`native/scripts/check.sh`); `uv run poe check-all` runs both gates |
+| Native gate | `uv run poe check-native` (`native/scripts/check.sh`); `uv run poe check-all` runs the three gates |
+| Front-end gate | `uv run poe check-gui` (its types, docstrings and tests; needs `--extra gui --group gui-test`) |
 | Lint with autofix | `uv run ruff check --fix .` |
 | Format | `uv run ruff format .` |
 | Type-check | `uv run basedpyright` |
@@ -104,6 +105,9 @@ checks); the slow lane on Linux and macOS; the default lane at the lowest depend
 versions; and a few modules with no native package. The long lanes run as shards of whole modules (`SOLPROP_TEST_SHARD`), and only
 the coverage lane runs the type checks (ADR-053; `docs/dev/tooling.md`, "CI"). Between
 them the jobs run exactly `poe check`'s steps: change both in the same commit.
+
+**Changes touching `gui/`** follow [`gui/AGENTS.md`](gui/AGENTS.md); its gate runs in CI
+as the `gui` jobs, on Linux, macOS and Windows, for every change to `gui/` or to solprop.
 
 **Changes touching `native/`** follow [`native/AGENTS.md`](native/AGENTS.md). Their full
 gate, `uv run poe check-native` (`uv run poe check-all` for both gates), also runs in CI:

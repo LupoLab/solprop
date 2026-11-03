@@ -199,8 +199,10 @@ snippets, the accuracy page, the catalogues, the kernel contract and the figures
 the test lanes below are skipped. A push to `main` that merges a pull request runs no
 further jobs when its tree is the pull request head's tree and CI passed on that head:
 the pull request was up to date with `main`, so its run tested exactly what was merged.
-A pull request that was behind `main` merges to a new tree, which runs in full. Any other
-change, or a push whose base is unknown, runs every job except docs-tests.
+A pull request that was behind `main` merges to a new tree, which runs in full. A change
+confined to the front end (`gui/`, with `docs/` and Markdown files) runs static, docs and
+**gui** only. Any other change, or a push whose base is unknown, runs every job except
+docs-tests, gui included, so a change to solprop is checked against the front end.
 
 The long lanes run as **shards**, parallel jobs that each take whole modules:
 `SOLPROP_TEST_SHARD=i/n` keeps shard *i* of *n* (`tests/shards.py`, ADR-053). The shards
@@ -243,6 +245,11 @@ jaxtyping hook) run in the coverage lane only; the other test lanes set
   its lint and strict types, clang-format and its pytest suite (`lint pytest`);
   clang-tidy and the native tests (`tidy`); and ASan and UBSan (`sanitize`). The
   distribution wheel's stage is native-wheel's Linux job.
+- **gui** (Linux x86-64, macOS arm64, Windows x64): `uv run poe check-gui`, the front
+  end's gate (its types against `gui/pyproject.toml`, its docstrings and its tests, with
+  the layers without Qt held to 100 % coverage), after `uv sync --extra gui --group
+  gui-test`, with the widgets drawn offscreen. Its lint, format, spelling and licence
+  checks are static's.
 - **ci-passed** (Linux): runs after every lane, always, and fails if any of them failed
   or was cancelled. It is the check the `main` ruleset requires, beside the Read the
   Docs build: which lanes run depends on the change, and a skipped matrix job reports
@@ -260,8 +267,10 @@ it does not reuse a previous commit's CI result or bypass required checks.
 aarch64, macOS arm64, Windows x64 and Arm) on pull requests that change the wheel recipe
 (`native/ci/`, `native/pyproject.toml`, the CMake files, the workflow), weekly, on release
 tags and by hand, and tests each installed wheel. It also builds solprop's sdist and
-wheel and checks a fresh install of each, and on a release tag, once enabled, publishes
-solprop-native and then solprop ([Releasing and the native wheels](releasing.md), whose
+wheel and checks a fresh install of each, builds solprop-gui's and checks that
+`solprop[gui]` installs from the files and answers at the version, and on a release
+tag, once enabled, publishes solprop-native, then solprop, then (once `PUBLISH_GUI` is
+set) solprop-gui ([Releasing and the native wheels](releasing.md), whose
 pre-flight checklist sets publishing up).
 
 `native` runs in the coverage lane's driver tests; the parity tests check it against

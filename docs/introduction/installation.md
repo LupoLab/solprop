@@ -1,8 +1,8 @@
 # Get and install solprop
 
 You need Python 3.14 and an environment in which you can install Python packages.
-Python 3.15 is not yet supported: solprop-native and h5py publish no wheels for it yet, so
-an installation there stops at the installer's error or at building h5py from source.
+Python 3.15 is not yet supported: h5py publishes no wheels for it yet, so an installation
+there falls back to building it from source, which usually fails.
 
 solprop runs where its compiled native backend installs. `pip install solprop` installs
 the two together, with no extra, and the platforms and processors below are what is

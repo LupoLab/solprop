@@ -42,8 +42,9 @@ repair, which then treats both alike. On Linux both link one OpenBLAS.
 
 Every bundled library runs on the same OpenMP runtime as Kokkos, so a process holds one
 thread pool for the backend. The wheel carries the licence text of every library compiled
-into it or copied in by the repair (`LICENSE-*.txt` beside the extension). CPython 3.14
-only; free-threaded CPython is not a target.
+into it or copied in by the repair (`LICENSE-*.txt` beside the extension). One wheel, built
+on CPython 3.14 against the stable ABI (`cp314-abi3`), serves 3.14 and later; `abi3audit`
+and a load on 3.15 must pass before it is published. Free-threaded CPython is not a target.
 
 ## Building a wheel locally
 
@@ -180,7 +181,9 @@ before the first tag:
    each project, both naming the owner `LupoLab`, the repository `solprop` and the
    workflow `wheels.yml`:
    - the project `solprop` with the environment `pypi`;
-   - the project `solprop-native` with the environment `pypi-native`.
+   - the project `solprop-native` with the environment `pypi-native`;
+   - the project `solprop-gui` with the environment `pypi-gui`, once the front end is
+     to be published (below).
 
    PyPI ties a pending publisher to one project name per workflow and environment, hence
    the two environments. The first upload through a pending publisher creates its
@@ -190,7 +193,11 @@ before the first tag:
    with the single tag rule `v*`. Without the reviewer, anyone with write access could
    publish by pushing a tag.
 3. Under *Settings → Secrets and variables → Actions*, add the repository variable
-   `PUBLISH` with the value `true`. The publish jobs are skipped without it.
+   `PUBLISH` with the value `true`. The publish jobs are skipped without it. The front
+   end, `solprop-gui`, is published only when `PUBLISH_GUI` is `true` as well, after
+   solprop itself, whose version it requires; until then each release builds it and
+   checks an install of `solprop[gui]` from the files, and the extra resolves only in the
+   repository's workspace.
 4. **On Zenodo**, signed in with GitHub, switch on `LupoLab/solprop` under *GitHub*
    (the organisation must grant Zenodo's application access). Zenodo archives each
    GitHub release, not a tag, with the metadata of `.zenodo.json`, and gives it a DOI,
