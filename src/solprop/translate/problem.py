@@ -493,8 +493,10 @@ and refuses a split reading without them. ``KernelProblem.split_crossing``
 ``uint8`` leaf, and the launch's crossing limit, which holds an adaptive ``dz_max`` and
 a fixed schedule; under the split every reading also returns the state's energy per
 bucket (``BoundaryEnergies.occupancy``), whose limit caps the steps until the next
-check, the native Adams march's per call (``step_cap``). The native reading grows from
-six numbers to ten and the buckets. No stage bundle or driver signature moves.
+check: ``StepDriver._split_capped`` on the host marches, the native Adams march's
+required ``step_cap`` bound per call. The native reading, after ``bind_occupancy``
+hands it the table, grows from six numbers to ten and the 128 buckets. No stage
+bundle or existing driver signature moves.
 """
 
 DEFAULT_COMPONENTS = ("x",)
@@ -3154,9 +3156,8 @@ def _split_crossing(
         return None
     # A nonzero temporal rate lies in a collar of nonzero width.
     width = min(grid.t_collar.width_low, grid.t_collar.width_high)
-    crossing = SplitCrossing(
-        walk_off_buckets(linear, grid.omega, grid.active_mask), width
-    )
+    buckets, fastest = walk_off_buckets(linear, grid.omega, grid.active_mask)
+    crossing = SplitCrossing(buckets, width, fastest=fastest)
     return replace(
         crossing, launch_limit=crossing.limit(crossing.occupancy(launch, columns))
     )

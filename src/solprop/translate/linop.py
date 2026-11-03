@@ -2981,28 +2981,28 @@ def _separable_phase(
     return result
 
 
-_WALK_OFF_POSITIONS = 5
-"""Positions along a z-varying operator at which :func:`walk_off_buckets` reads it."""
-
-
 def walk_off_buckets(
     table: LinearOperator,
     omega: Float[np.ndarray, " n_omega"],
     active: Bool[np.ndarray, " n_omega"],
-) -> UInt8[np.ndarray, "n_modes n_omega"]:
+) -> tuple[UInt8[np.ndarray, "n_modes n_omega"], float]:
     """Return each bin's walk-off bucket, for the split collar's crossing limit.
 
     The rate ``|d(beta - beta_frame)/d omega|`` (the frame's ``beta_1`` subtracted) of
     every ``(mode, frequency)`` bin, read from the operator ``D = -i (beta -
     beta_frame) - alpha / 2`` by centred differences along the sorted frequency axis,
-    the fastest of its batch members and polarisations, as its bucket
-    (:func:`solprop.boundaries.split_rate_buckets`). Inactive bins, the axis's ends
-    and a separable operator's evanescent bins are in the slowest bucket: no
-    propagating light sits there. A tabulated operator's columns, modes or a radial
-    grid's, are read as they are, which on a radial grid fine enough to hold an
-    evanescent column reads that column's frame rate. A separable operator is constant
-    along z and is read in chunks of columns; a tabulated one that varies is read at
-    five positions along its table, the ends included, and each bin takes its fastest.
+    one-sided at the edges of what may be read (the axis's ends, the active band's
+    edges, the last propagating bin before evanescence), the fastest of its batch
+    members and polarisations, as its bucket
+    (:func:`solprop.boundaries.split_rate_buckets`). Inactive bins, and a separable
+    operator's evanescent bins, are in the slowest bucket: no propagating light sits
+    there. A tabulated operator's columns, modes or a radial grid's, are read as they
+    are, which on a radial grid fine enough to hold an evanescent column reads that
+    column's frame rate. A separable operator is constant along z and is read in
+    chunks of columns; a tabulated one that varies is read at its own nodes, every
+    interval's start, middle and end (:func:`_rate_positions`), and each bin takes its
+    fastest. Between the nodes a smooth guide's rate is the interval's interpolant's,
+    whose excursion from its samples is not bounded here.
 
     Parameters
     ----------
@@ -3016,8 +3016,11 @@ def walk_off_buckets(
 
     Returns
     -------
-    numpy.ndarray
+    buckets : numpy.ndarray
         ``uint8``, shape ``(n_modes, n_omega)``, in the state's frequency order.
+    fastest : float
+        The fastest rate read, s/m, which a rate past the fastest bucket's edge
+        takes as that bucket's (:class:`solprop.boundaries.SplitCrossing`).
 
     Examples
     --------
@@ -3027,7 +3030,7 @@ def walk_off_buckets(
     >>> omega = np.linspace(1.0e15, 3.0e15, 201)
     >>> beta2, omega0 = 2e-26, 2.0e15
     >>> operator = -1j * 0.5 * beta2 * (omega - omega0) ** 2
-    >>> buckets = walk_off_buckets(constant_phi(operator, 1.0), omega, omega > 0)
+    >>> buckets, _ = walk_off_buckets(constant_phi(operator, 1.0), omega, omega > 0)
     >>> # The bin 5e14 rad/s from the reference walks at beta2 times that, 1e-11 s/m.
     >>> rate = float(split_bucket_rates()[buckets[0, 150]])
     >>> bool(1e-11 <= rate < 1.2e-11)
@@ -3035,41 +3038,56 @@ def walk_off_buckets(
     """
     order = np.argsort(omega)
     axis = np.asarray(omega, dtype=np.float64)[order]
-    span = axis[2:] - axis[:-2]
     sorted_active = np.asarray(active, dtype=bool)[order]
 
     def rates(phase: np.ndarray, valid: np.ndarray) -> np.ndarray:
-        """Return the centred slopes of sorted phases, zero where unreadable.
+        """Return the slopes of sorted phases, zero where unreadable.
+
+        Centred where a bin and both its neighbours may be read, one-sided where only
+        one neighbour may: the last propagating bin before evanescence and the
+        active band's edges, which walk fastest, keep their rates.
 
         Parameters
         ----------
         phase : numpy.ndarray
             Phases per metre on the sorted bins, rad/m, ``(n_rows, n_omega)``.
         valid : numpy.ndarray
-            Which bins may be read; a slope needs its bin and both neighbours.
+            Which bins may be read.
 
         Returns
         -------
         numpy.ndarray
             ``|d phase / d omega|``, s/m, the shape of `phase`.
         """
-        out = np.zeros(phase.shape)
-        ok = valid[:, 1:-1] & valid[:, 2:] & valid[:, :-2]
-        out[:, 1:-1] = np.where(ok, np.abs(phase[:, 2:] - phase[:, :-2]) / span, 0.0)
-        return out
+        step = np.abs(np.diff(phase, axis=1)) / np.diff(axis)
+        pair = valid[:, 1:] & valid[:, :-1]
+        forward = np.zeros(phase.shape, dtype=bool)  # (i, i + 1) readable
+        backward = np.zeros(phase.shape, dtype=bool)  # (i - 1, i) readable
+        forward[:, :-1] = pair
+        backward[:, 1:] = pair
+        one_sided = np.zeros(phase.shape)
+        one_sided[:, :-1] = np.where(pair, step, 0.0)
+        one_sided[:, 1:] = np.maximum(one_sided[:, 1:], np.where(pair, step, 0.0))
+        centred = np.zeros(phase.shape)
+        centred[:, 1:-1] = np.abs(phase[:, 2:] - phase[:, :-2]) / (axis[2:] - axis[:-2])
+        return np.where(forward & backward, centred, one_sided)
 
+    fastest = 0.0
     if table.separable is not None:
         coefficients = table.separable
         inverse = None
         if coefficients.kappa_sq is None:
-            # A column's rate depends on its transverse square alone: a Cartesian
-            # grid repeats each about eight times, so each distinct one is read once.
-            keys = np.stack([coefficients.kperp_sq, coefficients.kperp_sq_low], axis=1)
+            # A column's rate depends on its transverse squares and its ramp alone: a
+            # Cartesian grid repeats each about eight times, so each distinct one is
+            # read once.
+            rate_field = coefficients.kperp_rate
+            assert rate_field is not None  # adopted as zeros
+            keys = np.stack(
+                [coefficients.kperp_sq, coefficients.kperp_sq_low, rate_field], axis=1
+            )
             _, index, inverse = np.unique(
                 keys, axis=0, return_index=True, return_inverse=True
             )
-            rate_field = coefficients.kperp_rate
-            assert rate_field is not None  # adopted as zeros
             coefficients = replace(
                 coefficients,
                 kperp_sq=coefficients.kperp_sq[index],
@@ -3085,23 +3103,51 @@ def walk_off_buckets(
             root, propagating, _ = longitudinal_root(coefficients, columns)
             phase = (np.real(root) - coefficients.frame[None, :])[:, order]
             valid = propagating[:, order] & sorted_active[None, :]
-            buckets[columns][:, order] = split_rate_buckets(rates(phase, valid))
-        return buckets if inverse is None else buckets[np.ravel(inverse)]
-    lo, hi = float(table.phi_breakpoints[0]), float(table.phi_breakpoints[-1])
-    varies = table.phi_constant is None
-    fastest: np.ndarray | None = None
-    for z in np.linspace(lo, hi, _WALK_OFF_POSITIONS) if varies else [lo]:
-        rate = phi_rate(table, float(z))
+            each = rates(phase, valid)
+            fastest = max(fastest, float(np.max(each, initial=0.0)))
+            buckets[columns][:, order] = split_rate_buckets(each)
+        if inverse is not None:
+            buckets = buckets[np.ravel(inverse)]
+        return buckets, fastest
+    widest: np.ndarray | None = None
+    for z, before in _rate_positions(table):
+        rate = phi_rate(table, z, before=before)
         n_batch, n_modes, n_pol, n_omega = rate.shape
         phase = -np.imag(rate.reshape(-1, n_omega))[:, order]
         valid = np.broadcast_to(sorted_active[None, :], phase.shape)
         each = rates(phase, valid).reshape(n_batch, n_modes, n_pol, n_omega)
         each = each.max(axis=(0, 2))
-        fastest = each if fastest is None else np.maximum(fastest, each)
-    assert fastest is not None
-    buckets = np.empty(fastest.shape, dtype=np.uint8)
-    buckets[:, order] = split_rate_buckets(fastest)
-    return buckets
+        widest = each if widest is None else np.maximum(widest, each)
+    assert widest is not None
+    buckets = np.empty(widest.shape, dtype=np.uint8)
+    buckets[:, order] = split_rate_buckets(widest)
+    return buckets, float(np.max(widest, initial=0.0))
+
+
+def _rate_positions(table: LinearOperator) -> list[tuple[float, bool]]:
+    """Return where :func:`walk_off_buckets` reads a tabulated operator.
+
+    A constant operator once. A z-varying one at its own nodes: every interval's
+    start, middle and end, each end read from the interval it closes, since ``D``
+    jumps at a hard kink.
+
+    Parameters
+    ----------
+    table : LinearOperator
+        A tabulated operator.
+
+    Returns
+    -------
+    list of tuple
+        ``(z, before)`` pairs, m, for :func:`phi_rate`.
+    """
+    edges = np.asarray(table.phi_breakpoints, dtype=np.float64)
+    if table.phi_constant is not None:
+        return [(float(edges[0]), False)]
+    positions: list[tuple[float, bool]] = []
+    for low, high in itertools.pairwise(edges.tolist()):
+        positions += [(low, False), (0.5 * (low + high), False), (high, True)]
+    return positions
 
 
 def unitary_phase(

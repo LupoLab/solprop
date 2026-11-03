@@ -159,7 +159,9 @@ against the frame ({py:func}`solprop.boundaries.split_crossing_step`,
 {py:data}`solprop.boundaries.SPLIT_CROSSING`), taken over **the bins that hold light**.
 Every `(mode, frequency)` bin's walk-off is read from the translated operator into one of
 128 rate buckets ({py:class}`solprop.boundaries.SplitCrossing`,
-{py:func}`solprop.translate.linop.walk_off_buckets`); the fastest buckets that between
+{py:func}`solprop.translate.linop.walk_off_buckets`: centred differences, one-sided at
+the active band's edges and the last propagating bin before evanescence, a z-varying
+guide read at its operator's own nodes); the fastest buckets that between
 them hold at most `1e-6` of the energy ({py:data}`solprop.boundaries.SPLIT_OCCUPIED_SHARE`)
 are set aside, since all of that light wrapping would be a field error within the
 monitor's default budget, and the fastest bucket left gives the rate.
@@ -174,7 +176,9 @@ monitor's default budget, and the fastest bucket left gives the rate.
   shortens the steps as it goes: on the 256-node radial filament of the benchmark suite
   the cap falls from 0.28 m at the launch to about 6 mm within 2 mm, above every step
   the run takes. A fixed schedule cannot shorten its steps, so a check whose cap falls
-  below the schedule's next step stops the run with a `BoundaryError` naming the cap.
+  below any of the schedule's steps before the next check stops the run with a
+  `BoundaryError` naming the cap, and a resumed schedule is held to the state it
+  resumes from at once.
 - A run with `boundary_check=None` is held to the launch's limit alone.
 
 Read over every bin, outer transverse columns near their cutoff would set the limit even

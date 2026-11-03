@@ -1937,6 +1937,8 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             floor=self._input_floor,
         )
         self._set_collar_quiet(monitor.collar_quiet)
+        # A resumed fixed schedule is held to the state it resumes from at once.
+        self._refuse_scheduled_crossing(monitor)
         edge = getattr(monitor, "transverse", None)
         if edge is not None:
             state = self._observed_field(self._require_state())
@@ -2104,11 +2106,15 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         self._refuse_scheduled_crossing(monitor)
 
     def _refuse_scheduled_crossing(self, monitor: BoundaryMonitor) -> None:
-        """Stop a fixed schedule whose next step the split's crossing cap is below.
+        """Stop a fixed schedule whose steps before the next check pass the cap.
 
         Translation admitted the schedule on the launch's occupancy; light that has
         since spread into faster-walking bins lowers the cap, and a schedule cannot
-        shorten its steps (:class:`solprop.boundaries.SplitCrossing`).
+        shorten its steps (:class:`solprop.boundaries.SplitCrossing`). The cap holds
+        until the next check, which the monitor's cadence makes due within
+        :meth:`~solprop.monitor.BoundaryMonitor.steps_to_check` steps at most, so the
+        longest of those is held to it. Read at the launch too, so that a resumed
+        schedule is held to the state it resumes from.
 
         Parameters
         ----------
@@ -2123,16 +2129,18 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         schedule = self._problem.stepper.schedule
         if schedule is None or self._schedule_index >= schedule.n_steps:
             return
-        step = float(schedule.steps[self._schedule_index])
+        first = self._schedule_index
+        ahead = schedule.steps[first : first + monitor.steps_to_check()]
+        step = float(np.max(ahead))
         cap = monitor.step_cap
         if step > cap:
             msg = (
                 f"at z = {self._z:.6e} m the split temporal collar's crossing limit "
-                f"fell to {cap:.3e} m, below the fixed schedule's next step "
-                f"{step:.3e} m: light has spread into bins that walk faster than the "
-                "launch's, and a step that long could carry it through the collar and "
-                "round the window undamped. Take shorter steps, step adaptively, or "
-                'use absorber_scheme="nonlinear"'
+                f"fell to {cap:.3e} m, below the fixed schedule's step {step:.3e} m "
+                "before the next check: light has spread into bins that walk faster "
+                "than the launch's, and a step that long could carry it through the "
+                "collar and round the window undamped. Take shorter steps, step "
+                'adaptively, or use absorber_scheme="nonlinear"'
             )
             raise BoundaryError(msg)
 

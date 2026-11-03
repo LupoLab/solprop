@@ -292,3 +292,31 @@ def test_a_monitor_s_own_transform_is_in_the_ledger(
     finally:
         made.close()
     assert all(ledger[row] > 0 for row in rows), {row: ledger[row] for row in rows}
+
+
+@pytest.mark.parametrize("route", ROUTE_NAMES)
+@pytest.mark.parametrize("backend", COMPILED)
+def test_successive_occupancies_are_the_reference_s(backend: str, route: str) -> None:
+    # Each reading of the state's energy per walk-off bucket stands alone: a host
+    # build's scatter added every reading into the last until the view was zeroed
+    # before each, and the third reading was three times the first's.
+    _require(backend)
+    simulation = probe(route, "split_step", MARCHES["runge_kutta"])
+    theirs, ours = (watched(simulation, name) for name in ("numpy_ref", backend))
+    # The matched march's rounding, amplified over its steps, relative to the energy.
+    bound = ladder_bound(
+        backend, 1e3 * _rounding(simulation), simulation.grid.n_t, 8 * STEPS
+    )
+    try:
+        for third in (1, 2, 3):
+            theirs.propagate_to(LENGTH * third / 3)
+            ours.propagate_to(LENGTH * third / 3)
+            expected = reading(theirs).occupancy
+            got = reading(ours).occupancy
+            assert expected is not None and got is not None
+            np.testing.assert_allclose(
+                got, expected, rtol=0.0, atol=bound * float(expected.sum())
+            )
+    finally:
+        theirs.close()
+        ours.close()

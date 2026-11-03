@@ -14703,6 +14703,10 @@ std::vector<double> GeneralWorkspace::monitor_reading() {
     const auto buckets = occupancy_buckets_;
     const auto n_pol = problem_.n_pol_state;
     auto scatter = occupancy_scatter_;
+    // `contribute` adds the per-thread copies of a host build into the view: each
+    // reading starts the view, as `reset` starts the copies, from zero (a device
+    // build's atomic scatter adds into the view itself).
+    graph::deep_copy(execution_space_, occupancy_, 0.0);
     scatter.reset(execution_space_);
     launch::parallel_for(
         "solprop_native.monitor.occupancy",

@@ -31,6 +31,7 @@ from solprop.boundaries import (
     SplitCrossing,
     split_bucket_rates,
     split_crossing_step,
+    split_rate_buckets,
 )
 from solprop.constants import C
 from solprop.driver import Simulation, SimulationSettings
@@ -202,7 +203,7 @@ def test_a_fixed_schedule_the_light_outgrows_is_stopped(backend: str) -> None:
     with pytest.raises(
         BoundaryError,
         match=r"crossing limit fell to \d\.\d+e-02 m, below the fixed schedule's "
-        r"next step 5\.000e-02 m",
+        r"step 5\.000e-02 m before the next check",
     ):
         simulation.run(progress="none")
 
@@ -316,24 +317,132 @@ def test_every_batch_member_and_polarisation_is_read() -> None:
         [[[1e-26, 2e-26], [3e-26, 1e-26]], [[1e-26, 1e-26], [1e-26, 4e-26]]]
     )
     table = constant_phi(beta2[..., None] * quadratic, 1.0)
-    buckets = walk_off_buckets(table, omega, np.ones(201, dtype=bool))
+    buckets, _ = walk_off_buckets(table, omega, np.ones(201, dtype=bool))
     rates = split_bucket_rates()[buckets[:, 150]]  # 5e14 rad/s from the reference
     # Mode 0's fastest is 2e-26, mode 1's 4e-26, times the offset; a bucket's edge.
     for rate, fastest in zip(rates, (2e-26 * 5e14, 4e-26 * 5e14), strict=True):
         assert fastest <= rate < 1.2 * fastest
 
 
-def test_the_axis_ends_and_inactive_bins_are_the_slowest() -> None:
+def test_edge_bins_keep_their_rates_and_inactive_ones_are_the_slowest() -> None:
+    # The phase beta2 omega^2 / 2 walks at beta2 omega, fastest at the axis's top. The
+    # bins beside an inactive one, and the axis's ends, read one-sided differences.
     omega = np.linspace(1.0e15, 3.0e15, 11)
-    table = constant_phi(-1j * BETA2 * omega**2, 1.0)
+    table = constant_phi(-1j * 0.5 * BETA2 * omega**2, 1.0)
     active = np.ones(11, dtype=bool)
     active[5] = False
-    buckets = walk_off_buckets(table, omega, active)[0]
-    last = SPLIT_RATE_BUCKETS - 1
-    assert buckets[0] == buckets[-1] == last
-    # An inactive bin, and the bins whose differences reach it.
-    assert np.all(buckets[4:7] == last)
-    assert np.all(buckets[1:4] < last)
+    buckets, fastest = walk_off_buckets(table, omega, active)
+    rates = split_bucket_rates(fastest)[buckets[0]]
+    assert buckets[0, 5] == SPLIT_RATE_BUCKETS - 1
+    # One-sided at the ends and beside the gap: the forward or backward difference of
+    # a quadratic, beta2 times the pair's midpoint, within a bucket's edge.
+    spacing = float(omega[1] - omega[0])
+    for index, middle in (
+        (0, omega[0] + 0.5 * spacing),
+        (4, omega[4] - 0.5 * spacing),
+        (6, omega[6] + 0.5 * spacing),
+        (10, omega[10] - 0.5 * spacing),
+    ):
+        assert BETA2 * middle <= rates[index] < 1.2 * BETA2 * middle
+    assert fastest == pytest.approx(BETA2 * (omega[10] - 0.5 * spacing))
+
+
+def test_a_rate_past_the_fastest_edge_is_counted_at_its_own() -> None:
+    # A group index 300 from the frame's walks past the buckets' top edge: the open
+    # first bucket takes that rate, so its limit is no longer than its own.
+    buckets = split_rate_buckets(np.array([[1e-6, 1e-12]]))
+    crossing = SplitCrossing(buckets, 1e-13, fastest=1e-6)
+    occupancy = crossing.occupancy(np.array([[[[1.0, 1.0]]]], dtype=complex))
+    assert crossing.limit(occupancy) == pytest.approx(split_crossing_step(1e-6, 1e-13))
+
+
+def test_a_varying_guide_is_read_at_its_own_nodes() -> None:
+    # A tapered capillary's operator takes the z table: each interval is read at its
+    # start, middle and end, the end from the interval it closes.
+    from solprop.profiles import PiecewiseLinear  # noqa: PLC0415
+    from solprop.translate.linop import _rate_positions  # noqa: PLC0415
+
+    taper = PiecewiseLinear(
+        np.array([0.0, 0.5, 1.0]), np.array([100e-6, 100e-6, 60e-6])
+    )
+    simulation = Simulation.from_capillary(
+        taper, 1.0, "He", 1.5, taper_coupling=False, wavelength=800e-9,
+        fwhm=10e-15, energy=1e-9, trange=250e-15,
+        wavelength_limits=(200e-9, 3e-6), absorber_scheme="split_step", noise=None,
+    )  # fmt: skip
+    linear = simulation.translate().linear
+    assert linear.phi_constant is None
+    edges = np.asarray(linear.phi_breakpoints)
+    positions = _rate_positions(linear)
+    assert len(positions) == 3 * (len(edges) - 1)
+    assert [z for z, before in positions if not before][::2] == edges[:-1].tolist()
+    assert [z for z, before in positions if before] == edges[1:].tolist()
+    assert len(_rate_positions(_radial("numpy_ref").translate().linear)) == 1
+
+
+def _scheduled(backend: str, steps: np.ndarray) -> Simulation:
+    """Return the spreading GNLSE pulse on a schedule of `steps`."""
+    length = float(np.sum(steps))
+    grid = EnvelopeGrid.from_limits(length, 1e-6, (0.8e-6, 1.25e-6), 2e-12)
+    return Simulation.from_gnlse(
+        0.03, length, [0.0, 0.0, BETA2], wavelength=1e-6, grid=grid,
+        pulses=[GaussianPulse(wavelength=1e-6, fwhm=500e-15, peak_power=1e3)],
+        noise=None, raman=False, shock=False, backend=backend,
+        integrator=RungeKutta(), absorber_scheme="split_step",
+        schedule=FixedSchedule(steps), save_planes=[length],
+    )  # fmt: skip
+
+
+def test_a_longer_step_before_the_next_check_is_refused() -> None:
+    # The cap holds until the next check. Checked every step (a busy edge), the next
+    # step, 1 cm, is the only one held to it; checked every eighth step, the
+    # schedule's third, 5 cm, is held to it too, and refused.
+    simulation = _scheduled("numpy_ref", np.array([0.01, 0.01, 0.05, 0.05]))
+    problem = simulation.translate()
+    backend = select("numpy_ref", problem, grid=simulation.grid)
+    try:
+        driver = as_driver(backend)
+        driver.set_initial(problem.initial.field0, None)
+        monitor = simulation._boundary_monitor()
+        assert monitor is not None
+        driver.attach_monitor(monitor)
+        monitor._cap = 0.03
+        monitor._busy = True
+        assert monitor.steps_to_check() == 1
+        driver._refuse_scheduled_crossing(monitor)
+        monitor._busy = False
+        assert monitor.steps_to_check() >= 3
+        with pytest.raises(BoundaryError, match=r"schedule's step 5\.000e-02 m"):
+            driver._refuse_scheduled_crossing(monitor)
+    finally:
+        backend.close()
+
+
+def test_a_state_that_walks_past_the_schedule_is_refused_when_watched() -> None:
+    # A resume: the state the schedule continues from has spread a thousandth of its
+    # energy to the band's blue edge, whose limit is below its 5 cm steps.
+    simulation = _scheduled("numpy_ref", np.full(4, 0.05))
+    problem = simulation.translate()
+    grid = simulation.grid
+    edge = int(np.argmax(np.where(grid.active_mask, grid.omega, -np.inf)))
+    state = np.array(problem.initial.field0)
+    total = float(np.sum(np.abs(state) ** 2))
+    state[..., edge - 2 : edge] = math.sqrt(5e-4 * total)
+    backend = select("numpy_ref", problem, grid=grid)
+    try:
+        driver = as_driver(backend)
+        driver.set_initial(state, None)
+        # Relaxed: the spread light fills the window, guards included.
+        simulation.settings = dataclasses.replace(
+            simulation.settings,
+            boundary_check=BoundaryCheck(budget=1.0, stop_factor=1.0),
+        )
+        monitor = simulation._boundary_monitor()
+        assert monitor is not None
+        with pytest.raises(BoundaryError, match="crossing limit fell to"):
+            driver.attach_monitor(monitor)
+    finally:
+        backend.close()
 
 
 def test_no_light_sets_no_cap() -> None:

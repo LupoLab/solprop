@@ -1048,6 +1048,10 @@ std::vector<double> Workspace::monitor_reading() {
     // The state's energy per walk-off bucket, beside the five.
     const auto buckets = occupancy_buckets_;
     auto scatter = occupancy_scatter_;
+    // `contribute` adds the per-thread copies of a host build into the view: each
+    // reading starts the view, as `reset` starts the copies, from zero (a device
+    // build's atomic scatter adds into the view itself).
+    Kokkos::deep_copy(execution_space_, occupancy_, 0.0);
     scatter.reset(execution_space_);
     launch::parallel_for(
         "solprop_native.monitor.occupancy",

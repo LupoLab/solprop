@@ -227,7 +227,8 @@ class MlxBackend(NumpySingleBackend):
 
     _occupancy_buckets: mx.array | None = None
     """The split collar's walk-off bucket of each ``(mode, frequency)`` bin, flat,
-    ``int32``, while a monitor of a split run is bound; ``None`` otherwise."""
+    ``uint8`` as the problem holds it, while a monitor of a split run is bound; ``None``
+    otherwise. A reading widens it to an index on the fly."""
 
     _pending_found: tuple[mx.array, ...] = ()
     """The energy and the guards' energies of what the last accepted step's split found,
@@ -649,7 +650,7 @@ class MlxBackend(NumpySingleBackend):
         self._occupancy_buckets = (
             None
             if crossing is None
-            else mx.array(np.asarray(crossing.buckets, dtype=np.int32).reshape(-1))
+            else mx.array(np.asarray(crossing.buckets, dtype=np.uint8).reshape(-1))
         )
 
     def _device_occupancy(self, state: mx.array) -> mx.array:
@@ -682,7 +683,8 @@ class MlxBackend(NumpySingleBackend):
         if self._monitor_columns is not None:
             density = density * self._monitor_columns
         by_bin = mx.sum(density, axis=(0, 2)).reshape(-1)
-        return mx.zeros((SPLIT_RATE_BUCKETS,), dtype=mx.float32).at[buckets].add(by_bin)
+        index = buckets.astype(mx.int32)
+        return mx.zeros((SPLIT_RATE_BUCKETS,), dtype=mx.float32).at[index].add(by_bin)
 
     def _boundary_energies(self, state: Any) -> BoundaryEnergies:
         """Return the boundary monitor's reading, reduced on the device.

@@ -186,12 +186,14 @@ error would be its square root, the boundary monitor's default budget."""
 SPLIT_RATE_BUCKETS: Final = 128
 """Walk-off rate buckets of :class:`SplitCrossing`, logarithmic from
 :data:`SPLIT_RATE_TOP` down nine decades: each bucket's rate is its upper edge, at most
-:math:`10^{9/128}`, 18 %, above the rates it holds, so the limit is never longer than
-the bins' own would give."""
+:math:`10^{9/128}`, 18 %, above the rates it holds, and the open first bucket's is the
+fastest rate the bins reach, so the limit is never longer than the bins' own would
+give."""
 
 SPLIT_RATE_TOP: Final = 1e-7
-"""The fastest bucket's rate, s/m: a group index 30 from the frame's, beyond any
-propagating light; a faster bin is counted at this rate."""
+"""The fastest bucket's lower edge, s/m: a group index 30 from the frame's, beyond any
+propagating light. The fastest bucket is open above it and is counted at the fastest
+rate a run's bins reach (:attr:`SplitCrossing.fastest`)."""
 
 _SPLIT_RATE_DECADES: Final = 9.0
 
@@ -796,7 +798,7 @@ def split_rate_buckets(
 
     Bucket ``k`` holds the rates up to ``SPLIT_RATE_TOP * 10**(-9 k / 128)``, the
     fastest first; a rate of zero, or below the last edge, is in the last bucket, and
-    one above :data:`SPLIT_RATE_TOP` in the first.
+    one above :data:`SPLIT_RATE_TOP` in the first, which is open-ended.
 
     Parameters
     ----------
@@ -824,8 +826,16 @@ def split_rate_buckets(
     return np.clip(np.ceil(depth - 1.0), 0, SPLIT_RATE_BUCKETS - 1).astype(np.uint8)
 
 
-def split_bucket_rates() -> Float[np.ndarray, " n_buckets"]:
+def split_bucket_rates(
+    fastest: float = SPLIT_RATE_TOP,
+) -> Float[np.ndarray, " n_buckets"]:
     """Return each :class:`SplitCrossing` bucket's rate, its upper edge, s/m.
+
+    Parameters
+    ----------
+    fastest : float, optional
+        The fastest rate the bins reach, s/m: the open first bucket's rate when it
+        exceeds :data:`SPLIT_RATE_TOP`.
 
     Returns
     -------
@@ -840,7 +850,9 @@ def split_bucket_rates() -> Float[np.ndarray, " n_buckets"]:
     (1e-07, 128)
     """
     k = np.arange(SPLIT_RATE_BUCKETS)
-    return SPLIT_RATE_TOP * 10.0 ** (-k * _SPLIT_RATE_DECADES / SPLIT_RATE_BUCKETS)
+    rates = SPLIT_RATE_TOP * 10.0 ** (-k * _SPLIT_RATE_DECADES / SPLIT_RATE_BUCKETS)
+    rates[0] = max(SPLIT_RATE_TOP, fastest)
+    return rates
 
 
 @dataclass(frozen=True)
@@ -867,6 +879,9 @@ class SplitCrossing:
         The collar's width at its narrower edge, s.
     launch_limit : float
         The limit the launch's occupancy gives, m.
+    fastest : float
+        The fastest rate a bin reaches, s/m: the open first bucket's rate when above
+        :data:`SPLIT_RATE_TOP`, so that no bin is counted slower than it walks.
     factor : float
         ``c``, :data:`SPLIT_CROSSING`.
     share : float
@@ -888,6 +903,7 @@ class SplitCrossing:
     buckets: UInt8[np.ndarray, "n_modes n_omega"]
     width: float
     launch_limit: float = math.inf
+    fastest: float = SPLIT_RATE_TOP
     factor: float = SPLIT_CROSSING
     share: float = SPLIT_OCCUPIED_SHARE
 
@@ -916,8 +932,11 @@ class SplitCrossing:
         numpy.ndarray
             Shape ``(SPLIT_RATE_BUCKETS,)``, in the state's units of energy.
         """
-        spectrum = np.asarray(field_spectrum, dtype=np.complex128)
-        energy = np.sum(np.abs(spectrum) ** 2, axis=(0, 2))
+        # In the state's own precision, without a state-sized temporary: the shares
+        # are what the limit reads.
+        spectrum = np.asarray(field_spectrum)
+        re, im = np.real(spectrum), np.imag(spectrum)
+        energy = np.einsum("bmpw,bmpw->mw", re, re) + np.einsum("bmpw,bmpw->mw", im, im)
         if columns is not None:
             energy = energy * np.asarray(columns, dtype=np.float64)[:, None]
         return np.bincount(
@@ -944,7 +963,9 @@ class SplitCrossing:
             return math.inf
         cumulative = np.cumsum(occupancy)
         index = int(np.searchsorted(cumulative, self.share * total, side="right"))
-        rate = float(split_bucket_rates()[min(index, SPLIT_RATE_BUCKETS - 1)])
+        rate = float(
+            split_bucket_rates(self.fastest)[min(index, SPLIT_RATE_BUCKETS - 1)]
+        )
         return split_crossing_step(rate, self.width, self.factor)
 
 
