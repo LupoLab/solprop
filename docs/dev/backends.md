@@ -1904,7 +1904,10 @@ general modal route `general_maps`, `general_reference` (the dense E/H reference
 frequency bin, the largest group on a guide with many channels), `general_chunk` and
 `general_delayed`, `coupled_flow` for a coherent wall or a varying guide, and
 `adams_history` for the Adams integrator's history rows (on the native backend the resident
-engine's); the driver adds `output` and `held_plane`. The route groups equal each
+engine's); beside them `initial_field`, the translated problem's initial state at the
+bytes it holds (a broadcast input's repeated block alone, `kernel-contract.md` section 6),
+resident like the general reference and in no backend's ledger; the driver adds `output`
+and `held_plane`. The route groups equal each
 backend's ledger to the byte. `base` is the reference's count of its buffers on every
 backend, not the compiled backend's own, plus each compiled backend's own rows where the
 two differ (the far-field partials, the dispersive response's buffers, the held

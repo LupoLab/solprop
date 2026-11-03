@@ -216,9 +216,11 @@ def test_batch_memory_includes_parameter_arrays_and_shared_views():
             problem.initial, batch_params={"parameter": storage[1:2]}
         ),
     )
+    # The problems share every table but the parameters, each the problem's own copy
+    # of its entry, never a view of the caller's storage.
     assert (
         shared_table_bytes([first, second])
-        == shared_table_bytes([problem]) + storage.nbytes
+        == shared_table_bytes([problem]) + 2 * storage.itemsize
     )
 
 

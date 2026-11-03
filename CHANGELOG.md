@@ -187,6 +187,9 @@ All notable changes to solprop are recorded here. The format follows
 - The README, `CITATION.cff` and the citing page name solprop's Zenodo DOI,
   [10.5281/zenodo.23854248](https://doi.org/10.5281/zenodo.23854248), which covers
   every release.
+- Kernel schema 42: `KernelProblem.initial.field0` may be a zero-stride broadcast view, and
+  every backend's `set_initial`, solprop-native's included, accepts a field of any strides
+  and copies it contiguous. No field or signature moves (#5).
 - Notable changes are recorded in separate release-note fragments and collected into one
   rolling draft release PR after merges. Implementation PRs no longer edit the shared
   changelog, avoiding conflicts between unrelated changes. Release tags and publication
@@ -345,6 +348,14 @@ All notable changes to solprop are recorded here. The format follows
   Vendor thread defaults are overridden only during construction; the native
   backend's own BLAS keeps its fitted width.
 - Documented the limits of `FixedSchedule.from_history`. Every collar refusal a replayed history can reach (the temporal collar's stable step, and a requested spatial collar's stable step and its fixed-schedule crossing and damping bounds) now prints its limit rounded down and names the remedy: `dz_max` at or under the printed limit in the discovery run, run with the replay's integrator where the limit is a stability limit, or, for the temporal collar alone, `absorber_scheme="split_step"` in both runs. The docstring and the [fixed schedules guide](docs/guide/numerics/fixed-schedules.md) state these limits and the interpolated-plane and non-abutting-history ones, relate `from_history` to `discover`, and replace the claim that a `Multistep` replay makes its adaptive run's truncation errors: compare two replays of one schedule instead (#82).
+- A translated problem no longer holds a full copy of a broadcast initial field (#5): a
+  `numpy.broadcast_to` placeholder, of any numeric dtype, costs only the block it repeats.
+  Every other initial field, noise realisation and batch parameter is now copied, so
+  changing the caller's array after translation can no longer change the problem, and the
+  caller's array is no longer made read-only; before, a contiguous complex128 field and a
+  noise realisation were shared with the caller. `estimate_memory` and the memory
+  admission count the field the problem holds, as the resident group `initial_field`
+  (#6), which the admission charges to the host and not to an accelerator.
 - A boundary monitor built for another grid is now refused by name on every backend, instead
   of a bare `ValueError` on `native` and an accident in `matmul` on `numpy_ref`. A direct call
   to `native`'s `stats` now checks every route for names the route doesn't define, and refuses
