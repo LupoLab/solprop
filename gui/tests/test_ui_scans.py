@@ -134,3 +134,23 @@ def test_a_scan_set_up_runs_and_opens_in_the_browser(qtbot: QtBot, tmp_path: Pat
     window.results.on_reply(Reply("scan_overview", -9, 0, error="unreadable"))
     assert "unreadable" in window.results.scan.status.text()
     window.close()
+
+
+def test_a_field_s_menu_makes_it_a_scan_variable(qtbot: QtBot, tmp_path: Path):
+    from conftest import TINY  # noqa: PLC0415 - only here
+
+    window = MainWindow(workspace=tmp_path / "workspace")
+    qtbot.addWidget(window)
+    window.show()
+    window.confirm = lambda _title, _text: "discard"
+    window.set_model(RecipeModel(TINY), base=None)
+    qtbot.waitUntil(lambda: window._built_route == "capillary", timeout=WAIT_MS)
+    row = window.pages["medium"].rows["pressure", "build"]
+    (scan,) = row.actions()
+    scan.trigger()
+    assert window.step == "propagate"
+    assert window.model is not None
+    assert window.model.document["scan"] == {"name": "scan", "pressure": ["1 bar"]}
+    window.pages["geometry"].rows["radius", "build"].actions()[0].trigger()
+    assert set(window.model.document["scan"]) == {"name", "pressure", "radius"}
+    window.close()

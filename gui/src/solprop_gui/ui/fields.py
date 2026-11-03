@@ -26,6 +26,7 @@ reset button does the same for any form.
 from collections.abc import Mapping, Sequence
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
@@ -154,9 +155,13 @@ class ParameterRow(QWidget):
     edited : Signal
         Emitted with (name, table, value) when the user changes the value; the value
         is :data:`~solprop_gui.model.recipe.MISSING` when it is unset.
+    scan_wanted : Signal
+        Emitted with the keyword and its value (or ``None``) when the user asks to
+        scan it, from the row's context menu.
     """
 
     edited = Signal(str, str, object)
+    scan_wanted = Signal(str, object)
 
     def __init__(  # noqa: PLR0912, PLR0915 - one widget per form
         self,
@@ -295,6 +300,16 @@ class ParameterRow(QWidget):
         self.editor.setObjectName(f"field-{self.name}")
         self.label.setBuddy(self.editor)
         self._tooltip()
+        if "number" in self.modes and table == "build":
+            # Any numeric keyword can be a scan's variable (design 12.7).
+            self.setContextMenuPolicy(Qt.ContextMenuPolicy.ActionsContextMenu)
+            scan = QAction("Scan this…", self)
+            scan.triggered.connect(
+                lambda: self.scan_wanted.emit(
+                    self.name, None if self._value is MISSING else self._value
+                )
+            )
+            self.addAction(scan)
 
         # Compact, for a narrow settings panel: the label line carries the form
         # picker and the reset; the editor has the full width below it.

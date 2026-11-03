@@ -297,6 +297,29 @@ class ScanEditor(QWidget):
         self.variables.append(variable)
         return variable
 
+    def scan(self, path: str, value: object) -> None:
+        """Turn the scan on with a keyword as a variable, starting from its value.
+
+        Parameters
+        ----------
+        path : str
+            The keyword.
+        value : object
+            Its value now, or ``None``; the list starts with it.
+        """
+        # Announced once, complete: the window's echo of a partial table would
+        # rebuild the editor under the variable being filled.
+        self._updating = True
+        try:
+            self.enabled.setChecked(True)
+            self._show_parts(True)
+            empty = (v for v in self.variables if not v.path.currentText().strip())
+            variable = next(empty, None) or self._variable()
+            variable.set_entry(path, [] if value is None else [value])
+        finally:
+            self._updating = False
+        self._changed()
+
     def add_variable(self) -> None:
         """Add a variable, and announce the table."""
         self._variable()

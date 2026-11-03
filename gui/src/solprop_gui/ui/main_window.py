@@ -235,6 +235,7 @@ class MainWindow(QMainWindow):
             widget = ParameterPage(page)
             widget.edited.connect(self.edit)
             widget.roots_wanted.connect(self.find_roots)
+            widget.scan_wanted.connect(self.scan_keyword)
             if page.key == "propagate":
                 widget.add_section("Run", self.run_panel)
                 widget.add_section("Scan", self.scan_editor)
@@ -909,6 +910,19 @@ class MainWindow(QMainWindow):
             for page in self.pages.values():
                 page.show_values(self.model)
             self.scan_editor.set_value(self.model.document.get("scan"))
+
+    def scan_keyword(self, name: str, value: object) -> None:
+        """Make a keyword a variable of the recipe's scan, and show the scan.
+
+        Parameters
+        ----------
+        name : str
+            The keyword.
+        value : object
+            Its value now, or ``None``.
+        """
+        self.scan_editor.scan(name, value)
+        self.show_step("propagate")
 
     def edit_scan(self, table: Mapping[str, object] | None) -> None:
         """Set the recipe's ``[scan]`` table as an undoable command.

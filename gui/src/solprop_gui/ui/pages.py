@@ -138,6 +138,7 @@ class ParameterPage(QWidget):
 
     edited = Signal(str, str, object)
     roots_wanted = Signal(str)
+    scan_wanted = Signal(str, object)
 
     def __init__(self, page: Page, parent: QWidget | None = None) -> None:
         """Make the page, with no rows until the route is described."""
@@ -224,6 +225,7 @@ class ParameterPage(QWidget):
                 continue
             row = ParameterRow(meta, table, catalog=catalog)
             row.edited.connect(self.edited)
+            row.scan_wanted.connect(self.scan_wanted)
             if row.pin_targets:
                 row.pin.roots_wanted.connect(
                     lambda name=row.name: self.roots_wanted.emit(name)
