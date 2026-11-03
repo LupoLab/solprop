@@ -330,6 +330,7 @@ class MainWindow(QMainWindow):
         self.autosave.timeout.connect(self.write_recovery)
         self.autosave.start(30_000)
         self.bridge.replied.connect(self.on_reply)
+        self.bridge.runs_listed.connect(self._runs_listed)
         self.views.currentChanged.connect(lambda _index: self.request_modes())
 
         self.show_step("start")
@@ -338,6 +339,8 @@ class MainWindow(QMainWindow):
         self._update_steps()
         self.refresh_runs()
         self._ask_kernel("examples", {}, "examples")
+        # With the service, a run the last window left going is taken over.
+        self.bridge.list_runs()
 
     # ------------------------------------------------------------------ set-up
 
@@ -418,6 +421,14 @@ class MainWindow(QMainWindow):
             run_menu.addAction(action)
         run_menu.addSeparator()
         self._add_action(run_menu, "Run &workspace…", panel.choose_workspace)
+        attach = self._add_action(
+            run_menu, "Re-&attach to a running run", self.bridge.list_runs
+        )
+        attach.setEnabled(self.bridge.service)
+        attach.setToolTip(
+            "With the solprop service (SOLPROP_GUI_SERVICE=1), runs go on when the "
+            "window closes; this takes over the latest one still going."
+        )
         tools_menu = menu.addMenu("&Tools")
         self._add_action(tools_menu, "Waveguide &explorer", self.open_explorer)
         self._add_action(tools_menu, "&Design the capillary…", self.open_design)
@@ -1487,6 +1498,23 @@ class MainWindow(QMainWindow):
             f"Run ended: {Path(path).parent.name} (see the Results view)", 10_000
         )
 
+    def _runs_listed(self, runs: Sequence[Mapping[str, object]]) -> None:
+        """Re-attach to the latest run the service holds that is still going.
+
+        Parameters
+        ----------
+        runs : Sequence of Mapping
+            The service's runs, oldest first.
+        """
+        going = [run for run in runs if run.get("alive")]
+        if not going:
+            self.statusBar().showMessage("No run is going in the service.", 10_000)
+            return
+        run = going[-1]
+        if self.run_panel.attach(run):
+            self.show_view("live")
+            self.statusBar().showMessage(f"Re-attached to {run['run_id']}.", 10_000)
+
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802 - Qt's name
         """Ask before closing over a running run or unsaved changes.
 
@@ -1495,7 +1523,8 @@ class MainWindow(QMainWindow):
         event : PySide6.QtGui.QCloseEvent
             The close.
         """
-        if self.run_panel.active:
+        if self.run_panel.active and not self.bridge.service:
+            # With the service, the run goes on without the window, to re-attach to.
             answer = self.confirm("Run going", "A run is going. Stop it and close?")
             if answer != "stop":
                 event.ignore()

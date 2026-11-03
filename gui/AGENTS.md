@@ -32,6 +32,12 @@ them is corrected.
   a fresh interpreter loads.
 - **Never block the window.** Anything that can take more than about 50 ms happens in
   another process.
+- **Two transports, one interface** (design 13.3). By default a kernel child and a worker
+  child per run end with the window (option B); with `SOLPROP_GUI_SERVICE=1` the
+  window speaks to this user's solprop service (`service/server.py`, option C) over a
+  socket only the user can open, whose address and token are in
+  `~/.solprop-gui/service.json`; the service owns the kernel and the runs and ends
+  itself when idle.
 
 ## Commands
 
@@ -39,6 +45,7 @@ them is corrected.
 |---|---|
 | Sync | `uv sync --extra gui --group gui-test` (add `--extra native` to keep the native backend: a sync removes any extra it does not name) |
 | Run the window | `uv run solprop-gui` |
+| Run it with the solprop service (runs outlive the window, a new window re-attaches) | `SOLPROP_GUI_SERVICE=1 uv run solprop-gui` |
 | The front end's gate | `uv run poe check-gui`: types (`gui-types`), docstrings (`gui-docstrings`) and tests (`gui-test`, offscreen, with coverage) |
 | Lint, format, spelling, licences | the repository's: `uv run ruff check .`, `uv run ruff format .`, `uv run codespell`, `uv run poe reuse` |
 

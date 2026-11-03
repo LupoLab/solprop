@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
 from solprop_gui.model.workspace import new_run_folder
 from solprop_gui.service.client import RunClient
 from solprop_gui.service.messages import Event, Reply
+from solprop_gui.service.remote import RemoteRun
 from solprop_gui.service.states import ACTIVE, ExecutionState, advance
 from solprop_gui.service.worker import OUTPUT, RunSpec
 from solprop_gui.ui.bridge import ServiceBridge
@@ -110,7 +111,7 @@ class RunPanel(QWidget):
         self.state = ExecutionState.QUEUED
         self.run_id: str | None = None
         self.folder: Path | None = None
-        self.client: RunClient | None = None
+        self.client: RunClient | RemoteRun | None = None
         self.resume_mode: object = None
         self.can_run = False
         self._pending: dict[int, str] = {}
@@ -383,6 +384,37 @@ class RunPanel(QWidget):
         self._set_state(advance(self.state, "launch"))
         self.state_label.setText(f"{spec.run_id}: starting")
         self.client = self.bridge.start_run(spec)
+
+    def attach(self, run: Mapping[str, object]) -> bool:
+        """Take over a run the service holds: its events, replayed from its start.
+
+        Parameters
+        ----------
+        run : Mapping
+            The run, as the service lists it: ``run_id`` and ``folder``.
+
+        Returns
+        -------
+        bool
+            Whether it was attached (only the service holds runs to attach to).
+        """
+        if self.active:
+            return False
+        spec = RunSpec(str(run["run_id"]), str(run["folder"]))
+        client = self.bridge.attach(spec)
+        if client is None:
+            return False
+        self.run_id = spec.run_id
+        self.folder = Path(spec.folder)
+        self._last_index = -1
+        self.view.clear()
+        self.log.clear()
+        self.client = client
+        self.state = ExecutionState.RUNNING
+        self._set_state(ExecutionState.RUNNING)
+        self.state_label.setText(f"{spec.run_id}: re-attached")
+        self._update_buttons()
+        return True
 
     def stop(self) -> None:
         """Ask the run to stop at its next step, through solprop's stop flag."""
