@@ -779,8 +779,9 @@ because both signs come from one `exp` and a `sincos` in the stage that consumes
 (`stage_phase` holds the stage's phase once, and a lossless stage whose phase weights repeat
 the last one's reuses its inverse). The resolved value is written into the run's `backend`
 metadata group. `native` has no Runge–Kutta table: its `propagators` ledger row is the whole
-step's propagator, an explicit `"tabulate"` under Runge–Kutta is recorded and changes nothing,
-and only the low-storage march holds flows (§8).
+step's propagator, and an explicit `"tabulate"` under Runge–Kutta changes nothing, so the
+`backend` group records `recompute` while the run's configuration keeps what was asked. Only
+the low-storage march holds flows (§8).
 
 ### 3.7 Coverage and testing lanes
 

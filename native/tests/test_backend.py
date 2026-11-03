@@ -303,6 +303,46 @@ def test_the_low_storage_march_steps_as_the_reference(
     assert_within(field, reference, bound, what=f"the low-storage march, {mode}")
 
 
+@pytest.mark.parametrize("asked", ["auto", "tabulate", "recompute"])
+def test_the_record_names_the_propagators_a_run_used(
+    phase_a_case: PhaseACase, asked: str
+) -> None:
+    # #464: only the low-storage march holds flows. Under Runge-Kutta every request
+    # holds the one whole-step propagator, so the record says recompute for each.
+    problem, grid = phase_a_case
+    held = {}
+    for mode in ("recompute", asked):
+        stepper = dataclasses.replace(problem.stepper, propagator_mode=mode)
+        backend = NativeBackend(
+            dataclasses.replace(problem, stepper=stepper), grid=grid
+        )
+        try:
+            held[mode] = backend.memory_ledger()["propagators"]
+            assert backend.metadata()["propagator_mode"] == "recompute"
+        finally:
+            backend.close()
+    assert held[asked] == held["recompute"]
+
+
+@pytest.mark.parametrize("asked", ["tabulate", "recompute"])
+def test_the_record_names_the_low_storage_march_s_flows(
+    phase_a_case: PhaseACase, asked: str
+) -> None:
+    problem, grid = phase_a_case
+    target = float(problem.stepper.save_planes[-1])
+    stepper = dataclasses.replace(
+        problem.stepper,
+        integrator=LowStorageRungeKutta(),
+        schedule=FixedSchedule.uniform(0.0, target, target / 4),
+        propagator_mode=asked,
+    )
+    backend = NativeBackend(dataclasses.replace(problem, stepper=stepper), grid=grid)
+    try:
+        assert backend.metadata()["propagator_mode"] == asked
+    finally:
+        backend.close()
+
+
 def test_a_low_storage_table_never_built_is_refused(phase_a_case: PhaseACase) -> None:
     # solprop SEP 24's closing guard: the native state refuses to reuse a constant
     # operator's table it has not built since the field was loaded, rather than step
