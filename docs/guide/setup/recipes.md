@@ -271,10 +271,22 @@ call it and write its values in `[build]`.
 ## Previews
 
 Before a run, `recipe.modes()` returns the mode set a guided route builds (the
-`capillary` and `waveguide` routes, and the slab channels of the `planar` route), at the
-launch position or at `z`: each mode's label, its `beta`, `beta2` and loss over the
-grid's band, its effective area (a slab mode's effective width) and its
-zero-dispersion wavelength in the band. Its cost is the mode solve. `recipe.preview_input()`
+`capillary` and `waveguide` routes, the slab channels of the `planar` route and the
+`gnlse` route's one specified mode, without a fill), at the
+launch position or at `z`: each mode's label, its effective index (`neff_minus_one`),
+`beta`, `beta1`, `beta2`, `beta3` and loss over the grid's band, its effective area (a
+slab mode's effective width), its nonlinear coefficient `gamma` where its fill has Kerr
+data (with the fill's `n2` at the grid's reference wavelength), and its
+zero-dispersion wavelength in the band. It also gives each mode's phase matching to a
+soliton at the pump `wavelength` in the launch mode, the set's first: the
+`phase_mismatch` of a dispersive wave in that mode over the band, and the phase-matched
+wavelengths `rdw` between the band's short edge and 0.9 of the pump (intermodal for every
+mode but the first). With an unchirped sech or Gaussian pulse above the soliton
+threshold, in anomalous dispersion, and a nonlinear coefficient (the recipe's `gamma`, or
+the fill's Kerr data at the preview's position), the soliton's nonlinear wavenumber is
+its largest constituent's, and the set says so (`nonlinear`, with `pump`); otherwise it
+is the linear condition. Its cost is the mode
+solve. `recipe.preview_input()`
 returns the input pulse on the run's grid as the launch sets it, without noise, so a
 preview draws nothing: its power in time, its spectrum, its energy and its peak power,
 read through the processing functions that read a run's file. On a free-space route it
@@ -331,7 +343,14 @@ rtol = parameters("capillary")["rtol"]
 print(rtol.resolver({"precision": "single"}))  # the capillary's tolerance in binary32
 ```
 
-A test holds the table to the constructors' signatures, so it cannot drift from them.
+The same call takes a registered type's name for the keywords of its table, so a second
+pulse, a pressure gradient, a mode or a free-space grid is described as a route keyword is:
+`parameters("GaussianPulse")["fwhm"]` has the unit `s`, the display unit `fs` and the
+summary a front end's field shows. A type's table leaves out what the type receives from
+the route (the absorber's time grid) and the keywords a recipe may not give.
+
+A test holds the tables to the constructors' signatures and to the registry's units, so
+they cannot drift from them.
 
 ## What a route and a species admit
 
