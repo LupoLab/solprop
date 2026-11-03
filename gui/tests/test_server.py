@@ -288,3 +288,14 @@ def test_the_service_s_edges():
     closed.open = False
     service.serve(closed)  # already closed: served at once
     assert service.sessions == []
+
+
+def test_an_event_goes_only_to_the_windows_attached_to_its_run():
+    service = server.Service()
+    mine, theirs = Pipe()
+    attached = server._Session(mine)
+    attached.runs.add("r")
+    other = server._Session(Pipe()[0])
+    service.sessions.extend([other, attached])
+    service._event(Event("r", "row", {}))
+    assert theirs.recv().body.run_id == "r" and service.last["r"] == "row"
