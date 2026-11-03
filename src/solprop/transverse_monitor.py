@@ -57,12 +57,13 @@ NOISE_FACTOR = 8.0
 _SMALL_TRANSFORM = 2**18
 """Host transforms below this many elements run on one thread."""
 
-READ_RESOLUTION = 1e-6
+READ_RESOLUTION = 1e-3
 """A read may leave out the frequencies whose energy together is at most this fraction
 of the warning (``budget**2`` of the launch energy). By Parseval a frequency cannot put
-more on a face than it holds, so a face's share reads low by at most that, a millionth
-of what warns; a run's light occupies few of a grid's frequencies, and each read would
-otherwise synthesise them all (issue #453)."""
+more on a face than it holds, so a face's share reads low by at most that, a thousandth
+of what warns. A run's light occupies a fraction of a grid's frequencies at this level
+(from a fifth to a third on filaments and Kerr beams), and each read would otherwise
+synthesise them all (issue #453)."""
 
 TransverseStatus = Literal[
     "clear", "warned", "stopped", "insensitive", "coarse", "unwatched", "off"
