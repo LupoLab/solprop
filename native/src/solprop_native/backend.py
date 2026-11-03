@@ -337,10 +337,13 @@ class NativeBackend(StepDriver[_core.State]):
         if self._z_tables is not None:
             self._z_tables.upload(self._native_state)
         _upload_flux_table(self._native_state, problem)
-        self._last_loaded = np.empty(0, dtype=np.complex128)
         # Set while `set_initial` runs the driver's load, whose mask step then leaves
         # the upload to the one with the noise that follows: the state crosses once.
+        # The state it leaves lives for that load alone: the upload copies and fences,
+        # so a temporary, such as the input draw's sum, is not held for the backend's
+        # life, outside its ledger.
         self._loading = False
+        self._to_upload: ComplexArray | None = None
         self._alarm = math.nan
         self._alarm_reported = False
         # solprop's Adams march (SEP 14 phase 2) steps on host arrays, with one native
@@ -368,10 +371,11 @@ class NativeBackend(StepDriver[_core.State]):
         )
 
     def _apply_mask(self, state: ComplexArray) -> _core.State:
-        self._last_loaded = np.ascontiguousarray(state.reshape(-1))
-        if not self._loading:
-            empty = np.empty(0, dtype=np.complex128)
-            self._native_state.set_initial(self._last_loaded, empty)
+        flat = np.ascontiguousarray(state.reshape(-1))
+        if self._loading:
+            self._to_upload = flat
+        else:
+            self._native_state.set_initial(flat, np.empty(0, dtype=np.complex128))
         return self._native_state
 
     def set_initial(
@@ -387,14 +391,16 @@ class NativeBackend(StepDriver[_core.State]):
         self._loading = True
         try:
             super().set_initial(field, noise, z=z, resume=resume)
+            flat = cast("ComplexArray", self._to_upload)
         finally:
             self._loading = False
+            self._to_upload = None
         native_noise = (
             np.empty(0, dtype=np.complex128)
             if self._noise is None
             else np.ascontiguousarray(self._noise.reshape(-1))
         )
-        self._native_state.set_initial(self._last_loaded, native_noise)
+        self._native_state.set_initial(flat, native_noise)
         self._native_state.clear_fsal()
         if self._adams is not None:
             self._host_state = self._native_state.field_to_host().reshape(
@@ -764,9 +770,8 @@ class NativeBackend(StepDriver[_core.State]):
         """
         self._z = z
         self._host_state = state
-        self._last_loaded = np.ascontiguousarray(state.reshape(-1))
         self._native_state.set_initial(
-            self._last_loaded,
+            np.ascontiguousarray(state.reshape(-1)),
             np.empty(0, dtype=np.complex128)
             if self._noise is None
             else np.ascontiguousarray(self._noise.reshape(-1)),

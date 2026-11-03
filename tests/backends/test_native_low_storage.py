@@ -17,9 +17,11 @@ uninterrupted run within the parity bound.
 
 import dataclasses
 import functools
+import gc
 import math
 import signal
 import warnings
+import weakref
 from pathlib import Path
 
 import numpy as np
@@ -665,6 +667,57 @@ def test_a_field_free_plane_is_held_natively_and_resumes_to_rounding():
     got = resumed.observe().require_field()
     resumed.close()
     assert_within(got, uninterrupted, parity_bound(problem), what="resume")
+
+
+@pytest.mark.parametrize("model", [None, "input"], ids=["no noise", "input noise"])
+def test_a_loaded_state_is_not_held_after_the_load(monkeypatch, model):
+    """The upload copies and fences, so a temporary dies with the load; no ledger row.
+
+    A delay scan's input, the input noise model's sum and a resumed plane are all
+    temporaries: each would otherwise stay alive until the next load. The field is read
+    back to show that the load took.
+    """
+    grid = EnvelopeGrid.from_limits(1e-3, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False)
+    noise = (
+        None
+        if model is None
+        else spatial_noise(
+            SpatialFlux.resolve(
+                grid, FreeGrid(3e-4, 9, 4e-4, 12, collar_fraction=0), SpatialMedium()
+            ),
+            np.random.default_rng(7),
+            model=model,
+        )
+    )
+    problem, grid, _ = cartesian_march("tabulate", noise=noise)
+    backend = NativeBackend(problem, grid=grid)
+    loaded: list[weakref.ref[np.ndarray]] = []
+    apply_mask = backend._apply_mask
+
+    def watched(state: np.ndarray) -> object:
+        loaded.append(weakref.ref(state))
+        return apply_mask(state)
+
+    monkeypatch.setattr(backend, "_apply_mask", watched)
+    temporary = np.full(problem.shape, 1.0 + 0.5j)
+    given = weakref.ref(temporary)
+    backend.set_initial(temporary, noise)
+    del temporary
+    # A second route to the upload, outside `set_initial`: the driver's own mask step.
+    loaded_again = np.full(problem.shape, 2.0 + 0.5j)
+    again = weakref.ref(loaded_again)
+    apply_mask(loaded_again)
+    observed = backend.observe().require_field()
+    del loaded_again
+    gc.collect()
+    assert given() is None
+    assert again() is None
+    assert len(loaded) == 1 and loaded[0]() is None
+    # Exact: the state crosses twice without arithmetic, and the mask keeps or zeroes.
+    mask = problem.grids.active_mask
+    assert np.all(observed[..., mask] == 2.0 + 0.5j)
+    assert np.all(observed[..., ~mask] == 0.0)
+    backend.close()
 
 
 def test_the_soliton_resumes_from_a_held_plane_on_its_reference(
