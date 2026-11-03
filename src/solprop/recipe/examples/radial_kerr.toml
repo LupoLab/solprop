@@ -1,0 +1,35 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# A collimated 30 fs, 0.2 mJ beam of 1 mm waist in 1 bar of argon, on a radial grid,
+# 50 cm under the Kerr effect: below the critical power, the Kerr lens offsets about
+# half of the beam's diffraction.
+# mirrors: docs/tutorials/free_space/plot_10_radial_kerr.py
+
+[recipe]
+format = 1
+route = "radial"
+title = "A radial beam under the Kerr effect"
+
+[build]
+grid = { type = "EnvelopeGrid.from_limits", length = "50 cm", reference_wavelength = "800 nm", wavelength_limits = ["600 nm", "1100 nm"], trange = "200 fs", thg = false }
+space = { type = "RadialGrid", radius = "4 mm", n_r = 64 }
+medium = { type = "SpatialMedium", material = "Ar", pressure = "1 bar" }
+responses = [
+    { type = "KerrResponse", chi3 = { type = "gamma3", gas = "Ar", wavelength = "800 nm" }, thg = false },
+]
+noise = "none"
+
+[build.initial]
+type = "SpatialPulse"
+temporal = { type = "GaussianPulse", wavelength = "800 nm", fwhm = "30 fs", energy = "0.2 mJ" }
+waist = "1 mm"
+
+[build.settings]
+type = "SimulationSettings"
+controller = { type = "PIController", rtol = 1e-5, atol = 1e-12 }
+save_planes = ["10 cm", "20 cm", "30 cm", "40 cm", "50 cm"]
+dz_init = "1 cm"
+dz_max = "5 cm"
+stats = { type = "StatsSpec", names = ["energy", "beam_radius"] }
