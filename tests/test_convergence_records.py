@@ -26,8 +26,20 @@ import pytest
 import convergence_records as cr
 from solprop.backends.registry import BACKENDS, available
 
-RETIRED_BACKENDS = frozenset({"numba_cuda"})
+RETIRED_BACKENDS = frozenset({"numba_cuda", "numba_cpu"})
 """Backends whose rows stay as evidence after the backend itself was deleted."""
+
+MOVED_WRITERS = {
+    "tests/backends/test_numba_cpu.py": "tests/backends/test_backend_ladder.py"
+}
+"""Modules deleted with a backend whose shared tests moved, by the path rows still name.
+
+A row is not rewritten only because its writer moved; the path changes at its next
+write.
+"""
+
+RETIRED_WRITERS = frozenset({"tests/backends/test_numba_cpu_kernels.py"})
+"""Modules deleted with a backend, whose rows no test will ever write again."""
 
 TOP_LEVEL = {
     "schema",
@@ -69,7 +81,7 @@ def test_there_is_at_least_one_record():
 def test_write_stamp_records_the_backends_actual_planner_setting(monkeypatch):
     monkeypatch.setenv("SOLPROP_FFTW_PLAN", "estimate")
     monkeypatch.setenv("SOLPROP_FFTW_PLANNER", "unused-spelling")
-    assert cr._write_stamp("numba_cpu")["fftw_planner"] == "estimate"
+    assert cr._write_stamp("native")["fftw_planner"] == "estimate"
 
 
 def test_the_record_has_the_fields_the_figures_read(stored):
@@ -197,8 +209,14 @@ def _writer_exists(node, collected):
     "Absent" covers both a backend that is registered but not installed here and one
     this package has deleted (:data:`RETIRED_BACKENDS`): the rows a deleted backend
     wrote are evidence of what it measured and stay, and nothing will ever collect
-    their writer again.
+    their writer again. A row may also name a module that went with that backend:
+    :data:`RETIRED_WRITERS`, whose tests are gone, and :data:`MOVED_WRITERS`, whose
+    shared tests live on under another path and are looked up there.
     """
+    module, _, rest = node.partition("::")
+    if module in RETIRED_WRITERS:
+        return True
+    node = f"{MOVED_WRITERS.get(module, module)}::{rest}"
     if node in collected:
         return True
     base, _, parameter = node.partition("[")
@@ -225,6 +243,10 @@ def test_every_row_was_written_by_a_test_that_still_exists(collected_tiers):
     """
     if len({node.split("::")[0] for node in collected_tiers}) < SUITE_FILES:
         pytest.skip("a hand-picked selection collects too little to be complete about")
+    if "native" not in available():
+        # A test parametrised on native alone isn't collected at all, which a
+        # lightweight environment can't tell from a deleted one.
+        pytest.skip("native's writers can't be told from deleted ones without it")
     collected = set(collected_tiers)
     for study in cr.studies():
         for row in cr.load(study)["rows"]:
@@ -236,23 +258,39 @@ def test_every_row_was_written_by_a_test_that_still_exists(collected_tiers):
 
 def test_a_writer_of_a_removed_backend_counts_as_existing():
     """A row of a deleted backend keeps its numbers without a writer to collect."""
-    collected = {"tests/backends/test_x.py::test_y[numba_cpu]"}
-    removed = next(iter(RETIRED_BACKENDS))
-    assert removed not in BACKENDS
-    assert _writer_exists(f"tests/backends/test_x.py::test_y[{removed}]", collected)
-    assert not _writer_exists(f"tests/backends/test_z.py::test_y[{removed}]", collected)
-
-
-def test_a_writer_of_an_absent_backend_counts_and_a_renamed_one_does_not():
-    """The relaxation is exactly one parametrisation on an uninstalled backend."""
-    collected = {"tests/backends/test_x.py::test_y[numba_cpu]"}
-    absent = next(iter(set(BACKENDS) - set(available())), None)
-    if absent is not None:
-        assert _writer_exists(f"tests/backends/test_x.py::test_y[{absent}]", collected)
+    collected = {"tests/backends/test_x.py::test_y[numpy_ref]"}
+    for removed in RETIRED_BACKENDS:
+        assert removed not in BACKENDS
+        assert _writer_exists(f"tests/backends/test_x.py::test_y[{removed}]", collected)
         assert not _writer_exists(
-            f"tests/backends/test_z.py::test_y[{absent}]", collected
+            f"tests/backends/test_z.py::test_y[{removed}]", collected
         )
-    assert _writer_exists("tests/backends/test_x.py::test_y[numba_cpu]", collected)
+
+
+def test_a_writer_that_went_with_its_backend_is_retired_or_looked_up_where_it_moved():
+    """A retired module's rows stay; a moved module's rows need the moved test."""
+    retired = next(iter(RETIRED_WRITERS))
+    assert not (cr.REPO / retired).exists()
+    assert _writer_exists(f"{retired}::test_gone[1]", set())
+    old, new = next(iter(MOVED_WRITERS.items()))
+    assert not (cr.REPO / old).exists()
+    assert (cr.REPO / new).exists()
+    collected = {f"{new}::test_y[numpy_ref]"}
+    assert _writer_exists(f"{old}::test_y[numba_cpu]", collected)
+    assert _writer_exists(f"{old}::test_y[numpy_ref]", collected)
+    assert not _writer_exists(f"{old}::test_z[numba_cpu]", collected)
+
+
+def test_a_writer_of_an_absent_backend_counts_and_a_renamed_one_does_not(monkeypatch):
+    """The relaxation is exactly one parametrisation on an uninstalled backend."""
+    monkeypatch.setattr(
+        "test_convergence_records.available", lambda: ("numpy_ref", "native")
+    )
+    collected = {"tests/backends/test_x.py::test_y[native]"}
+    assert "mlx" in BACKENDS
+    assert _writer_exists("tests/backends/test_x.py::test_y[mlx]", collected)
+    assert not _writer_exists("tests/backends/test_z.py::test_y[mlx]", collected)
+    assert _writer_exists("tests/backends/test_x.py::test_y[native]", collected)
     assert not _writer_exists("tests/backends/test_x.py::test_y[numpy_ref]", collected)
     assert not _writer_exists("tests/backends/test_x.py::test_gone", collected)
 
@@ -260,9 +298,9 @@ def test_a_writer_of_an_absent_backend_counts_and_a_renamed_one_does_not():
 def test_absent_backend_writer_preserves_all_other_case_parameters(monkeypatch):
     """The optional-wheel lane still checks family, rate and test identity."""
     monkeypatch.setattr(
-        "test_convergence_records.available", lambda: ("numpy_ref", "numba_cpu")
+        "test_convergence_records.available", lambda: ("numpy_ref", "mlx")
     )
-    collected = {"tests/backends/test_x.py::test_y[envelope-numba_cpu-0.0]"}
+    collected = {"tests/backends/test_x.py::test_y[envelope-mlx-0.0]"}
     assert _writer_exists(
         "tests/backends/test_x.py::test_y[envelope-native-0.0]", collected
     )

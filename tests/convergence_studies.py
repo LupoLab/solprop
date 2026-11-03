@@ -14,14 +14,13 @@ its own bound and its own measurement where it is measured.
 
 from convergence_records import Column, Study
 
-# `tests/backends/test_numba_cpu.py` derives every bound from a summation length and
-# then measures it. What the record holds is that pair, per rung, and
-# what the figure draws is the distance between them. The deviations are two or three
-# ulps: their last digits are not a platform-independent quantity at all -- another
-# BLAS sums a dot product in another order -- so the tolerance is a factor of two,
-# which still catches any change worth the name, because a real one crosses the bound
-# the test itself asserts. A rung whose deviation is exactly zero is not here: a log
-# axis cannot draw a zero.
+# The ladder tests derive every bound from a summation length and then measure it.
+# What the record holds is that pair, per rung, and what the figure draws is the
+# distance between them. The deviations are two or three ulps: their last digits are not
+# a platform-independent quantity at all -- another BLAS sums a dot product in another
+# order -- so the tolerance is a factor of two, which still catches any change worth the
+# name, because a real one crosses the bound the test itself asserts. A rung whose
+# deviation is exactly zero is not here: a log axis cannot draw a zero.
 BACKEND_EQUIVALENCE = Study(
     name="backend_equivalence",
     title=(

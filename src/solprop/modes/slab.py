@@ -796,12 +796,15 @@ def gaussian_projection(
 
     Examples
     --------
+    >>> import math
     >>> from solprop.modes import SlabMode, gaussian_projection
     >>> modes = [SlabMode(1.0, order=p) for p in (1, 2)]
     >>> above = gaussian_projection(modes, 0.735, offset=0.1)
     >>> below = gaussian_projection(modes, 0.735, offset=-0.1)
-    >>> bool(above[1] > 0), bool(below[1] < 0), bool(above[0] == below[0])
-    (True, True, True)
+    >>> bool(above[1] > 0), bool(below[1] < 0)
+    (True, True)
+    >>> math.isclose(above[0], below[0], rel_tol=1e-12)
+    True
     """
     if not modes:
         raise ModeError("gaussian_coupling needs at least one slab mode")

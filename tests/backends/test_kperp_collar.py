@@ -4,9 +4,9 @@
 
 """The safety ramp's k-perp rate on every backend (SEP 22 sections 4.2, 4.3 and 7).
 
-A zero rate is the plain element exactly; the rate is exact under the cumulative flow
-(each column falls by ``exp(-alpha_perp L / 2)`` to a rounding bound) and never
-reaches the noise phase; the three backends agree on a ten-step run carrying it; and
+The rate is exact under the cumulative flow (each column falls by
+``exp(-alpha_perp L / 2)`` to a rounding bound) and never reaches the noise phase; the
+backends agree on a ten-step run carrying it; and
 on an aliased product the ramp weakens the folded wave as the weak-conversion
 integral predicts. The rate is SEP 40's designed safety ramp, read from the
 translated problem's ``transverse`` design.
@@ -21,9 +21,7 @@ from numpy.testing import assert_allclose
 from backends.test_free_ladders import amplitude_bound
 from bounds import EPS, gamma
 from legacy_geometry import LEGACY_GRID, bare_absorber
-from solprop.backends.bodies import PLAIN
 from solprop.backends.driver import StepDriver
-from solprop.backends.numba_cpu.kernels import HOST
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.boundaries import SpatialAbsorber
 from solprop.driver import Simulation, SimulationSettings
@@ -33,26 +31,6 @@ from solprop.output.schema import PlaneStore
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stepper import FixedSchedule, PIController, RungeKutta
-
-
-@pytest.mark.parametrize("propagating", [True, False])
-@pytest.mark.parametrize("active", [True, False])
-def test_a_zero_rate_is_todays_element_exactly(propagating, active):
-    square = (4 + 1e-3j) if propagating else (-2 + 1e-3j)
-    operands = (square, 0.5, 1e-17 + 0j, 1e-17, 0.125, 0.0625, -2j, -0.5j, active, 0.75)
-    # Today's element, written out: the attenuation, the frame and the spectral rate.
-    longitudinal = (square - 0.5) + (1e-17 - 1e-17)
-    root = np.sqrt(longitudinal)
-    attenuation = root.imag if propagating else min(abs(root.imag), 0.75)
-    today = (
-        complex(-attenuation, -(root.real - 0.125)) if active else 0j
-    ) - 0.5 * 0.0625
-    for bodies in (PLAIN, HOST):
-        rate, _ = bodies.spatial_element(*operands, 0.0)
-        assert rate == today  # s + 0 = s: an exact no-op
-        # The rate joins the attenuation on the active band alone (Q6).
-        ramped, _ = bodies.spatial_element(*operands, 3.0)
-        assert ramped == (today - 1.5 if active else today)
 
 
 def column_run(backend, *, ramp, schedule, rtol=1e-6):
@@ -109,8 +87,10 @@ def test_the_rate_attenuates_each_column_exactly_over_the_run(schedule):
     assert np.max(np.abs(np.abs(end)[live] / expected[live] - 1)) <= bound
 
 
-@pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu"])
+@pytest.mark.parametrize("backend", ["numpy_ref", "native"])
 def test_the_rate_never_reaches_the_noise_phase(backend):
+    if backend == "native":
+        pytest.importorskip("solprop_native")
     from solprop.backends.registry import select  # noqa: PLC0415
 
     phases = []

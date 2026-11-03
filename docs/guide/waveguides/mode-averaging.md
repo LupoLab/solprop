@@ -60,7 +60,6 @@ output = prop_capillary(
     energy=1e-9,
     plasma=False,
     raman=False,
-    backend="numpy_ref",
     mode_average=True,
 )
 assert output.metadata.simulation_kind == "mode_averaged"

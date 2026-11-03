@@ -30,9 +30,7 @@ docs/auto_examples/**/sg_execution_times.rst
 docs/auto_tutorials/**/sg_execution_times.rst
 docs/introduction/lessons/sg_execution_times.rst
 
-# Numba / FFTW caches
-*.nbi
-*.nbc
+# FFTW caches
 *.fftw_wisdom
 
 # OS and editors

@@ -41,7 +41,6 @@ from driver.test_wall_beside_gas_responses import (
 from flow_parity import LENGTH, QUIET, STEPS, build, departure, run
 from march_bounds import FIXED_ORDER, assert_matched
 from modal_provider_cases import grin_grid
-from solprop.backends.numba_cpu import NumbaCpuBackend
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.registry import available
 from solprop.driver import Simulation
@@ -76,7 +75,7 @@ def backend_class(name):
         )
 
         return NativeBackend
-    return {"numpy_ref": NumpyRefBackend, "numba_cpu": NumbaCpuBackend}[name]
+    return NumpyRefBackend
 
 
 def installed(names, *marks):
@@ -188,9 +187,7 @@ def test_an_adaptive_run_beside_a_flow_rejects_and_agrees_with_a_tighter_one(
     assert measured <= bound
 
 
-@pytest.mark.parametrize(
-    "backend", installed(["numba_cpu", "native"], pytest.mark.slow)
-)
+@pytest.mark.parametrize("backend", installed(["native"], pytest.mark.slow))
 def test_the_compiled_backends_reject_and_agree_within_the_controller_bound(
     reference, backend, record_property
 ):
@@ -266,7 +263,7 @@ def mid_run_refusal(problem):
 
 
 @pytest.mark.medium
-@pytest.mark.parametrize("backend", installed(["numpy_ref", "numba_cpu", "native"]))
+@pytest.mark.parametrize("backend", installed(["numpy_ref", "native"]))
 def test_a_flow_refused_mid_run_leaves_nothing_that_breaks_the_next_backend(backend):
     """A refusal after five accepted steps, then the same problem run again.
 
@@ -316,7 +313,7 @@ def moving():
 
 
 @pytest.mark.slow
-@pytest.mark.parametrize("backend", installed(["numpy_ref", "numba_cpu", "native"]))
+@pytest.mark.parametrize("backend", installed(["numpy_ref", "native"]))
 def test_a_moving_guide_that_fails_to_converge_leaves_the_next_backend_intact(
     moving, backend
 ):

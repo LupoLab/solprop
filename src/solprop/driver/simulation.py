@@ -630,7 +630,7 @@ class SimulationSettings(Displayed):
         until its single-precision survival is established (SEP 33, Q2); the stored
         value is the resolved method. ``Multistep()`` is the low-call exponential Adams
         method, which
-        ``numpy_ref``, ``numba_cpu`` and ``native`` execute for supported
+        ``numpy_ref`` and ``native`` execute for supported
         configurations;
         ``RungeKutta()`` is the interaction-picture DOPRI5 march, which every backend
         executes and which holds a third of the Adams history's memory.
@@ -698,11 +698,11 @@ class SimulationSettings(Displayed):
         acts either way (``docs/guide/numerics/boundaries.md``).
     backend : str
         Registry name of the backend to execute the run. The default ``"auto"``
-        resolves to ``"native"`` when installed, otherwise, with a warning, to the
-        slower ``"numba_cpu"``, at settings construction; under single precision, to
+        resolves to ``"native"`` at settings construction, and refuses if it isn't
+        installed or this processor is below its baseline; under single precision, to
         ``"mlx"`` (`precision`).
-        The stored name is concrete, including in scan workers. An installed
-        backend's import or construction errors never trigger a fallback.
+        The stored name is concrete, including in scan workers. A backend's import or
+        construction errors never trigger a fallback.
     precision : {'double', 'single'}
         The arithmetic the run is held in (SEP 33,
         ``docs/guide/performance/single-precision.md``). ``"double"``, the default, is
@@ -713,7 +713,7 @@ class SimulationSettings(Displayed):
         ``backend="mlx"``; refuses an adaptive ``rtol`` below
         :data:`~solprop.translate.precision.SINGLE_RTOL_FLOOR`, the Adams integrator
         and an explicit noise model (a default noise resolves to none); and is
-        refused by ``numba_cpu`` and ``native``. ``backend="auto"`` resolves to
+        refused by ``native``. ``backend="auto"`` resolves to
         ``"mlx"`` when MLX and a Metal GPU are present and is otherwise refused.
         Part of the hashed configuration; outputs are binary64 either way.
     resume_history : bool or None
@@ -1257,7 +1257,7 @@ def _single_backend(backend: str) -> str:
 
     ``"auto"`` resolves to ``"mlx"`` when MLX and a Metal device are present, and
     otherwise is refused: it never resolves to a binary64 backend, and
-    never to ``numpy_ref``, the oracle, which is not a production backend. An explicit
+    never to ``numpy_ref``, which runs single precision when it is named. An explicit
     name passes through to :func:`~solprop.translate.precision.admit_precision`.
 
     Parameters
@@ -1282,8 +1282,8 @@ def _single_backend(backend: str) -> str:
     msg = (
         "precision='single' with backend='auto' resolves to the mlx backend, which "
         "needs the mlx extra (pip install solprop[mlx]) on an Apple-silicon Mac with a "
-        "Metal GPU; pass backend='numpy_ref' for the single-precision reference (the "
-        "oracle, not a production backend) or use precision='double'"
+        "Metal GPU; elsewhere pass backend='numpy_ref', the reference, which runs "
+        "single precision unthreaded and far slower, or use precision='double'"
     )
     raise DriverError(msg, parameter=("precision", "backend"))
 
@@ -1322,13 +1322,12 @@ def _stepper_record(settings: StepperSettings) -> StepperRecord:
     )
 
 
-LOW_STORAGE_BACKENDS = ("native", "numba_cpu", "numpy_ref")
+LOW_STORAGE_BACKENDS = ("native", "numpy_ref")
 """The backends that execute :class:`~solprop.stepper.low_storage.LowStorageRungeKutta`.
 
-``numpy_ref`` from SEP 24's phase 1, ``numba_cpu`` from phase 2 and solprop-native from
-phase 3, on every route the translation admits the march on; ``backend="auto"``
-resolves as for every other integrator (:func:`solprop.backends.registry.resolve_name`:
-the native backend when it is installed, otherwise ``numba_cpu``).
+``numpy_ref`` from SEP 24's phase 1 and solprop-native from phase 3, on every route the
+translation admits the march on; ``backend="auto"`` resolves as for every other
+integrator (:func:`solprop.backends.registry.resolve_name`: the native backend).
 """
 
 
@@ -1402,10 +1401,10 @@ def _admit_integrator(integrator: Multistep, backend: str) -> None:
     DriverError
         Naming the conflict and the Runge-Kutta march every backend executes.
     """
-    if backend not in ("auto", "numpy_ref", "numba_cpu", "native"):
+    if backend not in ("auto", "numpy_ref", "native"):
         msg = (
-            f"the {integrator.name} integrator is implemented on numpy_ref, numba_cpu "
-            f"and native only, and backend {backend!r} would step the problem with its "
+            f"the {integrator.name} integrator is implemented on numpy_ref and native "
+            f"only, and backend {backend!r} would step the problem with its "
             "Runge-Kutta march; pass one of those or 'auto', or "
             "integrator=RungeKutta()"
         )
@@ -2065,7 +2064,7 @@ class Simulation(Displayed):
         ``HE_1N`` block -- or, with ``impedance="te_tm"``, one azimuthal order -- on a
         constant or a varying guide, the cumulative operator carries the
         mode-independent carrier alone and the modal part of the flow becomes
-        ``linear.coupled_flow``, which all three backends execute (a
+        ``linear.coupled_flow``, which ``numpy_ref`` and ``native`` execute (a
         ``method="cf4"`` wall ``numpy_ref`` alone).
     taper_coupling : bool, optional
         Carry the **taper coupling** of a multimode capillary whose radius varies along
@@ -4640,8 +4639,9 @@ class Simulation(Displayed):
             then stops, when light above the shot-noise floor reaches them; ``None``
             watches nothing, for a window kept narrow on purpose.
         backend : str, optional
-            Registry name, or ``"auto"`` (the default) to prefer ``native`` if installed
-            and otherwise use Numba CPU. Import or construction errors do not fall back.
+            Registry name, or ``"auto"`` (the default) for ``native``, which refuses if
+            it isn't installed or this processor is below its baseline. There is no
+            fallback, and import or construction errors stay visible.
         precision : {'double', 'single'}, optional
             The arithmetic the run is held in (SEP 33): ``"double"``, the default, or
             ``"single"``, which takes ``rtol`` at the floor
@@ -4955,7 +4955,7 @@ class Simulation(Displayed):
             Marcatili attenuation. It needs the contiguous set ``HE_11`` to ``HE_1N`` --
             or, with ``impedance="te_tm"``, one azimuthal order -- on a constant or a
             varying guide, and a scalar run; it carries the default ``"input"`` noise
-            and refuses ``"modified"``. All three backends execute it (a
+            and refuses ``"modified"``. ``numpy_ref`` and ``native`` execute it (a
             ``method="cf4"`` wall ``numpy_ref`` alone); every other mode set or
             geometry is refused by name. ``None``, the default, carries no wall:
             the modes keep their own Marcatili loss, and a multimode taper its taper
@@ -5119,8 +5119,9 @@ class Simulation(Displayed):
         node_budget : int, optional
             Bytes of node-chunk buffers the response pass may hold.
         backend : str, optional
-            Registry name, or ``"auto"`` (the default) to prefer ``native`` if installed
-            and otherwise use Numba CPU. Import or construction errors do not fall back.
+            Registry name, or ``"auto"`` (the default) for ``native``, which refuses if
+            it isn't installed or this processor is below its baseline. There is no
+            fallback, and import or construction errors stay visible.
         precision : {'double', 'single'}, optional
             The arithmetic the run is held in (SEP 33): ``"double"``, the default, or
             ``"single"``, which takes ``rtol`` at the floor
@@ -5336,8 +5337,8 @@ class Simulation(Displayed):
         three-component
         E and H at quadrature nodes, whose material regions own their responses and
         whose channels are Poynting-normalised, so that a channel amplitude is a
-        true-power amplitude by construction. It is qualified on ``numpy_ref``,
-        ``numba_cpu`` and the native CPU backend, a declared split block's coupled
+        true-power amplitude by construction. It is qualified on ``numpy_ref`` and the
+        native CPU backend, a declared split block's coupled
         flow included, and propagates constant geometry on a **field** grid.
         Every gas keyword is refused by name beside a provider, because a guide's
         materials are its regions' and not a fill.
@@ -5644,8 +5645,9 @@ class Simulation(Displayed):
         node_budget : int, optional
             Bytes of node-chunk buffers the response pass may hold.
         backend : str, optional
-            Registry name, or ``"auto"`` (the default) to prefer ``native`` if installed
-            and otherwise use Numba CPU. Import or construction errors do not fall back.
+            Registry name, or ``"auto"`` (the default) for ``native``, which refuses if
+            it isn't installed or this processor is below its baseline. There is no
+            fallback, and import or construction errors stay visible.
         precision : {'double', 'single'}, optional
             The arithmetic the run is held in (SEP 33): ``"double"``, the default, or
             ``"single"``, which keeps ``rtol`` at
@@ -6350,7 +6352,7 @@ class Simulation(Displayed):
             Marcatili attenuation. It needs the contiguous set ``HE_11`` to ``HE_1N`` --
             or, with ``impedance="te_tm"``, one azimuthal order -- on a constant or a
             varying guide, and a scalar run; it carries the default ``"input"`` noise
-            and refuses ``"modified"``. All three backends execute it (a
+            and refuses ``"modified"``. ``numpy_ref`` and ``native`` execute it (a
             ``method="cf4"`` wall ``numpy_ref`` alone); every other mode set or
             geometry is refused by name. ``None``, the default, carries no wall:
             the modes keep their own Marcatili loss, and a multimode taper its taper
@@ -6511,8 +6513,9 @@ class Simulation(Displayed):
         node_budget : int, optional
             Bytes of node-chunk buffers the response pass may hold.
         backend : str, optional
-            Registry name, or ``"auto"`` (the default) to prefer ``native`` if installed
-            and otherwise use Numba CPU. Import or construction errors do not fall back.
+            Registry name, or ``"auto"`` (the default) for ``native``, which refuses if
+            it isn't installed or this processor is below its baseline. There is no
+            fallback, and import or construction errors stay visible.
         precision : {'double', 'single'}, optional
             The arithmetic the run is held in (SEP 33): ``"double"``, the default, or
             ``"single"``, which takes ``RungeKutta()``, carries no noise, and
@@ -7639,7 +7642,7 @@ def _undamped_model_key(response: RamanResponse) -> object:
 _CF4_BACKEND: Final = "numpy_ref"
 """The one backend that executes a ``"cf4"`` section of the flow.
 
-CF4 is not yet implemented on the compiled backends, which refuse such a section.
+CF4 is not yet implemented on the native backend, which refuses such a section.
 """
 
 
@@ -7701,9 +7704,9 @@ def _check_wall_declaration(
             f"a coherent wall with method='cf4' integrates each section by the "
             f"commutator-free exponentials of its whole generator, which the "
             f"{_CF4_BACKEND} backend alone executes, and this run selects "
-            f"{selected}: numba_cpu and the native backend execute the default "
-            f"method='frozen_residual' and refuse a CF4 section by name: CF4 is not "
-            "yet implemented on the compiled backends. Pass "
+            f"{selected}: the native backend executes the default "
+            f"method='frozen_residual' and refuses a CF4 section by name: CF4 is not "
+            "yet implemented there. Pass "
             f"backend={_CF4_BACKEND!r} with method='cf4', or leave the method at its "
             "default"
         )

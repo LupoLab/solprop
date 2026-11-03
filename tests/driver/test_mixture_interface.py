@@ -299,10 +299,12 @@ def test_fraction_mapping_uses_total_pressure(material_grid):
     )
 
 
-@pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu"])
+@pytest.mark.parametrize("backend", ["numpy_ref", "native"])
 def test_public_propagation_accepts_mixture_and_periodic_species(
     material_grid, backend
 ):
+    if backend == "native":
+        pytest.importorskip("solprop_native")
     mixture, grid = material_grid
     stats = StatsSpec(
         names=(

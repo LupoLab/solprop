@@ -14,7 +14,7 @@
 
 /*
  * The exponential Adams march's phi-functions (solprop backends/exponential.py,
- * phi_functions; the compiled form of solprop's numba_cpu/multistep.py, _phi):
+ * phi_functions):
  * `adams_phi` for one element, and on the host the same values for a block of
  * elements held as lanes (`AdamsLanes`, `adams_lanes_phi`), which the trial's host
  * passes use. tests/native/test_adams_phi.cpp holds the two to the same bits.

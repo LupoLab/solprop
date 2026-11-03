@@ -170,7 +170,7 @@ print(field_plane(continued).reference.delay)  # the whole 2 mm path's
 
 Two 1 mm capillaries relaunched this way reproduce one 2 mm capillary: the comparison
 is an accuracy envelope, since the second run restarts its step controller, and the
-tests hold it to the tolerance's level on every pair of the three CPU backends. The
+tests hold it to the tolerance's level between the two CPU backends. The
 basis of an ordinary mode set is its value at the plane -- each mode's class, label,
 effective area and effective index on the active band -- so the exit of one capillary
 and the entrance of an identical one of another length are the same basis, and a

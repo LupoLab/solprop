@@ -10,7 +10,7 @@ differently with the requested thread count.
 Usage: ``fft_threshold_probe.py <out.npy>``.
 """
 
-# ruff: noqa: I001 -- Kokkos must load before solprop can import pyFFTW on macOS.
+# ruff: noqa: I001 -- Kokkos loads first, before any other OpenMP runtime on macOS.
 
 from __future__ import annotations
 

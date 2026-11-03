@@ -159,7 +159,7 @@ def run_until(simulation, path, *, after):
 # ------------------------------------------------------------------- the two runs
 
 
-@pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu"])
+@pytest.mark.parametrize("backend", ["numpy_ref", "native"])
 def test_a_replayed_schedule_resumed_matches_the_uninterrupted_run(
     build_simulation, tmp_path, backend
 ):
@@ -169,10 +169,12 @@ def test_a_replayed_schedule_resumed_matches_the_uninterrupted_run(
     round trip through the file is a conjugation and a sign flip (ADR-017), the
     controller's own state does not enter a replay, and the kept Adams history makes
     the resumed march the uninterrupted one's. So the positions and the steps agree
-    exactly, and the values to the march's rounding budget: ``numba_cpu`` keeps a
-    step's last stage as the next one's first across planes (ADR-039), which a resume
-    evaluates afresh, and no run is promised bitwise anyway (SEP 25).
+    exactly, and the values to the march's rounding budget: a backend may keep a step's
+    last stage as the next one's first across planes (ADR-039), which a resume evaluates
+    afresh, and no run is promised bitwise anyway (SEP 25).
     """
+    if backend == "native":
+        pytest.importorskip("solprop_native")
     whole, interrupted, again = (
         scheduled(build_simulation, backend=backend) for _ in range(3)
     )
@@ -251,7 +253,7 @@ def test_an_input_noise_run_resumed_does_not_add_its_noise_twice(
         )
 
 
-@pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu", "native"])
+@pytest.mark.parametrize("backend", ["numpy_ref", "native"])
 def test_a_file_holding_only_its_launch_plane_resumes_without_a_second_draw(
     build_simulation, tmp_path, backend
 ):
@@ -326,7 +328,7 @@ def test_an_interior_launch_plane_resumes_without_a_second_draw(
     )
 
 
-@pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu", "native"])
+@pytest.mark.parametrize("backend", ["numpy_ref", "native"])
 def test_the_input_draw_is_added_at_a_launch_and_not_to_a_resumed_state(
     build_simulation, backend
 ):
@@ -580,8 +582,9 @@ def test_a_run_continued_on_the_other_backend_is_the_same_run(
     What executed the run is recorded instead, outside the key, so the file
     still says which backend wrote which half.
     """
+    pytest.importorskip("solprop_native")
     whole = scheduled(build_simulation, backend="numpy_ref")
-    started = scheduled(build_simulation, backend="numba_cpu")
+    started = scheduled(build_simulation, backend="native")
     finished = scheduled(build_simulation, backend="numpy_ref")
     whole.run(tmp_path / "whole.h5")
     run_until(started, tmp_path / "mixed.h5", after=2)
@@ -598,7 +601,7 @@ def test_a_run_continued_on_the_other_backend_is_the_same_run(
     # a special case for this group; what matters here is that the resume key never
     # saw either name.
     with h5py.File(tmp_path / "mixed.h5", "r") as file:
-        assert file.attrs["backend"] == "numba_cpu"
+        assert file.attrs["backend"] == "native"
     assert (
         whole.metadata().configuration_hash() == started.metadata().configuration_hash()
     )

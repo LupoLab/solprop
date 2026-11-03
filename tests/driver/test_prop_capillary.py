@@ -705,22 +705,23 @@ def test_oxygen_raman_propagates_through_both_cpu_backends():
         "n_r": 24,
     }
     reference = run(**options, raman=True, backend="numpy_ref")
-    compiled = run(**options, raman=True, backend="numba_cpu")
     without = run(**options, raman=False, backend="numpy_ref")
     scale = float(np.linalg.norm(reference.fields("fft")[-1]))
     assert scale > 0.0
+    # At this modest nonlinear exposure the Raman signal must be observable;
+    # this guards accidentally omitting it while passing a backend parity test.
+    assert (
+        np.linalg.norm(without.fields("fft")[-1] - reference.fields("fft")[-1]) / scale
+        > 1e-5
+    )
+    pytest.importorskip("solprop_native")
+    compiled = run(**options, raman=True, backend="native")
     assert np.all(np.isfinite(compiled.fields("fft")))
     # Same equations, independent execution backends: the 1e-9 bound allows
     # accumulated integration error at rtol=1e-10. Radial quadrature is resolved.
     assert (
         np.linalg.norm(compiled.fields("fft")[-1] - reference.fields("fft")[-1]) / scale
         < 1e-9
-    )
-    # At this modest nonlinear exposure the Raman signal must be observable;
-    # this guards accidentally omitting it while passing a backend parity test.
-    assert (
-        np.linalg.norm(without.fields("fft")[-1] - reference.fields("fft")[-1]) / scale
-        > 1e-5
     )
 
 
@@ -2946,9 +2947,9 @@ def test_the_other_two_switches_of_the_order_study(request):
             -k the_other_two_switches
 
     from a clean tree. Measured on this tree at 250, 500 and 1000 steps, with the four
-    rows of the table run back to back on `numba_cpu` (not at 150, 300 and 600: the
-    in-stage absorber has a stability limit of 5.5 mm on this metre, and 150 steps is
-    past it):
+    rows of the table run back to back on the retired `numba_cpu` (not at 150, 300 and
+    600: the in-stage absorber has a stability limit of 5.5 mm on this metre, and 150
+    steps is past it):
 
     ==============================  =====
     constant fill, no plasma         6.21
@@ -3243,9 +3244,9 @@ def test_the_seeded_reduced_ctc_case_forms_the_raman_cascade():
 
     Noise-free it does not: nothing seeds the Stokes band but rounding, which grows to
     5 % of the energy by the exit. Input shot noise is the physical seed. Measured on
-    `numba_cpu` at the exit for seeds 21, 22 and 23: the Stokes band (560 nm-2 um)
-    holds 0.48, 0.44 and 0.44 of the energy; the first three vibrational rungs
-    0.26/0.11/0.10, 0.21/0.16/0.058 and 0.24/0.10/0.086; the 330-430 nm shoulder
+    the retired `numba_cpu` at the exit for seeds 21, 22 and 23: the Stokes band
+    (560 nm-2 um) holds 0.48, 0.44 and 0.44 of the energy; the first three vibrational
+    rungs 0.26/0.11/0.10, 0.21/0.16/0.058 and 0.24/0.10/0.086; the 330-430 nm shoulder
     0.026, 0.041 and 0.040; the 900-1300 nm one 0.042, 0.046 and 0.038; and at a
     ten-thousandth of its peak the exit spectrum spans 349-1614, 311-1610 and
     355-1606 nm, bridging the 364-1030 nm octave about the pump. The bounds
@@ -3268,26 +3269,26 @@ def test_the_seeded_reduced_ctc_case_forms_the_raman_cascade():
 
 
 @pytest.mark.slow
-def test_the_reduced_ctc_native_field_matches_fresh_numba(test_backend_name):
-    """The native backend against a fresh ``numba_cpu`` run, seeded by shot noise.
+def test_the_reduced_ctc_native_field_matches_fresh_numpy_ref(test_backend_name):
+    """The native backend against a fresh ``numpy_ref`` run, seeded by shot noise.
 
     Hydrogen's Raman gain amplifies whatever seeds the Stokes band. Noise-free, that is
-    each backend's own rounding: the two agree to 1.7e-15 at the first plane and only
-    to 6e-6 at the exit, where 5 % of the energy is Stokes light grown from it. Input
+    each backend's own rounding: the two agree to 7.9e-15 at the first plane and only
+    to 3.4e-6 at the exit, where 5 % of the energy is Stokes light grown from it. Input
     shot noise of a fixed seed is the same physical seed on both, about 1e9 times
     the rounding in amplitude, so the comparison at the exit measures the backends
-    again: 5.2e-11 at this seed (1.4e-10 at the next), at identical accepted steps
+    again: 9.0e-11 at this seed (4.4e-10 at the next), at identical accepted steps
     (4937), with 48 % of the energy in the Stokes band.
     """
     if test_backend_name != "native":
         pytest.skip("run with SOLPROP_TEST_BACKEND=native for the backend comparison")
     native = ctc_run(CTC_REDUCED, "REDUCED", backend="native", seed=CTC_SEED)
-    numba = ctc_run(CTC_REDUCED, "REDUCED", backend="numba_cpu", seed=CTC_SEED)
+    reference = ctc_run(CTC_REDUCED, "REDUCED", backend="numpy_ref", seed=CTC_SEED)
     assert int(np.sum(native["step_history/accepted"])) == int(
-        np.sum(numba["step_history/accepted"])
+        np.sum(reference["step_history/accepted"])
     )
     actual = native.fields("fft")[-1]
-    expected = numba.fields("fft")[-1]
+    expected = reference.fields("fft")[-1]
     relative_l2 = np.linalg.norm(actual - expected) / np.linalg.norm(expected)
     assert relative_l2 < 1e-9
 
@@ -3775,8 +3776,9 @@ def test_the_reduced_m2_case_is_the_same_run_on_either_backend(request, reduced)
 
     The bound is derived and then measured, and the measurement is the interesting
     part. Per step the two differ by round-off: every complex product costs 1.42 eps,
-    because numpy's contracts into a fused multiply-add on this host and numba's does
-    not, and a transform costs log2(n) eps. Over 570 steps that would be a few times
+    because numpy's contracted into a fused multiply-add on the host where this was
+    measured against the retired `numba_cpu`, whose did not, and a transform costs
+    log2(n) eps. Over 570 steps that would be a few times
     1e-14 if the case were benign. It is not: this one self-compresses through a
     plasma into a vacuum end where dp/dz diverges, which caps it at first order
     and amplifies any perturbation. **Measured 6.5e-12 at the
@@ -3797,7 +3799,7 @@ def test_the_reduced_m2_case_is_the_same_run_on_either_backend(request, reduced)
     measured = float(np.linalg.norm(a - b) / np.linalg.norm(b))
     assert measured < 1e-10
     # The last rung of the equivalence ladder of `docs/dev/accuracy.md` section 7; the
-    # other six are in `tests/backends/test_numba_cpu.py` and merge into one record.
+    # others are in the backend ladders and merge into one record.
     record_name = record_backend(TEST_BACKEND)
     # Launching the nominal energy instead of Luna's own pulse moves this from
     # 3.478e-14 to 3.543e-14: a round-off-limited quantity re-measured on a trajectory
@@ -3821,8 +3823,8 @@ def test_the_reduced_m2_case_is_the_same_run_on_either_backend(request, reduced)
     grid = witness_grid(REDUCED)
     luna = stored_field("luna_rdw_reduced.h5")[-1]
     mine = reduced.fields("fft")[-1, :, 0, :]
-    # The reference's own bound for this case, which it meets at 6.330e-2;
-    # numba_cpu meets it at 6.330e-2 too, to four figures.
+    # The reference's own bound for this case, which it meets at 6.330e-2; the retired
+    # numba_cpu met it at 6.330e-2 too, to four figures.
     assert 0.05 < in_band_distance(mine[0], luna[0], grid.inband_mask) < 0.08
 
 
@@ -4383,7 +4385,7 @@ def _flow_run(backend):
 
 
 @pytest.mark.medium
-@pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu", "native"])
+@pytest.mark.parametrize("backend", ["numpy_ref", "native"])
 def test_a_tapered_gradient_to_vacuum_runs_ten_steps_on_every_backend(backend):
     if backend == "native":
         pytest.importorskip("solprop_native")

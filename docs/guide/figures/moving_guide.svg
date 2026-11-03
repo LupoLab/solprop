@@ -161,5 +161,5 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 <text x="26.0" y="498.0" font-size="11" class="dim">CoherentWall; taper_coupling=False is the adiabatic opt-out</text>
 <text x="26.0" y="526.0" font-size="12.5" class="">a solid guide's modes change shape, so it is re-solved along z:</text>
 <text x="26.0" y="540.0" font-size="11" class="dim">moving S(z), Q(z) and the connection Γ = W⁻¹S;</text>
-<text x="26.0" y="554.0" font-size="11" class="dim">on numpy_ref, numba_cpu and native</text>
+<text x="26.0" y="554.0" font-size="11" class="dim">on numpy_ref and native</text>
 </svg>

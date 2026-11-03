@@ -120,7 +120,7 @@ def _field(entry, kind, backend):
 
 @pytest.mark.medium
 @pytest.mark.parametrize("kind", ["TE", "TM"])
-@pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu", "native"])
+@pytest.mark.parametrize("backend", ["numpy_ref", "native"])
 def test_a_supplied_te_or_tm_set_through_prop_capillary_is_the_waveguide_run(
     kind, backend
 ):

@@ -28,8 +28,8 @@ import numpy as np
 if importlib.util.find_spec("solprop_native") is not None:
     importlib.import_module("solprop_native")
 
+from backends.dispersive_cases import averaged, run
 from backends.matched import fixed_order
-from backends.test_numba_dispersive_kerr import averaged, run
 
 # The doctest collection imports every module under tests/, and the arguments it
 # was given are not evaluators: only a subprocess run saves the fields.

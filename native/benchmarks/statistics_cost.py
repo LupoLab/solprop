@@ -200,7 +200,7 @@ def _worker(backend_name: str, case_name: str, target: float, repeats: int) -> N
 def main() -> None:
     """Run an isolated channel-cost measurement."""
     parser = argparse.ArgumentParser()
-    parser.add_argument("--backend", choices=("numba_cpu", "native"), default="native")
+    parser.add_argument("--backend", choices=("numpy_ref", "native"), default="native")
     parser.add_argument(
         "--case", choices=("m2_reduced", "ctc_reduced"), default="m2_reduced"
     )

@@ -47,7 +47,7 @@ def build_rdw(point, rtol=WAVEGUIDE_RTOL):
             raman=False,
             plasma=False,
             thg=False,
-            backend="numba_cpu",
+            backend="native",
             rtol=rtol,
             stats=StatsSpec(names=("energy", "peak_power")),
             noise=None,
@@ -58,6 +58,7 @@ def build_rdw(point, rtol=WAVEGUIDE_RTOL):
 
 @pytest.mark.medium
 def test_reduced_rdw_scan_equals_its_singletons(tmp_path):
+    pytest.importorskip("solprop_native")
     scan = Scan("reduced_rdw", pressure=[0.8, 0.9, 1.0, 1.2], energy=[200e-6, 275e-6])
     reduction = energy_in_band(200e-9, 400e-9)
     result = run_scan(

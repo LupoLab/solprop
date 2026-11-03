@@ -118,7 +118,7 @@ carries the absorbing collar, which two guides with different index tables carry
 differently, and the same comparison reads 1e-3.
 
 **Where it runs, and what it refuses by name.** Every backend executes the leaf —
-`numpy_ref`, `numba_cpu` and `native`, on the CPU and on a GPU — except a CF4 section,
+`numpy_ref` and `native`, on the CPU and on a GPU — except a CF4 section,
 which runs on `numpy_ref` alone and which the entry point refuses elsewhere before
 anything is translated. A **noise** model beside it is refused, because the shot-noise
 draw ({doc}`../media/noise`) is transported by the unitary phase of a *diagonal* flow and its

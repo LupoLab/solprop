@@ -428,10 +428,10 @@ the product $E_jE_kE_l$ is symmetric in $(j, k, l)$, so the sum is evaluated as
 $\sum_m C_{im}\,(E_jE_k)E_l$ over the ten monomials $j \le k \le l$, with $C_{im}$ the
 sum of $A_{ijkl}$ over the orderings of monomial $m$ — an identity for any tensor —
 formed once per node and evaluation: 3 + 10 products a component a sample in place of
-the dense 81 + 3, 2.5 times faster in `numba_cpu`'s kernel
+the dense 81 + 3, 2.5 times faster in the kernel of the since-retired `numba_cpu`
 ([benchmarks.md](benchmarks.md#general-route-symmetric-contraction)). The
 order is fixed: the orderings in lexicographic order, the monomials likewise, every sum
-from zero; `numpy_ref` defines it and both compiled backends run it. Its rounding is
+from zero; `numpy_ref` defines it and the native backend runs it. Its rounding is
 within $\gamma_{17}$ of $\sum_{jkl}|A_{ijkl}||E_j||E_k||E_l|$, against $\gamma_{14}$ for
 the dense order. The analytic form, symmetric in $(j, k)$ only, and the delayed tensor
 contraction against a convolved history keep the dense order.
@@ -446,8 +446,8 @@ exponential; Luna adds it outside, which lets $f$ exceed one and breaks that ide
 
 For a mixture, each channel retains that independent exposure recurrence, its rate table,
 potential and pre-ionisation. The common current and work integrals use
-$\sum_c\rho_c f_c E$ and $\sum_c\rho_c I_{p,c}W_c(1-f_c)$ respectively. Numba and
-native specialise the one-channel path at compile time and preserve its operation order;
+$\sum_c\rho_c f_c E$ and $\sum_c\rho_c I_{p,c}W_c(1-f_c)$ respectively. The native
+backend specialises the one-channel path at compile time and preserves its operation order;
 the multiple-channel loop adds weighted contributions in mixture order. The new node
 statistics retain every component, including zero rows for non-ionising populations.
 Final ionised inventory includes pre-ionisation; work done during the pulse counts
@@ -518,8 +518,8 @@ $1.1\,\omega_{\max}$. It uses $K = 4$ on the default grid and is refused below
 - **Loss current.** It keeps the raw rate.
 - **Cost.** No transform, and per filtered scalar $K$ pair additions, $K+1$
   multiplications and $K$ accumulations, in a fixed order: centre first, then each
-  pair summed before it is weighted. On `numba_cpu` it is a column of whole-row passes
-  of its own ([backends.md §3.12](backends.md#312-the-plasma-columns-band-rule)); its
+  pair summed before it is weighted. On the native backend it is a column of its own
+  ([backends.md §3.12](backends.md#312-the-plasma-columns-band-rule)); its
   measured cost is in [benchmarks.md](benchmarks.md#band-rule-plasma-integration).
 - **Look-ahead.** Each integral reads $K$ samples ahead. Production needs two
   complete scans: exposure and free current. The physical-polarisation oracle
@@ -737,9 +737,8 @@ substitutes a floor, logging what it did.
 
 ## 12. The compiled backend
 
-How the compiled backends execute these algorithms — the fused traversal, why stages are
-never materialised, FFTW plans and wisdom, the thread pools and the regime rule — is
-[backends.md §3](backends.md#3-numba_cpu-the-compiled-in-tree-backend).
+How the native backend executes these algorithms — the fused traversal, FFTW plans and
+wisdom, and the thread pools — is [backends.md §3 and §4](backends.md).
 
 ## References
 

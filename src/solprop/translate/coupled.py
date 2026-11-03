@@ -573,7 +573,7 @@ class CoupledFlowTables(Displayed):
     integrates by the commutator-free fourth-order exponential with no explicit
     residual, mixed with ``"frozen_residual"`` sections only where a declared
     fallback put them. Every other method, representation and mixture is refused by
-    name at the backend, and the compiled backends refuse ``"cf4"`` sections.
+    name at the backend, and the native backend refuses ``"cf4"`` sections.
 
     The dense ``generator`` is optional. The factored alternative combines fixed
     matrices with scalar weights, rank-one wall terms and connection coefficients
@@ -1269,7 +1269,7 @@ def schur_blocks(
 def eigenbasis_limit(n_modes: int) -> float:
     """Return the largest eigenbasis condition the compiled flow actions accept.
 
-    The compiled backends form a flow action ``Z exp(l T) Z^H`` from the eigenbasis
+    The native backend forms a flow action ``Z exp(l T) Z^H`` from the eigenbasis
     of the Schur factor, ``W exp(l Lambda) Y`` (:func:`schur_eigenbasis`), where its
     rounding is bounded by ``kappa (n + 11 + 2 a) u`` relative to the action, with
     ``kappa = || |W| ||_2 || |Y| ||_2`` and ``a = max |l lambda|``. The reference's

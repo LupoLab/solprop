@@ -28,12 +28,13 @@ turn -- pulses, analysing a run, the interactive namespace and scans; then gas-f
 capillaries, other waveguides, free space and the compression tools -- and the
 :doc:`guide <../../guide/index>` says which model to use for what.
 
-.. GENERATED FROM PYTHON SOURCE LINES 18-20
+.. GENERATED FROM PYTHON SOURCE LINES 18-21
 
 The package version, and the backend ``backend="auto"`` resolves to here: ``native``
-where the ``solprop-native`` package is installed, otherwise ``numba_cpu``.
+where the ``solprop-native`` package is installed, otherwise ``numpy_ref``, with a
+warning.
 
-.. GENERATED FROM PYTHON SOURCE LINES 20-35
+.. GENERATED FROM PYTHON SOURCE LINES 21-36
 
 .. code-block:: Python
 
@@ -60,20 +61,20 @@ where the ``solprop-native`` package is installed, otherwise ``numba_cpu``.
 
  .. code-block:: none
 
-    solprop 0.0.1.dev508+gfbc01170e.d20261028
-    installed backends ('numpy_ref', 'numba_cpu', 'native'); auto resolves to native
+    solprop 0.1.1.dev200+ga44d5ec24.d20261102
+    installed backends ('numpy_ref', 'native'); auto resolves to native
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 36-40
+.. GENERATED FROM PYTHON SOURCE LINES 37-41
 
 One call builds the grid, the mode, the gas, the responses and the pulse, and
 runs them: two centimetres of a 125 um helium-filled capillary at 1 bar, pumped
 by a 10 fs, 20 uJ pulse at 800 nm. The gas index is asked for beyond its fitted
 range at the short end of the window, which it reports; that notice is silenced.
 
-.. GENERATED FROM PYTHON SOURCE LINES 40-59
+.. GENERATED FROM PYTHON SOURCE LINES 41-60
 
 .. code-block:: Python
 
@@ -114,19 +115,19 @@ range at the short end of the window, which it reports; that notice is silenced.
                        plasma_work_defect, pressure, quadrature_error, species_density, ...
       between planes:  none
       run:             RunMetadata(multimode, field grid of 864, 1 modes, native,
-                       2026-10-31T16:32:54.176985+00:00)
+                       2026-11-02T09:43:29.380614+00:00)
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 60-64
+.. GENERATED FROM PYTHON SOURCE LINES 61-65
 
 The run is read through :mod:`solprop.processing`: the energy and duration at
 each save plane, and the spectrum at the entrance and the exit. At this energy
 and length the pulse barely changes, which is the point: every later example
 reads a run the same way.
 
-.. GENERATED FROM PYTHON SOURCE LINES 64-79
+.. GENERATED FROM PYTHON SOURCE LINES 65-80
 
 .. code-block:: Python
 
@@ -164,7 +165,7 @@ reads a run the same way.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 80-86
+.. GENERATED FROM PYTHON SOURCE LINES 81-87
 
 Related reading
 ---------------
@@ -176,7 +177,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 0.244 seconds)
+   **Total running time of the script:** (0 minutes 4.303 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_basics_plot_01_package_overview.py:

@@ -2,14 +2,14 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The transverse edge on native, ``numba_cpu`` and mlx, against ``numpy_ref`` (SEP 40).
+"""The transverse edge on native and mlx, against ``numpy_ref`` (SEP 40).
 
 Every backend reads the edge on the host from its state, as ``numpy_ref`` does; the
 native Adams march holds its steps to the edge's next read and hands the state back
-there, and ``numba_cpu`` and mlx step from the host under the driver's ceiling
-(section 5.3). mlx is compared with ``numpy_ref``'s single-precision path.
-The same run on two backends must then stop at the same read, read the same number of
-times and keep the same record; a requested collar must remove the same energy.
+there, and mlx steps from the host under the driver's ceiling (section 5.3). mlx is
+compared with ``numpy_ref``'s single-precision path. The same run on two backends must
+then stop at the same read, read the same number of times and keep the same record; a
+requested collar must remove the same energy.
 """
 
 import dataclasses
@@ -48,7 +48,6 @@ BACKENDS = [
             "native" not in available(), reason="native is not installed"
         ),
     ),
-    "numba_cpu",
 ]
 """The backends compared with ``numpy_ref``."""
 
@@ -195,13 +194,13 @@ def test_a_backend_that_does_not_read_the_edge_runs_unwatched(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # Section 6: a backend that does not read the edge (none of solprop's own);
-    # numba_cpu with its reading switched off stands in for one. The run warns
+    # numpy_ref with its reading switched off stands in for one. The run warns
     # before its first step, is not stopped by the packet on the wrap, and records
     # that it was unwatched.
-    from solprop.backends.numba_cpu import NumbaCpuBackend  # noqa: PLC0415
+    from solprop.backends.numpy_ref import NumpyRefBackend  # noqa: PLC0415
 
-    monkeypatch.setattr(NumbaCpuBackend, "reads_transverse_edge", False)
-    simulation = on(packet_run(REREVIEW, integrator=Multistep()), "numba_cpu")
+    monkeypatch.setattr(NumpyRefBackend, "reads_transverse_edge", False)
+    simulation = on(packet_run(REREVIEW, integrator=Multistep()), "numpy_ref")
     with pytest.warns(BoundaryWarning, match="does not read the transverse edge"):
         output = simulation.run(progress="none")
     assert isinstance(output, PlaneStore)

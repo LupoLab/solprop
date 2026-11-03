@@ -78,7 +78,7 @@ def runtime(backend: str, device: bool = False) -> Record:
     if device and backend != "native":
         raise SuiteError("only the native backend runs on a device")
     if backend == "native":
-        # solprop_native must be imported before pyFFTW.
+        # solprop_native must be imported before any other OpenMP runtime.
         import solprop_native  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
 
         build = dataclasses.asdict(solprop_native.build_info())
@@ -96,7 +96,7 @@ def runtime(backend: str, device: bool = False) -> Record:
     import solprop  # noqa: PLC0415
 
     packages = {}
-    for name in ("solprop", "numpy", "scipy", "optmat", "numba", "pyfftw"):
+    for name in ("solprop", "numpy", "scipy", "optmat"):
         try:
             packages[name] = importlib.metadata.version(name)
         except importlib.metadata.PackageNotFoundError:

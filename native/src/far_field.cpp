@@ -246,8 +246,8 @@ void FarFieldPass::accumulate(const FarFieldLayout& layout, const std::size_t n_
   const bool shared = sharing.centre;
   const bool one_distance = sharing.distance;
   // A host team is one thread, which then walks its band's columns with frequency
-  // innermost, as solprop's numba_cpu pass does; a device team's threads share the
-  // band's frequencies. Either way one thread owns each (band, bin).
+  // innermost; a device team's threads share the band's frequencies. Either way one
+  // thread owns each (band, bin).
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
   const Policy policy(execution_, static_cast<int>(n_bands), Kokkos::AUTO());
 #else

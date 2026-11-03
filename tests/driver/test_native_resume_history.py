@@ -341,19 +341,8 @@ def test_a_native_run_stopped_between_planes_continues_from_its_checkpoint(
     assert_accurate_run(whole, part, reference)
 
 
-@quiet
-@pytest.mark.parametrize(
-    ("taken", "resumed", "message"),
-    [
-        ("native", "numba_cpu", "native engine's applied frozen-residual"),
-        ("numba_cpu", "native", "host engine's frozen-residual weights"),
-    ],
-)
-def test_a_frozen_residual_history_does_not_cross_engines(
-    build_simulation, taken, resumed, message
-):
-    # The native engine keeps each sample's generator applied to its state, the host
-    # engine the sample's weights: neither can continue the other's history.
+def assert_frozen_residual_history_refused(build_simulation, taken, resumed, message):
+    """Assert the coupled case's snapshot from `taken` is refused on `resumed`."""
     stored = snapshot_at_first_plane(CASES["coupled"](build_simulation, taken)())
     problem, backend = opened(CASES["coupled"](build_simulation, resumed)(), resumed)
     try:
@@ -368,15 +357,23 @@ def test_a_frozen_residual_history_does_not_cross_engines(
 
 
 @quiet
-@pytest.mark.parametrize("case", ["plain", "compensated"])
 @pytest.mark.parametrize(
-    ("taken", "resumed"), [("native", "numba_cpu"), ("numba_cpu", "native")]
+    ("taken", "resumed", "message"),
+    [
+        ("native", "numpy_ref", "native engine's applied frozen-residual"),
+        ("numpy_ref", "native", "host engine's frozen-residual weights"),
+    ],
 )
-def test_a_history_of_the_same_rows_crosses_backends(
-    build_simulation, taken, resumed, case
+def test_a_frozen_residual_history_does_not_cross_engines(
+    build_simulation, taken, resumed, message
 ):
-    # Where the rows mean the same -- the samples, a compensated history's states and
-    # rates -- a snapshot continues on the other backend.
+    # The native engine keeps each sample's generator applied to its state, the host
+    # engine the sample's weights: neither can continue the other's history.
+    assert_frozen_residual_history_refused(build_simulation, taken, resumed, message)
+
+
+def assert_same_rows_cross(build_simulation, taken, resumed, case):
+    """Assert a `case` snapshot from `taken` is restored whole on `resumed`."""
     stored = snapshot_at_first_plane(CASES[case](build_simulation, taken)())
     problem, backend = opened(CASES[case](build_simulation, resumed)(), resumed)
     try:
@@ -385,6 +382,19 @@ def test_a_history_of_the_same_rows_crosses_backends(
         assert_same_snapshot(backend.march_snapshot(), stored)
     finally:
         backend.close()
+
+
+@quiet
+@pytest.mark.parametrize("case", ["plain", "compensated"])
+@pytest.mark.parametrize(
+    ("taken", "resumed"), [("native", "numpy_ref"), ("numpy_ref", "native")]
+)
+def test_a_history_of_the_same_rows_crosses_backends(
+    build_simulation, taken, resumed, case
+):
+    # Where the rows mean the same -- the samples, a compensated history's states and
+    # rates -- a snapshot continues on the other backend.
+    assert_same_rows_cross(build_simulation, taken, resumed, case)
 
 
 def snapshot_at_first_plane(simulation):

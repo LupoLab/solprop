@@ -5,22 +5,25 @@
 """Check that an installed solprop-native wheel coexists with the scientific stack.
 
 The wheel carries its own OpenMP runtime, FFTW and (on Linux and Windows) OpenBLAS.
-NumPy, SciPy, pyFFTW and Numba carry theirs. This script imports them in both
-orders, each scenario in a fresh process, starts every package's thread pool (a
-threaded pyFFTW transform, a NumPy and a SciPy BLAS call, a parallel Numba loop), then
-runs one short propagation on the native backend, one on ``numba_cpu`` and the native
-one again, interleaved in the same process, and compares them::
+NumPy and SciPy carry theirs, and pyFFTW and Numba do too where they are installed.
+solprop no longer depends on those two, but a notebook's other packages may load them,
+so a dedicated environment holds them as outside packages (SEP 43 section 6.4). This
+script imports what is there in both orders, each scenario in a fresh process, starts
+every package's thread pool (a threaded pyFFTW transform, a NumPy and a SciPy BLAS call,
+a parallel Numba loop), then runs one short propagation on the native backend, one on
+``numpy_ref`` and the native one again, interleaved in the same process, and compares
+them::
 
     python -I native/ci/coexistence.py [--bypass-guard]
 
 Scenarios:
 
 ``native-first``
-    ``solprop_native`` first, then NumPy, SciPy, pyFFTW and Numba.
+    ``solprop_native`` first, then the others.
 ``stack-first``
-    NumPy, SciPy, pyFFTW and Numba first, then ``solprop_native``. On macOS the
-    package refuses this order by design (pyFFTW's wheel carries another OpenMP
-    runtime); the refusal is the expected outcome there.
+    The others first, then ``solprop_native``. On macOS the package refuses this order
+    by design if pyFFTW is among them (pyFFTW's wheel carries another OpenMP runtime);
+    the refusal is the expected outcome there.
 ``solprop``
     ``import solprop`` and run, as a user script does: the backends import their
     packages when they are first used.
@@ -41,10 +44,12 @@ import os
 import subprocess
 import sys
 import time
+from importlib.util import find_spec
 from pathlib import Path
 
 GUARD_MESSAGE = "import solprop_native before pyfftw"
-STACK = ("numpy", "scipy.linalg", "scipy.fft", "pyfftw", "numba")
+OUTSIDE = tuple(name for name in ("pyfftw", "numba") if find_spec(name) is not None)
+STACK = ("numpy", "scipy.linalg", "scipy.fft", *OUTSIDE)
 
 
 def _import_stack() -> None:
@@ -68,43 +73,51 @@ def _import_native(*, hide_pyfftw: bool) -> None:
 
 def _exercise_stack() -> dict[str, float]:
     """Start each package's thread pool and check one result from each."""
-    import numba
     import numpy as np
-    import pyfftw
-    import pyfftw.builders
+    import scipy.fft
     import scipy.linalg
 
     rng = np.random.default_rng(29)
     signal = rng.standard_normal(1 << 16) + 1j * rng.standard_normal(1 << 16)
-    transform = pyfftw.builders.fft(signal, threads=4, planner_effort="FFTW_ESTIMATE")
-    fft_error = float(
-        np.max(np.abs(transform() - np.fft.fft(signal))) / np.max(np.abs(signal))
-    )
+    scale = np.max(np.abs(signal))
+    expected = np.fft.fft(signal)
+    errors = {
+        "scipy_fft_error": float(
+            np.max(np.abs(scipy.fft.fft(signal, workers=4) - expected)) / scale
+        )
+    }
     matrix = rng.standard_normal((512, 512)) + 512 * np.eye(512)
     rhs = rng.standard_normal(512)
     solution = scipy.linalg.solve(matrix, rhs)
     blas_residual = float(np.max(np.abs(matrix @ solution - rhs)))
 
-    @numba.njit(parallel=True, cache=False)
-    def parallel_sum(values):  # pragma: no cover - compiled
-        total = 0.0
-        for index in numba.prange(values.size):
-            total += values[index]
-        return total
+    if "pyfftw" in OUTSIDE:
+        import pyfftw.builders
 
-    values = rng.standard_normal(1 << 20)
-    numba_error = float(
-        abs(parallel_sum(values) - values.sum()) / np.sum(np.abs(values))
-    )
+        transform = pyfftw.builders.fft(
+            signal, threads=4, planner_effort="FFTW_ESTIMATE"
+        )
+        errors["pyfftw_error"] = float(np.max(np.abs(transform() - expected)) / scale)
+
+    if "numba" in OUTSIDE:
+        import numba
+
+        @numba.njit(parallel=True, cache=False)
+        def parallel_sum(values):  # pragma: no cover - compiled
+            total = 0.0
+            for index in numba.prange(values.size):
+                total += values[index]
+            return total
+
+        values = rng.standard_normal(1 << 20)
+        errors["numba_error"] = float(
+            abs(parallel_sum(values) - values.sum()) / np.sum(np.abs(values))
+        )
     # Each bound is a few hundred ulps of the operation's scale: these check that the
     # packages compute at all beside the native runtime, not their accuracy.
-    if not (fft_error < 1e-12 and blas_residual < 1e-10 and numba_error < 1e-12):
-        raise AssertionError((fft_error, blas_residual, numba_error))
-    return {
-        "pyfftw_error": fft_error,
-        "blas_residual": blas_residual,
-        "numba_error": numba_error,
-    }
+    if not (blas_residual < 1e-10 and all(one < 1e-12 for one in errors.values())):
+        raise AssertionError((blas_residual, errors))
+    return {"blas_residual": blas_residual, **errors}
 
 
 def _propagate(backend: str):
@@ -138,7 +151,7 @@ def _interleaved_runs() -> dict[str, float]:
     import numpy as np
 
     native = _propagate("native")
-    numba_cpu = _propagate("numba_cpu")
+    reference = _propagate("numpy_ref")
     native_again = _propagate("native")
     scale = float(np.linalg.norm(native))
 
@@ -146,14 +159,14 @@ def _interleaved_runs() -> dict[str, float]:
         return float(np.linalg.norm(a - b) / scale)
 
     result = {
-        "native_vs_numba_cpu": difference(native, numba_cpu),
+        "native_vs_numpy_ref": difference(native, reference),
         "native_repeat": difference(native, native_again),
     }
     # Two adaptive runs of one problem on two backends agree to the controller's
     # accuracy envelope, not to rounding (SEP 25); 1e-5 is far above that envelope at
     # this tolerance and far below what a corrupted runtime produces. A repeat on the
     # same backend differs only by reduction order.
-    if not (result["native_vs_numba_cpu"] < 1e-5 and result["native_repeat"] < 1e-9):
+    if not (result["native_vs_numpy_ref"] < 1e-5 and result["native_repeat"] < 1e-9):
         raise AssertionError(result)
     return result
 
@@ -232,7 +245,7 @@ def main() -> None:
         child(arguments.child)
         return
 
-    expected_refusal = sys.platform == "darwin"
+    expected_refusal = sys.platform == "darwin" and "pyfftw" in OUTSIDE
     scenarios = ["native-first", "stack-first", "solprop"]
     if arguments.bypass_guard:
         scenarios.append("stack-first-unguarded")

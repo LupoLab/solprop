@@ -316,7 +316,7 @@ against an exact solution.
 - **The optical band** reaches 120 nm (SAE) or 90 nm (haCC) numerically; that is not a
   claim of validated ultraviolet accuracy.
 - **Scope.** Helium only, one scalar HE₁₁ mode on the uncoupled modal capillary route,
-  `numpy_ref` only (`numba_cpu` and the native backend refuse it by name). Double ionisation, ionic
+  `numpy_ref` only (the native backend refuses it by name). Double ionisation, ionic
   channels beyond $n=2$, ion motion, collisions, recombination and space charge are
   omitted.
 - **Cost.** Each source evaluation is a full atomic calculation at every node: minutes

@@ -163,8 +163,8 @@ All notable changes to solprop are recorded here. The format follows
 - `solprop-native` wheels for Windows on Arm (`win-arm64`), and an x86-64-v2 build beside the
   x86-64-v3 one in the Linux and Windows x86-64 wheels, chosen at import, so processors
   without AVX2 now run the native backend. The v2 build runs about 20 to 25 % longer by
-  geometric mean. `SOLPROP_NATIVE_CPU_VARIANT=x86-64-v2` asks for it. pyFFTW is not installed
-  on Windows on Arm, where it has no wheel, so `numba_cpu` does not import there.
+  geometric mean. `SOLPROP_NATIVE_CPU_VARIANT=x86-64-v2` asks for it.
+- `SOLPROP_REQUIRE_DEVICE` (`cuda`, `hip` or `any`) makes a run refuse before allocating anything unless it would execute on a native device build that sees a device, so a job doesn't fall onto a CPU wheel that a new release installed over its source build.
 
 ### Changed
 
@@ -217,6 +217,7 @@ All notable changes to solprop are recorded here. The format follows
   rolling draft release PR after merges. Implementation PRs no longer edit the shared
   changelog, avoiding conflicts between unrelated changes. Release tags and publication
   remain manual.
+- A plain `uv sync` in a checkout now compiles the native backend, and `uv sync --extra native` is gone. Python and documentation contributors with no compiler can use `uv run --no-project tools/setup_light.py`, and `poe fetch-wheel` installs the wheel CI built, refusing one that doesn't fit the tree.
 
 ### Changed (breaking)
 
@@ -298,6 +299,13 @@ All notable changes to solprop are recorded here. The format follows
   written by an earlier development build of schema 2 that holds the flat list of orders
   is refused by name on resume; rerun the case, or read it with that build
   ([#80](https://github.com/LupoLab/solprop/issues/80)).
+- `backend="auto"` has no fallback: it is `native`, and refuses with no native package or on a processor below the floor, such as Arm below Neoverse N1. A TDSE response still resolves to `numpy_ref` and single precision to `mlx`. `numpy_ref` stays selectable by name, as the numerical reference and for the features only it runs.
+- `solprop-native` is a required dependency, with no extra: `pip install solprop` installs it, and solprop is supported where it installs ([SEP 43](docs/dev/seps/archive/sep-0043-retire-numba-cpu.md)). On any other platform, including Intel macOS, ppc64le, musl and macOS before 14, the installer reports that no matching distribution exists; the installation page explains that and how to report a platform. The `native` extra is gone.
+
+### Removed
+
+- The `numba_cpu` backend, and the `numba` and `pyfftw` dependencies ([SEP 43](docs/dev/seps/archive/sep-0043-retire-numba-cpu.md), ADR-064). `backend="numba_cpu"` raises `BackendError`, naming `native` and `numpy_ref`. An output or snapshot of this release's schema that records `numba_cpu` still loads, and a stopped run continues on another backend by changing the name. A file written by 0.1.0 is refused by its output schema, as every file of another schema is: read it with `solprop==0.1.0`, which is also the rollback.
+- The settings that only `numba_cpu` read: `SOLPROP_NUMBA_THREADS`, `SOLPROP_NUMBA_REGIME`, `SOLPROP_FFTW_THREADS`, `SOLPROP_TRANSVERSE_FFTW_THREADS`, `SOLPROP_PASS_TIMERS`, `NUMBA_DISABLE_JIT` and `NUMBA_NUM_THREADS`. Drop them from job scripts; they now do nothing. `SOLPROP_THREADS`, `SOLPROP_NATIVE_THREADS`, `SOLPROP_FFTW_PLAN`, `SOLPROP_FFTW_WISDOM` and `SOLPROP_BLAS_THREADS` stay.
 
 ### Fixed
 
@@ -391,6 +399,7 @@ All notable changes to solprop are recorded here. The format follows
   it cost 23.8 kB and 31.5 kB. The step driver keeps only the error norms its controller
   reads, not one per accepted step
   ([#80](https://github.com/LupoLab/solprop/issues/80)).
+- With `/proc/cpuinfo` unreadable, native chose its x86-64-v3 build, so a lower processor could reach an illegal instruction ([#443](https://github.com/LupoLab/solprop/issues/443)). It now asks NumPy, and refuses before loading if neither answers. The Windows on Arm wheel gains a processor check too, for the Armv8.2-A OpenBLAS it links.
 - Fixed the reference's single-precision path leaving binary32 on two paths that it then narrowed without a check: the split-step collar now keeps a complex64 state in binary32, as the correction `a + F(F^-1(a)(f - 1))` that `mlx` uses (binary64 runs are unchanged), and a fixed-schedule batch of single-precision `numpy_ref` members now steps each member through its own binary32 trial instead of the binary64 batch arithmetic, and a lockstep batch refuses members of mixed precisions. The finished state is now refused by name if it is not complex64 (#79).
 - On a radial, Cartesian, line or planar output, the processing readers that read each
   transverse column as a modal amplitude in sqrt(W) now refuse the file by name with an

@@ -216,7 +216,7 @@ def test_the_species_forms_sum_to_the_total(grid, table):
 # --------------------------------------------------------------------- the refusals
 
 
-@pytest.mark.parametrize("name", ["numpy_ref", "numba_cpu", "native"])
+@pytest.mark.parametrize("name", ["numpy_ref", "native"])
 def test_the_mode_averaged_route_refuses_them_by_name(grid, table, name):
     problem = problem_on(grid, table, argon(), None)
     with pytest.raises(BackendError, match="the mode-averaged route is not qualified"):
@@ -272,7 +272,7 @@ def test_a_problem_without_plasma_refuses_them(grid):
         backend.stats(AXIS)
 
 
-BACKENDS = ["numba_cpu", "native"]
+BACKENDS = ["native"]
 
 
 def backend_stats(name, grid, problem, modes, spec):

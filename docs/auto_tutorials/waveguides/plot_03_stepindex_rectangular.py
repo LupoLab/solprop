@@ -99,7 +99,6 @@ strand_output = prop_gnlse(
     dz_max=0.001,
     dz_init=1.5e-5,
     n_save=2,
-    backend="numpy_ref",
     progress="none",
     noise=None,
     boundary_check=None,
@@ -159,7 +158,6 @@ rectangular = prop_waveguide(
     n_theta=12,
     n_save=2,
     stats=StatsSpec(names=("energy",)),
-    backend="numpy_ref",
     progress="none",
     noise=None,
 )

@@ -224,9 +224,8 @@ def test_single_precision_takes_its_defaults_and_refuses_what_it_does_not_run():
     else:
         with pytest.raises(DriverError, match="backend='auto'"):
             automatic()
-    for backend in ("numba_cpu", "native"):
-        with pytest.raises(DriverError, match="binary64 only"):
-            dataclasses.replace(settings, backend=backend)
+    with pytest.raises(DriverError, match="binary64 only"):
+        dataclasses.replace(settings, backend="native")
     with pytest.raises(DriverError, match="Adams integrator"):
         dataclasses.replace(settings, integrator=Multistep())
     with pytest.raises(DriverError, match="floor"):
@@ -238,7 +237,7 @@ def test_single_precision_takes_its_defaults_and_refuses_what_it_does_not_run():
         )
 
 
-@pytest.mark.parametrize("name", ["numba_cpu", "native"])
+@pytest.mark.parametrize("name", ["native"])
 def test_the_compiled_backends_refuse_a_single_precision_problem(name):
     """The refusal is the backend's own too, not only the settings' (SEP 33 5.2)."""
     if name not in available():

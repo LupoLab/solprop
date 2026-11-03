@@ -243,15 +243,15 @@ def test_a_backend_that_does_not_read_the_edge_refuses_a_collar(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # SEP 40 section 6: a requested collar is refused by name where its return
-    # monitor is not carried. Every solprop backend carries it; numba_cpu with its
+    # monitor is not carried. Every solprop backend carries it; numpy_ref with its
     # reading switched off stands in for one that does not.
-    from solprop.backends.numba_cpu import NumbaCpuBackend  # noqa: PLC0415
+    from solprop.backends.numpy_ref import NumpyRefBackend  # noqa: PLC0415
     from solprop.exceptions import BackendError  # noqa: PLC0415
 
-    monkeypatch.setattr(NumbaCpuBackend, "reads_transverse_edge", False)
+    monkeypatch.setattr(NumpyRefBackend, "reads_transverse_edge", False)
     simulation = suite(2.6, SpatialAbsorber())
-    simulation.settings = dataclasses.replace(simulation.settings, backend="numba_cpu")
-    with pytest.raises(BackendError, match="numba_cpu backend does not carry"):
+    simulation.settings = dataclasses.replace(simulation.settings, backend="numpy_ref")
+    with pytest.raises(BackendError, match="numpy_ref backend does not carry"):
         simulation.run(progress="none")
 
 
