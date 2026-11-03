@@ -163,7 +163,9 @@ duration and the chirped one, which is where a linear chirp is most legible. By 
 the gate is a twentieth of the time range wide (`gate_fwhm`) and is placed at 256
 positions across it (`positions`); `log=True` draws decibels below the peak. A spectrogram
 is of one field, so a multimode run must name the mode it means, and is refused if it
-does not.
+does not. The map itself, without the figure, is
+{py:func}`~solprop.processing.fields.get_spectrogram`: the gate positions, the spectral
+axis and the values, per unit of that axis, with the same gate and a `bandpass=` window.
 
 ```{eval-rst}
 .. plot::
