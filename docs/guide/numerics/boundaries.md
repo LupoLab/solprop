@@ -456,6 +456,149 @@ for field, so its runs have the collar's results and configuration hash.
 The user's rate is summed into the collar's, so a diagnostic of the spectral collar's
 absorbed energy reports the two together.
 
+### A spectral walk-off absorber
+
+A temporal collar cannot tell light that is merely late from light about to wrap, so it
+removes everything past the edge of its flat region. For a detector that integrates over
+time, that late light is signal. Where the walk-off can be predicted, a rate in `ω` can leave
+it alone and remove only the frequencies that would land on the part of the window that
+matters. This is a recipe, written with what the caller knows, and not a built-in.
+
+**The geometry.** Light at `ω` walks from the frame by
+
+$$ \Delta\tau(\omega) = \left|\beta_1(\omega) - \beta_1(\omega_{\rm frame})\right| L. $$
+
+On a periodic window of length `W`, light that has walked but not wrapped is still exact
+physics. Let the pulse and any delay scan occupy the protected region `|t| ≤ h`. A packet
+launched at `τ` and walking later lands at `τ + Δτ − W` once it wraps, so it enters the
+protected region when `Δτ ≥ W − h − τ`; the worst launch, `τ = +h`, gives `Δτ = W − 2h`, and
+one walking earlier from `τ = −h` gives the same. So the rate is zero up to `W − 2h`. By
+`W − h` a packet launched at the centre has arrived too, so it rises as a raised cosine over
+that further `h`, and stays full beyond:
+
+$$ \alpha(\omega) = \alpha_f\,P\!\left(\frac{\Delta\tau(\omega) - (W - 2h)}{h}\right),
+   \qquad P(x) = \tfrac12\bigl(1 - \cos\pi\,\mathrm{clip}(x, 0, 1)\bigr). $$
+
+**The strength.** Power falls as `exp(−αz)`, so light launched at the entrance leaves with
+`exp(−α_f L)`. Light born part-way is the harder case. What walks `Δτ` over the whole length
+reaches the protected region after `(W − 2h)/Δτ` of it, when it has lost only that share of
+the exponent. To hold a power fraction `f` for all of it, take the largest walk-off the run
+carries, as `warn_walkoff`'s span is taken:
+
+$$ \alpha_f = \frac{\ln(1/f)}{L}\,\frac{\max(\Delta\tau,\,W-h)}{W - 2h}. $$
+
+`f = 10⁻⁶` is the collar's own `Γ = log(10³)` in field. All of it sits in the linear operator,
+where it is exact and needs no transform pair, and it adds no in-stage stability limit.
+
+```python
+import numpy as np
+
+from solprop.boundaries import custom_absorber
+from solprop.constants import C
+from solprop.driver import Simulation, SimulationSettings
+from solprop.grid import LineGrid
+from solprop.physdata.glasses import fused_silica
+from solprop.pulses import GaussianPulse, SpatialPulse
+from solprop.spatial import SpatialMedium
+from solprop.stats import StatsSpec
+from solprop.stepper import PIController, RungeKutta
+
+length = 40e-6
+medium = SpatialMedium(fused_silica())
+grid = FieldGrid.from_limits(length, 800e-9, (150e-9, 2e-6), 120e-15, collar_fraction=0)
+window = grid.n_t * grid.dt
+protected = 25e-15  # h: the pulse and the delay scan
+
+
+def beta1(omega):
+    """The group delay per metre of the medium, s/m."""
+    index = np.real(medium.index(omega))
+    return (index + omega * np.real(medium.dindex_domega(omega))) / C
+
+
+active = grid.active_mask
+delay = np.zeros(grid.n_omega)  # what walks furthest is what the run carries
+delay[active] = np.abs(beta1(grid.omega[active]) - beta1(np.array([grid.omega0]))) * length
+carried = delay[grid.inband_mask].max()
+
+onset = window - 2 * protected
+full = np.log(1e6) / length * max(carried, window - protected) / onset
+walkoff_rate = full * 0.5 * (1 - np.cos(np.pi * np.clip((delay - onset) / protected, 0, 1)))
+boundary = custom_absorber(grid, walkoff_rate, collar=absorber(grid, temporal=False))
+```
+
+For a guide, `delay` comes from {py:func}`solprop.modes.base.beta1` with the mode and the
+frame's `omega0`. On a grid whose collar fraction is zero, as here, the window is the request,
+since a spectral-only collar needs no room in time. Nothing the run carries is absorbed when
+`W ≥ 2h + max Δτ`; keeping `W ≳ 3h + max Δτ` holds the onset `h` clear of the largest walk-off,
+for what the linear estimate misses. A window shorter than that trades light for samples, and
+the check below says how much.
+
+**The limits.**
+
+- It is a prediction from linear dispersion. It knows nothing of the nonlinear changes of group
+  delay: the soliton self-frequency shift, the plasma blue-shift, cross-phase modulation. It
+  suits weakly nonlinear runs, and a strongly nonlinear run keeps the collar and `warn_walkoff`,
+  which need no dispersion model.
+- It assumes light travels the whole length. The rate acts on a frequency wherever it is, so
+  light born part-way that would never wrap is absorbed as well. That errs on the side of safety
+  for the protected region, and it is a loss of signal for the band.
+- It acts on a frequency and not on a time. A bin past the onset is lost at every delay, also
+  where light launched at `−h` would still sit inside the protected region at the end. So the
+  loss depends on the delay, and it is worst for the launch furthest from wrapping.
+- It rests on the group-delay picture. A rise over `h` in delay is a rise over `h/(|β₂|L)` in
+  frequency, whose edge spreads in time by about `|β₂|L/h`, so it needs `h² ≫ |β₂|L` where the
+  rate rises.
+- It needs the caller's protected half-width. The rate cannot find it from the run.
+- One `(n_omega,)` rate must cover every mode and every transverse column. A multimode or
+  strongly angular run needs the worst case over them, which absorbs more of the rest.
+
+**How it costs less.** With no temporal rate the run compiles no temporal pass, under either
+scheme ([below](#a-spectral-only-collar)). On a Kerr run over ten steps on native CPU, with the
+fields agreeing, that took about 10 % off the per-step time of the collar under the split scheme,
+the spatial routes' default, and about half off the in-stage term, on the same grid
+([the ledger](../../dev/benchmarks.md#a-spectral-walk-off-absorber-against-the-temporal-collar)).
+
+**Check it per band.** A fraction of total power hides what this rate does. Weak short-wavelength
+light can lose most of its band while the run's energy moves by `10⁻⁵`, and the band's loss is
+what says the window is too short. The rate is diagonal in `ω`, so each bin loses
+`α(ω) S(ω, z)`, with `S` the `beam_spectrum`, integrated in `z`. That statistic is taken at saved
+planes and not [between them](../results/statistics.md#between-the-planes), so the integral runs
+over the planes, with an error of about `(α Δz)²/12` of a bin's loss by the trapezoid. Dividing
+by what the band kept and lost together counts light the run generated part-way as well as
+light it launched, and the sum over a band of interior bins splits the user's rate from the
+collar's, which `absorbed_power` reports together. A lossy medium's own absorption is a further
+channel: fused silica absorbs at these wavelengths, and what it takes appears in neither count.
+
+```python
+planes = np.linspace(length / 32, length, 32)
+settings = SimulationSettings(
+    controller=PIController(rtol=1e-6, atol=1e-14),
+    save_planes=planes,
+    dz_max=length / 32,
+    dz_init=length / 32,
+    integrator=RungeKutta(),
+    backend="numpy_ref",
+    absorber=boundary,
+    boundary_check=None,
+    stats=StatsSpec(names=("beam_spectrum",)),
+)
+beam = SpatialPulse(GaussianPulse(wavelength=170e-9, fwhm=20e-15, energy=1e-9), 1e-3)
+space = LineGrid(4e-3, 16)
+output = Simulation.from_free(
+    grid, space, medium, [], beam, settings=settings, noise=None
+).run(progress="none")
+
+spectrum = np.asarray(output["stats/beam_spectrum"])  # (n_z, n_omega), J/(rad/s) per metre of y
+z = np.asarray(output["z"])
+lost = np.trapezoid(walkoff_rate * spectrum, z, axis=0)
+collar_lost = np.trapezoid((boundary.spectral_rate - walkoff_rate) * spectrum, z, axis=0)
+wavelength = 2 * np.pi * C / np.where(grid.omega > 0, grid.omega, np.inf)
+band = (wavelength >= 150e-9) & (wavelength <= 190e-9)
+share = lost[band].sum() / (lost[band].sum() + collar_lost[band].sum() + spectrum[-1, band].sum())
+print(f"the walk-off rate took {share:.2f} of the 150-190 nm band")
+```
+
 ### A spectral-only collar
 
 `absorber(grid, temporal=False)` builds a collar with the spectral rate and the band

@@ -1872,6 +1872,33 @@ of the same runs): 108.7 against 117.5 ms (16 members, 1536 bins) and 469 agains
 (8 members, 16384 bins), 4–8 %. A vectorised binary32 batch would recover at most that,
 so the reference keeps the plain runner.
 
+### A spectral walk-off absorber against the temporal collar
+
+What the [spectral walk-off absorber](../guide/numerics/boundaries.md#a-spectral-walk-off-absorber)
+saves is the temporal pass, which a zero temporal rate compiles away; this entry says what
+that is worth, in place of a figure measured on a backend since retired. A hand script, on the
+one grid, one backend and one build: a field grid over 40 µm of fused silica, 143 nm to 2 µm,
+`trange` 250 fs at the default `collar_fraction`, so a 326 fs window of 2048 samples; envelope
+Kerr, an 800 nm 30 fs launch; ten fixed `RungeKutta()` steps of 1 µm, each case translated once
+beforehand and the runs alone timed. The cases are the default collar under each scheme, and
+`custom_absorber(grid, rate, collar=absorber(grid, temporal=False))`. Native CPU, eight threads
+bound to eight cores of a dual Intel Xeon Gold 6240 (18 cores a socket), built for
+`-march=cascadelake`. The machine was shared and in use (load 16–58 of 72), so these are to be
+read as ratios of medians, and each is given over its separate sessions, cycling the three cases
+within a session:
+
+| grid | sessions (repeats) | spectral / `split_step` | spectral / in-stage |
+|---|---:|---:|---:|
+| line, 256 columns | 2 (5, 9) | 0.92, 0.90 | 0.58, 0.53 |
+| Cartesian, 64 × 64 | 2 (5, 5) | 0.91, 0.89 | 0.47, 0.53 |
+
+Single runs carried outliers of up to three times the median, which the median sets aside. The
+ratio against the split repeats to within 3 %; the one against the in-stage term less well,
+between 0.47 and 0.58. Over these ten steps the three runs' fields agree to 1e-15 of the on-axis
+column's norm inside the request, because no light has reached a collar: the entry times the pass
+and compares no absorption. It is a window, and the temporal pass's share of a step moves with
+the response's: a heavier response gives a smaller saving.
+
 ## Reference tables
 
 These tables back the indicative results above.
