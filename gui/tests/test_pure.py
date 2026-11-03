@@ -213,6 +213,7 @@ def test_the_cards_are_presentation_over_routes():
         "waveguide",
         "gnlse",
         "free",
+        "radial",
         "planar",
     }
     with pytest.raises(KeyError):
@@ -220,7 +221,7 @@ def test_the_cards_are_presentation_over_routes():
     assert card_of("capillary", {"mode_average": True}) is averaged
     assert card_of("capillary", {}) is modal  # solprop's default: multimode
     assert card_of("gnlse", {}) is card("gnlse")
-    assert card_of("radial", {}) is None  # its card waits for an example
+    assert card_of("nope", {}) is None
 
 
 def test_a_cards_preset_values_are_written_as_toml():

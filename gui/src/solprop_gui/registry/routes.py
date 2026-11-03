@@ -184,7 +184,7 @@ CARDS: Final = (
         "Free space, radial",
         "A radially symmetric beam in a bulk medium or gas, on a Hankel grid.",
         "radial",
-        reason="Needs a radial example recipe in solprop to start from (#405).",
+        example="radial_kerr",
     ),
     RouteCard(
         "planar",
@@ -245,7 +245,9 @@ def card_of(route: str, build: dict[str, object]) -> RouteCard | None:
     'capillary-modal'
     >>> card_of("capillary", {"lattice": {"type": "TubeLattice"}}).key
     'antiresonant'
-    >>> card_of("radial", {}) is None
+    >>> card_of("radial", {}).key
+    'radial'
+    >>> card_of("nope", {}) is None
     True
     """
     for entry in sorted(CARDS, key=lambda c: -len(c.marker)):
