@@ -234,7 +234,7 @@ class PlaneView:
         return np.array(self._reader().fields("fft")[0])
 
     def field_plane(self) -> "FieldPlane":  # noqa: UP037 - imported only to type
-        """Return the plane as :func:`solprop.processing.field_plane` reads it.
+        """Return the plane as :func:`solprop.processing.planes.field_plane` reads it.
 
         Its ``spectral_energy`` is a spatial plane's energy per frequency bin, where
         :meth:`spectral_density` refuses the columns of a spatial run.
@@ -247,7 +247,7 @@ class PlaneView:
         Raises
         ------
         solprop.exceptions.OutputError
-            For a run :func:`~solprop.processing.field_plane` refuses (a hybrid
+            For a run :func:`~solprop.processing.planes.field_plane` refuses (a hybrid
             planar run, the modified noise model).
         """
         from solprop.processing.planes import field_plane  # noqa: PLC0415 - heavy
