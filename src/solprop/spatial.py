@@ -76,6 +76,7 @@ __all__ = [
     "quadrature_half_width",
     "radial_fluence_widths",
     "spatial_energy",
+    "spatial_energy_spectrum",
     "spatial_fluence",
     "spatial_intensity",
     "spatial_power",
@@ -1020,6 +1021,76 @@ def spatial_energy(
     """
     _check_flux(spectrum, flux)
     return float(np.sum(_column_power(spectrum, flux)))
+
+
+def spatial_energy_spectrum(
+    spectrum: Complex[np.ndarray, "n_modes n_pol n_omega"], flux: SpatialFlux
+) -> Float[np.ndarray, " n_omega"]:
+    """Split the physical energy crossing the plane into its frequency bins.
+
+    The same weighted sum as :func:`spatial_energy`, accumulated per bin rather
+    than in total: the axial admittance of :meth:`SpatialFlux.admittance`, the
+    transverse Parseval weights and the analytic-signal endpoint weights of
+    :func:`solprop.fourier.energy_weights`. Each value is an energy, not a density:
+    divide by ``grid.d_omega`` for J/(rad/s). A bin with no real admittance, such as
+    DC or one outside the active band, carries none.
+
+    Parameters
+    ----------
+    spectrum : numpy.ndarray
+        Internal radial spectrum in V m or Cartesian spectrum in V/m, shape
+        ``(n_modes, n_pol, n_omega)``; on a :class:`solprop.modes.slab.PlanarGrid`,
+        the internal ``(p, k_y)`` slab amplitudes in sqrt(W/m), shape
+        ``(n_p*n_y, 1, n_omega)``, the channel fastest.
+    flux : SpatialFlux
+        The plane's measure (:meth:`SpatialFlux.resolve`).
+
+    Returns
+    -------
+    numpy.ndarray
+        Energy in J per frequency bin (J/m on a :class:`solprop.grid.LineGrid`),
+        shape ``(n_omega,)``. The bins sum to :func:`spatial_energy`. On a planar
+        grid a bin is the energy at that frequency summed over every slab mode and
+        y frequency, with the slab weight of :func:`planar_mode_energy`, so the bins
+        also sum to that function's total.
+
+    Raises
+    ------
+    GridError
+        If the spectrum's shape or finiteness is invalid.
+
+    See Also
+    --------
+    spatial_energy : The total energy crossing the plane.
+    planar_mode_energy : A planar beam's energy per slab mode.
+
+    Examples
+    --------
+    >>> from solprop.grid import EnvelopeGrid, RadialGrid
+    >>> from solprop.pulses import GaussianPulse, SpatialPulse
+    >>> from solprop.spatial import SpatialFlux, SpatialMedium
+    >>> from solprop.spatial import spatial_energy_spectrum
+    >>> grid = EnvelopeGrid.from_limits(0.1, 800e-9, (650e-9, 1000e-9), 600e-15)
+    >>> space = RadialGrid(1e-3, 16)
+    >>> medium = SpatialMedium("Ar", pressure=1.0)
+    >>> pulse = GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-6)
+    >>> spectrum = SpatialPulse(pulse, 0.3e-3).build(grid, space, medium=medium)
+    >>> flux = SpatialFlux.resolve(grid, space, medium)
+    >>> per_bin = spatial_energy_spectrum(spectrum, flux)
+    >>> per_bin.shape == (grid.n_omega,)
+    True
+    >>> print(f"{per_bin.sum():.3e} J")
+    1.000e-06 J
+    """
+    _check_flux(spectrum, flux)
+    grid = flux.grid
+    weights = fourier.energy_weights(grid.n_omega, grid.dt, kind=grid.kind)
+    total = np.zeros(grid.n_omega)
+    for columns in flux.chunks():
+        real = np.real(flux.admittance(columns))
+        density = np.sum(np.abs(spectrum[columns]) ** 2, axis=1)
+        total += np.sum(flux.space.spectral_weights[columns, None] * real * density, 0)
+    return flux.energy_scale * weights * total
 
 
 def planar_mode_energy(

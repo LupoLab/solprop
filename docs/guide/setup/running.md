@@ -498,6 +498,8 @@ run starts.
 one finiteness pass, and the replaced noise's, with every other leaf of the translated
 problem shared rather than scanned again; a new `initial_z` keeps the stepper's checks.
 Its `configuration=` merges caller keys into the derived run's record (a key the run
-records itself is refused), and an array input of more than 2²⁰ elements is recorded by
+records itself is refused). An array input, here and in the constructor, is copied when
+the simulation is built, so changing it afterwards changes neither the run nor its
+record; an array input of more than 2²⁰ elements is recorded by
 the SHA-256 of its bytes rather than inline, so a gigabyte launch costs seconds of
 hashing per input rather than gigabytes of JSON.

@@ -729,6 +729,46 @@ Cartesian 128² 1.28 → 1.06. The unmonitored path is unchanged:
 `python -m benchmarks ab` at one thread on the same node gives 1.000 (GNLSE soliton),
 1.005 (radial filament) and 1.005 (Kerr beam) for the three cases above.
 
+**What the split finds** (the guards judged on the power each step's split finds,
+halfway through its factor, and the split collar's crossing limit, #127 and #149). The
+finish's removal pass sums four more numbers of the samples it already holds, on every
+accepted step under the split scheme while a monitor is attached. Only a check reads
+them, but a saved plane is checked whatever the cadence said of its step, and the
+native marches decide their own steps; forming them only on the steps that end at a
+check would save a few multiply-adds per sample already in hand, at the cost of telling
+every march which steps those are. They are formed on every step. Measured on an Apple M5 Max (Homebrew Clang 23, NEON FFTW
+3.3.11, one thread, a shared machine: ratios only), a tenth of each guide, before the
+change (its parent on `main`) and after:
+
+| case, a tenth of the guide | backend | monitored / unmonitored, before | after | `ab`, unmonitored |
+|---|---|---:|---:|---:|
+| radial filament 256 | native | 1.028 | 1.030 | 1.018 |
+| line | native | 1.666 | 1.660 | 1.001 |
+| planar | native | 1.469 | 1.470 | 1.001 |
+
+The first two columns are the same-process comparison above (shortest of five after a
+warm-up, alternated); the last is `python -m benchmarks ab --length 0.1 --rounds 3`,
+the median ratio of candidate to baseline over paired rounds. Within the machine's
+spread both ways; the line and planar cases' monitored cost is the transverse edge's
+reads (#396). The steps are the same: on these cases the crossing limit does not bind.
+
+**The crossing cap read at every check** (#440). Under the split scheme each check also
+sums the state's energy per walk-off bucket, one more pass over the state where it lives
+(a histogram of 128 buckets: NumPy's `bincount` on the host, a Kokkos `ScatterView` in
+native, a scatter-add on the `mlx` device). Measured as above, the same machine and
+window, before (the previous head of this branch) and after:
+
+| case, a tenth of the guide | backend | monitored / unmonitored, before | after |
+|---|---|---:|---:|
+| radial filament 256 | native | 1.031 | 1.039 |
+| line | native | 1.658 | 1.698 |
+| planar | native | 1.470 | 1.484 |
+
+One to two and a half per cent of the run on the shared machine, about a third of a check's own
+cost. The Cartesian filament 128² takes 1.158 monitored over unmonitored before; its
+after was not timed, at fifteen minutes a pair at one thread. The steps are unchanged
+on every case: the cap never fell below a step these runs took.
+
 ### The transverse edge and a requested collar
 
 [SEP 40](seps/archive/sep-0040-transverse-absorbing-boundaries.md) puts a k⊥ safety ramp
@@ -1754,6 +1794,83 @@ For `kerr_beam_384`'s 1.77 GB field that is about 3 s per plane:
 - the native observation, 0.35 s.
 
 A capillary or radial plane costs 7–25 ms.
+
+### The run record per plane
+
+[#427](https://github.com/LupoLab/solprop/pull/427) bounds the controller's norm history
+(a `deque` of the controller's lag plus two, on the per-step Runge–Kutta and batch path)
+and makes the per-plane run record incremental: one `RunOutcome` and one validation of
+its record per plane, `CallLedger.orders` run-length encoded as it grows, and
+`/meta/outcome` rewritten in place. Before: `main` at `76eb2e57`; after: the same with
+the pull request merged. One thread, `numba_cpu`, on an Apple M5 Max (18 cores, 128 GB,
+macOS 27.0.1, Python 3.14.5, NumPy 2.5.2, numba 0.67.0, h5py 3.16.0), a machine in
+ordinary use (load 4–10): a labelled A/B, to be read as ratios, not times.
+
+`python -m benchmarks ab --length 0.02 --rounds 4 --repeats 7` (the harness's
+`MemoryOutput`, its 11 planes inside the window, so a plane every one to four steps):
+
+| case | stepper | steps (rejected) | before → after | ratio | A/A |
+|---|---|---:|---:|---:|---:|
+| `gnlse_soliton` | `rk` | 12 (0) | 14 → 14 ms | 0.962 [0.906, 1.127] | 1.009 [0.994, 1.057] |
+| `gnlse_soliton` | `multistep` | 18 (1) | 16 → 15 ms | 0.955 [0.887, 0.987] | 0.991 [0.982, 1.034] |
+| `he_rdw_averaged` | `rk` | 12 (0) | 46 → 46 ms | 1.002 [0.992, 1.012] | 0.990 [0.924, 1.036] |
+| `he_rdw_averaged` | `multistep` | 37 (1) | 54 → 54 ms | 0.990 [0.882, 1.026] | 0.992 [0.986, 1.034] |
+
+Geometric mean 0.977 (A/A 0.996); the same steps and final fields in both builds. The
+harness writes no file, so the in-place `/meta/outcome` was timed by a hand script with
+the same alternation (fresh processes, four rounds of five repeats after a warm-up): the
+first centimetre of `gnlse_soliton`'s fibre (1536 bins) with 40 save planes, through
+`run_problem` into an `HDF5Output`:
+
+| stepper | steps | before → after | ratio | A/A | file |
+|---|---:|---:|---:|---:|---:|
+| `Multistep()` | 243 | 101.2 → 95.0 ms | 0.947 [0.930, 0.968] | 0.988 [0.837, 1.012] | 1.50 → 1.35 MB |
+| `RungeKutta()` | 48 | 48.6 → 48.2 ms | 0.987 [0.903, 1.001] | 0.955 [0.714, 1.025] | 1.21 → 1.13 MB |
+
+Nothing measured is slower. The Multistep file run, a plane every six steps, is 5 %
+faster, outside its A/A range; the others sit inside theirs. The record's old cost grew
+with the steps times the planes, so these windows show only its start.
+
+### Single-precision collar and batches
+
+[#428](https://github.com/LupoLab/solprop/pull/428) keeps the reference backend's split
+collar (`apply_temporal_rate`) in binary32 under single precision, as the correction
+`a + F(F^-1(a)(f - 1))`; before, the product promoted to binary64 and was narrowed. Its
+single-precision batches now run through the plain `LockstepRunner`, each member its own
+binary32 trial; before, `NumpyBatchBackend` computed them in binary64 and narrowed the
+result, so the before column is the wrong arithmetic's cost and the fields are not
+compared. `ab` selects neither a precision nor a batch, so both were timed by the hand
+script above, same machine and builds (`main` at `76eb2e57`, then #428 merged), one
+thread, `numpy_ref`, on the same soliton.
+
+**The collar**, 5 mm of `RungeKutta()` (43 accepted steps, one collar pass each),
+`absorber_scheme="split_step"`, four rounds of five repeats:
+
+| bins | before → after | ratio | A/A |
+|---:|---:|---:|---:|
+| 1536 | 34.0 → 34.0 ms | 1.003 [0.999, 1.169] | 0.993 [0.957, 1.003] |
+| 16384 (8 ps, 300 nm–4 µm) | 183.1 → 180.2 ms | 0.989 [0.971, 1.019] | 0.992 [0.960, 1.020] |
+
+The pass alone, same process (best of seven times 200 calls): 18.3 → 15.9 µs at 1536
+bins and 191 → 125 µs at 16384, 2–5 % of a step, which the runs do not resolve.
+
+**Batches**, ten fixed steps over 2 cm with no collar, members 1 % apart in peak power,
+the stepping alone timed (`propagate_to`; the members' construction is not):
+
+| bins | members | rounds | before → after | ratio | A/A |
+|---:|---:|---:|---:|---:|---:|
+| 1536 | 4 | 4 | 29.8 → 30.1 ms | 1.003 [0.963, 1.029] | 1.025 [1.011, 1.059] |
+| 1536 | 16 | 4 | 116.5 → 122.3 ms | 1.048 [1.036, 1.075] | 1.028 [0.958, 1.072] |
+| 1536 | 16 | 8 | 136.5 → 141.5 ms | 1.059 [0.984, 1.119] | 0.981 [0.930, 1.030] |
+| 16384 | 8 | 8 | 496.6 → 389.7 ms | 0.779 [0.676, 0.852] | 0.971 [0.890, 1.017] |
+
+On a small grid with many members the member-by-member trials cost 3–6 %, at the edge of
+the A/A spread; on a 16384-bin grid they are 22 % faster, binary32 transforms replacing
+the binary64 ones. What vectorising over the members is worth was read from the binary64
+batch, `NumpyBatchBackend` against `LockstepRunner` on the same members (unpaired medians
+of the same runs): 108.7 against 117.5 ms (16 members, 1536 bins) and 469 against 491 ms
+(8 members, 16384 bins), 4–8 %. A vectorised binary32 batch would recover at most that,
+so the reference keeps the plain runner.
 
 ## Reference tables
 

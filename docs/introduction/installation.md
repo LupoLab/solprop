@@ -103,10 +103,31 @@ gives the requirements and the commands. A source build can also be compiled for
 machine that runs it, which is a few per cent faster than the wheel, and it is the way past
 a wheel's limits: on a platform without a wheel it may work, with no support promise.
 
-For the development version, build both packages from a clone of the repository
-([a CPU build](../guide/performance/building-native.md#a-cpu-build)), since a development
-solprop requires the native backend at its own version; to work on solprop itself, use the
-[contributor setup](../dev/contributing.md).
+**The development version.** A development solprop requires the native backend at its own
+version, so the two have to come from one commit. There are two ways to get that:
+
+- **From CI's wheels, with no compiler.** The `Wheels` workflow builds both packages from
+  `main` every Monday, for all five platforms, and keeps them for 90 days. Downloading them
+  needs a GitHub account and the [`gh` command](https://cli.github.com/). Find the latest run,
+  download the two packages from it, and install them into a Python 3.14 environment:
+
+  ```sh
+  gh auth login
+  gh run list -R LupoLab/solprop --workflow wheels.yml --branch main --event schedule --status success --limit 1
+  gh run download RUN_ID -R LupoLab/solprop -n solprop-dist -n wheel-linux-x86_64 -D solprop-dev
+  uv pip install --find-links solprop-dev/wheel-linux-x86_64 solprop-dev/solprop-dist/solprop-VERSION-py3-none-any.whl
+  ```
+
+  `RUN_ID` is the number in the `gh run list` output, and `VERSION` is in the file's name in
+  `solprop-dev/solprop-dist`. Replace `wheel-linux-x86_64` with `wheel-linux-aarch64`,
+  `wheel-macos-arm64`, `wheel-windows-amd64` or `wheel-windows-arm64` for your platform.
+  With pip, use `python -m pip install` in place of `uv pip install`. Keep the two files
+  together: a wheel from another run doesn't satisfy solprop's requirement.
+- **From a clone, building both.** This gets you any commit, and it needs a C++ compiler:
+  [a CPU build](../guide/performance/building-native.md#a-cpu-build).
+
+To work on solprop itself, use the [contributor setup](../dev/contributing.md), where
+`uv run poe fetch-wheel` installs CI's wheel into a clone.
 
 ## Checking the installation
 

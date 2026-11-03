@@ -73,7 +73,7 @@ from dataclasses import dataclass, replace
 from typing import Final
 
 import numpy as np
-from jaxtyping import Bool, Float, Inexact
+from jaxtyping import Bool, Complex, Float, Inexact, UInt8
 
 from solprop.exceptions import GridError, SolpropWarning
 from solprop.grid import Collar, TimeGrid
@@ -84,11 +84,16 @@ __all__ = [
     "MAX_ALPHA_LENGTH",
     "MIN_COLLAR_ATTENUATION",
     "MIN_COLLAR_SAMPLES",
+    "SPLIT_CROSSING",
+    "SPLIT_OCCUPIED_SHARE",
+    "SPLIT_RATE_BUCKETS",
+    "SPLIT_RATE_TOP",
     "STABILITY_RADIUS",
     "TEMPORAL_ALPHA_LENGTH",
     "Absorber",
     "SpatialAbsorber",
     "SpatialAbsorberDesign",
+    "SplitCrossing",
     "absorber",
     "apply_band_mask",
     "apply_split_step",
@@ -96,6 +101,9 @@ __all__ = [
     "custom_absorber",
     "no_absorber",
     "nonlinear_absorber_term",
+    "split_bucket_rates",
+    "split_crossing_step",
+    "split_rate_buckets",
     "split_step_factor",
     "stable_step",
     "temporal_collar_rate",
@@ -157,6 +165,37 @@ MIN_COLLAR_ATTENUATION: Final = math.log(1e3)
 ``log(1e3)``: the field falls by a thousand and the power by sixty decibels. Below that
 :func:`warn_walkoff` says the absorber is too weak for the walk-off the run can produce.
 """
+
+SPLIT_CROSSING: Final = 0.5
+"""``c`` of the split collar's step limit ``h <= c w / max |d tau / dz|``: no step
+carries light more than half the temporal collar's width (:func:`split_crossing_step`).
+
+The ``"split_step"`` scheme damps the collar once per accepted step, at the step's end,
+so light that walks through the collar within one step wraps round the periodic window
+into the interior undamped, and on a linear stretch the error estimate sees nothing.
+At half a width a crossing is damped at two step ends at least; the same factor as SEP
+40's adaptive transverse clamp (:data:`solprop.spatial_absorber.CROSSING_ADAPTIVE`).
+"""
+
+SPLIT_OCCUPIED_SHARE: Final = 1e-6
+"""The share of the energy the split collar's crossing limit may set aside: the
+fastest-walking light holding at most this much does not bound the step
+(:class:`SplitCrossing`). Were all of it to wrap round the window undamped, the field
+error would be its square root, the boundary monitor's default budget."""
+
+SPLIT_RATE_BUCKETS: Final = 128
+"""Walk-off rate buckets of :class:`SplitCrossing`, logarithmic from
+:data:`SPLIT_RATE_TOP` down nine decades: each bucket's rate is its upper edge, at most
+:math:`10^{9/128}`, 18 %, above the rates it holds, and the open first bucket's is the
+fastest rate the bins reach, so the limit is never longer than the bins' own would
+give."""
+
+SPLIT_RATE_TOP: Final = 1e-7
+"""The fastest bucket's lower edge, s/m: a group index 30 from the frame's, beyond any
+propagating light. The fastest bucket is open above it and is counted at the fastest
+rate a run's bins reach (:attr:`SplitCrossing.fastest`)."""
+
+_SPLIT_RATE_DECADES: Final = 9.0
 
 STABILITY_RADIUS: Final = 3.3
 """How far DOPRI5's stability region reaches along the negative real axis.
@@ -750,6 +789,224 @@ def custom_absorber(
         reference_length=reference,
         collar_length=base.in_stage_length,
     )
+
+
+def split_rate_buckets(
+    rates: Float[np.ndarray, "*shape"],
+) -> UInt8[np.ndarray, "*shape"]:
+    """Return the :class:`SplitCrossing` bucket of each walk-off rate.
+
+    Bucket ``k`` holds the rates up to ``SPLIT_RATE_TOP * 10**(-9 k / 128)``, the
+    fastest first; a rate of zero, or below the last edge, is in the last bucket, and
+    one above :data:`SPLIT_RATE_TOP` in the first, which is open-ended.
+
+    Parameters
+    ----------
+    rates : numpy.ndarray
+        Walk-off rates against the frame, s/m, nonnegative.
+
+    Returns
+    -------
+    numpy.ndarray
+        The buckets, ``uint8``, the shape of `rates`.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from solprop.boundaries import split_rate_buckets
+    >>> split_rate_buckets(np.array([1.0, 1e-7, 5e-8, 0.0])).tolist()
+    [0, 0, 4, 127]
+    """
+    rates = np.asarray(rates, dtype=np.float64)
+    with np.errstate(divide="ignore"):
+        depth = np.log10(SPLIT_RATE_TOP / rates) * (
+            SPLIT_RATE_BUCKETS / _SPLIT_RATE_DECADES
+        )
+    depth = np.where(rates > 0.0, depth, SPLIT_RATE_BUCKETS)
+    return np.clip(np.ceil(depth - 1.0), 0, SPLIT_RATE_BUCKETS - 1).astype(np.uint8)
+
+
+def split_bucket_rates(
+    fastest: float = SPLIT_RATE_TOP,
+) -> Float[np.ndarray, " n_buckets"]:
+    """Return each :class:`SplitCrossing` bucket's rate, its upper edge, s/m.
+
+    Parameters
+    ----------
+    fastest : float, optional
+        The fastest rate the bins reach, s/m: the open first bucket's rate when it
+        exceeds :data:`SPLIT_RATE_TOP`.
+
+    Returns
+    -------
+    numpy.ndarray
+        Shape ``(SPLIT_RATE_BUCKETS,)``, the fastest first.
+
+    Examples
+    --------
+    >>> from solprop.boundaries import split_bucket_rates
+    >>> rates = split_bucket_rates()
+    >>> float(rates[0]), len(rates)
+    (1e-07, 128)
+    """
+    k = np.arange(SPLIT_RATE_BUCKETS)
+    rates = SPLIT_RATE_TOP * 10.0 ** (-k * _SPLIT_RATE_DECADES / SPLIT_RATE_BUCKETS)
+    rates[0] = max(SPLIT_RATE_TOP, fastest)
+    return rates
+
+
+@dataclass(frozen=True)
+class SplitCrossing:
+    """The split temporal collar's crossing limit, read from where the light is.
+
+    Under the ``"split_step"`` scheme a step whose walk-off exceeds the collar's width
+    can carry light through it and round the periodic window undamped. Each
+    ``(mode, frequency)`` bin walks at ``|d(beta - beta_frame)/d omega|``, held here
+    as its bucket (:func:`split_rate_buckets`); a state's occupancy is its energy per
+    bucket, and the limit ``factor * width / rate`` takes the rate of the fastest
+    bucket left once the fastest holding at most ``share`` of the energy are set
+    aside. Translation reads it from the launch (`launch_limit`), which holds
+    ``dz_max`` and a fixed schedule; the boundary monitor reads it again from the
+    state at every check, and the steps after it are capped there.
+
+    Attributes
+    ----------
+    buckets : numpy.ndarray
+        Each bin's bucket, ``uint8``, shape ``(n_modes, n_omega)``: the fastest of its
+        batch members, polarisations and positions along the guide; evanescent and
+        inactive bins in the last.
+    width : float
+        The collar's width at its narrower edge, s.
+    launch_limit : float
+        The limit the launch's occupancy gives, m.
+    fastest : float
+        The fastest rate a bin reaches, s/m: the open first bucket's rate when above
+        :data:`SPLIT_RATE_TOP`, so that no bin is counted slower than it walks.
+    factor : float
+        ``c``, :data:`SPLIT_CROSSING`.
+    share : float
+        :data:`SPLIT_OCCUPIED_SHARE`.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from solprop.boundaries import SplitCrossing, split_rate_buckets
+    >>> buckets = split_rate_buckets(np.array([[1e-12, 1e-10]]))
+    >>> crossing = SplitCrossing(buckets, 1e-13, launch_limit=0.05)
+    >>> occupancy = crossing.occupancy(np.array([[[[1.0, 1e-4]]]], dtype=complex))
+    >>> # The fast bin holds 1e-8 of the energy and is set aside: the slow bin's limit,
+    >>> # 50 mm at 1e-12 s/m, a little shorter at its bucket's edge.
+    >>> round(crossing.limit(occupancy) * 1e3, 1)
+    49.1
+    """
+
+    buckets: UInt8[np.ndarray, "n_modes n_omega"]
+    width: float
+    launch_limit: float = math.inf
+    fastest: float = SPLIT_RATE_TOP
+    factor: float = SPLIT_CROSSING
+    share: float = SPLIT_OCCUPIED_SHARE
+
+    def __post_init__(self) -> None:
+        """Freeze the table."""
+        buckets = np.array(self.buckets, dtype=np.uint8)
+        buckets.setflags(write=False)
+        object.__setattr__(self, "buckets", buckets)
+
+    def occupancy(
+        self,
+        field_spectrum: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
+        columns: Float[np.ndarray, " n_modes"] | None = None,
+    ) -> Float[np.ndarray, " n_buckets"]:
+        """Return a state's energy per bucket, on the host: the reference reduction.
+
+        Parameters
+        ----------
+        field_spectrum : numpy.ndarray
+            A state, canonical layout.
+        columns : numpy.ndarray or None, optional
+            The modes' quadrature weights, ``None`` for unit weights.
+
+        Returns
+        -------
+        numpy.ndarray
+            Shape ``(SPLIT_RATE_BUCKETS,)``, in the state's units of energy.
+        """
+        # In the state's own precision, without a state-sized temporary: the shares
+        # are what the limit reads.
+        spectrum = np.asarray(field_spectrum)
+        re, im = np.real(spectrum), np.imag(spectrum)
+        energy = np.einsum("bmpw,bmpw->mw", re, re) + np.einsum("bmpw,bmpw->mw", im, im)
+        if columns is not None:
+            energy = energy * np.asarray(columns, dtype=np.float64)[:, None]
+        return np.bincount(
+            self.buckets.ravel(), weights=energy.ravel(), minlength=SPLIT_RATE_BUCKETS
+        ).astype(np.float64)
+
+    def limit(self, occupancy: Float[np.ndarray, " n_buckets"]) -> float:
+        """Return the crossing limit of an occupancy, m.
+
+        Parameters
+        ----------
+        occupancy : numpy.ndarray
+            Energy per bucket (:meth:`occupancy`).
+
+        Returns
+        -------
+        float
+            ``factor * width / rate`` at the fastest bucket left once the fastest
+            holding at most ``share`` of the energy are set aside; ``inf`` for no light.
+        """
+        occupancy = np.asarray(occupancy, dtype=np.float64)
+        total = float(occupancy.sum())
+        if not total > 0.0:
+            return math.inf
+        cumulative = np.cumsum(occupancy)
+        index = int(np.searchsorted(cumulative, self.share * total, side="right"))
+        rate = float(
+            split_bucket_rates(self.fastest)[min(index, SPLIT_RATE_BUCKETS - 1)]
+        )
+        return split_crossing_step(rate, self.width, self.factor)
+
+
+def split_crossing_step(
+    rate: float, width: float, factor: float = SPLIT_CROSSING
+) -> float:
+    """Return the longest step the split collar holds a walking pulse to, m.
+
+    ``factor * width / rate``: a component whose group delay walks ``rate`` seconds
+    per metre against the frame moves ``factor`` of the collar's ``width`` in one step
+    at most, so it cannot cross the collar between two of the split's applications.
+    Translation holds an adaptive run's ``dz_max`` to it and refuses a fixed schedule
+    past it, under the ``"split_step"`` scheme; the in-stage scheme absorbs inside
+    every stage and needs no such limit.
+
+    Parameters
+    ----------
+    rate : float
+        The fastest walk-off against the frame, s/m, nonnegative: the rate
+        :meth:`SplitCrossing.limit` reads from an occupancy.
+    width : float
+        The temporal collar's width at its narrower edge, s.
+    factor : float, optional
+        ``c``, the share of the width one step may walk; :data:`SPLIT_CROSSING`.
+
+    Returns
+    -------
+    float
+        The step, m; ``inf`` when nothing walks.
+
+    Examples
+    --------
+    >>> from solprop.boundaries import split_crossing_step
+    >>> round(split_crossing_step(1.7e-12, 212e-15), 4)
+    0.0624
+    >>> split_crossing_step(0.0, 212e-15)
+    inf
+    """
+    if not rate > 0.0:
+        return math.inf
+    return factor * width / rate
 
 
 def stable_step(temporal_rate: Float[np.ndarray, " n_t"]) -> float:

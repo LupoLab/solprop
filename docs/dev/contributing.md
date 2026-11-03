@@ -51,8 +51,8 @@ take `SOLPROP_TEST_BACKEND=numpy_ref`, and native-only tests skip. A native chan
 a native build and its qualification. Automation that needs no local build, such as Read the
 Docs and the lanes on CI's wheel, uses the same two settings.
 
-**`uv run poe fetch-wheel`** installs a wheel CI built, for Linux x86-64, macOS arm64 or
-Windows x64, using `gh` and no compiler. It takes the newest artifact from this checkout's
+**`uv run poe fetch-wheel`** installs a wheel CI built, for Linux x86-64, macOS arm64, Windows
+x64 or Windows on Arm, using `gh` and no compiler. It takes the newest artifact from this checkout's
 history only if the difference between that artifact's commit and the working tree, including
 uncommitted changes, touches neither `native/` nor the solprop modules that `solprop_native`
 imports. Anything else is refused, and so is an expired artifact; each refusal names `uv sync`

@@ -85,7 +85,7 @@ The CPU backends inherit the host defaults. The hooks are part of the frozen sur
 ([kernel-contract.md §8](kernel-contract.md)).
 
 **Batches.** `BatchBackend` adds independent member observations and metadata through
-`select_batch(owners)`. `numpy_ref` and `native` implement this
+`select_batch(owners)`. `numpy_ref`, `native` and `mlx` implement this
 fixed-schedule interface. Singleton constructors keep their single-member shape; the
 batch owns a sequence of independently loaded workspaces, fuses the accepted update over
 members and leaves stage, response and FFT/BLAS work member-owned. A batch member agrees
@@ -219,11 +219,11 @@ repeat its last bit). Luna carries a
 **The buffer** grows by doubling from `INITIAL_STEP_STATS_CAPACITY` and is reset per plane
 **without releasing what it holds**, so the capacity a plane needed is the capacity the next
 plane starts with — a measured estimate of a plane's step count rather than a predicted one,
-and after the first plane a run allocates nothing per step. **The device form** is the same
-arithmetic with the allocation on the device: rows accumulate in a device buffer of shape
-`(capacity, n_scalars)`, the capacity seeded from the plane's expected step count times a
-margin and doubled when it is reached, and copied to the host once per plane rather than once
-per row. The per-row reductions are the fixed-order tree of rule 1 above. A backend that
+and after the first plane a run allocates nothing per step. **On a device** the rows are the
+same host buffer: the reductions run on the device, in the fixed-order tree of rule 1 above, and
+each row returns one packed scalar transfer. The hooks (`_reset_step_stats`,
+`_record_step_stats`, `_drain_step_stats`) would let a backend keep rows on the device and copy
+them once per plane, but none does. A backend that
 cannot evaluate one of the subset's statistics between planes refuses the spec by name, as it
 refuses a plane statistic it cannot form.
 
@@ -243,7 +243,10 @@ alike). Only the five cross to the host; `numpy_ref`'s host reduction
 monitor when it is attached, and `None` when a state is loaded. Under the `split_step`
 scheme the backend's `_finish` — and the native engine's own finish, on every march —
 adds what each accepted step's split takes of the power it finds, `P (1 − e^{−αh})`, to an
-accumulator the next reading drains, so the removal is exact on unchecked steps too. The
+accumulator the next reading drains, so the removal is exact on unchecked steps too, and
+keeps the energy and the guards' and collar's energies of that power halfway through the
+factor, `P e^{−αh/2}`, which the reading returns beside the five (`BoundaryEnergies.found`,
+kernel schema 43) and the monitor judges the occupancies on. The
 input-noise floor is read on the host, once, at the launch.
 
 ## 2. `numpy_ref`: the oracle
@@ -254,8 +257,7 @@ every step of the anatomy in [architecture.md §8](architecture.md) is a named f
 docstring stating the formula. It is slow (tens of separate array operations per stage) and
 that is acceptable; it is the reference against which every other backend is validated, and
 the supported executor of the short list of features `native` does not run yet: the TDSE
-response, CF4 coupled-flow sections, single precision away from Apple silicon and a delayed
-response outside what native contracts
+response, CF4 coupled-flow sections and single precision away from Apple silicon
 ([the list](../guide/performance/backends.md#features-that-run-on-the-reference-backend)).
 A new feature joins the list only as an accepted exception (§10).
 
@@ -627,7 +629,7 @@ mask and the in-stage absorber preserve it, and the measured saving are
     that they round as solprop's do.
   - **Device builds.** CUDA and HIP builds leave the strict blocks empty and follow their
     compilers' contraction defaults, held to the measured device envelopes (ADR-049,
-    amended) until device round-to-nearest helpers land.
+    amended) until device round-to-nearest helpers land. The far-field radius already has them.
 
   The evidence that a kernel is safe is its rounding-bound comparison against `numpy_ref`
   on stressing inputs (weak plasma signals, oscillatory currents, tiny phase increments,
@@ -659,7 +661,8 @@ mask and the in-stage absorber preserve it, and the measured saving are
 
 ### 3.3 Transforms
 
-Every transform is FFTW through Kokkos-FFT on a CPU build, none-normalised, on a persistent
+Every transform on a CPU build is FFTW through Kokkos-FFT, except macOS's short threaded Raman
+rows (§4), none-normalised, on a persistent
 plan made once per state at construction: the modal pair (complex on the envelope grid, real
 on the field grid); the doubled-grid Raman pairs, with their kernel's plan and the plans of
 the last, partial chunk at its actual width; the coarse pair of the split-step temporal
@@ -696,7 +699,7 @@ never `os.cpu_count()`). Wisdom is explicit and opt-in (`SOLPROP_FFTW_WISDOM`, �
 |---|---|---|---|
 | compact problem | one column on one node, fewer than 65 536 fine samples | kernels on a team of at most eight threads, transforms on that team, products on one BLAS thread | independent scans: Local, or spawned processes through Pool |
 | sized problem | the rest | each operation's width chosen from its own element count at construction: stage, response, dense product, FFT, Raman, copy, flow, modal and Adams | one process per problem |
-| fixed-schedule fibre batch | compatible independently loaded members | fused accept update over members; remaining work stays member-owned | one batch runner owns the group |
+| fixed-schedule batch | compatible independently loaded members | fused accept update over members; remaining work stays member-owned | one batch runner owns the group |
 
 The widths are constants of `include/solprop_native/core.hpp` (`operation_threads`, with
 their calibration in
@@ -729,7 +732,7 @@ The pools, the widths and the wait policy are stored in the output metadata
 (`thread_budget`, `execution_sizing`). The settings of the retired backend
 (`SOLPROP_NUMBA_THREADS`, `SOLPROP_NUMBA_REGIME`, `SOLPROP_FFTW_THREADS`,
 `SOLPROP_TRANSVERSE_FFTW_THREADS`, `SOLPROP_PASS_TIMERS`, `NUMBA_DISABLE_JIT`,
-`NUMBA_NUM_THREADS`) are read by nothing; `SOLPROP_THREADS`, `SOLPROP_BLAS_THREADS`,
+`NUMBA_NUM_THREADS`) are read by no backend; `SOLPROP_THREADS`, `SOLPROP_BLAS_THREADS`,
 `SOLPROP_FFTW_PLAN` and `SOLPROP_FFTW_WISDOM` remain. Pass timings are the native engine's
 Kokkos regions.
 
@@ -988,8 +991,10 @@ Everywhere the multipliers move off the nodes, to wherever the route already hol
   has the polarisation's dtype goes further: its product is the stage's own projected polarisation,
   the stage's forward transform is the product's and `g` finishes it in the stage's spectrum -- the
   constant cubic's transforms exactly -- and where nothing reads the bare field in time afterwards
-  (no in-stage absorber on the fused and planar paths; always in free space, whose absorber is a
-  pass of its own) it filters the stage's spectrum in place and holds no field-sized buffer. A
+  (no in-stage absorber on the fused path; always on the Cartesian, line and planar routes, whose
+  absorber is a pass of its own) it filters the stage's spectrum in place and holds no field-sized
+  buffer of its own, only its per-bin multiplier tables. In free space the engine's stage buffers
+  then stop aliasing, so the run still allocates them. A
   symmetric mixture, one product under its mixture filter, takes the same path. Beside other
   responses the bare field stays theirs and the response holds its own buffers.
 - **Mixtures.** The symmetric evaluator forms one product per mixture -- per region on the general
@@ -1125,9 +1130,9 @@ identity between the two to rounding by construction. `native` forms `on_axis_in
 
 The per-element parts mirror the reference's: the radius of `mask_plane_radius` as a protected
 function (strict on the host; round-to-nearest intrinsics in a device build), so a hard edge
-decides as the reference decides; the weight of `aperture_weight` (the profile codes, the raised
+decides as the reference decides; the weight of `_aperture_weight` (the profile codes, the raised
 cosine's early-out, and the exact zeros at `omega <= 0` and beyond the paraxial disc); the half-open
-test on the negated stored axes of `region_member`; and `Re k_z`, the propagating test and the
+test on the negated stored axes in `aperture_statistics`; and `Re k_z`, the propagating test and the
 evanescent clamp from the operator's own `longitudinal_root` evaluation, recomputed per element and
 never stored. Two exact shortcuts keep it within a few per cent of a step: a `tanh` weight beyond
 `|t| = 22` is exactly 0 or 1 (`tanh` lies within 1.6e-19 of `±1` there, so its correctly rounded
@@ -1172,8 +1177,8 @@ one.
 `src/solprop`, and is the repository's second distribution: one checkout, one uv workspace
 and lockfile, one version from the repository's tags, and a required dependency of solprop,
 pinned to that version in the built metadata. A plain `uv sync` builds it editable into the
-development environment; `uv run poe check-native` is its gate. There is no other GPU backend: GPU
-runs use the native backend's CUDA or HIP build, and the build determines whether the
+development environment; `uv run poe check-native` is its gate. No other backend runs binary64 on a
+GPU (`mlx`, §4a, is single precision on Apple GPUs): those runs use the native backend's CUDA or HIP build, and the build determines whether the
 backend runs on the CPU (OpenMP) or a device. How to build it is
 [Building the native backend](../guide/performance/building-native.md); the native rules are in
 `native/AGENTS.md`.
@@ -1194,7 +1199,7 @@ therefore calls
 {py:func}`~solprop.backends.driver.refuse_general_leaves` before it runs, naming in
 `admits` the leaves it executes, as `numpy_ref` does, or makes the same
 refusals itself, as `native` does in its own adapter. A third-party backend owes the same. A change that
-touches `native/` is complete only when both gates (`poe check-all`) and solprop's lanes
+touches `native/` is complete only when the gates (`poe check-all`) and solprop's lanes
 are green with the current build installed.
 
 **The fused route.** The backend runs the three field families, the Kerr variants, both
@@ -1301,7 +1306,7 @@ out-of-place complex transform leaves its input as it was) and transforms the no
 transforms replace the modal ones one for one; the held radial plasma already projects
 after cropping, so both products cover only retained frequencies. Runs with an
 in-stage absorber or a Raman drive (which read the modal time field), dispersive
-responses, non-square maps and devices keep the time-domain product. The two paths
+responses and non-square maps keep the time-domain product. The two paths
 agree to rounding (a radial filament stage from the same state to about 1e-15 of its
 peak).
 
@@ -1377,11 +1382,11 @@ transposing pack and crop and their temporal transforms. The state crosses the s
 at a load and once at an observation, straight between the memory space and the NumPy
 buffer.
 
-The singleton constructor requires a one-member problem; fixed-schedule fibre batches go
+The singleton constructor requires a one-member problem; fixed-schedule batches go
 through `select_batch` over independently loaded member workspaces (§1). The backend
 refuses scalar-only declarations on vector Raman problems, spectral responses other than
-the compiled envelope-plasma assembly, and z-tabulated operators or prefactors before
-field-sized allocation. Supported mixture density, pre-ionisation and Raman decay paths
+the compiled envelope-plasma assembly, and, on a device build, z-tabulated operators or
+prefactors, before field-sized allocation (the CPU build runs them, §1). Supported mixture density, pre-ionisation and Raman decay paths
 cross as stage scalars; z dependence alone is not a refusal.
 
 **The general modal route** is a second execution path beside the node pipeline
@@ -1567,7 +1572,7 @@ statistics from the widened state -- while the state and every per-step pass liv
 device (`mlx_gpu/passes.py`, the oracle's passes in MLX). It admits the fibre, radial
 and Cartesian (and line) routes with Runge–Kutta, the low-storage march (`MlxLowStorage`)
 and lockstep batches (`MlxBatchRunner`, which builds every member's step before one
-evaluation), with every response the oracle runs; a z table, Adams and interpolated
+evaluation, reached through `select_batch`; the `Batch` executor refuses `mlx`), with every response the oracle runs; a z table, Adams and interpolated
 planes are refused by name. The radial route is the fibre route's quadrature with the Hankel
 matrices as its synthesis and projection, its plasma spectrum formed on the nodes and
 projected once (`_device_radial_plasma`), and its absorber matrix applied in the stage.
@@ -1700,7 +1705,7 @@ solprop's march for an A/B comparison.
 `interpolate_planes=True`. For maximum predictor order `q`, its ordinary resident
 history owns `2 (q + 2) + 4` complex field volumes, plus the norm's small scalar arrays.
 Dense output adds `q + 2` slope volumes and four saved fields; a varying operator's
-compensation adds another `q + 2` dense terms only with interpolation enabled.
+compensation adds `3 (q + 2) + 3` volumes, and `q + 2` more with interpolation.
 All required buffers are allocated before stepping. This changes storage, not the
 method or its maximum order. The [Cartesian memory investigation](benchmarks.md#resident-adams-storage)
 distinguishes these allocations from process peak RSS, host copies and FFT workspaces.
@@ -1732,8 +1737,9 @@ frequency bin, the largest group on a guide with many channels), `general_chunk`
 `adams_history` for the Adams integrator's history rows (on the native backend the resident
 engine's); beside them `initial_field`, the translated problem's initial state at the
 bytes it holds (a broadcast input's repeated block alone, `kernel-contract.md` section 6),
-resident like the general reference and in no backend's ledger; the driver adds `output`
-and `held_plane`. The route groups equal each
+resident like the general reference and in no backend's ledger; the driver adds `output`,
+`held_plane` and `simulation_input` (a simulation's own copy of an array input that the
+problem does not share, on a modal route). The route groups equal each
 backend's ledger to the byte. `base` is the reference's count of its buffers on every
 backend, plus the native backend's own rows where the
 two differ (the far-field partials, the dispersive response's buffers, the held
@@ -1800,7 +1806,7 @@ that execution space.
 | the low-storage RK4IP march (`LowStorageRungeKutta`), replay-only | every diagonal-flow route | every diagonal-flow route, a resident engine whose step is one native call | flows recomputed per element; qualified under HIP, not under CUDA |
 | moving solid guide (moving maps beside a frozen-residual flow) | yes | yes | qualified |
 | fixed-schedule lockstep batches (no coupled flow) | fibre and general guides | fibre and general guides | fibre and general guides |
-| periodic statistics between planes | yes | yes | yes, device-resident rows |
+| periodic statistics between planes | yes | yes | yes, host rows, one packed transfer per row |
 | Adams snapshots and a resume that continues the history (`MarchSnapshot`) | yes | yes: the resident engine copies its rows (`store`, and `states`, `rates`, `applied` where kept) to the host at a kept save and back on a resume | compiles; not qualified |
 | field-free observation (`observe(field=False)`), the runner, a transverse collar's rate and a set evanescent rate on the separable element | yes | yes (field-free observation needs no native change; the rate is one view in `SpatialCoefficients`) | compiles; not qualified |
 | materials from optmat: gas Raman leaves of many rows on gradients, rate tables, optmat walls, the silica bundles | yes | yes | not qualified |

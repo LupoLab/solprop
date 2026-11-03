@@ -9,8 +9,9 @@ requires = [
   # dependency. Other builds ignore it.
   "scipy-openblas32>=0.3.34; sys_platform == 'linux' or sys_platform == 'win32'",
   "scikit-build-core>=0.11",
-  # The version comes from the repository, as solprop's does (one version for both).
-  "setuptools-scm>=8",
+  # The version comes from the repository, as solprop's does (one version for both). 9 is
+  # the oldest that reads scm.git.describe_command below.
+  "setuptools-scm>=9",
 ]
 build-backend = "scikit_build_core.build"
 
@@ -40,7 +41,7 @@ classifiers = [
   "Topic :: Scientific/Engineering :: Physics",
 ]
 dependencies = [
-  "numpy>=2.3",
+  "numpy>=2.5",
 ]
 
 [project.urls]
@@ -137,6 +138,8 @@ repair-wheel-command = "python {package}/ci/merge_variant.py {wheel} C:/sp-varia
 [tool.setuptools_scm]
 root = ".."
 fallback_version = "0.0.0"
+# Release tags only, as in solprop and gui/ (tests/test_release_tags.py).
+scm.git.describe_command = ["git", "describe", "--dirty", "--tags", "--long", "--abbrev=40", "--match", "v*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

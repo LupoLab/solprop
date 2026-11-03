@@ -154,7 +154,11 @@ def estimate(
     total = None if schedule is None else int(schedule.steps.size) * calls
     try:
         admission = admit_memory(
-            problem, settings.backend, memory_budget, retention=retention
+            problem,
+            settings.backend,
+            memory_budget,
+            retention=retention,
+            inputs=simulation._held_inputs(),
         )
     except MemoryBudgetError as error:
         return RunEstimate(

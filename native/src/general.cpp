@@ -2166,6 +2166,7 @@ public:
   void bind_monitor(const std::vector<double>& weights,
                     const std::vector<double>& column_weights);
   void unbind_monitor() noexcept { monitor_bound_ = false; }
+  void bind_occupancy(const std::vector<unsigned char>& buckets, std::size_t count);
   std::vector<double> monitor_reading();
   std::vector<Complex> field_to_host() const;
   void field_to_host(std::span<Complex> destination) const;
@@ -2852,16 +2853,23 @@ public:
   // solprop's boundary monitor (SEP 21, ADR-057), bound for a run that watches its
   // window: its four time weights `(4, n_t)` (low guard, high guard, the collar's
   // 1 - W, the collar's rate), each state column's quadrature weight, and what the
-  // split-step collar took since the last reading beside one split's sum and the
-  // share it takes at each time. Allocated at the first bind, a few rows, and kept.
+  // split-step collar took since the last reading beside one split's sums, the
+  // energies of what the last step's split found and the share it takes at each
+  // time. Allocated at the first bind, a few rows, and kept.
   bool monitor_bound_ = false;
   RealView2 monitor_weights_;
   RealView monitor_column_weights_;
-  RealView monitor_share_;
+  RealView monitor_share_, monitor_half_;
   // A device's split factor per coarse sample, formed once an accepted step.
   RealView split_factor_;
   Kokkos::View<double, Layout, MemorySpace> monitor_removed_;
-  Kokkos::View<double, Layout, MemorySpace> monitor_split_sum_;
+  Kokkos::View<SplitSums, MemorySpace> monitor_split_sum_, monitor_found_;
+  // The split collar's walk-off bucket of each (mode, frequency) bin and the state's
+  // energy per bucket, which a reading returns for the crossing limit (solprop
+  // #440); empty unbound.
+  ByteView occupancy_buckets_;
+  RealView occupancy_;
+  OccupancyScatter occupancy_scatter_;
   [[nodiscard]] bool monitoring_split() const noexcept {
     return monitor_bound_ && problem_.split_step_absorber;
   }
@@ -14438,50 +14446,76 @@ void GeneralWorkspace::split_columns(const double dz, std::size_t active_rows,
 // What one split takes of the power it finds in the coarse time rows, `sum P (1 -
 // exp(-alpha h))` with the boundary monitor's column weights, added to the run's
 // accumulator in the memory space (solprop SEP 21, ADR-057): the monitor's reading
-// drains it at a check, so every accepted step is counted, checked or not. A
-// separable route's rows are real-space rows, measured by `parseval`; zero means the
-// rows are the stored columns from `first_column` on, weighted by their quadrature.
+// drains it at a check, so every accepted step is counted, checked or not. The same
+// pass adds to the step's `sum P'` and the guards' and the collar's sums of `P'`, the
+// power found halfway through the split's factor, `P exp(-alpha h / 2)`, which the
+// monitor judges the occupancies on: the symmetric splitting's state at the step's
+// end. A separable route's rows are real-space rows, measured by `parseval`; zero
+// means the rows are the stored columns from `first_column` on, weighted by their
+// quadrature.
 void GeneralWorkspace::add_split_removal(const double dz, const std::size_t active_rows,
                                          const double parseval,
                                          const std::size_t first_column) {
   const auto rate = absorber_coarse_;
   const auto share = monitor_share_;
+  const auto half = monitor_half_;
   const auto weights = monitor_column_weights_;
   const bool stored = parseval == 0.0;
-  // The share the split takes depends on time alone: formed once, not per row.
+  // The share the split takes, and half its power factor, depend on time alone:
+  // formed once, not per row.
   launch::parallel_for(
       "solprop_native.monitor.split_share",
       Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, problem_.n_t),
       KOKKOS_LAMBDA(const std::size_t index) {
         share(index) = -Kokkos::expm1(-rate(index) * dz);
+        half(index) = Kokkos::exp(-0.5 * rate(index) * dz);
       });
+  const auto guards = monitor_weights_;
   const auto samples = Range2(execution_space_, {0, 0}, {active_rows, problem_.n_t});
   if (problem_.family == FieldFamily::envelope) {
     const auto time = coarse_time_complex_;
     launch::parallel_reduce(
         "solprop_native.monitor.split_removal_complex", samples,
-        KOKKOS_LAMBDA(const std::size_t row, const std::size_t index, double& update) {
-          update += (stored ? weights(first_column + row) : parseval) *
-                    squared_abs(time(row, index)) * share(index);
+        KOKKOS_LAMBDA(const std::size_t row, const std::size_t index,
+                      SplitSums& update) {
+          const double power = (stored ? weights(first_column + row) : parseval) *
+                               squared_abs(time(row, index));
+          update.values[0] += power * share(index);
+          const double found = half(index) * power;
+          update.values[1] += found;
+          update.values[2] += guards(0, index) * found;
+          update.values[3] += guards(1, index) * found;
+          update.values[4] += guards(2, index) * found;
         },
-        monitor_split_sum_);
+        Kokkos::Sum<SplitSums, MemorySpace>(monitor_split_sum_));
   } else {
     const auto time = coarse_time_real_;
     launch::parallel_reduce(
         "solprop_native.monitor.split_removal_real", samples,
-        KOKKOS_LAMBDA(const std::size_t row, const std::size_t index, double& update) {
+        KOKKOS_LAMBDA(const std::size_t row, const std::size_t index,
+                      SplitSums& update) {
           const double value = time(row, index);
-          update += (stored ? weights(first_column + row) : parseval) * value * value *
-                    share(index);
+          const double power =
+              (stored ? weights(first_column + row) : parseval) * value * value;
+          update.values[0] += power * share(index);
+          const double found = half(index) * power;
+          update.values[1] += found;
+          update.values[2] += guards(0, index) * found;
+          update.values[3] += guards(1, index) * found;
+          update.values[4] += guards(2, index) * found;
         },
-        monitor_split_sum_);
+        Kokkos::Sum<SplitSums, MemorySpace>(monitor_split_sum_));
   }
   const auto removed = monitor_removed_;
   const auto split = monitor_split_sum_;
+  const auto found = monitor_found_;
   launch::parallel_for(
       "solprop_native.monitor.split_removal_add",
       Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, 1),
-      KOKKOS_LAMBDA(const std::size_t) { removed() += split(); });
+      KOKKOS_LAMBDA(const std::size_t) {
+        removed() += split().values[0];
+        found() += split();
+      });
 }
 
 // Bind solprop's boundary monitor (SEP 21): its four time weights, row-major `(4,
@@ -14500,10 +14534,13 @@ void GeneralWorkspace::bind_monitor(const std::vector<double>& weights,
     monitor_column_weights_ =
         RealView("solprop_native.monitor.column_weights", columns);
     monitor_share_ = RealView("solprop_native.monitor.split_share", n_t);
+    monitor_half_ = RealView("solprop_native.monitor.split_half", n_t);
     monitor_removed_ =
         Kokkos::View<double, Layout, MemorySpace>("solprop_native.monitor.removed");
     monitor_split_sum_ =
-        Kokkos::View<double, Layout, MemorySpace>("solprop_native.monitor.split_sum");
+        Kokkos::View<SplitSums, MemorySpace>("solprop_native.monitor.split_sum");
+    monitor_found_ =
+        Kokkos::View<SplitSums, MemorySpace>("solprop_native.monitor.split_found");
   }
   auto host_weights = Kokkos::create_mirror_view(monitor_weights_);
   for (std::size_t row = 0; row < 4; ++row)
@@ -14517,6 +14554,7 @@ void GeneralWorkspace::bind_monitor(const std::vector<double>& weights,
       expanded[column] = column_weights[column / problem_.n_pol_state];
   copy_vector(execution_space_, monitor_column_weights_, expanded);
   graph::deep_copy(execution_space_, monitor_removed_, 0.0);
+  graph::deep_copy(execution_space_, monitor_found_, SplitSums{});
   execution_space_.fence("solprop_native monitor bind");
   monitor_bound_ = true;
 }
@@ -14647,15 +14685,70 @@ std::vector<double> GeneralWorkspace::monitor_reading() {
         });
   }
   double removed = 0.0;
+  SplitSums found;
   if (problem_.split_step_absorber) {
     execution_space_.fence("solprop_native monitor reading");
     removed =
         Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace{}, monitor_removed_)();
+    found = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace{}, monitor_found_)();
     graph::deep_copy(execution_space_, monitor_removed_, 0.0);
   }
+  std::vector<double> reading{sums.values[0],  sums.values[1],  sums.values[2],
+                              sums.values[3],  sums.values[4],  removed,
+                              found.values[1], found.values[2], found.values[3],
+                              found.values[4]};
+  if (occupancy_.extent(0) != 0) {
+    // The state's energy per walk-off bucket, beside the five: a state column is
+    // `mode * n_pol + pol`, and the buckets are by mode.
+    const auto buckets = occupancy_buckets_;
+    const auto n_pol = problem_.n_pol_state;
+    auto scatter = occupancy_scatter_;
+    // `contribute` adds the per-thread copies of a host build into the view: each
+    // reading starts the view, as `reset` starts the copies, from zero (a device
+    // build's atomic scatter adds into the view itself).
+    graph::deep_copy(execution_space_, occupancy_, 0.0);
+    scatter.reset(execution_space_);
+    launch::parallel_for(
+        "solprop_native.monitor.occupancy",
+        Range2(execution_space_, {0, 0}, {columns, n}),
+        KOKKOS_LAMBDA(const std::size_t row, const std::size_t index) {
+          auto access = scatter.access();
+          access(buckets((row / n_pol) * n + index)) +=
+              column_weights(row) * squared_abs(current(row, index));
+        });
+    Kokkos::Experimental::contribute(execution_space_, occupancy_, scatter);
+    const auto host =
+        Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace{}, occupancy_);
+    reading.insert(reading.end(), host.data(), host.data() + host.extent(0));
+  }
   execution_space_.fence("solprop_native monitor reading");
-  return {sums.values[0], sums.values[1], sums.values[2],
-          sums.values[3], sums.values[4], removed};
+  return reading;
+}
+
+// Bind the split collar's walk-off bucket of each (mode, frequency) bin (solprop
+// #440): from here on a monitor reading also returns the state's energy per bucket.
+// The views are allocated at the first bind and kept.
+void GeneralWorkspace::bind_occupancy(const std::vector<unsigned char>& buckets,
+                                      const std::size_t count) {
+  require_open();
+  require_extent(buckets.size(), problem_.n_modes * problem_.n_omega,
+                 "occupancy buckets");
+  if (count == 0 || count > 256)
+    throw std::invalid_argument("the occupancy needs between 1 and 256 buckets");
+  for (const auto bucket : buckets)
+    if (bucket >= count)
+      throw std::invalid_argument("an occupancy bucket lies past the bucket count");
+  if (occupancy_.extent(0) != count) {
+    occupancy_buckets_ =
+        ByteView("solprop_native.monitor.occupancy_buckets", buckets.size());
+    occupancy_ = RealView("solprop_native.monitor.occupancy", count);
+    occupancy_scatter_ = OccupancyScatter(occupancy_);
+  }
+  auto host = Kokkos::create_mirror_view(occupancy_buckets_);
+  for (std::size_t index = 0; index < buckets.size(); ++index)
+    host(index) = buckets[index];
+  graph::deep_copy(execution_space_, occupancy_buckets_, host);
+  execution_space_.fence("solprop_native occupancy bind");
 }
 
 // The split-step temporal absorber on a separable geometry: the rate is the same at
@@ -14769,6 +14862,14 @@ void GeneralWorkspace::form_split_factor(const double dz) {
 
 void GeneralWorkspace::split_step(const double dz, const ComplexView2& advanced) {
   form_split_factor(dz);
+  if (monitoring_split()) {
+    // The chunks below add what this step's split finds; the last step's is dropped.
+    const auto found = monitor_found_;
+    launch::parallel_for(
+        "solprop_native.monitor.split_found_clear",
+        Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, 1),
+        KOKKOS_LAMBDA(const std::size_t) { found() = SplitSums{}; });
+  }
   if (problem_.separable_geometry()) {
     separable_split_step(dz, advanced);
     return;
@@ -15133,8 +15234,11 @@ std::map<std::string, std::size_t> GeneralWorkspace::base_memory_ledger() const 
       // The boundary monitor's weights and accumulators, once a monitor is bound.
       {"monitor_weights",
        (monitor_weights_.size() + monitor_column_weights_.size() +
-        monitor_share_.size() + monitor_removed_.size() + monitor_split_sum_.size()) *
-           real_bytes},
+        monitor_share_.size() + monitor_half_.size() + monitor_removed_.size() +
+        occupancy_.size()) *
+               real_bytes +
+           occupancy_buckets_.size() +
+           (monitor_split_sum_.size() + monitor_found_.size()) * sizeof(SplitSums)},
       {"statistics_flux_magnitude", statistics_magnitude_.size() * real_bytes},
       {"statistics_outputs", (statistics_total_power_.size() +
                               statistics_on_axis_.size() + statistics_packed_.size()) *
@@ -15371,8 +15475,13 @@ void GeneralWorkspace::close() noexcept {
   monitor_weights_ = {};
   monitor_column_weights_ = {};
   monitor_share_ = {};
+  monitor_half_ = {};
   monitor_removed_ = {};
   monitor_split_sum_ = {};
+  monitor_found_ = {};
+  occupancy_scatter_ = {};
+  occupancy_buckets_ = {};
+  occupancy_ = {};
   tableau_ = {};
   omega_window_ = {};
   omega_ = {};
@@ -15675,6 +15784,11 @@ void GeneralState::unbind_monitor() noexcept {
 std::vector<double> GeneralState::monitor_reading() {
   const CpuTeamScope team(workspace_->cpu_team());
   return workspace_->monitor_reading();
+}
+void GeneralState::bind_occupancy(const std::vector<unsigned char>& buckets,
+                                  const std::size_t count) {
+  const CpuTeamScope team(workspace_->cpu_team());
+  workspace_->bind_occupancy(buckets, count);
 }
 void GeneralState::promote_fsal() {
   const CpuTeamScope team(workspace_->cpu_team());

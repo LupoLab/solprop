@@ -383,13 +383,28 @@ def _initial_field_bytes(problem: KernelProblem) -> int:
     int
         Bytes, one state's for an array of its own.
     """
-    field = problem.initial.field0
+    return _held_bytes(problem.initial.field0)
+
+
+def _held_bytes(values: np.ndarray) -> int:
+    """Return the bytes an array's elements occupy, a zero-stride axis adding none.
+
+    Parameters
+    ----------
+    values : numpy.ndarray
+        The array.
+
+    Returns
+    -------
+    int
+        Bytes: the repeated block's alone for a broadcast view.
+    """
     held = math.prod(
         size
-        for size, stride in zip(field.shape, field.strides, strict=True)
+        for size, stride in zip(values.shape, values.strides, strict=True)
         if stride != 0
     )
-    return held * field.itemsize
+    return held * values.itemsize
 
 
 # The reference's rows that stay binary64 on the single-precision path: the exponents

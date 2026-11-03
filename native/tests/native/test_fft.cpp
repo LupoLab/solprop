@@ -155,9 +155,9 @@ TEST(FftProvider, OnePlanPolicyDecidesEverySeedByShapeAndWidth) {
     for (const int threads : {1, 2, 64}) {
       SCOPED_TRACE(threads);
       const bool threaded_rows = shape == native::FftShape::rows && threads > 1;
-      const unsigned expected = requested != nullptr ? explicit_effort
-                                : threaded_rows      ? FFTW_ESTIMATE
-                                                     : FFTW_MEASURE;
+      const unsigned expected = !chosen.empty() ? explicit_effort
+                                : threaded_rows ? FFTW_ESTIMATE
+                                                : FFTW_MEASURE;
       EXPECT_EQ(native::fftw_seed_effort(shape, threads), expected);
     }
 }

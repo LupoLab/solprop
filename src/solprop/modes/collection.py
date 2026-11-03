@@ -609,7 +609,7 @@ class ModeCollection(Displayed, Sequence[Mode]):
         polarisation: SlabPolarisation = "te",
         loss: LossSpec = True,
         cladding: GlassIndex | complex | None = None,
-        temperature: float = ROOM_TEMPERATURE,
+        temperature: float | ZProfile | None = None,
         susceptibility: GasSusceptibility | None = None,
         mixture: Mixture | None = None,
     ) -> "ModeCollection":  # noqa: UP037 - bound after the class body
@@ -640,8 +640,8 @@ class ModeCollection(Displayed, Sequence[Mode]):
             Inherited mode loss policy.
         cladding : GlassIndex, complex or None, optional
             Plate index; None selects the default silica.
-        temperature : float, optional
-            Gas temperature in K.
+        temperature : float, ZProfile or None, optional
+            Gas temperature in K, or a path of it along z.
         susceptibility : GasSusceptibility or None, optional
             Explicit gas susceptibility.
         mixture : Mixture or None, optional
@@ -697,7 +697,7 @@ class ModeCollection(Displayed, Sequence[Mode]):
         lattice: TubeLattice,
         loss: LossSpec = True,
         cladding: GlassIndex | complex | None = None,
-        temperature: float | ZProfile = ROOM_TEMPERATURE,
+        temperature: float | ZProfile | None = None,
         susceptibility: GasSusceptibility | None = None,
         mixture: Mixture | None = None,
     ) -> "ModeCollection":  # noqa: UP037 - bound after the class body
@@ -722,7 +722,7 @@ class ModeCollection(Displayed, Sequence[Mode]):
             Inherited mode loss policy.
         cladding : GlassIndex, complex or None, optional
             Tube index; None selects the default silica.
-        temperature : float or ZProfile, optional
+        temperature : float, ZProfile or None, optional
             Gas temperature in K, or a path of it along z.
         susceptibility : GasSusceptibility or None, optional
             Explicit gas susceptibility.

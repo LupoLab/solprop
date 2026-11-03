@@ -245,7 +245,10 @@ class _Namespace:
 
 
 class _Monitor:
-    """The boundary monitor's interval, the only part the march's caps read."""
+    """The boundary monitor's interval and crossing cap, the parts the march's caps
+    read; no split collar caps these scenarios."""
+
+    step_cap = math.inf
 
     def __init__(self, interval: float) -> None:
         self.interval = interval
