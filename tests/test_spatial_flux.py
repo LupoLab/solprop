@@ -107,8 +107,9 @@ def test_energy_fluence_and_power_agree() -> None:
     [
         RadialGrid(1.5e-3, 64),
         FreeGrid(radius_x=1.5e-3, n_x=32, radius_y=1.5e-3, n_y=32),
+        LineGrid(1.5e-3, 32, collar_fraction=0.0),
     ],
-    ids=["radial", "cartesian"],
+    ids=["radial", "cartesian", "line"],
 )
 def test_energy_spectrum_sums_to_the_energy(space: RadialGrid | FreeGrid) -> None:
     """The per-bin energies split the plane's energy and sum back to it."""
@@ -123,6 +124,20 @@ def test_energy_spectrum_sums_to_the_energy(space: RadialGrid | FreeGrid) -> Non
     # SEP 31 checked this bound: both sums add the same n_columns * n_omega terms,
     # the total in one pass and the bins one at a time, so they differ by rounding.
     assert np.sum(per_bin) == pytest.approx(spatial_energy(spectrum, flux), rel=1e-13)
+
+
+def test_energy_spectrum_refuses_an_invalid_spectrum() -> None:
+    """A spectrum of the wrong shape, or not finite, is refused before any sum."""
+    grid, space = _envelope(), RadialGrid(1.5e-3, 16)
+    medium = SpatialMedium("Ar", pressure=1.0)
+    flux = SpatialFlux.resolve(grid, space, medium)
+    pulse = GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-6)
+    spectrum = SpatialPulse(pulse, 0.3e-3).build(grid, space, medium=medium)
+    with pytest.raises(GridError, match="must be finite with shape"):
+        spatial_energy_spectrum(spectrum[:, :, :-1], flux)
+    spectrum[0, 0, grid.n_omega // 2] = np.nan
+    with pytest.raises(GridError, match="must be finite with shape"):
+        spatial_energy_spectrum(spectrum, flux)
 
 
 def test_field_grid_endpoints_use_constant_admittance_identity() -> None:

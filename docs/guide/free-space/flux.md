@@ -142,7 +142,7 @@ second:
 |---|---|
 | `SpatialFlux.resolve(grid, space, medium, z=0.0, side=None)` | the measure of the plane at `z` in `medium` |
 | `spatial_energy(field, flux)`, `planar_mode_energy(field, flux)` | energy in J (J/m on a line), from $Y_z$; per slab mode for the planar guide |
-| `spatial_energy_spectrum(field, flux)` | energy in J per temporal bin, shape `(n_omega,)`; the bins sum to `spatial_energy`; not the density `beam_spectrum` |
+| `spatial_energy_spectrum(field, flux)` | energy in J (J/m on a line) per frequency bin, shape `(n_omega,)`; the bins sum to `spatial_energy`; not the density `beam_spectrum` |
 | `spatial_power(field, flux)` | axial power in W (W/m on a line) in time; its time integral is the energy |
 | `spatial_fluence(field, flux)`, `planar_fluence(field, flux)` | signed fluence in J/m² at the nodes |
 | `spatial_intensity(field, flux)`, `planar_intensity(field, flux)` | signed local flux in W/m² at the nodes and times |

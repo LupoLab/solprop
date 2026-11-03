@@ -1026,12 +1026,14 @@ def spatial_energy(
 def spatial_energy_spectrum(
     spectrum: Complex[np.ndarray, "n_modes n_pol n_omega"], flux: SpatialFlux
 ) -> Float[np.ndarray, " n_omega"]:
-    """Split the physical energy crossing the plane into temporal bins.
+    """Split the physical energy crossing the plane into its frequency bins.
 
     The same weighted sum as :func:`spatial_energy`, accumulated per bin rather
     than in total: the axial admittance of :meth:`SpatialFlux.admittance`, the
     transverse Parseval weights and the analytic-signal endpoint weights of
-    :func:`solprop.fourier.energy_weights`.
+    :func:`solprop.fourier.energy_weights`. Each value is an energy, not a density:
+    divide by ``grid.d_omega`` for J/(rad/s). A bin with no real admittance, such as
+    DC or one outside the active band, carries none.
 
     Parameters
     ----------
@@ -1044,8 +1046,8 @@ def spatial_energy_spectrum(
     Returns
     -------
     numpy.ndarray
-        Energy in J per temporal bin, shape ``(n_omega,)``. The bins sum to
-        :func:`spatial_energy`.
+        Energy in J per frequency bin (J/m on a :class:`solprop.grid.LineGrid`),
+        shape ``(n_omega,)``. The bins sum to :func:`spatial_energy`.
 
     Raises
     ------
@@ -1058,19 +1060,21 @@ def spatial_energy_spectrum(
 
     Examples
     --------
-    >>> import numpy as np
     >>> from solprop.grid import EnvelopeGrid, RadialGrid
+    >>> from solprop.pulses import GaussianPulse, SpatialPulse
     >>> from solprop.spatial import SpatialFlux, SpatialMedium
-    >>> from solprop.spatial import spatial_energy, spatial_energy_spectrum
+    >>> from solprop.spatial import spatial_energy_spectrum
     >>> grid = EnvelopeGrid.from_limits(0.1, 800e-9, (650e-9, 1000e-9), 600e-15)
     >>> space = RadialGrid(1e-3, 16)
-    >>> flux = SpatialFlux.resolve(grid, space, SpatialMedium("Ar", pressure=1.0))
-    >>> spectrum = np.zeros((16, 1, grid.n_omega), complex)
+    >>> medium = SpatialMedium("Ar", pressure=1.0)
+    >>> pulse = GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-6)
+    >>> spectrum = SpatialPulse(pulse, 0.3e-3).build(grid, space, medium=medium)
+    >>> flux = SpatialFlux.resolve(grid, space, medium)
     >>> per_bin = spatial_energy_spectrum(spectrum, flux)
     >>> per_bin.shape == (grid.n_omega,)
     True
-    >>> bool(np.isclose(per_bin.sum(), spatial_energy(spectrum, flux)))
-    True
+    >>> print(f"{per_bin.sum():.3e} J")
+    1.000e-06 J
     """
     _check_flux(spectrum, flux)
     grid = flux.grid
