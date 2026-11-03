@@ -19,12 +19,13 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 from numpy.testing import assert_allclose
 from scipy.optimize import brentq
-from scipy.special import jn_zeros, jv, kv
+from scipy.special import jn_zeros, jv, kv, kve
 from witness_materials import malitson_silica
 
 from solprop.constants import C
 from solprop.exceptions import ModeError
 from solprop.modes import StepIndexMode, stepindex
+from solprop.modes._stepindex_vector import _radial
 from solprop.modes.base import beta2, zdw
 from solprop.modes.stepindex import (
     _MAX_V,
@@ -846,6 +847,61 @@ def test_stepindex_k_quotients_stay_finite_where_kve_overflows(n):
             expected = [float(mpmath.besselk(n, w * r) / centre) for r in radius]
             assert np.all(np.isfinite(decay))
             assert_allclose(decay, expected, rtol=bound, atol=1e-300)
+
+
+def test_stepindex_recovery_ignores_a_candidate_in_an_occupied_interval(monkeypatch):
+    # The scan intervals searched include the one straddling the empty interval's
+    # lower cutoff; a sign change of the factor there whose root falls on the
+    # occupied side is not a candidate, and the lost root is still recovered.
+    v, ratio, n = 8.0, _NA_RATIO, 2
+    exact = _roots(v, ratio, n, "HE")
+    cutoffs = _cutoffs(v, ratio, n, "HE")
+    nodes = stepindex._scan_nodes(v, n, cutoffs[0], v)
+    below = float(nodes[np.searchsorted(nodes, cutoffs[1], side="right") - 1])
+    decoy = (below + cutoffs[1]) / 2
+    assert below < decoy < cutoffs[1]
+    real_scan, real_branch = stepindex._refined_roots, stepindex._branch
+
+    def short(nodes, values, v, ratio, n, kind):
+        found = real_scan(nodes, values, v, ratio, n, kind)
+        found[kind] = found[kind][:1]
+        return found
+
+    monkeypatch.setattr(stepindex, "_refined_roots", short)
+    monkeypatch.setattr(
+        stepindex,
+        "_branch",
+        lambda u, v, ratio, n, kind: (u - decoy) * real_branch(u, v, ratio, n, kind),
+    )
+    # The recovered root is the factor's, within the 4 ulp of both root solves.
+    assert_allclose(
+        _roots(v, ratio, n, "HE"), exact, rtol=4 * np.finfo(float).eps, atol=0
+    )
+
+
+@pytest.mark.filterwarnings("error")
+@pytest.mark.parametrize("order,edge", [(299, 13.6), (301, 13.6), (300, 2.5)])
+def test_stepindex_vector_exterior_stays_finite_where_kve_overflows(order, edge):
+    # The vector provider's exterior radial functions fall back to the quotient
+    # recurrences where kve(order + 1, edge) overflows; against mpmath, within
+    # 4 order epsilons (one rounding per recurrence step).
+    assert not math.isfinite(float(kve(order + 1, edge)))
+    argument = np.asarray([edge, 1.05 * edge, 2.0 * edge])
+    value, slope, divided = _radial(order, argument, edge, inside=False)
+    with mpmath.workdps(40):
+        reference = mpmath.besselk(order, edge)
+        expected = [float(mpmath.besselk(order, x) / reference) for x in argument]
+        derivative = [
+            float(
+                -(mpmath.besselk(order - 1, x) + mpmath.besselk(order + 1, x))
+                / (2 * reference)
+            )
+            for x in argument
+        ]
+    bound = 4 * order * np.finfo(float).eps
+    assert_allclose(value, expected, rtol=bound, atol=1e-300)
+    assert_allclose(slope, derivative, rtol=bound, atol=1e-300)
+    assert_allclose(divided, value / argument, rtol=0, atol=0)
 
 
 def test_stepindex_band_above_the_limit_is_refused_before_any_solve(monkeypatch):
