@@ -48,7 +48,7 @@ from solprop.stepper.schedule import FixedSchedule
 from solprop.translate.linop import constant_phi, walk_off_buckets
 from solprop.translate.masks import AbsorberScheme
 
-BACKENDS = ["numpy_ref", "numba_cpu", "native"]
+BACKENDS = ["numpy_ref", "native"]
 
 BETA2 = 2e-26
 """s^2/m: the GNLSE pulse walks by its carrier offset under this dispersion."""
@@ -252,7 +252,7 @@ def _accepted(simulation: Simulation) -> int:
     [(256, 800e-15), (256, 500e-15), (512, 800e-15), (512, 500e-15)],
     ids=["256-169fs", "256-70fs", "512-169fs", "512-70fs"],
 )
-@pytest.mark.parametrize("backend", ["numba_cpu", "native"])
+@pytest.mark.parametrize("backend", ["numpy_ref", "native"])
 def test_a_free_space_beam_keeps_its_steps(
     backend: str, nodes: int, trange: float, monkeypatch: pytest.MonkeyPatch
 ) -> None:

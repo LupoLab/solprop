@@ -15,7 +15,6 @@ import numpy as np
 import pytest
 
 from legacy_geometry import LEGACY_GRID
-from solprop.backends.numba_cpu import NumbaCpuBackend
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.registry import resolve_name
 from solprop.driver.simulation import Simulation, SimulationSettings
@@ -421,13 +420,12 @@ def test_an_interior_kink_restarts_the_history():
     assert ledger.orders.count(1) >= 2
 
 
-@pytest.mark.parametrize("backend_class", [NumpyRefBackend, NumbaCpuBackend])
 def test_the_backend_refuses_what_the_march_cannot_step(
     narrow_grid, soliton_problem, backend_class
 ):
     # The modified noise is admitted since SEP 16 phase 2
     # (tests/backends/test_exponential_march.py); a coupled flow is not, in the
-    # interaction formulation, and both backends say so on construction.
+    # interaction formulation, and every backend says so on construction.
     problem = soliton_problem(
         narrow_grid,
         1,

@@ -21,7 +21,7 @@ build:
       - asdf install uv latest
       - asdf global uv latest
     install:
-      - UV_PROJECT_ENVIRONMENT=$READTHEDOCS_VIRTUALENV_PATH uv sync --frozen
+      - UV_PROJECT_ENVIRONMENT=$READTHEDOCS_VIRTUALENV_PATH uv sync --frozen --no-install-package solprop-native
     # Read the Docs stops a build at its time limit and discards its log; the script
     # ends first and prints where a stalled build stopped (see its header).
     build:

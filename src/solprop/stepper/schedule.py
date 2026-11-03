@@ -228,17 +228,23 @@ class FixedSchedule:  # numpydoc ignore=PR02
         run writes.
 
         **What a replay repeats.** Under ``RungeKutta()`` a step is fixed by its
-        length, so a replay takes the adaptive run's discretisation. Under
-        ``Multistep()`` the replay chooses each step's order afresh, by the adaptive
-        run's rule from the same estimates. Where the adaptive run rejected a step it
-        waits a step before raising the order, which a replay never has to, so a
-        replay can differ from the adaptive run there; a replay of a replay is
-        identical. To compare two precisions or two backends on one discretisation,
-        compare two replays of one schedule, not a replay with its adaptive run: the
-        difference of two replays is the arithmetic's alone. Recording the order
-        sequence in the schedule would make a replay match its adaptive run exactly;
-        that would extend the saved schedule and is not done, because two replays
-        already share one discretisation.
+        length, so a replay takes the adaptive run's discretisation. The default
+        ``Multistep()`` chooses its next order after each accepted step from the
+        neighbouring orders' defect estimates, with a hysteresis margin, and a replay
+        makes that choice afresh. Where the adaptive run rejected a step it waits a
+        step before raising the order, which a replay never has to, so a replay can
+        differ from the adaptive run there. In another precision or on another
+        backend, rounding decides a choice whose estimates lie near the margin, so
+        two replays can take different orders, and so make different truncation
+        errors; two replays in one precision on one backend are identical. To
+        compare the arithmetic alone, replay with fixed orders, ``RungeKutta()`` or
+        ``Multistep(variable_order=False)``, whose order rises from one to ``order``
+        as its history accrues, reading no estimate: two such replays of one
+        schedule differ by rounding alone. Single precision refuses ``Multistep()``,
+        so a comparison across precisions is a Runge-Kutta one. Recording the order
+        sequence in the schedule would also fix a variable-order replay's orders;
+        that would extend the saved schedule and is not done, since a fixed order
+        gives the comparison without it.
 
         **Limits.**
 

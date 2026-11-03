@@ -268,7 +268,7 @@ generator and explicit residual are evaluated from host scalars rather than from
 Clenshaw pass over a leaf. Nothing else moves: no ``LinearOperator`` row, no
 ``StepDriver`` signature, no dtype. A problem carrying no coupled flow reports
 ``flow_section = -1`` and ``flow_weights = None`` and is the version-12 problem bit for
-bit. ``numpy_ref``, ``numba_cpu`` and ``native`` execute both ``"frozen_residual"`` and
+bit. ``numpy_ref`` and ``native`` execute both ``"frozen_residual"`` and
 ``"constant_schur"`` sections. The ``"cf4"`` sections move nothing either:
 the Gauss nodes of a CF4 step are not stage positions, and ``numpy_ref`` evaluates the
 leaf's own expansion at them from ``z_edges``, the degree axis and the step's
@@ -288,13 +288,13 @@ fastest) and one appended ``SeparableOperator`` field, ``kappa_sq``, each channe
 complex, frequency-dependent wall term subtracted from the column's longitudinal
 square. It is ``None`` on every other kind, whose problems are the version-14
 problems bit for bit. No ``KernelProblem`` field, stage bundle or ``StepDriver``
-signature moves. ``numpy_ref``, ``numba_cpu`` and native CPU execute the kind.
+signature moves. ``numpy_ref`` and native CPU execute the kind.
 
 Version 16 appends ``StepperSettings.integrator``: SEP 13's low-call Adams method
 stepping the problem instead of the tableau, or ``None`` for the Runge-Kutta march,
-whose problems are the version-15 problems bit for bit. Only ``numpy_ref`` executes an
-integrator; ``numba_cpu`` and ``native`` refuse it by name, and the driver's settings
-refuse it before translation on any other backend. No ``StepDriver`` signature moves:
+whose problems are the version-15 problems bit for bit. Only ``numpy_ref`` executed an
+integrator at this version; the driver's settings refused it before translation on any
+other backend. No ``StepDriver`` signature moves:
 the Adams march is the reference backend's own ``_march_to``.
 
 Version 17 appends ``StepperSettings.interval_cap`` and ``auto_init`` (SEP 14 phase
@@ -347,7 +347,7 @@ density at the stage. ``grids.carrier_2w0`` is also present for the dispersive f
 cubic on an envelope grid. A problem without the leaf is the version-23 problem bit for
 bit, its new bundle row empty. On the general modal route the leaf's ``regions`` names
 each channel's node region, a gas region's species. ``numpy_ref`` executes the leaf on
-every route; ``numba_cpu`` and the native backend refuse it by name.
+every route; the native backend refuses it by name.
 
 Version 25 (SEP 18 phase 1) appends ``responses.plasma_integral``, the running-integral
 rule of the field-grid plasma column
@@ -356,8 +356,8 @@ channels share the two current integrals. The ``"trapezoid"`` rule is the versio
 column bit for bit. The ``"band"`` rule filters each of the three integrands with the
 grid's symmetric taps before the trapezoid, closes the window's ends by point
 reflection and floors the exposure at zero, so ``plasma_scan`` and ``plasma_current``
-read ``K`` samples ahead of the one they finalise. ``numpy_ref``, ``numba_cpu`` (SEP
-18 phase 2) and native CPU (phase 3) execute both rules; a native device build refuses
+read ``K`` samples ahead of the one they finalise. ``numpy_ref`` and native CPU (SEP
+18 phase 3) execute both rules; a native device build refuses
 ``"band"`` by name. No stage bundle or ``StepDriver`` hook moves.
 
 Version 26 (SEP 19 phase 1) appends ``transform.kind``, what the transform represents,
@@ -427,8 +427,7 @@ and ``-1/(i omega)**2`` only on positive active bins.
 Version 34 (SEP 29 phase 2) moves no field of the problem: ``StepDriver`` gains the
 class attribute ``helpers``, the backend's implementation of the per-stage Chebyshev
 rows and the Adams basis, which the shared driver, march and engines pass down
-(``solprop._helpers``). An older native build does not set it and would run solprop's
-Numba helpers, so it is refused.
+(``solprop._helpers``). An older native build does not set it, so it is refused.
 
 Version 35 (SEP 34) adds ``flux``, the spatial run's plane-measure coefficients
 (:class:`solprop.translate.spatial.FluxPlan`): every spatial statistic is the axial
@@ -601,10 +600,9 @@ PropagatorMode = Literal["auto", "tabulate", "recompute"]
 ``"auto"``, the default, is the backend's own choice, resolved at construction and
 recorded in the run's metadata: ``tabulate`` for ``numpy_ref``, whose two complex
 exponentials per stage the table is worth memoising, and ``recompute`` for
-``numba_cpu``, where both signs come from one real ``exp`` and a ``sincos`` in the
-stage that formed them, so the table buys residency and nothing else -- 561 us against
-574 and 128 KiB against 768 on the soliton case (``docs/dev/backends.md``
-section 3.6). Either can still be asked for by name; the two
+``native``, where both signs come from one real ``exp`` and a ``sincos`` in the
+stage that formed them, so the table buys residency and nothing else
+(``docs/dev/backends.md`` section 3.6). Either can still be asked for by name; the two
 agree bitwise, so the choice is memory and not numbers.
 """
 
@@ -5858,8 +5856,8 @@ def _held_current_chunk(
         else 1
     )
     # A planar row contracts n_x physical nodes to n_p modal columns before its
-    # temporal FFT. Charge the two projected sources and spectra, plus Numba's
-    # shared projection scratch, per modal column rather than per physical node.
+    # temporal FFT. Charge the two projected sources and spectra, plus a shared
+    # projection scratch, per modal column rather than per physical node.
     # This matters when a full row is the smallest possible chunk.
     projected_row = (
         transform.synthesis.shape[1]

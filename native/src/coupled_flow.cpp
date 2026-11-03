@@ -70,10 +70,9 @@ constexpr double kTaylorScale = 0.5;
 constexpr int kJacobiSweeps = 30;
 constexpr double kUnit = 0x1p-53;
 
-// `W exp(l Lambda) Y` and `W exp(-l Lambda) Y` of one bin (solprop
-// `numba_cpu.coupled_flow.form_flow_actions`): one real exponential each way and one
-// cosine and sine per eigenvalue, then every entry summed from zero over the
-// eigenvalue index.
+// `W exp(l Lambda) Y` and `W exp(-l Lambda) Y` of one bin: one real exponential each
+// way and one cosine and sine per eigenvalue, then every entry summed from zero over
+// the eigenvalue index.
 KOKKOS_INLINE_FUNCTION void
 eigenbasis_actions(const double length, const std::size_t section,
                    const std::size_t bin, const std::size_t slot,
@@ -198,8 +197,7 @@ KOKKOS_INLINE_FUNCTION void gram_extent(const ComplexView3& gram, const std::siz
 // An upper bound on the spectral norm of one action: the largest eigenvalue of its
 // Gram matrix by cyclic Jacobi rotations (a phase making the pivot real, then the
 // symmetric rotation zeroing it; Golub and Van Loan section 8.5) plus the Frobenius
-// norm of what is left off the diagonal (solprop
-// `numba_cpu.coupled_flow._spectral_norm`).
+// norm of what is left off the diagonal.
 KOKKOS_INLINE_FUNCTION double spectral_norm(const ComplexView4& actions,
                                             const std::size_t slot,
                                             const std::size_t bin,

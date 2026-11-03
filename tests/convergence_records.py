@@ -48,9 +48,7 @@ WRITE_ENV = "SOLPROP_WRITE_RECORDS"
 # every write so that a row measured under `poe test-slow`'s pins is not silently
 # compared against one taken with a many-threaded BLAS.
 THREAD_VARIABLES = (
-    "NUMBA_NUM_THREADS",
     "SOLPROP_THREADS",
-    "SOLPROP_NUMBA_THREADS",
     "SOLPROP_OVERSUBSCRIBE",
     "SOLPROP_NATIVE_THREADS",
     "SOLPROP_FFTW_THREADS",
@@ -234,7 +232,7 @@ def _write_stamp(backend: str | None) -> dict[str, Any]:
         "python": sys.version.split()[0],
         "backend": backend,
         "blas": _blas(),
-        "packages": {name: _version(name) for name in ("numpy", "scipy", "numba")},
+        "packages": {name: _version(name) for name in ("numpy", "scipy")},
         "fftw_planner": os.environ.get("SOLPROP_FFTW_PLAN"),
         "threads": {name: os.environ.get(name) for name in THREAD_VARIABLES},
     }

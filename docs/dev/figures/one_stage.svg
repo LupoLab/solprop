@@ -168,7 +168,7 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 <text x="900.0" y="166.5" font-size="12" class="dim">DOPRI5: order 5, embedded order 4</text>
 <text x="900.0" y="182.0" font-size="12" class="dim">7 stages, 6 evaluations of N</text>
 <text x="900.0" y="197.5" font-size="12" class="dim">k1(n+1) = exp(ΔΦ(n))·k7(n)</text>
-<text x="900.0" y="213.0" font-size="12" class="dim">FSAL: numba_cpu takes it, numpy_ref not</text>
+<text x="900.0" y="213.0" font-size="12" class="dim">FSAL: native takes it, numpy_ref not</text>
 <rect x="923.0" y="237.0" width="26.0" height="26.0" rx="7" ry="7" class="fill-d" />
 <text x="936.0" y="254.0" font-size="13" class="bold mid ink-d">1</text>
 <rect x="954.0" y="237.0" width="26.0" height="26.0" rx="7" ry="7" class="fill-d" />

@@ -793,8 +793,9 @@ class Recipe:
     def modes(self, z: float | None = None) -> "ModeSetPreview":  # noqa: UP037 - TYPE_CHECKING
         """Return the mode set a guided route would build, before the run (S18).
 
-        Labels, ``beta``, ``beta2``, loss and effective area over the grid's band,
-        and the zero-dispersion wavelength; pins are solved first. The cost is the
+        Labels, the effective index, ``beta`` to ``beta3``, loss, effective area and
+        nonlinear coefficient over the grid's band, and the zero-dispersion
+        wavelength; pins are solved first. The cost is the
         mode solve (:func:`solprop.recipe.preview.modes`).
 
         Parameters

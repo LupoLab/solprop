@@ -160,7 +160,7 @@ def test_envelope_mixture_builder_defaults_and_rate_conventions():
 
 
 @pytest.mark.medium
-@pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu", "native"])
+@pytest.mark.parametrize("backend", ["numpy_ref", "native"])
 def test_envelope_mixture_update_reuses_rates_and_matches_fresh(backend):
     source = build(backend=backend)
     original = source.translate()
@@ -209,7 +209,7 @@ def test_envelope_mixture_update_reuses_rates_and_matches_fresh(backend):
 
 
 @pytest.mark.medium
-@pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu", "native"])
+@pytest.mark.parametrize("backend", ["numpy_ref", "native"])
 @pytest.mark.parametrize("noise", [None, "input", "modified"])
 def test_envelope_hdf5_resume_and_reconstruction(
     tmp_path, backend, noise, record_property
@@ -269,7 +269,7 @@ def test_envelope_hdf5_resume_and_reconstruction(
 
 
 @pytest.mark.medium
-@pytest.mark.parametrize("backend", ["numba_cpu", "native"])
+@pytest.mark.parametrize("backend", ["native"])
 @pytest.mark.parametrize("envelope", [False, True])
 def test_modified_noise_plasma_statistics_scan_the_committed_field(
     backend, envelope, record_property
@@ -327,7 +327,7 @@ def scan_point(point, backend):
 # warning native/tests/test_batch.py asserts (SEP 39).
 @pytest.mark.filterwarnings("ignore::solprop.exceptions.HostMarchWarning")
 @pytest.mark.medium
-@pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu", "native"])
+@pytest.mark.parametrize("backend", ["numpy_ref", "native"])
 def test_envelope_scan_batches_match_singletons_and_partial_tail(tmp_path, backend):
     scan = Scan("envelope", base_seed=711, scale=[0.8, 1.0, 1.1])
     builder = partial(scan_point, backend=backend)

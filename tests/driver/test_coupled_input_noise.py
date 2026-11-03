@@ -212,24 +212,23 @@ def test_input_noise_rides_a_coupled_flow_as_part_of_the_entrance_state(route):
     assert abs(departure) <= SUPERPOSITION[route] * energy_seed
 
 
-NUMBA_PARITY = 1e-12
-"""Largest relative departure of ``numba_cpu``'s exit field from the reference's.
+NATIVE_PARITY = 1e-12
+"""Largest relative departure of the native exit field from the reference's.
 
 Dimensionless, a rounding budget fixed before the comparison: the two backends run the
 same tableau on the same fixed schedule, so they differ by the rounding of ten steps of
 transforms, flow actions and stage sums, each a few hundred ulps of the field's peak at
-most. Measured 3.2e-15 (wall), 6.4e-16 (taper), 1.6e-16 (moving).
+most. Measured 2.3e-15 (wall), 2.1e-15 (taper), 2.5e-16 (moving), 9.0e-16 (split).
 """
 
 
 @pytest.mark.parametrize("route", list(ROUTES))
-def test_numba_cpu_carries_the_input_draw_through_a_coupled_flow_as_the_reference(
-    route,
-):
-    """The input draw needs no backend path of its own, so ``numba_cpu`` admits it."""
+def test_native_carries_the_input_draw_through_a_coupled_flow_as_the_reference(route):
+    """The input draw needs no backend path of its own, so native admits it."""
+    pytest.importorskip("solprop_native")
     build = ROUTES[route]
     reference = build("input", PULSE_ENERGY, "numpy_ref").run(progress="none")
-    compiled = build("input", PULSE_ENERGY, "numba_cpu").run(progress="none")
+    compiled = build("input", PULSE_ENERGY, "native").run(progress="none")
     expected = np.asarray(reference.fields("fft")[-1])
     taken = np.asarray(compiled.fields("fft")[-1])
-    assert np.max(abs(taken - expected)) <= NUMBA_PARITY * np.max(abs(expected))
+    assert np.max(abs(taken - expected)) <= NATIVE_PARITY * np.max(abs(expected))

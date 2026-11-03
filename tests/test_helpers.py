@@ -10,15 +10,17 @@ the plain forms (SEP 25: bounds, not bits), derived here before any comparison. 
 the native record also agrees to the last bit is recorded as information only.
 """
 
+import subprocess
+import sys
 from typing import Any
 
 import numpy as np
 import pytest
 
 from bounds import EPS, assert_within, gamma
-from solprop._helpers import NUMBA, PLAIN, Helpers
+from solprop._helpers import PLAIN, Helpers
+from solprop.backends.driver import StepDriver
 from solprop.backends.multistep import trial_tables
-from solprop.backends.numba_cpu import NumbaCpuBackend
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.stepper.multistep import integrated_weights, lagrange_coefficients
 from solprop.translate.chebyshev import build
@@ -126,10 +128,7 @@ def node_sets() -> list[np.ndarray]:
 
 def records() -> list[Helpers]:
     """Return the records under test against the plain forms."""
-    found = [NUMBA]
-    if NATIVE is not None:
-        found.append(NATIVE)
-    return found
+    return [] if NATIVE is None else [NATIVE]
 
 
 # ------------------------------------------------------------------ ownership
@@ -137,9 +136,63 @@ def records() -> list[Helpers]:
 
 def test_each_backend_names_its_own_record():
     assert NumpyRefBackend.helpers is PLAIN
-    assert NumbaCpuBackend.helpers is NUMBA
     if NativeBackend is not None:
         assert NativeBackend.helpers is NATIVE
+
+
+def test_a_caller_outside_a_backend_compiles_nothing(monkeypatch):
+    """The shared functions default to the plain forms: translation needs no record."""
+
+    def refuse(*_):
+        pytest.fail("a default reached a compiled record")
+
+    for record in records():
+        for name in ("points", "basis"):
+            monkeypatch.setitem(record.__dict__, name, refuse)
+    assert StepDriver.helpers is PLAIN
+    assert integrated_weights([1.0, 0.0]).tolist() == [0.5, 0.5]
+    assert lagrange_coefficients([1.0, 0.0]).shape == (2, 2)
+    table = build(np.sin, 0.0, 1.0, tol=1e-8)
+    assert table.at_positions(np.array([0.25])).shape[0] == 1
+
+
+def test_solprop_runs_on_numpy_ref_with_numba_blocked():
+    """No Numba or pyFFTW: an import, the helpers and a short run (SEP 29 R2)."""
+    script = """
+import sys
+
+# None in sys.modules makes an import of the name raise, whatever is installed.
+sys.modules["numba"] = sys.modules["pyfftw"] = None
+
+import numpy as np
+
+from solprop.driver import prop_gnlse
+from solprop.backends import available
+from solprop.stepper.multistep import integrated_weights
+from solprop.translate.chebyshev import clenshaw
+
+assert clenshaw(0.0, np.array([1.0, 2.0])).item() == 1.0
+assert integrated_weights([0.0, 1.0]).shape == (2,)
+assert "numba_cpu" not in available()
+output = prop_gnlse(
+    0.11,
+    1e-4,
+    [0.0, 0.0, -11.83e-27],
+    wavelength=835e-9,
+    wavelength_limits=(500e-9, 2e-6),
+    trange=1e-12,
+    fwhm=50e-15,
+    peak_power=1e3,
+    shape="sech",
+    backend="numpy_ref",
+    progress="none",
+)
+assert output["z"][-1] == 1e-4
+"""
+    done = subprocess.run(
+        [sys.executable, "-c", script], capture_output=True, text=True, check=False
+    )
+    assert done.returncode == 0, done.stderr
 
 
 def test_a_record_loads_its_functions_at_first_use():
@@ -161,7 +214,6 @@ def test_a_record_loads_its_functions_at_first_use():
 
 def test_only_the_native_record_forms_the_tables_in_one_call():
     assert PLAIN.tables is None
-    assert NUMBA.tables is None
     if NATIVE is not None:
         assert NATIVE.tables is not None
 
@@ -190,7 +242,7 @@ def test_points_agree_with_the_plain_form(
     record_property("bitwise", bool(np.array_equal(actual, expected)))
 
 
-@pytest.mark.parametrize("helpers", records(), ids=lambda record: record.name)
+@pytest.mark.parametrize("helpers", [PLAIN, *records()], ids=lambda record: record.name)
 @pytest.mark.parametrize("dtype", [np.float64, np.complex128])
 def test_points_refuse_outside_and_carry_nan(helpers, dtype):
     c = coefficients(8, 3, dtype)
@@ -262,7 +314,7 @@ def test_basis_agrees_with_the_plain_form(helpers, upper, nodes, record_property
     )
 
 
-@pytest.mark.parametrize("helpers", records(), ids=lambda record: record.name)
+@pytest.mark.parametrize("helpers", [PLAIN, *records()], ids=lambda record: record.name)
 def test_the_shared_functions_take_the_record(helpers):
     nodes = np.array([1.0, 0.0, -1.0, -2.0])
     # Adams-Moulton 4, times 24: a few operations on quarters, well inside 64 EPS.

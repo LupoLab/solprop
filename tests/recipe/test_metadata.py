@@ -10,6 +10,7 @@ import types
 import typing
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from solprop.driver import Simulation
@@ -28,6 +29,7 @@ from solprop.modes import MarcatiliMode, ModeCollection
 from solprop.recipe import metadata
 from solprop.recipe.document import EXECUTION_KEYS, REFUSED_BUILD_KEYS
 from solprop.recipe.quantity import Unit
+from solprop.recipe.registry import REGISTRY
 
 ROUTES = ("gnlse", "capillary", "waveguide", "radial", "free", "planar")
 DOCS = Path(__file__).resolve().parents[2] / "docs"
@@ -122,7 +124,7 @@ def test_the_execution_keys_are_settings_or_the_run_s_budget():
     assert table["memory_budget"].none
 
 
-@pytest.mark.parametrize("route", [*ROUTES, "execution"])
+@pytest.mark.parametrize("route", [*ROUTES, "execution", *REGISTRY])
 def test_every_unit_reads_and_every_display_unit_matches_it(route):
     for name, entry in metadata.parameters(route).items():
         units = [Unit(form.unit) for form in entry.forms if form.unit is not None]
@@ -139,7 +141,7 @@ def _slug(heading):
     return re.sub(r"\s+", "-", text)
 
 
-@pytest.mark.parametrize("route", [*ROUTES, "execution"])
+@pytest.mark.parametrize("route", [*ROUTES, "execution", *REGISTRY])
 def test_every_anchor_names_a_page_and_a_heading_of_it(route):
     for name, entry in metadata.parameters(route).items():
         page, _, anchor = entry.anchor.partition("#")
@@ -154,7 +156,7 @@ def test_every_anchor_names_a_page_and_a_heading_of_it(route):
             assert anchor in headings, (name, entry.anchor)
 
 
-@pytest.mark.parametrize("route", ROUTES)
+@pytest.mark.parametrize("route", [*ROUTES, *REGISTRY])
 def test_every_entry_has_a_group_level_and_summary(route):
     for name, entry in metadata.parameters(route).items():
         assert entry.group in typing.get_args(metadata.Group), name
@@ -288,3 +290,61 @@ def test_a_route_without_metadata_is_refused():
         metadata.parameters("fibre")
     with pytest.raises(DriverError, match="radial, free, planar"):
         metadata.surface("fibre")
+
+
+@pytest.mark.parametrize("name", REGISTRY)
+def test_a_type_s_table_names_every_keyword_its_target_takes(name):
+    factory = REGISTRY[name]
+    signature = inspect.signature(factory.target)
+    keywords = [
+        parameter.name
+        for parameter in signature.parameters.values()
+        if parameter.kind not in (parameter.VAR_POSITIONAL, parameter.VAR_KEYWORD)
+        and parameter.name not in factory.omitted
+    ][len(factory.context) :]
+    assert [entry.name for entry in metadata._TYPES[name]] != [] or not keywords
+    assert sorted(entry.name for entry in metadata._TYPES[name]) == sorted(keywords)
+    assert list(metadata.parameters(name)) == keywords
+
+
+@pytest.mark.parametrize("name", REGISTRY)
+def test_a_type_s_units_are_the_registry_s(name):
+    units = REGISTRY[name].units
+    for keyword, entry in metadata.parameters(name).items():
+        unit = units.get(keyword)
+        given = [form.unit for form in entry.forms if form.unit is not None]
+        if isinstance(unit, str):
+            assert given, keyword  # a quantity's form says its unit
+            assert all(Unit(found) == Unit(unit) for found in given), keyword
+        elif unit is None:
+            assert not given, keyword  # read as it stands: no unit to claim
+        else:  # a rule per element, as the phase's
+            assert any(form.elements for form in entry.forms), keyword
+
+
+@pytest.mark.parametrize("name", REGISTRY)
+def test_a_type_s_objects_are_registered_types(name):
+    for keyword, entry in metadata.parameters(name).items():
+        for form in entry.forms:
+            if form.kind == "object" and form.recipe:
+                assert form.types, keyword
+                assert set(form.types) <= set(REGISTRY), keyword
+
+
+def test_a_type_s_defaults_are_its_target_s():
+    pulse = metadata.parameters("GaussianPulse")
+    assert pulse["wavelength"].default is metadata.REQUIRED
+    assert pulse["m"].default == 1 and pulse["energy"].default is None
+    windows = np.asarray(metadata.parameters("StatsSpec")["energy_windows"].default)
+    assert windows.shape == (0, 2)  # a dataclass's default factory, called
+    assert "grid" not in metadata.parameters("absorber")  # the build context
+    assert "tableau" not in metadata.parameters("RungeKutta")  # omitted
+
+
+def test_a_slab_set_s_energy_is_per_metre_of_y():
+    slab = {"modes": {"type": "ModeCollection.slab", "half_gap": 6e-5, "orders": [1]}}
+    assert metadata.per_unit_width("waveguide", slab)
+    assert not metadata.per_unit_width("capillary", slab)
+    assert set(metadata.PER_WIDTH_KEYWORDS) <= set(metadata.parameters("waveguide"))
+    assert "per metre of y" in metadata.parameters("waveguide")["energy"].summary
+    assert "per metre" not in metadata.parameters("capillary")["peak_power"].summary

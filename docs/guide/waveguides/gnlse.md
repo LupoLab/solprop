@@ -172,9 +172,8 @@ fibre = SpecifiedMode.from_index_path(
 tapered bore, a fibre on a pressure gradient — hands both over by itself: the
 frozen callables forward the position to the source mode, and the area is sampled
 from that same mode over the positions its own declared paths kink at. So
-`prop_gnlse(..., fibre=MarcatiliMode(Linear(...), ...), backend="numpy_ref")` is a
-run, not a refusal — with the backend named, for the reason the next paragraph
-gives.
+`prop_gnlse(..., fibre=MarcatiliMode(Linear(...), ...))` is a run, not a refusal, on
+a CPU build, for the reason the next paragraph gives.
 
 **A provider channel's area is taken at the pump.** A general modal guide's
 {py:class}`~solprop.modes.guide.ProviderChannelMode` declares one surrogate area, the
@@ -205,7 +204,7 @@ resolved exactly there and its integral is exact too. What changes against the
 constant-dispersion case is the *representation*: a mode whose dispersion moves is
 not a function of one scalar parameter, so `build_phi` tabulates the operator
 along $z$ instead of expanding it in parameters — the general representation. Every
-CPU backend evaluates that table: `numpy_ref` and `numba_cpu` on the host, and the
+CPU backend evaluates that table: `numpy_ref` on the host, and the
 native backend's CPU build in its own kernels, so the default `backend="auto"` runs a
 moving-dispersion fibre ({doc}`../numerics/linear-tables`). The native backend's GPU
 builds refuse the table by name, since they would hold it on the device; run such a

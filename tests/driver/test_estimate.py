@@ -28,7 +28,6 @@ def _built(name, backend):
     "backend",
     [
         "numpy_ref",
-        "numba_cpu",
         pytest.param(
             "native",
             marks=pytest.mark.skipif(
@@ -57,7 +56,6 @@ def test_the_estimate_reports_the_memory_admission_would_admit(backend):
     "backend",
     [
         "numpy_ref",
-        "numba_cpu",
         pytest.param(
             "native",
             marks=pytest.mark.skipif(

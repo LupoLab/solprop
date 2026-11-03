@@ -20,7 +20,6 @@ from bounds import assert_within, gamma, ladder_bound
 from solprop.backends import Backend, BatchBackend, select, select_batch
 from solprop.backends.batch import LockstepRunner
 from solprop.backends.driver import StepDriver
-from solprop.backends.numba_cpu.batch import NumbaCpuBatchBackend
 from solprop.backends.numpy_ref.batch import NumpyBatchBackend
 from solprop.driver import Simulation
 from solprop.exceptions import BackendError, BoundaryError
@@ -131,8 +130,8 @@ def statistics_bound(field, bound=FIELD_BOUND):
     [
         ("numpy_ref", LockstepRunner),
         ("numpy_ref", NumpyBatchBackend),
-        ("numba_cpu", LockstepRunner),
-        ("numba_cpu", NumbaCpuBatchBackend),
+        ("native", LockstepRunner),
+        ("native", select_batch),
     ],
 )
 @pytest.mark.parametrize("count", [1, 3])
@@ -141,6 +140,8 @@ def statistics_bound(field, bound=FIELD_BOUND):
 def test_lockstep_preserves_member_physics_noise_and_statistics(
     backend, runner_factory, count, noise, weighted
 ):
+    if backend == "native":
+        pytest.importorskip("solprop_native")
     with ExitStack() as cleanup:
         simulations = [simulation(index, backend, noise) for index in range(count)]
         if weighted:
@@ -203,7 +204,7 @@ def test_lockstep_interleaves_members_at_each_fixed_step(monkeypatch):
         assert len({(z, dz) for _, z, dz in visited[start : start + 3]}) == 1
 
 
-@pytest.mark.parametrize("backend", ["numba_cpu", "native"])
+@pytest.mark.parametrize("backend", ["native"])
 @pytest.mark.parametrize("noise", [None, "input", "modified"])
 def test_batch_agrees_with_numpy_oracle(backend, noise):
     if backend == "native":
@@ -241,9 +242,10 @@ def test_batch_agrees_with_numpy_oracle(backend, noise):
 
 
 def test_lockstep_refuses_mixed_backends():
+    pytest.importorskip("solprop_native")
     with ExitStack() as cleanup:
         members = tuple(
-            loaded(simulation(0, name), cleanup) for name in ("numpy_ref", "numba_cpu")
+            loaded(simulation(0, name), cleanup) for name in ("numpy_ref", "native")
         )
         with pytest.raises(BackendError, match="mixed backends"):
             LockstepRunner(members)
@@ -340,9 +342,10 @@ def test_lockstep_refuses_a_monitor_per_member_miscount():
 def test_batch_registry_refuses_empty_and_mixed_owners():
     with pytest.raises(BackendError, match="at least one"):
         select_batch([])
+    pytest.importorskip("solprop_native")
     with ExitStack() as cleanup:
         members = tuple(
-            loaded(simulation(0, name), cleanup) for name in ("numpy_ref", "numba_cpu")
+            loaded(simulation(0, name), cleanup) for name in ("numpy_ref", "native")
         )
         with pytest.raises(BackendError, match="mixed backends"):
             select_batch(cast(Sequence[Backend], members))

@@ -61,7 +61,6 @@ from legacy_geometry import LEGACY_GRID
 from march_bounds import FIXED_ORDER
 from modal_provider_cases import GENERAL_Z_END
 from solprop.backends import available
-from solprop.backends.numba_cpu import NumbaCpuBackend
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.boundaries import Absorber, absorber
 from solprop.driver import Simulation
@@ -79,8 +78,8 @@ pytestmark = [
     for category in QUIET
 ] + [pytest.mark.filterwarnings("ignore:the temporal absorber attenuates")]
 
-BACKENDS = ("numpy_ref", "numba_cpu", "native")
-"""The three CPU backends, which must all leave the collar to the frozen flow."""
+BACKENDS = ("numpy_ref", "native")
+"""The CPU backends, which must all leave the collar to the frozen flow."""
 
 UNIT = 2.0**-53
 """The unit roundoff of float64."""
@@ -97,7 +96,7 @@ def backend_class(name):
         )
 
         return NativeBackend
-    return {"numpy_ref": NumpyRefBackend, "numba_cpu": NumbaCpuBackend}[name]
+    return NumpyRefBackend
 
 
 def scored_everywhere(problem: KernelProblem) -> KernelProblem:
@@ -434,7 +433,7 @@ def test_the_in_band_answer_moves_by_less_than_the_derived_bound(case):
 
 
 @pytest.mark.medium
-@pytest.mark.parametrize("name", ["numpy_ref", "numba_cpu"])
+@pytest.mark.parametrize("name", ["numpy_ref", "native"])
 @pytest.mark.parametrize("case", ["scalar", "te_tm", "split", "taper", "gradient"])
 def test_a_flow_with_nothing_unscored_is_what_it_was(
     case, name, ndarrays_regression, monkeypatch
@@ -445,7 +444,8 @@ def test_a_flow_with_nothing_unscored_is_what_it_was(
     bin is scored applies it where it always did, in the same order. The final state
     after ten fixed steps at the fixed order matches its record within the march's
     rounding budget (``tests/state_records.py``), on the grids it was recorded on:
-    the parity cases' grids in the former geometry, with their weak collar.
+    the parity cases' grids in the former geometry, with their weak collar. The native
+    backend has no record of its own: it is held to the reference's.
     """
     grid = FieldGrid.from_limits(
         LENGTH, 800e-9, (400e-9, 1.6e-6), 300e-15, **LEGACY_GRID
@@ -472,4 +472,13 @@ def test_a_flow_with_nothing_unscored_is_what_it_was(
     else:
         assert flow.section_methods == ("constant_schur",)
     state = run(backend, problem, simulation.grid)
-    check_state(ndarrays_regression, state, record_bound(simulation, state))
+    check_state(
+        ndarrays_regression,
+        state,
+        record_bound(simulation, state),
+        basename=(
+            f"test_a_flow_with_nothing_unscored_is_what_it_was_{case}_numpy_ref_"
+            if name == "native"
+            else None
+        ),
+    )

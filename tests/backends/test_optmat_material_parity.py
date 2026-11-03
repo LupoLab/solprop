@@ -14,7 +14,7 @@ The bounds are ``tests/optmat_parity.py``'s, derived before any measurement.
 Medium tier: ten fixed steps per case, under a second each.
 
 Measured on the development machine against bounds of order 1e-10 to 1e-8, the worst
-deviation of any field rung was 7.6e-16 (``gnlse_bundle``'s complete run on
+deviation of any field rung was 7.6e-16 (``gnlse_bundle``'s complete run on the retired
 ``numba_cpu``) and of any statistic 2.7e-14 (``quadrature_error``).
 """
 

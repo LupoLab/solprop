@@ -370,7 +370,7 @@ constructing physics objects directly, or the per-label `plasma`, `preionisation
 constructors. An explicitly selected unavailable response fails with the component's
 name; a zero-density component retains its label and contributes zero.
 
-Vector molecular Raman is available on `numpy_ref`, `numba_cpu` and `native` (CPU, and the
+Vector molecular Raman is available on `numpy_ref` and `native` (CPU, and the
 CUDA and HIP builds) for the Cartesian field representations. The gas material
 factories carry isotropic vibration and rank-two rotation; custom scalar models and
 default silica require an explicit tensor declaration for vector use. See the

@@ -7,7 +7,7 @@
 Usage: ``general_modal_thread_probe.py <out.npz> <case> [<case> ...]``.
 """
 
-# ruff: noqa: I001 -- Kokkos must load before solprop imports pyFFTW on macOS.
+# ruff: noqa: I001 -- Kokkos loads first, before any other OpenMP runtime on macOS.
 
 from __future__ import annotations
 

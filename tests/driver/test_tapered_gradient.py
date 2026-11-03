@@ -124,7 +124,7 @@ def _run(backend):
 
 
 @pytest.mark.medium
-@pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu", "native"])
+@pytest.mark.parametrize("backend", ["numpy_ref", "native"])
 def test_a_formerly_failing_tapered_gradient_runs_ten_steps_on_every_backend(backend):
     if backend == "native":
         pytest.importorskip("solprop_native")
@@ -133,6 +133,6 @@ def test_a_formerly_failing_tapered_gradient_runs_ten_steps_on_every_backend(bac
     reference = np.asarray(_run("numpy_ref")["field"])
     scale = float(np.linalg.norm(reference[-1]))
     # The same ten fixed steps on every backend: what differs is the order of the
-    # floating-point sums, a few ulps per step compounded over ten (measured 2.7e-16
-    # on numba_cpu and 3.9e-16 on the native backend).
+    # floating-point sums, a few ulps per step compounded over ten (measured 3.9e-16
+    # on the native backend).
     assert np.linalg.norm(field[-1] - reference[-1]) / scale < 1e-10

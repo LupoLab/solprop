@@ -46,7 +46,7 @@ from solprop.driver import Simulation
 from solprop.exceptions import BackendError
 from solprop.translate.problem import KernelProblem
 
-COMPILED = ("numba_cpu", "native")
+COMPILED = ("native",)
 
 
 def _rounding(simulation: Simulation) -> float:
@@ -274,11 +274,10 @@ def test_a_second_watched_run_reads_as_the_first(backend: str) -> None:
 @pytest.mark.parametrize(
     ("backend", "route", "rows"),
     [
-        ("numba_cpu", "capillary (multimode)", ("monitor_spectrum", "monitor_time")),
         # The general engine reads through its statistics buffers: only its weights.
         ("native", "gnlse", ("monitor_weights",)),
     ],
-    ids=["numba_cpu", "native"],
+    ids=["native"],
 )
 def test_a_monitor_s_own_transform_is_in_the_ledger(
     backend: str, route: str, rows: tuple[str, ...]

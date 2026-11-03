@@ -64,7 +64,7 @@ def _signature(member: BatchMember) -> str:
     """
     simulation = member.simulation
     backend = simulation.settings.backend
-    if backend not in {"numpy_ref", "numba_cpu", "native"}:
+    if backend not in {"numpy_ref", "native"}:
         raise DriverError(
             f"Batch does not support backend {simulation.settings.backend!r}; "
             "use Local or Pool to preserve the selected backend"

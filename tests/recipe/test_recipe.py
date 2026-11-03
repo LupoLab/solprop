@@ -551,6 +551,7 @@ def _exported_recipe(kind, tmp_path):
     return recipe
 
 
+@pytest.mark.child_runs_auto
 @pytest.mark.parametrize("kind", ["data files", "a plain table"])
 def test_the_export_writes_data_files_and_plain_tables(kind, tmp_path):
     recipe = _exported_recipe(kind, tmp_path)

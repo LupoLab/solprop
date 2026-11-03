@@ -17,7 +17,7 @@ from solprop.stepper.multistep import Multistep
 from solprop.translate.linop import constant_phi, delta_phi
 
 
-@pytest.mark.parametrize("backend_name", ["numpy_ref", "numba_cpu", "native"])
+@pytest.mark.parametrize("backend_name", ["numpy_ref", "native"])
 @pytest.mark.parametrize("formulation", ["interaction", "exponential"])
 def test_natural_save_at_hard_kink_restarts_before_the_next_trial(
     narrow_grid, linear_problem, backend_name, formulation

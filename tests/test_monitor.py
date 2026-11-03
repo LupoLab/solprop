@@ -155,7 +155,7 @@ def test_a_pulse_that_stays_clear_leaves_the_guards_empty() -> None:
 
 
 @pytest.mark.parametrize("scheme", ["nonlinear", "split_step"])
-@pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu", "native"])
+@pytest.mark.parametrize("backend", ["numpy_ref", "native"])
 def test_a_walking_pulse_is_stopped_at_the_guard(backend: str, scheme: str) -> None:
     # One window's walk-off: the pulse reaches the guard well inside the fibre, on
     # every backend's march, under either scheme.
@@ -188,7 +188,7 @@ fields in the collar differ by the split's first-order splitting."""
 
 
 @pytest.mark.parametrize("dz_max", [None, 1 / 50, 1 / 1000], ids=str)
-@pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu", "native"])
+@pytest.mark.parametrize("backend", ["numpy_ref", "native"])
 def test_the_split_stops_a_walking_pulse_where_the_in_stage_scheme_does(
     backend: str, dz_max: float | None
 ) -> None:
@@ -248,7 +248,7 @@ def _radial_walker(backend: str, scheme: AbsorberScheme, dz_max: float) -> Simul
 
 
 @pytest.mark.parametrize("dz_max", [0.1, 0.005], ids=str)
-@pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu", "native"])
+@pytest.mark.parametrize("backend", ["numpy_ref", "native"])
 def test_the_split_stops_a_walking_radial_pulse_where_the_in_stage_scheme_does(
     backend: str, dz_max: float
 ) -> None:
@@ -268,7 +268,7 @@ def _lost(run: Output) -> float:
 
 
 @pytest.mark.parametrize("integrator", [RungeKutta(), Multistep()], ids=repr)
-@pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu", "native"])
+@pytest.mark.parametrize("backend", ["numpy_ref", "native"])
 def test_the_split_scheme_s_removal_is_read_exactly(
     backend: str, integrator: RungeKutta | Multistep
 ) -> None:
@@ -319,7 +319,7 @@ def test_a_single_precision_split_reads_the_physical_removal() -> None:
     assert record_of(run)["removed_fraction"] == pytest.approx(lost, rel=1e-4)
 
 
-@pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu", "native"])
+@pytest.mark.parametrize("backend", ["numpy_ref", "native"])
 def test_a_deep_collar_reads_no_removal_from_residue(backend: str) -> None:
     # A capillary whose ten steps take the collar's deepest samples to alpha h of
     # about 25, its pulse far from the edges. The band mask after each split leaves
@@ -800,7 +800,7 @@ def test_the_removed_fraction_is_the_energy_the_run_lost() -> None:
     assert removed == pytest.approx(lost, rel=0.05)
 
 
-@pytest.mark.parametrize("backend", ["numba_cpu", "native"])
+@pytest.mark.parametrize("backend", ["native"])
 def test_the_backends_keep_the_same_record(backend: str) -> None:
     if backend not in available():
         pytest.skip(f"{backend} is not installed")
@@ -1065,7 +1065,7 @@ def test_the_collar_stays_in_unless_the_run_opts_in() -> None:
     assert record_of(watched)["collar_left_out_checks"] == 0
 
 
-@pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu", "native"])
+@pytest.mark.parametrize("backend", ["numpy_ref", "native"])
 def test_a_quiet_collar_is_left_out_without_changing_the_run(backend: str) -> None:
     # A pulse clear of the edges, opted in: the monitor finds the collar quiet, the
     # stages leave its term out, and the field is the always-on collar's.
@@ -1091,7 +1091,7 @@ def test_a_quiet_collar_is_left_out_without_changing_the_run(backend: str) -> No
 
 
 @pytest.mark.parametrize("integrator", sorted(INTEGRATORS))
-@pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu", "native"])
+@pytest.mark.parametrize("backend", ["numpy_ref", "native"])
 def test_light_reaching_a_quiet_collar_switches_it_back_on(
     backend: str, integrator: str
 ) -> None:

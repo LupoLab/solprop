@@ -175,7 +175,7 @@ fixed set of arrays over host scalars the translation layer computes per stage -
 term with the distance as its weight for a constant, ``n_terms`` for an expansion -- so
 a backend holds the arrays and never the representation
 (:mod:`solprop.translate.stage`). The z table is a Clenshaw pass over an array of the
-state's size times the degree and is evaluated on the host by NumPy and Numba;
+state's size times the degree and is evaluated on the host;
 :attr:`solprop.translate.problem.KernelProblem.device_ready` is the predicate, and a
 device-resident backend refuses what fails it.
 """
@@ -268,7 +268,7 @@ class LinearOperator:
     coupled_flow : solprop.translate.coupled.CoupledFlowTables or None
         Kernel schema 12: the generator of a guide whose channels couple -- a
         coherent wall, a taper's connection, a split block, a moving guide;
-        executed by all three backends, a CF4 section by ``numpy_ref`` alone.
+        executed by ``numpy_ref`` and ``native``, a CF4 section by ``numpy_ref`` alone.
         ``None`` on every route that declares no coupling.
     modal_metric : solprop.translate.coupled.ModalMetricTables or None
         Kernel schema 12: the explicit physical flux metric, a documented leaf here
@@ -2820,7 +2820,7 @@ def phi_rate(
         Read an edge from the interval ending there.
     helpers : solprop._helpers.Helpers or None, optional
         The stepping backend's implementation of an expansion's scalar rate rows (SEP 29
-        section 6.6); ``None`` takes the shared compiled pass. A z table's rows, the
+        section 6.6); ``None`` takes the shared pass. A z table's rows, the
         size of the state, always take the shared pass.
 
     Returns
@@ -2872,7 +2872,7 @@ def rate_weights(
         Read an edge from the interval ending there.
     helpers : solprop._helpers.Helpers or None, optional
         The stepping backend's implementation of the expansion's rate rows (SEP 29
-        section 6.6); ``None`` takes the shared compiled pass.
+        section 6.6); ``None`` takes the shared pass.
 
     Returns
     -------
@@ -2918,7 +2918,7 @@ def _rate_value(
     helpers : solprop._helpers.Helpers or None
         The stepping backend's implementation for an expansion's rows, which reads the
         chosen interval as a one-interval table at the same ``x``; ``None``, or a z
-        table, takes the shared compiled pass.
+        table, takes the shared pass.
 
     Returns
     -------

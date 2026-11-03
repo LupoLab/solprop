@@ -243,13 +243,6 @@ def test_each_rule_records_itself_and_keys_its_own_resume():
     assert legacy.configuration_hash() != default.configuration_hash()
 
 
-def test_numba_runs_the_band_rule_and_records_its_diagnostics():
-    output = build(plasma_integration="band", backend="numba_cpu").run()
-    for name in PLASMA_INTEGRATION_STATISTICS:
-        assert name in output.stat_names
-    assert float(np.max(np.asarray(output["stats/plasma_undershoot"]))) < 1e-2
-
-
 def test_native_runs_the_band_rule_and_records_its_diagnostics():
     pytest.importorskip("solprop_native")
     output = build(plasma_integration="band", backend="native").run()
@@ -258,8 +251,10 @@ def test_native_runs_the_band_rule_and_records_its_diagnostics():
     assert float(np.max(np.asarray(output["stats/plasma_undershoot"]))) < 1e-2
 
 
-@pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu"])
+@pytest.mark.parametrize("backend", ["numpy_ref", "native"])
 def test_the_diagnostics_need_a_field_plasma_column(backend):
+    if backend == "native":
+        pytest.importorskip("solprop_native")
     simulation = build(
         plasma=False, backend=backend, stats=StatsSpec(names=("plasma_undershoot",))
     )

@@ -155,7 +155,7 @@ def backends(*kinds):
             id=f"{kind}-{name}",
         )
         for kind in kinds
-        for name in ("numpy_ref", "numba_cpu", "native")
+        for name in ("numpy_ref", "native")
     ]
 
 

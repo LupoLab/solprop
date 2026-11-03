@@ -872,7 +872,7 @@ def test_a_poorly_captured_beam_launches_only_what_the_guide_takes(
 
 @INCIDENT_FILTER
 @pytest.mark.medium
-@pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu", "native"])
+@pytest.mark.parametrize("backend", ["numpy_ref", "native"])
 def test_the_incident_launch_is_the_same_on_every_cpu_receiver(
     incident_guide, grid, backend
 ):

@@ -40,7 +40,7 @@ per cycle, sampling and integration step is a separate convergence question. An
 FFT collar beyond argon's refractive-index fit raises a MaterialRangeWarning,
 retained in the gallery output.
 
-.. GENERATED FROM PYTHON SOURCE LINES 28-81
+.. GENERATED FROM PYTHON SOURCE LINES 28-80
 
 .. code-block:: Python
 
@@ -82,7 +82,6 @@ retained in the gallery output.
             loss=False,
             kerr=False,
             plasma=rate,
-            backend="numpy_ref",
             rtol=1e-6,
             atol=1e-14,
             save_planes=np.linspace(length / 4, length, 4),
@@ -104,11 +103,11 @@ retained in the gallery output.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 82-83
+.. GENERATED FROM PYTHON SOURCE LINES 81-82
 
 Fractions are evaluated at the end of each local pulse at every saved plane.
 
-.. GENERATED FROM PYTHON SOURCE LINES 83-104
+.. GENERATED FROM PYTHON SOURCE LINES 82-103
 
 .. code-block:: Python
 
@@ -147,12 +146,12 @@ Fractions are evaluated at the end of each local pulse at every saved plane.
  .. code-block:: none
 
     Final population discrepancy: 0.004%
-    Complete example: 0.746 s
+    Complete example: 3.763 s
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 105-111
+.. GENERATED FROM PYTHON SOURCE LINES 104-110
 
 Related reading
 ---------------
@@ -164,7 +163,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 0.781 seconds)
+   **Total running time of the script:** (0 minutes 3.873 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_capillaries_plot_05_envelope_plasma.py:

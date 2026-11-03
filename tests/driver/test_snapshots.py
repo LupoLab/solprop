@@ -217,7 +217,7 @@ def _verify_tdse_generation(generation, destination, run_uuid, startup, caplog):
         assert [session.kind for session in archive.sessions] == ["run", "resume"]
 
 
-@pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu", "native"])
+@pytest.mark.parametrize("backend", ["numpy_ref", "native"])
 def test_ordinary_snapshot_resumes_in_a_fresh_process(backend, tmp_path):
     if backend == "native":
         pytest.importorskip("solprop_native")

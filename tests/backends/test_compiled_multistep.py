@@ -5,8 +5,8 @@
 """SEP 14 phase 2: the Adams march on the compiled backends, against the reference.
 
 The march is shared (``solprop.backends.multistep``); only the one source evaluation
-and the propagator differ: ``numba_cpu`` evaluates through its fused stage kernels and
-Kokkos through its general engine's stage pipeline. Parity is the reference's
+and the propagator differ: Kokkos evaluates through its general engine's stage pipeline.
+Parity is the reference's
 trajectory to round-off: the same steps, orders and calls, and fields that agree to
 the accumulated rounding of the evaluation orders.
 """
@@ -18,7 +18,6 @@ import pytest
 
 from bounds import assert_within, fft_bound
 from solprop.backends import available
-from solprop.backends.numba_cpu import NumbaCpuBackend
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.boundaries import absorber
 from solprop.driver.simulation import Simulation, SimulationSettings
@@ -29,7 +28,7 @@ from solprop.stepper import PIController
 from solprop.stepper.multistep import ComparisonMultistep, Multistep
 from solprop.translate.linop import delta_phi
 
-COMPILED: list[type] = [NumbaCpuBackend]
+COMPILED: list[type] = []
 if "native" in available():
     from solprop_native import NativeBackend  # pyright: ignore[reportMissingImports]
 
@@ -93,7 +92,7 @@ def test_a_compiled_backend_follows_the_reference_trajectory(
     assert ledger.total == reference_ledger.total
     # The evaluation orders round differently and the controller passes that on to
     # the step sizes: measured at most 1.5e-10 relative over 47-99 steps (Kokkos's
-    # PECE4; 1.0e-10 on numba_cpu).
+    # PECE4).
     np.testing.assert_allclose(steps, reference_steps, rtol=1e-9)
     # Measured 8e-16 to 1.8e-15 of the peak over the quarter period.
     scale = np.max(np.abs(reference))
@@ -137,15 +136,14 @@ def test_a_compiled_backend_steps_the_modified_noise_as_the_reference(
 def test_the_settings_admit_the_compiled_backends():
     control = PIController(rtol=1e-6, atol=1e-12)
     common = {"save_planes": [1.0], "dz_max": 0.1, "dz_init": 1e-3}
-    for backend in ("numba_cpu", "native"):
-        settings = SimulationSettings(
-            control,
-            backend=backend,
-            integrator=Multistep(formulation="interaction"),
-            **common,
-        )
-        assert settings.backend == backend
-    with pytest.raises(DriverError, match="numba_cpu and native only"):
+    settings = SimulationSettings(
+        control,
+        backend="native",
+        integrator=Multistep(formulation="interaction"),
+        **common,
+    )
+    assert settings.backend == "native"
+    with pytest.raises(DriverError, match="numpy_ref and native only"):
         SimulationSettings(
             control,
             backend="cuda",
@@ -154,8 +152,10 @@ def test_the_settings_admit_the_compiled_backends():
         )
 
 
-@pytest.mark.parametrize("collar", [False, True], ids=["no collar", "in-stage collar"])
-def test_numba_marches_a_problem_without_responses(narrow_grid, linear_problem, collar):
+def assert_marches_without_responses(
+    backend_class, narrow_grid, linear_problem, collar
+):
+    """Assert a problem with no response marches as on the reference, to round-off."""
     # No nonlinear response: the source is zero, or the in-stage collar's term alone.
     extra = (
         {"absorber": absorber(narrow_grid), "absorber_scheme": "nonlinear"}
@@ -169,18 +169,31 @@ def test_numba_marches_a_problem_without_responses(narrow_grid, linear_problem, 
         **extra,
     )
     reference, _, _ = run(NumpyRefBackend, problem, narrow_grid)
-    field, _, _ = run(NumbaCpuBackend, problem, narrow_grid)
+    field, _, _ = run(backend_class, problem, narrow_grid)
     scale = np.max(np.abs(reference))
     np.testing.assert_allclose(field, reference, rtol=0, atol=1e-13 * scale)
 
 
-@pytest.mark.parametrize(
-    "route",
-    [{"thg": False, "plasma": False}, {"envelope": True, "plasma": True}],
-    ids=["analytic field", "envelope plasma"],
-)
-def test_numba_sources_the_analytic_field_and_the_envelope_plasma(route):
-    # The Adams source on numba_cpu through the stage pipeline's two other column
+@pytest.mark.parametrize("collar", [False, True], ids=["no collar", "in-stage collar"])
+def test_native_marches_a_problem_without_responses(
+    narrow_grid, linear_problem, collar
+):
+    native = pytest.importorskip("solprop_native")
+    assert_marches_without_responses(
+        native.NativeBackend, narrow_grid, linear_problem, collar
+    )
+
+
+ROUTES = {
+    "analytic field": {"thg": False, "plasma": False},
+    "envelope plasma": {"envelope": True, "plasma": True},
+}
+"""The stage pipeline's two other column families, for one evaluation of the source."""
+
+
+def assert_sources_the_reference(backend_class, route):
+    """Assert one Adams source evaluation of `backend_class` is the reference's."""
+    # The Adams source through the stage pipeline's two other column
     # families: the analytic signal of a field without THG, and the envelope with its
     # plasma assembly. One evaluation is compared, at a field that reaches into the
     # temporal collar: whole runs part by round-off in the discrete order choice.
@@ -210,8 +223,8 @@ def test_numba_sources_the_analytic_field_and_the_envelope_plasma(route):
     edge = np.roll(pulse, pulse.shape[-1] * 2 // 5, axis=-1)
     lab = np.fft.fft(pulse + 0.5 * edge, axis=-1)
     found = []
-    for backend_class in (NumpyRefBackend, NumbaCpuBackend):
-        backend = backend_class(problem, grid=simulation.grid, modes=simulation.modes)
+    for evaluating in (NumpyRefBackend, backend_class):
+        backend = evaluating(problem, grid=simulation.grid, modes=simulation.modes)
         backend.set_initial(start, None)
         source, back = backend._adams_source(lab, 0.0, 1e-3)
         found.append((np.array(source), np.array(back)))
@@ -225,8 +238,8 @@ def test_numba_sources_the_analytic_field_and_the_envelope_plasma(route):
     # comparison measures the grid more than the backend (8.3e-12 of the peak on the
     # grids before SEP 21, 3.6e-10 and 4.7e-10 on today's, for the same 4e-16 of the
     # term's own peak). Untransported, the two evaluations are one transform round
-    # trip apart: measured 5.9e-16 normwise on both grids, against the one-evaluation
-    # budget fft_bound(n_to), about 1e-12.
+    # trip apart: measured 8.2e-16 and 5.1e-16 normwise on native's two grids, against
+    # the one-evaluation budget fft_bound(n_to), about 1e-12.
     assert_within(
         source * back,
         reference * reference_back,
@@ -239,3 +252,9 @@ def test_numba_sources_the_analytic_field_and_the_envelope_plasma(route):
     exponent = np.abs(delta_phi(problem.linear, 1e-3, 0.0))
     bound = 16 * np.finfo(float).eps * (1 + float(np.max(exponent)))
     assert_within(back, reference_back, bound, what="propagator")
+
+
+@pytest.mark.parametrize("route", ROUTES)
+def test_native_sources_the_analytic_field_and_the_envelope_plasma(route):
+    native = pytest.importorskip("solprop_native")
+    assert_sources_the_reference(native.NativeBackend, ROUTES[route])

@@ -8,8 +8,6 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
-from solprop.backends.numba_cpu import fft
-from solprop.backends.numba_cpu.backend import NumbaCpuBackend
 from solprop.constants import EPS0, C
 from solprop.fourier import energy_omega
 from solprop.grid import EnvelopeGrid, FieldGrid, RadialGrid
@@ -172,35 +170,3 @@ def test_spatial_launch_prepropagation_uses_the_exact_operator(radial_case):
         rtol=8 * EPS,
         atol=0,
     )
-
-
-def test_a_radial_run_keeps_the_general_kernel_regime(radial_case):
-    """The lower modal kernel cutoff was measured on fibre transforms only.
-
-    Taking "not Cartesian" for "fibre" would give a radial run with more than one node
-    the 262 144-element modal cutoff that no radial measurement backs; the fibre
-    policies are keyed on the absence of a spatial geometry instead.
-    """
-    grid, space, pulse = radial_case
-    problem = assemble(
-        grid,
-        None,
-        [],
-        pulse.build(grid, space, medium=SpatialMedium()),
-        spatial_grid=space,
-        medium=SpatialMedium(),
-        controller=PIController(rtol=1e-8, atol=1e-14),
-        save_planes=[grid.length],
-        dz_max=grid.length,
-        dz_init=grid.length,
-    )
-    assert problem.transform.geometry is not None
-    assert problem.transform.n_nodes > 1
-    backend = NumbaCpuBackend(problem, grid=grid)
-    try:
-        metadata = backend.metadata()
-    finally:
-        backend.close()
-    assert metadata["kernel_regime_elements"] == fft.REGIME_ELEMENTS
-    assert metadata["kernel_regime_elements"] != fft.MODAL_REGIME_ELEMENTS
-    assert metadata["plasma_fraction_reuse"] is False

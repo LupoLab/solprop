@@ -152,7 +152,7 @@ def refuse_unsupported(problem: KernelProblem) -> None:
         raise BackendError(
             "mlx computes in binary32 only, and Apple GPUs have no binary64 "
             "arithmetic: it refuses precision='double'; use precision='single', or a "
-            "binary64 backend (native, numba_cpu, numpy_ref)"
+            "binary64 backend (native, numpy_ref)"
         )
     stepper = problem.stepper
     refusals = [

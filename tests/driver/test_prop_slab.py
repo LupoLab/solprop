@@ -85,7 +85,7 @@ GRID = EnvelopeGrid.from_limits(LENGTH, 800e-9, (650e-9, 1000e-9), 1.2e-12)
 COLLAR = absorber(GRID, boundary_length=1.0e3)
 """A collar a million times weaker than the default, present but inert (ADR-025)."""
 
-BACKENDS = ["numpy_ref", "numba_cpu"]
+BACKENDS = ["numpy_ref"]
 if importlib.util.find_spec("solprop_native") is not None:
     BACKENDS.append("native")
 

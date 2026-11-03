@@ -10,7 +10,8 @@ one direction, a planar guide resolved across its width, a weak band calibrated 
 the low-storage march, a four-wave-mixing delay scan run through one backend with
 statistics-only planes, far-field spectra collected through apertures in a mask
 plane, a beam prepared by Kerr self-focusing in a gas gap and coupled into a
-capillary, and a transverse window sized with the boundary monitor.
+capillary, a transverse window sized with the boundary monitor, and a radial beam
+under the Kerr effect built from plain objects.
 
 For the full filament and crossing-beam lessons, begin with the
 :doc:`/introduction/index`.
@@ -80,7 +81,7 @@ For the full filament and crossing-beam lessons, begin with the
 
 .. raw:: html
 
-    <div class="sphx-glr-thumbcontainer" tooltip="The hybrid planar transform: the slab modes of a 127 um argon-filled gap (Akturk et al. 2009) in x, and a periodic, collared y axis. Unlike the slab uniform in y of sphx_glr_auto_tutorials_waveguides_plot_08_planar.py, the beam here has a finite height, so the run integrates over y and reports energy in J, and the model can describe diffraction, whole-beam self-focusing and modulational instability in y, subject to the retained modes, grid, boundary and response assumptions. A 1 mJ, 100 fs pulse (the incident beam&#x27;s physical energy in the argon fill), Gaussian in both directions (``w_x = 0.735a`` projected onto TE1, TE3 and TE5; w_y = 0.5 mm), propagates 10 cm with the Kerr effect under the step controller; the run takes seconds on numpy_ref, the reference backend. numba_cpu and the native backend execute the geometry too.">
+    <div class="sphx-glr-thumbcontainer" tooltip="The hybrid planar transform: the slab modes of a 127 um argon-filled gap (Akturk et al. 2009) in x, and a periodic, collared y axis. Unlike the slab uniform in y of sphx_glr_auto_tutorials_waveguides_plot_08_planar.py, the beam here has a finite height, so the run integrates over y and reports energy in J, and the model can describe diffraction, whole-beam self-focusing and modulational instability in y, subject to the retained modes, grid, boundary and response assumptions. A 1 mJ, 100 fs pulse (the incident beam&#x27;s physical energy in the argon fill), Gaussian in both directions (``w_x = 0.735a`` projected onto TE1, TE3 and TE5; w_y = 0.5 mm), propagates 10 cm with the Kerr effect under the step controller; the run takes seconds.">
 
 .. only:: html
 
@@ -180,6 +181,23 @@ For the full filament and crossing-beam lessons, begin with the
     </div>
 
 
+.. raw:: html
+
+    <div class="sphx-glr-thumbcontainer" tooltip="A collimated 800 nm, 30 fs beam of 1 mm waist and 0.2 mJ, in 1 bar of argon, on a radial (Hankel) grid, below the critical power for self-focusing. Over 50 cm the Kerr lens offsets about half of the beam&#x27;s diffraction: its second-moment radius grows by 0.45 %, where diffraction alone (a Rayleigh length of 3.9 m) gives 0.81 %. The run is a plain prop_radial, every argument an object a recipe writes as a table, and it is the call the radial route&#x27;s example recipe mirrors (``Recipe.example(&quot;radial_kerr&quot;)``).">
+
+.. only:: html
+
+  .. image:: /auto_tutorials/free_space/images/thumb/sphx_glr_plot_10_radial_kerr_thumb.png
+    :alt:
+
+  :doc:`/auto_tutorials/free_space/plot_10_radial_kerr`
+
+.. raw:: html
+
+      <div class="sphx-glr-thumbnail-title">A radially symmetric beam under the Kerr effect</div>
+    </div>
+
+
 .. thumbnail-parent-div-close
 
 .. raw:: html
@@ -199,4 +217,5 @@ For the full filament and crossing-beam lessons, begin with the
    /auto_tutorials/free_space/plot_07_far_field_statistics
    /auto_tutorials/free_space/plot_08_radial_capillary_coupling
    /auto_tutorials/free_space/plot_09_transverse_window
+   /auto_tutorials/free_space/plot_10_radial_kerr
 

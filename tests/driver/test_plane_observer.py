@@ -25,7 +25,6 @@ LENGTH = 0.01
 N_SAVE = 5
 BACKENDS = [
     "numpy_ref",
-    "numba_cpu",
     pytest.param(
         "native",
         marks=pytest.mark.skipif(

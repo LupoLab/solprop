@@ -24,7 +24,7 @@ machine a run has to itself.
 So, before the core loads the runtime, the import sets ``OMP_WAIT_POLICY=passive``,
 which both runtimes honour (LLVM's then sets its block time to zero). The setting stays
 in the environment, so that a runtime that reads it later (LLVM's, at its first
-parallel region; Numba's) and a solprop worker process wait alike. Any of
+parallel region) and a solprop worker process wait alike. Any of
 ``OMP_WAIT_POLICY``, ``GOMP_SPINCOUNT`` and ``KMP_BLOCKTIME`` already set is the user's
 choice, and nothing is changed.
 """

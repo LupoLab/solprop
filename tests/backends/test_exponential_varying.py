@@ -19,9 +19,8 @@ import math
 import numpy as np
 import pytest
 
-from solprop.backends import available
+from backends.conftest import EQUIVALENCE_BACKENDS
 from solprop.backends.multistep import AdamsMarch
-from solprop.backends.numba_cpu import NumbaCpuBackend
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.driver.simulation import Simulation
 from solprop.gasflow import steady_fill
@@ -32,6 +31,8 @@ from solprop.translate.chebyshev import build
 from solprop.translate.linop import delta_phi, phi_rate
 
 pytestmark = pytest.mark.medium
+
+COMPILED: dict[str, type] = dict(EQUIVALENCE_BACKENDS)
 
 EXPONENTIAL = Multistep(formulation="exponential")
 LENGTH = 0.02
@@ -225,13 +226,6 @@ def test_dense_observation_matches_landing():
     assert error < 1e-6, error
 
 
-COMPILED: dict[str, type] = {"numba_cpu": NumbaCpuBackend}
-if "native" in available():
-    from solprop_native import NativeBackend  # pyright: ignore[reportMissingImports]
-
-    COMPILED["native"] = NativeBackend
-
-
 @pytest.mark.parametrize("backend_name", sorted(COMPILED))
 def test_a_compiled_backend_follows_the_reference(backend_name):
     reference, first, steps = march(gradient())
@@ -265,35 +259,40 @@ def _tabulated(problem):
     return dataclasses.replace(problem, linear=table)
 
 
+def _table_field(candidate, simulation, backend_class):
+    """Land on every save plane of `candidate` and return the last field."""
+    backend = backend_class(candidate, grid=simulation.grid, modes=simulation.modes)
+    try:
+        backend.set_initial(candidate.initial.field0, None)
+        for position in candidate.stepper.save_planes:
+            backend.propagate_to(float(position))
+        return backend.observe().require_field()
+    finally:
+        backend.close()
+
+
 def test_a_z_table_steps_as_the_expansion_it_tabulates():
     simulation = gradient()
     problem = simulation.translate()
     tabulated = _tabulated(problem)
     assert tabulated.linear.phi_representation == "table"
-    fields = {}
-    for name, candidate, backend_class in (
-        ("expansion", problem, NumpyRefBackend),
-        ("table", tabulated, NumpyRefBackend),
-        ("table, numba_cpu", tabulated, NumbaCpuBackend),
-    ):
-        backend = backend_class(candidate, grid=simulation.grid, modes=simulation.modes)
-        try:
-            backend.set_initial(candidate.initial.field0, None)
-            for position in candidate.stepper.save_planes:
-                backend.propagate_to(float(position))
-            fields[name] = backend.observe().require_field()
-        finally:
-            backend.close()
-    scale = np.linalg.norm(fields["expansion"])
+    expansion = _table_field(problem, simulation, NumpyRefBackend)
+    table = _table_field(tabulated, simulation, NumpyRefBackend)
     # The table resolves Phi to 1e-11, its rate to what that implies; the run's own
     # tolerance is 1e-8: measured below 1e-7.
-    assert np.linalg.norm(fields["table"] - fields["expansion"]) / scale < 1e-6
-    # numba_cpu evaluates the table through its own host evaluator (a reused buffer,
-    # which the march copies): the reference's trajectory to rounding.
-    peak = np.max(np.abs(fields["table"]))
-    np.testing.assert_allclose(
-        fields["table, numba_cpu"], fields["table"], rtol=0, atol=1e-9 * peak
-    )
+    assert np.linalg.norm(table - expansion) / np.linalg.norm(expansion) < 1e-6
+
+
+@pytest.mark.parametrize("backend_name", sorted(COMPILED))
+def test_a_compiled_backend_steps_a_z_table_as_the_reference(backend_name):
+    simulation = gradient()
+    tabulated = _tabulated(simulation.translate())
+    reference = _table_field(tabulated, simulation, NumpyRefBackend)
+    actual = _table_field(tabulated, simulation, COMPILED[backend_name])
+    # A compiled backend evaluates the table through its own evaluator: the reference's
+    # trajectory to rounding.
+    peak = np.max(np.abs(reference))
+    np.testing.assert_allclose(actual, reference, rtol=0, atol=1e-9 * peak)
 
 
 def test_an_interior_hard_kink_restarts_the_history():

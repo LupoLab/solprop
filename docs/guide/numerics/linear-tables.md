@@ -86,7 +86,7 @@ path there is.
 The imaginary part of $\Phi$ is also the unitary phase that advances the shot-noise field
 ({doc}`../media/noise`), so the same table serves both.
 
-Every CPU backend evaluates the table. `numpy_ref` and `numba_cpu` run the pass on the
+Every CPU backend evaluates the table. `numpy_ref` runs the pass on the
 host, for each stage's two ends. The native backend's CPU build holds the coefficients in
 its own memory from construction, and before each trial evaluates the table at the
 trial's distinct positions (the step's start, its stage nodes and its end) into slots of

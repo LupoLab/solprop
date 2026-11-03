@@ -6,7 +6,7 @@ the git tag ([SEP 29](seps/archive/sep-0029-compiled-backend-distribution.md)):
 - **`solprop`**, pure Python: a source distribution and one universal wheel.
 - **`solprop-native`**, the compiled backend built from `native/`: **wheels only**, one
   per supported platform. No source distribution is published, so that where no wheel
-  matches, `pip install "solprop[native]"` fails to resolve instead of starting a C++
+  matches, `pip install solprop` fails to resolve instead of starting a C++
   build; source builds are made from the repository
   ([Building the native backend](../guide/performance/building-native.md)).
 
@@ -90,46 +90,40 @@ checkout and run, in order:
    BLAS and OpenMP libraries from inside the wheel, and carries their licences; on Arm,
    both precisions of its FFTW carry the NEON codelets;
 2. `python -I -m solprop_native`: the build record;
-3. `python -I native/ci/coexistence.py`: NumPy, SciPy, pyFFTW and Numba imported before
+3. `python -I native/ci/coexistence.py`: NumPy and SciPy imported before
    and after `solprop_native`, each order in a fresh process, every package's thread
-   pool started, and a short propagation run on the native backend, on `numba_cpu` and on
+   pool started, and a short propagation run on the native backend, on `numpy_ref` and on
    the native backend again in the same process;
 4. `uv run --no-sync poe test` with `SOLPROP_TEST_BACKEND=native`: solprop's default
    lane on the native backend. It runs a second time on Linux and on Windows x64 with the
-   x86-64-v2 build forced. On Windows on Arm the test job does not run yet, since the suite
-   imports `numba_cpu` and pyFFTW has no wheel there; the build job's smoke test
-   qualifies that wheel.
+   x86-64-v2 build forced.
 
 On Linux x86-64, the `cpu-floor` job runs the wheel under Intel's Software Development
 Emulator: the smoke test on a Haswell, which loads the x86-64-v3 build; a Nehalem (no AVX)
 and a Sandy Bridge (AVX without AVX2, FMA or BMI), which load the x86-64-v2 build, with
 `backend="auto"` resolving to `native` and no warning; and a refusal before any native code
 runs on a Penryn (no SSE4.2). It runs when the repository variables `SDE_URL` and
-`SDE_SHA256` name an SDE release. The other platforms' checks (Windows through
+`SDE_SHA256` name an SDE release, and publishing waits for it then, as it always waits for
+`minimum-systems`. The other platforms' checks (Windows through
 `IsProcessorFeaturePresent`, Linux aarch64 through `/proc/cpuinfo`'s `Features`) are
 unit-tested with stand-in processors in `native/tests/test_cpu_baseline.py`; no CI job
 runs them on a processor below the baseline.
 
-**macOS and pyFFTW.** pyFFTW's macOS wheel carries its own `libomp`, which it initialises
+**macOS and pyFFTW.** solprop no longer uses pyFFTW, but a script or another package may.
+pyFFTW's macOS wheel carries its own `libomp`, which it initialises
 when it is imported. LLVM's OpenMP runtime refuses, or crashes on, a second initialised
 copy, so the native package raises at import when pyFFTW is already loaded
-([OpenMP runtimes and pyFFTW](../guide/performance/building-native.md#openmp-runtimes-and-pyfftw)).
-solprop imports both backends lazily, and on macOS its `numba_cpu` backend imports the
-native package, when installed, before pyFFTW, so a script that only calls solprop can
-run both backends in either order; only a script that imports pyFFTW itself first meets
-the refusal, whose message says what to do.
-`coexistence.py` expects that refusal on macOS; `--bypass-guard` adds a report-only
-scenario that hides pyFFTW from the guard, to test whether it is still needed.
+([OpenMP runtimes](../guide/performance/building-native.md#openmp-runtimes)), with a message
+that says what to do. No CI job exercises that guard on a real pyFFTW any longer.
 
 **solprop's distributions.** The `solprop-dist` job builds solprop's sdist and wheel and
-installs each from the file in a fresh environment, outside the checkout: the wheel
-alone, then the wheel and the sdist each with the `native` extra beside this run's
+installs each from the file in a fresh environment, outside the checkout, beside this run's
 Linux x86-64 wheel. In each it runs the check of the
 [installation page](../introduction/installation.md#checking-the-installation): solprop
 imports at the distributions' version, which on a release tag must be the tag's, and
-`backend="auto"` resolves to `numba_cpu` without the extra and to `native` with it.
-The extra pins solprop-native at solprop's own version (`hatch_build.py`), so two
-distributions built at different versions fail here, before anything is published.
+`backend="auto"` resolves to `native`.
+solprop's built metadata pins solprop-native at solprop's own version (`hatch_build.py`), so
+two distributions built at different versions fail here, before anything is published.
 
 ## Making a release
 
@@ -250,14 +244,14 @@ Then, for every release:
 2. Publishing, through PyPI's trusted publishing, then waits for each environment's
    reviewer. `publish-native` uploads solprop-native's wheels from `pypi-native` first;
    `publish` uploads solprop's sdist and wheel from `pypi` only once every native wheel
-   is up, since `solprop[native]` requires solprop-native at the same version. If an
+   is up, since solprop requires solprop-native at the same version. If an
    upload fails partway, re-run the failed jobs: they upload the same files, and PyPI
    accepts a file identical to one it holds. It refuses different files under a name it
    has seen, so a release that needs a change takes a new version.
 3. Wait for `published-install`, which starts after both publish jobs succeed. On
    Linux x86-64, Linux aarch64, macOS arm64, Windows x64 and Windows on Arm it creates a
    fresh CPython 3.14 environment outside the checkout and uses pip to resolve and install
-   `solprop[native]==X.Y.Z` from PyPI. It checks both distributions' versions,
+   `solprop==X.Y.Z` from PyPI. It checks both distributions' versions,
    `pip check` and that `backend="auto"` resolves to `native`. It uses no local
    distribution, dependency lock or cached environment. Its per-platform artifacts
    retain the install report, logs, resolved versions and platform information,

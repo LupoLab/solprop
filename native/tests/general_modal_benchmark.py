@@ -13,7 +13,7 @@ OMP_PROC_BIND=false python tests/general_modal_benchmark.py``.
 It lives beside the tests, as the thread probes do, because it propagates their cases.
 """
 
-# ruff: noqa: I001 -- Kokkos must load before solprop imports pyFFTW on macOS.
+# ruff: noqa: I001 -- Kokkos loads first, before any other OpenMP runtime on macOS.
 
 from __future__ import annotations
 

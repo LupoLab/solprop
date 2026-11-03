@@ -4,9 +4,9 @@
 
 """The compiled general modal route against the reference: cases and bounds.
 
-Shared by ``tests/backends/test_numba_general_modal.py`` and the general modal
-benchmark, so that the bound a test asserts and the bound the benchmark records are one
-function.
+Shared by the compiled parity tests (``tests/driver/test_native_coupled_flow.py``,
+``tests/backends/test_native_low_storage.py``) and the general modal benchmark, so that
+the bound a test asserts and the bound the benchmark records are one function.
 
 **The bound, written before any measurement.** One stage's source is a chain of
 roundings whose count is known: the synthesis sums ``M`` channel products, the
@@ -120,7 +120,7 @@ def split_guide_with_kerr(grid):
     """Return the split TE01/TM01 guide in its own coordinates, with a Kerr core.
 
     The split block (``modal_provider_cases``) without its declared rotation, so without
-    a coupled flow: the part of that route ``numba_cpu`` executes.
+    a coupled flow.
     """
     provider = make_provider(
         radius=6e-6,

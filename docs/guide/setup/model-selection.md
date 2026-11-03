@@ -202,23 +202,25 @@ run; nothing falls back. "Qualified" in the GPU column means the parity and
 repeatability tests pass on a data-centre NVIDIA GPU (CUDA) and an AMD Instinct GPU
 (HIP).
 
-| | `numpy_ref` | `numba_cpu` | native CPU | native GPU (CUDA/HIP) |
-|---|---|---|---|---|
-| general modal route (all its responses, declared bases, a split block as a coupled flow) | yes | yes | yes | qualified |
-| a moving solid guide (moving maps beside the frozen-residual flow) | yes | yes | yes | qualified |
-| coherent wall, scalar and TE/TM, straight, tapered or in a gradient (`method="frozen_residual"`), and the taper coupling of a multimode capillary without a wall | yes | yes | yes | qualified |
-| `CoherentWall(method="cf4")` | yes | refused by name | refused by name | refused by name |
-| a varying guide whose linear operator or nonlinear prefactor takes the general z table rather than an expansion in the medium's parameters (e.g. a moving dispersion, the adiabatic opt-out `taper_coupling=False` of a multimode taper whose expansion does not resolve, or a mixture of three or more species on independent density paths) | yes | yes | yes | refused by name |
-| a hollow planar (slab) set, constant gap or tapered, mode-averaged or multimode | yes | yes | yes | runs as any mode set; not separately qualified |
-| a line free space uniform in y (`LineGrid`, per metre of y) | yes | yes | yes | qualified (CUDA) |
-| a planar guide resolved in y (`PlanarGrid`) | yes | yes | yes | not qualified |
-| a frequency-dependent electronic response, `MaterialSelection(electronic="symmetric-kerr")` or `"gas-polynomial"` ([model](../media/dispersive-kerr.md)), on every route but the GNLSE | yes | yes | yes | qualified |
-| the `input` noise model beside a coupled flow (a coherent wall, the taper coupling, a split block, a moving guide) | yes | yes | admitted, not yet qualified | not qualified |
-| the `modified` noise model beside a coupled flow; a coupled flow in a lockstep batch | refused | refused | refused | refused |
+| | `numpy_ref` | native CPU | native GPU (CUDA/HIP) |
+|---|---|---|---|
+| general modal route (all its responses, declared bases, a split block as a coupled flow) | yes | yes | qualified |
+| a moving solid guide (moving maps beside the frozen-residual flow) | yes | yes | qualified |
+| coherent wall, scalar and TE/TM, straight, tapered or in a gradient (`method="frozen_residual"`), and the taper coupling of a multimode capillary without a wall | yes | yes | qualified |
+| `CoherentWall(method="cf4")` | yes | refused by name | refused by name |
+| a varying guide whose linear operator or nonlinear prefactor takes the general z table rather than an expansion in the medium's parameters (e.g. a moving dispersion, the adiabatic opt-out `taper_coupling=False` of a multimode taper whose expansion does not resolve, or a mixture of three or more species on independent density paths) | yes | yes | refused by name |
+| a hollow planar (slab) set, constant gap or tapered, mode-averaged or multimode | yes | yes | runs as any mode set; not separately qualified |
+| a line free space uniform in y (`LineGrid`, per metre of y) | yes | yes | qualified (CUDA) |
+| a planar guide resolved in y (`PlanarGrid`) | yes | yes | not qualified |
+| a frequency-dependent electronic response, `MaterialSelection(electronic="symmetric-kerr")` or `"gas-polynomial"` ([model](../media/dispersive-kerr.md)), on every route but the GNLSE | yes | yes | qualified |
+| the `input` noise model beside a coupled flow (a coherent wall, the taper coupling, a split block, a moving guide) | yes | admitted, not yet qualified | not qualified |
+| the `modified` noise model beside a coupled flow; a coupled flow in a lockstep batch | refused | refused | refused |
 
-`backend="auto"`, the default, is `native` where it is installed and `numba_cpu`
-otherwise, and it **never falls back**: a problem the native backend refuses is refused, by name,
-and you choose `numba_cpu` for it explicitly. Whether the native backend runs on the CPU or on a GPU
+`backend="auto"`, the default, is `native`, and it **never falls back**: it refuses if the
+native package is missing or the processor is below its minimum, and a problem the native
+backend refuses is refused, by name, and you choose `numpy_ref` for it explicitly. Its two
+exceptions are the TDSE response, which it runs on `numpy_ref`, and single precision, which it
+runs on `mlx` ([which backend a run uses](../performance/backends.md#which-backend-a-run-uses)). Whether the native backend runs on the CPU or on a GPU
 is decided by how it was built. The [backends chapter](../performance/backends.md) compares the
 backends and budgets memory; [the native backend](../performance/native.md) says how to build it,
 locally or for a GPU; [performance](../performance/tuning.md) covers threads and tuning. Every

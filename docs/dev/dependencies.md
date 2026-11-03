@@ -18,15 +18,14 @@ need no exception for them.
 
 | package | purpose | notes |
 |---|---|---|
+| solprop-native, at solprop's own version | the backend solprop runs on ([SEP 43](seps/archive/sep-0043-retire-numba-cpu.md)) | [below](#the-native-backend-package); no environment markers, so solprop's supported platforms are the ones it installs on |
 | numpy ≥ 2.5 | arrays | the array type at every layer; the APIs used are NumPy 2.0's (`concat`, `trapezoid`, `copy=`) and 2.3.2 is the first release with 3.14 wheels on all three platforms, but under 2.3 and 2.4 the free-space reference runs produce NaN and about 200 free-space and dispersive tests fail; the cause is not yet identified, so the floor stays at 2.5 until it is |
 | scipy ≥ 1.18 | `scipy.fft` (reference backend), `special`, `optimize`, `interpolate`, `integrate.quad_vec`, `signal`, `constants` | root finding, special functions, interpolation and adaptive quadrature throughout; the newest API used is `signal.ShortTimeFFT` (1.12), but optmat requires 1.18, the release its stored fits reproduce from |
 | matplotlib ≥ 3.10.7 | plotting | earlier 3.10 releases call pyparsing APIs that current pyparsing deprecates, which the test suite's warnings-as-errors refuses |
 | h5py ≥ 3.15 | HDF5 output | first release with 3.14 wheels on all three platforms |
-| numba ≥ 0.67 | CPU kernels (ADR-002, ADR-023) | the first release that supports NumPy 2.5 (0.63 is the first with Python 3.14, but caps NumPy below 2.4, and 0.64–0.66 below 2.5); the internals `solprop._numba_cache` uses were checked down to 0.63; `cache=True` except for parallel and dispatcher-capturing closures, and SEP 25's floating-point licence (contraction by default, reassociation per kernel, nothing else) ([backends.md §3.2](backends.md)) |
-| pyfftw ≥ 0.15.1 | FFTW plans executed in place (ADR-023) | wisdom handled explicitly; 0.15.1 has the 3.14 wheels (none for Windows on Arm) |
 | optmat[gas] ≥ 0.9.1 | built-in material models: gas dispersion, Kerr, equation of state and transport; solids; gas and silica Raman responses; gas ionisation rates ([SEP 3](seps/archive/sep-0003-optmat-materials.md)) | the same maintainers' curated-data package; never imported at `import solprop`, since its registries take about a second to import; 0.9 reads only the data a model needs and says which gases each rate model covers |
 | threadpoolctl ≥ 3.1 | inspect and control the backend-owned BLAS pool | pool provenance and limits are recorded per run |
-| jaxtyping ≥ 0.3.11 | array annotations, evaluated at import time in every module | pure Python; the checker (beartype) is dev-only; under earlier releases the test session's import hook wraps the compiled kernels, which numba then cannot compile or cache |
+| jaxtyping ≥ 0.3.11 | array annotations, evaluated at import time in every module | pure Python; the checker (beartype) is dev-only; the floor dates from the removed `numba_cpu` backend, whose compiled kernels earlier releases' import hook wrapped; it has not been re-tested lower since |
 | tqdm ≥ 4.67 | the progress bar (`solprop.log.BarReporter`) | pure Python; imported when the first bar is drawn, never at `import solprop`; `ipywidgets` is optional for the notebook widget and is not a dependency |
 | tomli-w ≥ 1.0 | writes recipes as TOML (`solprop.recipe`; [SEP 41](seps/archive/sep-0041-recipes-and-front-ends.md), Q6) | pure Python, MIT-licensed, no dependencies of its own; `tomllib` (standard library) reads them; it writes no comments, so an edited recipe loses its own; 1.0 already writes every form a recipe uses |
 
@@ -60,8 +59,12 @@ a pull request that runs the GPU lane and the arithmetic probes (Q9). Nothing ou
 
 ## The native backend package
 
-`solprop-native` is the repository's second distribution, built from `native/` and
-installed through solprop's `native` extra, which pins it to solprop's own version. Its
+`solprop-native` is the repository's second distribution, built from `native/` and a
+required dependency of solprop. `pyproject.toml` lists the bare name, so uv resolves it to
+the workspace member, and `hatch_build.py` writes solprop's own version into the built
+metadata as an exact pin. On a platform with no matching wheel the installer's resolution
+error is the answer, which [the installation page](../introduction/installation.md)
+explains. Its
 native build pins and fetches Kokkos 5.2.1, KokkosKernels 5.2.0 (BLAS component only) and
 Kokkos-FFT 2.0.0 and uses nanobind. A local build (the default) links the system
 Accelerate, oneAPI's MKL or OpenBLAS through KokkosKernels, whichever it finds, and

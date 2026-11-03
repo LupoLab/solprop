@@ -71,8 +71,8 @@ In scripts and library code, import from the home modules listed below.
 | {mod}`solprop.scan` | the command-line launcher of a scan script |
 
 **Internals.** {mod}`solprop.translate` turns the physics objects into the kernel problem
-a backend executes, and {mod}`solprop.backends` holds the in-tree backends (`numpy_ref`,
-`numba_cpu`), the registry that selects a backend by name and the memory estimate. They
+a backend executes, and {mod}`solprop.backends` holds the in-tree reference backend (`numpy_ref`),
+the registry that selects a backend by name and the memory estimate. They
 are documented for developers and backend authors rather than for everyday use; the
 design behind both is in the [developer documentation](../dev/index.md).
 

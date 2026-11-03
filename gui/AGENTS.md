@@ -37,7 +37,7 @@ them is corrected.
 
 | Task | Command (from the repository root) |
 |---|---|
-| Sync | `uv sync --extra gui --group gui-test` (add `--extra native` to keep the native backend: a sync removes any extra it does not name) |
+| Sync | `uv sync --extra gui --group gui-test`, which also builds the native backend (a sync removes any extra it does not name) |
 | Run the window | `uv run solprop-gui` |
 | The front end's gate | `uv run poe check-gui`: types (`gui-types`), docstrings (`gui-docstrings`) and tests (`gui-test`, offscreen, with coverage) |
 | Lint, format, spelling, licences | the repository's: `uv run ruff check .`, `uv run ruff format .`, `uv run codespell`, `uv run poe reuse` |

@@ -48,12 +48,15 @@ def record_bound(simulation, state) -> float:
     return bound
 
 
-def check_state(ndarrays_regression, state, bound: float) -> None:
+def check_state(
+    ndarrays_regression, state, bound: float, *, basename: str | None = None
+) -> None:
     """Compare a complex final state with its record, within a relative `bound`.
 
     `bound` is normwise, relative to the state's norm; every element is then within
     ``bound ||state||`` of its record, which is the elementwise tolerance asked of
-    ``ndarrays_regression``.
+    ``ndarrays_regression``. `basename` names another test's record to be held to, for a
+    backend that keeps none of its own; by default the record is the calling test's.
     """
     state = np.asarray(state, dtype=np.complex128)
     tolerance = {"rtol": 0.0, "atol": bound * float(np.linalg.norm(state))}
@@ -62,5 +65,6 @@ def check_state(ndarrays_regression, state, bound: float) -> None:
             "real": np.ascontiguousarray(state.real),
             "imag": np.ascontiguousarray(state.imag),
         },
+        basename=basename,
         default_tolerance=tolerance,
     )

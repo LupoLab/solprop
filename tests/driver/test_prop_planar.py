@@ -4,9 +4,8 @@
 
 """The hybrid planar front end: ``prop_planar`` and ``Simulation.from_planar``.
 
-Every run is at most ten fixed steps of an argon-filled gap on ``numpy_ref``;
-``numba_cpu`` (``tests/backends/test_numba_planar.py``) and Kokkos
-(``tests/backends/test_planar_native.py``) execute it as well.
+Every run is at most ten fixed steps of an argon-filled gap on ``numpy_ref``; Kokkos
+(``tests/backends/test_planar_native.py``) executes it as well.
 Energies are in J: the geometry integrates over y.
 """
 

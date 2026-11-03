@@ -35,7 +35,7 @@ the fitted helium and silica ranges, so MaterialRangeWarning notices are expecte
 Helium has no Raman response; plasma and third-harmonic generation are explicitly
 disabled here.
 
-.. GENERATED FROM PYTHON SOURCE LINES 23-75
+.. GENERATED FROM PYTHON SOURCE LINES 23-74
 
 .. code-block:: Python
 
@@ -73,7 +73,6 @@ disabled here.
             plasma=False,
             thg=False,
             n_save=3,
-            backend="numpy_ref",
             seed=20261027,
         )
         simulation.translate()
@@ -98,12 +97,12 @@ disabled here.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 76-78
+.. GENERATED FROM PYTHON SOURCE LINES 75-77
 
 Local is explicit so running this gallery never starts processes. In a standalone
 script, select Pool under the usual main guard to reuse one base per worker.
 
-.. GENERATED FROM PYTHON SOURCE LINES 78-105
+.. GENERATED FROM PYTHON SOURCE LINES 77-104
 
 .. code-block:: Python
 
@@ -146,7 +145,7 @@ script, select Pool under the usual main guard to reuse one base per worker.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 106-112
+.. GENERATED FROM PYTHON SOURCE LINES 105-111
 
 Related reading
 ---------------
@@ -158,7 +157,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 1.019 seconds)
+   **Total running time of the script:** (0 minutes 4.584 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_basics_plot_05_pressure_energy_scan.py:

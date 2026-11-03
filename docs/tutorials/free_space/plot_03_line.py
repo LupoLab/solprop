@@ -70,7 +70,6 @@ settings = SimulationSettings(
     dz_init=length / 10,
     dz_max=length,
     schedule=FixedSchedule.uniform(0.0, length, length / 10),
-    backend="numpy_ref",
 )
 figure, axis = plt.subplots(figsize=(6, 4))
 for fraction, colour in ((1.0, "C0"), (0.5, "C1")):

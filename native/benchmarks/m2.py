@@ -4,7 +4,7 @@
 
 """Measure reduced M2 propagation in isolated backend/thread processes."""
 
-# ruff: noqa: I001 -- Kokkos must load before solprop imports pyFFTW on macOS.
+# ruff: noqa: I001 -- Kokkos loads first, before any other OpenMP runtime on macOS.
 
 from __future__ import annotations
 
@@ -125,8 +125,7 @@ def _worker(
     trial_count: int,
 ) -> None:
     if backend_name == "native":
-        # The extension and pyFFTW use one OpenMP runtime on macOS only when Kokkos
-        # loads first. This is also the order documented for local applications.
+        # Kokkos loads first, the order documented for local applications.
         __import__("solprop_native")
 
     import numpy as np
@@ -213,9 +212,7 @@ def _worker(
         backend.close()
 
     accepted = attempts - rejected
-    recorded_threads = _metadata_int(
-        metadata, "thread_count", _metadata_int(metadata, "numba_threads", 0)
-    )
+    recorded_threads = _metadata_int(metadata, "thread_count", 0)
     recorded_fftw_threads = _metadata_int(metadata, "fftw_threads", recorded_threads)
     blas_backend = str(metadata.get("blas_backend", "not applicable"))
     if blas_backend == "Accelerate":
@@ -298,12 +295,9 @@ def _run(
     environment = os.environ.copy()
     environment.update(
         {
-            "NUMBA_NUM_THREADS": str(threads),
             "OPENBLAS_NUM_THREADS": str(blas_threads),
             "SOLPROP_BLAS_THREADS": str(blas_threads),
-            "SOLPROP_FFTW_THREADS": str(threads),
             "SOLPROP_NATIVE_THREADS": str(threads),
-            "SOLPROP_NUMBA_THREADS": str(threads),
         }
     )
     environment.setdefault("OMP_DYNAMIC", "FALSE")
@@ -335,7 +329,7 @@ def _run(
 def main() -> None:
     """Run isolated workers and emit median reduced-M2 JSON records."""
     parser = argparse.ArgumentParser()
-    parser.add_argument("--worker", choices=("numba_cpu", "native"))
+    parser.add_argument("--worker", choices=("numpy_ref", "native"))
     parser.add_argument(
         "--case", choices=("m2_reduced", "m2_full"), default="m2_reduced"
     )
@@ -347,7 +341,7 @@ def main() -> None:
         type=Path,
         help="worker-only owning field output, written after the timed interval",
     )
-    parser.add_argument("--backends", type=_parse_csv, default=["numba_cpu", "native"])
+    parser.add_argument("--backends", type=_parse_csv, default=["numpy_ref", "native"])
     parser.add_argument("--threads", type=_parse_csv, default=["1", "8"])
     parser.add_argument("--blas-threads", type=int, default=1)
     parser.add_argument("--repeats", type=int, default=1)

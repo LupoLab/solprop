@@ -462,7 +462,7 @@ history: explicit `resume_history=False` is refused, and a requested snapshot ke
 history even above the automatic retention-size cutoff. Every backend's Adams history
 is supported, the native backend's resident one included: its engine copies the
 history's rows to the host for the snapshot. Snapshots are qualified by fault
-injection and fresh-process resumes on NumPy and Numba, on native CPU Adams and
+injection and fresh-process resumes on NumPy, on native CPU Adams and
 Runge–Kutta runs and on short native TDSE windows; resuming a haCC snapshot in a fresh
 process has not been qualified.
 
@@ -491,7 +491,6 @@ simulation = Simulation.from_gnlse(
     width=100e-15,
     peak_power=9.8,
     shape="sech",
-    backend="numpy_ref",
     step_planes=1,
     dz_init=1e-4,
     dz_max=1e-4,

@@ -31,8 +31,6 @@ from solprop.backends.multistep import (
     CoupledExponentialKernels,
     coupled_moments,
 )
-from solprop.backends.numba_cpu import NumbaCpuBackend
-from solprop.backends.numba_cpu.multistep import NumbaExponentialKernels
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.exceptions import BackendError, SolpropWarning
 from solprop.stepper.multistep import Multistep
@@ -107,11 +105,11 @@ def test_the_eigenbasis_route_matches_the_augmented_exponential():
         np.testing.assert_allclose(flow.flow_matrix, expected.flow_matrix, atol=1e-13)
 
 
-def test_the_compiled_carry_is_the_reference_s_on_and_off_the_route():
-    # Each sample's compensation carried to the step's end: the compiled pass on a
-    # block wholly on the eigenbasis route, the reference's own beside a bin off it or
-    # with no route, and in every case a sample with no flow weights (no residual
-    # term) and one of span zero (the untransported witness's, carried by nothing).
+def test_the_reference_carry_keeps_a_span_zero_sample_on_and_off_the_route():
+    # Each sample's compensation carried to the step's end, on a block wholly on the
+    # eigenbasis route, beside a bin off it and with no route, and in every case a
+    # sample with no flow weights (no residual term) and one of span zero (the
+    # untransported witness's, carried by nothing).
     rng = np.random.default_rng(18)
     generator = rng.normal(size=(2, 3, 3)) + 1j * rng.normal(size=(2, 3, 3))
     vectors, triangular = schur_blocks(np.moveaxis(generator, 0, -1))
@@ -137,17 +135,26 @@ def test_the_compiled_carry_is_the_reference_s_on_and_off_the_route():
     slots, spans = np.array([0, 1, 2]), np.array([0.5, 0.25, 0.0])
     dz = 0.3
     reference = CoupledExponentialKernels()
-    compiled = NumbaExponentialKernels().coupled()
-    # Each object's coupled passes are itself.
+    # The object's coupled passes are itself.
     assert reference.coupled() is reference
-    assert compiled.coupled() is compiled
+    # The carry written out with SciPy's matrix exponential, by no route of the
+    # kernels', so that "no route" is compared with something other than itself.
+    unrouted = np.empty_like(rates)
+    for row, span in enumerate(spans):
+        for index in range(generator.shape[0]):
+            action = expm(
+                span * (exponent[0, 0, 0, 0] * np.eye(3) + dz * generator[index])
+            )
+            term = (rates[row] - exponent / dz)[0, :, 0, index] * states[row][
+                0, :, 0, index
+            ]
+            unrouted[row, 0, :, 0, index] = action @ term
     for name, block in blocks.items():
         expected = reference.carry_coupled(exponent, dz, rows, slots, spans, block)
-        found = compiled.carry_coupled(exponent, dz, rows, slots, spans, block)
-        # The routed pass forms W f(x + h lambda) Y where the reference forms the
-        # augmented exponential: within a few hundred ulp of these O(10) rows.
-        scale = float(np.max(np.abs(expected)))
-        assert float(np.max(np.abs(found - expected))) <= 1e-13 * scale, name
+        # The route forms W f(x + h lambda) Y where its absence forms the augmented
+        # exponential: within a few hundred ulp of these O(10) rows.
+        scale = float(np.max(np.abs(unrouted)))
+        assert float(np.max(np.abs(expected - unrouted))) <= 1e-13 * scale, name
         # The span-zero sample is the compensation itself, carried by nothing.
         np.testing.assert_allclose(
             expected[2], (rates[2] - exponent / dz) * states[2], rtol=1e-15
@@ -239,7 +246,7 @@ def test_the_untransported_witness_is_for_diagonal_operators_only():
         backend.close()
 
 
-COMPILED: dict[str, type] = {"numba_cpu": NumbaCpuBackend}
+COMPILED: dict[str, type] = {}
 if "native" in available():
     from solprop_native import NativeBackend  # pyright: ignore[reportMissingImports]
 
@@ -252,14 +259,13 @@ def test_a_compiled_backend_follows_the_reference_beside_a_coupled_flow(
     backend_name, name
 ):
     # Each backend exposes the reference's frozen block and residual, and its lab-frame
-    # source runs without the flow's pipeline: numba_cpu's compiled passes and
-    # the native backend's resident ones take the same calls as the reference.
+    # source runs without the flow's pipeline: the native backend's resident passes
+    # take the same calls as the reference.
     reference, march = run(name, EXPONENTIAL, 1e-8, energy=2e-3)
     field, compiled = run(name, EXPONENTIAL, 1e-8, COMPILED[backend_name], energy=2e-3)
     assert march is not None and compiled is not None
     # Kokkos steps a coupled block in its resident engine (SEP 16 phase 6).
-    engine = type(compiled._engine).__name__
-    assert engine == ("_ResidentAdams" if backend_name == "native" else "HostHistory")
+    assert type(compiled._engine).__name__ == "_ResidentAdams"
     assert compiled.ledger.total == march.ledger.total
     scale = np.max(np.abs(reference))
     np.testing.assert_allclose(field, reference, rtol=0, atol=1e-11 * scale)

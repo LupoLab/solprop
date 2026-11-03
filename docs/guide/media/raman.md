@@ -106,7 +106,7 @@ dependence may matter earlier than the nominal single-line damping time.
 
 A problem carries Raman when a {class}`~solprop.nonlinear.raman.RamanResponse` is among
 its responses. The drivers build that response from the material, and the three routes
-below differ in their defaults. Every CPU backend (`numpy_ref`, `numba_cpu`, `native`) runs
+below differ in their defaults. Every CPU backend (`numpy_ref`, `native`) runs
 it, scalar or tensor, on field and envelope grids, and the native CUDA and HIP builds are
 qualified for it ([backends and the drive form](raman-numerics.md#backends-and-the-drive-form)).
 

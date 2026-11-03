@@ -4,8 +4,8 @@
 
 """The adapter of solprop SEP 6's dispersive response.
 
-The native response executes the layout the adapter packs (``_dispersive_payload``),
-solprop ``numba_cpu``'s ``dispersive_terms_layout``: these tests hold the layout to
+The native response executes the layout the adapter packs (``_dispersive_payload``):
+these tests hold the layout to
 the leaf (the general modal route's regions among it), the field family to the sector
 and one evaluation to solprop's reference. The full parity ladders are solprop's
 ``tests/backends/test_native_dispersive_kerr.py`` (the fused node path) and
@@ -290,8 +290,8 @@ def test_a_trial_without_the_densities_is_refused() -> None:
 def test_one_evaluation_matches_the_reference(evaluator: str, thg: bool) -> None:
     """The adapter end to end: the projected polarisation of one evaluation.
 
-    The bound is solprop's (``test_numba_dispersive_kerr.evaluation_bound``) for one
-    node: the transforms both backends take, ``8 eps log2 n_to`` each, doubled.
+    The bound, for one node: the transforms both backends take, ``8 eps log2 n_to``
+    each, doubled.
     """
     problem, grid = averaged(evaluator, thg=thg)
     transforms = 2 + (3 if evaluator == "symmetric" else 6)

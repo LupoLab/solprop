@@ -21,7 +21,6 @@ import pytest
 
 from bounds import assert_within
 from mixture_cases import AnalyticRate, mixture_case
-from solprop.backends.numba_cpu import NumbaCpuBackend
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.grid import EnvelopeGrid
 from solprop.modes import MarcatiliMode
@@ -69,11 +68,7 @@ def smooth(length, low, high):
 
 def run(backend_class, problem, grid, stop, *, stats=NAMES):
     """Propagate to `stop` and return the field, the summary, the history and stats."""
-    backend = (
-        NumbaCpuBackend(problem, grid=grid, threads=1)
-        if backend_class is NumbaCpuBackend
-        else backend_class(problem, grid=grid)
-    )
+    backend = backend_class(problem, grid=grid)
     try:
         backend.set_initial(problem.initial.field0, None)
         summary = backend.propagate_to(stop)
