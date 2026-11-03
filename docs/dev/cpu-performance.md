@@ -12,7 +12,7 @@ Timings follow the [benchmark rules](benchmarks.md#rules). They are short, bound
 windows: fresh processes, same machine, interleaved arms. Results are compared within
 SEP 25's rounding bounds, never bitwise. A ratio "against `numba_cpu`" is that backend's
 time divided by the native backend's: above 1, the native backend is faster. `numba_cpu`
-was retired by [SEP 43](seps/sep-0043-retire-numba-cpu.md); such ratios record what was
+was retired by [SEP 43](seps/archive/sep-0043-retire-numba-cpu.md); such ratios record what was
 measured while it existed.
 
 ## Build and libraries

@@ -874,7 +874,7 @@ GPU experiments or prototype tuning study were performed for this proposal.
   naming the two kinds of bound. Configuration hashes, plan and report digests and
   witness digests remain exact identity checks.
 - 2026-11-01: Tracking issue [#115](https://github.com/LupoLab/solprop/issues/115).
-- 2026-11-02: [SEP 43](sep-0043-retire-numba-cpu.md) retired `numba_cpu` (ADR-064). This
+- 2026-11-02: [SEP 43](archive/sep-0043-retire-numba-cpu.md) retired `numba_cpu` (ADR-064). This
   proposal was written before that, and its search over Numba's regimes and pools, with the
   settings it names (`SOLPROP_NUMBA_*`, `SOLPROP_FFTW_THREADS`), no longer has anything to act
   on: it needs reworking on the native backend's pools before it can be accepted.

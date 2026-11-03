@@ -179,5 +179,5 @@ wait for each other.
 
 The precompiled native wheels were proposed and qualified by
 [SEP 29](../dev/seps/archive/sep-0029-compiled-backend-distribution.md), and
-[SEP 43](../dev/seps/sep-0043-retire-numba-cpu.md) made the native backend a required
+[SEP 43](../dev/seps/archive/sep-0043-retire-numba-cpu.md) made the native backend a required
 dependency.

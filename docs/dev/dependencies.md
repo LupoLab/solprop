@@ -18,7 +18,7 @@ need no exception for them.
 
 | package | purpose | notes |
 |---|---|---|
-| solprop-native, at solprop's own version | the backend solprop runs on ([SEP 43](seps/sep-0043-retire-numba-cpu.md)) | [below](#the-native-backend-package); no environment markers, so solprop's supported platforms are the ones it installs on |
+| solprop-native, at solprop's own version | the backend solprop runs on ([SEP 43](seps/archive/sep-0043-retire-numba-cpu.md)) | [below](#the-native-backend-package); no environment markers, so solprop's supported platforms are the ones it installs on |
 | numpy ≥ 2.5 | arrays | the array type at every layer; the APIs used are NumPy 2.0's (`concat`, `trapezoid`, `copy=`) and 2.3.2 is the first release with 3.14 wheels on all three platforms, but under 2.3 and 2.4 the free-space reference runs produce NaN and about 200 free-space and dispersive tests fail; the cause is not yet identified, so the floor stays at 2.5 until it is |
 | scipy ≥ 1.18 | `scipy.fft` (reference backend), `special`, `optimize`, `interpolate`, `integrate.quad_vec`, `signal`, `constants` | root finding, special functions, interpolation and adaptive quadrature throughout; the newest API used is `signal.ShortTimeFFT` (1.12), but optmat requires 1.18, the release its stored fits reproduce from |
 | matplotlib ≥ 3.10.7 | plotting | earlier 3.10 releases call pyparsing APIs that current pyparsing deprecates, which the test suite's warnings-as-errors refuses |

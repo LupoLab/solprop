@@ -244,4 +244,4 @@ large run, for a scan of many runs and on a cluster.
 The native backend's place in this repository and its
 precompiled wheels were proposed and carried out by
 [SEP 29](../../dev/seps/archive/sep-0029-compiled-backend-distribution.md), and
-[SEP 43](../../dev/seps/sep-0043-retire-numba-cpu.md) made it a required dependency.
+[SEP 43](../../dev/seps/archive/sep-0043-retire-numba-cpu.md) made it a required dependency.

@@ -131,7 +131,7 @@ bundle to a directory outside the repository.
 `--append-history` adds one row per configuration to
 `benchmarks/history/<hardware>.csv`, which is committed. Each row names its backend,
 and rows compare only with rows of the same backend, so the `numba_cpu` rows recorded at
-0.1.0, before [SEP 43](seps/sep-0043-retire-numba-cpu.md) retired that backend, keep their own series beside the native one. It records only the whole default plan
+0.1.0, before [SEP 43](seps/archive/sep-0043-retire-numba-cpu.md) retired that backend, keep their own series beside the native one. It records only the whole default plan
 with at least three repeats, and only when:
 
 - every configuration finished, and its repeats took the same steps and reached the

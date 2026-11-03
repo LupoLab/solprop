@@ -1754,7 +1754,7 @@ Withdrawn (development-process record, not a design decision).
 
 ## ADR-064 — `numba_cpu` is retired: no Tier 2, and the documentation lane runs on the wheel
 
-- **Status:** accepted, with [SEP 43](seps/sep-0043-retire-numba-cpu.md); supersedes
+- **Status:** accepted, with [SEP 43](seps/archive/sep-0043-retire-numba-cpu.md); supersedes
   ADR-061's Tier 2 and its statement that the documentation build installs no native
   backend, removes the fallback of ADR-029, and ends ADR-023
 - **Context:** every test, route and kernel of `numba_cpu` was a second copy of what

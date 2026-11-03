@@ -5,7 +5,7 @@ indicate. A performance claim names what it measured, the build, the machine and
 result; the rules below say how to take it. The numbers in the indicative sections are
 indicative: each was measured once, on one machine, for one change. Re-measure before
 relying on any of them. Rows naming `numba_cpu` record a backend that
-[SEP 43](seps/sep-0043-retire-numba-cpu.md) retired; they can no longer be re-measured, and
+[SEP 43](seps/archive/sep-0043-retire-numba-cpu.md) retired; they can no longer be re-measured, and
 stay as what was measured.
 
 ## Where things are
@@ -148,7 +148,7 @@ most. These grids are small for a device; the ratios say nothing about large gri
 
 ### The tracking set on the release wheel, without Numba
 
-[SEP 43](seps/sep-0043-retire-numba-cpu.md)'s final tree against the history's 0.1.0 rows:
+[SEP 43](seps/archive/sep-0043-retire-numba-cpu.md)'s final tree against the history's 0.1.0 rows:
 `python -m benchmarks track` with CI's `cp314-abi3` wheel at its x86-64-v3 build, three repeats,
 passive threading, an exclusively allocated AMD EPYC 7763 node at 1 and 16 threads. The rows
 aren't appended, because the history holds releases.

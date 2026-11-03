@@ -454,7 +454,7 @@ No implementation phases have started.
 - 2026-10-22: Reviewed with SEP 1 and revised to use its execution contract, exact
   default, explicit approximation and current material/state semantics.
 - 2026-11-01: Tracking issue [#120](https://github.com/LupoLab/solprop/issues/120).
-- 2026-11-02: [SEP 43](sep-0043-retire-numba-cpu.md) retired `numba_cpu` (ADR-064). Where this
+- 2026-11-02: [SEP 43](archive/sep-0043-retire-numba-cpu.md) retired `numba_cpu` (ADR-064). Where this
   proposal names Numba or `numba_cpu`, it was written before that: such a phase or check falls
   away, and the feature goes on `numpy_ref` and the native backend (SEP 0).
 

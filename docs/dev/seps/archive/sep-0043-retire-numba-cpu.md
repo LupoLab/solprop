@@ -6,7 +6,7 @@
 | **Title** | Retire `numba_cpu` |
 | **Author** | John C. Travers |
 | **Drafting agent** | Claude Opus 5.5 (2026-11-02) |
-| **Status** | In progress |
+| **Status** | Final |
 | **Review status** | Reviewed |
 | **Reviewers** | John C. Travers (human); GPT-6 (AI) |
 | **Type** | Change |
@@ -15,8 +15,8 @@
 | **Requires** | SEP 29 (compiled backend distribution; final) |
 | **Supersedes** | — |
 | **Superseded-by** | — |
-| **Implementation** | In progress from 2026-11-02: John C. Travers, with Opus 5.5, on `feature/sep-0043-retire-numba-cpu`, [#415](https://github.com/LupoLab/solprop/pull/415) |
-| **Manual pages** | — |
+| **Implementation** | Complete 2026-11-03: John C. Travers, with Opus 5.5, on `feature/sep-0043-retire-numba-cpu`, [#415](https://github.com/LupoLab/solprop/pull/415) |
+| **Manual pages** | [Get and install solprop](../../../introduction/installation.md); [The native backend](../../../guide/performance/native.md) |
 
 ## Part I — Proposal
 
@@ -80,9 +80,9 @@ nobody we know of, and this SEP does without them (§9).
 ### 3. Context
 
 **Backends.** `numpy_ref` is the reference and `native` the production backend (Tier 1,
-[ADR-061](../decisions.md)). `numba_cpu` is Tier 2, and `backend="auto"` selects it when
+[ADR-061](../../decisions.md)). `numba_cpu` is Tier 2, and `backend="auto"` selects it when
 the native package is absent or the processor is below the wheel's baseline
-(`src/solprop/backends/registry.py`). [SEP 29](archive/sep-0029-compiled-backend-distribution.md)
+(`src/solprop/backends/registry.py`). [SEP 29](sep-0029-compiled-backend-distribution.md)
 §6.3 left its removal to a later SEP, which should settle the freeze, feedback and
 rollback of its review item R11, the test suite's cross-backend tests and the two
 dependencies. [#316][316] tracks that decision.
@@ -769,7 +769,7 @@ The maintainer accepted the SEP on 2026-11-02. The phases below were written bef
 | Lanes on the wheel, `poe fetch-wheel` | #398 | Closed into #415 | #415's CI |
 | Shared helpers | #394 | Closed into #415 | §6.3's budgets, in the report below |
 | Tests retargeted | #401 | Closed into #415 | The inventory, in the report below |
-| The removal, and all of phases 1 to 3 | #415 | Draft | The report below |
+| The removal, and all of phases 1 to 3 | #415 | This pull request | The report below |
 
 **Which numbers belong to which build.** The v2 cost, accuracy and stable-ABI measurements in the
 phase 0 report come from the spike branch, and they are exploratory. The report on phases 1 to 3
@@ -940,6 +940,10 @@ The status of each gate is at the end of this report, and it says plainly which 
      docstrings that say which retired test a bound came from, the guide's "removed backend"
      section, measurements in `docs/dev/` labelled as taken on the retired backend, gallery
      CSVs recorded on it, open SEPs' notes and ADRs. Rewriting those would lose the record.
+  9. **`Final` comes before fresh installs on every platform (§7 and §11 put every gate first).**
+     Those installs come from published files, so only `qualify-published` can show them, after a
+     release. The maintainer chose to set `Final` in this pull request rather than hold the SEP open
+     across a release, and #463 carries the check.
 - **Decisions:** the coexistence environment installs pyFFTW only where it has a wheel. A test
   environment with no native package takes `auto` as `SOLPROP_TEST_BACKEND` for the session, and
   `real_auto` keeps the refusal; a test whose child process runs `auto` skips there
@@ -1054,17 +1058,17 @@ The status of each gate is at the end of this report, and it says plainly which 
     value was 5.96e-17 with or without fusing, and no moment cut left [0, 1]. Numba's protection
     isn't carried over.
   - **Q8, settled 2026-11-03.** A mistyped `SOLPROP_FFTW_PLAN` is silently MEASURE (`fft_plan.hpp`).
-    It is to be refused, in a follow-up. Strict xfail in `native/tests/test_fftw_plan_refusal.py`.
+    It is to be refused (#460). Strict xfail in `native/tests/test_fftw_plan_refusal.py`.
   - **Q9, settled 2026-11-03.** No code change: `kernel-contract.md` §7 states the precondition, and
     the strict xfail stays.
   - **Q10, settled 2026-11-03.** Native ignores a truncated `response_order`, which exists only at
-    contract level. It is to be refused, in a follow-up.
+    contract level. It is to be refused (#460).
   - **Q11, settled 2026-11-03.** Accepted as the rounding of plan choice and recorded in
-    `accuracy.md`, with an issue, after this merges, for the unexplained factor of 65.
-  - **Q12, settled 2026-11-03.** An issue and an audit after this merges, each thread test asserting
-    from `execution_sizing` that the operation really threaded.
+    `accuracy.md`, and #461 takes the unexplained factor of 65.
+  - **Q12, settled 2026-11-03.** An audit (#462), each thread test asserting from `execution_sizing`
+    that the operation really threaded.
   - **Q13, settled 2026-11-03.** The closing and trimming text of `results/sep43-issue-audit.md`, not
-    in git, is posted after this merges. #300 needs a timing on an idle machine.
+    in git, is posted after this merges, under #392. #300 needs a timing on an idle machine.
   - **Q14, settled 2026-11-03.** The maintainer raised `plasma_band`'s `deviation` tolerance from
     `rtol = 1e-6` to `3e-6`. It's a recorded value's regression tolerance, with `bound: null`, not an
     accuracy bound, and the tolerance applies to the whole column.
@@ -1073,6 +1077,23 @@ The status of each gate is at the end of this report, and it says plainly which 
   - **Q16, settled 2026-11-03.** #453, on the 0.2 milestone, tracks `kerr_beam`'s rise and `ctc`'s
     construction, which takes 9.8 s longer than at 0.1.0. Neither comes from this branch. The
     maintainer handles it there.
+
+### Completion — 2026-11-03
+
+Every phase is reported above and the gates of §7 stand as their table says, with deviation 9 for
+fresh installs. The manual documents the change, and both pages it names end with a link here.
+Nothing is left open in this SEP; what follows it is in issues:
+
+- #392, this SEP's tracking issue: posting the closures and trims of Q13.
+- #460: refusing a mistyped `SOLPROP_FFTW_PLAN` and a truncated `response_order` (Q8, Q10).
+- #461: the factor of 65 between an adaptive run's fields and its steps (Q11).
+- #462: thread tests asserting from `execution_sizing` (Q12).
+- #463: fresh installs through `qualify-published` at 0.2, then yanking 0.1.0 (Q6, deviation 9).
+- #464: `propagator_mode="tabulate"` under Runge-Kutta has no effect on native, but the metadata
+  records it.
+- #319: Python 3.15's standalone Linux lane, and its claim in the installation guide.
+- #92: the NumPy floors, version derivation and the links to `/en/stable/` that follow 0.2.
+- #453: `kerr_beam`'s rise and `ctc`'s construction, which don't come from this branch (Q16).
 
 ## Part III — History
 
@@ -1091,6 +1112,8 @@ The status of each gate is at the end of this report, and it says plainly which 
 - 2026-11-02: Accepted by John C. Travers. Part I is frozen.
 - 2026-11-02: Implementation started on `feature/sep-0043-retire-numba-cpu`, taking in #394, #398 and #401.
 - 2026-11-03: Phases 1 to 3 delivered on that branch, with the report in Part II. `Final` waits for the gates and the maintainer.
+- 2026-11-03: Final. Every phase reported in Part II; follow-ups opened as #460–#464; the SEP moved
+  to the archive (John C. Travers, with Opus 5.5).
 
 ### AI review — 2026-11-02
 

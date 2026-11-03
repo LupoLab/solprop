@@ -15,7 +15,7 @@ Public simulation settings default to `backend="auto"`. `resolve_name` probes th
 native package without importing it, resolves to `"native"` if it is installed and the
 processor is at or above a build's baseline, and otherwise raises `BackendError`, saying what
 to do; it stores that name before execution or worker transfer. `auto` has no fallback.
-Native being installed is a packaging policy ([SEP 43](seps/sep-0043-retire-numba-cpu.md) §5),
+Native being installed is a packaging policy ([SEP 43](seps/archive/sep-0043-retire-numba-cpu.md) §5),
 so a run does not have to prove that native could execute here, and nothing loads a runtime to
 enforce it. Two requests resolve before the registry and never consult native: a TDSE
 response's `auto` is `numpy_ref`, and single precision's is `mlx` with a Metal device and
