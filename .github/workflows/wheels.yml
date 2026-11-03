@@ -180,7 +180,10 @@ jobs:
           # The runtime type checks run in ci.yml's coverage lane (ADR-053); here they
           # would more than double the lane's time without checking anything new.
           SOLPROP_TEST_TYPECHECK: "0"
-        run: uv run --no-sync poe ${{ matrix.id == 'windows-arm64' && 'test-windows-arm' || 'test' }}
+        run: uv run --no-sync poe ${{ matrix.id == 'windows-arm64' && 'test-windows-arm' || 'test' }} --junitxml=junit.xml
+      - name: No unexpected skips
+        if: ${{ !cancelled() }}
+        run: uv run --no-sync python -I native/ci/check_skips.py junit.xml
 
   # One wheel serves every CPython from 3.14: it holds nothing beyond the stable ABI, and
   # the newest release loads it on every platform.
