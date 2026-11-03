@@ -301,6 +301,7 @@ def test_list_and_dry_run_plan_without_running(capsys):
     assert "unknown case" in capsys.readouterr().err
 
 
+@pytest.mark.child_runs_auto
 @pytest.mark.medium
 def test_a_tracking_run_records_complete_runs_and_appends_history(
     tmp_path, monkeypatch, capsys

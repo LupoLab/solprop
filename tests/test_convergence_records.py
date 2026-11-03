@@ -243,6 +243,10 @@ def test_every_row_was_written_by_a_test_that_still_exists(collected_tiers):
     """
     if len({node.split("::")[0] for node in collected_tiers}) < SUITE_FILES:
         pytest.skip("a hand-picked selection collects too little to be complete about")
+    if "native" not in available():
+        # A test parametrised on native alone isn't collected at all, which a
+        # lightweight environment can't tell from a deleted one.
+        pytest.skip("native's writers can't be told from deleted ones without it")
     collected = set(collected_tiers)
     for study in cr.studies():
         for row in cr.load(study)["rows"]:

@@ -217,6 +217,7 @@ Simulation.run = run
 """
 
 
+@pytest.mark.child_runs_auto
 def test_the_export_solves_the_pins_before_the_route_s_call(tmp_path):
     recipe = pinned(
         {"pressure": ZDW_PIN, "energy": ORDER_PIN}, drop=("pressure", "energy")
@@ -368,6 +369,7 @@ def test_a_route_that_does_not_build_is_refused_on_the_pin():
         solve_pin("gnlse", {}, "pressure", ZDW(500e-9), (0.1, 1.0))
 
 
+@pytest.mark.child_runs_auto
 def test_an_rdw_pin_with_its_pulse_exports_its_solver_call(tmp_path):
     pin = {
         "target": "rdw",

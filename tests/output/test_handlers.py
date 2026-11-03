@@ -1269,6 +1269,7 @@ def test_a_file_of_another_output_schema_is_refused_by_name(
     continued.close()
 
 
+@pytest.mark.child_runs_auto
 @pytest.mark.skipif(sys.platform == "win32", reason="Windows has no SIGKILL")
 def test_planes_reach_the_disk_before_a_hard_stop(tmp_path):
     """Each saved plane is flushed, so a SIGKILL loses at most the plane in flight.

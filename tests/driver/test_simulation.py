@@ -285,6 +285,7 @@ def test_a_capillary_configuration_hashes_the_same_way_twice():
     assert digest(capillary()) == digest(capillary())
 
 
+@pytest.mark.child_runs_auto
 def test_a_capillary_configuration_hashes_the_same_way_in_a_new_process():
     """What a resume from another process rests on: no address ends up in the digest.
 

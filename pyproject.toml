@@ -300,6 +300,7 @@ markers = [
     # at most one of them and tests/test_tiers.py asserts it. Fast is the absence of a
     # marker, and both fast and medium run in the default lane, so `addopts` excludes
     # only the two selections that are lanes rather than tiers.
+    "child_runs_auto: a child process runs backend=\"auto\", which refuses where no native package is installed, so the test skips there",
     "real_auto: backend=\"auto\" keeps its refusal where no native package is installed, whatever SOLPROP_TEST_BACKEND says",
     "medium: a short real run, seconds not milliseconds; in the default lane, and alone with `poe test-medium`",
     "slow: milestones, ladders and the CtC-size build; not in the default or coverage lanes; `poe test-slow`",

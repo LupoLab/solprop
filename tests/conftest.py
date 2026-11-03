@@ -113,7 +113,10 @@ _COLLECTED_TIERS: dict[str, tuple[str, ...]] = {}
 def pytest_collection_modifyitems(config, items):
     """Record original tier identities, then assign groups before xdist names them."""
     _COLLECTED_TIERS.clear()
+    no_native = importlib.util.find_spec("solprop_native") is None
     for item in items:
+        if no_native and item.get_closest_marker("child_runs_auto") is not None:
+            item.add_marker(pytest.mark.skip(reason="auto refuses in a child process"))
         remember_nodeid(item)
         _COLLECTED_TIERS[item.nodeid] = tuple(
             name for name in TIER_MARKERS if item.get_closest_marker(name) is not None

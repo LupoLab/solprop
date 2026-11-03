@@ -340,6 +340,7 @@ _PROBE: Final = textwrap.dedent(
 """Prepended to an exported script: print what the run would be, instead of running."""
 
 
+@pytest.mark.child_runs_auto
 @pytest.mark.parametrize(
     "name",
     [_tiered(name) for name in EXAMPLES],
