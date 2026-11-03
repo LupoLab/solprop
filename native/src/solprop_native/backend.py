@@ -587,10 +587,13 @@ class NativeBackend(StepDriver[_core.State]):
     def _propagator_mode(self) -> PropagatorMode:
         """Return the flow treatment this run uses, ``"auto"`` resolved.
 
-        As solprop's driver resolves it, except that a device build forms the low-
-        storage march's flows per element under ``"auto"``: there an extra field read
-        costs more than the exponential (SEP 24 section 4.3).
+        Only the low-storage march holds flows, so every other march recomputes whatever
+        was asked (#464). That march resolves as solprop's driver does, except that a
+        device build forms its flows per element under ``"auto"``: there an extra field
+        read costs more than the exponential (SEP 24 section 4.3).
         """
+        if not isinstance(self._problem.stepper.integrator, LowStorageRungeKutta):
+            return "recompute"
         asked = self._problem.stepper.propagator_mode
         if asked == "auto" and self._low_storage is not None and _on_device():
             return "recompute"
