@@ -448,7 +448,6 @@ def test_a_replaced_input_drops_the_launch_record():
     "backend",
     [
         "numpy_ref",
-        "numba_cpu",
         pytest.param(
             "native",
             marks=pytest.mark.skipif(

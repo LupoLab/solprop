@@ -25,7 +25,7 @@ both of SEP 6's demonstration cases under all three policies.
 | `"symmetric-kerr"` | {class}`~solprop.nonlinear.responses.DispersiveKerrResponse`, evaluator `"symmetric"` | a symmetric factorisation of the polynomial's Kerr diagonal (a mixture's: of the mixture's own) |
 
 Both dispersive policies are opt-in; the carrier policy stays the default. They run on
-`numpy_ref`, `numba_cpu` and the native backend's CPU build on every route: the
+`numpy_ref` and the native backend's CPU build on every route: the
 capillary and radial routes, Cartesian and line free space, the planar route and a
 general modal guide's gas regions. The native backend's device builds are qualified for them on one
 AMD Instinct generation (HIP) and one NVIDIA Hopper device (CUDA). A run is never moved to another backend or another response without being told.
@@ -378,8 +378,8 @@ levels, not acceptance thresholds.
 mixture is its own channel, with its own multipliers, leg bound and density path:
 $P=\sum_s\varepsilon_0\gamma_{0,s}N_s\,\mathrm{cubic}_s(E)$. Species whose leg bounds
 are equal share their filtered fields $DE$ and $D^2E$, and their coefficient tables add,
-density-weighted, $\sum_sN_s\gamma_{0,s}(1,A_s,B_s,B'_s)$ — an exact rewriting, which
-`numba_cpu` takes for every such mixture, so that its transforms grow with the number
+density-weighted, $\sum_sN_s\gamma_{0,s}(1,A_s,B_s,B'_s)$ — an exact rewriting, under
+which the transforms of such a mixture can grow with the number
 of distinct leg bounds rather than of species. Krypton and xenon share one, as do
 argon, H₂ and SF₆, neon and N₂, and D₂, O₂ and CH₄; air's three species have three.
 
@@ -564,10 +564,10 @@ negligible. Look at where the observable's band and its generating quartets lie.
 
 ### Backends
 
-Both evaluators run on `numpy_ref`, `numba_cpu` and the native backend's CPU build on
+Both evaluators run on `numpy_ref` and the native backend's CPU build on
 every route but the GNLSE, agreeing with `numpy_ref` to a few times machine epsilon, and
 on the native backend's device builds, qualified on one AMD Instinct generation and one NVIDIA Hopper
-device. `backend="auto"` therefore runs them on the native backend where it is installed, as the
+device. `backend="auto"` therefore runs them on the native backend, as the
 carrier policy runs; nothing falls back.
 
 ## Reading what a run recorded
@@ -599,7 +599,7 @@ simulation = Simulation.from_capillary(
     trange=250e-15,
     fwhm=30e-15,
     energy=10e-6,
-    backend="numba_cpu",
+    backend="native",
     materials=MaterialSelection(electronic="gas-polynomial"),
 )
 manifest = simulation.material_manifest()
@@ -638,7 +638,7 @@ spectrum from it.
 - **The region check is per frequency of the active band.** It does not identify which
   quartets a field actually drives; a band that reaches the bounded region is labelled
   so even if the field there is negligible.
-- **Backends.** `numpy_ref`, `numba_cpu` and the native backend's CPU build on every route but the
+- **Backends.** `numpy_ref` and the native backend's CPU build on every route but the
   GNLSE (single-mode, multimode, radial, Cartesian and line free space, planar, general
   modal); the native backend's device builds on one AMD Instinct generation (HIP) and one NVIDIA
   Hopper device (CUDA).

@@ -4,7 +4,7 @@
 
 """Measure the reduced and full-shape CtC cases in isolated processes."""
 
-# ruff: noqa: I001 -- Kokkos must load before pyFFTW on macOS.
+# ruff: noqa: I001 -- Kokkos loads first, before any other OpenMP runtime on macOS.
 
 from __future__ import annotations
 
@@ -269,9 +269,7 @@ def _worker(
     finally:
         backend.close()
 
-    threads = _metadata_int(
-        metadata, "thread_count", _metadata_int(metadata, "numba_threads", 0)
-    )
+    threads = _metadata_int(metadata, "thread_count", 0)
     fftw_threads = _metadata_int(metadata, "fftw_threads", threads)
     blas_backend = str(metadata.get("blas_backend", "not applicable"))
     if blas_backend == "Accelerate":
@@ -368,12 +366,9 @@ def _run(
     environment = os.environ.copy()
     environment.update(
         {
-            "NUMBA_NUM_THREADS": str(threads),
             "OPENBLAS_NUM_THREADS": str(blas_threads),
             "SOLPROP_BLAS_THREADS": str(blas_threads),
-            "SOLPROP_FFTW_THREADS": str(threads),
             "SOLPROP_NATIVE_THREADS": str(threads),
-            "SOLPROP_NUMBA_THREADS": str(threads),
         }
     )
     environment.setdefault("OMP_DYNAMIC", "FALSE")
@@ -409,7 +404,7 @@ def _run(
 def main() -> None:
     """Run isolated CtC workers and emit JSON samples with robust summaries."""
     parser = argparse.ArgumentParser()
-    parser.add_argument("--worker", choices=("numba_cpu", "native"))
+    parser.add_argument("--worker", choices=("numpy_ref", "native"))
     parser.add_argument(
         "--case", choices=("ctc_reduced", "ctc_full"), default="ctc_reduced"
     )

@@ -28,7 +28,7 @@ import json
 import math
 from pathlib import Path
 
-# Initialise Kokkos before importing the wheel-private pyFFTW OpenMP runtime, as
+# Import the optional native package first, as
 # `measure_power_identity` does; the default lane imports this module for its doctests.
 try:
     # The optional package is out of tree and deliberately absent from the

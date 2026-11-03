@@ -348,7 +348,7 @@ synthesis and projection maps move with the modes, and the solid-mode connection
 $\langle\psi_m|\partial_z\psi_n\rangle$ converts the launch between the channels in the
 frozen-section flow. The model, its validation and its limits are in
 [moving modal bases](moving-modal.md#a-guide-whose-geometry-moves-along-z).
-It runs on all three backends, `numpy_ref`, `numba_cpu` and `native` (CPU and GPU builds).
+It runs on both backends, `numpy_ref` and `native` (CPU and GPU builds).
 A strong taper couples strongly: the run's advisory step warns when the steps are too
 long, and `sections=` shortens the frozen sections. Beside a moving guide the
 `modified` noise model, a lockstep batch, a CF4 flow and a fixed schedule that straddles

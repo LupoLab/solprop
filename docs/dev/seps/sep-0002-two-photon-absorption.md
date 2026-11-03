@@ -1037,3 +1037,6 @@ appends its report to Part II in its merging pull request.
   Phase 2's thread invariance (§11) becomes thread-count agreement within such a
   bound.
 - 2026-11-01: Tracking issue [#114](https://github.com/LupoLab/solprop/issues/114).
+- 2026-11-02: [SEP 43](archive/sep-0043-retire-numba-cpu.md) retired `numba_cpu` (ADR-064). Where this
+  proposal names Numba or `numba_cpu`, it was written before that: such a phase or check falls
+  away, and the feature goes on `numpy_ref` and the native backend (SEP 0).

@@ -126,7 +126,7 @@ def _check(version: str, directory: Path, *, readme_example: bool) -> None:
                 "--no-cache-dir",
                 "--report",
                 str(evidence / "install-report.json"),
-                f"solprop[native]=={version}",
+                f"solprop=={version}",
             ],
             directory,
             "pip-install",

@@ -200,7 +200,7 @@ steps. One coarse bin is exactly periodic on the time window, so the beat is
 the two channels' relative phase and nothing else. A wave that fills the window
 wants neither the temporal collar nor the watch on the window's edges.
 
-.. GENERATED FROM PYTHON SOURCE LINES 116-138
+.. GENERATED FROM PYTHON SOURCE LINES 116-137
 
 .. code-block:: Python
 
@@ -216,7 +216,6 @@ wants neither the temporal collar nor the watch on the window's edges.
         n_save=9,
         dz_max=length / 10,
         dz_init=length / 10,
-        backend="numpy_ref",
         noise=None,
         absorber=False,
         boundary_check=None,
@@ -233,13 +232,13 @@ wants neither the temporal collar nor the watch on the window's edges.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 139-142
+.. GENERATED FROM PYTHON SOURCE LINES 138-141
 
 The transverse intensity along the beat. The two channels' patterns add in
 phase at the entrance, cancel on the axis half a beat later, and come back at
 the imaging length: the guide has reproduced its own launch.
 
-.. GENERATED FROM PYTHON SOURCE LINES 142-165
+.. GENERATED FROM PYTHON SOURCE LINES 141-164
 
 .. code-block:: Python
 
@@ -278,13 +277,13 @@ the imaging length: the guide has reproduced its own launch.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 166-169
+.. GENERATED FROM PYTHON SOURCE LINES 165-168
 
 The residual phase after a full turn is the solved spacing's departure from the
 ideal one, and nothing else: the guide reproduces its own dispersion, and what
 is left over is the P1 discretisation of an analytic answer.
 
-.. GENERATED FROM PYTHON SOURCE LINES 169-178
+.. GENERATED FROM PYTHON SOURCE LINES 168-177
 
 .. code-block:: Python
 
@@ -311,14 +310,14 @@ is left over is the P1 discretisation of an analytic answer.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 179-183
+.. GENERATED FROM PYTHON SOURCE LINES 178-182
 
 A launch declared as a **field** rather than as a channel. The route projects
 it onto the channels through the record's coordinate dual and reports what the
 bound channels did not capture, so a profile the guide cannot carry says so
 instead of being quietly rescaled.
 
-.. GENERATED FROM PYTHON SOURCE LINES 183-194
+.. GENERATED FROM PYTHON SOURCE LINES 182-193
 
 .. code-block:: Python
 
@@ -351,13 +350,13 @@ instead of being quietly rescaled.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 195-198
+.. GENERATED FROM PYTHON SOURCE LINES 194-197
 
 A field the channels cannot span leaves a remainder, and the projection names
 it rather than rescaling it away: here the same pattern with its sign flipped
 on every other node, which is no combination of the two channels at all.
 
-.. GENERATED FROM PYTHON SOURCE LINES 198-203
+.. GENERATED FROM PYTHON SOURCE LINES 197-202
 
 .. code-block:: Python
 
@@ -379,7 +378,7 @@ on every other node, which is no combination of the two channels at all.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 204-210
+.. GENERATED FROM PYTHON SOURCE LINES 203-209
 
 The same happens, less obviously, to a profile declared at **one** frequency and
 held across the band: the channels' patterns change with frequency, so away from
@@ -388,7 +387,7 @@ projection reports that too. The share is a reconstruction residual on the
 guide's nodes, not radiated power: the energy account of an incident beam is
 what ``incident=`` records (:doc:`/guide/waveguides/general-modal`).
 
-.. GENERATED FROM PYTHON SOURCE LINES 210-216
+.. GENERATED FROM PYTHON SOURCE LINES 209-215
 
 .. code-block:: Python
 
@@ -411,7 +410,7 @@ what ``incident=`` records (:doc:`/guide/waveguides/general-modal`).
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 217-223
+.. GENERATED FROM PYTHON SOURCE LINES 216-222
 
 Related reading
 ---------------
@@ -423,7 +422,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 0.814 seconds)
+   **Total running time of the script:** (0 minutes 2.357 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_waveguides_plot_06_graded_index.py:

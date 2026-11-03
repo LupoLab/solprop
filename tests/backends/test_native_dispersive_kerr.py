@@ -4,28 +4,25 @@
 
 """SEP 6's dispersive electronic response on native CPU's fused node path.
 
-solprop-native evaluates ``responses.dispersive_kerr`` with the structure ``numba_cpu``
-takes (``backends/numba_cpu/dispersive.py``): the spectral multipliers on the modal
-columns, the products at the nodes under the collar, projected and landed in the
-stage's own polarisation spectrum, the embedded rule's finished when it is scored, a
-lone symmetric response on the stage's own transforms, the symmetric mixture filter
-rebuilt when the densities change. ``numpy_ref``, which applies the multipliers at
-every node, is the oracle, and ``numba_cpu`` is checked beside it. The ladder of
-``docs/dev/backends.md`` section 3.7 for the response, as ``numba_cpu``'s
-(``test_numba_dispersive_kerr.py``): one nonlinear evaluation (the projected
-polarisation on both quadrature rules), one step and ten steps, on the multimode
-capillary, the mode-averaged and radial routes and a two-component field, on field and
-envelope grids, in both sectors, for both evaluators; mixtures of constant and varying
-composition; Raman, plasma and envelope plasma beside the response. Then what is the
-backend's own: repeatability, the thread count and the memory ledger.
+solprop-native evaluates ``responses.dispersive_kerr`` with the spectral multipliers
+on the modal columns, the products at the nodes under the collar, projected and landed
+in the stage's own polarisation spectrum, the embedded rule's finished when it is
+scored, a lone symmetric response on the stage's own transforms, the symmetric mixture
+filter rebuilt when the densities change. ``numpy_ref``, which applies the multipliers
+at every node, is the oracle. The ladder of ``docs/dev/backends.md`` section 3.7 for
+the response: one nonlinear evaluation (the projected polarisation on both quadrature
+rules), one step and ten steps, on the multimode capillary, the mode-averaged and
+radial routes and a two-component field, on field and envelope grids, in both sectors,
+for both evaluators; mixtures of constant and varying composition; Raman, plasma and
+envelope plasma beside the response. Then what is the backend's own: repeatability,
+the thread count and the memory ledger.
 
-**The bounds are ``numba_cpu``'s** (:func:`evaluation_bound`, :func:`steps_bound`),
-derived from the transforms and node reductions both backends perform and counted for
-the reference's node-by-node arithmetic too, before any run: the native response takes
-the same transforms per channel (fewer when a lone symmetric response is the stage's
-own polarisation) and the same reductions over the nodes. Against ``numba_cpu`` the
-same bound holds, both compiled backends sitting inside it from the reference's side.
-Each test states what it measured.
+**The bounds are derived in ``dispersive_cases.py``** (:func:`evaluation_bound`,
+:func:`steps_bound`) from the transforms and node reductions of a compiled evaluation
+and counted for the reference's node-by-node arithmetic too, before any run: the
+native response takes the same transforms per channel (fewer when a lone symmetric
+response is the stage's own polarisation) and the same reductions over the nodes. Each
+test states what it measured.
 """
 
 import dataclasses
@@ -36,8 +33,7 @@ from typing import Any
 import numpy as np
 import pytest
 
-from backends.matched import fixed_order, native_thread_fields
-from backends.test_numba_dispersive_kerr import (
+from backends.dispersive_cases import (
     GRID_CASES,
     LENGTH,
     POLICIES,
@@ -46,13 +42,13 @@ from backends.test_numba_dispersive_kerr import (
     averaged,
     capillary,
     disagreement,
-    evaluate,
     radial,
+    reference_evaluation,
     run,
 )
-from backends.test_numba_dispersive_kerr import evaluation_bound as cpu_evaluation_bound
+from backends.dispersive_cases import evaluation_bound as cpu_evaluation_bound
+from backends.matched import fixed_order, native_thread_fields
 from bounds import assert_within, dispersive_device_bound, step_evaluations
-from solprop.backends.numba_cpu import NumbaCpuBackend
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.driver import Simulation
 from solprop.exceptions import MaterialRangeWarning
@@ -74,7 +70,7 @@ host_only = pytest.mark.skipif(
 
 
 def evaluation_bound(problem: KernelProblem) -> float:
-    """``numba_cpu``'s bound, or on a device build the predeclared device envelope."""
+    """The CPU bound, or on a device build the predeclared device envelope."""
     return dispersive_device_bound(cpu_evaluation_bound(problem), problem)
 
 
@@ -136,16 +132,12 @@ def assert_close(ours: Evaluation, theirs: Evaluation, bound: float) -> None:
         assert disagreement(ours.coarse, theirs.coarse) < bound
 
 
-def assert_one_evaluation(
-    problem: KernelProblem, grid: Any, *, numba: bool = True
-) -> None:
-    """One evaluation, both rules, against the reference and ``numba_cpu``."""
+def assert_one_evaluation(problem: KernelProblem, grid: Any) -> None:
+    """One evaluation, both rules, against the reference."""
     ours = native_evaluation(problem, grid)
     bound = evaluation_bound(problem)
     assert bound > 0
-    assert_close(ours, evaluate(NumpyRefBackend, problem, grid), bound)
-    if numba:
-        assert_close(ours, evaluate(NumbaCpuBackend, problem, grid), bound)
+    assert_close(ours, reference_evaluation(problem, grid), bound)
 
 
 def source(backend_class: type, problem: KernelProblem, grid: Any) -> np.ndarray:
@@ -158,16 +150,14 @@ def source(backend_class: type, problem: KernelProblem, grid: Any) -> np.ndarray
         backend.close()
 
 
-def assert_steps(problem: KernelProblem, grid: Any, *, numba: bool = True) -> None:
-    """A replayed window of fixed steps, the same steps, against both backends."""
+def assert_steps(problem: KernelProblem, grid: Any) -> None:
+    """A replayed window of fixed steps, the same steps, against the reference."""
     ours, summary = run(NativeBackend, problem, grid)
     bound = steps_bound(problem)
     assert bound > 0
-    others = [NumpyRefBackend, NumbaCpuBackend] if numba else [NumpyRefBackend]
-    for backend_class in others:
-        theirs, reference = run(backend_class, problem, grid)
-        assert summary.n_steps == reference.n_steps
-        assert disagreement(ours, theirs) < bound
+    theirs, reference = run(NumpyRefBackend, problem, grid)
+    assert summary.n_steps == reference.n_steps
+    assert disagreement(ours, theirs) < bound
 
 
 def path_of(problem: KernelProblem, grid: Any) -> dict[str, bool] | None:
@@ -192,8 +182,8 @@ def test_one_evaluation_on_the_multimode_capillary_matches_the_reference(
 
     Alone, the response holds its own filtered field beside the bare one the collar
     reads; a symmetric one projects through the stage unless its products are a field
-    grid's analytic signals. Measured 2.3-4.3 eps on both rules against the reference
-    and 0.5-2.3 eps against ``numba_cpu``, under bounds of 1060-1870 eps.
+    grid's analytic signals. Measured 2.3-4.3 eps on both rules against the reference,
+    under bounds of 1060-1870 eps.
     """
     simulation = capillary(evaluator, **GRID_CASES[case])
     problem = simulation.translate()
@@ -244,8 +234,7 @@ def test_one_step_on_the_multimode_capillary_matches_the_reference(case, evaluat
 def test_ten_steps_on_the_multimode_capillary_match_the_reference(case, evaluator):
     """The default integrator (the resident Adams engine) over ten fixed steps.
 
-    Measured 5.8-6.7 eps against the reference and 5.6-6.7 eps against ``numba_cpu``,
-    under bounds of 155 000-273 000 eps.
+    Measured 5.8-6.7 eps against the reference, under bounds of 155 000-273 000 eps.
     """
     simulation = capillary(evaluator, stepped=True, **GRID_CASES[case])
     assert_steps(simulation.translate(), simulation.grid)
@@ -300,7 +289,7 @@ def test_node_chunks_accumulate_as_one(case, raman, evaluator):
     problem = dataclasses.replace(
         problem, transform=dataclasses.replace(problem.transform, node_chunk=8)
     )
-    assert_one_evaluation(problem, simulation.grid, numba=False)
+    assert_one_evaluation(problem, simulation.grid)
 
 
 @pytest.mark.parametrize("evaluator", sorted(POLICIES))
@@ -317,7 +306,7 @@ def test_a_state_with_zero_frequency_content_matches_the_reference(thg, evaluato
     problem = dataclasses.replace(
         problem, initial=dataclasses.replace(problem.initial, field0=start)
     )
-    assert_one_evaluation(problem, simulation.grid, numba=False)
+    assert_one_evaluation(problem, simulation.grid)
 
 
 @pytest.mark.medium
@@ -327,8 +316,8 @@ def test_the_mode_averaged_route_matches_the_reference(case, evaluator):
     """One node: one evaluation and ten steps."""
     problem, grid = averaged(evaluator, **GRID_CASES[case])
     assert problem.transform.n_nodes == 1
-    assert_one_evaluation(problem, grid, numba=False)
-    assert_steps(problem, grid, numba=False)
+    assert_one_evaluation(problem, grid)
+    assert_steps(problem, grid)
 
 
 @pytest.mark.medium
@@ -338,8 +327,8 @@ def test_a_two_component_field_matches_the_reference(case, evaluator):
     """The isotropic Kleinman contraction of an elliptical launch, on the quadrature."""
     problem, grid = averaged(evaluator, vector=True, **GRID_CASES[case])
     assert problem.transform.n_pol * problem.shape[2] == 2
-    assert_one_evaluation(problem, grid, numba=False)
-    assert_steps(problem, grid, numba=False)
+    assert_one_evaluation(problem, grid)
+    assert_steps(problem, grid)
 
 
 @pytest.mark.medium
@@ -349,8 +338,8 @@ def test_the_radial_route_matches_the_reference(envelope, evaluator):
     """The Hankel route, sixteen nodes."""
     problem, grid = radial(evaluator, envelope=envelope, thg=envelope)
     assert problem.transform.n_nodes == 16
-    assert_one_evaluation(problem, grid, numba=False)
-    assert_steps(problem, grid, numba=False)
+    assert_one_evaluation(problem, grid)
+    assert_steps(problem, grid)
 
 
 @pytest.mark.medium
@@ -570,6 +559,9 @@ def ledger_of(problem: KernelProblem, grid: Any) -> dict[str, int]:
         ledger = backend.memory_ledger()
     finally:
         backend.close()
+    # Native's views go with its state, which refuses to report any more once closed.
+    with pytest.raises(RuntimeError, match="closed"):
+        backend.memory_ledger()
     assert all(row in ledger for row in DISPERSIVE_ROWS)
     assert all(ledger[row] >= 0 for row in DISPERSIVE_ROWS)
     return ledger

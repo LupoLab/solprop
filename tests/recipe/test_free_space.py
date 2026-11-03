@@ -488,6 +488,7 @@ def test_the_registered_settings_and_controller_leave_out_what_is_not_a_recipe_s
 # ------------------------------------------------------------------- export
 
 
+@pytest.mark.child_runs_auto
 @pytest.mark.medium
 @pytest.mark.parametrize("name", ["radial", "field", "line", "aimed", "planar"])
 def test_the_python_export_builds_the_same_run(name, tmp_path, monkeypatch):

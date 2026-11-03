@@ -103,7 +103,7 @@ def stash_bound(rate, peak_rate: float, field_range: tuple[float, float], n_to: 
 def dispersive_response_bound(n_to: int, evaluator: str, channels: int = 1) -> float:
     """Bound two evaluations of SEP 6's dispersive cubic on one field, relatively.
 
-    The count of ``test_numba_dispersive_kerr.py``'s module docstring: per channel the
+    The count of ``backends/dispersive_cases.py``: per channel the
     symmetric evaluator takes three transforms (the filtered field, its product, the
     output) and the polynomial six, each ``8 eps ceil(log2 n_to)``; the two sides'
     budgets are added. Two evaluations that differ only in where their multipliers

@@ -2,17 +2,15 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Run one problem on the Kokkos and Numba backends, then let the interpreter exit.
+"""Run one problem on the native and reference backends, then let the interpreter exit.
 
-The exit is the test: FFTW plans are still alive when the interpreter finalises, and
-they share FFTW's process-wide planner with the Kokkos-FFT plans. The Numba backend's
-pyFFTW plans share it when pyFFTW is built against the same FFTW, as the README asks
-for a process that runs both backends; a plan made through ctypes on the very library
-this build links shares it whatever pyFFTW was built against. The last line printed
-lists the backends that ran.
+The exit is the test: an FFTW plan is still alive when the interpreter finalises, and it
+shares FFTW's process-wide planner with the Kokkos-FFT plans, because it is made through
+ctypes on the very library this build links. The last line printed lists the backends
+that ran.
 """
 
-# ruff: noqa: I001 -- Kokkos must load before solprop can import pyFFTW on macOS.
+# ruff: noqa: I001 -- Kokkos loads first, before any other OpenMP runtime on macOS.
 
 from __future__ import annotations
 
@@ -81,17 +79,16 @@ problem = assemble(
     prefactor_index=1.0,
 )
 
-names = ("native", "numba_cpu")
+names = ("native", "numpy_ref")
 backends: list[object] = []
 for name in names:
     # Each backend is kept to the end of the script, as a user's script keeps its
-    # simulations, so the Numba backend's plans are released by the interpreter's
-    # own finalisation.
+    # simulations, so what it holds is released by the interpreter's own finalisation.
     backend = select(name, problem, grid=grid)
     backend.set_initial(problem.initial.field0, None)
     backend.propagate_to(1e-4)
     backends.append(backend)
-# A plan on the very FFTW this build links, whatever pyFFTW was built against.
+# A plan on the very FFTW this build links.
 library = solprop_native.build_info().fft_library
 native = FftwPlan(library) if "fftw" in library.lower() else None
 

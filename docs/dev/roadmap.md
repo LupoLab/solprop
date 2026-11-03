@@ -34,11 +34,6 @@ being implemented.
   identifies a new material contract. Ne/Xe, mixtures, mode-averaged and multimode
   routes, bound response and other geometries remain follow-up work; the first route is
   a single-mode capillary with node quadrature.
-- [SEP 43 — Retire `numba_cpu`](seps/sep-0043-retire-numba-cpu.md):
-  `numba_cpu`, `numba` and `pyfftw` go before 0.2, with no deprecation cycle, and
-  solprop-native becomes a required dependency, so solprop is supported where it installs.
-  `numpy_ref` stays the numerical reference and the executor of a listed set of features.
-  Documentation and CI lanes move to the wheel.
 
 ## Draft enhancement proposals
 

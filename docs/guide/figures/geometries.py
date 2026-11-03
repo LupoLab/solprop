@@ -2092,7 +2092,7 @@ def moving_guide() -> drawsvg.Drawing:
         (
             "a solid guide's modes change shape, so it is re-solved along z:",
             "moving S(z), Q(z) and the connection Γ = W⁻¹S;",
-            "on numpy_ref, numba_cpu and native",
+            "on numpy_ref and native",
         ),
     )
     for index, lines in enumerate(notes):

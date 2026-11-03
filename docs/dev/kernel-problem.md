@@ -83,8 +83,7 @@ along z ([the expansion in the parameters](../guide/numerics/linear-tables.md#th
 that is not available they fall back to a Chebyshev table of z. The NumPy reference evaluates through {func}`~solprop.translate.linop.delta_phi`,
 {func}`~solprop.translate.linop.unitary_phase` and
 {func}`~solprop.translate.responses.prefactor_at`. Compiled backends combine fixed
-terms with the small host-scalar stage bundle. Numba CPU also evaluates z tables
-through its host adapter, and `native`'s CPU build evaluates them natively into term
+terms with the small host-scalar stage bundle. `native`'s CPU build evaluates z tables natively into term
 slots that the stage weights select; its device builds refuse them. See the
 [kernel contract](kernel-contract.md) for the spatial representation and exact support
 rules.

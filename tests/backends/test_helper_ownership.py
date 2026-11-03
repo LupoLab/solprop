@@ -4,13 +4,13 @@
 
 """Each backend evaluates its stage tables and Adams bases with its own helpers.
 
-SEP 29 section 6.6 (R16): the NumPy reference never runs the native helpers or the
-Numba dispatchers behind the per-stage and per-step evaluations, and a native run never
-reaches those dispatchers, even with both backends run in one process. Each check
-translates a fresh problem, so that no table's kept rows from an earlier run stand in
-for a call, then replaces the forbidden implementations -- including translation's own
-one-point pass, which no backend's run needs -- by ones that raise, counts the allowed
-one, and runs a short propagation. The pressure gradient makes the linear
+SEP 29 section 6.6 (R16): the NumPy reference never runs the native helpers behind the
+per-stage and per-step evaluations, and a native run never reaches the plain forms, even
+with both backends run in one process. Each check translates a fresh problem, so that
+no table's kept rows from an earlier run stand in for a call, then replaces the
+forbidden implementations -- including translation's own one-point pass, which no
+backend's run needs -- by ones that raise, counts the allowed one, and runs a short
+propagation. The pressure gradient makes the linear
 operator and the response prefactor parameter expansions, so the stage rows read
 ``Phi`` and the prefactor besides the density. Every march runs: both Adams
 formulations (the exponential one on a varying operator also integrates its
@@ -32,7 +32,6 @@ from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.driver import Simulation
 from solprop.grid import EnvelopeGrid
 from solprop.stepper import FixedSchedule, LowStorageRungeKutta, RungeKutta
-from solprop.stepper import multistep as stepper_multistep
 from solprop.stepper.multistep import Multistep
 from solprop.translate import chebyshev
 
@@ -66,17 +65,13 @@ def forbid(monkeypatch, record):
         monkeypatch.setitem(record.__dict__, name, refuse)
 
 
-def forbid_numba(monkeypatch):
-    """Make the Numba record and the factories of its dispatchers raise."""
-    forbid(monkeypatch, _helpers.NUMBA)
+def forbid_one_point(monkeypatch):
+    """Make translation's one-point pass raise; the problem is translated first."""
 
-    def refuse():
-        raise ForbiddenHelperError("a Numba dispatcher")
+    def refuse(*_):
+        raise ForbiddenHelperError("translation's one-point pass")
 
-    monkeypatch.setattr(chebyshev, "_clenshaw_batch", refuse)
-    # Translation's one-point pass too: the problem is translated before this.
-    monkeypatch.setattr(chebyshev, "_clenshaw", refuse)
-    monkeypatch.setattr(stepper_multistep, "_basis", refuse)
+    monkeypatch.setattr(chebyshev, "clenshaw", refuse)
 
 
 def count(monkeypatch, record):
@@ -134,7 +129,7 @@ def test_the_reference_runs_only_the_plain_forms(monkeypatch, integrator):
     propagate(native.NativeBackend, translated(integrator))
     prepared = translated(integrator)
     forbid(monkeypatch, NATIVE)
-    forbid_numba(monkeypatch)
+    forbid_one_point(monkeypatch)
     tally = count(monkeypatch, _helpers.PLAIN)
     propagate(NumpyRefBackend, prepared)
     assert tally["points"] > 0, tally
@@ -142,15 +137,8 @@ def test_the_reference_runs_only_the_plain_forms(monkeypatch, integrator):
     assert adams > 0 or not integrator.startswith("adams"), tally
 
 
-@pytest.mark.parametrize("integrator", INTEGRATORS)
-def test_native_runs_never_reach_the_numba_dispatchers(monkeypatch, integrator):
-    # Run the reference first in the same process, then forbid everything but native.
-    propagate(NumpyRefBackend, translated(integrator))
-    prepared = translated(integrator)
-    forbid_numba(monkeypatch)
-    forbid(monkeypatch, _helpers.PLAIN)
-    tally = count(monkeypatch, NATIVE)
-    propagate(native.NativeBackend, prepared)
+def assert_native_helpers_ran(tally, integrator):
+    """Assert what a native run's helper tally shows of its march."""
     assert tally["points"] > 0, tally
     if integrator.startswith("adams"):
         # A staged trial forms its tables in the native state from its nodes alone
@@ -159,6 +147,18 @@ def test_native_runs_never_reach_the_numba_dispatchers(monkeypatch, integrator):
         return
     adams = tally["basis"] + tally["tables"]
     assert adams > 0 or not integrator.startswith("adams"), tally
+
+
+@pytest.mark.parametrize("integrator", INTEGRATORS)
+def test_native_runs_use_only_their_own_helpers(monkeypatch, integrator):
+    # Run the reference first in the same process, then forbid the plain forms.
+    propagate(NumpyRefBackend, translated(integrator))
+    prepared = translated(integrator)
+    forbid(monkeypatch, _helpers.PLAIN)
+    forbid_one_point(monkeypatch)
+    tally = count(monkeypatch, NATIVE)
+    propagate(native.NativeBackend, prepared)
+    assert_native_helpers_ran(tally, integrator)
 
 
 def z_table(integrator):
@@ -193,15 +193,13 @@ def z_table(integrator):
     "integrator",
     ["adams-exponential", "adams-interaction", "runge-kutta", "low-storage"],
 )
-def test_a_native_z_table_run_never_reaches_the_numba_dispatchers(
-    monkeypatch, integrator
-):
+def test_a_native_z_table_run_uses_only_its_own_helpers(monkeypatch, integrator):
     # The exponential Adams march on a varying operator reads its compensation's rate
     # from the native derivative table too, and the native march forms the trial's
     # tables from the table's slots itself (SEP 39 phase 4): none crosses.
     prepared = z_table(integrator)
-    forbid_numba(monkeypatch)
     forbid(monkeypatch, _helpers.PLAIN)
+    forbid_one_point(monkeypatch)
     tally = count(monkeypatch, NATIVE)
     propagate(native.NativeBackend, prepared)
     assert tally["tables"] == 0, tally
@@ -218,7 +216,7 @@ def test_a_reference_z_table_run_reads_the_table_with_the_plain_forms(
     # compensation's rate): with its own helpers, never the shared compiled pass.
     prepared = z_table(integrator)
     forbid(monkeypatch, NATIVE)
-    forbid_numba(monkeypatch)
+    forbid_one_point(monkeypatch)
     tally = count(monkeypatch, _helpers.PLAIN)
     propagate(NumpyRefBackend, prepared)
     assert tally["points"] > 0, tally

@@ -556,7 +556,7 @@ scalar = prop_gnlse(
     ),
     n2=N2,
     shock=True,
-    backend="numba_cpu",
+    backend="native",
     **common,
 )
 still = prop_waveguide(

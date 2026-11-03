@@ -125,7 +125,7 @@ def _run(
     host_march: bool,
 ) -> dict[str, Any]:
     """Run the case in this process and return its record."""
-    # Before pyFFTW on macOS.
+    # Before any other OpenMP runtime on macOS.
     import solprop_native  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
     import solprop_native.backend  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
 

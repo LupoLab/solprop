@@ -19,6 +19,7 @@ from typing import Any, cast
 import numpy as np
 import pytest
 
+from solprop.backends.registry import available
 from solprop.boundaries import SpatialAbsorber, SpatialAbsorberDesign
 from solprop.driver import Simulation
 from solprop.exceptions import BoundaryError, BoundaryWarning
@@ -98,11 +99,12 @@ def test_the_reads_are_spaced_by_the_ceiling() -> None:
     assert record["largest_gap"] <= LENGTH / 16 * (1 + 1e-9)
 
 
-def test_numba_cpu_reads_the_edge_as_numpy_ref_does() -> None:
+@pytest.mark.skipif("native" not in available(), reason="native is not installed")
+def test_native_reads_the_edge_as_numpy_ref_does() -> None:
     # A backend that does not read it is tested in tests/backends/
-    # test_transverse_backends.py, with numba_cpu's reading switched off.
+    # test_transverse_backends.py, with numpy_ref's reading switched off.
     records = []
-    for backend in ("numpy_ref", "numba_cpu"):
+    for backend in ("numpy_ref", "native"):
         simulation = suite(1.5, None)
         simulation.settings = dataclasses.replace(simulation.settings, backend=backend)
         output, messages = quietly(simulation)
@@ -208,7 +210,7 @@ def test_the_start_of_run_summary_says_what_the_edge_can_report() -> None:
         return str(dict(summary.rows)["transverse edge"])
 
     assert "watched" in row("numpy_ref", BoundaryCheck())
-    assert "unwatched on numba_cpu" in row("numba_cpu", BoundaryCheck())
+    assert "unwatched on mlx" in row("mlx", BoundaryCheck())
     assert row("numpy_ref", None).endswith("off (boundary_check=None)")
 
 

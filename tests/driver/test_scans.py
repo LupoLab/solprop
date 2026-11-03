@@ -509,30 +509,31 @@ def test_unseeded_noise_takes_the_point_seed_and_a_rerun_matches_its_record(
 
 @pytest.mark.medium
 def test_scan_backend_selection_is_preserved(tmp_path):
+    pytest.importorskip("solprop_native")
 
-    def numba(point):
+    def native(point):
         base = build_point(point)
         return Simulation(
             base.grid,
             base.modes,
             base.responses,
             base.initial,
-            settings=dataclasses.replace(base.settings, backend="numba_cpu"),
+            settings=dataclasses.replace(base.settings, backend="native"),
         )
 
-    scan = Scan("numba", power=[1.0])
+    scan = Scan("native", power=[1.0])
     result = run_scan(
-        scan, numba, output=tmp_path / "numba.h5", fields="all", progress="none"
+        scan, native, output=tmp_path / "native.h5", fields="all", progress="none"
     )
     assert result.status.tolist() == ["done"]
     assert_same_march(
         result.point(0)["fields/values"],
-        numba(scan.point(0)).run(progress="none").fields(),
+        native(scan.point(0)).run(progress="none").fields(),
         scan.point(0),
     )
     assert (
         cast(Mapping, cast(Mapping, result.point(0)["metadata"])["backend"])["name"]
-        == "numba_cpu"
+        == "native"
     )
 
 
@@ -656,39 +657,30 @@ def test_linux_allocation_uses_affinity_slurm_and_cgroup(tmp_path, monkeypatch):
     assert pool._memory_limit() == 1024**3
 
 
-def build_numba_point(point):
+def build_native_point(point):
     simulation = build_point(point)
-    simulation.settings = dataclasses.replace(simulation.settings, backend="numba_cpu")
+    simulation.settings = dataclasses.replace(simulation.settings, backend="native")
     return simulation
 
 
-def test_scan_records_numba_execution_policies_per_point(tmp_path):
-    scan = Scan("numba_policies", power=[1.0, 2.0])
-    destination = tmp_path / "policies.h5"
+def test_scan_records_each_point_s_backend_settings_as_its_metadata_does(tmp_path):
+    pytest.importorskip("solprop_native")
+    scan = Scan("backend_settings", power=[1.0, 2.0])
+    destination = tmp_path / "settings.h5"
     result = run_scan(
         scan,
-        build_numba_point,
+        build_native_point,
         output=destination,
         fields="none",
         stats="none",
         progress="none",
     )
     assert result.status.tolist() == ["done", "done"]
-    keys = {
-        "parallel_nodes",
-        "kernel_regime_elements",
-        "modal_projection",
-        "raman_fftw_threads",
-        "raman_tail_nodes",
-        "raman_tail_fftw_threads",
-        "plasma_fraction_reuse",
-        "column_plasma_magnitude",
-    }
     with h5py.File(destination, "r") as file:
         for index in range(2):
             backend = json.loads(str(_dataset(file, "points/backend").asstr()[index]))
-            assert backend["name"] == "numba_cpu"
+            assert backend["name"] == "native"
             settings = backend["settings"]
-            assert keys <= settings.keys()
+            assert settings
             metadata = cast(Mapping, result.point(index)["metadata"])
             assert metadata["backend"]["settings"] == settings

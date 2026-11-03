@@ -34,7 +34,7 @@ from solprop.stepper.multistep import Multistep
 # monitor warns (SEP 21), and the window's edge is not what this module tests.
 pytestmark = pytest.mark.filterwarnings("ignore::solprop.exceptions.BoundaryWarning")
 
-BACKENDS = ["numpy_ref", "numba_cpu"] + (["native"] if "native" in available() else [])
+BACKENDS = ["numpy_ref"] + (["native"] if "native" in available() else [])
 
 
 def soliton(**extra):

@@ -43,7 +43,7 @@ them is corrected.
 
 | Task | Command (from the repository root) |
 |---|---|
-| Sync | `uv sync --extra gui --group gui-test` (add `--extra native` to keep the native backend: a sync removes any extra it does not name) |
+| Sync | `uv sync --extra gui --group gui-test`, which also builds the native backend (a sync removes any extra it does not name) |
 | Run the window | `uv run solprop-gui` |
 | Run it with the solprop service (runs outlive the window, a new window re-attaches) | `SOLPROP_GUI_SERVICE=1 uv run solprop-gui` |
 | The front end's gate | `uv run poe check-gui`: types (`gui-types`), docstrings (`gui-docstrings`) and tests (`gui-test`, offscreen, with coverage) |

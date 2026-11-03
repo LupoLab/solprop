@@ -41,19 +41,20 @@ one photon per active bin and channel. ``noise_floor="subtract"`` on
 by channel, and returns the signed remainder (SEP 37, section 5.5).
 """
 
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 from jaxtyping import Complex, Float, Inexact
 
 from solprop import fourier
-from solprop.exceptions import ProcessingError
+from solprop.exceptions import ModeError, ProcessingError
 from solprop.grid import TimeGrid
 from solprop.optics import TransferFunction, stored_factor
 from solprop.output.capability import capability_of
 from solprop.output.schema import Convention, Output
 from solprop.processing import spectra
 from solprop.processing.axes import (
+    SPECTRAL_AXES,
     Band,
     ModeSelection,
     SpectralAxis,
@@ -68,7 +69,11 @@ from solprop.processing.axes import (
     spectral_axis,
 )
 
+if TYPE_CHECKING:
+    from scipy.signal import ShortTimeFFT
+
 __all__ = [
+    "DEFAULT_GATE_POSITIONS",
     "FIELD_KINDS",
     "NOISE_FLOORS",
     "FieldKind",
@@ -78,6 +83,7 @@ __all__ = [
     "get_phase",
     "get_power",
     "get_spectral_density",
+    "get_spectrogram",
     "get_spectrum",
     "nearest_plane",
 ]
@@ -93,6 +99,16 @@ NoiseFloor = Literal["keep", "subtract"]
 
 NOISE_FLOORS: tuple[NoiseFloor, ...] = ("keep", "subtract")
 """The saved density as it stands, and the density less the seed's energy."""
+
+DEFAULT_GATE_POSITIONS = 256
+"""How many gate positions a spectrogram uses when it is not told."""
+
+# A spectrogram's gate is a Gaussian of the stated full width at half maximum,
+# truncated where it has fallen to exp(-8) of its peak; beyond that it contributes
+# below any colour floor a map is drawn with.
+_GATE_SIGMAS = 4.0
+
+_FWHM_TO_SIGMA = 1.0 / (2.0 * np.sqrt(2.0 * np.log(2.0)))
 
 
 def nearest_plane(output: Output, z: float) -> int:
@@ -918,3 +934,175 @@ def _plane_amplitude(  # noqa: PLR0913 - the plane and everything done to its sp
         transform_limit=transform_limit,
     )
     return grid, t, amplitude
+
+
+def get_spectrogram(  # noqa: PLR0913 - a plane, a mode, the gate and a window
+    output: Output,
+    axis: SpectralAxis = "f",
+    *,
+    plane: int | None = None,
+    z: float | None = None,
+    modes: ModeSelection = None,
+    time_range: tuple[float, float] | None = None,
+    gate_fwhm: float | None = None,
+    positions: int = DEFAULT_GATE_POSITIONS,
+    bandpass: spectra.Bandpass | None = None,
+    transfer: TransferFunction | None = None,
+) -> tuple[
+    Float[np.ndarray, " n_slices"],
+    Float[np.ndarray, " n_x"],
+    Float[np.ndarray, "n_x n_slices"],
+]:
+    """Return the time-frequency map of one saved plane.
+
+    The real field (:func:`get_field`) is gated by a Gaussian of the given full width
+    at half maximum and transformed at evenly spaced positions
+    (:class:`scipy.signal.ShortTimeFFT`), which trades time resolution against
+    frequency resolution in the usual way: a gate of duration ``tau`` resolves
+    frequencies no better than ``1/tau``. The map is ``abs(stft) ** 2``, in arbitrary
+    units, per unit of the abscissa asked for: the change of variable carries the
+    Jacobian of :func:`solprop.processing.axes.spectral_axis`, as
+    :func:`get_spectral_density` does, so a map on wavelength is a density per metre.
+
+    Parameters
+    ----------
+    output : solprop.output.schema.Output
+        An opened output handler.
+    axis : {'f', 'omega', 'wavelength'}
+        The spectral abscissa, in Hz, rad/s or m.
+    plane : int or None
+        Index of the plane, negative from the end; the last plane when neither it nor
+        ``z`` is given.
+    z : float or None
+        Position of the plane, m: the nearest saved plane.
+    modes : int, sequence of int, 'sum' or None
+        Which mode. A multimode run must name one: a spectrogram is of a field, and
+        modal fields do not add away from a point in space.
+    time_range : tuple of float or None
+        The time range the gate positions cover, s, in either order and clipped to
+        the time window; the whole window by default.
+    gate_fwhm : float or None
+        Width of the gate, s; a twentieth of the time range by default.
+    positions : int
+        How many gate positions to place across the time range.
+    bandpass : tuple of float, Passband, numpy.ndarray or None
+        A window applied to the spectrum before the transform, as :func:`get_field`
+        takes it: the map of the light in that band.
+    transfer : TransferFunction or None
+        A linear optical element of :mod:`solprop.optics` applied first, so that the
+        map is of the pulse after it.
+
+    Returns
+    -------
+    t : numpy.ndarray
+        The gate positions within the time range, s, shape ``(n_slices,)``.
+    x : numpy.ndarray
+        The positive frequencies of the transform on ``axis``, ascending, shape
+        ``(n_x,)``.
+    values : numpy.ndarray
+        The map, shape ``(n_x, n_slices)``, arbitrary units per unit of ``x``.
+
+    Raises
+    ------
+    solprop.exceptions.ModeError
+        If a multimode run does not name a single mode.
+    solprop.exceptions.ProcessingError
+        If the time range misses the time window or selects no gate position, the
+        gate is not positive or is wider than the window, the number of positions is
+        not positive, or ``axis`` is unknown.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from solprop.processing._examples import example_output
+    >>> from solprop.processing.fields import get_spectrogram
+    >>> t, f, values = get_spectrogram(example_output(), positions=32)
+    >>> values.shape == (f.size, t.size), bool(np.all(np.diff(f) > 0))
+    (True, True)
+    """
+    _check_choice(axis, SPECTRAL_AXES, "axis")
+    if positions < 1:
+        msg = f"a spectrogram needs at least one gate position, got {positions!r}"
+        raise ProcessingError(msg)
+    if plane is None and z is None:
+        plane = -1
+    t, field = get_field(
+        output,
+        kind="real",
+        plane=plane,
+        z=z,
+        modes=modes,
+        bandpass=bandpass,
+        transfer=transfer,
+    )
+    if field.ndim > 1:
+        msg = (
+            "a spectrogram is of one field: name a single mode, because modal fields "
+            f"do not add away from a point in space (this run has {field.shape[0]})"
+        )
+        raise ModeError(msg)
+    window = (float(t[0]), float(t[-1]))
+    low, high = window if time_range is None else time_range
+    low, high = min(low, high), max(low, high)
+    if high < window[0] or low > window[1]:
+        msg = (
+            f"the time range {time_range!r} holds no gate position: the window is "
+            f"{window[0]:.4g} s to {window[1]:.4g} s"
+        )
+        raise ProcessingError(msg)
+    low, high = max(low, window[0]), min(high, window[1])
+    span = high - low
+    width = span / 20.0 if gate_fwhm is None else gate_fwhm
+    if not 0.0 < width <= window[1] - window[0]:
+        msg = (
+            f"the gate's width must be positive and within the time window "
+            f"({window[1] - window[0]:.4g} s), got {width!r}"
+        )
+        raise ProcessingError(msg)
+    dt = float(t[1] - t[0])
+    transform = _gate_transform(dt, width, span, positions)
+    intensity = np.abs(transform.stft(field)) ** 2
+    times = t[0] + transform.t(field.size)
+    inside = (times >= low) & (times <= high)
+    if not inside.any():
+        msg = f"the time range {time_range!r} holds no gate position"
+        raise ProcessingError(msg)
+    frequency = transform.f
+    positive = frequency > 0.0
+    # |stft|^2 is per frequency bin, Hz: per rad/s it is that over 2 pi.
+    x, jacobian = spectral_axis(2.0 * np.pi * frequency[positive], axis)
+    values = intensity[positive][:, inside] * (jacobian / (2.0 * np.pi))[:, None]
+    order = np.argsort(x)
+    return times[inside], x[order], values[order]
+
+
+def _gate_transform(
+    dt: float, width: float, span: float, positions: int
+) -> "ShortTimeFFT":  # noqa: UP037 - the runtime type hook resolves this at import
+    """Return the short-time transform of a Gaussian gate of the given width.
+
+    Parameters
+    ----------
+    dt : float
+        Sample spacing of the field, s.
+    width : float
+        Full width at half maximum of the gate, s.
+    span : float
+        Time range the gate positions cover, s.
+    positions : int
+        How many positions to place across that range.
+
+    Returns
+    -------
+    scipy.signal.ShortTimeFFT
+        The transform, with its hop chosen to give about ``positions`` slices.
+    """
+    # scipy.signal takes half a second to import: only a spectrogram needs it.
+    from scipy.signal import ShortTimeFFT  # noqa: PLC0415
+    from scipy.signal.windows import gaussian  # noqa: PLC0415
+
+    sigma = width * _FWHM_TO_SIGMA
+    half = max(int(np.ceil(_GATE_SIGMAS * sigma / dt)), 1)
+    window = gaussian(2 * half + 1, sigma / dt)
+    hop = max(round(span / dt / max(positions, 1)), 1)
+    return ShortTimeFFT(window, hop=hop, fs=1.0 / dt, fft_mode="onesided")

@@ -11,7 +11,6 @@ its rate is the Planck profile ``alpha0 (1 - W)`` on the nodes.
 
 import dataclasses
 import math
-import tracemalloc
 from functools import partial
 from itertools import pairwise
 
@@ -23,8 +22,7 @@ from scipy.special import gammainc, j0
 
 from legacy_geometry import LEGACY_GRID
 from solprop.backends.memory import estimate_memory, ledger_groups
-from solprop.backends.numba_cpu import NumbaCpuBackend
-from solprop.backends.numpy_ref import NumpyRefBackend, passes
+from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.spatial import collar_field_fraction
 from solprop.boundaries import Absorber, SpatialAbsorber
 from solprop.constants import C
@@ -252,87 +250,6 @@ def test_spatial_absorber_step_refinement_matches_matrix_exponential(
     for coarse, fine in pairwise(measured_errors):
         if fine > 16 * rounding:
             assert 20 <= coarse / fine <= 45, (measured_errors, rounding)
-
-
-@pytest.mark.parametrize("temporal", [False, True])
-def test_the_numba_term_is_the_references_on_its_own_samples_and_allocates_nothing(
-    absorber_case, temporal
-):
-    """The planned transform and real GEMM against the reference's formula.
-
-    The reference forms ``-rate/2 x + A x`` and transforms it through ``scipy.fft``;
-    ``numba_cpu`` takes the composed matrix through a real GEMM (an analytic or
-    envelope row by its real view) and transforms through its own FFTW plan. Both are
-    read off the same fine samples the last stage left in the plan's buffer, so what
-    differs is only the two summation orders.
-    """
-    grid = absorber_case[0]
-    problem = problem_for(absorber_case, 8)
-    if temporal:
-        # A ramp rather than a constant, so that the rate is read sample by sample.
-        rate = np.linspace(0.0, 2000.0, grid.n_to)
-        rate.setflags(write=False)
-        # Beside zeros on the coarse axis: the case's zero-rate collar translates to
-        # no temporal absorber at all.
-        coarse = np.zeros(grid.n_t)
-        coarse.setflags(write=False)
-        problem = dataclasses.replace(
-            problem,
-            responses=dataclasses.replace(
-                problem.responses, temporal_absorber=coarse, temporal_absorber_fine=rate
-            ),
-        )
-    else:
-        # No temporal collar at all, so the radial term stands alone.
-        problem = dataclasses.replace(
-            problem,
-            responses=dataclasses.replace(
-                problem.responses, temporal_absorber=None, temporal_absorber_fine=None
-            ),
-        )
-        rate = np.zeros(grid.n_to)
-    backend = NumbaCpuBackend(problem, grid=grid)
-    try:
-        backend.set_initial(problem.initial.field0, None)
-        backend._trial_step(0.0, LENGTH / 8)
-        measured = backend._absorber_term().copy()
-        samples = backend._plans.modal_time.copy()
-        matrix = backend._spatial_absorber.copy()
-        tracemalloc.start()
-        backend._absorber_term()
-        _, peak = tracemalloc.get_traced_memory()
-        tracemalloc.stop()
-        ledger = backend.memory_ledger()
-    finally:
-        backend.close()
-    if problem.grid_kind == "field":
-        samples = samples.real
-    n_r, n_pol = problem.shape[1:3]
-    rows = samples.reshape(n_r, -1)
-    term = (-0.5 * rate * samples + (matrix @ rows).reshape(samples.shape)).reshape(
-        n_r, n_pol, -1
-    )
-    expected = (
-        passes.to_frequency(term, grid.crop_index, kind=problem.grid_kind)
-        * grid.active_mask
-    ).reshape(measured.shape)
-    # Each time sample is an n_r-term dot product plus the rate's term, so differs by
-    # gamma_(n_r+1) of its absolute summands; a bin sums n_to of those, and each FFT
-    # adds about log2(n_to) roundings of the same absolute scale. Twice that, for the
-    # two transforms.
-    n_to = grid.n_to
-    absolute = np.abs(matrix) @ np.abs(rows) + (0.5 * rate * np.abs(samples)).reshape(
-        n_r, -1
-    )
-    operations = n_r + 1 + 4 * int(np.log2(n_to))
-    bound = 2 * operations * EPS * n_to * float(np.max(absolute))
-    assert bound > 0
-    assert_allclose(measured, expected, rtol=0, atol=bound)
-    # Nothing field-sized: one column of the fine spectrum is the smallest buffer
-    # the term would need if it allocated one; what is left is Python's own views.
-    assert peak < n_to * 16
-    assert ledger["in_stage_absorber_term"] == measured.nbytes
-    assert ledger["in_stage_absorber_spectrum"] > 0
 
 
 @pytest.mark.parametrize("illumination", ["confined", "extended"])

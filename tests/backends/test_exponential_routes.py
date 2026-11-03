@@ -28,7 +28,6 @@ from bounds import (
 )
 from capability_routes import ROUTES
 from solprop.backends import available
-from solprop.backends.numba_cpu import NumbaCpuBackend
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.stepper import PIController
 from solprop.stepper.multistep import Multistep
@@ -128,7 +127,7 @@ def _march_with(backend_class, route, integrator, rtol=1e-8):
         backend.close()
 
 
-COMPILED_ADAMS: dict[str, type] = {"numba_cpu": NumbaCpuBackend}
+COMPILED_ADAMS: dict[str, type] = {}
 if "native" in available():
     from solprop_native import NativeBackend  # pyright: ignore[reportMissingImports]
 
@@ -160,19 +159,18 @@ def test_a_compiled_backend_follows_the_reference(backend_name, route, formulati
         COMPILED_ADAMS[backend_name], route, integrator
     )
     # The same decisions -- every call -- and step sizes within the rounding the
-    # controller passes on: measured up to 1e-6 relative on numba_cpu and 1.8e-4 on
-    # Kokkos over the 690 steps of the general guide, whose in-stage collar keeps the
-    # controller near its stability limit, where a rounding-level change of the norm
-    # moves the next step most. Fields within the accumulated rounding of the two
-    # evaluation orders: measured 1e-18 to 5e-14 of the peak on the GNLSE,
-    # free-space and general routes and up to 1.1e-9 on the gas-filled
-    # capillaries, whose ionisation rate amplifies rounding at the peak (Runge-Kutta's
-    # own difference there: 1.3e-11; the exponential formulation's 1.2e-10 before its
-    # order choice weighed the in-stage collar, which adds a step on the multimode
-    # capillary). A device build's own evaluation order measured 3.5e-9 to 3.8e-9 on
-    # two capillary rows on an NVIDIA Hopper device, not from multiply-add contraction
-    # (a CPU build contracting every multiply-add stays within 9e-10): its bound is
-    # 5e-9.
+    # controller passes on: measured up to 1.8e-4 on Kokkos over the 690 steps of the
+    # general guide, whose in-stage collar keeps the controller near its stability
+    # limit, where a rounding-level change of the norm moves the next step most. Fields
+    # within the accumulated rounding of the two evaluation orders: measured 1e-18 to
+    # 5e-14 of the peak on the GNLSE, free-space and general routes and up to 1.1e-9 on
+    # the gas-filled capillaries, whose ionisation rate amplifies rounding at the peak
+    # (Runge-Kutta's own difference there: 1.3e-11; the exponential formulation's
+    # 1.2e-10 before its order choice weighed the in-stage collar, which adds a step on
+    # the multimode capillary). A device build's own evaluation order measured 3.5e-9 to
+    # 3.8e-9 on two capillary rows on an NVIDIA Hopper device, not from multiply-add
+    # contraction (a CPU build contracting every multiply-add stays within 9e-10): its
+    # bound is 5e-9.
     bound = 3e-9 if device_backend(backend_name) == "none" else 5e-9
     held = formulation == "exponential" and route in COLLAR_HELD
     if held or compiled_calls != calls:
@@ -180,15 +178,15 @@ def test_a_compiled_backend_follows_the_reference(backend_name, route, formulati
         # rounding-level change of the error norm moved one accept or order decision,
         # which SEP 25 section 4.4 allows (seen on an NVIDIA Hopper device) -- or the
         # in-stage collar holds them at its stable step, where rounding sets the
-        # steps (COLLAR_HELD): on an Apple M5 Max both compiled backends took the
-        # reference's 21 and 23 calls with steps up to 4.0e-2 apart (numba_cpu;
-        # 3.3e-2 native). They are then compared as accuracy (class T): each against
-        # the reference method at a hundred times tighter tolerance, within four
-        # times the reference run's own error there, plus the rounding bound below (a
-        # route whose two reference runs agree exactly has no error). On the held
-        # capillaries the reference's error is 3.9e-11 and 7.6e-11 and the compiled
-        # runs' 2.9e-11 to 5.9e-11; reference runs forked by a launch changed by up to
-        # 1e-11, with up to four times the calls, stay within 2.1e-10.
+        # steps (COLLAR_HELD): on an Apple M5 Max the native backend took the
+        # reference's 21 and 23 calls with steps up to 3.3e-2 apart. They are then
+        # compared as accuracy (class T): each against the reference method at a
+        # hundred times tighter tolerance, within four times the reference run's own
+        # error there, plus the rounding bound below (a route whose two reference runs
+        # agree exactly has no error). On the held capillaries the reference's error is
+        # 3.9e-11 and 7.6e-11 and the compiled runs' 2.9e-11 to 5.9e-11; reference runs
+        # forked by a launch changed by up to 1e-11, with up to four times the calls,
+        # stay within 2.1e-10.
         tight, _, _ = _march_with(NumpyRefBackend, route, integrator, rtol=1e-10)
         envelope = AccuracyEnvelope(
             "numpy_ref at rtol 1e-10", error=departure(reference, tight), factor=4.0

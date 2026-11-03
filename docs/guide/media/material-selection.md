@@ -132,7 +132,7 @@ is the GNLSE route, whose coefficient is constant. On the general modal route a 
 declaring its gas fill (`GasKerr`) takes the policy. The manifest's
 `electronic` entries record each population's model and support digests, leg bound,
 band edges and regions in place of the carrier coefficient. The responses run on
-`numpy_ref`, `numba_cpu` and the native backend, on its CPU build and its qualified
+`numpy_ref` and the native backend, on its CPU build and its qualified
 device builds. The physics, the two evaluators, the regions and how to choose
 between the policies are in
 [a frequency-dependent electronic response](dispersive-kerr.md).
@@ -583,7 +583,7 @@ and carry their own citations.
 - Gas mixtures in a planar guide remain unsupported: a slab's fill is one species.
 - By default the Kerr coefficient is one number per species and run, at the carrier
   (`carrier-kerr`); the third harmonic is driven by the same number. The dispersive
-  policies are opt-in and gases only; they run on `numpy_ref`, `numba_cpu` and the native
+  policies are opt-in and gases only; they run on `numpy_ref` and the native
   backend ([backends](dispersive-kerr.md#backends));
   beyond a gas's band edge they are best effort, with no resonant response
   ([limitations](dispersive-kerr.md#limitations)).

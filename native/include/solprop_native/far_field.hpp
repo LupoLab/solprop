@@ -23,14 +23,14 @@
  * (solprop SEP 34): a squared modulus is weighted by the real admittance
  * `c Re k_z / omega` of the operator's root, and each amplitude carries its magnetic
  * closure, the same sum with `conj(c k_z / omega)` applied first, formed per element
- * (no column-by-frequency table is held). It mirrors solprop's `numba_cpu` pass: the
+ * (no column-by-frequency table is held). It takes the
  * slot layout of `solprop.backends.spatial.far_field_layout`, the band edges of
  * `far_field_bands` (the same units and budget), the radius of `mask_plane_radius`
  * compiled without contraction, the zeros of `aperture_weight` and the root of
  * `longitudinal_root`. Each band sums its columns in ascending order and the bands are
- * then summed in ascending order, so every value is the `numba_cpu` pass's sum in the
- * same association; agreement between them rests on summation order alone (solprop
- * SEP 25 compares them within a rounding bound, never by bits).
+ * then summed in ascending order, so every value has one association whatever the
+ * thread count (solprop SEP 25 compares it with the reference within a rounding bound,
+ * never by bits).
  */
 
 namespace solprop_native {

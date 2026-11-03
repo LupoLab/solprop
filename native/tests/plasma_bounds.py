@@ -323,11 +323,15 @@ def current_error(
     squared = np.zeros_like(low)
     np.divide(1.0, low**2, out=squared, where=live)
     inverse = squared[:, None, :]
+    # A sample with no loss work on either side, however close to a zero crossing, has
+    # no loss current to move: `delta / low` must not overflow there and meet its zero.
+    spread = np.zeros_like(low)
+    np.divide(delta, low, out=spread, where=live)
     loss = work[:, None, :] * components * inverse
     loss_error = (
         work_error[:, None, :] * components * inverse
         + work[:, None, :]
-        * (field_error + 2.0 * components * (delta / low)[:, None, :])
+        * (field_error + 2.0 * components * spread[:, None, :])
         * inverse
         + 16 * U * loss
     )

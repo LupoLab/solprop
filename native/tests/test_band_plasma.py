@@ -17,7 +17,7 @@ integrand, per evaluation of an explicit seven-stage step. The tests marked ``gp
 the device qualification's.
 """
 
-# ruff: noqa: I001 -- Kokkos must load before solprop imports pyFFTW on macOS.
+# ruff: noqa: I001 -- Kokkos loads first, before any other OpenMP runtime on macOS.
 
 from __future__ import annotations
 

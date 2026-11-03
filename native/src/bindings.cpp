@@ -1754,8 +1754,8 @@ void shutdown_kokkos() {
 }
 
 // Kokkos::finalize runs Kokkos-FFT's hook, fftw_cleanup_threads, which destroys
-// FFTW's process-wide planner. Any other user of the same FFTW library (pyFFTW in
-// solprop's Numba backend) must have destroyed its plans by then, so the owned
+// FFTW's process-wide planner. Any other user of the same FFTW library must have
+// destroyed its plans by then, so the owned
 // runtime is finalised after the interpreter has released every Python object,
 // rather than from a Python exit handler, which runs before. Nothing here calls
 // Python.
