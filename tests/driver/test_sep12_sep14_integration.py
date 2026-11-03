@@ -10,6 +10,7 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose, assert_array_equal
 
+from solprop.backends.multistep import CallLedger
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.driver import Simulation
 from solprop.driver import tdse as runtime_module
@@ -301,8 +302,7 @@ def test_interior_natural_save_resumes_without_resetting_atomic_budget(
     assert calls["startup"] == 1
     assert calls["accepted_steps"] == 6
     assert calls["predictor"] == 6
-    orders = calls["orders"]
-    assert isinstance(orders, list) and orders[1] == 1
+    assert CallLedger.from_record(calls).orders[1] == 1
     assert final.outcome.atomic_calls["attempted"] == 14
     assert final.outcome.atomic_calls["reserved"] == 0
     assert all(binding.closed for binding in bindings)

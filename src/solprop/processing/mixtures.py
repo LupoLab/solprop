@@ -16,7 +16,7 @@ from solprop.exceptions import ProcessingError
 from solprop.grid import TimeGrid
 from solprop.output.schema import Output
 from solprop.processing.axes import grid_of
-from solprop.processing.fields import get_spectral_density
+from solprop.processing.fields import _spectral_density
 from solprop.translate.flux import flux_from_record
 from solprop.translate.spatial import axial_admittance
 
@@ -118,7 +118,10 @@ def absorbed_spectral_energy(
     if species is not None and species not in labels:
         raise ProcessingError(f"unknown species label {species!r}; available: {labels}")
     selected = list(range(len(labels))) if species is None else [labels.index(species)]
-    omega, density = get_spectral_density(output, axis="omega", band="active")
+    # Each column's own density, which the column energy weights below turn into a
+    # physical one on a spatial run; get_spectral_density refuses such a file, whose
+    # columns it would read as modes.
+    omega, density = _spectral_density(output, axis="omega", band="active")
     n_modes = output.fields().shape[1]
     modal = density.reshape(output.n_saved, n_modes, omega.size)
     weights = _array(record, "column_energy_weights")

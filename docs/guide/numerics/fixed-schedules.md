@@ -49,6 +49,106 @@ pronounce an order — below the floor the differences measure accumulated round
 the same ratio has come back as $-0.83$ there and been read as healthy. An inconclusive
 calibration cannot be replayed from; that is the point of measuring rather than assuming.
 
+### Replaying a run's own steps
+
+Two functions turn an adaptive run into a schedule.
+{py:obj}`~solprop.stepper.schedule.discover` takes the accepted step lengths as a list.
+{py:obj}`FixedSchedule.from_history <solprop.stepper.schedule.FixedSchedule.from_history>`
+reads the `step_history` a run writes to its output, which records every attempt with its
+start, its length and whether it was accepted, and drops the rejected attempts. Replaying
+the schedule with the same save planes repeats the run's step positions without its
+controller, which is how two precisions or two backends are compared on one
+discretisation (a few seconds):
+
+```python
+import numpy as np
+
+from solprop.driver import prop_gnlse
+from solprop.stepper import FixedSchedule
+
+
+def soliton(**changes):
+    """Run a third-order soliton over 0.2 m of fibre."""
+    return prop_gnlse(
+        0.11,
+        0.2,
+        [0.0, 0.0, -11.83e-27],
+        wavelength=835e-9,
+        wavelength_limits=(500e-9, 2e-6),
+        trange=2e-12,
+        width=100e-15,
+        peak_power=9 * 11.83e-27 / (0.11 * 1e-26),
+        shape="sech",
+        n_save=3,
+        noise=None,
+        progress="none",
+        # In both runs: the default in-stage collar would refuse this history (below).
+        absorber_scheme="split_step",
+        **changes,
+    )
+
+
+def steps_of(run):
+    """Return a run's accepted steps as a schedule."""
+    return FixedSchedule.from_history(
+        np.asarray(run["step_history/z"]),
+        np.asarray(run["step_history/h"]),
+        np.asarray(run["step_history/accepted"]),
+    )
+
+
+schedule = steps_of(soliton())
+one = soliton(schedule=schedule)
+other = soliton(schedule=schedule)  # change backend= or precision= here to compare
+print(np.array_equal(steps_of(one).steps, schedule.steps))  # True
+```
+
+**What a replay repeats.** Under `RungeKutta()` a step is fixed by its length, so a
+replay takes the adaptive run's discretisation. Under `Multistep()` the replay chooses
+each step's order afresh, by the adaptive run's rule from the same estimates; where the
+adaptive run rejected a step it waits a step before raising the order, which a replay
+never has to. So a replay can differ from the adaptive run where that run rejected,
+while a replay of a replay is identical: compare **two replays** of one schedule, not a
+replay with its adaptive run. Recording the order sequence in the schedule would make a
+replay match its adaptive run exactly; that would extend the saved schedule and is not
+done, because two replays already share one discretisation.
+
+**The collars.** Under the default `absorber_scheme="nonlinear"` the temporal collar's
+largest rate is an eigenvalue of the step, so a replayed step may be no longer than the
+collar's stable step ({py:obj}`~solprop.boundaries.stable_step`, scaled to the method's
+stability interval), and translation refuses a schedule that has one, naming the limit.
+An adaptive run is not held to that limit, because an empty collar produces no error, so
+a default run's own history is often refused: on the soliton above its longest accepted
+step is 5.60 mm against a limit of 5.24 mm under `RungeKutta()`, and 1.59 mm against
+0.139 mm under `Multistep()`. Either of two remedies replays exactly:
+
+- give `absorber_scheme="split_step"` to **both** the discovery run and the replay, as
+  above (on the replay alone the replay runs, but differs from the discovery run by the
+  change of scheme); or
+- hold the discovery run to a `dz_max` at or under the limit the refusal prints, and
+  replay its history with the same `dz_max`. The printed limit is rounded down, so the
+  printed value itself is safe.
+
+A stability limit belongs to the integrator, `Multistep()`'s being far shorter than
+`RungeKutta()`'s, so run the discovery with the integrator the replay will use: the
+printed limit is computed for it.
+
+A requested spatial collar on a spatial route ([SEP 40](../../dev/seps/archive/sep-0040-transverse-absorbing-boundaries.md))
+adds three more limits on a replayed step: its own stable step, which also depends on the
+integrator, and the fixed-schedule crossing and damping bounds, which do not. An adaptive
+run is held only to the looser adaptive crossing limit, so its history can break them.
+The spatial collar is always in-stage, so `absorber_scheme="split_step"` does not lift
+these; `dz_max` at or under the printed limit in the discovery run does, and each
+refusal says so.
+
+**Two more limits.** A replay lands on its save planes, so `interpolate_planes=True` is
+refused beside a schedule; and a discovery run with `interpolate_planes=True` steps past
+its planes, so its history does not contain them and is refused as a schedule for the
+same planes. The accepted steps must also follow each other, each starting where the last
+ended. A resumed run's history does when the resumed part continues from where the
+history ends, as it does after a stop at a save plane; a history that does not, such as
+two runs' joined, is refused.
+
 ### Plain fixed steps
 
 A fixed-step run with no adaptivity at all needs no discovery.

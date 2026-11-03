@@ -26,7 +26,7 @@ import numpy as np
 
 from solprop.exceptions import OutputError, SolpropError
 from solprop.output._writer_lock import WriterLock
-from solprop.output.hdf5 import resume
+from solprop.output.hdf5 import ResumeState, resume
 from solprop.output.schema import SCHEMA_VERSION, _decode
 
 if TYPE_CHECKING:
@@ -149,6 +149,34 @@ def _schema(path: Path) -> int | None:
     return None if version is None else int(cast("int", version))
 
 
+def _unusable_state(state: ResumeState) -> str | None:
+    """Return why a file's last state cannot be continued, or ``None`` if it can.
+
+    Parameters
+    ----------
+    state : solprop.output.hdf5.ResumeState
+        The file's resumable state.
+
+    Returns
+    -------
+    str or None
+        The reason.
+    """
+    if state.plane.field is None:
+        return "its last plane kept no field and no terminal checkpoint follows it"
+    if state.outcome is not None and state.outcome.logical_calls:
+        # A resume under Multistep installs the charged ledger and refuses one it
+        # cannot read, such as the flat orders of an earlier development build of
+        # this schema (#80): the answer says so before a resume is tried.
+        from solprop.backends.multistep import CallLedger  # noqa: PLC0415 - heavy
+
+        try:
+            CallLedger.from_record(state.outcome.logical_calls)
+        except SolpropError as error:
+            return str(error)
+    return None
+
+
 def resumability(path: str | Path, *, gate: bool = False) -> Resumability:
     """Say whether a results file can continue, rebuild itself, and pass the gate.
 
@@ -218,10 +246,9 @@ def resumability(path: str | Path, *, gate: bool = False) -> Resumability:
     upcoming = int(np.searchsorted(planes, position, side="right"))
     if state.checkpoint is None and upcoming >= planes.size:
         return refused("the run is complete: no work is left")
-    if state.plane.field is None:
-        return refused(
-            "its last plane kept no field and no terminal checkpoint follows it"
-        )
+    unusable = _unusable_state(state)
+    if unusable is not None:
+        return refused(unusable)
     forced = state.outcome is not None and bool(state.outcome.forced_positions)
     mode: ResumeMode = (
         "force" if forced else "interpolated" if state.interpolated else True

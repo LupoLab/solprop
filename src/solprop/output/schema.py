@@ -42,6 +42,7 @@ compared as it was written.
 The manual page is ``docs/guide/results/output.md``.
 """
 
+import copy
 import dataclasses
 import functools
 import hashlib
@@ -1978,12 +1979,38 @@ class RunOutcome:
             raise OutputError(f"unknown run outcome {self.status!r}")
         if not np.isfinite(self.z) or self.z < 0:
             raise OutputError("run outcome z must be finite and nonnegative")
+        # One JSON round trip validates and copies every part: the record is built
+        # at every saved plane, and one per part and per amended copy, nine a plane,
+        # were about 5 % of a short capillary run on MemoryOutput.
+        parts: dict[str, object] = {
+            "logical_calls": dict(self.logical_calls),
+            "atomic_calls": dict(self.atomic_calls),
+            "execution": dict(self.execution),
+            "previous_executions": [
+                dict(record) for record in self.previous_executions
+            ],
+        }
+        try:
+            owned = _outcome_record(parts)
+        except OutputError as error:
+            # Only now is each part checked alone, so that the error names the one to
+            # look at: the whole record fails exactly when one of its parts does.
+            name, why = next(
+                (name, why)
+                for name, part in parts.items()
+                if (why := _json_failure(part)) is not None
+            )
+            msg = (
+                "execution records must contain finite JSON values: the run "
+                f"outcome's {name} holds {why}"
+            )
+            raise OutputError(msg) from error
         for name in ("logical_calls", "atomic_calls", "execution"):
-            object.__setattr__(self, name, _outcome_record(getattr(self, name)))
+            object.__setattr__(self, name, owned[name])
         object.__setattr__(
             self,
             "previous_executions",
-            tuple(_outcome_record(record) for record in self.previous_executions),
+            tuple(cast("list[dict[str, object]]", owned["previous_executions"])),
         )
 
     @property
@@ -2034,6 +2061,87 @@ class RunOutcome:
             for entry in self.resumes
             if entry.get("forced")
         )
+
+
+def _json_failure(part: object) -> str | None:
+    """Return why a part of a run outcome is not finite JSON, or ``None`` if it is.
+
+    Parameters
+    ----------
+    part : object
+        The part.
+
+    Returns
+    -------
+    str or None
+        The encoder's reason.
+    """
+    try:
+        json.dumps(part, allow_nan=False)
+    except (TypeError, ValueError) as error:
+        return str(error)
+    return None
+
+
+def _json_copy(value: object) -> object:
+    """Return an independent copy of a value made of validated JSON values.
+
+    Cheaper than another JSON round trip, and than :func:`copy.deepcopy`, because the
+    value is known to hold only dicts, lists, strings, numbers, booleans and
+    ``None``.
+
+    Parameters
+    ----------
+    value : object
+        The value.
+
+    Returns
+    -------
+    object
+        Its copy: new dicts and lists, the same immutable leaves.
+    """
+    if isinstance(value, dict):
+        return {key: _json_copy(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_json_copy(item) for item in value]
+    return value
+
+
+def _amended_outcome(
+    outcome: RunOutcome,
+    *,
+    execution: Mapping[str, object] | None = None,
+    previous_executions: tuple[Mapping[str, object], ...] | None = None,
+) -> RunOutcome:
+    """Return a copy of an outcome with parts a store has already validated.
+
+    :func:`dataclasses.replace` would validate the whole record again; the store's
+    own parts -- its session's resume entry and its earlier closing records -- were
+    validated when it took them, so a saved plane validates its record once. The
+    caller hands over copies of them (:func:`_json_copy`), so that each outcome holds
+    its own and a change to one read back reaches no other.
+
+    Parameters
+    ----------
+    outcome : RunOutcome
+        The validated outcome.
+    execution : collections.abc.Mapping or None, optional
+        Its execution record with the store's resume entry, owned by the store.
+    previous_executions : tuple of collections.abc.Mapping or None, optional
+        The store's closing records of earlier executions.
+
+    Returns
+    -------
+    RunOutcome
+        The amended copy; the parts not given are shared with `outcome`, which the
+        store holds alone.
+    """
+    amended = copy.copy(outcome)
+    if execution is not None:
+        object.__setattr__(amended, "execution", execution)
+    if previous_executions is not None:
+        object.__setattr__(amended, "previous_executions", previous_executions)
+    return amended
 
 
 def _outcome_record(record: Mapping[str, object]) -> dict[str, object]:
@@ -3965,7 +4073,7 @@ class PlaneStore(Displayed, ABC):
         entry : collections.abc.Mapping
             The entry: finite JSON values.
         """
-        self._session_resume = dict(entry)
+        self._session_resume = _outcome_record(entry)
 
     def record_recipe(self, record: RecipeRecord) -> None:
         """Record the recipe the run was built from, unless one is recorded already.
@@ -4027,8 +4135,12 @@ class PlaneStore(Displayed, ABC):
         self._check_usable()
         self._require_metadata()
         if self._session_resume is not None:
-            outcome = dataclasses.replace(
-                outcome, execution={**outcome.execution, "resume": self._session_resume}
+            outcome = _amended_outcome(
+                outcome,
+                execution={
+                    **outcome.execution,
+                    "resume": _json_copy(self._session_resume),
+                },
             )
         previous = self._outcome
         if previous is not None:
@@ -4039,7 +4151,13 @@ class PlaneStore(Displayed, ABC):
                 closing = dataclasses.asdict(previous)
                 closing.pop("previous_executions")
                 history = (*history, closing)
-            outcome = dataclasses.replace(outcome, previous_executions=history)
+            outcome = _amended_outcome(
+                outcome,
+                previous_executions=tuple(
+                    cast("dict[str, object]", _json_copy(dict(record)))
+                    for record in history
+                ),
+            )
         if checkpoint is not None:
             if checkpoint.plane.z != outcome.z:
                 raise OutputError("checkpoint and outcome positions must agree")
