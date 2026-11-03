@@ -451,10 +451,31 @@ The full suite passes against both routes, on x86-64 (AVX2) and arm64 (AdvSIMD, 
 **An adaptive run under measured plans.** FFTW's measured planning needn't choose one plan,
 so an adaptive native run needn't repeat exactly. On the multimode capillary's interaction
 march, fields differ by 1.5e-10 between one and four threads and by 1.3e-10 between repeats,
-and by 0.0 under `SOLPROP_FFTW_PLAN=estimate`. Steps sit 1.9e-12 apart, so the field's
-difference is about 65 times theirs, a factor nobody has explained. That is above the
-1e-10 flag and far below the run's `rtol`, and it's accepted as the rounding of plan choice
-(SEP 43, Q11).
+and by 0.0 under `SOLPROP_FFTW_PLAN=estimate`. That is above the 1e-10 flag and far below the
+run's `rtol`, and it's accepted as the rounding of plan choice (SEP 43, Q11).
+
+What amplifies that rounding is the in-stage temporal collar, not the step lengths, though
+they differ too. On this three-step run at `rtol` 1e-8, replaying one run's steps under
+`estimate` and `measure` moves the field by 7.6e-11 with no step changed, and replaying other
+runs' steps under `estimate` moves it by at most 8.4e-12. 99.99998 % of the difference's energy
+lies in the collar, and with the collar removed, or under `absorber_scheme="split_step"`, the
+difference is about 1e-21. The adaptive steps give $h\alpha/2$ of 38 to 49, far past the Adams
+method's stability intervals (`PEC_REAL_INTERVAL`: 1.0 at first order, 0.0877 at fifth), so the
+rounding left in the collar grows by a factor of 60 to 90 a step: 1.5e-14, 8.8e-13 and 7.6e-11
+after one, two and three steps. Scaling the collar's rate on the same steps shows the same
+thing:
+
+| largest $h\alpha/2$ | 49 | 25 | 12 | 4.9 | 2.5 | 1.5 | 0.98 | 0.49 |
+|---|---|---|---|---|---|---|---|---|
+| field difference, of the peak | 7.9e-11 | 4.7e-12 | 2.9e-13 | 5.4e-15 | 5.4e-16 | 1.3e-16 | 1.3e-16 | 1.6e-17 |
+
+The controller only starts to see this growth within those three steps: the last step's error
+norm is 0.187 under one plan and 0.197 under another, both accepted. On longer versions of the
+run, 3 to 100 times the length, the controller settles at a median $h\alpha/2$ of 0.55 to 1.0.
+There `estimate` and `measure` take steps up to 31 % apart, and their fields still differ by at
+most 3.7e-11 of the peak. So the size of a step difference says little about the field's: the
+earlier comparison of 1.9e-12 in the steps with 1.5e-10 in the field, a factor of 65, set side
+by side two effects of the plan, not a cause and its result.
 
 **Scans and batches** are execution paths, not numerical models: a scan point agrees with
 the same simulation run alone, and a batch member with the same member run singly under
