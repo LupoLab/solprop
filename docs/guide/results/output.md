@@ -303,7 +303,10 @@ power, energy, spectral density and field are **physical fluxes** (an orthogonal
 basis) or **coordinate quantities** (a general modal basis, whose physical energy is
 `physical_energy`, and a spatial grid, per transverse column); which saved planes keep
 their field and which only their statistics; which of the basis-dependent accessors and
-compression its readers refuse, with the refusal they give, read from the same gates;
+compression its readers refuse, with the refusal they give, read from the same gates
+(a spatial file admits `energy`, whose statistic is the beam's physical energy); in
+`refused_readers`, which processing and plotting readers refuse it (on a spatial file
+every reader that would read its columns as modes, such as `get_power`);
 what a general modal reconstruction needs that the file only identifies (the guide and
 the reference tables); whether it records a recipe; and, for a path, its
 [resumability](resuming.md#what-a-file-allows).
@@ -407,6 +410,14 @@ anything grown per plane. A new field of the JSON run record, a new root attribu
 new top-level group written once does not bump it: readers already tolerate them, and a
 resume decides by comparing the records (ADR-063,
 [SEP 42](../../dev/seps/archive/sep-0042-tolerant-resume.md)).
+
+**How often.** At most once between two releases. The first such change after a
+release bumps the schema; every later one before the next release folds into that
+version, which the next release is the first to write. Development builds between two
+releases are therefore not compatible with one another: a file written by an earlier
+build of the same schema may be refused, by name where the difference is known (a
+Multistep run's predictor orders, which are now recorded as `[order, count]` pairs,
+were one integer per step before), and is read with the build that wrote it.
 
 ## A worked example
 

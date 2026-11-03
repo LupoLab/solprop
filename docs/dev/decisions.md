@@ -1700,7 +1700,8 @@ Withdrawn (development-process record, not a design decision).
 
 - **Status:** accepted (maintainer, 2026-11-01, with
   [SEP 42](seps/archive/sep-0042-tolerant-resume.md)); narrows ADR-051 and sets the policy
-  ADR-058 left open
+  ADR-058 left open; amended 2026-11-02 for how often the schema is bumped (the last
+  bullet)
 - **Context:** a file resumed only when the rebuilt run's configuration hash equalled
   the stored one. A release that added a field, an optmat release with the same numbers,
   a looser tolerance or another platform's mathematics library each refused a resume of
@@ -1740,3 +1741,10 @@ Withdrawn (development-process record, not a design decision).
   from its tag (`docs/dev/releasing.md`). 0.2.0, the first release of output schema 2,
   is tagged after SEP 42, so that every released reader of schema 2 knows these rules; a
   later change to what force records bumps the schema.
+- **Amendment, how often the schema is bumped** (maintainer, 2026-11-02): the bump rule
+  above applies per release, not per change. The first change after a release that an
+  older reader would misread or could not append to bumps the schema; later such changes
+  before the next release fold into that version. Development builds between releases
+  are not compatible with one another, and a known difference between them is refused
+  by name rather than read two ways (#80, the Multistep ledger's run-length encoded
+  orders, folded into schema 2).
