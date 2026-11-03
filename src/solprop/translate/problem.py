@@ -1131,11 +1131,42 @@ def _held_copy(values: np.ndarray, dtype: type[np.generic]) -> np.ndarray:
     Returns
     -------
     numpy.ndarray
-        Read-only and the problem's own.
+        Read-only and the problem's own, of `dtype`.
     """
-    if _is_held(values):
+    if _is_held(values) and values.dtype == dtype:
         return values
     return _hold(np.array(values, dtype=dtype, order="C"))
+
+
+def _held_block(values: np.ndarray, dtype: type[np.generic]) -> np.ndarray:
+    """Return a held copy of an array of `dtype`, a broadcast copying its block alone.
+
+    Parameters
+    ----------
+    values : numpy.ndarray
+        The caller's array, of any numeric dtype, or one already held.
+    dtype : type
+        The element type of the copy.
+
+    Returns
+    -------
+    numpy.ndarray
+        Read-only, of `dtype`: `values` itself when it is already held with that
+        dtype; for a broadcast view, a broadcast of a held copy of the block it
+        repeats; otherwise a held C-contiguous copy.
+    """
+    if _is_held(values) and values.dtype == dtype:
+        return values
+    repeated = tuple(
+        size > 1 and stride == 0
+        for size, stride in zip(values.shape, values.strides, strict=True)
+    )
+    if not any(repeated):
+        return _held_copy(values, dtype)
+    block = _held_copy(
+        values[tuple(slice(0, 1) if axis else slice(None) for axis in repeated)], dtype
+    )
+    return _hold(np.broadcast_to(block, values.shape))
 
 
 def _held_state(field0: Num[np.ndarray, "*shape"]) -> Complex[np.ndarray, "*shape"]:
@@ -1149,24 +1180,11 @@ def _held_state(field0: Num[np.ndarray, "*shape"]) -> Complex[np.ndarray, "*shap
     Returns
     -------
     numpy.ndarray
-        Complex128 and read-only: `field0` itself when it is already held; for a
-        broadcast view, a broadcast of a held copy of the block it repeats; otherwise a
-        held C-contiguous copy.
+        Complex128 and read-only: `field0` itself when it is already held as
+        complex128; for a broadcast view, a broadcast of a held copy of the block it
+        repeats; otherwise a held C-contiguous copy (:func:`_held_block`).
     """
-    if _is_held(field0):
-        return field0
-    values = np.asarray(field0)
-    repeated = tuple(
-        size > 1 and stride == 0
-        for size, stride in zip(values.shape, values.strides, strict=True)
-    )
-    if not any(repeated):
-        return _held_copy(values, np.complex128)
-    block = _held_copy(
-        values[tuple(slice(0, 1) if axis else slice(None) for axis in repeated)],
-        np.complex128,
-    )
-    return _hold(np.broadcast_to(block, values.shape))
+    return _held_block(np.asarray(field0), np.complex128)
 
 
 @dataclass(frozen=True, eq=False)
@@ -5927,7 +5945,8 @@ def _state(
     if values.ndim == 3:
         expanded = values[np.newaxis]
         # The batch axis on a held state is a view of the problem's own array.
-        return _hold(expanded) if _is_held(values) else _held_state(expanded)
+        held = _is_held(values) and values.dtype == np.complex128
+        return _hold(expanded) if held else _held_state(expanded)
     if values.ndim != 4:
         msg = (
             "field0 must have shape (n_modes, n_pol, n_omega) or (n_batch, n_modes, "

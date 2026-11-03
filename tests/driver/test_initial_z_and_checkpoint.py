@@ -10,6 +10,7 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose, assert_array_equal
 from tests.backends.test_tdse_march import ManufacturedBinding
+from tests.driver.test_resume import run_until
 from tests.driver.test_run import NullBackend
 
 from solprop.backends.memory import MemoryEstimate
@@ -20,7 +21,7 @@ from solprop.boundaries import absorber
 from solprop.driver import Simulation, SimulationSettings, run_problem
 from solprop.driver import simulation as simulation_module
 from solprop.driver import tdse as runtime_module
-from solprop.driver.memory import MemoryAdmission, MemoryLimit
+from solprop.driver.memory import MemoryAdmission, MemoryLimit, admit_memory
 from solprop.exceptions import (
     DriverError,
     MemoryBudgetError,
@@ -262,7 +263,7 @@ def test_changing_the_input_array_after_construction_changes_nothing(state_copie
     assert state_copies.count(field.shape) == 2  # one per simulation, no more
     problem = simulation.translate()
     assert np.shares_memory(problem.initial.field0, simulation._field0)
-    assert simulation.initial is simulation._field0
+    assert np.shares_memory(simulation.initial, simulation._field0)
     assert field.flags.writeable
     estimated = simulation.estimate()
     output = simulation.run(progress="none")
@@ -276,6 +277,84 @@ def test_changing_the_input_array_after_construction_changes_nothing(state_copie
         simulation.metadata().configuration_hash()
         == reference.metadata().configuration_hash()
     )
+
+
+def test_the_recorded_input_cannot_be_made_writeable(state_copies):
+    # A view of the read-only copy: neither the run nor its record can be changed
+    # through it, and it is taken back as it is by a simulation built from it.
+    simulation = _free_from(_column_field())
+    assert isinstance(simulation.initial, np.ndarray)
+    with pytest.raises(ValueError, match="WRITEABLE"):
+        simulation.initial.setflags(write=True)
+    again = _free_from(simulation.initial)
+    assert np.shares_memory(again._field0, simulation._field0)
+    assert len(state_copies) == 1
+
+
+def test_a_real_input_is_recorded_as_given_so_an_older_file_resumes(tmp_path):
+    # Before the copy the record was the caller's float64 array itself: the record
+    # keeps that dtype and those values, so the configuration and its hash are the
+    # same, and a file written then resumes now.
+    real = np.ascontiguousarray(np.real(_column_field()))
+    before = _free_from(real)
+    before.initial = real  # what the simulation recorded before it copied its input
+    path = tmp_path / "part.h5"
+    run_until(before, path, after=1)
+    after = _free_from(real.copy())
+    assert isinstance(after.initial, np.ndarray)
+    assert after.initial.dtype == np.float64
+    assert_array_equal(after.initial, real)
+    assert (
+        after.metadata().configuration_hash() == before.metadata().configuration_hash()
+    )
+    resumed = after.run(path, resume=True)
+    assert resumed.n_saved == 2
+
+
+def test_a_modal_array_input_is_counted_beside_its_converted_launch():
+    # On a modal route the problem holds the launch converted to its internal
+    # amplitude, a second state beside the simulation's copy: both are admitted. In
+    # free space the problem holds the simulation's copy, which is counted once.
+    capillary = Simulation.from_capillary(
+        256e-6,
+        0.001,
+        "He",
+        0.1,
+        wavelength=800e-9,
+        wavelength_limits=(400e-9, 1.6e-6),
+        trange=60e-15,
+        fwhm=6e-15,
+        energy=1e-9,
+        modes=1,
+        n_save=2,
+        plasma=False,
+        noise=None,
+        backend="numpy_ref",
+    )
+    derived = capillary.with_input(np.array(capillary._field0))
+    problem = derived.translate()
+    assert not np.shares_memory(problem.initial.field0, derived._field0)
+    groups = admit_memory(
+        problem, "numpy_ref", "none", inputs=derived._held_inputs()
+    ).estimate.groups
+    assert groups["simulation_input"] == derived._field0.nbytes
+    assert groups["initial_field"] == problem.initial.field0.nbytes
+    free = _free_from(_column_field())
+    spatial = admit_memory(
+        free.translate(), "numpy_ref", "none", inputs=free._held_inputs()
+    ).estimate
+    assert "simulation_input" not in spatial.groups
+    assert spatial.groups["initial_field"] == free._field0.nbytes
+
+
+def test_a_wrongly_shaped_array_is_refused_before_it_is_copied(state_copies):
+    field = _column_field()
+    with pytest.raises(DriverError, match="spatial input must have shape"):
+        _free_from(field[:-1])
+    simulation = _free_from(field)
+    with pytest.raises(DriverError, match="existing mode and grid shape"):
+        simulation.with_input(field[:-1])
+    assert state_copies == [field.shape]
 
 
 def test_a_broadcast_input_is_copied_as_its_block_at_construction(state_copies):

@@ -60,7 +60,7 @@ def _load(simulation: Simulation, cleanup: ExitStack) -> Backend:
         Loaded backend retaining the member's noise and parameter tables.
     """
     problem = simulation.translate()
-    admit_memory(problem, simulation.settings.backend)
+    admit_memory(problem, simulation.settings.backend, inputs=simulation._held_inputs())
     owner = select(
         simulation.settings.backend,
         problem,
