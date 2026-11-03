@@ -959,11 +959,11 @@ The status of each gate is at the end of this report, and it says plainly which 
   | Pin in built metadata, through the real hook | `Requires-Dist: solprop-native==<version>` in the wheel and the sdist's `PKG-INFO` | Xeon |
   | Coexistence | With pyFFTW and Numba as outside packages, every wheel lane | CI, `wheels.yml` |
   | `pip install "solprop[native]"` and with `uv pip` (§9) | Both install solprop and native; pip warns that the extra is gone, uv says nothing | Xeon, CI's wheels |
-  | Default lanes from the wheels | Linux x86-64, Linux aarch64 and macOS 17,537 passed, 46 skipped, 3 xfailed; Windows x64 17,457 passed, 126 skipped, 3 xfailed; Windows on Arm 17,456 passed, 126 skipped, 3 xfailed and the one failure below | CI on `1e4bfbc` |
-  | Slow lanes from the wheel | Linux and macOS 243 passed, 1 skipped | CI on `1e4bfbc` |
-  | Forced x86-64-v2 | Linux 17,537 passed and Windows 17,457 passed, with the skips above, including Windows' two earlier BLAS failures | CI on `1e4bfbc` |
-  | Selection under Intel SDE, with `/proc/cpuinfo` masked | Green | CI on `1e4bfbc`, `cpu-floor` |
-  | Minimum systems | `almalinux:8` with glibc 2.28 and no compiler on `PATH`, Windows Server 2022: installed from the files, `auto` is `native`, a short run saved. macOS 14.8 the same | CI on `1e4bfbc` |
+  | Default lanes from the wheels | Linux x86-64, Linux aarch64 and macOS 17,753 passed, 46 skipped, 3 xfailed; Windows x64 and Windows on Arm 17,673 passed, 126 skipped, 3 xfailed | CI on `d3f0c678` |
+  | Slow lanes from the wheel | Linux and macOS 248 passed, 1 skipped | CI on `d3f0c678` |
+  | Forced x86-64-v2 | Linux 17,753 passed and Windows 17,673 passed, with the skips above, including Windows' two earlier BLAS failures | CI on `d3f0c678` |
+  | Selection under Intel SDE, with `/proc/cpuinfo` masked | Green | CI on `d3f0c678`, `cpu-floor` |
+  | Minimum systems | `almalinux:8` with glibc 2.28 and no compiler on `PATH`, Windows Server 2022: installed from the files, `auto` is `native`, a short run saved. macOS 14.8 the same | CI on `d3f0c678` |
   | Class T, x86-64-v2 and CPython 3.15.2 against v3 on 3.14, reference at `rtol`/10, factor 2 | All 11 adaptive cases within, at a ratio of 1.000 on both, with the same steps. `kerr_beam_384` is fixed-step, so class R applies: v2 differs by 7.1e-16 | Xeon Gold 6240, 16 threads, the release wheel |
   | §7's flag, the same steps above 1e-10 | v2 over v3: `he_rdw_averaged` 1.27e-10, `ctc` 1.08e-10. 3.15 over 3.14: `ctc` 8.2e-11, the rest at or below 3.6e-12. These two have the floor already recorded: two v3 builds differing only in ABI gave 3.8e-10 and 2.0e-10 | Xeon |
   | Plain `uv sync` in a fresh clone | Built native in 162 s on 18 cores, and `auto` is `native`. GCC 16.2 and the libraries came from this machine's environment | Xeon |
@@ -1020,11 +1020,11 @@ The status of each gate is at the end of this report, and it says plainly which 
   column's `rtol` to 3e-6 (Q14). The stored rows are unchanged.
 - **Windows on Arm's other failure:** the `gaussian_projection` docstring asserted exact equality of
   two mirrored sums, which that platform's dot product doesn't give. It now compares to 1e-12.
-- **The gates of §7, on `1e4bfbc`:**
+- **The gates of §7, on `d3f0c678`:**
 
   | Gate | State |
   |---|---|
-  | The final suite everywhere | Not met, by one test on one platform. Every lane passes on `1e4bfbc` except `plasma_band`'s record on Windows on Arm, in its wheel lane and in shard 1 of 3 of its test lane, so `Wheels` and `ci-passed` are red until Q14 is settled |
+  | The final suite everywhere | Met: `Wheels` and `ci-passed` are green, and every lane passes, including Windows on Arm's wheel lane and its three test shards at `plasma_band`'s raised tolerance (Q14) |
   | Forced v2 and slow lanes | Met |
   | No silent skips | Met where the check runs: no unexpected skip on any default shard, coverage shard or wheel lane. The slow, lowest-dependency and no-native lanes don't carry the check |
   | Fresh installs | Partly. `uv pip` from the built wheel and sdist on Linux, and from the wheel on the minimum systems. `pip` on the built files is local only; every platform is `qualify-published`'s, after a release |
@@ -1035,7 +1035,7 @@ The status of each gate is at the end of this report, and it says plainly which 
   | v2's cost | Spike's measurement only: Numba is gone from the final tree |
   | Windows v2's BLAS | Met |
   | A numba-free tree, helpers, inventory | Met; the inventory's unported items are listed above |
-  | Coverage | Met: 100 % on `solprop`, 50,241 statements and 14,912 branches with none missed, on the `coverage-report` job. The informational native run is reported above |
+  | Coverage | Met: 100 % on `solprop`, 50,560 statements and 14,988 branches with none missed, on the `coverage-report` job. The informational native run is reported above |
   | No regressions | Met on the EPYC. The Xeon gives no verdict at 36 threads; see the ledger |
   | Metadata, workspace, lightweight setup, `poe fetch-wheel`, labelled build, GPU safeguard | Met |
   | Old runs | Met, with deviation 1 |
@@ -1043,7 +1043,7 @@ The status of each gate is at the end of this report, and it says plainly which 
   | Removal is complete | Met, with deviation 8 |
   | Python 3.15 | Short runs on all five platforms, class T on Linux. Linux's default lane is the standalone step after this merges |
 
-- **Open questions, each for the maintainer:**
+- **Questions the maintainer settled:**
   - **Q6, settled 2026-11-03.** 0.1.0 is yanked right after 0.2 is published, so that deviation 2
     becomes the error §5 describes. That release step is the maintainer's.
   - **Q7, settled 2026-11-03.** `envelope_axes` and `envelope_moments` stay contracted, and leave
