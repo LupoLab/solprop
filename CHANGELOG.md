@@ -357,6 +357,7 @@ All notable changes to solprop are recorded here. The format follows
   it cost 23.8 kB and 31.5 kB. The step driver keeps only the error norms its controller
   reads, not one per accepted step
   ([#80](https://github.com/LupoLab/solprop/issues/80)).
+- Fixed the reference's single-precision path leaving binary32 on two paths that it then narrowed without a check: the split-step collar now keeps a complex64 state in binary32, as the correction `a + F(F^-1(a)(f - 1))` that `mlx` uses (binary64 runs are unchanged), and a fixed-schedule batch of single-precision `numpy_ref` members now steps each member through its own binary32 trial instead of the binary64 batch arithmetic, and a lockstep batch refuses members of mixed precisions. The finished state is now refused by name if it is not complex64 (#79).
 - On Windows on Arm, `Pool` scans no longer fail or hang in NumPy's linear solves. Workers now limit BLAS through `threadpoolctl` instead of thread variables, which crash or hang NumPy's OpenBLAS on that platform at small widths, and `import solprop` warns if such a value is set.
 
 ## [0.1.0] - 2026-10-31
