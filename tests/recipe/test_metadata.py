@@ -10,6 +10,7 @@ import types
 import typing
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from solprop.driver import Simulation
@@ -334,7 +335,7 @@ def test_a_type_s_defaults_are_its_target_s():
     pulse = metadata.parameters("GaussianPulse")
     assert pulse["wavelength"].default is metadata.REQUIRED
     assert pulse["m"].default == 1 and pulse["energy"].default is None
-    windows = metadata.parameters("StatsSpec")["energy_windows"].default
+    windows = np.asarray(metadata.parameters("StatsSpec")["energy_windows"].default)
     assert windows.shape == (0, 2)  # a dataclass's default factory, called
     assert "grid" not in metadata.parameters("absorber")  # the build context
     assert "tableau" not in metadata.parameters("RungeKutta")  # omitted
