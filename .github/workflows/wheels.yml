@@ -358,38 +358,7 @@ jobs:
         env:
           DIST: ${{ github.workspace }}/dist
           WHEELHOUSE: ${{ github.workspace }}/wheelhouse
-          CHECK: |
-            import sys
-            import tempfile
-            from pathlib import Path
-
-            import optmat
-
-            import solprop
-            from solprop.backends.registry import available, resolve_name
-            from solprop.driver import prop_gnlse
-
-            version, backend = sys.argv[1:]
-            print("solprop", solprop.__version__, "with optmat", optmat.__version__)
-            print("backends:", available(), "- auto means", resolve_name("auto"))
-            assert solprop.__version__ == version, f"expected solprop {version}"
-            assert resolve_name("auto") == backend, f"expected auto to mean {backend}"
-            with tempfile.TemporaryDirectory() as directory:
-                path = Path(directory) / "run.h5"
-                prop_gnlse(
-                    0.11,
-                    1e-4,
-                    [0.0, 0.0, -11.83e-27],
-                    wavelength=835e-9,
-                    wavelength_limits=(500e-9, 2e-6),
-                    trange=1e-12,
-                    fwhm=50e-15,
-                    peak_power=1e3,
-                    shape="sech",
-                    output=path,
-                    progress="none",
-                )
-                assert path.stat().st_size > 0
+          CHECK: ${{ github.workspace }}/native/ci/check_install.py
         run: |
           sdist=$(echo "$DIST"/solprop-*.tar.gz)
           wheel=$(echo "$DIST"/solprop-*.whl)
@@ -402,7 +371,7 @@ jobs:
           check() { # environment, requirement, what backend="auto" must resolve to
             uv venv --python 3.14 "$1"
             uv pip install --python "$1/bin/python" --find-links "$WHEELHOUSE" "$2"
-            "$1/bin/python" -I -c "$CHECK" "$version" "$3"
+            "$1/bin/python" -I "$CHECK" "$version" "$3"
           }
           check wheel "$wheel" native
           check sdist "$sdist" native
@@ -422,6 +391,48 @@ jobs:
           uv venv --python 3.14 gui
           uv pip install --python gui/bin/python --find-links "$DIST_GUI" --find-links "$WHEELHOUSE" "${wheel}[gui]"
           test "$(gui/bin/solprop-gui --version)" = "$version"
+
+  # SEP 43 section 7's minimum systems, as far as a hosted machine reaches them: the
+  # oldest macOS, a RHEL 8 age container with no compiler (glibc 2.28, what the
+  # manylinux_2_28 wheels promise) and the oldest Windows runner, which isn't Windows 10.
+  # The macOS and Windows images do carry compilers.
+  minimum-systems:
+    name: minimum (${{ matrix.id }})
+    needs: [build, solprop-dist]
+    runs-on: ${{ matrix.os }}
+    container: ${{ matrix.container }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { id: macos-14, os: macos-14, wheel: macos-arm64 }
+          - { id: almalinux-8, os: ubuntu-24.04, wheel: linux-x86_64, container: "almalinux:8" }
+          - { id: windows-2022, os: windows-2022, wheel: windows-amd64 }
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: wheel-${{ matrix.wheel }}
+          path: wheelhouse
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: solprop-dist
+          path: dist
+      - name: Install from the files and run
+        run: |
+          wheel=$(echo dist/solprop-*.whl)
+          version=$(basename "$(echo dist/solprop-*.tar.gz)" .tar.gz)
+          version=${version#solprop-}
+          (command -v gcc cc clang cl || echo "no compiler on PATH")
+          uv python install 3.14
+          uv venv --python 3.14 ../fresh
+          uv pip install --python ../fresh --find-links wheelhouse "$wheel"
+          cd ..
+          uv run --no-project --python fresh python -I "$GITHUB_WORKSPACE/native/ci/check_install.py" "$version" native
 
   # Trusted publishing to PyPI on a release tag, one job and GitHub environment per
   # project (PyPI ties a pending trusted publisher to one project name per workflow and
