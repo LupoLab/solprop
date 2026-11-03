@@ -105,7 +105,7 @@ def test_the_responses_are_exercised(name):
             problem.responses, response_order=problem.responses.response_order[:1]
         ),
     )
-    steps = problem.stepper.schedule.steps.size
+    steps = problem.stepper.schedule.steps.size  # pyright: ignore[reportOptionalMemberAccess]
     bound = ladder_bound(name, grid, space, problem, steps, grid.length)
     nonlinear = propagate(native_class(), problem, grid, grid.length)
     plain = propagate(NumpyRefBackend, linear, grid, grid.length)
@@ -130,7 +130,7 @@ def test_a_linear_run_with_the_collar_split_off_is_the_reference_s():
             absorber_scheme="split_step",
         ),
     )
-    steps = linear.stepper.schedule.steps.size
+    steps = linear.stepper.schedule.steps.size  # pyright: ignore[reportOptionalMemberAccess]
     bound = ladder_bound("kerr", grid, space, linear, steps, grid.length)
     expected = propagate(NumpyRefBackend, linear, grid, grid.length)
     actual = propagate(native_class(), linear, grid, grid.length)
@@ -185,17 +185,18 @@ def test_the_safety_ramp_joins_the_slab_on_either_backend():
     """
     grid, space, problem = planar_case("collar-only")
     separable = problem.linear.separable
-    assert float(np.max(np.abs(separable.kperp_rate))) > 0.0
+    assert float(np.max(np.abs(separable.kperp_rate))) > 0.0  # pyright: ignore[reportArgumentType, reportCallIssue, reportOptionalMemberAccess]
     bare = dataclasses.replace(
-        separable, kperp_rate=np.zeros_like(separable.kperp_rate)
+        separable,
+        kperp_rate=np.zeros_like(separable.kperp_rate),  # pyright: ignore[reportArgumentType, reportOptionalMemberAccess]
     )
     without = dataclasses.replace(
         problem,
         linear=dataclasses.replace(problem.linear, separable=bare),
         responses=dataclasses.replace(problem.responses, separable=bare),
-        flux=dataclasses.replace(problem.flux, base=bare),
+        flux=dataclasses.replace(problem.flux, base=bare),  # pyright: ignore[reportArgumentType]
     )
-    steps = problem.stepper.schedule.steps.size
+    steps = problem.stepper.schedule.steps.size  # pyright: ignore[reportOptionalMemberAccess]
     bound = ladder_bound("collar-only", grid, space, problem, steps, grid.length)
     expected = propagate(NumpyRefBackend, problem, grid, grid.length)
     actual = propagate(native_class(), problem, grid, grid.length)

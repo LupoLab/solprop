@@ -184,7 +184,10 @@ def test_the_hard_mask_takes_the_rows_to_the_state():
     rows = np.array(problem.initial.field0, dtype=complex)
     rows[..., ~active] = 1.0 + 1.0j
     expected, actual = finished(
-        problem, grid, rows, float(problem.stepper.schedule.max_step)
+        problem,
+        grid,
+        rows,
+        float(problem.stepper.schedule.max_step),  # pyright: ignore[reportOptionalMemberAccess]
     )
     np.testing.assert_array_equal(expected[..., ~active], 0.0)
     np.testing.assert_array_equal(actual[..., ~active], 0.0)
@@ -198,7 +201,10 @@ def test_the_finish_on_the_band_is_the_reference_s():
     rows = np.array(problem.initial.field0, dtype=complex)
     rows[..., ~active] = 0.0
     expected, actual = finished(
-        problem, grid, rows, float(problem.stepper.schedule.max_step)
+        problem,
+        grid,
+        rows,
+        float(problem.stepper.schedule.max_step),  # pyright: ignore[reportOptionalMemberAccess]
     )
     assert_within(actual, expected, finish_bound(problem), what="the finish")
 
@@ -223,6 +229,9 @@ def test_a_finish_with_content_off_the_band_is_the_reference_s_on_it():
     rows = np.array(problem.initial.field0, dtype=complex)
     rows[..., ~active] = 1.0 + 1.0j
     expected, actual = finished(
-        problem, grid, rows, float(problem.stepper.schedule.max_step)
+        problem,
+        grid,
+        rows,
+        float(problem.stepper.schedule.max_step),  # pyright: ignore[reportOptionalMemberAccess]
     )
     assert_within(actual, expected, finish_bound(problem), what="the finish")

@@ -158,7 +158,7 @@ def test_the_stash_on_the_planar_route_is_the_fresh_scan():
         stepper=dataclasses.replace(problem.stepper, integrator=None),
     )
     stashed, fresh = stash_and_fresh(problem, grid, grid.length)
-    rate = problem.responses.plasma_coefficients.rate
+    rate = problem.responses.plasma_coefficients.rate  # pyright: ignore[reportOptionalMemberAccess]
     assert float(np.max(stashed["electron_density"])) > 0.0
     assert_stash_is_the_fresh_scan(
         stashed, fresh, rate, (rate.field_min, rate.field_max), grid.n_to

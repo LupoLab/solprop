@@ -324,7 +324,7 @@ def test_the_planar_in_stage_collar_agrees_across_threads(tmp_path, march):
     if march == "adams":
         problem = with_adams(problem)
     problem = fixed_order(problem)
-    bound = _planar_bound(grid, space, problem, problem.stepper.schedule.n_steps)
+    bound = _planar_bound(grid, space, problem, problem.stepper.schedule.n_steps)  # pyright: ignore[reportOptionalMemberAccess]
     case = f"planar:{march}"
     one = forced_run(case, 1, tmp_path)
     several = forced_run(case, WIDTH, tmp_path)
@@ -357,7 +357,7 @@ def test_the_modified_noise_draw_agrees_across_threads(tmp_path, march):
         bound = parity_bound(problem, transverse=transverse)
     else:
         depth = math.ceil(math.log2(grid.n_to)) + math.ceil(math.log2(transverse))
-        steps = problem.stepper.schedule.n_steps
+        steps = problem.stepper.schedule.n_steps  # pyright: ignore[reportOptionalMemberAccess]
         bound = steps * step_evaluations(problem) * 32 * EPS * depth
     one = forced_run(f"noisy:{march}", 1, tmp_path)
     several = forced_run(f"noisy:{march}", WIDTH, tmp_path)
@@ -409,7 +409,7 @@ def test_the_transverse_pool_varied_alone_agrees(tmp_path, march):
     )
     pools = dict.fromkeys(POOLS, 1) | {"SOLPROP_NATIVE_FFT_THREADS": WIDTH}
     one = forced_run(f"wide_transverse:{march}", 1, tmp_path)
-    several = forced_run(f"wide_transverse:{march}", WIDTH, tmp_path, pools=pools)
+    several = forced_run(f"wide_transverse:{march}", WIDTH, tmp_path, pools=pools)  # pyright: ignore[reportArgumentType]
     assert one["sizing"][key]["threads"] == 1
     assert several["sizing"][key]["threads"] == WIDTH
     assert widest(several["sizing"], "kernels.stage") == 1
@@ -473,7 +473,7 @@ def test_the_low_storage_folds_agree_across_threads(tmp_path, mode, threads):
     once; here the march chooses them, on a beam, and there is no source to fold.
     """
     problem, _ = linear_cartesian(mode)
-    folds = 4 * problem.stepper.schedule.n_steps
+    folds = 4 * problem.stepper.schedule.n_steps  # pyright: ignore[reportOptionalMemberAccess]
     one = forced_run(f"folds:{mode}", 1, tmp_path)
     several = forced_run(f"folds:{mode}", threads, tmp_path)
     assert widest(several["sizing"], "kernels.stage") == threads

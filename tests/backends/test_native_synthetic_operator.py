@@ -154,7 +154,7 @@ def free_problem(*, responses, n_pol=1, mode="auto"):
             dz_init=STEP,
             schedule=FixedSchedule.uniform(0.0, STEP, STEP * 1.0000001),
             integrator=MARCH,
-            propagator_mode=mode,
+            propagator_mode=mode,  # pyright: ignore[reportArgumentType]
             absorber_scheme="nonlinear",
         ),
         grid,
@@ -187,7 +187,7 @@ def slab_problem(*, responses, mode="auto", collar=False, integrator=MARCH):
             dz_init=STEP,
             schedule=FixedSchedule.uniform(0.0, STEP, STEP * 1.0000001),
             integrator=integrator,
-            propagator_mode=mode,
+            propagator_mode=mode,  # pyright: ignore[reportArgumentType]
             absorber=absorber(grid, boundary_length=1.0) if collar else None,
             absorber_scheme="nonlinear",
         ),
@@ -319,7 +319,9 @@ def test_the_planar_stage_on_the_original_leaf_is_the_reference_s(material, abso
     in-stage absorber here. The channels are distinct: the same ``k_y`` is another rate.
     """
     problem, grid = slab_problem(
-        responses=[KERR] if material else [], collar=absorbed, integrator=None
+        responses=[KERR] if material else [],
+        collar=absorbed,
+        integrator=None,  # pyright: ignore[reportArgumentType]
     )
     leaf = slab_leaf(problem.linear.separable)
     assert_the_leaf_is_pathological(leaf)

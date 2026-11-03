@@ -212,7 +212,7 @@ def dispersive(option: str):
             sizing = _sizing(backend)
         finally:
             backend.close()
-    return {"field": fields[0], "again": fields[1]}, sizing
+    return {"field": fields[0], "again": fields[1]}, sizing  # pyright: ignore[reportPossiblyUnboundVariable]
 
 
 def with_adams(problem: KernelProblem) -> KernelProblem:
@@ -239,7 +239,7 @@ def planar(march: str):
             sizing = _sizing(backend)
         finally:
             backend.close()
-    return {"field": fields[0], "again": fields[1]}, sizing
+    return {"field": fields[0], "again": fields[1]}, sizing  # pyright: ignore[reportPossiblyUnboundVariable]
 
 
 def noisy_problem(march: str, *, draw: bool = True):
@@ -297,7 +297,7 @@ def noisy(march: str):
                 sizing = _sizing(backend)
         finally:
             backend.close()
-    return fields, sizing
+    return fields, sizing  # pyright: ignore[reportPossiblyUnboundVariable]
 
 
 def wide_transverse_problem(march: str = "march"):
@@ -418,7 +418,7 @@ def folds(mode: str):
     backend = _native()(problem, grid=grid)
     norms = []
     try:
-        engine = backend._low_storage._engine
+        engine = backend._low_storage._engine  # pyright: ignore[reportOptionalMemberAccess]
         step = engine.step
 
         def recorded(z, dz):
@@ -458,7 +458,7 @@ def linear_flow_problem(name: str):
             stepper=dataclasses.replace(problem.stepper, integrator=None),
         ),
         linear.grid,
-        float(schedule.steps[0]),
+        float(schedule.steps[0]),  # pyright: ignore[reportOptionalMemberAccess]
     )
 
 
