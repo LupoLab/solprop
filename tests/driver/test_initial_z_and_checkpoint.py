@@ -311,6 +311,24 @@ def test_a_real_input_is_recorded_as_given_so_an_older_file_resumes(tmp_path):
     assert resumed.n_saved == 2
 
 
+@pytest.mark.parametrize("dtype", [">f8", "<f8", ">c16"])
+def test_an_input_s_dtype_is_recorded_byte_order_and_all(dtype):
+    # The record serialises the exact dtype string of an inline array: a big-endian
+    # input keeps its byte order, so its configuration hash is what it was before the
+    # simulation copied its input.
+    given = _column_field()
+    given = (np.real(given) if dtype.endswith("f8") else given).astype(dtype)
+    before = _free_from(given)
+    before.initial = given  # what the simulation recorded before it copied its input
+    after = _free_from(given.copy())
+    assert isinstance(after.initial, np.ndarray)
+    assert after.initial.dtype == np.dtype(dtype)
+    assert after._field0.dtype == np.complex128
+    assert (
+        after.metadata().configuration_hash() == before.metadata().configuration_hash()
+    )
+
+
 def test_a_modal_array_input_is_counted_beside_its_converted_launch():
     # On a modal route the problem holds the launch converted to its internal
     # amplitude, a second state beside the simulation's copy: both are admitted. In
