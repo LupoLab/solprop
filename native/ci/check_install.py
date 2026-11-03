@@ -17,14 +17,13 @@ import tempfile
 from pathlib import Path
 
 import optmat
-
 import solprop
 from solprop.backends.registry import available, resolve_name
 from solprop.driver import prop_gnlse
 
 version, backend = sys.argv[1:]
 print("solprop", solprop.__version__, "with optmat", optmat.__version__)
-print("on", platform.platform(), platform.machine(), "Python", platform.python_version())
+print("on", platform.platform(), platform.machine(), platform.python_version())
 print("backends:", available(), "- auto means", resolve_name("auto"))
 assert solprop.__version__ == version, f"expected solprop {version}"
 assert resolve_name("auto") == backend, f"expected auto to mean {backend}"
