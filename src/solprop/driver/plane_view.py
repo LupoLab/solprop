@@ -16,7 +16,7 @@ import logging
 import time
 import warnings
 from collections.abc import Callable, Mapping
-from typing import Any, Final
+from typing import TYPE_CHECKING, Any, Final
 
 import numpy as np
 
@@ -28,6 +28,9 @@ from solprop.output.capability import BasisCapability, capability_of
 from solprop.output.memory import MemoryOutput
 from solprop.output.schema import RunMetadata, SavedPlane
 from solprop.processing import fields
+
+if TYPE_CHECKING:
+    from solprop.coupling.plane import FieldPlane
 
 __all__ = ["PlaneView", "PlaneWatch"]
 
@@ -213,6 +216,43 @@ class PlaneView:
             On a spatial run, whose columns the function would read as modes.
         """
         return fields.get_spectral_density(self._reader(), plane=0, **keywords)
+
+    def stored(self) -> np.ndarray:
+        """Return the plane's stored spectrum, as a file holds it.
+
+        The raw forward DFT in the internal convention, shape
+        ``(n_modes, n_pol, n_omega)`` -- what ``output.fields("fft")`` returns for the
+        plane, and what the functionals of :mod:`solprop.spatial` (``spatial_power``,
+        ``spatial_fluence`` and the rest) take with the run's ``SpatialFlux``, which is
+        how a spatial run's plane is measured while it runs.
+
+        Returns
+        -------
+        numpy.ndarray
+            A copy of the stored spectrum.
+        """
+        return np.array(self._reader().fields("fft")[0])
+
+    def field_plane(self) -> "FieldPlane":  # noqa: UP037 - imported only to type
+        """Return the plane as :func:`solprop.processing.field_plane` reads it.
+
+        Its ``spectral_energy`` is a spatial plane's energy per frequency bin, where
+        :meth:`spectral_density` refuses the columns of a spatial run.
+
+        Returns
+        -------
+        solprop.coupling.FieldPlane
+            The plane.
+
+        Raises
+        ------
+        solprop.exceptions.OutputError
+            For a run :func:`~solprop.processing.field_plane` refuses (a hybrid
+            planar run, the modified noise model).
+        """
+        from solprop.processing.planes import field_plane  # noqa: PLC0415 - heavy
+
+        return field_plane(self._reader(), 0)
 
     def _close(self) -> None:
         """End the view's validity and let its arrays go."""
