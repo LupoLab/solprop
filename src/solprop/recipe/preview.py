@@ -242,7 +242,7 @@ def modes(recipe: "Recipe", z: float | None = None) -> ModeSetPreview:  # noqa: 
         2 * np.pi * _C / float(omega[0]),
     )
     keywords = recipe.resolve().keywords()
-    pump, pulse = _pump(keywords, channels[0] if channels else None)
+    pump, pulse = _pump(keywords, channels[0] if channels else None, at)
     previews = []
     for mode in channels:
         try:
@@ -275,9 +275,10 @@ def modes(recipe: "Recipe", z: float | None = None) -> ModeSetPreview:  # noqa: 
 _C = 299_792_458.0
 
 
-def _pump(
+def _pump(  # noqa: PLR0911 - one return per case of the linear condition
     keywords: Mapping[str, object],
     soliton: "Mode | None",  # noqa: UP037 - TYPE_CHECKING only
+    z: float = 0.0,
 ) -> tuple[float | None, dict[str, object]]:
     """Return the pump wavelength and the soliton's nonlinear numbers, where given.
 
@@ -287,6 +288,9 @@ def _pump(
         The resolved recipe's route keywords.
     soliton : solprop.modes.base.Mode or None
         The launch mode.
+    z : float, optional
+        The position, m: the fill's coefficient, the mode's area and its dispersion
+        are taken there, as the mismatch is.
 
     Returns
     -------
@@ -295,18 +299,29 @@ def _pump(
         the keywords :func:`solprop.tools.phase_mismatch` takes for the nonlinear
         term (``peak_power``, ``gamma``, ``fwhm``, ``shape``), empty for the linear
         condition. The nonlinear coefficient is the recipe's ``gamma`` where it
-        gives one (the GNLSE), else the launch mode's fill's.
+        gives one (the GNLSE), else the launch mode's fill's at `z`. The condition
+        is linear for a chirped pulse (a ``phases`` term from second order on), a
+        pump in normal dispersion, and a pulse below the soliton threshold, which
+        has no largest constituent.
     """
     from solprop.modes.base import beta2  # noqa: PLC0415 - layer above
     from solprop.physdata.mixtures import Mixture  # noqa: PLC0415
-    from solprop.recipe.pins import _gamma as launch_gamma  # noqa: PLC0415
     from solprop.recipe.pins import _route_pulse  # noqa: PLC0415
-    from solprop.tools import SolitonOrder  # noqa: PLC0415
+    from solprop.tools import (  # noqa: PLC0415
+        SolitonOrder,
+        _fill_n2,
+        nonlinear_coefficient,
+        phase_mismatch,
+    )
 
     wavelength = keywords.get("wavelength")
     if not isinstance(wavelength, int | float) or soliton is None:
         return None, {}
     pump = float(wavelength)
+    phases = keywords.get("phases")
+    if phases is not None and np.any(np.asarray(phases, dtype=float)[2:] != 0.0):
+        # The design numbers are an unchirped pulse's: a chirped one is linear.
+        return pump, {}
     try:
         # The order is a placeholder: the target reads the pulse's numbers and
         # refuses the pulses they are not defined for.
@@ -314,22 +329,30 @@ def _pump(
         given = keywords.get("gamma")
         if isinstance(given, int | float) and not isinstance(given, bool):
             gamma = float(given)
-        elif isinstance(getattr(soliton, "mixture", None), Mixture):
-            gamma = launch_gamma(soliton, pump)
+        elif isinstance(mixture := getattr(soliton, "mixture", None), Mixture):
+            n2, _ = _fill_n2(mixture, pump, z)
+            gamma = nonlinear_coefficient(soliton, n2, pump, z=z)
         else:
             return pump, {}  # no nonlinear coefficient: the linear condition
     except KeyError, TypeError, ValueError, ToolsError:
         # No width or size, a shape without design numbers, or no Kerr data.
         return pump, {}
-    if not float(beta2(soliton, np.array([2 * np.pi * _C / pump]))[0]) < 0.0:
+    carrier = np.array([2 * np.pi * _C / pump])
+    if not float(beta2(soliton, carrier, z)[0]) < 0.0:
         # A pump in normal dispersion launches no soliton: the linear condition.
         return pump, {}
-    return pump, {
+    pulse = {
         "peak_power": target.peak_power,
         "gamma": gamma,
         "fwhm": target.fwhm,
         "shape": target.shape,
     }
+    try:
+        # Below the soliton threshold there is no largest constituent.
+        phase_mismatch(soliton, carrier, pump, z=z, **pulse)  # type: ignore[arg-type]
+    except ToolsError:
+        return pump, {}
+    return pump, pulse
 
 
 def _phase_matching(  # noqa: PLR0913 - a mode pair, the band, the pump and its pulse

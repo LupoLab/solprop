@@ -281,9 +281,11 @@ zero-dispersion wavelength in the band. It also gives each mode's phase matching
 soliton at the pump `wavelength` in the launch mode, the set's first: the
 `phase_mismatch` of a dispersive wave in that mode over the band, and the phase-matched
 wavelengths `rdw` between the band's short edge and 0.9 of the pump (intermodal for every
-mode but the first). With an unchirped sech or Gaussian pulse and a fill with Kerr data
-the soliton's nonlinear wavenumber is its largest constituent's, and the set says so
-(`nonlinear`, with `pump`); otherwise it is the linear condition. Its cost is the mode
+mode but the first). With an unchirped sech or Gaussian pulse above the soliton
+threshold, in anomalous dispersion, and a nonlinear coefficient (the recipe's `gamma`, or
+the fill's Kerr data at the preview's position), the soliton's nonlinear wavenumber is
+its largest constituent's, and the set says so (`nonlinear`, with `pump`); otherwise it
+is the linear condition. Its cost is the mode
 solve. `recipe.preview_input()`
 returns the input pulse on the run's grid as the launch sets it, without noise, so a
 preview draws nothing: its power in time, its spectrum, its energy and its peak power,
