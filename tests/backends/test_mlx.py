@@ -687,3 +687,60 @@ def test_the_memory_estimate_bounds_the_measured_peak_with_envelope_plasma():
         assert mx.get_peak_memory() <= estimate.total
     finally:
         backend.close()
+
+
+def _split_walker(backend: str, scheme: str = "split_step", **settings) -> Simulation:
+    """Return the monitor tests' walking GNLSE pulse in binary32 on `backend`."""
+    from test_monitor import TRANGE, walker  # noqa: PLC0415 - the monitor's own case
+
+    simulation = walker(
+        1.2 * TRANGE if "schedule" not in settings else 0.65 * TRANGE,
+        backend=backend,
+        integrator=RungeKutta(),
+        absorber_scheme=scheme,
+        # Weak enough to leave the pulse linear, strong enough for binary32's range.
+        gamma=1e-6,
+        check=settings.pop("check", None),
+    )
+    simulation.settings = dataclasses.replace(
+        simulation.settings, precision="single", **settings
+    )
+    return simulation
+
+
+def test_the_split_s_guard_reading_is_the_oracle_s():
+    # What each step's split found, reduced on the device, against the binary32
+    # oracle's host reduction over the same fixed schedule. Binary32 states over 100
+    # steps of 512-sample transforms: the readings agree to 5e-6 of themselves, held
+    # at 1e-4 (100 steps times log2(512) transform levels times the unit roundoff,
+    # 6e-8, is 5e-5).
+    import warnings  # noqa: PLC0415
+
+    from solprop.exceptions import BoundaryWarning  # noqa: PLC0415
+    from solprop.monitor import BoundaryCheck  # noqa: PLC0415
+    from test_monitor import record_of  # noqa: PLC0415
+
+    records = {}
+    for backend in ("numpy_ref", "mlx"):
+        simulation = _split_walker(
+            backend,
+            check=BoundaryCheck(budget=1.0, stop_factor=1.0),
+            schedule=FixedSchedule.uniform(0.0, 1.0, 1 / 100, save_planes=[0.5, 1.0]),
+        )
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", BoundaryWarning)
+            records[backend] = record_of(simulation.run(progress="none"))
+    assert records["numpy_ref"]["guard_high_max"] > 1e-6
+    for name in ("guard_high_max", "collar_max", "raw_removed_fraction"):
+        assert records["mlx"][name] == pytest.approx(
+            records["numpy_ref"][name], rel=1e-4
+        ), name
+
+
+def test_the_split_stops_a_walking_pulse_where_the_in_stage_scheme_does():
+    from test_monitor import STOP_AGREEMENT, _stopped_at  # noqa: PLC0415
+
+    reference = _stopped_at(_split_walker("mlx", "nonlinear"))
+    assert _stopped_at(_split_walker("mlx")) == pytest.approx(
+        reference, rel=STOP_AGREEMENT
+    )

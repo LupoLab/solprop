@@ -83,11 +83,12 @@ struct MonitorSums {
 
 /** What a split-step collar's finish reads of the power it finds (solprop SEP 21,
     ADR-057), one reduction value: the energy it takes, then the energy, the low
-    guard's and the high guard's, which the monitor judges the guards on. */
+    guard's, the high guard's and the collar's, which the monitor judges the
+    occupancies on. */
 struct SplitSums {
-  Kokkos::Array<double, 4> values{};
+  Kokkos::Array<double, 5> values{};
   KOKKOS_INLINE_FUNCTION SplitSums& operator+=(const SplitSums& other) {
-    for (std::size_t slot = 0; slot < 4; ++slot)
+    for (std::size_t slot = 0; slot < 5; ++slot)
       values[slot] += other.values[slot];
     return *this;
   }
@@ -741,8 +742,8 @@ public:
   /**
    * The bound monitor's reading of the accepted state: `sum_t P`, the four weighted
    * sums `sum_t w_k P`, what the split collar took since the last reading, and
-   * `sum_t P` and the two guards' sums of the power the last step's split found
-   * (zeros before the first such step).
+   * `sum_t P` and the two guards' and the collar's sums of the power the last step's
+   * split found (zeros before the first such step).
    */
   [[nodiscard]] std::vector<double> monitor_reading();
   [[nodiscard]] std::vector<Complex> field_to_host() const;

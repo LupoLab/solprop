@@ -40,6 +40,7 @@ from march_bounds import (
 )
 from optmat_parity_cases import variant
 from solprop.backends import Backend, select, select_batch
+from solprop.boundaries import absorber
 from solprop.driver import Simulation, SimulationSettings
 from solprop.exceptions import MaterialRangeWarning
 from solprop.grid import EnvelopeGrid, FieldGrid, RadialGrid
@@ -60,7 +61,6 @@ pytestmark = pytest.mark.medium
 pytest.importorskip("solprop_native")
 
 STEPS = 10
-TAPER_STEPS = 30
 
 MARCHES = pytest.mark.parametrize(
     "integrator",
@@ -102,13 +102,16 @@ def assert_native_matches(simulation):
 
 @MARCHES
 def test_a_multimode_taper_without_its_coupling(integrator):
-    # Four channels of a metre's taper, thirty steps of a nanojoule: the adiabatic
-    # route's operator kinks with the taper and takes the z table. The collar is
-    # integrated exactly, so that the explicit marches are stable at these steps, and
-    # they stay within its crossing limit, 4.0e-2 m.
+    # Four channels of a metre's taper, ten 0.1 m steps of a nanojoule: the adiabatic
+    # route's operator kinks with the taper and takes the z table. The time window has
+    # a spectral collar alone, so that the explicit marches are stable at these steps:
+    # in-stage its temporal collar is too stiff for them, and split it would hold the
+    # four modes' walk-off over the band's edges to steps of 2.7 mm.
     taper = PiecewiseLinear(
         np.array([0.0, 0.5, 0.7, 1.0]), np.array([100e-6, 100e-6, 60e-6, 60e-6])
     )
+    # The former grid, on which the operator's expansion does not resolve.
+    grid = FieldGrid.from_limits(1.0, 800e-9, (90e-9, 3e-6), 250e-15, **LEGACY_GRID)
     simulation = Simulation.from_capillary(
         taper,
         1.0,
@@ -118,13 +121,12 @@ def test_a_multimode_taper_without_its_coupling(integrator):
         wavelength=800e-9,
         fwhm=10e-15,
         energy=1e-9,
-        # The former grid, on which the operator's expansion does not resolve.
-        grid=FieldGrid.from_limits(1.0, 800e-9, (90e-9, 3e-6), 250e-15, **LEGACY_GRID),
+        grid=grid,
         modes=4,
         n_save=2,
-        schedule=FixedSchedule(np.full(TAPER_STEPS, 1.0 / TAPER_STEPS)),
+        schedule=FixedSchedule(np.full(STEPS, 1.0 / STEPS)),
         integrator=integrator,
-        absorber_scheme="split_step",
+        absorber=absorber(grid, temporal=False),
         backend="numpy_ref",
         noise=None,
     )

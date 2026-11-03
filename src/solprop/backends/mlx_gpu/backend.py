@@ -552,9 +552,10 @@ class MlxBackend(NumpySingleBackend):
             The scaling's power of two and ``sum_t (1 - exp(-alpha h)) P(t)`` of the
             scaled density.
         found : tuple of mlx.core.array
-            The same power of two, then ``sum_t P'(t)`` and the low and high guards'
-            weighted sums of ``P' = P exp(-alpha h / 2)``, halfway through the
-            split's factor, each guard with its narrowed weight row's exponent.
+            The same power of two, then ``sum_t P'(t)`` and the low guard's, high
+            guard's and collar's weighted sums of ``P' = P exp(-alpha h / 2)``,
+            halfway through the split's factor, each with its narrowed weight row's
+            exponent.
         """
         weights = self._monitor_weights
         assert weights is not None  # bound with the monitor that asks for this
@@ -565,8 +566,8 @@ class MlxBackend(NumpySingleBackend):
         # Half the split's power factor is its field factor, 1 + c.
         n_t = self._problem.grids.n_t
         density_t = mx.sum(density.reshape(-1, n_t), axis=0) * (1.0 + change)
-        guards = mx.sum(weights[:2] * density_t[None, :], axis=1)
-        return (power, mx.sum(density * taken)), (power, mx.sum(density_t), guards)
+        regions = mx.sum(weights[:3] * density_t[None, :], axis=1)
+        return (power, mx.sum(density * taken)), (power, mx.sum(density_t), regions)
 
     def _synchronised(self, values: list[mx.array]) -> np.ndarray:
         """Read device values and the split's pending removals in one synchronisation.
@@ -593,17 +594,19 @@ class MlxBackend(NumpySingleBackend):
         count = sum(int(value.size) for value in values)
         removals = count
         if found:
-            power, total, low, high = (float(one) for one in read[count : count + 4])
+            power, total, *regions = (float(one) for one in read[count : count + 5])
             own = self._column_exponent
-            low_row, high_row = self._monitor_exponents[:2]
+            rows = self._monitor_exponents[:3]
             self._split_found = self.scale**2 * np.array(
                 [
                     _restored(total, power, own),
-                    _restored(low, power, own + low_row),
-                    _restored(high, power, own + high_row),
+                    *(
+                        _restored(value, power, own + row)
+                        for value, row in zip(regions, rows, strict=True)
+                    ),
                 ]
             )
-            removals += 4
+            removals += 5
         for power, taken in read[removals:].reshape(-1, 2):
             # The state is a / s, so its power is s**2 times the scaled one's.
             restored = _restored(float(taken), float(power), self._column_exponent)

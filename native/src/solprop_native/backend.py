@@ -1110,7 +1110,7 @@ class NativeBackend(StepDriver[_core.State]):
             raise BackendError(f"{self.name}: no boundary monitor is attached")
         reading = np.asarray(state.monitor_reading(), dtype=np.float64).reshape(-1)
         # Zeros until the first accepted step's split, which the monitor passes over.
-        found = reading[6:9].copy() if self._monitor.split else None
+        found = reading[6:10].copy() if self._monitor.split else None
         return BoundaryEnergies(
             float(reading[0]),
             reading[1:5].copy(),

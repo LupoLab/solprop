@@ -893,9 +893,9 @@ void Workspace::plan_coarse_inverse() {
 // What one split takes of the power it finds, `sum P (1 - exp(-alpha h))`, added to
 // the run's accumulator in the memory space (solprop SEP 21, ADR-057): the monitor's
 // reading drains it at a check, so every accepted step is counted, checked or not. The
-// same pass keeps `sum P'` and the guards' sums of `P' = P exp(-alpha h / 2)`, the
-// power found halfway through the split's factor, which the monitor judges the guards
-// on: the symmetric splitting's state at the step's end.
+// same pass keeps `sum P'` and the guards' and the collar's sums of `P'`, the power
+// found halfway through the split's factor, `P exp(-alpha h / 2)`, which the monitor
+// judges the occupancies on: the symmetric splitting's state at the step's end.
 void Workspace::add_split_removal(const double dz) {
   const auto rate = absorber_coarse_;
   const auto weights = monitor_weights_;
@@ -915,6 +915,7 @@ void Workspace::add_split_removal(const double dz) {
           update.values[1] += found;
           update.values[2] += weights(index) * found;
           update.values[3] += weights(n_t + index) * found;
+          update.values[4] += weights(2 * n_t + index) * found;
         },
         Kokkos::Sum<SplitSums, MemorySpace>(monitor_split_sum_));
   } else {
@@ -928,6 +929,7 @@ void Workspace::add_split_removal(const double dz) {
           update.values[1] += found;
           update.values[2] += weights(index) * found;
           update.values[3] += weights(n_t + index) * found;
+          update.values[4] += weights(2 * n_t + index) * found;
         },
         Kokkos::Sum<SplitSums, MemorySpace>(monitor_split_sum_));
   }
@@ -1033,9 +1035,9 @@ std::vector<double> Workspace::monitor_reading() {
     Kokkos::deep_copy(execution_space_, monitor_removed_, 0.0);
   }
   execution_space_.fence("solprop_native monitor reading");
-  return {sums.values[0],  sums.values[1],  sums.values[2],
-          sums.values[3],  sums.values[4],  removed,
-          found.values[1], found.values[2], found.values[3]};
+  return {sums.values[0],  sums.values[1], sums.values[2],  sums.values[3],
+          sums.values[4],  removed,        found.values[1], found.values[2],
+          found.values[3], found.values[4]};
 }
 
 void Workspace::reuse_fsal() {

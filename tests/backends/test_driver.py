@@ -1112,9 +1112,11 @@ def test_the_surface_a_backend_subclasses_is_frozen(driver):
     keyword: a stored field never takes the ``input`` draw again. Version 41 adds the
     problem's ``transverse`` design and the class attribute ``reads_transverse_edge``,
     whether a backend reads a free-space run's transverse edge (SEP 40), without
-    changing these signatures.
+    changing these signatures. Version 42 widens what ``_boundary_energies`` returns
+    under the split scheme, the energies of what each step's split found, without
+    changing its signature.
     """
-    assert KERNEL_SCHEMA_VERSION == 41, (
+    assert KERNEL_SCHEMA_VERSION == 42, (
         "the seam changed: rewrite the literals of this test"
     )
     assert StepDriver.reads_transverse_edge is False

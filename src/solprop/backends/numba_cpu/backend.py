@@ -2830,6 +2830,8 @@ class NumbaCpuBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         scale = 1.0 / self._problem.grids.n_t
         _, removal = self._monitor_kernels
         partials = self._monitor_partials
+        # Sized at the bind for this pair's chunk (`_bind_monitor`).
+        assert taken is None or partials.size >= kernels.SPLIT_SUMS * chunk
         sums = np.zeros(kernels.SPLIT_SUMS)
         for first in range(0, n_rows, chunk):
             last = min(first + chunk, n_rows)
@@ -2890,9 +2892,12 @@ class NumbaCpuBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
                 flag=self._flag,
                 threads=self._pools.fftw,
             )
+        # One buffer for the reading's partials and the split's, which run on the
+        # same coarse pair where the run has one: sized for the larger of the two.
         chunk = self._monitor_transform()[0].shape[0]
-        if self._monitor_partials.size < kernels.BOUNDARY_SUMS * chunk:
-            self._monitor_partials = np.empty(kernels.BOUNDARY_SUMS * chunk)
+        sums = max(kernels.BOUNDARY_SUMS, kernels.SPLIT_SUMS)
+        if self._monitor_partials.size < sums * chunk:
+            self._monitor_partials = np.empty(sums * chunk)
         # Copies the kernels may read as ordinary writable arrays, one row weight per
         # stored (mode, polarisation) row.
         self._monitor_weights = np.array(monitor.weights, dtype=np.float64, order="C")

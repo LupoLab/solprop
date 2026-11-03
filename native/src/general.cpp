@@ -14440,10 +14440,10 @@ void GeneralWorkspace::split_columns(const double dz, std::size_t active_rows,
 // exp(-alpha h))` with the boundary monitor's column weights, added to the run's
 // accumulator in the memory space (solprop SEP 21, ADR-057): the monitor's reading
 // drains it at a check, so every accepted step is counted, checked or not. The same
-// pass adds `sum P'` and the guards' sums of `P' = P exp(-alpha h / 2)`, the power
-// found halfway through the split's factor, to the step's, which the monitor judges
-// the guards on: the symmetric splitting's state at the step's end. A separable
-// route's rows are real-space rows, measured by `parseval`; zero
+// pass adds to the step's `sum P'` and the guards' and the collar's sums of `P'`, the
+// power found halfway through the split's factor, `P exp(-alpha h / 2)`, which the
+// monitor judges the occupancies on: the symmetric splitting's state at the step's
+// end. A separable route's rows are real-space rows, measured by `parseval`; zero
 // means the rows are the stored columns from `first_column` on, weighted by their
 // quadrature.
 void GeneralWorkspace::add_split_removal(const double dz, const std::size_t active_rows,
@@ -14478,6 +14478,7 @@ void GeneralWorkspace::add_split_removal(const double dz, const std::size_t acti
           update.values[1] += found;
           update.values[2] += guards(0, index) * found;
           update.values[3] += guards(1, index) * found;
+          update.values[4] += guards(2, index) * found;
         },
         Kokkos::Sum<SplitSums, MemorySpace>(monitor_split_sum_));
   } else {
@@ -14494,6 +14495,7 @@ void GeneralWorkspace::add_split_removal(const double dz, const std::size_t acti
           update.values[1] += found;
           update.values[2] += guards(0, index) * found;
           update.values[3] += guards(1, index) * found;
+          update.values[4] += guards(2, index) * found;
         },
         Kokkos::Sum<SplitSums, MemorySpace>(monitor_split_sum_));
   }
@@ -14685,9 +14687,9 @@ std::vector<double> GeneralWorkspace::monitor_reading() {
     graph::deep_copy(execution_space_, monitor_removed_, 0.0);
   }
   execution_space_.fence("solprop_native monitor reading");
-  return {sums.values[0],  sums.values[1],  sums.values[2],
-          sums.values[3],  sums.values[4],  removed,
-          found.values[1], found.values[2], found.values[3]};
+  return {sums.values[0],  sums.values[1], sums.values[2],  sums.values[3],
+          sums.values[4],  removed,        found.values[1], found.values[2],
+          found.values[3], found.values[4]};
 }
 
 // The split-step temporal absorber on a separable geometry: the rate is the same at

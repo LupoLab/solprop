@@ -454,7 +454,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         attached, a backend's split also adds what it takes to the monitor's next
         reading (:attr:`_split_removed`, :meth:`_boundary_energies`), at every
         accepted step, and keeps the energies of the power it found
-        (:attr:`_split_found`), which the guards are judged on.
+        (:attr:`_split_found`), which the occupancies are judged on.
 
         Parameters
         ----------
@@ -1874,11 +1874,11 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
     a host backend's :meth:`_finish` adds to it while a monitor of that scheme is
     attached (:attr:`_split_monitor`), and :meth:`_boundary_energies` drains it."""
 
-    _split_found: Float[np.ndarray, " 3"] | None = None
-    """The energy and the guards' energies of the power the last accepted step's split
-    found (:attr:`solprop.monitor.BoundaryEnergies.found`), which the monitor judges
-    the guards on: set by a host backend's :meth:`_finish` with :attr:`_split_removed`,
-    and ``None`` before the first such step."""
+    _split_found: Float[np.ndarray, " 4"] | None = None
+    """The energy and the guards' and collar's energies of the power the last accepted
+    step's split found (:attr:`solprop.monitor.BoundaryEnergies.found`), which the
+    monitor judges the occupancies on: set by a host backend's :meth:`_finish` with
+    :attr:`_split_removed`, and ``None`` before the first such step."""
 
     reads_transverse_edge: bool = False
     """Whether this backend reads a free-space run's transverse edge on the host

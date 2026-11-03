@@ -94,7 +94,7 @@ expansion. A
 total-degree expansion is not part of the contract: it failed the joint memory and
 build-cost criterion on the short fixture.
 
-The current version is kernel schema **41**
+The current version is kernel schema **42**
 (`solprop.translate.problem.KERNEL_SCHEMA_VERSION`), and the tables of this document
 describe it. A version bump that adds an optional field
 leaves every problem that does not use it unchanged, `schema_version` itself being the
@@ -1047,7 +1047,7 @@ The initial-state fields below are independent of that optional binding.
 |---|---|---|
 | `tableau` | frozen dataclass | `solprop.stepper.tableau.Tableau`: nodes, matrix, solution weights, error weights `b − b̂`, orders, FSAL flag |
 | `controller` | frozen dataclass | `solprop.stepper.controller.PIController`: `rtol`, `atol`, `safety`, `max_factor`, `min_factor`, `beta1`, `beta2`, `lag`, `reject_free`, `estimator_order`, and `weights` (`None` for the weak norm, a `(n_omega,)` array for the weighted one). The tolerances and the norm choice live here and nowhere else. |
-| `dz_min`, `dz_max`, `dz_init` | float | caps on the controller's proposal; `dz_min` defaults to `solprop.stepper.controller.default_dz_min` of the run length and never applies to a landing step |
+| `dz_min`, `dz_max`, `dz_init` | float | caps on the controller's proposal; `dz_min` defaults to `solprop.stepper.controller.default_dz_min` of the run length and never applies to a landing step. Under the `"split_step"` scheme `assemble` holds `dz_max` to the split temporal collar's crossing limit, half the collar's width over the fastest walk-off against the frame, and refuses a schedule past it (`solprop.boundaries.split_crossing_step`) |
 | `stretch` | float | landing stretch factor (`StepTargets.stretch`), default 1.1, equal to the controller's default growth cap but independent of it; 1 switches it off |
 | `schedule` | `(n_steps,) float64` or `None` | fixed schedule to replay (lockstep batches require it); its edges must contain every save plane and hard kink, which `FixedSchedule.uniform` guarantees for a plain fixed-step run |
 | `save_planes` | `(n_z,) float64` | z positions the driver will ask for; steps land on them unless `interpolate_planes` is set |

@@ -30,7 +30,7 @@ from solprop.driver import Simulation, SimulationSettings, prop_gnlse
 from solprop.driver.executors import Batch, Local
 from solprop.driver.run import _earlier_execution
 from solprop.driver.scan import Scan, ScanPoint, run_scan
-from solprop.exceptions import BoundaryError, BoundaryWarning
+from solprop.exceptions import BackendError, BoundaryError, BoundaryWarning
 from solprop.grid import EnvelopeGrid, FieldGrid, RadialGrid
 from solprop.log import NullReporter
 from solprop.monitor import (
@@ -788,7 +788,10 @@ def _split_monitor(
     draw = 1e-3 * np.exp(2j * np.pi * rng.random(grid.n_t))[None, None, None, :]
     reading = monitor.energies(spectrum)
     monitor.launch(reading, 0.0, floor=draw if floor else None)
-    return monitor, spectrum, reading
+    # A step's reading carries what its split found: a centred pulse, clear of the
+    # collar, as the state holds it.
+    found = np.concatenate([[reading.total], reading.regions[:3]])
+    return monitor, spectrum, dataclasses.replace(reading, found=found)
 
 
 def test_the_split_s_removal_is_what_the_backend_took() -> None:
@@ -817,20 +820,42 @@ def test_under_the_split_the_guards_are_judged_on_what_it_found() -> None:
     left = BoundaryEnergies(
         reading.total,
         np.zeros(4),
-        found=reading.total * np.array([1.0, 0.0, 0.1]),
+        found=reading.total * np.array([1.0, 0.0, 0.1, 0.2]),
     )
     with pytest.raises(BoundaryError, match="guards"):
         monitor.step(left, 0.1)
 
 
-def test_without_a_step_found_the_guards_are_the_state_s() -> None:
-    # Before the first accepted step's split, and with nothing found, the state's
-    # own guards are judged.
+def test_a_state_the_split_emptied_is_still_judged_on_what_it_found() -> None:
+    # One energy for one verdict: the split took nearly everything, below the
+    # no-light floor of the state it left, but what it found filled the guard.
     monitor, _, reading = _split_monitor()
-    edge = BoundaryEnergies(reading.total, reading.total * np.array([0, 0.1, 0, 0]))
-    for found in (None, np.zeros(3)):
-        monitor.step(dataclasses.replace(edge, found=found), 0.1)
-    assert monitor.summary()["guard_high_max"] == pytest.approx(0.1)
+    monitor.check = BoundaryCheck()
+    emptied = BoundaryEnergies(
+        1e-15 * reading.total,
+        np.zeros(4),
+        found=reading.total * np.array([1.0, 0.0, 0.1, 0.2]),
+    )
+    with pytest.raises(BoundaryError, match="guards"):
+        monitor.step(emptied, 0.1)
+
+
+def test_the_collar_share_is_of_what_the_split_found() -> None:
+    monitor, _, reading = _split_monitor()
+    found = reading.total * np.array([1.0, 0.0, 0.0, 0.25])
+    monitor.step(BoundaryEnergies(reading.total, np.zeros(4), found=found), 0.1)
+    assert monitor.summary()["collar_max"] == pytest.approx(0.25)
+
+
+@pytest.mark.parametrize("found", [None, np.zeros(4)], ids=["missing", "empty"])
+def test_a_split_step_s_reading_without_what_it_found_is_refused(
+    found: np.ndarray | None,
+) -> None:
+    # The state holds light, so its split found some: a reading without it would
+    # fall back on the state the split left, the guards it hid.
+    monitor, _, reading = _split_monitor()
+    with pytest.raises(BackendError, match="must carry what the step's split found"):
+        monitor.step(dataclasses.replace(reading, found=found), 0.1)
 
 
 def test_the_in_stage_scheme_ignores_what_a_split_would_have_found() -> None:
@@ -841,7 +866,7 @@ def test_the_in_stage_scheme_ignores_what_a_split_would_have_found() -> None:
     pulse = np.exp(-((grid.t / 50e-15) ** 2)).astype(complex)
     reading = monitor.energies(np.fft.fft(pulse)[None, None, None, :])
     monitor.launch(reading, 0.0)
-    found = reading.total * np.array([1.0, 0.0, 0.1])
+    found = reading.total * np.array([1.0, 0.0, 0.1, 0.2])
     monitor.step(dataclasses.replace(reading, found=found), 0.1)
     assert cast("float", monitor.summary()["guard_high_max"]) < 1e-12
 
@@ -850,7 +875,7 @@ def test_the_split_s_removal_counts_when_nothing_is_left() -> None:
     # The step that absorbs the last of the light is not judged, but what it took
     # is the run's removal all the same.
     monitor, _, reading = _split_monitor()
-    gone = BoundaryEnergies(0.0, np.zeros(4), removed=reading.total)
+    gone = BoundaryEnergies(0.0, np.zeros(4), removed=reading.total, found=np.zeros(4))
     monitor.step(gone, 0.1)
     assert monitor.summary()["removed_fraction"] == pytest.approx(1.0)
 

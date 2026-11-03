@@ -2989,6 +2989,8 @@ def walk_off_rate(
     omega: Float[np.ndarray, " n_omega"],
     omega0: float,
     band: Bool[np.ndarray, " n_omega"],
+    *,
+    modes: bool = False,
 ) -> float:
     """Return the fastest group-delay walk-off against the frame, s/m.
 
@@ -2997,15 +2999,18 @@ def walk_off_rate(
     over two sets of bins: **every column at the reference frequency** (the modes'
     spread of group delays at the carrier, the modal planning range of
     :func:`solprop.boundaries.warn_walkoff`'s callers), and **the frame's own column**
-    -- the first mode, or the column of smallest transverse wavenumber -- **over the
-    requested band**, where a pulse off the reference wavelength walks. A transverse
-    column's group delay ``k k' / k_z`` diverges towards its cutoff, so the whole
-    band of every column would bound the step by content near cutoff, of a few
-    columns at the band's red edge. A separable operator's evanescent bins are passed
-    over; a tabulated operator's columns, modes or a radial grid's, are read as they
-    are, which on a radial grid fine enough to hold an evanescent column at the
-    reference frequency reads that column's frame rate. A z-varying
-    operator is read at five positions along its table, and its largest rate taken.
+    -- the column of smallest transverse wavenumber, or with `modes` every mode --
+    **over the requested band**, for every batch member and polarisation, where a pulse
+    off the reference wavelength walks. A transverse column's group delay
+    ``k k' / k_z`` diverges towards its cutoff, so the whole band of every column would
+    bound the step by content near cutoff, of a few columns at the band's red edge. A
+    separable operator's evanescent bins are passed over; a tabulated operator's
+    columns, modes or a radial grid's, are read as they are, which on a radial grid
+    fine enough to hold an evanescent column at the reference frequency reads that
+    column's frame rate. A separable operator is constant along z and read once; a
+    tabulated one that varies is read at five positions along its table, the ends
+    included, and its largest rate taken, so a guide whose walk-off peaks between them
+    is read below its peak.
 
     Parameters
     ----------
@@ -3018,6 +3023,9 @@ def walk_off_rate(
         The reference frequency, rad/s.
     band : numpy.ndarray
         Boolean, shape ``(n_omega,)``: the requested band's bins.
+    modes : bool, optional
+        Read every mode over the band, as on a modal route, rather than the first: a
+        transverse grid's columns are not modes, and its first is the frame's.
 
     Returns
     -------
@@ -3064,7 +3072,11 @@ def walk_off_rate(
     rates = [0.0]
     for z in np.linspace(lo, hi, _WALK_OFF_POSITIONS) if varies else [lo]:
         rate = phi_rate(table, float(z))
+        # The frame's rows: every batch member and polarisation of the first mode, or
+        # of every mode.
+        own = rate if modes else rate[:, :1]
         phase = -np.imag(rate.reshape(-1, rate.shape[-1]))[:, order]
+        own_phase = -np.imag(own.reshape(-1, own.shape[-1]))[:, order]
         everywhere = np.ones(phase.shape, dtype=bool)
         rates.append(
             max(
@@ -3073,7 +3085,7 @@ def walk_off_rate(
                     everywhere[:, :3],
                     axis[centre - 1 : centre + 2],
                 ),
-                _slope_rate(phase[:1], everywhere[:1], axis, inside),
+                _slope_rate(own_phase, everywhere[: len(own_phase)], axis, inside),
             )
         )
     return max(rates)

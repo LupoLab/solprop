@@ -997,7 +997,7 @@ def test_the_boundary_partials_are_the_monitor_s_sums(
     taken_partials = np.full(kernels.SPLIT_SUMS * rows + 1, np.nan)
     removal(samples, row_weights, weights, taken, half, taken_partials)
     found = np.column_stack(
-        [power @ taken, power @ half, (power * half) @ weights[:2].T]
+        [power @ taken, power @ half, (power * half) @ weights[:3].T]
     )
     np.testing.assert_allclose(
         taken_partials[:-1].reshape(rows, kernels.SPLIT_SUMS),

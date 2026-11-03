@@ -15,6 +15,7 @@ fixed schedule past it; the in-stage scheme keeps its bounds.
 
 from __future__ import annotations
 
+import logging
 import math
 
 import numpy as np
@@ -166,3 +167,39 @@ def test_a_reference_at_the_axis_edge_reads_no_rate() -> None:
     omega = np.linspace(1.0e15, 3.0e15, 11)
     table = constant_phi(-1j * BETA2 * omega**2, 1.0)
     assert walk_off_rate(table, omega, float(omega[0]), np.ones(11, dtype=bool)) == 0.0
+
+
+def test_lowering_dz_max_is_logged(caplog: pytest.LogCaptureFixture) -> None:
+    with caplog.at_level(logging.INFO, logger="solprop.translate.problem"):
+        _gnlse("numpy_ref", Multistep(), dz_max=1.0).translate()
+    assert any("crossing limit holds dz_max" in one.message for one in caplog.records)
+
+
+def test_a_dz_max_within_the_limit_is_kept_and_not_logged(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    with caplog.at_level(logging.INFO, logger="solprop.translate.problem"):
+        problem = _gnlse("numpy_ref", Multistep(), dz_max=5e-3).translate()
+    assert problem.stepper.dz_max == 5e-3
+    assert not any("crossing limit" in one.message for one in caplog.records)
+
+
+def test_every_mode_and_batch_member_is_read_over_the_band() -> None:
+    # Two members, two modes: the second mode of the second member walks fastest off
+    # the reference. A modal route reads it; a transverse grid's first column is the
+    # frame's, read for every member.
+    omega = np.linspace(1.0e15, 3.0e15, 201)
+    omega0, band = 2.0e15, np.abs(omega - 2.0e15) < 5e14
+    quadratic = -1j * 0.5 * (omega - omega0) ** 2
+    operator = np.stack(
+        [
+            np.stack([1e-26 * quadratic, 2e-26 * quadratic]),
+            np.stack([3e-26 * quadratic, 4e-26 * quadratic]),
+        ]
+    )[:, :, None, :]
+    table = constant_phi(operator, 1.0)
+    edge = 4.9e14  # the band's last bin from the reference
+    assert walk_off_rate(table, omega, omega0, band) == pytest.approx(3e-26 * edge)
+    assert walk_off_rate(table, omega, omega0, band, modes=True) == pytest.approx(
+        4e-26 * edge
+    )

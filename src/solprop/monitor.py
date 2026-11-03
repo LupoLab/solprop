@@ -20,7 +20,7 @@ polarisations and transverse columns (with their quadrature weights), and forms:
   power ``P`` it finds, which is exact on unchecked steps too
   (:attr:`BoundaryEnergies.removed`).
 
-Under the ``"split_step"`` scheme the guards are judged on the power the last
+Under the ``"split_step"`` scheme the occupancies are judged on the power the last
 accepted step's split found, taken halfway through its factor
 (:attr:`BoundaryEnergies.found`). The state the split leaves has its deep collar
 multiplied by ``exp(-alpha h)``, about ``exp(-10)`` at an adaptive step, so it shows no
@@ -28,7 +28,8 @@ light at the window's edge however much arrived there; the state before it holds
 walked into the guard during the step unabsorbed. Each verdict would depend on the
 step. Half the factor, ``exp(-alpha h / 2)`` on the power, is the symmetric (Strang)
 splitting's state at the step's end, second order in the step where the one-sided
-split is first: the guards then read as the in-stage scheme's do.
+split is first: the guards then read as the in-stage scheme's do. Every share of one
+verdict, the guards', the collar's and the no-light test, is of that one state.
 
 ``P`` is the energy-density proxy of SEP 21 section 4.6: exact for modal true-power
 amplitudes, and on spatial routes the quadrature-weighted field norm rather than the
@@ -79,7 +80,7 @@ import numpy as np
 from jaxtyping import Complex, Float
 
 from solprop import fourier
-from solprop.exceptions import BoundaryError, BoundaryWarning
+from solprop.exceptions import BackendError, BoundaryError, BoundaryWarning
 from solprop.fourier import GridKind
 from solprop.grid import TimeGrid
 from solprop.transverse_monitor import TransverseEdge
@@ -269,11 +270,12 @@ class BoundaryEnergies:
         every accepted step: ``sum_t P(t) (1 - exp(-alpha(t) h))`` of the power ``P``
         each step's split found. Zero under the in-stage scheme or without a collar.
     found : numpy.ndarray or None
-        Shape ``(3,)``: ``sum_t P'(t)`` and the low and high guards' energies of
-        ``P'(t) = P(t) exp(-alpha(t) h / 2)``, the power ``P`` the last accepted step's
-        split found taken halfway through its factor, in the same units; the guards
-        are judged on them under the ``"split_step"`` scheme. ``None`` under the
-        in-stage scheme, without a collar, and before the first accepted step.
+        Shape ``(4,)``: ``sum_t P'(t)`` and the first three weighted energies, the low
+        and high guards' and the collar's, of ``P'(t) = P(t) exp(-alpha(t) h / 2)``, the
+        power ``P`` the last accepted step's split found taken halfway through its
+        factor, in the same units; the occupancies are judged on them under the
+        ``"split_step"`` scheme. ``None`` under the in-stage scheme, without a collar,
+        and before the first accepted step.
 
     Examples
     --------
@@ -287,7 +289,7 @@ class BoundaryEnergies:
     total: float
     regions: Float[np.ndarray, " 4"]
     removed: float = 0.0
-    found: Float[np.ndarray, " 3"] | None = None
+    found: Float[np.ndarray, " 4"] | None = None
 
 
 @dataclass
@@ -315,7 +317,8 @@ class BoundaryMonitor:
         ``"split_step"`` scheme), whose removal the backend then adds up exactly at
         every accepted step (:attr:`BoundaryEnergies.removed`) rather than the
         monitor integrating the rate by the trapezoid (D5), and whose guards are
-        judged on the power the split found (:attr:`BoundaryEnergies.found`).
+        judged on the power the split found (:attr:`BoundaryEnergies.found`), which
+        every reading after a step must then carry.
     """
 
     check: BoundaryCheck
@@ -491,7 +494,7 @@ class BoundaryMonitor:
         self,
         field_spectrum: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
         step: float,
-    ) -> Float[np.ndarray, " 4"]:
+    ) -> Float[np.ndarray, " 5"]:
         """Return what one accepted step's split collar takes, and what it finds.
 
         The split multiplies the field by ``exp(-alpha(t) h / 2)``, so it takes
@@ -502,7 +505,8 @@ class BoundaryMonitor:
         deep in the collar by ``exp(alpha h)``: a removal made from nothing. The energy
         and the guards' energies of ``P exp(-alpha h / 2)``, the same power halfway
         through the factor, are what the guards are judged on
-        (:attr:`BoundaryEnergies.found`). The host reduction a backend's accepted-step
+        (:attr:`BoundaryEnergies.found`), with the collar's. The host reduction a
+        backend's accepted-step
         finish is held to.
 
         Parameters
@@ -515,9 +519,9 @@ class BoundaryMonitor:
         Returns
         -------
         numpy.ndarray
-            Shape ``(4,)``, in the proxy's units: the energy taken, then the energy
-            and the low and high guards' energies of the power found, halfway through
-            the factor.
+            Shape ``(5,)``, in the proxy's units: the energy taken, then the energy
+            and the low guard's, the high guard's and the collar's energies of the
+            power found, halfway through the factor.
 
         Examples
         --------
@@ -530,7 +534,7 @@ class BoundaryMonitor:
         >>> monitor = BoundaryMonitor.build(grid, rate, BoundaryCheck(), split=True)
         >>> edge = 0.5 * grid.n_t * grid.dt
         >>> pulse = np.exp(-(((grid.t - 0.98 * edge) / 10e-15) ** 2)).astype(complex)
-        >>> taken, found, low, high = monitor.split_sums(
+        >>> taken, found, low, high, collar = monitor.split_sums(
         ...     np.fft.fft(pulse)[None, None, None, :], 0.01
         ... )
         >>> bool(taken > 0.0), bool(low < 1e-20 * found), bool(high > 0.5 * found)
@@ -541,9 +545,7 @@ class BoundaryMonitor:
         taken = power @ -np.expm1(-rate * step)
         # Half the step's split: the second-order (Strang) state at the step's end.
         half = power * np.exp(-0.5 * rate * step)
-        return np.array(
-            [taken, half.sum(), self.weights[0] @ half, self.weights[1] @ half]
-        )
+        return np.concatenate([[taken, half.sum()], self.weights[:3] @ half])
 
     @staticmethod
     def _judged(energies: BoundaryEnergies) -> tuple[float, Float[np.ndarray, " 4"]]:
@@ -772,7 +774,7 @@ class BoundaryMonitor:
             When the square root of a guard occupancy exceeds ``stop_factor`` budgets.
         """
         self._commit(z)
-        total, regions = self._judged(energies)
+        total, regions = self._judged(self._found(energies))
         self._steps += 1
         self._left_out_checks += int(self._left_out)
         self._since_check = 0
@@ -804,15 +806,11 @@ class BoundaryMonitor:
                 (z - previous_z) * float(self._floor_regions[3]) / self._launch
             )
         self._raw_last = (z, raw_rate)
-        judged, guards = self._guards(energies, total, regions)
         self._raw_guard_max = max(
-            self._raw_guard_max, float(max(guards[0], guards[1])) / judged
+            self._raw_guard_max, float(max(regions[0], regions[1])) / total
         )
         above = self._above(regions)
         shares = above / total
-        shares[:2] = (
-            np.maximum(guards - FLOOR_MARGIN * self._floor_regions[:2], 0.0) / judged
-        )
         self._settle(shares, float(regions[2]) / total)
         # The removal rate above the floor's, as a fraction of the launch energy per
         # metre, kept with the position of this check.
@@ -826,40 +824,48 @@ class BoundaryMonitor:
                 self._guard_at[edge] = z
         self._judge(shares, z)
 
-    def _guards(
-        self,
-        energies: BoundaryEnergies,
-        total: float,
-        regions: Float[np.ndarray, " 4"],
-    ) -> tuple[float, Float[np.ndarray, " 2"]]:
-        """Return the energy and the guards' energies the guards are judged on.
+    def _found(self, energies: BoundaryEnergies) -> BoundaryEnergies:
+        """Return the reading a committed step is judged on.
 
         Under the ``"split_step"`` scheme, the power the last accepted step's split
-        found, halfway through its factor (:attr:`BoundaryEnergies.found`): the split
-        has since multiplied the deep collar, the guards with it, by ``exp(-alpha h)``,
-        which would hide the light that reached the edge by a factor set by the step.
-        Otherwise the state's own.
+        found, halfway through its factor (:attr:`BoundaryEnergies.found`): its energy
+        and its guards' and collar's energies, the collar's rate kept from the state,
+        which a split run integrates no removal from. The split has since multiplied
+        the deep collar, the guards with it, by ``exp(-alpha h)``, which would hide the
+        light that reached the edge by a factor set by the step. Otherwise the state's
+        own reading.
 
         Parameters
         ----------
         energies : BoundaryEnergies
             The backend's reading of the committed state.
-        total : float
-            Its energy, judged (:meth:`_judged`).
-        regions : numpy.ndarray
-            Its four weighted energies.
 
         Returns
         -------
-        total : float
-            The energy the guards' shares are taken of, positive.
-        guards : numpy.ndarray
-            The low and high guards' energies, the floor not yet subtracted.
+        BoundaryEnergies
+            The reading to judge.
+
+        Raises
+        ------
+        BackendError
+            Under the split, if the reading carries nothing found, or found nothing
+            where the state holds light: every committed step was split, and a split
+            finds at least the energy it leaves.
         """
+        if not self.split:
+            return energies
         found = energies.found
-        if self.split and found is not None and found[0] > 0.0:
-            return float(found[0]), np.asarray(found[1:3], dtype=np.float64)
-        return total, regions[:2]
+        if found is None or not (
+            float(found[0]) > 0.0 or not float(energies.total) > 0.0
+        ):
+            msg = (
+                "under the split_step scheme a committed step's reading must carry "
+                "what the step's split found, and that must hold light where the "
+                f"state does; got {found!r} for a state of energy {energies.total!r}"
+            )
+            raise BackendError(msg)
+        regions = np.concatenate([found[1:4], np.asarray(energies.regions)[3:]])
+        return dataclasses.replace(energies, total=float(found[0]), regions=regions)
 
     def _judge(self, shares: Float[np.ndarray, " 4"], z: float | None) -> None:
         """Warn once, or stop, on a state's guard occupancy (D7).

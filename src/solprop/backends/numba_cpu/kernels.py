@@ -557,10 +557,10 @@ BOUNDARY_SUMS = 5
 """The sums the boundary monitor reads per row: the energy and its four weighted
 energies (:class:`solprop.monitor.BoundaryEnergies`)."""
 
-SPLIT_SUMS = 4
+SPLIT_SUMS = 5
 """The sums a split-step collar's finish forms per row for the monitor: what it takes,
-then the energy and the two guards' energies of what it finds, after half the split
-(:meth:`solprop.monitor.BoundaryMonitor.split_sums`)."""
+then the energy and the two guards' and the collar's energies of what it finds, after
+half the split (:meth:`solprop.monitor.BoundaryMonitor.split_sums`)."""
 
 
 @njit(cache=True, nogil=True)
@@ -641,11 +641,11 @@ def removal_partials(
     """Sum what a split-step collar takes of each row, and what it finds there.
 
     ``sum_t (1 - exp(-alpha(t) h)) |x(t)|^2`` of the rows the split is about to
-    damp, then the energy and the low and high guards' energies of the same rows
-    after half the split, ``exp(-alpha(t) h / 2) |x(t)|^2``, each times the row's
-    quadrature weight (:meth:`solprop.monitor.BoundaryMonitor.split_sums`). The row
-    loop is a ``prange``: :func:`removal_partials_parallel` is the same body compiled
-    parallel.
+    damp, then the energy and the low guard's, high guard's and collar's energies of
+    the same rows after half the split, ``exp(-alpha(t) h / 2) |x(t)|^2``, each times
+    the row's quadrature weight (:meth:`solprop.monitor.BoundaryMonitor.split_sums`).
+    The row loop is a ``prange``: :func:`removal_partials_parallel` is the same body
+    compiled parallel.
 
     Parameters
     ----------
@@ -655,15 +655,16 @@ def removal_partials(
     row_weights : numpy.ndarray
         Each row's quadrature weight, shape ``(n_rows,)``, or empty for unit weights.
     weights : numpy.ndarray
-        The monitor's four weight rows, shape ``(4, n_t)``, of which the guards'
-        (the first two) are read.
+        The monitor's four weight rows, shape ``(4, n_t)``, of which the guards' and
+        the collar's (the first three) are read.
     taken : numpy.ndarray
         ``1 - exp(-alpha(t) h)`` on the coarse time axis, shape ``(n_t,)``.
     half : numpy.ndarray
         ``exp(-alpha(t) h / 2)``, half the split's power factor, shape ``(n_t,)``.
     partials : numpy.ndarray
         Written with :data:`SPLIT_SUMS` sums per row, row by row: the energy taken,
-        then the energy, the low guard's and the high guard's after half the split.
+        then the energy, the low guard's, the high guard's and the collar's after half
+        the split.
         At least ``SPLIT_SUMS * n_rows`` long.
     """
     n_rows, n_t = samples.shape
@@ -673,6 +674,7 @@ def removal_partials(
         total = 0.0
         low = 0.0
         high = 0.0
+        collar = 0.0
         for k in range(n_t):
             value = samples[row, k]
             power = value.real * value.real + value.imag * value.imag
@@ -681,12 +683,14 @@ def removal_partials(
             total += found
             low += weights[0, k] * found
             high += weights[1, k] * found
+            collar += weights[2, k] * found
         scale = row_weights[row] if weighted else 1.0
         base = SPLIT_SUMS * row
         partials[base] = scale * removed
         partials[base + 1] = scale * total
         partials[base + 2] = scale * low
         partials[base + 3] = scale * high
+        partials[base + 4] = scale * collar
 
 
 removal_partials_parallel = njit(cache=False, nogil=True, parallel=True)(

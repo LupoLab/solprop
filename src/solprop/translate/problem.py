@@ -205,7 +205,7 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-KERNEL_SCHEMA_VERSION = 41
+KERNEL_SCHEMA_VERSION = 42
 """Version of the kernel contract this module implements.
 
 Incremented on every change to the field list of ``docs/dev/kernel-contract.md``. A
@@ -475,6 +475,15 @@ ramp, is admitted on the radial kind, where it rides the dense operator, and on 
 hybrid planar kind per ``(p, k_y)`` column, which the slab element now takes as its
 ``transverse_rate``. The geometry's ``absorber_rate`` is the design's collar, zero
 without one, and an adaptive run's ``dz_max`` is held to the collar's crossing limit.
+
+Version 42 widens the boundary monitor's reading under the ``"split_step"`` scheme.
+A backend's ``_boundary_energies`` returns, beside the removal, the energy and the
+guards' and collar's energies of the power the last accepted step's split found,
+halfway through its factor (:attr:`solprop.monitor.BoundaryEnergies.found`), kept by
+its finish in ``StepDriver._split_found``; the monitor judges the occupancies on them
+and refuses a split reading without them. The native reading grows from six numbers
+to ten. An adaptive split run's ``dz_max`` is also held to the split collar's crossing
+limit. No ``KernelProblem`` field, stage bundle or driver signature moves.
 """
 
 DEFAULT_COMPONENTS = ("x",)
@@ -2949,7 +2958,11 @@ class _SplitCrossing:
 
 
 def _split_crossing(
-    compiled: CompiledResponses, linear: LinearOperator, grid: TimeGrid
+    compiled: CompiledResponses,
+    linear: LinearOperator,
+    grid: TimeGrid,
+    *,
+    modes: bool,
 ) -> _SplitCrossing | None:
     """Return the split temporal collar's crossing limit, or ``None`` without one.
 
@@ -2972,6 +2985,9 @@ def _split_crossing(
         The linear operator, whose group delays walk.
     grid : solprop.grid.TimeGrid
         The grid, with the collar and the requested band.
+    modes : bool
+        Whether the operator's columns are modes, every one of which is read over the
+        band, rather than a transverse grid's.
 
     Returns
     -------
@@ -2982,7 +2998,7 @@ def _split_crossing(
         return None
     # A nonzero temporal rate lies in a collar of nonzero width.
     width = min(grid.t_collar.width_low, grid.t_collar.width_high)
-    rate = walk_off_rate(linear, grid.omega, grid.omega0, grid.inband_mask)
+    rate = walk_off_rate(linear, grid.omega, grid.omega0, grid.inband_mask, modes=modes)
     return _SplitCrossing(split_crossing_step(rate, width), width, rate)
 
 
@@ -3008,10 +3024,22 @@ def _split_clamped(
     Returns
     -------
     tuple
-        The largest step and the first step, m.
+        The largest step and the first step, m. Lowering ``dz_max`` is logged at
+        ``INFO``, naming the limit and what sets it.
     """
     if crossing is None or schedule is not None:
         return dz_max, dz_init
+    if crossing.limit < dz_max:
+        logger.info(
+            "the split temporal collar's crossing limit holds dz_max to %.3e m, from "
+            "%.3e m: %g of the collar's %.3e s width over the fastest walk-off "
+            "against the frame, %.3e s/m",
+            crossing.limit,
+            dz_max,
+            SPLIT_CROSSING,
+            crossing.width,
+            crossing.rate,
+        )
     dz_max = min(dz_max, crossing.limit)
     return dz_max, min(dz_init, dz_max)
 
@@ -6579,7 +6607,7 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
     dz_max, dz_init = _crossing_clamped(
         design, dz_max, dz_init, single=precision.single
     )
-    crossing = _split_crossing(compiled, linear, grid)
+    crossing = _split_crossing(compiled, linear, grid, modes=transform.geometry is None)
     dz_max, dz_init = _split_clamped(crossing, schedule, dz_max, dz_init)
     settings = _stepper_settings(
         linear,
@@ -6676,7 +6704,7 @@ def debug_summary(problem: KernelProblem) -> str:
     ...     width=100e-15, peak_power=9.8, shape="sech", n_save=3,
     ... )
     >>> print(debug_summary(simulation.translate()).splitlines()[0])
-    kernel problem schema 41: envelope grid, route modal
+    kernel problem schema 42: envelope grid, route modal
     """
     linear, transform = problem.linear, problem.transform
     tables, metric = transform.modal_tables, linear.modal_metric
