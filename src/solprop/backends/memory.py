@@ -60,8 +60,9 @@ tables, its statistics buffers and a device copy of each z table.
 On the Cartesian and line routes the estimate counts ``native``'s own rows instead
 (:func:`free_space_memory`), where the reference's count fell furthest short when one
 chunk holds the whole grid, by factors of 1.46 on an envelope grid and 1.80 on a field
-grid in the measured set: a Kerr beam's ledger and estimate now agree to the byte, one chunk or several, on each march (the Adams march's norms
-aside, 24 bytes), and Raman and plasma beams to within 0.2 % under and 1.1 % over
+grid in the measured set: a Kerr beam's ledger and estimate now agree to the byte, one
+chunk or several, on each march (the Adams march's norms aside, 24 bytes), and Raman and
+plasma beams to within 0.2 % under and 1.1 % over
 (``tests/backends/test_free_space_estimate.py``). The heap FFT planning grows stays
 apart from the group, in the ledger's own row.
 For SEP 27's held field-current source, the estimate replaces the reference's
