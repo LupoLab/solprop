@@ -99,7 +99,9 @@ elseif(NOT SOLPROP_NATIVE_ENABLE_CUDA AND
   message(FATAL_ERROR
     "Linux CPU builds require GCC 14 or newer; found ${CMAKE_CXX_COMPILER_VERSION}. "
     "On Ubuntu 24.04 or Debian, install it with 'sudo apt install g++-14' and build "
-    "with CXX=g++-14 (a CMake cache that recorded another compiler must be removed).")
+    "with CXX=g++-14 (a CMake cache that recorded another compiler must be removed). "
+    "In a checkout, a contributor with no compiler can run "
+    "'uv run --no-project tools/setup_light.py' instead.")
 endif()
 
 if(NOT APPLE AND NOT SOLPROP_NATIVE_ENABLE_CUDA AND
@@ -182,7 +184,7 @@ endif()
 
 include(FetchContent)
 
-find_package(Python 3.14 EXACT REQUIRED COMPONENTS Interpreter Development.Module)
+find_package(Python 3.14 REQUIRED COMPONENTS Interpreter Development.Module Development.SABIModule)
 
 # Query the nanobind package installed in the active uv environment. This is
 # reliable for both scikit-build-core and direct CMake invocations.
@@ -724,6 +726,7 @@ FetchContent_Declare(
   GIT_TAG 5.2.0
   GIT_SHALLOW TRUE
   GIT_PROGRESS TRUE
+  PATCH_COMMAND "${CMAKE_COMMAND}" -P "${PROJECT_SOURCE_DIR}/cmake/KokkosKernelsWindowsArm.cmake"
 )
 FetchContent_MakeAvailable(kokkoskernels)
 set_property(DIRECTORY "${kokkoskernels_SOURCE_DIR}" PROPERTY EXCLUDE_FROM_ALL TRUE)
@@ -901,7 +904,7 @@ solprop_native_link_vector_math(solprop_native_core)
 solprop_native_mark_dependency_headers_system(solprop_native_core)
 solprop_native_configure_project_target(solprop_native_core)
 
-nanobind_add_module(_core NOMINSIZE NB_SUPPRESS_WARNINGS src/bindings.cpp
+nanobind_add_module(_core STABLE_ABI NOMINSIZE NB_SUPPRESS_WARNINGS src/bindings.cpp
   src/helpers.cpp)
 target_link_libraries(_core PRIVATE solprop_native_core ${CMAKE_DL_LIBS})
 solprop_native_mark_dependency_headers_system(_core)

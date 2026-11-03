@@ -564,7 +564,7 @@ class Layer(NamedTuple):
 LAYERS = (
     Layer("P", "physics / convenience", "numpy, scipy, stdlib, other P modules"),
     Layer("T", "translation", "P, numpy, scipy"),
-    Layer("B", "backends", "numpy, numba, pyfftw; the native package in native/"),
+    Layer("B", "backends", "numpy; the native package in native/"),
     Layer("D", "driver", "P, T, B through the seam, h5py"),
     Layer(
         "X",
@@ -594,7 +594,9 @@ MODULES = {
         Module("noise.py"),
         Module("linear.py"),
         Module("boundaries.py"),
+        Module("spatial_absorber.py"),
         Module("monitor.py"),
+        Module("transverse_monitor.py"),
         Module("polarisation.py"),
         Module("optics.py"),
         Module("tools.py"),
@@ -683,6 +685,8 @@ MODULES = {
                 "free",
                 "planar",
                 "spatial",
+                "transverse",
+                "collar_check",
                 "flux",
                 "coupling",
                 "responses",
@@ -706,7 +710,6 @@ MODULES = {
                 "registry",
                 "driver",
                 "batch",
-                "bodies",
                 "spatial",
                 "populations",
                 "memory",
@@ -735,29 +738,6 @@ MODULES = {
             "backends/mlx_gpu/",
             ("backend", "batch", "passes", "arithmetic", "envelope"),
         ),
-        Module(
-            "backends/numba_cpu/",
-            (
-                "backend",
-                "batch",
-                "kernels",
-                "envelope_plasma",
-                "general_modal",
-                "coupled_flow",
-                "field_plasma",
-                "fft",
-                "openmp",
-                "spatial",
-                "planar",
-                "tables",
-                "multistep",
-                "dispersive",
-                "dispersive_spatial",
-                "dispersive_general",
-                "low_storage",
-                "pass_timers",
-            ),
-        ),
     ),
     "D": (
         Module("log.py"),
@@ -785,6 +765,7 @@ MODULES = {
                 "snapshots",
                 "scan",
                 "scan_artifacts",
+                "resumable",
             ),
         ),
         Module("scan.py"),
@@ -804,8 +785,28 @@ MODULES = {
                 "scan",
                 "batch",
                 "memory",
+                "defaults",
+                "estimate",
+                "plane_view",
             ),
         ),
+        Module(
+            "recipe/",
+            (
+                "core",
+                "document",
+                "errors",
+                "export",
+                "metadata",
+                "paths",
+                "pins",
+                "preview",
+                "provenance",
+                "quantity",
+                "registry",
+            ),
+        ),
+        Module("cli.py"),
     ),
     "X": (
         Module(
@@ -825,9 +826,10 @@ MODULES = {
         ),
         Module(
             "plotting/",
-            ("propagation", "statistics", "spectrograms", "style"),
+            ("propagation", "statistics", "spectrograms", "style", "geometry"),
         ),
         Module("sol.py"),
+        Module("capabilities.py"),
     ),
 }
 """Every module of the package, in its layer's band. All of these exist."""
@@ -953,7 +955,7 @@ CONTRACT_SECTIONS = (
     Section(
         3,
         "linear operator",
-        ("linear", "flux"),
+        ("linear", "flux", "transverse"),
         "translate.linop.LinearOperator",
         ("linear.py", "modes/", "profiles.py"),
         "P",
@@ -1129,7 +1131,7 @@ TABLEAU = (
     "DOPRI5: order 5, embedded order 4",
     "7 stages, 6 evaluations of N",
     "k1(n+1) = exp(ΔΦ(n))·k7(n)",
-    "FSAL: numba_cpu takes it, numpy_ref not",
+    "FSAL: native takes it, numpy_ref not",
 )
 """What `stepper.md` section 2 says about the tableau, for the panel beside it."""
 
@@ -1181,14 +1183,6 @@ NUMPY_REF = (
     "propagator_mode auto → tabulate",
 )
 """What `backends.md` section 2 says the oracle is."""
-
-NUMBA_CPU = (
-    "fused @njit columns over bodies.py",
-    "TransformPlans: pyfftw, in place, FFTW_MEASURE",
-    "ThreadPools: numba, FFTW, BLAS, OMP",
-    "host z-table adapter; auto → recompute",
-)
-"""What `backends.md` section 3 says the first optimised backend is."""
 
 
 class Dataset(NamedTuple):
@@ -2037,8 +2031,8 @@ INSET_CLOSING = (
     "small record of host floats per stage. A backend evaluates "
     "ΔΦ = stage.combine(weights, terms), or evaluates the separable vectors "
     "without a full coefficient volume; translate.stage.require_device_ready "
-    "is the refusal device backends raise. Numba CPU also accepts z tables through "
-    "its host adapter."
+    "is the refusal device backends raise. A native CPU build evaluates z tables in "
+    "its own kernels."
 )
 """The sentence under the inset: what the predicate means and what the split is."""
 
@@ -2510,12 +2504,11 @@ def backends() -> drawsvg.Drawing:
     )
     cards = (
         ("numpy_ref  ·  the oracle", NUMPY_REF, Paint("fill-b", "ink-b")),
-        ("numba_cpu  ·  CPU fallback", NUMBA_CPU, Paint("fill-b", "ink-b")),
-        ("native  ·  preferred if installed", DEVICE_SLOT, Paint("fill-b", "ink-b")),
+        ("native  ·  what auto selects", DEVICE_SLOT, Paint("fill-b", "ink-b")),
     )
     card_height = max(node_height(lines) for _, lines, _ in cards) + 22
     row_gap = 44.0
-    bottom_height = 2 * card_height + row_gap
+    bottom_height = card_height
 
     subtitle = (
         "backends.md §1: the protocol is drawn at the level of operations on the "

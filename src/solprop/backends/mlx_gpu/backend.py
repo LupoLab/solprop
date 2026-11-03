@@ -151,7 +151,7 @@ def refuse_unsupported(problem: KernelProblem) -> None:
         raise BackendError(
             "mlx computes in binary32 only, and Apple GPUs have no binary64 "
             "arithmetic: it refuses precision='double'; use precision='single', or a "
-            "binary64 backend (native, numba_cpu, numpy_ref)"
+            "binary64 backend (native, numpy_ref)"
         )
     stepper = problem.stepper
     refusals = [
@@ -197,6 +197,11 @@ class MlxBackend(NumpySingleBackend):
     BackendError
         Naming what is refused, or a protected operation the device does not establish.
     """
+
+    # SEP 40 section 5.3: the transverse edge is read on the host from the widened
+    # state (`_observed_field`), at the edge's reads and, with a requested collar, at
+    # every committed step; the read spacing caps the host march's steps.
+    reads_transverse_edge = True
 
     name = "mlx"
 

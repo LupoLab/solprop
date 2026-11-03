@@ -37,7 +37,7 @@ from solprop.stepper import FixedSchedule
 pytestmark = pytest.mark.filterwarnings("ignore::solprop.exceptions.BoundaryWarning")
 
 LATTICE = TubeLattice(180e-9, 9e-6, 6)
-BACKENDS = ["numpy_ref", "numba_cpu"]
+BACKENDS = ["numpy_ref"]
 if importlib.util.find_spec("solprop_native") is not None:
     BACKENDS.append("native")
 
@@ -391,5 +391,5 @@ def test_argon_kerr_readback_and_resume(tmp_path):
 
 def test_tutorial_fibre_has_zero_dispersion_wavelength():
     mode = VincettiMode(15e-6, lattice=LATTICE)
-    root = zdw(mode, wavelength_range=(450e-9, 1000e-9))
+    root = zdw(mode, wavelength_limits=(450e-9, 1000e-9))
     assert 450e-9 < root < 1000e-9

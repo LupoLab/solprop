@@ -16,7 +16,7 @@ from rate_oracles import adk_oracle
 from solprop.boundaries import absorber
 from solprop.driver import Simulation, SimulationSettings
 from solprop.exceptions import MaterialRangeWarning, TranslationError
-from solprop.grid import EnvelopeGrid, FieldGrid, RadialGrid
+from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid, RadialGrid
 from solprop.modes import MarcatiliMode, transverse_quadrature
 from solprop.modes.quadrature import mode_matrix
 from solprop.noise import modified_noise
@@ -43,6 +43,7 @@ from solprop.translate.problem import (
     Initial,
     KernelProblem,
     StepperSettings,
+    _held_state,
     _walk_arrays,
     assemble,
 )
@@ -209,7 +210,7 @@ def test_every_page_states_the_schemas_the_code_writes():
     History, which names the version a change took, is not a statement of the
     current one; the SEP records are history throughout.
     """
-    assert KERNEL_SCHEMA_VERSION == 40
+    assert KERNEL_SCHEMA_VERSION == 42
     assert OUTPUT_SCHEMA_VERSION == 2
     assert soliton_schema_version_row().startswith("incremented on every change")
     written = {"kernel": KERNEL_SCHEMA_VERSION, "output": OUTPUT_SCHEMA_VERSION}
@@ -867,6 +868,142 @@ def test_the_initial_group_refuses_a_noise_field_of_the_wrong_shape():
 def test_the_initial_group_refuses_a_model_without_a_realisation():
     with pytest.raises(TranslationError, match="noise_model"):
         Initial(np.zeros((1, 1, 1, 8), complex), None, "input", {})
+
+
+def test_the_initial_group_copies_a_writeable_state():
+    # A writeable array stays the caller's: changing it later never reaches the problem.
+    state = np.arange(16, dtype=complex).reshape(2, 1, 1, 8)
+    held = Initial(state, None, "none", {}).field0
+    assert not np.shares_memory(held, state)
+    assert not held.flags.writeable and held.flags.c_contiguous
+    assert state.flags.writeable
+    state[0, 0, 0, 3] = 99.0
+    assert held[0, 0, 0, 3] == 3.0
+
+
+def test_the_initial_group_copies_a_read_only_view_of_a_writeable_array():
+    state = np.arange(16, dtype=complex).reshape(2, 1, 1, 8)
+    view = state.view()
+    view.setflags(write=False)
+    held = Initial(view, None, "none", {}).field0
+    assert not np.shares_memory(held, state)
+
+
+def test_the_initial_group_copies_a_read_only_state_too():
+    # Flags are no proof: the owner of a frozen array can make it writeable again.
+    state = np.zeros((2, 1, 1, 8), dtype=complex)
+    state.setflags(write=False)
+    held = Initial(state, None, "none", {}).field0
+    assert not np.shares_memory(held, state)
+    state.setflags(write=True)
+    state[...] = 1.0
+    assert not np.any(held)
+
+
+def test_the_initial_group_keeps_a_broadcast_as_its_repeated_block():
+    # The block is copied, so the row stays the caller's, and the state costs one row.
+    row = np.arange(8, dtype=complex).reshape(1, 1, 1, 8)
+    held = Initial(np.broadcast_to(row, (5, 1, 1, 8)), None, "none", {}).field0
+    assert held.shape == (5, 1, 1, 8)
+    assert held.strides[0] == 0 and not held.flags.writeable
+    assert not np.shares_memory(held, row)
+    row[..., 2] = 99.0
+    assert row.flags.writeable
+    np.testing.assert_array_equal(held, np.broadcast_to(np.arange(8), (5, 1, 1, 8)))
+    # What the problem holds is taken back as it is, by a replaced problem.
+    assert Initial(held, None, "none", {}).field0 is held
+
+
+@pytest.mark.parametrize("dtype", [np.complex64, np.float64])
+def test_a_broadcast_of_another_dtype_converts_its_block_alone(dtype):
+    # A real field comes from a simulation's input (`_built`), not from `Initial`.
+    row = np.arange(8, dtype=dtype).reshape(1, 1, 1, 8)
+    held = _held_state(np.broadcast_to(row, (5, 1, 1, 8)))
+    assert held.dtype == np.complex128 and held.strides[0] == 0
+    np.testing.assert_array_equal(held[3], row[0])
+    assert Initial(held, None, "none", {}).field0 is held
+
+
+def test_the_initial_group_converts_another_dtype_once():
+    state = np.ones((1, 1, 1, 8), dtype=np.complex64)
+    held = Initial(state, None, "none", {}).field0
+    assert held.dtype == np.complex128 and not held.flags.writeable
+    assert Initial(held, None, "none", {}).field0 is held
+
+
+def test_the_initial_group_copies_the_noise_and_the_batch_parameters():
+    # Neither is aliased nor frozen: the caller's arrays stay the caller's.
+    noise = np.full((2, 1, 1, 8), 1j)
+    energy = np.array([1.0, 2.0])
+    initial = Initial(
+        np.zeros((2, 1, 1, 8), complex), noise, "input", {"energy": energy}
+    )
+    assert noise.flags.writeable and energy.flags.writeable
+    noise[...] = 0.0
+    energy[...] = 0.0
+    assert initial.noise0 is not None
+    assert np.all(initial.noise0 == 1j) and not initial.noise0.flags.writeable
+    np.testing.assert_array_equal(initial.batch_params["energy"], [1.0, 2.0])
+    replaced = dataclasses.replace(initial, z=1e-3)
+    assert replaced.noise0 is initial.noise0
+    assert replaced.batch_params["energy"] is initial.batch_params["energy"]
+
+
+def test_validate_admits_a_broadcast_initial_state(soliton):
+    first = soliton.initial.field0[..., :1]
+    broadcast = dataclasses.replace(
+        soliton,
+        initial=dataclasses.replace(
+            soliton.initial, field0=np.broadcast_to(first, soliton.shape)
+        ),
+    )
+    assert not broadcast.initial.field0.flags.c_contiguous
+    broadcast.validate()
+
+
+def test_a_broadcast_free_space_input_runs_as_its_expansion():
+    # A zero-stride placeholder over the columns: the problem holds one column, and
+    # the run loads the same state as from the expanded array.
+    grid = EnvelopeGrid.from_limits(1e-4, 800e-9, (700e-9, 950e-9), 150e-15, thg=False)
+    space = FreeGrid(4e-4, 4, 3e-4, 3, collar_fraction=0)
+    column = GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-9).build(grid)
+    shape = (space.n_columns, 1, grid.n_omega)
+    settings = SimulationSettings(
+        boundary_check=None,
+        controller=PIController(rtol=1e-6, atol=1e-14),
+        save_planes=[1e-4],
+        dz_max=5e-5,
+        dz_init=5e-5,
+        schedule=FixedSchedule.uniform(0.0, 1e-4, 5e-5, save_planes=[1e-4]),
+        backend="numpy_ref",
+    )
+    runs = []
+    for launch in (
+        np.broadcast_to(column, shape),
+        np.broadcast_to(column, shape).copy(),
+    ):
+        simulation = Simulation.from_free(
+            grid, space, SpatialMedium(), [], launch, settings=settings, noise=None
+        )
+        runs.append((simulation.translate(), simulation.run(progress="none")))
+    (broadcast, held), (expanded, reference) = runs
+    assert broadcast.initial.field0.strides[1] == 0
+    # A single-precision placeholder converts its column alone, once.
+    single = Simulation.from_free(
+        grid,
+        space,
+        SpatialMedium(),
+        [],
+        np.broadcast_to(column.astype(np.complex64), shape),
+        settings=settings,
+        noise=None,
+    )
+    assert single._field0.strides[0] == 0
+    converted = single.translate().initial.field0
+    assert converted.dtype == np.complex128 and converted.strides[1] == 0
+    assert expanded.initial.field0.flags.owndata
+    # Both runs load the same copied state, so the entrance plane is the same bits.
+    np.testing.assert_array_equal(held.plane_field(0), reference.plane_field(0))
 
 
 def test_the_stepper_group_refuses_planes_that_do_not_increase():

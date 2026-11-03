@@ -38,10 +38,9 @@ against every backend's ledger to the byte:
 
 ``adams_history``
     The Adams march's history (SEP 16 phase 3b), ``S`` one state's bytes and ``q``
-    the method's order: on the host engine (``numpy_ref``, ``numba_cpu``) the store
+    the method's order: on the host engine (``numpy_ref``) the store
     of ``q + 2`` rows, with a varying operator's state and rate rows beside it in the
-    exponential formulation, and ``numba_cpu``'s moment scratch of
-    ``MAX_ADAMS_ORDER + 3`` rows; ``native``'s resident engine holds ``2 (q + 2) + 4``
+    exponential formulation; ``native``'s resident engine holds ``2 (q + 2) + 4``
     rows and the norm's per-bin scale, and with a varying operator ``3 (q + 2) + 3``
     more rows and the rate's term weights. Interpolating save planes adds ``q + 6``
     rows for dense observation, and another ``q + 2`` with a varying operator.
@@ -49,20 +48,25 @@ against every backend's ledger to the byte:
 ``base`` is every other row: the state, the stages, the propagators and the transform
 buffers of the legacy mode-set, free-space and spatial routes. It is the reference's
 own rows (:func:`reference_base_memory`, which ``numpy_ref``'s ledger calls), exact on
-``numpy_ref``; on ``numba_cpu`` and Kokkos it is **the reference's count of those
-buffers, not the backend's own**, plus each compiled backend's far-field band partials
+``numpy_ref``; on Kokkos it is **the reference's count of those
+buffers, not the backend's own**, plus the far-field band partials
 (:func:`far_field_memory`, to the byte) and SEP 6's dispersive response's
-(:func:`dispersive_memory`): on the fused node path its filtered fields, node slots,
-products and their spectra, each compiled backend's ledger rows to the byte; on the
-Cartesian, line and planar routes the buffers per node the node budget admits for it,
-times the node chunk, as the general route's chunk counts its own. On twelve measured
-cases (without the response) ``numba_cpu``'s own base is 0.975 to 1.046 times the
-reference's count, and Kokkos's 1.05 to 2.48 times (up to 5.4 MB more on the varying
+(:func:`dispersive_memory`): its filtered fields, node slots, products and their
+spectra, the ledger rows to the byte. On twelve measured
+cases (without the response) Kokkos's own base is 1.05 to 2.48 times the
+reference's count (up to 5.4 MB more on the varying
 wall), because the native base also counts the backend's host copies of the problem's
 tables, its statistics buffers and a device copy of each z table.
 For SEP 27's held field-current source, the estimate replaces the reference's
-allowance with the selected compiled backend's current buffers, projection rows,
+allowance with the native backend's current buffers, projection rows,
 spectra and tables. FFT-provider allocator growth remains a measured ledger row.
+
+``initial_field`` is beside those groups, because no backend's ledger holds it: the
+translated problem's initial state, ``problem.initial.field0``, at the bytes it holds:
+one state's bytes, or a broadcast input's repeated block alone
+(:class:`~solprop.translate.problem.Initial`). **Already resident** when the estimate is
+formed, as the general reference is, and held on the host, so the admission charges it
+to the host alone.
 
 What is **not counted** is named on every estimate (:attr:`MemoryEstimate.not_counted`).
 
@@ -85,7 +89,6 @@ import numpy as np
 
 from solprop.backends.registry import resolve_name
 from solprop.backends.spatial import (
-    AXIS_FOLDED,
     AXIS_SPECTRUM_ONLY,
     far_field_partials,
 )
@@ -103,7 +106,7 @@ from solprop.translate.coupled import (
     schur_eigenbasis,
 )
 from solprop.translate.modal import DEFAULT_NODE_BUDGET
-from solprop.translate.problem import KernelProblem, dispersive_node_buffers
+from solprop.translate.problem import KernelProblem
 from solprop.translate.responses import ResponseStage
 
 __all__ = [
@@ -121,7 +124,6 @@ __all__ = [
     "flux_closure_memory",
     "held_current_memory",
     "ledger_groups",
-    "low_storage_flow_scratch",
     "low_storage_flows",
     "low_storage_memory",
     "low_storage_stage_register",
@@ -134,7 +136,7 @@ __all__ = [
     "z_table_slots",
 ]
 
-ESTIMATED_BACKENDS = ("numpy_ref", "numba_cpu", "native", "mlx")
+ESTIMATED_BACKENDS = ("numpy_ref", "native", "mlx")
 """The backends :func:`estimate_memory` has formulas for."""
 
 MEMORY_GROUPS = (
@@ -198,20 +200,6 @@ _NOT_COUNTED = {
         "the Adams general path's history (PECE and the comparison variants) and a "
         "trial's transient rows",
     ),
-    "numba_cpu": (
-        "SEP 6's dispersive response's multipliers, scratch and synthesis copy on the "
-        "fused node path, and on the Cartesian, line and planar routes the difference "
-        "between the buffers the node budget admits and those it holds",
-        "the heap FFTW planning grows at construction (fft_plan_heap_growth and "
-        "general_fft_plan_heap_growth; 34.2 and 66.5 MiB on the delayed route at "
-        "n_to 256 and 512, more than every buffer it plans for), measured, not "
-        "predictable",
-        "the backend's own base buffers beyond the reference's count of them",
-        "a noise field loaded after construction (one state's bytes)",
-        "the translated problem's own tables other than the general reference",
-        "the Adams general path's history (PECE and the comparison variants) and a "
-        "trial's transient rows",
-    ),
     "native": (
         "SEP 6's dispersive response's multipliers and packed projections",
         "the heap FFT planning grows at construction (fft_plan_heap_growth), measured",
@@ -239,13 +227,15 @@ class MemoryEstimate:
     backend : str
         The registry name the estimate is for.
     groups : collections.abc.Mapping
-        Bytes by group, every one of :data:`MEMORY_GROUPS` present, non-negative.
+        Bytes by group, every one of :data:`MEMORY_GROUPS` present, non-negative;
+        :func:`estimate_memory` adds ``initial_field``.
     not_counted : tuple of str
         What the estimate leaves out, each in words (the backend's measured planning
         heap, per-stage transients, a noise field loaded later).
     resident : int
         Bytes of the estimate already allocated when it was formed: the general
-        route's reference, which the translated problem holds. Non-negative.
+        route's reference and the initial field, which the translated problem holds.
+        Non-negative.
 
     Examples
     --------
@@ -297,7 +287,8 @@ def estimate_memory(problem: KernelProblem, backend: str) -> MemoryEstimate:
 
     Construction-free: nothing the backend would allocate is allocated here. The route
     groups are the formulas of the module docstring for the named backend; the
-    ``base`` group is the reference's count on every backend.
+    ``base`` group is the reference's count on every backend; ``initial_field`` is
+    what the problem's own initial state holds.
 
     Parameters
     ----------
@@ -334,7 +325,9 @@ def estimate_memory(problem: KernelProblem, backend: str) -> MemoryEstimate:
     ...                    save_planes=[0.01], dz_max=0.01, dz_init=1e-3,
     ...                    density=1.0, shock=False, prefactor_index=1.0)
     >>> estimate = estimate_memory(problem, "numpy_ref")
-    >>> estimate.total == estimate.groups["base"] > 0
+    >>> estimate.groups["initial_field"] == problem.initial.field0.nbytes
+    True
+    >>> estimate.total == estimate.groups["base"] + estimate.resident
     True
     """
     name = _estimated(backend)
@@ -344,17 +337,13 @@ def estimate_memory(problem: KernelProblem, backend: str) -> MemoryEstimate:
         base = single_precision_rows(problem, base)
     if name == "mlx":
         base |= mlx_rows(problem, base)
-    if name in {"numba_cpu", "native"} and problem.responses.plasma_channels:
+    if name == "native" and problem.responses.plasma_channels:
         base = {
             key: value
             for key, value in base.items()
             if not key.startswith("held_current_")
         }
-        base.update(
-            held_current_memory(problem)
-            if name == "numba_cpu"
-            else _native_held_current_memory(problem)
-        )
+        base.update(_native_held_current_memory(problem))
     groups["base"] = (
         sum(base.values())
         + sum(dispersive_memory(problem, name).values())
@@ -366,19 +355,41 @@ def estimate_memory(problem: KernelProblem, backend: str) -> MemoryEstimate:
     ) and not low_storage_stage_register(problem, name):
         # The reference's count holds the stage register; this backend elides it.
         groups["base"] -= 16 * math.prod(problem.shape)
-    if isinstance(
-        problem.stepper.integrator, LowStorageRungeKutta
-    ) and low_storage_flow_scratch(problem, name):
-        groups["base"] += 16 * math.prod(problem.shape)
     groups |= _general_groups(problem, name)
     groups["coupled_flow"] = _flow_bytes(problem, name)
     groups["adams_history"] = sum(adams_memory(problem, name).values())
+    groups["initial_field"] = _initial_field_bytes(problem)
     return MemoryEstimate(
         name,
         groups,
         not_counted=_NOT_COUNTED[name],
-        resident=groups["general_reference"],
+        resident=groups["general_reference"] + groups["initial_field"],
     )
+
+
+def _initial_field_bytes(problem: KernelProblem) -> int:
+    """Return the bytes the translated problem's initial state holds.
+
+    A broadcast view holds only the block it repeats: an axis of zero stride adds no
+    bytes, whatever its length.
+
+    Parameters
+    ----------
+    problem : solprop.translate.problem.KernelProblem
+        The translated problem.
+
+    Returns
+    -------
+    int
+        Bytes, one state's for an array of its own.
+    """
+    field = problem.initial.field0
+    held = math.prod(
+        size
+        for size, stride in zip(field.shape, field.strides, strict=True)
+        if stride != 0
+    )
+    return held * field.itemsize
 
 
 # The reference's rows that stay binary64 on the single-precision path: the exponents
@@ -552,8 +563,11 @@ def mlx_stage_bytes(problem: KernelProblem) -> int:
 # Fine-grid column arrays a stage's graph holds beyond the reference's rows on the
 # spatial routes: MLX's transverse transforms copy their axes to the last one and
 # back, and the reference's in-place passes are separate arrays on the device.
-# Measured against MLX's peak on radial and Cartesian beams (tests/backends/test_mlx).
-_MLX_TRANSIENT_COLUMNS = {"free": 18, "radial": 6}
+# Measured against MLX's peak on radial and Cartesian beams (tests/backends/test_mlx);
+# the radial count is nine since SEP 40's safety ramp gave the radial operator a rate,
+# with which MLX's peak on the 32-node beam varied from 7.0 to 7.8 MB between runs
+# against six columns' 7.2 MB (nine give 8.6 MB).
+_MLX_TRANSIENT_COLUMNS = {"free": 18, "radial": 9}
 
 
 def _mlx_per_stage(problem: KernelProblem, rows: dict[str, int]) -> int:
@@ -686,7 +700,7 @@ def estimate_guide_memory(
     >>> from solprop.grid import FieldGrid
     >>> from solprop.processing._examples import example_general_run
     >>> run, tables, guide = example_general_run()
-    >>> grid = FieldGrid.from_limits(1e-5, 1.03e-6, (1.0e-6, 1.06e-6), 200e-15)
+    >>> grid = FieldGrid.from_limits(1e-5, 1.03e-6, (1.0e-6, 1.06e-6), 400e-15)
     >>> estimate = estimate_guide_memory(guide, grid, z_max=1e-5, backend="numpy_ref")
     >>> held = sum(
     ...     array.nbytes
@@ -934,7 +948,10 @@ def reference_base_memory(
 
 
 def held_current_memory(problem: KernelProblem) -> dict[str, int]:
-    """Count Numba's held-current buffers before allocating its workspace.
+    """Count the held-current buffers' shared shapes before a workspace is allocated.
+
+    The native backend's estimate (``_native_held_current_memory``) is formed from these
+    rows.
 
     Parameters
     ----------
@@ -989,9 +1006,10 @@ def held_current_memory(problem: KernelProblem) -> dict[str, int]:
 def _native_held_current_memory(problem: KernelProblem) -> dict[str, int]:
     """Count native current streams, embedded projections and radial packing.
 
-    The shared shapes match Numba's; Kokkos holds one stacked embedded projection
-    per stream and a packed radial projection matrix instead of Numba's shared
-    projection scratch. Its owning host collar copy is counted separately.
+    The shared shapes are :func:`held_current_memory`'s; Kokkos holds one stacked
+    embedded projection per stream and a packed radial projection matrix instead of
+    that count's shared projection scratch. Its owning host collar copy is counted
+    separately.
 
     Parameters
     ----------
@@ -1078,7 +1096,7 @@ def _stepping_rows(
 def _low_storage_rows(problem: KernelProblem, field_bytes: int) -> dict[str, int]:
     """Return the low-storage march's field-sized rows: two registers and the flows.
 
-    Every backend that runs the march holds these, the compiled engines to the byte
+    Every backend that runs the march holds these, the native engine to the byte
     (SEP 24 section 6.6), the flows counted by :func:`low_storage_flows`: one volume of
     ``exp(h D / 2)`` on a constant operator, a varying one's ``P`` and ``Q`` formed
     once per step, nothing when recomputing.
@@ -1145,7 +1163,7 @@ def low_storage_flows(problem: KernelProblem, backend: str) -> int:
     ...                    controller=PIController(rtol=1e-8, atol=1e-16),
     ...                    save_planes=[0.01], dz_max=0.01, dz_init=1e-3,
     ...                    density=1.0, shock=False, prefactor_index=1.0)
-    >>> low_storage_flows(problem, "numba_cpu")  # a constant operator's table
+    >>> low_storage_flows(problem, "native")  # a constant operator's table
     1
     """
     del backend
@@ -1156,65 +1174,10 @@ def low_storage_flows(problem: KernelProblem, backend: str) -> int:
     return 1 if constant else 2
 
 
-def low_storage_flow_scratch(problem: KernelProblem, backend: str) -> bool:
-    """Return whether a backend's low-storage march holds one flow scratch volume.
-
-    ``numba_cpu``'s modal and general routes, recomputing, form the step's flows
-    ``P`` (read by pass 1) and ``Q`` (passes 3 and 4) one after the other in one
-    reusable volume, rather than as transients outside the ledger. The separable
-    kinds form them per element, and ``native`` forms a modal route's from the phase
-    terms per element, so neither holds it; ``numpy_ref`` allocates its flows per call,
-    as it allocates every transient.
-
-    Parameters
-    ----------
-    problem : solprop.translate.problem.KernelProblem
-        The translated problem.
-    backend : str
-        A registry name.
-
-    Returns
-    -------
-    bool
-        Whether the scratch is held, one state's bytes, in the ``propagators`` row.
-
-    Examples
-    --------
-    >>> import dataclasses
-    >>> from solprop.backends.memory import low_storage_flow_scratch
-    >>> from solprop.grid import EnvelopeGrid
-    >>> from solprop.nonlinear.gnlse import problem_from
-    >>> from solprop.pulses import SechPulse
-    >>> from solprop.stepper import PIController
-    >>> from solprop.translate.problem import assemble
-    >>> grid = EnvelopeGrid.from_limits(1.0, 835e-9, (500e-9, 2e-6), 1e-12)
-    >>> gnlse = problem_from([0.0, 0.0, -1.183e-26], omega_ref=grid.omega0,
-    ...                      gamma=0.11, shock=False)
-    >>> start = SechPulse(wavelength=835e-9, width=100e-15, peak_power=9.8).build(grid)
-    >>> problem = assemble(grid, gnlse.mode, [gnlse.kerr], start,
-    ...                    controller=PIController(rtol=1e-8, atol=1e-16),
-    ...                    save_planes=[0.01], dz_max=0.01, dz_init=1e-3,
-    ...                    density=1.0, shock=False, prefactor_index=1.0)
-    >>> recomputing = dataclasses.replace(
-    ...     problem,
-    ...     stepper=dataclasses.replace(problem.stepper, propagator_mode="recompute"),
-    ... )
-    >>> low_storage_flow_scratch(recomputing, "numba_cpu")
-    True
-    >>> low_storage_flow_scratch(problem, "numba_cpu")  # the table is held instead
-    False
-    """
-    geometry = problem.transform.geometry
-    modal = problem.linear.separable is None and (
-        geometry is None or geometry.kind != "slab"
-    )
-    return backend == "numba_cpu" and modal and low_storage_flows(problem, backend) == 0
-
-
 def low_storage_stage_register(problem: KernelProblem, backend: str) -> bool:
     """Return whether a backend's low-storage march holds the stage register ``C``.
 
-    SEP 24 Q4, decided in phase 2: ``numba_cpu`` (and Kokkos, from phase 3) elides it
+    SEP 24 Q4: Kokkos, from phase 3, elides it
     on the Cartesian and line routes where a pass reads its input once -- a material
     response and no in-stage absorber -- since each finish can write the next pass's
     input straight into the transverse scratch. Under an in-stage absorber the
@@ -1249,7 +1212,7 @@ def low_storage_stage_register(problem: KernelProblem, backend: str) -> bool:
     ...                    controller=PIController(rtol=1e-8, atol=1e-16),
     ...                    save_planes=[0.01], dz_max=0.01, dz_init=1e-3,
     ...                    density=1.0, shock=False, prefactor_index=1.0)
-    >>> low_storage_stage_register(problem, "numba_cpu")  # a modal route holds C
+    >>> low_storage_stage_register(problem, "native")  # a modal route holds C
     True
     """
     geometry = problem.transform.geometry
@@ -1259,7 +1222,7 @@ def low_storage_stage_register(problem: KernelProblem, backend: str) -> bool:
         and geometry is not None
         and geometry.kind != "slab"
     )
-    if backend not in {"numba_cpu", "native"} or not free or geometry is None:
+    if backend != "native" or not free or geometry is None:
         return True
     in_stage = bool(np.any(geometry.absorber_rate)) or (
         responses.temporal_absorber_fine is not None
@@ -1305,8 +1268,8 @@ def low_storage_memory(problem: KernelProblem, backend: str) -> int:
     ...                    controller=PIController(rtol=1e-8, atol=1e-16),
     ...                    save_planes=[0.01], dz_max=0.01, dz_init=1e-3,
     ...                    density=1.0, shock=False, prefactor_index=1.0)
-    >>> low_storage_memory(problem, "numba_cpu") < estimate_memory(
-    ...     problem, "numba_cpu").total
+    >>> low_storage_memory(problem, "native") < estimate_memory(
+    ...     problem, "native").total
     True
     """
     estimate = estimate_memory(problem, backend)
@@ -1316,16 +1279,13 @@ def low_storage_memory(problem: KernelProblem, backend: str) -> int:
         problem, field_bytes, tabulating=_tabulating(problem, asked)
     )
     march = _low_storage_rows(problem, field_bytes)
-    scratch = field_bytes if low_storage_flow_scratch(problem, estimate.backend) else 0
     if not low_storage_stage_register(problem, estimate.backend):
         march["register_stage"] = 0
-    march["propagators"] += scratch
-    if isinstance(problem.stepper.integrator, LowStorageRungeKutta):
-        # The estimate already took the elided register out of its base, and the
-        # flow scratch into it.
-        if not low_storage_stage_register(problem, estimate.backend):
-            current["register_stage"] = 0
-        current["propagators"] += scratch
+    if isinstance(
+        problem.stepper.integrator, LowStorageRungeKutta
+    ) and not low_storage_stage_register(problem, estimate.backend):
+        # The estimate already took the elided register out of its base.
+        current["register_stage"] = 0
     return (
         estimate.total
         - int(estimate.groups["adams_history"])
@@ -1457,10 +1417,7 @@ def adams_memory(problem: KernelProblem, backend: str) -> dict[str, int]:
     True
     """
     from solprop.backends.multistep import source_absent  # noqa: PLC0415 - import cycle
-    from solprop.stepper.multistep import (  # noqa: PLC0415
-        MAX_ADAMS_ORDER,
-        Multistep,
-    )
+    from solprop.stepper.multistep import Multistep  # noqa: PLC0415
 
     method = problem.stepper.integrator
     if not isinstance(method, Multistep):
@@ -1537,20 +1494,18 @@ def adams_memory(problem: KernelProblem, backend: str) -> dict[str, int]:
     ledger = {"adams_store": slots * state}
     if compensated:
         ledger |= {"adams_states": slots * state, "adams_rates": slots * state}
-    if backend == "numba_cpu" and exponential:
-        ledger |= {"adams_moments": (MAX_ADAMS_ORDER + 2) * state, "adams_flow": state}
     return ledger
 
 
 def far_field_memory(problem: KernelProblem, backend: str) -> dict[str, int]:
     """Return the far-field pass's band partials on a backend, by row (SEP 23).
 
-    A row of the ``base`` group, to the byte: ``numba_cpu``'s ``statistics_partials``,
-    the partials of :func:`solprop.backends.spatial.far_field_partials` and their
-    band sum; Kokkos's ``far_field_partials``, the partials alone (its native pass
-    adds the bands as it finishes them), without the ``W = 1`` slot for
+    A row of the ``base`` group, to the byte: Kokkos's ``far_field_partials``, the
+    partials of :func:`solprop.backends.spatial.far_field_partials` alone (its native
+    pass adds the bands as it finishes them), without the ``W = 1`` slot for
     ``on_axis_intensity``, which Kokkos forms in its own pass; empty on ``numpy_ref``,
-    whose pass allocates per call.
+    whose pass allocates per call, and on ``mlx``, whose single precision refuses the
+    statistics.
 
     Parameters
     ----------
@@ -1564,17 +1519,12 @@ def far_field_memory(problem: KernelProblem, backend: str) -> dict[str, int]:
     dict
         Row name to bytes.
     """
-    if backend == "numpy_ref":
+    if backend != "native":
         return {}
-    native = backend == "native"
-    n_slots, n_bands = far_field_partials(
-        problem, axis_folded=AXIS_SPECTRUM_ONLY if native else AXIS_FOLDED
-    )
+    n_slots, n_bands = far_field_partials(problem, axis_folded=AXIS_SPECTRUM_ONLY)
     if n_slots == 0:
         return {}
-    if native:
-        return {"far_field_partials": 8 * n_bands * n_slots * problem.shape[3]}
-    return {"statistics_partials": 8 * (n_bands + 1) * n_slots * problem.shape[3]}
+    return {"far_field_partials": 8 * n_bands * n_slots * problem.shape[3]}
 
 
 LOCAL_FLUX_STATISTICS = frozenset(
@@ -1590,8 +1540,7 @@ def flux_closure_memory(problem: KernelProblem, backend: str) -> dict[str, int]:
     run whose own request has a local flux statistic holds the closure's
     transverse volume beside the transform's scratch, one state's bytes. Its time
     rows and per-node magnitudes are chunk-sized statistics buffers, which the
-    reference's count already stands for; ``numpy_ref`` and ``numba_cpu`` form
-    the closure per call.
+    reference's count already stands for; ``numpy_ref`` forms the closure per call.
 
     Parameters
     ----------
@@ -1620,32 +1569,27 @@ def dispersive_memory(problem: KernelProblem, backend: str) -> dict[str, int]:
     """Return the buffers SEP 6's dispersive response holds on a backend, by row.
 
     Rows of the ``base`` group (decided by John Travers, 2026-10-08, SEP 6 Phase 2c,
-    open question 3), empty without the response and on ``numpy_ref`` (whose pass
-    allocates per call).
+    open question 3), empty without the response, on ``numpy_ref`` (whose pass
+    allocates per call) and on ``mlx`` (whose single precision refuses the response).
 
-    - **The fused node path** (mode-averaged, multimode, radial): the compiled
-      backends' own rows, to the byte -- one structure on both (SEP 6, Phases 2a and
-      3a). Each group's filtered fields over the modal columns, unless a lone symmetric
+    - **The fused node path** (mode-averaged, multimode, radial): ``native``'s own rows,
+      to the byte (SEP 6, Phase 3a). Each group's filtered fields over the modal
+      columns, unless a lone symmetric
       response filters the stage's own spectrum in place (no in-stage absorber reads
       the bare field); the node slots of a chunk, one beside other responses or two
       for the polynomial, none alone; the products and, with an embedded rule, its
       products, with their spectra, unless the lone product is the stage's own
       polarisation (all but a field grid's analytic family).
-    - **The Cartesian, line and planar routes**: on ``native`` its rows, to the byte
+    - **The Cartesian, line and planar routes**: its rows, to the byte
       (SEP 6 Phase 3b): a chunk's products and their spectra over its temporal rows,
       unless the lone product is the chunk's own polarisation; a lone symmetric response
       filters in place, the native in-stage absorber being a pass of its own; free
       space's filtered fields are blocks of its products, the planar route's are its
-      own, with one node slot (symmetric) or two (polynomial) of a block. On
-      ``numba_cpu``, the complex-equivalent buffers per node and component the node
-      budget admits for the response
-      (:func:`~solprop.translate.problem.dispersive_node_buffers`) times the chunk, an
-      upper bound of its holdings.
-    - **The general modal route**: on ``native`` its rows, to the byte: per chunk of the
+      own, with one node slot (symmetric) or two (polynomial) of a block.
+    - **The general modal route**: its rows, to the byte: per chunk of the
       route's own (which counts the response,
       :func:`~solprop.backends.numpy_ref.general_modal.general_dispersive_buffers`),
-      the filtered fields and their spectra, the products and theirs. On
-      ``numba_cpu`` the route's chunk group counts them instead (``_route_bytes``).
+      the filtered fields and their spectra, the products and theirs.
 
     Parameters
     ----------
@@ -1661,10 +1605,10 @@ def dispersive_memory(problem: KernelProblem, backend: str) -> dict[str, int]:
     """
     leaf = problem.responses.dispersive_kerr
     transform = problem.transform
-    if leaf is None or backend == "numpy_ref":
+    if leaf is None or backend != "native":
         return {}
     if transform.modal_tables is not None:
-        return _general_dispersive_memory(problem) if backend == "native" else {}
+        return _general_dispersive_memory(problem)
     responses = problem.responses
     _, n_modes, n_pol, _ = problem.shape
     n_to = problem.grids.n_to
@@ -1672,10 +1616,7 @@ def dispersive_memory(problem: KernelProblem, backend: str) -> dict[str, int]:
     chunk = min(transform.node_chunk, transform.n_nodes)
     geometry = transform.geometry
     if geometry is not None and geometry.kind in ("free", "slab"):
-        if backend == "native":
-            return _separable_dispersive_memory(problem)
-        buffers = dispersive_node_buffers(responses, spatial=True)
-        return {"dispersive_node_buffers": 16 * chunk * components * buffers * n_to}
+        return _separable_dispersive_memory(problem)
     symmetric = leaf.evaluator == "symmetric"
     field_grid = problem.grid_kind == "field"
     complex_time = not (field_grid and leaf.sector == "full")
@@ -2057,7 +1998,7 @@ def _general_groups(problem: KernelProblem, backend: str) -> dict[str, int]:
             components**2 + _PAIR_HISTORIES + components
         ) + 16 * _PAIR_HISTORIES * chunk * (n_to + 1)
     else:
-        # The compiled backends plan the doubled delayed axis at full length.
+        # The native backend plans the doubled delayed axis at full length.
         delayed = (
             2 * 8 * chunk * _PAIR_HISTORIES * 2 * n_to
             + 2 * 16 * _PAIR_HISTORIES * chunk * (n_to + 1)
@@ -2142,17 +2083,11 @@ def _route_bytes(shape: _RouteShape, backend: str) -> tuple[int, int, int]:
             + channel
         )
     else:
-        # The compiled backends keep a real polarisation and no per-node pair buffers.
+        # The native backend keeps a real polarisation and no per-node pair buffers.
         chunk_bytes = chunk * components * (40 * n_to + 16 * (n_to // 2 + 1))
-        chunk_bytes += (
-            8 * n_omega + 5 * channel
-            if backend == "numba_cpu"
-            else 16 * n_omega + 2 * channel
-        )
-        # SEP 6's dispersive response: Kokkos's rows are `dispersive_memory`'s, in
-        # `base`, as its ledger names them.
-        if backend == "numba_cpu":
-            chunk_bytes += 16 * chunk * components * shape.dispersive * n_to
+        # SEP 6's dispersive response is not here: Kokkos's rows are
+        # `dispersive_memory`'s, in `base`, as its ledger names them.
+        chunk_bytes += 16 * n_omega + 2 * channel
     stage = 2 * one_map if shape.terms > 1 else 0
     if shape.terms > 1 and backend == "native":
         stage += 8 * shape.n_stages * shape.terms
@@ -2193,18 +2128,9 @@ def _flow_bytes(problem: KernelProblem, backend: str) -> int:
     # eigenvalues, complex, with the route that says which bins take it.
     eigenbasis = 16 * sections * active * (2 * n_modes * n_modes + n_modes)
     if backend != "native":
-        held = 3 * sections * block + 2 * _distinct_fractions(problem) * block
-        held += residual
-        if backend == "numba_cpu":
-            # The two bin-to-block indices, the actions' and the residual's, one intp
-            # per bin each.
-            held += 3 * column + 16 * n_omega + (block if varying else 0)
-            # The route as a boolean per bin, a row-sum norm per section, and the
-            # formation kernels' scratch: two exponent rows, three work blocks and a
-            # Gram block of one bin, and a measured conditioning per active bin.
-            held += eigenbasis + sections * active + 8 * sections
-            held += 16 * (2 * n_modes + 4 * n_modes * n_modes) + 8 * active
-        return held
+        return (
+            3 * sections * block + 2 * _distinct_fractions(problem) * block + residual
+        )
     # A forward and an inverse action per stage and for the whole step, the carried
     # vectors, and on a varying guide the frozen blocks, the residual's terms, the
     # lab-frame input, the stage weights and the listing of each

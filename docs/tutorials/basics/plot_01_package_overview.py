@@ -16,7 +16,8 @@ capillaries, other waveguides, free space and the compression tools -- and the
 
 # %%
 # The package version, and the backend ``backend="auto"`` resolves to here: ``native``
-# where the ``solprop-native`` package is installed, otherwise ``numba_cpu``.
+# where the ``solprop-native`` package is installed, otherwise ``numpy_ref``, with a
+# warning.
 
 import warnings
 

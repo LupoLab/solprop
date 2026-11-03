@@ -137,9 +137,15 @@ from solprop.physdata import (
     sapphire,
     species,
 )
-from solprop.plotting import energy as plot_energy
-from solprop.plotting import prop_2d, spec_1d, spectrogram, time_1d
-from solprop.plotting import stats as plot_stats
+from solprop.plotting import (
+    plot_energy,
+    plot_stats,
+    prop_2d,
+    spec_1d,
+    spectrogram,
+    time_1d,
+    wavelength_to_axis,
+)
 from solprop.processing import (
     CepOptimum,
     Compression,
@@ -210,9 +216,13 @@ from solprop.pulses import (
 )
 from solprop.stepper import Multistep, RungeKutta
 from solprop.tools import (
+    RDW,
+    ZDW,
+    DesignRoots,
     GasRatio,
     NonlinearPhase,
     SolitonContent,
+    SolitonOrder,
     SolitonParams,
     capillary_design,
     capillary_params,
@@ -228,15 +238,21 @@ from solprop.tools import (
     phase_mismatch,
     pressure_rdw,
     pressure_zdw,
+    pulse_energy,
     pulse_peak_power,
     pulse_width,
+    radius_zdw,
     self_focusing_power,
     soliton_content,
     soliton_order,
     soliton_params,
+    soliton_peak_power,
+    solve_parameter,
 )
 
 __all__ = [
+    "RDW",
+    "ZDW",
     "Batch",
     "CWPulse",
     "CepOptimum",
@@ -249,6 +265,7 @@ __all__ = [
     "DampedOscillator",
     "DataPulse",
     "DensityPath",
+    "DesignRoots",
     "DispersiveKerrResponse",
     "EnvelopeGrid",
     "EnvelopePlasmaResponse",
@@ -301,6 +318,7 @@ __all__ = [
     "SlabMode",
     "Slurm",
     "SolitonContent",
+    "SolitonOrder",
     "SolitonParams",
     "SpatialPulse",
     "SpecifiedMode",
@@ -413,8 +431,10 @@ __all__ = [
     "prop_planar",
     "prop_radial",
     "prop_waveguide",
+    "pulse_energy",
     "pulse_peak_power",
     "pulse_width",
+    "radius_zdw",
     "reconstructed_flux",
     "refractive_index",
     "resume",
@@ -425,6 +445,8 @@ __all__ = [
     "soliton_content",
     "soliton_order",
     "soliton_params",
+    "soliton_peak_power",
+    "solve_parameter",
     "spec_1d",
     "species",
     "specres",
@@ -435,6 +457,7 @@ __all__ = [
     "time_bandwidth",
     "transform_limit",
     "transmission",
+    "wavelength_to_axis",
     "zdw",
 ]
 

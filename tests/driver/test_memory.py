@@ -30,6 +30,7 @@ from solprop.driver.memory import (
     DEFAULT_HEADROOM,
     MEMORY_BUDGET_VARIABLE,
     MemoryLimit,
+    _admit_history,
     _over_budget,
     admit_memory,
     format_bytes,
@@ -118,9 +119,10 @@ def test_admit_memory_passes_a_run_within_its_budget(build_simulation):
     problem = build_simulation(integrator=RungeKutta()).translate()
     admission = admit_memory(problem, "numpy_ref", "1 GiB")
     assert admission.estimate == estimate_memory(problem, "numpy_ref")
+    field = problem.initial.field0.nbytes
     assert admission.record() == {
         "estimate": admission.estimate.total,
-        "groups": {"base": admission.estimate.total},
+        "groups": {"base": admission.estimate.total - field, "initial_field": field},
         "budget": 2**30,
         "budget_source": "keyword",
     }
@@ -128,9 +130,9 @@ def test_admit_memory_passes_a_run_within_its_budget(build_simulation):
 
 def test_admit_memory_refuses_by_name(build_simulation):
     problem = build_simulation(integrator=Multistep()).translate()
-    total = estimate_memory(problem, "numba_cpu").total
+    total = estimate_memory(problem, "numpy_ref").total
     with pytest.raises(MemoryBudgetError) as refused:
-        admit_memory(problem, "numba_cpu", total - 1)
+        admit_memory(problem, "numpy_ref", total - 1)
     message = str(refused.value)
     assert f"estimated at {format_bytes(total)}" in message
     assert f"budget of {format_bytes(total - 1)} (keyword)" in message
@@ -169,12 +171,28 @@ def test_over_budget_names_the_resident_reference_and_the_route_advice():
     message = _over_budget(
         estimate, MemoryLimit(2**30, "refuse", "machine"), "the run's memory"
     )
-    assert "3.00 GiB of it, the general route's reference" in message
+    assert "3.00 GiB of it, the general route's reference, is already" in message
     assert "general_reference 3.00 GiB, general_maps 1.00 GiB, coupled_flow 5 B" in (
         message
     )
     assert "a coarser node rule" in message
     assert "Chebyshev terms" in message
+
+
+def test_over_budget_names_a_resident_initial_field_and_its_advice():
+    estimate = MemoryEstimate(
+        "numpy_ref",
+        {"base": 2**30, "general_reference": 2**30, "initial_field": 2**31},
+        resident=3 * 2**30,
+    )
+    message = _over_budget(
+        estimate, MemoryLimit(2**30, "refuse", "machine"), "the run's memory"
+    )
+    assert (
+        "3.00 GiB of it, the general route's reference and the initial field, is "
+        "already held by the translated problem" in message
+    )
+    assert "initial_field: a broadcast input (numpy.broadcast_to)" in message
 
 
 def _history_limit(problem, backend="numpy_ref"):
@@ -234,6 +252,26 @@ def test_an_adams_history_over_the_device_is_refused(build_simulation, monkeypat
     assert admit_memory(problem, "numpy_ref", "none").budget.limit is None
 
 
+def test_the_device_is_not_charged_the_host_held_initial_field(monkeypatch):
+    # The translated problem's initial field lives on the host: a run whose device
+    # part fits beside its history is admitted, even though the whole does not.
+    field, history = 2**30, 4 * 2**30
+    estimate = MemoryEstimate(
+        "native",
+        {"base": 2**30, "adams_history": history, "initial_field": field},
+        resident=field,
+    )
+    device = estimate.total - field
+    free = math.ceil(device / (1 - DEFAULT_HEADROOM))
+    monkeypatch.setattr(memory_module, "available_device_memory", lambda _: free)
+    budget = MemoryLimit(2**40, "refuse", "keyword")
+    assert math.floor(free * (1 - DEFAULT_HEADROOM)) < estimate.total
+    _admit_history(estimate, budget)
+    monkeypatch.setattr(memory_module, "available_device_memory", lambda _: free - 64)
+    with pytest.raises(MemoryBudgetError, match="accelerator's free memory"):
+        _admit_history(estimate, budget)
+
+
 def test_the_advice_for_an_adams_history_names_the_runge_kutta_march():
     estimate = MemoryEstimate("native", {"adams_history": 3 * 2**30, "base": 2**30})
     message = _over_budget(
@@ -284,7 +322,11 @@ def test_simulation_run_records_its_admission(
     assert history > 0
     assert record == {
         "estimate": estimate.total,
-        "groups": {"base": estimate.groups["base"], "adams_history": history},
+        "groups": {
+            "base": estimate.groups["base"],
+            "adams_history": history,
+            "initial_field": estimate.groups["initial_field"],
+        },
         "budget": record["budget"],
         "budget_source": "machine",
     }

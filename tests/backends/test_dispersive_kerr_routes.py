@@ -19,7 +19,7 @@ nodes of that region. Per route:
   constant cubic itself (below), and the dispersive response adds no work to that.
 
 The compiled backends run the leaf on these routes against this one
-(``test_numba_dispersive_routes.py``, ``test_native_dispersive_routes.py``).
+(``test_native_dispersive_routes.py``).
 
 The general modal route also takes a guide with a constant solid region beside a gas
 one, the carrier policy's constant cubic for a gas region, and the record of both.
@@ -255,7 +255,7 @@ def free_problem(
     band: np.ndarray | None = None,
 ):
     """Return a Cartesian free-space problem: vacuum optics, an argon density."""
-    space = FreeGrid(3e-4, 9, 4e-4, 12, window_factor=0) if space is None else space
+    space = FreeGrid(3e-4, 9, 4e-4, 12, collar_fraction=0) if space is None else space
     pulse = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=3e-6), 8e-5
     )
@@ -317,9 +317,9 @@ def test_without_dispersion_the_free_derivative_is_the_constant_one(thg, geometr
     """
     grid = free_grid("field")
     space = (
-        FreeGrid(3e-4, 9, 4e-4, 12, window_factor=0)
+        FreeGrid(3e-4, 9, 4e-4, 12, collar_fraction=0)
         if geometry == "plane"
-        else LineGrid(3e-4, 16, window_factor=0)
+        else LineGrid(3e-4, 16, collar_fraction=0)
     )
     band = sub_octave(grid)
     got = stage_derivative(
@@ -359,12 +359,14 @@ def free_energy_change(response: object, materials: MaterialSelection) -> float:
         schedule=FixedSchedule.uniform(0.0, length, length / 10),
         integrator=RungeKutta(),
         backend="numpy_ref",
+        # The coarse case launches into the safety ramp's band (SEP 40 section 5.3).
+        spatial_absorber=False,
         density=DENSITY,
         stats=default_spec("free"),
     )
     simulation = Simulation.from_free(
         grid,
-        FreeGrid(3e-4, 9, 4e-4, 12, window_factor=0),
+        FreeGrid(3e-4, 9, 4e-4, 12, collar_fraction=0),
         SpatialMedium(),
         [response],
         SpatialPulse(GaussianPulse(wavelength=800e-9, fwhm=15e-15, energy=3e-6), 6e-5),
@@ -427,6 +429,7 @@ def planar_simulation(
         stats=StatsSpec(names=("energy",)),
         integrator=RungeKutta(),
         absorber=bare_absorber(grid),
+        spatial_absorber=False,
     )
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", SolpropWarning)

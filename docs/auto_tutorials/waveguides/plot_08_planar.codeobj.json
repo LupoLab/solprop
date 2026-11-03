@@ -1318,6 +1318,22 @@
    "name": "perf_counter"
   }
  ],
+ "plot_stats": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "function"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.plotting",
+   "module_short": "solprop.plotting",
+   "name": "plot_stats"
+  }
+ ],
  "plt.subplots": [
   {
    "is_class": false,
@@ -1428,22 +1444,6 @@
    "module": "builtins",
    "module_short": "builtins",
    "name": "float"
-  }
- ],
- "stats": [
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "builtins",
-   "module_short": "builtins",
-   "name": "function"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "solprop.plotting",
-   "module_short": "solprop.plotting",
-   "name": "stats"
   }
  ],
  "style": [

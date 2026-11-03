@@ -28,6 +28,13 @@ then includes the zero-frequency bin, where a wavelength is undefined.
 No window is ever applied implicitly. ``bandpass`` is a keyword, it is a wavelength
 range, and nothing happens without it.
 
+**A spatial file's columns are not modes.** :func:`get_power` and
+:func:`get_spectral_density` read each column of the mode axis as a modal amplitude in
+sqrt(W), so on a radial, Cartesian, line or planar file they refuse by name and name the
+functional of :mod:`solprop.spatial` that measures the quantity. :func:`get_spectrum`,
+:func:`get_field` and :func:`get_phase` return the stored columns as they are, in the
+file's own units, and read every file.
+
 **The noise floor.** A run with input shot noise saves a field that carries its seed,
 one photon per active bin and channel. ``noise_floor="subtract"`` on
 :func:`get_spectral_density` removes exactly that seed's energy, bin by bin and channel
@@ -43,6 +50,7 @@ from solprop import fourier
 from solprop.exceptions import ProcessingError
 from solprop.grid import TimeGrid
 from solprop.optics import TransferFunction, stored_factor
+from solprop.output.capability import capability_of
 from solprop.output.schema import Convention, Output
 from solprop.processing import spectra
 from solprop.processing.axes import (
@@ -54,6 +62,7 @@ from solprop.processing.axes import (
     _keep_index,
     _nearest_plane,
     _plane_field,
+    _refuse_by_basis,
     _squeeze,
     grid_of,
     spectral_axis,
@@ -185,10 +194,20 @@ def get_spectrum(  # noqa: PLR0913 - a plane, a mode set, a band, a convention, 
     """
     _check_choice(noise_floor, NOISE_FLOORS, "noise_floor")
     if noise_floor != "keep":
+        metadata = output.metadata
+        spatial = metadata is not None and capability_of(metadata) == "spatial"
+        # get_spectral_density refuses a spatial file's columns, so it is no way
+        # forward there.
+        forward = (
+            "a spatial file has no reader of the floor-subtracted density, because "
+            "get_spectral_density would read its columns as modes"
+            if spatial
+            else "ask get_spectral_density for the floor-subtracted density"
+        )
         msg = (
             "noise_floor='subtract' removes a power, one photon per bin, and a "
-            "spectrum is an amplitude, whose modulus squared cannot be negative; ask "
-            "get_spectral_density for the floor-subtracted density"
+            f"spectrum is an amplitude, whose modulus squared cannot be negative; "
+            f"{forward}"
         )
         raise ProcessingError(msg)
     grid = grid_of(output)
@@ -268,6 +287,8 @@ def get_spectral_density(  # noqa: PLR0913 - the abscissa and the smoothing on t
         If ``noise_floor`` is not one of :data:`NOISE_FLOORS`, or is ``'subtract'``
         for a run without input noise, or if ``spec_range`` selects no sample of the
         abscissa (a range in another axis's units, say).
+    solprop.exceptions.OutputError
+        If the stored run is a spatial one, whose columns are not modal amplitudes.
 
     Examples
     --------
@@ -277,6 +298,74 @@ def get_spectral_density(  # noqa: PLR0913 - the abscissa and the smoothing on t
     >>> wavelength, density = get_spectral_density(example_output(), plane=0)
     >>> bool(np.all(np.diff(wavelength) > 0))
     True
+    """
+    _refuse_by_basis(output, "get_spectral_density")
+    return _spectral_density(
+        output,
+        axis,
+        plane=plane,
+        z=z,
+        modes=modes,
+        band=band,
+        spec_range=spec_range,
+        resolution=resolution,
+        noise_floor=noise_floor,
+    )
+
+
+def _spectral_density(  # noqa: PLR0913 - the keywords of get_spectral_density
+    output: Output,
+    axis: SpectralAxis = "wavelength",
+    *,
+    plane: int | None = None,
+    z: float | None = None,
+    modes: ModeSelection = None,
+    band: Band = "active",
+    spec_range: tuple[float, float] | None = None,
+    resolution: float | None = None,
+    noise_floor: NoiseFloor = "keep",
+) -> tuple[Float[np.ndarray, " n_x"], Float[np.ndarray, "*shape n_x"]]:
+    """Return the density of every column, ungated, whatever the columns are.
+
+    The ungated per-column reading behind :func:`get_spectral_density`, for internal
+    callers that already know the basis is modal or handle a spatial file themselves:
+    a reader gated under its own name, or one that weights each column by its own
+    measure, as :func:`solprop.processing.mixtures.absorbed_spectral_energy` does. On
+    a spatial file each column's value is ``|E|^2`` in its own units, not a density in
+    J.
+
+    Parameters
+    ----------
+    output : solprop.output.schema.Output
+        An opened output handler.
+    axis : {'wavelength', 'f', 'omega'}
+        The abscissa, in m, Hz or rad/s.
+    plane : int or None
+        Index of the plane wanted, negative from the end.
+    z : float or None
+        Position of the plane wanted, m.
+    modes : int, sequence of int, 'sum' or None
+        Which columns to return; ``'sum'`` adds their values.
+    band : {'active', 'all'}
+        Which part of the stored axis to use.
+    spec_range : tuple of float or None
+        Limits on the abscissa, in its own units.
+    resolution : float or None
+        Instrument resolution, in the units of the abscissa.
+    noise_floor : {'keep', 'subtract'}
+        Whether to remove the input noise's seed.
+
+    Returns
+    -------
+    x : numpy.ndarray
+        The abscissa, shape ``(n_x,)``, ascending.
+    density : numpy.ndarray
+        The value per unit of ``x``.
+
+    Raises
+    ------
+    solprop.exceptions.ProcessingError
+        As :func:`get_spectral_density`.
     """
     _check_choice(noise_floor, NOISE_FLOORS, "noise_floor")
     grid = grid_of(output)
@@ -501,6 +590,12 @@ def get_power(  # noqa: PLR0913 - a plane, a mode set, a window and an optical e
     power : numpy.ndarray
         Instantaneous power, W, with trivial axes squeezed.
 
+    Raises
+    ------
+    solprop.exceptions.OutputError
+        If the stored run is a spatial one, whose columns are not modal amplitudes:
+        :func:`solprop.spatial.spatial_power` of a saved plane is the beam's power.
+
     Examples
     --------
     >>> import numpy as np
@@ -509,6 +604,62 @@ def get_power(  # noqa: PLR0913 - a plane, a mode set, a window and an optical e
     >>> t, power = get_power(example_output(), plane=0)
     >>> bool(np.all(power >= 0.0))
     True
+    """
+    _refuse_by_basis(output, "get_power")
+    return _power(
+        output,
+        plane=plane,
+        z=z,
+        modes=modes,
+        oversampling=oversampling,
+        bandpass=bandpass,
+        transfer=transfer,
+        transform_limit=transform_limit,
+    )
+
+
+def _power(  # noqa: PLR0913 - the keywords of get_power
+    output: Output,
+    *,
+    plane: int | None = None,
+    z: float | None = None,
+    modes: ModeSelection = None,
+    oversampling: int = 1,
+    bandpass: spectra.Bandpass | None = None,
+    transfer: TransferFunction | None = None,
+    transform_limit: bool = False,
+) -> tuple[Float[np.ndarray, " n_t"], Float[np.ndarray, "*shape n_t"]]:
+    """Return ``sum_pol |a(t)|^2`` of every column, ungated.
+
+    The per-column reading behind :func:`get_power`, without its refusal of a spatial
+    file: for an internal caller that has already been gated under its own name, or
+    that knows the basis is modal.
+
+    Parameters
+    ----------
+    output : solprop.output.schema.Output
+        An opened output handler.
+    plane : int or None
+        Index of the plane wanted, negative from the end.
+    z : float or None
+        Position of the plane wanted, m.
+    modes : int, sequence of int, 'sum' or None
+        Which columns to return; ``'sum'`` adds them.
+    oversampling : int
+        Factor by which to resample the time axis, at least 1.
+    bandpass : tuple of float, Passband, numpy.ndarray or None
+        A window applied before the transform.
+    transfer : TransferFunction or None
+        An optics-convention element applied to the spectrum.
+    transform_limit : bool
+        Whether to discard the spectral phase first.
+
+    Returns
+    -------
+    t : numpy.ndarray
+        Time axis, s.
+    power : numpy.ndarray
+        The squared modulus summed over polarisation, W on a modal file.
     """
     _, t, amplitude = _plane_amplitude(
         output,

@@ -19,7 +19,6 @@ from backends import test_batch_lockstep as fixtures
 from backends.test_driver import ScriptedDriver
 from solprop.backends import Backend, select_batch
 from solprop.backends.batch import LockstepRunner
-from solprop.backends.numba_cpu.batch import NumbaCpuBatchBackend
 from solprop.backends.numpy_ref import passes
 from solprop.backends.numpy_ref.batch import NumpyBatchBackend
 from solprop.exceptions import BackendError, ConvergenceError
@@ -113,14 +112,16 @@ def test_batch_refuses_reloading_a_shared_field_and_mismatched_statistics(monkey
         assert runner.available_device_memory() is None
 
 
-@pytest.mark.parametrize("kind", ["common", "numpy", "numba"])
+@pytest.mark.parametrize("kind", ["common", "numpy", "native"])
 @pytest.mark.parametrize("norm", [float("nan"), float("inf"), -1.0])
 def test_batch_names_the_member_behind_an_invalid_norm(monkeypatch, kind, norm):
-    # The same value refuses the member's own StepHistory/StepSummary, so a
+    # The same value refuses the member's own BackendHistory/StepSummary, so a
     # singleton does not survive it either: what the batch owes its caller is the
     # index of the point that produced it, not an anonymous history error.
+    if kind == "native":
+        pytest.importorskip("solprop_native")
     with ExitStack() as cleanup:
-        name = "numba_cpu" if kind == "numba" else "numpy_ref"
+        name = "native" if kind == "native" else "numpy_ref"
         healthy = fixtures.loaded(fixtures.simulation(1, name), cleanup)
         member = fixtures.loaded(fixtures.simulation(0, name), cleanup)
         solo = fixtures.loaded(fixtures.simulation(0, name), cleanup)
@@ -135,7 +136,7 @@ def test_batch_names_the_member_behind_an_invalid_norm(monkeypatch, kind, norm):
             runner = select_batch(cast(Sequence[Backend], [healthy, member]))
         else:
             for one in (member, solo):
-                monkeypatch.setattr(one, "_score_trial", lambda whole, dz: norm)
+                monkeypatch.setattr(one, "_score_trial", lambda *_: norm)
             runner = select_batch(cast(Sequence[Backend], [healthy, member]))
         cleanup.callback(runner.close)
         offender = 0 if kind == "numpy" else 1
@@ -187,13 +188,8 @@ def test_batch_requires_complete_backend_protocol():
         owner.close()
 
 
-@pytest.mark.parametrize(
-    ("factory", "wrong_backend"),
-    [(NumpyBatchBackend, "numba_cpu"), (NumbaCpuBatchBackend, "numpy_ref")],
-)
-def test_concrete_batch_checks_family_without_the_session_type_hook(
-    factory, wrong_backend
-):
+def assert_family_refused(factory, wrong_backend):
+    """Assert a batch class refuses a member of another backend, untouched."""
     with ExitStack() as cleanup:
         owner = fixtures.loaded(fixtures.simulation(0, wrong_backend), cleanup)
         instance = factory.__new__(factory)
@@ -203,6 +199,16 @@ def test_concrete_batch_checks_family_without_the_session_type_hook(
         with pytest.raises(BackendError, match="requires"):
             initialize(instance, [owner])
         assert owner.observe().z == 0.0
+
+
+def test_the_reference_batch_checks_family_without_the_session_type_hook():
+    pytest.importorskip("solprop_native")
+    assert_family_refused(NumpyBatchBackend, "native")
+
+
+def test_the_native_batch_checks_family_without_the_session_type_hook():
+    batch = pytest.importorskip("solprop_native.batch")
+    assert_family_refused(batch.NativeBatchBackend, "numpy_ref")
 
 
 def test_batch_close_releases_other_members_when_one_close_fails(monkeypatch):

@@ -6,9 +6,7 @@ the index, and replace every placeholder. Keep the headings: the parts and their
 are the same in every SEP. Delete the italic guidance as you write each section. The
 process is SEP 0 (sep-0000-process.md); read it first.
 Add the draft to the SEP index and its toctree, and to the roadmap's Draft enhancement
-proposals section after the accepted proposals. Remove informal roadmap items only when
-fully covered by this proposal; for partial coverage, link the SEP and retain the
-uncovered work explicitly. Keep these entries current when the scope or status changes;
+proposals section after the accepted proposals. Keep these entries current when the scope or status changes;
 work this proposal gives back goes in an issue. Open the SEP's tracking issue (SEP 0) and
 name it in Part III.
 -->
@@ -50,7 +48,7 @@ what is not, including tempting adjacent work.*
 ### 3. Context
 
 *What solprop does today in this area, with links to the manual and design pages and to
-the modules involved; the roadmap item this answers, if any; the prior SEPs and ADRs it
+the modules involved; the issue this answers, if any; the prior SEPs and ADRs it
 builds on; and, from a search of the open issues, those it will fix, those that must be
 resolved before it, and any others it changes.*
 
@@ -76,8 +74,8 @@ plan. Cover as applicable:*
 - *the layer the work belongs to (physics, translation, backends; architecture.md §3);*
 - *the effect on the kernel contract and whether KERNEL_SCHEMA_VERSION changes;*
 - *each Tier 1 backend in turn — numpy_ref, then the native CPU build — and anything
-  that makes one of them hard; GPU considerations for later; whether numba_cpu (Tier 2)
-  or mlx (Tier 3) should take the feature too, and why (ADR-061);*
+  that makes one of them hard; GPU considerations for later; whether mlx (Tier 3)
+  should take the feature too, and why (ADR-061);*
 - *the expected cost in time and memory, and how it scales;*
 - *new dependencies (to be agreed before acceptance).*
 
@@ -106,7 +104,7 @@ differences page.*
 ### 11. Phases
 
 *The proposed phases, each independently mergeable with a green gate. The usual order is
-numpy_ref with tests and the manual page first, then numba_cpu, then Kokkos CPU. For each
+numpy_ref with tests and the manual page first, then the native CPU build. For each
 phase: its deliverables and what it must verify.*
 
 ### 12. Open questions

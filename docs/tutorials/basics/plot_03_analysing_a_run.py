@@ -25,7 +25,7 @@ import numpy as np
 from solprop.grid import EnvelopeGrid
 from solprop.output import MemoryOutput, open_file
 from solprop.output.schema import GridRecord, RunMetadata, SavedPlane, StepperRecord
-from solprop.plotting import energy, prop_2d, spec_1d, stats, time_1d
+from solprop.plotting import plot_energy, plot_stats, prop_2d, spec_1d, time_1d
 from solprop.processing import energy as pulse_energy
 from solprop.processing import (
     fwhm_t,
@@ -113,7 +113,7 @@ print(f"largest relative error {np.max(np.abs(measured / expected - 1)):.2e}")
 # temporal one is a linear power in an auto-chosen unit.
 
 figures = prop_2d(
-    run, "wavelength", spec_range=(650e-9, 1000e-9), trange=(-150e-15, 150e-15)
+    run, "wavelength", spec_range=(650e-9, 1000e-9), time_range=(-150e-15, 150e-15)
 )
 figures[0].set_size_inches(9.5, 3.4)
 figures[0].tight_layout()
@@ -124,7 +124,7 @@ figures[0].tight_layout()
 # by default.
 
 fig, (left, right) = plt.subplots(1, 2, figsize=(9.5, 3.4))
-time_1d(run, [0.0, 0.1, 0.2], trange=(-150e-15, 150e-15), ax=left)
+time_1d(run, [0.0, 0.1, 0.2], time_range=(-150e-15, 150e-15), ax=left)
 spec_1d(run, [0.0, 0.1, 0.2], spec_range=(650e-9, 1000e-9), ax=right)
 fig.tight_layout()
 
@@ -133,7 +133,7 @@ fig.tight_layout()
 # Pure dispersion moves neither, which is the point: a plot that shows nothing happening
 # is how you find out that nothing happened.
 
-figure = energy(run)
+figure = plot_energy(run)
 figure.set_size_inches(6.0, 3.4)
 figure.tight_layout()
 
@@ -141,7 +141,7 @@ figure.tight_layout()
 # The statistics the run recorded. Only the groups with something in them are drawn, so
 # a run that recorded no waveguide statistics gets one figure rather than an error.
 
-figure = stats(run)[0]
+figure = plot_stats(run)[0]
 figure.set_size_inches(8.0, 5.6)
 figure.tight_layout()
 

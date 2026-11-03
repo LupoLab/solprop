@@ -82,17 +82,21 @@ def test_gradient_runs_with_one_parameter_on_both_backends():
         )
         problem = simulation.translate()
         reference = simulation.run(progress=NullReporter())
+    assert problem.linear.phi_expansion is not None
+    assert problem.linear.phi_expansion.parameters == ("density",)
+    assert reference.metadata is not None
+    assert "medium" in reference.metadata.configuration
+    pytest.importorskip("solprop_native")
+    with nullcontext():
         compiled = prop_capillary(
             15e-6,
             0.001,
             "Ar",
             (1.0, 1.2),
             modes=[mode],
-            **({"noise": None, **settings(backend="numba_cpu")}),
+            **({"noise": None, **settings(backend="native")}),
             progress=NullReporter(),
         )
-    assert problem.linear.phi_expansion is not None
-    assert problem.linear.phi_expansion.parameters == ("density",)
     first, second = reference.fields("fft"), compiled.fields("fft")
     worst = float(np.max(abs(first - second)) / np.max(abs(first)))
     # The deterministic backend bound counts the schedule's 64 steps, the
@@ -103,8 +107,6 @@ def test_gradient_runs_with_one_parameter_on_both_backends():
     bound = 64 * 64 * evaluations * simulation.grid.n_t * np.finfo(float).eps
     assert 0 < worst < bound
     assert np.all(np.isfinite(second))
-    assert reference.metadata is not None
-    assert "medium" in reference.metadata.configuration
 
 
 def test_filled_table_runs_and_gradient_is_refused():

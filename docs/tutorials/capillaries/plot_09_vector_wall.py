@@ -141,7 +141,6 @@ def run(wall, modes):
             energy=1e-9,
             modes=modes,
             n_save=11,
-            backend="numpy_ref",
             wall=wall,
             schedule=FixedSchedule(np.full(steps, length / steps)),
             dz_max=length / steps,

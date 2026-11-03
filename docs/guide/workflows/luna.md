@@ -25,7 +25,8 @@ keywords in Python spelling and every quantity in SI units (pressures stay in ba
 | `pulses=[Pulses.GaussPulse(...), ...]` | `pulses=[GaussianPulse(...), ...]` ({class}`~solprop.pulses.PulseSum`) |
 | `modes=:HE11` (mode-averaged), `modes=1`, `modes=4` | `mode_average=True`, `modes=1`, `modes=4`, or a list of mode objects; solprop's default is the resolved `modes=1` |
 | `Plotting.prop_2D`, `time_1D`, `spec_1D` | `prop_2d`, `time_1d`, `spec_1d` |
-| `Plotting.stats`, `Plotting.energy` | `stats`, `energy` (`plot_stats`, `plot_energy` in `solprop.sol`) |
+| `trange`, `λrange`, `dBmin` of a plot | `time_range`, `spec_range`, `db_min`; `spec_range` is in the units of the plot's axis, and `wavelength_to_axis` converts a wavelength range. `trange` stays the time window's length on `prop_*`, as it is in Luna |
+| `Plotting.stats`, `Plotting.energy` | `plot_stats`, `plot_energy` |
 | `Processing.getEt`, `getEω`, `getIω` | `get_field`, `get_spectrum`, `get_spectral_density` |
 | `getEt(...; propagate=f, FTL=true)` | `get_field(..., transfer=f, transform_limit=True)` |
 | `Processing.getφ`, `nearest_z` | `get_phase`, `nearest_plane` |
@@ -63,6 +64,12 @@ Four conventions change what the numbers mean:
   Luna's energy and intensity for the same field; to start from the same field, scale the
   energy by $n_0$. Local intensities are signed fluxes, and the field that drives
   ionisation is reported separately. See [energy and flux in a medium](../free-space/flux.md).
+- **Free-space boundaries are watched, and absorbed only on request.** Luna.jl's
+  free-space routes apply no transverse absorber, so a radial run reflects from its outer
+  radius and a Cartesian one wraps. So does solprop by default, but it detects light
+  reaching the edge and stops the run, naming a size to try, carries a safety ramp at the
+  grid's highest transverse wavenumbers, and offers a designed real-space collar on
+  request ([transverse boundaries](../free-space/model.md#transverse-boundaries)).
 - **The unrotated `HE_1m` mode is polarised along x**; Luna's is polarised along y. The
   two are the two members of the degenerate pair, a quarter turn apart
   ($\phi_\text{solprop} = \pi/(2n) - \phi_\text{Luna}$ for a family of order $n$).

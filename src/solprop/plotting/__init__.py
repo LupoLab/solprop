@@ -9,7 +9,9 @@ run: the false-colour propagation maps, the time- and spectral-domain slices, th
 along the fibre, the statistics panels and the spectrogram. Every function takes an
 :class:`~solprop.output.schema.Output`, returns figures and never calls
 :func:`~matplotlib.pyplot.show`, so a script decides for itself whether to save or to
-display. The manual page is ``docs/guide/results/plotting.md``.
+display. The manual page is ``docs/guide/results/plotting.md``. The cross-section of a
+guide or a free-space grid, drawn from the guide rather than from a run, is in
+:mod:`solprop.plotting.geometry`.
 
 Display units are fixed across the package: z in centimetres,
 time in femtoseconds, wavelength in nanometres, frequency in petahertz, angular
@@ -18,17 +20,17 @@ frequency in radians per femtosecond, energy in microjoules, power auto-scaled.
 
 from solprop.plotting.propagation import (
     DEFAULT_SLICE_WAVELENGTH_RANGE,
-    DEFAULT_TRANGE,
+    DEFAULT_TIME_RANGE,
     DEFAULT_WAVELENGTH_RANGE,
     SLICE_QUANTITIES,
     SliceQuantity,
-    energy,
+    plot_energy,
     prop_2d,
     spec_1d,
     time_1d,
 )
 from solprop.plotting.spectrograms import spectrogram
-from solprop.plotting.statistics import OTHER_STATISTICS, PULSE_STATISTICS, stats
+from solprop.plotting.statistics import OTHER_STATISTICS, PULSE_STATISTICS, plot_stats
 from solprop.plotting.style import (
     CORNERS,
     POWER_UNITS,
@@ -48,7 +50,7 @@ from solprop.plotting.style import (
 __all__ = [
     "CORNERS",
     "DEFAULT_SLICE_WAVELENGTH_RANGE",
-    "DEFAULT_TRANGE",
+    "DEFAULT_TIME_RANGE",
     "DEFAULT_WAVELENGTH_RANGE",
     "OTHER_STATISTICS",
     "POWER_UNITS",
@@ -59,16 +61,16 @@ __all__ = [
     "cmap_colours",
     "cmap_white",
     "corner_text",
-    "energy",
     "fwhm_arrows",
     "mode_labels",
     "per_width",
+    "plot_energy",
+    "plot_stats",
     "power_unit",
     "prop_2d",
     "spec_1d",
     "spectral_display",
     "spectrogram",
-    "stats",
     "subplot_grid",
     "time_1d",
     "wavelength_to_axis",

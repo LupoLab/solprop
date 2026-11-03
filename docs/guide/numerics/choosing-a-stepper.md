@@ -47,6 +47,22 @@ noise that resolves to none says why in the run record and the start-of-run summ
 and asking for noise beside the TDSE response is warned on: TDSE and Cartesian runs
 are slow and rarely about noise sensitivity.
 
+The table lives in one place, `solprop.driver.defaults.ROUTE_DEFAULTS`, with the temporal
+collar's scheme beside it (`"split_step"` on the radial, free-space and planar routes
+unless planes are interpolated, `"nonlinear"` elsewhere). The run record's `defaults`
+entry and the start-of-run summary say which of the integrator, `rtol` and the scheme
+took the route's default, and a copy of the settings made with `dataclasses.replace` in
+the other precision takes that precision's default for each of them, the backend
+`"auto"` included.
+
+**Naming an integrator keeps the interface's tolerance.** The tolerance in the table
+belongs to the interface, not to the method: `prop_capillary(integrator=RungeKutta())`
+runs the Runge–Kutta march at the capillary's `1e-6`, and
+`prop_gnlse(integrator=Multistep())` the Adams method at the GNLSE's `1e-7`. The advice
+on this page about each method's tolerance was measured at the levels it names, so pass
+`rtol=` beside `integrator=` when you change the method; for instance, the capillary's
+Runge–Kutta comparison below is at `1e-5`.
+
 On the GNLSE, the Runge–Kutta march is 2.5 to 4.8 times faster than the exponential
 Adams method at matched accuracy, more with noise. On the waveguide route it is 4 times
 faster; the interaction-formulation Adams method is faster still there but refuses the
@@ -115,7 +131,7 @@ Choose `integrator=RungeKutta()` when
 - **a handful of fixed steps is all a run takes**: the Adams history starts at order
   one at the start of a schedule (a resume continues it on the CPU backends, from the
   snapshot the output keeps);
-- **the backend is not `numpy_ref`, `numba_cpu` or `native`**.
+- **the backend is not `numpy_ref` or `native`**.
 
 Choose `integrator=LowStorageRungeKutta()` with a `schedule=` when the state is too
 large for `RungeKutta()`'s stage rows and the run is a fixed-step one whose accuracy you
@@ -194,20 +210,19 @@ devices; [the benchmark notes](../../dev/benchmarks.md#indicative-results) say h
 such ratios). Ratios are the Runge–Kutta march's time over the default's: above one, the
 default is faster.
 
-| case | the source | calls, `RungeKutta()` : `Multistep()` | time ratio, `numba_cpu` | time ratio, native CPU |
-|---|---|---|---|---|
-| full RDW capillary (four modes, ionisation, gas gradient) | expensive, varying | 12 to 14 : 1 | 5.5–5.8 | 6.1–6.3 |
-| CtC launch (six modes, Raman) | expensive | 2.3 to 3.7 : 1 | 2.0–3.2 | 2.0–3.3 |
-| radial focusing beam, filament with ionisation | spatial | 2.5 to 6 : 1 | 1.2–2.4 | 1.3–2.2 |
-| Cartesian focusing beam (48 × 48) | spatial | 3 to 6 : 1 | 0.9–2.0 | 1.2–2.4 |
-| full canonical capillary (one mode, ionisation, gas gradient) | moderate, varying | 1.8 to 2.4 : 1 | 1.0–1.3 | 1.1–1.45 |
-| coupled flows: a coherent wall, a taper | cheap, coupled | 1.8 to 4 : 1 | 0.6–1.4 | 0.7–1.7 |
-| line and planar self-focusing | cheap, spatial | 2.4 to 6 : 1 | 0.8–1.8 | 0.9–2.3 |
-| GNLSE supercontinuum window | cheap, one mode | 3.6 to 4 : 1 | 0.7–0.8 | 1.05–1.1 |
+| case | the source | calls, `RungeKutta()` : `Multistep()` | time ratio, native CPU |
+|---|---|---|---|
+| full RDW capillary (four modes, ionisation, gas gradient) | expensive, varying | 12 to 14 : 1 | 6.1–6.3 |
+| CtC launch (six modes, Raman) | expensive | 2.3 to 3.7 : 1 | 2.0–3.3 |
+| radial focusing beam, filament with ionisation | spatial | 2.5 to 6 : 1 | 1.3–2.2 |
+| Cartesian focusing beam (48 × 48) | spatial | 3 to 6 : 1 | 1.2–2.4 |
+| full canonical capillary (one mode, ionisation, gas gradient) | moderate, varying | 1.8 to 2.4 : 1 | 1.1–1.45 |
+| coupled flows: a coherent wall, a taper | cheap, coupled | 1.8 to 4 : 1 | 0.7–1.7 |
+| line and planar self-focusing | cheap, spatial | 2.4 to 6 : 1 | 0.9–2.3 |
+| GNLSE supercontinuum window | cheap, one mode | 3.6 to 4 : 1 | 1.05–1.1 |
 
-Below one, the Runge–Kutta march was faster: on the GNLSE window on `numba_cpu`, at
-the tightest targets on the line, planar and radial-aperture cases, and at one or two
-targets of the coupled taper and the Cartesian focus.
+Below one, the Runge–Kutta march was faster: at some targets of the coupled flows and of
+the line and planar cases.
 
 On data-centre AMD and NVIDIA GPUs the ranking is broadly the same: the exponential
 formulation was 4.4 to 4.8 times faster on the RDW capillary, 1.5 to 2.5 times on the
@@ -228,20 +243,18 @@ of its compensation:
 | backend | history, copies of the state |
 |---|---|
 | `numpy_ref` | 7; 21 with a varying operator |
-| `numba_cpu` | 7 in the interaction picture; 16, or 30 with a varying operator, in the exponential one |
 | `native` (CPU and device) | 29; about 60 with a varying operator |
 
 What that adds depends on the rest. On a capillary the operator tables dominate, a
 hundred to several hundred copies of the state, and the history adds 8 to 55 %. On a
-Cartesian free-space grid the Runge–Kutta march holds 15 (`native`) or 16 (`numba_cpu`)
-copies, by the backends' ledgers, and the default 32 (`numba_cpu`) to 44 (`native`): two
-to three times the memory. The low-storage march holds four or five:
+Cartesian free-space grid the Runge–Kutta march holds 15 copies on `native`, by its
+ledger, and the default 44: about three times the memory. The low-storage march holds four or five:
 
 | integrator, on a Cartesian free-space grid | copies of the state |
 |---|---|
-| `Multistep()` | 20 (`numpy_ref`), 32 (`numba_cpu`), 44 (`native`) |
-| `RungeKutta()` | 13 (`numpy_ref`, counted), 16 (`numba_cpu`), 15 (`native`) |
-| `LowStorageRungeKutta()` | 5 with the half-step flow tabulated, 4 recomputed; one more with the `modified` noise; on `numba_cpu` and `native` one fewer without an in-stage collar |
+| `Multistep()` | 20 (`numpy_ref`), 44 (`native`) |
+| `RungeKutta()` | 13 (`numpy_ref`, counted), 15 (`native`) |
+| `LowStorageRungeKutta()` | 5 with the half-step flow tabulated, 4 recomputed; one more with the `modified` noise; on `native` one fewer without an in-stage collar |
 
 At 768 × 768 columns and 600 bins one copy is 5.3 GiB: 26 GiB under the low-storage
 march, against 79 or 84 GiB for the Runge–Kutta march and 232 GiB for Adams on the native backend. The estimate is made
@@ -279,18 +292,15 @@ fourth order at fixed step too, so compare the two at equal error, not at equal 
 negative-real stability interval beside an in-stage collar, $h\alpha_\max/2 \le 2.785$
 against DOPRI5's 3.3 (about 45 steps over a run with the default temporal collar). A
 Every backend runs it, on every route it admits it on, and `backend="auto"` resolves
-as for any integrator: the native backend when it is installed, otherwise `numba_cpu`. On
-`numba_cpu` the four passes are compiled register kernels with none of the Runge–Kutta
-march's buffers; on the native backend a step is one native call making the same four passes in
+as for any integrator, to the native backend. On
+the native backend a step is one native call making the same four passes in
 the backend's own memory, and a plane that keeps no field holds its state there too.
 Without an in-stage collar each pass writes the next one's input straight into the
 transverse scratch, so the stage register is not held either. On a Cartesian Kerr beam
 the march
-[took 1.7 to 1.8 times less time per step](../../dev/benchmarks.md#low-storage-interaction-picture-rk)
-than the IP-DOPRI5 replay on `numba_cpu`, and
-[1.8 to 2.0 times less](../../dev/benchmarks.md#low-storage-interaction-picture-rk)
-on native CPU, in a quarter of the memory; what both marches spend is mostly the
-source evaluation itself. The compiled backends do not form the stiffness indicator
+[took 1.8 to 2.0 times less time per step](../../dev/benchmarks.md#low-storage-interaction-picture-rk)
+than the IP-DOPRI5 replay on native CPU, in a quarter of the memory; what both marches spend is mostly the
+source evaluation itself. The native backend does not form the stiffness indicator
 below, so the warning is `numpy_ref`'s alone.
 
 **What a failure costs.** Because each step is accepted in place, an exception or a
@@ -341,7 +351,8 @@ is IP-DOPRI5 allowed to grow a step by up to twice the last, as the Adams march 
 beside the default controller's 1.1.
 
 CPU timings are one thread on a shared Darwin/arm64 workstation, compared within one
-process; the device timings are the native HIP build on one data-centre AMD GPU and, for six
+process, and the figures keep the series measured on `numba_cpu`, a backend since retired,
+beside those of the native backend, labelled `Kokkos CPU`; the device timings are the native HIP build on one data-centre AMD GPU and, for six
 cases, the native CUDA build on one data-centre NVIDIA GPU, with the error norm over the requested
 band; the CPU points use the default norm over the whole active band. Each figure's
 points are in the CSV beside it.

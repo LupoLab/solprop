@@ -12,6 +12,8 @@ from solprop.driver._scan_model import Scan, ScanPoint
 from solprop.driver._scan_run import execute_scan
 from solprop.driver.executors import Executor
 from solprop.driver.simulation import Simulation
+from solprop.log import ProgressChoice, ScanReporter, StopFlag
+from solprop.output.schema import RecipeRecord
 from solprop.processing.scans import Reduction, ScanOutput
 
 __all__ = ["Scan", "ScanPoint", "run_scan"]
@@ -29,7 +31,9 @@ def run_scan(  # noqa: PLR0913 - the public scan controls
     stats: Literal["all", "none"] | Sequence[str] = "all",
     retry_failed: bool = False,
     stale_age: float = 600.0,
-    progress: Literal["auto", "bar", "log", "none"] = "auto",
+    progress: ProgressChoice | ScanReporter = "auto",
+    stop: StopFlag | None = None,
+    recipe: RecipeRecord | None = None,
 ) -> ScanOutput:
     """Run selected points and return a reader for their collected file.
 
@@ -61,8 +65,25 @@ def run_scan(  # noqa: PLR0913 - the public scan controls
         Retry previously failed points; false leaves them recorded as failures.
     stale_age : float, optional
         Positive lease age in seconds before abandoned running points are recovered.
-    progress : {'auto', 'bar', 'log', 'none'}, optional
-        One outer progress display; individual runs never draw their own bars.
+    progress : {'auto', 'bar', 'log', 'none'} or solprop.log.ScanReporter, optional
+        One outer progress display; individual runs never draw their own bars. A
+        :class:`~solprop.log.ScanReporter` replaces the display and is told when the
+        scan and each point start and finish; a
+        :class:`~solprop.log.WatchingScanReporter` also receives each point's run on
+        ``Local`` and ``Pool`` (SEP 41, S4).
+    stop : object or None, optional
+        The scan's stop flag: any object with an ``is_set()`` method, such as a
+        :class:`threading.Event` (SEP 41, S17). Once it is set no further point is
+        dispatched; ``Local`` and ``Pool`` stop the points in flight within one step,
+        a ``Pool`` through a message on each busy worker's pipe; ``Batch`` stops
+        between groups. A stopped point is not committed, so a rerun computes it
+        again, and the scan returns normally, its file holding the points finished
+        before the stop; it logs at ``INFO`` that it stopped, and a scan reporter is
+        told ``"stopped"`` for each stopped point. ``Queue`` and ``Slurm`` refuse it.
+    recipe : solprop.output.schema.RecipeRecord or None, optional
+        The recipe the scan was built from, which the scan file records once, so that
+        it reopens with its setup (SEP 41, S2); :meth:`solprop.recipe.core.Recipe.scan`
+        passes it among its keywords. ``None`` records none.
 
     Returns
     -------
@@ -72,7 +93,8 @@ def run_scan(  # noqa: PLR0913 - the public scan controls
     Raises
     ------
     DriverError
-        If controls are invalid or the executor cannot run the builder.
+        If controls are invalid, the executor cannot run the builder, or `stop` is
+        given to a ``Queue`` or ``Slurm`` executor.
     OutputError
         If the file belongs to a different scan or stored configuration.
     """
@@ -88,4 +110,6 @@ def run_scan(  # noqa: PLR0913 - the public scan controls
         retry_failed=retry_failed,
         stale_age=stale_age,
         progress=progress,
+        stop=stop,
+        recipe=recipe,
     )

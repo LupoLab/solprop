@@ -7,10 +7,9 @@ output cost. Choose an adequate model and resolution first, then select a
 
 ## Backend choice and scan workers
 
-`backend="auto"` resolves to the native backend when installed and otherwise, with a
-warning, to the slower `numba_cpu`. It does
-not silently retry another backend if the chosen one refuses a representation.
-Use an explicit name for a scan spanning machines with different installations.
+`backend="auto"` resolves to the native backend, and refuses if it is missing or the
+processor is below its minimum ([choosing a backend](backends.md#which-backend-a-run-uses)).
+It does not silently retry another backend if the chosen one refuses a representation.
 The resolved backend and runtime settings are recorded with the output.
 
 Thread and runtime settings must be in place before the relevant libraries load.
@@ -56,7 +55,7 @@ simulation = Simulation.from_capillary(
     fwhm=10e-15,
     energy=1e-9,
     n_save=2,
-    backend="numba_cpu",
+    backend="native",
 )
 budgeted = simulation.run(memory_budget="warn:8 GiB", progress="none")
 print(budgeted.metadata.backend.settings.get("memory"))
@@ -73,10 +72,39 @@ through {py:func}`~solprop.driver.scan.run_scan`, not as a `prop_*` keyword.
 
 The estimate is recorded in the file's backend record under `memory`, with its groups
 (`base`, `general_maps`, `general_reference`, `general_chunk`, `coupled_flow`,
-`adams_history`, ...), so
+`adams_history`, `initial_field`, ...), so
 you can see which one to shrink: fewer channels or nodes for the maps and the reference,
 a narrower frequency window for all of them. Nothing is ever approximated to fit. Not
 counted, and named on every estimate: FFTW's planning heap and per-stage transients.
+
+**The initial field.** The translated problem keeps the run's initial state for as long
+as it lives, and the estimate counts it as the group `initial_field`, on the host. The
+problem copies what you pass, so that changing your array afterwards cannot change the
+run: one state's bytes, held converted to the internal amplitude on a modal route. A
+broadcast view such as `numpy.broadcast_to(column, shape)` is the exception: the problem
+copies only the block it repeats. A caller who loads its own state into one backend for
+run after run can pass a broadcast placeholder and pay for almost no held copy at all.
+
+```python
+import numpy as np
+
+from solprop.driver import Simulation, SimulationSettings
+from solprop.grid import EnvelopeGrid, FreeGrid
+from solprop.pulses import GaussianPulse
+from solprop.spatial import SpatialMedium
+
+grid = EnvelopeGrid.from_limits(1e-4, 800e-9, (700e-9, 950e-9), 150e-15, thg=False)
+space = FreeGrid(4e-4, 4, 3e-4, 3, collar_fraction=0)
+column = GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-9).build(grid)
+placeholder = np.broadcast_to(column, (space.n_columns, 1, grid.n_omega))
+settings = SimulationSettings(
+    save_planes=[1e-4], dz_max=5e-5, dz_init=5e-5, backend="numpy_ref"
+)
+problem = Simulation.from_free(
+    grid, space, SpatialMedium(), [], placeholder, settings=settings, noise=None
+).translate()
+print(problem.initial.field0.strides[1])  # 0: one column held, not a state
+```
 
 **The output.** A run kept in memory (`output=None` or a
 {py:class}`~solprop.output.memory.MemoryOutput`) holds every plane it saves, allocated at
@@ -92,7 +120,7 @@ is not counted.
 propagators are kept for the whole step (`"tabulate"`) or recomputed in each stage
 (`"recompute"`), which changes the memory held in the `base` group, not the method. Its
 default, `"auto"`, leaves the choice to the backend and records what was resolved in the
-backend record: `numpy_ref` tabulates, `numba_cpu` and `native` recompute, and a
+backend record: `numpy_ref` tabulates, `native` recomputes, and a
 free-space or planar run always recomputes and refuses `"tabulate"`. When `base` is what
 does not fit, `propagator_mode="recompute"` is one of the remedies the refusal names.
 
@@ -100,7 +128,7 @@ does not fit, `propagator_mode="recompute"` is one of the remedies the refusal n
 along z but cannot be expanded in the mode set's scalar parameter paths is tabulated
 along z instead ([varying operators](../numerics/linear-tables.md#the-table)). On a
 large multimode set that table can run to gigabytes, and, like the problem's other
-tables, it is not in the estimate. `numpy_ref` and `numba_cpu` run it; `native` refuses it
+tables, it is not in the estimate. `numpy_ref` and a native CPU build run it; a native GPU build refuses it
 ([backends](backends.md)).
 
 **A general modal guide is admitted twice.** Its route — the dense reference and the two

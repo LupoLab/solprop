@@ -22,7 +22,7 @@ from a checkout of its tag (``docs/dev/releasing.md``). A folder goes, with the 
 values that name its release, once the next minor release after it is out (ADR-063).
 
 **Pinned skeletons.** The records were
-first pinned before five later changes, which the projection in :func:`split` takes
+first pinned before six later changes, which the projection in :func:`split` takes
 back out, so that the pins still hold everything else. Each is pinned as
 SEP 25 pins a record: its structure -- keys, strings, integers, flags and where every
 number sits -- by an exact SHA-256 (identity metadata, class P), and its numbers, stored
@@ -79,16 +79,22 @@ logger = logging.getLogger(__name__)
 
 SKELETONS = {
     "modal": "77a845cabf424c75bce9080a2ce2464e2d399b8709502303d842733d411ee36a",
-    "radial": "747f15eb378a23d77da9807c04141fdd8a0b803e1dadf2f38f540ce78e2d171b",
-    "cartesian": "c568de28b432c181884e8dffa90961a1381452e755d33ff7af3e709f419afd46",
+    "radial": "80dee85b040d35415a89277f3647d36b9d1d845786e7f49f4dcc019695509db3",
+    "cartesian": "e969ae7b8b0bd5e755b1599899ce111697c71f4fcee9a11bb48aaee528dc74ac",
     "cartesian_absorber": (
-        "ff33b91195c081c33e5e3bcfd6d0541790da91f62e69c582d6e3482ab6ec57c3"
+        "1eb3939bfb08d5e335a848aee76cf5d8ae5e3cafd515c424c5da5fece5874d7f"
     ),
     "custom_absorber": (
-        "ff33b91195c081c33e5e3bcfd6d0541790da91f62e69c582d6e3482ab6ec57c3"
+        "1eb3939bfb08d5e335a848aee76cf5d8ae5e3cafd515c424c5da5fece5874d7f"
     ),
 }
-"""The structure of each record, as :func:`split` projects it."""
+"""The structure of each record, as :func:`split` projects it.
+
+The four spatial pins were taken again at SEP 40, which records a grid's requested size
+and the collar fraction outside it in place of ``window_factor``, and gives a run that
+requests no collar no real-space rate. The radial case keeps its former grid: a
+250 µm aperture with a 0.2 collar fraction has its wall at 300 µm, as before.
+"""
 
 
 def spatial(kind: str) -> Simulation:
@@ -120,7 +126,7 @@ def spatial(kind: str) -> Simulation:
     if kind == "radial":
         return Simulation.from_radial(
             grid,
-            RadialGrid(300e-6, 16, window_factor=0.2),
+            RadialGrid(250e-6, 16, collar_fraction=0.2),
             SpatialMedium(),
             responses,
             pulse,
@@ -129,7 +135,7 @@ def spatial(kind: str) -> Simulation:
         )
     return Simulation.from_free(
         grid,
-        FreeGrid(3e-4, 8, 4e-4, 6, window_factor=0.2),
+        FreeGrid(3e-4, 8, 4e-4, 6, collar_fraction=0.2),
         SpatialMedium(),
         responses,
         pulse,
@@ -218,6 +224,15 @@ def split(kind: str):
         **hashed["stepper"],
         "method": method.replace(", carrier_frame='off'", ""),
     }
+    # SEP 41 records a free-space beam's displacement and tilt, at zero too; the
+    # projection leaves them out.
+    initial = hashed["configuration"].get("initial")
+    if isinstance(initial, dict) and "tilt" in initial:
+        hashed["configuration"]["initial"] = {
+            key: value
+            for key, value in initial.items()
+            if key not in ("displacement", "tilt")
+        }
     # SEP 21 records the absorber's spatial flag, and the runs that declared none
     # record the bare boundaries that stand for it; the projection takes both back.
     hashed = without_sep21_absorber(

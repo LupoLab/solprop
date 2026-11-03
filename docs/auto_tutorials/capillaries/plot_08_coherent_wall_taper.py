@@ -89,7 +89,6 @@ def run(wall, radius=taper, taper_coupling=True):
             energy=1e-9,
             modes=3,
             n_save=11,
-            backend="numpy_ref",
             wall=wall,
             taper_coupling=taper_coupling,
             schedule=FixedSchedule(np.full(steps, length / steps)),

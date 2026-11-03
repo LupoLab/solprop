@@ -11,13 +11,12 @@ what already covers it or touches it:
 - the [issues](https://github.com/LupoLab/solprop/issues) and
   [pull requests](https://github.com/LupoLab/solprop/pulls), open and recently closed;
 - the [SEPs](docs/dev/seps/index.md), since one may already propose the change or be about
-  to alter the code;
-- the [roadmap](docs/dev/roadmap.md), until it is gone.
+  to alter the code.
 
 ```sh
 gh issue list --state all --search "collar"
 gh pr list --state all --search "collar"
-git grep -il "collar" docs/dev/seps docs/dev/roadmap.md
+git grep -il "collar" docs/dev/seps
 ```
 
 If one already covers your work, add to it rather than opening another. If one only
@@ -47,7 +46,7 @@ That is all a report needs. A maintainer fills in the rest.
 ## Writing an issue
 
 Planned work lives in [GitHub issues](https://github.com/LupoLab/solprop/issues), not on
-the roadmap, which takes no new items (ADR-062). So an issue for planned work, written by
+the roadmap, which lists only SEPs (ADR-062). So an issue for planned work, written by
 a person or an agent, has to let someone pick up the task from its text alone.
 [#76](https://github.com/LupoLab/solprop/issues/76) and
 [#77](https://github.com/LupoLab/solprop/issues/77) are examples.
@@ -111,22 +110,31 @@ solprop uses [uv](https://docs.astral.sh/uv/) and Python 3.14:
 ```sh
 git clone https://github.com/LupoLab/solprop.git
 cd solprop
-uv sync                 # the package, editable, with the development tools
+uv sync                 # the package and native/, both editable, with the development tools
 uv run poe check        # the full gate: lint, format, types, docstrings, spelling, tests, docs
+uv run poe check-all    # solprop's gate, then the native gate (`poe check-native`)
 ```
 
 The material models come from [optmat](https://github.com/LupoLab/optmat), installed as
-an ordinary dependency. Development works on Linux, macOS and Windows.
+an ordinary dependency.
 
-The optional compiled backend, solprop-native, lives in the same repository under
-[`native/`](native/README.md) and is a second distribution with the same version. You do
-not need it to contribute. To work on it, or to run the suite on it (Linux or macOS, with
-a C++20 compiler, CMake and FFTW):
+The compiled backend, solprop-native, lives in the same repository under
+[`native/`](native/README.md). It is a second distribution with the same version and a
+required dependency, so a plain `uv sync` builds it, which takes a C++20 compiler, CMake and
+FFTW, on Linux or macOS. A Python or documentation change doesn't need that. The lightweight
+setup, which also serves Windows, has no native package and no compiler:
 
 ```sh
-uv sync --extra native  # also builds and installs native/ (editable); a plain `uv sync` removes it
-uv run poe check-all    # solprop's gate, then the native gate (`poe check-native`)
+uv run --no-project tools/setup_light.py
+export UV_NO_SYNC=1                          # or activate .venv and run the tools directly
+SOLPROP_TEST_BACKEND=numpy_ref uv run poe test
 ```
+
+It supports the reference backend and the lint, type, test and documentation checks. uv can't
+be told to leave native out for good, so a later plain `uv sync`, or `uv run` without that
+setting, builds it. There `backend="auto"` refuses, so scripts name `backend="numpy_ref"`, and
+tests that need native skip. [Contributing](docs/dev/contributing.md) has the details, and
+`poe fetch-wheel`, which installs the wheel CI built when it fits your tree.
 
 A change that touches `native/` runs `poe check-all` and follows the native rules in
 [`native/AGENTS.md`](native/AGENTS.md).
@@ -148,7 +156,10 @@ A change that touches `native/` runs `poe check-all` and follows the native rule
    alike. The design is described under [`docs/dev/`](docs/dev/index.md); start with
    `architecture.md` and `conventions.md`.
 4. Keep the diff to the task. Add tests with the code, document new functionality in the
-   manual as well as in docstrings, and add a line to `CHANGELOG.md` under `Unreleased`.
+   manual as well as in docstrings, and add a release-note fragment under `changelog.d/`
+   for a notable change. Use a unique change slug or PR number; no separate issue is
+   needed for the fragment. Follow [the fragment format](changelog.d/README.md).
+   Leave `CHANGELOG.md` to the rolling release PR, which collects fragments after merges.
 5. Run fast checks and directly affected tests while you work. The full gate
    (`uv run poe check`) and the slow and coverage lanes run in CI on the pull request, so
    you need not run them locally first. A change to the documentation alone, including a
@@ -177,8 +188,8 @@ A pull request is ready to merge when:
 - Every numerical tolerance in a test is justified in a comment; every new dependency has
   been agreed (`docs/dev/dependencies.md`); the conventions of `docs/dev/conventions.md`
   are followed.
-- The manual page, docstrings and changelog line are present; a worked example that was
-  edited has been re-run (`uv run poe docs-examples <name>`).
+- The manual page, docstrings and release-note fragment are present; a worked example
+  that was edited has been re-run (`uv run poe docs-examples <name>`).
 - Backend changes update the memory ledger and the equivalence tests; a hot-path change
   records a benchmark (`docs/dev/benchmarks.md`).
 - No full-length propagation runs in a test, benchmark or qualification lane.

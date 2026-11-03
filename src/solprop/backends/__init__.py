@@ -4,7 +4,7 @@
 
 """Execution backends behind one seam.
 
-The NumPy reference, Numba CPU and native backend
+The NumPy reference and native backends
 (``docs/dev/backends.md``). This package exports the seam itself — the
 :class:`~solprop.backends.protocol.Backend` protocol and the record types it returns —
 and :mod:`solprop.backends.registry`, which selects a backend by name and says why one
@@ -13,9 +13,9 @@ is not usable.
 
 from solprop.backends.protocol import (
     Backend,
+    BackendHistory,
     BatchBackend,
     Observation,
-    StepHistory,
     StepStats,
     StepSummary,
 )
@@ -23,9 +23,9 @@ from solprop.backends.registry import available, resolve_name, select, select_ba
 
 __all__ = [
     "Backend",
+    "BackendHistory",
     "BatchBackend",
     "Observation",
-    "StepHistory",
     "StepStats",
     "StepSummary",
     "available",

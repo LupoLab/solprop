@@ -292,7 +292,7 @@ def free_case():
 
 def test_free_space_resolves_a_named_gas_medium_into_an_optmat_fill(free_case):
     grid, pulse, settings = free_case
-    space = FreeGrid(3e-4, 12, 4e-4, 16, window_factor=0)
+    space = FreeGrid(3e-4, 12, 4e-4, 16, collar_fraction=0)
     simulation: Any = Simulation.from_free(
         grid,
         space,

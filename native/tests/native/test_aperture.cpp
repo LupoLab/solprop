@@ -483,6 +483,42 @@ TEST(FarFieldPass, TheElementFunctionsHoldTheirContracts) {
   EXPECT_FALSE(native::far_field_member(0.0, -2.0, 0.0, 1.0, 0.0, 2.0));
 }
 
+// numba_cpu's weight-body test (SEP 43): each profile against its formula over a radius
+// on each side of the edge, a hard edge's and the rest's zeros aside. solprop's
+// `aperture_profile` writes these; here std:: forms them on the host, and one
+// transcendental per weight against another differs by a few ulps: 4e-16 of the value
+// plus 4e-16, fixed before measuring, as the retired test held.
+TEST(FarFieldPass, TheWeightsAreTheProfileOnEitherSideOfTheEdge) {
+  constexpr std::array radii{0.0, 0.5, 0.875, 1.0, 1.0625, 1.125, 1.5, 3.0};
+  constexpr double half_width = 1.0;
+  constexpr double width = 0.125;
+  constexpr double order = 4.0;
+  const double pi = std::numbers::pi_v<double>;
+  for (const double rho : radii) {
+    const double argument = (rho - half_width) / width;
+    const double tanh_weight = 0.5 * (1.0 - std::tanh(argument));
+    const double rcos_weight = argument <= -1.0 ? 1.0
+                               : argument >= 1.0
+                                   ? 0.0
+                                   : 0.5 * (1.0 - std::sin(0.5 * pi * argument));
+    const double gauss_weight = std::exp(-std::pow(rho / half_width, order));
+    const auto near = [](const double got, const double want) {
+      EXPECT_LE(std::abs(got - want), 4e-16 * std::abs(want) + 4e-16);
+    };
+    SCOPED_TRACE(rho);
+    EXPECT_EQ(native::far_field_weight(rho, 0.0, 1.0, half_width, 0.0, 0.0, 10.0, 0),
+              rho <= half_width ? 1.0 : 0.0);
+    near(native::far_field_weight(rho, 0.0, 1.0, half_width, 1.0 / width, width, 10.0,
+                                  1),
+         tanh_weight);
+    near(native::far_field_weight(rho, 0.0, 1.0, half_width, 1.0 / width, width, 10.0,
+                                  2),
+         rcos_weight);
+    near(native::far_field_weight(rho, 0.0, 1.0, half_width, 0.0, order, 10.0, 3),
+         gauss_weight);
+  }
+}
+
 TEST(FarFieldPass, InvalidRequestsAreRefused) {
   auto data = make_case(5, 4, 1, true, 1);
   EXPECT_THROW(static_cast<void>(run(data, 16, 1, 2)), std::invalid_argument);

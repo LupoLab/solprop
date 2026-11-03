@@ -186,7 +186,7 @@ two roots lie inside. All probes stay inside the vacuum table and gas fit.
             root_wavelengths.append(
                 zdw(
                     mode,
-                    wavelength_range=(
+                    wavelength_limits=(
                         float(probe_wavelength[index]),
                         float(probe_wavelength[index + 1]),
                     ),
@@ -330,7 +330,7 @@ This table samples an analytic Taylor model, rather than a FEM solution.
 
     BoundaryWarning: at the launch the square root of the time window's guard occupancy is 2.72e-03, above the 1e-03 budget: the window clips the input, which can seed spurious radiation; widen trange or move the launch
     BoundaryWarning: the temporal collar removed 5.68e-05 of the launch energy, whose square root is above the 1e-03 budget: what left the window may have mattered; widen trange to keep it
-    Tabulated examples completed in 0.97 s
+    Tabulated examples completed in 4.13 s
 
 
 
@@ -348,7 +348,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 0.974 seconds)
+   **Total running time of the script:** (0 minutes 4.130 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_waveguides_plot_02_tabulated_modes.py:

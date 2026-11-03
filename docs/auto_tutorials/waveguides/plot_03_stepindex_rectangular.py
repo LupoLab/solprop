@@ -68,7 +68,7 @@ figure.tight_layout()
 # The strand dispersion and its zero crossing use the implicit derivative.
 strand = StepIndexMode(1.25e-6, profile_wavelength=835e-9)
 wavelength = np.linspace(450e-9, 1350e-9, 150)
-zero = zdw(strand, wavelength_range=(600e-9, 900e-9))
+zero = zdw(strand, wavelength_limits=(600e-9, 900e-9))
 figure, axis = plt.subplots(figsize=(7, 3.5))
 axis.plot(wavelength * 1e9, beta2(strand, 2 * np.pi * C / wavelength) * 1e30)
 axis.axhline(0, color="0.6")
@@ -99,7 +99,6 @@ strand_output = prop_gnlse(
     dz_max=0.001,
     dz_init=1.5e-5,
     n_save=2,
-    backend="numpy_ref",
     progress="none",
     noise=None,
     boundary_check=None,
@@ -159,7 +158,6 @@ rectangular = prop_waveguide(
     n_theta=12,
     n_save=2,
     stats=StatsSpec(names=("energy",)),
-    backend="numpy_ref",
     progress="none",
     noise=None,
 )

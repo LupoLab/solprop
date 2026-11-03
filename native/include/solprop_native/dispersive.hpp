@@ -22,8 +22,7 @@ namespace solprop_native {
 // on the engine's fused node path: the legacy transform's real synthesis and
 // projection, the same at every frequency, and a temporal collar the same at every
 // node. A spectral multiplier and the collar commute with both, so the response's
-// multipliers act on the modal columns rather than at the nodes (solprop
-// `backends/numba_cpu/dispersive.py`, whose structure this is):
+// multipliers act on the modal columns rather than at the nodes:
 //
 // 1. the input multipliers act on the padded modal spectrum before the stage's inverse
 //    transform, and one batched inverse transform gives every filtered modal field;
@@ -42,9 +41,8 @@ namespace solprop_native {
 // when its product has the polarisation's type it is the stage's polarisation, whose
 // own projections and transforms then serve it -- the constant cubic's transforms.
 //
-// The other routes take the same response per chunk (solprop
-// `backends/numba_cpu/dispersive_spatial.py` and `dispersive_general.py`, SEP 6 Phase
-// 3b): on the Cartesian free-space and line routes the chunk's temporal rows are its
+// The other routes take the same response per chunk (solprop SEP 6 Phase 3b): on the
+// Cartesian free-space and line routes the chunk's temporal rows are its
 // nodes, on the hybrid planar route a block's (p, y) rows are synthesised at its
 // (x, y) nodes by the real slab rule in x (`SeparableDispersive`); on the general
 // modal route the input multipliers act on each chunk's synthesised spectrum and the
@@ -242,12 +240,11 @@ void dispersive_mixture_rows(
 /**
  * The response's layout and its weights at one stage, on every route.
  *
- * solprop `numba_cpu`'s `DispersiveTerms` and `StageWeights`: the input multipliers
- * (one row per filtered field), the output terms, the channels' coefficients and the
- * polynomial's pair constants, uploaded once; at a stage, `eps0 gamma0 rho` per
- * channel, each symmetric mixture's coefficient and filter rows, each polynomial
- * group's pair constants and one multiplier per product, rebuilt only when the
- * stage's densities differ from the last rebuild's (compared on the host). The
+ * The input multipliers (one row per filtered field), the output terms, the channels'
+ * coefficients and the polynomial's pair constants, uploaded once; at a stage, `eps0
+ * gamma0 rho` per channel, each symmetric mixture's coefficient and filter rows, each
+ * polynomial group's pair constants and one multiplier per product, rebuilt only when
+ * the stage's densities differ from the last rebuild's (compared on the host). The
  * products are each symmetric group's, or for the polynomial one cube per distinct
  * group key (a general modal region; one key elsewhere) followed by each group's two
  * pairs. The factors cross through a ring of four host staging buffers, so a rebuild
@@ -447,7 +444,7 @@ private:
 
 /**
  * The response on the Cartesian free-space and line routes and the hybrid planar
- * route, chunk by chunk (solprop `numba_cpu`'s `SpatialDispersive`).
+ * route, chunk by chunk.
  *
  * Each chunk of the separable stage goes to time and back on its own: a free-space
  * node chunk's temporal rows are its nodes, a planar block's `(p, y)` rows are
@@ -561,8 +558,7 @@ private:
 };
 
 /**
- * The response on the general modal route (solprop `numba_cpu`'s
- * `GeneralDispersive`).
+ * The response on the general modal route.
  *
  * The route synthesises each chunk's Cartesian components in frequency through maps
  * that depend on frequency, so the input multipliers act in synthesis: on the chunk's

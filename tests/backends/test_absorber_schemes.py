@@ -48,7 +48,6 @@ import warnings
 import numpy as np
 import pytest
 
-from solprop.backends.numba_cpu import NumbaCpuBackend
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.numpy_ref.passes import apply_temporal_rate
 from solprop.boundaries import STABILITY_RADIUS, absorber, stable_step
@@ -59,7 +58,7 @@ from solprop.nonlinear.gnlse import problem_from
 from solprop.nonlinear.responses import KerrResponse
 from solprop.pulses import GaussianPulse, SechPulse
 from solprop.stepper import FixedSchedule, PIController
-from solprop.translate.problem import assemble
+from solprop.translate.problem import _printed_down, assemble
 
 BETA2 = -11.83e-27  # s^2/m
 GAMMA = 0.11  # 1/(W m)
@@ -72,7 +71,6 @@ ORDER = 3
 BOUNDARY_N = 4.0
 REFERENCE_STEPS = 1600
 SCHEMES = ("split_step", "nonlinear")
-BOTH = (NumpyRefBackend, NumbaCpuBackend)
 
 
 @pytest.fixture(scope="module")
@@ -229,7 +227,7 @@ def test_a_schedule_too_long_for_an_in_stage_collar_is_refused_before_the_run(gr
     limit = stable_step(rate)
     assert limit == pytest.approx(2.0 * STABILITY_RADIUS / float(np.max(rate)))
     too_few = max(int(LENGTH / limit) // 2, 1)
-    with pytest.raises(TranslationError, match=f"only up to {limit:.3e} m"):
+    with pytest.raises(TranslationError, match=f"only up to {_printed_down(limit)} m"):
         biting_case(grid, "nonlinear", too_few)
     # Steps inside the limit are accepted, and the same too-long schedule under the
     # split factor is unconditionally stable; neither says anything.
@@ -296,12 +294,11 @@ def collar_only(grid, scheme):
     )
 
 
-@pytest.mark.parametrize("backend_class", BOTH, ids=("numpy_ref", "numba_cpu"))
 def test_a_collar_with_no_response_is_still_absorbed(grid, backend_class):
-    """The one case the stage's short circuit would drop, on both backends.
+    """The one case the stage's short circuit would drop, on every backend.
 
     A problem whose only compiled entry is the accumulation has an identically zero
-    polarisation, and both backends skip the transforms rather than multiply by nothing.
+    polarisation, and the backends skip the transforms rather than multiply by nothing.
     The in-stage absorber is a term of its own and is not part of the polarisation, so
     the short circuit has to keep it: without that, a linear run with a collar would
     silently absorb nothing at all.

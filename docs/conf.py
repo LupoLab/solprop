@@ -15,6 +15,7 @@ import importlib
 import importlib.util
 import os
 import re
+import sys
 import warnings
 from importlib.metadata import version as _version
 from pathlib import Path
@@ -30,8 +31,8 @@ from sphinx_gallery.utils import get_md5sum
 if _watchdog := os.environ.get("SOLPROP_DOCS_WATCHDOG"):
     faulthandler.dump_traceback_later(float(_watchdog), exit=False)
 
-# Gallery examples may select the native backend automatically. Load its OpenMP runtime
-# before autodoc or a tutorial imports pyFFTW, as the test configuration does.
+# Gallery examples may select the native backend automatically. Load it and its OpenMP
+# runtime before autodoc or a tutorial imports the rest of the stack, as the tests do.
 if importlib.util.find_spec("solprop_native") is not None:
     importlib.import_module("solprop_native")
 
@@ -130,16 +131,14 @@ intersphinx_mapping = {
         (None, "_inventories/matplotlib.inv"),
     ),
     "h5py": ("https://docs.h5py.org/en/stable/", (None, "_inventories/h5py.inv")),
-    "numba": (
-        "https://numba.readthedocs.io/en/stable/",
-        (None, "_inventories/numba.inv"),
-    ),
 }
 intersphinx_timeout = 10
 nitpicky = True
 nitpick_ignore = [
     ("py:class", "logging.Logger"),
     ("py:mod", "pyfluids"),  # no published inventory
+    # Removed with numba_cpu (SEP 43); the Final SEP 18 keeps its reference as history.
+    ("py:mod", "solprop.backends.bodies"),
     # The private base of the two tabulated hollow modes. `show-inheritance`
     # emits it under "Bases:" for both subclasses; documenting it to satisfy the
     # reference would publish an underscore name in the API reference and its
@@ -196,6 +195,7 @@ nitpick_ignore_regex = [
 # output would overwrite the committed page in the working tree. The refusal names the
 # command that refreshes it (`_check_committed_galleries` below).
 _DOCS = Path(__file__).parent
+sys.path.insert(0, str(_DOCS))  # gallery_session, named below
 _GALLERIES = (
     (_DOCS / "introduction" / "tutorials", _DOCS / "introduction" / "lessons"),
     (_DOCS / "tutorials", _DOCS / "auto_tutorials"),
@@ -267,6 +267,7 @@ sphinx_gallery_conf = {
     "download_all_examples": False,
     "remove_config_comments": True,
     "reference_url": {"solprop": None},
+    "reset_modules": ("matplotlib", "seaborn", "gallery_session.leave_session"),
     "show_signature": False,
 }
 

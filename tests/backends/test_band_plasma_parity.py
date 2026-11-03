@@ -25,8 +25,6 @@ from backends.test_radial_nonlinear import LENGTH, QuadraticRate, make_problem
 from bounds import gamma, ladder_bound
 from driver.test_prop_capillary import SHORT, build
 from optmat_parity import INTEGRATION_AGREEMENT
-from solprop.backends.numba_cpu import kernels
-from solprop.backends.numba_cpu.backend import _rate_arrays
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.grid import FieldGrid, FreeGrid, LineGrid, RadialGrid
 from solprop.nonlinear.responses import PlasmaResponse
@@ -81,9 +79,9 @@ def spatial(kind):
     # The former 150 fs window had only 30 taper samples and residual 9.8e-9.
     grid = FieldGrid.from_limits(LENGTH, 800e-9, (600e-9, 1.2e-6), 200e-15)
     space = {
-        "radial": RadialGrid(6e-4, 16, window_factor=0.0),
-        "free": FreeGrid(3e-4, 9, 4e-4, 12, window_factor=0),
-        "line": LineGrid(4e-4, 24, window_factor=0.0),
+        "radial": RadialGrid(6e-4, 16, collar_fraction=0.0),
+        "free": FreeGrid(3e-4, 9, 4e-4, 12, collar_fraction=0),
+        "line": LineGrid(4e-4, 24, collar_fraction=0.0),
     }[kind]
     energy = 1e-3 if kind == "line" else 1e-7
     pulse = SpatialPulse(
@@ -247,43 +245,3 @@ def test_current_rules_match_the_reference_on_every_route(
             ):
                 rtol = max(rtol, COLD_MIXTURE_DENSITY)
             assert np.allclose(got, want, rtol=rtol, atol=0.0), statistic
-
-
-def test_the_band_column_agrees_across_thread_counts():
-    """Nodes are independent: the parallel column is the serial one, to its rounding.
-
-    The same column twice, its threads splitting the nodes: one evaluation's plasma
-    sums of :func:`bound` (``gamma(12 (2K + 1) n_to)``, no transform), relative to
-    the largest output.
-    """
-    grid, problem = spatial("radial")
-    rule = design_running_integral(grid, "band")
-    plasma = problem.responses.plasma_coefficients
-    assert plasma is not None
-    spec = kernels.ColumnSpec("field_real", True, False, False, False, 2, False)
-    nodes = np.random.default_rng(18).normal(scale=4e9, size=(2 * 9, grid.n_to))
-    outputs = []
-    for parallel in (False, True):
-        column = kernels.make_band_plasma_column(
-            spec._replace(parallel=parallel, band=True)
-        )
-        out = np.zeros_like(nodes)
-        work = np.zeros((9, kernels.band_work_rows(spec), grid.n_to))
-        column(
-            nodes,
-            out,
-            _rate_arrays(plasma),
-            rule.taps,
-            plasma.charge_mass_ratio,
-            plasma.ionisation_potential,
-            1e22,
-            0.0,
-            grid.dt_fine,
-            np.zeros((1, 2)),
-            work,
-        )
-        outputs.append(out)
-    width = rule.taps.size * 2 - 1
-    limit = gamma(12 * width * grid.n_to) * float(np.max(np.abs(outputs[0])))
-    assert limit > 0
-    np.testing.assert_allclose(outputs[1], outputs[0], rtol=0, atol=limit)

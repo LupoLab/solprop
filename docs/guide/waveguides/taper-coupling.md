@@ -64,7 +64,7 @@ These comparisons illustrate the model's accuracy and the need to converge the r
   to $5\times10^{-7}$ of the launch, and the total power to $2\times10^{-9}$. Eight
   channels are too few for the 1 cm taper, and at 400 nm, where the conversion reaches
   further up the ladder, thirty are needed.
-- **The backends.** `numba_cpu` and the native backend run it within the flow-parity bounds, and a
+- **The backends.** The native backend runs it within the flow-parity bounds, and a
   lossless multimode taper runs on `backend="auto"`.
 
 **A strongly lossy taper at the default step bound.** The coupling carries each

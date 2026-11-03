@@ -13,17 +13,24 @@ this page is out of date.
 - The package version comes from git tags (`hatch-vcs`, falling back to `0.0.0` before the
   first tag); there is no version string to edit.
 - The target-specific native backend, `solprop-native`, is the repository's second
-  distribution, built from `native/`. The root is a uv workspace with `native/` as its
-  member and one `uv.lock`; solprop's `native` extra pins `solprop-native` to solprop's own
-  version (`hatch_build.py`), and both take that version from the repository's tags.
-  `uv sync --extra native` builds and installs it editable; a plain `uv sync` leaves the
-  environment a compiler-free NumPy/Numba one and removes it, as it removes a
-  hand-installed Pyroraptor (`uv sync --inexact` and `uv run --no-sync` keep them).
+  distribution, built from `native/`, and a required dependency. The root is a uv workspace
+  with `native/` as its member and one `uv.lock`; `hatch_build.py` pins `solprop-native` to
+  solprop's own version in the built metadata, and both take that version from the
+  repository's tags.
+  A plain `uv sync` builds and installs it editable. It removes a hand-installed Pyroraptor
+  (`uv sync --inexact` and `uv run --no-sync` keep it).
+  `uv run --no-project tools/setup_light.py` is the lightweight setup for Python and
+  documentation contributors, with no native package and no compiler: it supports the
+  reference backend and the lint, type, test and documentation checks, with the environment
+  activated or `UV_NO_SYNC=1`, because a plain `uv run` would build native.
+  `poe fetch-wheel` installs the wheel CI built for the newest commit in this checkout's
+  history, using `gh` and no compiler, and refuses it if `native/` or a solprop module that
+  `solprop_native` imports differs from that commit, committed or not
+  ([contributing](contributing.md)).
 - Dependencies resolve from PyPI. No local-path or private source is committed.
-- Supported platforms: Linux, macOS and Windows for `numpy_ref` and `numba_cpu`;
-  solprop-native as wheels for osx-arm64, linux-64, linux-aarch64 and win-64, and from
-  source on Linux and macOS; the Queue and Slurm scan executors are
-  POSIX-only and refuse to start on Windows.
+- Supported platforms: where solprop-native installs, as wheels for osx-arm64, linux-64,
+  linux-aarch64, win-64 and win-arm64; it builds from source on Linux and macOS; the Queue and
+  Slurm scan executors are POSIX-only and refuse to start on Windows.
 
 ## The gate: `uv run poe check`
 
@@ -37,7 +44,7 @@ Runs, in order: `ruff check --fix .` → `ruff format .` → `ruff check .` → 
 sequence plus `poe test-slow` and the CPU coverage lane; keep the two identical.
 
 Other tasks: `poe test-medium` (the medium tier alone, timed against its budget),
-`poe test-slow`, `poe cov` (interpreted bodies, then the compiled suite), `poe bench`
+`poe test-slow`, `poe cov` (the default lane with coverage), `poe bench`
 (the benchmark plan in `benchmarks/`; `track` runs it on a quiet machine;
 [manual](benchmarking.md)), `poe docs`, `poe docs-clean`, `poe figures` (redraw the
 committed structure and geometry SVGs) and `poe docs-examples` (execute the stale
@@ -74,7 +81,7 @@ drop them too and allow `print` and cell-style imports; benchmarks allow `print`
 
 `include = ["src", "tests"]` without the oracles, `typeCheckingMode = "standard"` (strict once the baseline is
 clean), `pythonVersion = "3.14"`, `failOnWarnings = true`, `reportMissingTypeStubs = false`
-because numba, pyfftw and pyfluids ship no stubs (narrow ignores are still preferred over
+because pyfluids ships no stubs (narrow ignores are still preferred over
 broad ones); `scipy-stubs` supplies SciPy's. The checker is pinned to an exact version and
 bumped in its own commit.
 
@@ -98,10 +105,8 @@ format refuses those properties under the suite's warnings-as-errors policy.
 ## coverage
 
 One configuration: `coverage-cpu.ini` (`source = solprop`, `branch = True`, the
-experimental `mlx` backend omitted: [testing](testing.md#the-mlx-omission)) for `poe cov` — `cov-kernels` with `NUMBA_DISABLE_JIT=1`, then `cov-rest` with
-normal JIT, the second appending to the first. Only the compiled modules need the
-interpreter to have their bodies counted, and interpreting the whole suite would make
-every run in it interpret the kernels, so the first pass runs only the kernel-body suites.
+experimental `mlx` backend omitted: [testing](testing.md#the-mlx-omission)) for `poe cov`, one pass of the default lane; in CI, `poe cov-part` per shard and
+`poe cov-report`, which combines them.
 The `[tool.coverage]` tables in `pyproject.toml` are the shared defaults. The lane requires
 100 % of statements and branches of the whole package but `mlx_gpu`
 (`fail_under = 100`);
@@ -151,7 +156,7 @@ ruff (check with `--fix`, then format), numpydoc validation, codespell, `uv-lock
 ## Sphinx
 
 `docs/conf.py`: myst-parser, numpydoc (without napoleon), autosummary (recursive, `generate = True`),
-mathjax, intersphinx (numpy, scipy, matplotlib, h5py, numba, python), viewcode, matplotlib
+mathjax, intersphinx (numpy, scipy, matplotlib, h5py, python), viewcode, matplotlib
 plot directive, sphinx-gallery, pydata-sphinx-theme. The three galleries, lessons
 (`docs/introduction/tutorials/` → `docs/introduction/lessons/`), tutorials
 (`docs/tutorials/` → `docs/auto_tutorials/`) and worked examples (`docs/examples/` →
@@ -167,14 +172,13 @@ build works offline and survives a flaky mirror; refresh the copies occasionally
 
 ## Environment variables the tools honour
 
-- `NUMBA_DISABLE_JIT=1` (the first coverage pass) and `NUMBA_NUM_THREADS`.
-- `SOLPROP_THREADS`, the thread budget every CPU backend's pools stay within, and
+- `SOLPROP_THREADS`, the thread budget the native backend's pools stay within, and
   `SOLPROP_OVERSUBSCRIBE`, which lets an explicit count exceed the CPUs (ADR-052).
-- The `numba_cpu` pools and plans: `SOLPROP_NUMBA_THREADS`, `SOLPROP_FFTW_THREADS`,
-  `SOLPROP_BLAS_THREADS`, `SOLPROP_TRANSVERSE_FFTW_THREADS` (the transverse FFTW pool of a
-  Cartesian run), `SOLPROP_NUMBA_REGIME` (the threading regime), `SOLPROP_FFTW_PLAN`
-  (`estimate` in CI and tests, `measure` by default) and `SOLPROP_FFTW_WISDOM` (a wisdom
-  file, beside which the native backend keeps its own).
+- The native backend's plans and neighbours: `SOLPROP_FFTW_PLAN` (`estimate` in CI and
+  tests, `measure` by default, read by `native/include/solprop_native/fft_plan.hpp`),
+  `SOLPROP_FFTW_WISDOM` (a file name, beside which the native backend keeps its wisdom)
+  and `SOLPROP_BLAS_THREADS` (the width of the other BLAS libraries while a native
+  backend lives).
 - `SOLPROP_MEMORY_BUDGET`, the memory admission budget ([backends.md §8](backends.md)).
 - In the test suite: `SOLPROP_TEST_BACKEND` (the backend the driver tests select; by
   default what `backend="auto"` selects, `native` where it is installed),
@@ -195,8 +199,10 @@ snippets, the accuracy page, the catalogues, the kernel contract and the figures
 the test lanes below are skipped. A push to `main` that merges a pull request runs no
 further jobs when its tree is the pull request head's tree and CI passed on that head:
 the pull request was up to date with `main`, so its run tested exactly what was merged.
-A pull request that was behind `main` merges to a new tree, which runs in full. Any other
-change, or a push whose base is unknown, runs every job except docs-tests.
+A pull request that was behind `main` merges to a new tree, which runs in full. A change
+confined to the front end (`gui/`, with `docs/` and Markdown files) runs static, docs and
+**gui** only. Any other change, or a push whose base is unknown, runs every job except
+docs-tests, gui included, so a change to solprop is checked against the front end.
 
 The long lanes run as **shards**, parallel jobs that each take whole modules:
 `SOLPROP_TEST_SHARD=i/n` keeps shard *i* of *n* (`tests/shards.py`, ADR-053). The shards
@@ -207,47 +213,69 @@ jaxtyping hook) run in the coverage lane only; the other test lanes set
 `SOLPROP_TEST_TYPECHECK=0` (ADR-053).
 
 - **static** (Linux): `uv lock --check`, ruff (lint and format check), `poe types`,
-  `poe docstrings`, `poe spell`, `poe reuse`.
-- **docs** (Linux): `poe docs`.
-- **native-wheel** (Linux x86-64, macOS arm64, Windows x64): this tree's `native/` built
+  `poe docstrings`, `poe spell`, `poe reuse`, `poe changelog-check`.
+- **docs** (Linux): `poe docs`, with the wheel installed, so a lesson or tutorial on
+  `backend="auto"` runs on `native`.
+- **native-wheel** (Linux x86-64, macOS arm64, Windows x64, Windows on Arm): this tree's `native/` built
   as its CPU distribution wheel, cached under a hash of the native sources, so a change
   outside `native/` reuses the last build. On Linux the build is the native gate's
   `wheel` stage (the build and its isolated smoke test); on macOS and Windows it is
-  cibuildwheel, as in `wheels.yml`. The test lanes below install the wheel.
-- **test** (macOS arm64 and Windows x64, three shards each): `poe test`, the default lane,
+  cibuildwheel, as in `wheels.yml`. The docs and test lanes install the wheel. A
+  documentation-only change builds only the Linux wheel. `poe fetch-wheel` installs the
+  newest one from this checkout's history that fits the tree, for a contributor without a
+  compiler.
+- **test** (macOS arm64, Windows x64 and Windows on Arm, three shards each): `poe test`, the default lane,
   with the wheel installed, so `backend="auto"` and the driver tests select `native`.
 - **coverage** (Linux x86-64): `poe cov` as parallel jobs, with the wheel installed (its
-  paths in solprop count towards the 100 %) and `SOLPROP_TEST_BACKEND=numba_cpu` (so do
-  `numba_cpu`'s). One job runs `poe cov-kernels` and six shards run `poe cov-part`.
+  paths in solprop count towards the 100 %) and `SOLPROP_TEST_BACKEND=native`. Six shards
+  run `poe cov-part`.
   **coverage-report** combines their data (`poe cov-report`), requires 100 % of
   statements and branches, and uploads the report to Codecov for the badge.
-- **slow** (Linux and macOS): `poe test-slow`; on macOS only its functional tests, with
-  the wheel installed, the statistics-cost timing being Linux's.
+- **slow** (Linux and macOS): `poe test-slow` with the wheel installed; on macOS only its
+  functional tests, the statistics-cost timing being Linux's. On Linux,
+  `SOLPROP_TEST_BACKEND=native` selects the ladders' backend.
 - **oldest** (Linux, three shards): the package installed with `uv pip install
-  --resolution lowest-direct`, so every dependency sits at its floor, then the default
-  lane ([dependencies.md](dependencies.md)). It has no native package, so this is also
-  the default lane on `numba_cpu`.
+  --resolution lowest-direct`, so every dependency sits at its floor, then the wheel with
+  `--no-deps`, then the default lane ([dependencies.md](dependencies.md)).
+- **no-native** (Linux): a few modules of the default lane with no native package and
+  `SOLPROP_TEST_BACKEND=numpy_ref`: that `backend="auto"` refuses there, and a real run on
+  `numpy_ref` by name.
 - **native-quality** (Linux, three jobs): `uv run poe check-native`, the native package's
   gate (`native/scripts/check.sh`), split by `SOLPROP_NATIVE_CHECK_STAGES`. The jobs are
   its lint and strict types, clang-format and its pytest suite (`lint pytest`);
   clang-tidy and the native tests (`tidy`); and ASan and UBSan (`sanitize`). The
   distribution wheel's stage is native-wheel's Linux job.
+- **gui** (Linux x86-64, macOS arm64, Windows x64): `uv run poe check-gui`, the front
+  end's gate (its types against `gui/pyproject.toml`, its docstrings and its tests, with
+  the layers without Qt held to 100 % coverage), after `uv sync --extra gui --group
+  gui-test`, with the widgets drawn offscreen. Its lint, format, spelling and licence
+  checks are static's.
 - **ci-passed** (Linux): runs after every lane, always, and fails if any of them failed
   or was cancelled. It is the check the `main` ruleset requires, beside the Read the
   Docs build: which lanes run depends on the change, and a skipped matrix job reports
   its unexpanded name, so no fixed list of job names suits every pull request.
 
+The release-note collector (`tools/release_notes.py`) uses only the standard library.
+`poe changelog-check` validates filenames, categories, entry text and the Unreleased
+structure; `poe changelog-preview` prints the assembled changelog without changing files.
+Fragments are Markdown, so a change confined to fragments takes the documentation lanes.
+The [rolling release PR](releasing.md#the-rolling-release-pr) keeps unrelated
+implementation PRs from editing the same changelog lines. This prevents those conflicts;
+it does not reuse a previous commit's CI result or bypass required checks.
+
 `.github/workflows/wheels.yml` builds the native release wheels (Linux x86-64 and
-aarch64, macOS arm64, Windows x64) on pull requests that change the wheel recipe
+aarch64, macOS arm64, Windows x64 and Arm) on pull requests that change the wheel recipe
 (`native/ci/`, `native/pyproject.toml`, the CMake files, the workflow), weekly, on release
 tags and by hand, and tests each installed wheel. It also builds solprop's sdist and
-wheel and checks a fresh install of each, and on a release tag, once enabled, publishes
-solprop-native and then solprop ([Releasing and the native wheels](releasing.md), whose
+wheel and checks a fresh install of each, builds solprop-gui's and checks that
+`solprop[gui]` installs from the files and answers at the version, and on a release
+tag, once enabled, publishes solprop-native, then solprop, then (once `PUBLISH_GUI` is
+set) solprop-gui ([Releasing and the native wheels](releasing.md), whose
 pre-flight checklist sets publishing up).
 
-`numba_cpu` runs in the coverage lane's driver tests, in the lowest-dependency lane and
-in the Linux slow lane; the parity tests check it against `numpy_ref` in every job. GPU
-tests run by hand on a node with a device (`pytest -m gpu`). The self-hosted
+`native` runs in the coverage lane's driver tests; the parity tests check it against
+`numpy_ref` in every job. GPU tests run by hand on a node with a device
+(`pytest -m gpu`). The self-hosted
 `.github/workflows/cuda.yml`, started by hand, builds the CUDA extension and runs the
 native package's pytest suite and Compute Sanitizer on it. Keep the gate's steps identical to
 `poe check`; a change to one is a change to the other, in the same commit.

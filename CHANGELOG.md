@@ -9,6 +9,10 @@ All notable changes to solprop are recorded here. The format follows
 
 ### Added
 
+- The desktop front end's distribution, `solprop-gui`, built from `gui/` in this
+  repository and installed with `pip install "solprop[gui]"` at solprop's own version.
+  Only its skeleton is in place: the `solprop-gui` command opens a placeholder window.
+  Its design is `docs/dev/gui/design.md`.
 - The first performance-history rows (`benchmarks/history/`), recorded at 0.1.0 on
   six CPU and three GPU hardware sets, with numba runs beside the native ones on three
   of them; `docs/dev/benchmarking.md` lists how each is run. The history takes any
@@ -16,20 +20,131 @@ All notable changes to solprop are recorded here. The format follows
   history recorded no longer makes the next run in that checkout dirty. The benchmark
   harness names an AMD GPU from its PCI IDs where ROCm reports only
   "AMD Radeon Graphics".
+- One table of the route defaults, `solprop.driver.defaults.ROUTE_DEFAULTS`, with the
+  functions that resolve each default (`default_rtol`, `default_integrator`,
+  `default_controller`, `default_scheme`, `resolve_noise`); the run record's new
+  `defaults` entry (`DefaultsResolution`), the start-of-run summary and the settings'
+  display say which of the integrator, `rtol` and the collar scheme took the route's
+  default, and the summary names a Multistep carrier frame
+  ([#87](https://github.com/LupoLab/solprop/issues/87)).
+- Recipes ([SEP 41](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0041-recipes-and-front-ends.html)):
+  `solprop.recipe.Recipe` reads a TOML description of a `gnlse` or `capillary` run, with
+  quantities in their units (`"125 um"`, `"1.2 bar"`), checks it (`check()`, each issue
+  at its parameter path), builds and runs it, saves it and exports it as the Python
+  script it stands for (`to_python()`). `solprop.recipe.parameters` gives each
+  keyword's forms, units, display unit, default rule and manual section. The `solprop`
+  command (also `python -m solprop`) runs, checks and exports recipes, and forwards
+  `solprop scan`. Example recipes ship with the package (`Recipe.examples()`). Errors
+  and warnings that concern a value carry its `parameter`; writing TOML takes the
+  `tomli-w` dependency. `solprop.grid.suggest` proposes `wavelength_limits` and
+  `trange` from the input pulses, as a starting point. A run built from a recipe records
+  it in a top-level `recipe` group of its output, as written and as resolved (the recipe
+  that rebuilds the run); `Simulation.run(stop=...)` takes a flag that stops the run,
+  writes its state and returns, and `solprop run` stops cleanly on Ctrl-C. `solprop resume`
+  and `solprop.recipe.resume_file` continue a run from its file alone, and
+  `solprop.output.resumability` says whether a file can continue, from where and with
+  which `resume=`, whether it can rebuild itself, and, on request, what the gate would
+  compare. `run_scan(stop=)` takes the same flag: Local and Pool stop the point in
+  flight, Pool through a message on the worker pipe, Batch between groups; a stopped
+  point is not committed and a rerun computes it; Queue and Slurm refuse it.
+  `run_scan(progress=)` accepts a `solprop.log.ScanReporter` (and a
+  `WatchingScanReporter` for each point's run, relayed from Pool workers). A recipe's
+  `[scan]` table gives `Recipe.scan()`, ready for `run_scan`. `Simulation.estimate()`
+  reports a run's memory (admitted before anything is allocated), output size and the
+  cost of one right-hand-side evaluation; `solprop.capabilities.output` says what a
+  results file can give: its basis, which quantities are physical fluxes, which planes
+  keep fields, which operations its readers refuse and why. A reporter that implements
+  `observe_plane` (`solprop.log.PlaneObserver`) is shown each saved plane as a lazy
+  view, whose spectrum, field, power and spectral density come from the processing
+  functions, fetched from a device only on request; a failing observer is detached and
+  the run completes. See [recipes and the command line](https://solprop.readthedocs.io/en/latest/guide/setup/recipes.html).
+- Design solvers for any guide ([SEP 41](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0041-recipes-and-front-ends.html)):
+  `solprop.tools.solve_parameter` finds every value of a guide or fill parameter
+  (a radius, a pressure, a core size, a wall thickness) that meets a target, `ZDW`,
+  `RDW` or `SolitonOrder`, discarding sign changes through a wall resonance, and
+  returns them as `DesignRoots` with the attainable range when there is none.
+  `tools.radius_zdw` inverts `zdw` in the radius; `tools.soliton_peak_power` and
+  `tools.pulse_energy` give the pulse for a soliton order. A recipe's `[pins]` table
+  sets a value from such a target (`Recipe.resolve()`, `Recipe.pin_roots()`), solved at
+  each build and each scan point and recorded with the run. `Recipe.modes()` and
+  `Recipe.preview_input()` preview the mode set and the launched pulse before a run.
+  `solprop.capabilities.route` lists a route's keywords, their values and the rules
+  that couple them, each refusal naming its rule (`SolpropError.rule`), and
+  `solprop.capabilities.species` what a gas admits: its ionisation models with their
+  status, its Raman response, and its data ranges.
+- `solprop.pulses.load_spectrum` reads a measured spectrum from a text file (frequency
+  or wavelength, power density, and an optional phase) into a `DataPulse`. A wrapped
+  phase column is unwrapped only where the power is above a noise floor, a phase in
+  the FFT sign convention of a Luna.jl file is read with `phase_convention="fft"`, and
+  a wrapped column sampled too coarsely to unwrap is warned on
+  ([SEP 41](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0041-recipes-and-front-ends.html)).
+- `prop_capillary`, `prop_waveguide` and their `Simulation` constructors take `launch=`,
+  which puts each pulse into chosen modes with a share and an optional phase:
+  `launch={"HE1,1": 0.9, "HE1,2": {"share": 0.1, "phase": 1.57}}`, or a list with one
+  mapping per pulse of `pulses=`. Modes are named as `channel=` names them; the shares
+  are energy fractions, and on a guide that declares a change of basis a coordinate
+  split scaled to the pulse's energy under the flux metric. The run records the launch
+  as `configuration["modal_launch"]`, which a resume compares; a run without one
+  records nothing and resumes as before
+  ([SEP 41](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0041-recipes-and-front-ends.html)).
+- `SpatialPulse` takes `displacement=(d_x, d_y)` and `tilt=(theta_x, theta_y)`, as
+  `coupling.Alignment` defines them, applied at the launch plane on a Cartesian grid
+  with the energy set after them; a tilt the grid's band, window or time window cannot
+  carry is refused, and so is either on a radial grid, a y component on a line grid, a
+  `PlanarPulse` and a guide's incident beam. A record without them continues as an
+  unmoved beam
+  ([SEP 41](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0041-recipes-and-front-ends.html)).
+- `prop_waveguide` and `Simulation.from_waveguide` take `interpolate_planes` and
+  `step_planes`, and `prop_capillary`, `prop_waveguide` and their constructors take
+  `polarisation_taper`, as `prop_gnlse` does; `step_planes` defaults to `None` on
+  every interface that takes it, which on `prop_gnlse` behaves as its `0` did. The
+  guide lists the deliberate differences between the routes' keywords
+  ([SEP 41](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0041-recipes-and-front-ends.html)).
 
+- `Simulation.from_radial`, `from_free` and `from_planar` take `absorber` and
+  `absorber_scheme`, as `prop_radial`, `prop_free` and `prop_planar` and the modal
+  `from_*` do.
+- `solprop.sol` exports `wavelength_to_axis`, which the plots' documentation sends the
+  reader to.
 - `resume="force"` continues a file across changed physics, in the same file, while
   the stored arrays' layout agrees, the statistics fit and work is left: the Adams
   history restarts, the session's execution record marks the file, and later sessions
   and readers respect the mark (SEP 42, ADR-063). `RunMetadata.compare` and
   `solprop.output.compatibility` hold the comparison; `RunOutcome.resumes` and
   `RunOutcome.forced_positions` read back how each session continued its file.
-
-- `solprop.spatial.spatial_energy_spectrum` splits the energy that `spatial_energy`
-  measures into temporal bins, in J; the bins sum to the total. It was the private
-  `_energy_spectrum` of the coupling elements, whose reports do not change.
+- Cross-section drawings in the library
+  ([SEP 41](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0041-recipes-and-front-ends.html)): `solprop.plotting.geometry.outline`
+  gives the outline of a capillary, antiresonant, step-index, graded-index, rectangular
+  or planar guide, or of a radial, Cartesian, line or planar grid, as shapes in metres;
+  `draw(ax, guide, palette=...)` paints it in Matplotlib, and `thumbnail(route,
+  representation, size)` makes a small figure of a route for a front end's picker. Colours
+  come from an explicit `Palette` (`LIGHT`, `DARK`). The user guide's cross-section
+  figures draw their outlines from it.
+- Recipes on the free-space routes
+  ([SEP 41](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0041-recipes-and-front-ends.html)):
+  `radial`, `free` and `planar` recipes write the grids, medium, responses, beam and
+  settings as tables of registered types (`RadialGrid`, `FreeGrid`, `LineGrid`,
+  `PlanarGrid`, `SpatialMedium`, `KerrResponse` with `gamma3`,
+  `EnvelopePlasmaResponse`, `PlasmaResponse`, `OptmatRate`, `SpatialPulse`,
+  `PlanarPulse`, `SimulationSettings`, `PIController`, `default_spec`,
+  `SpatialAbsorber`), the absorber under `settings`; the Cartesian and planar
+  tutorials and the planar compressor ship as examples; `Recipe.preview_input()` gives a
+  free-space beam's power, energy and fluence at the launch plane, and `Recipe.modes()`
+  the planar route's slab channels.
 
 ### Changed
 
+- `solprop.recipe` loads its names on first use (PEP 562), as `solprop` itself does, so
+  `solprop.recipe.quantity`, `paths`, `document` and `errors` import without the driver,
+  the backends, h5py or SciPy: about 40 ms rather than half a second, for a front end
+  that parses quantities in a process that never runs a simulation.
+- A run asking for the `zdw` statistic is no longer stopped when its band holds no
+  zero-dispersion point: the plane records `nan` with a warning. A direct `stats.zdw`
+  call still raises, now `NoZeroDispersionError`, a `ModeError`.
+- Corrected the mixtures guide on spatial fluence and on who refuses a z table, three worked
+  examples' prose, how `ReferenceState.temperature` reads where a source declares none, and
+  what the antiresonant guide claims for the dispersion width's fit to the finite-element
+  solutions.
 - A resume compares the stored and requested run records path by path instead of
   requiring equal configuration hashes (SEP 42, ADR-063). The layout and the physics
   must agree, numbers to 1e-11 per element, so a run resumes after an upgrade that adds
@@ -54,9 +169,9 @@ All notable changes to solprop are recorded here. The format follows
   describe `numba_cpu` as its slower fallback, with the 0.1.0 measurements. They no longer
   advise `numba_cpu` for scans of one-thread workers, which the history does not support,
   and they now say that only GPU builds refuse z-tabulated problems.
-- Planned work is moving to [GitHub issues](https://github.com/LupoLab/solprop/issues),
-  labelled by type, priority and area: new work goes there and not on the roadmap, whose
-  entries move as issues take them over (ADR-062). Issue templates and `CONTRIBUTING.md`
+- Planned work has moved to [GitHub issues](https://github.com/LupoLab/solprop/issues),
+  labelled by type, priority and area: the roadmap now lists only SEPs (ADR-062). Issue
+  templates and `CONTRIBUTING.md`
   say what an issue or a pull request should hold and what to check before opening one.
 - The README, `CITATION.cff` and the citing page name solprop's Zenodo DOI,
   [10.5281/zenodo.23854248](https://doi.org/10.5281/zenodo.23854248), which covers
@@ -64,6 +179,58 @@ All notable changes to solprop are recorded here. The format follows
 
 ### Changed (breaking)
 
+- A free-space run's transverse boundary is a `SpatialAbsorber`
+  ([SEP 40](docs/dev/seps/archive/sep-0040-transverse-absorbing-boundaries.md)), given as
+  `SimulationSettings.spatial_absorber` or the `spatial_absorber` keyword of
+  `prop_radial`, `prop_free`, `prop_planar` and their `Simulation.from_*` builders. By
+  default every radial, Cartesian, line and planar run carries a designed safety ramp on
+  its outer 10 % of transverse wavenumbers, folded exactly into the operator, radial and
+  planar included; `spatial_absorber=False` removes it. A real-space collar is designed
+  on request, in the grid's room outside its requested size, from a protected band
+  (`kappa`, `angle`, or the launch) and its width, not from the run length, and is
+  refused by name where it cannot meet its budget. `TransverseCollar`,
+  `transverse_collar_rate`, `SimulationSettings.transverse_absorber` and
+  `Absorber.spatial` are removed, and `Absorber.collar_length` no longer sets a
+  real-space rate. Kernel schema 41.
+- Every spatial grid takes `collar_fraction` in place of `window_factor`, default 0, and
+  puts the room it asks for **outside** the requested size on every geometry
+  ([SEP 40](docs/dev/seps/archive/sep-0040-transverse-absorbing-boundaries.md)). `RadialGrid`'s
+  `radius` is now the requested aperture, the Dirichlet boundary is at
+  `outer_radius = radius * (1 + collar_fraction)`, and `n_r` counts every sample; the
+  transform, the nodes and the effective area use the outer radius. Fractions of 1 and
+  more are allowed. `FreeGrid(rx, nx, ry, ny)` and `LineGrid` lose their inert 10 %
+  margin, so their spacing at the same sample count changes; give
+  `collar_fraction=0.1` for the old grid. `RadialGrid(R, n_r)` keeps its wall and
+  spacing.
+- A free-space run whose light reaches its transverse boundary now warns or stops,
+  where it used to log and carry on
+  ([SEP 40](docs/dev/seps/archive/sep-0040-transverse-absorbing-boundaries.md)). The boundary
+  monitor reads the outer 5 % of the grid on every backend. It warns above 1e-6 of the
+  launch energy and stops at 1e-4, naming a size and a sample count to try, and
+  `BoundaryCheck.transverse_budget` sets those levels apart from the time window's. The
+  safety ramp's removal is judged at the same levels. Its monitor record reports a
+  `transverse_status`, with `ramp_removed` and `spatial_removed`. Reads are at most
+  `min(L/16, 4g/v)` apart, a ceiling on the step, so a low-source run takes a few more
+  steps. A launch with more than 1e-4 of its energy in the ramp's band is refused.
+- Names and keywords with two meanings or two spellings are settled, with no aliases;
+  `docs/dev/conventions.md` section 7 gives the rule for each:
+  - `prop_2d`, `time_1d` and `spectrogram` take `time_range`, not `trange`, which stays
+    the scalar window length on `prop_*`. `DEFAULT_TRANGE` is `DEFAULT_TIME_RANGE`.
+  - `stats.zdw` and `modes.base.zdw` take `wavelength_limits`, not `wavelength_range`,
+    as does `wavelength_to_axis`. `wavelength_range` is now only the attribute that says
+    where a data model is valid.
+  - `bandpass` and `Passband` take `spec_range`, not `limits`, as the plots and
+    accessors do; `Passband.limits` is `Passband.spec_range`. A call passing the pair
+    by position is unaffected.
+  - `band_coherence` takes `db_min`, not `floor_db`.
+  - `plotting.energy` and `plotting.stats` are `plot_energy` and `plot_stats`, the names
+    they already had in `solprop.sol`.
+  - `backends.protocol.StepHistory` is `BackendHistory`. Its `z` is each attempt's end
+    and `output.schema.StepHistory`'s is its start, so the two no longer share a name.
+  - `RUN_SUMMARY_ANNOTATION` moves from `driver.summary` to `output.schema`, beside the
+    other annotation names. The stored name is still `"run_summary"`.
+- `mode_average=True` beside `tdse=` is refused by name when the simulation is built. It
+  used to build, then fail at translation with a message that did not name it.
 - `resume` takes `False`, `True`, `"interpolated"` or `"force"`, and any other value is a
   `ValueError`: a mistyped word used to read as `True`. An appending `HDF5Output` holds
   the file's own record as its `metadata` after a resume, not the one offered, and
@@ -83,6 +250,8 @@ All notable changes to solprop are recorded here. The format follows
 
 ### Fixed
 
+- A gallery page re-run on its own keeps its `MaterialRangeWarning`: the docs build's
+  import of `solprop.sol` silenced it for every script after.
 - A scan derived from one cached simulation, the scans guide's own recipe, now gives every
   point its own noise seed. `with_input(noise="keep")` and `with_mixture` keep the ability
   to draw unseeded noise again, and the draw replaces only the initial noise of the shared
@@ -100,6 +269,25 @@ All notable changes to solprop are recorded here. The format follows
   read (`ScanOutput`, `read_point`) or resumed or collected (`run_scan`, a queue's
   collector). Before, only the scan container's own version was checked, and that
   stayed 1, so such a scan was read as if its layout were this release's.
+- Under input noise, the boundary monitor subtracts at most one floor from the collar's
+  removal: the floor is put in once at the launch and cannot lose more. It subtracted
+  the floor's rate over the whole run, about 37 floors under the default collar, so a
+  removal of a few 1e-3 read as zero, with no warning, and the split scheme's subtraction
+  grew with the number of steps ([#126](https://github.com/LupoLab/solprop/issues/126)).
+- A resumed run's monitor record continues from the latest execution that kept one: a
+  second hard kill before the monitor started, or an execution with
+  `boundary_check=None`, no longer restarts the totals, and the stretch run unwatched is
+  listed under `unwatched`. The signed removal is kept and restored, so a stop and
+  resume reads as the whole run; the quiet collar's state is restored; and a resume on a
+  held row no longer counts the resumed state in the next row's guard maxima
+  ([#128](https://github.com/LupoLab/solprop/issues/128)).
+- `BoundaryCheck(quiet_collar=True)` no longer records the collar as left out on the
+  Cartesian, line and planar routes, whose stages keep it, or caps their steps for
+  nothing ([#94](https://github.com/LupoLab/solprop/issues/94)).
+- A scan point keeps its closing boundary-monitor record, without the per-plane rows,
+  under every executor (`read_point(...)["boundary_monitor"]`); a batched point no longer
+  stores the launch's zeros; and a `BoundaryWarning` raised as an error fails its own
+  batched point alone, as under `Local` ([#132](https://github.com/LupoLab/solprop/issues/132)).
 - The native backend's HIP build compiles again under its default
   warnings-as-errors: ROCm's Clang refused a thread-local variable that only an OpenMP
   build uses (0.1.0 needed `-DSOLPROP_NATIVE_WARNINGS_AS_ERRORS=OFF`).
@@ -294,7 +482,7 @@ Nothing was released before 0.1.0. For scripts and files from a development chec
   (an absorber given to a spatial run, `Absorber.spatial`) removes only part of the light that reaches it, at a large cost
   in steps, and the boundary monitor watches the time window only. Size the transverse
   window so that the light stays clear of its edge.
-  [SEP 40](https://solprop.readthedocs.io/en/latest/dev/seps/sep-0040-transverse-absorbing-boundaries.html)
+  [SEP 40](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0040-transverse-absorbing-boundaries.html)
   (a draft) rebuilds these boundaries.
 - **A run is resumed by the release that wrote it.** A run's configuration hash covers
   every recorded field, so a release that adds one changes every hash, and within 0.x

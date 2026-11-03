@@ -23,15 +23,19 @@ import types
 import warnings
 from pathlib import Path
 from types import ModuleType
+from typing import Any
 
 import pytest
 
 from solprop.backends import Backend, available, registry, resolve_name, select
+from solprop.backends.memory import estimate_memory
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.backends.registry import BACKENDS, _construct
+from solprop.backends.registry import BACKENDS, REMOVED_BACKENDS, _construct
 from solprop.driver import SimulationSettings
-from solprop.exceptions import BackendError, SolpropWarning
+from solprop.exceptions import BackendError
 from solprop.stepper import PIController
+
+pytestmark = pytest.mark.real_auto
 
 LENGTH = 0.01  # m
 
@@ -46,43 +50,46 @@ def test_automatic_selection_probes_without_importing_or_caching(monkeypatch):
     """Installation can change; probing must not initialize a native runtime."""
     probes = []
     present = False
+    real_find_spec = importlib.util.find_spec
 
-    def find_spec(name):
+    def find_spec(name, *args):
+        if not name.startswith("solprop_native"):
+            # Coverage looks up its source package when it sees sys.path change.
+            return real_find_spec(name, *args)
         probes.append(name)
         return importlib.machinery.ModuleSpec(name, None) if present else None
 
     monkeypatch.setattr(importlib.util, "find_spec", find_spec)
     before = sys.modules.get("solprop_native")
-    assert resolve_name() == "numba_cpu"
+    with pytest.raises(BackendError, match="not installed"):
+        resolve_name()
     present = True
     assert resolve_name() == "native"
-    assert resolve_name("numba_cpu") == "numba_cpu"
     assert resolve_name("numpy_ref") == "numpy_ref"
     assert resolve_name("unregistered") == "unregistered"
     present = False
-    assert resolve_name() == "numba_cpu"
+    with pytest.raises(BackendError, match="not installed"):
+        resolve_name()
     # Each "auto" asks whether the package is installed; when it is, its CPU-baseline
     # check is looked up too (this stand-in has no files, so there is none to run).
     assert probes == ["solprop_native"] * 4
     assert sys.modules.get("solprop_native") is before
 
 
-@pytest.mark.parametrize("present", [False, True])
 def test_auto_constructs_only_the_resolved_backend(
-    linear_problem, narrow_grid, monkeypatch, present
+    linear_problem, narrow_grid, monkeypatch
 ):
     real_find_spec = importlib.util.find_spec
     monkeypatch.setattr(
         importlib.util,
         "find_spec",
         lambda name: (
-            (importlib.machinery.ModuleSpec(name, None) if present else None)
+            importlib.machinery.ModuleSpec(name, None)
             if name == "solprop_native"
             else real_find_spec(name)
         ),
     )
     calls = []
-    expected = "native" if present else "numba_cpu"
     problem = linear_problem(narrow_grid, save_planes=[LENGTH])
     result = NumpyRefBackend(problem, grid=narrow_grid)
 
@@ -93,7 +100,7 @@ def test_auto_constructs_only_the_resolved_backend(
     monkeypatch.setattr(registry, "_construct", construct)
     try:
         assert select("auto", problem) is result
-        assert calls == [expected]
+        assert calls == ["native"]
     finally:
         result.close()
 
@@ -181,7 +188,65 @@ def test_an_unknown_name_lists_what_is_usable(linear_problem, narrow_grid):
 
 def test_the_table_holds_the_backends_that_exist():
     """The in-tree CUDA backend is gone; mlx is SEP 33's single-precision GPU."""
-    assert sorted(BACKENDS) == ["mlx", "native", "numba_cpu", "numpy_ref"]
+    assert sorted(BACKENDS) == ["mlx", "native", "numpy_ref"]
+
+
+# The tombstone: a removed backend's name is refused wherever a request is validated.
+
+
+def assert_names_the_replacements(refused):
+    """The refusal says the backend is gone and names both backends to use instead."""
+    message = str(refused.value)
+    assert "numba_cpu backend was removed" in message
+    assert "backend='native'" in message
+    assert "backend='numpy_ref'" in message
+
+
+def test_the_removed_backend_is_only_a_tombstone():
+    assert "numba_cpu" in REMOVED_BACKENDS
+    assert "numba_cpu" not in BACKENDS
+    assert "numba_cpu" not in available()
+    assert not set(REMOVED_BACKENDS) & set(BACKENDS)
+
+
+def test_resolving_the_removed_backend_names_the_replacements():
+    with pytest.raises(BackendError) as refused:
+        resolve_name("numba_cpu")
+    assert_names_the_replacements(refused)
+
+
+def test_selecting_the_removed_backend_names_the_replacements(
+    linear_problem, narrow_grid, monkeypatch
+):
+    def forbidden(*args, **kwargs):
+        raise AssertionError("no backend is constructed for a removed name")
+
+    monkeypatch.setattr(registry, "_construct", forbidden)
+    problem = linear_problem(narrow_grid, save_planes=[LENGTH])
+    with pytest.raises(BackendError) as refused:
+        select("numba_cpu", problem, grid=narrow_grid)
+    assert_names_the_replacements(refused)
+
+
+def test_settings_naming_the_removed_backend_name_the_replacements():
+    with pytest.raises(BackendError) as refused:
+        SimulationSettings(
+            controller=PIController(rtol=1e-8, atol=1e-14),
+            save_planes=[1e-3],
+            dz_max=1e-3,
+            dz_init=1e-3,
+            backend="numba_cpu",
+        )
+    assert_names_the_replacements(refused)
+
+
+def test_a_memory_estimate_on_the_removed_backend_names_the_replacements(
+    linear_problem, narrow_grid
+):
+    problem = linear_problem(narrow_grid, save_planes=[LENGTH])
+    with pytest.raises(BackendError) as refused:
+        estimate_memory(problem, "numba_cpu")
+    assert_names_the_replacements(refused)
 
 
 def test_a_known_name_without_its_extra_names_the_extra(
@@ -197,7 +262,7 @@ def test_a_known_name_without_its_extra_names_the_extra(
     problem = linear_problem(narrow_grid, save_planes=[LENGTH])
     with pytest.raises(
         ImportError,
-        match=r"install solprop\[native\], or build solprop-native from native/",
+        match=r"install solprop, or build solprop-native from native/",
     ):
         select("native", problem)
 
@@ -250,11 +315,11 @@ def test_the_device_memory_probe_is_the_native_package_s_own(monkeypatch, free):
     monkeypatch.setitem(sys.modules, "solprop_native", module)
     monkeypatch.setattr(registry, "_satisfied", lambda entry: True)
     assert registry.available_device_memory("native") == free
-    assert registry.available_device_memory("numba_cpu") is None
+    assert registry.available_device_memory("numpy_ref") is None
 
 
-# The CPU-baseline fallback of automatic selection: an installed distribution build
-# whose baseline this processor is below is passed over for numba_cpu, with a warning.
+# Automatic selection has no fallback (SEP 43 section 5): an installed distribution
+# build whose baseline this processor is below is refused, and so is a missing package.
 
 NATIVE_CPU_CHECK = (
     Path(__file__).parents[2] / "native" / "src" / "solprop_native" / "_cpu.py"
@@ -294,7 +359,6 @@ def install_native(
         "find_spec",
         lambda name: spec if name == "solprop_native" else real_find_spec(name),
     )
-    monkeypatch.setattr(registry, "_warned_native_fallback", False)
     return package
 
 
@@ -306,72 +370,42 @@ def hide_native(monkeypatch):
         "find_spec",
         lambda name: None if name == "solprop_native" else real_find_spec(name),
     )
-    monkeypatch.setattr(registry, "_warned_native_fallback", False)
 
 
-def test_auto_warns_once_when_the_native_backend_is_not_installed(monkeypatch):
+def test_auto_refuses_without_the_native_package(monkeypatch):
     hide_native(monkeypatch)
-    with pytest.warns(SolpropWarning) as caught:
-        assert resolve_name() == "numba_cpu"
-    assert len(caught) == 1
-    message = str(caught[0].message)
-    assert "solprop-native is not installed" in message
-    assert "slower fallback" in message
-    assert 'pip install "solprop[native]"' in message
-    assert "building-native.html" in message
-    assert 'pass backend="numba_cpu"' in message
-    # It names the caller's file, not solprop's (under the session's type hook the
-    # nearest frame outside the package is jaxtyping's wrapper, not this file).
-    assert not caught[0].filename.startswith(registry._PACKAGE_FILES)
-    with warnings.catch_warnings():
-        warnings.simplefilter("error")
-        assert resolve_name() == "numba_cpu"
+    with pytest.raises(BackendError, match="is not installed") as refused:
+        resolve_name()
+    assert "pip install solprop" in str(refused.value)
+    assert "uv sync" in str(refused.value)
+    assert 'backend="numpy_ref"' in str(refused.value)
 
 
-def test_the_warning_names_the_line_that_built_the_settings(monkeypatch):
-    """The usual route is the settings dataclass; its generated __init__ is skipped."""
+def test_settings_on_auto_refuse_without_the_native_package(monkeypatch):
     hide_native(monkeypatch)
-    with pytest.warns(SolpropWarning, match="not installed") as caught:
-        settings = SimulationSettings(
+    with pytest.raises(BackendError, match="solprop-native is not installed"):
+        SimulationSettings(
             controller=PIController(rtol=1e-8, atol=1e-14),
             save_planes=[1e-3],
             dz_max=1e-3,
             dz_init=1e-3,
         )
-    assert settings.backend == "numba_cpu"
-    assert not caught[0].filename.startswith(registry._PACKAGE_FILES)
 
 
-@pytest.mark.parametrize("name", ["numba_cpu", "numpy_ref", "native"])
-def test_an_explicit_backend_never_warns_of_the_fallback(monkeypatch, name):
+@pytest.mark.parametrize("name", ["numpy_ref", "native"])
+def test_a_named_backend_is_not_refused_at_resolution(monkeypatch, name):
     hide_native(monkeypatch)
-    with warnings.catch_warnings():
-        warnings.simplefilter("error")
-        assert resolve_name(name) == name
+    assert resolve_name(name) == name
 
 
-def test_auto_falls_back_below_the_native_baseline_and_warns_once(
+def test_auto_refuses_below_the_native_baseline_without_importing_it(
     monkeypatch, tmp_path
 ):
     install_native(monkeypatch, tmp_path, "x86-64-v3")
     before = sys.modules.get("solprop_native")
-    with pytest.warns(SolpropWarning) as caught:
-        assert resolve_name() == "numba_cpu"
-    assert len(caught) == 1
-    message = str(caught[0].message)
-    assert "lacks avx2, fma" in message
-    assert "CPU baseline x86-64-v3" in message
-    assert "numba_cpu" in message
-    assert (
-        "https://solprop.readthedocs.io/en/latest/guide/performance/"
-        "building-native.html" in message
-    )
-    assert "https://github.com/LupoLab/solprop/issues" in message
-    assert 'pass backend="numba_cpu"' in message
-    # Once per process; the package itself was never imported.
-    with warnings.catch_warnings():
-        warnings.simplefilter("error")
-        assert resolve_name() == "numba_cpu"
+    with pytest.raises(BackendError, match="requires an x86-64-v3") as refused:
+        resolve_name()
+    assert isinstance(refused.value.__cause__, ImportError)
     assert sys.modules.get("solprop_native") is before
 
 
@@ -380,39 +414,6 @@ def test_auto_keeps_native_on_a_processor_that_meets_the_baseline(
 ):
     install_native(monkeypatch, tmp_path, "met")
     assert resolve_name() == "native"
-
-
-def test_the_fallback_is_recorded_as_the_selected_backend(monkeypatch, tmp_path):
-    install_native(monkeypatch, tmp_path, "x86-64-v3")
-    with pytest.warns(SolpropWarning, match="lacks avx2, fma"):
-        settings = SimulationSettings(
-            controller=PIController(rtol=1e-8, atol=1e-14),
-            save_planes=[1e-3],
-            dz_max=1e-3,
-            dz_init=1e-3,
-        )
-    assert settings.backend == "numba_cpu"
-
-
-def test_auto_selects_numba_cpu_and_constructs_it_after_a_fallback(
-    linear_problem, narrow_grid, monkeypatch, tmp_path
-):
-    install_native(monkeypatch, tmp_path, "x86-64-v3")
-    calls = []
-    problem = linear_problem(narrow_grid, save_planes=[LENGTH])
-    result = NumpyRefBackend(problem, grid=narrow_grid)
-
-    def construct(name, problem, **context):
-        calls.append(name)
-        return result
-
-    monkeypatch.setattr(registry, "_construct", construct)
-    try:
-        with pytest.warns(SolpropWarning, match="CPU baseline x86-64-v3"):
-            assert select("auto", problem) is result
-        assert calls == ["numba_cpu"]
-    finally:
-        result.close()
 
 
 def test_explicit_native_still_raises_the_baseline_refusal(
@@ -444,7 +445,7 @@ def test_explicit_native_still_raises_the_baseline_refusal(
 def test_auto_raises_other_native_failures_above_the_baseline(
     linear_problem, narrow_grid, monkeypatch, tmp_path, error
 ):
-    """A pyFFTW-first refusal, a schema mismatch or a broken extension still raise."""
+    """A refusal at import, a schema mismatch or a broken extension still raise."""
     install_native(monkeypatch, tmp_path, "met")
     calls = []
 
@@ -471,10 +472,10 @@ def test_auto_runs_the_native_package_s_own_check(monkeypatch, tmp_path):
     monkeypatch.setattr(ctypes, "WinDLL", lambda name: Kernel32(), raising=False)
     monkeypatch.setattr(sys, "platform", "win32")
     install_native(monkeypatch, tmp_path, "x86-64-v3", check=NATIVE_CPU_CHECK)
-    with pytest.warns(SolpropWarning) as caught:
-        assert resolve_name() == "numba_cpu"
-    assert "lacks abm, avx2, bmi1, bmi2, f16c, fma, movbe" in str(caught[0].message)
-    monkeypatch.setattr(registry, "_warned_native_fallback", False)
+    with pytest.raises(
+        BackendError, match="lacks abm, avx2, bmi1, bmi2, f16c, fma, movbe"
+    ):
+        resolve_name()
     sandy_bridge.add(40)
     assert resolve_name() == "native"
 
@@ -486,3 +487,92 @@ def test_a_build_without_a_check_or_record_keeps_native(monkeypatch, tmp_path):
     assert resolve_name() == "native"
     (package / "_cpu.py").unlink()
     assert resolve_name() == "native"
+
+
+# SOLPROP_REQUIRE_DEVICE (SEP 43 section 5): checked at selection, on the actual build.
+
+
+def fake_build(monkeypatch, backend, count):
+    """Make ``solprop_native`` report a build, without a device to run it on."""
+    fake: Any = types.ModuleType("solprop_native")
+    fake.__version__ = "0.3.0+cuda"
+    fake.build_info = lambda: types.SimpleNamespace(
+        device_backend=backend, device_count=count
+    )
+    spec = importlib.machinery.ModuleSpec("solprop_native", None)
+    real_find_spec = importlib.util.find_spec
+    monkeypatch.setattr(
+        importlib.util,
+        "find_spec",
+        lambda name: spec if name == "solprop_native" else real_find_spec(name),
+    )
+    monkeypatch.setitem(sys.modules, "solprop_native", fake)
+
+
+@pytest.mark.parametrize(
+    ("value", "backend", "count", "message"),
+    [
+        ("cuda", "none", 0, "device backend 'none'"),
+        ("hip", "cuda", 1, "device backend 'cuda'"),
+        ("any", "none", 0, "device backend 'none'"),
+        ("cuda", "cuda", 0, "sees no device"),
+        ("gpu", "cuda", 1, "use one of any, cuda, hip"),
+    ],
+)
+def test_a_required_device_refuses_what_does_not_meet_it(
+    monkeypatch, value, backend, count, message
+):
+    fake_build(monkeypatch, backend, count)
+    monkeypatch.setenv(registry.REQUIRE_DEVICE_SETTING, value)
+    with pytest.raises(BackendError, match=message):
+        registry._check_required_device("native")
+
+
+@pytest.mark.parametrize(
+    ("value", "backend"),
+    [("cuda", "cuda"), ("hip", "hip"), ("any", "hip"), ("", "none")],
+)
+def test_a_required_device_passes_what_meets_it(monkeypatch, value, backend):
+    fake_build(monkeypatch, backend, 1 if backend != "none" else 0)
+    monkeypatch.setenv(registry.REQUIRE_DEVICE_SETTING, value)
+    registry._check_required_device("native")
+
+
+@pytest.mark.parametrize("name", ["numpy_ref", "mlx"])
+def test_a_required_device_refuses_the_other_backends_by_name(monkeypatch, name):
+    monkeypatch.setenv(registry.REQUIRE_DEVICE_SETTING, "any")
+    with pytest.raises(BackendError, match=f"this run is on {name}"):
+        registry._check_required_device(name)
+
+
+def test_a_required_device_is_refused_before_anything_is_constructed(
+    linear_problem, narrow_grid, monkeypatch
+):
+    monkeypatch.setenv(registry.REQUIRE_DEVICE_SETTING, "cuda")
+    built = []
+    monkeypatch.setattr(registry, "_construct", lambda *a, **k: built.append(a))
+    problem = linear_problem(narrow_grid, save_planes=[LENGTH])
+    with pytest.raises(BackendError, match="this run is on numpy_ref"):
+        select("numpy_ref", problem, grid=narrow_grid)
+    assert not built
+
+
+def test_a_required_device_leaves_a_missing_package_to_the_selection(monkeypatch):
+    monkeypatch.setenv(registry.REQUIRE_DEVICE_SETTING, "cuda")
+    monkeypatch.setattr(registry, "_satisfied", lambda backend: False)
+    assert registry._check_required_device("native") is None
+
+
+def test_a_required_device_reports_a_build_that_will_not_load(monkeypatch):
+    """A CUDA build with no visible device raises from Kokkos as the package loads."""
+    spec = importlib.machinery.ModuleSpec("solprop_native", None)
+    real_find_spec = importlib.util.find_spec
+    monkeypatch.setattr(
+        importlib.util,
+        "find_spec",
+        lambda name: spec if name == "solprop_native" else real_find_spec(name),
+    )
+    monkeypatch.setitem(sys.modules, "solprop_native", None)
+    monkeypatch.setenv(registry.REQUIRE_DEVICE_SETTING, "cuda")
+    with pytest.raises(BackendError, match="did not load"):
+        registry._check_required_device("native")

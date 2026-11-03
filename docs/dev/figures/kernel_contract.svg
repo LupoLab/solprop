@@ -106,7 +106,7 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 <rect x="32" y="251.0" width="296.0" height="51.0" rx="7" ry="7" class="fill-p" />
 <text x="42.0" y="280.5" font-size="12" class="dim">linear.py · modes/ · profiles.py</text>
 <rect x="386.0" y="251.0" width="420.0" height="66.0" rx="7" ry="7" class="fill-t" />
-<text x="396.0" y="273.0" font-size="15" class="bold ink-t">§3   linear · flux</text>
+<text x="396.0" y="273.0" font-size="15" class="bold ink-t">§3   linear · flux · transverse</text>
 <text x="396.0" y="288.5" font-size="12" class="dim">linear operator</text>
 <text x="396.0" y="304.0" font-size="12" class="dim">translate.linop.LinearOperator</text>
 <rect x="864.0" y="251.0" width="304.0" height="51.0" rx="7" ry="7" class="fill-b" />
@@ -203,5 +203,5 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 <text x="615.0" y="815.0" font-size="12" class="dim">corrected split-square subtraction; no coefficient volume</text>
 <text x="42.0" y="856.5" font-size="12" class="dim">device_ready is exactly "neither of them is the z table". translate.stage splits a stage in two: terms, the fixed arrays uploaded once, and scalars, a small record of</text>
 <text x="42.0" y="872.0" font-size="12" class="dim">host floats per stage. A backend evaluates ΔΦ = stage.combine(weights, terms), or evaluates the separable vectors without a full coefficient volume;</text>
-<text x="42.0" y="887.5" font-size="12" class="dim">translate.stage.require_device_ready is the refusal device backends raise. Numba CPU also accepts z tables through its host adapter.</text>
+<text x="42.0" y="887.5" font-size="12" class="dim">translate.stage.require_device_ready is the refusal device backends raise. A native CPU build evaluates z tables in its own kernels.</text>
 </svg>

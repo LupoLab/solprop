@@ -24,7 +24,7 @@ from solprop.driver.scaffold import propagate_fixed_rk4
 from solprop.stepper import FixedSchedule, PIController, observed_order
 
 # Slow and benchmark ladders use the environment-selected fixture, which defaults to
-# Numba and is set to native for the native suite's lane.
+# what ``backend="auto"`` selects: native when it is installed.
 
 
 def propagate(backend_class, problem, grid, distance):

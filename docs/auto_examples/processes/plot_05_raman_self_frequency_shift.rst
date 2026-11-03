@@ -119,7 +119,7 @@ Spectral and temporal evolution
         run,
         "wavelength",
         spec_range=(400e-9, 3e-6),
-        trange=(-200e-15, 1.7e-12),
+        time_range=(-200e-15, 1.7e-12),
         db_min=-40,
     )
     figures[-1].set_size_inches(9.5, 3.6)
@@ -179,7 +179,7 @@ three quarters of the soliton's height.
     )
 
     fig, ax = plt.subplots(figsize=(6.0, 3.2))
-    time_1d(run, z=2.0, trange=(-200e-15, 1.7e-12), ax=ax)
+    time_1d(run, z=2.0, time_range=(-200e-15, 1.7e-12), ax=ax)
     fig.tight_layout()
 
 
@@ -231,7 +231,7 @@ Runtime and reproducibility
 
  .. code-block:: none
 
-    95 s; backend native
+    224 s; backend native
 
 
 
@@ -239,7 +239,7 @@ Runtime and reproducibility
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (1 minutes 34.689 seconds)
+   **Total running time of the script:** (3 minutes 44.127 seconds)
 
 
 .. _sphx_glr_download_auto_examples_processes_plot_05_raman_self_frequency_shift.py:

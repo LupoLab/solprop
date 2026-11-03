@@ -189,7 +189,8 @@ def test_a_file_with_an_unknown_group_and_attribute_reads_and_resumes(
     path = tmp_path / "run.h5"
     stop(fibre(build_simulation), path)
     with h5py.File(path, "r+") as file:
-        file.create_group("recipe").attrs["source"] = "a later release"
+        # Not "recipe", which this release writes and reads (SEP 41).
+        file.create_group("future_group").attrs["source"] = "a later release"
         file.attrs["future_attribute"] = 1
     handler = quietly(fibre(build_simulation), path, resume=True)
     assert handler.n_saved == N_SAVE

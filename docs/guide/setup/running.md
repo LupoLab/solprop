@@ -235,7 +235,7 @@ propagates the real electric field, with third-harmonic generation on. `envelope
 selects the envelope grid and keeps both `thg` and `plasma` off by default. Explicit
 `plasma=True` or an instantaneous rate object on an envelope grid selects
 [cycle-averaged envelope plasma](../media/ionisation.md#envelope-plasma-sources), which cannot be
-combined with `thg=True`. It runs on `numpy_ref`, `numba_cpu` and the native backend; a
+combined with `thg=True`. It runs on `numpy_ref` and the native backend; a
 backend that cannot run a problem refuses it by name rather than falling back
 ([the backend notes](../../dev/backends.md) give the qualification of each).
 
@@ -288,7 +288,7 @@ straight bore or a taper alike. The block is the run's loss model, so `loss=` mu
 `True`; it needs the contiguous set `modes=N` builds (or one azimuthal order, for the
 `te_tm` block) and a scalar state, and it is refused beside `lattice=` and
 `model="reduced"`, each by name. It carries the default input noise; the modified noise
-model is refused beside it. It runs on `numpy_ref`, `numba_cpu` and the native
+model is refused beside it. It runs on `numpy_ref` and the native
 backend, CPU and GPU builds alike, with the default integration method;
 `CoherentWall(method="cf4")`, which integrates each section by commutator-free
 exponentials of its whole generator, runs on `numpy_ref` alone. See [the coherent wall](../waveguides/coherent-wall.md#the-coherent-wall),
@@ -431,6 +431,16 @@ field — every one by default, the named ones, or none for a run wanted as stat
 alone ([output](../results/output.md#statistics-only-planes-which-planes-keep-their-field)).
 They are execution settings, outside the configuration hash, and may change after
 translation.
+
+## What a run will cost
+
+`simulation.estimate()` answers before a run: the state's shape, the persistent memory
+admitted against the budget before anything is allocated (a run that would be refused is
+reported, not attempted), the output's size for the planes and fields it keeps, the cost
+of one right-hand-side evaluation on its backend, timed after an untimed warm-up that
+takes the compilation and transform planning (reported as `setup`), and the integrator's
+evaluations per step, with their total for a replayed schedule. It does not predict the
+number of adaptive steps, which the physics decides.
 
 ## Many inputs, one backend: the runner
 

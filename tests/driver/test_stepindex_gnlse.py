@@ -68,7 +68,7 @@ def spectral_change(fields):
 def test_stepindex_reduced_strand_propagates_on_the_reference_backend():
     """Two centimetres on `numpy_ref`, the medium tier's share of the strand.
 
-    The duplicate `numba_cpu` copy is the slow case below, as
+    The duplicate compiled copy is the slow case below, as
     ``docs/dev/testing.md`` section 2 prescribes: the parity test stands in for a
     copy already known to agree.
     """
@@ -86,7 +86,8 @@ def test_stepindex_reduced_strand_propagates_on_the_reference_backend():
 
 @pytest.mark.slow
 def test_stepindex_strand_propagates_on_both_cpu_backends(monkeypatch):
-    """The example's full fifteen centimetres, both CPU backends."""
+    """The example's full fifteen centimetres, on the reference and native backends."""
+    pytest.importorskip("solprop_native")
     # FFTW_MEASURE times its candidate plans, so under machine load it can pick another
     # plan, whose rounding the adaptive run then carries through every step: the bound
     # below was exceeded once by that alone. ESTIMATE chooses without timing, so the
@@ -97,14 +98,14 @@ def test_stepindex_strand_propagates_on_both_cpu_backends(monkeypatch):
     with pytest.warns(MaterialRangeWarning, match="taken as transparent"):
         first = strand_simulation("numpy_ref").run(progress="none")
     with pytest.warns(MaterialRangeWarning, match="taken as transparent"):
-        second = strand_simulation("numba_cpu").run(progress="none")
+        second = strand_simulation("native").run(progress="none")
     reference, compiled = first.fields("fft"), second.fields("fft")
     assert np.all(np.isfinite(reference))
-    # The two backends take the same number of steps (6033 under the default), each
-    # within 2.1e-4 of the other's, so what parts them is rounding, carried by the
+    # The two backends take the same number of steps (2034 under the default), each
+    # within 8.8e-7 of the other's, so what parts them is rounding, carried by the
     # Adams history and its controller through fifteen centimetres of strongly
-    # nonlinear evolution: measured 6.9e-9 of the largest component with ESTIMATE
-    # plans (5.0e-8 with MEASURE, on a quiet machine); the bound is unchanged.
+    # nonlinear evolution: measured 7.7e-11 of the largest component with ESTIMATE
+    # plans. The bound is the one this test held against the retired numba_cpu backend.
     assert isinstance(first, MemoryOutput)
     assert isinstance(second, MemoryOutput)
     steps = [run.planes()[-1].step_history for run in (first, second)]

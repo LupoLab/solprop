@@ -215,7 +215,7 @@ def test_zdw_matches_luna(key):
         temperature=LUNA_TEMPERATURE,
     )
     # Luna's search window, today's default, stated.
-    wavelength = zdw(mode, wavelength_range=(100e-9, 3e-6))
+    wavelength = zdw(mode, wavelength_limits=(100e-9, 3e-6))
     assert wavelength == pytest.approx(REFERENCE["zdw"][key][0], rel=1e-6)
 
 

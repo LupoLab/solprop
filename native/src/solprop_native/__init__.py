@@ -13,6 +13,7 @@ observations are owning host ``complex128`` arrays.
 from __future__ import annotations
 
 import functools
+import importlib.util
 import logging
 import os
 import platform
@@ -26,18 +27,18 @@ import numpy as np
 
 from ._bind import proc_bind
 from ._budget import native_threads, physical_cores, thread_budget
-from ._cpu import check_cpu_baseline
+from ._cpu import check_cpu_baseline, select_variant
 from ._wait import wait_policy
 
 if platform.system() == "Darwin" and "pyfftw" in sys.modules:
-    # solprop loads this package before pyFFTW itself; this is reached when a script,
-    # or a package it imported, loaded pyFFTW first.
+    # solprop does not load pyFFTW; this is reached when a script, or a package it
+    # imported, did. Its macOS wheels carry a private OpenMP runtime of their own.
     raise RuntimeError(
         "on macOS, import solprop_native before pyfftw; the reverse order is "
         "unsafe with wheels that bundle another OpenMP runtime. pyfftw is already "
-        "loaded in this process: restart Python and import solprop (or solprop_native) "
-        "before pyfftw or any package that imports it, or pass another backend, such "
-        "as backend='numba_cpu'"
+        "loaded in this process: restart Python and import solprop_native before "
+        "pyfftw or any package that imports it. backend='numpy_ref', the "
+        "reference, doesn't load solprop_native, and is unthreaded and far slower"
     )
 
 check_cpu_baseline(Path(__file__).parent)
@@ -66,6 +67,19 @@ WAIT_POLICY = wait_policy()
 # Whether its threads are bound: not, unless the user placed them. Kokkos reads this
 # when the core starts it, just below, and otherwise prints a notice.
 PROC_BIND = proc_bind()
+
+# A wheel with more than one build registers the chosen one as ``._core``, so nothing
+# else knows which it is. The loader finds PyInit__core from the module's name, not the
+# file's.
+_STEM = select_variant(Path(__file__).parent)
+if _STEM != "_core":
+    _file = next(Path(__file__).parent.glob(f"{_STEM}.*"))
+    _spec = importlib.util.spec_from_file_location(f"{__name__}._core", _file)
+    if _spec is None or _spec.loader is None:  # pragma: no cover - a file has one
+        raise ImportError(f"cannot load {_file}")
+    _module = importlib.util.module_from_spec(_spec)
+    sys.modules[_spec.name] = _module
+    _spec.loader.exec_module(_module)
 
 from . import _core  # noqa: E402  (only after the processor check)
 
@@ -240,7 +254,13 @@ backend's native Adams march runs many attempts per call and books them through 
 with the policy of :data:`MARCH_POLICY_FIELDS` and the march's members of
 :data:`ADAMS_MARCH_SURFACE`. Schema 40 gives ``set_initial`` its ``resume`` keyword,
 which this backend hands to the driver's load: a stored field never takes the ``input``
-draw again.
+draw again. Schema 41 (solprop SEP 40) adds ``KernelProblem.transverse``, the resolved
+transverse boundary, and ``reads_transverse_edge``: this backend carries the safety ramp
+and a requested collar in its operators, reads the transverse edge on the host from its
+state, and its Adams march holds its steps to the edge's next read and stops there.
+Schema 42 lets the problem's initial state be strided, a broadcast view of the block it
+repeats: ``set_initial`` takes a field of any strides, which the driver's load copies
+contiguous before it crosses.
 
 solprop freezes this surface under its ``KERNEL_SCHEMA_VERSION`` (the test in its
 ``tests/backends/test_driver.py``); :func:`check_build` looks each member up so a

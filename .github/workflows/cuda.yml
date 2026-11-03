@@ -46,7 +46,7 @@ jobs:
             -DSOLPROP_NATIVE_CUDA_ARCH=${{ vars.SOLPROP_NATIVE_CUDA_ARCH || 'HOPPER90' }}
             -DBUILD_TESTING=OFF
         run: |
-          uv sync --python 3.14
+          uv sync --python 3.14 --no-install-package solprop-native
           uv pip install --no-deps --no-build-isolation -e native
       - name: Run CUDA correctness tests
         working-directory: native

@@ -12,10 +12,11 @@ contract and its conventions; where both apply, follow the stricter rule.
 
 - Distribution `solprop-native`; import package `solprop_native`. It is the second
   distribution of the solprop repository, built from `native/`: one checkout, one uv
-  workspace and one `uv.lock` (`uv sync --extra native` at the root installs it
-  editable; a plain `uv sync` removes it).
-- Both distributions take one version from the repository's git tags, and solprop's
-  `native` extra requires this package at that same version.
+  workspace and one `uv.lock` (a plain `uv sync` at the root builds and installs it
+  editable).
+- Both distributions take one version from the repository's git tags, and solprop
+  requires this package at that same version: it is a required dependency, with no
+  extra.
 - The public names are `NativeBackend`, `NativeBatchBackend`, the frozen `BuildInfo`,
   `build_info`, `check_build`, `__version__`, and the contract tuples
   `DRIVER_SURFACE`, `LINEAR_OPERATOR_FIELDS`, `TRANSFORM_FIELDS`, `RESPONSE_FIELDS`,
@@ -50,7 +51,7 @@ and scikit-build-core; GoogleTest is test-only. Adding any other dependency need
 
 Major changes follow solprop's enhancement proposal process (SEPs,
 [`docs/dev/seps/`](../docs/dev/seps/), SEP 0). A SEP is implemented `numpy_ref` first,
-then `numba_cpu`, then here. A phase that touches both halves is one branch named for
+then here. A phase that touches both halves is one branch named for
 the SEP (`feature/sep-NNNN-…`) and one pull request, whose commits cite the SEP number;
 its phase report — deviations, decisions, verification, open questions — is appended to
 the SEP. Until the native phase lands, the backend refuses the new problem by name.
@@ -180,7 +181,7 @@ short windows (about ten accepted steps, or a propagation that completes in seco
 and do not extrapolate them to a complete run. On a shared machine, compare builds
 only as interleaved runs in the same session. Never add native-architecture flags to
 a distributable build (build it with `SOLPROP_NATIVE_PROFILE=DISTRIBUTION`, whose
-documented CPU baseline, x86-64-v3, Neoverse N1 or Apple M1, the package checks before
+documented CPU baseline, x86-64-v3 or v2, Neoverse N1 or Apple M1, the package checks before
 it loads the extension, and whose BLAS runs on every such machine), and never tune the
 step-size controller to gain speed.
 
@@ -190,7 +191,7 @@ step-size controller to gain speed.
   named for the topic: `fix/…`, `feature/…`, `docs/…`, and `feature/sep-NNNN-…` for a
   SEP phase.
 - All development happens in a worktree, never in the main checkout. Each worktree
-  has its own environment: `uv sync --extra native` at its root builds both halves
+  has its own environment: `uv sync` at its root builds both halves
   from that worktree.
 - Merge, push and tag only when asked. Never run a destructive or history-rewriting
   command (`git reset --hard`, `git checkout .`, `git restore` over uncommitted changes,
@@ -203,7 +204,9 @@ Read the files, tests, callers and build configuration before editing, and prese
 unrelated work. Write small commits with imperative subjects under 72 characters and
 stage explicit paths. Build directories, wheels, fetched dependency trees, profiler
 traces and local benchmark outputs are never committed. Record user-visible changes
-in the repository's `CHANGELOG.md`.
+in a repository-root `changelog.d/` fragment
+([format](../changelog.d/README.md)); the rolling release PR collects it into
+`CHANGELOG.md`.
 
 Code is `GPL-3.0-or-later` and documentation `CC-BY-4.0`. Every code file starts with
 the SPDX header that `uv run reuse annotate --copyright "John C. Travers and

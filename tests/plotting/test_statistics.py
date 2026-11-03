@@ -14,14 +14,14 @@ from solprop.output.schema import (
     StepperRecord,
     StepStats,
 )
-from solprop.plotting.statistics import _should_log, _trace, stats
+from solprop.plotting.statistics import _should_log, _trace, plot_stats
 from solprop.processing._examples import example_grid, example_output, gvd_phase
 from solprop.pulses import GaussianPulse
 from solprop.stats import energy, peak_power
 
 
 def test_stats_draws_one_panel_for_each_recorded_statistic(single):
-    figures = stats(single)
+    figures = plot_stats(single)
     assert len(figures) == 1
     figure = figures[0]
     assert figure.get_suptitle() == "Pulse statistics"
@@ -31,11 +31,11 @@ def test_stats_draws_one_panel_for_each_recorded_statistic(single):
 
 
 def test_stats_returns_nothing_for_a_run_with_no_statistics():
-    assert stats(example_output(with_stats=False)) == []
+    assert plot_stats(example_output(with_stats=False)) == []
 
 
 def test_stats_draws_both_groups_when_both_are_recorded():
-    figures = stats(_run_with_waveguide_statistics())
+    figures = plot_stats(_run_with_waveguide_statistics())
     assert [figure.get_suptitle() for figure in figures] == [
         "Pulse statistics",
         "Waveguide statistics",
@@ -43,7 +43,7 @@ def test_stats_draws_both_groups_when_both_are_recorded():
 
 
 def test_stats_converts_the_centroid_to_a_wavelength(single):
-    figure = stats(single)[0]
+    figure = plot_stats(single)[0]
     (panel,) = [ax for ax in figure.axes if "wavelength" in ax.get_ylabel().lower()]
     # The example pulse is centred at 800 nm, and the centroid of its density is close
     # to that; the panel must show nanometres, not radians per second.
@@ -52,13 +52,13 @@ def test_stats_converts_the_centroid_to_a_wavelength(single):
 
 
 def test_stats_scales_a_peak_power(single):
-    figure = stats(single)[0]
+    figure = plot_stats(single)[0]
     (panel,) = [ax for ax in figure.axes if ax.get_ylabel().startswith("Peak power")]
     assert panel.get_ylabel() == "Peak power (MW)"
 
 
 def test_stats_names_the_modes_of_a_multimode_run(multimode):
-    figure = stats(multimode)[0]
+    figure = plot_stats(multimode)[0]
     (panel,) = [ax for ax in figure.axes if ax.get_ylabel() == "Energy (uJ)"]
     assert [str(line.get_label()) for line in panel.lines] == [
         "mode 1",
@@ -69,24 +69,24 @@ def test_stats_names_the_modes_of_a_multimode_run(multimode):
 
 
 def test_stats_numbers_the_columns_of_a_windowed_statistic():
-    figure = stats(_run_with_windowed_energy())[0]
+    figure = plot_stats(_run_with_windowed_energy())[0]
     (panel,) = [ax for ax in figure.axes if ax.get_ylabel().startswith("Windowed")]
     assert [str(line.get_label()) for line in panel.lines] == ["1", "2"]
 
 
 def test_stats_uses_a_logarithmic_ordinate_over_a_decade():
-    figure = stats(_run_with_waveguide_statistics())[1]
+    figure = plot_stats(_run_with_waveguide_statistics())[1]
     scales = {ax.get_ylabel(): ax.get_yscale() for ax in figure.axes}
     assert scales["Number density (cm^-3)"] == "log"
     assert scales["Pressure (bar)"] == "linear"
 
 
 def test_stats_reads_a_file_handler(on_file):
-    assert len(stats(on_file)) == 1
+    assert len(plot_stats(on_file)) == 1
 
 
 def test_stats_passes_keywords_to_the_plot(single):
-    figure = stats(single, linestyle="--")[0]
+    figure = plot_stats(single, linestyle="--")[0]
     assert figure.axes[0].lines[0].get_linestyle() == "--"
     plt.close(figure)
 
@@ -159,8 +159,8 @@ def test_stats_prefers_the_between_planes_channel_when_there_is_one():
     n_rows = channel["step_stats/z"].size
     assert n_rows > n_planes
 
-    (from_planes,) = stats(planes)
-    (from_channel,) = stats(channel)
+    (from_planes,) = plot_stats(planes)
+    (from_channel,) = plot_stats(channel)
     assert len(from_planes.axes) == len(from_channel.axes)
     plane_line = np.asarray(from_planes.axes[0].lines[0].get_xydata())
     channel_line = np.asarray(from_channel.axes[0].lines[0].get_xydata())
@@ -225,7 +225,7 @@ def test_stats_falls_back_to_the_planes_for_a_statistic_the_channel_omits():
     z_planes, values_planes = _trace(output, "peak_power")
     assert z_planes.size == values_planes.shape[0] == n_planes
 
-    figures = stats(output)
+    figures = plot_stats(output)
     assert figures
     plt.close("all")
 
@@ -241,5 +241,5 @@ def test_stats_falls_back_when_the_channel_is_declared_but_empty():
     assert output["step_stats/z"].size == 0
     z, values = _trace(output, "energy")
     assert z.size == values.shape[0] == output["z"].size
-    assert stats(output)
+    assert plot_stats(output)
     plt.close("all")

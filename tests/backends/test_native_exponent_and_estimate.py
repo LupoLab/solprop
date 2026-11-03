@@ -1,0 +1,127 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+"""A separable route's compiled exponent, and a varying operator's estimate (SEP 43).
+
+From ``test_numba_adams_passes.py`` and ``test_numba_low_storage.py``.
+"""
+
+import dataclasses
+import math
+
+import numpy as np
+import pytest
+
+pytest.importorskip("solprop_native")
+
+
+from solprop_native import NativeBackend  # pyright: ignore[reportMissingImports]
+
+from backends.forced_thread_cases import route_adams_problem
+from backends.low_storage_cases import varying_capillary, with_mode
+from bounds import EPS, assert_within
+from solprop.backends.memory import (
+    estimate_memory,
+    low_storage_memory,
+    reference_base_memory,
+)
+from solprop.stepper import FixedSchedule
+from solprop.translate.linop import delta_phi
+
+ELEMENT_BOUND = 64 * EPS
+"""One element's arithmetic, a few dozen operations, contracted differently at most."""
+
+
+def test_a_separable_exponent_is_the_host_volume():
+    """The compiled exponent's element formula against the host's ``delta_phi``.
+
+    ``numba_cpu``'s test read the compiled exponent. Native's ``_delta_phi`` is the
+    host's own on this route, so comparing that would be a self-comparison, and its
+    exponent stays in the engine; it is read here through what it does. With no
+    response, one exponential Adams step of length ``h`` is ``exp(x)`` of the launch,
+    element by element, so ``x`` moves the state by itself: the retired ``64 eps``
+    of the largest exponent, on the launch's own scale, plus the exponential's rounding.
+    Weaker in that a phase error on a bin the launch leaves empty is not seen.
+    """
+    _, problem = route_adams_problem("cartesian", "exponential")
+    end = 3e-6
+    problem = dataclasses.replace(
+        problem,
+        responses=dataclasses.replace(
+            problem.responses,
+            response_order=problem.responses.response_order[-1:],
+            kerr_coefficients=None,
+            # No collar at all: a split one would act after the exponent's own step.
+            temporal_absorber=None,
+            temporal_absorber_fine=None,
+        ),
+        stepper=dataclasses.replace(
+            problem.stepper,
+            schedule=FixedSchedule(np.array([end])),
+            save_planes=np.array([end]),
+        ),
+    )
+    grid_simulation, _ = route_adams_problem("cartesian", "exponential")
+    backend = NativeBackend(problem, grid=grid_simulation.grid)
+    try:
+        backend.set_initial(problem.initial.field0, None)
+        loaded = backend.observe().require_field().copy()
+        backend.propagate_to(end)
+        got = backend.observe().require_field().copy()
+    finally:
+        backend.close()
+    exponent = delta_phi(problem.linear, 0.0, end)
+    assert_within(
+        got,
+        np.exp(exponent) * loaded,
+        ELEMENT_BOUND * float(np.max(np.abs(exponent))) + 16 * EPS,
+        what="exponent",
+    )
+    assert float(np.max(np.abs(exponent))) > 1.0
+
+
+@pytest.mark.medium
+def test_a_varying_operator_s_estimate_counts_its_pair_to_the_byte():
+    """A varying modal operator: ``P`` and ``Q`` held, or formed per element.
+
+    ``numba_cpu``'s test on its input. The ledger's march rows are the reference's where
+    the table is held, and native holds no scratch recomputing, where Numba held one.
+    The estimate's base differs between the two modes by exactly the pair, the march's
+    figure is the same from either integrator, and it is the estimate's total. Weaker
+    in that the retired identity of the whole base with the ledger's held-current rows
+    was Numba's layout; native's base and ledger do not name the same rows beyond the
+    march.
+    """
+    simulation = varying_capillary()
+    bases, fields = {}, {}
+    for mode, held in (("tabulate", 2), ("recompute", 0)):
+        problem = with_mode(simulation.translate(), mode)
+        field = 16 * math.prod(problem.shape)
+        backend = NativeBackend(problem, grid=simulation.grid, modes=simulation.modes)
+        try:
+            ledger = backend.memory_ledger()
+        finally:
+            backend.close()
+        assert ledger["propagators"] == held * field
+        reference = reference_base_memory(
+            problem,
+            tabulating=mode == "tabulate",
+            embedded=not np.array_equal(
+                problem.transform.projection, problem.transform.projection_coarse
+            ),
+            noise=False,
+            statistics_weight=0,
+            spatial_absorber=0,
+        )
+        assert ledger["state"] == reference["state"]
+        if mode == "tabulate":
+            assert ledger["propagators"] == reference["propagators"]
+        estimate = estimate_memory(problem, "native")
+        runge_kutta = dataclasses.replace(
+            problem, stepper=dataclasses.replace(problem.stepper, integrator=None)
+        )
+        for asked in (problem, runge_kutta):
+            assert low_storage_memory(asked, "native") == estimate.total
+        bases[mode], fields[mode] = estimate.groups["base"], field
+    assert bases["tabulate"] - bases["recompute"] == 2 * fields["tabulate"]

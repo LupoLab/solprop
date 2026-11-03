@@ -10,7 +10,7 @@ problems of ultrafast nonlinear optics wherever they arise.
   single-mode and multimode, gases and solids, in one code with one set of conventions,
   so that a new model extends every route at once rather than one script at a time.
 - **Fast.** The compiled native backend runs on CPUs and GPUs, the same problem also runs
-  on a NumPy reference and a Numba CPU fallback, and parameter scans spread over a process
+  on a NumPy reference, and parameter scans spread over a process
   pool or a cluster.
 - **With rigour.** Every model is derived and cited, tested against analytic solutions
   and independent references, checked for convergence, and held to the NumPy reference
@@ -31,7 +31,7 @@ in one package. The [capability overview](capabilities.md) describes the current
 models and their limits.
 
 It is a foundation to build on. We intend to keep adding the physics that pulse
-propagation needs — the [roadmap](../dev/roadmap.md) lists what is missing, from
+propagation needs — the [issues](https://github.com/LupoLab/solprop/issues) list what is missing, from
 second-order nonlinearity and harmonic generation to ionisation in solids — until
 solprop covers every physical propagation scenario, each addition specified, verified
 and documented through an [enhancement proposal](../dev/seps/index.md).

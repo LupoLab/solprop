@@ -119,7 +119,7 @@ Spectral and temporal evolution
         run,
         "wavelength",
         spec_range=(150e-9, 3e-6),
-        trange=(-30e-15, 30e-15),
+        time_range=(-30e-15, 30e-15),
         db_min=-40,
     )
     figures[-1].set_size_inches(9.5, 3.6)
@@ -158,7 +158,7 @@ The plane of highest peak power, and the pulse there against the input.
     )
 
     fig, (left, right) = plt.subplots(1, 2, figsize=(10.0, 3.6))
-    time_1d(run, z=[0.0, float(z[best])], trange=(-30e-15, 30e-15), ax=left)
+    time_1d(run, z=[0.0, float(z[best])], time_range=(-30e-15, 30e-15), ax=left)
     spec_1d(run, z=[0.0, float(z[best]), 3.0], ax=right, spec_range=(150e-9, 1.5e-6))
     fig.tight_layout()
 
@@ -204,7 +204,7 @@ Runtime and reproducibility
 
  .. code-block:: none
 
-    3 s; backend native
+    8 s; backend native
 
 
 
@@ -212,7 +212,7 @@ Runtime and reproducibility
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 3.327 seconds)
+   **Total running time of the script:** (0 minutes 8.133 seconds)
 
 
 .. _sphx_glr_download_auto_examples_processes_plot_02_soliton_self_compression.py:

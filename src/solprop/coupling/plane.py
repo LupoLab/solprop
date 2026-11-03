@@ -52,6 +52,7 @@ import numpy as np
 from jaxtyping import Complex, Float
 
 from solprop import fourier
+from solprop._process import host_blas
 from solprop.adiabatic import AdiabaticAdmission
 from solprop.constants import EPS0, C
 from solprop.coupling.models import ScalarModeBasis
@@ -621,10 +622,12 @@ def reference_at(record: Mapping[str, object], z: float) -> PlaneReference:
     launched from another), and ``frame``, the antiderivatives
     :math:`\Phi_0(z)=\int_0^z\beta_0` and :math:`T(z)=\int_0^z\beta_1` of the terms
     its linear operator removed, with the frequency origin :math:`\omega_o` of the
-    linear term (the reference frequency on an envelope grid, zero on a field
-    grid). Then :math:`\phi = \phi_0 + \Phi_0 - \omega_oT` and
-    :math:`\tau = \tau_0 + T`. A record without a frame (an operator supplied
-    directly) leaves both terms uncalibrated.
+    linear term (:func:`solprop.linear.frame_origin`: the reference frequency on
+    an envelope grid whose frame removes :math:`\beta_0`, and zero on a field grid
+    or on an envelope grid that keeps :math:`\beta_0`). Then
+    :math:`\phi = \phi_0 + \Phi_0 - \omega_oT` and :math:`\tau = \tau_0 + T`. A
+    record without a frame (an operator supplied directly) leaves both terms
+    uncalibrated.
 
     Parameters
     ----------
@@ -1252,6 +1255,7 @@ class FieldPlane:
         )
 
     @classmethod
+    @host_blas()
     def from_pulse(  # noqa: PLR0913 - the beam, its grids and the plane's medium
         cls,
         pulse: object,
@@ -1744,13 +1748,13 @@ def _enlarged(space: RadialGrid | FreeGrid) -> RadialGrid | FreeGrid:
         The doubled grid.
     """
     if isinstance(space, RadialGrid):
-        return RadialGrid(2.0 * space.radius, 2 * space.n_r, space.window_factor)
+        return RadialGrid(2.0 * space.radius, 2 * space.n_r, space.collar_fraction)
     return FreeGrid(
         2.0 * space.radius_x,
         2 * space.n_x,
         2.0 * space.radius_y,
         2 * space.n_y,
-        space.window_factor,
+        space.collar_fraction,
     )
 
 
@@ -1768,13 +1772,13 @@ def _refined(space: RadialGrid | FreeGrid) -> RadialGrid | FreeGrid:
         The refined grid.
     """
     if isinstance(space, RadialGrid):
-        return RadialGrid(space.radius, 2 * space.n_r, space.window_factor)
+        return RadialGrid(space.radius, 2 * space.n_r, space.collar_fraction)
     return FreeGrid(
         space.radius_x,
         2 * space.n_x,
         space.radius_y,
         2 * space.n_y,
-        space.window_factor,
+        space.collar_fraction,
     )
 
 

@@ -38,16 +38,18 @@ from scipy.integrate import quad_vec
 from scipy.optimize import brentq
 
 from solprop.constants import C
-from solprop.exceptions import ModeError
+from solprop.exceptions import ModeError, NoZeroDispersionError
 from solprop.modes.protocol import Mode
 
 __all__ = [
     "BETA2_RELATIVE_STEP",
+    "BETA3_RELATIVE_STEP",
     "aeff",
     "alpha",
     "beta",
     "beta1",
     "beta2",
+    "beta3",
     "db_per_m",
     "loss_length",
     "transmission",
@@ -71,6 +73,18 @@ That is three orders better than differencing ``beta`` itself, and it is
 enough: nothing in the solver consumes ``beta_2``. The co-moving frame uses ``beta_1``,
 which is analytic. Making this analytic too needs the second derivative of the gas
 susceptibility, which is not part of the material interface.
+"""
+
+BETA3_RELATIVE_STEP: Final = 4e-3
+"""Relative frequency step of the Richardson second difference behind :func:`beta3`.
+
+A second difference divides the rounding of ``beta_1`` by the step squared, while the
+truncation grows with the structure the fill puts into ``beta_1``, and the two pull
+the step opposite ways. Against the closed form of an evacuated capillary
+(``tests/modes/test_base.py``), which has little structure, the error is 3.8e-6 at a
+relative step of 3e-3, 1.5e-6 at 4e-3 and 4.8e-7 at 8e-3. A helium-filled capillary
+(125 um, one bar, 400 nm to 2 um) has more: there, steps of 3e-3 and 5e-3 agree with
+4e-3 to 1.5e-5 of the largest value, while a step of 2e-2 is off by 4e-4.
 """
 
 _DECIBEL_PER_NEPER: Final = 10.0 / math.log(10.0)
@@ -258,11 +272,93 @@ def beta2(
     return np.asarray((4.0 * narrow - wide) / 3.0)
 
 
+def beta3(
+    mode: Mode, omega: Float[np.ndarray, " n_omega"], z: float = 0.0
+) -> Float[np.ndarray, " n_omega"]:
+    """Return the third-order dispersion, by differencing the analytic `beta1` twice.
+
+    A Richardson-extrapolated second central difference of :func:`beta1` at a relative
+    step of :data:`BETA3_RELATIVE_STEP`, for the reason :func:`beta2` gives: the
+    material interface has no higher derivative of a gas susceptibility.
+
+    Parameters
+    ----------
+    mode : Mode
+        The mode.
+    omega : numpy.ndarray
+        Angular frequencies in rad/s, shape ``(n_omega,)``, > 0.
+    z : float, optional
+        Position along the waveguide, m.
+
+    Returns
+    -------
+    numpy.ndarray
+        ``beta_3 = d^3(beta)/d(omega)^3`` in s^3/m, shape ``(n_omega,)``.
+
+    Raises
+    ------
+    ModeError
+        If any frequency is not finite or not positive, since the step is relative.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from solprop.modes import MarcatiliMode
+    >>> from solprop.modes.base import beta3
+    >>> mode = MarcatiliMode(125e-6, "He", 1.0)
+    >>> f"{beta3(mode, np.array([2.356e15]))[0]:.3e}"
+    '1.124e-44'
+    """
+    values = _as_omega(omega)
+    if np.any(values <= 0.0):
+        raise ModeError(
+            "beta3 differences beta1 with a relative step, so the frequency must be "
+            "positive"
+        )
+    centre = beta1(mode, values, z)
+    step = BETA3_RELATIVE_STEP * values
+    wide = _second_difference(mode, values, centre, step, z)
+    narrow = _second_difference(mode, values, centre, step / 2.0, z)
+    return np.asarray((4.0 * narrow - wide) / 3.0)
+
+
+def _second_difference(
+    mode: Mode,
+    omega: Float[np.ndarray, " n_omega"],
+    centre: Float[np.ndarray, " n_omega"],
+    step: Float[np.ndarray, " n_omega"],
+    z: float,
+) -> Float[np.ndarray, " n_omega"]:
+    """Return the central second difference of `beta1` at one step.
+
+    Parameters
+    ----------
+    mode : Mode
+        The mode.
+    omega : numpy.ndarray
+        Angular frequencies in rad/s.
+    centre : numpy.ndarray
+        ``beta1`` at `omega`, s/m.
+    step : numpy.ndarray
+        The step at each frequency, rad/s.
+    z : float
+        Position along the waveguide, m.
+
+    Returns
+    -------
+    numpy.ndarray
+        The difference, s^3/m.
+    """
+    above = beta1(mode, omega + step, z)
+    below = beta1(mode, omega - step, z)
+    return np.asarray((above - 2.0 * centre + below) / step**2)
+
+
 def zdw(
     mode: Mode,
     z: float = 0.0,
     *,
-    wavelength_range: tuple[float, float] = (100e-9, 3e-6),
+    wavelength_limits: tuple[float, float] = (100e-9, 3e-6),
 ) -> float:
     """Return the zero-dispersion wavelength of a mode.
 
@@ -272,7 +368,7 @@ def zdw(
         The mode.
     z : float, optional
         Position along the waveguide, m.
-    wavelength_range : tuple of float, optional
+    wavelength_limits : tuple of float, optional
         Shortest and longest wavelength in m to bracket the root in. Defaults to
         100 nm to 3 um. A bracket wider than the validity range of a
         material model behind the mode makes that model warn, once per evaluation:
@@ -286,22 +382,24 @@ def zdw(
     Raises
     ------
     ModeError
-        If the range is not ordered and positive, or if ``beta_2`` does not change
-        sign across it: a mode with no zero-dispersion point in the window is a fact
-        the caller has to see, not a missing value to propagate.
+        If the range is not ordered and positive.
+    NoZeroDispersionError
+        If ``beta_2`` does not change sign across it: a mode with no zero-dispersion
+        point in the window is a fact the caller has to see, not a missing value to
+        propagate.
 
     Examples
     --------
     >>> from solprop.modes import MarcatiliMode
     >>> from solprop.modes.base import zdw
     >>> mode = MarcatiliMode(125e-6, "He", 0.4, model="reduced", cladding=1.45)
-    >>> f"{zdw(mode, wavelength_range=(150e-9, 900e-9)) * 1e9:.1f}"
+    >>> f"{zdw(mode, wavelength_limits=(150e-9, 900e-9)) * 1e9:.1f}"
     '376.7'
     """
-    shortest, longest = wavelength_range
+    shortest, longest = wavelength_limits
     if not 0.0 < shortest < longest:
         raise ModeError(
-            f"the wavelength range must be positive and ordered, got {wavelength_range}"
+            f"wavelength_limits must be positive and ordered, got {wavelength_limits}"
         )
     lower = 2.0 * math.pi * C / longest
     upper = 2.0 * math.pi * C / shortest
@@ -323,7 +421,7 @@ def zdw(
 
     at_lower, at_upper = dispersion(lower), dispersion(upper)
     if at_lower * at_upper > 0.0:
-        raise ModeError(
+        raise NoZeroDispersionError(
             f"beta2 does not change sign over {shortest * 1e9:.4g}-"
             f"{longest * 1e9:.4g} nm (it is {at_lower:.4g} and {at_upper:.4g} s^2/m at "
             "the ends), so there is no zero-dispersion wavelength in that window"

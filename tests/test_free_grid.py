@@ -19,7 +19,7 @@ from spatial_records import record_metric
 
 @pytest.mark.parametrize("shape", [(4, 6), (5, 7), (8, 5)])
 def test_free_grid_flattening_transform_parseval_and_axis(shape, request):
-    space = FreeGrid(2e-3, shape[0], 3e-3, shape[1], window_factor=0)
+    space = FreeGrid(2e-3, shape[0], 3e-3, shape[1], collar_fraction=0)
     size = space.n_columns
     # Geometric DFT sums and twiddle evaluation: manual Cartesian budgets,
     # derived before executing either FFT or the direct reconstruction.
@@ -104,9 +104,9 @@ def test_free_grid_flattening_transform_parseval_and_axis(shape, request):
         ("radius_y", np.inf),
         ("n_x", 1),
         ("n_y", True),
-        ("window_factor", -0.1),
-        ("window_factor", 1),
-        ("window_factor", np.nan),
+        ("collar_fraction", -0.1),
+        ("collar_fraction", np.inf),
+        ("collar_fraction", np.nan),
     ],
 )
 def test_free_grid_rejects_invalid_dimensions(name, value):
@@ -117,7 +117,7 @@ def test_free_grid_rejects_invalid_dimensions(name, value):
 
 
 def test_free_grid_collar_extends_requested_domain():
-    space = FreeGrid(2e-3, 40, 3e-3, 32, window_factor=0.25)
+    space = FreeGrid(2e-3, 40, 3e-3, 32, collar_fraction=0.25)
     assert space.x[0] == -2.5e-3
     assert space.y[0] == -3.75e-3
     inside = (np.abs(space.x)[None, :] <= space.radius_x) & (
@@ -134,7 +134,7 @@ def test_free_grid_collar_extends_requested_domain():
 @pytest.mark.parametrize("radii", [(1e-300, 1e-3), (1e308, 1e308), (1e-150, 1e-170)])
 def test_free_grid_refuses_unrepresentable_derived_measures(radii):
     with pytest.raises(GridError, match="representable"):
-        FreeGrid(radii[0], 4, radii[1], 6, window_factor=0)
+        FreeGrid(radii[0], 4, radii[1], 6, collar_fraction=0)
 
 
 @pytest.mark.parametrize(
@@ -150,8 +150,8 @@ def test_free_grid_validation_refuses_corrupt_derived_values(name, value):
 
 
 def test_line_grid_is_the_x_axis_of_a_free_grid_with_a_unit_y_measure():
-    line = LineGrid(2e-3, 12, window_factor=0.2)
-    plane = FreeGrid(2e-3, 12, 3e-3, 8, window_factor=0.2)
+    line = LineGrid(2e-3, 12, collar_fraction=0.2)
+    plane = FreeGrid(2e-3, 12, 3e-3, 8, collar_fraction=0.2)
     assert isinstance(line, FreeGrid)
     # The same axis construction on the same arguments: products of integers and one
     # spacing, correctly rounded, so the axes coincide exactly (structure).
@@ -182,7 +182,7 @@ def test_line_grid_is_the_x_axis_of_a_free_grid_with_a_unit_y_measure():
 
 
 def test_line_grid_parseval_is_per_metre_of_y():
-    line = LineGrid(1e-3, 16, window_factor=0)
+    line = LineGrid(1e-3, 16, collar_fraction=0)
     field = np.random.default_rng(5).normal(size=16) + 0j
     # One FFT and two sums of 16 terms: fewer than 64 rounded operations per term.
     direct = float(np.sum(line.spatial_weights * np.abs(field) ** 2))
@@ -197,7 +197,7 @@ def test_line_grid_parseval_is_per_metre_of_y():
         ((math.inf, 8), "radius_x"),
         ((1e-3, 1), "n_x"),
         ((1e-3, True), "n_x"),
-        ((1e-3, 8, 1.0), "window_factor"),
+        ((1e-3, 8, -1.0), "collar_fraction"),
         ((1e-300, 8), "representable"),
     ],
 )

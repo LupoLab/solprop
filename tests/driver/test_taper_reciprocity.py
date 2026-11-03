@@ -134,7 +134,7 @@ def placement_defect(simulation, index, z):
 
 
 @pytest.mark.medium
-@pytest.mark.parametrize("name", ["numpy_ref", "numba_cpu", "native"])
+@pytest.mark.parametrize("name", ["numpy_ref", "native"])
 def test_a_mirrored_taper_transfers_as_the_transpose_of_the_forward_one(
     name, record_property
 ):

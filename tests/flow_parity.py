@@ -4,7 +4,7 @@
 
 """The compiled coupled flow against the reference: cases and bounds.
 
-Shared by ``tests/backends/test_numba_coupled_flow.py`` and the coupled-flow benchmark,
+Shared by ``tests/driver/test_native_coupled_flow.py`` and the coupled-flow benchmark,
 so that the bound a test asserts and the bound the benchmark records are one function.
 
 **The bound, written before any measurement.** Both backends take the Schur factors from
@@ -69,7 +69,7 @@ solution sum (``eps_apply`` times the step's derivative scale). Each stage appli
 through the solution weights and scaled by ``phi = dz (3 ||N(a)|| / ||a|| + K)``, the
 Kerr source's Lipschitz scale plus the declared residual norm ``K``. The diagonal half
 and the nonlinear source are the uncoupled route's own arithmetic, 32 u per step between
-the two backends (the ladder's 16 eps, ``tests/backends/test_numba_cpu.py``), plus
+the two backends (the ladder's 16 eps, :func:`bounds.ladder_bound`), plus
 ``1.645 (Phi / S) eps_src`` for the source, with ``eps_src`` the general route's bound
 (``general_parity.source_bound``) with its measured ``kappa`` on the general route, and
 the same count with ``kappa = 1`` on the capillary's fixed quadrature, where ``Phi`` is

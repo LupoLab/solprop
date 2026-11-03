@@ -23,6 +23,7 @@ import numpy as np
 import numpy.typing as npt
 from solprop._helpers import Helpers
 from solprop._interrupts import committing
+from solprop._process import acquire_host_blas
 from solprop.backends.driver import StepDriver, reached, replay_tolerance
 from solprop.backends.exponential import (
     CarrierReference,
@@ -97,6 +98,7 @@ from solprop.stats import (
     collect,
     inband_wavelengths,
     profile_value,
+    weight_refusal_for,
     zdw,
 )
 from solprop.stepper.controller import PIController
@@ -285,6 +287,9 @@ class NativeBackend(StepDriver[_core.State]):
     solprop's registry admits them on this backend by this attribute and refuses
     them, by name, on a build without it.
     """
+    reads_transverse_edge = True
+    """The transverse edge is read on the host from the native state (solprop SEP 40
+    section 5.3); the Adams march stops at each read."""
 
     def __init__(
         self,
@@ -355,7 +360,9 @@ class NativeBackend(StepDriver[_core.State]):
         # NumPy's own BLAS pool would spin beside the native one while this backend
         # lives; it is held to one thread until the last native backend closes.
         self._host_blas = _host_blas.hold(
-            build_info().blas_library, THREAD_BUDGET.threads
+            build_info().blas_library,
+            THREAD_BUDGET.threads,
+            acquire=acquire_host_blas,
         )
 
     def _apply_mask(self, state: ComplexArray) -> _core.State:
@@ -373,7 +380,7 @@ class NativeBackend(StepDriver[_core.State]):
         z: float = 0.0,
         resume: bool = False,
     ) -> None:
-        """Load an exact host `complex128` state and optional noise realization."""
+        """Load a host `complex128` state, of any strides, and optional noise."""
         _require_initial_array(field, self._problem.shape)
         self._loading = True
         try:
@@ -711,7 +718,7 @@ class NativeBackend(StepDriver[_core.State]):
             section=section,
             end_weights=bundle.flow_weights,
             residual=residual,
-            # The flow's own eigenbasis and route, as numba_cpu passes its own.
+            # The flow's own eigenbasis and route.
             basis=(
                 flow.left[section],
                 flow.right[section],
@@ -1175,7 +1182,23 @@ class NativeBackend(StepDriver[_core.State]):
         """Collect field and response statistics without observing the full field."""
         self._require_state()
         grid_value = self._require_grid()
-        if self._problem.transform.modal_tables is not None:
+        # The accessor whitelist comes first, as on every CPU backend: a caller may ask
+        # a backend directly, and a spatial run is refused rather than answered.
+        general_modal = self._problem.transform.modal_tables is not None
+        refusal = refusal_for(
+            declared_capability(
+                general_modal=general_modal,
+                spatial=self._problem.transform.geometry is not None,
+            ),
+            spec.names,
+            withheld=withheld_accessors(
+                general_modal=general_modal,
+                coupled_flow=self._problem.linear.coupled_flow is not None,
+            ),
+        )
+        if refusal is not None:
+            raise BackendError(refusal)
+        if general_modal:
             return self._general_statistics(spec, grid_value)
         integration_names = set(PLASMA_INTEGRATION_STATISTICS) & set(spec.names)
         if integration_names and (
@@ -1339,19 +1362,14 @@ class NativeBackend(StepDriver[_core.State]):
 
         The route's admitted names are functionals of the physical flux ``a.H W a``
         of the basis metric, which solprop's own ``collect`` evaluates; none is a
-        backend-owned response statistic. The accessor whitelist is checked first, as
-        ``numpy_ref`` checks it, because a caller may ask a backend directly.
+        backend-owned response statistic. They are the unit-weight arithmetic, so a
+        weight that is not the constant one is refused rather than silently ignored.
         """
-        refusal = refusal_for(
-            declared_capability(general_modal=True, spatial=False),
-            spec.names,
-            withheld=withheld_accessors(
-                general_modal=True,
-                coupled_flow=self._problem.linear.coupled_flow is not None,
-            ),
+        weight_refusal = weight_refusal_for(
+            spec.names, power_weight_at(self._problem, self._z)
         )
-        if refusal is not None:
-            raise BackendError(refusal)
+        if weight_refusal is not None:
+            raise BackendError(weight_refusal)
         metric = (
             metric_at(self._problem.linear.modal_metric, self._z)
             if set(spec.names) & METRIC_WEIGHTED_STATISTICS
@@ -1594,7 +1612,7 @@ class NativeBackend(StepDriver[_core.State]):
                         zdw(
                             self._modes,
                             self._z,
-                            wavelength_range=inband_wavelengths(self._require_grid()),
+                            wavelength_limits=inband_wavelengths(self._require_grid()),
                         )
                     ]
                 )
@@ -1781,8 +1799,8 @@ def _require_initial_array(field: object, shape: tuple[int, ...]) -> None:
         raise BackendError(
             f"the initial state has shape {array.shape}, expected {shape}"
         )
-    if not array.flags.c_contiguous:
-        raise ValueError("field must be C-contiguous")
+    # Any strides: a problem's initial state may be a broadcast view (kernel schema
+    # 42), and the driver's load copies the field into a contiguous state first.
 
 
 type _TrialArrays = tuple[
@@ -2606,9 +2624,22 @@ class _NativeAdamsMarch(AdamsMarch):
             steps.append(every - backend._natural_count % every)
         monitor = backend._monitor
         checked = None
+        read_at = None
+        spacing = 0.0
         if monitor is not None:
             steps.append(monitor.steps_to_check())
             checked = monitor.checked_at
+            # The transverse edge is read on the host (solprop SEP 40 section 5.3):
+            # steps are capped at its spacing, the march returns before a step
+            # would carry past its next read, and a collar's current is taken at
+            # every committed step.
+            edge = getattr(monitor, "transverse", None)
+            if edge is not None:
+                if edge.every_step:
+                    steps.append(1)
+                if math.isfinite(edge.next_read):
+                    read_at = float(edge.next_read)
+                    spacing = float(edge.ceiling(backend._z))
         return {
             "target": float(target),
             "quiet": bool(backend._collar_quiet),
@@ -2617,6 +2648,8 @@ class _NativeAdamsMarch(AdamsMarch):
             "first_check": False,
             "check_interval": 0.0 if monitor is None else float(monitor.interval),
             "last_check": 0.0 if checked is None else float(checked),
+            "read_at": read_at,
+            "read_spacing": spacing,
             "max_attempts": self.MAX_ATTEMPTS,
             "max_seconds": self.MAX_SECONDS,
             "replay": slack is not None,
@@ -2782,7 +2815,7 @@ class _ResidentLowStorage:
     that applies it -- on a modal route from the phase terms, so a varying operator's
     flows are never transients outside the ledger.
 
-    **The stiffness indicator** (SEP 24 Q11) is not formed, as on ``numba_cpu``:
+    **The stiffness indicator** (SEP 24 Q11) is not formed:
     ``stiffness`` is NaN. Recovering ``g1`` and ``F2`` needs ``C``, which is elided on
     the Cartesian and line routes the march is for or split across the exchange's two
     evaluations, and two more reductions a step.
@@ -3576,7 +3609,7 @@ def _native_problem(
             # Kronrod projection is packed.
             coarse_matrix = np.empty(0, dtype=np.float64)
     # The accepted step's last stage leaves the plasma statistics behind only when
-    # that stage's input is the committed field, as on numba_cpu: a first-same-as-last
+    # that stage's input is the committed field: a first-same-as-last
     # tableau, no split-step absorber (applied to the field after the last stage)
     # and no coupled flow; and not under the modified noise model, where that input
     # carries the noise draw while solprop defines the statistics on the committed
@@ -3725,8 +3758,7 @@ def _native_problem(
 def _dispersive_payload(problem: KernelProblem) -> dict[str, object]:
     """Lay out solprop SEP 6's dispersive response for the native engine.
 
-    The layout of solprop's ``numba_cpu`` (``dispersive_terms_layout``), whose
-    structure the native response takes on every route: the channels grouped as the
+    The structure the native response takes on every route: the channels grouped as the
     leaf groups them (``DispersiveKerrTerms.groups``) -- the symmetric evaluator's one
     mixture per node region, the polynomial's species of equal leg weight and region --
     with one filtered field and one product per symmetric group, and for the

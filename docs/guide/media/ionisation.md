@@ -421,7 +421,6 @@ simulation = Simulation.from_capillary(
     envelope=True,
     plasma=True,
     raman=False,
-    backend="numpy_ref",
 )
 ```
 

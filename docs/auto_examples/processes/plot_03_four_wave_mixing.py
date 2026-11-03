@@ -38,7 +38,8 @@ the idler. Phase matching is sharp. This example's original set-up used 0.48 bar
 the pressure moved to 0.445 bar because optmat's helium index (SEP 3) puts the linear
 phase matching of this capillary at 0.457 bar, and the pump's Kerr phase moves the
 exit optimum to 0.445 bar. At 0.48 bar the idler would now carry under a tenth of the
-pump.
+pump. The experiment found its optimum at 46.7 kPa (0.467 bar), in a 0.5 m fibre of the
+same bore.
 
 **What is approximate.** Only the fundamental mode is carried. The helium index is
 optmat's fit, qualified over the whole band (from 60 nm).
@@ -98,7 +99,7 @@ figures = prop_2d(
     run,
     "wavelength",
     spec_range=(130e-9, 1.2e-6),
-    trange=(-60e-15, 60e-15),
+    time_range=(-60e-15, 60e-15),
     db_min=-40,
 )
 figures[-1].set_size_inches(9.5, 3.6)
@@ -136,7 +137,7 @@ print(
 # input pulse, so the automatic single-peak width label is disabled.
 
 fig, ax = plt.subplots(figsize=(6.0, 3.2))
-time_1d(run, z=0.0, trange=(-60e-15, 60e-15), widths=False, ax=ax)
+time_1d(run, z=0.0, time_range=(-60e-15, 60e-15), widths=False, ax=ax)
 fig.tight_layout()
 
 # %%

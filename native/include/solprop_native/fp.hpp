@@ -36,7 +36,7 @@
  * - Device compilers (CUDA, HIP) keep their own defaults, as their builds do: the
  *   blocks are empty there, nvcc's host pass included, and device accuracy is held to
  *   the measured device envelopes (solprop's ADR-049, amended). Round-to-nearest
- *   intrinsics with a device fusion test are on solprop's roadmap.
+ *   intrinsics with a device fusion test are solprop issue #358.
  *
  * Both settings are lexical: Clang marks each instruction with the setting of the code
  * it was written in, so `Kokkos::complex`'s operators, written in Kokkos' headers, stay

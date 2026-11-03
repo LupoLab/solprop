@@ -50,9 +50,7 @@ from solprop.nonlinear.raman import SilicaTensorResponse  # noqa: E402
 from solprop.stepper import FixedSchedule  # noqa: E402
 from solprop.translate.general import general_modal_route  # noqa: E402
 
-BACKENDS = tuple(
-    name for name in ("numpy_ref", "numba_cpu", "native") if name in available()
-)
+BACKENDS = tuple(name for name in ("numpy_ref", "native") if name in available())
 GROUPS = ("general_", "coupled_flow_", "flow_")
 GENERAL_GROUPS = (
     "general_maps",

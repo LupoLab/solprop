@@ -11,7 +11,7 @@ not amortise GPU kernel launches and is not a device-batching performance claim.
 
 import copy
 import functools
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from contextlib import ExitStack
 from typing import cast
 
@@ -21,7 +21,7 @@ from jaxtyping import Complex
 from solprop.backends.driver import StepDriver, replay_tolerance
 from solprop.backends.multistep import AdamsMarch
 from solprop.backends.protocol import Backend, Observation
-from solprop.exceptions import BackendError, BoundaryError
+from solprop.exceptions import BackendError, BoundaryError, BoundaryWarning
 from solprop.monitor import BoundaryMonitor
 from solprop.stats import StatsSpec
 from solprop.stepper.schedule import FixedSchedule
@@ -34,7 +34,7 @@ def _refuse_invalid_norm(norms: Sequence[float], backend: str) -> None:
     """Name the member whose diagnostic no step record on any route can carry.
 
     A batch only replays, so every step it records is accepted, and a non-finite or
-    negative error norm on an accepted step is refused by ``StepHistory`` and
+    negative error norm on an accepted step is refused by ``BackendHistory`` and
     ``StepSummary`` at the next save plane whether the member ran in a batch or
     alone, so this is not a batch-only rule; what the batch owes the caller is the
     member's index, rather than an anonymous history error one plane later that
@@ -94,12 +94,17 @@ class LockstepRunner(StepDriver[tuple[object, ...]]):
         self._members: tuple[StepDriver[object], ...] = tuple(members)
         _validate_members(self._members)
         first = self._members[0]
+        # The members read the transverse edge, or not; the runner speaks for them.
+        self.reads_transverse_edge = first.reads_transverse_edge
         super().__init__(first._problem)
         self.name = first.name
         self.max_batch = len(self._members)
         self._state = tuple(member._require_state() for member in self._members)
         self._member_norms: tuple[float, ...] = ()
-        self._stops: list[BoundaryError | None] = [None] * len(self._members)
+        self._stops: list[BoundaryError | BoundaryWarning | None] = [None] * len(
+            self._members
+        )
+        self._records: list[Mapping[str, object] | None] = [None] * len(self._members)
 
     def _apply_mask(
         self, state: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]
@@ -177,6 +182,7 @@ class LockstepRunner(StepDriver[tuple[object, ...]]):
         for member in self._members:
             member._refuse_in_flight()
         while self._schedule_index < schedule.n_steps and self._z < target - slack:
+            self._poll_stop()
             dz = float(schedule.steps[self._schedule_index])
             end = float(edges[self._schedule_index + 1])
             self._member_norms = tuple(
@@ -287,22 +293,46 @@ class LockstepRunner(StepDriver[tuple[object, ...]]):
                 self._watched(index, functools.partial(member.attach_monitor, monitor))
 
     @property
-    def member_stops(self) -> tuple[BoundaryError | None, ...]:
+    def member_stops(self) -> tuple[BoundaryError | BoundaryWarning | None, ...]:
         """Return what stopped each member's watch, in member order.
 
         Returns
         -------
         tuple
-            The :class:`~solprop.exceptions.BoundaryError` that stopped a member, or
-            ``None`` for one still watched or never watched.
+            The :class:`~solprop.exceptions.BoundaryError` that stopped a member, the
+            :class:`~solprop.exceptions.BoundaryWarning` raised as an error for it
+            under an ``"error"`` warnings filter, or ``None`` for one still watched
+            or never watched.
         """
         return tuple(self._stops)
 
+    @property
+    def member_records(self) -> tuple[Mapping[str, object] | None, ...]:
+        """Return each member's monitor record, as it closed, in member order.
+
+        A stopped member's is its record at the stop; a watched one's is read now.
+
+        Returns
+        -------
+        tuple
+            The :meth:`~solprop.monitor.BoundaryMonitor.summary` of each member, or
+            ``None`` for one never watched.
+        """
+        return tuple(
+            record if member._monitor is None else member._monitor.summary()
+            for member, record in zip(self._members, self._records, strict=True)
+        )
+
     def finish_monitors(self) -> None:
-        """Report each still-watched member's removed fraction at the run's end."""
-        for member in self._members:
-            if member._monitor is not None:
-                member._monitor.finish()
+        """Report each still-watched member's removed fraction at the run's end.
+
+        A warning raised as an error fails that member alone (:attr:`member_stops`),
+        as a run of it alone would fail.
+        """
+        for index, member in enumerate(self._members):
+            monitor = member._monitor
+            if monitor is not None:
+                self._watched(index, monitor.finish)
 
     def _watched(self, index: int, call: Callable[[], None]) -> None:
         """Make one member's monitor call; a stop ends that member's watch alone.
@@ -320,8 +350,13 @@ class LockstepRunner(StepDriver[tuple[object, ...]]):
         member = self._members[index]
         try:
             call()
-        except BoundaryError as error:
+        except (BoundaryError, BoundaryWarning) as error:
             self._stops[index] = error
+            # Only a watched member's call raises its stop: attach_monitor watches it
+            # before the launch is judged, and the other calls return when unwatched.
+            monitor = member._monitor
+            assert monitor is not None
+            self._records[index] = monitor.summary()
             member._monitor = None
             # The member's backend stops reading for it, a split's removal included.
             member._bind_monitor(None)
@@ -479,6 +514,7 @@ def _validate_members(members: tuple[StepDriver[object], ...]) -> None:
     schedule = settings.schedule
     if schedule is None:
         raise BackendError("lockstep execution requires an explicit fixed schedule")
+    _refuse_mixed_precisions(members)
     for member in members:
         if not isinstance(member, Backend):
             raise BackendError("lockstep members must implement the backend protocol")
@@ -525,6 +561,25 @@ def _validate_members(members: tuple[StepDriver[object], ...]) -> None:
         ):
             raise BackendError("lockstep members require the same statistics request")
         _refuse_mixed_guides(problem, first._problem)
+
+
+def _refuse_mixed_precisions(members: tuple[StepDriver[object], ...]) -> None:
+    """Refuse members whose problems do not share one precision.
+
+    Parameters
+    ----------
+    members : tuple of solprop.backends.driver.StepDriver
+        Loaded workspaces, at least one.
+
+    Raises
+    ------
+    BackendError
+        If a member's precision differs from the first's: each member's trial keeps
+        its own format, and the runner's common step and norms would mix them.
+    """
+    first = members[0]._problem.precision
+    if any(member._problem.precision != first for member in members):
+        raise BackendError("lockstep execution refuses mixed precisions")
 
 
 def _general_leaves(problem: KernelProblem) -> object:

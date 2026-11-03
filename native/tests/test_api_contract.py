@@ -86,7 +86,7 @@ def test_build_info_is_frozen_and_complete() -> None:
     assert dataclasses.is_dataclass(info)
     with pytest.raises(dataclasses.FrozenInstanceError):
         info.thread_count = 99  # type: ignore[misc]
-    assert info.schema_version == 40
+    assert info.schema_version == 42
     assert info.response_full_thread_columns > 0
     assert (
         info.response_full_thread_columns
@@ -243,7 +243,7 @@ def test_module_entry_point_prints_one_json_record() -> None:
     assert completed.returncode == 0, completed.stderr
     lines = completed.stdout.splitlines()
     assert len(lines) == 1
-    assert json.loads(lines[0])["schema_version"] == 40
+    assert json.loads(lines[0])["schema_version"] == 42
 
 
 @pytest.mark.parametrize(
@@ -512,8 +512,12 @@ def test_initial_array_contract(
             )
         with pytest.raises(ValueError, match="rank 4"):
             backend.set_initial(writable_initial.reshape(-1), None)
-        with pytest.raises(ValueError, match="C-contiguous"):
-            backend.set_initial(writable_initial[..., ::-1], None)
+        # Any strides load as their contiguous copy, bit for bit: the load copies.
+        strided = writable_initial[..., ::-1]
+        backend.set_initial(strided, None)
+        loaded = backend.observe().require_field()
+        backend.set_initial(np.ascontiguousarray(strided), None)
+        np.testing.assert_array_equal(loaded, backend.observe().require_field())
         read_only = writable_initial.copy()
         read_only.setflags(write=False)
         backend.set_initial(read_only, None)
@@ -659,13 +663,13 @@ def test_import_and_shutdown_in_a_fresh_process() -> None:
 
 
 def test_a_process_that_ran_both_backends_exits_cleanly() -> None:
-    """Finalising the runtime does not destroy FFTW state that pyFFTW still uses.
+    """Finalising the runtime does not destroy FFTW state another user still holds.
 
     Kokkos-FFT cleans up FFTW's process-wide planner when Kokkos finalises. Finalised
-    from a Python exit handler, that ran before the interpreter released the Numba
-    backend's pyFFTW plans, whose destruction then crashed the process. The probe
-    also holds a plan on this build's own FFTW library, so the test applies whatever
-    pyFFTW was built against.
+    from a Python exit handler, that ran before the interpreter released other users'
+    plans on the same library, whose destruction then crashed the process. The probe
+    holds such a plan on this build's own FFTW library, and runs the reference backend
+    beside the native one.
     """
     script = Path(__file__).with_name("teardown_probe.py")
     completed = subprocess.run(
@@ -676,13 +680,18 @@ def test_a_process_that_ran_both_backends_exits_cleanly() -> None:
         env={**os.environ, "OMP_PROC_BIND": "false"},
     )
     assert completed.returncode == 0, completed.stderr
-    assert json.loads(completed.stdout.splitlines()[-1]) == ["native", "numba_cpu"]
+    assert json.loads(completed.stdout.splitlines()[-1]) == ["native", "numpy_ref"]
 
 
 @pytest.mark.skipif(sys.platform != "darwin", reason="macOS OpenMP-runtime guard")
 def test_pyfftw_first_is_refused_before_openmp_initialization() -> None:
+    # solprop does not depend on pyFFTW, so the test stands in a module of that name.
+    script = (
+        "import sys, types; sys.modules['pyfftw'] = types.ModuleType('pyfftw'); "
+        "import solprop_native"
+    )
     completed = subprocess.run(
-        [sys.executable, "-c", "import pyfftw; import solprop_native"],
+        [sys.executable, "-c", script],
         capture_output=True,
         text=True,
         check=False,

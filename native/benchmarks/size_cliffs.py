@@ -86,7 +86,7 @@ def timed(
 def main() -> None:
     """Time every size once warm and report the cost per evaluation and per sample."""
     parser = argparse.ArgumentParser()
-    parser.add_argument("--backend", choices=("numba_cpu", "native"), default="native")
+    parser.add_argument("--backend", choices=("numpy_ref", "native"), default="native")
     parser.add_argument("--repeats", type=int, default=3)
     parser.add_argument("--limit", type=float, default=1.25)
     parser.add_argument("--check", action="store_true")

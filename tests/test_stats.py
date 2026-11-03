@@ -15,7 +15,7 @@ from numpy.testing import assert_allclose
 from legacy_geometry import LEGACY_GRID
 from solprop import fourier, stats
 from solprop.constants import C
-from solprop.exceptions import ModeError, OutputError
+from solprop.exceptions import ModeError, OutputError, SolpropWarning
 from solprop.grid import EnvelopeGrid, FieldGrid
 from solprop.modes import MarcatiliMode
 from solprop.output.schema import SavedPlane
@@ -336,7 +336,7 @@ def test_inband_wavelengths_are_the_grid_limits(envelope_grid):
 
 
 def test_zdw_finds_the_zero_of_the_group_velocity_dispersion(capillary):
-    value = zdw([capillary], 0.0, wavelength_range=(150e-9, 900e-9))
+    value = zdw([capillary], 0.0, wavelength_limits=(150e-9, 900e-9))
     assert value.shape == (1,)
     # The same root the mode's own accessor reports; see tests/modes/test_base.py.
     # 376.4 nm on optmat's helium since SEP 3's Phase 4a (364.8 nm on the registry's),
@@ -346,7 +346,36 @@ def test_zdw_finds_the_zero_of_the_group_velocity_dispersion(capillary):
 
 def test_zdw_refuses_a_mode_with_no_zero_in_the_window(capillary):
     with pytest.raises(ModeError, match="does not change sign"):
-        zdw([capillary], 0.0, wavelength_range=(500e-9, 900e-9))
+        zdw([capillary], 0.0, wavelength_limits=(500e-9, 900e-9))
+
+
+def test_collect_records_nan_when_the_band_holds_no_zero(capillary):
+    """A run asking for ``zdw`` is not stopped because its band has no zero to find."""
+    grid = EnvelopeGrid.from_limits(1.0, 800e-9, (600e-9, 1.2e-6), 1e-12)
+    field = gaussian(grid, energy_j=ENERGY)
+    with pytest.warns(SolpropWarning, match="records nan for modes"):
+        values = collect(
+            StatsSpec(names=("zdw",)), grid, plane_of(field), modes=[capillary]
+        )
+    assert values["zdw"].shape == (1,)
+    assert np.isnan(values["zdw"]).all()
+
+
+def test_collect_records_each_modes_zero_on_its_own(capillary):
+    """One mode with no zero in the band leaves the other's value in place."""
+    grid = EnvelopeGrid.from_limits(1.0, 400e-9, (250e-9, 1.2e-6), 1e-12)
+    field = gaussian(grid, energy_j=ENERGY)
+    narrow = MarcatiliMode(2e-6, "He", 0.4, model="reduced", cladding=1.45)
+    reference = zdw([capillary], 0.0, wavelength_limits=inband_wavelengths(grid))[0]
+    with pytest.warns(SolpropWarning, match=r"records nan for modes \[1\]"):
+        values = collect(
+            StatsSpec(names=("zdw",)),
+            grid,
+            plane_of(field),
+            modes=[capillary, narrow],
+        )
+    assert values["zdw"][0] == reference
+    assert np.isnan(values["zdw"][1])
 
 
 # ------------------------------------------------------------------------- the spec

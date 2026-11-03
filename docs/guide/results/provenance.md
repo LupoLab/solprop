@@ -220,7 +220,7 @@ with open_file("run.h5") as stored:
 ```
 
 The run's [start-of-run summary](../performance/progress.md#what-a-run-says-before-it-starts)
-is kept the same way, as {py:data}`~solprop.driver.summary.RUN_SUMMARY_ANNOTATION`
+is kept the same way, as {py:data}`~solprop.output.schema.RUN_SUMMARY_ANNOTATION`
 (`"run_summary"`): written when the run starts rather than when it closes, a list with
 one `{"title", "rows"}` mapping per start, so a resumed run adds its continuation's. It
 is a description for a person, built from the record and the backend's execution facts.

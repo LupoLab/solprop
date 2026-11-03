@@ -5,27 +5,224 @@
 """The CPUs this process may run on, as the scheduler granted them.
 
 Linux reports affinity per thread. An OpenMP runtime started with ``OMP_PROC_BIND``
-set -- GNU libgomp, which pyFFTW's and Kokkos's builds load -- binds the **main**
-thread to the first of its places when it starts, so after the first parallel region
+set -- GNU libgomp, which Kokkos's builds load -- binds the **main** thread to the first
+of its places when it starts, so after the first parallel region
 ``os.sched_getaffinity(0)`` names one CPU although the process was granted many. A
 thread pool sized from that answer runs on one core (measured: an 18-core allocation
-gave the Numba kernels one thread). The affinity is therefore read once, when
+gave a pool sized this way one thread). The affinity is therefore read once, when
 ``solprop`` is imported, before any of its runtimes start, and the later answer is
 believed only when it is not that collapse.
-
-Threads inherit their creator's affinity, so a pool started from the bound main thread
-puts every worker on that one CPU: eighteen Numba workers on one core ran 3.7 times
-slower than one thread (measured). :func:`unbound` lifts the binding while a pool is
-started and puts it back after.
 """
 
 import contextlib
 import functools
 import os
+import platform
 import sys
+import threading
+import warnings
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
+
+# NumPy's OpenBLAS on Windows on Arm crashes or hangs in small linear solves when one of
+# these sizes it at load. threadpoolctl reaches the same widths safely once it's loaded.
+LOAD_TIME_BLAS_VARIABLES = (
+    "OMP_NUM_THREADS",
+    "OPENBLAS_NUM_THREADS",
+    "GOTO_NUM_THREADS",
+)
+
+_BLAS_LOCK = threading.RLock()
+_BLAS_USERS: set[object] = set()
+_BLAS_LIMITS = contextlib.ExitStack()
+
+
+def sizes_blas_after_load() -> bool:
+    """Say whether BLAS must be sized after it loads, not by the environment.
+
+    Returns
+    -------
+    bool
+        True on native Windows on Arm.
+    """
+    return sys.platform == "win32" and platform.machine() == "ARM64"
+
+
+def _warn_of_load_time_blas_width() -> None:
+    """Warn of a width that NumPy's linear solves can't survive on this platform."""
+    if not sizes_blas_after_load():
+        return
+    for name in LOAD_TIME_BLAS_VARIABLES:
+        value = os.environ.get(name, "").strip()
+        # Measured: 1 and 2 fail at sizes 23 to 31, and 3 at size 31.
+        if value.isdecimal() and 1 <= int(value) <= 3:
+            warnings.warn(
+                f"{name}={value} can crash or hang NumPy's linear solves on Windows "
+                "on Arm, so unset it: solprop limits these libraries itself",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+
+
+_warn_of_load_time_blas_width()
+
+
+@dataclass(frozen=True)
+class _BlasPool:
+    """Keep one library's original width and its live owners' requests."""
+
+    # threadpoolctl has no stubs; dynamic library controllers stop at this boundary.
+    library: Any
+    original: int
+    requests: dict[object, int]
+
+
+_BLAS_POOLS: dict[str, _BlasPool] = {}
+
+
+@dataclass(frozen=True)
+class _BlasLease(contextlib.AbstractContextManager[None]):
+    """Release one owner's requests without disturbing the remaining owners."""
+
+    owner: object
+    paths: tuple[str, ...]
+
+    def __exit__(self, *_exception: object) -> None:
+        """Release the owner without suppressing a context's exception.
+
+        Parameters
+        ----------
+        *_exception : object
+            Exception details supplied by the context protocol.
+        """
+        self.restore_original_limits()
+
+    def restore_original_limits(self) -> None:
+        """Restore the remaining limit, or the original width after last release."""
+        with _BLAS_LOCK:
+            for path in self.paths:
+                pool = _BLAS_POOLS.get(path)
+                if pool is None or self.owner not in pool.requests:
+                    continue
+                remaining = [
+                    width
+                    for owner, width in pool.requests.items()
+                    if owner is not self.owner
+                ]
+                pool.library.set_num_threads(
+                    min(remaining) if remaining else pool.original
+                )
+                # A failed setter leaves this owner intact so release can retry.
+                del pool.requests[self.owner]
+                if not pool.requests:
+                    del _BLAS_POOLS[path]
+
+
+def acquire_host_blas(libraries: Sequence[Any], threads: int) -> _BlasLease:
+    """Borrow host BLAS libraries at the narrowest of their active requests.
+
+    Construction and backend lifetimes can cross in either order. Independent
+    threadpoolctl limiters capture each other's temporary settings and restore
+    them too early; this process-owned lease saves the original width once.
+    Native's adapter supplies this hook explicitly, keeping standalone native
+    imports independent of solprop.
+
+    Parameters
+    ----------
+    libraries : sequence
+        Threadpoolctl library controllers, already selected by the caller. Their
+        untyped library API is confined here and to the private pool record.
+    threads : int
+        Positive requested width, already resolved against the caller's budget.
+
+    Returns
+    -------
+    _BlasLease
+        Eagerly applied, idempotently released by a context exit or by
+        ``restore_original_limits``, as the backend adapters expect.
+    """
+    owner = object()
+    paths = tuple(os.path.realpath(library.filepath) for library in libraries)
+    lease = _BlasLease(owner, paths)
+    with _BLAS_LOCK:
+        try:
+            for library, path in zip(libraries, paths, strict=True):
+                if path not in _BLAS_POOLS:
+                    _BLAS_POOLS[path] = _BlasPool(library, library.num_threads, {})
+                pool = _BLAS_POOLS[path]
+                pool.requests[owner] = threads
+                library.set_num_threads(min(pool.requests.values()))
+        except BaseException:
+            lease.restore_original_limits()
+            raise
+    return lease
+
+
+@contextlib.contextmanager
+def host_blas() -> Iterator[None]:
+    """Hold host construction's BLAS pools within the process's thread budget.
+
+    Small mode solves and coupling products otherwise start every worker in
+    NumPy's and SciPy's independent BLAS libraries. The scope overrides their
+    vendor defaults with one thread, or ``SOLPROP_BLAS_THREADS`` under ADR-052,
+    then restores the previous limits, including a live backend's own hold.
+    The native backend's BLAS keeps its separately fitted width.
+
+    Nested and overlapping construction share one library walk and the first
+    scope's limit. The last scope restores it: threadpoolctl changes process-wide
+    pools, so one Python thread must not restore them while another is using
+    them. Importing this module starts no library walk or numerical runtime.
+
+    Yields
+    ------
+    None
+        While the controllable host BLAS pools are limited. A BLAS with no
+        runtime thread control, such as Accelerate, is left as it was.
+
+    Raises
+    ------
+    ValueError
+        If a thread-count environment variable is invalid.
+    """
+    with _BLAS_LOCK:
+        if not _BLAS_USERS:
+            # Delayed: _process is imported before NumPy and the native runtime.
+            import threadpoolctl  # noqa: PLC0415
+
+            requested = thread_count("SOLPROP_BLAS_THREADS")
+            threads = thread_budget().explicit(1 if requested is None else requested)
+            native = sys.modules.get("solprop_native")
+            build_info = getattr(native, "build_info", None)
+            own = (
+                ""
+                if build_info is None
+                else os.path.realpath(build_info().blas_library)
+            )
+            controller = threadpoolctl.ThreadpoolController()
+            libraries = controller.select(user_api="blas")
+            paths = [
+                library.filepath
+                for library in libraries.lib_controllers
+                if os.path.realpath(library.filepath) != own
+            ]
+            # An empty selection must not limit the native BLAS on its own.
+            if paths:
+                _BLAS_LIMITS.enter_context(
+                    acquire_host_blas(
+                        controller.select(filepath=paths).lib_controllers, threads
+                    )
+                )
+        owner = object()
+        _BLAS_USERS.add(owner)
+    try:
+        yield
+    finally:
+        with _BLAS_LOCK:
+            _BLAS_USERS.remove(owner)
+            if not _BLAS_USERS:
+                _BLAS_LIMITS.close()
 
 
 def _query() -> tuple[int, ...]:
@@ -63,25 +260,6 @@ def _at_import() -> tuple[int, ...]:
 _AT_IMPORT = _at_import()
 
 
-def _size_numba() -> None:
-    """Name the grant's size to Numba when an OpenMP binding would shrink its pool.
-
-    Numba sizes its pool from the importing thread's affinity, once. When an OpenMP
-    runtime has already bound this thread to one CPU (``solprop_native`` imported
-    first), that pool would hold one thread. ``NUMBA_NUM_THREADS`` is set to the
-    grant's size first, unless Numba is already imported or the user set it.
-    """
-    if (
-        len(_AT_IMPORT) > len(_query())
-        and "numba" not in sys.modules
-        and "NUMBA_NUM_THREADS" not in os.environ
-    ):
-        os.environ["NUMBA_NUM_THREADS"] = str(len(_AT_IMPORT))
-
-
-_size_numba()
-
-
 def allowed_cpus() -> tuple[int, ...]:
     """Return the CPUs this process may run on, undoing an OpenMP main-thread binding.
 
@@ -113,17 +291,6 @@ def allowed_cpus() -> tuple[int, ...]:
     ):
         return _AT_IMPORT
     return current
-
-
-def _collapsed() -> bool:
-    """Return whether the main thread's affinity is an OpenMP binding's single CPU.
-
-    Returns
-    -------
-    bool
-        True when :func:`allowed_cpus` differs from the thread's current affinity.
-    """
-    return allowed_cpus() != _query()
 
 
 @dataclass(frozen=True)
@@ -514,61 +681,3 @@ def oversubscribing() -> bool:
         msg = f"SOLPROP_OVERSUBSCRIBE must be 0 or 1, and is {value!r}"
         raise ValueError(msg)
     return value == "1"
-
-
-@contextlib.contextmanager
-def unbound() -> Iterator[None]:
-    """Give the calling thread the process's CPUs while a thread pool is started.
-
-    Workers created inside the block inherit every CPU the process was granted, not
-    the one CPU an OpenMP runtime bound the main thread to; the binding is restored on
-    leaving, so the runtime's own placement of the main thread is unchanged. Nothing
-    happens where the affinity cannot be set or was not collapsed.
-
-    Yields
-    ------
-    None
-        Inside the block the calling thread may run on the whole grant.
-
-    Examples
-    --------
-    >>> from solprop._process import unbound
-    >>> with unbound():
-    ...     pass
-    """
-    if not hasattr(os, "sched_setaffinity") or not _collapsed():
-        yield
-        return
-    bound = _query()
-    os.sched_setaffinity(0, _AT_IMPORT)
-    try:
-        yield
-    finally:
-        os.sched_setaffinity(0, bound)
-
-
-def release() -> bool:
-    """Give the calling thread the process's CPUs for good, undoing an OpenMP binding.
-
-    For ``numba_cpu``: FFTW's and Numba's threads start whenever a plan first runs or a
-    pool first grows, long after construction, and each inherits the thread that starts
-    it. When the native backend's OpenMP runtime, loaded first under ``OMP_PROC_BIND``,
-    has bound the main thread to one CPU, every such thread would share it: the
-    comb-to-continuum window took 45 s against 5.4 s on 64 Zen 5 cores (SEP 28).
-    The native backend's own threads keep their placement; only the main thread moves.
-
-    Returns
-    -------
-    bool
-        Whether the affinity was changed.
-
-    Examples
-    --------
-    >>> from solprop._process import release
-    >>> isinstance(release(), bool)
-    True
-    """
-    if not hasattr(os, "sched_setaffinity") or not _collapsed():
-        return False
-    os.sched_setaffinity(0, _AT_IMPORT)
-    return True

@@ -158,7 +158,7 @@ fitted ranges of helium and silica. The collar is weakened so that the twenty
 micrometre steps are stable: the absorber is an explicit term in the step, so its
 strength limits the step it allows.
 
-.. GENERATED FROM PYTHON SOURCE LINES 109-162
+.. GENERATED FROM PYTHON SOURCE LINES 109-161
 
 .. code-block:: Python
 
@@ -182,7 +182,6 @@ strength limits the step it allows.
                 energy=1e-9,
                 modes=3,
                 n_save=6,
-                backend="numpy_ref",
                 wall=wall,
                 schedule=FixedSchedule(np.full(steps, length / steps)),
                 dz_max=length / steps,
@@ -229,13 +228,13 @@ strength limits the step it allows.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 163-166
+.. GENERATED FROM PYTHON SOURCE LINES 162-165
 
 What the run recorded. ``modal.flow`` is part of the run's recorded identity, so a
 file written by this run says which block it propagated, and a resume against a
 different one is refused, naming the entry that differs.
 
-.. GENERATED FROM PYTHON SOURCE LINES 166-196
+.. GENERATED FROM PYTHON SOURCE LINES 165-195
 
 .. code-block:: Python
 
@@ -287,7 +286,7 @@ different one is refused, naming the entry that differs.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 197-204
+.. GENERATED FROM PYTHON SOURCE LINES 196-203
 
 Related reading
 ---------------
@@ -300,7 +299,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 0.438 seconds)
+   **Total running time of the script:** (0 minutes 1.931 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_capillaries_plot_07_coherent_wall.py:

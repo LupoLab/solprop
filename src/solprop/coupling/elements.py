@@ -775,8 +775,8 @@ def _reference_norm(
 def _edge_nodes(space: RadialGrid | FreeGrid) -> Bool[np.ndarray, " n_nodes"]:
     """Return the nodes of the window's outer band.
 
-    The declared collar where there is one, otherwise the outer tenth of each
-    half-width.
+    The room outside the requested size where the grid has some, otherwise the
+    outer tenth of each half-width.
 
     Parameters
     ----------
@@ -788,10 +788,10 @@ def _edge_nodes(space: RadialGrid | FreeGrid) -> Bool[np.ndarray, " n_nodes"]:
     numpy.ndarray
         Boolean mask over the nodes, shape ``(n_nodes,)``.
     """
-    if space.window_factor > 0:
+    if space.collar_fraction > 0:
         return np.asarray(space.window < 1)
     if isinstance(space, RadialGrid):
-        return np.asarray(space.r > 0.9 * space.radius)
+        return np.asarray(space.r > 0.9 * space.outer_radius)
     x, y = _nodes(space)
     return np.asarray(
         (np.abs(x) > 0.9 * np.max(np.abs(space.x)))
@@ -2982,7 +2982,7 @@ class _WrapCount:
         content = space.spectral_weights[columns, None] * (weights * index) * density
         real = np.real(k_z)
         if isinstance(space, RadialGrid):
-            ratios = [space.k_r[columns][:, None] / space.radius]
+            ratios = [space.k_r[columns][:, None] / space.outer_radius]
         else:
             k_x = np.tile(space.k_x, space.n_y)[columns]
             k_y = np.repeat(space.k_y, space.n_x)[columns]
@@ -3104,7 +3104,7 @@ def _angular_output(
             kernel = j0(np.outer(part, space.k_r)) * scale[None, :]
             values = kernel @ flat
             samples[start : start + block] = np.where(
-                (part < space.radius)[:, None], values, 0.0
+                (part < space.outer_radius)[:, None], values, 0.0
             )
         field_out = samples.reshape(rho.size, *spectrum.shape[1:])
         return _to_spectrum(output, field_out)

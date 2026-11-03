@@ -135,7 +135,9 @@ below. What disqualifies one is cost per step, not difficulty: `zdw` is a root s
 mode, which would dominate the step if paid on every accepted one; `peak_intensity` is
 admitted because its on-axis matrix is built once and rescaled with the taper rather than
 rebuilt on every call. A spec naming `zdw` in the periodic subset raises
-{py:class}`~solprop.exceptions.OutputError` when it is built.
+{py:class}`~solprop.exceptions.OutputError` when it is built. `zdw` searches the grid's own
+band; a mode with one sign of $\beta_2$ at both ends of the band records `nan` with a
+warning, and the run continues.
 
 ## Which names a basis admits
 
@@ -148,11 +150,13 @@ capability does not admit is refused by name
 ({py:mod}`solprop.output.capability`). The gate is applied at **four** doors: at
 {py:class}`~solprop.stats.StatsSpec` admission in the run loop, in each backend's
 `stats`, in the accessors of {py:mod}`solprop.processing.modal`, and in the
-modal-amplitude processing functions {py:func}`~solprop.processing.time.energy` and
-{py:func}`~solprop.processing.time.peak_power`. The
-last two see only the stored record, and `peak_power(modes="sum")` is
+modal-amplitude readers of {py:mod}`solprop.processing` and the plots drawn from them
+({py:data}`~solprop.output.capability.COLUMN_READINGS`). Those readers see only the
+stored record. On a general modal file the fourth door refuses `energy` and
+`peak_power` (and the plot of the energy): `peak_power(modes="sum")` is
 `peak_power_total`, so without that door the number the other three refuse would come
-back through a different import.
+back through a different import. On a spatial file it refuses every one of them,
+because they read the columns as modes ([below](#spatial-files-and-the-modal-readers)).
 
 ```{eval-rst}
 .. list-table::
@@ -178,7 +182,10 @@ back through a different import.
        replacement. The same thirteen are the ``accessors`` list a general modal record
        publishes, so a file says what it admits.
    * - ``spatial``
-     - A radial or Cartesian beam, unchanged, and the general names refused.
+     - A radial, Cartesian, line or planar beam: every statistic unchanged (its
+       ``energy`` is the beam's axial flux), and the general names refused. The
+       processing and plotting readers that read each column as a mode are refused
+       by name ([below](#spatial-files-and-the-modal-readers)).
 ```
 
 The refusal names the basis and what to use instead, and never redefines the old name:
@@ -189,6 +196,40 @@ analytic_flux or reconstructed E/H with an explicit detector definition. A gener
 guide resolves E_x, E_y and E_z at its own quadrature nodes, and its coordinate
 quantities are not additive, so the old name is refused rather than redefined
 ```
+
+### Spatial files and the modal readers
+
+The processing readers were written for a mode axis of true-power amplitudes in
+$\sqrt{\mathrm W}$. A radial or Cartesian column is a field sample in V m or V/m, and a
+planar column a slab amplitude per $y$ frequency, so $|a|^2$ summed over the columns is
+neither a power nor an energy: a 3 nJ launch would read back as about 5e-15 J. On a
+spatial file the readers that form it refuse by name, at the same door, and name the
+[spatial functional](../free-space/flux.md#using-the-measure) to use instead:
+`energy`, `peak_power`, `get_power`, `get_spectral_density`, `fwhm_t`, `fwhm_f`,
+`time_bandwidth`, `arrival_time`, the two autocorrelations and `coherence_time`, the
+plots `prop_2d`, `time_1d`, `spec_1d` and `plot_energy`, and a plane observer's
+`power` and `spectral_density`
+({py:data}`~solprop.output.capability.COLUMN_READINGS`). The refusal follows the scan
+reductions' wording, names only functionals that work on the file's route, and points
+to the beam statistics the run recorded, if any:
+
+```{code-block} text
+energy measures modal amplitudes and this is a radial run, whose columns are not: use
+solprop.spatial.spatial_energy; the run's own beam statistics are energy. ...
+```
+
+A spectral reader on a radial, Cartesian or line file points to the `spectral_energy` of
+the plane {py:func}`~solprop.processing.planes.field_plane` reads, or to
+{py:func}`~solprop.spatial.on_axis_spectrum`; on a planar file, whose planes
+`field_plane` does not read, no spatial functional gives the spectrum yet, and the
+refusal says so. `time_1d` is refused for a field too, since it would label a column's
+field in W^1/2; {py:func}`~solprop.processing.fields.get_field` reads it.
+
+The run's statistics are not affected: `stats/energy` of a spatial run is the beam's
+energy, from the same functional, and {py:func}`solprop.capabilities.output` admits it.
+The readers' refusals are stated apart, in its `refused_readers`.
+`get_spectrum`, `get_field` and `get_phase` return the stored columns as they are, in
+the file's own units, and read every file.
 
 **The two scalar general names are not indexed by channel, and that is the point.** `physical_energy`
 is the
@@ -472,14 +513,11 @@ plane, so {py:func}`~solprop.stats.collect` forms them from a plane with
 run's linear operator, which a plane does not carry, and `collect` refuses it by name. A spec naming a statistic whose
 table it does not carry is refused when it is built, and so are radial and planar-hybrid
 geometry, which have no Cartesian transverse wavevector. All five run on `numpy_ref`,
-through the reference pass {py:func}`~solprop.spatial.aperture_statistics`, and on
-`numba_cpu`, which computes them natively in one compiled pass over the state, threaded
-over bands of columns whose sums do not depend on the thread count; it agrees with the
+through the reference pass {py:func}`~solprop.spatial.aperture_statistics`, and on the
+native backend, which computes them in one compiled pass over the state; it agrees with the
 reference within a rounding bound, and decides every hard edge as the reference does.
-On `numba_cpu` the same pass also forms `on_axis_spectrum` (an aperture with
-$W\equiv1$), and a plane's five statistics cost about as much as `energy`. The native
-backend runs the same pass natively, in the same order of sums, and agrees with both
-within that bound; a solprop-native build from before this pass is refused them by
+The same pass also forms `on_axis_spectrum` (an aperture with
+$W\equiv1$). A solprop-native build from before this pass is refused them by
 name, before it is built.
 Lockstep batch members must carry equal tables.
 

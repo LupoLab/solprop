@@ -6,7 +6,7 @@ about: A bug, performance problem, feature or clean-up that someone can pick up 
 <!--
 The standard is in CONTRIBUTING.md, "Writing an issue". In short:
 
-- First search the issues, the pull requests, the SEPs and the roadmap, and link what you find.
+- First search the issues, the pull requests and the SEPs, and link what you find.
 - Leave out any section that does not apply, and delete these comments.
 - Say what you ran and what you only read. Link code as a permalink to a commit.
 - Mark a choice that is not the contributor's with **Needs a decision:**, saying who decides

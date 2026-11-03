@@ -47,10 +47,31 @@ pulse, noise and output keywords; these differ, by interface:
 | `rtol`, `atol`, `backend`, `precision` | yes; `atol` 1e-14 √W | yes; `atol` 1e-10 √W | yes; `atol` 1e-10 √W | in the `settings` they require |
 | `raman` | `False`: fused silica's response only when asked | `None`: each species' curated response | `None`, as the capillary | the medium's own |
 | loss | `loss_db_per_m`, a fibre's attenuation | `loss=True`, the capillary's own wall loss | the modes' own | the medium's own |
-| `step_planes`, `interpolate_planes` | yes (`step_planes=0` is off) | yes (`step_planes=None` is off) | no: replace them in `Simulation.from_waveguide(...).settings` | in the settings |
-| `polarisation_taper` | yes | no | no | no |
+| `step_planes`, `interpolate_planes` | yes (`step_planes=None`, the default, and `0` are off) | yes (`None` is off, or every step with the TDSE response) | yes (`None` is off) | in the settings |
+| `polarisation_taper` | yes | yes | yes | in the settings |
+| the launch | the pulse | `launch=`, or the first mode | `launch=`; with `provider=` also `channel=` or `incident=` with `coupling=`; or the first channel | a beam (`SpatialPulse`, `PlanarPulse`) |
+| `memory_budget` | `Simulation.run(memory_budget=)` | as the GNLSE | as the GNLSE; with `provider=` also `Simulation.from_waveguide(memory_budget=)` | as the GNLSE |
 
-The default integrators and tolerances are in [choosing a stepper](../numerics/choosing-a-stepper.md#the-defaults).
+The default integrators and tolerances, and the reason for each difference between the
+interfaces, are in [choosing a stepper](../numerics/choosing-a-stepper.md#the-defaults);
+the table there is `solprop.driver.defaults.ROUTE_DEFAULTS`. The other differences are
+deliberate:
+
+- **`atol`** acts only when the field's norm falls to about `atol/rtol`: 1e-7 √W on the
+  GNLSE and 1e-4 √W elsewhere, far below any real pulse (a 1 pJ capillary pulse has a
+  norm of about 760 √W, a 10 W GNLSE pulse about 1.9e3 √W, and a capillary run takes the
+  same steps at either value).
+- **`raman`** is off by default on the GNLSE because it has no medium to read a response
+  from: `None` there would switch fused silica's Raman response on for every fibre. The
+  gas routes read each species' curated response.
+- **`loss`** on the capillary is a switch or a model of the wall loss, and
+  `loss_db_per_m` on the GNLSE a number from a data sheet; they mean different things,
+  so they keep different names.
+- **`noise`** is not drawn on `prop_planar`: a planar grid declares no photon measure, and
+  adding one is physics, not a keyword.
+- **`memory_budget`** has one unit everywhere and two gates: `Simulation.run` admits the
+  run's buffers when it starts, and a guide given to `from_waveguide` admits its tables
+  and maps before they are built, which happens there.
 
 **Which one?** A hollow guide filled with gas is the capillary route; add the coherent
 wall when linear coupling through the boundary matters to the retained modes,
@@ -181,23 +202,25 @@ run; nothing falls back. "Qualified" in the GPU column means the parity and
 repeatability tests pass on a data-centre NVIDIA GPU (CUDA) and an AMD Instinct GPU
 (HIP).
 
-| | `numpy_ref` | `numba_cpu` | native CPU | native GPU (CUDA/HIP) |
-|---|---|---|---|---|
-| general modal route (all its responses, declared bases, a split block as a coupled flow) | yes | yes | yes | qualified |
-| a moving solid guide (moving maps beside the frozen-residual flow) | yes | yes | yes | qualified |
-| coherent wall, scalar and TE/TM, straight, tapered or in a gradient (`method="frozen_residual"`), and the taper coupling of a multimode capillary without a wall | yes | yes | yes | qualified |
-| `CoherentWall(method="cf4")` | yes | refused by name | refused by name | refused by name |
-| a varying guide whose linear operator or nonlinear prefactor takes the general z table rather than an expansion in the medium's parameters (e.g. a moving dispersion, the adiabatic opt-out `taper_coupling=False` of a multimode taper whose expansion does not resolve, or a mixture of three or more species on independent density paths) | yes | yes | yes | refused by name |
-| a hollow planar (slab) set, constant gap or tapered, mode-averaged or multimode | yes | yes | yes | runs as any mode set; not separately qualified |
-| a line free space uniform in y (`LineGrid`, per metre of y) | yes | yes | yes | qualified (CUDA) |
-| a planar guide resolved in y (`PlanarGrid`) | yes | yes | yes | not qualified |
-| a frequency-dependent electronic response, `MaterialSelection(electronic="symmetric-kerr")` or `"gas-polynomial"` ([model](../media/dispersive-kerr.md)), on every route but the GNLSE | yes | yes | yes | qualified |
-| the `input` noise model beside a coupled flow (a coherent wall, the taper coupling, a split block, a moving guide) | yes | yes | admitted, not yet qualified | not qualified |
-| the `modified` noise model beside a coupled flow; a coupled flow in a lockstep batch | refused | refused | refused | refused |
+| | `numpy_ref` | native CPU | native GPU (CUDA/HIP) |
+|---|---|---|---|
+| general modal route (all its responses, declared bases, a split block as a coupled flow) | yes | yes | qualified |
+| a moving solid guide (moving maps beside the frozen-residual flow) | yes | yes | qualified |
+| coherent wall, scalar and TE/TM, straight, tapered or in a gradient (`method="frozen_residual"`), and the taper coupling of a multimode capillary without a wall | yes | yes | qualified |
+| `CoherentWall(method="cf4")` | yes | refused by name | refused by name |
+| a varying guide whose linear operator or nonlinear prefactor takes the general z table rather than an expansion in the medium's parameters (e.g. a moving dispersion, the adiabatic opt-out `taper_coupling=False` of a multimode taper whose expansion does not resolve, or a mixture of three or more species on independent density paths) | yes | yes | refused by name |
+| a hollow planar (slab) set, constant gap or tapered, mode-averaged or multimode | yes | yes | runs as any mode set; not separately qualified |
+| a line free space uniform in y (`LineGrid`, per metre of y) | yes | yes | qualified (CUDA) |
+| a planar guide resolved in y (`PlanarGrid`) | yes | yes | not qualified |
+| a frequency-dependent electronic response, `MaterialSelection(electronic="symmetric-kerr")` or `"gas-polynomial"` ([model](../media/dispersive-kerr.md)), on every route but the GNLSE | yes | yes | qualified |
+| the `input` noise model beside a coupled flow (a coherent wall, the taper coupling, a split block, a moving guide) | yes | admitted, not yet qualified | not qualified |
+| the `modified` noise model beside a coupled flow; a coupled flow in a lockstep batch | refused | refused | refused |
 
-`backend="auto"`, the default, is `native` where it is installed and `numba_cpu`
-otherwise, and it **never falls back**: a problem the native backend refuses is refused, by name,
-and you choose `numba_cpu` for it explicitly. Whether the native backend runs on the CPU or on a GPU
+`backend="auto"`, the default, is `native`, and it **never falls back**: it refuses if the
+native package is missing or the processor is below its minimum, and a problem the native
+backend refuses is refused, by name, and you choose `numpy_ref` for it explicitly. Its two
+exceptions are the TDSE response, which it runs on `numpy_ref`, and single precision, which it
+runs on `mlx` ([which backend a run uses](../performance/backends.md#which-backend-a-run-uses)). Whether the native backend runs on the CPU or on a GPU
 is decided by how it was built. The [backends chapter](../performance/backends.md) compares the
 backends and budgets memory; [the native backend](../performance/native.md) says how to build it,
 locally or for a GPU; [performance](../performance/tuning.md) covers threads and tuning. Every

@@ -124,8 +124,8 @@ endif()
 # 2 to 4 percent slower on the benchmark core and, on the general modal route, 23 to 24
 # percent slower at one thread and 7 to 12 percent at full width (an
 # 18-core-per-socket AVX-512 server; solprop SEP 29). v3 leaves out older cluster nodes
-# and the low-power Atom, Celeron and Pentium chips without AVX, where solprop's
-# automatic selection falls back to numba_cpu; SOLPROP_NATIVE_CPU_BASELINE=x86-64-v2
+# and the low-power Atom, Celeron and Pentium chips without AVX, which the wheels serve
+# with a second build; SOLPROP_NATIVE_CPU_BASELINE=x86-64-v2
 # builds for them from source. FFTW and OpenBLAS select their kernels at run time
 # either way. Every Apple silicon Mac is at least an M1. Linux aarch64 takes Neoverse
 # N1 (Armv8.2-A with the dot-product and half-precision extensions: Graviton2, Ampere
@@ -147,6 +147,10 @@ if(_baseline_upper STREQUAL "AUTO")
     elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
            CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$")
       set(SOLPROP_NATIVE_CPU_BASELINE "neoverse-n1")
+    elseif(WIN32 AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(ARM64|aarch64|arm64)$")
+      # The floor of the OpenBLAS the wheel links (TARGET=NEOVERSEN1, -march=armv8.2-a).
+      # The package checks it at import; the core keeps the compiler's default below.
+      set(SOLPROP_NATIVE_CPU_BASELINE "armv8.2-a")
     endif()
   endif()
 elseif(_baseline_upper STREQUAL "NONE" OR _baseline_request STREQUAL "")
@@ -164,7 +168,8 @@ else()
   set(SOLPROP_NATIVE_CPU_BASELINE "${_baseline_request}")
 endif()
 set(SOLPROP_NATIVE_CPU_BASELINE_FLAG "")
-if(NOT SOLPROP_NATIVE_CPU_BASELINE STREQUAL "none")
+if(NOT SOLPROP_NATIVE_CPU_BASELINE STREQUAL "none" AND
+   NOT SOLPROP_NATIVE_CPU_BASELINE STREQUAL "armv8.2-a")
   if(SOLPROP_NATIVE_HOST_ARCH)
     message(FATAL_ERROR
       "SOLPROP_NATIVE_CPU_BASELINE=${SOLPROP_NATIVE_CPU_BASELINE} and "

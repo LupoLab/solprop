@@ -90,7 +90,7 @@ figures = prop_2d(
     run,
     "wavelength",
     spec_range=(200e-9, 3e-6),
-    trange=(-150e-15, 250e-15),
+    time_range=(-150e-15, 250e-15),
     db_min=-40,
 )
 figures[-1].set_size_inches(9.5, 3.6)
@@ -106,10 +106,16 @@ figures[-1].tight_layout()
 
 compressed = compress_taylor(run, order=3)
 fig, (left, right) = plt.subplots(1, 2, figsize=(10.0, 3.6))
-time_1d(run, trange=(-150e-15, 250e-15), ax=left, widths=False)
-time_1d(run, trange=(-150e-15, 250e-15), ax=left, transform_limit=True, widths=False)
+time_1d(run, time_range=(-150e-15, 250e-15), ax=left, widths=False)
 time_1d(
-    run, trange=(-150e-15, 250e-15), ax=left, transfer=compressed.transfer, widths=False
+    run, time_range=(-150e-15, 250e-15), ax=left, transform_limit=True, widths=False
+)
+time_1d(
+    run,
+    time_range=(-150e-15, 250e-15),
+    ax=left,
+    transfer=compressed.transfer,
+    widths=False,
 )
 left.legend(["output", "transform limit", "Taylor-compressed"], frameon=False)
 spec_1d(run, z=[0.0, 0.75], ax=right, spec_range=(300e-9, 2e-6))

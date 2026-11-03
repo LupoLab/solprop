@@ -391,3 +391,27 @@ temporal collar's window is applied over the run ([ADR-007](decisions.md)), keep
 capital of the count it is written as. The reference wavelength of every interface is
 `wavelength`, the name the pulses and the design tools use, not Luna's `λ0`; the pulse
 shape of the keyword routes is `shape`.
+
+**Ranges and levels.** Each meaning has one name:
+
+| name | meaning |
+|---|---|
+| `wavelength_limits` | a band in metres that the caller chooses: a run's grid, a design tool's search, the bracket of `zdw` |
+| `wavelength_range` | the band in metres over which a data model is valid, an attribute it reports, as optmat's models do |
+| `spec_range` | a range in the units of `axis` (m, Hz or rad/s): what a plot or an accessor shows, and the edges of `bandpass` and `Passband` |
+| `time_range` | a range of times in seconds, for display. `trange` alone is a scalar, the length of a run's time window |
+| `db_min` | a level in dB below the largest value, under which something is not shown (a plot's colour scale) or not scored (`band_coherence`) |
+
+**A name shared across layers.** `energy`, `peak_power`, `fwhm_t` and `physical_energy`
+each name one quantity at two levels: an array function in `solprop.stats`, taking a grid
+and a field, and a saved-run accessor in `solprop.processing`, taking an output and built
+on it. They keep one name because they are one measurement. Both measure the squared
+true-power amplitude on a saved plane; the run's own `stats/peak_power` and `stats/fwhm_t`
+are the analytic Poynting flux ([power and intensity](../guide/results/power-and-intensity.md)).
+`solprop.processing.scans.peak_power` is a third object, the scan reduction of the same
+name, read as `scans.peak_power`. A plot that would share such a name takes a `plot_`
+prefix instead: `plot_energy` and `plot_stats`.
+
+Two classes with similar columns but different meanings do not share a name:
+`backends.protocol.BackendHistory` holds each attempt's end and a running clock, and
+`output.schema.StepHistory` each attempt's start and its own time.

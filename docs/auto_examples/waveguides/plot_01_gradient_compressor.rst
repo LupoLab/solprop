@@ -237,7 +237,7 @@ default ``"auto"``, which is the native build where one is installed.
                        plasma_work_defect, pressure, quadrature_error, species_density, ...
       between planes:  none
       run:             RunMetadata(multimode, field grid of 3200, 4 modes, native,
-                       2026-10-31T14:01:06.648338+00:00)
+                       2026-11-01T19:10:25.690531+00:00)
 
 
 
@@ -261,7 +261,7 @@ at the 1e-4 level.
         gradient,
         "wavelength",
         spec_range=(90e-9, 1.4e-6),
-        trange=(-30e-15, 30e-15),
+        time_range=(-30e-15, 30e-15),
         db_min=-40,
         modes="sum",
     )
@@ -391,7 +391,7 @@ magnitude weaker.
 
 
     fig, ax = plt.subplots(figsize=(6.4, 3.6))
-    time_1d(gradient, trange=(-20e-15, 20e-15), ax=ax)
+    time_1d(gradient, time_range=(-20e-15, 20e-15), ax=ax)
     fig.tight_layout()
 
 
@@ -539,7 +539,7 @@ Fourteen complete two-metre runs of four coupled modes.
 
  .. code-block:: none
 
-    111 s; backend native, 18 threads
+    212 s; backend native, 32 threads
 
 
 
@@ -556,7 +556,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (1 minutes 50.556 seconds)
+   **Total running time of the script:** (3 minutes 32.307 seconds)
 
 
 .. _sphx_glr_download_auto_examples_waveguides_plot_01_gradient_compressor.py:

@@ -32,15 +32,14 @@ The backend decides which pools exist at all (see [Choosing a backend](backends.
 
 | backend | parallel pools | notes |
 |---|---|---|
-| `numpy_ref` | NumPy's BLAS only | the reference; single-threaded apart from matrix products |
-| `numba_cpu` | Numba kernels, FFTW, BLAS (and FFTW for the transverse transforms of free-space runs) | sizes each pool from the problem |
+| `numpy_ref` | NumPy's BLAS only | the reference; single-threaded apart from matrix products, and roughly 6 to 40 times slower than threaded native |
 | native CPU (`native`) | OpenMP kernels, FFTW (modal and spatial transforms), the Raman convolution transforms (Kokkos-FFT over FFTW, with selected macOS shapes on Accelerate's vDSP), a vendor BLAS | uses every CPU in the process's affinity mask unless told otherwise |
 | native GPU (`native`, CUDA or HIP build) | the device | CPU pools are irrelevant; one device per process |
 
-`backend="auto"` chooses the native backend when `solprop-native` is installed and
-otherwise warns and uses `numba_cpu`. The largest single gain is installing the native
-backend at all; a **locally built** one ([The native backend](native.md)) goes a little
-further, since it links a vendor BLAS and compiles for the
+`backend="auto"` chooses the native backend, a required dependency, and has no fallback
+([which backend a run uses](backends.md#which-backend-a-run-uses)). A **locally built** one
+([The native backend](native.md)) goes a little further than the wheel, since it links a
+vendor BLAS and compiles for the
 machine's own instruction set; [which backend to use](backends.md#which-backend-to-use)
 compares the backends by problem.
 
@@ -62,33 +61,9 @@ With hundreds of planes, `interpolate_planes=True` steps across them and interpo
 each inside its step instead, and `step_planes=k` saves the march's own steps at no extra
 cost ([the solver](../numerics/solver.md), "Choosing the saved planes").
 
-## The `numba_cpu` pools
+## The thread budget
 
-`numba_cpu` sizes three pools from the problem when the backend is built, and records
-what it chose:
-
-**Kernel threads** (the Numba parallel pool). The response pass over quadrature nodes
-runs in parallel only for large problems: above $10^6$ elements
-($n_{to} \times n_\text{modes} \times n_\text{pol} \times n_\text{nodes}$, with
-$n_{to}$ the number of samples on the oversampled time grid), or above 262 144 for a
-guided run whose response is evaluated at more than one transverse node. Below that
-threshold the kernels run serially (the **small** regime), because waking a pool costs
-more than the work saves. Above it (the **large** regime) the pool takes every CPU
-available to the process.
-
-**FFTW threads.** A batched transform of at least 65 536 elements
-($n_\text{columns} \times n_{to}$) gets up to four threads; smaller transforms get one.
-More than four threads rarely repays the synchronisation on the problem sizes solprop
-runs; transforms well above half a million elements can gain from eight. The Raman
-convolution transforms and, for free-space runs, the transverse transforms are sized by
-the same rule.
-
-**BLAS threads.** The modal synthesis and projection products get two BLAS threads at
-or above 262 144 elements ($n_\text{rows} \times n_{to}$), one below. The BLAS pool is
-set through [threadpoolctl](https://github.com/joblib/threadpoolctl); Apple's
-Accelerate exposes no thread control at all, and is recorded as `uncontrolled`.
-
-"Every CPU available" means the process's **thread budget**, the smallest of:
+Every thread pool stays within the process's **thread budget**, the smallest of:
 
 - its CPU affinity mask, the CPUs it may run on (narrowed by `taskset`, `numactl` or a
   batch scheduler's allocation);
@@ -101,8 +76,8 @@ Accelerate exposes no thread control at all, and is recorded as `uncontrolled`.
   a quota of 1.5 CPUs runs one thread;
 - `SOLPROP_THREADS`, if set.
 
-Both CPU backends size every pool within this budget, and clamp an explicit count
-(`threads=` or a variable below) to it rather than refusing it; the pools take turns, so
+An explicit count (`threads=` or a variable below) is clamped to the budget rather than
+refused; the pools take turns, so
 each may use all of it. Set `SOLPROP_THREADS` to each process's share when several
 processes share CPUs without being pinned apart. That includes several solprop
 processes in one CPU-limited container (a Kubernetes CPU limit, Docker `--cpus`): the
@@ -114,19 +89,15 @@ compares thread counts on a small machine; a run has no reason to set it. The bu
 the limit that set it are recorded in the run's metadata (`thread_budget`,
 `thread_budget_source`).
 
-Each pool can be fixed from the environment:
+These settings apply whatever the pool:
 
-| variable | pool | default |
+| variable | what it sets | default |
 |---|---|---|
-| `SOLPROP_THREADS` | the process's thread budget, which every pool below (and the native backend's) stays within; it may exceed the physical cores, up to the CPUs | the affinity mask, its physical cores and the quota |
+| `SOLPROP_THREADS` | the process's thread budget, which the native backend's pools stay within; it may exceed the physical cores, up to the CPUs | the affinity mask, its physical cores and the quota |
 | `SOLPROP_OVERSUBSCRIBE` | `1` lets an explicit count exceed the CPUs and the quota | `0` |
-| `SOLPROP_NUMBA_THREADS` | Numba kernel threads | all available CPUs above the size threshold, else 1 |
-| `SOLPROP_NUMBA_REGIME` | `small` (serial node loop) or `large` (parallel node loop) | chosen from the size threshold |
-| `SOLPROP_FFTW_THREADS` | FFTW threads for the temporal and Raman transforms | every available CPU from 1 048 576 elements, up to 4 from 65 536, else 1 |
-| `SOLPROP_TRANSVERSE_FFTW_THREADS` | FFTW threads for the transverse transforms of free-space runs | the same rule |
-| `SOLPROP_BLAS_THREADS` | BLAS threads | 2 above 262 144 elements, else 1 |
-| `SOLPROP_FFTW_PLAN` | FFTW planner effort: `estimate`, `measure` or `patient` | `measure` |
-| `SOLPROP_FFTW_WISDOM` | a file of FFTW wisdom to import before planning and export after (the native backend keeps its own beside it) | none |
+| `SOLPROP_BLAS_THREADS` | the width of every BLAS other than the native backend's own while a native backend lives ([below](#blas-and-vendor-libraries)) | 1 |
+| `SOLPROP_FFTW_PLAN` | the native backend's FFTW planner effort: `estimate`, `measure` or `patient` | `measure`, except threaded row transforms, which stay at `estimate` |
+| `SOLPROP_FFTW_WISDOM` | a file name, beside which the native backend keeps its FFTW wisdom ([below](#the-native-backends-pools)) | none |
 
 **Free-space node groups.** A free-space, line or planar evaluation works through the
 plane's columns in node chunks, each paying a fixed cost for its launches, its temporal
@@ -135,56 +106,9 @@ transforms and its gather and scatter. Their default budget is therefore 1 GiB, 
 short of memory a smaller budget saves memory at some speed; on a large device a larger
 one can still help.
 
-**Where a free-space step goes.** `SOLPROP_PASS_TIMERS=1`, read when a `numba_cpu`
-backend is built, gives it per-pass wall-clock timers for the Cartesian, line and planar
-evaluations: the transverse and temporal transforms, the packs, copies, clears, the
-response and the crops of each node chunk, and the steppers' traversals around them
-(`NumbaCpuBackend.pass_timers`, from `solprop.backends.numba_cpu.pass_timers`). It is a
-measurement aid for [SEP 28](../../dev/seps/archive/sep-0028-free-space-evaluation.md) and its
-benchmarks; unset, nothing is timed and nothing is added to a pass. On the native backend the same
-stages are profiling regions (`solprop_native.free.*`) that any Kokkos Tools timer
-reports.
-
-Every explicit count is clamped to the thread budget. `NUMBA_NUM_THREADS`, Numba's own
-variable, sets the size of the pool Numba creates at import, and the kernel pool, chosen
-or explicit, is clamped to it as well; the FFTW and BLAS pools are not, since they are
-not Numba's. `NUMBA_THREADING_LAYER` chooses Numba's threading layer (`omp`, `tbb` or
-`workqueue`) and is normally best left alone.
-
-**FFTW's idle threads on Linux.** pyFFTW's Linux wheels thread FFTW through their own
-copy of GNU OpenMP. If that runtime's idle threads spin, they take the cores the Numba
-kernels need between transforms. On 8 cores of an x86-64 server that made a four-mode capillary step
-five times slower whenever FFTW had more than one thread. `numba_cpu` therefore imports
-pyFFTW with `OMP_WAIT_POLICY=passive` set for that runtime alone, and the environment is
-restored straight away (the native backend's own choice, above, is the one that stays). This is skipped if
-you have set `OMP_WAIT_POLICY` or `GOMP_SPINCOUNT`, because then your choice applies,
-and `active` brings the slowdown back. It is also skipped when your script imported
-`pyfftw` before solprop. The run's metadata records what applied as `fftw_wait_policy`.
-
-**Numba's own threads on Linux.** Numba's OpenMP threading layer loads a second GNU
-OpenMP runtime when its threads first start, and with every core in the pool its idle
-workers spin on the cores FFTW's threads need: on a 64-core AMD server the
-comb-to-continuum benchmark window took 17 s, against 5.4 s with the workers waiting
-passively. `numba_cpu` therefore starts Numba's threads with `OMP_WAIT_POLICY=passive`
-for that runtime. When the runtime is already loaded under settings solprop cannot change
-(the native backend's build may load the same library first), it chooses Numba's
-`workqueue` layer instead, which uses no OpenMP and was as fast (5.5 s). Your own
-`OMP_WAIT_POLICY`, `GOMP_SPINCOUNT` or `NUMBA_THREADING_LAYER` is respected. The run's
-metadata records what applied as `numba_openmp`.
-
-**OpenMP binding and `numba_cpu`.** `OMP_PROC_BIND` (or `OMP_PLACES`, which binds under
-GNU OpenMP even alone) made the same window take 45-47 s, whatever Numba's layer: the
-bound runtimes place their threads on the same few cores. On Linux `numba_cpu` therefore
-loads pyFFTW's runtime and Numba's with binding off, and your variables stay set for any
-other runtime, such as the native backend's. When the native backend, imported first under
-binding, has bound the main thread to one core, `numba_cpu` gives the main thread the
-process's CPUs back before it plans its transforms, which recovers modal runs; free-space
-runs in that combination still had FFTW transforms several times slower on Linux, so
-`numba_cpu` warns. If `pyfftw` was imported before solprop under binding, solprop cannot
-undo it and warns too. In short: do not set `OMP_PROC_BIND` or `OMP_PLACES` for
-`numba_cpu` runs. Binding brought the native backend no
-measurable gain on one socket either; on several sockets, place whole processes with
-`numactl` or `taskset` instead.
+**Where a free-space step goes.** On the native backend the stages of a free-space
+evaluation are profiling regions (`solprop_native.free.*`) that any Kokkos Tools timer
+reports ([profiling](#profiling-the-native-backend)).
 
 **FFTW planning.** `measure` times candidate algorithms once per transform shape and
 keeps the fastest; that pays off on long runs, but the timing is only meaningful on an
@@ -192,8 +116,8 @@ otherwise idle machine, and planning a large multimode problem can take seconds.
 `SOLPROP_FFTW_PLAN=estimate` for short runs, tests and busy shared machines, and
 `SOLPROP_FFTW_WISDOM=~/.cache/solprop/wisdom` to plan once and reuse the plans across
 runs of the same shapes (the wisdom's digest is recorded in each run, since plans chosen
-from different wisdom are different executions). The native backend keeps its plans
-under the same variable, in a file of its own (below).
+from different wisdom are different executions). The native backend keeps those plans
+in a file of its own (below).
 
 ## The native backend's pools
 
@@ -272,7 +196,7 @@ kernel 1, FFT 2, Raman 4, Raman tail 8) distinguish automatic sizing from explic
 requests.
 
 Free-space transforms are planned at `SOLPROP_FFTW_PLAN`'s effort
-(`measure` by default, as on `numba_cpu`); `estimate` skips the measured planning for
+(`measure` by default); `estimate` skips the measured planning for
 short runs and tests. Answers at different thread counts may differ by rounding; solprop
 holds them to its rounding bounds, not to identical bits
 ([SEP 25](../../dev/seps/archive/sep-0025-rounding-level-reproducibility.md)).
@@ -287,11 +211,11 @@ Raman rows use Kokkos-FFT, while parallel power-of-two rows of at most 16,384 sa
 retain vDSP. The [build guide](building-native.md) describes the coherent dependency
 recipe and the fallback for a library without NEON codelets.
 
-**Reusing the native backend's plans.** `SOLPROP_FFTW_WISDOM`, the variable `numba_cpu`
-reads, also keeps the native backend's measured plans: a backend imports them before it
+**Reusing the native backend's plans.** `SOLPROP_FFTW_WISDOM`
+keeps the native backend's measured plans: a backend imports them before it
 plans and adds the plans it measured after. Nothing is read or written unless the
 variable names a file. The native backend links its own FFTW, so its plans go to a file
-of their own beside the named one, `<name>.native-<key>`, whose key digests the FFTW
+of their own beside the named one, not to the named file itself: `<name>.native-<key>`, whose key digests the FFTW
 library's version and configuration and the processor model: machines of different
 kinds that share a home directory keep separate plans, and FFTW refuses wisdom another
 build of it wrote. The processes of a scan can share one file. Readers take no lock,
@@ -324,7 +248,7 @@ initialises Kokkos with an explicit thread count, which takes precedence; set
 **The default cap is the thread budget** (above): the CPUs in the process's affinity
 mask, a container's quota and `SOLPROP_THREADS`. Automatic sizing avoids assigning all
 of those threads to small operations. On a shared machine or when several solprop
-processes run side by side, set `SOLPROP_THREADS` (which holds `numba_cpu` too) or
+processes run side by side, set `SOLPROP_THREADS` or
 `SOLPROP_NATIVE_THREADS` to each process's CPU budget. The operation policy stays within
 that budget.
 
@@ -376,14 +300,30 @@ wall cases ran 10 to 75 times slower than necessary. The Linux distribution buil
 native backend therefore carries an OpenBLAS built with OpenMP, which shares the
 backend's runtime. At start-up the backend fits a host OpenBLAS to its own pool unless
 `OPENBLAS_NUM_THREADS`, `GOTO_NUM_THREADS` or `OMP_NUM_THREADS` is set: a pthreads build
-is held to one thread, an OpenMP build capped at the Kokkos thread count. `numba_cpu`
-sizes its BLAS pool through threadpoolctl. NumPy's own BLAS, a separate library beside
+is held to one thread, an OpenMP build capped at the Kokkos thread count. NumPy's own BLAS, a separate library beside
 the native backend's, serves only small host-side products during a native run, yet its
 idle workers spin on the cores the native pool needs: while a native backend lives, every
 BLAS threadpoolctl finds other than the backend's own is held to one thread
 (`SOLPROP_BLAS_THREADS` sets another count), and the last backend to close gives the pools
-back. The run's metadata records what applied as `host_blas`. Otherwise a BLAS's own
-variables apply:
+back. The run's metadata records what applied as `host_blas`.
+
+Guide construction and coupling happen before a backend exists. They also hold the
+controllable host BLAS pools at one thread, or at `SOLPROP_BLAS_THREADS` within the
+process budget. The hold covers `ModalGuide.from_provider`, a standalone graded-index
+mode solve (including a node rule's tail certificate), `general_modal_route`, kernel
+assembly, `FieldPlane.from_pulse` and `couple`. The general modal route builds its
+large reference tables inside `Simulation.from_waveguide`, before kernel assembly;
+an incident launch builds its plane's radial transform before coupling.
+This overrides `OPENBLAS_NUM_THREADS` and the other vendor defaults for those calls,
+then restores the previous limits even if construction fails. A native backend's own
+BLAS keeps its fitted width. Nested or overlapping construction shares the first
+scope's hold. Construction and live backend holds share each library's ownership:
+the narrowest active request applies, and the last owner restores the original width,
+even if the calls start and finish in different orders. Separate processes, including
+scan workers, keep their own pools. Accelerate exposes no runtime
+thread control to threadpoolctl, so these scopes leave it unchanged.
+
+Outside a backend's lifetime and these construction scopes, a BLAS's own variables apply:
 
 | library | thread variable | notes |
 |---|---|---|
@@ -400,12 +340,21 @@ MKL when oneAPI is available on Linux, otherwise OpenBLAS); its build record say
 
 **One OpenMP runtime per process.** The native backend, FFTW and some BLAS builds each
 use OpenMP, and two different OpenMP runtimes loaded into one process can crash or
-oversubscribe the machine. On macOS, `solprop_native` must be imported before anything
-imports `pyfftw`, and raises an error otherwise. solprop imports `pyfftw` only when a
-`numba_cpu` backend is built, so this matters only for a script that imports `pyfftw`
-itself or runs `numba_cpu` before the native backend in the same process: put
-`import solprop_native` at the top of such a script. [Building the native backend](building-native.md#openmp-runtimes-and-pyfftw) explains
-how to build pyFFTW against the same FFTW when a binary wheel brings its own runtime.
+oversubscribe the machine. solprop does not use pyFFTW, whose wheels bring a runtime of
+their own, but a script or another package may. On macOS `solprop_native` must then be
+imported first, and raises an error otherwise: put
+`import solprop_native` at the top of such a script
+([OpenMP runtimes](building-native.md#openmp-runtimes)).
+
+
+:::{warning}
+On Windows on Arm, setting `OMP_NUM_THREADS`, `OPENBLAS_NUM_THREADS` or `GOTO_NUM_THREADS`
+to a small number can crash or hang NumPy's own linear solves, with solprop not involved.
+On NumPy 2.5.2, widths 1 and 2 failed at matrix sizes 23 to 31, and width 3 at size 31.
+Leave them unset. solprop warns on import if it finds such a value. `threadpoolctl` limits
+were safe at the same sizes, so `Pool` workers on this platform use those instead of the
+variables.
+:::
 
 ## Recipes
 
@@ -417,8 +366,7 @@ SOLPROP_NATIVE_THREADS=8 OMP_PROC_BIND=spread OMP_PLACES=cores OMP_WAIT_POLICY=p
     python my_run.py
 ```
 
-Without the native backend, `numba_cpu` sizes itself; to force a larger problem onto more threads,
-for example `SOLPROP_NUMBA_THREADS=8 SOLPROP_FFTW_THREADS=4 python my_run.py`.
+`numpy_ref` runs on one thread apart from its matrix products, and no setting changes that.
 
 **How far a single run scales.** A single-mode fibre on a few thousand time samples
 gains little beyond two to four threads: its transforms are short and each step is
@@ -430,10 +378,10 @@ runs with large transverse grids scale furthest.
 single-threaded workers almost always beat one many-threaded run: each worker keeps its
 own caches and nothing waits for synchronisation. solprop's
 {class}`~solprop.driver.executors.pool.Pool` executor does this for you: every worker is a
-newly spawned Python process started with **all** of `NUMBA_NUM_THREADS`,
+newly spawned Python process started with **all** of
 `SOLPROP_THREADS`, `OMP_NUM_THREADS`, `OPENBLAS_NUM_THREADS`, `MKL_NUM_THREADS` and
 `VECLIB_MAXIMUM_THREADS` set to its `threads` (one by default) and
-`OMP_WAIT_POLICY=passive`, so every pool of either backend is sized within that budget,
+`OMP_WAIT_POLICY=passive`, so every pool is sized within that budget,
 and on Linux each worker is pinned to its own CPUs. The number of workers is the number of CPUs available divided
 by `threads`, reduced if a memory probe of the first point shows that fewer fit (four
 fifths of the memory, less the controller's own, divided by one worker's footprint).
@@ -449,20 +397,20 @@ A problem too large to fit many copies in memory can use fewer, wider workers,
 `Pool(threads=4)` (or `--threads 4`). To run two scans side by side on one machine, give
 each its own CPUs with `SOLPROP_SCAN_CPU_OFFSET` and `SOLPROP_SCAN_CPU_COUNT`. See
 [scans and batches](../workflows/scans.md). Stay on the native backend at one thread per
-worker too: it [led `numba_cpu` at one thread](backends.md#which-backend-to-use) on every
-case recorded. Those timings are of a single process, so time one point of the scan with
+worker too, and time one point of the scan with
 your real number of workers before a large campaign.
 
 If you manage the parallelism yourself — a job array, GNU `parallel`, several scripts
-started by hand — each process needs every pool held to one thread explicitly, and the
-serial kernel regime selected, before Python starts:
+started by hand — each process needs every pool held to one thread explicitly, before Python starts:
 
 ```sh
-NUMBA_NUM_THREADS=1 NUMBA_THREADING_LAYER=workqueue SOLPROP_NUMBA_REGIME=small \
 SOLPROP_THREADS=1 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 \
 VECLIB_MAXIMUM_THREADS=1 OMP_WAIT_POLICY=passive OMP_PROC_BIND=false \
     python point.py
 ```
+
+On Windows on Arm, leave out `OMP_NUM_THREADS` and `OPENBLAS_NUM_THREADS`, for the reason
+under [BLAS and vendor libraries](#blas-and-vendor-libraries).
 
 On a multi-socket server, keep a multi-threaded run's threads within one socket
 (`OMP_PLACES=cores` with `OMP_PROC_BIND=close`, or `taskset`/`numactl`): crossing
@@ -477,8 +425,21 @@ each run a `Pool` inside their allocation; it respects `SLURM_CPUS_PER_TASK`, an
 **A GPU.** On a CUDA or HIP build of the native backend the CPU pools do not matter; the
 backend uses one device per process, chosen with `CUDA_VISIBLE_DEVICES` or
 `HIP_VISIBLE_DEVICES`. Small problems are limited by kernel-launch latency and often run
-faster on the CPU: pass `backend="numba_cpu"` for them. Run independent problems in
-separate processes to use several devices. See [The native backend](native.md).
+faster on the CPU: run them with the CPU wheel in a second environment. Run independent problems in
+separate processes to use several devices. A job set up for a device names the requirement,
+and stops before it starts if the environment has lost its GPU build
+([a job that must run on a device](native.md#a-job-that-must-run-on-a-device)):
+
+```sh
+CUDA_VISIBLE_DEVICES=0 SOLPROP_REQUIRE_DEVICE=cuda python my_run.py
+```
+
+See [The native backend](native.md).
+
+**A processor without AVX2.** An x86-64 wheel loads its x86-64-v2 build there, which takes
+about 20 to 25 % longer by geometric mean; `solprop_native.build_info()` reports which build
+is loaded, and `SOLPROP_NATIVE_CPU_VARIANT=x86-64-v2` asks for that build on a faster
+processor, for comparisons ([The native backend](native.md#installing)).
 
 **Memory.** Large multimode and general modal problems can be limited by memory before
 threads; `SOLPROP_MEMORY_BUDGET` and the admission check are described in
@@ -486,16 +447,14 @@ threads; `SOLPROP_MEMORY_BUDGET` and the admission check are described in
 
 ## Checking what was used
 
-Every backend logs the pools it chose at INFO level, and records them in the run's
+The backend used is logged at INFO level, and the pools it chose are in the run's
 backend record, which is saved with the output:
 
 ```python
 import solprop
 from solprop.driver import prop_capillary
 
-solprop.configure_logging(
-    "INFO"
-)  # prints "numba_cpu: small regime, 1 kernel threads, ..."
+solprop.configure_logging("INFO")  # prints "Using native backend", among others
 run = prop_capillary(
     125e-6,
     1e-3,
@@ -508,14 +467,16 @@ run = prop_capillary(
     energy=1e-9,
     n_save=2,
     progress="none",
-    backend="numba_cpu",
+    backend="native",
 )
 settings = run.metadata.backend.settings
-print({key: settings[key] for key in ("regime", "numba_threads", "fftw_threads")})
+print(
+    {key: settings[key] for key in ("runtime_threads", "thread_count", "fftw_threads")}
+)
 ```
 
-For the native backend the same record carries `runtime_threads`, `thread_count`,
-`fftw_threads`, `raman_fft_threads`, `blas_library` and the build profile; `python -m
+The same record also carries `raman_fft_threads`, `blas_library` and the build profile;
+`python -m
 solprop_native` prints the whole build record without running anything.
 
 ## Profiling the native backend

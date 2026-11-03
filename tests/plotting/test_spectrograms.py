@@ -38,7 +38,7 @@ def test_a_spectrogram_takes_a_frequency_range_in_hertz(single):
 
 
 def test_a_spectrogram_puts_the_pulse_at_the_carrier(single):
-    figure = spectrogram(single, 0.0, trange=(-100e-15, 100e-15))
+    figure = spectrogram(single, 0.0, time_range=(-100e-15, 100e-15))
     mesh = figure.axes[0].collections[0]
     assert isinstance(mesh, QuadMesh)
     values = np.asarray(mesh.get_array())
@@ -50,8 +50,8 @@ def test_a_spectrogram_puts_the_pulse_at_the_carrier(single):
 
 
 def test_the_default_gate_follows_the_time_range(single):
-    narrow = spectrogram(single, 0.0, trange=(-20e-15, 20e-15))
-    wide = spectrogram(single, 0.0, trange=(-200e-15, 200e-15))
+    narrow = spectrogram(single, 0.0, time_range=(-20e-15, 20e-15))
+    wide = spectrogram(single, 0.0, time_range=(-200e-15, 200e-15))
     # A wider range means a wider gate, so fewer slices at the same number of positions
     # but a finer spectral axis is not what changes; the shapes differ, which is enough
     # to show the default is not a constant.

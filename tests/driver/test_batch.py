@@ -12,7 +12,7 @@ from jaxtyping import TypeCheckError
 
 from driver.test_scans import build_point
 from runtime_types import requires_typecheck
-from solprop.backends.protocol import Observation, StepHistory, StepStats
+from solprop.backends.protocol import BackendHistory, Observation, StepStats
 from solprop.driver.batch import (
     BatchMember,
     _structure,
@@ -103,7 +103,7 @@ def test_batch_refuses_unsupported_backends_by_name(backend):
         list(compatible_groups([point], 2))
 
 
-@pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu", "native"])
+@pytest.mark.parametrize("backend", ["numpy_ref", "native"])
 def test_batch_prepares_each_backend_without_changing_selection(backend):
     points = [member(0, backend=backend), member(1, backend=backend)]
     assert list(compatible_groups(points, 2)) == [tuple(points)]
@@ -111,7 +111,7 @@ def test_batch_prepares_each_backend_without_changing_selection(backend):
 
 
 def test_batch_refuses_mixed_backend_scan():
-    points = [member(0, backend="numpy_ref"), member(1, backend="numba_cpu")]
+    points = [member(0, backend="numpy_ref"), member(1, backend="native")]
     with pytest.raises(DriverError, match="mixed backends"):
         list(compatible_groups(points, 2))
 
@@ -216,16 +216,18 @@ def test_batch_memory_includes_parameter_arrays_and_shared_views():
             problem.initial, batch_params={"parameter": storage[1:2]}
         ),
     )
+    # The problems share every table but the parameters, each the problem's own copy
+    # of its entry, never a view of the caller's storage.
     assert (
         shared_table_bytes([first, second])
-        == shared_table_bytes([problem]) + storage.nbytes
+        == shared_table_bytes([problem]) + 2 * storage.itemsize
     )
 
 
 @pytest.fixture
 def observed_batch():
     histories = tuple(
-        StepHistory(
+        BackendHistory(
             z=np.array([0.25, 0.5]),
             dz=np.array([0.25, 0.25]),
             error_norm=np.array([0.125, 0.25]) * (index + 1),

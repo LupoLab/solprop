@@ -133,7 +133,7 @@ radius change). Budget that floor, or rebuild the rule along the path, as
 A guide built by `ModalGuide.from_provider` is something to **run**, not only to
 inspect: `Simulation.from_waveguide(..., provider=guide)` and
 `prop_waveguide(..., provider=guide)` propagate its three-component fields on
-`numpy_ref`, `numba_cpu` and `native` (on the CPU and on the qualified GPU builds), and
+`numpy_ref` and `native` (on the CPU and on the qualified GPU builds), and
 [the general modal page](general-modal.md) is the whole description. The guide carries
 its own {class}`~solprop.modes.guide.ModalSampling`
 -- the knots, the position, the node rule, the declared degenerate blocks and the

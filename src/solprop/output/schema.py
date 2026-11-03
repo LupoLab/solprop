@@ -42,6 +42,7 @@ compared as it was written.
 The manual page is ``docs/guide/results/output.md``.
 """
 
+import copy
 import dataclasses
 import functools
 import hashlib
@@ -83,6 +84,7 @@ __all__ = [
     "INTERNAL_CONVENTION",
     "INTERPOLATED_RESUMES_ANNOTATION",
     "PEAK_FIELDS_ANNOTATION",
+    "RUN_SUMMARY_ANNOTATION",
     "SCHEMA_VERSION",
     "SPECTRAL_CONVENTION",
     "STEP_STATS_INDEX",
@@ -90,6 +92,7 @@ __all__ = [
     "BackendRecord",
     "CheckpointOutput",
     "Convention",
+    "DefaultsResolution",
     "FieldRetention",
     "FieldsChoice",
     "GitProvenance",
@@ -102,6 +105,8 @@ __all__ = [
     "Output",
     "PlaneLayout",
     "PlaneStore",
+    "RecipeFile",
+    "RecipeRecord",
     "RunMetadata",
     "RunOutcome",
     "SavedPlane",
@@ -176,6 +181,14 @@ continued from with ``resume="interpolated"``: each continuation started afresh 
 field interpolated inside a step, not a state the march passed through (SEP 14).
 Written by :meth:`solprop.driver.simulation.Simulation.run`, outside the configuration
 hash.
+"""
+
+RUN_SUMMARY_ANNOTATION = "run_summary"
+"""Name of the annotation holding the start-of-run summaries of a plane store.
+
+A list with one mapping per start, ``{"title": str, "rows": [[key, value], ...]}``: a
+run that is resumed adds the summary of its continuation to the first one's. Written
+when a run starts, not when it closes, and outside the configuration hash.
 """
 
 INTERNAL_CONVENTION = "fft"
@@ -728,18 +741,20 @@ class BackendRecord:
 
     A resumed file keeps the record it was opened with, creation time and all, so the
     backend it names is the one that **started** the run. That is append mode's rule
-    for the whole record and not a special case for this group.
+    for the whole record and not a special case for this group. The name may be one this
+    package no longer has (:data:`solprop.backends.registry.REMOVED_BACKENDS`): an old
+    file's record reads as it was written, in its backend's own vocabulary.
 
     Attributes
     ----------
     name : str
-        The registry name of the backend, ``"numpy_ref"`` or ``"numba_cpu"``.
+        The registry name of the backend, for example ``"numpy_ref"`` or ``"native"``.
     propagator_mode : str
         Which the backend resolved the contract's ``"auto"`` to, or which was asked
         for: ``"tabulate"`` or ``"recompute"``.
     settings : dict
-        Everything else the backend reported: the threading regime, the four pool
-        counts, the plan flag, the wisdom digest, the column family. Free-form because
+        Everything else the backend reported, for example its thread counts, its plan
+        flag and its wisdom digest. Free-form because
         it is a backend's own vocabulary, and JSON-serialisable because it is written
         to the file.
 
@@ -747,11 +762,11 @@ class BackendRecord:
     --------
     >>> from solprop.output.schema import BackendRecord
     >>> record = BackendRecord.from_metadata(
-    ...     {"backend": "numba_cpu", "propagator_mode": "recompute",
-    ...      "numba_threads": 4}
+    ...     {"backend": "native", "propagator_mode": "recompute",
+    ...      "thread_count": 4}
     ... )
     >>> record.name, record.propagator_mode, record.settings
-    ('numba_cpu', 'recompute', {'numba_threads': 4})
+    ('native', 'recompute', {'thread_count': 4})
     """
 
     name: str
@@ -1256,6 +1271,40 @@ class NoiseResolution:
     requested: str | None
     resolved: str | None
     reason: str | None = None
+
+
+@dataclass(frozen=True)
+class DefaultsResolution:
+    """Which of a run's numerics took its route's default, and which route that was.
+
+    The companion of :class:`NoiseResolution` for the stepping (``docs/guide/numerics/
+    choosing-a-stepper.md``): the integrator, the step controller and the temporal
+    collar's scheme are each either the caller's or the route's default from
+    :data:`solprop.driver.defaults.ROUTE_DEFAULTS`. Outside the hash: what the run
+    computes is in the stepper record already, and how it was chosen is not physics.
+
+    Attributes
+    ----------
+    route : str or None
+        The row of the defaults table the constructor read, or ``None`` for settings
+        built by hand.
+    defaulted : sequence of str
+        Which of ``"integrator"``, ``"rtol"`` and ``"absorber_scheme"`` took the
+        route's default, in that order, adopted as a tuple.
+
+    Examples
+    --------
+    >>> from solprop.output.schema import DefaultsResolution
+    >>> DefaultsResolution("capillary", ["integrator", "rtol"])
+    DefaultsResolution(route='capillary', defaulted=('integrator', 'rtol'))
+    """
+
+    route: str | None
+    defaulted: Sequence[str] = ()
+
+    def __post_init__(self) -> None:
+        """Adopt the names as a tuple, so a record read back compares equal."""
+        object.__setattr__(self, "defaulted", tuple(self.defaulted))
 
 
 @dataclass(frozen=True)
@@ -1932,12 +1981,38 @@ class RunOutcome:
             raise OutputError(f"unknown run outcome {self.status!r}")
         if not np.isfinite(self.z) or self.z < 0:
             raise OutputError("run outcome z must be finite and nonnegative")
+        # One JSON round trip validates and copies every part: the record is built
+        # at every saved plane, and one per part and per amended copy, nine a plane,
+        # were about 5 % of a short capillary run on MemoryOutput.
+        parts: dict[str, object] = {
+            "logical_calls": dict(self.logical_calls),
+            "atomic_calls": dict(self.atomic_calls),
+            "execution": dict(self.execution),
+            "previous_executions": [
+                dict(record) for record in self.previous_executions
+            ],
+        }
+        try:
+            owned = _outcome_record(parts)
+        except OutputError as error:
+            # Only now is each part checked alone, so that the error names the one to
+            # look at: the whole record fails exactly when one of its parts does.
+            name, why = next(
+                (name, why)
+                for name, part in parts.items()
+                if (why := _json_failure(part)) is not None
+            )
+            msg = (
+                "execution records must contain finite JSON values: the run "
+                f"outcome's {name} holds {why}"
+            )
+            raise OutputError(msg) from error
         for name in ("logical_calls", "atomic_calls", "execution"):
-            object.__setattr__(self, name, _outcome_record(getattr(self, name)))
+            object.__setattr__(self, name, owned[name])
         object.__setattr__(
             self,
             "previous_executions",
-            tuple(_outcome_record(record) for record in self.previous_executions),
+            tuple(cast("list[dict[str, object]]", owned["previous_executions"])),
         )
 
     @property
@@ -1988,6 +2063,87 @@ class RunOutcome:
             for entry in self.resumes
             if entry.get("forced")
         )
+
+
+def _json_failure(part: object) -> str | None:
+    """Return why a part of a run outcome is not finite JSON, or ``None`` if it is.
+
+    Parameters
+    ----------
+    part : object
+        The part.
+
+    Returns
+    -------
+    str or None
+        The encoder's reason.
+    """
+    try:
+        json.dumps(part, allow_nan=False)
+    except (TypeError, ValueError) as error:
+        return str(error)
+    return None
+
+
+def _json_copy(value: object) -> object:
+    """Return an independent copy of a value made of validated JSON values.
+
+    Cheaper than another JSON round trip, and than :func:`copy.deepcopy`, because the
+    value is known to hold only dicts, lists, strings, numbers, booleans and
+    ``None``.
+
+    Parameters
+    ----------
+    value : object
+        The value.
+
+    Returns
+    -------
+    object
+        Its copy: new dicts and lists, the same immutable leaves.
+    """
+    if isinstance(value, dict):
+        return {key: _json_copy(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_json_copy(item) for item in value]
+    return value
+
+
+def _amended_outcome(
+    outcome: RunOutcome,
+    *,
+    execution: Mapping[str, object] | None = None,
+    previous_executions: tuple[Mapping[str, object], ...] | None = None,
+) -> RunOutcome:
+    """Return a copy of an outcome with parts a store has already validated.
+
+    :func:`dataclasses.replace` would validate the whole record again; the store's
+    own parts -- its session's resume entry and its earlier closing records -- were
+    validated when it took them, so a saved plane validates its record once. The
+    caller hands over copies of them (:func:`_json_copy`), so that each outcome holds
+    its own and a change to one read back reaches no other.
+
+    Parameters
+    ----------
+    outcome : RunOutcome
+        The validated outcome.
+    execution : collections.abc.Mapping or None, optional
+        Its execution record with the store's resume entry, owned by the store.
+    previous_executions : tuple of collections.abc.Mapping or None, optional
+        The store's closing records of earlier executions.
+
+    Returns
+    -------
+    RunOutcome
+        The amended copy; the parts not given are shared with `outcome`, which the
+        store holds alone.
+    """
+    amended = copy.copy(outcome)
+    if execution is not None:
+        object.__setattr__(amended, "execution", execution)
+    if previous_executions is not None:
+        object.__setattr__(amended, "previous_executions", previous_executions)
+    return amended
 
 
 def _outcome_record(record: Mapping[str, object]) -> dict[str, object]:
@@ -2637,6 +2793,10 @@ class RunMetadata(Displayed):
         How the noise model was chosen (SEP 37): the requested and the resolved
         model and any fallback's reason. Outside the hash; ``None`` when the record's
         builder did not say, as for a record built by hand.
+    defaults : DefaultsResolution or None
+        Which of the integrator, the controller and the collar scheme took the
+        route's default. Outside the hash; ``None`` when the record's builder did not
+        say.
     backend : BackendRecord or None
         What executed the run, written by the driver from the backend's own
         ``metadata()``; ``None`` for a record built before a backend existed. Outside
@@ -2704,6 +2864,13 @@ class RunMetadata(Displayed):
         ``configuration["coupling"]``. Every run records one; ``None`` on a record
         built without it, as by hand, whose planes cannot be exchanged
         (:func:`solprop.processing.planes.field_plane`).
+    transverse : collections.abc.Mapping or None
+        A free-space run's resolved transverse boundary (SEP 40), as
+        :meth:`solprop.spatial_absorber.SpatialAbsorberDesign.record` writes it: the
+        safety ramp's start and strength, and a collar's strength, band, threshold
+        and step limit. Derived numbers, so outside the hash; the specification is in
+        ``configuration["spatial_absorber"]`` where one was given. ``None`` without
+        a transverse boundary.
 
     Examples
     --------
@@ -2746,7 +2913,9 @@ class RunMetadata(Displayed):
     tdse: Mapping[str, object] | None = None
     quadrature: Mapping[str, object] | None = None
     reference: Mapping[str, object] | None = None
+    transverse: Mapping[str, object] | None = None
     noise_resolution: NoiseResolution | None = None
+    defaults: DefaultsResolution | None = None
     _stored: dict[str, JsonValue] | None = dataclasses.field(
         default=None, init=False, repr=False, compare=False, metadata={"record": False}
     )
@@ -2757,7 +2926,7 @@ class RunMetadata(Displayed):
         Returns
         -------
         str
-            For example ``RunMetadata(modal, field grid of 8192, 2 modes, numba_cpu,
+            For example ``RunMetadata(modal, field grid of 8192, 2 modes, native,
             2026-09-17T12:00:00+00:00)``.
         """
         backend = "no backend" if self.backend is None else self.backend.name
@@ -2820,7 +2989,14 @@ class RunMetadata(Displayed):
         object.__setattr__(self, "modes", tuple(self.modes))
         object.__setattr__(self, "configuration", dict(self.configuration))
         object.__setattr__(self, "versions", dict(self.versions))
-        for name in ("spatial", "modal", "reference", "tdse", "quadrature"):
+        for name in (
+            "spatial",
+            "modal",
+            "reference",
+            "tdse",
+            "quadrature",
+            "transverse",
+        ):
             value = getattr(self, name)
             if value is not None:
                 object.__setattr__(self, name, dict(value))
@@ -3152,9 +3328,14 @@ class RunMetadata(Displayed):
         # Derived from the hashed problem, so stored beside the key, not in it: a
         # resume on another build may evaluate the frame to a different last bit.
         document["reference"] = serialise(self.reference)
+        # The transverse boundary's derived values (SEP 40), from a root-finder:
+        # beside the key, so that a resume on another build is not refused.
+        document["transverse"] = serialise(self.transverse)
         # How the model was chosen, beside the key: the resolved model is in the
         # hashed noise record already, and a request is not part of the physics.
         document["noise_resolution"] = serialise(self.noise_resolution)
+        # Which numerics took the route's default, beside the key for the same reason.
+        document["defaults"] = serialise(self.defaults)
         document["spectral_convention"] = self.spectral_convention
         document["field_layout"] = self.field_layout
         document["backend"] = serialise(self.backend)
@@ -3215,6 +3396,8 @@ class RunMetadata(Displayed):
         try:
             noise = stored("noise")
             resolution = stored("noise_resolution")
+            # Absent from a record written before the defaults were recorded.
+            defaults = stored("defaults")
             git = stored("git")
             backend = stored("backend")
             metadata = cls(
@@ -3245,9 +3428,13 @@ class RunMetadata(Displayed):
                 tdse=stored("tdse"),
                 quadrature=stored("quadrature"),
                 reference=stored("reference"),
+                transverse=stored("transverse"),
                 noise_resolution=None
                 if resolution is None
                 else _rebuild(NoiseResolution, resolution),
+                defaults=None
+                if defaults is None
+                else _rebuild(DefaultsResolution, defaults),
             )
         except (KeyError, TypeError, MaterialError) as error:
             msg = f"stored metadata is missing or malformed: {error}"
@@ -3725,6 +3912,83 @@ class CheckpointOutput(Protocol):
         ...
 
 
+@dataclass(frozen=True)
+class RecipeFile:
+    """A data file a recorded recipe refers to (SEP 41, S2).
+
+    Attributes
+    ----------
+    path : str
+        The path the recipe wrote, relative to its directory.
+    sha256 : str
+        Its SHA-256, as the recipe recorded it.
+    data : bytes or None
+        Its contents, embedded under the generated name it is filed by; ``None``
+        when the run's files together passed the embedding cap, and only the path and
+        hash are kept.
+    """
+
+    path: str
+    sha256: str
+    data: bytes | None = None
+
+
+@dataclass(frozen=True)
+class RecipeRecord:
+    """The recipe a run was built from, as its output records it once (SEP 41, S2).
+
+    Provenance outside the run record and its hash: a file without one is a file from
+    a script, and a reader that does not know it ignores it.
+
+    Attributes
+    ----------
+    format : int
+        The recipe format.
+    authored : str
+        The recipe's text as loaded, or its canonical TOML if it was edited.
+    resolved : str
+        The recipe to rebuild the run from: the authored keys with the drawn seed, the
+        keywords whose value written back gives the same record, at the values used,
+        and the execution settings at run start.
+    files : collections.abc.Mapping
+        The data files the recipe refers to, by the generated name each is filed by.
+
+    Examples
+    --------
+    >>> from solprop.output.schema import RecipeRecord
+    >>> record = RecipeRecord(1, "[recipe]", "[recipe]", {})
+    >>> record.authored_sha256 == record.resolved_sha256
+    True
+    """
+
+    format: int
+    authored: str
+    resolved: str
+    files: Mapping[str, RecipeFile] = dataclasses.field(default_factory=dict)
+
+    @property
+    def authored_sha256(self) -> str:
+        """Return the SHA-256 of the authored text.
+
+        Returns
+        -------
+        str
+            The digest, in hexadecimal.
+        """
+        return hashlib.sha256(self.authored.encode("utf-8")).hexdigest()
+
+    @property
+    def resolved_sha256(self) -> str:
+        """Return the SHA-256 of the resolved text.
+
+        Returns
+        -------
+        str
+            The digest, in hexadecimal.
+        """
+        return hashlib.sha256(self.resolved.encode("utf-8")).hexdigest()
+
+
 class PlaneStore(Displayed, ABC):
     """The shared half of an output handler: one save protocol for every backing store.
 
@@ -3761,6 +4025,7 @@ class PlaneStore(Displayed, ABC):
         """Start with nothing stored and nothing opened."""
         self._metadata: RunMetadata | None = None
         self._session_resume: dict[str, object] | None = None
+        self._recipe: RecipeRecord | None = None
         self._n_saved = 0
         self._planned = 0
         self._closed = False
@@ -3810,7 +4075,46 @@ class PlaneStore(Displayed, ABC):
         entry : collections.abc.Mapping
             The entry: finite JSON values.
         """
-        self._session_resume = dict(entry)
+        self._session_resume = _outcome_record(entry)
+
+    def record_recipe(self, record: RecipeRecord) -> None:
+        """Record the recipe the run was built from, unless one is recorded already.
+
+        Written once, at the first run start, and never rewritten (SEP 41, S2): a
+        later session of the same file, from a script or from an edited recipe,
+        leaves the first session's recipe in place and is recorded in its own
+        execution record.
+
+        Parameters
+        ----------
+        record : RecipeRecord
+            The authored and resolved texts and the data files.
+        """
+        self._check_usable()
+        if self.recipe is not None:
+            return
+        self._write_recipe(record)
+        self._recipe = record
+
+    def _write_recipe(self, record: RecipeRecord) -> None:
+        """Persist the recipe; a store that lives in memory has nothing to do.
+
+        Parameters
+        ----------
+        record : RecipeRecord
+            The recipe.
+        """
+
+    @property
+    def recipe(self) -> RecipeRecord | None:
+        """The recipe the run was built from, or ``None`` for a run from a script.
+
+        Returns
+        -------
+        RecipeRecord or None
+            The record.
+        """
+        return self._recipe
 
     def record_outcome(
         self, outcome: RunOutcome, checkpoint: TerminalCheckpoint | None = None
@@ -3833,8 +4137,12 @@ class PlaneStore(Displayed, ABC):
         self._check_usable()
         self._require_metadata()
         if self._session_resume is not None:
-            outcome = dataclasses.replace(
-                outcome, execution={**outcome.execution, "resume": self._session_resume}
+            outcome = _amended_outcome(
+                outcome,
+                execution={
+                    **outcome.execution,
+                    "resume": _json_copy(self._session_resume),
+                },
             )
         previous = self._outcome
         if previous is not None:
@@ -3845,7 +4153,13 @@ class PlaneStore(Displayed, ABC):
                 closing = dataclasses.asdict(previous)
                 closing.pop("previous_executions")
                 history = (*history, closing)
-            outcome = dataclasses.replace(outcome, previous_executions=history)
+            outcome = _amended_outcome(
+                outcome,
+                previous_executions=tuple(
+                    cast("dict[str, object]", _json_copy(dict(record)))
+                    for record in history
+                ),
+            )
         if checkpoint is not None:
             if checkpoint.plane.z != outcome.z:
                 raise OutputError("checkpoint and outcome positions must agree")
@@ -3958,8 +4272,8 @@ class PlaneStore(Displayed, ABC):
             )
             raise OutputError(msg)
         try:
-            text = json.dumps(value, sort_keys=True)
-        except TypeError as error:
+            text = json.dumps(value, sort_keys=True, allow_nan=False)
+        except (TypeError, ValueError) as error:
             msg = f"annotation {name!r} is not plain JSON: {error}"
             raise OutputError(msg) from error
         self._write_annotation(name, text)

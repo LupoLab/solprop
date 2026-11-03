@@ -18,7 +18,6 @@ was asked for is recorded as structured metadata.
 The manual page is ``docs/guide/setup/running.md``.
 """
 
-import dataclasses
 import logging
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
@@ -27,16 +26,16 @@ from typing import Literal
 import numpy as np
 from jaxtyping import Float
 
-from solprop.boundaries import Absorber, no_absorber
+from solprop.boundaries import Absorber, SpatialAbsorber
 from solprop.coupling.models import CouplingModel
 from solprop.driver.simulation import (
     DEFAULT_ATOL,
     WAVEGUIDE_ATOL,
+    ModalLaunch,
     NoiseSetting,
     Simulation,
     SimulationSettings,
 )
-from solprop.exceptions import DriverError
 from solprop.gasflow import VacuumEnd
 from solprop.grid import FreeGrid, RadialGrid, TimeGrid
 from solprop.linear import Frame
@@ -109,6 +108,7 @@ def prop_radial(  # noqa: PLR0913 - the simulation interface and output controls
     absorber: Absorber | Literal[False] | None = None,
     absorber_scheme: AbsorberScheme | None = None,
     boundary_check: BoundaryCheck | None = DEFAULT_BOUNDARY_CHECK,
+    spatial_absorber: SpatialAbsorber | Literal[False] | None = None,
 ) -> Output:
     """Propagate a radial beam and return its saved output.
 
@@ -171,12 +171,18 @@ def prop_radial(  # noqa: PLR0913 - the simulation interface and output controls
         shot-noise floor reaches them; ``None`` watches nothing, for a window kept
         narrow on purpose. Refused beside settings that name another check.
 
+    spatial_absorber : solprop.boundaries.SpatialAbsorber, False or None, optional
+        The transverse boundary (SEP 40), when `settings` declare none: ``None``
+        keeps the settings' own, by default a wall or wrap at the grid's outer size
+        with the safety ramp and the boundary monitor; a
+        :class:`~solprop.boundaries.SpatialAbsorber` asks for a designed collar in
+        the grid's room outside its requested size; ``False`` carries no ramp.
+
     Returns
     -------
     solprop.output.schema.Output
         Saved fields, metadata, statistics and step history.
     """
-    settings = _with_boundary(settings, grid, absorber, absorber_scheme)
     simulation = Simulation.from_radial(
         grid,
         space,
@@ -188,7 +194,10 @@ def prop_radial(  # noqa: PLR0913 - the simulation interface and output controls
         noise=noise,
         seed=seed,
         materials=materials,
+        absorber=absorber,
+        absorber_scheme=absorber_scheme,
         boundary_check=boundary_check,
+        spatial_absorber=spatial_absorber,
     )
     return simulation.run(
         output,
@@ -219,6 +228,7 @@ def prop_free(  # noqa: PLR0913 - the simulation interface and output controls
     absorber: Absorber | Literal[False] | None = None,
     absorber_scheme: AbsorberScheme | None = None,
     boundary_check: BoundaryCheck | None = DEFAULT_BOUNDARY_CHECK,
+    spatial_absorber: SpatialAbsorber | Literal[False] | None = None,
 ) -> Output:
     """Propagate a Cartesian beam and return its saved output.
 
@@ -286,12 +296,18 @@ def prop_free(  # noqa: PLR0913 - the simulation interface and output controls
         shot-noise floor reaches them; ``None`` watches nothing, for a window kept
         narrow on purpose. Refused beside settings that name another check.
 
+    spatial_absorber : solprop.boundaries.SpatialAbsorber, False or None, optional
+        The transverse boundary (SEP 40), when `settings` declare none: ``None``
+        keeps the settings' own, by default a wall or wrap at the grid's outer size
+        with the safety ramp and the boundary monitor; a
+        :class:`~solprop.boundaries.SpatialAbsorber` asks for a designed collar in
+        the grid's room outside its requested size; ``False`` carries no ramp.
+
     Returns
     -------
     solprop.output.schema.Output
         Saved fields, metadata, statistics and step history.
     """
-    settings = _with_boundary(settings, grid, absorber, absorber_scheme)
     simulation = Simulation.from_free(
         grid,
         space,
@@ -303,7 +319,10 @@ def prop_free(  # noqa: PLR0913 - the simulation interface and output controls
         noise=noise,
         seed=seed,
         materials=materials,
+        absorber=absorber,
+        absorber_scheme=absorber_scheme,
         boundary_check=boundary_check,
+        spatial_absorber=spatial_absorber,
     )
     return simulation.run(
         output,
@@ -331,14 +350,15 @@ def prop_planar(  # noqa: PLR0913 - the simulation interface and output controls
     absorber: Absorber | Literal[False] | None = None,
     absorber_scheme: AbsorberScheme | None = None,
     boundary_check: BoundaryCheck | None = DEFAULT_BOUNDARY_CHECK,
+    spatial_absorber: SpatialAbsorber | Literal[False] | None = None,
 ) -> Output:
     """Propagate a beam in a hollow planar guide, resolved in y, and return its output.
 
     The hybrid planar transform: the slab modes of `space` in x and a periodic, collared
     y axis (``docs/guide/waveguides/planar.md``, "Resolving y"). Diffraction uses the
     represented angular-spectrum operator. The run integrates over y, so its energies
-    are in J and its powers in W. Constant gap and constant fill only. ``numpy_ref``,
-    ``numba_cpu`` and native CPU execute the geometry.
+    are in J and its powers in W. Constant gap and constant fill only. ``numpy_ref`` and
+    native CPU execute the geometry.
 
     Parameters
     ----------
@@ -390,12 +410,18 @@ def prop_planar(  # noqa: PLR0913 - the simulation interface and output controls
         shot-noise floor reaches them; ``None`` watches nothing, for a window kept
         narrow on purpose. Refused beside settings that name another check.
 
+    spatial_absorber : solprop.boundaries.SpatialAbsorber, False or None, optional
+        The transverse boundary (SEP 40), when `settings` declare none: ``None``
+        keeps the settings' own, by default a wall or wrap at the grid's outer size
+        with the safety ramp and the boundary monitor; a
+        :class:`~solprop.boundaries.SpatialAbsorber` asks for a designed collar in
+        the grid's room outside its requested size; ``False`` carries no ramp.
+
     Returns
     -------
     solprop.output.schema.Output
         Saved fields, metadata, statistics and step history.
     """
-    settings = _with_boundary(settings, grid, absorber, absorber_scheme)
     simulation = Simulation.from_planar(
         grid,
         space,
@@ -404,7 +430,10 @@ def prop_planar(  # noqa: PLR0913 - the simulation interface and output controls
         settings=settings,
         frame=frame,
         materials=materials,
+        absorber=absorber,
+        absorber_scheme=absorber_scheme,
         boundary_check=boundary_check,
+        spatial_absorber=spatial_absorber,
     )
     return simulation.run(
         output,
@@ -449,7 +478,7 @@ def prop_gnlse(  # noqa: PLR0913 - the interface's keyword surface
     schedule: FixedSchedule | None = None,
     integrator: Multistep | RungeKutta | LowStorageRungeKutta | None = None,
     interpolate_planes: bool = False,
-    step_planes: int = 0,
+    step_planes: int | None = None,
     save_planes: Sequence[float] | np.ndarray | None = None,
     n_save: int | None = None,
     stats: StatsSpec | None = None,
@@ -584,7 +613,7 @@ def prop_gnlse(  # noqa: PLR0913 - the interface's keyword surface
         what it drew.
     rtol : float or None, optional
         Relative tolerance of the step controller, dimensionless and positive.
-        ``None`` takes :data:`~solprop.driver.simulation.DEFAULT_RTOL`, ``1e-7``, or
+        ``None`` takes :data:`~solprop.driver.defaults.DEFAULT_RTOL`, ``1e-7``, or
         under ``precision="single"`` the floor
         :data:`~solprop.translate.precision.SINGLE_RTOL_FLOOR`, ``1e-6``. The map
         from this local tolerance to the global error at the output is problem dependent
@@ -592,7 +621,7 @@ def prop_gnlse(  # noqa: PLR0913 - the interface's keyword surface
         (``docs/dev/stepper.md`` section 3).
     atol : float, optional
         Absolute tolerance, in the square root of watts, non-negative; ``1e-14`` by
-        default (:data:`~solprop.driver.simulation.DEFAULT_ATOL`).
+        default (:data:`~solprop.driver.defaults.DEFAULT_ATOL`).
     dz_max : float, optional
         Cap on the controller's step proposal, m; ``None`` uses half the length.
     dz_init : float, optional
@@ -613,10 +642,10 @@ def prop_gnlse(  # noqa: PLR0913 - the interface's keyword surface
         Observe the save planes inside accepted steps instead of landing on them
         (SEP 14): through the Adams march's own polynomial, or DOPRI5's continuous
         extension with ``RungeKutta()``. Default ``False``.
-    step_planes : int, optional
+    step_planes : int or None, optional
         Also save the end of every `step_planes`-th accepted step, the
         march's own positions, beside the requested planes (SEP 14);
-        ``0``, the default, saves the requested planes only.
+        ``None``, the default, and ``0`` save the requested planes only.
     save_planes : array_like, optional
         Positions along the fibre to save at, m, increasing and positive; the plane at
         ``z = 0`` is saved as well. Give this or `n_save`.
@@ -650,8 +679,9 @@ def prop_gnlse(  # noqa: PLR0913 - the interface's keyword surface
         Immutable local checkpoints at committed accepted steps; requires HDF5,
         ``step_planes=1``, all fields and non-interpolated observations.
     backend : str, optional
-        Registry name, or ``"auto"`` (the default) to prefer ``native`` if installed
-        and otherwise use Numba CPU. Import or construction errors do not fall back.
+        Registry name, or ``"auto"`` (the default) for ``native``, which refuses if it
+        isn't installed or this processor is below its baseline. There is no fallback,
+        and import or construction errors stay visible.
         :func:`solprop.backends.registry.available` lists what can be used.
     precision : {'double', 'single'}, optional
         The arithmetic the run is held in (SEP 33,
@@ -663,7 +693,7 @@ def prop_gnlse(  # noqa: PLR0913 - the interface's keyword surface
         resolves to none, and the Adams method and an explicit noise model are refused.
         ``backend="auto"`` then resolves to the experimental ``mlx`` where MLX and a
         Metal GPU are present, and is refused otherwise; ``numpy_ref`` runs it as the
-        reference, and ``numba_cpu`` and ``native`` refuse it.
+        reference, and ``native`` refuses it.
     resume : bool or {'interpolated', 'force'}, optional
         Continue the file at `output` when its record and this run's agree on what
         matters to the run: the layout and physics must agree, a changed tolerance or
@@ -807,6 +837,7 @@ def prop_capillary(  # noqa: PLR0913 - the interface's keyword surface
     peak_power: float | None = None,
     phases: Sequence[float] | np.ndarray = (),
     pulses: Sequence[Pulse] | None = None,
+    launch: ModalLaunch | None = None,
     modes: int | Sequence[Mode] = 1,
     mode_average: bool = False,
     lattice: TubeLattice | None = None,
@@ -843,6 +874,7 @@ def prop_capillary(  # noqa: PLR0913 - the interface's keyword surface
     save_planes: Sequence[float] | np.ndarray | None = None,
     n_save: int | None = None,
     stats: StatsSpec | None = None,
+    polarisation_taper: bool = False,
     node_budget: int = DEFAULT_NODE_BUDGET,
     backend: str = "auto",
     precision: PrecisionName = "double",
@@ -942,6 +974,16 @@ def prop_capillary(  # noqa: PLR0913 - the interface's keyword surface
         single-pulse keywords `fwhm`, `width`, `shape`, `energy`,
         `peak_power` and `phases`, which must then be left unset; `wavelength` still
         sets the grid's reference wavelength.
+    launch : mapping, sequence of mapping, or None, optional
+        Launch the input into chosen modes (SEP 41, S5): a mapping from a mode's
+        display label or index to its share, or to ``{"share": s, "phase": phi}``
+        with the phase in radians (optics convention), as
+        ``{"HE1,1": 0.9, "HE1,2": {"share": 0.1, "phase": 1.57}}``; or a list of such
+        mappings, one for each pulse in `pulses`. The shares are energy fractions,
+        normalised to one for each pulse, and the launch is recorded as
+        ``configuration["modal_launch"]`` (see
+        :meth:`~solprop.driver.simulation.Simulation.from_capillary`). ``None``, the
+        default, puts the input in the first mode.
     modes : int or sequence of Mode, optional
         How many HE_1m modes to propagate, or the mode set itself. A set is checked for
         orthonormality. Supplied sets may include TabulatedHollowMode or TabulatedMode
@@ -967,8 +1009,8 @@ def prop_capillary(  # noqa: PLR0913 - the interface's keyword surface
         giving each its own Marcatili attenuation. It needs the contiguous set
         ``HE_11`` to ``HE_1N`` -- or, with ``impedance="te_tm"``, one azimuthal
         order -- on a constant or a varying guide, and a scalar run. It carries the
-        default ``"input"`` noise and refuses ``"modified"``. All three backends
-        execute it (``method="cf4"`` on ``numpy_ref`` alone).
+        default ``"input"`` noise and refuses ``"modified"``. ``numpy_ref`` and
+        ``native`` execute it (``method="cf4"`` on ``numpy_ref`` alone).
         ``None``, the default, carries no wall: the modes keep their own Marcatili
         loss, and a multimode taper its taper coupling (below).
     taper_coupling : bool, optional
@@ -1079,12 +1121,12 @@ def prop_capillary(  # noqa: PLR0913 - the interface's keyword surface
         Entropy of the noise generator.
     rtol : float or None, optional
         Relative step tolerance. ``None`` takes
-        :data:`~solprop.driver.simulation.CAPILLARY_RTOL`, ``1e-6``, in either
+        :data:`~solprop.driver.defaults.CAPILLARY_RTOL`, ``1e-6``, in either
         precision (it equals the single-precision floor). Calibrate it for a production
         run (``docs/dev/stepper.md`` section 3).
     atol : float, optional
         Absolute step tolerance, in the square root of watts; ``1e-10`` by default
-        (:data:`~solprop.driver.simulation.WAVEGUIDE_ATOL`).
+        (:data:`~solprop.driver.defaults.WAVEGUIDE_ATOL`).
     dz_max : float or None, optional
         Cap on the step, m; ``None`` takes half the capillary.
     dz_init : float or None, optional
@@ -1117,11 +1159,16 @@ def prop_capillary(  # noqa: PLR0913 - the interface's keyword surface
         :func:`solprop.stats.default_spec` with the profiles, for a multimode run or,
         under ``mode_average=True``, a mode-averaged one without the quadrature
         estimate, plus every statistic only a backend can compute.
+    polarisation_taper : bool, optional
+        Whether the spectral collar tapers the nonlinear polarisation. Default
+        ``False``: the taper costs a systematic error of the size of the field's
+        content in the collar, and the rate absorber acts either way.
     node_budget : int, optional
         Bytes of node-chunk buffers the response pass may hold.
     backend : str, optional
-        Registry name, or ``"auto"`` (the default) to prefer ``native`` if installed
-        and otherwise use Numba CPU. Import or construction errors do not fall back.
+        Registry name, or ``"auto"`` (the default) for ``native``, which refuses if it
+        isn't installed or this processor is below its baseline. There is no fallback,
+        and import or construction errors stay visible.
     precision : {'double', 'single'}, optional
         The arithmetic the run is held in (SEP 33,
         ``docs/guide/performance/single-precision.md``). ``"double"``, the default, is
@@ -1132,7 +1179,7 @@ def prop_capillary(  # noqa: PLR0913 - the interface's keyword surface
         resolves to none, and the Adams method and an explicit noise model are refused.
         ``backend="auto"`` then resolves to the experimental ``mlx`` where MLX and a
         Metal GPU are present, and is refused otherwise; ``numpy_ref`` runs it as the
-        reference, and ``numba_cpu`` and ``native`` refuse it.
+        reference, and ``native`` refuses it.
     polarisation : str, float or None, optional
         Refused; this path is scalar.
     output : solprop.output.schema.Output, pathlib.Path, str or None, optional
@@ -1235,6 +1282,7 @@ def prop_capillary(  # noqa: PLR0913 - the interface's keyword surface
         peak_power=peak_power,
         phases=phases,
         pulses=pulses,
+        launch=launch,
         modes=modes,
         mode_average=mode_average,
         lattice=lattice,
@@ -1271,6 +1319,7 @@ def prop_capillary(  # noqa: PLR0913 - the interface's keyword surface
         save_planes=save_planes,
         n_save=n_save,
         stats=stats,
+        polarisation_taper=polarisation_taper,
         node_budget=node_budget,
         backend=backend,
         precision=precision,
@@ -1328,6 +1377,7 @@ def prop_waveguide(  # noqa: PLR0913 - the interface's keyword surface
     peak_power: float | None = None,
     phases: Sequence[float] | np.ndarray = (),
     pulses: Sequence[Pulse] | None = None,
+    launch: ModalLaunch | None = None,
     susceptibility: GasSusceptibility | None = None,
     temperature: float | ZProfile | None = None,
     kerr: bool = True,
@@ -1352,9 +1402,12 @@ def prop_waveguide(  # noqa: PLR0913 - the interface's keyword surface
     dz_init: float | None = None,
     schedule: FixedSchedule | None = None,
     integrator: Multistep | RungeKutta | LowStorageRungeKutta | None = None,
+    interpolate_planes: bool = False,
+    step_planes: int | None = None,
     save_planes: Sequence[float] | np.ndarray | None = None,
     n_save: int | None = None,
     stats: StatsSpec | None = None,
+    polarisation_taper: bool = False,
     node_budget: int = DEFAULT_NODE_BUDGET,
     backend: str = "auto",
     precision: PrecisionName = "double",
@@ -1474,6 +1527,16 @@ def prop_waveguide(  # noqa: PLR0913 - the interface's keyword surface
         single-pulse keywords `fwhm`, `width`, `shape`, `energy`,
         `peak_power` and `phases`, which must then be left unset; `wavelength` still
         sets the grid's reference wavelength.
+    launch : mapping, sequence of mapping, or None, optional
+        Launch the input into chosen modes or channels (SEP 41, S5): a mapping from a
+        display label or index, resolved as `channel` resolves it, to a share, or to
+        ``{"share": s, "phase": phi}`` with the phase in radians (optics convention);
+        or a list of such mappings, one for each pulse in `pulses`. The shares are
+        energy fractions on a basis whose flux metric is the identity, and a
+        coordinate split on a guide that declares a change of basis (see
+        :meth:`~solprop.driver.simulation.Simulation.from_waveguide`). Refused beside
+        `channel`, `incident` and `coupling`. ``None``, the default, puts the input
+        in the first mode or in `channel`.
     susceptibility : GasSusceptibility or None, optional
         A gas susceptibility replacing the one `gas` selects, for a comparison
         against another code's refractive data. Refused for a fraction mapping
@@ -1578,12 +1641,12 @@ def prop_waveguide(  # noqa: PLR0913 - the interface's keyword surface
         Entropy of the noise generator.
     rtol : float or None, optional
         Relative step tolerance. ``None`` takes
-        :data:`~solprop.driver.simulation.WAVEGUIDE_RTOL`, ``1e-5``, in either
+        :data:`~solprop.driver.defaults.WAVEGUIDE_RTOL`, ``1e-5``, in either
         precision. Calibrate it for a production run (``docs/dev/stepper.md``
         section 3).
     atol : float, optional
         Absolute step tolerance, in the square root of watts; ``1e-10`` by default
-        (:data:`~solprop.driver.simulation.WAVEGUIDE_ATOL`).
+        (:data:`~solprop.driver.defaults.WAVEGUIDE_ATOL`).
     dz_max : float or None, optional
         Cap on the step, m; ``None`` takes half the waveguide.
     dz_init : float or None, optional
@@ -1597,6 +1660,14 @@ def prop_waveguide(  # noqa: PLR0913 - the interface's keyword surface
         every route of this interface admits. ``Multistep()`` is the low-call
         exponential Adams method, and ``LowStorageRungeKutta()`` replays `schedule` in
         three registers.
+    interpolate_planes : bool, optional
+        Observe the save planes inside accepted steps instead of landing on them
+        (SEP 14): through the Adams march's own polynomial, or DOPRI5's continuous
+        extension with ``RungeKutta()``. Default ``False``.
+    step_planes : int or None, optional
+        Also save the end of every `step_planes`-th accepted step, the
+        march's own positions, beside the requested planes (SEP 14); ``None``, the
+        default, and ``0`` save the requested planes only.
     save_planes : sequence of float or None, optional
         Positions to save at, m. Give this or `n_save`.
     n_save : int or None, optional
@@ -1606,11 +1677,16 @@ def prop_waveguide(  # noqa: PLR0913 - the interface's keyword surface
         :func:`solprop.stats.default_spec` with the profiles, for a multimode run or,
         under ``mode_average=True``, a mode-averaged one without the quadrature
         estimate, plus every statistic only a backend can compute.
+    polarisation_taper : bool, optional
+        Whether the spectral collar tapers the nonlinear polarisation. Default
+        ``False``: the taper costs a systematic error of the size of the field's
+        content in the collar, and the rate absorber acts either way.
     node_budget : int, optional
         Bytes of node-chunk buffers the response pass may hold.
     backend : str, optional
-        Registry name, or ``"auto"`` (the default) to prefer ``native`` if installed
-        and otherwise use Numba CPU. Import or construction errors do not fall back.
+        Registry name, or ``"auto"`` (the default) for ``native``, which refuses if it
+        isn't installed or this processor is below its baseline. There is no fallback,
+        and import or construction errors stay visible.
     precision : {'double', 'single'}, optional
         The arithmetic the run is held in (SEP 33,
         ``docs/guide/performance/single-precision.md``). ``"double"``, the default, is
@@ -1621,7 +1697,7 @@ def prop_waveguide(  # noqa: PLR0913 - the interface's keyword surface
         resolves to none, and the Adams method and an explicit noise model are refused.
         ``backend="auto"`` then resolves to the experimental ``mlx`` where MLX and a
         Metal GPU are present, and is refused otherwise; ``numpy_ref`` runs it as the
-        reference, and ``numba_cpu`` and ``native`` refuse it.
+        reference, and ``native`` refuses it.
     polarisation : str, float or None, optional
         Refused; this path is scalar.
     taper_coupling : bool, optional
@@ -1686,6 +1762,7 @@ def prop_waveguide(  # noqa: PLR0913 - the interface's keyword surface
         peak_power=peak_power,
         phases=phases,
         pulses=pulses,
+        launch=launch,
         susceptibility=susceptibility,
         temperature=temperature,
         kerr=kerr,
@@ -1710,9 +1787,12 @@ def prop_waveguide(  # noqa: PLR0913 - the interface's keyword surface
         dz_init=dz_init,
         schedule=schedule,
         integrator=integrator,
+        interpolate_planes=interpolate_planes,
+        step_planes=step_planes,
         save_planes=save_planes,
         n_save=n_save,
         stats=stats,
+        polarisation_taper=polarisation_taper,
         node_budget=node_budget,
         backend=backend,
         precision=precision,
@@ -1739,75 +1819,3 @@ def prop_waveguide(  # noqa: PLR0913 - the interface's keyword surface
         progress_period=progress_period,
         resume=resume,
     )
-
-
-def _with_boundary(
-    settings: SimulationSettings,
-    grid: TimeGrid,
-    absorber: Absorber | Literal[False] | None,
-    scheme: AbsorberScheme | None,
-) -> SimulationSettings:
-    """Apply a spatial interface's absorber keywords to its settings (SEP 21 section 5).
-
-    Parameters
-    ----------
-    settings : SimulationSettings
-        The settings given.
-    grid : TimeGrid
-        The run's temporal grid.
-    absorber : Absorber, False or None
-        The collar given; ``False`` zeroes the temporal and spectral rates of the
-        settings' absorber and keeps its lengths, so that the real-space collar, which
-        reads them, is unchanged (without one it builds the hard mask alone, with the
-        real-space collar off, as before); ``None`` leaves the settings' own.
-    scheme : {'nonlinear', 'split_step'} or None
-        The temporal scheme given; ``None`` leaves the settings' own.
-
-    Returns
-    -------
-    SimulationSettings
-        The settings with the keywords applied.
-
-    Raises
-    ------
-    DriverError
-        If a keyword conflicts with what the settings already declare, or a scheme is
-        given beside ``absorber=False``.
-    """
-    changes: dict[str, object] = {}
-    if absorber is False:
-        if scheme is not None:
-            msg = (
-                "absorber=False switches the temporal collar off, so there is nothing "
-                f"for absorber_scheme={scheme!r} to apply; give one or the other"
-            )
-            raise DriverError(msg)
-        current = settings.absorber
-        changes["absorber"] = (
-            dataclasses.replace(no_absorber(grid), spatial=False)
-            if current is None
-            else dataclasses.replace(
-                current,
-                spectral_rate=np.zeros_like(current.spectral_rate),
-                temporal_rate=np.zeros(grid.n_t),
-                temporal_rate_fine=np.zeros(grid.n_to),
-                temporal=False,
-            )
-        )
-    elif absorber is not None:
-        if settings.absorber is not None:
-            msg = (
-                "the settings already declare an absorber; give it there or as the "
-                "absorber keyword, not both"
-            )
-            raise DriverError(msg)
-        changes["absorber"] = absorber
-    if scheme is not None:
-        if settings.absorber_scheme not in (None, scheme):
-            msg = (
-                f"the settings already declare absorber_scheme="
-                f"{settings.absorber_scheme!r}; give it there or as the keyword"
-            )
-            raise DriverError(msg)
-        changes["absorber_scheme"] = scheme
-    return dataclasses.replace(settings, **changes) if changes else settings

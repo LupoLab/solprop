@@ -1580,3 +1580,6 @@ verification is not verification of all coefficients in an article.
   SEP 31 retains field exchange and coupling; the shared flux proposal
   includes admitted radial adiabatic transport and complex local flux.
 - 2026-11-01: Tracking issue [#118](https://github.com/LupoLab/solprop/issues/118).
+- 2026-11-02: [SEP 43](archive/sep-0043-retire-numba-cpu.md) retired `numba_cpu` (ADR-064). Where this
+  proposal names Numba or `numba_cpu`, it was written before that: such a phase or check falls
+  away, and the feature goes on `numpy_ref` and the native backend (SEP 0).

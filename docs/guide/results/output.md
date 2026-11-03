@@ -271,6 +271,58 @@ handler["step_stats/energy"]      # (n_rows, n_modes, n_pol); empty without a ch
 handler.fields(convention="fft")  # the internal arrays, exactly as they went in
 ```
 
+### The recipe a run was built from
+
+A run built from a [recipe](../setup/recipes.md) writes a top-level `recipe` group at
+its first start, once, and never rewrites it:
+
+```
+/recipe                 attrs: format, authored_sha256, resolved_sha256
+/recipe/authored        the recipe's text as loaded, or its canonical TOML if edited
+/recipe/resolved        the recipe that rebuilds the run (TOML)
+/recipe/files/<name>    each data file the recipe refers to, under a generated name,
+                        with its path and sha256 as attributes; embedded up to 16 MiB
+                        in all, empty beyond (path and hash only)
+```
+
+The **resolved** recipe is what rebuilds the run: the authored keys, the noise seed that
+was drawn, each keyword written back only where its value gives the same record (`rtol`,
+`atol`, `dz_max`, the integrator, the statistics, the save planes, the capillary's
+temperature, plasma, third harmonic and Raman switches, and the defaults of `loss` and
+`model`), and `[execution]` as the run started. The group is provenance outside the run
+record and its hash: a file without it is a file from a script, a reader that does not
+know it ignores it, and a later session of the file, from a script or from an edited
+recipe, leaves it as it is and is recorded in its own execution record.
+`handler.recipe` reads it (`RecipeRecord`).
+
+### What a file can give
+
+{py:func}`solprop.capabilities.output` says, for a path or an opened handler, what a
+reader may offer: the file's basis (`modal`, `general_modal` or `spatial`); whether its
+power, energy, spectral density and field are **physical fluxes** (an orthogonal modal
+basis) or **coordinate quantities** (a general modal basis, whose physical energy is
+`physical_energy`, and a spatial grid, per transverse column); which saved planes keep
+their field and which only their statistics; which of the basis-dependent accessors and
+compression its readers refuse, with the refusal they give, read from the same gates
+(a spatial file admits `energy`, whose statistic is the beam's physical energy); in
+`refused_readers`, which processing and plotting readers refuse it (on a spatial file
+every reader that would read its columns as modes, such as `get_power`);
+what a general modal reconstruction needs that the file only identifies (the guide and
+the reference tables); whether it records a recipe; and, for a path, its
+[resumability](resuming.md#what-a-file-allows).
+
+### The writer-lock sidecar
+
+Each HDF5 output keeps a file beside it, `run.h5.writer.lock` for `run.h5`, and so does a
+TDSE archive and a snapshot store. A writer holds an advisory lock on it while it owns
+the file: optical writes, the annotations written to a closed file, archive writes and
+snapshot publication all take it, and a second writer fails at once instead of
+interleaving with the first. The sidecar **persists by design**, after the run too:
+removing a lock file after releasing its lock races with a second writer that has just
+opened it, so it is never removed. Its existence alone does not mean a writer is running;
+the lock does. Do not delete these files to get past a refusal, and leave them out of
+what you copy or show: a front end hides them.
+
 ## Step history
 
 Every attempt the stepper made is recorded: its position, its length, its scaled error
@@ -359,6 +411,14 @@ new top-level group written once does not bump it: readers already tolerate them
 resume decides by comparing the records (ADR-063,
 [SEP 42](../../dev/seps/archive/sep-0042-tolerant-resume.md)).
 
+**How often.** At most once between two releases. The first such change after a
+release bumps the schema; every later one before the next release folds into that
+version, which the next release is the first to write. Development builds between two
+releases are therefore not compatible with one another: a file written by an earlier
+build of the same schema may be refused, by name where the difference is known (a
+Multistep run's predictor orders, which are now recorded as `[order, count]` pairs,
+were one integer per step before), and is read with the build that wrote it.
+
 ## A worked example
 
 ```{code-block} python
@@ -402,7 +462,7 @@ history: explicit `resume_history=False` is refused, and a requested snapshot ke
 history even above the automatic retention-size cutoff. Every backend's Adams history
 is supported, the native backend's resident one included: its engine copies the
 history's rows to the host for the snapshot. Snapshots are qualified by fault
-injection and fresh-process resumes on NumPy and Numba, on native CPU Adams and
+injection and fresh-process resumes on NumPy, on native CPU Adams and
 Runge–Kutta runs and on short native TDSE windows; resuming a haCC snapshot in a fresh
 process has not been qualified.
 
@@ -431,7 +491,6 @@ simulation = Simulation.from_gnlse(
     width=100e-15,
     peak_power=9.8,
     shape="sech",
-    backend="numpy_ref",
     step_planes=1,
     dz_init=1e-4,
     dz_max=1e-4,
@@ -489,11 +548,9 @@ without a published manifest, including a hidden `.snapshot-*` directory, is
 incomplete. Never resume in a published directory: use
 {py:func}`~solprop.output.snapshots.restore_snapshot` to create writable working files.
 
-Optical writes, closed-file annotations, archive writes and snapshot-store ownership
-all use persistent `.writer.lock` sidecars. Competing writers fail immediately.
-The locks remain held while HDF5 handles are closed; sidecar existence by itself does
-not mean a writer is running. Do not remove these files to bypass ownership. Use a
-filesystem that supports advisory locking and atomic directory rename.
+The writers keep their [writer-lock sidecars](#the-writer-lock-sidecar) held across the
+pause, while the HDF5 handles are closed. Use a filesystem that supports advisory locking
+and atomic directory rename.
 
 ### Bounded external transport
 
@@ -545,3 +602,6 @@ A failed handle close retains writer ownership. Calling the writer's `close()`
 again retries cleanup, including after a failed post-run annotation. If archive
 creation fails before it can return a writer and its handle also cannot close,
 ownership remains held until process exit; the exception reports both failures.
+
+The recipe stored in a run's output and the result capabilities were proposed and
+carried out by [SEP 41](../../dev/seps/archive/sep-0041-recipes-and-front-ends.md).

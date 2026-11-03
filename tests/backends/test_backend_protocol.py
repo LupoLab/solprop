@@ -7,8 +7,8 @@ import pytest
 
 from solprop.backends import (
     Backend,
+    BackendHistory,
     Observation,
-    StepHistory,
     StepStats,
     StepSummary,
 )
@@ -19,7 +19,7 @@ from solprop.stats import StatsSpec
 
 def history(n_steps=2, *, accepted=None):
     """A well-formed step history of `n_steps` steps."""
-    return StepHistory(
+    return BackendHistory(
         z=np.linspace(0.1, 0.1 * n_steps, n_steps),
         dz=np.full(n_steps, 0.1),
         error_norm=np.full(n_steps, 0.4),
@@ -40,7 +40,7 @@ def test_a_history_counts_its_steps_and_its_rejections():
 
 def test_an_empty_history_is_a_valid_record():
     """Two save planes with no step between them is a legitimate observation."""
-    empty = StepHistory(
+    empty = BackendHistory(
         np.zeros(0), np.zeros(0), np.zeros(0), np.zeros(0, bool), np.zeros(0)
     )
     assert (empty.n_steps, empty.n_rejected) == (0, 0)
@@ -57,7 +57,7 @@ def test_a_history_of_ragged_arrays_is_refused(name):
     }
     fields[name] = fields[name][:2]
     with pytest.raises(BackendError, match="one entry per step"):
-        StepHistory(**fields)
+        BackendHistory(**fields)
 
 
 @pytest.mark.parametrize("name", ["z", "dz", "error_norm", "wall_time"])
@@ -71,13 +71,13 @@ def test_a_history_with_a_non_finite_entry_is_refused(name):
     }
     fields[name] = np.array([np.nan, fields[name][1]])
     with pytest.raises(BackendError, match=f"{name} has entries that are not finite"):
-        StepHistory(**fields)
+        BackendHistory(**fields)
 
 
 def test_a_rejected_step_records_a_diverged_trial_as_infinity():
     """A trial whose norm overflowed is a rejection, and its record is admitted."""
     record = history(2, accepted=np.array([False, True]))
-    diverged = StepHistory(
+    diverged = BackendHistory(
         record.z,
         record.dz,
         np.array([np.inf, 0.4]),
@@ -97,7 +97,7 @@ def test_only_a_rejected_step_may_record_infinity(norm, accepted):
     """An accepted step is finite, and a diverged trial is written as +inf, not NaN."""
     record = history(2, accepted=np.array([accepted, True]))
     with pytest.raises(BackendError, match="other than a rejected step's infinity"):
-        StepHistory(
+        BackendHistory(
             record.z,
             record.dz,
             np.array([norm, 0.4]),
@@ -109,7 +109,7 @@ def test_only_a_rejected_step_may_record_infinity(norm, accepted):
 def test_a_step_of_no_length_is_refused():
     record = history()
     with pytest.raises(BackendError, match="dz must be positive"):
-        StepHistory(
+        BackendHistory(
             record.z,
             np.array([0.1, 0.0]),
             record.error_norm,

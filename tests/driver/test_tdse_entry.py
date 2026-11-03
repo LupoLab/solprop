@@ -152,6 +152,7 @@ def test_lower_level_construction_refuses_an_unresolved_window_before_any_provid
         {"ionisation_field_range": (1.0, 2.0)},
         {"thg": True},
         {"kerr": False},
+        {"mode_average": True},
     ],
 )
 def test_electronic_keywords_beside_tdse_are_refused_by_name(keyword):
@@ -171,6 +172,7 @@ def test_tdse_execution_alone_and_a_foreign_record_are_refused():
             None,
             trange=None,
             kerr=True,
+            mode_average=False,
             unset={},
             backend="auto",
             step_planes=None,
@@ -180,8 +182,8 @@ def test_tdse_execution_alone_and_a_foreign_record_are_refused():
 
 
 def test_explicit_incompatible_settings_keep_their_existing_refusals():
-    with pytest.raises(DriverError, match=r"explicit backend='numpy_ref'.*numba_cpu"):
-        _capillary(tdse=_sae(), backend="numba_cpu")
+    with pytest.raises(DriverError, match=r"explicit backend='numpy_ref'.*native"):
+        _capillary(tdse=_sae(), backend="native")
 
 
 def test_statistics_default_excludes_what_a_tdse_response_cannot_supply():

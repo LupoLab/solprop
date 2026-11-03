@@ -11,9 +11,8 @@ problems (field and envelope grids, both sectors, a polynomial mixture as the ex
 per-species sum and a symmetric one under its mixture filter); its whole stage
 derivative, with the dispersion switched off, to the constant cubic's on the
 mode-averaged and radial routes; a short lossless propagation to the
-work identity. ``numba_cpu`` and the native backend execute it on this path
-(``tests/backends/test_numba_dispersive_kerr.py``,
-``tests/backends/test_native_dispersive_kerr.py``); the free-space, planar and general
+work identity. The native backend executes it on this path
+(``tests/backends/test_native_dispersive_kerr.py``); the free-space, planar and general
 modal routes are ``tests/backends/test_dispersive_kerr_routes.py``'s.
 """
 
@@ -27,7 +26,6 @@ import pytest
 
 from backends.matched import dispersive_response_bound
 from bounds import assert_within
-from solprop.backends.numba_cpu import NumbaCpuBackend
 from solprop.backends.numpy_ref import NumpyRefBackend, passes
 from solprop.boundaries import Absorber
 from solprop.constants import EPS0
@@ -290,7 +288,7 @@ def test_without_dispersion_the_mode_averaged_derivative_is_the_constant_one(thg
 def test_the_radial_route_executes_the_leaf():
     """The radial route shares the fused node path; without dispersion it is Kerr's."""
     grid = FieldGrid.from_limits(1e-4, 800e-9, (400e-9, 2e-6), 100e-15)
-    space = RadialGrid(4e-4, 16, window_factor=0.0)
+    space = RadialGrid(4e-4, 16, collar_fraction=0.0)
     pulse = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-6), 1e-4
     )
@@ -376,12 +374,6 @@ def test_native_admits_the_leaf_on_the_fused_path():
     simulation = capillary("symmetric-kerr")
     problem = simulation.translate()
     NativeBackend(problem, grid=simulation.grid).close()  # pyright: ignore[reportOptionalCall]
-
-
-def test_numba_cpu_admits_the_leaf_on_the_fused_path():
-    simulation = capillary("symmetric-kerr")
-    problem = simulation.translate()
-    NumbaCpuBackend(problem, grid=simulation.grid).close()
 
 
 def test_the_pass_refuses_stage_inputs_that_do_not_match_the_leaf():

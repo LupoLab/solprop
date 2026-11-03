@@ -131,10 +131,6 @@ through `Draft`, `Accepted`, `In progress` and `Deferred`, and closes when the S
    Part III with the date drafted.
 3. Add the SEP to the index table, the index's toctree and the *Draft enhancement
    proposals* section of the [roadmap](../roadmap.md), after the accepted proposals.
-   Review the informal roadmap items in the same change: remove an item only when the
-   SEP covers it in full; for partial coverage, link the SEP, state what it covers and
-   retain the remaining work. Discussion of a possible future extension does not count
-   as coverage by the proposal's implementation scope.
 4. Search the open [issues](https://github.com/LupoLab/solprop/issues) for anything the
    SEP touches, and list what you find in its *Context* section: the issues it will fix,
    those that must be resolved before it, and any others it changes.
@@ -146,8 +142,8 @@ through `Draft`, `Accepted`, `In progress` and `Deferred`, and closes when the S
    documentation and can be discussed.
 
 Revising a draft is free: edit it in place in further pull requests and add a line to
-Part III for each substantial revision. Update its roadmap summary and the informal
-items whenever its scope changes; work that the revised scope no longer covers goes in an
+Part III for each substantial revision. Update its roadmap summary whenever its
+scope changes; work that the revised scope no longer covers goes in an
 issue (ADR-062).
 
 ### Review
@@ -239,7 +235,7 @@ A SEP becomes `Final` when:
 
 - every phase is merged and reported;
 - the functionality runs on the Tier 1 backends (`numpy_ref` and the native CPU build;
-  [ADR-061](../decisions.md)), with parity tests, and on `numba_cpu` or `mlx` too where
+  [ADR-061](../decisions.md)), with parity tests, and on `mlx` too where
   the accepted SEP says so — or the accepted SEP records a justified exception, which
   then has an issue;
 - the manual documents it, and each manual page it produced ends with a link to the SEP;
@@ -252,7 +248,8 @@ of the published artefacts, for example); being documentation alone, it runs onl
 documentation checks in CI. The commit that sets `Final` fills in **Manual pages**,
 moves the file with `git mv` to `docs/dev/seps/archive/`, moves its index row to the
 archived table and its toctree entry to the archive index, fixes the relative links the
-move breaks, removes its roadmap link, and cites the SEP in the `CHANGELOG.md` line.
+move breaks, removes its roadmap link, and cites the SEP in its `changelog.d/`
+release-note fragment, collected by the [rolling release PR](../releasing.md#the-rolling-release-pr).
 
 A Final SEP is a historical record. It is not updated to follow later changes to the code;
 the manual and the design pages describe current behaviour. Only errata and a
@@ -289,7 +286,7 @@ and compares options; it is not a line-by-line plan, which belongs to the implem
 - **Backends in order.** A feature is implemented first on `numpy_ref`, the oracle, with
   its tests and its manual page; then on the native CPU build in `native/`. Device (GPU)
   qualification follows the standing policy of [backends.md](../backends.md), later and
-  in one pass. `numba_cpu` (Tier 2) and `mlx` (Tier 3) take the feature only where the
+  in one pass. `mlx` (Tier 3) takes the feature only where the
   SEP says so ([ADR-061](../decisions.md)); the SEP weighs who would run it there.
 - **Parity, eventually.** Until a backend implements the feature it refuses the problem by
   name, with an error saying which backend does support it; it never falls back silently.
@@ -339,8 +336,8 @@ assumption that had to be invented are all said plainly.
 | Manual (`docs/`) | How the functionality works and how to use it, as it is now |
 | Design pages (`docs/dev/`) | How the code is built, as it is now |
 | [Issues](https://github.com/LupoLab/solprop/issues) | Planned work (ADR-062) |
-| [Roadmap](../roadmap.md) | Accepted and draft SEPs, then older open work not yet moved to issues |
-| `CHANGELOG.md` | What changed in each release, citing the SEP |
+| [Roadmap](../roadmap.md) | Accepted and draft SEPs |
+| `changelog.d/`, collected into `CHANGELOG.md` by the release PR | What changed in each release, citing the SEP |
 
 The theory of a SEP moves into the manual when it is implemented: the manual page carries
 the derivation in its current form, and the SEP remains the record of the proposal.
@@ -371,6 +368,8 @@ that edits this document and adds a line to its history.
   move over time, and work a SEP gives back goes in an issue; each SEP has a tracking
   issue, and a draft lists the open issues it touches; the roadmap keeps the lists of
   accepted and draft SEPs for now (maintainer's decision, ADR-062).
+- 2026-11-01: The roadmap's informal items moved to issues, so a new SEP no longer reviews
+  them.
 - 2026-11-01: A SEP implementation's one pull request is opened as a draft when
   implementation starts, not when the SEP is set `Final`, so that CI can run during
   development and the work can be followed; it is marked ready at `Final` (maintainer's

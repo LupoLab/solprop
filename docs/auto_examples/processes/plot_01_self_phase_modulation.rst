@@ -123,7 +123,7 @@ Spectral and temporal evolution
         run,
         "wavelength",
         spec_range=(200e-9, 3e-6),
-        trange=(-150e-15, 250e-15),
+        time_range=(-150e-15, 250e-15),
         db_min=-40,
     )
     figures[-1].set_size_inches(9.5, 3.6)
@@ -150,17 +150,23 @@ pulse after the best Taylor-phase compression (group-delay dispersion and
 third-order dispersion) of the output spectrum. On the right, the input and output
 spectra.
 
-.. GENERATED FROM PYTHON SOURCE LINES 106-126
+.. GENERATED FROM PYTHON SOURCE LINES 106-132
 
 .. code-block:: Python
 
 
     compressed = compress_taylor(run, order=3)
     fig, (left, right) = plt.subplots(1, 2, figsize=(10.0, 3.6))
-    time_1d(run, trange=(-150e-15, 250e-15), ax=left, widths=False)
-    time_1d(run, trange=(-150e-15, 250e-15), ax=left, transform_limit=True, widths=False)
+    time_1d(run, time_range=(-150e-15, 250e-15), ax=left, widths=False)
     time_1d(
-        run, trange=(-150e-15, 250e-15), ax=left, transfer=compressed.transfer, widths=False
+        run, time_range=(-150e-15, 250e-15), ax=left, transform_limit=True, widths=False
+    )
+    time_1d(
+        run,
+        time_range=(-150e-15, 250e-15),
+        ax=left,
+        transfer=compressed.transfer,
+        widths=False,
     )
     left.legend(["output", "transform limit", "Taylor-compressed"], frameon=False)
     spec_1d(run, z=[0.0, 0.75], ax=right, spec_range=(300e-9, 2e-6))
@@ -198,12 +204,12 @@ spectra.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 127-129
+.. GENERATED FROM PYTHON SOURCE LINES 133-135
 
 Runtime and reproducibility
 ----------------------------
 
-.. GENERATED FROM PYTHON SOURCE LINES 129-131
+.. GENERATED FROM PYTHON SOURCE LINES 135-137
 
 .. code-block:: Python
 
@@ -217,7 +223,7 @@ Runtime and reproducibility
 
  .. code-block:: none
 
-    11 s; backend native
+    25 s; backend native
 
 
 
@@ -225,7 +231,7 @@ Runtime and reproducibility
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 11.187 seconds)
+   **Total running time of the script:** (0 minutes 24.692 seconds)
 
 
 .. _sphx_glr_download_auto_examples_processes_plot_01_self_phase_modulation.py:

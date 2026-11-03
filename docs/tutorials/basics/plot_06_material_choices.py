@@ -110,7 +110,6 @@ def run(**choices):
             plasma=True,
             schedule=FixedSchedule(np.full(10, LENGTH / 10)),
             n_save=2,
-            backend="numpy_ref",
             progress=None,
             seed=20261027,
             **choices,

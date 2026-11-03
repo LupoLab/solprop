@@ -28,7 +28,7 @@ from solprop.modes.base import beta2, zdw
 
 fibre = StepIndexMode(1.25e-6, profile_wavelength=835e-9)
 dispersion = beta2(fibre, np.array([2 * np.pi * C / 835e-9]))
-zero = zdw(fibre, wavelength_range=(400e-9, 1400e-9))
+zero = zdw(fibre, wavelength_limits=(400e-9, 1400e-9))
 ```
 
 The default core is fused silica -- optmat's `fit/SiO2`, taken
@@ -85,10 +85,18 @@ roots are classified by the vanishing branch and radial order counts downward fr
 the highest effective index. The scan is then held to the family's exact cutoffs,
 because two roots can share one interval: $J_{-1}=-J_1$ puts HE$_{1,m+1}$ and
 EH$_{1,m}$ at the same cutoff $j_{1,m}$, as roots of the same $n=1$ product, and
-their two sign changes cancel. While a count is short of the cutoff count, the
-equal-sign intervals meeting the region the cutoffs localise the missing root to
-are sampled twice as finely, up to six halvings; the $i$-th root must then lie
-between the $i$-th and $(i+1)$-th cutoff, and a root whose radial order cannot be
+their two sign changes cancel. From $V$ of about 26 the same happens away from any
+shared cutoff: a root of each family comes closer than the scan spacing (with a
+numerical aperture of 0.22, 0.024 apart at $V=67$ and $4.8\times10^{-4}$ at
+$V=4990$). The hybrid product factorises as
+$G\propto(J_n'/u-J_nx_{\mathrm{HE}})(J_n'/u-J_nx_{\mathrm{EH}})$, where
+$x_{\mathrm{HE}}$ and $x_{\mathrm{EH}}$ are the two roots of the equation above as a
+quadratic in $A$, and each factor is pole-free with the roots of one family only.
+While a hybrid family's count is short of the cutoff count, each cutoff interval
+holding none of its roots is bracketed with that family's own factor, which has no
+partner root to cancel against, and every root so found is kept. The $i$-th root
+must then lie between the $i$-th and $(i+1)$-th cutoff, and a root whose radial
+order cannot be
 assigned raises `ModeError` rather than being returned. A missing
 guided root raises `ModeError` with its $V$, cutoff and mode. No pole filter or
 dispersion spline is used. Because the denominators are cleared before the scan, the
@@ -156,10 +164,31 @@ single-mode propagation; several channels need the general modal route and its
 power-orthogonal metric
 ([full electric and magnetic mode fields](vector-fields.md#full-electric-and-magnetic-mode-fields)).
 
-**Large V is not supported yet.** The characteristic equation and its derivatives use
-the unscaled modified Bessel functions `kv` and `kvp`, which both underflow to zero at
-large cladding arguments (about 1600 and above) although their ratio is finite. Such a
-fibre — a 300 µm core of NA 0.22 at 250 nm, for example — fails at construction: the
-division warns as invalid and the root scan raises a
-{class}`~solprop.exceptions.ModeError`, since the radial order of its roots cannot be
-assigned.
+**Large V.** The scan for radial order $m$ covers $u$ from the family's first cutoff,
+below which no guided root lies, to its $(m+1)$-th, and holds the roots it finds to
+the cutoffs between, so its cost grows with $m$ and not with $V$: the HE₁₁ index over
+a 256-point band takes about 27 ms at $V=1663$, 4976 and 19905 alike (Apple M5 Max).
+Starting at the first cutoff also keeps $J_n$ representable, which underflows to
+zero at small $u$ for large $n$. The modified Bessel functions enter only as ratios at
+one argument, or as $K_\nu(wr/a)/K_\nu(w)$ in the exterior field, taken from the
+exponentially scaled `kve`, since `kv` itself underflows to zero from an argument of
+about 700. Where `kve` overflows instead, at large $n$ and small $w$, the ratios are
+carried up from order one by the recurrence
+$K_{\nu+1}=K_{\nu-1}+(2\nu/w)K_\nu$, divided through, which is stable in increasing
+order. Up to $V=20000$ the scan is qualified: its roots agree with a 40-digit mpmath
+solve of the unreduced equation above, with radial order and family assigned
+independently, within 3 machine epsilons in $u$ (at $V$ up to 19990 and $n$ up to
+300), and it finds every root at each $V$ of a sweep to 20000 for $n$ from 1 to 3,
+and for $n$ from 40 to 300 at $V$ from 200 to 5000, at two index contrasts. Above
+$V=20000$ construction raises {class}`~solprop.exceptions.ModeError` and says why.
+The transverse integrals of a mode of high radial order are another matter: the
+effective area of HE₆₀,₁₄₅ at $V=1000$ runs out of the adaptive integral's
+subdivisions and warns, while EH₄₀,₄₂ at $V=200$ is resolved ([#438](https://github.com/LupoLab/solprop/issues/438)). A core of
+300 µm radius and numerical aperture 0.22 at 250 nm ($V\approx1660$) builds in a few
+hundredths of a second:
+
+```python
+from solprop.modes import StepIndexMode
+
+large = StepIndexMode.from_numerical_aperture(300e-6, 0.22, profile_wavelength=250e-9)
+```

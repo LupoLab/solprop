@@ -24,7 +24,10 @@ from scipy import signal
 
 from bounds import EPS_32, UNIT_ROUNDOFF_32, assert_within, higham_gamma, prefix_bound
 from legacy_geometry import LEGACY_GRID, bare_absorber
+from solprop import fourier
 from solprop.backends import registry
+from solprop.backends.batch import LockstepRunner
+from solprop.backends.driver import StepDriver
 from solprop.backends.memory import (
     MLX_GRAPH_BUDGET,
     estimate_memory,
@@ -33,6 +36,7 @@ from solprop.backends.memory import (
     mlx_stage_bytes,
 )
 from solprop.backends.numpy_ref import NumpyRefBackend, passes
+from solprop.backends.numpy_ref.batch import NumpyBatchBackend
 from solprop.backends.numpy_ref.single import (
     NumpySingleBackend,
     analytic_single,
@@ -49,22 +53,25 @@ from solprop.backends.registry import (
     select_batch,
 )
 from solprop.boundaries import absorber
-from solprop.constants import EPS0
+from solprop.constants import EPS0, C
 from solprop.driver import Simulation, prop_gnlse
 from solprop.driver import simulation as simulation_module
 from solprop.driver.simulation import SimulationSettings
 from solprop.exceptions import (
     BackendError,
+    BoundaryWarning,
     ConvergenceError,
     DriverError,
     ExponentBudgetWarning,
     TranslationError,
 )
 from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid, LineGrid, RadialGrid
+from solprop.monitor import BoundaryCheck
 from solprop.nonlinear.ionisation import RunningIntegral
 from solprop.nonlinear.optmat_raman import gas_raman
 from solprop.nonlinear.optmat_rates import OptmatRate
 from solprop.nonlinear.responses import KerrResponse, PlasmaResponse
+from solprop.output.schema import RUN_SUMMARY_ANNOTATION, PlaneStore
 from solprop.physdata import gamma3
 from solprop.physdata.selection import MaterialSelection
 from solprop.pulses import GaussianPulse, SpatialPulse
@@ -217,9 +224,8 @@ def test_single_precision_takes_its_defaults_and_refuses_what_it_does_not_run():
     else:
         with pytest.raises(DriverError, match="backend='auto'"):
             automatic()
-    for backend in ("numba_cpu", "native"):
-        with pytest.raises(DriverError, match="binary64 only"):
-            dataclasses.replace(settings, backend=backend)
+    with pytest.raises(DriverError, match="binary64 only"):
+        dataclasses.replace(settings, backend="native")
     with pytest.raises(DriverError, match="Adams integrator"):
         dataclasses.replace(settings, integrator=Multistep())
     with pytest.raises(DriverError, match="floor"):
@@ -231,7 +237,7 @@ def test_single_precision_takes_its_defaults_and_refuses_what_it_does_not_run():
         )
 
 
-@pytest.mark.parametrize("name", ["numba_cpu", "native"])
+@pytest.mark.parametrize("name", ["native"])
 def test_the_compiled_backends_refuse_a_single_precision_problem(name):
     """The refusal is the backend's own too, not only the settings' (SEP 33 5.2)."""
     if name not in available():
@@ -937,6 +943,168 @@ def test_a_non_finite_state_after_a_step_is_refused():
             backend._finish(state, 1e-3)
 
 
+# The split-step collar.
+
+
+def collar_case(kind: str) -> tuple[np.ndarray, np.ndarray, float]:
+    """Return a two-mode state on 256 samples, a collar's rate and a step.
+
+    The collar rises quadratically over the outer eighth of the window on each side
+    to ``alpha h / 2 = 0.5``; a Gaussian pulse sits in the middle, so the factor is
+    exactly one where the light is.
+    """
+    n_t, dz = 256, 1e-4
+    t = np.arange(n_t) - n_t / 2
+    edge = np.clip((np.abs(t) - 0.375 * n_t) / (0.125 * n_t), 0.0, 1.0)
+    rate = 1e4 * edge**2
+    rng = np.random.default_rng(79)
+    pulse = np.exp(-((t / 20.0) ** 2))
+    samples = pulse * rng.standard_normal((2, n_t))
+    if kind == "envelope":
+        samples = samples + 1j * pulse * rng.standard_normal((2, n_t))
+    state = fourier.forward(samples, kind=kind)[None, :, None, :]  # pyright: ignore[reportArgumentType]
+    return state, rate, dz
+
+
+@pytest.mark.parametrize("kind", ["field", "envelope"])
+def test_the_split_collar_keeps_binary32_in_binary32(kind, monkeypatch):
+    state, rate, dz = collar_case(kind)
+    # Binary64 keeps its form, operation for operation.
+    wide = passes.apply_temporal_rate(state, rate, dz, kind=kind)
+    product = fourier.inverse(state, kind=kind) * np.exp(-0.5 * rate * dz)
+    assert wide.dtype == np.complex128
+    assert np.array_equal(wide, fourier.forward(product, kind=kind))
+    narrow = state.astype(np.complex64)
+    # Every transform the pass takes of a binary32 state is of binary32 operands.
+    operands: list[np.dtype] = []
+    for name in ("forward", "inverse"):
+        original = getattr(fourier, name)
+
+        def spy(values, *, kind, original=original):
+            operands.append(np.asarray(values).dtype)
+            return original(values, kind=kind)
+
+        monkeypatch.setattr(passes.fourier, name, spy)
+    absorbed = passes.apply_temporal_rate(narrow, rate, dz, kind=kind)
+    monkeypatch.undo()
+    assert absorbed.dtype == np.complex64
+    assert len(operands) == 2
+    assert set(operands) <= {np.dtype(np.float32), np.dtype(np.complex64)}
+    # Against the binary64 pass on the same binary32 state: the correction's round
+    # trip, two binary32 transforms of the oracle tests' 16 eps log2 n each and the
+    # rounded factor and product, scaled by the correction's largest share
+    # |f - 1| = 1 - exp(-0.5); and the final addition's rounding.
+    change = float(np.max(-np.expm1(-0.5 * rate * dz)))
+    transform = 16 * EPS_32 * math.ceil(math.log2(rate.size))
+    widened = narrow.astype(np.complex128)
+    exact = passes.apply_temporal_rate(widened, rate, dz, kind=kind)
+    assert_within(absorbed, exact, 2 * U32 + change * (2 * transform + 2 * U32))
+    # Without a collar the correction is exactly nothing.
+    unchanged = passes.apply_temporal_rate(narrow, np.zeros_like(rate), dz, kind=kind)
+    assert np.array_equal(unchanged, narrow)
+
+
+def test_a_binary64_collar_in_the_finish_is_refused(monkeypatch):
+    # The finish used to narrow whatever its collar returned; a binary64 result is now
+    # a pass that left binary32, refused by name.
+    widening = passes.apply_temporal_rate
+
+    def widened(state, rate, dz, *, kind):
+        return widening(state.astype(np.complex128), rate, dz, kind=kind)
+
+    with ExitStack() as cleanup:
+        backend = cast(NumpySingleBackend, loaded(capillary("single"), cleanup))
+        state = backend._require_state()
+        assert backend._finish(state, 1e-4).dtype == np.complex64
+        monkeypatch.setattr(passes, "apply_temporal_rate", widened)
+        with pytest.raises(BackendError, match="the finished state as complex128"):
+            backend._finish(state, 1e-4)
+
+
+def low_storage_split(route: str, precision: str) -> Simulation:
+    """Return a low-storage march under the split-step collar: a field-grid capillary
+    (Kerr only, 16 steps) or a Cartesian Kerr beam with its collars (10 steps), whose
+    finish transforms each row across the plane and back around the collar."""
+    if route == "capillary":
+        return capillary(precision, plasma=False, integrator=LowStorageRungeKutta())
+    simulation = spatial_kerr("cartesian", precision, absorbed=True)
+    simulation.settings = dataclasses.replace(
+        simulation.settings,
+        integrator=LowStorageRungeKutta(),
+        absorber_scheme="split_step",
+    )
+    return simulation
+
+
+@pytest.mark.parametrize("route", ["capillary", "cartesian"])
+def test_low_storage_with_the_split_collar_stays_in_binary32(route, monkeypatch):
+    """The low-storage register step commits through the same checked finish."""
+    original = passes.apply_temporal_rate
+    results: list[np.dtype] = []
+
+    def spy(state, rate, dz, *, kind):
+        absorbed = original(state, rate, dz, kind=kind)
+        results.append(absorbed.dtype)
+        return absorbed
+
+    monkeypatch.setattr(passes, "apply_temporal_rate", spy)
+    single = finish(low_storage_split(route, "single"))
+    assert results and set(results) == {np.dtype(np.complex64)}
+    monkeypatch.undo()
+    double = finish(low_storage_split(route, "double"))
+    simulation = low_storage_split(route, "double")
+    steps = 16 if route == "capillary" else 10
+    transverse = 0 if route == "capillary" else 2 * 4
+    depth = math.ceil(math.log2(simulation.translate().grids.n_to)) + transverse
+    # The four stages' transforms of the low-storage test, and the collar's round
+    # trip counted as a fifth: its rounding is further scaled by |f - 1| < 1.
+    bound = steps * (2 * U32 + 5 * 16 * EPS_32 * depth)
+    assert_within(single, double, bound)
+    if route == "cartesian":
+        # The plane's rows are written back into its own complex64 buffer, so a
+        # widened collar would be narrowed there, not refused: the spy above is
+        # this route's check.
+        return
+
+    def widened(state, rate, dz, *, kind):
+        return original(state.astype(np.complex128), rate, dz, kind=kind)
+
+    monkeypatch.setattr(passes, "apply_temporal_rate", widened)
+    with ExitStack() as cleanup:
+        backend = loaded(low_storage_split(route, "single"), cleanup)
+        with pytest.raises(BackendError, match="the finished state as complex128"):
+            backend.propagate_to(float(simulation.settings.save_planes[-1]))
+
+
+def test_a_single_precision_batch_takes_each_member_s_own_trial():
+    # The reference's batch arithmetic over the member axis is binary64: the
+    # single-precision members step in turn, each through its binary32 trial.
+    members = tuple(loaded(gnlse("single")) for _ in range(2))
+    runner = select_batch(cast(Sequence[Backend], members))
+    try:
+        assert type(runner) is LockstepRunner
+    finally:
+        runner.close()
+
+
+@pytest.mark.parametrize("order", [("single", "double"), ("double", "single")])
+def test_a_batch_of_mixed_precisions_is_refused(order):
+    with ExitStack() as cleanup:
+        mixed = tuple(loaded(gnlse(precision), cleanup) for precision in order)
+        with pytest.raises(BackendError, match="mixed precisions"):
+            select_batch(cast(Sequence[Backend], mixed))
+        # The shared member validation, whichever runner is built.
+        with pytest.raises(BackendError, match="mixed precisions"):
+            LockstepRunner(cast(Sequence[StepDriver[object]], mixed))
+
+
+def test_the_reference_s_binary64_batch_refuses_a_single_member():
+    with ExitStack() as cleanup:
+        member = cast(NumpySingleBackend, loaded(gnlse("single"), cleanup))
+        with pytest.raises(BackendError, match="refuses a single-precision member"):
+            NumpyBatchBackend([member])
+
+
 def test_a_weighted_controller_divides_by_its_bins():
     """A per-bin weight makes the controller's scale an array, applied in binary32."""
     n_omega = gnlse("single").translate().shape[-1]
@@ -1089,3 +1257,77 @@ def test_the_binary32_analytic_signal_is_the_hilbert_transforms(n):
     values = np.random.default_rng(n).standard_normal(n).astype(np.float32)
     expected = signal.hilbert(values.astype(np.float64))
     assert_within(analytic_single(values), expected, 64 * U32)
+
+
+# A whole run, as a user sees it.
+
+
+def drifting_pulse(backend: str) -> Simulation:
+    """Return a single-precision fibre run whose pulse walks deep into the collar.
+
+    A ten-kilowatt Gaussian pulse, offset in frequency so that the group-velocity
+    walk-off carries it 0.65 of the window over a metre of 200 fixed steps, under the
+    split-step collar, its boundary check relaxed so the walk is recorded, not
+    stopped. The nonlinearity is scaled down with the power: the walk is linear.
+    """
+    length, trange, beta2, peak_power = 1.0, 1e-12, 2e-26, 1e4
+    grid = EnvelopeGrid.from_limits(length, 1e-6, (0.8e-6, 1.25e-6), trange)
+    omega0 = 2 * math.pi * C / 1e-6
+    offset = 0.65 * trange / (beta2 * length)
+    simulation = Simulation.from_gnlse(
+        1e-9 / peak_power, length, [0.0, 0.0, beta2], wavelength=1e-6, grid=grid,
+        pulses=[GaussianPulse(
+            wavelength=2 * math.pi * C / (omega0 + offset), fwhm=200e-15,
+            peak_power=peak_power,
+        )],
+        noise=None, raman=False, shock=False, n_save=3, precision="single",
+        backend=backend, integrator=RungeKutta(), rtol=1e-5,
+        schedule=FixedSchedule.uniform(0.0, length, length / 200),
+    )  # fmt: skip
+    simulation.settings = dataclasses.replace(
+        simulation.settings,
+        boundary_check=BoundaryCheck(budget=1.0, stop_factor=1.0),
+        absorber_scheme="split_step",
+    )
+    return simulation
+
+
+def check_a_whole_run(backend: str) -> None:
+    """Run :func:`drifting_pulse` through ``Simulation.run`` and check what it reports.
+
+    The summary names the precision and the backend, the saved field is widened to
+    binary64 (observation is exact), and the boundary monitor's record counts every
+    step and reads as removed what the run lost.
+    """
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", BoundaryWarning)
+        run = drifting_pulse(backend).run(progress="none")
+    assert isinstance(run, PlaneStore)
+    (summary,) = cast(
+        "list[dict[str, list[list[str]]]]", run.annotations[RUN_SUMMARY_ANNOTATION]
+    )
+    rows = {row[0]: row[1] for row in summary["rows"]}
+    assert rows["precision"] == "single"
+    assert rows["backend"] == backend
+    field = np.asarray(run["field"])
+    assert field.dtype == np.complex128
+    assert field.shape[0] == 3 and np.all(np.isfinite(field))
+    outcome = run.outcome
+    assert outcome is not None and outcome.execution is not None
+    record = outcome.execution["boundary_monitor"]
+    assert isinstance(record, dict)
+    assert record["steps"] == 200
+    assert record["launch_energy"] > 0.0
+    energy = np.asarray(run["stats/energy"])[:, 0, 0]
+    lost = float(1.0 - energy[-1] / energy[0])
+    assert lost > 0.5
+    # Binary32's rounding over 200 steps: each step's removal is a non-negative sum,
+    # within gamma of its few hundred samples of itself, and the states it is taken
+    # from agree with the energies' to the march's rounding.
+    assert record["removed_fraction"] == pytest.approx(lost, rel=1e-4)
+    assert 0.0 < record["collar_max"] <= 1.0
+
+
+@pytest.mark.medium
+def test_a_whole_single_precision_run_reports_what_it_ran():
+    check_a_whole_run("numpy_ref")

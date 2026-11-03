@@ -5,6 +5,9 @@
 """Check transactional Adams/atomic budgets through a manufactured host binding."""
 
 import dataclasses
+import itertools
+import json
+from typing import cast
 
 import numpy as np
 import pytest
@@ -12,7 +15,6 @@ from numpy.testing import assert_array_equal
 
 from solprop.backends import registry
 from solprop.backends.multistep import CallLedger
-from solprop.backends.numba_cpu import NumbaCpuBackend
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.driver import Simulation
 from solprop.exceptions import BackendError, ResponseBudgetError
@@ -223,7 +225,7 @@ def test_failed_chunk_is_charged_and_unused_trial_reservation_is_released(
         backend.close()
 
 
-@pytest.mark.parametrize("backend_name", ["numba_cpu", "native"])
+@pytest.mark.parametrize("backend_name", ["native"])
 def test_registry_refuses_tdse_before_constructing_a_backend(
     march_problem, monkeypatch, backend_name
 ):
@@ -238,11 +240,12 @@ def test_registry_refuses_tdse_before_constructing_a_backend(
         registry.select(backend_name, problem, grid=grid)
 
 
-def test_direct_numba_construction_refuses_tdse_before_allocating(march_problem):
+def test_direct_native_construction_refuses_tdse_before_allocating(march_problem):
     """The direct constructor enforces the same named refusal as the registry."""
+    native = pytest.importorskip("solprop_native")
     problem, grid = march_problem
-    with pytest.raises(BackendError, match="numba_cpu does not execute TDSE"):
-        NumbaCpuBackend(problem, grid=grid)
+    with pytest.raises(BackendError, match="native does not execute TDSE"):
+        native.NativeBackend(problem, grid=grid)
 
 
 def test_tdse_problem_requires_a_binding_even_at_the_direct_backend(march_problem):
@@ -280,10 +283,9 @@ def test_shared_rk_driver_refuses_persisted_response_budgets(
     narrow_grid, linear_problem, kind
 ):
     """A Runge-Kutta backend keeps no logical ledger and refuses an atomic one."""
+    native = pytest.importorskip("solprop_native")
     problem = linear_problem(narrow_grid, save_planes=[1e-5], dz_init=1e-6)
-    backend = NumbaCpuBackend(
-        problem, grid=narrow_grid, threads=1, fftw_threads=1, plan_flag="estimate"
-    )
+    backend = native.NativeBackend(problem, grid=narrow_grid)
     try:
         backend.restore_call_ledgers({}, None)
         logical = {"startup": 1} if kind == "logical" else {}
@@ -308,7 +310,7 @@ def test_reference_rk_restoration_requires_the_matching_response_path(
     problem = linear_problem(narrow_grid, save_planes=[1e-5], dz_init=1e-6)
     backend = NumpyRefBackend(problem, grid=narrow_grid)
     try:
-        logical = dataclasses.asdict(CallLedger()) if kind == "logical" else {}
+        logical = CallLedger().to_record() if kind == "logical" else {}
         atomic = (
             dataclasses.asdict(AtomicCallLedger(4, 0, 0, 0, 0, 0))
             if kind == "atomic"
@@ -328,9 +330,9 @@ def test_reference_rk_restoration_requires_the_matching_response_path(
 def test_backend_restores_atomic_charges_without_numerical_history(march_problem):
     """Resume owns a fresh Adams history and keeps every previously charged call."""
     backend, binding = opened_backend(march_problem, 8)
-    logical = dataclasses.asdict(
-        CallLedger(startup=1, predictor=1, accepted_steps=1, orders=[1])
-    )
+    logical = CallLedger(
+        startup=1, predictor=1, accepted_steps=1, orders=[1]
+    ).to_record()
     atomic = dataclasses.asdict(AtomicCallLedger(8, 4, 2, 2, 0, 0))
     initial = backend.observe().require_field().copy()
     try:
@@ -341,7 +343,7 @@ def test_backend_restores_atomic_charges_without_numerical_history(march_problem
         assert backend._adams._history == []
         assert backend._adams._order == 1
         assert_array_equal(backend.observe().require_field(), initial)
-        logical["orders"].append(3)
+        cast("list[list[int]]", logical["orders"]).append([3, 1])
         assert backend._adams.ledger.orders == [1]
     finally:
         backend.close()
@@ -350,7 +352,7 @@ def test_backend_restores_atomic_charges_without_numerical_history(march_problem
 @pytest.mark.parametrize("change", ["missing", "unknown"])
 def test_logical_ledger_schema_mismatch_is_refused(change):
     """An old or unrecognized record cannot silently discard cumulative charges."""
-    record = dataclasses.asdict(CallLedger())
+    record = CallLedger().to_record()
     if change == "missing":
         del record["startup"]
     else:
@@ -359,19 +361,130 @@ def test_logical_ledger_schema_mismatch_is_refused(change):
         CallLedger.from_record(record)
 
 
-@pytest.mark.parametrize("orders", [(1,), [0], [-1], [True], [1.5]])
+@pytest.mark.parametrize(
+    "orders",
+    [
+        ((1, 1),),
+        [1, [1, 1]],
+        [[1]],
+        [[1, 1, 1]],
+        [(1, 1)],
+        [[0, 1]],
+        [[1, 0]],
+        [[-1, 1]],
+        [[True, 1]],
+        [[1, True]],
+        [[1.5, 1]],
+    ],
+)
 def test_logical_ledger_restoration_refuses_invalid_predictor_orders(orders):
-    """Persisted orders must be a list of positive integer orders, never booleans."""
-    record = dataclasses.asdict(CallLedger())
+    """Persisted orders are [order, count] pairs of positive integers, not booleans."""
+    record = CallLedger().to_record()
     record["orders"] = orders
-    with pytest.raises(BackendError, match="orders must be positive integers"):
+    with pytest.raises(BackendError, match=r"orders must be \[order, count\] pairs"):
         CallLedger.from_record(record)
+
+
+@pytest.mark.parametrize("orders", [[1], [1, 2, 3, 3, 4, 5, 5, 5], [0], [True, 2]])
+def test_a_flat_list_of_orders_is_refused_by_name(orders):
+    """An earlier development build of the same output schema wrote one order a step.
+
+    Read as pairs it would be refused for its shape alone, or, were the decoder
+    lenient, misread; the refusal says where such a record came from instead.
+    """
+    record = CallLedger(accepted_steps=len(orders)).to_record()
+    record["orders"] = orders
+    flat = all(type(one) is int for one in orders)
+    match = (
+        r"flat form an earlier development build wrote.*rerun the case, or read it "
+        r"with that build"
+        if flat
+        else r"orders must be \[order, count\] pairs"
+    )
+    with pytest.raises(BackendError, match=match):
+        CallLedger.from_record(record)
+
+
+@pytest.mark.parametrize(
+    ("steps", "orders"),
+    [(0, [[1, 1]]), (2, [[1, 3]]), (4, [[1, 1], [2, 2]]), (1, [[5, 10**12]])],
+)
+def test_orders_that_do_not_count_the_accepted_steps_are_refused(steps, orders):
+    """One order per accepted step: the counts are checked before they are expanded."""
+    record = CallLedger(accepted_steps=steps).to_record()
+    record["orders"] = orders
+    with pytest.raises(
+        BackendError, match=rf"orders count \d+ steps, and the ledger {steps}"
+    ):
+        CallLedger.from_record(record)
+
+
+class _CountedSlices(list):
+    """A list of orders that keeps the length of every slice taken of it."""
+
+    def __init__(self, values):
+        super().__init__(values)
+        self.slices: list[int] = []
+
+    def __getitem__(self, key):
+        item = super().__getitem__(key)
+        if isinstance(key, slice):
+            self.slices.append(len(item))
+        return item
+
+
+def test_the_record_encodes_only_the_orders_appended_since_the_last_one():
+    """The record is rewritten at every plane; its encoding is extended, not redone."""
+    orders = _CountedSlices([1, 2, 3, 3, 4, 5, 5, 5])
+    ledger = CallLedger(accepted_steps=len(orders), orders=orders)
+    first = ledger.to_record()
+    orders.extend([5, 5, 4])
+    ledger.accepted_steps += 3
+    second = ledger.to_record()
+    assert orders.slices == [8, 3]
+    assert second["orders"] == [[1, 1], [2, 1], [3, 2], [4, 1], [5, 5], [4, 1]]
+    # The records are the ledger's, not views of its encoding.
+    cast("list[list[int]]", first["orders"])[-1][1] = 99
+    assert ledger.to_record()["orders"] == second["orders"]
+
+
+@pytest.mark.parametrize("change", ["replaced", "truncated", "rewritten"])
+def test_the_record_is_encoded_afresh_when_the_orders_are_not_extended(change):
+    """A load or resume replaces the orders; anything but an extension starts over."""
+    ledger = CallLedger(accepted_steps=5, orders=[1, 2, 3, 3, 3])
+    ledger.to_record()
+    if change == "replaced":
+        ledger.orders = [4, 4]
+    elif change == "truncated":
+        del ledger.orders[2:]
+        ledger.orders.append(5)
+    else:
+        del ledger.orders[1:]
+        ledger.orders.extend([4, 4, 4, 4])
+    ledger.accepted_steps = len(ledger.orders)
+    fresh = CallLedger(accepted_steps=len(ledger.orders), orders=list(ledger.orders))
+    assert ledger.to_record() == fresh.to_record()
+
+
+@pytest.mark.parametrize(
+    "orders", [[], [1], [1, 1, 1], [1, 2, 3, 4, 5, 5, 5, 4, 5], [3, 1, 3]]
+)
+def test_the_ledger_record_run_length_encodes_its_orders_losslessly(orders):
+    """The record holds one pair per run of equal orders and decodes step by step."""
+    ledger = CallLedger(accepted_steps=len(orders), orders=list(orders))
+    record = ledger.to_record()
+    runs = cast("list[list[int]]", record["orders"])
+    assert sum(count for _, count in runs) == len(orders)
+    assert all(a[0] != b[0] for a, b in itertools.pairwise(runs))
+    restored = CallLedger.from_record(json.loads(json.dumps(record)))
+    assert restored == ledger
+    assert restored.orders is not ledger.orders
 
 
 @pytest.mark.parametrize("count", [-1, True, 0.5])
 def test_logical_ledger_restoration_refuses_invalid_charged_counts(count):
     """A persisted charge is a nonnegative integer count."""
-    record = dataclasses.asdict(CallLedger())
+    record = CallLedger().to_record()
     record["startup"] = count
     with pytest.raises(BackendError, match="invalid logical call counter startup"):
         CallLedger.from_record(record)

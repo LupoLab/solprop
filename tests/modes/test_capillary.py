@@ -1225,7 +1225,7 @@ def test_beta2_and_zdw_match_the_symbolic_derivation_to_the_differencing_floor(k
         # derivation extrapolates the same expression over the same span, which is
         # what makes the comparison like for like.
         warnings.simplefilter("ignore", MaterialRangeWarning)
-        root = zdw(mode, wavelength_range=(200e-9, 3e-6))
+        root = zdw(mode, wavelength_limits=(200e-9, 3e-6))
     assert root == pytest.approx(case["zdw"], rel=1e-8)
 
 

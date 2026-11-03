@@ -571,7 +571,7 @@ class RunningIntegral:
     ) -> Float[np.ndarray, "... n_to"]:
         """Return the running integral of `values` along their last axis.
 
-        The filter's sum has a fixed order, which the compiled backends reproduce: the
+        The filter's sum has a fixed order, which the native backend reproduces: the
         centre term first, then the pairs ``k = 1 ... K``, each pair added before it is
         weighted. The virtual samples are formed as ``2 y_0 - y_m``. The integral starts
         at zero, as the trapezoid's does.

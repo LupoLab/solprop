@@ -413,6 +413,9 @@ No implementation phases have started.
   shared response state and cache invalidation, and retained explicit questions for
   the standalone acceptance review. This is not a completed full review of SEP 11.
 - 2026-11-01: Tracking issue [#121](https://github.com/LupoLab/solprop/issues/121).
+- 2026-11-02: [SEP 43](archive/sep-0043-retire-numba-cpu.md) retired `numba_cpu` (ADR-064). Where this
+  proposal names Numba or `numba_cpu`, it was written before that: such a phase or check falls
+  away, and the feature goes on `numpy_ref` and the native backend (SEP 0).
 
 ### Compatibility findings and response — 2026-10-22 — GPT-6
 

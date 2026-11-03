@@ -362,7 +362,8 @@ Waveguide models
 
 Antiresonant fibres, tabulated modes, step-index, graded-index and rectangular guides,
 the general modal route for guides that supply their own vector fields, a declared basis
-over a split pair, and hollow planar guides per unit width.
+over a split pair, hollow planar guides per unit width, and a gas-filled hollow
+rectangular guide built from a supplied mode.
 
 
 .. raw:: html
@@ -512,6 +513,23 @@ over a split pair, and hollow planar guides per unit width.
     </div>
 
 
+.. raw:: html
+
+    <div class="sphx-glr-thumbcontainer" tooltip="A hollow silica channel 250 um wide and 100 um high, filled with 5 bar of argon, guides a 30 fs, 800 nm pulse in its lowest x-polarised mode. The mode is supplied as an object (~solprop.modes.rectangular.RectMode) to the waveguide route, which binds it to the route&#x27;s fill, and the run is a plain prop_waveguide: the waveguide route&#x27;s starting point, and the call its example recipe mirrors (``Recipe.example(&quot;hollow_rectangular&quot;)``).">
+
+.. only:: html
+
+  .. image:: /auto_tutorials/waveguides/images/thumb/sphx_glr_plot_09_hollow_rectangular_thumb.png
+    :alt:
+
+  :doc:`/auto_tutorials/waveguides/plot_09_hollow_rectangular`
+
+.. raw:: html
+
+      <div class="sphx-glr-thumbnail-title">A gas-filled hollow rectangular waveguide</div>
+    </div>
+
+
 .. thumbnail-parent-div-close
 
 .. raw:: html
@@ -525,8 +543,9 @@ Beams in radial and Cartesian geometries, a self-focusing diagnostic, a line bea
 one direction, a planar guide resolved across its width, a weak band calibrated under
 the low-storage march, a four-wave-mixing delay scan run through one backend with
 statistics-only planes, far-field spectra collected through apertures in a mask
-plane, and a beam prepared by Kerr self-focusing in a gas gap and coupled into a
-capillary.
+plane, a beam prepared by Kerr self-focusing in a gas gap and coupled into a
+capillary, a transverse window sized with the boundary monitor, and a radial beam
+under the Kerr effect built from plain objects.
 
 For the full filament and crossing-beam lessons, begin with the
 :doc:`/introduction/index`.
@@ -596,7 +615,7 @@ For the full filament and crossing-beam lessons, begin with the
 
 .. raw:: html
 
-    <div class="sphx-glr-thumbcontainer" tooltip="The hybrid planar transform: the slab modes of a 127 um argon-filled gap (Akturk et al. 2009) in x, and a periodic, collared y axis. Unlike the slab uniform in y of sphx_glr_auto_tutorials_waveguides_plot_08_planar.py, the beam here has a finite height, so the run integrates over y and reports energy in J, and the model can describe diffraction, whole-beam self-focusing and modulational instability in y, subject to the retained modes, grid, boundary and response assumptions. A 1 mJ, 100 fs pulse (the incident beam&#x27;s physical energy in the argon fill), Gaussian in both directions (``w_x = 0.735a`` projected onto TE1, TE3 and TE5; w_y = 0.5 mm), propagates 10 cm with the Kerr effect under the step controller; the run takes seconds on numpy_ref, the reference backend. numba_cpu and the native backend execute the geometry too.">
+    <div class="sphx-glr-thumbcontainer" tooltip="The hybrid planar transform: the slab modes of a 127 um argon-filled gap (Akturk et al. 2009) in x, and a periodic, collared y axis. Unlike the slab uniform in y of sphx_glr_auto_tutorials_waveguides_plot_08_planar.py, the beam here has a finite height, so the run integrates over y and reports energy in J, and the model can describe diffraction, whole-beam self-focusing and modulational instability in y, subject to the retained modes, grid, boundary and response assumptions. A 1 mJ, 100 fs pulse (the incident beam&#x27;s physical energy in the argon fill), Gaussian in both directions (``w_x = 0.735a`` projected onto TE1, TE3 and TE5; w_y = 0.5 mm), propagates 10 cm with the Kerr effect under the step controller; the run takes seconds.">
 
 .. only:: html
 
@@ -613,7 +632,7 @@ For the full filament and crossing-beam lessons, begin with the
 
 .. raw:: html
 
-    <div class="sphx-glr-thumbcontainer" tooltip="LowStorageRungeKutta replays a fixed schedule with classical RK4 in the interaction picture, holding three copies of the state where the adaptive marches hold fifteen or more. It has no error estimate, so its accuracy is measured from outside, on the quantity that matters, by three-level Richardson calibration (/guide/numerics/fixed-schedules). Here a 30 fs line beam whose peak field is sqrt(2) times the soliton&#x27;s, twice the soliton power, self-phase modulates over one diffraction length, and the weak band is the light it generates below 690 nm: three parts in ten thousand of the energy. The whole field converges twenty times faster than that band, so a norm scored on the field would call a schedule converged while the band is still wrong. A few seconds on numpy_ref.">
+    <div class="sphx-glr-thumbcontainer" tooltip="LowStorageRungeKutta replays a fixed schedule with classical RK4 in the interaction picture, holding three copies of the state where the adaptive marches hold fifteen or more. It has no error estimate, so its accuracy is measured from outside, on the quantity that matters, by three-level Richardson calibration (/guide/numerics/fixed-schedules). Here a 30 fs line beam whose peak field is sqrt(2) times the soliton&#x27;s, twice the soliton power, self-phase modulates over one diffraction length, and the weak band is the light it generates below 690 nm: two parts in ten thousand of the energy. The whole field converges twenty times faster than that band, so a norm scored on the field would call a schedule converged while the band is still wrong. A few seconds on numpy_ref.">
 
 .. only:: html
 
@@ -676,6 +695,40 @@ For the full filament and crossing-beam lessons, begin with the
 .. raw:: html
 
       <div class="sphx-glr-thumbnail-title">Nonlinear beam preparation and coupling into a capillary</div>
+    </div>
+
+
+.. raw:: html
+
+    <div class="sphx-glr-thumbcontainer" tooltip="A free-space grid ends at a boundary: a radial grid has a hard wall at its outer radius, which reflects, and a Cartesian or line grid is periodic, so light that leaves one side comes back at the other. By default solprop puts no absorber there. It folds a safety ramp into the operator, which removes light only at the grid&#x27;s largest transverse wavenumbers, and its boundary monitor reads the outer 5 % of the grid, the transverse edge. A run whose light reaches the edge warns, and stops at ten times the budget, naming a size to try. This tutorial sizes a radial window with the monitor, checks the result against a much wider window, and then asks for a designed real-space collar instead. It is the spatial companion of /auto_tutorials/basics/plot_07_time_window.">
+
+.. only:: html
+
+  .. image:: /auto_tutorials/free_space/images/thumb/sphx_glr_plot_09_transverse_window_thumb.png
+    :alt:
+
+  :doc:`/auto_tutorials/free_space/plot_09_transverse_window`
+
+.. raw:: html
+
+      <div class="sphx-glr-thumbnail-title">Is my transverse window big enough?</div>
+    </div>
+
+
+.. raw:: html
+
+    <div class="sphx-glr-thumbcontainer" tooltip="A collimated 800 nm, 30 fs beam of 1 mm waist and 0.2 mJ, in 1 bar of argon, on a radial (Hankel) grid, below the critical power for self-focusing. Over 50 cm the Kerr lens offsets about half of the beam&#x27;s diffraction: its second-moment radius grows by 0.45 %, where diffraction alone (a Rayleigh length of 3.9 m) gives 0.81 %. The run is a plain prop_radial, every argument an object a recipe writes as a table, and it is the call the radial route&#x27;s example recipe mirrors (``Recipe.example(&quot;radial_kerr&quot;)``).">
+
+.. only:: html
+
+  .. image:: /auto_tutorials/free_space/images/thumb/sphx_glr_plot_10_radial_kerr_thumb.png
+    :alt:
+
+  :doc:`/auto_tutorials/free_space/plot_10_radial_kerr`
+
+.. raw:: html
+
+      <div class="sphx-glr-thumbnail-title">A radially symmetric beam under the Kerr effect</div>
     </div>
 
 

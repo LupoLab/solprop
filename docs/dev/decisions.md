@@ -12,7 +12,7 @@ itself lives in [architecture.md](architecture.md), [stepper.md](stepper.md),
 
 **Reading the records.** Each record states the decision as it stands, with the
 measurements that justified it. Where a later record changes part of an earlier one, both
-say so. For open work see [roadmap.md](roadmap.md); for what each backend executes and how
+say so. For open work see the [issues](https://github.com/LupoLab/solprop/issues); for what each backend executes and how
 it is qualified, [backends.md](backends.md); for the current seam,
 [kernel-contract.md](kernel-contract.md).
 
@@ -33,7 +33,8 @@ it is qualified, [backends.md](backends.md); for the current seam,
 
 ## ADR-002 — NumPy oracle, numba CPU, and a native Kokkos backend for CPUs and devices
 
-- **Status:** accepted; the default selection is ADR-029's
+- **Status:** accepted; the default selection is ADR-029's; the numba CPU backend is
+  retired by ADR-064
 - **Context:** CPU performance is the stated priority; GPU is wanted but secondary. An
   earlier prototype study found that an array compiler (JAX/XLA) reaches within ~8 % of
   hand-written kernels on a bandwidth-bound step but loses 11× on multi-accumulator
@@ -348,7 +349,7 @@ it is qualified, [backends.md](backends.md); for the current seam,
 
 ## ADR-023 — numba and pyfftw are core dependencies
 
-- **Status:** accepted
+- **Status:** superseded by ADR-064
 - **Decision:** The optimised numba CPU backend is always installed, with pyfftw for its
   transforms. The native backend is an optional second distribution
   (`solprop-native`, built from `native/`), installed through the `native` extra, which
@@ -469,7 +470,8 @@ Withdrawn (development-process record, not a design decision).
 
 ## ADR-029 — Prefer the installed native backend when no backend is specified
 
-- **Status:** accepted; sets the default selection that ADR-002 leaves open
+- **Status:** accepted; sets the default selection that ADR-002 leaves open; its fallback
+  is ADR-064's
 - **Context:** the optional native backend has measured CPU and GPU improvements, and
   installing its target-specific build should make ordinary propagation use it. Numba CPU
   remains a core dependency and the portable fallback. This is an installation policy,
@@ -1109,8 +1111,7 @@ Withdrawn (development-process record, not a design decision).
   of the GPU tests (`pytest -m gpu`) against the oracle, not by the strict-helper
   argument. Round-to-nearest intrinsics in the protected helpers on devices (CUDA's
   `__dmul_rn` and `__dadd_rn`, Clang's contraction pragma on HIP), with a device test
-  that a protected block does not fuse, are on the [roadmap](roadmap.md), after the
-  first release.
+  that a protected block does not fuse, are [#358](https://github.com/LupoLab/solprop/issues/358).
 
 ## ADR-050 — A replay-only low-storage march, accepted in place, with no estimate
 
@@ -1498,7 +1499,7 @@ Withdrawn (development-process record, not a design decision).
     pulse stays clear, it saved 6 to 9 % per step on `numba_cpu` and `native`.
   - On runs whose steps exceed the check interval, such as a short capillary under the
     exponential Adams march, the cap removes the gain. A per-step check that would lift
-    the cap is on the roadmap.
+    the cap is [#224](https://github.com/LupoLab/solprop/issues/224).
   - The monitor's record counts `collar_left_out_checks`.
 
 ## ADR-058 — The 0.x releases are unstable; the first output schema is 1
@@ -1527,8 +1528,8 @@ Withdrawn (development-process record, not a design decision).
 
 ## ADR-059 — Host vector maths on SLEEF for the native CPU kernels on x86-64
 
-- **Status:** proposed with the change that makes it; the maintainers asked for SLEEF to
-  be evaluated and adopted if it paid (2026-10-28)
+- **Status:** accepted 2026-11-01, having shipped in the 0.1.0 wheels; the maintainers
+  asked for SLEEF to be evaluated and adopted if it paid (2026-10-28)
 - **Context:** a profile of the native exponential Adams trial found glibc's scalar
   `exp`, `cos` and `sin` about two thirds of its predict pass on a pressure-gradient
   helium case on an AMD EPYC 7763. A survey of the native CPU backend with Valgrind's
@@ -1592,7 +1593,7 @@ Withdrawn (development-process record, not a design decision).
     the C++ compiler's version.
   - Measured end to end (interleaved fresh processes, the tracking cases): see the
     [benchmark entry](benchmarks.md#host-vector-maths).
-  - Open, on the roadmap: SLEEF on Linux aarch64, AVX-512 against AVX2 end to end, and
+  - Open, in [#339](https://github.com/LupoLab/solprop/issues/339) and [#338](https://github.com/LupoLab/solprop/issues/338): SLEEF on Linux aarch64, AVX-512 against AVX2 end to end, and
     the kernels still per element (the trapezoid and envelope plasma columns, the Adams
     corrector and dense observation, the separable stage propagators).
 
@@ -1635,7 +1636,8 @@ Withdrawn (development-process record, not a design decision).
 
 - **Status:** accepted (maintainer, 2026-10-31); amends
   [SEP 0](seps/sep-0000-process.md)'s completion rule, which asked for every feature on
-  `numpy_ref`, `numba_cpu` and the native CPU build
+  `numpy_ref`, `numba_cpu` and the native CPU build; Tier 2 and the statement that the
+  documentation build installs no native backend are superseded by ADR-064
 - **Context:** solprop has four backends, and each new feature was implemented three
   times before its SEP could be final: in the reference, in Numba and in C++. The native
   backend is where production runs happen; `numba_cpu` runs the same CPU problems more
@@ -1681,10 +1683,9 @@ Withdrawn (development-process record, not a design decision).
     `testing`), a `priority: high`, `priority: medium` or `priority: low` label, and an
     `area:` label where one fits, so that they can be filtered. `CONTRIBUTING.md` says
     how to write and label one.
-  - New open work goes in an issue. The roadmap takes no new items.
-  - The roadmap's existing items are not moved in one pass. An item leaves the page when
-    an issue, or a SEP that covers it in full (SEP 0), takes it over, in the same change,
-    and the page goes when none is left.
+  - Open work goes in an issue. The roadmap takes no items.
+  - The roadmap's existing items moved to issues on 2026-11-01. The page goes when its SEP
+    lists move.
   - Work a SEP gives back, by narrowing or by being rejected, deferred or withdrawn, goes
     in an issue, not back on the page.
   - Each SEP has a tracking issue, labelled `sep`, open until the SEP is `Final`,
@@ -1694,15 +1695,16 @@ Withdrawn (development-process record, not a design decision).
   - The roadmap's lists of accepted and draft SEPs stay for now: they are status lists,
     which `tests/test_seps.py` checks against the SEPs.
 - **Consequences:**
-  - Until the page is gone, what is planned is the issues and the roadmap together: check
-    both before starting something or reporting it as missing.
+  - What is planned is the issues: check them before starting something or reporting it as
+    missing.
   - A SEP's open questions at `Final` go to issues (SEP 0).
 
 ## ADR-063 — A resume compares records by what matters to the run
 
 - **Status:** accepted (maintainer, 2026-11-01, with
   [SEP 42](seps/archive/sep-0042-tolerant-resume.md)); narrows ADR-051 and sets the policy
-  ADR-058 left open
+  ADR-058 left open; amended 2026-11-02 for how often the schema is bumped (the last
+  bullet)
 - **Context:** a file resumed only when the rebuilt run's configuration hash equalled
   the stored one. A release that added a field, an optmat release with the same numbers,
   a looser tolerance or another platform's mathematics library each refused a resume of
@@ -1742,3 +1744,65 @@ Withdrawn (development-process record, not a design decision).
   from its tag (`docs/dev/releasing.md`). 0.2.0, the first release of output schema 2,
   is tagged after SEP 42, so that every released reader of schema 2 knows these rules; a
   later change to what force records bumps the schema.
+- **Amendment, how often the schema is bumped** (maintainer, 2026-11-02): the bump rule
+  above applies per release, not per change. The first change after a release that an
+  older reader would misread or could not append to bumps the schema; later such changes
+  before the next release fold into that version. Development builds between releases
+  are not compatible with one another, and a known difference between them is refused
+  by name rather than read two ways (#80, the Multistep ledger's run-length encoded
+  orders, folded into schema 2).
+
+## ADR-064 — `numba_cpu` is retired: no Tier 2, and the documentation lane runs on the wheel
+
+- **Status:** accepted, with [SEP 43](seps/archive/sep-0043-retire-numba-cpu.md); supersedes
+  ADR-061's Tier 2 and its statement that the documentation build installs no native
+  backend, removes the fallback of ADR-029, and ends ADR-023
+- **Context:** every test, route and kernel of `numba_cpu` was a second copy of what
+  `native` does. In the 0.1.0 history it took 1.5 to 2.8 times as long as native by
+  geometric mean, with no winning configuration among the 22 measured on three machines,
+  though with no rows on Windows or Linux aarch64, or for scans (#314). Its remaining value
+  was reach, and a second x86-64-v2 build in the x86-64 wheels and a Windows on Arm wheel
+  replace most of that (SEP 43 §3, §6.1, §6.2). 0.1.0 was unannounced and has no known
+  users, so a freeze or a feedback period would have protected nobody we know of.
+- **Decision:**
+  - The `numba_cpu` backend and the `numba` and `pyfftw` dependencies go, with no
+    deprecation cycle. Tier 2 is empty: Tier 1 is `numpy_ref` and `native`, and Tier 3 is
+    `mlx`. ADR-061's other rules stand.
+  - `numba_cpu` goes before 0.2, so 0.1.0 is the last release with it.
+  - solprop-native is a required dependency, pinned to solprop's version in the built
+    metadata, with no extra, and solprop is supported where it installs. On any other
+    platform the installer's resolution error is the answer.
+  - `backend="auto"` is `native`, with no fallback: it refuses with no native package or
+    below the processor floor. A TDSE response resolves to `numpy_ref`, and single precision
+    to `mlx`, as before (SEP 43 §5).
+  - `numpy_ref` is the numerical reference, and the executor of the supported features that
+    native doesn't run yet (SEP 43 §5). That list isn't a waiver of SEP 0's parity rule.
+  - `backend="numba_cpu"` raises `BackendError`, naming `native` and `numpy_ref`. An output
+    or snapshot of the current schema that records it still loads, and may continue on
+    another backend: a recorded name is not a request.
+  - The processor check reads `/proc/cpuinfo` on Linux, then NumPy's features, and refuses
+    if neither answers; it never assumes a build is safe.
+  - CI's documentation lane runs on the wheel `native-wheel` builds, which now runs for
+    documentation-only changes too, on Linux. A lesson or tutorial may use anything `native`
+    runs. Read the Docs stays free of native: it executes no gallery script, since all
+    gallery output is committed.
+- **Why:** development and test time goes to the backends that decide correctness and that
+  production runs on; the seam stops paying for a third implementation.
+- **Consequences:**
+  - Intel macOS, ppc64le, musl, older glibc, macOS before 14, Arm below Neoverse N1 and
+    Windows before 10 version 2004 are unsupported, by choice. A process with a GPU build has
+    no compiled CPU backend: a CPU run there needs a second environment with the CPU wheel,
+    or `numpy_ref`.
+  - `SOLPROP_NUMBA_THREADS`, `SOLPROP_NUMBA_REGIME`, `SOLPROP_FFTW_THREADS`,
+    `SOLPROP_TRANSVERSE_FFTW_THREADS`, `SOLPROP_PASS_TIMERS`, `NUMBA_DISABLE_JIT` and
+    `NUMBA_NUM_THREADS` go. `SOLPROP_FFTW_PLAN`, `SOLPROP_FFTW_WISDOM`,
+    `SOLPROP_BLAS_THREADS` and `SOLPROP_THREADS` stay: the native backend reads them.
+  - A plain `uv sync` in a checkout compiles native, since anyone there is developing.
+    `uv run --no-project tools/setup_light.py` sets up with no native package and no
+    compiler, for Python and documentation contributors, and `poe fetch-wheel` installs CI's
+    wheel only if it fits the tree.
+  - An exact pin means a new release replaces a source or GPU build with that release's CPU
+    wheel. Released source builds take a local version label, and a GPU job can set
+    `SOLPROP_REQUIRE_DEVICE`, which reads the actual build.
+  - Records keep the rows `numba_cpu` wrote, as evidence of what it measured. Records of
+    decisions that name it, this log's included, stay as written.
