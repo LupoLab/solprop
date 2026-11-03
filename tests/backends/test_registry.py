@@ -557,6 +557,12 @@ def test_a_required_device_is_refused_before_anything_is_constructed(
     assert not built
 
 
+def test_a_required_device_leaves_a_missing_package_to_the_selection(monkeypatch):
+    monkeypatch.setenv(registry.REQUIRE_DEVICE_SETTING, "cuda")
+    monkeypatch.setattr(registry, "_satisfied", lambda backend: False)
+    assert registry._check_required_device("native") is None
+
+
 def test_a_required_device_reports_a_build_that_will_not_load(monkeypatch):
     """A CUDA build with no visible device raises from Kokkos as the package loads."""
     spec = importlib.machinery.ModuleSpec("solprop_native", None)

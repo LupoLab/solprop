@@ -512,11 +512,6 @@ def collect_spatial(  # noqa: PLR0913 - statistics context plus borrowed FFT wor
     physical: np.ndarray | None = None,
     tables: ApertureTables | None = None,
     operator: SeparableOperator | None = None,
-    axis: tuple[
-        Complex[np.ndarray, "n_pol n_omega"], Complex[np.ndarray, "n_pol n_omega"]
-    ]
-    | None = None,
-    closure: Complex[np.ndarray, "n_modes n_pol n_omega"] | None = None,
 ) -> dict[str, np.ndarray]:
     """Collect spatial statistics without retaining a full physical-space field.
 
@@ -549,14 +544,6 @@ def collect_spatial(  # noqa: PLR0913 - statistics context plus borrowed FFT wor
         statistics of SEP 23.
     operator : solprop.translate.spatial.SeparableOperator or None, optional
         The run's separable linear operator, whose rates ``absorbed_power`` needs.
-    axis : tuple of numpy.ndarray or None, optional
-        The on-axis amplitude ``sum_c alpha_c E_c`` in V/m and its magnetic closure
-        ``sum_c alpha_c conj(eta_c) E_c``, each of shape ``(n_pol, n_omega)``, when a
-        compiled pass has formed them (SEP 23 section 6); the axis statistics then
-        read them instead of forming them here.
-    closure : numpy.ndarray or None, optional
-        The spectrum's magnetic closure ``conj(eta) E`` at this plane, when a
-        compiled pass has formed it; the local statistics then read it.
 
     Returns
     -------
@@ -606,11 +593,8 @@ def collect_spatial(  # noqa: PLR0913 - statistics context plus borrowed FFT wor
         wanted & {"on_axis_spectrum", "on_axis_intensity", "beam_radius", "fwhm_r"}
     )
     local_needed = bool(wanted & {"peak_intensity", "beam_radius", "fwhm_r"})
-    if (
-        closure is None
-        and plane is not None
-        and (local_needed or (axis_needed and axis is None))
-    ):
+    closure = None
+    if plane is not None and (local_needed or axis_needed):
         # The internal spectrum carries the conjugate admittance (SpatialFlux).
         closure = np.empty_like(field)
         for columns in chunks:
@@ -638,13 +622,13 @@ def collect_spatial(  # noqa: PLR0913 - statistics context plus borrowed FFT wor
     )
     axis_fluence = 0.0
     if axis_needed:
-        if axis is None:
-            assert closure is not None
-            axis = (
-                np.einsum("r,rpw->pw", geometry.on_axis, field),
-                np.einsum("r,rpw->pw", geometry.on_axis, closure),
-            )
-        axis_values, axis_fluence = _axis_statistics(wanted, grid, *axis)
+        assert closure is not None
+        axis_values, axis_fluence = _axis_statistics(
+            wanted,
+            grid,
+            np.einsum("r,rpw->pw", geometry.on_axis, field),
+            np.einsum("r,rpw->pw", geometry.on_axis, closure),
+        )
         values.update(axis_values)
     if local_needed:
         assert closure is not None

@@ -3688,8 +3688,6 @@ def _refuse_flow_conditioning(
     BackendError
         If the measured conditioning exceeds the declared bound at any bin.
     """
-    if not measured.size:
-        return
     declared = flow.condition_bound[section]
     # A bin whose block is normal has a bound of exactly one and a measured product
     # that is one to within the rounding of two spectral norms; the allowance is that
