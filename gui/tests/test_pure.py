@@ -121,15 +121,18 @@ def test_the_reducer_fixes_its_bins_on_the_first_plane():
     lam = np.array([np.inf, -1.0, 1e-6, 2e-6, 3e-6])
     density = np.array([7.0, 7.0, 1.0, 2.0, 3.0])
     t = np.linspace(-1e-13, 1e-13, 11)
-    reduced, power = reducer.reduce(lam, density, t, np.ones(11))
-    assert reduced.dtype == np.float32 and reduced.shape == (4,)
+    spectra = {"wavelength": (lam, density), "f": (3e8 / lam, density)}
+    reduced, power = reducer.reduce(spectra, t, np.ones(11))
+    assert reduced["wavelength"].dtype == np.float32
+    assert reduced["wavelength"].shape == reduced["f"].shape == (4,)
     assert power.shape == (3,)
-    assert float(reduced.max()) == 3.0  # the non-physical wavelengths are left out
+    assert float(reduced["wavelength"].max()) == 3.0  # non-physical ones left out
     axes = reducer.axes()
-    assert axes["spectral"][0] > 1e-6 and axes["time"].size == 3
+    assert axes["wavelength"][0] > 1e-6 and axes["time"].size == 3
+    assert axes["f"][-1] < 3e14 and axes["bandpass"] is None
     # The second plane reuses the bins.
-    reducer.reduce(lam * 2, density, t * 2, np.ones(11))
-    assert np.array_equal(reducer.axes()["spectral"], axes["spectral"])
+    reducer.reduce({"wavelength": (lam * 2, density)}, t * 2, np.ones(11))
+    assert np.array_equal(reducer.axes()["wavelength"], axes["wavelength"])
 
 
 def test_a_display_takes_the_runs_window_only_where_it_has_none():
@@ -210,17 +213,21 @@ def test_the_cards_are_presentation_over_routes():
         "capillary-averaged",
         "capillary-modal",
         "antiresonant",
-        "waveguide",
+        "rectangular",
+        "slab",
         "gnlse",
-        "free",
+        "cartesian",
+        "line",
         "radial",
     }
+    assert card("planar").hidden and not card("planar").enabled
     with pytest.raises(KeyError):
         card("nope")
     assert card_of("capillary", {"mode_average": True}) is averaged
     assert card_of("capillary", {}) is modal  # solprop's default: multimode
     assert card_of("gnlse", {}) is card("gnlse")
     assert card_of("nope", {}) is None
+    assert card_of("free", {}) is None  # no space: neither Cartesian nor a line
 
 
 def test_a_cards_preset_values_are_written_as_toml():

@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SPDX-FileCopyrightText: 2026 John C. Travers and contributors -->
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="150" viewBox="0 0 200 150">
+<style>
+svg {
+    --ink: #1b1f24;
+    --dim: #5b6673;
+    --gas-fill: #e9f1fb;
+    --glass-fill: #d5e9dc;
+    --glass-edge: #2c7a55;
+    --core-fill: #cfe0f4;
+    --core-edge: #2f5eb0;
+    --beam: #b8334f;
+    --beam-b: #6f45a6;
+    --beam-c: #a96a15;
+}
+@media (prefers-color-scheme: dark) {
+  svg {
+    --ink: #e7eaef;
+    --dim: #9aa5b3;
+    --gas-fill: #18222f;
+    --glass-fill: #173528;
+    --glass-edge: #5cb98a;
+    --core-fill: #1d3150;
+    --core-edge: #7ba6e8;
+    --beam: #ee8ca0;
+    --beam-b: #b99ae6;
+    --beam-c: #e0a44f;
+  }
+}
+.glass { fill: var(--glass-fill); stroke: var(--glass-edge); stroke-width: 2; }
+.gas { fill: var(--gas-fill); stroke: var(--glass-edge); stroke-width: 1.2; }
+.core { fill: var(--core-fill); stroke: var(--core-edge); stroke-width: 1.5; }
+.axis { fill: none; stroke: var(--dim); stroke-width: 1.2; }
+.node { fill: var(--dim); stroke: none; }
+.ring { fill: none; stroke: var(--dim); stroke-width: 1; stroke-dasharray: 3 3; }
+.curve { fill: none; stroke: var(--beam); stroke-width: 2.4; }
+.curve-b { fill: none; stroke: var(--beam-b); stroke-width: 2; }
+.curve-c { fill: none; stroke: var(--beam-c); stroke-width: 2; }
+.label { fill: var(--dim); font-family: sans-serif; font-size: 13px;
+  font-style: italic; }
+</style>
+<defs>
+<radialGradient id="spot">
+  <stop offset="0" stop-color="var(--beam)" stop-opacity="0.95"/>
+  <stop offset="0.55" stop-color="var(--beam)" stop-opacity="0.45"/>
+  <stop offset="1" stop-color="var(--beam)" stop-opacity="0"/>
+</radialGradient>
+<linearGradient id="band" x1="0" y1="0" x2="0" y2="1">
+  <stop offset="0" stop-color="var(--beam)" stop-opacity="0"/>
+  <stop offset="0.5" stop-color="var(--beam)" stop-opacity="0.9"/>
+  <stop offset="1" stop-color="var(--beam)" stop-opacity="0"/>
+</linearGradient>
+</defs>
+<circle class="node" cx="30" cy="105" r="1.8"/>
+<circle class="node" cx="37" cy="105" r="1.8"/>
+<circle class="node" cx="44" cy="105" r="1.8"/>
+<circle class="node" cx="51" cy="105" r="1.8"/>
+<circle class="node" cx="58" cy="105" r="1.8"/>
+<circle class="node" cx="65" cy="105" r="1.8"/>
+<circle class="node" cx="72" cy="105" r="1.8"/>
+<circle class="node" cx="79" cy="105" r="1.8"/>
+<circle class="node" cx="86" cy="105" r="1.8"/>
+<circle class="node" cx="93" cy="105" r="1.8"/>
+<circle class="node" cx="100" cy="105" r="1.8"/>
+<circle class="node" cx="107" cy="105" r="1.8"/>
+<circle class="node" cx="114" cy="105" r="1.8"/>
+<circle class="node" cx="121" cy="105" r="1.8"/>
+<circle class="node" cx="128" cy="105" r="1.8"/>
+<circle class="node" cx="135" cy="105" r="1.8"/>
+<circle class="node" cx="142" cy="105" r="1.8"/>
+<circle class="node" cx="149" cy="105" r="1.8"/>
+<circle class="node" cx="156" cy="105" r="1.8"/>
+<circle class="node" cx="163" cy="105" r="1.8"/>
+<circle class="node" cx="170" cy="105" r="1.8"/>
+<path class="curve" d="M30,97.1 L32,96.9 L34,96.7 L36,96.6 L38,96.3 L40,96.1 L42,95.8 L44,95.4 L46,95.0 L48,94.6 L50,94.1 L52,93.5 L54,92.8 L56,92.0 L58,91.0 L60,90.0 L62,88.8 L64,87.4 L66,85.8 L68,83.9 L70,81.8 L72,79.4 L74,76.7 L76,73.6 L78,70.1 L80,66.3 L82,62.0 L84,57.5 L86,52.6 L88,47.7 L90,42.7 L92,38.1 L94,34.0 L96,30.8 L98,28.7 L100,28.0 L102,28.7 L104,30.8 L106,34.0 L108,38.1 L110,42.7 L112,47.7 L114,52.6 L116,57.5 L118,62.0 L120,66.3 L122,70.1 L124,73.6 L126,76.7 L128,79.4 L130,81.8 L132,83.9 L134,85.8 L136,87.4 L138,88.8 L140,90.0 L142,91.0 L144,92.0 L146,92.8 L148,93.5 L150,94.1 L152,94.6 L154,95.0 L156,95.4 L158,95.8 L160,96.1 L162,96.3 L164,96.6 L166,96.7 L168,96.9 L170,97.1"/>
+<path class="axis" d="M30,125 L174,125 M167.7,128.0 L174,125 L167.7,122.0"/>
+<text class="label" x="178" y="129">x</text>
+</svg>

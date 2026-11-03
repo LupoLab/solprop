@@ -6,9 +6,10 @@
 
 A card is presentation: a title, a sentence, the solprop route it builds and the
 values that make it that card (the mode-averaged capillary is the capillary route with
-``mode_average = true``). A new setup from a card holds those values and nothing else;
-what else the route requires, solprop's check says. A card whose milestone has not
-come yet is shown disabled, with the reason.
+``mode_average = true``; a line beam is the free route with a ``LineGrid`` space). A new
+setup from a card starts from solprop's example of it, or holds the card's values and
+nothing else; what else the route requires, solprop's check says. A card the window
+does not offer yet is hidden, its code kept.
 """
 
 from collections.abc import Mapping, Sequence
@@ -24,6 +25,7 @@ __all__ = [
     "card",
     "card_of",
     "group_examples",
+    "type_of",
 ]
 
 
@@ -55,6 +57,18 @@ class RouteCard:
     marker : tuple of str
         Keywords whose presence makes a recipe the card's, beside its preset (an
         antiresonant fibre is a capillary with a ``lattice``).
+    types : dict
+        Keywords whose registered type makes a recipe the card's, by keyword, each
+        with the type names that do (a line beam's ``space`` is a ``LineGrid``); for
+        a list, its first entry's type.
+    rewrite : dict
+        Changes made to :attr:`example`'s ``[build]`` for a new setup, where solprop
+        has no example of the card's own: a value replaces the keyword's, ``None``
+        removes it.
+    group : str
+        The heading the gallery shows it under.
+    hidden : bool
+        Whether the gallery and the examples leave it out.
 
     Examples
     --------
@@ -71,6 +85,10 @@ class RouteCard:
     reason: str | None = None
     example: str | None = None
     marker: tuple[str, ...] = ()
+    types: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    rewrite: dict[str, object] = field(default_factory=dict)
+    group: str = "Guided"
+    hidden: bool = False
 
     @property
     def enabled(self) -> bool:
@@ -141,14 +159,17 @@ CARDS: Final = (
         "the profile: the quickest model of a capillary.",
         "capillary",
         {"mode_average": True},
+        group="Hollow capillaries and fibres",
     ),
     RouteCard(
         "capillary-modal",
         "Capillary, multimode",
-        "The capillary's HE1m modes, coupled through the nonlinearity.",
+        "The capillary's modes coupled through the nonlinearity: the first HE1m "
+        "modes by number, or any HE, TE and TM modes listed.",
         "capillary",
         {"mode_average": False},
         {"modes": 4},
+        group="Hollow capillaries and fibres",
     ),
     RouteCard(
         "antiresonant",
@@ -158,14 +179,7 @@ CARDS: Final = (
         "capillary",
         example="antiresonant_fibre",
         marker=("lattice",),
-    ),
-    RouteCard(
-        "waveguide",
-        "Hollow waveguide, supplied modes",
-        "A gas-filled guide given by its modes: a rectangular channel, a planar guide "
-        "per unit width (slab modes), or capillary modes of your choosing.",
-        "waveguide",
-        example="hollow_rectangular",
+        group="Hollow capillaries and fibres",
     ),
     RouteCard(
         "gnlse",
@@ -173,13 +187,52 @@ CARDS: Final = (
         "A single-mode fibre given by its dispersion and nonlinear coefficient.",
         "gnlse",
         example="soliton",
+        group="Hollow capillaries and fibres",
     ),
     RouteCard(
-        "free",
+        "rectangular",
+        "Rectangular waveguide",
+        "A gas-filled hollow channel of rectangular section, in its modes.",
+        "waveguide",
+        example="hollow_rectangular",
+        types={"modes": ("RectMode",)},
+        group="Hollow waveguides",
+    ),
+    RouteCard(
+        "slab",
+        "Slab waveguide",
+        "A gas-filled gap between two plates, in its slab modes: uniform along the "
+        "plates, so energies and powers are per unit width.",
+        "waveguide",
+        example="hollow_rectangular",
+        types={"modes": ("SlabMode", "ModeCollection.slab")},
+        rewrite={
+            "modes": [{"type": "SlabMode", "half_gap": "50 um"}],
+            "energy": "0.5 J",
+            "n_theta": None,
+            "seed": None,
+        },
+        group="Hollow waveguides",
+    ),
+    RouteCard(
+        "cartesian",
         "Free space, Cartesian",
-        "A beam in a bulk medium or gas on a transverse x-y grid (or a line in x).",
+        "A beam in a bulk medium or gas on a transverse x-y grid.",
         "free",
         example="cartesian_beam",
+        types={"space": ("FreeGrid",)},
+        group="Free space",
+    ),
+    RouteCard(
+        "line",
+        "Free space, line",
+        "A beam uniform in y on a line of x nodes: energies and powers are per unit "
+        "width.",
+        "free",
+        example="cartesian_beam",
+        types={"space": ("LineGrid",)},
+        rewrite={"space": {"type": "LineGrid", "radius_x": "6 mm", "n_x": 64}},
+        group="Free space",
     ),
     RouteCard(
         "radial",
@@ -187,14 +240,16 @@ CARDS: Final = (
         "A radially symmetric beam in a bulk medium or gas, on a Hankel grid.",
         "radial",
         example="radial_kerr",
+        group="Free space",
     ),
     RouteCard(
         "planar",
         "Planar waveguide",
         "A slab waveguide, its modes across and free space along.",
         "planar",
-        reason="Planar guides are disabled for now.",
+        reason="Planar guides are not offered for now.",
         example="planar_hybrid",
+        hidden=True,
     ),
 )
 """The cards, in the order the page shows them."""
@@ -242,8 +297,8 @@ def card_of(
     Returns
     -------
     RouteCard or None
-        The enabled card of that route whose preset values and marker keywords the
-        recipe holds, the cards with markers tried first.
+        The enabled card of that route whose preset values, marker keywords and
+        keyword types the recipe holds, the cards with markers or types tried first.
 
     Examples
     --------
@@ -253,19 +308,52 @@ def card_of(
     'capillary-modal'
     >>> card_of("capillary", {"lattice": {"type": "TubeLattice"}}).key
     'antiresonant'
+    >>> card_of("free", {"space": {"type": "LineGrid"}}).key
+    'line'
+    >>> card_of("waveguide", {"modes": [{"type": "SlabMode"}]}).key
+    'slab'
+    >>> card_of("waveguide", {"modes": {"type": "ModeCollection.slab"}}).key
+    'slab'
     >>> card_of("radial", {}).key
     'radial'
     >>> card_of("nope", {}) is None
     True
     """
-    for entry in sorted(CARDS, key=lambda c: -len(c.marker)):
+    for entry in sorted(CARDS, key=lambda c: -len(c.marker) - len(c.types)):
         if (
             (entry.enabled or not enabled_only)
             and entry.route == route
             and all(build.get(k, IMPLIED.get(k)) == v for k, v in entry.preset.items())
             and all(k in build for k in entry.marker)
+            and all(type_of(build.get(k)) in v for k, v in entry.types.items())
         ):
             return entry
+    return None
+
+
+def type_of(value: object) -> str | None:
+    """Return the registered type a keyword's value names.
+
+    Parameters
+    ----------
+    value : object
+        The value as a recipe gives it: a table with ``type``, or a list of them.
+
+    Returns
+    -------
+    str or None
+        The table's ``type``, or the first entry's; ``None`` for another value.
+
+    Examples
+    --------
+    >>> type_of({"type": "FreeGrid"}), type_of([{"type": "RectMode"}]), type_of(3)
+    ('FreeGrid', 'RectMode', None)
+    """
+    if isinstance(value, list | tuple) and value:
+        value = value[0]
+    if isinstance(value, Mapping):
+        found = value.get("type")
+        return None if found is None else str(found)
     return None
 
 
@@ -308,7 +396,8 @@ def group_examples(
     -------
     dict
         By card key, in the cards' order, the examples it recognises as its own
-        (:func:`card_of`, disabled cards included); ``"other"`` for the rest.
+        (:func:`card_of`, disabled cards included); ``"other"`` for the rest. A
+        hidden card's examples are left out.
 
     Examples
     --------
@@ -316,6 +405,7 @@ def group_examples(
     ...     {"name": "a", "route": "capillary", "build": {"mode_average": True}},
     ...     {"name": "b", "route": "gnlse", "build": {}},
     ...     {"name": "c", "route": "nope", "build": {}},
+    ...     {"name": "d", "route": "planar", "build": {}},
     ... ])
     >>> {key: [e["name"] for e in found] for key, found in grouped.items()}
     {'capillary-averaged': ['a'], 'gnlse': ['b'], 'other': ['c']}
@@ -325,6 +415,8 @@ def group_examples(
         given = example.get("build")
         build: dict[str, object] = dict(given) if isinstance(given, Mapping) else {}
         entry = card_of(str(example["route"]), build, enabled_only=False)
+        if entry is not None and entry.hidden:
+            continue
         grouped.setdefault("other" if entry is None else entry.key, []).append(example)
     order = [card.key for card in CARDS] + ["other"]
     return {key: grouped[key] for key in order if key in grouped}

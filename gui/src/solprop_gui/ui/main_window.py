@@ -413,7 +413,7 @@ class MainWindow(QMainWindow):
         menu = self.menuBar()
         file_menu = menu.addMenu("&File")
         new_menu = file_menu.addMenu("&New setup")
-        for entry in CARDS:
+        for entry in (c for c in CARDS if not c.hidden):
             action = self._add_action(
                 new_menu, entry.title, lambda key=entry.key: self.new_from_card(key)
             )
@@ -758,6 +758,21 @@ class MainWindow(QMainWindow):
             raise RuntimeError(msg)
         return self.model.to_text(), self.base, self.model.title
 
+    def _show_example(self, purpose: str, text: str) -> None:
+        """Open an example the kernel sent, made a card's where it was asked for one.
+
+        Parameters
+        ----------
+        purpose : str
+            ``"example"``, or ``"example-<card key>"``.
+        text : str
+            The example's recipe.
+        """
+        model = RecipeModel(text)
+        key = purpose.removeprefix("example").removeprefix("-")
+        adapted(model, card(key) if key else None)
+        self.set_model(model, base=None)
+
     def on_reply(self, reply: Reply) -> None:
         """Take a kernel reply to one of the window's requests.
 
@@ -775,8 +790,8 @@ class MainWindow(QMainWindow):
         elif purpose.startswith("describe-") and reply.ok and isinstance(value, dict):
             self.descriptions[str(value["route"])] = value
             self._build_pages()
-        elif purpose == "example" and reply.ok and isinstance(value, str):
-            self.set_model(RecipeModel(value), base=None)
+        elif purpose.startswith("example") and reply.ok and isinstance(value, str):
+            self._show_example(purpose, value)
         elif purpose == "check":
             self._show_issues(value if reply.ok else _failure(reply))  # pyright: ignore[reportArgumentType]
         elif purpose == "summarise":
@@ -868,7 +883,11 @@ class MainWindow(QMainWindow):
             The card's key.
         """
         entry = card(key)
-        if entry.example is not None:
+        if entry.rewrite and entry.example is not None:
+            if self._may_discard():
+                payload = {"name": entry.example}
+                self._ask_kernel("example", payload, f"example-{key}")
+        elif entry.example is not None:
             self.open_example(entry.example)
         elif self._may_discard():
             self.set_model(RecipeModel(entry.blank("New setup")), base=None)
@@ -1655,6 +1674,24 @@ class MainWindow(QMainWindow):
         self.autosave.stop()
         self.bridge.close()
         event.accept()
+
+
+def adapted(model: RecipeModel, entry: RouteCard | None) -> None:
+    """Make an example's recipe a card's, by the card's rewrite of its build table.
+
+    Parameters
+    ----------
+    model : solprop_gui.model.recipe.RecipeModel
+        The example's recipe, changed in place.
+    entry : RouteCard or None
+        The card: each of its :attr:`~RouteCard.rewrite` values replaces the
+        keyword's, ``None`` removing it; ``None`` for an example taken as it is.
+    """
+    if entry is None:
+        return
+    for name, value in entry.rewrite.items():
+        model.set(name, MISSING if value is None else value)
+    model.set_title(entry.title)
 
 
 def app_settings() -> QSettings:

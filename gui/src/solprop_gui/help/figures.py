@@ -2,10 +2,10 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The manual's geometry figures, for the start page's gallery.
+"""The geometry classes' pictures, for the start page's gallery.
 
-The figures are copies of the user guide's (``docs/guide/figures``), drawn by
-``docs/guide/figures/geometries.py``; a test keeps each copy identical to the guide's.
+Each class has a simple cross-section drawn for the gallery (``figures/<key>.svg``),
+after the user guide's geometry figures but reduced to what tells the classes apart.
 They are styled with CSS custom properties, a light palette and a dark one under
 ``prefers-color-scheme``, which Qt's SVG renderer does not read: :func:`resolved` writes
 the chosen palette's colours in their place, so the gallery follows the window's theme.
@@ -17,17 +17,18 @@ from typing import Final
 
 __all__ = ["FIGURES", "figure_text", "resolved"]
 
-FIGURES: Final = {
-    "capillary-averaged": "mode_averaged",
-    "capillary-modal": "capillary_full",
-    "antiresonant": "antiresonant",
-    "waveguide": "rectangular",
-    "gnlse": "step_index",
-    "free": "cartesian_free",
-    "radial": "radial_free",
-    "planar": "planar_hybrid",
-}
-"""The figure of each geometry class, by its card's key."""
+FIGURES: Final = (
+    "capillary-averaged",
+    "capillary-modal",
+    "antiresonant",
+    "gnlse",
+    "rectangular",
+    "slab",
+    "cartesian",
+    "line",
+    "radial",
+)
+"""The geometry classes with a picture, by their cards' keys."""
 
 _PALETTE = re.compile(r"svg\s*\{([^}]*)\}")
 _PROPERTY = re.compile(r"--([\w-]+):\s*([^;]+);")
@@ -97,8 +98,7 @@ def figure_text(key: str, *, dark: bool = False) -> str | None:
     >>> "var(" in figure_text("antiresonant"), figure_text("nope") is None
     (False, True)
     """
-    name = FIGURES.get(key)
-    if name is None:
+    if key not in FIGURES:
         return None
-    source = resources.files("solprop_gui.help") / "figures" / f"{name}.svg"
+    source = resources.files("solprop_gui.help") / "figures" / f"{key}.svg"
     return resolved(source.read_text(encoding="utf-8"), dark=dark)

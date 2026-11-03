@@ -389,15 +389,16 @@ class RunPanel(QWidget):
         Returns
         -------
         solprop_gui.service.reduce.Display
-            The plot options' spectral axis and bandpass.
+            The plot options' bandpass.
         """
-        return Display(axis=self.options.axis, bandpass=self.options.bandpass)
+        return Display(bandpass=self.options.bandpass)
 
     def apply_options(self, options: PlotOptions) -> None:
         """Take new plot options, for the live view and the next run.
 
-        The live view redraws with them; the next run is reduced on their axis and
-        within their band.
+        The live view redraws with them at once, on either axis. A new band is the
+        next run's, and the last run's file is read again with it once it has
+        ended.
 
         Parameters
         ----------
@@ -406,6 +407,21 @@ class RunPanel(QWidget):
         """
         self.options = options
         self.view.apply_options(options)
+        self.reread()
+
+    def reread(self) -> None:
+        """Read the ended run's file again when its rows have another band."""
+        if (
+            self.active
+            or self.folder is None
+            or not self.view.rows
+            or self.view.band == self.options.bandpass
+            or not (self.folder / OUTPUT).exists()
+        ):
+            return
+        payload = {"path": str(self.folder / OUTPUT), "bandpass": self.options.bandpass}
+        request = self.bridge.request("overview", payload, key="live-overview")
+        self._pending[request] = "overview"
 
     def _progress(self, value: int, *, reset: bool = False) -> None:
         """Show how far the run has gone, never going back but on a reset.
@@ -622,6 +638,7 @@ class RunPanel(QWidget):
             )
             self._pending[request] = "check_resume"
             self.ended.emit(path)
+            self.reread()  # a band changed while it ran
         self._update_buttons()
 
     def on_reply(self, reply: Reply) -> None:
@@ -633,7 +650,13 @@ class RunPanel(QWidget):
             The reply; replies to other requests are ignored.
         """
         kind = self._pending.pop(reply.request_id, None)
-        if kind == "estimate":
+        if kind == "overview" and reply.ok and isinstance(reply.value, dict):
+            value = reply.value
+            extent = self.view.spectrum_map.extent
+            self.view.set_rows(value.get("axes", {}), value.get("rows", []))  # pyright: ignore[reportArgumentType]
+            if extent is not None:
+                self.view.set_extent(*extent)
+        elif kind == "estimate":
             self._show_estimate(reply)
         elif kind == "check_resume":
             value = reply.value if reply.ok else None

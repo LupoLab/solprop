@@ -53,16 +53,20 @@ def row_data(index: int, scale: float = 1.0) -> dict[str, object]:
     return {
         "index": index,
         "z": 0.01 * index,
-        "density": scale * np.exp(-(np.linspace(-3, 3, 16) ** 2)).astype(np.float32),
+        "density": {
+            axis: scale * np.exp(-(np.linspace(-3, 3, 16) ** 2)).astype(np.float32)
+            for axis in ("wavelength", "f")
+        },
         "power": scale * np.exp(-(np.linspace(-3, 3, 8) ** 2)).astype(np.float32) * 1e9,
         "stats": {"energy": 1e-4 * scale},
     }
 
 
 AXES = {
-    "spectral": np.linspace(2e-7, 2e-6, 16),
-    "axis": "wavelength",
+    "wavelength": np.linspace(2e-7, 2e-6, 16),
+    "f": np.linspace(1.5e14, 1.5e15, 16),
     "time": np.linspace(-1e-13, 1e-13, 8),
+    "bandpass": None,
 }
 
 
@@ -275,12 +279,13 @@ def test_the_overview_draws_rows_and_follows_the_newest(qtbot: QtBot, tmp_path: 
     assert view.power_map.plot.getViewBox().viewRange()[0][0] == pytest.approx(-20)
     assert box.viewRange()[1] == pytest.approx([0.0, 1.0])
     shot(view, tmp_path, "overview")
+    # The frequency axis at once, from the rows' own; a new band waits for new rows.
     view.apply_options(PlotOptions(axis="f", scale="linear", bandpass=(7e-7, 9e-7)))
-    note = view.spectrum_note.text()
-    assert "on the wavelength axis" in note and "700-900 nm" in note
-    view.set_axes({**AXES, "axis": "f"})
-    assert view.spectrum_note.text() == "time domain within 700-900 nm"
     assert view.spectrum_map.plot.getAxis("bottom").labelText == "Frequency (THz)"
+    assert view.spectrum_map.x[0] == pytest.approx(150.0)  # THz
+    assert "whole spectrum, until re-read" in view.spectrum_note.text()
+    view.set_axes({**AXES, "bandpass": (7e-7, 9e-7)})
+    assert view.spectrum_note.text() == "time domain within 700-900 nm"
     view.apply_options(PlotOptions())
     view.set_rows(AXES, [])
     assert view.rows == []
@@ -303,7 +308,7 @@ def test_compare_shares_one_reference(qtbot: QtBot, tmp_path: Path):
     view.add_run("b", AXES, [row_data(0, 1.0)])
     view.add_run("empty", AXES, [])
     assert list(view.runs) == ["a", "b"]
-    peak = float(np.max(np.asarray(row_data(0, 2.0)["density"])))
+    peak = float(np.max(np.asarray(row_data(0, 2.0)["density"]["wavelength"])))  # pyright: ignore[reportIndexIssue]
     assert view.reference() == pytest.approx(peak)  # the highest first plane
     shot(view, tmp_path, "compare")
     view.clear()

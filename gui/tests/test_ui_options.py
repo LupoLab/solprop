@@ -10,7 +10,9 @@ from pathlib import Path
 import pytest
 from pytestqt.qtbot import QtBot
 
+from conftest import TINY
 from solprop_gui.model.plot_options import PlotOptions
+from solprop_gui.model.recipe import RecipeModel
 from solprop_gui.ui.main_window import MainWindow, app_settings
 from solprop_gui.ui.plot_options import PlotOptionsPanel
 from test_ui import WAIT_MS, private_settings, shot  # noqa: F401 - a fixture
@@ -61,7 +63,6 @@ def test_the_window_keeps_one_set_of_options(qtbot: QtBot, tmp_path: Path):
     options = PlotOptions(axis="f", floor=-40.0, bandpass=(7e-7, 9e-7))
     window.results.plot_options.changed.emit(options)  # set on the Results step
     assert window.plot_options.options == options  # shown on Propagate too
-    assert window.run_panel.display().axis == "f"
     assert window.run_panel.display().bandpass == (7e-7, 9e-7)
     assert window.run_panel.view.options == options
     assert window.results.overview.options == options
@@ -76,3 +77,26 @@ def test_the_window_keeps_one_set_of_options(qtbot: QtBot, tmp_path: Path):
     third = MainWindow(workspace=tmp_path / "runs")
     qtbot.addWidget(third)
     assert third.plot_options.options == PlotOptions()  # unreadable: the defaults
+
+
+def test_a_finished_live_run_is_read_again_with_a_new_band(
+    qtbot: QtBot, tmp_path: Path
+):
+    window = MainWindow(workspace=tmp_path / "runs")
+    qtbot.addWidget(window)
+    window.confirm = lambda _title, _text: "discard"
+    window.set_model(RecipeModel(TINY), base=str(tmp_path))
+    qtbot.waitUntil(window.run_panel.run_button.isEnabled, timeout=WAIT_MS)
+    panel = window.run_panel
+    panel.start()
+    qtbot.waitUntil(lambda: not panel.active and bool(panel.view.rows), timeout=WAIT_MS)
+    assert panel.view.band is None
+    # The axis is the rows' own: drawn at once, nothing asked.
+    window.set_plot_options(PlotOptions(axis="f"))
+    assert "overview" not in panel._pending.values()
+    assert panel.view.spectrum_map.x[-1] > 100  # THz
+    band = (7.9e-7, 8.1e-7)
+    window.set_plot_options(PlotOptions(axis="f", bandpass=band))
+    qtbot.waitUntil(lambda: panel.view.band == band, timeout=WAIT_MS)
+    assert panel.view.spectrum_note.text() == "time domain within 790-810 nm"
+    window.close()

@@ -32,7 +32,7 @@ from solprop.recipe import Recipe, resume_file
 
 from solprop_gui.service.messages import Control, Event
 from solprop_gui.service.outbox import Outbox
-from solprop_gui.service.reduce import Display, Reducer, stats_row
+from solprop_gui.service.reduce import SPECTRAL_AXES, Display, Reducer, stats_row
 from solprop_gui.service.worker import LOG, OUTPUT, RECIPE, SCAN_OUTPUT, RunSpec
 
 __all__ = ["PROGRESS_PERIOD", "EventHandler", "LiveObserver", "ScanObserver", "execute"]
@@ -139,12 +139,13 @@ class LiveObserver(NullReporter):
         plane : solprop.driver.plane_view.PlaneView
             The lazy view of it, valid only during the call.
         """
-        display = self.reducer.display
-        x, density = plane.spectral_density(axis=display.axis, modes="sum")  # pyright: ignore[reportAttributeAccessIssue]
-        t, power = plane.power(modes="sum", bandpass=display.bandpass)  # pyright: ignore[reportAttributeAccessIssue]
-        reduced_density, reduced_power = self.reducer.reduce(
-            np.asarray(x), np.asarray(density), np.asarray(t), np.asarray(power)
-        )
+        spectra = {
+            axis: plane.spectral_density(axis=axis, modes="sum")  # pyright: ignore[reportAttributeAccessIssue]
+            for axis in SPECTRAL_AXES
+        }
+        bandpass = self.reducer.display.bandpass
+        t, power = plane.power(modes="sum", bandpass=bandpass)  # pyright: ignore[reportAttributeAccessIssue]
+        reduced_density, reduced_power = self.reducer.reduce(spectra, t, power)
         with self._lock:
             if self.axes is None:
                 self.axes = Event(self.run_id, "axes", dict(self.reducer.axes()))

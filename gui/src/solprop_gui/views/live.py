@@ -235,11 +235,10 @@ class OverviewView(QWidget):
         """Make the plots, empty."""
         super().__init__(parent)
         self.options = PlotOptions()
-        self.axis = "wavelength"
-        self.spectral = np.zeros(0)
+        self.spectra: dict[str, np.ndarray] = {}
+        self.band: tuple[float, float] | None = None
         self.time = np.zeros(0)
         self.rows: list[Mapping[str, object]] = []
-        self.reference = 0.0
 
         self.maps = HoverLayout()
         self.spectrum_map = MapPanel(
@@ -347,11 +346,11 @@ class OverviewView(QWidget):
     def clear(self) -> None:
         """Forget every row, the axes and the run's extent."""
         self.rows = []
-        self.spectral = np.zeros(0)
+        self.spectra = {}
+        self.band = None
         self.time = np.zeros(0)
         for panel in (self.spectrum_map, self.power_map):
             panel.extent = None
-        self.reference = 0.0
         self.spectrum_map.clear()
         self.power_map.clear()
         self.spectrum_curve.setData([], [])
@@ -366,15 +365,17 @@ class OverviewView(QWidget):
         Parameters
         ----------
         axes : Mapping
-            ``spectral`` (m or Hz), its ``axis`` (``"wavelength"`` or ``"f"``) and
-            ``time`` (s).
+            ``wavelength`` (m), ``f`` (Hz) and ``time`` (s), and the ``bandpass``
+            the rows' power is computed within.
         """
-        self.axis = str(axes.get("axis", "wavelength"))
-        self.spectral = np.asarray(axes["spectral"], dtype=float)
+        self.spectra = {
+            axis: np.asarray(axes[axis], dtype=float)
+            for axis in ("wavelength", "f")
+            if axis in axes
+        }
         self.time = np.asarray(axes["time"], dtype=float)
-        label = "Wavelength (nm)" if self.axis == "wavelength" else "Frequency (THz)"
-        self.spectrum_map.plot.setLabel("bottom", label)
-        self.spectrum_line.setLabel("bottom", label)
+        band = axes.get("bandpass")
+        self.band = None if band is None else tuple(band)  # pyright: ignore[reportArgumentType]
         self._note()
 
     def set_extent(self, z_start: float, z_end: float) -> None:
@@ -392,10 +393,11 @@ class OverviewView(QWidget):
         self.energy_line.getViewBox().setXRange(*extent, padding=0.02)
 
     def apply_options(self, options: PlotOptions) -> None:
-        """Draw with new plot options: scale, floor and the typed limits.
+        """Draw with new plot options: axis, scale, floor and the typed limits.
 
-        The axis and bandpass are solprop's to compute: a view whose rows were
-        reduced on another axis says so until it is given new rows.
+        The rows hold both spectral axes, so the axis changes at once; the bandpass
+        is solprop's to compute, and a view whose rows were computed with another
+        says so until it is given new rows.
 
         Parameters
         ----------
@@ -403,6 +405,8 @@ class OverviewView(QWidget):
             The options.
         """
         self.options = options
+        self.spectrum_map.plot.setLabel("bottom", options.label())
+        self.spectrum_line.setLabel("bottom", options.label())
         unit = "dB" if options.scale == "dB" else "relative"
         self.spectrum_line.setLabel("left", unit)
         self.spectrum_map.bar.getAxis("left").setLabel(unit)  # where its label is
@@ -414,13 +418,50 @@ class OverviewView(QWidget):
 
     def _note(self) -> None:
         """Say where the rows shown differ from the options asked for."""
-        notes = []
-        if self.spectral.size and self.axis != self.options.axis:
-            notes.append(f"shown on the {self.axis} axis until new rows come")
         described = self.options.describe()
-        if described:
-            notes.append(described)
-        self.spectrum_note.setText("; ".join(notes))
+        if self.rows and self.band != self.options.bandpass:
+            shown = PlotOptions(bandpass=self.band).describe() or "whole spectrum"
+            described = f"power shown: {shown}, until re-read"
+        self.spectrum_note.setText(described)
+
+    def reference(self) -> float:
+        """Return the 0 dB reference: the first plane's peak on the axis shown.
+
+        Returns
+        -------
+        float
+            The peak density, or 0 with no rows.
+        """
+        if not self.rows:
+            return 0.0
+        return float(np.max(self._density(self.rows[0])))
+
+    def _density(self, row: Mapping[str, object]) -> np.ndarray:
+        """Return a row's density on the axis shown.
+
+        Parameters
+        ----------
+        row : Mapping
+            The row.
+
+        Returns
+        -------
+        numpy.ndarray
+            Its density.
+        """
+        density: Mapping[str, object] = row["density"]  # pyright: ignore[reportAssignmentType]
+        return np.asarray(density[self.options.axis], dtype=float)
+
+    def _x(self) -> np.ndarray:
+        """Return the spectral bins' centres on the axis shown, in its unit.
+
+        Returns
+        -------
+        numpy.ndarray
+            In nm or THz; empty before the axes come.
+        """
+        axis = self.options.axis
+        return self.spectra.get(axis, np.zeros(0)) / UNITS[axis][1]
 
     def add_row(self, row: Mapping[str, object]) -> None:
         """Add one plane's row, replacing a row of the same plane.
@@ -434,8 +475,6 @@ class OverviewView(QWidget):
         self.rows = [r for r in self.rows if int(r["index"]) != index]  # pyright: ignore[reportArgumentType]
         self.rows.append(row)
         self.rows.sort(key=lambda r: int(r["index"]))  # pyright: ignore[reportArgumentType]
-        if self.reference <= 0.0:
-            self.reference = float(np.max(np.asarray(self.rows[0]["density"])))
         self._redraw()
 
     def set_rows(
@@ -455,7 +494,6 @@ class OverviewView(QWidget):
             return
         self.set_axes(axes)
         self.rows = sorted(rows, key=lambda r: int(r["index"]))  # pyright: ignore[reportArgumentType]
-        self.reference = float(np.max(np.asarray(self.rows[0]["density"])))
         self._redraw()
 
     # ------------------------------------------------------------------ drawing
@@ -473,13 +511,13 @@ class OverviewView(QWidget):
     def _redraw(self) -> None:
         """Redraw the maps and the selected plane."""
         self._note()
-        if not self.rows or self.spectral.size == 0:
+        x = self._x()
+        if not self.rows or x.size == 0:
             return
         z = self._z()
-        density = np.array([np.asarray(r["density"]) for r in self.rows])
+        density = np.array([self._density(r) for r in self.rows])
         power = np.array([np.asarray(r["power"]) for r in self.rows]) / 1e9
         shown, levels = self._scaled(density)
-        x = self.spectral / UNITS[self.axis][1]
         self.spectrum_map.show(x, z, shown, levels)
         self.power_map.show(
             self.time * 1e15, z, power, (0.0, float(power.max()) or 1.0)
@@ -515,10 +553,11 @@ class OverviewView(QWidget):
             The values to draw, and the levels: dB of the reference clipped to the
             floor, or the density relative to the reference.
         """
+        reference = self.reference()
         if self.options.scale == "dB":
             floor = self.options.floor
-            return np.clip(decibels(density, self.reference), floor, 0.0), (floor, 0.0)
-        reference = self.reference if self.reference > 0 else 1.0
+            return np.clip(decibels(density, reference), floor, 0.0), (floor, 0.0)
+        reference = reference if reference > 0 else 1.0
         return np.asarray(density, dtype=float) / reference, (0.0, 1.0)
 
     def _show_plane(self, position: int) -> None:
@@ -536,8 +575,8 @@ class OverviewView(QWidget):
             self.follow.setChecked(False)
         row = self.rows[position]
         z = float(row["z"])  # pyright: ignore[reportArgumentType]
-        shown, _levels = self._scaled(np.asarray(row["density"]))
-        self.spectrum_curve.setData(self.spectral / UNITS[self.axis][1], shown)
+        shown, _levels = self._scaled(self._density(row))
+        self.spectrum_curve.setData(self._x(), shown)
         self.power_curve.setData(self.time * 1e15, np.asarray(row["power"]) / 1e9)
         self.energy_marker.setPos(z)
         for panel in (self.spectrum_map, self.power_map):

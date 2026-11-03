@@ -4,15 +4,15 @@
 
 """The start page: an introduction, the geometry classes, and solprop's examples.
 
-The welcome screen. It offers the geometry classes as a gallery of the manual's
-figures (:mod:`solprop_gui.help.figures`); choosing one asks whether to begin from its
-template or from one of solprop's examples of that class. The examples are listed
-again below, grouped by geometry class, and files are opened from the top.
+The welcome screen. It offers the geometry classes as a gallery of simple pictures
+(:mod:`solprop_gui.help.figures`), grouped and titled; choosing one asks whether to
+begin from its template or from one of solprop's examples of that class. The examples
+are listed again below, grouped by geometry class, and files are opened from the top.
 """
 
 from collections.abc import Mapping, Sequence
 
-from PySide6.QtCore import QByteArray, QSize, Qt, Signal
+from PySide6.QtCore import QByteArray, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QIcon, QImage, QPainter, QPalette, QPixmap
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (
@@ -37,8 +37,12 @@ from solprop_gui.registry.routes import CARDS, RouteCard, card, group_examples
 
 __all__ = ["NewSetupDialog", "StartPage", "figure_pixmap"]
 
-TILE = QSize(240, 214)
-"""The size of a geometry class's picture in the gallery."""
+TILE = QSize(200, 150)
+"""The size of a geometry class's picture in the gallery, in device-independent
+pixels; it is drawn at the screen's pixel ratio."""
+
+COLUMNS = 4
+"""The gallery's tiles per row."""
 
 _INTRO = (
     "<h2>solprop</h2>"
@@ -67,7 +71,9 @@ def _dark(widget: QWidget) -> bool:
     return widget.palette().color(QPalette.ColorRole.Window).lightness() < 128
 
 
-def figure_pixmap(key: str, size: QSize, *, dark: bool = False) -> QPixmap | None:
+def figure_pixmap(
+    key: str, size: QSize, *, dark: bool = False, ratio: float = 1.0
+) -> QPixmap | None:
     """Draw a geometry class's figure at a size.
 
     Parameters
@@ -75,9 +81,13 @@ def figure_pixmap(key: str, size: QSize, *, dark: bool = False) -> QPixmap | Non
     key : str
         The card's key.
     size : PySide6.QtCore.QSize
-        The picture's size; the figure keeps its aspect within it.
+        The picture's size in device-independent pixels; the figure keeps its
+        aspect within it.
     dark : bool, optional
         Whether to draw it in the dark palette.
+    ratio : float, optional
+        The screen's device pixel ratio: the picture has that many pixels per
+        device-independent pixel, so it is sharp on a high-density screen.
 
     Returns
     -------
@@ -88,12 +98,13 @@ def figure_pixmap(key: str, size: QSize, *, dark: bool = False) -> QPixmap | Non
     if text is None:
         return None
     renderer = QSvgRenderer(QByteArray(text.encode("utf-8")))
-    image = QImage(size, QImage.Format.Format_ARGB32)
+    image = QImage(size * ratio, QImage.Format.Format_ARGB32)
+    image.setDevicePixelRatio(ratio)
     image.fill(QColor(0, 0, 0, 0))
     painter = QPainter(image)
     try:
         renderer.setAspectRatioMode(Qt.AspectRatioMode.KeepAspectRatio)
-        renderer.render(painter)
+        renderer.render(painter, QRectF(0, 0, size.width(), size.height()))
     finally:
         painter.end()
     return QPixmap.fromImage(image)
@@ -132,11 +143,13 @@ class NewSetupDialog(QDialog):
         heading.setWordWrap(True)
         self.options = QListWidget()
         self.options.setObjectName("new-setup-options")
-        template = QListWidgetItem(
-            "Template: the class's starting setup, to fill in"
-            if entry.example is None
-            else f"Template: from solprop's example '{entry.example}'"
-        )
+        if entry.example is None:
+            text = "Template: the class's starting setup, to fill in"
+        elif entry.rewrite:
+            text = f"Template: solprop's example '{entry.example}', made this class"
+        else:
+            text = f"Template: from solprop's example '{entry.example}'"
+        template = QListWidgetItem(text)
         template.setData(Qt.ItemDataRole.UserRole, "")
         self.options.addItem(template)
         for example in examples:
@@ -237,7 +250,7 @@ class StartPage(QWidget):
         layout.addWidget(scroll)
 
     def _gallery(self) -> QWidget:
-        """Make the geometry classes' tiles, each the manual's figure of it.
+        """Make the geometry classes' tiles, a picture and a title each, by group.
 
         Returns
         -------
@@ -245,28 +258,62 @@ class StartPage(QWidget):
             The gallery.
         """
         gallery = QWidget()
-        grid = QGridLayout(gallery)
-        grid.setContentsMargins(0, 0, 0, 0)
-        grid.setSpacing(10)
+        column = QVBoxLayout(gallery)
+        column.setContentsMargins(0, 0, 0, 0)
+        column.setSpacing(4)
         dark = _dark(self)
-        for index, entry in enumerate(CARDS):
-            tile = QToolButton()
-            tile.setObjectName(f"card-{entry.key}")
-            tile.setText(entry.title)
-            tile.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
-            tile.setIconSize(TILE)
-            tile.setAutoRaise(True)
-            tile.setToolTip(entry.reason or entry.summary)
-            tile.setEnabled(entry.enabled)
-            pixmap = figure_pixmap(entry.key, TILE, dark=dark)
-            if pixmap is not None:
-                tile.setIcon(QIcon(pixmap))
-            tile.clicked.connect(
-                lambda _checked=False, key=entry.key: self.card_chosen.emit(key)
-            )
-            self.tiles[entry.key] = tile
-            grid.addWidget(tile, index // 4, index % 4)
+        ratio = self.devicePixelRatioF()
+        groups: dict[str, list[RouteCard]] = {}
+        for entry in CARDS:
+            if not entry.hidden:
+                groups.setdefault(entry.group, []).append(entry)
+        for title, entries in groups.items():
+            heading = QLabel(f"<b>{title}</b>")
+            heading.setObjectName("gallery-group")
+            column.addWidget(heading)
+            row = QGridLayout()
+            row.setSpacing(8)
+            for index, entry in enumerate(entries):
+                tile = self._tile(entry, dark=dark, ratio=ratio)
+                row.addWidget(tile, index // COLUMNS, index % COLUMNS)
+            row.setColumnStretch(COLUMNS, 1)
+            column.addLayout(row)
         return gallery
+
+    def _tile(self, entry: RouteCard, *, dark: bool, ratio: float) -> QToolButton:
+        """Make one class's tile: its picture above its title.
+
+        Parameters
+        ----------
+        entry : RouteCard
+            The class.
+        dark : bool
+            Whether to draw in the dark palette.
+        ratio : float
+            The screen's device pixel ratio.
+
+        Returns
+        -------
+        PySide6.QtWidgets.QToolButton
+            The tile; clicking it announces the class.
+        """
+        tile = QToolButton()
+        tile.setObjectName(f"card-{entry.key}")
+        tile.setText(entry.title)
+        tile.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
+        tile.setIconSize(TILE)
+        tile.setAutoRaise(True)
+        tile.setToolTip(entry.reason or entry.summary)
+        tile.setEnabled(entry.enabled)
+        tile.setStyleSheet("QToolButton { font-weight: bold; padding: 6px; }")
+        pixmap = figure_pixmap(entry.key, TILE, dark=dark, ratio=ratio)
+        if pixmap is not None:
+            tile.setIcon(QIcon(pixmap))
+        tile.clicked.connect(
+            lambda _checked=False, key=entry.key: self.card_chosen.emit(key)
+        )
+        self.tiles[entry.key] = tile
+        return tile
 
     def show_examples(
         self, examples: Sequence[Mapping[str, object]], routes: Sequence[str]

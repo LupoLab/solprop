@@ -6,16 +6,16 @@
 
 from pathlib import Path
 
+from PySide6.QtCore import QSize
 from PySide6.QtWidgets import QTreeWidgetItem
 from pytestqt.qtbot import QtBot
 
 from solprop_gui.help.figures import FIGURES, figure_text
-from solprop_gui.registry.routes import CARDS, card
+from solprop_gui.model.recipe import MISSING
+from solprop_gui.registry.routes import CARDS, card, card_of, type_of
 from solprop_gui.ui.main_window import MainWindow
 from solprop_gui.ui.start import NewSetupDialog, StartPage, figure_pixmap
 from test_ui import WAIT_MS, private_settings, shot  # noqa: F401 - a fixture
-
-ROOT = Path(__file__).resolve().parents[2]
 
 EXAMPLES = [
     {
@@ -24,28 +24,41 @@ EXAMPLES = [
         "route": "capillary",
         "build": {"mode_average": True},
     },
-    {"name": "beam", "title": "A beam", "route": "free", "build": {}},
+    {
+        "name": "beam",
+        "title": "A beam",
+        "route": "free",
+        "build": {"space": {"type": "FreeGrid"}},
+    },
     {"name": "slab", "title": "A slab", "route": "planar", "build": {}},
+    {
+        "name": "stripe",
+        "title": "A stripe",
+        "route": "free",
+        "build": {"space": {"type": "LineGrid"}},
+    },
     {"name": "odd", "title": "Odd", "route": "nope", "build": {}},
 ]
 
 
-def test_the_figures_are_the_manual_s_and_resolve_for_qt():
-    for key, name in FIGURES.items():
-        packaged = ROOT / "gui" / "src" / "solprop_gui" / "help" / "figures"
-        guide = ROOT / "docs" / "guide" / "figures" / f"{name}.svg"
-        assert (packaged / f"{name}.svg").read_bytes() == guide.read_bytes(), name
+def test_every_shown_class_has_a_picture_that_resolves_for_qt():
+    for key in FIGURES:
         for dark in (False, True):
             text = figure_text(key, dark=dark)
             assert text is not None and "var(" not in text
-    assert {entry.key for entry in CARDS} <= set(FIGURES)
+    assert {entry.key for entry in CARDS if not entry.hidden} == set(FIGURES)
+    # Drawn at the screen's pixel ratio: sharp on a high-density screen.
+    pixmap = figure_pixmap("slab", QSize(200, 150), ratio=2.0)
+    assert pixmap is not None and pixmap.width() == 400
+    assert pixmap.devicePixelRatio() == 2.0
 
 
 def test_the_gallery_and_the_examples_by_class(qtbot: QtBot, tmp_path: Path):
     page = StartPage()
     qtbot.addWidget(page)
     page.resize(1100, 900)
-    assert not page.tiles["planar"].isEnabled()  # disabled for now
+    assert "planar" not in page.tiles  # not offered for now: not shown
+    assert set(page.tiles) == set(FIGURES)
     assert not page.tiles["capillary-averaged"].icon().isNull()
     chosen = []
     page.card_chosen.connect(chosen.append)
@@ -57,9 +70,9 @@ def test_the_gallery_and_the_examples_by_class(qtbot: QtBot, tmp_path: Path):
     assert (
         groups[0].startswith("Capillary, mode-averaged") and groups[-1] == "Other (1)"
     )
-    assert [e["name"] for e in page.examples_of("free")] == ["beam"]
-    planar = items[groups.index("Planar waveguide (1)")]
-    assert child(planar).isDisabled() and not planar.isExpanded()
+    assert [e["name"] for e in page.examples_of("cartesian")] == ["beam"]
+    assert [e["name"] for e in page.examples_of("line")] == ["stripe"]
+    assert not any(g.startswith("Planar") for g in groups)  # hidden with its card
     picked = []
     page.example_chosen.connect(picked.append)
     first = items[0]
@@ -75,7 +88,7 @@ def test_a_new_setup_dialog_offers_the_template_and_the_examples(qtbot: QtBot):
         {"name": "cartesian_beam", "title": "T"},
         {"name": "other", "title": "O"},
     ]
-    dialog = NewSetupDialog(card("free"), examples)
+    dialog = NewSetupDialog(card("cartesian"), examples)
     qtbot.addWidget(dialog)
     assert dialog.options.count() == 2  # the template is the class's example
     dialog.options.setCurrentRow(1)
@@ -85,6 +98,10 @@ def test_a_new_setup_dialog_offers_the_template_and_the_examples(qtbot: QtBot):
     qtbot.addWidget(blank)
     blank.accept()
     assert blank.choice == ""
+    line = NewSetupDialog(card("line"), [])
+    qtbot.addWidget(line)
+    item = line.options.item(0)
+    assert item is not None and "made this class" in item.text()
 
 
 def test_a_class_begins_from_its_template_or_an_example(qtbot: QtBot, tmp_path: Path):
@@ -109,7 +126,24 @@ def test_a_class_begins_from_its_template_or_an_example(qtbot: QtBot, tmp_path: 
         lambda: window.model is not None and window.model.route == "gnlse",
         timeout=WAIT_MS,
     )
+    # A class without an example of its own: another's, made this class.
+    window.choose_setup = lambda _entry, _examples: ""
+    for key, keyword, kind in (
+        ("line", "space", "LineGrid"),
+        ("slab", "modes", "SlabMode"),
+    ):
+        window.begin_class(key)
+        title = card(key).title
+        qtbot.waitUntil(lambda t=title: _titled(window, t), timeout=WAIT_MS)
+        assert window.model is not None
+        assert type_of(window.model.get(keyword)) == kind
+        assert card_of(window.model.route, window.model.document["build"]) is card(key)
+    assert window.model.get("seed") is MISSING  # removed by the slab's rewrite
     window.close()
+
+
+def _titled(window: MainWindow, title: str) -> bool:
+    return window.model is not None and window.model.title == title
 
 
 def group(page: StartPage, index: int) -> QTreeWidgetItem:
@@ -122,3 +156,17 @@ def child(item: QTreeWidgetItem) -> QTreeWidgetItem:
     found = item.child(0)
     assert found is not None
     return found
+
+
+def test_the_pictures_are_the_generator_s():
+    import importlib.util  # noqa: PLC0415 - only here
+
+    script = Path(__file__).resolve().parents[1] / "tools" / "geometry_icons.py"
+    spec = importlib.util.spec_from_file_location("geometry_icons", script)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    pictures = module.pictures()
+    assert set(pictures) == set(FIGURES)
+    for key, text in pictures.items():
+        assert (module.FIGURES / f"{key}.svg").read_text(encoding="utf-8") == text, key

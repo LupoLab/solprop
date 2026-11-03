@@ -137,7 +137,7 @@ def test_the_guided_cards_start_from_solprop_s_examples(qtbot: QtBot, tmp_path: 
     window.confirm = lambda _title, _text: "discard"
 
     # The waveguide: its mode edited in its own rows.
-    window.new_from_card("waveguide")
+    window.new_from_card("rectangular")
     qtbot.waitUntil(lambda: _route(window, "waveguide"), timeout=WAIT_MS)
     modes = window.pages["geometry"].rows["modes", "build"]
     assert modes.stack.currentWidget() is modes.objects

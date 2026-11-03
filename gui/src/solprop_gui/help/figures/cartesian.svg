@@ -1,0 +1,160 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SPDX-FileCopyrightText: 2026 John C. Travers and contributors -->
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="150" viewBox="0 0 200 150">
+<style>
+svg {
+    --ink: #1b1f24;
+    --dim: #5b6673;
+    --gas-fill: #e9f1fb;
+    --glass-fill: #d5e9dc;
+    --glass-edge: #2c7a55;
+    --core-fill: #cfe0f4;
+    --core-edge: #2f5eb0;
+    --beam: #b8334f;
+    --beam-b: #6f45a6;
+    --beam-c: #a96a15;
+}
+@media (prefers-color-scheme: dark) {
+  svg {
+    --ink: #e7eaef;
+    --dim: #9aa5b3;
+    --gas-fill: #18222f;
+    --glass-fill: #173528;
+    --glass-edge: #5cb98a;
+    --core-fill: #1d3150;
+    --core-edge: #7ba6e8;
+    --beam: #ee8ca0;
+    --beam-b: #b99ae6;
+    --beam-c: #e0a44f;
+  }
+}
+.glass { fill: var(--glass-fill); stroke: var(--glass-edge); stroke-width: 2; }
+.gas { fill: var(--gas-fill); stroke: var(--glass-edge); stroke-width: 1.2; }
+.core { fill: var(--core-fill); stroke: var(--core-edge); stroke-width: 1.5; }
+.axis { fill: none; stroke: var(--dim); stroke-width: 1.2; }
+.node { fill: var(--dim); stroke: none; }
+.ring { fill: none; stroke: var(--dim); stroke-width: 1; stroke-dasharray: 3 3; }
+.curve { fill: none; stroke: var(--beam); stroke-width: 2.4; }
+.curve-b { fill: none; stroke: var(--beam-b); stroke-width: 2; }
+.curve-c { fill: none; stroke: var(--beam-c); stroke-width: 2; }
+.label { fill: var(--dim); font-family: sans-serif; font-size: 13px;
+  font-style: italic; }
+</style>
+<defs>
+<radialGradient id="spot">
+  <stop offset="0" stop-color="var(--beam)" stop-opacity="0.95"/>
+  <stop offset="0.55" stop-color="var(--beam)" stop-opacity="0.45"/>
+  <stop offset="1" stop-color="var(--beam)" stop-opacity="0"/>
+</radialGradient>
+<linearGradient id="band" x1="0" y1="0" x2="0" y2="1">
+  <stop offset="0" stop-color="var(--beam)" stop-opacity="0"/>
+  <stop offset="0.5" stop-color="var(--beam)" stop-opacity="0.9"/>
+  <stop offset="1" stop-color="var(--beam)" stop-opacity="0"/>
+</linearGradient>
+</defs>
+<circle class="node" cx="40" cy="27" r="1.6"/>
+<circle class="node" cx="40" cy="39" r="1.6"/>
+<circle class="node" cx="40" cy="51" r="1.6"/>
+<circle class="node" cx="40" cy="63" r="1.6"/>
+<circle class="node" cx="40" cy="75" r="1.6"/>
+<circle class="node" cx="40" cy="87" r="1.6"/>
+<circle class="node" cx="40" cy="99" r="1.6"/>
+<circle class="node" cx="40" cy="111" r="1.6"/>
+<circle class="node" cx="40" cy="123" r="1.6"/>
+<circle class="node" cx="52" cy="27" r="1.6"/>
+<circle class="node" cx="52" cy="39" r="1.6"/>
+<circle class="node" cx="52" cy="51" r="1.6"/>
+<circle class="node" cx="52" cy="63" r="1.6"/>
+<circle class="node" cx="52" cy="75" r="1.6"/>
+<circle class="node" cx="52" cy="87" r="1.6"/>
+<circle class="node" cx="52" cy="99" r="1.6"/>
+<circle class="node" cx="52" cy="111" r="1.6"/>
+<circle class="node" cx="52" cy="123" r="1.6"/>
+<circle class="node" cx="64" cy="27" r="1.6"/>
+<circle class="node" cx="64" cy="39" r="1.6"/>
+<circle class="node" cx="64" cy="51" r="1.6"/>
+<circle class="node" cx="64" cy="63" r="1.6"/>
+<circle class="node" cx="64" cy="75" r="1.6"/>
+<circle class="node" cx="64" cy="87" r="1.6"/>
+<circle class="node" cx="64" cy="99" r="1.6"/>
+<circle class="node" cx="64" cy="111" r="1.6"/>
+<circle class="node" cx="64" cy="123" r="1.6"/>
+<circle class="node" cx="76" cy="27" r="1.6"/>
+<circle class="node" cx="76" cy="39" r="1.6"/>
+<circle class="node" cx="76" cy="51" r="1.6"/>
+<circle class="node" cx="76" cy="63" r="1.6"/>
+<circle class="node" cx="76" cy="75" r="1.6"/>
+<circle class="node" cx="76" cy="87" r="1.6"/>
+<circle class="node" cx="76" cy="99" r="1.6"/>
+<circle class="node" cx="76" cy="111" r="1.6"/>
+<circle class="node" cx="76" cy="123" r="1.6"/>
+<circle class="node" cx="88" cy="27" r="1.6"/>
+<circle class="node" cx="88" cy="39" r="1.6"/>
+<circle class="node" cx="88" cy="51" r="1.6"/>
+<circle class="node" cx="88" cy="63" r="1.6"/>
+<circle class="node" cx="88" cy="75" r="1.6"/>
+<circle class="node" cx="88" cy="87" r="1.6"/>
+<circle class="node" cx="88" cy="99" r="1.6"/>
+<circle class="node" cx="88" cy="111" r="1.6"/>
+<circle class="node" cx="88" cy="123" r="1.6"/>
+<circle class="node" cx="100" cy="27" r="1.6"/>
+<circle class="node" cx="100" cy="39" r="1.6"/>
+<circle class="node" cx="100" cy="51" r="1.6"/>
+<circle class="node" cx="100" cy="63" r="1.6"/>
+<circle class="node" cx="100" cy="75" r="1.6"/>
+<circle class="node" cx="100" cy="87" r="1.6"/>
+<circle class="node" cx="100" cy="99" r="1.6"/>
+<circle class="node" cx="100" cy="111" r="1.6"/>
+<circle class="node" cx="100" cy="123" r="1.6"/>
+<circle class="node" cx="112" cy="27" r="1.6"/>
+<circle class="node" cx="112" cy="39" r="1.6"/>
+<circle class="node" cx="112" cy="51" r="1.6"/>
+<circle class="node" cx="112" cy="63" r="1.6"/>
+<circle class="node" cx="112" cy="75" r="1.6"/>
+<circle class="node" cx="112" cy="87" r="1.6"/>
+<circle class="node" cx="112" cy="99" r="1.6"/>
+<circle class="node" cx="112" cy="111" r="1.6"/>
+<circle class="node" cx="112" cy="123" r="1.6"/>
+<circle class="node" cx="124" cy="27" r="1.6"/>
+<circle class="node" cx="124" cy="39" r="1.6"/>
+<circle class="node" cx="124" cy="51" r="1.6"/>
+<circle class="node" cx="124" cy="63" r="1.6"/>
+<circle class="node" cx="124" cy="75" r="1.6"/>
+<circle class="node" cx="124" cy="87" r="1.6"/>
+<circle class="node" cx="124" cy="99" r="1.6"/>
+<circle class="node" cx="124" cy="111" r="1.6"/>
+<circle class="node" cx="124" cy="123" r="1.6"/>
+<circle class="node" cx="136" cy="27" r="1.6"/>
+<circle class="node" cx="136" cy="39" r="1.6"/>
+<circle class="node" cx="136" cy="51" r="1.6"/>
+<circle class="node" cx="136" cy="63" r="1.6"/>
+<circle class="node" cx="136" cy="75" r="1.6"/>
+<circle class="node" cx="136" cy="87" r="1.6"/>
+<circle class="node" cx="136" cy="99" r="1.6"/>
+<circle class="node" cx="136" cy="111" r="1.6"/>
+<circle class="node" cx="136" cy="123" r="1.6"/>
+<circle class="node" cx="148" cy="27" r="1.6"/>
+<circle class="node" cx="148" cy="39" r="1.6"/>
+<circle class="node" cx="148" cy="51" r="1.6"/>
+<circle class="node" cx="148" cy="63" r="1.6"/>
+<circle class="node" cx="148" cy="75" r="1.6"/>
+<circle class="node" cx="148" cy="87" r="1.6"/>
+<circle class="node" cx="148" cy="99" r="1.6"/>
+<circle class="node" cx="148" cy="111" r="1.6"/>
+<circle class="node" cx="148" cy="123" r="1.6"/>
+<circle class="node" cx="160" cy="27" r="1.6"/>
+<circle class="node" cx="160" cy="39" r="1.6"/>
+<circle class="node" cx="160" cy="51" r="1.6"/>
+<circle class="node" cx="160" cy="63" r="1.6"/>
+<circle class="node" cx="160" cy="75" r="1.6"/>
+<circle class="node" cx="160" cy="87" r="1.6"/>
+<circle class="node" cx="160" cy="99" r="1.6"/>
+<circle class="node" cx="160" cy="111" r="1.6"/>
+<circle class="node" cx="160" cy="123" r="1.6"/>
+<ellipse cx="100" cy="75" rx="40" ry="30" fill="url(#spot)"/>
+<path class="axis" d="M28,137 L72,137 M65.7,140.0 L72,137 L65.7,134.0"/>
+<text class="label" x="76" y="141">x</text>
+<path class="axis" d="M28,137 L28,93 M31.0,99.3 L28,93 L25.0,99.3"/>
+<text class="label" x="16" y="95">y</text>
+</svg>

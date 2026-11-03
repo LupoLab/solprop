@@ -199,31 +199,34 @@ class ResultsPage(QWidget):
         self._ask("statistics", {"path": self.path}, "statistics")
 
     def _ask_overview(self) -> None:
-        """Ask for the open file's Overview, on the options' axis and band."""
+        """Ask for the open file's Overview, its power within the options' band."""
         if self.path is not None:
-            payload = {"path": self.path, **self.options.request()}
+            payload = {"path": self.path, "bandpass": self.options.bandpass}
             self._ask("overview", payload, "overview")
 
     def apply_options(self, options: PlotOptions) -> None:
         """Take new plot options, asking solprop again where they change its data.
 
-        The spectral axis and the bandpass change what solprop computes; the rest
-        only how the views draw.
+        The bandpass changes what solprop computes for the Overview, and the axis
+        too for a plane; the rest only how the views draw.
 
         Parameters
         ----------
         options : PlotOptions
             The options.
         """
+        band = self.options.bandpass != options.bandpass
         again = not self.options.same_request(options)
         self.options = options
         self.plot_options.set_options(options)
         self.overview.apply_options(options)
         self.plane.apply_options(options)
-        if again and self.path is not None:
+        if self.path is None:
+            return
+        if band:
             self._ask_overview()
-            if self.plane.planes:
-                self._ask_plane(self.plane.index(), self.plane.selection())
+        if again and self.plane.planes:
+            self._ask_plane(self.plane.index(), self.plane.selection())
 
     def open_scan(self, path: str | Path, *, show: bool = True) -> None:
         """Open a scan's results file in the scan browser.

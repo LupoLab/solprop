@@ -242,6 +242,12 @@ def test_each_card_s_example_is_solprop_s_and_the_card_s():
         recipe = Recipe.example(entry.example)
         assert recipe.route == entry.route
         build = recipe.to_dict()["build"]
+        # A card without an example of its own rewrites another's.
+        for name, value in entry.rewrite.items():
+            if value is None:
+                build.pop(name)
+            else:
+                build[name] = value
         assert card_of(recipe.route, build, enabled_only=False) is entry, entry.key
 
 

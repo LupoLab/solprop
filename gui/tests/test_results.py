@@ -151,8 +151,9 @@ def test_a_spatial_plane_has_its_fluence_map(beam: str, monkeypatch):
     found_f = ask("plane", narrow)
     assert found_f["spectrum"]["x"].max() > 1e14
     assert found_f["power"]["y"].max() < 0.9 * found["power"]["y"].max()
-    overview_f = ask("overview", {k: v for k, v in narrow.items() if k != "index"})
-    assert overview_f["axes"]["axis"] == "f" and len(overview_f["rows"]) == 2
+    overview = ask("overview", {"path": beam, "bandpass": narrow["bandpass"]})
+    assert overview["axes"]["f"][-1] > 1e14 and len(overview["rows"]) == 2
+    assert set(overview["rows"][0]["density"]) == {"wavelength", "f"}
     # A radial grid and a line give a profile; another grid, or a refusal, says so.
     from solprop.grid import LineGrid, RadialGrid  # noqa: PLC0415
 

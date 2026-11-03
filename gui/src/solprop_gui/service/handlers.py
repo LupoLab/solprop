@@ -30,7 +30,7 @@ from solprop.tools import capillary_params, lambda_rdw_all
 
 from solprop_gui.service.design import DESIGN_HANDLERS, pin_targets
 from solprop_gui.service.figures import FIGURE_HANDLERS
-from solprop_gui.service.reduce import Display, Reducer, stats_row
+from solprop_gui.service.reduce import SPECTRAL_AXES, C, Display, Reducer, stats_row
 from solprop_gui.service.results import RESULTS_HANDLERS, band_of, spatial_plane
 
 __all__ = ["HANDLERS"]
@@ -664,21 +664,18 @@ def overview(payload: Payload) -> dict[str, object]:
     ----------
     payload : Mapping
         ``path``, and optionally ``wavelength_range`` and ``time_range`` (pairs,
-        SI), ``axis`` (``"wavelength"`` or ``"f"``) and ``bandpass`` (a wavelength
-        band, m, the power is computed within).
+        SI), and ``bandpass`` (a wavelength band, m, the power is computed within).
 
     Returns
     -------
     dict
-        ``axes`` (the ``spectral`` and ``time`` bin centres, and the spectral
-        ``axis``) and ``rows``, one per field plane: ``index``, ``z``, ``density``,
-        ``power`` and ``stats``.
+        ``axes`` (:meth:`.reduce.Reducer.axes`) and ``rows``, one per field plane:
+        ``index``, ``z``, ``density`` (by spectral axis), ``power`` and ``stats``.
     """
     path = str(payload["path"])
     display = Display(
         wavelength_range=_pair(payload.get("wavelength_range")),
         time_range=_pair(payload.get("time_range")),
-        axis=str(payload.get("axis") or "wavelength"),
         bandpass=band_of(payload),
     )
     caps = capabilities.output(path)
@@ -693,25 +690,24 @@ def overview(payload: Payload) -> dict[str, object]:
         for index in planes:
             if caps.basis == "spatial":
                 # A beam's columns are field samples: solprop's spatial readings.
-                beam = spatial_plane(
-                    path, handler, index, axis=display.axis, bandpass=display.bandpass
-                )
+                beam = spatial_plane(path, handler, index, bandpass=display.bandpass)
                 spectrum, flux = beam["spectrum"], beam["power"]
                 if "error" in spectrum:  # pyright: ignore[reportOperatorIssue]
                     raise SolpropError(str(spectrum["error"]))  # pyright: ignore[reportIndexIssue]
-                x, density = spectrum["x"], spectrum["y"]  # pyright: ignore[reportIndexIssue]
+                lam = np.asarray(spectrum["x"])  # pyright: ignore[reportIndexIssue]
+                energy = np.asarray(spectrum["y"])  # pyright: ignore[reportIndexIssue]
+                # Energy per bin is no density: the same bins, read by frequency.
+                spectra = {"wavelength": (lam, energy), "f": (C / lam, energy)}
                 t, power = flux["t"], flux["y"]  # pyright: ignore[reportIndexIssue]
             else:
-                x, density = get_spectral_density(
-                    handler,
-                    display.axis,  # pyright: ignore[reportArgumentType]
-                    plane=index,
-                    modes="sum",
-                )
+                spectra = {
+                    axis: get_spectral_density(handler, axis, plane=index, modes="sum")  # pyright: ignore[reportArgumentType]
+                    for axis in SPECTRAL_AXES
+                }
                 t, power = get_power(
                     handler, plane=index, modes="sum", bandpass=display.bandpass
                 )
-            reduced_density, reduced_power = reducer.reduce(x, density, t, power)
+            reduced_density, reduced_power = reducer.reduce(spectra, t, power)  # pyright: ignore[reportArgumentType]
             rows.append(
                 {
                     "index": int(index),

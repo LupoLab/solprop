@@ -117,8 +117,8 @@ def test_the_whole_lifecycle(kernel: Kernel, tmp_path: Path):
     window = {"wavelength_range": [200e-9, 2e-6]}  # the script's file has no recipe
     ours = kernel.ask("overview", {"path": output, **window})
     theirs = kernel.ask("overview", {"path": str(tmp_path / "script.h5"), **window})
-    last_ours = np.asarray(ours["rows"][-1]["density"])  # pyright: ignore[reportIndexIssue]
-    last_theirs = np.asarray(theirs["rows"][-1]["density"])  # pyright: ignore[reportIndexIssue]
+    last_ours = np.asarray(ours["rows"][-1]["density"]["wavelength"])  # pyright: ignore[reportIndexIssue]
+    last_theirs = np.asarray(theirs["rows"][-1]["density"]["wavelength"])  # pyright: ignore[reportIndexIssue]
     assert len(ours["rows"]) == len(theirs["rows"]) == 16  # pyright: ignore[reportIndexIssue, reportArgumentType]
     # A resume agrees with an unbroken run to the integrator's tolerance, not bitwise.
     np.testing.assert_allclose(
