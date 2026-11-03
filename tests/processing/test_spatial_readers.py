@@ -48,6 +48,7 @@ from solprop.spatial import (
     on_axis_spectrum,
     planar_mode_energy,
     spatial_energy,
+    spatial_energy_spectrum,
     spatial_power,
 )
 from solprop.stats import StatsSpec
@@ -231,22 +232,36 @@ def test_the_advice_names_only_what_works_on_the_route(spatial_run):
         modal = planar_mode_energy(stored, flux)
         assert float(np.sum(modal)) == pytest.approx(recorded, rel=1e-12)
         for name in SPECTRAL:
-            assert (
-                "no spatial functional gives a planar run's spectrum yet"
-                in (advice[name])
-            )
+            assert "solprop.spatial.spatial_energy_spectrum" in advice[name]
             assert "field_plane" not in advice[name]
             assert "on_axis_spectrum" not in advice[name]
+        # The per-bin split the advice names sums to the beam's energy and to the
+        # slab modes' total: the same weighted terms summed per bin rather than per
+        # column or per mode, a few rounding errors apart (bound 1e-12).
+        per_bin = spatial_energy_spectrum(stored, flux)
+        assert per_bin.shape == (simulation.grid.n_omega,)
+        assert float(np.sum(per_bin)) == pytest.approx(recorded, rel=1e-12)
+        assert float(np.sum(per_bin)) == pytest.approx(float(np.sum(modal)), rel=1e-12)
         with pytest.raises(ProcessingError, match="planar planes are not exchanged"):
             field_plane(output)
         return
     assert "planar_mode_energy" not in advice["energy"]
     for name in SPECTRAL:
+        assert "solprop.spatial.spatial_energy_spectrum" in advice[name]
         assert "field_plane" in advice[name] and "on_axis_spectrum" in advice[name]
     # The plane's energy per bin sums to the beam's energy: the same weighted terms
     # accumulated per bin rather than in total, a few rounding errors apart.
     per_bin = field_plane(output).spectral_energy()
     assert float(np.sum(per_bin)) == pytest.approx(recorded, rel=1e-12)
+    # The spatial functional the advice names first is that split, computed from the
+    # stored plane and its SpatialFlux: the same weighted terms (equal to the bit on
+    # each route when measured), so the bound leaves room only for a reordered sum.
+    functional = spatial_energy_spectrum(stored, flux)
+    assert functional.shape == (simulation.grid.n_omega,)
+    assert float(np.sum(functional)) == pytest.approx(recorded, rel=1e-12)
+    np.testing.assert_allclose(
+        functional, per_bin, rtol=1e-12, atol=1e-12 * float(np.max(per_bin))
+    )
     assert on_axis_spectrum(stored, flux).shape == (simulation.grid.n_omega,)
 
 

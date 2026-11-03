@@ -135,6 +135,12 @@ All notable changes to solprop are recorded here. The format follows
   fresh CPython 3.14 environments resolve the native extra with pip and verify its
   version, dependencies and default backend. The same check can be run by hand for a
   named release, with an optional run of its tagged README example and retained logs.
+- `solprop.spatial.spatial_energy_spectrum(spectrum, flux)` splits the energy that
+  `spatial_energy` measures into frequency bins, in J (J/m on a line), on radial,
+  Cartesian, line and planar planes, and the bins sum to the total. It is not the density
+  `beam_spectrum`. The coupling elements used it privately, and their reports do not
+  change. On a spatial file, the spectral readers' refusal now names it on every route,
+  planar included ([#184](https://github.com/LupoLab/solprop/issues/184)).
 - A waveguide-route example recipe, `Recipe.example("hollow_rectangular")`: an argon-filled
   hollow silica channel in its lowest x-polarised mode, mirroring a new tutorial built with a
   plain `prop_waveguide`, so the route has a recipe a front end can start from.
