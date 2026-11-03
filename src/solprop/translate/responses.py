@@ -138,6 +138,7 @@ __all__ = [
     "RegionalResponseTables",
     "ResponseStage",
     "compile_responses",
+    "declares_harmonic_carrier",
     "dispersive_regions",
     "dispersive_terms",
     "instantaneous_model_id",
@@ -366,6 +367,50 @@ def kerr_coefficients(response: KerrResponse, grid: TimeGrid) -> KerrCoefficient
         harmonic_factor=0.25 if envelope and response.thg else 0.0,
         analytic_signal=grid.kind == "field" and not response.thg,
         take_real=grid.kind == "field",
+    )
+
+
+def declares_harmonic_carrier(responses: Sequence[object], grid: TimeGrid) -> bool:
+    """Return whether declared responses will compile the third harmonic's carrier.
+
+    The one rule by which a run chooses its frame before anything compiles: an
+    envelope grid keeps ``beta_0``, and measures its frame delay from zero frequency,
+    exactly when this is true (:meth:`solprop.linear.Frame.comoving`,
+    :func:`solprop.linear.frame_origin`). It is the declared form of
+    :attr:`CompiledResponses.harmonic_carrier`, which
+    :func:`solprop.translate.problem.assemble` checks it against once the responses
+    have compiled. Only the electronic responses radiate the harmonic on an envelope
+    grid: the constant and the dispersive Kerr terms with ``thg=True``. A Raman
+    response's ``thg`` is ignored there (:func:`solprop.nonlinear.raman.raman_drive`),
+    so it does not keep ``beta_0``. A field grid never removes ``beta_0`` and compiles
+    no separate carrier, so the answer there is always False.
+
+    Parameters
+    ----------
+    responses : sequence of object
+        The run's declared responses, of any kind.
+    grid : solprop.grid.TimeGrid
+        The grid the run is on.
+
+    Returns
+    -------
+    bool
+        True on an envelope grid with an electronic response declaring ``thg=True``.
+
+    Examples
+    --------
+    >>> from solprop.grid import EnvelopeGrid
+    >>> from solprop.nonlinear.responses import KerrResponse
+    >>> from solprop.translate.responses import declares_harmonic_carrier
+    >>> grid = EnvelopeGrid.from_limits(1.0, 800e-9, (400e-9, 2e-6), 1e-12, thg=True)
+    >>> declares_harmonic_carrier([KerrResponse(chi3=1.0, thg=True)], grid)
+    True
+    >>> declares_harmonic_carrier([KerrResponse(chi3=1.0, thg=False)], grid)
+    False
+    """
+    return grid.kind == "envelope" and any(
+        isinstance(response, KerrResponse | DispersiveKerrResponse) and response.thg
+        for response in responses
     )
 
 
