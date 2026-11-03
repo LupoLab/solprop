@@ -124,6 +124,49 @@ def bin_max(x: np.ndarray, y: np.ndarray, edges: np.ndarray) -> np.ndarray:
     return out
 
 
+def even_rows(
+    x: np.ndarray, values: np.ndarray, window: tuple[float, float], count: int
+) -> tuple[np.ndarray, np.ndarray]:
+    """Put a map's rows on evenly spaced abscissae within a window, for an image.
+
+    An image is drawn on even bins; a map on wavelength is not even. Each column is
+    interpolated at the new rows, which is for display only, as every reduction here.
+
+    Parameters
+    ----------
+    x : numpy.ndarray
+        The rows' abscissae, ascending.
+    values : numpy.ndarray
+        The map, shape ``(x.size, n_columns)``.
+    window : tuple of float
+        The range of the new rows.
+    count : int
+        How many rows.
+
+    Returns
+    -------
+    tuple of numpy.ndarray
+        The even abscissae and the map on them, zero outside ``x``.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> rows, image = even_rows(np.array([1.0, 2.0, 4.0]), np.array([[0.0], [1.0],
+    ...                         [3.0]]), (1.0, 4.0), 4)
+    >>> rows.tolist(), image[:, 0].tolist()
+    ([1.0, 2.0, 3.0, 4.0], [0.0, 1.0, 2.0, 3.0])
+    """
+    rows = np.linspace(window[0], window[1], count)
+    image = np.stack(
+        [
+            np.interp(rows, x, values[:, column], left=0.0, right=0.0)
+            for column in range(values.shape[1])
+        ],
+        axis=1,
+    )
+    return rows, image
+
+
 def stats_row(stats: Mapping[str, object]) -> dict[str, float]:
     """Return a plane's statistics as one number each, summed over modes.
 

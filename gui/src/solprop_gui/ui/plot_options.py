@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QSpinBox,
     QWidget,
 )
 
@@ -33,7 +34,7 @@ from solprop_gui.model.plot_options import (
     to_display,
 )
 
-__all__ = ["PlotOptionsPanel"]
+__all__ = ["PlotOptionsPanel", "SpectrogramOptions"]
 
 _BAD = "QLineEdit { border: 1px solid #c62828; }"
 
@@ -307,6 +308,8 @@ class PlotOptionsPanel(QWidget):
             scale=self.scale.currentText(),  # pyright: ignore[reportArgumentType]
             floor=self.floor.value(),
             bandpass=bandpass,
+            gate_fwhm=self._options.gate_fwhm,  # the spectrogram's, set elsewhere
+            positions=self._options.positions,
         )
 
     def _edited(self, *_args: object) -> None:
@@ -348,3 +351,89 @@ class PlotOptionsPanel(QWidget):
         self.band.show_values(None, None)
         self.note.setText("")
         self.changed.emit(options)
+
+
+class SpectrogramOptions(QWidget):
+    """The spectrogram's gate: its width and the number of its positions.
+
+    The time range is the plot options' time range; the mode is the Plane view's
+    (a sum of modes takes the first: a spectrogram is of one field).
+
+    Parameters
+    ----------
+    parent : PySide6.QtWidgets.QWidget or None, optional
+        The owner.
+
+    Attributes
+    ----------
+    changed : Signal
+        Emitted with the gate's width (s, or ``None`` for solprop's default) and
+        the positions.
+    """
+
+    changed = Signal(object, int)
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        """Make the two fields."""
+        super().__init__(parent)
+        self.gate = QLineEdit()
+        self.gate.setObjectName("spectrogram-gate")
+        self.gate.setPlaceholderText("auto")
+        self.gate.setMaximumWidth(80)
+        self.gate.setToolTip(
+            "The Gaussian gate's full width at half maximum. A short gate shows when, "
+            "a long one shows what; solprop's default is a twentieth of the time range."
+        )
+        self.gate.editingFinished.connect(self._edited)
+        self.positions = QSpinBox()
+        self.positions.setObjectName("spectrogram-positions")
+        self.positions.setRange(8, 4096)
+        self.positions.setValue(256)
+        self.positions.setToolTip("How many gate positions across the time range.")
+        self.positions.editingFinished.connect(self._edited)
+        gate = QWidget()
+        row = QHBoxLayout(gate)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.addWidget(self.gate)
+        row.addWidget(QLabel(UNITS["time"][0]))
+        row.addStretch(1)
+        form = QFormLayout(self)
+        form.setContentsMargins(0, 0, 0, 0)
+        form.addRow("Gate width", gate)
+        form.addRow("Positions", self.positions)
+        form.addRow(QLabel("Its time range is the plot options'."))
+        self._shown: tuple[float | None, int] = (None, 256)
+
+    def set_options(self, options: PlotOptions) -> None:
+        """Show the gate the options hold, without announcing it.
+
+        Parameters
+        ----------
+        options : PlotOptions
+            The options.
+        """
+        gate = options.gate_fwhm
+        self.gate.setText("" if gate is None else _text(to_display("time", gate)))
+        self.gate.setStyleSheet("")
+        self.positions.blockSignals(True)
+        self.positions.setValue(options.positions)
+        self.positions.blockSignals(False)
+        self._shown = (gate, options.positions)
+
+    def _edited(self) -> None:
+        """Announce the gate, if it is blank or a positive number."""
+        try:
+            value = parse_limit(self.gate.text())
+        except ValueError:
+            value = -1.0
+        if value is not None and value <= 0:
+            self.gate.setStyleSheet(_BAD)
+            return
+        self.gate.setStyleSheet("")
+        chosen = (
+            None if value is None else from_display("time", value),
+            self.positions.value(),
+        )
+        if chosen != self._shown:
+            self._shown = chosen
+            self.changed.emit(*chosen)

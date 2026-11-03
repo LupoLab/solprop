@@ -6,7 +6,8 @@
 
 A results file's field planes are stepped through with a slider (design 11.2); for the
 plane shown the kernel gives the spectral density, the power and the spectral phase
-from :mod:`solprop.processing`, solprop draws the spectrogram, and
+from :mod:`solprop.processing`, and the spectrogram (``get_spectrogram``) drawn here
+as an image to zoom and read, with each plane; and
 ``compress_taylor`` finds the best Taylor phase, drawn over the power with the transform
 limit. A mode sum has a power and a spectrum but no phase or field, so the phase and the
 spectrogram take the first mode then, and say so.
@@ -18,8 +19,7 @@ from pathlib import Path
 
 import numpy as np
 import pyqtgraph as pg
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QPixmap, QResizeEvent
+from PySide6.QtCore import QRectF, Qt, Signal
 from PySide6.QtWidgets import (
     QComboBox,
     QFileDialog,
@@ -52,66 +52,112 @@ PHASE_FLOOR = 1e-3
 """The share of the spectrum's peak below which the phase is not drawn: noise there."""
 
 
-class _Image(QLabel):
-    """A picture that keeps its aspect and fills its space as that changes.
+class SpectrogramPlot:
+    """A plane's spectrogram as an image: zoom, pan and a readout, in dB or linear.
 
     Parameters
     ----------
-    text : str
-        What it says before it has a picture.
+    layout : solprop_gui.views.plotting.HoverLayout
+        The layout it is drawn in.
     """
 
-    def __init__(self, text: str) -> None:
-        """Hold no picture yet."""
-        super().__init__(text)
-        self.original: QPixmap | None = None
-        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.setMinimumSize(240, 160)
+    def __init__(self, layout: HoverLayout) -> None:
+        """Make the plot, its image and colour bar."""
+        self.plot = layout.add_plot(0, 0, "Spectrogram")
+        self.plot.setLabel("bottom", "Time (fs)")
+        self.image = pg.ImageItem(axisOrder="row-major")
+        self.plot.addItem(self.image)
+        self.bar = pg.ColorBarItem(
+            colorMap=colormap("viridis"), label="dB", interactive=True, width=12
+        )
+        self.bar.setImageItem(self.image, insert_in=self.plot)
+        self.data: Mapping[str, object] | None = None
+        self.shown = np.zeros((0, 0))
+        self.unit = 1.0
+        layout.add_readout(self.plot, self.lookup)
 
-    def set_image(self, pixmap: QPixmap) -> None:
-        """Show a picture, scaled to the space.
+    def show(self, data: Mapping[str, object], options: PlotOptions) -> None:
+        """Draw a spectrogram, as the options scale it.
 
         Parameters
         ----------
-        pixmap : PySide6.QtGui.QPixmap
-            The picture.
+        data : Mapping
+            The kernel's ``spectrogram`` reply: ``t``, ``x``, ``values``, ``axis``.
+        options : PlotOptions
+            The scale, floor and ranges.
         """
-        self.original = pixmap
-        self._fit()
+        self.data = data
+        self.redraw(options)
 
-    def _fit(self) -> None:
-        """Scale the picture to the label's size."""
-        if self.original is not None and not self.original.isNull():
-            self.setPixmap(
-                self.original.scaled(
-                    self.size(),
-                    Qt.AspectRatioMode.KeepAspectRatio,
-                    Qt.TransformationMode.SmoothTransformation,
-                )
+    def redraw(self, options: PlotOptions) -> None:
+        """Draw the spectrogram held with new options.
+
+        Parameters
+        ----------
+        options : PlotOptions
+            The scale, floor and ranges.
+        """
+        if self.data is None:
+            return
+        data = self.data
+        axis = str(data["axis"])
+        self.unit = UNITS[axis][1]
+        t = np.asarray(data["t"], dtype=float) * 1e15
+        x = np.asarray(data["x"], dtype=float) / self.unit
+        values = np.asarray(data["values"], dtype=float)
+        peak = float(values.max()) if values.size and values.max() > 0 else 1.0
+        if options.scale == "dB":
+            floor = options.floor
+            self.shown = np.clip(
+                10 * np.log10(np.maximum(values / peak, 1e-30)), floor, 0.0
             )
+            levels, unit = (floor, 0.0), "dB"
+        else:
+            self.shown = values / peak
+            levels, unit = (0.0, 1.0), "relative"
+        self.image.setImage(self.shown, autoLevels=False)
+        self.image.setRect(QRectF(t[0], x[0], float(t[-1] - t[0]), float(x[-1] - x[0])))
+        self.bar.setLevels(levels)
+        self.bar.getAxis("left").setLabel(unit)
+        name = "Wavelength" if axis == "wavelength" else "Frequency"
+        self.plot.setLabel("left", f"{name} ({UNITS[axis][0]})")
+        mode = data.get("mode")
+        gate = float(data.get("gate_fwhm") or 0.0) * 1e15  # pyright: ignore[reportArgumentType]
+        self.plot.setTitle(f"Spectrogram, mode {mode}, gate {gate:.3g} fs")
+        self.plot.getViewBox().autoRange(items=[self.image], padding=0)
+        set_range(self.plot, "x", options.shown_limits("time"))
+        if axis == options.axis:
+            set_range(self.plot, "y", options.shown_limits("spectral"))
 
-    def resizeEvent(self, event: QResizeEvent) -> None:  # noqa: N802 - Qt's name
-        """Refit the picture to the new size.
+    def lookup(self, x: float, y: float) -> tuple[float, float, str] | None:
+        """Read the map's value under the mouse.
 
         Parameters
         ----------
-        event : PySide6.QtGui.QResizeEvent
-            The resize.
-        """
-        super().resizeEvent(event)
-        self._fit()
+        x, y : float
+            The mouse, in fs and the axis's unit.
 
-    def forget(self, text: str) -> None:
-        """Drop the picture and show a text.
-
-        Parameters
-        ----------
-        text : str
-            The text.
+        Returns
+        -------
+        tuple or None
+            The point and its label; ``None`` off the map.
         """
-        self.original = None
-        self.clear()
-        self.setText(text)
+        if self.data is None or self.shown.size == 0:
+            return None
+        t = np.asarray(self.data["t"], dtype=float) * 1e15
+        rows = np.asarray(self.data["x"], dtype=float) / self.unit
+        if not (t[0] <= x <= t[-1] and rows[0] <= y <= rows[-1]):
+            return None
+        column = int(np.argmin(np.abs(t - x)))
+        row = int(np.argmin(np.abs(rows - y)))
+        return x, y, f"{x:.1f} fs, {y:.4g}\n{self.shown[row, column]:.3g}"
+
+    def clear(self) -> None:
+        """Forget the spectrogram."""
+        self.data = None
+        self.shown = np.zeros((0, 0))
+        self.image.clear()
+        self.plot.setTitle("Spectrogram")
 
 
 class PlaneView(QWidget):
@@ -127,7 +173,7 @@ class PlaneView(QWidget):
     plane_wanted : Signal
         Emitted with the plane's index and the mode selection.
     spectrogram_wanted : Signal
-        Emitted with the plane's z and the mode selection.
+        Emitted with the plane's index and the mode selection, with each plane.
     compression_wanted : Signal
         Emitted with the plane's index, the highest Taylor order and the selection.
     figure_wanted : Signal
@@ -135,7 +181,7 @@ class PlaneView(QWidget):
     """
 
     plane_wanted = Signal(int, object)
-    spectrogram_wanted = Signal(float, object)
+    spectrogram_wanted = Signal(int, object)
     compression_wanted = Signal(int, int, object)
     figure_wanted = Signal(object)
 
@@ -156,9 +202,6 @@ class PlaneView(QWidget):
         self.modes.currentIndexChanged.connect(self._ask)
         self.options = PlotOptions()
         self.axis = "wavelength"
-        self.spectrogram_button = QPushButton("Spectrogram")
-        self.spectrogram_button.setObjectName("plane-spectrogram")
-        self.spectrogram_button.clicked.connect(self.ask_spectrogram)
         self.order = QSpinBox()
         self.order.setObjectName("plane-order")
         self.order.setRange(2, 6)
@@ -219,8 +262,8 @@ class PlaneView(QWidget):
         self.image.setColorMap(colormap("viridis"))
         self.phase_plot.addItem(self.image)
         self.image.hide()
-        self.spectrogram = _Image("Spectrogram: press the button.")
-        self.spectrogram.setObjectName("plane-spectrogram-image")
+        self.spectrogram_area = HoverLayout()
+        self.spectrogram = SpectrogramPlot(self.spectrogram_area)
         self._spectrum: tuple[np.ndarray, np.ndarray] | None = None
         self._quantity = ""
 
@@ -230,13 +273,12 @@ class PlaneView(QWidget):
         controls.addWidget(self.where)
         controls.addWidget(self.modes)
         controls.addSpacing(12)
-        controls.addWidget(self.spectrogram_button)
         controls.addWidget(self.order)
         controls.addWidget(self.compress_button)
         controls.addWidget(self.figure)
         split = QSplitter(Qt.Orientation.Horizontal)
         split.addWidget(self.plots)
-        split.addWidget(self.spectrogram)
+        split.addWidget(self.spectrogram_area)
         split.setStretchFactor(0, 3)
         split.setStretchFactor(1, 2)
         split.setSizes([640, 420])
@@ -276,7 +318,6 @@ class PlaneView(QWidget):
         for widget in (
             self.slider,
             self.modes,
-            self.spectrogram_button,
             self.compress_button,
             self.figure,
         ):
@@ -335,12 +376,12 @@ class PlaneView(QWidget):
         if self.planes:
             self.status.setText("Reading the plane…")
             self.plane_wanted.emit(self.index(), self.selection())
+            self.ask_spectrogram()
 
     def ask_spectrogram(self) -> None:
-        """Ask for the plane's spectrogram."""
-        if self.current_z is not None:
-            self.spectrogram.forget("Drawing the spectrogram…")
-            self.spectrogram_wanted.emit(self.current_z, self.selection())
+        """Ask for the shown plane's spectrogram."""
+        if self.planes:
+            self.spectrogram_wanted.emit(self.index(), self.selection())
 
     def ask_compression(self) -> None:
         """Ask for the plane's best compression."""
@@ -571,6 +612,7 @@ class PlaneView(QWidget):
         self.options = options
         self._redraw_spectrum()
         self._frame()
+        self.spectrogram.redraw(options)
 
     def _frame(self) -> None:
         """Set the plots' ranges to the typed limits, automatic where blank."""
@@ -616,17 +658,15 @@ class PlaneView(QWidget):
         order = np.argsort(x)
         self.spectrum_curve.setData(x[order], shown[order])
 
-    def show_spectrogram(self, image: bytes) -> None:
-        """Show the spectrogram solprop drew.
+    def show_spectrogram(self, data: Mapping[str, object]) -> None:
+        """Show a plane's spectrogram.
 
         Parameters
         ----------
-        image : bytes
-            The PNG.
+        data : Mapping
+            The kernel's ``spectrogram`` reply.
         """
-        pixmap = QPixmap()
-        pixmap.loadFromData(image, "PNG")
-        self.spectrogram.set_image(pixmap)
+        self.spectrogram.show(data, self.options)
 
     def _clear_compression(self) -> None:
         """Remove the compressed and transform-limited curves."""
@@ -686,5 +726,5 @@ class PlaneView(QWidget):
         for curve in (self.spectrum_curve, self.power_curve, self.phase_curve):
             curve.setData([], [])
         self._clear_compression()
-        self.spectrogram.forget("Spectrogram: press the button.")
+        self.spectrogram.clear()
         self.set_planes([], [])

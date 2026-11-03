@@ -145,6 +145,11 @@ class PlotOptions:
     bandpass : tuple of float or None
         A wavelength band, m, the time-domain views are computed within; ``None``
         for the whole spectrum.
+    gate_fwhm : float or None
+        The spectrogram's gate, s; ``None`` for solprop's default (a twentieth of
+        the time range).
+    positions : int
+        The spectrogram's gate positions.
 
     Examples
     --------
@@ -158,6 +163,30 @@ class PlotOptions:
     scale: Scale = "dB"
     floor: float = -60.0
     bandpass: tuple[float, float] | None = None
+    gate_fwhm: float | None = None
+    positions: int = 256
+
+    def spectrogram(self) -> tuple[object, ...]:
+        """Return what a spectrogram is computed with.
+
+        Returns
+        -------
+        tuple
+            The axis, band, time limits, gate and positions: the spectrogram is
+            asked for again when they change.
+
+        Examples
+        --------
+        >>> PlotOptions().spectrogram() == PlotOptions(floor=-20).spectrogram()
+        True
+        """
+        return (
+            self.axis,
+            self.bandpass,
+            self.time_limits,
+            self.gate_fwhm,
+            self.positions,
+        )
 
     def request(self) -> dict[str, object]:
         """Return what solprop is asked to compute differently.
@@ -298,6 +327,10 @@ def from_mapping(values: Mapping[str, object]) -> PlotOptions:
         floor = float(values.get("floor", -60.0))  # pyright: ignore[reportArgumentType]
     except TypeError, ValueError:
         floor = -60.0
+    gate = values.get("gate_fwhm")
+    gate_fwhm = float(gate) if isinstance(gate, int | float) and gate > 0 else None
+    count = values.get("positions")
+    positions = int(count) if isinstance(count, int) and count > 0 else 256
     return PlotOptions(
         axis=axis if axis in AXES else "wavelength",  # pyright: ignore[reportArgumentType]
         spectral_limits=limits("spectral_limits"),
@@ -305,4 +338,6 @@ def from_mapping(values: Mapping[str, object]) -> PlotOptions:
         scale=scale if scale in SCALES else "dB",  # pyright: ignore[reportArgumentType]
         floor=floor,
         bandpass=bandpass,
+        gate_fwhm=gate_fwhm,
+        positions=positions,
     )

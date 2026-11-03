@@ -227,6 +227,9 @@ def test_a_file_from_a_script_has_no_recipe_and_its_own_band(tmp_path: Path):
     assert not described["recipe"]
     overview = ask("overview", {"path": str(path)})
     assert overview["axes"]["wavelength"][0] < 200e-9
+    # No recipe, so no window: the spectrogram spans the rows that hold light.
+    found = ask("spectrogram", {"path": str(path), "index": 0})
+    assert found["values"].max() > 0 and found["x"][0] > 0
 
 
 # ------------------------------------------------------------------ the worker's run

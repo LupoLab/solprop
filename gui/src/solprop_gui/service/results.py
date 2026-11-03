@@ -13,8 +13,8 @@ compression of a plane; and a figure of any of these written by solprop's own pl
 runs only in the kernel process.
 """
 
+import contextlib
 import functools
-import io
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -36,11 +36,14 @@ from solprop.processing import (
     node_fluence,
     transverse_units,
 )
+from solprop.processing.fields import DEFAULT_GATE_POSITIONS, get_spectrogram
 from solprop.processing.scans import ScanOutput
 from solprop.processing.spectra import bandpass as spectral_window
 from solprop.recipe import Recipe
 from solprop.spatial import SpatialFlux, spatial_power
 from solprop.stats import CATALOGUE
+
+from solprop_gui.service.reduce import even_rows
 
 __all__ = ["RESULTS_HANDLERS", "band_of", "spatial_plane"]
 
@@ -368,24 +371,6 @@ def statistics(payload: Payload) -> dict[str, object]:
     }
 
 
-def _png(figure: Figure) -> bytes:
-    """Return a Matplotlib figure as PNG bytes.
-
-    Parameters
-    ----------
-    figure : matplotlib.figure.Figure
-        The figure.
-
-    Returns
-    -------
-    bytes
-        The image.
-    """
-    buffer = io.BytesIO()
-    figure.savefig(buffer, format="png", dpi=110)
-    return buffer.getvalue()
-
-
 def _drawn(handler: Output, payload: Payload) -> list[Figure]:
     """Draw one of solprop's plots of a file.
 
@@ -436,23 +421,107 @@ def _drawn(handler: Output, payload: Payload) -> list[Figure]:
     return drawn if isinstance(drawn, list) else [drawn]
 
 
+SPECTROGRAM_ROWS = 400
+"""The rows of a spectrogram's image: its spectral bins, as the window shows them."""
+
+
 def spectrogram(payload: Payload) -> dict[str, object]:
-    """Return a plane's spectrogram as solprop draws it.
+    """Return a plane's spectrogram as data, for an interactive image.
+
+    The map is solprop's (``processing.get_spectrogram``), per unit of the axis asked
+    for; its rows are put on even bins within the run's wavelength window for the
+    image (:func:`.reduce.even_rows`).
 
     Parameters
     ----------
     payload : Mapping
-        ``path``, ``z`` and optionally ``modes`` and ``log``.
+        ``path``, ``index`` (the plane), and optionally ``modes`` (a sum takes the
+        first mode: modal fields do not add away from a point), ``axis``
+        (``"wavelength"`` or ``"f"``), ``time_range`` (a pair, s), ``gate_fwhm``
+        (s), ``positions`` and ``bandpass`` (a wavelength band, m).
 
     Returns
     -------
     dict
-        ``png``, the image; of the first mode where a sum is asked for, which has
-        no field.
+        ``t`` (the gate positions, s), ``x`` (the even rows, m or Hz), ``values``
+        (the map, shape ``(x.size, t.size)``), ``axis``, ``mode`` (the mode's
+        index) and ``gate_fwhm`` (the gate solprop used, s).
+
+    Raises
+    ------
+    solprop.exceptions.SolpropError
+        For a free-space run, whose columns are field samples rather than modes.
     """
-    with open_file(str(payload["path"])) as handler:
-        (drawn,) = _drawn(handler, {**payload, "plot": "spectrogram"})
-    return {"png": _png(drawn)}
+    path = str(payload["path"])
+    caps = capabilities.output(path)
+    if caps.basis == "spatial":
+        msg = (
+            "a spectrogram is of one field, and a free-space run's columns are "
+            "field samples across the beam: none is drawn for it"
+        )
+        raise SolpropError(msg)
+    axis = str(payload.get("axis") or "wavelength")
+    modes = _modes(payload)
+    mode = 0 if modes == "sum" else modes
+    time_range = band_of({"bandpass": payload.get("time_range")})
+    gate = payload.get("gate_fwhm")
+    with open_file(path) as handler:
+        t, x, values = get_spectrogram(
+            handler,
+            axis,  # pyright: ignore[reportArgumentType]
+            plane=int(payload["index"]),  # pyright: ignore[reportArgumentType]
+            modes=mode,
+            time_range=time_range,
+            gate_fwhm=None if gate is None else float(gate),  # pyright: ignore[reportArgumentType]
+            positions=int(payload.get("positions") or DEFAULT_GATE_POSITIONS),  # pyright: ignore[reportArgumentType]
+            bandpass=band_of(payload),
+        )
+    window = _window(path, axis, x, values)
+    rows, image = even_rows(x, values, window, SPECTROGRAM_ROWS)
+    span = float(t[-1] - t[0]) if time_range is None else abs(np.ptp(time_range))
+    return {
+        "t": t,
+        "x": rows,
+        "values": image.astype(np.float32),
+        "axis": axis,
+        "mode": int(mode),  # pyright: ignore[reportArgumentType]
+        "gate_fwhm": float(gate) if gate is not None else span / 20.0,  # pyright: ignore[reportArgumentType]
+    }
+
+
+def _window(
+    path: str, axis: str, x: np.ndarray, values: np.ndarray
+) -> tuple[float, float]:
+    """Return the spectral window of a spectrogram's image.
+
+    Parameters
+    ----------
+    path : str
+        The results file.
+    axis : str
+        The map's axis.
+    x : numpy.ndarray
+        Its rows' abscissae, ascending.
+    values : numpy.ndarray
+        The map.
+
+    Returns
+    -------
+    tuple of float
+        The run's wavelength window on the axis, where its recipe gives one; else
+        the rows that hold light (above a millionth of the peak).
+    """
+    limits = None
+    if capabilities.output(path).recipe:
+        with contextlib.suppress(SolpropError):
+            limits = Recipe.from_output(path).keywords().get("wavelength_limits")
+    if isinstance(limits, tuple | list) and len(limits) == 2:
+        low, high = sorted(float(v) for v in limits)  # pyright: ignore[reportArgumentType]
+        if axis == "wavelength":
+            return low, high
+        return C / high, C / low
+    light = np.flatnonzero(values.max(axis=1) > 1e-6 * values.max())
+    return float(x[light[0]]), float(x[light[-1]])
 
 
 def figure(payload: Payload) -> list[str]:

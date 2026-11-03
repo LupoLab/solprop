@@ -16,6 +16,7 @@ recipe, design 4).
 """
 
 from collections.abc import Mapping, Sequence
+from dataclasses import replace
 from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
@@ -37,7 +38,7 @@ from solprop_gui.model.workspace import RunEntry
 from solprop_gui.service.messages import Reply
 from solprop_gui.ui.bridge import ServiceBridge
 from solprop_gui.ui.pages import Section
-from solprop_gui.ui.plot_options import PlotOptionsPanel
+from solprop_gui.ui.plot_options import PlotOptionsPanel, SpectrogramOptions
 from solprop_gui.views.compare import CompareView
 from solprop_gui.views.live import OverviewView
 from solprop_gui.views.plane import PlaneView
@@ -79,6 +80,12 @@ class ResultsPage(QWidget):
         self._pending: dict[int, tuple[str, str]] = {}
         self.options = PlotOptions()
         self.plot_options = PlotOptionsPanel("results")
+        self.spectrogram_options = SpectrogramOptions()
+        self.spectrogram_options.changed.connect(
+            lambda gate, positions: self.plot_options.changed.emit(
+                replace(self.options, gate_fwhm=gate, positions=positions)
+            )
+        )
 
         self.open_button = QPushButton("Open results…")
         self.open_button.setObjectName("open-results")
@@ -128,6 +135,7 @@ class ResultsPage(QWidget):
             ("Results file", file, 0),
             ("Runs in the workspace", self.runs, 1),
             ("Plot options", self.plot_options, 0),
+            ("Spectrogram", self.spectrogram_options, 0),
             ("Statistics panels", self.stats_selector, 0),
         ):
             section = Section(title)
@@ -234,8 +242,10 @@ class ResultsPage(QWidget):
         """
         band = self.options.bandpass != options.bandpass
         again = not self.options.same_request(options)
+        spectrogram = self.options.spectrogram() != options.spectrogram()
         self.options = options
         self.plot_options.set_options(options)
+        self.spectrogram_options.set_options(options)
         self.overview.apply_options(options)
         self.plane.apply_options(options)
         if self.path is None:
@@ -244,6 +254,8 @@ class ResultsPage(QWidget):
             self._ask_overview()
         if again and self.plane.planes:
             self._ask_plane(self.plane.index(), self.plane.selection())
+        if spectrogram:
+            self.plane.ask_spectrogram()
 
     def open_scan(self, path: str | Path, *, show: bool = True) -> None:
         """Open a scan's results file in the scan browser.
@@ -280,19 +292,33 @@ class ResultsPage(QWidget):
             }
             self._ask("plane", payload, "plane")
 
-    def _ask_spectrogram(self, z: float, modes: object) -> None:
-        """Ask for a plane's spectrogram.
+    def _ask_spectrogram(self, index: int, modes: object) -> None:
+        """Ask for a plane's spectrogram, as the plot options set it.
 
         Parameters
         ----------
-        z : float
-            The plane's position.
+        index : int
+            The plane.
         modes : object
-            The mode selection.
+            The mode selection; a sum takes the first mode.
         """
-        if self.path is not None:
-            payload = {"path": self.path, "z": z, "modes": modes}
-            self._ask("spectrogram", payload, "spectrogram")
+        if self.path is None or self.capabilities is None:
+            return
+        if self.capabilities.get("basis") == "spatial":
+            return  # a free-space run's columns are field samples: no spectrogram
+        options = self.options
+        low, high = options.time_limits
+        payload = {
+            "path": self.path,
+            "index": index,
+            "modes": modes,
+            "axis": options.axis,
+            "bandpass": options.bandpass,
+            "time_range": None if low is None or high is None else (low, high),
+            "gate_fwhm": options.gate_fwhm,
+            "positions": options.positions,
+        }
+        self._ask("spectrogram", payload, "spectrogram")
 
     def _ask_compression(self, index: int, order: int, modes: object) -> None:
         """Ask for a plane's best compression.
@@ -448,7 +474,7 @@ class ResultsPage(QWidget):
         elif purpose == "compression":
             self.plane.show_compression(value)
         elif purpose == "spectrogram":
-            self.plane.show_spectrogram(bytes(value["png"]))  # pyright: ignore[reportArgumentType]
+            self.plane.show_spectrogram(value)
         else:
             self.statistics.set_statistics(value)
 

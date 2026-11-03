@@ -86,8 +86,24 @@ def test_the_statistics_are_labelled_by_mode(run: str, monkeypatch):
 
 
 def test_the_spectrogram_compression_and_figures(run: str, tmp_path: Path, monkeypatch):
-    image = ask("spectrogram", {"path": run, "z": 0.05})["png"]
-    assert image.startswith(b"\x89PNG")
+    found = ask("spectrogram", {"path": run, "index": 2})
+    assert found["values"].shape == (found["x"].size, found["t"].size)
+    assert found["mode"] == 0 and found["axis"] == "wavelength"  # a sum: the first
+    assert 1e-7 < found["x"][0] < found["x"][-1] < 1e-5  # the recipe's window, even
+    assert np.allclose(np.diff(found["x"]), found["x"][1] - found["x"][0])
+    narrow = {
+        "path": run,
+        "index": 2,
+        "modes": 1,
+        "axis": "f",
+        "time_range": [-5e-14, 5e-14],
+        "gate_fwhm": 8e-15,
+        "positions": 32,
+        "bandpass": [7e-7, 9e-7],
+    }
+    gated = ask("spectrogram", narrow)
+    assert gated["mode"] == 1 and gated["x"][0] > 1e14 and gated["gate_fwhm"] == 8e-15
+    assert np.all(np.abs(gated["t"]) <= 5e-14)
     found = ask("compression", {"path": run, "index": 2})
     assert found["fwhm_limit"] <= found["fwhm_after"] <= found["fwhm_before"] * 1.01
     assert found["after"].shape == found["t"].shape
@@ -137,6 +153,8 @@ def test_a_spatial_plane_has_its_fluence_map(beam: str, monkeypatch):
     assert fluence["values"].shape == (40, 32) and fluence["unit"] == "J/m^2"
     assert set(fluence["axes"]) == {"x", "y"}
     assert ask("describe_output", {"path": beam})["refused"]["compression"]
+    with pytest.raises(SolpropError, match="field samples"):
+        ask("spectrogram", {"path": beam, "index": 1})
     # The physical readings: the axial flux, and the energy per bin, which sums to
     # the beam's recorded energy.
     spectrum = found["spectrum"]

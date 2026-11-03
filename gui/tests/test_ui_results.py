@@ -8,8 +8,6 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from PySide6.QtCore import QBuffer, QIODevice
-from PySide6.QtGui import QPixmap
 from pytestqt.qtbot import QtBot
 
 from solprop_gui.model.plot_options import PlotOptions
@@ -24,13 +22,23 @@ from test_ui import WAIT_MS, private_settings, shot  # noqa: F401 - a fixture
 OMEGA = 2 * np.pi * 299_792_458.0 / np.linspace(1.2e-6, 5e-7, 50)
 
 
-def png() -> bytes:
-    pixmap = QPixmap(40, 30)
-    pixmap.fill()
-    buffer = QBuffer()
-    buffer.open(QIODevice.OpenModeFlag.WriteOnly)
-    pixmap.save(buffer, "PNG")
-    return bytes(buffer.data().data())
+def spectrogram_reply() -> dict[str, object]:
+    t = np.linspace(-5e-14, 5e-14, 30)
+    x = np.linspace(6e-7, 1e-6, 40)
+    values = np.exp(-(((x[:, None] - 8e-7) / 5e-8) ** 2) - (t[None, :] / 1e-14) ** 2)
+    return {
+        "t": t,
+        "x": x,
+        "values": values,
+        "axis": "wavelength",
+        "mode": 0,
+        "gate_fwhm": 5e-15,
+    }
+
+
+def _gate(results) -> float:
+    data = results.plane.spectrogram.data
+    return 0.0 if data is None else float(data["gate_fwhm"])
 
 
 def plane_reply(*, phase: bool = True) -> dict[str, object]:
@@ -59,22 +67,19 @@ def test_the_plane_view_asks_and_draws(qtbot: QtBot, tmp_path: Path):
     view.compression_wanted.connect(lambda *args: asked.append(("comp", *args)))
     view.figure_wanted.connect(lambda figure: asked.append(("figure", figure)))
     view.set_planes([0, 2], [0.0, 0.05], ["HE1,1", "HE1,2"])
-    assert asked[-1] == ("plane", 2, "sum") and "5 cm" in view.where.text()
+    # Each plane is asked for with its spectrogram.
+    assert asked[-2:] == [("plane", 2, "sum"), ("sg", 2, "sum")]
+    assert "5 cm" in view.where.text()
     view.slider.setValue(0)
-    assert asked[-1] == ("plane", 0, "sum")
+    assert asked[-2] == ("plane", 0, "sum")
     view.modes.setCurrentIndex(2)
-    assert asked[-1] == ("plane", 0, 1)
+    assert asked[-2:] == [("plane", 0, 1), ("sg", 0, 1)]
     view.modes.setCurrentIndex(0)
     view.show_plane(plane_reply())
     assert "Peak power 975.1 MW" in view.status.text()  # the 64-sample peak
     assert "first mode" in view.status.text()  # a sum of two modes
     ys = np.asarray(view.phase_curve.getData()[1], dtype=float)
     assert np.isnan(ys).any() and np.isfinite(ys).any()  # dark edges left out
-    view.ask_spectrogram()
-    assert asked[-1] == ("sg", 0.0, "sum")
-    view.show_spectrogram(png())
-    view.spectrogram.resize(300, 200)
-    assert view.spectrogram.pixmap() is not None
     view.ask_compression()
     assert asked[-1] == ("comp", 0, 2, "sum")
     t = np.linspace(-1e-13, 1e-13, 64)
@@ -104,11 +109,28 @@ def test_the_plane_view_asks_and_draws(qtbot: QtBot, tmp_path: Path):
     assert view.status.text() == "refused"
     view.clear()
     assert view.planes == [] and "No plane" in view.where.text()
-    view.ask_spectrogram()  # still at the last z: asks again
     count = len(asked)
+    view.ask_spectrogram()  # no planes: nothing asked
     view.ask_compression()  # no planes: nothing asked
     view._ask()
     assert len(asked) == count
+
+
+def test_the_plane_view_draws_its_spectrogram(qtbot: QtBot):
+    view = PlaneView()
+    qtbot.addWidget(view)
+    view.resize(1000, 600)
+    view.show_spectrogram(spectrogram_reply())
+    plot = view.spectrogram
+    assert plot.shown.shape == (40, 30) and plot.shown.max() == pytest.approx(0.0)
+    hit = plot.lookup(0.0, 800.0)
+    assert hit is not None and "fs" in hit[2] and plot.lookup(1e6, 0.0) is None
+    view.apply_options(PlotOptions(scale="linear", time_limits=(-2e-14, 2e-14)))
+    assert plot.shown.max() == pytest.approx(1.0)
+    assert plot.plot.getViewBox().viewRange()[0] == pytest.approx([-20, 20])
+    view.clear()
+    assert plot.lookup(0.0, 800.0) is None  # forgotten
+    plot.redraw(PlotOptions())  # nothing to draw
 
 
 def test_the_plane_view_follows_the_plot_options(qtbot: QtBot):
@@ -259,10 +281,13 @@ def test_the_results_open_a_run_s_planes_and_statistics(
     # The panels' choices are offered on the page: the statistics and the step.
     assert results.stats_selector.choices[0][0].count() == 1 + 3 + 1
     window.show_view("plane")
-    results.plane.ask_spectrogram()
-    qtbot.waitUntil(
-        lambda: results.plane.spectrogram.original is not None, timeout=WAIT_MS
-    )
+    # The spectrogram comes with each plane, as data drawn here.
+    qtbot.waitUntil(lambda: results.plane.spectrogram.data is not None, timeout=WAIT_MS)
+    # A gate set on the page asks again, with it.
+    results.spectrogram_options.gate.setText("12")
+    results.spectrogram_options.gate.editingFinished.emit()
+    qtbot.waitUntil(lambda: _gate(results) == pytest.approx(12e-15), timeout=WAIT_MS)
+    assert results.options.gate_fwhm == pytest.approx(12e-15)
     results.plane.ask_compression()
     qtbot.waitUntil(lambda: "FWHM" in results.plane.status.text(), timeout=WAIT_MS)
     figure = tmp_path / "power.pdf"
