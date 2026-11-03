@@ -110,6 +110,25 @@ def test_a_runner_digests_no_input_when_each_is_stated(backend):
     assert all(output.n_saved > 1 for output in outputs)
 
 
+def test_a_runner_digests_each_input_once_and_never_its_parent(monkeypatch):
+    """Without a statement: its parent's digest would read a placeholder at full size."""
+    simulation = capillary("numpy_ref")
+    fields = inputs(simulation)
+    monkeypatch.setattr(output_schema, "INLINE_ARRAY_LIMIT", 0)
+    digest = ArrayDigest.of
+    digested: list[tuple[int, ...]] = []
+
+    def counting(values: np.ndarray) -> ArrayDigest:
+        digested.append(values.shape)
+        return digest(values)
+
+    monkeypatch.setattr(output_schema.ArrayDigest, "of", counting)
+    with simulation.runner() as runner:
+        for index, field in enumerate(fields):
+            runner.run(field, configuration={"point": index}, progress="none")
+    assert digested == [field.shape for field in fields]
+
+
 def test_a_runner_reads_a_small_stated_input_without_a_copy(monkeypatch):
     """The record keeps no array, so even one that would go inline is not copied."""
     simulation = cartesian("numpy_ref")

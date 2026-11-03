@@ -3891,10 +3891,16 @@ class Output(Protocol):
     def save(self, plane: SavedPlane) -> None:
         """Store one saved plane.
 
+        A run gives the handler the backend's observation itself, not a copy: the
+        plane's arrays are read-only, nothing writes to them again, and a handler may
+        keep them or reduce them and let them go, with no copy of its own.
+
         Parameters
         ----------
         plane : SavedPlane
-            The position, field, statistics and step history to store.
+            The position, field, statistics and step history to store. On a plane that
+            keeps no field, ``plane.field`` and ``plane.noise_phase`` are ``None``
+            (:class:`RetainingOutput`).
         """
         ...
 
