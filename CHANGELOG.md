@@ -398,6 +398,7 @@ All notable changes to solprop are recorded here. The format follows
   of a bare `ValueError` on `native` and an accident in `matmul` on `numpy_ref`. A direct call
   to `native`'s `stats` now checks every route for names the route doesn't define, and refuses
   a general flux statistic under a weight other than one rather than ignoring the weight.
+- The versions of solprop, solprop-native and solprop-gui now come from `v*` tags only, so another tag on a commit can no longer set them. Building any of them now needs setuptools-scm 9, and solprop-native requires NumPy 2.5, as solprop does (#92).
 - An output file no longer grows with the square of its planes. `HDF5Output` rewrites
   `/meta/outcome` in place instead of deleting and recreating it at every plane, a saved
   plane builds and validates its run record once instead of nine times, and the

@@ -3,7 +3,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 [build-system]
-requires = ["hatchling", "hatch-vcs"]
+# setuptools-scm 9 is the oldest that reads scm.git.describe_command below.
+requires = ["hatchling", "hatch-vcs", "setuptools-scm>=9"]
 build-backend = "hatchling.build"
 
 [project]
@@ -50,6 +51,8 @@ source = "vcs"
 # One version for every distribution of the repository, from its tags.
 root = ".."
 fallback_version = "0.0.0"
+# Release tags only, as in solprop and native/ (tests/test_release_tags.py).
+scm.git.describe_command = ["git", "describe", "--dirty", "--tags", "--long", "--abbrev=40", "--match", "v*"]
 
 [tool.hatch.metadata.hooks.custom]
 
