@@ -804,7 +804,7 @@ public:
                                         bool rebuild_table);
   /** Hold the accepted state at a field-free plane, in the memory space (SEP 22). */
   void hold_plane();
-  /** Release the held plane's volume, for a run that holds none (solprop issue #345). */
+  /** Release the held plane's volume, for a run that holds none. */
   void release_plane();
   /** The held plane's state on the host: the one copy a checkpoint takes. */
   [[nodiscard]] std::vector<Complex> held_to_host() const;

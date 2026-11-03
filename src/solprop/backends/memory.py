@@ -1617,7 +1617,7 @@ def free_space_memory(problem: KernelProblem, backend: str) -> dict[str, int]:
       coefficients and statistics weights;
     - the host copies of the problem's arrays a Kerr beam carries, ``M`` of them per
       column and the rest on the frequency axis. Further responses add small tables
-      that are not counted here (:data:`_NOT_COUNTED`).
+      that are not counted here, as every estimate's ``not_counted`` says.
 
     Sizes are those of a CPU build; a device build's norm holds several partials per
     column.
