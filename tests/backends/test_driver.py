@@ -821,6 +821,22 @@ def test_the_history_records_the_executed_norm_and_the_controller_the_equivalent
     assert np.all(history.error_norm[accepted] <= 1.0)
 
 
+def test_the_controller_keeps_only_the_norms_it_reads(driver):
+    """The controller reads two norms, a lag back; a march keeps those, not every step.
+
+    The first entry is still the start-up rule's cue: the history is emptied when a
+    field is loaded, and its length is one only after the first accepted step.
+    """
+    made = driver()
+    lag = made._problem.stepper.controller.lag
+    assert made._accepted_norms.maxlen == lag + 2
+    summary = made.propagate_to(LENGTH)
+    assert summary.n_steps > lag + 2
+    assert len(made._accepted_norms) == lag + 2
+    made.set_initial(made._problem.initial.field0, None)
+    assert len(made._accepted_norms) == 0
+
+
 # --- the seam a compiled backend subclasses ----------------------------------------
 
 FIELD = "jaxtyping.Complex[ndarray, 'n_batch n_modes n_pol n_omega']"

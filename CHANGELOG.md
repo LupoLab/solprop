@@ -263,6 +263,15 @@ All notable changes to solprop are recorded here. The format follows
   transform exactly at the grid's frequencies, 3e-12 from the direct sum on that case,
   less its mean: a baseline is an offset of the instrument, not part of the field.
 - An envelope run's frame beside a third harmonic now follows one rule, `solprop.translate.responses.declares_harmonic_carrier`, which translation checks against the compiled harmonic carrier (#77). Two things change for users. First, an explicit `Frame(omega0, subtract_beta0=True)` beside a `KerrResponse` or `DispersiveKerrResponse` with `thg=True` on an envelope grid is now refused with a `TranslationError`, where it was accepted and drove the harmonic with a spurious phase mismatch: drop the explicit `frame=` to take the co-moving frame, which keeps `beta_0` there, or pass `Frame(omega0, subtract_beta0=False)`. Second, a Raman response's `thg` (the `RamanResponse` default is `True`), which an envelope grid ignores, no longer keeps `beta_0` beside `KerrResponse(thg=False)` when no frame is given: such a run, built from explicit responses or on a spatial route, now removes `beta_0`, so its stored envelope's carrier phase differs from before while intensities and spectral densities agree to the stepper's accuracy, and its run record now states the frame its operator used. A file saved by such a run before this change is refused on resume, naming `configuration: frame`, because continuing it would change frame mid-run: run it again from the start. The keyword interfaces, which set the Raman flag from `thg`, are unaffected.
+- A Multistep run's call ledger (`logical_calls` and `execution.response_calls` in the
+  run's outcome, `/meta/outcome` in an HDF5 file) records its predictor orders run-length
+  encoded, as `[order, count]` pairs, instead of one integer per accepted step;
+  `CallLedger.to_record` writes them and `CallLedger.from_record` reads them back step by
+  step. `/meta/outcome` is rewritten in place at every plane rather than deleted and
+  recreated. The output schema stays 2, the version 0.2.0 is the first to release: a file
+  written by an earlier development build of schema 2 that holds the flat list of orders
+  is refused by name on resume; rerun the case, or read it with that build
+  ([#80](https://github.com/LupoLab/solprop/issues/80)).
 
 ### Fixed
 
@@ -340,6 +349,14 @@ All notable changes to solprop are recorded here. The format follows
   of a bare `ValueError` on `native` and an accident in `matmul` on `numpy_ref`. A direct call
   to `native`'s `stats` now checks every route for names the route doesn't define, and refuses
   a general flux statistic under a weight other than one rather than ignoring the weight.
+- An output file no longer grows with the square of its planes. `HDF5Output` rewrites
+  `/meta/outcome` in place instead of deleting and recreating it at every plane, a saved
+  plane builds and validates its run record once instead of nine times, and the
+  Multistep call ledger's orders are run-length encoded: a Multistep run saved step by
+  step (`step_planes=1`) costs 19.5 kB a plane at 707 planes and 19.3 kB at 3479, where
+  it cost 23.8 kB and 31.5 kB. The step driver keeps only the error norms its controller
+  reads, not one per accepted step
+  ([#80](https://github.com/LupoLab/solprop/issues/80)).
 - On Windows on Arm, `Pool` scans no longer fail or hang in NumPy's linear solves. Workers now limit BLAS through `threadpoolctl` instead of thread variables, which crash or hang NumPy's OpenBLAS on that platform at small widths, and `import solprop` warns if such a value is set.
 
 ## [0.1.0] - 2026-10-31

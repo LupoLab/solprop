@@ -408,6 +408,14 @@ new top-level group written once does not bump it: readers already tolerate them
 resume decides by comparing the records (ADR-063,
 [SEP 42](../../dev/seps/archive/sep-0042-tolerant-resume.md)).
 
+**How often.** At most once between two releases. The first such change after a
+release bumps the schema; every later one before the next release folds into that
+version, which the next release is the first to write. Development builds between two
+releases are therefore not compatible with one another: a file written by an earlier
+build of the same schema may be refused, by name where the difference is known (a
+Multistep run's predictor orders, which are now recorded as `[order, count]` pairs,
+were one integer per step before), and is read with the build that wrote it.
+
 ## A worked example
 
 ```{code-block} python
