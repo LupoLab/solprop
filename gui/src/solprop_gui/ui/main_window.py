@@ -6,7 +6,7 @@
 
 The layout follows COMSOL's, simplified. The steps are icons across the top, with
 back and forward; the step's settings are a narrow panel at the left; the views (the
-live run, the results, the compare) are tabs over the rest; and the summary with
+live run, the results of one run) are tabs over the rest; and the summary with
 solprop's check, the run's log and the Python script are tabs below the views.
 
 The window holds one recipe at a time (:class:`~solprop_gui.model.recipe.RecipeModel`).
@@ -285,7 +285,6 @@ class MainWindow(QMainWindow):
         self.views.addTab(self.results.plane, "Plane")
         self.views.addTab(self.results.statistics, "Statistics")
         self.views.addTab(self.results.scan, "Scan")
-        self.views.addTab(self.results.compare, "Compare")
 
         # Below the views: the summary and solprop's check, the log, the code.
         self.summary = QLabel("No setup open.")
@@ -657,7 +656,8 @@ class MainWindow(QMainWindow):
         ----------
         name : str
             ``"dispersion"``, ``"chart"``, ``"live"``, ``"results"``, ``"plane"``,
-            ``"statistics"``, ``"scan"`` or ``"compare"``.
+            ``"statistics"``, ``"scan"`` or ``"compare"`` (kept, but not among the
+            tabs: asking for it changes nothing).
         """
         widget = {
             "dispersion": self.explorer,

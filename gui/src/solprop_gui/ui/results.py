@@ -2,10 +2,12 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The Results step: any solprop results file, its Overview, and a compare.
+"""The Results step: one solprop results file, its views, and how they are drawn.
 
-The panel holds the file's controls and the workspace's runs; its Overview and Compare
-views are shown by the window among its views.
+The panel holds the file's controls, the workspace's runs (any earlier run opens from
+there), the plot options and what the Statistics view's panels show; the views
+(Overview, Plane, Statistics, Scan) are shown by the window among its views. The
+compare of several runs is kept (:meth:`ResultsPage.add_to_compare`) but not offered.
 
 A file opens whether the window ran it or not: what it can show is asked of solprop
 (``capabilities.output``), and its planes are reduced in the kernel. A file that
@@ -19,11 +21,13 @@ from pathlib import Path
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QFileDialog,
+    QFrame,
     QGridLayout,
     QLabel,
     QListWidget,
     QListWidgetItem,
     QPushButton,
+    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
@@ -32,18 +36,19 @@ from solprop_gui.model.plot_options import PlotOptions
 from solprop_gui.model.workspace import RunEntry
 from solprop_gui.service.messages import Reply
 from solprop_gui.ui.bridge import ServiceBridge
+from solprop_gui.ui.pages import Section
 from solprop_gui.ui.plot_options import PlotOptionsPanel
 from solprop_gui.views.compare import CompareView
 from solprop_gui.views.live import OverviewView
 from solprop_gui.views.plane import PlaneView
 from solprop_gui.views.scan_browser import ScanView
-from solprop_gui.views.statistics import StatisticsView
+from solprop_gui.views.statistics import StatisticsView, StatsSelector
 
 __all__ = ["ResultsPage"]
 
 
 class ResultsPage(QWidget):
-    """Open a results file, list the workspace's runs, and compare runs.
+    """Open a results file, list the workspace's runs, and choose how it is drawn.
 
     Parameters
     ----------
@@ -57,7 +62,7 @@ class ResultsPage(QWidget):
     setup_opened : Signal
         Emitted with (recipe text, results file) when the user opens a run's setup.
     view_wanted : Signal
-        Emitted with ``"results"`` or ``"compare"``: the view to bring forward.
+        Emitted with the name of the view to bring forward.
     """
 
     setup_opened = Signal(str, str)
@@ -85,10 +90,6 @@ class ResultsPage(QWidget):
             "this run."
         )
         self.setup_button.clicked.connect(self.open_setup)
-        self.compare_button = QPushButton("Add to compare")
-        self.compare_button.setObjectName("add-compare")
-        self.compare_button.clicked.connect(self.add_to_compare)
-        self.clear_button = QPushButton("Clear compare")
         self.info = QLabel("No results file open.")
         self.info.setObjectName("results-info")
         self.info.setWordWrap(True)
@@ -108,22 +109,39 @@ class ResultsPage(QWidget):
         self.plane.compression_wanted.connect(self._ask_compression)
         self.plane.figure_wanted.connect(self._ask_figure)
         self.statistics.figure_wanted.connect(self._ask_figure)
-        self.clear_button.clicked.connect(self.compare.clear)
+        self.stats_selector = StatsSelector()
+        self.stats_selector.changed.connect(self.statistics.set_layout)
+        self.statistics.layout_changed.connect(self.stats_selector.set_layout)
 
-        file = QGridLayout()
-        file.addWidget(self.open_button, 0, 0)
-        file.addWidget(self.setup_button, 0, 1)
-        file.addWidget(self.compare_button, 1, 0)
-        file.addWidget(self.clear_button, 1, 1)
+        file = QWidget()
+        buttons = QGridLayout(file)
+        buttons.setContentsMargins(0, 0, 0, 0)
+        buttons.addWidget(self.open_button, 0, 0)
+        buttons.addWidget(self.setup_button, 0, 1)
+        buttons.addWidget(self.info, 1, 0, 1, 2)
+        self.runs.setMinimumHeight(80)
+        sections = QWidget()
+        column = QVBoxLayout(sections)
+        column.setContentsMargins(0, 0, 0, 0)
+        column.setSpacing(2)
+        for title, widget, stretch in (
+            ("Results file", file, 0),
+            ("Runs in the workspace", self.runs, 1),
+            ("Plot options", self.plot_options, 0),
+            ("Statistics panels", self.stats_selector, 0),
+        ):
+            section = Section(title)
+            section.add(widget)
+            column.addWidget(section, stretch)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setWidget(sections)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(6, 6, 2, 2)
+        layout.setContentsMargins(4, 4, 0, 0)
+        layout.setSpacing(2)
         layout.addWidget(QLabel("<b>Results</b>"))
-        layout.addLayout(file)
-        layout.addWidget(self.info)
-        layout.addWidget(QLabel("Runs in the workspace"))
-        layout.addWidget(self.runs, 1)
-        layout.addWidget(QLabel("<b>Plot options</b>"))
-        layout.addWidget(self.plot_options)
+        layout.addWidget(scroll, 1)
         bridge.replied.connect(self.on_reply)
         self._update_buttons()
 
@@ -149,7 +167,6 @@ class ResultsPage(QWidget):
         has_file = self.path is not None
         recipe = bool(self.capabilities and self.capabilities.get("recipe"))
         self.setup_button.setEnabled(has_file and recipe)
-        self.compare_button.setEnabled(has_file)
 
     def choose(self) -> None:
         """Pick a results file and open it."""

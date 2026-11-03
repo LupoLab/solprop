@@ -13,10 +13,11 @@ from PySide6.QtGui import QPixmap
 from pytestqt.qtbot import QtBot
 
 from solprop_gui.model.plot_options import PlotOptions
+from solprop_gui.model.stats_layout import STEP
 from solprop_gui.service.messages import Reply
 from solprop_gui.ui.main_window import MainWindow
 from solprop_gui.views.plane import PlaneView
-from solprop_gui.views.statistics import StatisticsView
+from solprop_gui.views.statistics import StatisticsView, StatsSelector
 from test_results import run  # noqa: F401 - a fixture
 from test_ui import WAIT_MS, private_settings, shot  # noqa: F401 - a fixture
 
@@ -199,19 +200,44 @@ def test_the_statistics_view_draws_every_statistic(qtbot: QtBot, tmp_path: Path)
             "rejected_h": [5e-4],
         },
     }
+    selector = StatsSelector()
+    qtbot.addWidget(selector)
+    view.layout_changed.connect(selector.set_layout)
+    selector.changed.connect(view.set_layout)
     view.set_statistics(reply)
-    assert len(view.curves) == 2 and "1 rejected" in view.summary.text()
-    hit = view.lookup(1.0, 1e-6)
+    # One statistic a panel, no step size: two panels, in a column.
+    empty = (None, None)
+    assert view.chosen == (("energy", None), ("density", None), empty, empty)
+    shown = [panel.plot.isVisible() for panel in view.panels]
+    assert shown == [True, True, False, False] and "1 rejected" in view.summary.text()
+    top = view.panels[0]
+    assert len(top.curves) == 2  # a column per mode
+    hit = top.lookup(1.0, 1e-6)
     assert hit is not None and "z = 1 cm" in hit[2]
-    view.names.setCurrentRow(1)
-    assert "m^-3" in view.plot.getAxis("left").labelText
+    assert "m^-3" in view.panels[1].plot.getAxis("left").labelText
+    assert selector.chosen() == view.chosen
+    # Two on one panel, dual axes, and the step size where it is asked for.
+    left, right = selector.choices[0]
+    right.setCurrentIndex(right.findData("density"))
+    assert selector.chosen()[0] == view.panel_choice(0) == ("energy", "density")
+    assert "density" in top.plot.getAxis("right").labelText
+    assert len(top.curves) == 2  # the readout reads the left axis
+    left, _ = selector.choices[3]
+    left.setCurrentIndex(left.findData(STEP))
+    steps = view.panels[3]
+    assert steps.plot.isVisible() and steps.plot.getAxis("left").logMode
+    assert all(panel.plot.isVisible() for panel in view.panels[:2])
     shot(view, tmp_path, "statistics")
+    # Another run keeps the choices it can.
+    view.set_statistics({**reply, "stats": reply["stats"][1:]})
+    assert view.panel_choice(0) == ("density", None)
+    assert view.panel_choice(3) == (STEP, None)
     seen = []
     view.figure_wanted.connect(seen.append)
     view.export_figure("s.pdf")
     assert seen == [{"file": "s.pdf", "plot": "plot_stats"}]
     view.clear()
-    assert view.curves == [] and view.lookup(0.0, 0.0) is None
+    assert view.panels[0].curves == [] and view.panels[0].lookup(0.0, 0.0) is None
     assert not view.figure_button.isEnabled()
 
 
@@ -229,7 +255,9 @@ def test_the_results_open_a_run_s_planes_and_statistics(
         lambda: "Peak power" in results.plane.status.text(), timeout=WAIT_MS
     )
     assert results.plane.modes.count() == 3
-    qtbot.waitUntil(lambda: results.statistics.names.count() == 3, timeout=WAIT_MS)
+    qtbot.waitUntil(lambda: len(results.statistics.stats) == 3, timeout=WAIT_MS)
+    # The panels' choices are offered on the page: the statistics and the step.
+    assert results.stats_selector.choices[0][0].count() == 1 + 3 + 1
     window.show_view("plane")
     results.plane.ask_spectrogram()
     qtbot.waitUntil(
