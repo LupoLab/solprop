@@ -60,16 +60,16 @@ about a nanometre.
 
 **What is approximate.** Only the electronic response differs between the runs: the
 linear operator, the pulse, the grid, the plasma and the backend are the same. Every
-run here selects ``backend="numba_cpu"``, the carrier runs too, for a like-for-like
-comparison: the dispersive responses run on ``numpy_ref``, ``numba_cpu`` and the native
-backend's CPU build.
+run here selects ``backend="native"``, the carrier runs too, for a like-for-like
+comparison: the dispersive responses run on ``numpy_ref`` and the native backend's CPU
+build.
 
 .. GENERATED FROM PYTHON SOURCE LINES 54-59
 
 Setting up
 ----------
 The three policies are values of ``MaterialSelection.electronic``. Each run passes
-its selection with ``materials=``, and ``backend="numba_cpu"`` explicitly: a
+its selection with ``materials=``, and ``backend="native"`` explicitly: a
 dispersive response on a backend without it is refused, never quietly replaced.
 
 .. GENERATED FROM PYTHON SOURCE LINES 59-88
@@ -273,7 +273,7 @@ edge at 189.4 nm, so the run has no best-effort region.
                 wavelength_limits=(210e-9, 2e-6),
                 trange=250e-15,
                 n_save=26,
-                backend="numba_cpu",
+                backend="native",
                 materials=MaterialSelection(electronic=policy),
                 progress="none",
                 seed=20261027,
@@ -433,7 +433,7 @@ from 1.2 bar to vacuum,
                 energy=275e-6,
                 modes=2,
                 n_save=51,
-                backend="numba_cpu",
+                backend="native",
                 materials=MaterialSelection(electronic=policy),
                 progress="none",
                 seed=20261027,
@@ -589,7 +589,7 @@ Runtime and reproducibility
 .. code-block:: Python
 
 
-    print(f"{time.perf_counter() - started:.0f} s on numba_cpu")
+    print(f"{time.perf_counter() - started:.0f} s on native")
 
 
 
@@ -599,7 +599,7 @@ Runtime and reproducibility
 
  .. code-block:: none
 
-    18 s on numba_cpu
+    33 s on native
 
 
 
@@ -616,7 +616,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 17.699 seconds)
+   **Total running time of the script:** (0 minutes 33.218 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_capillaries_plot_11_dispersive_kerr.py:

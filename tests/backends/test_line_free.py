@@ -5,8 +5,8 @@
 """The line (x-only) free space on every backend: the ``"free"`` kind with ``n_y = 1``.
 
 :class:`solprop.grid.LineGrid` runs through the Cartesian seam. These parity tests were
-written first, to measure whether every backend runs it unchanged: ``numpy_ref`` and
-``numba_cpu`` did, and native CPU needed only its ``n_y >= 2`` guard relaxed (no schema
+written first, to measure whether every backend runs it unchanged: ``numpy_ref`` did,
+and native CPU needed only its ``n_y >= 2`` guard relaxed (no schema
 change). The bounds are the plane's (``tests/backends/test_free_ladders.py``), whose FFT
 depth counts ``log2(n_y) = 0`` for the line.
 """

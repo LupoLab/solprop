@@ -7,7 +7,7 @@
 Kokkos's OpenMP backend prints a four-line notice to standard error when it starts with
 ``OMP_PROC_BIND`` unset, recommending ``spread`` and ``threads``. Every first native run
 printed it. Binding brought the native backend no measurable gain on one socket; it ties
-the main thread to one CPU, which solprop then has to undo for ``numba_cpu``
+the main thread to one CPU, which solprop then has to see through when it sizes a pool
 (``solprop._process.allowed_cpus``), and on several sockets whole processes are better
 placed with ``numactl`` or ``taskset``. Unbound threads are also what both GNU's and
 LLVM's runtimes give when nothing is set.

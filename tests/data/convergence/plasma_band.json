@@ -14,9 +14,9 @@
    "atol": 2e-12,
    "bound": null,
    "name": "deviation",
-   "rtol": 1e-06,
+   "rtol": 3e-06,
    "unit": "1 (relative)",
-   "why": "sums of a few thousand terms, compared well above their round-off; atol is that floor, about 8193 eps"
+   "why": "sums of a few thousand terms, compared well above their round-off; atol is that floor, about 8193 eps; rtol covers the boundary rung at lambda = 1e-8, which amplifies rounding: five platforms measured up to 1.33e-6 from the stored value, and 1 ulp of spectrum jitter up to 1.17e-6"
   },
   {
    "atol": 0.0,

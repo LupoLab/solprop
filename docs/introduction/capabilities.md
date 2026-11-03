@@ -141,7 +141,7 @@ Start with [results and interpretation](../guide/results/index.md), then
 supercontinuum generation, Raman dynamics, mode conversion, and beam propagation.
 
 The separate native backend provides fast CPU and GPU execution and is the one to use by
-default. The NumPy reference and the slower Numba CPU fallback are included with solprop.
+default. The NumPy reference, unthreaded and far slower, is included with solprop.
 Choose a backend using
 the [supported combinations](../guide/setup/model-selection.md#which-backend-runs-what)
 and the [backend guide](../guide/performance/backends.md);

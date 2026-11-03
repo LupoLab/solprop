@@ -440,7 +440,7 @@ launch, each with three radial orders and the vector wall.
 
 ## Backends
 
-All three backends run the wall — scalar and TE/TM, straight, tapered or in a gradient —
+Both CPU backends run the wall — scalar and TE/TM, straight, tapered or in a gradient —
 and the taper coupling without one, with the frozen split; CF4 is `numpy_ref`'s alone.
 The **adiabatic** opt-out of a multimode taper (`taper_coupling=False`) puts every mode
 on its own row of the linear operator, and where that expansion does not resolve (a

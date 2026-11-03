@@ -104,7 +104,7 @@ of it): the transverse profile times a temporal envelope of unit peak. Its power
 metre of y, the axial Poynting flux through the entrance plane, is measured from the
 field rather than assumed.
 
-.. GENERATED FROM PYTHON SOURCE LINES 59-111
+.. GENERATED FROM PYTHON SOURCE LINES 59-110
 
 .. code-block:: Python
 
@@ -122,7 +122,6 @@ field rather than assumed.
         dz_init=length / 10,
         dz_max=length,
         schedule=FixedSchedule.uniform(0.0, length, length / 10),
-        backend="numpy_ref",
     )
     figure, axis = plt.subplots(figsize=(6, 4))
     for fraction, colour in ((1.0, "C0"), (0.5, "C1")):
@@ -181,7 +180,7 @@ field rather than assumed.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 112-118
+.. GENERATED FROM PYTHON SOURCE LINES 111-117
 
 Related reading
 ---------------
@@ -193,7 +192,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 2.950 seconds)
+   **Total running time of the script:** (0 minutes 2.086 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_free_space_plot_03_line.py:

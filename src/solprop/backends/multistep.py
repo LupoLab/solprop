@@ -22,8 +22,8 @@ one PEC stores in its place.
 The march is shared: a backend supplies two hooks of the step driver,
 ``_adams_source`` (one source evaluation at a lab-frame field, returned in the step's
 anchor frame) and ``_adams_propagator``, and the driver's own state, landing and
-recording do the rest. ``numpy_ref`` evaluates through its reference passes and
-``numba_cpu`` through its fused stage kernels (SEP 14 phase 2).
+recording do the rest. ``numpy_ref`` evaluates through its reference passes (SEP 14
+phase 2).
 
 Lifecycle, owned here and not by the shared driver's Runge-Kutta march (SEP 13
 section 6.1):
@@ -50,7 +50,7 @@ import numpy as np
 from jaxtyping import Complex
 from scipy.linalg import expm
 
-from solprop._helpers import NUMBA, Helpers
+from solprop._helpers import PLAIN, Helpers
 from solprop._interrupts import committing
 from solprop.backends import adams_core
 from solprop.backends.driver import StepDriver
@@ -375,18 +375,17 @@ class AdamsKernels:
     Three passes serve a step of the one-order-higher PEC family: the predictor's
     lab-frame field, the corrected field with the defects of the current and the
     neighbouring orders, and the history's transport to the new anchor. The history is
-    a store of rows, newest first by ``slots``. ``numba_cpu`` compiles each pass into
-    one traversal (:mod:`solprop.backends.numba_cpu.multistep`); this is the reference
-    the compiled form is checked against.
+    a store of rows, newest first by ``slots``. This is the reference a compiled form
+    is checked against.
 
     Parameters
     ----------
     helpers : solprop._helpers.Helpers, optional
         The owning backend's implementation of the Adams basis (SEP 29 section 6.6);
-        the shared Numba one by default.
+        the plain Python forms by default.
     """
 
-    def __init__(self, *, helpers: Helpers = NUMBA) -> None:
+    def __init__(self, *, helpers: Helpers = PLAIN) -> None:
         """Hold the backend's basis implementation."""
         self._helpers = helpers
 
@@ -833,7 +832,7 @@ class ExponentialKernels:
     and applies every formula it needs in the monomial basis of its interpolant,
     ``h sum_k M_k (sum_j c_jk F_j)`` (``solprop.backends.exponential``), so no
     per-node weight volume is formed. Accepting a step re-anchors nothing. The
-    compiled backends' kernels are checked against these passes.
+    native backend's kernels are checked against these passes.
 
     Under a carrier frame (SEP 35) the same passes take the moments at ``x - sigma``
     and rows rotated by ``exp(sigma (1 - theta_j))``; the caller forms both
@@ -843,10 +842,10 @@ class ExponentialKernels:
     ----------
     helpers : solprop._helpers.Helpers, optional
         The owning backend's implementation of the Adams basis (SEP 29 section 6.6);
-        the shared Numba one by default.
+        the plain Python forms by default.
     """
 
-    def __init__(self, *, helpers: Helpers = NUMBA) -> None:
+    def __init__(self, *, helpers: Helpers = PLAIN) -> None:
         """Hold the backend's basis implementation."""
         self._helpers = helpers
 
@@ -1997,8 +1996,8 @@ class HostHistory:
     restarts, the budget and the ledger -- and hands every state-sized operation to an
     engine: the startup sample, a trial's predictor, source, corrector and defect
     norms, the adoption and transport of an accepted step, and dense observation. This
-    engine holds the history in a NumPy store and applies the given kernels (NumPy, or
-    ``numba_cpu``'s compiled passes); a backend may supply its own through
+    engine holds the history in a NumPy store and applies the given kernels; a backend
+    may supply its own through
     ``solprop.backends.driver.StepDriver._adams_engine``, as Kokkos does to keep
     the history resident in its engine. Between a trial and its acceptance the engine
     holds the trial; nothing else is carried across calls but the store and the last

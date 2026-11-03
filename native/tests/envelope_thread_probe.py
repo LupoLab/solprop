@@ -8,7 +8,7 @@ Four routes of a two-component envelope mixture, eight prescribed steps each. Us
 ``envelope_thread_probe.py <out.npz>``.
 """
 
-# ruff: noqa: I001 -- Kokkos must load before solprop imports pyFFTW on macOS.
+# ruff: noqa: I001 -- Kokkos loads first, before any other OpenMP runtime on macOS.
 
 from __future__ import annotations
 

@@ -5,35 +5,31 @@
 """Mixture propagation, channel statistics, repeatability and accepted-stage stashes."""
 
 import dataclasses
+from pathlib import Path
 
 import numpy as np
 import pytest
 from numpy.testing import assert_allclose, assert_array_equal
 
-from bounds import AccuracyEnvelope, assert_within, assert_work_within, departure
+from backends.host_cases_mixture_threads import NAMES, PERIODIC
+from backends.matched import native_thread_fields
+from bounds import (
+    AccuracyEnvelope,
+    assert_within,
+    assert_work_within,
+    departure,
+    device_backend,
+)
 from mixture_cases import mixture_case
-from solprop.backends.numba_cpu import NumbaCpuBackend
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule
 
-NAMES = (
-    "species_ionisation",
-    "species_electron_density",
-    "species_peak_ionisation_rate",
-    "species_density",
-    "species_ionisation_energy",
-    "electron_density",
-    "peak_ionisation_rate",
-)
+PROBE = Path(__file__).with_name("host_cases_mixture_threads.py")
 
 
-def run(backend_type, problem, grid, *, threads=1, stop=None):
-    backend = (
-        NumbaCpuBackend(problem, grid=grid, threads=threads)
-        if backend_type is NumbaCpuBackend
-        else backend_type(problem, grid=grid)
-    )
+def run(backend_type, problem, grid, *, stop=None):
+    backend = backend_type(problem, grid=grid)
     try:
         backend.set_initial(problem.initial.field0, None)
         initial = backend.stats(StatsSpec(names=NAMES))
@@ -141,95 +137,64 @@ def assert_adaptive_run_is_accurate(backend_class, problem, grid, stop):
         assert error <= statistic.bound, name
 
 
-def fixed_schedule(problem, grid, steps=8):
-    """Return `problem` replaying ``steps`` uniform Runge-Kutta steps to its end."""
-    assert problem.stepper.integrator is None
-    return dataclasses.replace(
-        problem,
-        stepper=dataclasses.replace(
-            problem.stepper,
-            schedule=FixedSchedule.uniform(0.0, grid.length, grid.length / steps),
-        ),
-    )
-
-
 def ladder_bound(grid, steps):
     """The ladder's budget above: 64 eps a fine sample, channel and stage, 7 a step."""
     return 64 * grid.n_to * 2 * 7 * steps * np.finfo(float).eps
 
 
-def test_mixture_run_is_repeatable_and_thread_invariant(thread_budget_lifted):
+def test_mixture_run_is_repeatable_and_thread_invariant(tmp_path):
     """A repeat and a four-thread run of eight fixed steps, within the ladder's budget.
 
     On one schedule the three runs are one computation, its sums ordered by the
     threads, so the field and every statistic agree to the rounding the ladder
-    allows a whole backend (the ionised fractions absolutely as well).
+    allows a whole backend (the ionised fractions absolutely as well). Each run is its
+    own process, whose Kokkos pool has that thread count.
     """
-    _, grid, _, _, original = mixture_case()
-    problem = fixed_schedule(original, grid)
+    pytest.importorskip("solprop_native")
+    if device_backend("native") != "none":
+        pytest.skip("a device build's host space is serial")
+    _, grid, _, _, _ = mixture_case()
     bound = ladder_bound(grid, 8)
-    first = run(NumbaCpuBackend, problem, grid)
-    repeat = run(NumbaCpuBackend, problem, grid)
-    parallel = run(NumbaCpuBackend, problem, grid, threads=4)
+    names = ["steps", "field", *(f"stats:{name}" for name in NAMES)]
+    first, repeat, parallel = (
+        native_thread_fields(PROBE, threads, names, tmp_path) for threads in (1, 1, 4)
+    )
     for actual in (repeat, parallel):
-        assert actual[1].n_steps == first[1].n_steps == 8
-        assert_within(actual[0], first[0], bound, what="field")
+        assert int(actual["steps"]) == int(first["steps"]) == 8
+        assert_within(actual["field"], first["field"], bound, what="field")
         for name in NAMES:
             absolute = bound if name == "species_ionisation" else 0.0
             assert_allclose(
-                actual[3][name], first[3][name], rtol=bound, atol=absolute, err_msg=name
+                actual[f"stats:{name}"],
+                first[f"stats:{name}"],
+                rtol=bound,
+                atol=absolute,
+                err_msg=name,
             )
 
 
-def test_periodic_species_stash_matches_fresh_scans_and_threads(thread_budget_lifted):
-    """The stash against a fresh scan of the same state, and one thread against four.
+def test_periodic_species_rows_keep_their_positions_across_threads(tmp_path):
+    """One thread against four: the rows' positions exact, their values in budget.
 
-    The stash and the fresh scan are one statistics evaluation twice, held to the
-    fresh-backend budget of the next test (64 eps a fine sample); the two thread
-    counts replay eight fixed steps,
-    so their rows stand at the same positions, exactly, with values within the
-    ladder's budget.
+    The two runs replay eight fixed steps, so their rows stand at the same positions,
+    exactly, with values within the ladder's budget.
     """
-    _, grid, _, _, original = mixture_case()
-    periodic = ("species_ionisation", "species_electron_density")
-    problem = dataclasses.replace(
-        fixed_schedule(original, grid),
-        stats_spec=StatsSpec(names=periodic, periodic=periodic, period=1),
-    )
-    fresh_bound = 64 * grid.n_to * np.finfo(float).eps
+    pytest.importorskip("solprop_native")
+    if device_backend("native") != "none":
+        pytest.skip("a device build's host space is serial")
+    _, grid, _, _, _ = mixture_case()
     bound = ladder_bound(grid, 8)
-    outputs = []
-    for threads in (1, 4):
-        backend = NumbaCpuBackend(problem, grid=grid, threads=threads)
-        try:
-            backend.set_initial(problem.initial.field0, None)
-            backend.propagate_to(grid.length)
-            assert backend._stash_current
-            held = backend._require_state()[0]
-            stashed = backend._species_statistics(held)
-            backend._stash_current = False
-            fresh = backend._species_statistics(held)
-            for name in NAMES:
-                assert_allclose(
-                    stashed[name], fresh[name], rtol=fresh_bound, atol=0, err_msg=name
-                )
-            rows = backend.observe().step_stats
-            assert rows.n_rows > 0
-            assert backend._stash.shape == (
-                problem.transform.n_nodes,
-                1 + 2 * problem.flags.n_channels,
-            )
-            outputs.append(rows)
-            backend._begin_plane()
-            assert not backend._stash_current
-        finally:
-            backend.close()
-    assert_array_equal(outputs[0].z, outputs[1].z)
-    for name in periodic:
+    names = ["z", *(f"rows:{name}" for name in PERIODIC)]
+    outputs = [
+        native_thread_fields(PROBE, threads, names, tmp_path) for threads in (1, 4)
+    ]
+    assert outputs[0]["z"].size > 0
+    assert_array_equal(outputs[0]["z"], outputs[1]["z"])
+    for name in PERIODIC:
         absolute = bound if name == "species_ionisation" else 0.0
         assert_allclose(
-            outputs[1].values[name],
-            outputs[0].values[name],
+            outputs[1][f"rows:{name}"],
+            outputs[0][f"rows:{name}"],
             rtol=bound,
             atol=absolute,
             err_msg=name,

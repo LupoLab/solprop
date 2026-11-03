@@ -88,7 +88,7 @@ def test_three_independent_profiles_run_on_every_cpu_backend(backend_class):
         )
         assert mode.mixture[channel.label].density is mixture[channel.label].density
     # A GPU build's refusal names the labels; the native CPU build evaluates the
-    # table itself (SEP 29 section 6.6), as numba_cpu does on the host.
+    # table itself (SEP 29 section 6.6).
     with pytest.raises(
         BackendError,
         match=r"independent profiles.*population-0.*population-1.*inert.*z table",

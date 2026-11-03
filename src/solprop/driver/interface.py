@@ -357,8 +357,8 @@ def prop_planar(  # noqa: PLR0913 - the simulation interface and output controls
     The hybrid planar transform: the slab modes of `space` in x and a periodic, collared
     y axis (``docs/guide/waveguides/planar.md``, "Resolving y"). Diffraction uses the
     represented angular-spectrum operator. The run integrates over y, so its energies
-    are in J and its powers in W. Constant gap and constant fill only. ``numpy_ref``,
-    ``numba_cpu`` and native CPU execute the geometry.
+    are in J and its powers in W. Constant gap and constant fill only. ``numpy_ref`` and
+    native CPU execute the geometry.
 
     Parameters
     ----------
@@ -679,8 +679,9 @@ def prop_gnlse(  # noqa: PLR0913 - the interface's keyword surface
         Immutable local checkpoints at committed accepted steps; requires HDF5,
         ``step_planes=1``, all fields and non-interpolated observations.
     backend : str, optional
-        Registry name, or ``"auto"`` (the default) to prefer ``native`` if installed
-        and otherwise use Numba CPU. Import or construction errors do not fall back.
+        Registry name, or ``"auto"`` (the default) for ``native``, which refuses if it
+        isn't installed or this processor is below its baseline. There is no fallback,
+        and import or construction errors stay visible.
         :func:`solprop.backends.registry.available` lists what can be used.
     precision : {'double', 'single'}, optional
         The arithmetic the run is held in (SEP 33,
@@ -692,7 +693,7 @@ def prop_gnlse(  # noqa: PLR0913 - the interface's keyword surface
         resolves to none, and the Adams method and an explicit noise model are refused.
         ``backend="auto"`` then resolves to the experimental ``mlx`` where MLX and a
         Metal GPU are present, and is refused otherwise; ``numpy_ref`` runs it as the
-        reference, and ``numba_cpu`` and ``native`` refuse it.
+        reference, and ``native`` refuses it.
     resume : bool or {'interpolated', 'force'}, optional
         Continue the file at `output` when its record and this run's agree on what
         matters to the run: the layout and physics must agree, a changed tolerance or
@@ -1008,8 +1009,8 @@ def prop_capillary(  # noqa: PLR0913 - the interface's keyword surface
         giving each its own Marcatili attenuation. It needs the contiguous set
         ``HE_11`` to ``HE_1N`` -- or, with ``impedance="te_tm"``, one azimuthal
         order -- on a constant or a varying guide, and a scalar run. It carries the
-        default ``"input"`` noise and refuses ``"modified"``. All three backends
-        execute it (``method="cf4"`` on ``numpy_ref`` alone).
+        default ``"input"`` noise and refuses ``"modified"``. ``numpy_ref`` and
+        ``native`` execute it (``method="cf4"`` on ``numpy_ref`` alone).
         ``None``, the default, carries no wall: the modes keep their own Marcatili
         loss, and a multimode taper its taper coupling (below).
     taper_coupling : bool, optional
@@ -1165,8 +1166,9 @@ def prop_capillary(  # noqa: PLR0913 - the interface's keyword surface
     node_budget : int, optional
         Bytes of node-chunk buffers the response pass may hold.
     backend : str, optional
-        Registry name, or ``"auto"`` (the default) to prefer ``native`` if installed
-        and otherwise use Numba CPU. Import or construction errors do not fall back.
+        Registry name, or ``"auto"`` (the default) for ``native``, which refuses if it
+        isn't installed or this processor is below its baseline. There is no fallback,
+        and import or construction errors stay visible.
     precision : {'double', 'single'}, optional
         The arithmetic the run is held in (SEP 33,
         ``docs/guide/performance/single-precision.md``). ``"double"``, the default, is
@@ -1177,7 +1179,7 @@ def prop_capillary(  # noqa: PLR0913 - the interface's keyword surface
         resolves to none, and the Adams method and an explicit noise model are refused.
         ``backend="auto"`` then resolves to the experimental ``mlx`` where MLX and a
         Metal GPU are present, and is refused otherwise; ``numpy_ref`` runs it as the
-        reference, and ``numba_cpu`` and ``native`` refuse it.
+        reference, and ``native`` refuses it.
     polarisation : str, float or None, optional
         Refused; this path is scalar.
     output : solprop.output.schema.Output, pathlib.Path, str or None, optional
@@ -1682,8 +1684,9 @@ def prop_waveguide(  # noqa: PLR0913 - the interface's keyword surface
     node_budget : int, optional
         Bytes of node-chunk buffers the response pass may hold.
     backend : str, optional
-        Registry name, or ``"auto"`` (the default) to prefer ``native`` if installed
-        and otherwise use Numba CPU. Import or construction errors do not fall back.
+        Registry name, or ``"auto"`` (the default) for ``native``, which refuses if it
+        isn't installed or this processor is below its baseline. There is no fallback,
+        and import or construction errors stay visible.
     precision : {'double', 'single'}, optional
         The arithmetic the run is held in (SEP 33,
         ``docs/guide/performance/single-precision.md``). ``"double"``, the default, is
@@ -1694,7 +1697,7 @@ def prop_waveguide(  # noqa: PLR0913 - the interface's keyword surface
         resolves to none, and the Adams method and an explicit noise model are refused.
         ``backend="auto"`` then resolves to the experimental ``mlx`` where MLX and a
         Metal GPU are present, and is refused otherwise; ``numpy_ref`` runs it as the
-        reference, and ``numba_cpu`` and ``native`` refuse it.
+        reference, and ``native`` refuses it.
     polarisation : str, float or None, optional
         Refused; this path is scalar.
     taper_coupling : bool, optional

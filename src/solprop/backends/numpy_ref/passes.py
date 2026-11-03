@@ -741,7 +741,7 @@ def plasma_scan(
     rule the exposure is floored at zero, so the fraction stays in
     ``[preionisation, 1)`` and is non-decreasing to within the filter's undershoot. Here
     the multipass form **is** the reference, and fusing the three sums into one
-    sequential sweep belongs to the compiled backends
+    sequential sweep belongs to the native backend
     (``docs/guide/media/nonlinear.md``).
 
     Parameters

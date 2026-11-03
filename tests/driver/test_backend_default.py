@@ -37,26 +37,27 @@ from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stepper import PIController
 
+pytestmark = pytest.mark.real_auto
+
 
 class _BackendChoice(TypedDict, total=False):
     backend: str
 
 
-@pytest.fixture(params=[False, True])
-def installation(request, monkeypatch):
-    """Probe either installation state without importing an optional package."""
+@pytest.fixture
+def installation(monkeypatch):
+    """Report native installed without importing it; tests/backends has the refusal."""
     real_find_spec = importlib.util.find_spec
-    present = request.param
     monkeypatch.setattr(
         importlib.util,
         "find_spec",
         lambda name: (
-            (importlib.machinery.ModuleSpec(name, None) if present else None)
+            importlib.machinery.ModuleSpec(name, None)
             if name == "solprop_native"
             else real_find_spec(name)
         ),
     )
-    return "native" if present else "numba_cpu"
+    return "native"
 
 
 def settings(**keywords):

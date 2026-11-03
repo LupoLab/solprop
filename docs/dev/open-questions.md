@@ -41,12 +41,11 @@ transform does not carry. Every mode class today ignores `z`, so no run is affec
 whether the resolution should take the union over the run's length, or the protocol
 should declare the component independent of z.
 
-**Thread-count invariance of the transverse FFT pool.** On `numba_cpu` the Cartesian
-transverse FFTs run on an FFTW pool of their own, sized by `transverse_fftw_threads=` or
-`SOLPROP_TRANSVERSE_FFTW_THREADS` and otherwise by the FFT size rule
-(`solprop/backends/numba_cpu/backend.py`); the backend metadata records the size. An FFTW
+**Thread-count invariance of the transverse FFT plans.** On the native backend the
+Cartesian transverse FFTs are planned at their own width, sized by the FFT size rule or
+`SOLPROP_NATIVE_FFT_THREADS`; the backend metadata records it. An FFTW
 plan, and so its rounding, can depend on the thread count, as the temporal pool's does.
-The tests pin this pool to one thread or check only that the setting is recorded; none
+The tests pin this width to one thread or check only that the setting is recorded; none
 compares a Cartesian run at two transverse thread counts. Open: the rounding bound that
 holds between two sizes of this pool, and a test of it (bitwise independence is not
 required, [SEP 25](seps/archive/sep-0025-rounding-level-reproducibility.md)).
@@ -90,9 +89,9 @@ it by name there, or apply it to a supplied profile.
 **A reserved electrons-per-event weight.** The compiled plasma channels
 (`PlasmaChannel` in `solprop/translate/responses.py`, `EnvelopePlasmaChannel` in
 `solprop/translate/envelope_plasma.py`) carry `electrons_per_event`, and the reference
-backend's field-plasma current multiplies by it, but `numba_cpu` and `native` do not carry
+backend's field-plasma current multiplies by it, but `native` does not carry
 it. Validation pins it to 1, so the backends agree. Open: remove the field, or carry it
-through the compiled backends with a test, for a model that releases more than one
+through the native backend with a test, for a model that releases more than one
 electron per event.
 
 ## Numerical methods
@@ -144,7 +143,6 @@ be derived rather than budgeted.
 dependency at its floor, NumPy 2.3.2, 2.3.5 and 2.4.0 make the `numpy_ref` free-space
 runs (line, planar and radial) return NaN fields and fail about 200 tests, among them
 `tests/backends/test_line_free.py` and `tests/backends/test_free_nonlinear.py`, with
-overflow warnings on the way; NumPy 2.5.0 passes them, independently of the Numba
-version. The NumPy floor is held at 2.5 ([dependencies](dependencies.md)) until the
+overflow warnings on the way; NumPy 2.5.0 passes them. The NumPy floor is held at 2.5 ([dependencies](dependencies.md)) until the
 cause is found. Open: which operation's behaviour changed between 2.4 and 2.5, and
 whether the code relies on it by accident.

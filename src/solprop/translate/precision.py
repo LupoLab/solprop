@@ -4,9 +4,9 @@
 
 """The arithmetic a run is held in, and the range rules of single precision (SEP 33).
 
-A run is ``"double"`` (binary64, the default and the only arithmetic of ``numba_cpu``
-and ``native``) or ``"single"``: the propagated state, the stage values, every transform
-and the responses in IEEE binary32, with the controller, every host scalar and the
+A run is ``"double"`` (binary64, the default and the only arithmetic of ``native``) or
+``"single"``: the propagated state, the stage values, every transform and the responses
+in IEEE binary32, with the controller, every host scalar and the
 linear propagator's exponent in binary64
 (``docs/dev/seps/archive/sep-0033-single-precision-mlx.md`` section 4.2, ADR-054).
 This module holds what every backend that admits single precision shares, so that
@@ -88,8 +88,8 @@ SINGLE_PRECISION_BACKENDS: tuple[str, ...] = ("numpy_ref", "mlx")
 """The backends that admit ``precision="single"``.
 
 ``numpy_ref`` is the single-precision oracle (SEP 33 phase 1) and ``mlx`` the Apple-GPU
-backend (phase 2). ``numba_cpu`` and ``native`` refuse it by name until a later
-proposal adds their own modes.
+backend (phase 2). ``native`` refuses it by name until a later proposal adds its own
+mode.
 """
 
 

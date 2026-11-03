@@ -250,6 +250,6 @@ independent solve in the true-power amplitude whose connection is the **measured
 matrix rather than the formula, ten steps of the 50 to 40 µm taper agree to
 $1.2\times10^{-8}$ on every channel ratio and converge at fifth order. A single
 $\mathrm{HE}_{1m}$ family under the TE/TM wall is the scalar taper to rounding, and
-`method="cf4"` is admitted here too. `numba_cpu` and the native CPU backend run the
+`method="cf4"` is admitted here too. The native CPU backend runs the
 vector wall on a taper as well, within `1e-11` of the reference's final plane after ten
 steps (the frozen-residual method; CF4 stays `numpy_ref`'s).

@@ -4,7 +4,7 @@
 
 """Measure the full N=6 soliton run in isolated backend/thread processes."""
 
-# ruff: noqa: I001 -- Kokkos must load before solprop can import pyFFTW on macOS.
+# ruff: noqa: I001 -- Kokkos loads first, before any other OpenMP runtime on macOS.
 
 from __future__ import annotations
 
@@ -65,7 +65,7 @@ def _worker(
     trial_count: int,
 ) -> None:
     if backend_name == "native":
-        # macOS must load the extension's OpenMP runtime before pyFFTW's wheel.
+        # macOS must load the extension's OpenMP runtime before any other.
         __import__("solprop_native")
 
     import numpy as np
@@ -143,7 +143,7 @@ def _worker(
     finally:
         backend.close()
 
-    recorded_threads = metadata.get("thread_count", metadata.get("numba_threads"))
+    recorded_threads = metadata.get("thread_count")
     realized = (
         recorded_threads
         if isinstance(recorded_threads, int)
@@ -205,7 +205,6 @@ def _run(
     environment.update(
         {
             "BENCH_THREADS": str(threads),
-            "NUMBA_NUM_THREADS": str(threads),
             "SOLPROP_NATIVE_THREADS": str(threads),
         }
     )
@@ -241,8 +240,8 @@ def _run(
 def main() -> None:
     """Run workers and print the median end-to-end M1 table as JSON lines."""
     parser = argparse.ArgumentParser()
-    parser.add_argument("--worker", choices=("numba_cpu", "native"))
-    parser.add_argument("--backends", type=_parse_csv, default=["numba_cpu", "native"])
+    parser.add_argument("--worker", choices=("numpy_ref", "native"))
+    parser.add_argument("--backends", type=_parse_csv, default=["numpy_ref", "native"])
     parser.add_argument("--threads", type=_parse_csv, default=["1", "8"])
     parser.add_argument("--repeats", type=int, default=3)
     parser.add_argument(
@@ -285,7 +284,7 @@ def main() -> None:
         parser.error("--repeats and --trial-count must be positive")
 
     for backend in arguments.backends:
-        if backend not in {"numba_cpu", "native"}:
+        if backend not in {"numpy_ref", "native"}:
             parser.error(f"unknown backend {backend!r}")
         for thread_text in arguments.threads:
             threads = int(thread_text)

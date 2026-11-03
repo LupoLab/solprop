@@ -80,7 +80,7 @@ def test_settings_assigned_after_the_first_translation_are_refused(
         simulation.settings = dataclasses.replace(settings, shock=not settings.shock)
     with pytest.raises(DriverError, match=r"a new save_planes, dz_max would be"):
         simulation.settings = dataclasses.replace(
-            settings, dz_max=1e-4, save_planes=[1.234e-4], backend="numba_cpu"
+            settings, dz_max=1e-4, save_planes=[1.234e-4], backend="native"
         )
     assert simulation.settings is settings
 
@@ -285,6 +285,7 @@ def test_a_capillary_configuration_hashes_the_same_way_twice():
     assert digest(capillary()) == digest(capillary())
 
 
+@pytest.mark.child_runs_auto
 def test_a_capillary_configuration_hashes_the_same_way_in_a_new_process():
     """What a resume from another process rests on: no address ends up in the digest.
 

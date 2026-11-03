@@ -1053,7 +1053,7 @@ def test_the_plasma_stash_is_off_under_the_split_step_absorber() -> None:
     """The split-step absorber changes the field after the last stage.
 
     The last stage's input is then not the committed field, so the plasma statistics
-    are scanned afresh, as numba_cpu does (its stash needs a first-same-as-last step).
+    are scanned afresh (the stash needs a first-same-as-last step).
     """
     payloads = {}
     for scheme in ("nonlinear", "split_step"):

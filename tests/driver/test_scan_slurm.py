@@ -79,7 +79,7 @@ def test_slurm_instances_receive_distinct_gpu_assignments(tmp_path):
         """import json, os
 from pathlib import Path
 record = {key: os.environ[key] for key in (
-    "SOLPROP_SCAN_INSTANCE", "CUDA_VISIBLE_DEVICES", "NUMBA_NUM_THREADS",
+    "SOLPROP_SCAN_INSTANCE", "CUDA_VISIBLE_DEVICES", "OMP_NUM_THREADS",
     "SOLPROP_SCAN_CPU_OFFSET", "SOLPROP_SCAN_CPU_COUNT")}
 Path("""
         + repr(str(tmp_path))
@@ -114,7 +114,7 @@ Path("""
         "0",
         "2",
     ]
-    assert first["NUMBA_NUM_THREADS"] == second["NUMBA_NUM_THREADS"] == "1"
+    assert first["OMP_NUM_THREADS"] == second["OMP_NUM_THREADS"] == "1"
     # The controller keeps its share; only its Pool workers get the one-thread budget.
     assert "export SOLPROP_THREADS" not in policy.render()
 

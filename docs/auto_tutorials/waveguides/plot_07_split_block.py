@@ -120,9 +120,9 @@ for name, guide in (("provider's own", plain), ("rotated", rotated)):
 # The rotated channels report one and the same ``neff``: the block's mean, which is
 # not a propagation constant of either.
 #
-# Three runs of a millimetre in ten steps on ``numpy_ref`` (``numba_cpu`` and the
-# native backend execute the leaf too): the rotated guide launched into its first
-# channel, and the plain guide launched into each of its two.
+# Three runs of a millimetre in ten steps on ``numpy_ref`` (the native backend executes
+# the leaf too): the rotated guide launched into its first channel, and the plain guide
+# launched into each of its two.
 steps = 10
 pulse = {
     "noise": None,  # a 1 pJ linear launch: the lesson is noiseless

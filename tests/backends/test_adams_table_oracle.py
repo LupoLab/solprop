@@ -31,7 +31,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from solprop._helpers import NUMBA, PLAIN, Helpers
+from solprop._helpers import PLAIN, Helpers
 from solprop.backends.multistep import fused_tables, trial_tables
 
 try:
@@ -70,7 +70,7 @@ STENCILS = _stencils()
 
 
 def _records() -> list[Helpers]:
-    return [NUMBA] if NATIVE is None else [NUMBA, NATIVE]
+    return [] if NATIVE is None else [NATIVE]
 
 
 # ------------------------------------------------------------------ exact tables

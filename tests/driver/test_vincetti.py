@@ -37,7 +37,7 @@ from solprop.stepper import FixedSchedule
 pytestmark = pytest.mark.filterwarnings("ignore::solprop.exceptions.BoundaryWarning")
 
 LATTICE = TubeLattice(180e-9, 9e-6, 6)
-BACKENDS = ["numpy_ref", "numba_cpu"]
+BACKENDS = ["numpy_ref"]
 if importlib.util.find_spec("solprop_native") is not None:
     BACKENDS.append("native")
 

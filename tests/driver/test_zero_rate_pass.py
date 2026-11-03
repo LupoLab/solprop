@@ -58,7 +58,6 @@ def run(simulation, problem):
     output = MemoryOutput()
     try:
         backend.set_initial(problem.initial.field0, None)
-        fsal = getattr(backend, "_fsal", None)
         run_problem(
             problem,
             backend,
@@ -68,7 +67,7 @@ def run(simulation, problem):
         )
     finally:
         backend.close()
-    return output, fsal
+    return output
 
 
 @pytest.mark.medium
@@ -80,19 +79,14 @@ def test_a_spectral_only_collar_runs_as_today_without_the_pass(backend, scheme):
     assert problem.responses.temporal_absorber is None
     assert problem.responses.temporal_absorber_fine is None
     bound = replay_bound(simulation)
-    elided, recycled = run(simulation, problem)
-    before, held = run(simulation, today(problem))
+    elided = run(simulation, problem)
+    before = run(simulation, today(problem))
     if backend == "numpy_ref" and scheme == "nonlinear":
         # Exact zeros were added in every stage: the reference's run is unchanged
         # bit for bit, the structural contract SEP 22 section 7 asks for.
         assert np.array_equal(elided["field"], before["field"])
     assert_within(elided["field"], before["field"], bound, what="field")
     assert np.array_equal(elided["step_history/h"], before["step_history/h"])
-    if backend == "numba_cpu":
-        # The split pass forbade recycling the last stage; without it the stage is
-        # recycled under either scheme.
-        assert recycled is True
-        assert held is (scheme == "nonlinear")
 
 
 def test_the_record_names_the_spectral_only_collar():

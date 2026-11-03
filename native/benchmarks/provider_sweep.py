@@ -17,10 +17,10 @@ from typing import TypedDict, cast
 
 
 class Variant(TypedDict):
-    """One backend label and optional import-package root."""
+    """One backend label and its import-package root."""
 
     label: str
-    package_root: str | None
+    package_root: str
 
 
 class Result(TypedDict):
@@ -35,8 +35,6 @@ class Result(TypedDict):
 
 
 def _variant(value: str) -> Variant:
-    if value == "numba_cpu":
-        return {"label": value, "package_root": None}
     label, separator, raw_path = value.partition("=")
     if not separator or not label or not raw_path:
         raise argparse.ArgumentTypeError(
@@ -65,27 +63,21 @@ def _run(
     environment.update(
         {
             "KMP_BLOCKTIME": environment.get("KMP_BLOCKTIME", "50"),
-            "NUMBA_NUM_THREADS": str(threads),
             "OPENBLAS_NUM_THREADS": str(blas_threads),
             "OMP_DYNAMIC": environment.get("OMP_DYNAMIC", "FALSE"),
             "OMP_PLACES": environment.get("OMP_PLACES", "threads"),
             "OMP_PROC_BIND": environment.get("OMP_PROC_BIND", "close"),
             "SOLPROP_BLAS_THREADS": str(blas_threads),
-            "SOLPROP_FFTW_THREADS": str(threads),
             "SOLPROP_NATIVE_THREADS": str(threads),
-            "SOLPROP_NUMBA_THREADS": str(threads),
         }
     )
-    backend = "numba_cpu"
     package_root = variant["package_root"]
-    if package_root is not None:
-        backend = "native"
-        previous = environment.get("PYTHONPATH")
-        environment["PYTHONPATH"] = (
-            package_root if not previous else package_root + os.pathsep + previous
-        )
+    previous = environment.get("PYTHONPATH")
+    environment["PYTHONPATH"] = (
+        package_root if not previous else package_root + os.pathsep + previous
+    )
     command = [sys.executable, str(Path(__file__).with_name(f"{workload}.py"))]
-    command.extend(("--worker", backend, "--case", case_name))
+    command.extend(("--worker", "native", "--case", case_name))
     if workload == "m2":
         command.extend(("--field-family", field_family))
     command.extend(("--mode", mode, "--trial-count", str(trial_count)))
@@ -106,7 +98,7 @@ def main() -> None:
         action="append",
         type=_variant,
         required=True,
-        help="numba_cpu or LABEL=/path/to/package-root; repeat for each arm",
+        help="LABEL=/path/to/package-root; repeat for each arm",
     )
     parser.add_argument("--threads", type=int, default=8)
     parser.add_argument("--workload", choices=("m2", "ctc"), default="m2")
@@ -118,7 +110,7 @@ def main() -> None:
         "--blas-threads",
         type=int,
         default=1,
-        help="process-start BLAS pool, independent of the Kokkos/Numba pool",
+        help="process-start BLAS pool, independent of the Kokkos pool",
     )
     parser.add_argument("--repeats", type=int, default=7)
     parser.add_argument("--mode", choices=("trial", "propagation"), default="trial")

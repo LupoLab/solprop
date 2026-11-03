@@ -543,9 +543,7 @@ def main():
     parser.add_argument("directory", type=Path)
     parser.add_argument("destination", type=Path)
     parser.add_argument("--cases", nargs="+", required=True)
-    parser.add_argument(
-        "--backend", default="numba_cpu", choices=("numba_cpu", "numpy_ref", "native")
-    )
+    parser.add_argument("--backend", default="native", choices=("numpy_ref", "native"))
     parser.add_argument("--rtol", type=float, default=1e-6)
     parser.add_argument(
         "--prefactor-index",

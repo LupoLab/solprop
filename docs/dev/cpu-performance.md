@@ -11,7 +11,9 @@ two lines and, where they are summarised, links to its measurements in
 Timings follow the [benchmark rules](benchmarks.md#rules). They are short, bounded
 windows: fresh processes, same machine, interleaved arms. Results are compared within
 SEP 25's rounding bounds, never bitwise. A ratio "against `numba_cpu`" is that backend's
-time divided by the native backend's: above 1, the native backend is faster.
+time divided by the native backend's: above 1, the native backend is faster. `numba_cpu`
+was retired by [SEP 43](seps/archive/sep-0043-retire-numba-cpu.md); such ratios record what was
+measured while it existed.
 
 ## Build and libraries
 
@@ -54,8 +56,8 @@ time divided by the native backend's: above 1, the native backend is faster.
   - The exception is the general modal route: on the 18-core-per-socket server, v2 is
     23–24 % slower than v3 at one thread and 7–12 % slower at full width.
   - The wheels were first built for v2 and accepted this cost; they now take v3
-    (SEP 29, phase 3), and v2 is a source-build option. Below v3, `backend="auto"`
-    falls back to `numba_cpu` with a warning.
+    (SEP 29, phase 3), and since SEP 43 the x86-64 wheels hold both, chosen at import. Below
+    v2, `backend="auto"` falls back to `numpy_ref` with a warning.
 - **Release `-O3`, checked IPO, Kokkos loop vectorisation, no fast-math**, with
   `-ffp-contract=fast` honouring the protected-operation pragmas
   ([conventions](conventions.md)).

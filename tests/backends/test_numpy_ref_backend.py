@@ -17,7 +17,6 @@ import pytest
 
 from bounds import EPS, assert_within, departure, gamma
 from solprop.backends import Backend
-from solprop.backends.numba_cpu import NumbaCpuBackend
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.numpy_ref import backend as backend_module
 from solprop.exceptions import BackendError, TranslationError
@@ -333,8 +332,8 @@ def test_the_memory_ledger_names_every_buffer(
     backend.close()
     if backend.name == "numpy_ref":
         # Released with everything else, and still named: a closed backend owes the
-        # budget a row of zero, not a missing row. `numba_cpu` asserts the same in its
-        # own ledger test; native refuses a ledger read once the native state is gone.
+        # budget a row of zero, not a missing row; native refuses a ledger read once
+        # the native state is gone.
         assert backend.memory_ledger()["statistics_power_weight"] == 0
 
 
@@ -373,10 +372,10 @@ def test_the_propagator_mode_defaults_to_the_backends_own_choice(
     """The flag is the problem's, the choice is the backend's, and it is recorded.
 
     The reference forms two complex exponentials per stage and keeps the six distinct
-    exponents of a step; ``numba_cpu`` takes both signs from one ``exp`` and a
-    ``sincos`` in the stage that formed them, so the table buys residency and nothing
-    else and it recomputes. Either can still be asked for by name, and the two agree
-    to rounding, so what the default changes is memory rather than numbers.
+    exponents of a step; ``native`` takes both signs in the stage that formed them, so
+    the table buys residency and nothing else and it recomputes. Either can still be
+    asked for by name, and the two agree to rounding, so what the default changes is
+    memory rather than numbers.
     """
     problem = soliton_problem(narrow_grid, 1, save_planes=[LENGTH])
     assert problem.stepper.propagator_mode == "auto"
@@ -389,7 +388,6 @@ def test_the_propagator_mode_defaults_to_the_backends_own_choice(
             == {
                 "native": "recompute",
                 "numpy_ref": "tabulate",
-                "numba_cpu": "recompute",
             }[backend.name]
         )
         named = backend_class(
@@ -536,28 +534,52 @@ def test_statistics_without_a_grid_say_what_is_missing(
 # ------------------------------------------------------- the two propagator modes
 
 
-def test_the_two_propagator_modes_agree(backend_class, soliton_problem, soliton_grid):
+def _both_propagator_modes(soliton_problem, soliton_grid):
+    """Return the third-order soliton on the schedule, each mode asked for by name."""
+    return [
+        soliton_problem(
+            soliton_grid,
+            3,
+            save_planes=[LENGTH],
+            schedule=SCHEDULE,
+            propagator_mode=mode,
+        )
+        for mode in ("tabulate", "recompute")
+    ]
+
+
+def test_the_two_propagator_modes_agree(soliton_problem, soliton_grid):
     """Memoising the exponents within a step changes the work, not the numbers.
 
     The memoised path evaluates delta_phi once per distinct stage fraction and the
     other once per stage, on the same constant table: one method by two routes on
-    one schedule, within the eight-step rung's budget.
+    one schedule, within the eight-step rung's budget. On the reference alone: native's
+    Runge-Kutta march has one route and ignores the mode, so there it would compare a
+    run with itself (the next test holds it to this one instead).
     """
-    tabulated = soliton_problem(
-        soliton_grid, 3, save_planes=[LENGTH], schedule=SCHEDULE
-    )
-    recomputed = soliton_problem(
-        soliton_grid,
-        3,
-        save_planes=[LENGTH],
-        schedule=SCHEDULE,
-        propagator_mode="recompute",
-    )
-    backend, first = run_to(backend_class, tabulated, soliton_grid, LENGTH)
+    tabulated, recomputed = _both_propagator_modes(soliton_problem, soliton_grid)
+    backend, first = run_to(NumpyRefBackend, tabulated, soliton_grid, LENGTH)
     backend.close()
-    backend, second = run_to(backend_class, recomputed, soliton_grid, LENGTH)
+    backend, second = run_to(NumpyRefBackend, recomputed, soliton_grid, LENGTH)
     backend.close()
     assert_within(second.field, first.field, REPEAT_BOUND, what="propagator modes")
+
+
+def test_native_is_the_reference_under_either_propagator_mode(
+    soliton_problem, soliton_grid
+):
+    """Native's one route, asked for by either name, against the reference's tabulation.
+
+    Within the same budget, which is the eight-step rung's for two backends too.
+    """
+    native = pytest.importorskip("solprop_native")
+    problems = _both_propagator_modes(soliton_problem, soliton_grid)
+    backend, reference = run_to(NumpyRefBackend, problems[0], soliton_grid, LENGTH)
+    backend.close()
+    for problem, mode in zip(problems, ("tabulate", "recompute"), strict=True):
+        backend, plane = run_to(native.NativeBackend, problem, soliton_grid, LENGTH)
+        backend.close()
+        assert_within(plane.field, reference.field, REPEAT_BOUND, what=mode)
 
 
 # -------------------------------------------------- the third harmonic on an envelope
@@ -611,11 +633,12 @@ def test_the_alarm_is_weighted_at_the_stage_it_was_scored_from(
 ):
     """The prefactor varies along this fibre, so the alarm's weight has to follow it.
 
-    Regression: ``numba_cpu`` held the position of its last stage in a field that was
-    set to zero at construction and never written, so the alarm was weighted by
-    ``prefactor_at(responses, 0.0)`` for the whole run and its warning always named
-    ``z = 0``. Invisible on a uniform fill and wrong on any gradient. The bundle is
-    what makes it right: the alarm reads the scalars of the stage it was scored from.
+    Regression: the retired ``numba_cpu`` backend held the position of its last stage
+    in a field that was set to zero at construction and never written, so the alarm
+    was weighted by ``prefactor_at(responses, 0.0)`` for the whole run and its warning
+    always named ``z = 0``. Invisible on a uniform fill and wrong on any gradient. The
+    bundle is what makes it right: the alarm reads the scalars of the stage it was
+    scored from.
     """
     problem = capillary_problem()
     backend, _ = run_to(backend_class, problem, field_grid, 0.1)
@@ -630,33 +653,38 @@ def test_the_alarm_is_weighted_at_the_stage_it_was_scored_from(
     backend.close()
 
 
-def test_a_z_table_runs_on_the_numba_host_adapter_and_the_oracle(
-    tabulated_problem, field_grid
-):
-    """Numba's host adapter qualifies the general CPU baseline beside the oracle."""
-    assert not tabulated_problem.device_ready
+def z_table_departure_and_bound(backend_class, problem, grid):
+    """Return a z-table run's departure from the oracle, its budget and its owner."""
+    assert not problem.device_ready
     # The host Clenshaw recurrence follows the reference operation order; budget
     # 64 eps per coefficient and sample over seven stages and 1000 accepted steps.
     bound = (
         64
-        * field_grid.n_to
-        * len(tabulated_problem.linear.phi_coefficients[0])
+        * grid.n_to
+        * len(problem.linear.phi_coefficients[0])
         * 7
         * 1000
         * np.finfo(float).eps
     )
     assert bound > 0
-    compiled, measured = run_to(NumbaCpuBackend, tabulated_problem, field_grid, 0.05)
-    backend, plane = run_to(NumpyRefBackend, tabulated_problem, field_grid, 0.05)
-    assert np.all(np.isfinite(plane.require_field()))
-    assert (
-        np.linalg.norm(measured.require_field() - plane.require_field())
-        / np.linalg.norm(plane.require_field())
-        < bound
-    )
-    assert compiled._host_phi is not None and compiled._host_prefactor is not None
-    compiled.close()
+    compiled, measured = run_to(backend_class, problem, grid, 0.05)
+    backend, plane = run_to(NumpyRefBackend, problem, grid, 0.05)
     backend.close()
+    assert np.all(np.isfinite(plane.require_field()))
+    departure = np.linalg.norm(
+        measured.require_field() - plane.require_field()
+    ) / np.linalg.norm(plane.require_field())
+    return departure, bound, compiled
+
+
+def test_a_z_table_runs_on_native_and_the_oracle(tabulated_problem, field_grid):
+    """The native backend's own tables follow the oracle on an adaptive run."""
+    native = pytest.importorskip("solprop_native")
+    departure, bound, compiled = z_table_departure_and_bound(
+        native.NativeBackend, tabulated_problem, field_grid
+    )
+    compiled.close()
+    assert departure < bound
 
 
 # ------------------------------------------------------------- the remaining paths
@@ -890,11 +918,10 @@ def test_a_run_with_the_channel_is_the_run_without(
 
     ``wall_time`` is excluded because it is a clock reading rather than a result. The
     other four history columns and the exit field are the whole of what the step loop
-    computed, and the channel must not move any of them -- which on ``numba_cpu`` also
-    means its statistics pass must leave the plan buffers in a state the next stage
-    rewrites completely. The two runs replay one schedule: the schedule and the
-    acceptances are exact, the field within the eight-step rung's budget and the
-    error norm, a defect over ``rtol``, within seven stages of that over ``rtol``.
+    computed, and the channel must not move any of them. The two runs replay one
+    schedule: the schedule and the acceptances are exact, the field within the
+    eight-step rung's budget and the error norm, a defect over ``rtol``, within seven
+    stages of that over ``rtol``.
     """
     columns = ("z", "dz", "accepted")
 

@@ -768,6 +768,7 @@ def test_a_fibre_whose_geometry_moves_carries_both_paths():
     )
 
 
+@pytest.mark.child_runs_auto
 @pytest.mark.parametrize("use_mode", [False, True])
 def test_index_table_gnlse_metadata_hash_across_processes(use_mode):
     omega = np.linspace(0.3e15, 4.5e15, 200)

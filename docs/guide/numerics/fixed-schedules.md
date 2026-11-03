@@ -201,7 +201,7 @@ outside, on the quantity you will report, with `calibrate(..., order=4)`:
   four; a coarser base reads lower and is not yet a calibration.
 - **A weak observable needs its floor.** The strong field's rounding leaks into a weak
   band and sets the floor `calibrate(floor=...)` must be told. The difference between two
-  backends on one schedule is pure rounding and measures it: `numba_cpu` or `native` against
+  backends on one schedule is pure rounding and measures it: `native` against
   `numpy_ref`, or one backend's two flow treatments (`propagator_mode="tabulate"` and
   `"recompute"`).
 - **The flow table follows the schedule.** Tabulating a constant operator holds one

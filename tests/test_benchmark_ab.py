@@ -159,6 +159,7 @@ def test_missing_receipts_are_failures(tmp_path, monkeypatch):
     assert results["summary"][0]["failures"] == ["no receipt from the worker"] * 2
 
 
+@pytest.mark.child_runs_auto
 @pytest.mark.medium
 def test_small_case_runs_both_builds_in_alternating_order(
     tmp_path, monkeypatch, capsys

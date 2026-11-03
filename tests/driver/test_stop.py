@@ -71,7 +71,6 @@ def _scheduled(build_simulation, backend="numpy_ref"):
     "backend",
     [
         "numpy_ref",
-        "numba_cpu",
         pytest.param(
             "native",
             marks=pytest.mark.skipif(

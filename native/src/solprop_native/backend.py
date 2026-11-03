@@ -718,7 +718,7 @@ class NativeBackend(StepDriver[_core.State]):
             section=section,
             end_weights=bundle.flow_weights,
             residual=residual,
-            # The flow's own eigenbasis and route, as numba_cpu passes its own.
+            # The flow's own eigenbasis and route.
             basis=(
                 flow.left[section],
                 flow.right[section],
@@ -2815,7 +2815,7 @@ class _ResidentLowStorage:
     that applies it -- on a modal route from the phase terms, so a varying operator's
     flows are never transients outside the ledger.
 
-    **The stiffness indicator** (SEP 24 Q11) is not formed, as on ``numba_cpu``:
+    **The stiffness indicator** (SEP 24 Q11) is not formed:
     ``stiffness`` is NaN. Recovering ``g1`` and ``F2`` needs ``C``, which is elided on
     the Cartesian and line routes the march is for or split across the exchange's two
     evaluations, and two more reductions a step.
@@ -3609,7 +3609,7 @@ def _native_problem(
             # Kronrod projection is packed.
             coarse_matrix = np.empty(0, dtype=np.float64)
     # The accepted step's last stage leaves the plasma statistics behind only when
-    # that stage's input is the committed field, as on numba_cpu: a first-same-as-last
+    # that stage's input is the committed field: a first-same-as-last
     # tableau, no split-step absorber (applied to the field after the last stage)
     # and no coupled flow; and not under the modified noise model, where that input
     # carries the noise draw while solprop defines the statistics on the committed
@@ -3758,8 +3758,7 @@ def _native_problem(
 def _dispersive_payload(problem: KernelProblem) -> dict[str, object]:
     """Lay out solprop SEP 6's dispersive response for the native engine.
 
-    The layout of solprop's ``numba_cpu`` (``dispersive_terms_layout``), whose
-    structure the native response takes on every route: the channels grouped as the
+    The structure the native response takes on every route: the channels grouped as the
     leaf groups them (``DispersiveKerrTerms.groups``) -- the symmetric evaluator's one
     mixture per node region, the polynomial's species of equal leg weight and region --
     with one filtered field and one product per symmetric group, and for the

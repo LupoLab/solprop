@@ -153,6 +153,61 @@ void zero_subnormal_and_unresolved_cases() {
   EXPECT_EQ(actual(0, 4), 1.0);
 }
 
+// solprop SEP 43's inventory, from `test_bodies`: the scaled magnitude at components a
+// plain square would overflow or lose. Each pair is one component's real and imaginary
+// parts, and two real components: the ellipse's major axis is their hypot either way.
+void scaled_magnitude_preserves_tiny_and_huge_components() {
+  constexpr std::size_t count = 6;
+  RuleView pairs("envelope_test.pairs", count, 2);
+  {
+    const auto host = Kokkos::create_mirror_view(pairs);
+    const std::array<std::array<double, 2>, count> values = {{
+        {0.0, 0.0},
+        {3.0, -4.0},
+        {1e-200, 2.5e-201},
+        {1e200, 2.5e199},
+        {-1e-200, 1e200},
+        {1e-320, 1e-320},
+    }};
+    for (std::size_t index = 0; index < count; ++index) {
+      host(index, 0) = values[index][0];
+      host(index, 1) = values[index][1];
+    }
+    Kokkos::deep_copy(pairs, host);
+  }
+  RuleView result("envelope_test.scaled", count, 4);
+  Kokkos::parallel_for(
+      "envelope_test.scaled",
+      Kokkos::RangePolicy<native::ExecutionSpace>(native::ExecutionSpace{}, 0, count),
+      KOKKOS_LAMBDA(const std::size_t index) {
+        const double first = pairs(index, 0), second = pairs(index, 1);
+        const auto one = native::envelope_axes(Complex(first, second), Complex{});
+        const auto two =
+            native::envelope_axes(Complex(first, 0.0), Complex(second, 0.0));
+        result(index, 0) = one.major;
+        result(index, 1) = two.major;
+        result(index, 2) = one.ratio;
+        result(index, 3) = two.ratio;
+      });
+  const auto actual = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace{}, result);
+  const auto inputs = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace{}, pairs);
+  for (std::size_t index = 0; index < count; ++index) {
+    const double expected = std::hypot(inputs(index, 0), inputs(index, 1));
+    // The original's bound, from counting before it ran: five scaled arithmetic steps
+    // and two sqrt or hypot paths fit 64 eps; two smallest-subnormal quanta cover the
+    // absolute rounding of a subnormal result.
+    const double bound = 64 * std::numeric_limits<double>::epsilon() * expected +
+                         2 * std::numeric_limits<double>::denorm_min();
+    EXPECT_TRUE(std::isfinite(actual(index, 0))) << index;
+    EXPECT_TRUE(std::isfinite(actual(index, 1))) << index;
+    EXPECT_LE(std::abs(actual(index, 0) - expected), bound) << index;
+    EXPECT_LE(std::abs(actual(index, 1) - expected), bound) << index;
+    // A linear ellipse has no minor axis, whatever the scale, and no NaN from it.
+    EXPECT_TRUE(std::isfinite(actual(index, 2))) << index;
+    EXPECT_TRUE(std::isfinite(actual(index, 3))) << index;
+  }
+}
+
 // CUDA extended lambdas require a publicly accessible enclosing function.
 TEST(EnvelopePlasma, PolynomialMomentsAndDirectionalWorkOnExecutionSpace) {
   polynomial_moments_and_directional_work();
@@ -164,6 +219,10 @@ TEST(EnvelopePlasma, PhaseAndRealRotationPreserveBothLossComponents) {
 
 TEST(EnvelopePlasma, ZeroSubnormalAndUnresolvedCasesStayExplicit) {
   zero_subnormal_and_unresolved_cases();
+}
+
+TEST(EnvelopePlasma, ScaledMagnitudePreservesTinyAndHugeComponents) {
+  scaled_magnitude_preserves_tiny_and_huge_components();
 }
 
 } // namespace

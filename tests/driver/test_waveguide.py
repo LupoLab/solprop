@@ -84,8 +84,16 @@ def test_waveguide_rectangular_backends_records_and_mixture_update():
     record = simulation.configuration["waveguide"]
     assert isinstance(record, dict)
     assert record["modes"][0].kind.endswith("RectMode")
+    # No range warning: optmat's models are qualified here (SEP 3, Phase 4a).
+    with nullcontext():
+        rebound = simulation.with_mixture(Mixture.fill({"Ar": 1.0}, 6.0))
+    rebound_record = rebound.configuration["waveguide"]
+    assert isinstance(rebound_record, dict)
+    assert rebound_record["modes"][0].kind.endswith("RectMode")
     outputs = []
-    for backend in ("numpy_ref", "numba_cpu"):
+    for backend in ("numpy_ref", "native"):
+        if backend == "native":
+            pytest.importorskip("solprop_native")
         # No range warning: optmat's models are qualified here (SEP 3, Phase 4a).
         with nullcontext():
             output = prop_waveguide(
@@ -105,12 +113,6 @@ def test_waveguide_rectangular_backends_records_and_mixture_update():
     assert_allclose(
         outputs[1], outputs[0], rtol=2e-11, atol=2e-11 * np.max(np.abs(outputs[0]))
     )
-    # No range warning: optmat's models are qualified here (SEP 3, Phase 4a).
-    with nullcontext():
-        rebound = simulation.with_mixture(Mixture.fill({"Ar": 1.0}, 6.0))
-    rebound_record = rebound.configuration["waveguide"]
-    assert isinstance(rebound_record, dict)
-    assert rebound_record["modes"][0].kind.endswith("RectMode")
 
 
 @pytest.mark.medium
