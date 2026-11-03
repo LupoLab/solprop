@@ -309,6 +309,12 @@ def test_a_spectrogram_refuses_what_it_cannot_draw(output, synthetic):
         fields.get_spectrogram(output, gate_fwhm=1.0)
     with pytest.raises(ProcessingError, match="holds no gate position"):
         fields.get_spectrogram(output, time_range=(1.0, 2.0))
+    # Inside the window but between two gate positions: none to show.
+    t, _ = fields.get_field(output, kind="real", plane=-1)
+    step = float(t[1] - t[0])
+    between = (float(t[10]) + 0.25 * step, float(t[10]) + 0.75 * step)
+    with pytest.raises(ProcessingError, match="holds no gate position"):
+        fields.get_spectrogram(output, time_range=between)
     # The last plane by default, or the one nearest a position.
     last = fields.get_spectrogram(output, positions=8)[2]
     nearest = fields.get_spectrogram(output, z=synthetic.length, positions=8)[2]
