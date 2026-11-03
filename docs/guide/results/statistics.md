@@ -63,8 +63,9 @@ six-mode hydrogen-filled capillary: the plasma statistics are read off what the 
 last stage left behind, which is the state the step accepted. Under the default
 [Adams method](../numerics/adams.md) a step's one evaluation is at its predicted state, not the
 accepted one, so the plasma statistics scan the columns afresh, about the cost of a
-source evaluation: the channel adds **80 %** to the first case's run at $N = 1$. A
-period of ten brings that to about 8 %; the statistics at the save planes are unaffected. Evaluating the power weight of each row (the
+source evaluation. On `native` on an AMD EPYC 7763, the channel adds about **55 %** to the
+first case's run at $N = 1$ on one thread and **76 %** on sixteen. A period of ten brings that
+to about 6 % and 8 %; the statistics at the save planes are unaffected. Evaluating the power weight of each row (the
 $\operatorname{Re} n_{\rm eff}$ factor of the Poynting flux, see
 [power and intensity](power-and-intensity.md)) adds about **0.06 ms** per row, under one
 percentage point of the first case's step.

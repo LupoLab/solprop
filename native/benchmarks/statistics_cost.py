@@ -143,7 +143,7 @@ def _worker(
             summary = backend.propagate_to(target)
             seconds = time.perf_counter() - started
             rows = backend.observe().step_stats.n_rows
-            # A statistics row follows each accepted step; n_steps counts rejections too.
+            # A row follows each accepted step's period; n_steps counts rejections too.
             steps = summary.n_steps - summary.n_rejected
             return {"seconds": seconds, "steps": steps, "rows": rows}
         finally:
