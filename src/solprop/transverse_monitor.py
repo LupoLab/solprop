@@ -371,9 +371,10 @@ class TransverseEdge:
         """
         if self.design is not None and self.design.has_collar:
             return flat
-        energy = np.einsum(
-            "i,ij,ij->j", self._columns, flat.real, flat.real
-        ) + np.einsum("i,ij,ij->j", self._columns, flat.imag, flat.imag)
+        real, imaginary = np.real(flat), np.imag(flat)
+        energy = np.einsum("i,ij,ij->j", self._columns, real, real) + np.einsum(
+            "i,ij,ij->j", self._columns, imaginary, imaginary
+        )
         order = np.argsort(energy)
         limit = READ_RESOLUTION * self.budget**2 * self._launch
         left_out = int(np.searchsorted(np.cumsum(energy[order]), limit, side="right"))
