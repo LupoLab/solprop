@@ -375,8 +375,8 @@ def test_a_varying_guide_is_read_at_its_own_nodes() -> None:
     edges = np.asarray(linear.phi_breakpoints)
     positions = _rate_positions(linear)
     assert len(positions) == 3 * (len(edges) - 1)
-    assert [z for z, before in positions if not before][::2] == edges[:-1].tolist()
-    assert [z for z, before in positions if before] == edges[1:].tolist()
+    assert [z for z, before, _ in positions if not before][::2] == edges[:-1].tolist()
+    assert [z for z, before, _ in positions if before] == edges[1:].tolist()
     assert len(_rate_positions(_radial("numpy_ref").translate().linear)) == 1
 
 
@@ -462,3 +462,59 @@ def test_a_split_reading_without_the_occupancy_is_refused() -> None:
     reading = monitor.energies(problem.initial.field0)
     with pytest.raises(BackendError, match="occupancy"):
         monitor.launch(reading, 0.0)
+
+
+def _taper(coupling: bool) -> Simulation:
+    """Return a three-mode helium capillary taper under the split, coupled or not."""
+    from solprop.profiles import PiecewiseLinear  # noqa: PLC0415
+
+    taper = PiecewiseLinear(
+        np.array([0.0, 0.05, 0.1]), np.array([100e-6, 100e-6, 90e-6])
+    )
+    return Simulation.from_capillary(
+        taper, 0.1, "He", 1.5, taper_coupling=coupling, wavelength=800e-9,
+        fwhm=10e-15, energy=1e-9, trange=250e-15,
+        wavelength_limits=(400e-9, 2e-6), absorber_scheme="split_step",
+        noise=None, modes=3, dz_max=2e-3,
+    )  # fmt: skip
+
+
+def test_a_coupled_taper_s_channels_walk_at_their_own_rates() -> None:
+    # A coupled flow's operator carries the carrier's D for every channel, and each
+    # channel's own propagation constant in the flow's generator: read with it, the
+    # channels take the buckets the adiabatic route's own D gives them, and the
+    # third mode, walking about fifteen times faster than the first, its own.
+    coupled = _taper(coupling=True).translate()
+    adiabatic = _taper(coupling=False).translate()
+    assert coupled.linear.coupled_flow is not None
+    crossing, reference = coupled.split_crossing, adiabatic.split_crossing
+    assert crossing is not None and reference is not None
+    np.testing.assert_array_equal(crossing.buckets, reference.buckets)
+    inband = coupled.grids.inband_mask
+    assert np.min(crossing.buckets[2][inband]) < np.min(crossing.buckets[0][inband])
+    # Light in the third mode alone bounds the cap below light in the first alone.
+    launch = np.asarray(coupled.initial.field0)
+    alone = [np.zeros_like(launch) for _ in range(2)]
+    alone[0][:, 0] = launch[:, 0]
+    alone[1][:, 2] = launch[:, 0]
+    first, third = (crossing.limit(crossing.occupancy(state)) for state in alone)
+    assert third < 0.2 * first
+
+
+def test_a_factored_coupled_flow_is_refused_under_the_split() -> None:
+    from solprop.translate.linop import _channel_rate  # noqa: PLC0415
+
+    linear = _taper(coupling=True).translate().linear
+    flow = linear.coupled_flow
+    assert flow is not None and flow.generator is not None
+    n_modes, n_omega = flow.n_modes, len(flow.omega)
+    factored = dataclasses.replace(
+        flow,
+        generator=None,
+        fixed_terms=np.zeros((1, n_modes, n_modes, n_omega), dtype=complex),
+        term_weights=np.zeros((*flow.generator.shape[:2], 1), dtype=complex),
+        connection=None,
+    )
+    table = dataclasses.replace(linear, coupled_flow=factored)
+    with pytest.raises(TranslationError, match="factored"):
+        _channel_rate(table, 0.0, False, None)

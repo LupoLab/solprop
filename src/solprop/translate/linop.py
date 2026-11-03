@@ -82,7 +82,11 @@ from solprop.translate.chebyshev import (
     lobatto_points,
     resolve_axis,
 )
-from solprop.translate.coupled import CoupledFlowTables, ModalMetricTables
+from solprop.translate.coupled import (
+    CoupledFlowTables,
+    ModalMetricTables,
+    flow_weights,
+)
 from solprop.translate.expansion import (
     ParameterExpansion,
     append_endpoint_expansion,
@@ -3002,7 +3006,11 @@ def walk_off_buckets(
     chunks of columns; a tabulated one that varies is read at its own nodes, every
     interval's start, middle and end, and each bin takes its
     fastest. Between the nodes a smooth guide's rate is the interval's interpolant's,
-    whose excursion from its samples is not bounded here.
+    whose excursion from its samples is not bounded here. A coupled flow's operator
+    carries the shared carrier for every channel, so each channel adds the diagonal of
+    the flow's generator, its own ``-i delta beta`` (and loss), read at the flow's
+    sections' starts, middles and ends too; a factored flow, which no backend executes,
+    is refused (:class:`~solprop.exceptions.TranslationError`).
 
     Parameters
     ----------
@@ -3110,8 +3118,8 @@ def walk_off_buckets(
             buckets = buckets[np.ravel(inverse)]
         return buckets, fastest
     widest: np.ndarray | None = None
-    for z, before in _rate_positions(table):
-        rate = phi_rate(table, z, before=before)
+    for z, before, section in _rate_positions(table):
+        rate = _channel_rate(table, z, before, section)
         n_batch, n_modes, n_pol, n_omega = rate.shape
         phase = -np.imag(rate.reshape(-1, n_omega))[:, order]
         valid = np.broadcast_to(sorted_active[None, :], phase.shape)
@@ -3124,12 +3132,15 @@ def walk_off_buckets(
     return buckets, float(np.max(widest, initial=0.0))
 
 
-def _rate_positions(table: LinearOperator) -> list[tuple[float, bool]]:
+def _rate_positions(
+    table: LinearOperator,
+) -> list[tuple[float, bool, int | None]]:
     """Return where :func:`walk_off_buckets` reads a tabulated operator.
 
     A constant operator once. A z-varying one at its own nodes: every interval's
     start, middle and end, each end read from the interval it closes, since ``D``
-    jumps at a hard kink.
+    jumps at a hard kink. A coupled flow's sections are read the same way, their ends
+    from the section each closes, beside ``D`` at the same positions.
 
     Parameters
     ----------
@@ -3139,15 +3150,81 @@ def _rate_positions(table: LinearOperator) -> list[tuple[float, bool]]:
     Returns
     -------
     list of tuple
-        ``(z, before)`` pairs, m, for :func:`phi_rate`.
+        ``(z, before, section)``: the position, m, whether :func:`phi_rate` reads it
+        from the interval ending there, and the coupled flow's section it is read in
+        (``None`` without a flow, or for the section containing it).
     """
     edges = np.asarray(table.phi_breakpoints, dtype=np.float64)
+    positions: list[tuple[float, bool, int | None]] = []
     if table.phi_constant is not None:
-        return [(float(edges[0]), False)]
-    positions: list[tuple[float, bool]] = []
-    for low, high in itertools.pairwise(edges.tolist()):
-        positions += [(low, False), (0.5 * (low + high), False), (high, True)]
+        positions.append((float(edges[0]), False, None))
+    else:
+        for low, high in itertools.pairwise(edges.tolist()):
+            positions += [
+                (low, False, None),
+                (0.5 * (low + high), False, None),
+                (high, True, None),
+            ]
+    flow = table.coupled_flow
+    if flow is not None:
+        lo, hi = float(edges[0]), float(edges[-1])
+        flow_edges = np.clip(np.asarray(flow.z_edges, dtype=np.float64), lo, hi)
+        for index, (low, high) in enumerate(itertools.pairwise(flow_edges.tolist())):
+            positions += [
+                (low, False, index),
+                (0.5 * (low + high), False, index),
+                (high, True, index),
+            ]
     return positions
+
+
+def _channel_rate(
+    table: LinearOperator, z: float, before: bool, section: int | None
+) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
+    """Return each channel's own operator at one position, ``D`` plus its flow's.
+
+    A coupled flow's channels share the carrier's ``D``: each one's own propagation
+    constant, relative to the carrier's, is the diagonal of the flow's generator
+    ``G``, applied beside it. The taper's connection is antisymmetric, a rotation of
+    the moving basis, and adds nothing to the diagonal.
+
+    Parameters
+    ----------
+    table : LinearOperator
+        A tabulated operator.
+    z : float
+        Position in m.
+    before : bool
+        Read an edge of ``D`` from the interval ending there.
+    section : int or None
+        The flow's section the position is read in (:func:`flow_weights`).
+
+    Returns
+    -------
+    numpy.ndarray
+        ``D + diag(G)`` in 1/m, canonical layout.
+
+    Raises
+    ------
+    TranslationError
+        For a factored coupled flow, which no backend executes and whose generator
+        diagonal is not read here.
+    """
+    rate = phi_rate(table, z, before=before)
+    flow = table.coupled_flow
+    if flow is None:
+        return rate
+    if flow.generator is None:
+        msg = (
+            "the split temporal collar's crossing limit reads each channel's walk-off "
+            "from a coupled flow's dense generator, and this flow is factored, which "
+            'no backend executes; use absorber_scheme="nonlinear"'
+        )
+        raise TranslationError(msg)
+    diagonal = np.diagonal(flow.generator, axis1=2, axis2=3)  # (i, d, w, m)
+    flat = diagonal.reshape(-1, *diagonal.shape[2:])
+    own = np.tensordot(flow_weights(flow, z, section), flat, axes=1).T
+    return rate + own[None, :, None, :]
 
 
 def unitary_phase(
