@@ -189,6 +189,38 @@ def _overwrite(group: h5py.Group, name: str, data: np.ndarray) -> None:
     group.create_dataset(name, data=data)
 
 
+def _overwrite_text(file: h5py.File, name: str, text: str) -> None:
+    """Write a variable-length string dataset in place, creating it the first time.
+
+    The run's outcome is rewritten at every saved plane. Deleted and created anew,
+    every copy stayed in the file: 1.8 kB a plane, 8 % of the file, on a Multistep run
+    saved step by step. Written in place, HDF5 frees the string it replaces, and the
+    file holds one (measured with h5py 3.15 and 3.16, HDF5 1.14.6 and 2.0.0). A
+    dataset of another shape or type is replaced.
+
+    Parameters
+    ----------
+    file : h5py.File
+        The open file.
+    name : str
+        The dataset's path.
+    text : str
+        What it holds.
+    """
+    if name in file:
+        existing = file[name]
+        if (
+            isinstance(existing, h5py.Dataset)
+            and existing.shape == ()
+            and (string := h5py.check_string_dtype(existing.dtype)) is not None
+            and string.length is None
+        ):
+            existing[()] = text
+            return
+        del file[name]
+    file.create_dataset(name, data=text, dtype=h5py.string_dtype())
+
+
 def _write_march(group: h5py.Group, snapshot: MarchSnapshot) -> None:
     """Store a march snapshot, its position last, so that a torn write reads as none.
 
@@ -1259,12 +1291,8 @@ class HDF5Output(PlaneStore):
         elif _CHECKPOINT_KEY in file:
             del file[_CHECKPOINT_KEY]
         if outcome is not None:
-            if _OUTCOME_KEY in file:
-                del file[_OUTCOME_KEY]
-            file.create_dataset(
-                _OUTCOME_KEY,
-                data=json.dumps(asdict(outcome), sort_keys=True),
-                dtype=h5py.string_dtype(),
+            _overwrite_text(
+                file, _OUTCOME_KEY, json.dumps(asdict(outcome), sort_keys=True)
             )
         file.flush()
 

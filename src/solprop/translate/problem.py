@@ -32,13 +32,15 @@ import json
 import logging
 import math
 import warnings
+import weakref
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, fields, is_dataclass, replace
+from decimal import ROUND_FLOOR, Decimal
 from types import MappingProxyType
 from typing import Any, Literal, cast
 
 import numpy as np
-from jaxtyping import Bool, Complex, Float
+from jaxtyping import Bool, Complex, Float, Num
 
 from solprop._process import host_blas
 from solprop.adiabatic import AdiabaticAccuracy, certify_radial_path
@@ -157,6 +159,7 @@ from solprop.translate.responses import (
     CompiledResponses,
     ResponseStage,
     compile_responses,
+    declares_harmonic_carrier,
     dispersive_regions,
     response_kinks,
     unlanded_kinks,
@@ -205,7 +208,7 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-KERNEL_SCHEMA_VERSION = 42
+KERNEL_SCHEMA_VERSION = 43
 """Version of the kernel contract this module implements.
 
 Incremented on every change to the field list of ``docs/dev/kernel-contract.md``. A
@@ -476,7 +479,13 @@ hybrid planar kind per ``(p, k_y)`` column, which the slab element now takes as 
 ``transverse_rate``. The geometry's ``absorber_rate`` is the design's collar, zero
 without one, and an adaptive run's ``dz_max`` is held to the collar's crossing limit.
 
-Version 42 widens the boundary monitor's reading under the ``"split_step"`` scheme.
+Version 42 lets ``initial.field0`` be strided: a broadcast input is held as a
+zero-stride view of the block it repeats rather than as a full copy, and
+``StepDriver.set_initial`` accepts a state of any strides, copying it contiguous. Every
+other array stays C-contiguous; no ``KernelProblem`` field, stage bundle or
+``StepDriver`` signature moves.
+
+Version 43 widens the boundary monitor's reading under the ``"split_step"`` scheme.
 A backend's ``_boundary_energies`` returns, beside the removal, the energy and the
 guards' and collar's energies of the power the last accepted step's split found,
 halfway through its factor (:attr:`solprop.monitor.BoundaryEnergies.found`), kept by
@@ -556,6 +565,15 @@ that half-planes and quadrants tile the columns (SEP 23 section 4.7), and an ene
 window is a half-open frequency interval whose edges may be infinite, as its manual
 documents. Both are read by the statistics alone, only in comparisons, and never enter
 a kernel's arithmetic. NaN stays refused.
+"""
+
+_STRIDED_LEAVES = frozenset({"initial.field0"})
+"""The leaves that need not be C-contiguous, by dotted name.
+
+The initial state is never indexed by a kernel: a backend takes it through
+``set_initial``, which accepts any strides and copies it into its own state. So it may
+be a zero-stride broadcast view, which the problem keeps instead of a full copy
+(:class:`Initial`; kernel schema 42).
 """
 
 
@@ -711,13 +729,26 @@ class Initial:
     """The initial state, the noise realisation and the batch parameters.
 
     Section 6 of the kernel contract. Both arrays are in the lab frame and the FFT
-    convention, read-only and C-contiguous.
+    convention and read-only; the noise is C-contiguous, and so is the state unless it
+    is a broadcast view.
+
+    Every array is the problem's own, so that nothing the caller does to an array it
+    passed, afterwards, changes the problem, and the caller's array is never frozen:
+
+    - the state, the noise and the batch parameters are copied, complex128 (float64
+      for the parameters), C-contiguous and read-only;
+    - a broadcast state (zero strides, as from :func:`numpy.broadcast_to`) copies only
+      the block it repeats, converted first, and broadcasts that copy, so it costs the
+      block's bytes rather than one state's;
+    - an array the problem already holds, which a replaced or re-translated problem
+      passes back, is taken as it is, and so is one solprop built for the problem
+      itself (``_hold``), so that neither is copied twice.
 
     Attributes
     ----------
     field0 : numpy.ndarray
         Initial state, complex128, shape ``(n_batch, n_modes, n_pol, n_omega)``, in the
-        square root of watts.
+        square root of watts; possibly a read-only broadcast view, never written.
     noise0 : numpy.ndarray or None
         The shot-noise realisation in the same layout, or ``None``. It is carried along
         z by the unitary part of the linear flow and added at every stage; the
@@ -746,6 +777,13 @@ class Initial:
     >>> state = np.zeros((1, 1, 1, 8), dtype=complex)
     >>> Initial(state, None, "none", {}).noise_model
     'none'
+
+    A broadcast input stays a broadcast, over a copy of the row it repeats:
+
+    >>> row = np.ones((1, 1, 1, 8), dtype=complex)
+    >>> held = Initial(np.broadcast_to(row, (4, 1, 1, 8)), None, "none", {}).field0
+    >>> held.shape, held.strides[0], np.shares_memory(held, row)
+    ((4, 1, 1, 8), 0, False)
     """
 
     field0: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]
@@ -755,7 +793,7 @@ class Initial:
     z: float = 0.0
 
     def __post_init__(self) -> None:
-        """Adopt read-only copies and check the noise against the state.
+        """Adopt the state as the class docstring says and check the noise against it.
 
         Raises
         ------
@@ -764,12 +802,10 @@ class Initial:
         """
         if not math.isfinite(self.z) or self.z < 0.0:
             raise TranslationError("initial.z must be finite and non-negative")
-        state = np.ascontiguousarray(self.field0, dtype=np.complex128)
-        state.setflags(write=False)
+        state = _held_state(self.field0)
         object.__setattr__(self, "field0", state)
         if self.noise0 is not None:
-            noise = np.ascontiguousarray(self.noise0, dtype=np.complex128)
-            noise.setflags(write=False)
+            noise = _held_copy(self.noise0, np.complex128)
             object.__setattr__(self, "noise0", noise)
             if noise.shape != state.shape:
                 msg = (
@@ -785,7 +821,10 @@ class Initial:
             raise TranslationError(msg)
         parameters = {}
         for name, values in self.batch_params.items():
-            entry = _readonly(np.asarray(values, dtype=np.float64).reshape(-1))
+            entry = _held_copy(
+                values if _is_held(values) else np.asarray(values).reshape(-1),
+                np.float64,
+            )
             if entry.size != state.shape[0]:
                 msg = (
                     f"batch_params[{name!r}] has {entry.size} entries, expected "
@@ -1047,6 +1086,103 @@ def _readonly(values: np.ndarray) -> np.ndarray:
     return frozen
 
 
+_HELD: weakref.WeakValueDictionary[int, np.ndarray] = weakref.WeakValueDictionary()
+"""The arrays an :class:`Initial` holds as its own, by ``id``.
+
+An array is in it because solprop made it -- a copy :class:`Initial` took, or one the
+translation built for the problem (:func:`_hold`) -- never because of its flags, which
+the owner of an array, or a writeable buffer beneath it, can change. Entries leave with
+their arrays.
+"""
+
+
+def _hold(values: np.ndarray) -> np.ndarray:
+    """Return an array solprop made for a problem, frozen and marked as held.
+
+    Only for an array no one else refers to: a copy, a quotient or a fresh build.
+
+    Parameters
+    ----------
+    values : numpy.ndarray
+        The array.
+
+    Returns
+    -------
+    numpy.ndarray
+        The same array, read-only, which :class:`Initial` takes without a copy.
+    """
+    values.setflags(write=False)
+    _HELD[id(values)] = values
+    return values
+
+
+def _is_held(values: object) -> bool:
+    """Return whether an array is one :func:`_hold` marked.
+
+    Parameters
+    ----------
+    values : object
+        Anything.
+
+    Returns
+    -------
+    bool
+        True for the very array that was marked, while it lives.
+    """
+    return _HELD.get(id(values)) is values
+
+
+def _held_copy(values: np.ndarray, dtype: type[np.generic]) -> np.ndarray:
+    """Return a held, C-contiguous copy of an array, or the array if already held.
+
+    Parameters
+    ----------
+    values : numpy.ndarray
+        The caller's array, or one already held.
+    dtype : type
+        The element type of the copy.
+
+    Returns
+    -------
+    numpy.ndarray
+        Read-only and the problem's own.
+    """
+    if _is_held(values):
+        return values
+    return _hold(np.array(values, dtype=dtype, order="C"))
+
+
+def _held_state(field0: Num[np.ndarray, "*shape"]) -> Complex[np.ndarray, "*shape"]:
+    """Return the initial state as :class:`Initial` holds it, copying only the block.
+
+    Parameters
+    ----------
+    field0 : numpy.ndarray
+        The state the caller passed, of any numeric dtype.
+
+    Returns
+    -------
+    numpy.ndarray
+        Complex128 and read-only: `field0` itself when it is already held; for a
+        broadcast view, a broadcast of a held copy of the block it repeats; otherwise a
+        held C-contiguous copy.
+    """
+    if _is_held(field0):
+        return field0
+    values = np.asarray(field0)
+    repeated = tuple(
+        size > 1 and stride == 0
+        for size, stride in zip(values.shape, values.strides, strict=True)
+    )
+    if not any(repeated):
+        return _held_copy(values, np.complex128)
+    block = _held_copy(
+        values[tuple(slice(0, 1) if axis else slice(None) for axis in repeated)],
+        np.complex128,
+    )
+    return _hold(np.broadcast_to(block, values.shape))
+
+
 @dataclass(frozen=True, eq=False)
 class KernelProblem:
     """Everything a backend needs, and nothing it does not.
@@ -1110,7 +1246,7 @@ class KernelProblem:
     ...     dz_max=0.1, dz_init=1e-3, shock=False, prefactor_index=1.0, density=1.0,
     ... )
     >>> problem.shape, problem.grid_kind, problem.schema_version
-    ((1, 1, 1, 3072), 'envelope', 42)
+    ((1, 1, 1, 3072), 'envelope', 43)
     """
 
     schema_version: int
@@ -1177,7 +1313,8 @@ class KernelProblem:
 
         A backend calls this and refuses anything inconsistent
         (``docs/dev/architecture.md`` section 7). What is checked: the schema version;
-        every array finite, C-contiguous, read-only and of the stated dtype and shape;
+        every array finite, read-only, of the stated dtype and shape, and C-contiguous
+        but for the initial state, which may be a broadcast view (:class:`Initial`);
         the masks Boolean; the breakpoints strictly increasing and covering the run
         including its margin; the hard kinks interval edges; every table along z
         spanning the same range and, for the prefactor, carrying the state's value
@@ -1524,13 +1661,15 @@ class KernelProblem:
     def _check_arrays(self) -> None:
         """Check every stored array is finite, contiguous, read-only and typed.
 
+        The initial state alone may be strided (:data:`_STRIDED_LEAVES`).
+
         Raises
         ------
         TranslationError
             Naming the field that failed.
         """
         for name, values in _walk_arrays(self):
-            if not values.flags.c_contiguous:
+            if not values.flags.c_contiguous and name not in _STRIDED_LEAVES:
                 msg = f"{name} is not C-contiguous; a kernel indexes it directly"
                 raise TranslationError(msg)
             if values.flags.writeable:
@@ -1836,15 +1975,22 @@ class KernelProblem:
         )
         if longest <= limit:
             return
+        printed = _printed_down(limit)
+        advice = (
+            _history_replay_advice(printed, split_step=True, integrator=True)
+            if schedule is not None
+            else ""
+        )
         msg = (
             f"{source} is {longest:.3e} m and the temporal collar is stable in the "
-            f"nonlinear absorber scheme only up to {limit:.3e} m: the collar reaches "
+            f"nonlinear absorber scheme only up to {printed} m: the collar reaches "
             f"{float(np.max(rate)):.3e} 1/m, and an explicit method needs "
             f"h alpha / 2 below {radius}, so the run would diverge. "
             "Take shorter steps, weaken the collar with a larger boundary_length, "
             f"{self._runge_kutta_advice()}or "
             'ask for absorber_scheme="split_step", which integrates the rate exactly '
             "and is unconditionally stable at the cost of first-order convergence."
+            f"{advice}"
         )
         raise TranslationError(msg)
 
@@ -1987,13 +2133,19 @@ class KernelProblem:
             self.stepper.dz_min if schedule is None else float(np.max(schedule.steps))
         )
         if longest > limit:
+            printed = _printed_down(limit)
+            advice = (
+                _history_replay_advice(printed, split_step=False, integrator=True)
+                if schedule is not None
+                else ""
+            )
             msg = (
                 f"the fixed step or step floor {longest:.3e} m exceeds the spatial "
-                f"collar stability limit {limit:.3e} m (effective power rate at most "
+                f"collar stability limit {printed} m (effective power rate at most "
                 f"{largest:.3e} 1/m). Take shorter steps, "
                 f"{self._runge_kutta_advice()}or widen the collar (a larger "
                 "collar_fraction designs a weaker one); the spatial absorber is "
-                "always in-stage and cannot use split_step."
+                f"always in-stage and cannot use split_step.{advice}"
             )
             raise TranslationError(msg)
 
@@ -2022,12 +2174,14 @@ class KernelProblem:
             (crossing, "the collar-crossing limit"), (damping, "the damping bound")
         )
         if longest > bound:
+            printed = _printed_down(bound)
+            advice = _history_replay_advice(printed, split_step=False, integrator=False)
             msg = (
                 f"the fixed schedule's longest step {longest:.3e} m exceeds {name} of "
-                f"the requested collar, {bound:.3e} m (SEP 40 section 4.7): a step "
+                f"the requested collar, {printed} m (SEP 40 section 4.7): a step "
                 "that long could carry the protected band across the collar unseen or "
                 "damp it inaccurately. Take shorter steps, or an adaptive run, which "
-                "the crossing limit holds"
+                f"the crossing limit holds.{advice}"
             )
             raise TranslationError(msg)
 
@@ -5909,28 +6063,31 @@ def _state(
     Returns
     -------
     numpy.ndarray
-        The state with four axes, complex128.
+        The state with four axes, complex128, the problem's own: copied once here as
+        :class:`Initial` holds it, so that it is not copied again there.
 
     Raises
     ------
     TranslationError
         If the array has neither three nor four axes or the grid extent differs.
     """
-    values = np.asarray(field0, dtype=np.complex128)
+    values = np.asarray(field0)
     if values.ndim in (3, 4) and values.shape[-1] != n_omega:
         raise TranslationError(
             f"field0 has {values.shape[-1]} spectral bins, expected {n_omega} "
             "to match the grid"
         )
     if values.ndim == 3:
-        return values[np.newaxis]
+        expanded = values[np.newaxis]
+        # The batch axis on a held state is a view of the problem's own array.
+        return _hold(expanded) if _is_held(values) else _held_state(expanded)
     if values.ndim != 4:
         msg = (
             "field0 must have shape (n_modes, n_pol, n_omega) or (n_batch, n_modes, "
             f"n_pol, n_omega), got {values.shape}"
         )
         raise TranslationError(msg)
-    return values
+    return _held_state(values)
 
 
 def _material_mixture(
@@ -6133,6 +6290,140 @@ def _stepper_settings(
     )
 
 
+def _printed_down(value: float) -> str:
+    """Return a positive limit in the ``.3e`` form, rounded down rather than to nearest.
+
+    A refusal prints the step a caller has to stay under, so the printed number must
+    not exceed the limit itself: ``5.2386e-03`` prints as ``5.238e-03``, where rounding
+    to nearest would give ``5.239e-03``, a step the check still refuses. The decimal
+    expansion of the double is exact, so the floor is too.
+
+    Parameters
+    ----------
+    value : float
+        The limit, positive and finite.
+
+    Returns
+    -------
+    str
+        Four significant digits, as ``f"{value:.3e}"`` writes them, never above `value`.
+    """
+    exact = Decimal(value)
+    exponent = exact.adjusted()
+    mantissa = exact.scaleb(-exponent).quantize(Decimal("0.001"), rounding=ROUND_FLOOR)
+    return f"{mantissa}e{exponent:+03d}"
+
+
+def _history_replay_advice(printed: str, *, split_step: bool, integrator: bool) -> str:
+    """Return the remedies for replaying an adaptive run's own step history.
+
+    An adaptive run is not held to a fixed schedule's limits: an empty collar produces
+    no error, and a requested spatial collar holds an adaptive step only to its
+    crossing limit, so its accepted steps can be longer than a replay may take, and
+    a schedule read from them
+    (:meth:`solprop.stepper.schedule.FixedSchedule.from_history`) is then refused.
+    Capping the discovery run with ``dz_max`` under the limit always replays; the
+    split temporal collar lifts the temporal collar's limit alone.
+
+    Parameters
+    ----------
+    printed : str
+        The limit as the refusal prints it, rounded down, m.
+    split_step : bool
+        Whether ``absorber_scheme="split_step"`` lifts the limit, as it does the
+        temporal collar's.
+    integrator : bool
+        Whether the limit is a stability limit, which depends on the integrator.
+
+    Returns
+    -------
+    str
+        Sentences, starting with a space, naming the remedies.
+    """
+    split = (
+        'either give absorber_scheme="split_step" to both the discovery run and '
+        "the replay, or "
+        if split_step
+        else ""
+    )
+    method = (
+        " The limit is the replay's integrator's, so run the discovery with that "
+        "integrator."
+        if integrator
+        else ""
+    )
+    return (
+        " To replay an adaptive run's own steps (FixedSchedule.from_history), "
+        f"{split}hold the discovery run below this limit with dz_max at or under "
+        f"{printed} m and replay its history.{method}"
+    )
+
+
+def _check_harmonic_frame(harmonic: bool, compiled: CompiledResponses) -> None:
+    """Check the frame's harmonic rule against the compiled carrier.
+
+    The frame is chosen before anything compiles, from
+    :func:`solprop.translate.responses.declares_harmonic_carrier`; the operator it
+    writes is right only if the compiled pass agrees on whether it carries the
+    harmonic (:attr:`solprop.translate.responses.CompiledResponses.harmonic_carrier`).
+
+    Parameters
+    ----------
+    harmonic : bool
+        What the declared responses said.
+    compiled : solprop.translate.responses.CompiledResponses
+        The compiled responses.
+
+    Raises
+    ------
+    TranslationError
+        If the two disagree, an internal inconsistency that no input should reach.
+    """
+    if compiled.harmonic_carrier != harmonic:
+        msg = (
+            "internal inconsistency: the frame was chosen for "
+            f"{'a' if harmonic else 'no'} third-harmonic carrier "
+            "(declares_harmonic_carrier), but the compiled responses "
+            f"{'do not carry' if harmonic else 'carry'} one, so the linear operator "
+            "would be written in the wrong frame"
+        )
+        raise TranslationError(msg)
+
+
+def _refuse_carrier_removing_frame(frame: Frame | None, harmonic: bool) -> None:
+    """Refuse a frame that removes ``beta_0`` beside the third harmonic's carrier.
+
+    Removing ``beta_0``, and measuring the delay from ``omega_0`` with it, takes a
+    constant phase rate out of the envelope that the harmonic term's
+    ``A**3 exp(2 i omega_0 t)`` does not share, so the harmonic would be driven with a
+    spurious mismatch (:class:`solprop.linear.Frame`,
+    :func:`solprop.linear.frame_origin`).
+
+    Parameters
+    ----------
+    frame : solprop.linear.Frame or None
+        The frame the caller gave, or ``None`` for the co-moving one.
+    harmonic : bool
+        Whether the declared responses compile the harmonic carrier
+        (:func:`solprop.translate.responses.declares_harmonic_carrier`).
+
+    Raises
+    ------
+    TranslationError
+        Naming ``subtract_beta0``, if `frame` removes ``beta_0`` beside the harmonic.
+    """
+    if frame is not None and frame.subtract_beta0 and harmonic:
+        msg = (
+            "a frame with subtract_beta0=True was given beside a third-harmonic term "
+            "on an envelope grid: the harmonic's exp(2i omega0 t) carrier is tied to "
+            "the whole carrier phase, so removing beta_0 would drive it with a "
+            "spurious phase mismatch. Give "
+            "Frame(omega0, subtract_beta0=False), or leave frame=None for "
+            "Frame.comoving, which keeps beta_0 here"
+        )
+        raise TranslationError(msg)
+
+
 @host_blas()
 def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a run
     grid: TimeGrid,
@@ -6226,7 +6517,9 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
     frame : solprop.linear.Frame or None, optional
         The co-moving frame. ``None`` builds
         :meth:`solprop.linear.Frame.comoving` for the grid, keeping ``beta_0`` when a
-        third-harmonic Kerr term is present on an envelope grid.
+        third-harmonic term is present on an envelope grid
+        (:func:`solprop.translate.responses.declares_harmonic_carrier`). A frame given
+        with ``subtract_beta0=True`` beside that term is refused.
     loss : solprop.linear.LossPolicy, optional
         What to do with an attenuation too large to represent.
     absorber : solprop.boundaries.Absorber or None, optional
@@ -6376,8 +6669,9 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
     Raises
     ------
     TranslationError
-        If a response cannot be compiled, an argument is out of range, or the assembled
-        problem fails :meth:`KernelProblem.validate`.
+        If a response cannot be compiled, an argument is out of range, a frame that
+        removes ``beta_0`` is given beside a third-harmonic term on an envelope grid,
+        or the assembled problem fails :meth:`KernelProblem.validate`.
 
     Examples
     --------
@@ -6475,8 +6769,9 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
         raise TranslationError(msg)
     _refuse_planes_at_jumps(medium, planes)
 
-    thg = any(getattr(one, "thg", False) for one in responses)
-    working_frame = frame if frame is not None else Frame.comoving(grid, thg=thg)
+    harmonic = declares_harmonic_carrier(responses, grid)
+    _refuse_carrier_removing_frame(frame, harmonic)
+    working_frame = frame if frame is not None else Frame.comoving(grid, thg=harmonic)
     build = _Assembly(
         quadrature=quadrature,
         components=components,
@@ -6572,6 +6867,9 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
             reuse_prefactor=None if reuse is None else reuse.prefactor_expansion,
             reuse_raman=None if reuse is None else reuse.raman_undamped,
         )
+    # The frame above was chosen from the declared responses; the operator it wrote is
+    # only right if the compiled pass agrees on whether it carries the harmonic.
+    _check_harmonic_frame(harmonic, compiled)
     # SEP 6, section 4.10: classified once, at translation, on the whole active band;
     # a field reaching beyond a gas's support is logged here and never refused.
     dispersive_regions(responses, grid, vector=transform.n_pol * n_pol > 1)
@@ -6704,7 +7002,7 @@ def debug_summary(problem: KernelProblem) -> str:
     ...     width=100e-15, peak_power=9.8, shape="sech", n_save=3,
     ... )
     >>> print(debug_summary(simulation.translate()).splitlines()[0])
-    kernel problem schema 42: envelope grid, route modal
+    kernel problem schema 43: envelope grid, route modal
     """
     linear, transform = problem.linear, problem.transform
     tables, metric = transform.modal_tables, linear.modal_metric
@@ -6798,10 +7096,13 @@ def _power_initial(
     """
     if linear.power_weight_representation is not None and index != 1.0:
         root_weight = np.sqrt(power_weight_row(linear, initial.z))
+        # The quotients are the problem's own, held without a second copy.
         initial = replace(
             initial,
-            field0=initial.field0 / root_weight,
-            noise0=None if initial.noise0 is None else initial.noise0 / root_weight,
+            field0=_hold(initial.field0 / root_weight),
+            noise0=None
+            if initial.noise0 is None
+            else _hold(initial.noise0 / root_weight),
         )
     if (
         reused is not None

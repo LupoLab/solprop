@@ -132,7 +132,9 @@ class CallLedger:
     dense_observations : int
         Save planes observed by interpolation instead of a landing; none costs a call.
     orders : list of int
-        The predictor order of every accepted step.
+        The predictor order of every accepted step. Its record
+        (:meth:`to_record`) run-length encodes it, as ``[order, count]`` pairs: a
+        run's order settles, and the record is rewritten at every saved plane.
     """
 
     startup: int = 0
@@ -146,6 +148,53 @@ class CallLedger:
     dense_observations: int = 0
     orders: list[int] = field(default_factory=list)
 
+    def __post_init__(self) -> None:
+        """Start the record's encoding of the orders empty."""
+        # The encoded runs of `orders[:_encoded]`, of the list `_source`: the record
+        # is rewritten at every saved plane, and re-encoding every step's order each
+        # time made a run saved step by step quadratic in its steps.
+        self._source: list[int] | None = None
+        self._runs: list[list[int]] = []
+        self._encoded = 0
+
+    def to_record(self) -> dict[str, object]:
+        """Return the ledger as its run record holds it, the orders run-length encoded.
+
+        The encoding is extended from the orders appended since the last record. A
+        list of orders that was replaced, or shortened, is encoded afresh.
+
+        Returns
+        -------
+        dict
+            Every counter by name, and ``orders`` as ``[order, count]`` pairs, in
+            step order, no two neighbours of the same order.
+
+        Examples
+        --------
+        >>> from solprop.backends.multistep import CallLedger
+        >>> CallLedger(accepted_steps=5, orders=[1, 2, 2, 3, 3]).to_record()["orders"]
+        [[1, 1], [2, 2], [3, 2]]
+        """
+        orders, runs = self.orders, self._runs
+        if (
+            orders is not self._source
+            or len(orders) < self._encoded
+            or (self._encoded and orders[self._encoded - 1] != runs[-1][0])
+        ):
+            self._source, runs, self._encoded = orders, [], 0
+            self._runs = runs
+        for order in orders[self._encoded :]:
+            if runs and runs[-1][0] == order:
+                runs[-1][1] += 1
+            else:
+                runs.append([order, 1])
+        self._encoded = len(orders)
+        record: dict[str, object] = {
+            name: getattr(self, name) for name in _LEDGER_FIELDS
+        }
+        record["orders"] = [list(run) for run in runs]
+        return record
+
     @classmethod
     def from_record(cls, record: Mapping[str, object]) -> "CallLedger":  # noqa: UP037 - runtime hook
         """Restore validated cumulative counts without restoring numerical history.
@@ -153,35 +202,38 @@ class CallLedger:
         Parameters
         ----------
         record : mapping
-            Persisted counter fields and accepted predictor orders.
+            Persisted counter fields and accepted predictor orders, as
+            :meth:`to_record` writes them.
 
         Returns
         -------
         CallLedger
-            Independently owned counters.
+            Independently owned counters, the orders decoded step by step.
 
         Raises
         ------
         BackendError
-            If a counter is absent, unknown, negative or not an integer.
+            If a counter is absent, unknown, negative or not an integer, an order run
+            is not a pair of positive integers, or the runs do not count one order
+            per accepted step.
+
+        Examples
+        --------
+        >>> from solprop.backends.multistep import CallLedger
+        >>> ledger = CallLedger(accepted_steps=3, orders=[1, 2, 2])
+        >>> CallLedger.from_record(ledger.to_record()) == ledger
+        True
         """
-        if set(record) != {one.name for one in fields(cls)}:
+        if set(record) != set(_LEDGER_FIELDS):
             raise BackendError("logical call ledger fields do not match this schema")
         ledger = cls()
         for name, value in record.items():
             if name == "orders":
-                if not isinstance(value, list) or not all(
-                    isinstance(one, int) and not isinstance(one, bool) and one > 0
-                    for one in value
-                ):
-                    raise BackendError(
-                        "logical call ledger orders must be positive integers"
-                    )
-                ledger.orders = list(value)
-            elif not isinstance(value, int) or isinstance(value, bool) or value < 0:
+                continue
+            if not isinstance(value, int) or isinstance(value, bool) or value < 0:
                 raise BackendError(f"invalid logical call counter {name}")
-            else:
-                setattr(ledger, name, value)
+            setattr(ledger, name, value)
+        ledger.orders = _decoded_orders(record["orders"], ledger.accepted_steps)
         return ledger
 
     @property
@@ -194,6 +246,68 @@ class CallLedger:
             Startup, predictor and corrected evaluations together.
         """
         return self.startup + self.predictor + self.corrected
+
+
+_LEDGER_FIELDS = tuple(one.name for one in fields(CallLedger))
+"""The counters and the orders a ledger's record holds, in field order."""
+
+
+def _decoded_orders(runs: object, steps: int) -> list[int]:
+    """Return the order of every accepted step from its run-length record.
+
+    Parameters
+    ----------
+    runs : object
+        The record's ``orders``: ``[order, count]`` pairs of positive integers.
+    steps : int
+        The record's accepted steps, each of which recorded one order.
+
+    Returns
+    -------
+    list of int
+        The orders, one per accepted step.
+
+    Raises
+    ------
+    BackendError
+        If ``runs`` is not a list of such pairs, naming the flat list of orders an
+        earlier development build wrote under the same output schema, or if its
+        counts do not add up to `steps`.
+    """
+    if (
+        isinstance(runs, list)
+        and runs
+        and all(isinstance(one, int) and not isinstance(one, bool) for one in runs)
+    ):
+        # Development builds between two releases share the output schema, and
+        # those before the encoding wrote one order per step (#80). Read as pairs,
+        # such a list would be refused for its shape alone; it is named instead.
+        raise BackendError(
+            "the record's predictor orders are in the flat form an earlier "
+            "development build wrote, one order per step, not the [order, count] "
+            "pairs this build reads: rerun the case, or read it with that build"
+        )
+    if not isinstance(runs, list) or not all(
+        isinstance(run, list)
+        and len(run) == 2
+        and all(
+            isinstance(one, int) and not isinstance(one, bool) and one > 0
+            for one in run
+        )
+        for run in runs
+    ):
+        raise BackendError(
+            "logical call ledger orders must be [order, count] pairs of positive "
+            "integers"
+        )
+    # Checked before the expansion, which the counts bound.
+    counted = sum(count for _, count in runs)
+    if counted != steps:
+        raise BackendError(
+            f"logical call ledger orders count {counted} steps, and the ledger "
+            f"{steps} accepted steps"
+        )
+    return [order for order, count in runs for _ in range(count)]
 
 
 @dataclass

@@ -258,7 +258,10 @@ draw again. Schema 41 (solprop SEP 40) adds ``KernelProblem.transverse``, the re
 transverse boundary, and ``reads_transverse_edge``: this backend carries the safety ramp
 and a requested collar in its operators, reads the transverse edge on the host from its
 state, and its Adams march holds its steps to the edge's next read and stops there.
-Schema 42 widens ``_boundary_energies`` under the split scheme: this backend's finish
+Schema 42 lets the problem's initial state be strided, a broadcast view of the block it
+repeats: ``set_initial`` takes a field of any strides, which the driver's load copies
+contiguous before it crosses.
+Schema 43 widens ``_boundary_energies`` under the split scheme: this backend's finish
 also sums the energy and the guards' and collar's energies of the power each step's
 split finds, halfway through its factor, and its reading returns them, ten numbers
 where there were six.

@@ -86,7 +86,7 @@ def test_build_info_is_frozen_and_complete() -> None:
     assert dataclasses.is_dataclass(info)
     with pytest.raises(dataclasses.FrozenInstanceError):
         info.thread_count = 99  # type: ignore[misc]
-    assert info.schema_version == 42
+    assert info.schema_version == 43
     assert info.response_full_thread_columns > 0
     assert (
         info.response_full_thread_columns
@@ -243,7 +243,7 @@ def test_module_entry_point_prints_one_json_record() -> None:
     assert completed.returncode == 0, completed.stderr
     lines = completed.stdout.splitlines()
     assert len(lines) == 1
-    assert json.loads(lines[0])["schema_version"] == 42
+    assert json.loads(lines[0])["schema_version"] == 43
 
 
 @pytest.mark.parametrize(
@@ -512,8 +512,12 @@ def test_initial_array_contract(
             )
         with pytest.raises(ValueError, match="rank 4"):
             backend.set_initial(writable_initial.reshape(-1), None)
-        with pytest.raises(ValueError, match="C-contiguous"):
-            backend.set_initial(writable_initial[..., ::-1], None)
+        # Any strides load as their contiguous copy, bit for bit: the load copies.
+        strided = writable_initial[..., ::-1]
+        backend.set_initial(strided, None)
+        loaded = backend.observe().require_field()
+        backend.set_initial(np.ascontiguousarray(strided), None)
+        np.testing.assert_array_equal(loaded, backend.observe().require_field())
         read_only = writable_initial.copy()
         read_only.setflags(write=False)
         backend.set_initial(read_only, None)

@@ -16,6 +16,7 @@ from __future__ import annotations
 import dataclasses
 import math
 import warnings
+from collections.abc import Mapping
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
@@ -24,6 +25,7 @@ import numpy as np
 import pytest
 
 from runtime_types import unchecked
+from solprop.backends.multistep import CallLedger
 from solprop.backends.registry import available
 from solprop.constants import C
 from solprop.driver import Simulation, SimulationSettings, prop_gnlse
@@ -42,7 +44,7 @@ from solprop.monitor import (
     BoundaryMonitor,
 )
 from solprop.nonlinear.responses import KerrResponse
-from solprop.output import MemoryOutput
+from solprop.output import MemoryOutput, open_file, schema
 from solprop.output.hdf5 import resume
 from solprop.output.scan import read_point
 from solprop.output.schema import (
@@ -416,21 +418,85 @@ def test_a_stopped_run_s_record_carries_the_plane_rows() -> None:
     assert record["planes"]["z"][0] == 0.0
 
 
-def test_the_file_grows_linearly_with_its_planes(tmp_path: Path) -> None:
-    # Eight times the planes: the bytes per plane do not grow with them.
+_FIBRE: dict[str, Any] = {
+    "wavelength": 835e-9,
+    "wavelength_limits": (500e-9, 2e-6),
+    "trange": 1e-12,
+    "width": 100e-15,
+    "peak_power": 9.8,
+    "shape": "sech",
+    "seed": 1,
+    "progress": "none",
+    "backend": "numpy_ref",
+}
+"""The soliton fibre of the file-size tests, but for its planes and its stepper."""
+
+
+def _saved_planes(path: Path, **settings: Any) -> int:
+    """Run the fibre into `path` and return how many planes the file holds."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", BoundaryWarning)
+        prop_gnlse(
+            0.11, 0.05, [0.0, 0.0, -1.183e-26], output=path, **_FIBRE, **settings
+        )
+    with open_file(path) as stored:
+        return stored.n_saved
+
+
+@pytest.mark.parametrize(
+    "runs",
+    [
+        pytest.param([{"n_save": 50}, {"n_save": 400}], id="runge-kutta"),
+        # Every step a plane (707 and 1609 of them), on the capillary's default stepper,
+        # whose call ledger records an order per step. Before the ledger's orders were
+        # run-length encoded and the record written in place, the bytes per plane grew
+        # by 10 % between the two, 23.8 kB to 26.1 kB, and by 33 % at 3479 planes.
+        pytest.param(
+            [
+                {"n_save": 2, "step_planes": 1, "integrator": Multistep(), "rtol": rtol}
+                for rtol in (1e-5, 1e-7)
+            ],
+            id="multistep-step-planes",
+            marks=pytest.mark.medium,
+        ),
+    ],
+)
+def test_the_file_grows_linearly_with_its_planes(
+    tmp_path: Path, runs: list[dict[str, Any]]
+) -> None:
+    # Over twice the planes: the bytes per plane do not grow with them.
     per_plane = []
-    for n_save in (50, 400):
-        path = tmp_path / f"run_{n_save}.h5"
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", BoundaryWarning)
-            prop_gnlse(
-                0.11, 0.05, [0.0, 0.0, -1.183e-26], wavelength=835e-9,
-                wavelength_limits=(500e-9, 2e-6), trange=1e-12, width=100e-15,
-                peak_power=9.8, shape="sech", n_save=n_save, seed=1,
-                progress="none", output=path, backend="numpy_ref",
-            )  # fmt: skip
-        per_plane.append(path.stat().st_size / n_save)
+    for index, settings in enumerate(runs):
+        path = tmp_path / f"run_{index}.h5"
+        planes = _saved_planes(path, **settings)
+        per_plane.append(path.stat().st_size / planes)
     assert per_plane[1] < 1.05 * per_plane[0]
+
+
+def test_a_saved_plane_validates_its_record_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The driver builds the record once a plane, and the store amends it with what it
+    # has already validated -- its earlier executions -- rather than checking the whole
+    # record again: one JSON round trip a plane, not nine.
+    validate = schema._outcome_record
+    validated: list[Mapping[str, object]] = []
+
+    def counted(record: Mapping[str, object]) -> dict[str, object]:
+        validated.append(record)
+        return validate(record)
+
+    monkeypatch.setattr(schema, "_outcome_record", counted)
+    output = _Recording()
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", BoundaryWarning)
+        prop_gnlse(
+            0.11, 0.05, [0.0, 0.0, -1.183e-26], output=output, n_save=6,
+            integrator=Multistep(), **_FIBRE,
+        )  # fmt: skip
+    assert output.outcome is not None and output.outcome.status == "complete"
+    assert len(output.records) > 6
+    assert len(validated) == len(output.records)
 
 
 class _CrashError(RuntimeError):
@@ -1213,7 +1279,9 @@ def test_a_resting_collar_frees_the_adams_order() -> None:
     held = capillary(BoundaryCheck())
     freed = capillary(BoundaryCheck(quiet_collar=True))
     orders = {
-        name: cast("dict[str, Any]", run.outcome.execution)["response_calls"]["orders"]
+        name: CallLedger.from_record(
+            cast("dict[str, Any]", run.outcome.execution)["response_calls"]
+        ).orders
         for name, run in (("held", held), ("freed", freed))
         if isinstance(run, PlaneStore) and run.outcome is not None
     }

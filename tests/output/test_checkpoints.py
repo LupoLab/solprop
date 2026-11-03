@@ -5,6 +5,7 @@
 """Preserve terminal states and accounting independently of regular observations."""
 
 import dataclasses
+from typing import Any, cast
 
 import h5py
 import numpy as np
@@ -23,6 +24,7 @@ from solprop.output import (
     open_file,
     resume,
 )
+from solprop.output.hdf5 import _dataset
 from solprop.output.schema import (
     StepStats,
     _example_metadata,
@@ -237,6 +239,78 @@ def test_execution_records_own_json_values_and_keep_resume_history(metadata, tmp
         assert stored.outcome.execution == {"device": "cuda"}
         assert len(stored.outcome.previous_executions) == 1
         assert stored.outcome.previous_executions[0]["execution"] == outcome.execution
+
+
+def test_each_recorded_outcome_owns_its_resume_entry_and_history(metadata):
+    # The store amends each outcome with parts it validated once; each outcome still
+    # holds its own copy, so a change to one read back reaches no other.
+    memory = MemoryOutput()
+    memory.open(metadata)
+    memory.record_resume({"from_z": 0.1, "forced": False, "numerics": {}})
+    memory.record_outcome(RunOutcome("failed", 0.1, message="stopped"))
+    memory.record_outcome(RunOutcome("running", 0.1))
+    first = memory.outcome
+    memory.record_outcome(RunOutcome("running", 0.2))
+    second = memory.outcome
+    assert first is not None and second is not None and first is not second
+    cast("dict[str, Any]", first.execution["resume"])["from_z"] = 9.0
+    cast("dict[str, Any]", first.previous_executions[0])["message"] = "changed"
+    assert cast("dict[str, Any]", second.execution["resume"])["from_z"] == 0.1
+    assert second.previous_executions[0]["message"] == "stopped"
+
+
+@pytest.mark.parametrize("value", [float("nan"), object()], ids=["nan", "object"])
+@pytest.mark.parametrize(
+    "name", ["logical_calls", "atomic_calls", "execution", "previous_executions"]
+)
+def test_an_outcome_that_is_not_finite_json_names_the_part(name, value):
+    # The record is validated whole, once; only its failure checks the parts alone,
+    # and the error names the one that failed, whichever it is.
+    bad = {"value": value}
+    with pytest.raises(OutputError, match=rf"finite JSON values: .*'s {name} holds"):
+        if name == "logical_calls":
+            RunOutcome("failed", 0.0, logical_calls=bad)
+        elif name == "atomic_calls":
+            RunOutcome("failed", 0.0, atomic_calls=bad)
+        elif name == "execution":
+            RunOutcome("failed", 0.0, execution=bad)
+        else:
+            RunOutcome("failed", 0.0, previous_executions=(bad,))
+
+
+def _string_length(dataset: h5py.Dataset) -> int | None:
+    """Return a string dataset's fixed length, or ``None`` for a variable one."""
+    string = h5py.check_string_dtype(dataset.dtype)
+    assert string is not None
+    return string.length
+
+
+def test_an_outcome_dataset_of_another_type_is_replaced_and_reads_back(
+    metadata, tmp_path
+):
+    # The outcome is written in place when it is a variable-length string; a file
+    # whose outcome was stored another way, by hand, has it replaced by one.
+    path = tmp_path / "fixed.h5"
+    with HDF5Output(path) as handler:
+        handler.open(metadata)
+        handler.save(plane(metadata, 0.0))
+        handler.record_outcome(RunOutcome("running", 0.0))
+    with h5py.File(path, "r+") as file:
+        text = _dataset(file, "meta/outcome").asstr()[()]
+        del file["meta/outcome"]
+        file.create_dataset("meta/outcome", data=np.bytes_(text))
+        assert _string_length(_dataset(file, "meta/outcome")) == len(text)
+    with HDF5Output(path, append=True) as handler:
+        handler.open(metadata)
+        handler.record_outcome(RunOutcome("complete", 0.0, message="replaced"))
+    with h5py.File(path, "r") as file:
+        stored = _dataset(file, "meta/outcome")
+        assert stored.shape == ()
+        assert _string_length(stored) is None
+    with open_file(path) as handler:
+        assert handler.outcome is not None
+        assert handler.outcome.status == "complete"
+        assert handler.outcome.message == "replaced"
 
 
 @pytest.mark.parametrize("z", [-1.0, np.nan, np.inf])

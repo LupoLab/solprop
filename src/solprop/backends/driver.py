@@ -27,6 +27,7 @@ import logging
 import math
 import time
 from abc import ABC, abstractmethod
+from collections import deque
 from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Literal, TypeVar, cast
 
@@ -359,7 +360,11 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         self._proposal = problem.stepper.dz_init
         self._schedule_index = 0
         self._closed = False
-        self._accepted_norms: list[float] = []
+        # The controller reads one norm a fixed lag back, and the one before it
+        # (`PIController.propose`): a run keeps only those, not one per step.
+        self._accepted_norms: deque[float] = deque(
+            maxlen=problem.stepper.controller.lag + 2
+        )
         # Dense output (SEP 14 phase 3): the last accepted step that crossed a plane,
         # as its anchor, length and extension coefficients, and the march's own
         # position and host state while an interpolated plane is observed.
@@ -879,7 +884,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         if self._problem.responses.plasma_channels:
             record["plasma_source"] = plasma_source_record(self._problem.grids)
         if self._adams is not None:
-            record["response_calls"] = dataclasses.asdict(self._adams.ledger)
+            record["response_calls"] = self._adams.ledger.to_record()
         if self._low_storage is not None:
             record["source_evaluations"] = self._low_storage.source_evaluations
         elif self._adams is None:
@@ -1224,7 +1229,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         self._z = position
         self._proposal = self._problem.stepper.dz_init
         self._schedule_index = self._schedule_index_at(position)
-        self._accepted_norms = []
+        self._accepted_norms.clear()
         self._history = []
         self._natural_count = 0
         self._natural_due = False
