@@ -103,6 +103,7 @@ from solprop.output.schema import (
     StepHistory,
     StepStats,
     TerminalCheckpoint,
+    refuse_continuing,
 )
 
 __all__ = [
@@ -1338,6 +1339,7 @@ class HDF5Output(PlaneStore):
         file = self._file
         if self._append_mode:
             stored = RunMetadata.from_json(_read_json(file))
+            refuse_continuing(stored.schema_version)
             if not self._gated:
                 comparison = stored.compare(metadata)
                 if not comparison.continues:
@@ -1948,6 +1950,7 @@ def _compare_cache(
         logger.debug("no cache at %s; starting from the beginning", path)
         return None
     stored, _ = _stored_metadata(path)
+    refuse_continuing(stored.schema_version)
     _check_plasma_benchmark(stored)
     _check_accessors(path, stored, metadata)
     return stored, stored.compare(metadata)
@@ -2263,6 +2266,7 @@ def resume(path: Path | str) -> ResumeState:
     2
     """
     metadata, _ = _stored_metadata(path)
+    refuse_continuing(metadata.schema_version)
     _check_plasma_benchmark(metadata)
     with h5py.File(path, "r") as file:
         checkpoint = _read_checkpoint(file, metadata)

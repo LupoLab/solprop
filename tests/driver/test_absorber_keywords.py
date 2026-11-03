@@ -279,6 +279,7 @@ def test_absorber_false_clears_a_custom_rate_with_the_total():
     settings = SimulationSettings(
         save_planes=[1e-3],
         dz_max=1e-3,
+        dz_init=1e-6,
         controller=PIController(rtol=1e-6, atol=1e-12),
         absorber=custom_absorber(grid, 3.0),
     )

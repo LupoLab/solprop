@@ -1764,6 +1764,14 @@ Withdrawn (development-process record, not a design decision).
   are not compatible with one another, and a known difference between them is refused
   by name rather than read two ways (#80, the Multistep ledger's run-length encoded
   orders, folded into schema 2).
+- **Amendment, the fifth `absorbed_power` column** (2026-11-03, with #231): the column
+  bumps the output schema, and files of the schema before it are read without being
+  continued (`solprop.output.schema.READABLE_SCHEMAS`, `refuse_continuing`), an exception
+  to ADR-058's refusal of every other schema. That schema has not been released, so this
+  departs from the amendment above, which would fold the change into it: the plan for #231
+  asked for the bump and for four-column files to keep reading, and the departure is for
+  the maintainer to confirm at review. A record that leaves out an unset optional
+  extension (`record_none=False`) is the one exception to "every field is still recorded".
 
 ## ADR-064 — `numba_cpu` is retired: no Tier 2, and the documentation lane runs on the wheel
 

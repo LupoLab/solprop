@@ -541,11 +541,11 @@ def test_metadata_hash_changes_with_any_physics_field(
 
 
 def test_the_output_schema_is_the_current_one(envelope_grid, stepper):
-    assert SCHEMA_VERSION == 2
+    assert SCHEMA_VERSION == 3
     metadata = make_metadata(envelope_grid, stepper)
-    assert metadata.schema_version == 2
-    assert metadata.hashed()["schema_version"] == 2
-    assert json.loads(metadata.to_json())["schema_version"] == 2
+    assert metadata.schema_version == 3
+    assert metadata.hashed()["schema_version"] == 3
+    assert json.loads(metadata.to_json())["schema_version"] == 3
 
 
 @pytest.mark.parametrize(
@@ -561,7 +561,8 @@ def test_a_record_of_another_output_schema_is_refused_by_name(
     # file is not read either. A boolean is not an integer, whatever it equals.
     refusal = (
         rf"schema_version {re.escape(repr(declared))}, and this release of solprop "
-        r"reads output schema 2 only: .*earlier release.*development version.*"
+        r"reads output schema 3, and \[2\] without continuing them: .*earlier release"
+        r".*development version.*"
         r"later release.*"
         r"solprop version that wrote it"
     )
@@ -1014,7 +1015,7 @@ def test_raman_tensor_identity_survives_metadata_round_trip_and_controls_resume(
         assert original.configuration_hash() != other.configuration_hash()
         with pytest.raises(OutputError, match=r"configuration\.raman"):
             resolve_metadata_write(restored, other)
-    assert original.schema_version == 2
+    assert original.schema_version == 3
 
 
 def test_spatial_metadata_names_its_flux_model(envelope_grid, stepper):

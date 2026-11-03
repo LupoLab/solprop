@@ -229,7 +229,7 @@ def resumability(path: str | Path, *, gate: bool = False) -> Resumability:
 
     if schema != SCHEMA_VERSION:
         return refused(
-            f"the file is of output schema {schema}, and this solprop reads "
+            f"the file is of output schema {schema}, and this solprop continues "
             f"{SCHEMA_VERSION} only"
         )
     if _writer_alive(path):

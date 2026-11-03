@@ -32,6 +32,7 @@ from solprop.output import (
     resume,
 )
 from solprop.output import hdf5 as hdf5_module
+from solprop.output.resumable import resumability
 from solprop.output.schema import (
     PEAK_FIELDS_ANNOTATION,
     SCHEMA_VERSION,
@@ -45,6 +46,7 @@ from solprop.output.schema import (
     StepperRecord,
     StepStats,
 )
+from solprop.spatial import ABSORBED_CHANNELS
 from solprop.stepper import DOPRI5, FixedSchedule, PIController
 
 
@@ -1229,9 +1231,70 @@ def test_a_plane_whose_channel_changes_its_statistics_is_refused(grid, metadata)
 
 
 def test_a_run_record_declares_the_current_output_schema(metadata):
-    """Schema 2 is schema 1, the first released layout, plus a recorded field."""
-    assert SCHEMA_VERSION == 2
-    assert metadata.schema_version == 2
+    """Schema 3 adds a column to ``absorbed_power`` to schema 2 (#231)."""
+    assert SCHEMA_VERSION == 3
+    assert metadata.schema_version == 3
+
+
+def _restamped(path, declared):
+    """Rewrite a file's record to declare an earlier schema, its digest with it."""
+    with h5py.File(path, "r+") as file:
+        text = item(file, "meta", "json")[()].decode("utf-8")
+        document = json.loads(text)
+        document["schema_version"] = declared
+        del file["meta/json"]
+        rewritten = json.dumps(document)
+        file.create_dataset("meta/json", data=rewritten, dtype=h5py.string_dtype())
+        file.attrs["schema_version"] = declared
+        file.attrs["configuration_hash"] = RunMetadata.from_json(
+            rewritten
+        ).configuration_hash()
+
+
+def _four_column_file(grid, metadata, path):
+    """A schema 2 file as an earlier build wrote it: four absorbed-power columns."""
+    power = np.array([1.0, 2.0, 3.0, 4.0])
+    plane = dataclasses.replace(make_plane(grid, 0), stats={"absorbed_power": power})
+    with HDF5Output(path) as handler:
+        handler.open(metadata)
+        handler.save(plane)
+    _restamped(path, 2)
+
+
+def test_an_earlier_four_column_file_still_reads_as_it_was_written(
+    grid, metadata, tmp_path
+):
+    path = tmp_path / "earlier.h5"
+    _four_column_file(grid, metadata, path)
+    with hdf5_module.open_file(path) as stored:
+        assert stored.metadata is not None
+        assert stored.metadata.schema_version == 2
+        np.testing.assert_array_equal(
+            stored["stats/absorbed_power"], [[1.0, 2.0, 3.0, 4.0]]
+        )
+    assert ABSORBED_CHANNELS[:4] == ("spectral", "transverse", "evanescent", "material")
+
+
+def test_an_earlier_four_column_file_is_not_continued(grid, metadata, tmp_path):
+    """Five numbers do not fit four columns, and nothing stored can split a sum."""
+    path = tmp_path / "earlier.h5"
+    _four_column_file(grid, metadata, path)
+    refusal = "schema_version 2, which this release reads but does not continue"
+    with pytest.raises(OutputError, match=refusal):
+        hdf5_module.resume(path)
+    with pytest.raises(OutputError, match=refusal):
+        hdf5_module.check_cache(path, metadata)
+    continued = HDF5Output(path, append=True)
+    with pytest.raises(OutputError, match=refusal):
+        continued.open(metadata)
+    continued.close()
+    answer = resumability(path)
+    assert not answer.resumable
+    assert answer.reason is not None
+    assert "continues 3 only" in answer.reason
+    # Refused before anything was written: the file reads as it did.
+    with hdf5_module.open_file(path) as stored:
+        assert stored["stats/absorbed_power"].shape == (1, 4)
 
 
 @pytest.mark.parametrize("declared", [1, 10, 28, SCHEMA_VERSION + 1])
@@ -1256,7 +1319,7 @@ def test_a_file_of_another_output_schema_is_refused_by_name(
             "meta/json", data=json.dumps(document), dtype=h5py.string_dtype()
         )
         file.attrs["schema_version"] = declared
-    refusal = rf"schema_version {declared}.*reads output schema 2 only"
+    refusal = rf"schema_version {declared}.*reads output schema 3, and \[2\] without"
     with pytest.raises(OutputError, match=refusal):
         hdf5_module.open_file(path)
     with pytest.raises(OutputError, match=refusal):

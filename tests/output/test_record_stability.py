@@ -194,12 +194,13 @@ def build(kind: str) -> Simulation:
 
 def split(kind: str):
     metadata = build(kind).metadata()
-    assert metadata.schema_version == SCHEMA_VERSION == 2
+    assert metadata.schema_version == SCHEMA_VERSION == 3
     # The projection works on the hashed record, since a record without the later
     # additions is not one a run can hold.
     hashed: dict[str, Any] = metadata.hashed()
-    # Output schema 2 adds a field only to `DataPulse`, which none of these runs holds;
-    # the projection takes the number back, and everything else must be unchanged.
+    # Output schema 2 adds a field only to `DataPulse`, which none of these runs holds,
+    # and schema 3 a column to a statistic none of their records name; the projection
+    # takes the number back, and everything else must be unchanged.
     hashed["schema_version"] = 1
     # SEP 34 adds the plane measure to the spatial record; the projection leaves it
     # out, and everything else must be unchanged.
