@@ -131,6 +131,35 @@ refused by name. {py:meth}`~solprop.output.memory.MemoryOutput.planes` returns
 `field=None` where no field was kept. A run that stops on an error or a signal still
 writes its terminal checkpoint **with** the field ([resuming](resuming.md)).
 
+A handler of your own takes field-free planes by declaring
+{py:class}`~solprop.output.schema.RetainingOutput`, one method beside the
+{py:class}`~solprop.output.schema.Output` protocol; a run that keeps fewer than every field
+refuses a handler without it, by name.
+
+```{code-block} python
+class Spectra:
+    """Keep each plane's far-field spectrum, for a run with fields="none"."""
+
+    def retain(self, retention, field_shape):
+        # Once per run: after open (and reserve, if it has one), before any save, and
+        # for fields="all" too. Its rule is resolved against the run's planes.
+        if self.spectra and retention != self.rule:
+            raise OutputError("these planes were saved under another field rule")
+        self.rule = retention
+
+    def save(self, plane):
+        # On a plane that keeps no field, plane.field and plane.noise_phase are None.
+        self.spectra.append(plane.stats["far_field_spectrum"])
+
+    ...  # the rest of the Output protocol
+```
+
+`retain` is given a {py:class}`~solprop.output.schema.FieldRetention` whose indices are
+already counted from the entrance, and the shape `(n_modes, n_pol, n_omega)` of the state,
+known even when no plane will carry a field. A handler already holding planes
+under a different rule raises {py:class}`~solprop.exceptions.OutputError`, as a resumed
+store does.
+
 In this phase the backend still observes the field at every plane, and the driver drops
 it: the storage, the preallocation, the record copies and the conversion go, the
 device transfer and the collar diagnostic of a Cartesian run remain until the

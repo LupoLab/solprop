@@ -108,6 +108,7 @@ __all__ = [
     "PlaneStore",
     "RecipeFile",
     "RecipeRecord",
+    "RetainingOutput",
     "RunMetadata",
     "RunOutcome",
     "SavedPlane",
@@ -3974,6 +3975,52 @@ class CheckpointOutput(Protocol):
         -------
         TerminalCheckpoint or None
             The checkpoint, if one has been recorded.
+        """
+        ...
+
+
+@runtime_checkable
+class RetainingOutput(Protocol):
+    """Declare that a handler accepts field-free planes, and is told the run's rule.
+
+    Separate from :class:`Output`, as :class:`CheckpointOutput` is, because it is
+    optional: a handler that stores every field need not implement it, and a run that
+    keeps fewer than every field refuses a handler that does not
+    (``fields="planes"`` and ``fields="none"``,
+    :class:`~solprop.driver.simulation.SimulationSettings`). On a plane that keeps no
+    field, :meth:`Output.save` is given ``field=None`` and ``noise_phase=None``.
+
+    Examples
+    --------
+    >>> from solprop.output.schema import RetainingOutput
+    >>> class Spectra:
+    ...     def retain(self, retention, field_shape):
+    ...         self.keeps = retention.field_planes
+    >>> isinstance(Spectra(), RetainingOutput)
+    True
+    """
+
+    def retain(self, retention: FieldRetention, field_shape: tuple[int, ...]) -> None:
+        """Say which planes of the run keep their field, before the first is saved.
+
+        The run loop (:func:`solprop.driver.run.run_problem`) calls it once per run,
+        after :meth:`Output.open` and the handler's ``reserve`` if it has one and
+        before any :meth:`Output.save`, and for ``fields="all"`` too.
+
+        Parameters
+        ----------
+        retention : FieldRetention
+            The rule, already :meth:`~FieldRetention.resolved` against the run's planes
+            (its indices count from the entrance, and none is negative).
+        field_shape : tuple of int
+            ``(n_modes, n_pol, n_omega)`` of the run's state, known here even when no
+            plane will carry a field.
+
+        Raises
+        ------
+        OutputError
+            A handler that already holds planes under a different rule raises this,
+            rather than mixing two rules in one record.
         """
         ...
 

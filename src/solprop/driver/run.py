@@ -81,6 +81,7 @@ from solprop.output.schema import (
     Output,
     PlaneStore,
     RecipeRecord,
+    RetainingOutput,
     RunMetadata,
     RunOutcome,
     SavedPlane,
@@ -937,9 +938,8 @@ def _retain(
     field_shape : tuple of int
         ``(n_modes, n_pol, n_omega)`` of the run's state.
     """
-    retain = getattr(output, "retain", None)
-    if retain is not None:
-        retain(retention, field_shape)
+    if isinstance(output, RetainingOutput):
+        output.retain(retention, field_shape)
 
 
 def _check_retainable(output: Output, retention: FieldRetention) -> None:
@@ -955,13 +955,15 @@ def _check_retainable(output: Output, retention: FieldRetention) -> None:
     Raises
     ------
     DriverError
-        If the rule keeps fewer than every field and the output has no ``retain``.
+        If the rule keeps fewer than every field and the output has no ``retain``
+        (:class:`~solprop.output.schema.RetainingOutput`).
     """
-    if retention.fields != "all" and getattr(output, "retain", None) is None:
+    if retention.fields != "all" and not isinstance(output, RetainingOutput):
         msg = (
             f"this run asks for {retention.describe()} and its output "
-            f"{type(output).__name__} cannot store field-free planes (it has no "
-            "retain); use a MemoryOutput or an HDF5Output, or fields='all'"
+            f"{type(output).__name__} cannot store field-free planes: give it a "
+            "retain method (RetainingOutput), or use a MemoryOutput or an HDF5Output, "
+            "or fields='all'"
         )
         raise DriverError(msg)
 
