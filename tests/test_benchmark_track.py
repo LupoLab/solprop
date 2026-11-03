@@ -221,6 +221,17 @@ def test_the_history_takes_only_a_complete_default_run_of_committed_code():
         track.refuse_partial(namespace(), rows[:-1], 16, clean)
 
 
+def test_a_planning_override_is_not_recorded(monkeypatch):
+    # A row does not say how it planned, so the override would read as a regression.
+    rows, _ = runner.plan_rows(select(), ("default",), None, 16)
+    clean = {"revision": "a" * 40, "dirty": False}
+    monkeypatch.setenv("SOLPROP_FFTW_PLAN", "measure")
+    with pytest.raises(SuiteError, match="SOLPROP_FFTW_PLAN"):
+        track.refuse_partial(namespace(), rows, 16, clean)
+    monkeypatch.delenv("SOLPROP_FFTW_PLAN")
+    track.refuse_partial(namespace(), rows, 16, clean)
+
+
 def test_inconsistent_or_foreign_runs_are_not_recorded():
     good = [result_row()]
     assert track.admissible(good) is None

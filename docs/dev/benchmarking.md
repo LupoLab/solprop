@@ -143,7 +143,9 @@ with at least three repeats, and only when:
   changed but its documentation and tests;
 - nothing under `src/`, `native/` or `benchmarks/` is uncommitted (the history files
   aside, so one checkout can record several runs), unless `--allow-dirty`, whose rows
-  are marked dirty.
+  are marked dirty;
+- `SOLPROP_FFTW_PLAN` is unset: a row does not record how it planned, and measured
+  planning changes its construction time and its median.
 
 The hardware name is the CPU model and the production width, plus the instance family
 on a cloud machine, for example `apple-m5-max-18c`, `amd-epyc-7763-16c` or
