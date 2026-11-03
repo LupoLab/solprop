@@ -8,8 +8,8 @@ solprop, solprop-native and solprop-gui are released together from one repositor
 one version (SEP 29), so solprop requires exactly that native version (SEP 43), and
 ``solprop[gui]`` that front end. The version is the repository's (hatch-vcs), known only
 when the metadata is built, so the runtime dependencies are written here. They are
-dynamic rather than a pin over a static list: a wheel built from the sdist runs no hooks,
-and reads only dynamic fields from the sdist's metadata.
+dynamic rather than a pin over a static list: a wheel built from the sdist runs no
+hooks, and reads only dynamic fields from the sdist's metadata.
 """
 
 from typing import Any
@@ -18,7 +18,7 @@ from hatchling.metadata.plugin.interface import MetadataHookInterface
 
 
 class NativePinHook(MetadataHookInterface):
-    """Write the dependencies, with native pinned, and the ``gui`` and ``mlx`` extras."""
+    """Write the dependencies, with native pinned, and the two extras."""
 
     PLUGIN_NAME = "custom"
 
