@@ -135,6 +135,29 @@ All notable changes to solprop are recorded here. The format follows
   fresh CPython 3.14 environments resolve the native extra with pip and verify its
   version, dependencies and default backend. The same check can be run by hand for a
   named release, with an optional run of its tagged README example and retained logs.
+- A waveguide-route example recipe, `Recipe.example("hollow_rectangular")`: an argon-filled
+  hollow silica channel in its lowest x-polarised mode, mirroring a new tutorial built with a
+  plain `prop_waveguide`, so the route has a recipe a front end can start from.
+- `solprop.recipe.metadata.per_unit_width(route, values)` says when a recipe's pulse energy
+  and peak power are per metre of y (a waveguide recipe of slab modes), and the waveguide
+  route's energy and peak-power summaries say so, so a front end shows J/m and W/m there.
+- A radial-route example recipe, `Recipe.example("radial_kerr")`: a collimated beam in
+  argon under the Kerr effect on a Hankel grid, mirroring a new tutorial built with a plain
+  `prop_radial`, so every route has a recipe a front end can start from.
+- `solprop.recipe.metadata.parameters` takes a registered type's name (`"GaussianPulse"`,
+  `"PressureGradient.two_point"`, `"RadialGrid"` and the rest) and gives its keywords the
+  same metadata a route keyword has: forms with units and ranges, a level, a one-line
+  summary, a display unit, a manual anchor and the signature's default.
+- `Recipe.modes()` gives each mode's effective index, group delay (`beta1`), third-order
+  dispersion (`beta3`) and nonlinear coefficient (`gamma`) over the band, beside `beta`,
+  `beta2`, the loss, the effective area and the zero-dispersion wavelength. The new
+  `solprop.modes.base.beta3` differences the analytic `beta1` twice.
+- `Recipe.modes()` gives each mode's phase matching to a soliton at the pump in the launch
+  mode: the `phase_mismatch` of a dispersive wave in that mode over the band and its
+  phase-matched wavelengths `rdw` (intermodal for every mode but the first), with the
+  soliton's nonlinear wavenumber where the recipe's pulse and fill give one. The mode set
+  says which (`pump`, `nonlinear`). The GNLSE route has a mode preview too: its one specified
+  mode, phase-matched with the recipe's `gamma`.
 - `solprop-native` wheels use CPython's stable ABI, so one wheel serves Python 3.14 and later.
   solprop itself still needs pyFFTW and h5py wheels on 3.15.
 - `solprop-native` wheels for Windows on Arm (`win-arm64`), and an x86-64-v2 build beside the
