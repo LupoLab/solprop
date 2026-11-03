@@ -190,7 +190,8 @@ class ParameterRow(QWidget):
         self._updating = False
         self.resolved: Sequence[object] | None = None
 
-        self.label = QLabel(label(self.name))
+        self.title = str(meta.get("label") or label(self.name))
+        self.label = QLabel(self.title)
         self.label.setWordWrap(True)
         self.issue = QLabel()
         self.issue.setWordWrap(True)
@@ -723,7 +724,7 @@ class ParameterRow(QWidget):
         per_width : bool
             Whether it is, on a slab mode set.
         """
-        title = label(self.name)
+        title = self.title
         self.label.setText(f"{title} (per metre of y)" if per_width else title)
 
     def set_issue(self, message: str | None, severity: str = "error") -> None:

@@ -47,13 +47,18 @@ svg {
   <stop offset="0.55" stop-color="var(--beam)" stop-opacity="0.45"/>
   <stop offset="1" stop-color="var(--beam)" stop-opacity="0"/>
 </radialGradient>
+<radialGradient id="graded">
+  <stop offset="0" stop-color="var(--core-edge)" stop-opacity="0.75"/>
+  <stop offset="1" stop-color="var(--core-edge)" stop-opacity="0"/>
+</radialGradient>
 <linearGradient id="band" x1="0" y1="0" x2="0" y2="1">
   <stop offset="0" stop-color="var(--beam)" stop-opacity="0"/>
   <stop offset="0.5" stop-color="var(--beam)" stop-opacity="0.9"/>
   <stop offset="1" stop-color="var(--beam)" stop-opacity="0"/>
 </linearGradient>
 </defs>
-<circle class="glass" cx="100" cy="75" r="64"/>
-<circle class="core" cx="100" cy="75" r="14"/>
-<ellipse cx="100" cy="75" rx="20" ry="20" fill="url(#spot)"/>
+<rect class="glass" x="10" y="86" width="180" height="40" rx="4"/>
+<rect class="core" x="10" y="100" width="180" height="12"/>
+<path class="curve" d="M20,78.0 L22,78.0 L24,78.0 L26,78.0 L28,78.0 L30,78.0 L32,77.9 L34,77.9 L36,77.9 L38,77.9 L40,77.9 L42,77.8 L44,77.8 L46,77.7 L48,77.7 L50,77.6 L52,77.5 L54,77.4 L56,77.2 L58,77.0 L60,76.8 L62,76.5 L64,76.1 L66,75.6 L68,75.0 L70,74.3 L72,73.4 L74,72.2 L76,70.8 L78,69.0 L80,66.9 L82,64.2 L84,60.9 L86,57.0 L88,52.4 L90,47.1 L92,41.4 L94,35.7 L96,30.7 L98,27.3 L100,26.0 L102,27.3 L104,30.7 L106,35.7 L108,41.4 L110,47.1 L112,52.4 L114,57.0 L116,60.9 L118,64.2 L120,66.9 L122,69.0 L124,70.8 L126,72.2 L128,73.4 L130,74.3 L132,75.0 L134,75.6 L136,76.1 L138,76.5 L140,76.8 L142,77.0 L144,77.2 L146,77.4 L148,77.5 L150,77.6 L152,77.7 L154,77.7 L156,77.8 L158,77.8 L160,77.9 L162,77.9 L164,77.9 L166,77.9 L168,77.9 L170,78.0 L172,78.0 L174,78.0 L176,78.0 L178,78.0 L180,78.0"/>
+<text class="label" x="150" y="40">β(ω), γ</text>
 </svg>

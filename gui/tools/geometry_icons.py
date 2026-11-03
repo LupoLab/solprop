@@ -68,6 +68,10 @@ svg {
   <stop offset="0.55" stop-color="var(--beam)" stop-opacity="0.45"/>
   <stop offset="1" stop-color="var(--beam)" stop-opacity="0"/>
 </radialGradient>
+<radialGradient id="graded">
+  <stop offset="0" stop-color="var(--core-edge)" stop-opacity="0.75"/>
+  <stop offset="1" stop-color="var(--core-edge)" stop-opacity="0"/>
+</radialGradient>
 <linearGradient id="band" x1="0" y1="0" x2="0" y2="1">
   <stop offset="0" stop-color="var(--beam)" stop-opacity="0"/>
   <stop offset="0.5" stop-color="var(--beam)" stop-opacity="0.9"/>
@@ -129,8 +133,23 @@ icons["antiresonant"] = (
     f'<circle class="gas" cx="{CX}" cy="{CY}" r="62"/>\n' + tubes + spot(26)
 )
 icons["gnlse"] = (
+    '<rect class="glass" x="10" y="86" width="180" height="40" rx="4"/>\n'
+    '<rect class="core" x="10" y="100" width="180" height="12"/>\n'
+    + '<path class="curve" d="'
+    + " ".join(
+        f"{'M' if k == 0 else 'L'}{x},{78 - 52 / math.cosh((x - 100) / 9):.1f}"
+        for k, x in enumerate(range(20, 182, 2))
+    )
+    + '"/>\n'
+    + '<text class="label" x="150" y="40">β(ω), γ</text>\n'  # noqa: RUF001
+)
+icons["step-index"] = (
     f'<circle class="glass" cx="{CX}" cy="{CY}" r="64"/>\n'
-    f'<circle class="core" cx="{CX}" cy="{CY}" r="14"/>\n' + spot(20)
+    f'<circle class="core" cx="{CX}" cy="{CY}" r="18"/>\n' + spot(20)
+)
+icons["grin"] = (
+    f'<circle class="glass" cx="{CX}" cy="{CY}" r="64"/>\n'
+    f'<circle cx="{CX}" cy="{CY}" r="34" fill="url(#graded)"/>\n' + spot(20)
 )
 icons["rectangular"] = (
     '<rect class="glass" x="22" y="27" width="156" height="96" rx="3"/>\n'

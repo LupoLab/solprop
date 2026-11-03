@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
     QLabel,
+    QMessageBox,
     QPlainTextEdit,
     QProgressBar,
     QToolButton,
@@ -120,6 +121,7 @@ class RunPanel(QWidget):
         self._last_index = -1
         self._z_end = 0.0
         self.options = PlotOptions()
+        self.report: Callable[[str, str, str], None] = self._report
 
         self.workspace = Path(workspace)
         text = self.palette().windowText().color()
@@ -410,13 +412,17 @@ class RunPanel(QWidget):
         self.reread()
 
     def reread(self) -> None:
-        """Read the ended run's file again when its rows have another band."""
+        """Read the ended run's file again: its rows have another band, or none came.
+
+        A continued free-space run sends no rows while it runs (its planes are
+        measured with grids the continuation keeps to itself); its file is read
+        when it ends.
+        """
         if (
             self.active
             or self.folder is None
-            or not self.view.rows
-            or self.view.band == self.options.bandpass
             or not (self.folder / OUTPUT).exists()
+            or (self.view.rows and self.view.band == self.options.bandpass)
         ):
             return
         payload = {"path": str(self.folder / OUTPUT), "bandpass": self.options.bandpass}
@@ -568,6 +574,26 @@ class RunPanel(QWidget):
         if event.terminal:
             self._ended(event)
 
+    def _report(self, title: str, message: str, detail: str) -> None:
+        """Say why a run failed, in full, in a dialog of its own.
+
+        Parameters
+        ----------
+        title : str
+            What failed.
+        message : str
+            The message solprop gave.
+        detail : str
+            The traceback, under the dialog's details.
+        """
+        box = QMessageBox(QMessageBox.Icon.Warning, title, message, parent=self)
+        box.setObjectName("run-failed")
+        box.setInformativeText("The run's log, in the bottom panel, has it too.")
+        if detail:
+            box.setDetailedText(detail)
+        box.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        box.open()
+
     def _show_log(self, data: Mapping[str, object]) -> None:
         """Add a log line, and light the boundary lamp for a boundary warning.
 
@@ -622,9 +648,10 @@ class RunPanel(QWidget):
         text = f"{self.run_id}: {words}"
         if event.kind == "failed" and message:
             text += f": {message.splitlines()[0]}"
-            detail = event.data.get("detail")
+            detail = str(event.data.get("detail") or "")
             if detail:
-                self.log.appendPlainText(str(detail))
+                self.log.appendPlainText(detail)
+            self.report(f"The run {self.run_id} failed", message, detail)
         self.state_label.setText(text)
         if event.kind == "finished":
             self._progress(1000)

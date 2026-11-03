@@ -700,6 +700,7 @@ def overview(payload: Payload) -> dict[str, object]:
                 # Energy per bin is no density: the same bins, read by frequency.
                 spectra = {"wavelength": (lam, energy), "f": (C / lam, energy)}
                 t, power = flux["t"], flux["y"]  # pyright: ignore[reportIndexIssue]
+                extra = {"profile": beam["profile"]}
             else:
                 spectra = {
                     axis: get_spectral_density(handler, axis, plane=index, modes="sum")  # pyright: ignore[reportArgumentType]
@@ -708,6 +709,7 @@ def overview(payload: Payload) -> dict[str, object]:
                 t, power = get_power(
                     handler, plane=index, modes="sum", bandpass=display.bandpass
                 )
+                extra = {}
             reduced_density, reduced_power = reducer.reduce(spectra, t, power)  # pyright: ignore[reportArgumentType]
             rows.append(
                 {
@@ -716,6 +718,7 @@ def overview(payload: Payload) -> dict[str, object]:
                     "density": reduced_density,
                     "power": reduced_power,
                     "stats": stats_row(_stats_at(handler, index)),
+                    **extra,
                 }
             )
     return {"axes": reducer.axes() if rows else {}, "rows": rows}

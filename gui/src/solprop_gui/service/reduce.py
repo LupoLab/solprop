@@ -224,7 +224,7 @@ class Reducer:
     >>> sorted(density), power.shape
     (['f', 'wavelength'], (512,))
     >>> [round(float(v) / 1e12, 1) for v in reducer.axes()["f"]]
-    [224.8]
+    [249.9]
     """
 
     def __init__(self, display: Display) -> None:
@@ -245,16 +245,18 @@ class Reducer:
         Returns
         -------
         tuple of float
-            The window, ascending: the display's wavelength range on the axis, or
-            the plane's whole band.
+            The window, ascending: the display's wavelength range (on frequency,
+            from the plane's lowest frequency to the range's highest), or the
+            plane's whole band.
         """
         limits = self.display.wavelength_range
         if limits is None:
             return float(x.min()), float(x.max())
         if axis == "wavelength":
             return limits
-        low, high = sorted(C / limit for limit in limits)
-        return low, high
+        # On frequency, from the plane's lowest: a field grid reaches zero, where
+        # no wavelength window can say.
+        return float(x.min()), C / min(limits)
 
     def _bins(self, axis: str, x: np.ndarray, count: int) -> np.ndarray:
         """Return an axis's bin edges, made from the first plane's values.

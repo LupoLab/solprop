@@ -74,12 +74,14 @@ class SpectrogramPlot:
         layout.add_readout(self.plot, self.lookup)
 
     def show(self, data: Mapping[str, object], options: PlotOptions) -> None:
-        """Draw a spectrogram, as the options scale it.
+        """Draw a spectrogram, or a beam's intensity across its centre, as scaled.
 
         Parameters
         ----------
         data : Mapping
-            The kernel's ``spectrogram`` reply: ``t``, ``x``, ``values``, ``axis``.
+            The kernel's ``spectrogram`` reply (``t``, ``x``, ``values`` and a
+            spectral ``axis``) or its ``beam`` reply (an ``axis`` of ``"x"`` or
+            ``"r"``, in m).
         options : PlotOptions
             The scale, floor and ranges.
         """
@@ -98,7 +100,8 @@ class SpectrogramPlot:
             return
         data = self.data
         axis = str(data["axis"])
-        self.unit = UNITS[axis][1]
+        spectral = axis in UNITS
+        self.unit = UNITS[axis][1] if spectral else 1e-3
         t = np.asarray(data["t"], dtype=float) * 1e15
         x = np.asarray(data["x"], dtype=float) / self.unit
         values = np.asarray(data["values"], dtype=float)
@@ -116,11 +119,15 @@ class SpectrogramPlot:
         self.image.setRect(QRectF(t[0], x[0], float(t[-1] - t[0]), float(x[-1] - x[0])))
         self.bar.setLevels(levels)
         self.bar.getAxis("left").setLabel(unit)
-        name = "Wavelength" if axis == "wavelength" else "Frequency"
-        self.plot.setLabel("left", f"{name} ({UNITS[axis][0]})")
-        mode = data.get("mode")
-        gate = float(data.get("gate_fwhm") or 0.0) * 1e15  # pyright: ignore[reportArgumentType]
-        self.plot.setTitle(f"Spectrogram, mode {mode}, gate {gate:.3g} fs")
+        if spectral:
+            name = "Wavelength" if axis == "wavelength" else "Frequency"
+            self.plot.setLabel("left", f"{name} ({UNITS[axis][0]})")
+            mode = data.get("mode")
+            gate = float(data.get("gate_fwhm") or 0.0) * 1e15  # pyright: ignore[reportArgumentType]
+            self.plot.setTitle(f"Spectrogram, mode {mode}, gate {gate:.3g} fs")
+        else:  # a beam's intensity across its centre, against time
+            self.plot.setLabel("left", f"{axis} (mm)")
+            self.plot.setTitle("Intensity across the beam's centre")
         self.plot.getViewBox().autoRange(items=[self.image], padding=0)
         set_range(self.plot, "x", options.shown_limits("time"))
         if axis == options.axis:
@@ -293,6 +300,7 @@ class PlaneView(QWidget):
         self.modes.addItem("mode sum", "sum")
         for index, name in enumerate(labels):
             self.modes.addItem(name, index)
+        self.modes.setVisible(bool(labels))  # a beam has no modes to choose
         self.modes.blockSignals(False)
         enabled = bool(self.planes)
         for widget in (

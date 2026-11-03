@@ -1009,6 +1009,7 @@ class MainWindow(QMainWindow):
             description = self.descriptions[route]
             for page in self.pages.values():
                 page.clear()
+                page.set_route(route)
                 page.build(description["parameters"], catalog=description.get("types"))  # pyright: ignore[reportArgumentType]
                 page.build(description["execution"], table="execution")  # pyright: ignore[reportArgumentType]
             keywords: Sequence[Mapping[str, object]] = description["parameters"]  # pyright: ignore[reportAssignmentType]

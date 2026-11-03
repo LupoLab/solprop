@@ -26,10 +26,12 @@ from pathlib import Path
 
 import numpy as np
 from solprop.driver.scan import run_scan
+from solprop.grid import TimeGrid
 from solprop.log import NullReporter, ScanReporter
 from solprop.output import open_file
 from solprop.recipe import Recipe, resume_file
 
+from solprop_gui.service.beam import beam_reading, profile_row
 from solprop_gui.service.messages import Control, Event
 from solprop_gui.service.outbox import Outbox
 from solprop_gui.service.reduce import SPECTRAL_AXES, Display, Reducer, stats_row
@@ -73,6 +75,20 @@ class LiveObserver(NullReporter):
         self._rejected = 0
         self._z_end = float("nan")
         self._last = 0.0
+        self.space: tuple[TimeGrid, object, object] | None = None
+
+    def measure(self, simulation: object) -> None:
+        """Measure a free-space run's planes with its grids and medium.
+
+        Parameters
+        ----------
+        simulation : solprop.driver.Simulation
+            The run; one without a transverse grid is measured by its modes.
+        """
+        space = getattr(simulation, "spatial_grid", None)
+        if space is not None:
+            grid = simulation.grid  # pyright: ignore[reportAttributeAccessIssue]
+            self.space = (grid, space, simulation.medium)  # pyright: ignore[reportAttributeAccessIssue]
 
     def _put(self, kind: str, **data: object) -> None:
         """Hand one event to the outbox.
@@ -139,13 +155,28 @@ class LiveObserver(NullReporter):
         plane : solprop.driver.plane_view.PlaneView
             The lazy view of it, valid only during the call.
         """
-        spectra = {
-            axis: plane.spectral_density(axis=axis, modes="sum")  # pyright: ignore[reportAttributeAccessIssue]
-            for axis in SPECTRAL_AXES
-        }
         bandpass = self.reducer.display.bandpass
-        t, power = plane.power(modes="sum", bandpass=bandpass)  # pyright: ignore[reportAttributeAccessIssue]
-        reduced_density, reduced_power = self.reducer.reduce(spectra, t, power)
+        profile = None
+        if plane.basis == "spatial":  # pyright: ignore[reportAttributeAccessIssue]
+            if self.space is None:
+                return  # a continued run: its file is read when it ends
+            reading = beam_reading(
+                *self.space,
+                z,
+                plane.stored(),  # pyright: ignore[reportAttributeAccessIssue]
+                np.asarray(plane.field_plane().spectral_energy()),  # pyright: ignore[reportAttributeAccessIssue]
+                bandpass=bandpass,
+            )
+            spectra = reading["spectra"]
+            t, power = reading["t"], reading["power"]
+            profile = profile_row(reading)
+        else:
+            spectra = {
+                axis: plane.spectral_density(axis=axis, modes="sum")  # pyright: ignore[reportAttributeAccessIssue]
+                for axis in SPECTRAL_AXES
+            }
+            t, power = plane.power(modes="sum", bandpass=bandpass)  # pyright: ignore[reportAttributeAccessIssue]
+        reduced_density, reduced_power = self.reducer.reduce(spectra, t, power)  # pyright: ignore[reportArgumentType]
         with self._lock:
             if self.axes is None:
                 self.axes = Event(self.run_id, "axes", dict(self.reducer.axes()))
@@ -161,6 +192,7 @@ class LiveObserver(NullReporter):
                     "stats": stats_row(plane.stats),  # pyright: ignore[reportAttributeAccessIssue]
                     "steps": self._steps,
                     "rejected": self._rejected,
+                    **({} if profile is None else {"profile": profile}),
                 },
             )
             self.rows.append(row)
@@ -503,7 +535,16 @@ def execute(spec: RunSpec, events: Connection, control: Connection) -> None:
             if "scan" in recipe.to_dict():
                 kind, data = _scan(recipe, folder, spec.run_id, outbox, stop)
                 return
-            recipe.run(output, progress=observer, stop=stop)
+            # Built here and kept: a free-space run's planes are measured with its
+            # grids and medium; run as Recipe.run would.
+            simulation = recipe.build()
+            observer.measure(simulation)
+            simulation.run(
+                output,
+                progress=observer,
+                stop=stop,
+                **recipe.run_keywords(),  # pyright: ignore[reportArgumentType]
+            )
         else:
             resume_file(output, spec.resume, progress=observer, stop=stop)  # pyright: ignore[reportArgumentType]
         kind, data = _ending(output, stop.is_set())

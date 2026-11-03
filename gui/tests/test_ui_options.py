@@ -99,4 +99,8 @@ def test_a_finished_live_run_is_read_again_with_a_new_band(
     window.set_plot_options(PlotOptions(axis="f", bandpass=band))
     qtbot.waitUntil(lambda: panel.view.band == band, timeout=WAIT_MS)
     assert panel.view.spectrum_note.text() == "time domain within 790-810 nm"
+    # A run that sent no rows (a continued free-space run) is read from its file.
+    panel.view.clear()
+    panel.reread()
+    qtbot.waitUntil(lambda: bool(panel.view.rows), timeout=WAIT_MS)
     window.close()

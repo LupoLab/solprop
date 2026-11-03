@@ -153,13 +153,41 @@ solprop's metadata."""
 
 CARDS: Final = (
     RouteCard(
+        "gnlse",
+        "Fibre (GNLSE)",
+        "A single-mode fibre given by its dispersion and nonlinear coefficient.",
+        "gnlse",
+        example="soliton",
+        group="Solid-core fibres",
+    ),
+    RouteCard(
+        "step-index",
+        "Step-index fibre",
+        "A solid core in a cladding of lower index, its modes solved from the two "
+        "indices.",
+        "gnlse",
+        reason="solprop's recipes cannot describe a step-index fibre yet (#472).",
+        types={"fibre": ("StepIndexMode",)},
+        group="Solid-core fibres",
+    ),
+    RouteCard(
+        "grin",
+        "Graded-index fibre",
+        "A solid core whose index falls smoothly from its axis, its modes solved "
+        "from the profile.",
+        "gnlse",
+        reason="solprop's recipes cannot describe a graded-index fibre yet (#473).",
+        types={"fibre": ("GradedIndexProvider",)},
+        group="Solid-core fibres",
+    ),
+    RouteCard(
         "capillary-averaged",
         "Capillary, mode-averaged",
         "A gas-filled hollow capillary, one mode with its nonlinearity averaged over "
         "the profile: the quickest model of a capillary.",
         "capillary",
         {"mode_average": True},
-        group="Hollow capillaries and fibres",
+        group="Hollow-core fibres",
     ),
     RouteCard(
         "capillary-modal",
@@ -169,7 +197,7 @@ CARDS: Final = (
         "capillary",
         {"mode_average": False},
         {"modes": 4},
-        group="Hollow capillaries and fibres",
+        group="Hollow-core fibres",
     ),
     RouteCard(
         "antiresonant",
@@ -179,40 +207,7 @@ CARDS: Final = (
         "capillary",
         example="antiresonant_fibre",
         marker=("lattice",),
-        group="Hollow capillaries and fibres",
-    ),
-    RouteCard(
-        "gnlse",
-        "Fibre (GNLSE)",
-        "A single-mode fibre given by its dispersion and nonlinear coefficient.",
-        "gnlse",
-        example="soliton",
-        group="Hollow capillaries and fibres",
-    ),
-    RouteCard(
-        "rectangular",
-        "Rectangular waveguide",
-        "A gas-filled hollow channel of rectangular section, in its modes.",
-        "waveguide",
-        example="hollow_rectangular",
-        types={"modes": ("RectMode",)},
-        group="Hollow waveguides",
-    ),
-    RouteCard(
-        "slab",
-        "Slab waveguide",
-        "A gas-filled gap between two plates, in its slab modes: uniform along the "
-        "plates, so energies and powers are per unit width.",
-        "waveguide",
-        example="hollow_rectangular",
-        types={"modes": ("SlabMode", "ModeCollection.slab")},
-        rewrite={
-            "modes": [{"type": "SlabMode", "half_gap": "50 um"}],
-            "energy": "0.5 J",
-            "n_theta": None,
-            "seed": None,
-        },
-        group="Hollow waveguides",
+        group="Hollow-core fibres",
     ),
     RouteCard(
         "cartesian",
@@ -241,6 +236,35 @@ CARDS: Final = (
         "radial",
         example="radial_kerr",
         group="Free space",
+    ),
+    RouteCard(
+        "rectangular",
+        "Rectangular waveguide",
+        "A gas-filled hollow channel of rectangular section, in its modes.",
+        "waveguide",
+        example="hollow_rectangular",
+        types={"modes": ("RectMode",)},
+        group="Hollow waveguides",
+        reason="Hollow waveguides are not offered for now.",
+        hidden=True,
+    ),
+    RouteCard(
+        "slab",
+        "Slab waveguide",
+        "A gas-filled gap between two plates, in its slab modes: uniform along the "
+        "plates, so energies and powers are per unit width.",
+        "waveguide",
+        example="hollow_rectangular",
+        types={"modes": ("SlabMode", "ModeCollection.slab")},
+        rewrite={
+            "modes": [{"type": "SlabMode", "half_gap": "50 um"}],
+            "energy": "0.5 J",
+            "n_theta": None,
+            "seed": None,
+        },
+        group="Hollow waveguides",
+        reason="Hollow waveguides are not offered for now.",
+        hidden=True,
     ),
     RouteCard(
         "planar",
@@ -310,9 +334,13 @@ def card_of(
     'antiresonant'
     >>> card_of("free", {"space": {"type": "LineGrid"}}).key
     'line'
-    >>> card_of("waveguide", {"modes": [{"type": "SlabMode"}]}).key
+    >>> slab = {"modes": [{"type": "SlabMode"}]}
+    >>> card_of("waveguide", slab) is None  # not offered for now
+    True
+    >>> card_of("waveguide", slab, enabled_only=False).key
     'slab'
-    >>> card_of("waveguide", {"modes": {"type": "ModeCollection.slab"}}).key
+    >>> collection = {"modes": {"type": "ModeCollection.slab"}}
+    >>> card_of("waveguide", collection, enabled_only=False).key
     'slab'
     >>> card_of("radial", {}).key
     'radial'
@@ -408,7 +436,7 @@ def group_examples(
     ...     {"name": "d", "route": "planar", "build": {}},
     ... ])
     >>> {key: [e["name"] for e in found] for key, found in grouped.items()}
-    {'capillary-averaged': ['a'], 'gnlse': ['b'], 'other': ['c']}
+    {'gnlse': ['b'], 'capillary-averaged': ['a'], 'other': ['c']}
     """
     grouped: dict[str, list[Mapping[str, object]]] = {}
     for example in examples:

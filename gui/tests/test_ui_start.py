@@ -46,7 +46,7 @@ def test_every_shown_class_has_a_picture_that_resolves_for_qt():
         for dark in (False, True):
             text = figure_text(key, dark=dark)
             assert text is not None and "var(" not in text
-    assert {entry.key for entry in CARDS if not entry.hidden} == set(FIGURES)
+    assert {entry.key for entry in CARDS if not entry.hidden} <= set(FIGURES)
     # Drawn at the screen's pixel ratio: sharp on a high-density screen.
     pixmap = figure_pixmap("slab", QSize(200, 150), ratio=2.0)
     assert pixmap is not None and pixmap.width() == 400
@@ -58,7 +58,8 @@ def test_the_gallery_and_the_examples_by_class(qtbot: QtBot, tmp_path: Path):
     qtbot.addWidget(page)
     page.resize(1100, 900)
     assert "planar" not in page.tiles  # not offered for now: not shown
-    assert set(page.tiles) == set(FIGURES)
+    assert set(page.tiles) == {entry.key for entry in CARDS if not entry.hidden}
+    assert not page.tiles["step-index"].isEnabled()  # until solprop can say it
     assert not page.tiles["capillary-averaged"].icon().isNull()
     chosen = []
     page.card_chosen.connect(chosen.append)
@@ -128,17 +129,15 @@ def test_a_class_begins_from_its_template_or_an_example(qtbot: QtBot, tmp_path: 
     )
     # A class without an example of its own: another's, made this class.
     window.choose_setup = lambda _entry, _examples: ""
-    for key, keyword, kind in (
-        ("line", "space", "LineGrid"),
-        ("slab", "modes", "SlabMode"),
-    ):
-        window.begin_class(key)
-        title = card(key).title
-        qtbot.waitUntil(lambda t=title: _titled(window, t), timeout=WAIT_MS)
-        assert window.model is not None
-        assert type_of(window.model.get(keyword)) == kind
-        assert card_of(window.model.route, window.model.document["build"]) is card(key)
-    assert window.model.get("seed") is MISSING  # removed by the slab's rewrite
+    window.begin_class("line")
+    qtbot.waitUntil(lambda: _titled(window, card("line").title), timeout=WAIT_MS)
+    assert window.model is not None
+    assert type_of(window.model.get("space")) == "LineGrid"
+    assert card_of(window.model.route, window.model.document["build"]) is card("line")
+    # A hidden class, still made (its code stays): the slab's rewrite drops a seed.
+    window.new_from_card("slab")
+    qtbot.waitUntil(lambda: _titled(window, card("slab").title), timeout=WAIT_MS)
+    assert window.model.get("seed") is MISSING
     window.close()
 
 

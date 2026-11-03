@@ -102,7 +102,9 @@ def test_the_spectrogram_and_figures(run: str, tmp_path: Path, monkeypatch):
         "bandpass": [7e-7, 9e-7],
     }
     gated = ask("spectrogram", narrow)
-    assert gated["mode"] == 1 and gated["x"][0] > 1e14 and gated["gate_fwhm"] == 8e-15
+    assert gated["mode"] == 1 and gated["gate_fwhm"] == 8e-15
+    # On frequency the map starts at the transform's lowest, not the window's.
+    assert gated["x"][0] < 1e14 < gated["x"][-1]
     assert np.all(np.abs(gated["t"]) <= 5e-14)
     for kind in ("prop_2d", "spec_1d", "time_1d", "spectrogram", "plot_stats"):
         file = tmp_path / f"{kind}.png"
@@ -243,5 +245,7 @@ def test_a_planar_plane_says_why_it_has_no_spectrum(tmp_path: Path):
         Recipe.example("planar_hybrid").run(path)
     found = ask("plane", {"path": str(path), "index": 1})
     assert "planar" in found["spectrum"]["error"] and found["power"]["y"].max() > 0
+    banded = ask("plane", {"path": str(path), "index": 1, "bandpass": [7e-7, 9e-7]})
+    assert banded["power"]["y"].max() <= found["power"]["y"].max() * 1.0001
     with pytest.raises(SolpropError, match="planar"):
         ask("overview", {"path": str(path)})

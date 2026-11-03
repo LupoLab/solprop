@@ -213,14 +213,15 @@ def test_the_cards_are_presentation_over_routes():
         "capillary-averaged",
         "capillary-modal",
         "antiresonant",
-        "rectangular",
-        "slab",
         "gnlse",
         "cartesian",
         "line",
         "radial",
     }
-    assert card("planar").hidden and not card("planar").enabled
+    for key in ("planar", "rectangular", "slab"):
+        assert card(key).hidden and not card(key).enabled  # not offered for now
+    for key in ("step-index", "grin"):  # shown, until recipes can say them
+        assert not card(key).hidden and "#47" in str(card(key).reason)
     with pytest.raises(KeyError):
         card("nope")
     assert card_of("capillary", {"mode_average": True}) is averaged

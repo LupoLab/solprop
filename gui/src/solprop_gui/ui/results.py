@@ -303,9 +303,12 @@ class ResultsPage(QWidget):
         """
         if self.path is None or self.capabilities is None:
             return
-        if self.capabilities.get("basis") == "spatial":
-            return  # a free-space run's columns are field samples: no spectrogram
         options = self.options
+        if self.capabilities.get("basis") == "spatial":
+            # A beam has no one field to gate: its intensity across the centre.
+            body = {"path": self.path, "index": index, "bandpass": options.bandpass}
+            self._ask("beam", body, "spectrogram")
+            return
         low, high = options.time_limits
         payload = {
             "path": self.path,

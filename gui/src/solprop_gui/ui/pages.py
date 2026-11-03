@@ -19,7 +19,12 @@ from PySide6.QtWidgets import (
 )
 
 from solprop_gui.model.recipe import MISSING, RecipeModel
-from solprop_gui.registry.pages import GROUP_TITLES, Page
+from solprop_gui.registry.pages import (
+    GROUP_TITLES,
+    ROUTE_GROUP_TITLES,
+    ROUTE_HELP,
+    Page,
+)
 from solprop_gui.ui.fields import ParameterRow
 from solprop_gui.ui.objects import Catalog
 
@@ -187,6 +192,20 @@ class ParameterPage(QWidget):
         self.fields_area = scroll
         self.page_layout = layout
         self._show_empty(True)
+
+    def set_route(self, route: str) -> None:
+        """Word the page for a route: its help and its sections' titles.
+
+        Parameters
+        ----------
+        route : str
+            The recipe's route (a beam's grid is no waveguide).
+        """
+        key = self.page.key
+        self.help.setText(ROUTE_HELP.get((key, route), self.page.help))
+        for group, section in self.sections.items():
+            default = GROUP_TITLES.get(group, group.capitalize())
+            section.header.setText(ROUTE_GROUP_TITLES.get((route, group), default))
 
     def add_footer(self, title: str, widget: QWidget) -> Section:
         """Put a section below the page's fields, always in view.

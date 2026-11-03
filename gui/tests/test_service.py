@@ -290,7 +290,8 @@ def test_a_run_reduced_on_both_axes_within_a_band(tmp_path: Path):
     collector = Collector(spec).start()
     collector.collect()
     axes = next(e for e in collector.events if e.kind == "axes").data
-    assert axes["f"][0] > 1e14 and axes["bandpass"] == (7.9e-7, 8.1e-7)
+    assert axes["f"][0] < 3e14 < axes["f"][-1]  # down to the plane's lowest
+    assert axes["bandpass"] == (7.9e-7, 8.1e-7)
     whole = ask("overview", {"path": str(tmp_path / "rf" / OUTPUT)})
     rows = [e.data for e in collector.events if e.kind == "row"]
     assert set(rows[0]["density"]) == {"wavelength", "f"}

@@ -70,7 +70,11 @@ def colormap(name: str) -> pg.ColorMap:
 
 
 class Readout:
-    """A hover label on one plot, and optionally a dot on the point it reads.
+    """A hover label on one plot, cross-hairs through the point it reads, a dot.
+
+    The cross-hairs are dotted lines across the plot at the point read: the mouse
+    on a map, the nearest point of a curve. They are marked ``crosshair`` and left
+    out of an exported figure (:func:`figure_spec`).
 
     Parameters
     ----------
@@ -88,6 +92,12 @@ class Readout:
         )
         self.text.setZValue(100)
         plot.addItem(self.text, ignoreBounds=True)
+        pen = pg.mkPen((150, 150, 150, 200), width=1, style=Qt.PenStyle.DotLine)
+        self.cross = [pg.InfiniteLine(angle=angle, pen=pen) for angle in (90, 0)]
+        for line in self.cross:
+            line.crosshair = True  # pyright: ignore[reportAttributeAccessIssue]
+            line.setZValue(98)
+            plot.addItem(line, ignoreBounds=True)
         self.dot: pg.ScatterPlotItem | None = None
         if dot:
             self.dot = pg.ScatterPlotItem(
@@ -98,8 +108,10 @@ class Readout:
         self.hide()
 
     def hide(self) -> None:
-        """Hide the label and the dot."""
+        """Hide the label, the cross-hairs and the dot."""
         self.text.hide()
+        for line in self.cross:
+            line.hide()
         if self.dot is not None:
             self.dot.hide()
 
@@ -120,6 +132,9 @@ class Readout:
         self.text.setText(label)
         self.text.setPos(x, y)
         self.text.show()
+        for line, value in zip(self.cross, (x, y), strict=True):
+            line.setPos(value)
+            line.show()
         if self.dot is not None:
             self.dot.setData([x], [y])
             self.dot.show()
@@ -311,6 +326,8 @@ def figure_spec(plot: pg.PlotItem) -> dict[str, object]:
                 }
             )
         elif isinstance(item, pg.InfiniteLine):
+            if getattr(item, "crosshair", False):
+                continue  # the readout's, not the view's
             vertical = abs(item.angle % 180 - 90) < 1e-9
             value = float(item.value())  # pyright: ignore[reportArgumentType]
             if logx if vertical else logy:

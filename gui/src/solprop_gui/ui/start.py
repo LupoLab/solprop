@@ -47,7 +47,7 @@ COLUMNS = 4
 _INTRO = (
     "<h2>solprop</h2>"
     "<p>Set up, run and read an ultrafast nonlinear propagation simulation: "
-    "gas-filled capillaries and hollow fibres, solid fibres, waveguides and beams in "
+    "gas-filled capillaries and hollow fibres, solid fibres and beams in "
     "free space. Choose a geometry class to begin, start from one of solprop's "
     "examples, or open a setup or a results file.</p>"
     "<p>Every setup is a solprop recipe: it saves as a recipe file, runs with "

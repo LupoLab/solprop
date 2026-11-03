@@ -259,8 +259,18 @@ class OverviewView(QWidget):
             unit="GW",
             label="t {0:.2f} fs\nz {1:.4g} m\n{2:.3g} GW",
         )
-        self.power_map.plot.getViewBox().setYLink(self.spectrum_map.plot.getViewBox())
-        for panel in (self.spectrum_map, self.power_map):
+        self.profile_map = MapPanel(
+            self.maps,
+            2,
+            title="Beam profile",
+            xlabel="x (mm)",
+            cmap="magma",
+            unit="J/m²",
+            label="{0:.3g} mm\nz {1:.4g} m\n{2:.3g}",
+        )
+        for panel in (self.power_map, self.profile_map):
+            panel.plot.getViewBox().setYLink(self.spectrum_map.plot.getViewBox())
+        for panel in (self.spectrum_map, self.power_map, self.profile_map):
             panel.marker.sigPositionChanged.connect(self._marker_moved)
         self.maps.scene().sigMouseClicked.connect(self._map_clicked)  # pyright: ignore[reportAttributeAccessIssue]
 
@@ -282,6 +292,16 @@ class OverviewView(QWidget):
             angle=90, pen=pg.mkPen("gray", style=Qt.PenStyle.DashLine)
         )
         self.energy_line.addItem(self.energy_marker)
+        self.profile_line = self.slices.add_plot(0, 3, "Beam at z")
+        self.profile_line.setLabels(bottom="x (mm)", left="J/m²")
+        self.profile_curve = self.profile_line.plot(pen=pen)
+        self.slices.add_readout(
+            self.profile_line,
+            curve_lookup(self.profile_curve, "{0:.3g} mm\n{1:.3g}"),
+            dot=True,
+        )
+        self.spatial = True
+        self.set_spatial(False)
         self.slices.add_readout(
             self.spectrum_line,
             curve_lookup(self.spectrum_curve, "{0:.1f}\n{1:.3g}"),
@@ -337,11 +357,36 @@ class OverviewView(QWidget):
             Whether the file is a free-space run's, read through solprop's spatial
             functions (the plane's energy per frequency bin, the axial flux).
         """
+        if spatial == self.spatial:
+            return
+        self.spatial = spatial
         spectrum = "Energy per bin" if spatial else "Spectral energy density"
         power = "Axial power" if spatial else "Power"
         self.spectrum_map.plot.setTitle(f"{spectrum} (display-binned)")
         self.power_map.plot.setTitle(f"{power} (display-binned)")
         self.power_line.setTitle(f"{power} at z")
+        # A beam's profile across its centre, mapped along z, only for a beam.
+        for layout, plot, column in (
+            (self.maps, self.profile_map.plot, 2),
+            (self.slices, self.profile_line, 3),
+        ):
+            present = plot in layout.ci.items
+            if spatial and not present:
+                layout.ci.addItem(plot, row=0, col=column)
+            elif not spatial and present:
+                layout.ci.removeItem(plot)
+            plot.setVisible(spatial)
+
+    def _panels(self) -> tuple[MapPanel, ...]:
+        """Return the maps shown.
+
+        Returns
+        -------
+        tuple of MapPanel
+            The spectrum and power maps, and a beam's profile map.
+        """
+        maps = (self.spectrum_map, self.power_map)
+        return (*maps, self.profile_map) if self.spatial else maps
 
     def clear(self) -> None:
         """Forget every row, the axes and the run's extent."""
@@ -349,7 +394,7 @@ class OverviewView(QWidget):
         self.spectra = {}
         self.band = None
         self.time = np.zeros(0)
-        for panel in (self.spectrum_map, self.power_map):
+        for panel in self._panels():
             panel.extent = None
         self.spectrum_map.clear()
         self.power_map.clear()
@@ -387,7 +432,7 @@ class OverviewView(QWidget):
             Where the run starts and ends, m.
         """
         extent = (float(z_start), float(z_end))
-        for panel in (self.spectrum_map, self.power_map):
+        for panel in self._panels():
             panel.extent = extent
             panel.plot.getViewBox().setYRange(*extent, padding=0)
         self.energy_line.getViewBox().setXRange(*extent, padding=0.02)
@@ -522,6 +567,12 @@ class OverviewView(QWidget):
         self.power_map.show(
             self.time * 1e15, z, power, (0.0, float(power.max()) or 1.0)
         )
+        self.set_spatial("profile" in self.rows[0])
+        if self.spatial:
+            across, profiles = self._profiles()
+            self.profile_map.show(
+                across, z, profiles, (0.0, float(profiles.max()) or 1.0)
+            )
         if self.options.scale == "dB":
             self.spectrum_line.getViewBox().setYRange(levels[0], 3)
         else:
@@ -538,6 +589,24 @@ class OverviewView(QWidget):
         self.slider.blockSignals(False)
         self.slider.setEnabled(len(self.rows) > 1)
         self._show_plane(self.slider.value())
+
+    def _profiles(self) -> tuple[np.ndarray, np.ndarray]:
+        """Return a beam's profiles across its centre, one row per plane.
+
+        Returns
+        -------
+        tuple of numpy.ndarray
+            The coordinate across the centre, mm, and the fluence there, one row
+            per plane; the axes are labelled by the coordinate's name.
+        """
+        first: Mapping[str, object] = self.rows[0]["profile"]  # pyright: ignore[reportAssignmentType]
+        name = str(first["axis"])
+        for plot in (self.profile_map.plot, self.profile_line):
+            plot.setLabel("bottom", f"{name} (mm)")
+        profiles = np.array(
+            [np.asarray(r["profile"]["y"], dtype=float) for r in self.rows]  # pyright: ignore[reportIndexIssue]
+        )
+        return np.asarray(first["x"], dtype=float) * 1e3, profiles
 
     def _scaled(self, density: np.ndarray) -> tuple[np.ndarray, tuple[float, float]]:
         """Return densities on the options' scale, and the colour bar's levels.
@@ -578,8 +647,14 @@ class OverviewView(QWidget):
         shown, _levels = self._scaled(self._density(row))
         self.spectrum_curve.setData(self._x(), shown)
         self.power_curve.setData(self.time * 1e15, np.asarray(row["power"]) / 1e9)
+        if self.spatial:
+            profile: Mapping[str, object] = row["profile"]  # pyright: ignore[reportAssignmentType]
+            self.profile_curve.setData(
+                np.asarray(profile["x"], dtype=float) * 1e3,
+                np.asarray(profile["y"], dtype=float),
+            )
         self.energy_marker.setPos(z)
-        for panel in (self.spectrum_map, self.power_map):
+        for panel in self._panels():
             panel.marker.blockSignals(True)
             panel.marker.setPos(z)
             panel.marker.show()
@@ -623,7 +698,7 @@ class OverviewView(QWidget):
         if not self.rows:
             return
         position = event.scenePos()  # pyright: ignore[reportAttributeAccessIssue]
-        for panel in (self.spectrum_map, self.power_map):
+        for panel in self._panels():
             box = panel.plot.getViewBox()
             if box.sceneBoundingRect().contains(position):
                 self.slider.setValue(self.nearest(box.mapSceneToView(position).y()))

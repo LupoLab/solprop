@@ -13,7 +13,18 @@ keyword's own name does not read well. A test holds every label to a real keywor
 from dataclasses import dataclass
 from typing import Final
 
-__all__ = ["GROUP_TITLES", "LABELS", "PAGES", "Page", "label", "page_of"]
+__all__ = [
+    "GROUP_TITLES",
+    "LABELS",
+    "PAGES",
+    "ROUTE_GROUP_TITLES",
+    "ROUTE_HELP",
+    "TYPE_LABELS",
+    "Page",
+    "label",
+    "page_of",
+    "type_label",
+]
 
 
 @dataclass(frozen=True)
@@ -137,6 +148,40 @@ LABELS: Final = {
 }
 """Labels for keywords whose names do not read well on their own."""
 
+TYPE_LABELS: Final = {
+    ("FreeGrid", "radius_x"): "Half-width in x",
+    ("FreeGrid", "radius_y"): "Half-width in y",
+    ("FreeGrid", "n_x"): "Nodes in x",
+    ("FreeGrid", "n_y"): "Nodes in y",
+    ("LineGrid", "radius_x"): "Half-width in x",
+    ("LineGrid", "n_x"): "Nodes in x",
+    ("RadialGrid", "radius"): "Grid radius",
+    ("RadialGrid", "n_r"): "Radial nodes",
+}
+"""Labels for keywords of registered types, where the type changes what a name means
+(a radial grid's ``radius`` is its extent, a capillary's its core)."""
+
+ROUTE_HELP: Final = {
+    ("geometry", "free"): (
+        "The beam's transverse grid -- its half-widths and nodes -- and how far the "
+        "beam goes."
+    ),
+    ("geometry", "radial"): (
+        "The beam's radial grid -- its radius and nodes -- and how far the beam goes."
+    ),
+    ("medium", "free"): "What the beam travels through: a gas, a glass or vacuum.",
+    ("medium", "radial"): "What the beam travels through: a gas, a glass or vacuum.",
+}
+"""A step's help where a route makes it read differently, by step and route."""
+
+ROUTE_GROUP_TITLES: Final = {
+    ("free", "geometry"): "Beam and grid",
+    ("radial", "geometry"): "Beam and grid",
+    ("free", "medium"): "Medium",
+    ("radial", "medium"): "Medium",
+}
+"""A section's title where a route makes it read differently, by route and group."""
+
 
 def label(name: str) -> str:
     """Return a keyword's label.
@@ -160,6 +205,31 @@ def label(name: str) -> str:
         return LABELS[name]
     text = name.replace("_", " ")
     return text[:1].upper() + text[1:]
+
+
+def type_label(type_name: str, name: str) -> str:
+    """Return a registered type's keyword's label.
+
+    Parameters
+    ----------
+    type_name : str
+        The registered type.
+    name : str
+        The keyword.
+
+    Returns
+    -------
+    str
+        Its label from :data:`TYPE_LABELS`, or :func:`label`'s.
+
+    Examples
+    --------
+    >>> type_label("FreeGrid", "radius_x"), type_label("RadialGrid", "radius")
+    ('Half-width in x', 'Grid radius')
+    >>> type_label("GaussianPulse", "fwhm")
+    'Duration (FWHM)'
+    """
+    return TYPE_LABELS.get((type_name, name)) or label(name)
 
 
 def page_of(group: str) -> Page | None:

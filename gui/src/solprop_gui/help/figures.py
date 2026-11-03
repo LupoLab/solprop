@@ -18,6 +18,8 @@ from typing import Final
 __all__ = ["FIGURES", "figure_text", "resolved"]
 
 FIGURES: Final = (
+    "step-index",
+    "grin",
     "capillary-averaged",
     "capillary-modal",
     "antiresonant",

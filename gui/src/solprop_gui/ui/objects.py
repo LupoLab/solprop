@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
 )
 
 from solprop_gui.model.recipe import MISSING
+from solprop_gui.registry.pages import type_label
 
 __all__ = ["Catalog", "ObjectField", "ObjectListField", "type_title"]
 
@@ -98,7 +99,7 @@ class _TypeForm(QWidget):
         for meta in keywords:
             if not any(form.get("recipe", True) for form in meta.get("forms", [])):  # pyright: ignore[reportGeneralTypeIssues, reportAttributeAccessIssue]
                 continue
-            row = make_row(meta)
+            row = make_row({**meta, "label": type_label(name, str(meta["name"]))})
             row.edited.connect(self._edited)  # pyright: ignore[reportAttributeAccessIssue]
             self.rows[str(meta["name"])] = row
             layout.addWidget(row)

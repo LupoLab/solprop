@@ -42,6 +42,7 @@ from solprop.recipe import Recipe
 from solprop.spatial import SpatialFlux, spatial_power
 from solprop.stats import CATALOGUE
 
+from solprop_gui.service.beam import beam_reading, beam_slice, profile_row
 from solprop_gui.service.reduce import even_rows
 
 __all__ = ["RESULTS_HANDLERS", "band_of", "spatial_plane"]
@@ -180,42 +181,80 @@ def spatial_plane(
     Returns
     -------
     dict
-        ``spectrum`` (``x``, the wavelength or frequency of each in-band bin,
-        ascending, and ``y``, J per bin) and ``power`` (``t`` and ``y`` in W), each
-        with ``error`` instead where solprop gives none (a planar run's spectrum).
+        ``spectrum`` (``x``, the wavelength or frequency of each bin of the active
+        band, ascending, and ``y``, J per bin), ``power`` (``t`` and ``y`` in W) and
+        ``profile`` (the fluence across the centre, :func:`.beam.profile_row`); a
+        spectrum with ``error`` instead, and no profile, where solprop reads no
+        field plane (a planar run).
     """
     simulation = _simulation(path, Path(path).stat().st_mtime)
     z = float(np.asarray(handler["z"])[index])
-    found: dict[str, object] = {}
+    stored = np.asarray(handler.fields("fft")[index])  # pyright: ignore[reportAttributeAccessIssue]
+    space = (simulation.grid, simulation.spatial_grid, simulation.medium)
     try:
         energy = np.asarray(field_plane(handler, index).spectral_energy())
-        omega = np.asarray(simulation.grid.omega)
-        light = omega > 0
-        x = omega[light] / (2 * np.pi)
-        if axis == "wavelength":
-            x = C / x
-        order = np.argsort(x)  # ascending, as the modal readers give it
-        found["spectrum"] = {
-            "x": x[order],
-            "y": energy[light][order],
-            "unit": "J per bin",
-        }
     except SolpropError as error:
-        found["spectrum"] = {"error": str(error)}
-    flux = SpatialFlux.resolve(
-        simulation.grid,
-        simulation.spatial_grid,  # pyright: ignore[reportArgumentType]
-        simulation.medium,  # pyright: ignore[reportArgumentType]
-        z=z,
-    )
-    stored = np.asarray(handler.fields("fft")[index])  # pyright: ignore[reportAttributeAccessIssue]
-    if bandpass is not None:
-        stored = stored * spectral_window(simulation.grid, bandpass)
-    found["power"] = {
-        "t": np.asarray(simulation.grid.t),
-        "y": np.asarray(spatial_power(stored, flux)),
+        # A plane solprop does not read as a field plane (a planar run): its flux.
+        flux = SpatialFlux.resolve(*space, z=z)  # pyright: ignore[reportArgumentType]
+        windowed = stored
+        if bandpass is not None:
+            windowed = stored * spectral_window(simulation.grid, bandpass)
+        return {
+            "spectrum": {"error": str(error)},
+            "power": {
+                "t": np.asarray(simulation.grid.t),
+                "y": np.asarray(spatial_power(windowed, flux)),
+            },
+        }
+    reading = beam_reading(*space, z, stored, energy, bandpass=bandpass)
+    spectra: Mapping[str, tuple[np.ndarray, np.ndarray]] = reading["spectra"]  # pyright: ignore[reportAssignmentType]
+    x, y = spectra["f" if axis == "f" else "wavelength"]
+    order = np.argsort(x)  # ascending, as the modal readers give it
+    return {
+        "spectrum": {"x": x[order], "y": y[order], "unit": "J per bin"},
+        "power": {"t": reading["t"], "y": reading["power"]},
+        "profile": profile_row(reading),
     }
-    return found
+
+
+def beam(payload: Payload) -> dict[str, object]:
+    """Return a free-space plane's intensity across the beam's centre against time.
+
+    Parameters
+    ----------
+    payload : Mapping
+        ``path``, ``index`` (the plane) and optionally ``bandpass`` (a wavelength
+        band, m).
+
+    Returns
+    -------
+    dict
+        :func:`.beam.beam_slice`'s: ``t``, ``x``, ``axis`` and ``values`` (W/m^2),
+        the values as float32.
+
+    Raises
+    ------
+    solprop.exceptions.SolpropError
+        For a run that is not a free-space one.
+    """
+    path = str(payload["path"])
+    if capabilities.output(path).basis != "spatial":
+        msg = "only a free-space run has a beam to slice"
+        raise SolpropError(msg)
+    simulation = _simulation(path, Path(path).stat().st_mtime)
+    index = int(payload["index"])  # pyright: ignore[reportArgumentType]
+    with open_file(path) as handler:
+        z = float(np.asarray(handler["z"])[index])
+        stored = np.asarray(handler.fields("fft")[index])  # pyright: ignore[reportAttributeAccessIssue]
+    found = beam_slice(
+        simulation.grid,
+        simulation.spatial_grid,
+        simulation.medium,
+        z,
+        stored,
+        bandpass=band_of(payload),
+    )
+    return {**found, "values": np.asarray(found["values"], dtype=np.float32)}
 
 
 def _fluence(path: str, handler: Output, index: int) -> dict[str, object]:
@@ -507,7 +546,8 @@ def _window(
     Returns
     -------
     tuple of float
-        The run's wavelength window on the axis, where its recipe gives one; else
+        The run's wavelength window on the axis, where its recipe gives one (on
+        frequency from the map's lowest row, as a field grid reaches zero); else
         the rows that hold light (above a millionth of the peak).
     """
     limits = None
@@ -518,7 +558,8 @@ def _window(
         low, high = sorted(float(v) for v in limits)  # pyright: ignore[reportArgumentType]
         if axis == "wavelength":
             return low, high
-        return C / high, C / low
+        # On frequency, from the transform's lowest: a field grid reaches zero.
+        return float(x[0]), C / low
     light = np.flatnonzero(values.max(axis=1) > 1e-6 * values.max())
     return float(x[light[0]]), float(x[light[-1]])
 
@@ -619,6 +660,7 @@ RESULTS_HANDLERS = {
     "plane": plane,
     "statistics": statistics,
     "spectrogram": spectrogram,
+    "beam": beam,
     "result_figure": figure,
     "scan_overview": scan_overview,
 }
