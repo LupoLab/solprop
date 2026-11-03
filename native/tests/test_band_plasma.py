@@ -29,13 +29,14 @@ import subprocess
 import sys
 import warnings
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import solprop_native
 
 import numpy as np
 import numpy.typing as npt
 import pytest
+from thread_sizing import assert_threaded
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.driver import Simulation
 from solprop.exceptions import BackendError, MaterialRangeWarning, TranslationError
@@ -719,7 +720,7 @@ def test_the_band_column_agrees_across_thread_counts(tmp_path: Path) -> None:
     """
     script = Path(__file__).with_name("band_thread_probe.py")
     runs: list[dict[str, np.ndarray]] = []
-    threads_seen: list[object] = []
+    records: list[dict[str, Any]] = []
     for threads in (1, 4):
         out = tmp_path / f"band-{threads}.npz"
         completed = subprocess.run(
@@ -737,10 +738,11 @@ def test_the_band_column_agrees_across_thread_counts(tmp_path: Path) -> None:
             },
         )
         assert completed.returncode == 0, completed.stderr
-        threads_seen.append(json.loads(completed.stdout.splitlines()[-1])["threads"])
+        records.append(json.loads(completed.stdout.splitlines()[-1]))
         with np.load(out) as stored:
             runs.append({name: stored[name] for name in stored.files})
-    assert threads_seen == [1, 4]
+    assert [record["threads"] for record in records] == [1, 4]
+    assert_threaded(records[1]["sizing"], 4, "kernels.stage", "kernels.response")
     one, four = runs
     from test_band_stress import case
 

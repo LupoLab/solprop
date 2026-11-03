@@ -25,6 +25,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from backends.forced_threads import assert_threaded
 from backends.low_storage_cases import (
     STEPS,
     parity_bound,
@@ -811,6 +812,7 @@ def test_the_march_agrees_across_thread_counts(tmp_path):
     one = native_thread_fields(PROBE, 1, names, tmp_path)
     again = native_thread_fields(PROBE, 1, names, tmp_path)
     four = native_thread_fields(PROBE, 4, names, tmp_path)
+    assert_threaded(four["sizing"], 4, "kernels.stage", "fft.fft")
     for name in names:
         mode, collar = name.split("-")
         problem, _, _ = cartesian_march(mode, collar=collar == "collar")

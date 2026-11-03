@@ -57,6 +57,7 @@ from backends.dispersive_route_cases import (
 from backends.dispersive_route_cases import (
     evaluation_bound as cpu_evaluation_bound,
 )
+from backends.forced_threads import assert_threaded
 from backends.matched import fixed_order, native_thread_fields
 from bounds import assert_within, dispersive_device_bound, step_evaluations
 from modal_provider_cases import GENERAL_Z_END
@@ -511,6 +512,7 @@ def test_one_thread_and_four_agree(tmp_path):
     ]
     one = native_thread_fields(PROBE, 1, names, tmp_path)
     four = native_thread_fields(PROBE, 4, names, tmp_path)
+    assert_threaded(four["sizing"], 4, "kernels.stage", "kernels.response", "fft.fft")
     for name in names:
         problem, _ = route_case(*name.split(":"))
         bound = window_bound(fixed_order(problem))

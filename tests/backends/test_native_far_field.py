@@ -36,6 +36,7 @@ from backends.far_field_cases import (
     spec_of,
     time_grid,
 )
+from backends.forced_threads import assert_threaded
 from backends.matched import native_thread_fields
 from bounds import assert_within
 from solprop.backends import select
@@ -325,6 +326,7 @@ def test_the_native_pass_does_not_depend_on_the_thread_count(tmp_path):
         for threads in (1, 2, 4)
     }
     for threads in (2, 4):
+        assert_threaded(results[threads]["sizing"], threads, "kernels.stage")
         # The bands and every sum's order are fixed by the shapes: within the
         # rounding bound (not asserted to the bit).
         assert_matches(results[threads], results[1], absolute, problem)
