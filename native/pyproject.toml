@@ -36,6 +36,7 @@ classifiers = [
   "Programming Language :: C++",
   "Programming Language :: Python :: 3 :: Only",
   "Programming Language :: Python :: 3.14",
+  "Programming Language :: Python :: 3.15",
   "Topic :: Scientific/Engineering :: Physics",
 ]
 dependencies = [
@@ -57,6 +58,8 @@ metadata.version.provider = "scikit_build_core.metadata.setuptools_scm"
 build-dir = "build/{wheel_tag}"
 cmake.build-type = "Release"
 cmake.define.BUILD_TESTING = "OFF"
+# One wheel for every CPython from 3.14: the stable ABI, built on the oldest of them.
+wheel.py-api = "cp314"
 wheel.packages = ["src/solprop_native"]
 wheel.exclude = ["**/__pycache__/**"]
 
@@ -70,8 +73,9 @@ if.platform-system = "^darwin$"
 if.platform-machine = "^x86_64$"
 cmake.args = ["-DCMAKE_CXX_COMPILER=/usr/local/opt/llvm/bin/clang++"]
 
-# The release wheels (.github/workflows/wheels.yml; docs/dev/releasing.md): CPython 3.14,
-# not free-threaded, one 64-bit wheel per platform, the distribution profile. The
+# The release wheels (.github/workflows/wheels.yml; docs/dev/releasing.md): built on
+# CPython 3.14 for the stable ABI, not free-threaded, one 64-bit wheel per platform, the
+# distribution profile. The
 # libraries each wheel bundles are built from pinned sources by native/ci/ before the
 # build, and the repair step copies them into the wheel.
 [tool.cibuildwheel]
