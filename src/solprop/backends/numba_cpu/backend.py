@@ -2876,26 +2876,12 @@ class NumbaCpuBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         ----------
         monitor : solprop.monitor.BoundaryMonitor or None
             The run's monitor, or ``None`` to stop.
-
-        Raises
-        ------
-        BackendError
-            If the monitor's weights do not match the grid, or its columns the state.
         """
         super()._bind_monitor(monitor)
         if monitor is None:
             return
         n_t = self._problem.grids.n_t
-        _, n_modes, _, _ = self._problem.shape
         columns = monitor.columns
-        given = None if columns is None else columns.shape
-        if monitor.weights.shape != (4, n_t) or given not in {None, (n_modes,)}:
-            msg = (
-                f"{self.name}: the boundary monitor's weights {monitor.weights.shape} "
-                f"or columns {given} do not match the grid's {n_t} samples and the "
-                f"state's {n_modes} modes"
-            )
-            raise BackendError(msg)
         if self._plans.coarse_spectrum is None and self._monitor_plan is None:
             self._monitor_plan = fft.build_monitor_plan(
                 self._temporal_rows,
