@@ -13,7 +13,7 @@ status bar. Its execution state is the window's
 solprop after every ending, and Resume follows that answer alone.
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer, Signal
@@ -447,20 +447,54 @@ class RunPanel(QWidget):
                 f"({data['rejected']} rejected)"
             )
         elif event.kind == "log":
-            message = f"{data.get('level')}: {data.get('message')}"
-            self.log.appendPlainText(message)
-            if "Boundary" in str(data.get("message")):
-                error = "BoundaryError" in str(data.get("message"))
-                self.lamp.setText("boundary: stopped" if error else "boundary: warning")
-                self.lamp.setStyleSheet(
-                    "color: #c62828;" if error else "color: #b26a00;"
-                )
+            self._show_log(data)
         elif event.kind == "started":
             self._z_end = float(data["z_end"])  # pyright: ignore[reportArgumentType]
             self.state_label.setText(f"{self.run_id}: running")
-        self._set_state(advance(self.state, event.kind))
+        elif event.kind == "scan_started":
+            self.state_label.setText(f"{self.run_id}: scanning {data['points']} points")
+        elif event.kind == "point":
+            self._show_point(data)
+        # A scan's start moves the run on as a run's does.
+        kind = "started" if event.kind == "scan_started" else event.kind
+        self._set_state(advance(self.state, kind))
         if event.terminal:
             self._ended(event)
+
+    def _show_log(self, data: Mapping[str, object]) -> None:
+        """Add a log line, and light the boundary lamp for a boundary warning.
+
+        Parameters
+        ----------
+        data : Mapping
+            The ``log`` event's data: ``level`` and ``message``.
+        """
+        message = f"{data.get('level')}: {data.get('message')}"
+        self.log.appendPlainText(message)
+        if "Boundary" in str(data.get("message")):
+            error = "BoundaryError" in str(data.get("message"))
+            self.lamp.setText("boundary: stopped" if error else "boundary: warning")
+            self.lamp.setStyleSheet("color: #c62828;" if error else "color: #b26a00;")
+
+    def _show_point(self, data: Mapping[str, object]) -> None:
+        """Show a scan point's start, with its values, or its end.
+
+        Parameters
+        ----------
+        data : Mapping
+            The ``point`` event's data.
+        """
+        if data.get("status") is None:
+            values: Mapping[str, float] = data.get("values") or {}  # pyright: ignore[reportAssignmentType]
+            shown = ", ".join(f"{k} = {v:.4g}" for k, v in values.items())
+            self.steps.setText(f"point {data['index']}: {shown}")
+            return
+        points = int(data.get("points") or 0)  # pyright: ignore[reportArgumentType]
+        if points:
+            done = int(data["done"])  # pyright: ignore[reportArgumentType]
+            self.progress.setValue(int(1000 * done / points))
+        if data["status"] == "failed":
+            self.log.appendPlainText(f"point {data['index']} failed")
 
     def _ended(self, event: Event) -> None:
         """Show how the run ended, and ask solprop whether it can be continued.
@@ -487,7 +521,10 @@ class RunPanel(QWidget):
         self.state_label.setText(text)
         if event.kind == "finished":
             self.progress.setValue(1000)
-        if self.folder is not None:
+        if self.folder is not None and event.data.get("scan"):
+            # A scan's points are run again with retry_failed, not resumed.
+            self.ended.emit(str(event.data["path"]))
+        elif self.folder is not None:
             path = str(self.folder / OUTPUT)
             request = self.bridge.request(
                 "check_resume", {"path": path}, key="panel-resume"

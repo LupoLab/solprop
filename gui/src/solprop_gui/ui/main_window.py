@@ -54,12 +54,14 @@ from solprop_gui.registry.pages import PAGES
 from solprop_gui.registry.routes import CARDS, EXPLORER_SETUP, GUIDED, card, card_of
 from solprop_gui.registry.units import si
 from solprop_gui.service.messages import Reply
+from solprop_gui.service.worker import SCAN_OUTPUT
 from solprop_gui.ui.bridge import ServiceBridge
 from solprop_gui.ui.design_tool import DesignDialog
 from solprop_gui.ui.icons import icon
 from solprop_gui.ui.pages import ParameterPage, StartPage, issue_keyword
 from solprop_gui.ui.results import ResultsPage
 from solprop_gui.ui.run_panel import RunPanel
+from solprop_gui.ui.scan_editor import ScanEditor
 from solprop_gui.views.explorer import ExplorerView
 from solprop_gui.views.splitter import GripSplitter
 from solprop_gui.views.zdw_chart import ZdwChartView
@@ -125,6 +127,42 @@ class _SetValues(QUndoCommand):
         )
 
 
+class _SetTable(QUndoCommand):
+    """Replace a whole table of the recipe (its ``[scan]``), as one undo step.
+
+    Parameters
+    ----------
+    window : MainWindow
+        The window whose recipe it changes.
+    table : str
+        The table.
+    new, old : Mapping or None
+        Its contents after and before; ``None`` for no table.
+    """
+
+    def __init__(
+        self,
+        window: MainWindow,
+        table: str,
+        new: Mapping[str, object] | None,
+        old: object,
+    ) -> None:
+        """Hold the change."""
+        super().__init__(f"Set the {table}")
+        self.window = window
+        self.table = table
+        self.new = new
+        self.old = old if isinstance(old, Mapping) else None
+
+    def redo(self) -> None:
+        """Set the new contents."""
+        self.window.apply_table(self.table, self.new)
+
+    def undo(self) -> None:
+        """Set the old contents back."""
+        self.window.apply_table(self.table, self.old)
+
+
 class MainWindow(QMainWindow):
     """The application's one main window.
 
@@ -188,6 +226,8 @@ class MainWindow(QMainWindow):
         self.panels.setObjectName("settings")
         self.panels.setMinimumWidth(280)
         self.panels.addWidget(self.start)
+        self.scan_editor = ScanEditor()
+        self.scan_editor.changed.connect(self.edit_scan)
         for page in PAGES:
             if page.key == "results":
                 self.panels.addWidget(self.results)
@@ -197,6 +237,7 @@ class MainWindow(QMainWindow):
             widget.roots_wanted.connect(self.find_roots)
             if page.key == "propagate":
                 widget.add_section("Run", self.run_panel)
+                widget.add_section("Scan", self.scan_editor)
             self.pages[page.key] = widget
             self.panels.addWidget(widget)
 
@@ -219,6 +260,7 @@ class MainWindow(QMainWindow):
         self.views.addTab(self.results.overview, "Results")
         self.views.addTab(self.results.plane, "Plane")
         self.views.addTab(self.results.statistics, "Statistics")
+        self.views.addTab(self.results.scan, "Scan")
         self.views.addTab(self.results.compare, "Compare")
 
         # Below the views: the summary and solprop's check, the log, the code.
@@ -540,7 +582,7 @@ class MainWindow(QMainWindow):
         ----------
         name : str
             ``"dispersion"``, ``"chart"``, ``"live"``, ``"results"``, ``"plane"``,
-            ``"statistics"`` or ``"compare"``.
+            ``"statistics"``, ``"scan"`` or ``"compare"``.
         """
         widget = {
             "dispersion": self.explorer,
@@ -549,6 +591,7 @@ class MainWindow(QMainWindow):
             "results": self.results.overview,
             "plane": self.results.plane,
             "statistics": self.results.statistics,
+            "scan": self.results.scan,
             "compare": self.results.compare,
         }[name]
         self.views.setCurrentWidget(widget)
@@ -827,6 +870,17 @@ class MainWindow(QMainWindow):
                 page.clear()
                 page.build(description["parameters"], catalog=description.get("types"))  # pyright: ignore[reportArgumentType]
                 page.build(description["execution"], table="execution")  # pyright: ignore[reportArgumentType]
+            keywords: Sequence[Mapping[str, object]] = description["parameters"]  # pyright: ignore[reportAssignmentType]
+            self.scan_editor.set_paths(
+                [
+                    str(entry["name"])
+                    for entry in keywords
+                    if any(
+                        form.get("kind") in ("number", "integer", "string")
+                        for form in entry.get("forms", [])  # pyright: ignore[reportGeneralTypeIssues, reportAttributeAccessIssue]
+                    )
+                ]
+            )
             self._built_route = route
         self.show_values()
         self._update_steps()
@@ -836,6 +890,39 @@ class MainWindow(QMainWindow):
         if self.model is not None:
             for page in self.pages.values():
                 page.show_values(self.model)
+            self.scan_editor.set_value(self.model.document.get("scan"))
+
+    def edit_scan(self, table: Mapping[str, object] | None) -> None:
+        """Set the recipe's ``[scan]`` table as an undoable command.
+
+        Parameters
+        ----------
+        table : Mapping or None
+            The table; ``None`` removes it.
+        """
+        if self.model is None:
+            return
+        old = self.model.document.get("scan")
+        new = None if table is None else dict(table)
+        if old != new:
+            self.undo.push(_SetTable(self, "scan", new, old))
+
+    def apply_table(self, table: str, value: Mapping[str, object] | None) -> None:
+        """Set a whole table and show the change (the command's action).
+
+        Parameters
+        ----------
+        table : str
+            The table.
+        value : Mapping or None
+            Its contents; ``None`` removes it.
+        """
+        if self.model is None:
+            return
+        self.model.set_table(table, value)
+        self.show_values()
+        self._update_title()
+        self.schedule_check()
 
     def edit(self, name: str, table: str, value: object) -> None:
         """Change one value, or one pin, as an undoable command.
@@ -1391,7 +1478,10 @@ class MainWindow(QMainWindow):
         path : str
             Its results file.
         """
-        self.results.open(path, show=False)
+        if Path(path).name == SCAN_OUTPUT:
+            self.results.open_scan(path, show=False)
+        else:
+            self.results.open(path, show=False)
         self.refresh_runs()
         self.statusBar().showMessage(
             f"Run ended: {Path(path).parent.name} (see the Results view)", 10_000

@@ -19,7 +19,7 @@ from multiprocessing.connection import Connection
 
 from solprop_gui.service.reduce import Display
 
-__all__ = ["LOG", "OUTPUT", "RECIPE", "RunSpec", "main"]
+__all__ = ["LOG", "OUTPUT", "RECIPE", "SCAN_OUTPUT", "RunSpec", "main"]
 
 OUTPUT = "run.h5"
 """The results file in a run's folder."""
@@ -29,6 +29,9 @@ RECIPE = "recipe.toml"
 
 LOG = "run.log"
 """solprop's log of the run, in its folder."""
+
+SCAN_OUTPUT = "scan.h5"
+"""A scan's results file, in its folder: its points, their status and reductions."""
 
 
 @dataclass(frozen=True)

@@ -150,3 +150,53 @@ def test_a_spatial_plane_has_its_fluence_map(beam: str, monkeypatch):
     monkeypatch.setattr(results, "node_fluence", refuse)
     no_map = ask("plane", {"path": beam, "index": 1})["fluence"]
     assert no_map == {"error": "no reconstruction"}
+
+
+@pytest.fixture(scope="module")
+def scanned(tmp_path_factory: pytest.TempPathFactory) -> str:
+    """Return a three-point pressure scan's results file, with statistics."""
+    from solprop.driver.scan import run_scan  # noqa: PLC0415 - only here
+
+    from test_design import SCAN  # noqa: PLC0415
+
+    text = SCAN.replace('"1 bar"]', '"1 bar", "1.5 bar"]').replace(
+        "n_save = 2", "n_save = 2" + STATS
+    )
+    path = tmp_path_factory.mktemp("scan") / "scan.h5"
+    scan = Recipe.loads(text).scan()
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        run_scan(scan.scan, scan.build, output=path, progress="none", **scan.keywords)  # pyright: ignore[reportArgumentType]
+    return str(path)
+
+
+def test_a_scan_s_results_over_its_variables(scanned: str, monkeypatch):
+    found = ask("scan_overview", {"path": scanned})
+    assert found["variables"][0]["name"] == "pressure"
+    assert list(found["variables"][0]["values"]) == [0.5, 1.0, 1.5]
+    assert found["shape"] == [3] and found["status"] == ["done"] * 3
+    energy = found["results"]["stats/energy"]
+    assert energy["units"] == "J" and energy["values"].shape == (3,)
+    assert np.all(np.isfinite(energy["values"]))
+
+    class Unrecorded:
+        def __init__(self, _path: str) -> None:
+            self.recipe = None
+
+    monkeypatch.setattr(results, "ScanOutput", Unrecorded)
+    with pytest.raises(SolpropError, match="records no recipe"):
+        ask("scan_overview", {"path": scanned})
+
+
+def test_a_scan_with_no_point_done_has_no_results(scanned: str, monkeypatch):
+    real = results.ScanOutput(scanned)
+
+    class NoneDone:
+        def __init__(self, _path: str) -> None:
+            self.recipe = real.recipe
+            self.shape = real.shape
+            self.status = np.array(["failed"] * 3)
+
+    monkeypatch.setattr(results, "ScanOutput", NoneDone)
+    found = ask("scan_overview", {"path": scanned})
+    assert found["results"] == {} and found["status"] == ["failed"] * 3

@@ -25,16 +25,17 @@ from multiprocessing.connection import Connection
 from pathlib import Path
 
 import numpy as np
-from solprop.log import NullReporter
+from solprop.driver.scan import run_scan
+from solprop.log import NullReporter, ScanReporter
 from solprop.output import open_file
 from solprop.recipe import Recipe, resume_file
 
 from solprop_gui.service.messages import Control, Event
 from solprop_gui.service.outbox import Outbox
 from solprop_gui.service.reduce import Display, Reducer, stats_row
-from solprop_gui.service.worker import LOG, OUTPUT, RECIPE, RunSpec
+from solprop_gui.service.worker import LOG, OUTPUT, RECIPE, SCAN_OUTPUT, RunSpec
 
-__all__ = ["PROGRESS_PERIOD", "EventHandler", "LiveObserver", "execute"]
+__all__ = ["PROGRESS_PERIOD", "EventHandler", "LiveObserver", "ScanObserver", "execute"]
 
 PROGRESS_PERIOD = 0.25
 """The least time between two progress events, s: at most four a second."""
@@ -180,6 +181,84 @@ class LiveObserver(NullReporter):
             self.outbox.put(row)
 
 
+class ScanObserver(ScanReporter):
+    """Turn a scan's progress into events: its start, and each point's start and end.
+
+    Parameters
+    ----------
+    run_id : str
+        The scan's identity.
+    outbox : solprop_gui.service.outbox.Outbox
+        Where its events go.
+    """
+
+    def __init__(self, run_id: str, outbox: Outbox) -> None:
+        """Hold where the events go."""
+        self.run_id = run_id
+        self.outbox = outbox
+        self.points = 0
+        self.done = 0
+
+    def scan_started(self, n_points: int) -> None:
+        """Announce the scan and its number of points.
+
+        Parameters
+        ----------
+        n_points : int
+            The points to run.
+        """
+        self.points = n_points
+        self.outbox.put(Event(self.run_id, "scan_started", {"points": n_points}))
+
+    def point_started(self, index: int, point: object) -> None:
+        """Announce a point, with its values.
+
+        Parameters
+        ----------
+        index : int
+            Its global index.
+        point : object
+            The scan's point (``ScanPoint``), whose ``values`` are given in SI.
+        """
+        values = getattr(point, "values", {})
+        plain = {str(k): float(v) for k, v in dict(values).items()}  # pyright: ignore[reportArgumentType]
+        self.outbox.put(
+            Event(
+                self.run_id, "point", {"index": index, "values": plain, "status": None}
+            )
+        )
+
+    def point_finished(self, index: int, status: str, wall: float) -> None:
+        """Announce a point's end, and the scan's share done.
+
+        Parameters
+        ----------
+        index : int
+            Its global index.
+        status : str
+            ``"done"`` or ``"failed"``.
+        wall : float
+            Its wall time, s.
+        """
+        self.done += 1
+        self.outbox.put(
+            Event(
+                self.run_id,
+                "point",
+                {
+                    "index": index,
+                    "status": status,
+                    "wall": wall,
+                    "done": self.done,
+                    "points": self.points,
+                },
+            )
+        )
+
+    def scan_finished(self) -> None:
+        """Do nothing: the scan's terminal event is the worker's."""
+
+
 class EventHandler(logging.Handler):
     """Forward log records to the window as ``log`` events.
 
@@ -301,6 +380,49 @@ def _ending(output: Path, stopped: bool) -> tuple[str, dict[str, object]]:
     return "failed", data
 
 
+def _scan(
+    recipe: Recipe,
+    folder: Path,
+    run_id: str,
+    outbox: Outbox,
+    stop: threading.Event,
+) -> tuple[str, dict[str, object]]:
+    """Run a recipe's ``[scan]`` (``Recipe.scan`` and ``run_scan``) into its folder.
+
+    Parameters
+    ----------
+    recipe : solprop.recipe.Recipe
+        The recipe, with its ``[scan]`` table.
+    folder : pathlib.Path
+        The scan's folder.
+    run_id : str
+        Its identity, for its events.
+    outbox : solprop_gui.service.outbox.Outbox
+        Where its events go.
+    stop : threading.Event
+        Its stop flag: the points not yet started are not run.
+
+    Returns
+    -------
+    tuple
+        The terminal event: ``"stopped"`` or ``"finished"``, with the scan file's
+        ``path`` and the number of points ``failed``.
+    """
+    scan = recipe.scan()
+    output = folder / SCAN_OUTPUT
+    result = run_scan(
+        scan.scan,
+        scan.build,
+        output=output,
+        progress=ScanObserver(run_id, outbox),
+        stop=stop,
+        **scan.keywords,  # pyright: ignore[reportArgumentType]
+    )
+    failed = int(np.count_nonzero(np.asarray(result.status) == "failed"))
+    kind = "stopped" if stop.is_set() else "finished"
+    return kind, {"path": str(output), "scan": True, "failed": failed, "message": ""}
+
+
 def _display(spec: RunSpec, output: Path) -> Display:
     """Return the display bins of a run: the spec's, in the recipe's window.
 
@@ -376,6 +498,9 @@ def execute(spec: RunSpec, events: Connection, control: Connection) -> None:
                 spec.recipe, base=Path(spec.base) if spec.base else None
             )
             (folder / RECIPE).write_text(spec.recipe, encoding="utf-8")
+            if "scan" in recipe.to_dict():
+                kind, data = _scan(recipe, folder, spec.run_id, outbox, stop)
+                return
             recipe.run(output, progress=observer, stop=stop)
         else:
             resume_file(output, spec.resume, progress=observer, stop=stop)  # pyright: ignore[reportArgumentType]

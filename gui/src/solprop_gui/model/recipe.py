@@ -15,6 +15,7 @@ paths. Checking, building and running are the kernel's.
 """
 
 import copy
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Final
 
@@ -282,6 +283,56 @@ class RecipeModel:
             tables = {**self._document, table: set_path(current, steps[:-1], trimmed)}
         if not tables[table] and table != "build":
             del tables[table]
+        self._document = parse_text(dump_text(tables))
+        self._edited()
+        return previous
+
+    def set_table(self, table: str, value: Mapping[str, object] | None) -> object:
+        """Replace a whole table, whose keys are not paths (the ``[scan]`` table's).
+
+        Parameters
+        ----------
+        table : str
+            The table: not ``"build"``, whose keys are paths.
+        value : Mapping or None
+            Its keys and values; ``None`` removes the table.
+
+        Returns
+        -------
+        object
+            The table it replaced, or :data:`MISSING`.
+
+        Raises
+        ------
+        ValueError
+            If the table is ``"build"``.
+
+        Examples
+        --------
+        >>> text = "[recipe]", "format = 1", 'route = "gnlse"', "[build]"
+        >>> model = RecipeModel(chr(10).join(text))
+        >>> model.set_table("scan", {"name": "s", "pulses[0].energy": [1, 2]})
+        MISSING
+        >>> model.document["scan"]["pulses[0].energy"]
+        [1, 2]
+        >>> model.set_table("scan", None)["name"]
+        's'
+        >>> "scan" in model.document
+        False
+        >>> model.set_table("build", {})
+        Traceback (most recent call last):
+        ...
+        ValueError: the build table is set by path
+        """
+        if table == "build":
+            msg = "the build table is set by path"
+            raise ValueError(msg)
+        previous = copy.deepcopy(self._document.get(table, MISSING))
+        tables = dict(self._document)
+        if value is None:
+            tables.pop(table, None)
+        else:
+            tables[table] = dict(value)
         self._document = parse_text(dump_text(tables))
         self._edited()
         return previous

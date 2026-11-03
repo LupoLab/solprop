@@ -34,6 +34,7 @@ from solprop_gui.ui.bridge import ServiceBridge
 from solprop_gui.views.compare import CompareView
 from solprop_gui.views.live import OverviewView
 from solprop_gui.views.plane import PlaneView
+from solprop_gui.views.scan_browser import ScanView
 from solprop_gui.views.statistics import StatisticsView
 
 __all__ = ["ResultsPage"]
@@ -95,6 +96,7 @@ class ResultsPage(QWidget):
         self.compare = CompareView()
         self.plane = PlaneView()
         self.statistics = StatisticsView()
+        self.scan = ScanView()
         self.plane.plane_wanted.connect(self._ask_plane)
         self.plane.spectrogram_wanted.connect(self._ask_spectrogram)
         self.plane.compression_wanted.connect(self._ask_compression)
@@ -188,6 +190,22 @@ class ResultsPage(QWidget):
         self._ask("overview", {"path": self.path}, "overview")
         self._ask("statistics", {"path": self.path}, "statistics")
 
+    def open_scan(self, path: str | Path, *, show: bool = True) -> None:
+        """Open a scan's results file in the scan browser.
+
+        Parameters
+        ----------
+        path : str or pathlib.Path
+            The scan's file.
+        show : bool, optional
+            Whether to bring the browser forward.
+        """
+        self.info.setText(f"{_short(str(path))}: reading the scan…")
+        self.scan.status.setText("Reading the scan…")
+        if show:
+            self.view_wanted.emit("scan")
+        self._ask("scan_overview", {"path": str(path)}, "scan")
+
     def _ask_plane(self, index: int, modes: object) -> None:
         """Ask for one plane of the open file.
 
@@ -270,6 +288,9 @@ class ResultsPage(QWidget):
         if entry is None:
             return
         purpose, path = entry
+        if purpose == "scan":
+            self._show_scan(path, reply)
+            return
         if not reply.ok:
             if purpose in ("plane", "compression", "spectrogram"):
                 self.plane.show_error(f"{purpose}: {reply.error}")
@@ -283,30 +304,7 @@ class ResultsPage(QWidget):
             self._show_view_reply(purpose, value)
             return
         if purpose == "describe" and path == self.path and isinstance(value, dict):
-            self.capabilities = value
-            outcome = value.get("outcome") or {}
-            status = outcome.get("status") if isinstance(outcome, dict) else None
-            text = (
-                f"{_short(path)}: "
-                f"{value.get('simulation_kind')} run, {status or 'no outcome'}"
-            )
-            message = outcome.get("message") if isinstance(outcome, dict) else None
-            if message:
-                text += f" ({message})"
-            planes = value.get("field_planes") or []
-            text += f"; {len(planes)} planes with fields"  # pyright: ignore[reportArgumentType]
-            if not value.get("recipe"):
-                text += "; it records no recipe (a file from a script)"
-            self.info.setText(text)
-            self._update_buttons()
-            z: list[float] = list(value.get("z") or [])  # pyright: ignore[reportArgumentType]
-            planes = [int(p) for p in planes]  # pyright: ignore[reportGeneralTypeIssues]
-            self.plane.set_planes(
-                planes,
-                [z[p] for p in planes if p < len(z)],
-                list(value.get("labels") or []),  # pyright: ignore[reportArgumentType]
-            )
-            self.plane.set_refused(dict(value.get("refused") or {}))  # pyright: ignore[reportArgumentType]
+            self._show_description(path, value)
         elif purpose == "overview" and path == self.path and isinstance(value, dict):
             self.overview.set_rows(value.get("axes", {}), value.get("rows", []))  # pyright: ignore[reportArgumentType]
         elif purpose == "compare" and isinstance(value, dict):
@@ -315,6 +313,58 @@ class ResultsPage(QWidget):
             self.view_wanted.emit("compare")
         elif purpose == "setup" and isinstance(value, str):
             self.setup_opened.emit(value, path)
+
+    def _show_scan(self, path: str, reply: Reply) -> None:
+        """Show a scan's overview in the browser, or why there is none.
+
+        Parameters
+        ----------
+        path : str
+            The scan's file.
+        reply : solprop_gui.service.messages.Reply
+            The ``scan_overview`` reply.
+        """
+        if reply.ok and isinstance(reply.value, Mapping):
+            self.scan.set_scan(reply.value)
+            self.info.setText(f"{_short(path)}: a scan")
+        else:
+            self.scan.show_error(f"No scan: {reply.error}")
+
+    def _show_description(self, path: str, value: dict[str, object]) -> None:
+        """Show what a results file holds, and offer its planes and views.
+
+        Parameters
+        ----------
+        path : str
+            The file.
+        value : dict
+            The kernel's ``describe_output`` reply.
+        """
+        self.capabilities = value
+        outcome = value.get("outcome") or {}
+        status = outcome.get("status") if isinstance(outcome, dict) else None
+        text = (
+            f"{_short(path)}: "
+            f"{value.get('simulation_kind')} run, {status or 'no outcome'}"
+        )
+        message = outcome.get("message") if isinstance(outcome, dict) else None
+        if message:
+            text += f" ({message})"
+        planes = value.get("field_planes") or []
+        text += f"; {len(planes)} planes with fields"  # pyright: ignore[reportArgumentType]
+        if not value.get("recipe"):
+            text += "; it records no recipe (a file from a script)"
+        self.info.setText(text)
+        self._update_buttons()
+        z: list[float] = list(value.get("z") or [])  # pyright: ignore[reportArgumentType]
+        planes = [int(p) for p in planes]  # pyright: ignore[reportGeneralTypeIssues]
+        self.plane.set_planes(
+            planes,
+            [z[p] for p in planes if p < len(z)],
+            list(value.get("labels") or []),  # pyright: ignore[reportArgumentType]
+        )
+        refused: Mapping[str, str] = value.get("refused") or {}  # pyright: ignore[reportAssignmentType]
+        self.plane.set_refused(refused)
 
     def _show_view_reply(self, purpose: str, value: object) -> None:
         """Hand a view its reply.

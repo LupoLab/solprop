@@ -19,6 +19,7 @@ from conftest import TINY
 from solprop_gui.registry.explore import PIN_KEYS, PIN_SEARCH
 from solprop_gui.registry.routes import CARDS, EXPLORER_SETUP, IMPLIED, card_of
 from solprop_gui.service import handlers
+from solprop_gui.service.messages import Control
 from solprop_gui.service.worker import RunSpec
 from test_service import Collector
 
@@ -273,3 +274,28 @@ def test_a_slab_set_s_energy_is_per_metre_of_y():
     assert "ModeCollection.slab" in SLAB
     assert ask("summarise", {"text": SLAB})["per_width"]
     assert not ask("summarise", {"text": TINY})["per_width"]
+
+
+SCAN = TINY.replace("n_save = 6", "n_save = 2") + (
+    '\n[scan]\nname = "pressure"\npressure = ["0.5 bar", "1 bar"]\n'
+)
+"""The tiny capillary at two pressures."""
+
+
+def test_a_scan_runs_point_by_point_and_stops(tmp_path: Path):
+    spec = RunSpec("s1", str(tmp_path / "s1"), recipe=SCAN, base=str(tmp_path))
+    collector = Collector(spec).start()
+    collector.collect()
+    kinds = collector.kinds()
+    assert kinds[0] == "scan_started" and kinds[-1] == "finished"
+    points = [event.data for event in collector.events if event.kind == "point"]
+    assert points[0]["values"] == {"pressure": 0.5} and points[0]["status"] is None
+    assert points[-1]["done"] == 2 and points[-1]["status"] == "done"
+    final = collector.events[-1].data
+    assert final["scan"] and final["failed"] == 0
+    assert Path(str(final["path"])).name == "scan.h5"
+    # Stopped after its first point, the rest are not run.
+    spec = RunSpec("s2", str(tmp_path / "s2"), recipe=SCAN, base=str(tmp_path))
+    collector = Collector(spec).start()
+    collector.collect(until="point", then=Control("stop"))
+    assert collector.kinds()[-1] == "stopped"

@@ -34,6 +34,7 @@ from solprop.processing import (
     node_fluence,
     transverse_units,
 )
+from solprop.processing.scans import ScanOutput
 from solprop.recipe import Recipe
 from solprop.stats import CATALOGUE
 
@@ -411,11 +412,74 @@ def compression(payload: Payload) -> dict[str, object]:
     }
 
 
+def scan_overview(payload: Payload) -> dict[str, object]:
+    """Return a scan's variables, its points' status and every result over the grid.
+
+    Each result a point records (``stats/*``, and ``reduced/*`` where the scan asked
+    for reductions) is laid out over the scan's axes by ``ScanOutput.as_grid``; per
+    point the value at its last saved plane, summed over its modes and components,
+    is the number a browser maps. A point not done is NaN.
+
+    Parameters
+    ----------
+    payload : Mapping
+        ``path``, the scan's results file.
+
+    Returns
+    -------
+    dict
+        ``variables`` (each ``name`` and ``values``, in its keyword's unit, in the
+        scan's axis order),
+        ``shape``, ``status`` (each point's, laid out over the shape) and
+        ``results`` (by name: ``summary``, ``units`` and ``values`` over the shape).
+    """
+    found = ScanOutput(str(payload["path"]))
+    record = found.recipe
+    if record is None:
+        msg = "the scan records no recipe, so its variables are not known"
+        raise SolpropError(msg)
+    variables = Recipe.loads(record.authored).scan().scan.variables
+    shape = tuple(int(n) for n in found.shape)
+    status = np.asarray(found.status).reshape(shape)
+    done = np.flatnonzero(np.asarray(found.status) == "done")
+    names = (
+        []
+        if done.size == 0
+        else sorted(
+            name
+            for name in found.point(int(done[0]))
+            if name.startswith(("stats/", "reduced/"))
+        )
+    )
+    values: dict[str, object] = {}
+    for name in names:
+        grid = found.as_grid(name)
+        last = np.ma.take(grid, -1, axis=len(shape)) if grid.ndim > len(shape) else grid
+        while last.ndim > len(shape):
+            last = last.sum(axis=-1)
+        entry = CATALOGUE.get(name.split("/", 1)[1])
+        values[name] = {
+            "summary": "" if entry is None else entry.summary,
+            "units": "" if entry is None else entry.units,
+            "values": np.ma.filled(np.ma.asarray(last, dtype=float), np.nan),
+        }
+    return {
+        "variables": [
+            {"name": str(k), "values": np.asarray(v, dtype=float)}
+            for k, v in variables.items()
+        ],
+        "shape": list(shape),
+        "status": status.tolist(),
+        "results": values,
+    }
+
+
 RESULTS_HANDLERS = {
     "plane": plane,
     "statistics": statistics,
     "spectrogram": spectrogram,
     "compression": compression,
     "result_figure": figure,
+    "scan_overview": scan_overview,
 }
 """The results requests, by kind."""
