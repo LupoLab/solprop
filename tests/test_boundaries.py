@@ -519,13 +519,25 @@ def test_the_suggested_boundary_n_holds_for_a_collar_of_its_own_length(field_gri
     with pytest.warns(SolpropWarning) as record:
         warn_walkoff(field_grid, span, boundary_length=length)
     message = str(record[0].message)
-    assert f"walkoff={span:.3g}" in message
     suggested = float(message.rsplit("above", 1)[1])
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         warn_walkoff(field_grid, span, boundary_N=suggested * 1.01)
     with pytest.warns(SolpropWarning):
         warn_walkoff(field_grid, span, boundary_N=suggested * 0.99)
+
+
+@pytest.mark.parametrize("span", [1.001e-12, 1.2345e-12, 2e-12, 9.994e-12])
+def test_the_suggested_walkoff_holds_as_printed(field_grid, span):
+    """The three digits shown never fall below the span, so the text can be taken up."""
+    with pytest.warns(SolpropWarning) as record:
+        warn_walkoff(field_grid, span, boundary_length=field_grid.length / 3.0)
+    printed = float(str(record[0].message).split("walkoff=")[1].split(")")[0])
+    assert span <= printed <= 1.01 * span
+    length = absorber(field_grid, walkoff=printed).in_stage_length
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        warn_walkoff(field_grid, span, boundary_length=length)
 
 
 # --------------------------------------------------- a collar sized from a walk-off

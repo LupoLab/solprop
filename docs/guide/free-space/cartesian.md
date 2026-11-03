@@ -89,16 +89,17 @@ the field still satisfies the one-half rule. A product of order $p$ of a band $|
 reaches $pK$, and the grid stores it at $pK-2k_{\max}$. That lands inside the band when
 $pK-2k_{\max}\ge-K$, that is when $K\ge 2k_{\max}/(p+1)$: $k_{\max}/2$ for a cubic product
 and $2k_{\max}/3$ for a quadratic one, Orszag's two-thirds. So the share of the beam's energy
-outside the inner box $|k_x|\le k_{x,\max}/2$, $|k_y|\le k_{y,\max}/2$,
+outside the inner box $|k_x|<k_{x,\max}/2$, $|k_y|<k_{y,\max}/2$,
 
 $$ R(\omega) = 1-\frac{S^{R}(\omega)}{S^{\rm beam}(\omega)}, $$
 
 reads whether a cubic fold can land in band. Both spectra are
 [far-field statistics](model.md#far-field-and-fourier-plane-statistics), on
 `numpy_ref` and on the native backend, on Cartesian grids and lines, at saved planes; radial
-grids refuse them, having no Cartesian wavevector. A region is half-open, so the box is widened
-by half a sample to take in the column at $+K$. Summing the two spectra over a band gives one
-number for that band.
+grids refuse them, having no Cartesian wavevector. A column exactly at the limit counts as
+outside, since its product lands on the band's own edge: at $K=k_{\max}/2$ the image is $-K$. So
+the box stops half a sample short of the limit on each side, which also keeps every column clear
+of a region's half-open edges. Summing the two spectra over a band gives one number for that band.
 
 ```python
 import numpy as np
@@ -114,8 +115,8 @@ from solprop.stepper import PIController, RungeKutta
 
 def inner_box(space, fraction=0.5):
     """The box of a fraction of each axis's largest wavenumber, one row of a region table."""
-    half_x = fraction * np.abs(space.k_x).max() + 0.5 * abs(space.k_x[1] - space.k_x[0])
-    half_y = fraction * np.abs(space.k_y).max() + 0.5 * abs(space.k_y[1] - space.k_y[0])
+    half_x = fraction * np.abs(space.k_x).max() - 0.5 * abs(space.k_x[1] - space.k_x[0])
+    half_y = fraction * np.abs(space.k_y).max() - 0.5 * abs(space.k_y[1] - space.k_y[0])
     return np.array([[-half_x, half_x, -half_y, half_y]])
 
 

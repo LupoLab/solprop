@@ -50,30 +50,30 @@ ROUNDING = 64 * np.finfo(float).eps  # a reading of a few sums, at the launch
 
 
 def inner_box(space):
-    """The chapter's box, widened by half a sample because a region is half-open."""
-    half_x = 0.5 * np.abs(space.k_x).max() + 0.5 * FUNDAMENTAL
+    """The chapter's box: half a sample short of ``k_max / 2``, whose column folds."""
+    half_x = 0.5 * np.abs(space.k_x).max() - 0.5 * FUNDAMENTAL
     if space.n_y == 1:
         return np.array([[-half_x, half_x, -np.inf, np.inf]])
-    half_y = 0.5 * np.abs(space.k_y).max() + 0.5 * FUNDAMENTAL
+    half_y = 0.5 * np.abs(space.k_y).max() - 0.5 * FUNDAMENTAL
     return np.array([[-half_x, half_x, -half_y, half_y]])
 
 
-def fringes(route, samples):
+def fringes(route, samples, mode=5):
     """The grid of a route, and its transverse pattern in physical space."""
     if route == "line":
         space = LineGrid(HALF_WIDTH, samples)
-        pattern = 2 * np.cos(5 * FUNDAMENTAL * np.asarray(space.x))
+        pattern = 2 * np.cos(mode * FUNDAMENTAL * np.asarray(space.x))
         return space, np.fft.fft(pattern), samples
     nx, ny = (samples, 4) if route == "x" else (4, samples)
     space = FreeGrid(HALF_WIDTH, nx, HALF_WIDTH, ny)
     x, y = np.meshgrid(space.x, space.y)
-    pattern = 2 * np.cos(5 * FUNDAMENTAL * (x if route == "x" else y))
+    pattern = 2 * np.cos(mode * FUNDAMENTAL * (x if route == "x" else y))
     return space, np.fft.fft2(pattern).reshape(-1), samples
 
 
-def reading_of(route, samples, *, backend="numpy_ref", chi3=CHI3):
+def reading_of(route, samples, *, backend="numpy_ref", chi3=CHI3, mode=5):
     """Run the fringes; return the reading per plane and the exit's column energies."""
-    space, columns, _ = fringes(route, samples)
+    space, columns, _ = fringes(route, samples, mode)
     temporal = GaussianPulse(wavelength=800e-9, fwhm=60e-15, energy=1e-9).build(GRID)
     temporal = PEAK_FIELD * temporal[0, 0] / np.abs(np.fft.ifft(temporal[0, 0])).max()
     settings = SimulationSettings(
@@ -146,6 +146,13 @@ def test_what_it_warns_of_is_there_on_the_coarse_grid_and_not_on_the_fine_one(ro
     assert share_at(fine, route, 32, 1) < PRODUCT_SHARE**2
 
 
+@pytest.mark.parametrize("route", ROUTES)
+def test_a_field_exactly_at_the_limit_reads_as_past_it(route):
+    """``+-4`` of 16: the product at ``+-12`` folds to ``-+4``, onto the band's edge."""
+    reading, _ = reading_of(route, 16, mode=4)
+    assert reading[0] == pytest.approx(1.0, abs=ROUNDING)
+
+
 def test_the_source_near_the_cutoff_would_read_zero_on_this_case():
     """Why the chapter reads the field past ``k_max / 2``, not the source at cutoff."""
     samples = 16
@@ -177,7 +184,10 @@ def test_a_product_folds_in_band_past_its_own_limit(order, fraction):
     samples = 1024
     k_max = samples // 2
     limit = fraction * k_max
-    for band, lands in ((math.floor(limit) - 1, False), (math.ceil(limit) + 1, True)):
+    edges = [(math.floor(limit) - 1, False), (math.ceil(limit) + 1, True)]
+    if limit.is_integer():
+        edges.append((int(limit), True))  # exactly at it, the image is the band's edge
+    for band, lands in edges:
         x = 2 * np.pi * np.arange(samples) / samples
         # The widest product of the edge with itself.
         field = np.exp(1j * band * x)

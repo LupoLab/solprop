@@ -1389,7 +1389,9 @@ def warn_walkoff(
         f"{group_delay_span * 1e15:.3g} fs over {grid.length:.3g} m by only "
         f"{crossing:.2g} nepers, below the {MIN_COLLAR_ATTENUATION:.2g} that stops it "
         "wrapping around the time window; widen trange, give absorber(grid, walkoff="
-        f"{group_delay_span:.3g}) to strengthen the temporal collar alone, or, "
+        # Half a percent up, so that the three digits shown never fall below the span
+        # and a collar built from this very text passes.
+        f"{group_delay_span * 1.005:.3g}) to strengthen the temporal collar alone, or, "
         "strengthening the spectral collar too, raise boundary_N above "
         f"{grid.length / length * MIN_COLLAR_ATTENUATION / max(crossing, 1e-30):.3g}",
         SolpropWarning,
