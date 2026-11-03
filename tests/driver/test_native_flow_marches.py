@@ -110,6 +110,7 @@ def _spectral(stack):
     return np.linalg.norm(stack, ord=2, axis=(-2, -1))
 
 
+@pytest.mark.medium
 @pytest.mark.parametrize("route", ["eigenbasis", "scaling_and_squaring"])
 @pytest.mark.parametrize("name", CASES)
 def test_the_flow_s_actions_are_the_reference_s_within_the_formation_bound(
@@ -193,6 +194,7 @@ def _random_flow(active, vectors, triangular, *, route):
     ), n_modes
 
 
+@pytest.mark.medium
 @pytest.mark.parametrize("length", [2e-4, 3e-3])
 def test_the_formed_actions_are_the_reference_s_on_either_route(
     cases, length, monkeypatch
