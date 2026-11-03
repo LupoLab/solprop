@@ -214,3 +214,38 @@ def test_a_pump_in_normal_dispersion_is_phase_matched_linearly():
     preview = Recipe.example("hollow_rectangular").modes()  # beta2 > 0 at 800 nm
     assert preview.modes[0].beta2[np.argmin(abs(preview.omega - 2.355e15))] > 0
     assert not preview.nonlinear and preview.modes[0].phase_mismatch is not None
+
+
+def test_a_chirped_or_weak_pump_is_phase_matched_linearly():
+    document = Recipe.example("rdw").to_dict()
+    chirped = {**document, "build": {**document["build"], "phases": [0, 0, "50 fs^2"]}}
+    preview = Recipe.from_dict(chirped).modes()
+    assert not preview.nonlinear and preview.modes[0].phase_mismatch is not None
+    # Below the soliton threshold there is no constituent to take the term from.
+    weak = {**document, "build": {**document["build"], "energy": "1 nJ"}}
+    preview = Recipe.from_dict(weak).modes()
+    assert not preview.nonlinear and preview.modes[0].phase_mismatch is not None
+
+
+def test_the_nonlinear_term_is_taken_at_the_preview_s_position():
+    recipe = Recipe.example("rdw")  # a pressure gradient: the fill changes along z
+    z = 0.75
+    preview = recipe.modes(z=z)
+    soliton = recipe.build().modes[0]
+    keywords = recipe.resolve().keywords()
+    energy, fwhm = keywords["energy"], keywords["fwhm"]
+    assert isinstance(energy, float) and isinstance(fwhm, float)
+    pump = 800e-9
+    n2, _ = _fill_n2(getattr(soliton, "mixture"), pump, z)  # noqa: B009 - not on Mode
+    expected = phase_mismatch(
+        soliton,
+        preview.omega,
+        pump,
+        z=z,
+        peak_power=pulse_peak_power(energy, fwhm, "gauss"),
+        gamma=nonlinear_coefficient(soliton, n2, pump, z=z),
+        fwhm=fwhm,
+        shape="gauss",
+    )
+    assert preview.nonlinear
+    assert preview.modes[0].phase_mismatch == pytest.approx(expected, rel=1e-6)
