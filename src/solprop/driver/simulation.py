@@ -8613,7 +8613,8 @@ def _given_input(
         of `given` in its own dtype; :class:`~solprop.translate.problem.Initial` takes
         either as held.
     """
-    source = held if given.dtype == held.dtype else _held_block(given, given.dtype.type)
+    # The whole dtype, byte order included: the record serialises its exact string.
+    source = held if given.dtype == held.dtype else _held_block(given, given.dtype)
     return _hold(source.view())
 
 
