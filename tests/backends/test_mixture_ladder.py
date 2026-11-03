@@ -11,6 +11,7 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose, assert_array_equal
 
+from backends.forced_threads import assert_threaded
 from backends.host_cases_mixture_threads import NAMES, PERIODIC
 from backends.matched import native_thread_fields
 from bounds import (
@@ -159,6 +160,9 @@ def test_mixture_run_is_repeatable_and_thread_invariant(tmp_path):
     first, repeat, parallel = (
         native_thread_fields(PROBE, threads, names, tmp_path) for threads in (1, 1, 4)
     )
+    assert_threaded(
+        parallel["sizing"], 4, "kernels.stage", "kernels.response", "fft.fft"
+    )
     for actual in (repeat, parallel):
         assert int(actual["steps"]) == int(first["steps"]) == 8
         assert_within(actual["field"], first["field"], bound, what="field")
@@ -188,6 +192,9 @@ def test_periodic_species_rows_keep_their_positions_across_threads(tmp_path):
     outputs = [
         native_thread_fields(PROBE, threads, names, tmp_path) for threads in (1, 4)
     ]
+    assert_threaded(
+        outputs[1]["sizing"], 4, "kernels.stage", "kernels.response", "fft.fft"
+    )
     assert outputs[0]["z"].size > 0
     assert_array_equal(outputs[0]["z"], outputs[1]["z"])
     for name in PERIODIC:

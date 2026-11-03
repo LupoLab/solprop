@@ -59,6 +59,9 @@ def fixed_schedule(problem, grid, steps=8):
 # was given are not array names: only a subprocess run saves the arrays.
 
 if __name__ == "__main__":
+    from backends.forced_threads import record_sizing
+
+    record_sizing(sys.argv[1])
     solprop_native = importlib.import_module("solprop_native")
     _, grid, _, _, original = mixture_case()
     problem = dataclasses.replace(

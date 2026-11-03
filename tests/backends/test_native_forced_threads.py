@@ -246,6 +246,7 @@ def test_the_varying_capillary_s_rows_agree_across_threads(capillary_runs):
     reduction over the samples, with a factor of four for ``fwhm_t``'s interpolation.
     """
     one, several = capillary_runs
+    assert_threads_ran(one, several, "kernels.stage", "fft.fft")
     assert one["z"].size > 0
     np.testing.assert_array_equal(several["z"], one["z"])
     np.testing.assert_array_equal(several["step"], one["step"])
@@ -513,9 +514,8 @@ def test_the_threaded_flow_passes_agree_across_threads(tmp_path, name):
 def test_the_flow_with_its_source_agrees_on_forced_pools(tmp_path, name):
     """Ten steps of the flow beside its source, the flow's own pool forced.
 
-    ``test_the_flow_is_invariant_under_the_thread_count`` runs these sizes under the
-    size rule, which keeps their ``kernels.flow`` passes serial below 32,768 elements,
-    so it does not thread them. This is its test with the pools forced, at its bound.
+    The cases of ``test_the_flow_is_invariant_under_the_thread_count``, at its bound,
+    with this module's width and its record of the runs' operations.
     """
     from driver.test_native_coupled_flow import (  # noqa: PLC0415
         CASES as FLOWS,

@@ -380,9 +380,9 @@ PROBE = Path(__file__).with_name("native_moving_thread_probe.py")
 def test_a_moving_guide_is_invariant_under_the_thread_count(tmp_path):
     """One thread against four on the three cases, within the parity bound.
 
-    The combination is a fixed-order loop inside one output element, as every other
-    kernel of the route is, and the route's transforms are below the FFT plan
-    threshold. Bitwise invariance is not promised, though (SEP 25): two thread
+    Every pool is forced (:func:`~driver.test_native_coupled_flow.thread_states`). The
+    combination is a fixed-order loop inside one output element, as every other kernel
+    of the route is. Bitwise invariance is not promised, though (SEP 25): two thread
     layouts are two orderings of one discrete march, held to the bound of two
     implementations of it, :func:`moving_parity_bound`.
     """

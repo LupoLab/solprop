@@ -37,6 +37,9 @@ def _runtime_threads() -> np.ndarray:
 
 
 if __name__ == "__main__":
+    from backends.forced_threads import record_sizing
+
+    record_sizing(sys.argv[1])
     from backends.test_native_far_field import native_stats, thread_case
 
     warnings.simplefilter("ignore")

@@ -99,6 +99,9 @@ def launch_statistics(backend_class, kerr, n_pol):
 # The doctest collection imports every module under tests/, and the arguments it
 # was given are not case names: only a subprocess run saves the arrays.
 if __name__ == "__main__":
+    from backends.forced_threads import record_sizing
+
+    record_sizing(sys.argv[1])
     native = importlib.import_module("solprop_native")
     saved: dict[str, Any] = {
         "runtime_threads": np.array(native.build_info().runtime_threads),

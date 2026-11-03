@@ -41,6 +41,7 @@ import solprop_native
 
 import numpy as np
 import pytest
+from thread_sizing import widest
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.driver import Simulation
 from solprop.exceptions import MaterialRangeWarning
@@ -142,14 +143,7 @@ def _run_at(threads: int, directory: Path) -> dict[str, np.ndarray]:
     record = cast(dict[str, Any], json.loads(completed.stdout.splitlines()[-1]))
     assert record["threads"] == threads
     # One node: the response's team is the pool, so the row is really split among them.
-    assert (
-        max(
-            choice["threads"]
-            for name, choice in record["sizing"].items()
-            if name.startswith("kernels.response.")
-        )
-        == threads
-    )
+    assert widest(record["sizing"], "kernels.response") == threads
     with np.load(out) as stored:
         return {name: stored[name] for name in stored.files}
 
