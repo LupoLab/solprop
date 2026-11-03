@@ -77,9 +77,9 @@ pip install "solprop[native]"
 ```
 
 Precompiled wheels serve macOS on Apple silicon (osx-arm64), Linux on x86-64 (linux-64),
-Linux on aarch64 (linux-aarch64) and Windows on x86-64 (win-64). They are the
-**distribution** build: compiled for a CPU baseline (x86-64-v3, any Apple silicon Mac,
-Neoverse N1; [processor requirements](../../introduction/installation.md)) and carrying a BLAS that shares the backend's threads. Elsewhere, and for
+Linux on aarch64 (linux-aarch64), Windows on x86-64 (win-64) and Windows on Arm
+(win-arm64). They are the **distribution** build: compiled for a CPU baseline (x86-64-v3
+with x86-64-v2 beside it, any Apple silicon Mac, Neoverse N1; [processor requirements](../../introduction/installation.md)) and carrying a BLAS that shares the backend's threads. Elsewhere, and for
 an NVIDIA or AMD GPU, build the package from source. A source build can also be the
 **local** profile, compiled for the machine that runs it with its own vendor BLAS, which
 is a few per cent faster than the wheel on the measured cases. A third profile,
@@ -197,8 +197,10 @@ large run, for a scan of many runs and on a cluster.
   wrong order); see [Performance tuning](tuning.md#blas-and-vendor-libraries).
 - **Slower than expected.** Check `python -m solprop_native`: a `reference` profile, no
   vendor BLAS (`blas_backend` `none`) or a generic architecture (neither
-  `native_arch_enabled` nor a `cpu_baseline`) each cost a large factor. Then see
-  [Performance tuning](tuning.md).
+  `native_arch_enabled` nor a `cpu_baseline`) each cost a large factor. A `cpu_baseline`
+  of `x86-64-v2` runs about 20 to 25 % longer; if the processor should run x86-64-v3, a
+  virtual machine may be hiding a feature, and the `solprop_native._cpu` logger names it
+  at INFO when the package is imported. Then see [Performance tuning](tuning.md).
 
 The native backend's place in this repository, its parity with `numba_cpu` and its
 precompiled wheels were proposed and carried out by
