@@ -1737,8 +1737,9 @@ frequency bin, the largest group on a guide with many channels), `general_chunk`
 `adams_history` for the Adams integrator's history rows (on the native backend the resident
 engine's); beside them `initial_field`, the translated problem's initial state at the
 bytes it holds (a broadcast input's repeated block alone, `kernel-contract.md` section 6),
-resident like the general reference and in no backend's ledger; the driver adds `output`
-and `held_plane`. The route groups equal each
+resident like the general reference and in no backend's ledger; the driver adds `output`,
+`held_plane` and `simulation_input` (a simulation's own copy of an array input that the
+problem does not share, on a modal route). The route groups equal each
 backend's ledger to the byte. `base` is the reference's count of its buffers on every
 backend, plus the native backend's own rows where the
 two differ (the far-field partials, the dispersive response's buffers, the held
