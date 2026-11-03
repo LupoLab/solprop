@@ -58,10 +58,12 @@ def _case_tables() -> tuple[CaseTable, FamilyTable]:
     )
 
 
-def _worker(backend_name: str, case_name: str, target: float, repeats: int) -> None:
+def _worker(
+    backend_name: str, case_name: str, target: float, repeats: int, modes: int | None
+) -> None:
     blas_backend = "not applicable"
     blas_threads: int | str = "not applicable"
-    fftw_threads = int(os.environ.get("SOLPROP_FFTW_THREADS", "1"))
+    fftw_threads = 1
     native_threads = int(os.environ.get("SOLPROP_NATIVE_THREADS", "1"))
     if backend_name == "native":
         import solprop_native
@@ -101,7 +103,7 @@ def _worker(backend_name: str, case_name: str, target: float, repeats: int) -> N
                 trange=case["trange"],
                 fwhm=family["tau_fwhm"],
                 energy=family["energy"],
-                modes=case["modes"],
+                modes=case["modes"] if modes is None else modes,
                 loss=family["loss"],
                 n_save=case["n_save"],
                 rtol=1e-6,
@@ -136,7 +138,9 @@ def _worker(backend_name: str, case_name: str, target: float, repeats: int) -> N
             summary = backend.propagate_to(target)
             seconds = time.perf_counter() - started
             rows = backend.observe().step_stats.n_rows
-            return {"seconds": seconds, "steps": summary.n_steps, "rows": rows}
+            # A statistics row follows each accepted step; n_steps counts rejections too.
+            steps = summary.n_steps - summary.n_rejected
+            return {"seconds": seconds, "steps": steps, "rows": rows}
         finally:
             backend.close()
 
@@ -206,12 +210,23 @@ def main() -> None:
     )
     parser.add_argument("--repeats", type=int, default=3)
     parser.add_argument("--target", type=float, default=0.2)
+    parser.add_argument(
+        "--modes", type=int, help="m2_reduced's mode count, in place of its table's"
+    )
     arguments = parser.parse_args()
     if arguments.repeats < 1 or arguments.target <= 0.0:
         parser.error("repeats and target must be positive")
     if arguments.case == "ctc_reduced" and arguments.target > 0.1:
         parser.error("the reduced CtC target cannot exceed its 0.1 m length")
-    _worker(arguments.backend, arguments.case, arguments.target, arguments.repeats)
+    if arguments.modes is not None and arguments.case != "m2_reduced":
+        parser.error("--modes applies to m2_reduced only")
+    _worker(
+        arguments.backend,
+        arguments.case,
+        arguments.target,
+        arguments.repeats,
+        arguments.modes,
+    )
 
 
 if __name__ == "__main__":
