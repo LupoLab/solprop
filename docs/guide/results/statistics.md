@@ -222,8 +222,8 @@ A spectral reader on a radial, Cartesian or line file points to
 {py:func}`~solprop.spatial.spatial_energy_spectrum`, the energy per bin that is also the
 `spectral_energy` of the plane {py:func}`~solprop.processing.planes.field_plane` reads,
 or to {py:func}`~solprop.spatial.on_axis_spectrum`; on a planar file, whose planes
-`field_plane` does not read, no spatial functional gives the spectrum yet, and the
-refusal says so. `time_1d` is refused for a field too, since it would label a column's
+`field_plane` does not read, it points to `spatial_energy_spectrum` alone, which sums
+each bin over the slab modes and y frequencies of the stored slab amplitudes. `time_1d` is refused for a field too, since it would label a column's
 field in W^1/2; {py:func}`~solprop.processing.fields.get_field` reads it.
 
 The run's statistics are not affected: `stats/energy` of a spatial run is the beam's

@@ -232,13 +232,16 @@ def test_the_advice_names_only_what_works_on_the_route(spatial_run):
         modal = planar_mode_energy(stored, flux)
         assert float(np.sum(modal)) == pytest.approx(recorded, rel=1e-12)
         for name in SPECTRAL:
-            assert (
-                "no spatial functional gives a planar run's spectrum yet"
-                in (advice[name])
-            )
+            assert "solprop.spatial.spatial_energy_spectrum" in advice[name]
             assert "field_plane" not in advice[name]
             assert "on_axis_spectrum" not in advice[name]
-            assert "spatial_energy_spectrum" not in advice[name]
+        # The per-bin split the advice names sums to the beam's energy and to the
+        # slab modes' total: the same weighted terms summed per bin rather than per
+        # column or per mode, a few rounding errors apart (bound 1e-12).
+        per_bin = spatial_energy_spectrum(stored, flux)
+        assert per_bin.shape == (simulation.grid.n_omega,)
+        assert float(np.sum(per_bin)) == pytest.approx(recorded, rel=1e-12)
+        assert float(np.sum(per_bin)) == pytest.approx(float(np.sum(modal)), rel=1e-12)
         with pytest.raises(ProcessingError, match="planar planes are not exchanged"):
             field_plane(output)
         return

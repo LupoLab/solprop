@@ -1039,7 +1039,9 @@ def spatial_energy_spectrum(
     ----------
     spectrum : numpy.ndarray
         Internal radial spectrum in V m or Cartesian spectrum in V/m, shape
-        ``(n_modes, n_pol, n_omega)``.
+        ``(n_modes, n_pol, n_omega)``; on a :class:`solprop.modes.slab.PlanarGrid`,
+        the internal ``(p, k_y)`` slab amplitudes in sqrt(W/m), shape
+        ``(n_p*n_y, 1, n_omega)``, the channel fastest.
     flux : SpatialFlux
         The plane's measure (:meth:`SpatialFlux.resolve`).
 
@@ -1047,7 +1049,10 @@ def spatial_energy_spectrum(
     -------
     numpy.ndarray
         Energy in J per frequency bin (J/m on a :class:`solprop.grid.LineGrid`),
-        shape ``(n_omega,)``. The bins sum to :func:`spatial_energy`.
+        shape ``(n_omega,)``. The bins sum to :func:`spatial_energy`. On a planar
+        grid a bin is the energy at that frequency summed over every slab mode and
+        y frequency, with the slab weight of :func:`planar_mode_energy`, so the bins
+        also sum to that function's total.
 
     Raises
     ------
@@ -1057,6 +1062,7 @@ def spatial_energy_spectrum(
     See Also
     --------
     spatial_energy : The total energy crossing the plane.
+    planar_mode_energy : A planar beam's energy per slab mode.
 
     Examples
     --------
