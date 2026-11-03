@@ -44,7 +44,7 @@ constexpr int kPerRow = -1;
 struct Case {
   native::Problem problem;
   std::vector<Complex> field, on_axis, square, square_low;
-  std::vector<double> weights, transverse, transverse_low, spectral_rate,
+  std::vector<double> weights, transverse, transverse_low, spectral_rate, user_rate,
       transverse_rate, omega;
   std::vector<unsigned char> active;
   std::vector<double> apertures, regions;
@@ -107,7 +107,10 @@ Case make_case(const std::size_t n_x, const std::size_t n_y, const std::size_t n
     const double k = 0.4 * omega / native::far_field_speed_of_light;
     data.square.emplace_back(k * k, 1e-6 * k * k);
     data.square_low.emplace_back(1e-4 * static_cast<double>(bin), 0.0);
-    data.spectral_rate.push_back(bin + 1 == n ? 5.0 : 0.0);
+    // The collar's 5 at the last bin, and the user's rate where it stands alone and,
+    // on the last bin, within the total.
+    data.user_rate.push_back(bin % 2 == 0 ? 0.5 : 0.0);
+    data.spectral_rate.push_back(data.user_rate.back() + (bin + 1 == n ? 5.0 : 0.0));
     data.active.push_back(bin == 1 ? 0U : 1U);
   }
   // Three apertures: code `profile`, the scale row z c / omega (zero at omega <= 0).
@@ -178,6 +181,7 @@ std::vector<double> run(Case& data, const std::uint64_t flags, const int profile
       device("test.transverse", data.transverse),
       device("test.transverse_low", data.transverse_low),
       device("test.spectral_rate", data.spectral_rate),
+      device("test.user_rate", data.user_rate),
       device("test.transverse_rate", data.transverse_rate),
       device("test.omega", data.omega),
       device("test.active", data.active),
@@ -239,7 +243,7 @@ std::vector<double> reference(const Case& data, const int profile, const int exp
   const std::size_t row = native::far_field_aperture_constants + n;
   const std::size_t n_apertures = data.apertures.size() / row;
   const std::size_t n_regions = data.regions.size() / 4;
-  std::vector<double> beam(n), absorbed(4), axis(n);
+  std::vector<double> beam(n), absorbed(native::far_field_absorbed_channels), axis(n);
   std::vector<std::vector<double>> regions(n_regions, std::vector<double>(n));
   std::vector<std::vector<double>> collected(n_apertures, std::vector<double>(n));
   std::vector<std::vector<double>> through(n_apertures, std::vector<double>(n));
@@ -275,7 +279,9 @@ std::vector<double> reference(const Case& data, const int profile, const int exp
       beam[bin] += weighted;
       const double energy = (envelope || bin == 0 || bin + 1 == n ? 1.0 : 4.0) * dt /
                             static_cast<double>(problem.n_t);
-      absorbed[0] += energy * weighted * data.spectral_rate[bin];
+      absorbed[0] +=
+          energy * weighted * (data.spectral_rate[bin] - data.user_rate[bin]);
+      absorbed[4] += energy * weighted * data.user_rate[bin];
       if (live) {
         absorbed[1] += energy * weighted * data.transverse_rate[column];
         absorbed[propagating ? 3 : 2] +=
@@ -375,14 +381,14 @@ TEST_P(FarFieldPassAgainstHost, EveryStatisticMatchesTheSerialReduction) {
   // Every channel but the evanescent one, which carries no axial flux, and every
   // aperture take part on this fixture.
   const auto n = data.problem.n_omega;
-  for (const std::size_t channel : {0U, 1U, 3U})
+  for (const std::size_t channel : {0U, 1U, 3U, 4U})
     EXPECT_NE(actual[n + channel], 0.0) << channel;
   EXPECT_EQ(actual[n + 2], 0.0);
   // On a line the boxes excluding k_y = 0 select nothing (SEP 23 section 4.10).
   for (std::size_t row = variant.n_y == 1 ? 2 : 0; row < 4 + 3; ++row) {
     double total = 0.0;
     for (std::size_t bin = 0; bin < n; ++bin)
-      total += actual[n + 4 + row * n + bin];
+      total += actual[n + native::far_field_absorbed_channels + row * n + bin];
     EXPECT_GT(total, 0.0) << row;
   }
 }
@@ -600,7 +606,8 @@ TEST(FarFieldPass, APartialRequestPacksOnlyItsRows) {
   for (std::size_t bin = 0; bin < n; ++bin) {
     EXPECT_LE(std::abs(partial[bin] - every[bin]), relative * magnitude[bin]);
     for (std::size_t index = 0; index < 3; ++index) {
-      const auto full = n + 4 + (4 + 3) * n + index * n + bin;
+      const auto full =
+          n + native::far_field_absorbed_channels + (4 + 3) * n + index * n + bin;
       EXPECT_LE(std::abs(partial[n + index * n + bin] - every[full]),
                 relative * magnitude[full]);
     }
@@ -623,12 +630,13 @@ TEST(FarFieldPass, DeclaredAperturesCostNothingUnlessAsked) {
   const auto bare = run(data, flags, 2, 1);
   ASSERT_EQ(declared.size(), bare.size());
   const auto n = data.problem.n_omega;
-  ASSERT_EQ(bare.size(), (1 + 4 + 1) * n + 4);
+  constexpr auto absorbed = native::far_field_absorbed_channels;
+  ASSERT_EQ(bare.size(), (1 + 4 + 1) * n + absorbed);
   const double relative = 3.0 * gamma(8 * 20 + 64) + 8.0 * kEpsilon;
   for (std::size_t index = 0; index < bare.size(); ++index) {
     // Packed rows: the beam, the absorbed powers, the regions, the axis; the full
     // request also packs three rows of each aperture statistic before the axis.
-    const std::size_t full = index < 5 * n + 4 ? index : index + (3 + 3) * n;
+    const std::size_t full = index < 5 * n + absorbed ? index : index + (3 + 3) * n;
     EXPECT_LE(std::abs(declared[index] - bare[index]), relative * magnitude[full])
         << index;
   }
@@ -641,13 +649,13 @@ TEST(FarFieldPass, TheLayoutAndBandsAreSolpropsOwn) {
   // Each amplitude holds its electric sum and its magnetic closure, 4 n_pol slots.
   EXPECT_EQ(layout.beam, 0);
   EXPECT_EQ(layout.absorbed, 1);
-  EXPECT_EQ(layout.regions, 5);
-  EXPECT_EQ(layout.apertures, 9);
+  EXPECT_EQ(layout.regions, 6);
+  EXPECT_EQ(layout.apertures, 10);
   EXPECT_EQ(layout.stride, 9);
   EXPECT_EQ(layout.collected, 0);
   EXPECT_EQ(layout.amplitude, 1);
-  EXPECT_EQ(layout.axis, 36);
-  EXPECT_EQ(layout.n_slots, 44U);
+  EXPECT_EQ(layout.axis, 37);
+  EXPECT_EQ(layout.n_slots, 45U);
   const auto alone = native::far_field_layout(native::far_field_amplitude, 2, 0, 1);
   EXPECT_EQ(alone.apertures, 0);
   EXPECT_EQ(alone.stride, 4);

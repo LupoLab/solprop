@@ -240,6 +240,8 @@ native::Problem problem_from(const nb::dict& values) {
           real_vector(exact_array<RealInput>(values["spatial_frame"]));
       result.spatial_spectral_rate =
           real_vector(exact_array<RealInput>(values["spatial_spectral_rate"]));
+      result.spatial_user_rate =
+          real_vector(exact_array<RealInput>(values["spatial_user_rate"]));
       result.spatial_absorber_rate =
           real_vector(exact_array<RealInput>(values["spatial_absorber_rate"]));
       result.spatial_kperp_rate =

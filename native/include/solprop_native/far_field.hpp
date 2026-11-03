@@ -16,7 +16,7 @@
 
 /*
  * The far-field statistics of solprop SEP 23 on a Cartesian or line grid: one banded
- * pass over the stored transverse spectrum that forms the beam spectrum, the four
+ * pass over the stored transverse spectrum that forms the beam spectrum, the five
  * absorbed-power channels, the region spectra, each aperture's collected spectrum and
  * on-axis amplitude, and the on-axis amplitude itself (the `W = 1` slot, which
  * `on_axis_spectrum` reads). Every quantity is measured by the medium's axial flux
@@ -77,8 +77,9 @@ enum FarFieldShape : int {
   far_field_half_plane_y_lt = 6,
 };
 
-/** The absorbed-power channels: spectral, transverse, evanescent and material. */
-inline constexpr std::size_t far_field_absorbed_channels = 4;
+/** The absorbed-power channels: the spectral collar, transverse, evanescent, material
+    and the user's spectral rate, solprop's `ABSORBED_CHANNELS`. */
+inline constexpr std::size_t far_field_absorbed_channels = 5;
 
 /** Where `tanh` saturates: correctly rounded, `tanh(t)` is exactly 1 for `t >= 22`. */
 inline constexpr double far_field_tanh_saturation = 22.0;
@@ -103,7 +104,7 @@ inline constexpr std::uint64_t far_field_flags =
 /**
  * Where each quantity of the pass lives in its slots, solprop's `FarFieldLayout`.
  *
- * The beam spectrum, the four absorbed channels, the regions, then per aperture its
+ * The beam spectrum, the five absorbed channels, the regions, then per aperture its
  * collected spectrum and its on-axis amplitude, then the on-axis amplitude itself; an
  * amplitude is the real and imaginary parts per polarisation of the electric sum, then
  * those of its magnetic closure (`4 n_pol` slots). Present slots only, an absent
@@ -334,7 +335,8 @@ public:
     RealView weights;
     ComplexView on_axis;
     ComplexView square, square_low;
-    RealView transverse, transverse_low, spectral_rate, transverse_rate, omega;
+    RealView transverse, transverse_low, spectral_rate, user_rate, transverse_rate,
+        omega;
     ByteView active;
     double evanescent{};
   };
@@ -352,7 +354,7 @@ public:
    * `apertures` is row-major `(n_apertures, far_field_aperture_constants + n_omega)`:
    * the constants of `FarFieldConstant` and the scale row `z c / omega` (m^2, zero at
    * and below zero frequency); `regions` row-major `(n_regions, 4)`. Returns, in order
-   * and present ones only: the beam spectrum (`n_omega`), the four absorbed powers, the
+   * and present ones only: the beam spectrum (`n_omega`), the five absorbed powers, the
    * region spectra, the collected spectra and the apertures' on-axis spectra (`n_omega`
    * per row), and the on-axis spectrum (`n_omega`).
    */

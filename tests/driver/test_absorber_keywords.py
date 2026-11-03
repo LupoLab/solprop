@@ -19,7 +19,7 @@ from typing import Any
 import numpy as np
 import pytest
 
-from solprop.boundaries import absorber, no_absorber
+from solprop.boundaries import absorber, custom_absorber, no_absorber
 from solprop.driver import Simulation, SimulationSettings
 from solprop.driver.simulation import _spatial_default, _with_boundary
 from solprop.exceptions import DriverError
@@ -271,3 +271,18 @@ def test_the_modal_interfaces_take_the_boundary_check() -> None:
     assert isinstance(watched, PlaneStore)
     assert watched.outcome is not None and watched.outcome.execution is not None
     assert "boundary_monitor" in watched.outcome.execution
+
+
+def test_absorber_false_clears_a_custom_rate_with_the_total():
+    # The share cannot outlive the total it is a share of.
+    grid = EnvelopeGrid.from_limits(1e-3, 800e-9, (700e-9, 900e-9), 100e-15, thg=False)
+    settings = SimulationSettings(
+        save_planes=[1e-3],
+        dz_max=1e-3,
+        controller=PIController(rtol=1e-6, atol=1e-12),
+        absorber=custom_absorber(grid, 3.0),
+    )
+    cleared = _with_boundary(settings, grid, absorber=False, scheme=None)
+    assert cleared.absorber is not None
+    assert cleared.absorber.user_rate is None
+    assert not np.any(cleared.absorber.spectral_rate)

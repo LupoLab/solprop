@@ -43,7 +43,7 @@ from bounds import assert_within, gamma
 from solprop.backends import select
 from solprop.backends.memory import estimate_memory, far_field_memory
 from solprop.backends.spatial import AXIS_SPECTRUM_ONLY, far_field_partials
-from solprop.boundaries import SpatialAbsorber, absorber
+from solprop.boundaries import SpatialAbsorber, absorber, custom_absorber
 from solprop.driver import Simulation, SimulationSettings
 from solprop.exceptions import BackendError
 from solprop.grid import FreeGrid, LineGrid
@@ -63,7 +63,7 @@ NATIVE_CONSTANTS = 11
 """The constants before an aperture row's scale row (``far_field.hpp``)."""
 
 
-def problem_of(
+def problem_of(  # noqa: PLR0913 - one state and what it is measured under
     grid,
     space,
     field,
@@ -71,6 +71,7 @@ def problem_of(
     *,
     medium=None,
     collar: SpatialAbsorber | Literal[False] = False,
+    boundary=None,
 ):
     """The kernel problem of one state and its statistics, for Kokkos."""
     simulation = Simulation.from_free(
@@ -84,7 +85,7 @@ def problem_of(
             save_planes=[1e-4],
             dz_max=1e-4,
             dz_init=1e-4,
-            absorber=absorber(grid, temporal=False),
+            absorber=absorber(grid, temporal=False) if boundary is None else boundary,
             backend="native",
             integrator=RungeKutta(),
             stats=spec,
@@ -477,10 +478,10 @@ def test_the_native_partials_are_held_and_estimated_to_the_byte():
         owner.set_initial(problem.initial.field0, None)
         owner.stats(problem.stats_spec)
         # Three apertures' rows and four boxes; twelve spectral rows (the beam, four
-        # regions, three collected, three through the holes, the axis) and the four
+        # regions, three collected, three through the holes, the axis) and the five
         # absorbed powers.
         tables = 3 * (NATIVE_CONSTANTS + grid.n_omega) + 4 * 4
-        packed = 12 * grid.n_omega + 4
+        packed = 12 * grid.n_omega + 5
         ledger = owner.memory_ledger()
         assert ledger["far_field_tables"] == 8 * (
             space.n_x + space.n_y + tables + packed
@@ -531,6 +532,31 @@ def test_declared_apertures_leave_a_request_without_them_unchanged():
         values,
         reference(names, grid, problem, held, tables),
         magnitudes(names, grid, problem, held, tables),
+        problem,
+        names,
+    )
+
+
+@pytest.mark.parametrize("kind", ["envelope", "field"])
+def test_the_native_custom_channel_is_the_reference_s(kind):
+    grid = time_grid(kind)
+    space = FreeGrid(3e-4, 8, 3e-4, 8, collar_fraction=0)
+    collar = absorber(grid, temporal=False)
+    boundary = custom_absorber(
+        grid, lambda omega: 1e3 * (omega > grid.omega0), collar=collar
+    )
+    names = ("absorbed_power",)
+    spec = StatsSpec(names=names)
+    field = random_field(space, 1, grid)
+    problem = problem_of(grid, space, field, spec, boundary=boundary)
+    tables = aperture_tables(spec, problem.grids, problem.transform.geometry)
+    values, field = native_stats(problem, grid, field, names)
+    assert values["absorbed_power"].shape == (5,)
+    assert values["absorbed_power"][0] > 0 and values["absorbed_power"][4] > 0
+    assert_matches(
+        values,
+        reference(names, grid, problem, field, tables),
+        magnitudes(names, grid, problem, field, tables),
         problem,
         names,
     )
@@ -610,10 +636,10 @@ def test_a_native_run_forms_the_statistics_at_planes_and_between_them():
     # The entrance plane and two saved planes.
     assert native["stats/aperture_spectrum"].shape == (3, 3, grid.n_omega)
     assert native["stats/region_spectrum"].shape == (3, 4, grid.n_omega)
-    assert native["stats/absorbed_power"].shape == (3, 4)
+    assert native["stats/absorbed_power"].shape == (3, 5)
     # The periodic channel's rows, one per accepted step on each backend.
     rows = np.asarray(native["step_stats/absorbed_power"])
-    assert rows.shape[1:] == (4,)
+    assert rows.shape[1:] == (5,)
     np.testing.assert_allclose(
         rows,
         np.asarray(oracle["step_stats/absorbed_power"]),

@@ -69,7 +69,7 @@ import logging
 import math
 import warnings
 from collections.abc import Callable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import Final
 
 import numpy as np
@@ -218,10 +218,11 @@ class Absorber:
     Attributes
     ----------
     spectral_rate : numpy.ndarray
-        Power absorption coefficient on the coarse frequency axis, 1/m, shape
-        ``(n_omega,)``. Exactly zero in the flat region and outside the active mask,
-        where the linear operator is zero anyway. Folded into the linear operator as
-        ``-alpha/2``.
+        Total power absorption coefficient on the coarse frequency axis, 1/m, shape
+        ``(n_omega,)``: the collar's and any user's rate (`user_rate`), the one rate the
+        linear operator folds in as ``-alpha/2``. The collar's part is exactly zero in
+        the flat region and outside the active mask, where the linear operator is zero
+        anyway.
     temporal_rate : numpy.ndarray
         Power absorption coefficient on the coarse time axis, 1/m, shape ``(n_t,)``.
     temporal_rate_fine : numpy.ndarray
@@ -232,7 +233,7 @@ class Absorber:
         the physics lives. Applied as a 0/1 multiply, which is idempotent.
     reference_length : float
         The length ``ell`` in metres over which the collar profile is applied once to
-        the field. It sets the spectral rate's ceiling, ``60 / ell``.
+        the field. It sets the total spectral rate's ceiling, ``60 / ell``.
     collar_length : float or None
         The length ``ell_c`` in metres that sets the in-stage temporal collar's
         strength, whose largest rate is ``12.6 / ell_c``; it also sets the temporal
@@ -248,13 +249,21 @@ class Absorber:
         arrays; it is recorded only when ``False``. Any collar whose temporal rates
         are all zero, however it was built, is translated to no temporal absorber
         (:func:`solprop.translate.masks.temporal_rates`).
+    user_rate : numpy.ndarray or None
+        The user's share of `spectral_rate`, 1/m, shape ``(n_omega,)``, with
+        ``0 <= user_rate <= spectral_rate``: what :func:`custom_absorber` added, which
+        ``absorbed_power`` reports apart from the collar. It moves no bit of the
+        operator, which reads the total. ``None``, the default, is no user's rate, and
+        is left out of the run record, so a run without one keeps its record and its
+        hash; set, it is recorded, and two splits of one total hash apart.
 
     Raises
     ------
     GridError
         If a length is not positive and finite, the mask and the spectral rate
-        disagree in shape, a rate is negative, not finite, or above its ceiling, or
-        a collar declared spectral-only carries a temporal rate.
+        disagree in shape, a rate is negative, not finite, or above its ceiling, a
+        collar declared spectral-only carries a temporal rate, or the user's share is
+        not finite, misshaped, negative or above the total.
 
     Examples
     --------
@@ -275,6 +284,9 @@ class Absorber:
     reference_length: float
     collar_length: float | None = None
     temporal: bool = True
+    user_rate: Float[np.ndarray, " n_user_rate"] | None = field(
+        default=None, metadata={"record_none": False}
+    )
 
     def __post_init__(self) -> None:
         """Validate what the shape annotations cannot express.
@@ -318,6 +330,31 @@ class Absorber:
             msg = (
                 "a spectral-only collar (temporal=False) carries no temporal rate; "
                 "set the temporal rates to zero, or temporal=True"
+            )
+            raise GridError(msg)
+        self._check_user_rate()
+
+    def _check_user_rate(self) -> None:
+        """Check that the user's rate is a share of the total spectral rate.
+
+        Raises
+        ------
+        GridError
+            If it is misshaped, not finite, negative or above the total.
+        """
+        if self.user_rate is None:
+            return
+        share = np.asarray(self.user_rate, dtype=np.float64)
+        if share.shape != self.spectral_rate.shape or not np.all(np.isfinite(share)):
+            msg = (
+                f"user_rate must be finite with spectral_rate's shape "
+                f"{self.spectral_rate.shape}, got {share.shape}"
+            )
+            raise GridError(msg)
+        if np.any(share < 0.0) or np.any(share > self.spectral_rate):
+            msg = (
+                "user_rate is the user's share of spectral_rate, the total, so "
+                "0 <= user_rate <= spectral_rate on every bin"
             )
             raise GridError(msg)
 
@@ -705,7 +742,8 @@ def custom_absorber(
     The spectral rate is diagonal in frequency and folded into the linear operator,
     where it is exact and free whatever its strength (ADR-007); the in-stage collars
     are explicit and their strength bounds a replayed step (SEP 22 section 4.6). The
-    user's rate is therefore added to the collar's spectral rate, and the collar's
+    user's rate is therefore added to the collar's spectral rate, kept apart as
+    ``user_rate`` for the statistic that reports it, and the collar's
     temporal rates, band mask and in-stage strength are kept as they are: its
     ``collar_length`` is the collar's own ``in_stage_length``. Its
     ``reference_length`` stays the collar's when the summed rate fits under the
@@ -732,7 +770,8 @@ def custom_absorber(
     Returns
     -------
     Absorber
-        The collar with the summed spectral rate.
+        The collar with the summed spectral rate, and the user's share of it in
+        ``user_rate``, added to any share `collar` already holds.
 
     Raises
     ------
@@ -776,7 +815,11 @@ def custom_absorber(
     added = np.where(base.band_mask, values, 0.0)
     # A zero rate leaves the collar's own array, signed zeros and all, so the record
     # is the collar's field for field.
-    total = base.spectral_rate + added if np.any(added) else base.spectral_rate
+    rated = bool(np.any(added))
+    total = base.spectral_rate + added if rated else base.spectral_rate
+    # Rounding is monotonic, so the sum of the shares stays under the sum of the totals.
+    held = base.user_rate
+    share = held if not rated else added if held is None else held + added
     largest = float(np.max(total, initial=0.0))
     reference = base.reference_length
     if largest > MAX_ALPHA_LENGTH / reference:
@@ -788,6 +831,7 @@ def custom_absorber(
         spectral_rate=total,
         reference_length=reference,
         collar_length=base.in_stage_length,
+        user_rate=share,
     )
 
 

@@ -1631,7 +1631,7 @@ def _catalogue() -> dict[str, StatDefinition]:
         StatDefinition(
             name="absorbed_power",
             summary="Power each absorbing channel of the linear operator removes.",
-            shape="(4,)",
+            shape="(5,)",
             units="J/m",
             requires=("spatial_geometry", "separable_operator"),
             backend=True,

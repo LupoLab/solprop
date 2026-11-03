@@ -23,6 +23,7 @@ from solprop.constants import C
 from solprop.exceptions import OutputError, TranslationError
 from solprop.grid import FreeGrid, RadialGrid, TimeGrid
 from solprop.spatial import (
+    ABSORBED_CHANNELS,
     FAR_FIELD_STATISTICS,
     ApertureOutline,
     ApertureTables,
@@ -342,12 +343,17 @@ class SeparableOperator:
         ``D -= alpha_perp / 2`` (SEP 22 section 5.3), and never the unitary phase.
         ``None`` (the default) is stored as zeros, whose operator is today's to the
         last bit. On the hybrid planar kind it acts per ``(p, k_y)`` column (SEP 40).
+    user_rate : numpy.ndarray or None
+        The user's share of `spectral_rate`, in m^-1, shape ``(n_omega,)``; only
+        ``absorbed_power`` reads it, since the operator takes the total. ``None`` (the
+        default) is stored as zeros.
 
     Raises
     ------
     TranslationError
-        If arrays, scales, frequency counts or the valid interval disagree, or the
-        transverse rate is negative or misshaped.
+        If arrays, scales, frequency counts or the valid interval disagree, the
+        transverse rate is negative or misshaped, or the user's share is not a share of
+        the spectral rate.
     """
 
     k_squared: Complex[np.ndarray, " n_k"]
@@ -364,6 +370,7 @@ class SeparableOperator:
     z_span: tuple[float, float]
     kappa_sq: Complex[np.ndarray, "n_channels n_kappa"] | None = None
     kperp_rate: Float[np.ndarray, " n_kperp_rate"] | None = None
+    user_rate: Float[np.ndarray, " n_user_rate"] | None = None
 
     def __post_init__(self) -> None:
         """Own immutable coefficients and validate the separable representation."""
@@ -444,6 +451,33 @@ class SeparableOperator:
                 raise TranslationError(msg)
             object.__setattr__(self, "kappa_sq", kappa)
         self._adopt_kperp_rate()
+        self._adopt_user_rate()
+
+    def _adopt_user_rate(self) -> None:
+        """Own the user's share of the spectral rate, zeros when absent, and check it.
+
+        Raises
+        ------
+        TranslationError
+            If it is not a finite share of the spectral rate on every bin.
+        """
+        rate = (
+            np.zeros(self.spectral_rate.size)
+            if self.user_rate is None
+            else _frozen_array(self.user_rate, np.float64)
+        )
+        rate.setflags(write=False)
+        if (
+            rate.shape != self.spectral_rate.shape
+            or np.any(rate < 0)
+            or np.any(rate > self.spectral_rate)
+        ):
+            msg = (
+                "separable user_rate must be the user's share of spectral_rate, "
+                f"0 <= user_rate <= spectral_rate, shape {self.spectral_rate.shape}"
+            )
+            raise TranslationError(msg)
+        object.__setattr__(self, "user_rate", rate)
 
     def _adopt_kperp_rate(self) -> None:
         """Own the transverse rate, zeros when absent, and validate it.
@@ -820,7 +854,7 @@ def axial_factors(
     omega: Float[np.ndarray, " n_omega"],
     columns: slice,
 ) -> tuple[
-    Complex[np.ndarray, "n_chunk n_omega"], Float[np.ndarray, "4 n_chunk n_omega"]
+    Complex[np.ndarray, "n_chunk n_omega"], Float[np.ndarray, "5 n_chunk n_omega"]
 ]:
     """Return a chunk's admittance and absorption rates for the far-field statistics.
 
@@ -828,12 +862,15 @@ def axial_factors(
     by SEP 34's axial flux), from :func:`longitudinal_root`. The admittance is
     :func:`axial_admittance`. The four power rates, in the order of
     :data:`solprop.spatial.ABSORBED_CHANNELS`, are the operator's spectral rate on
-    every bin, as the stages apply it; the transverse collar's rate on active bins
+    every bin, as the stages apply it, less the user's share, its own channel; the
+    transverse collar's rate on active bins
     (zero without one); ``2 min(|Im k_z|, cap)`` on active evanescent bins; and
     ``2 Im k_z`` on active propagating bins, the material loss (negative for gain).
     Together they are twice the negated real part of the operator; weighted by the
     real admittance, their power is the physical flux the linear flow removes. The
-    evanescent channel, whose admittance is zero, removes no physical flux.
+    evanescent channel, whose admittance is zero, removes no physical flux. The user's
+    share of the spectral rate is the fifth channel; the share and the rest sum to the
+    rate the operator applies, so the channels' sum is unmoved by the split.
 
     Parameters
     ----------
@@ -848,12 +885,14 @@ def axial_factors(
     -------
     tuple of numpy.ndarray
         The dimensionless complex admittance, shape ``(n_chunk, n_omega)``, and the
-        rates in m^-1, shape ``(4, n_chunk, n_omega)``.
+        rates in m^-1, shape ``(5, n_chunk, n_omega)``.
     """
     root, propagating, attenuation = longitudinal_root(coefficients, columns)
     active = coefficients.active[None, :]
-    rates = np.zeros((4, *root.shape))
-    rates[0] = coefficients.spectral_rate[None, :]
+    rates = np.zeros((len(ABSORBED_CHANNELS), *root.shape))
+    assert coefficients.user_rate is not None  # adopted as zeros
+    rates[0] = (coefficients.spectral_rate - coefficients.user_rate)[None, :]
+    rates[4] = coefficients.user_rate[None, :]
     # The transverse collar's rate acts on the active band, as the operator applies
     # it (SEP 22, Q6).
     rates[1] = np.where(active, _kperp_rate(coefficients, columns)[:, None], 0.0)

@@ -504,8 +504,10 @@ problem that does not use them changes. By the letter a leaf's fields are not ro
 the contract, but solprop-native's row format moves with them, and only a modulus
 guards a row's width: its aperture tables grow from six constants to eleven and carry
 each row's profile and shape, so a native call takes no profile argument, and a stale
-wheel beside this tree must be refused rather than misread the rows. No stage bundle or
-driver signature moves.
+wheel beside this tree must be refused rather than misread the rows. It also appends
+``SeparableOperator.user_rate``, the user's share of ``spectral_rate``, zeros by default,
+which only ``absorbed_power`` reads: the operator takes the total, to the last bit. No
+stage bundle or driver signature moves.
 """
 
 DEFAULT_COMPONENTS = ("x",)

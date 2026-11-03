@@ -389,6 +389,9 @@ struct Problem {
       spatial_clamped;
   std::vector<double> spatial_kperp_sq, spatial_kperp_sq_low, spatial_frame,
       spatial_spectral_rate;
+  // solprop kernel schema 44 (#231): the user's share of the spectral rate, read only
+  // by `absorbed_power`; the operator takes the total.
+  std::vector<double> spatial_user_rate;
   std::vector<double> spatial_absorber_rate;
   // solprop kernel schema 31 (SEP 22 phase 2): a transverse collar's power rate per
   // column, added to the field attenuation on active bins; zeros leave the operator.

@@ -1732,16 +1732,22 @@ ABSORBED_CHANNELS: tuple[str, ...] = (
     "transverse",
     "evanescent",
     "material",
+    "custom",
 )
-"""The channels of ``absorbed_power``, in the order of its four entries."""
+"""The channels of ``absorbed_power``, in the order of its five entries.
+
+``spectral`` is the spectral collar alone and ``custom`` the user's rate
+(:attr:`solprop.boundaries.Absorber.user_rate`), which an output schema 2 file reports
+in ``spectral``, in four columns.
+"""
 
 AxialFactors = Callable[[slice], tuple[np.ndarray, np.ndarray | None]]
 """Per-chunk admittance and absorption rates of the plane's medium (SEP 34).
 
 Called with a slice of transverse columns, it returns the dimensionless complex
 admittance ``c k_z/omega``, shape ``(n_chunk, n_omega)``, zero on bins that are no
-forward power port, and the four power rates of :data:`ABSORBED_CHANNELS` in 1/m,
-shape ``(4, n_chunk, n_omega)``, or None where the run's operator is not available
+forward power port, and the power rates of :data:`ABSORBED_CHANNELS` in 1/m,
+shape ``(5, n_chunk, n_omega)``, or None where the run's operator is not available
 (a saved plane). :func:`solprop.translate.spatial.axial_factors` is the in-run
 implementation and :meth:`SpatialFlux.admittance` the saved-plane one.
 """
@@ -2579,7 +2585,7 @@ def aperture_statistics(
     aperture in a Fourier plane, the same-frequency pairing of the coherent
     :math:`A_{a,q}=\sum_c\alpha_cW_aE_{c,q}` with its magnetic closure; the spectrum
     in each box of physical transverse wavevector; the beam spectrum; and the power
-    the spectral, transverse, evanescent and material channels of the linear
+    the spectral, transverse, evanescent, material and custom channels of the linear
     operator remove, :math:`P_j=\tfrac{\varepsilon_0c}{2}\sum_cw_c\sum_{q,k}
     \nu_k\eta r_j|E|^2`. It walks the columns in chunks, forms the
     polarisation-summed spectral density once per chunk and adds the chunk partials
@@ -2611,7 +2617,7 @@ def aperture_statistics(
         J/(rad/s), shapes ``(n_apertures, n_omega)`` and ``(n_regions, n_omega)``;
         ``aperture_on_axis_spectrum`` in J s/m^2, ``(n_apertures, n_omega)``;
         ``beam_spectrum`` in J/(rad/s), ``(n_omega,)``;
-        ``absorbed_power`` in J/m, ``(4,)``, in the order of
+        ``absorbed_power`` in J/m, ``(5,)``, in the order of
         :data:`ABSORBED_CHANNELS`. On a line the spectra and powers are per metre
         of y, and the on-axis spectra stay local.
 

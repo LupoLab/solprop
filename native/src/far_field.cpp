@@ -167,7 +167,7 @@ std::vector<double> FarFieldPass::run(const std::uint64_t flags,
   if (field.extent(0) != n_x_ * n_y_ * n_pol_ || field.extent(1) != n_omega_ ||
       inputs.weights.extent(0) != n_x_ * n_y_ ||
       inputs.on_axis.extent(0) != n_x_ * n_y_ || inputs.omega.extent(0) != n_omega_ ||
-      inputs.active.extent(0) != n_omega_)
+      inputs.user_rate.extent(0) != n_omega_ || inputs.active.extent(0) != n_omega_)
     throw std::invalid_argument(
         "the far-field state or its inputs have the wrong shape");
   const auto layout = far_field_layout(flags, n_apertures, n_regions, n_pol_);
@@ -176,7 +176,7 @@ std::vector<double> FarFieldPass::run(const std::uint64_t flags,
   const auto n_bands = far_field_band_count(n_x_, n_y_, layout.n_slots, n_omega_);
   const auto needed = n_bands * layout.n_slots * n_omega_;
   // Spectral rows (beam, regions, collected, the apertures' axes, the axis), then
-  // the four absorbed powers.
+  // the absorbed powers.
   std::size_t spectral =
       (layout.beam >= 0 ? 1U : 0U) + (layout.regions >= 0 ? n_regions : 0) +
       (layout.collected >= 0 ? n_apertures : 0) +
@@ -256,6 +256,7 @@ void FarFieldPass::accumulate(const FarFieldLayout& layout, const std::size_t n_
   const auto transverse = inputs.transverse;
   const auto transverse_low = inputs.transverse_low;
   const auto spectral_rate = inputs.spectral_rate;
+  const auto user_rate = inputs.user_rate;
   const auto transverse_rate = inputs.transverse_rate;
   const auto omega = inputs.omega;
   const auto active = inputs.active;
@@ -322,7 +323,10 @@ void FarFieldPass::accumulate(const FarFieldLayout& layout, const std::size_t n_
                 if (layout.beam >= 0)
                   at(layout.beam) += weighted;
                 if (layout.absorbed >= 0) {
-                  at(layout.absorbed) += weighted * spectral_rate(bin);
+                  // The operator applies the total, the two parts' sum.
+                  at(layout.absorbed) +=
+                      weighted * (spectral_rate(bin) - user_rate(bin));
+                  at(layout.absorbed + 4) += weighted * user_rate(bin);
                   if (live) {
                     at(layout.absorbed + 1) += weighted * transverse_rate(column);
                     at(propagating ? layout.absorbed + 3 : layout.absorbed + 2) +=

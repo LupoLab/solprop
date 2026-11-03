@@ -992,8 +992,10 @@ SEPARABLE_OPERATOR_FIELDS = (
     "z_span",
     "kappa_sq",
     "kperp_rate",
+    "user_rate",
 )
-"""The separable leaf's fields; schema 15 appended ``kappa_sq``, 31 ``kperp_rate``."""
+"""The separable leaf's fields; schema 15 appended ``kappa_sq``, 31 ``kperp_rate``, 44
+``user_rate``."""
 
 STAGE_TERMS_FIELDS = ("phi", "prefactor", "separable")
 STAGE_SCALARS_FIELDS = (

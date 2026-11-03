@@ -1616,6 +1616,7 @@ native::Problem planar_problem(const std::size_t rows_per_chunk) {
   problem.spatial_clamped = {{0.0, -0.25}, {0.0, -0.5}, {0.0, -0.75}};
   problem.spatial_frame = {5.0, 6.0, 7.0};
   problem.spatial_spectral_rate = {0.0, 0.25, 0.5};
+  problem.spatial_user_rate = {0.0, 0.0, 0.0};
   // k_y^2 per column, the channel fastest; the last row is evanescent in the first
   // bin, so both branches of the operator are exercised.
   const std::vector<double> ky_squared{0.0, 4.0, 45.0, 4.0};

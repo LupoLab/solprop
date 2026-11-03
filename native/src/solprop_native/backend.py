@@ -87,6 +87,7 @@ from solprop.output.capability import (
 from solprop.output.schema import SavedPlane
 from solprop.profiles import ZProfile
 from solprop.spatial import (
+    ABSORBED_CHANNELS,
     FAR_FIELD_STATISTICS,
     ApertureTables,
 )
@@ -1528,7 +1529,7 @@ class NativeBackend(StepDriver[_core.State]):
                 continue
             count = rows[name]
             if name == "absorbed_power":
-                size, shape = 4, (1, 4)
+                size, shape = len(ABSORBED_CHANNELS), (1, len(ABSORBED_CHANNELS))
             elif count is None:
                 size, shape = n_omega, (1, n_omega)
             else:
@@ -3533,7 +3534,8 @@ def _aperture_payload(
     """
     if tables is None:
         return np.empty((0, _APERTURE_CONSTANTS + n_omega)), np.empty((0, 4)), 2
-    assert tables.half_heights is not None and tables.stretches is not None
+    assert tables.half_heights is not None
+    assert tables.stretches is not None
     constants = np.column_stack(
         (
             tables.centres,
@@ -3647,6 +3649,7 @@ def _native_problem(
             "spatial_kperp_sq_low": spatial.kperp_sq_low,
             "spatial_frame": spatial.frame,
             "spatial_spectral_rate": spatial.spectral_rate,
+            "spatial_user_rate": spatial.user_rate,
             "spatial_numerator": spatial.prefactor_numerator,
             "spatial_clamped": spatial.prefactor_clamped,
             "spatial_evanescent_rate": spatial.evanescent_rate,

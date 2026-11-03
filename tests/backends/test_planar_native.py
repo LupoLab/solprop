@@ -331,7 +331,7 @@ def test_the_ledger_counts_the_planar_buffers():
     # terms.
     expected = (
         4 * grid.n_omega * 16
-        + 2 * grid.n_omega * 8
+        + 3 * grid.n_omega * 8
         + 4 * space.n_columns * 8
         + separable.kappa_sq.nbytes
     )
