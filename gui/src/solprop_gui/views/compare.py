@@ -15,6 +15,7 @@ import numpy as np
 import pyqtgraph as pg
 from PySide6.QtWidgets import QVBoxLayout, QWidget
 
+from solprop_gui.model.plot_options import UNITS
 from solprop_gui.views.live import decibels
 from solprop_gui.views.plotting import PALETTE, HoverLayout
 
@@ -101,7 +102,8 @@ class CompareView(QWidget):
         for number, (name, (axes, rows)) in enumerate(self.runs.items()):
             pen = PALETTE[number % len(PALETTE)]
             last = rows[-1]
-            wavelength = np.asarray(axes["wavelength"], dtype=float) * 1e9
+            axis = str(axes.get("axis", "wavelength"))
+            wavelength = np.asarray(axes["spectral"], dtype=float) / UNITS[axis][1]
             time = np.asarray(axes["time"], dtype=float) * 1e15
             db = np.maximum(decibels(np.asarray(last["density"]), reference), -80.0)
             self.spectra.plot(wavelength, db, pen=pg.mkPen(pen, width=1.5), name=name)

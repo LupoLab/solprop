@@ -14,6 +14,7 @@ from PySide6.QtWidgets import QLineEdit, QWidget
 from pytestqt.qtbot import QtBot
 
 from conftest import TINY
+from solprop_gui.model.plot_options import PlotOptions
 from solprop_gui.model.recipe import MISSING, RecipeModel
 from solprop_gui.service.states import ExecutionState
 from solprop_gui.ui.fields import ParameterRow
@@ -59,7 +60,8 @@ def row_data(index: int, scale: float = 1.0) -> dict[str, object]:
 
 
 AXES = {
-    "wavelength": np.linspace(2e-7, 2e-6, 16),
+    "spectral": np.linspace(2e-7, 2e-6, 16),
+    "axis": "wavelength",
     "time": np.linspace(-1e-13, 1e-13, 8),
 }
 
@@ -256,6 +258,8 @@ def test_the_overview_draws_rows_and_follows_the_newest(qtbot: QtBot, tmp_path: 
     view = OverviewView()
     qtbot.addWidget(view)
     view.resize(900, 700)
+    view.show()  # the maps' z axes are linked on screen
+    qtbot.waitExposed(view)
     view.add_row(row_data(0))  # no axes yet: kept, not drawn
     view.set_axes(AXES)
     for index in range(1, 4):
@@ -264,8 +268,20 @@ def test_the_overview_draws_rows_and_follows_the_newest(qtbot: QtBot, tmp_path: 
     assert len(view.rows) == 4 and view.slider.value() == 3
     view.slider.setValue(1)
     assert not view.follow.isChecked() and "plane 1" in view.position.text()
-    view.floor.setValue(-30.0)
+    view.set_extent(0.0, 1.0)  # a run's whole length: the rows fill it
+    box = view.spectrum_map.plot.getViewBox()
+    assert box.viewRange()[1] == pytest.approx([0.0, 1.0])
+    view.apply_options(PlotOptions(floor=-30.0, time_limits=(-2e-14, None)))
+    assert view.power_map.plot.getViewBox().viewRange()[0][0] == pytest.approx(-20)
+    assert box.viewRange()[1] == pytest.approx([0.0, 1.0])
     shot(view, tmp_path, "overview")
+    view.apply_options(PlotOptions(axis="f", scale="linear", bandpass=(7e-7, 9e-7)))
+    note = view.spectrum_note.text()
+    assert "on the wavelength axis" in note and "700-900 nm" in note
+    view.set_axes({**AXES, "axis": "f"})
+    assert view.spectrum_note.text() == "time domain within 700-900 nm"
+    assert view.spectrum_map.plot.getAxis("bottom").labelText == "Frequency (THz)"
+    view.apply_options(PlotOptions())
     view.set_rows(AXES, [])
     assert view.rows == []
     view.set_rows(AXES, [row_data(1), row_data(0)])

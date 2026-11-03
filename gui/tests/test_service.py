@@ -212,7 +212,7 @@ def test_a_finished_run_is_described(finished_run: Path):
     assert "Tiny capillary" in ask("recipe_of", {**path, "resolved": True})
     overview = ask("overview", {**path, "time_range": [-1e-13, 1e-13]})
     assert len(overview["rows"]) == 6
-    assert overview["axes"]["wavelength"][0] > 200e-9  # the recipe's window
+    assert overview["axes"]["spectral"][0] > 200e-9  # the recipe's window
     assert overview["rows"][0]["stats"]["energy"] == pytest.approx(100e-6, rel=1e-3)
 
 
@@ -226,7 +226,7 @@ def test_a_file_from_a_script_has_no_recipe_and_its_own_band(tmp_path: Path):
     described = ask("describe_output", {"path": str(path)})
     assert not described["recipe"]
     overview = ask("overview", {"path": str(path)})
-    assert overview["axes"]["wavelength"][0] < 200e-9
+    assert overview["axes"]["spectral"][0] < 200e-9
 
 
 # ------------------------------------------------------------------ the worker's run
@@ -278,7 +278,19 @@ def test_a_run_streams_rows_and_finishes(tmp_path: Path):
     rows = [e for e in collector.events if e.kind == "row"]
     assert rows[0].data["density"].dtype == np.float32
     axes = next(e for e in collector.events if e.kind == "axes").data
-    assert axes["wavelength"][0] > 200e-9  # the recipe's wavelength window
+    assert axes["spectral"][0] > 200e-9  # the recipe's wavelength window
+
+
+def test_a_run_reduced_on_a_frequency_axis_within_a_band(tmp_path: Path):
+    display = Display(axis="f", bandpass=(7.9e-7, 8.1e-7))
+    spec = RunSpec("rf", str(tmp_path / "rf"), recipe=TINY, display=display)
+    collector = Collector(spec).start()
+    collector.collect()
+    axes = next(e for e in collector.events if e.kind == "axes").data
+    assert axes["axis"] == "f" and axes["spectral"][0] > 1e14  # Hz
+    whole = ask("overview", {"path": str(tmp_path / "rf" / OUTPUT)})
+    rows = [e.data for e in collector.events if e.kind == "row"]
+    assert rows[0]["power"].max() < 0.9 * whole["rows"][0]["power"].max()
 
 
 def test_a_stopped_run_returns_and_resumes(tmp_path: Path):

@@ -7,13 +7,17 @@
 One view serves the live run (rows arrive as the planes are saved) and the results
 of a file (all rows at once), laid out as the Qt prototype was: the two maps above,
 the selected plane's spectrum, power and the energy below. Its specification (design
-12.8) is fixed and stated on the view:
+12.8) is stated on the view:
 
-- the spectral energy density summed over modes, on a wavelength axis, in dB
-  relative to the peak of the first plane shown;
-- the power summed over modes, in time, in GW;
+- the spectral energy density summed over modes, on the wavelength or frequency
+  axis the plot options choose, in dB relative to the peak of the first plane shown
+  or linear;
+- the power summed over modes, in time, in GW, within the options' bandpass;
 - both reduced for display by keeping each bin's largest value, which the maps'
   titles say.
+
+The plot options' typed limits set the axes' ranges; a live run's maps span the
+whole length from its start, so the rows filling them show its progress.
 
 Hovering reads a map's value or a curve's point; clicking a map, or dragging its z
 marker, selects the plane.
@@ -26,7 +30,6 @@ import pyqtgraph as pg
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtWidgets import (
     QCheckBox,
-    QDoubleSpinBox,
     QHBoxLayout,
     QLabel,
     QSlider,
@@ -34,10 +37,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from solprop_gui.model.plot_options import UNITS, PlotOptions
 from solprop_gui.views.plotting import BLUE, HoverLayout, colormap, curve_lookup
 from solprop_gui.views.splitter import GripSplitter
 
-__all__ = ["DB_FLOOR", "MapPanel", "OverviewView", "decibels"]
+__all__ = ["DB_FLOOR", "MapPanel", "OverviewView", "decibels", "set_range"]
 
 DB_FLOOR = -60.0
 """The default bottom of the dB scale."""
@@ -60,6 +64,34 @@ def decibels(density: np.ndarray, reference: float) -> np.ndarray:
     """
     ratio = np.asarray(density, dtype=float) / (reference if reference > 0 else 1.0)
     return 10.0 * np.log10(np.maximum(ratio, 1e-30))
+
+
+def set_range(
+    plot: pg.PlotItem, axis: str, limits: tuple[float | None, float | None]
+) -> None:
+    """Set one axis of a plot to typed limits, automatic where a limit is blank.
+
+    Parameters
+    ----------
+    plot : pyqtgraph.PlotItem
+        The plot.
+    axis : {'x', 'y'}
+        Which axis.
+    limits : tuple
+        The low and high limits, in the plot's units; ``None`` for automatic.
+    """
+    box = plot.getViewBox()
+    low, high = limits
+    if low is None and high is None:
+        box.enableAutoRange(axis=axis)
+        return
+    current = box.viewRange()[0 if axis == "x" else 1]
+    low = current[0] if low is None else low
+    high = current[1] if high is None else high
+    if axis == "x":
+        box.setXRange(low, high, padding=0)
+    else:
+        box.setYRange(low, high, padding=0)
 
 
 class MapPanel:
@@ -116,6 +148,8 @@ class MapPanel:
         )
         self.plot.addItem(self.marker)
         self.marker.hide()
+        self.extent: tuple[float, float] | None = None
+        self.limits: tuple[float | None, float | None] = (None, None)
         layout.add_readout(self.plot, self.lookup)
 
     def show(
@@ -143,7 +177,17 @@ class MapPanel:
         self.image.setImage(data, autoLevels=False)
         self.image.setRect(QRectF(x[0], z[0] - step / 2, x[-1] - x[0], step * len(z)))
         self.bar.setLevels(levels)
-        self.plot.getViewBox().autoRange(items=[self.image])
+        self.frame()
+
+    def frame(self) -> None:
+        """Set the view: the typed limits across, the run's whole length along z."""
+        box = self.plot.getViewBox()
+        if self.x.size:
+            box.autoRange(items=[self.image], padding=0)
+        if self.extent is not None:
+            box.setYRange(*self.extent, padding=0)
+        if self.limits != (None, None):
+            set_range(self.plot, "x", self.limits)
 
     def clear(self) -> None:
         """Remove the map."""
@@ -190,7 +234,9 @@ class OverviewView(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:  # noqa: PLR0915 - a layout
         """Make the plots, empty."""
         super().__init__(parent)
-        self.wavelength = np.zeros(0)
+        self.options = PlotOptions()
+        self.axis = "wavelength"
+        self.spectral = np.zeros(0)
         self.time = np.zeros(0)
         self.rows: list[Mapping[str, object]] = []
         self.reference = 0.0
@@ -203,7 +249,7 @@ class OverviewView(QWidget):
             xlabel="Wavelength (nm)",
             cmap="viridis",
             unit="dB",
-            label="λ {0:.1f} nm\nz {1:.4g} m\n{2:.1f} dB",
+            label="{0:.1f}\nz {1:.4g} m\n{2:.3g}",
         )
         self.power_map = MapPanel(
             self.maps,
@@ -223,6 +269,8 @@ class OverviewView(QWidget):
         pen = pg.mkPen(BLUE, width=1.5)
         self.spectrum_line = self.slices.add_plot(0, 0, "Spectrum at z")
         self.spectrum_line.setLabels(bottom="Wavelength (nm)", left="dB")
+        self.spectrum_note = QLabel("")
+        self.spectrum_note.setObjectName("overview-note")
         self.spectrum_curve = self.spectrum_line.plot(pen=pen)
         self.power_line = self.slices.add_plot(0, 1, "Power at z")
         self.power_line.setLabels(bottom="Time (fs)", left="GW")
@@ -237,7 +285,7 @@ class OverviewView(QWidget):
         self.energy_line.addItem(self.energy_marker)
         self.slices.add_readout(
             self.spectrum_line,
-            curve_lookup(self.spectrum_curve, "λ {0:.1f} nm\n{1:.1f} dB"),
+            curve_lookup(self.spectrum_curve, "{0:.1f}\n{1:.3g}"),
             dot=True,
         )
         self.slices.add_readout(
@@ -259,19 +307,12 @@ class OverviewView(QWidget):
         self.follow.setChecked(True)
         self.position = QLabel("no planes yet")
         self.position.setMinimumWidth(160)
-        self.floor = QDoubleSpinBox()
-        self.floor.setRange(-200.0, -5.0)
-        self.floor.setValue(DB_FLOOR)
-        self.floor.setSuffix(" dB")
-        self.floor.setToolTip("The bottom of the dB scale.")
-        self.floor.valueChanged.connect(self._redraw)
 
         controls = QHBoxLayout()
         controls.addWidget(self.position)
         controls.addWidget(self.slider, 1)
         controls.addWidget(self.follow)
-        controls.addWidget(QLabel("Floor"))
-        controls.addWidget(self.floor)
+        controls.addWidget(self.spectrum_note)
         middle = QWidget()
         middle_layout = QVBoxLayout(middle)
         middle_layout.setContentsMargins(0, 0, 0, 0)
@@ -304,10 +345,12 @@ class OverviewView(QWidget):
         self.power_line.setTitle(f"{power} at z")
 
     def clear(self) -> None:
-        """Forget every row and the axes."""
+        """Forget every row, the axes and the run's extent."""
         self.rows = []
-        self.wavelength = np.zeros(0)
+        self.spectral = np.zeros(0)
         self.time = np.zeros(0)
+        for panel in (self.spectrum_map, self.power_map):
+            panel.extent = None
         self.reference = 0.0
         self.spectrum_map.clear()
         self.power_map.clear()
@@ -323,10 +366,61 @@ class OverviewView(QWidget):
         Parameters
         ----------
         axes : Mapping
-            ``wavelength`` (m) and ``time`` (s).
+            ``spectral`` (m or Hz), its ``axis`` (``"wavelength"`` or ``"f"``) and
+            ``time`` (s).
         """
-        self.wavelength = np.asarray(axes["wavelength"], dtype=float)
+        self.axis = str(axes.get("axis", "wavelength"))
+        self.spectral = np.asarray(axes["spectral"], dtype=float)
         self.time = np.asarray(axes["time"], dtype=float)
+        label = "Wavelength (nm)" if self.axis == "wavelength" else "Frequency (THz)"
+        self.spectrum_map.plot.setLabel("bottom", label)
+        self.spectrum_line.setLabel("bottom", label)
+        self._note()
+
+    def set_extent(self, z_start: float, z_end: float) -> None:
+        """Span the maps over a run's whole length, so its rows show its progress.
+
+        Parameters
+        ----------
+        z_start, z_end : float
+            Where the run starts and ends, m.
+        """
+        extent = (float(z_start), float(z_end))
+        for panel in (self.spectrum_map, self.power_map):
+            panel.extent = extent
+            panel.plot.getViewBox().setYRange(*extent, padding=0)
+        self.energy_line.getViewBox().setXRange(*extent, padding=0.02)
+
+    def apply_options(self, options: PlotOptions) -> None:
+        """Draw with new plot options: scale, floor and the typed limits.
+
+        The axis and bandpass are solprop's to compute: a view whose rows were
+        reduced on another axis says so until it is given new rows.
+
+        Parameters
+        ----------
+        options : PlotOptions
+            The options.
+        """
+        self.options = options
+        unit = "dB" if options.scale == "dB" else "relative"
+        self.spectrum_line.setLabel("left", unit)
+        self.spectrum_map.bar.getAxis("left").setLabel(unit)  # where its label is
+        self.spectrum_map.limits = options.shown_limits("spectral")
+        self.power_map.limits = options.shown_limits("time")
+        self._redraw()
+        set_range(self.spectrum_line, "x", self.spectrum_map.limits)
+        set_range(self.power_line, "x", self.power_map.limits)
+
+    def _note(self) -> None:
+        """Say where the rows shown differ from the options asked for."""
+        notes = []
+        if self.spectral.size and self.axis != self.options.axis:
+            notes.append(f"shown on the {self.axis} axis until new rows come")
+        described = self.options.describe()
+        if described:
+            notes.append(described)
+        self.spectrum_note.setText("; ".join(notes))
 
     def add_row(self, row: Mapping[str, object]) -> None:
         """Add one plane's row, replacing a row of the same plane.
@@ -378,18 +472,22 @@ class OverviewView(QWidget):
 
     def _redraw(self) -> None:
         """Redraw the maps and the selected plane."""
-        if not self.rows or self.wavelength.size == 0:
+        self._note()
+        if not self.rows or self.spectral.size == 0:
             return
         z = self._z()
         density = np.array([np.asarray(r["density"]) for r in self.rows])
         power = np.array([np.asarray(r["power"]) for r in self.rows]) / 1e9
-        floor = self.floor.value()
-        db = np.clip(decibels(density, self.reference), floor, 0.0)
-        self.spectrum_map.show(self.wavelength * 1e9, z, db, (floor, 0.0))
+        shown, levels = self._scaled(density)
+        x = self.spectral / UNITS[self.axis][1]
+        self.spectrum_map.show(x, z, shown, levels)
         self.power_map.show(
             self.time * 1e15, z, power, (0.0, float(power.max()) or 1.0)
         )
-        self.spectrum_line.getViewBox().setYRange(floor, 3)
+        if self.options.scale == "dB":
+            self.spectrum_line.getViewBox().setYRange(levels[0], 3)
+        else:
+            self.spectrum_line.getViewBox().enableAutoRange(axis="y")
         energy = [
             float(r["stats"].get("energy", np.nan)) * 1e6  # pyright: ignore[reportAttributeAccessIssue]
             for r in self.rows
@@ -402,6 +500,26 @@ class OverviewView(QWidget):
         self.slider.blockSignals(False)
         self.slider.setEnabled(len(self.rows) > 1)
         self._show_plane(self.slider.value())
+
+    def _scaled(self, density: np.ndarray) -> tuple[np.ndarray, tuple[float, float]]:
+        """Return densities on the options' scale, and the colour bar's levels.
+
+        Parameters
+        ----------
+        density : numpy.ndarray
+            The densities, one row per plane (or one plane).
+
+        Returns
+        -------
+        tuple
+            The values to draw, and the levels: dB of the reference clipped to the
+            floor, or the density relative to the reference.
+        """
+        if self.options.scale == "dB":
+            floor = self.options.floor
+            return np.clip(decibels(density, self.reference), floor, 0.0), (floor, 0.0)
+        reference = self.reference if self.reference > 0 else 1.0
+        return np.asarray(density, dtype=float) / reference, (0.0, 1.0)
 
     def _show_plane(self, position: int) -> None:
         """Draw the lines of one plane, and move the markers to it.
@@ -418,10 +536,8 @@ class OverviewView(QWidget):
             self.follow.setChecked(False)
         row = self.rows[position]
         z = float(row["z"])  # pyright: ignore[reportArgumentType]
-        db = decibels(np.asarray(row["density"]), self.reference)
-        self.spectrum_curve.setData(
-            self.wavelength * 1e9, np.maximum(db, self.floor.value())
-        )
+        shown, _levels = self._scaled(np.asarray(row["density"]))
+        self.spectrum_curve.setData(self.spectral / UNITS[self.axis][1], shown)
         self.power_curve.setData(self.time * 1e15, np.asarray(row["power"]) / 1e9)
         self.energy_marker.setPos(z)
         for panel in (self.spectrum_map, self.power_map):

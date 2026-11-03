@@ -21,7 +21,6 @@ import pyqtgraph as pg
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QPixmap, QResizeEvent
 from PySide6.QtWidgets import (
-    QCheckBox,
     QComboBox,
     QFileDialog,
     QHBoxLayout,
@@ -34,7 +33,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from solprop_gui.model.plot_options import UNITS, PlotOptions
 from solprop_gui.registry.units import si
+from solprop_gui.views.live import set_range
 from solprop_gui.views.plotting import (
     PALETTE,
     HoverLayout,
@@ -153,9 +154,8 @@ class PlaneView(QWidget):
         self.modes.setObjectName("plane-modes")
         self.modes.addItem("mode sum", "sum")
         self.modes.currentIndexChanged.connect(self._ask)
-        self.log = QCheckBox("dB")
-        self.log.setChecked(True)
-        self.log.toggled.connect(self._redraw_spectrum)
+        self.options = PlotOptions()
+        self.axis = "wavelength"
         self.spectrogram_button = QPushButton("Spectrogram")
         self.spectrogram_button.setObjectName("plane-spectrogram")
         self.spectrogram_button.clicked.connect(self.ask_spectrogram)
@@ -206,13 +206,13 @@ class PlaneView(QWidget):
         )
         self.phase_curve = self.phase_plot.plot(pen=pg.mkPen(PALETTE[1], width=1.4))
         self.plots.add_readout(
-            self.spectrum_plot, curve_lookup(self.spectrum_curve, "{0:.1f} nm, {1:.4g}")
+            self.spectrum_plot, curve_lookup(self.spectrum_curve, "{0:.1f}, {1:.4g}")
         )
         self.plots.add_readout(
             self.power_plot, curve_lookup(self.power_curve, "{0:.1f} fs, {1:.4g} W")
         )
         self.plots.add_readout(
-            self.phase_plot, curve_lookup(self.phase_curve, "{0:.1f} nm, {1:.3g} rad")
+            self.phase_plot, curve_lookup(self.phase_curve, "{0:.1f}, {1:.3g} rad")
         )
         self.compressed: list[pg.PlotDataItem] = []
         self.image = pg.ImageItem()
@@ -229,7 +229,6 @@ class PlaneView(QWidget):
         controls.addWidget(self.slider, 2)
         controls.addWidget(self.where)
         controls.addWidget(self.modes)
-        controls.addWidget(self.log)
         controls.addSpacing(12)
         controls.addWidget(self.spectrogram_button)
         controls.addWidget(self.order)
@@ -384,9 +383,9 @@ class PlaneView(QWidget):
         """
         columns: list[tuple[str, np.ndarray]] = []
         for name, curve, x_title, y_title in (
-            ("spectrum", self.spectrum_curve, "wavelength (nm)", "spectral density"),
+            ("spectrum", self.spectrum_curve, self._axis_title(), "spectral density"),
             ("power", self.power_curve, "time (fs)", "power (W)"),
-            ("phase", self.phase_curve, "wavelength (nm)", "phase (rad)"),
+            ("phase", self.phase_curve, self._axis_title(), "phase (rad)"),
         ):
             x, y = curve.getData()
             if x is None or y is None:
@@ -435,12 +434,15 @@ class PlaneView(QWidget):
         phase: Mapping[str, object] = plane["phase"]  # pyright: ignore[reportAssignmentType]
         notes = []
         self._quantity = str(spectrum.get("unit") or "")
+        self.axis = str(plane.get("axis") or "wavelength")
+        unit = UNITS[self.axis][1]
+        self.spectrum_plot.setLabel("bottom", self._axis_title(capital=True))
         if "error" in spectrum:
             self._spectrum = None
             self.spectrum_curve.setData([], [])
             notes.append(f"No spectrum: {spectrum['error']}")
         else:
-            x = np.asarray(spectrum["x"], dtype=float) * 1e9
+            x = np.asarray(spectrum["x"], dtype=float) / unit
             self._spectrum = (x, np.asarray(spectrum["y"], dtype=float))
             self._redraw_spectrum()
         t = np.asarray(power["t"], dtype=float) * 1e15
@@ -454,29 +456,33 @@ class PlaneView(QWidget):
             notes.append(f"No phase: {phase['error']}")
         else:
             self._phase_axes()
-            omega = np.asarray(phase["omega"], dtype=float)
-            wavelength = 2 * np.pi * _C / omega * 1e9
+            frequency = np.asarray(phase["omega"], dtype=float) / (2 * np.pi)
+            along = _C / frequency if self.axis == "wavelength" else frequency
+            along = along / unit
             values = np.asarray(phase["y"], dtype=float)
             x, y = self._spectrum or (np.zeros(0), np.zeros(0))
             if x.size and y.size and np.max(y) > 0:
                 # Where there is no light the phase is noise: drawn as gaps.
                 order = np.argsort(x)
-                light = np.interp(wavelength, x[order], y[order]) / np.max(y)
+                light = np.interp(along, x[order], y[order]) / np.max(y)
                 values = np.where(light >= PHASE_FLOOR, values, np.nan)
-            order = np.argsort(wavelength)
-            self.phase_curve.setData(wavelength[order], values[order], connect="finite")
+            order = np.argsort(along)
+            self.phase_curve.setData(along[order], values[order], connect="finite")
             if self.selection() == "sum" and self.modes.count() > 2:
                 notes.append("The phase is the first mode's: a sum of modes has none.")
         values = np.asarray(power["y"], dtype=float)
         peak = float(values.max()) if values.size else 0.0
         notes.insert(0, f"Peak power {si(peak, 'W')}.")
+        if self.options.bandpass is not None:
+            notes.insert(1, f"Power {self.options.describe()}.")
         self.status.setText(" ".join(notes))
+        self._frame()
 
     def _phase_axes(self) -> None:
         """Show the third plot as the spectral phase."""
         self.image.hide()
         self.phase_plot.setTitle("Spectral phase")
-        self.phase_plot.setLabel("bottom", "Wavelength (nm)")
+        self.phase_plot.setLabel("bottom", self._axis_title(capital=True))
         self.phase_plot.setLabel("left", "Phase (rad)")
 
     def _show_fluence(self, fluence: Mapping[str, object], notes: list[str]) -> None:
@@ -533,6 +539,50 @@ class PlaneView(QWidget):
             "and the transform limit."
         )
 
+    def _axis_title(self, *, capital: bool = False) -> str:
+        """Return the spectral axis's title, with its unit.
+
+        Parameters
+        ----------
+        capital : bool, optional
+            Whether to capitalise it, for a plot's label.
+
+        Returns
+        -------
+        str
+            ``"wavelength (nm)"`` or ``"frequency (THz)"``.
+        """
+        name = "wavelength" if self.axis == "wavelength" else "frequency"
+        if capital:
+            name = name.capitalize()
+        return f"{name} ({UNITS[self.axis][0]})"
+
+    def apply_options(self, options: PlotOptions) -> None:
+        """Draw with new plot options: scale, floor and the typed limits.
+
+        The axis and the bandpass are solprop's to compute: they take effect with
+        the next plane asked for.
+
+        Parameters
+        ----------
+        options : PlotOptions
+            The options.
+        """
+        self.options = options
+        self._redraw_spectrum()
+        self._frame()
+
+    def _frame(self) -> None:
+        """Set the plots' ranges to the typed limits, automatic where blank."""
+        spectral = self.options.shown_limits("spectral")
+        if self.axis != self.options.axis:
+            spectral = (None, None)  # limits in another axis's unit
+        set_range(self.spectrum_plot, "x", spectral)
+        if self.image.isVisible():
+            return  # the third plot is a fluence map
+        set_range(self.phase_plot, "x", spectral)
+        set_range(self.power_plot, "x", self.options.shown_limits("time"))
+
     def _spectrum_title(self) -> str:
         """Return what the spectrum plot shows.
 
@@ -554,11 +604,11 @@ class PlaneView(QWidget):
         if self._spectrum is None:
             return
         x, y = self._spectrum
-        if self.log.isChecked():
+        if self.options.scale == "dB":
             peak = float(np.max(y)) if y.size and np.max(y) > 0 else 1.0
-            shown = 10 * np.log10(np.maximum(y / peak, 1e-12))
+            shown = 10 * np.log10(np.maximum(y / peak, 1e-30))
             self.spectrum_plot.setLabel("left", f"{self._spectrum_title()} (dB)")
-            self.spectrum_plot.getViewBox().setYRange(-60, 3)
+            self.spectrum_plot.getViewBox().setYRange(self.options.floor, 3)
         else:
             shown = y
             self.spectrum_plot.setLabel("left", self._spectrum_title())

@@ -51,6 +51,10 @@ def test_a_plane_s_spectrum_power_and_phase(run: str):
     assert "omega" in summed["phase"]  # the first mode's, for a sum
     one = ask("plane", {"path": run, "index": 2, "modes": 1, "axis": "f"})
     assert one["spectrum"]["y"].sum() < summed["spectrum"]["y"].sum() * 1.0001
+    assert one["axis"] == "f" and one["spectrum"]["x"].max() > 1e14  # Hz
+    # A bandpass narrower than the spectrum leaves less power.
+    band = ask("plane", {"path": run, "index": 2, "bandpass": [7.9e-7, 8.1e-7]})
+    assert band["power"]["y"].max() < 0.9 * summed["power"]["y"].max()
 
 
 def test_a_plane_whose_phase_solprop_refuses_says_why(run: str, monkeypatch):
@@ -142,6 +146,13 @@ def test_a_spatial_plane_has_its_fluence_map(beam: str, monkeypatch):
     assert found["power"]["y"].max() > 0 and "error" in found["phase"]
     rows = ask("overview", {"path": beam})["rows"]
     assert len(rows) == 2
+    # On a frequency axis, and the flux within a band.
+    narrow = {"path": beam, "index": 1, "axis": "f", "bandpass": [7.9e-7, 8.1e-7]}
+    found_f = ask("plane", narrow)
+    assert found_f["spectrum"]["x"].max() > 1e14
+    assert found_f["power"]["y"].max() < 0.9 * found["power"]["y"].max()
+    overview_f = ask("overview", {k: v for k, v in narrow.items() if k != "index"})
+    assert overview_f["axes"]["axis"] == "f" and len(overview_f["rows"]) == 2
     # A radial grid and a line give a profile; another grid, or a refusal, says so.
     from solprop.grid import LineGrid, RadialGrid  # noqa: PLC0415
 

@@ -28,9 +28,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from solprop_gui.model.plot_options import PlotOptions
 from solprop_gui.model.workspace import RunEntry
 from solprop_gui.service.messages import Reply
 from solprop_gui.ui.bridge import ServiceBridge
+from solprop_gui.ui.plot_options import PlotOptionsPanel
 from solprop_gui.views.compare import CompareView
 from solprop_gui.views.live import OverviewView
 from solprop_gui.views.plane import PlaneView
@@ -61,13 +63,17 @@ class ResultsPage(QWidget):
     setup_opened = Signal(str, str)
     view_wanted = Signal(str)
 
-    def __init__(self, bridge: ServiceBridge, parent: QWidget | None = None) -> None:
+    def __init__(  # noqa: PLR0915 - the page's layout
+        self, bridge: ServiceBridge, parent: QWidget | None = None
+    ) -> None:
         """Make the page, with no file."""
         super().__init__(parent)
         self.bridge = bridge
         self.path: str | None = None
         self.capabilities: dict[str, object] | None = None
         self._pending: dict[int, tuple[str, str]] = {}
+        self.options = PlotOptions()
+        self.plot_options = PlotOptionsPanel("results")
 
         self.open_button = QPushButton("Open results…")
         self.open_button.setObjectName("open-results")
@@ -116,6 +122,8 @@ class ResultsPage(QWidget):
         layout.addWidget(self.info)
         layout.addWidget(QLabel("Runs in the workspace"))
         layout.addWidget(self.runs, 1)
+        layout.addWidget(QLabel("<b>Plot options</b>"))
+        layout.addWidget(self.plot_options)
         bridge.replied.connect(self.on_reply)
         self._update_buttons()
 
@@ -187,8 +195,35 @@ class ResultsPage(QWidget):
         if show:
             self.view_wanted.emit("results")
         self._ask("describe_output", {"path": self.path}, "describe")
-        self._ask("overview", {"path": self.path}, "overview")
+        self._ask_overview()
         self._ask("statistics", {"path": self.path}, "statistics")
+
+    def _ask_overview(self) -> None:
+        """Ask for the open file's Overview, on the options' axis and band."""
+        if self.path is not None:
+            payload = {"path": self.path, **self.options.request()}
+            self._ask("overview", payload, "overview")
+
+    def apply_options(self, options: PlotOptions) -> None:
+        """Take new plot options, asking solprop again where they change its data.
+
+        The spectral axis and the bandpass change what solprop computes; the rest
+        only how the views draw.
+
+        Parameters
+        ----------
+        options : PlotOptions
+            The options.
+        """
+        again = not self.options.same_request(options)
+        self.options = options
+        self.plot_options.set_options(options)
+        self.overview.apply_options(options)
+        self.plane.apply_options(options)
+        if again and self.path is not None:
+            self._ask_overview()
+            if self.plane.planes:
+                self._ask_plane(self.plane.index(), self.plane.selection())
 
     def open_scan(self, path: str | Path, *, show: bool = True) -> None:
         """Open a scan's results file in the scan browser.
@@ -217,7 +252,12 @@ class ResultsPage(QWidget):
             The mode selection.
         """
         if self.path is not None:
-            payload = {"path": self.path, "index": index, "modes": modes}
+            payload = {
+                "path": self.path,
+                "index": index,
+                "modes": modes,
+                **self.options.request(),
+            }
             self._ask("plane", payload, "plane")
 
     def _ask_spectrogram(self, z: float, modes: object) -> None:

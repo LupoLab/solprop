@@ -15,7 +15,9 @@ to check the recipe and summarise it, and shows solprop's issues at their fields
 as badges on the steps. A step's ✓ means solprop accepts what it sets.
 """
 
+import json
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import asdict
 from pathlib import Path
 from typing import Final
 
@@ -47,6 +49,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from solprop_gui.model.plot_options import PlotOptions, from_mapping
 from solprop_gui.model.recipe import MISSING, RecipeModel
 from solprop_gui.model.workspace import DEFAULT_WORKSPACE, list_runs
 from solprop_gui.registry.explore import design_keywords, design_lines
@@ -66,6 +69,7 @@ from solprop_gui.ui.bridge import ServiceBridge
 from solprop_gui.ui.design_tool import DesignDialog
 from solprop_gui.ui.icons import icon
 from solprop_gui.ui.pages import ParameterPage, issue_keyword
+from solprop_gui.ui.plot_options import PlotOptionsPanel
 from solprop_gui.ui.results import ResultsPage
 from solprop_gui.ui.run_panel import RunPanel
 from solprop_gui.ui.scan_editor import ScanEditor
@@ -202,7 +206,7 @@ class MainWindow(QMainWindow):
     ) -> None:
         """Make the window, with no setup open."""
         super().__init__(parent)
-        self.settings = QSettings("solprop", "solprop-gui")
+        self.settings = app_settings()
         self.bridge = bridge or ServiceBridge(self)
         self.model: RecipeModel | None = None
         self.base: str | None = None
@@ -233,6 +237,11 @@ class MainWindow(QMainWindow):
         self.run_panel.state_changed.connect(self._run_state)
         self.run_panel.workspace_changed.connect(lambda _path: self.refresh_runs())
 
+        # The plot options, shown at the bottom left of Propagate and Results.
+        self.plot_options = PlotOptionsPanel("propagate")
+        self.plot_options.changed.connect(self.set_plot_options)
+        self.results.plot_options.changed.connect(self.set_plot_options)
+
         # The settings panel at the left: one panel per step.
         self.pages: dict[str, ParameterPage] = {}
         self.panels = QStackedWidget()
@@ -252,6 +261,7 @@ class MainWindow(QMainWindow):
             if page.key == "propagate":
                 widget.add_section("Run", self.run_panel)
                 widget.add_section("Scan", self.scan_editor)
+                widget.add_footer("Plot options", self.plot_options)
             self.pages[page.key] = widget
             self.panels.addWidget(widget)
 
@@ -343,6 +353,7 @@ class MainWindow(QMainWindow):
         self.autosave = QTimer(self)
         self.autosave.timeout.connect(self.write_recovery)
         self.autosave.start(30_000)
+        self.set_plot_options(self._saved_options(), save=False)
         self.bridge.replied.connect(self.on_reply)
         self.bridge.runs_listed.connect(self._runs_listed)
         self.bridge.service_failed.connect(
@@ -597,6 +608,36 @@ class MainWindow(QMainWindow):
         elif key in ("geometry", "medium") and self._guided():
             self.show_view("dispersion")
         self.request_modes()
+
+    def _saved_options(self) -> PlotOptions:
+        """Return the plot options last used, or the defaults.
+
+        Returns
+        -------
+        PlotOptions
+            The options the settings keep.
+        """
+        try:
+            values = json.loads(str(self.settings.value("plot_options", "{}")))
+        except ValueError:
+            values = {}
+        return from_mapping(values if isinstance(values, dict) else {})
+
+    def set_plot_options(self, options: PlotOptions, *, save: bool = True) -> None:
+        """Use new plot options everywhere: both panels, the live run and Results.
+
+        Parameters
+        ----------
+        options : PlotOptions
+            The options.
+        save : bool, optional
+            Whether to keep them for the next session.
+        """
+        self.plot_options.set_options(options)
+        self.run_panel.apply_options(options)
+        self.results.apply_options(options)
+        if save:
+            self.settings.setValue("plot_options", json.dumps(asdict(options)))
 
     def step_by(self, steps: int) -> None:
         """Go back or forward through the steps.
@@ -1614,6 +1655,23 @@ class MainWindow(QMainWindow):
         self.autosave.stop()
         self.bridge.close()
         event.accept()
+
+
+def app_settings() -> QSettings:
+    """Return the window's settings, in the default format's place.
+
+    The organisation-and-name constructor always takes the platform's native store;
+    this one follows :meth:`QSettings.setDefaultFormat`, so tests (and anyone who
+    sets an INI path) keep the settings out of the user's own.
+
+    Returns
+    -------
+    PySide6.QtCore.QSettings
+        The settings.
+    """
+    return QSettings(
+        QSettings.defaultFormat(), QSettings.Scope.UserScope, "solprop", "solprop-gui"
+    )
 
 
 def _failure(reply: Reply) -> list[dict[str, object]]:

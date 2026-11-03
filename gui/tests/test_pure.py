@@ -126,10 +126,10 @@ def test_the_reducer_fixes_its_bins_on_the_first_plane():
     assert power.shape == (3,)
     assert float(reduced.max()) == 3.0  # the non-physical wavelengths are left out
     axes = reducer.axes()
-    assert axes["wavelength"][0] > 1e-6 and axes["time"].size == 3
+    assert axes["spectral"][0] > 1e-6 and axes["time"].size == 3
     # The second plane reuses the bins.
     reducer.reduce(lam * 2, density, t * 2, np.ones(11))
-    assert np.array_equal(reducer.axes()["wavelength"], axes["wavelength"])
+    assert np.array_equal(reducer.axes()["spectral"], axes["spectral"])
 
 
 def test_a_display_takes_the_runs_window_only_where_it_has_none():
@@ -283,3 +283,27 @@ def test_the_explorers_axes_and_quantities():
     assert explore.table_rows([{"error": "no"}], 7e-7) == []
     assert explore.table_rows(sets, 2e-6)[0]["neff"] is None  # outside the band
     assert explore.sweep_values("He, 2 bar") == ["He", "2 bar"]
+
+
+def test_plot_options_read_typed_limits_and_saved_values():
+    from solprop_gui.model import plot_options as po  # noqa: PLC0415 - only here
+
+    with pytest.raises(ValueError):
+        po.parse_limit("fast")
+    options = po.PlotOptions(axis="f", spectral_limits=(3e14, None))
+    assert options.shown_limits("spectral") == (pytest.approx(300.0), None)
+    assert options.label() == "Frequency (THz)" and options.describe() == ""
+    assert po.to_display("f", po.from_display("f", 2.5)) == pytest.approx(2.5)
+    saved = {
+        "axis": "f",
+        "spectral_limits": [1e14, None],
+        "time_limits": "bad",
+        "scale": "linear",
+        "floor": None,
+        "bandpass": [7e-7, 9e-7],
+    }
+    restored = po.from_mapping(saved)
+    assert restored.spectral_limits == (1e14, None)
+    assert restored.time_limits == (None, None) and restored.floor == -60.0
+    assert restored.bandpass == (7e-7, 9e-7) and restored.scale == "linear"
+    assert po.from_mapping({"axis": "omega"}).axis == "wavelength"

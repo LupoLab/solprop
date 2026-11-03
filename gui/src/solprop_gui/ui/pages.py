@@ -185,7 +185,28 @@ class ParameterPage(QWidget):
         layout.addWidget(self.empty, 1)
         layout.addWidget(scroll, 1)
         self.fields_area = scroll
+        self.page_layout = layout
         self._show_empty(True)
+
+    def add_footer(self, title: str, widget: QWidget) -> Section:
+        """Put a section below the page's fields, always in view.
+
+        Parameters
+        ----------
+        title : str
+            Its title.
+        widget : PySide6.QtWidgets.QWidget
+            What it holds.
+
+        Returns
+        -------
+        Section
+            The section.
+        """
+        section = Section(title)
+        section.add(widget)
+        self.page_layout.addWidget(section)
+        return section
 
     def _show_empty(self, empty: bool) -> None:
         """Show the page's fields, or that a setup must be chosen first.

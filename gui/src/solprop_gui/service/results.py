@@ -37,11 +37,12 @@ from solprop.processing import (
     transverse_units,
 )
 from solprop.processing.scans import ScanOutput
+from solprop.processing.spectra import bandpass as spectral_window
 from solprop.recipe import Recipe
 from solprop.spatial import SpatialFlux, spatial_power
 from solprop.stats import CATALOGUE
 
-__all__ = ["RESULTS_HANDLERS", "spatial_plane"]
+__all__ = ["RESULTS_HANDLERS", "band_of", "spatial_plane"]
 
 Payload = Mapping[str, object]
 
@@ -120,7 +121,39 @@ def _space(path: str) -> object:
     return _simulation(path, Path(path).stat().st_mtime).spatial_grid
 
 
-def spatial_plane(path: str, handler: Output, index: int) -> dict[str, object]:
+def band_of(payload: Payload) -> tuple[float, float] | None:
+    """Return a request's bandpass: a wavelength band, m, or none.
+
+    Parameters
+    ----------
+    payload : Mapping
+        The request; ``bandpass`` is read.
+
+    Returns
+    -------
+    tuple of float or None
+        The band, as solprop's ``bandpass`` keyword takes a pair.
+
+    Examples
+    --------
+    >>> band_of({"bandpass": [7e-7, 9e-7]}), band_of({})
+    ((7e-07, 9e-07), None)
+    """
+    band = payload.get("bandpass")
+    if band is None:
+        return None
+    low, high = band  # pyright: ignore[reportGeneralTypeIssues]
+    return float(low), float(high)
+
+
+def spatial_plane(
+    path: str,
+    handler: Output,
+    index: int,
+    *,
+    axis: str = "wavelength",
+    bandpass: tuple[float, float] | None = None,
+) -> dict[str, object]:
     """Return a spatial plane's physical spectrum and power, as solprop reads them.
 
     The column readers refuse a spatial file (its columns are field samples); the
@@ -136,13 +169,18 @@ def spatial_plane(path: str, handler: Output, index: int) -> dict[str, object]:
         It, open.
     index : int
         The plane.
+    axis : {'wavelength', 'f'}, optional
+        The spectrum's abscissa: each bin's wavelength (m) or frequency (Hz).
+    bandpass : tuple of float or None, optional
+        A wavelength band, m: the power is the flux of the field windowed by
+        solprop's bandpass (:func:`solprop.processing.spectra.bandpass`).
 
     Returns
     -------
     dict
-        ``spectrum`` (``x``, the wavelength in m of each in-band bin, and ``y``,
-        J per bin) and ``power`` (``t`` and ``y`` in W), each with ``error``
-        instead where solprop gives none (a planar run's spectrum).
+        ``spectrum`` (``x``, the wavelength or frequency of each in-band bin,
+        ascending, and ``y``, J per bin) and ``power`` (``t`` and ``y`` in W), each
+        with ``error`` instead where solprop gives none (a planar run's spectrum).
     """
     simulation = _simulation(path, Path(path).stat().st_mtime)
     z = float(np.asarray(handler["z"])[index])
@@ -151,10 +189,12 @@ def spatial_plane(path: str, handler: Output, index: int) -> dict[str, object]:
         energy = np.asarray(field_plane(handler, index).spectral_energy())
         omega = np.asarray(simulation.grid.omega)
         light = omega > 0
-        wavelength = 2 * np.pi * C / omega[light]
-        order = np.argsort(wavelength)  # ascending, as the modal readers give it
+        x = omega[light] / (2 * np.pi)
+        if axis == "wavelength":
+            x = C / x
+        order = np.argsort(x)  # ascending, as the modal readers give it
         found["spectrum"] = {
-            "x": wavelength[order],
+            "x": x[order],
             "y": energy[light][order],
             "unit": "J per bin",
         }
@@ -166,7 +206,9 @@ def spatial_plane(path: str, handler: Output, index: int) -> dict[str, object]:
         simulation.medium,  # pyright: ignore[reportArgumentType]
         z=z,
     )
-    stored = handler.fields("fft")[index]  # pyright: ignore[reportAttributeAccessIssue]
+    stored = np.asarray(handler.fields("fft")[index])  # pyright: ignore[reportAttributeAccessIssue]
+    if bandpass is not None:
+        stored = stored * spectral_window(simulation.grid, bandpass)
     found["power"] = {
         "t": np.asarray(simulation.grid.t),
         "y": np.asarray(spatial_power(stored, flux)),
@@ -218,34 +260,37 @@ def plane(payload: Payload) -> dict[str, object]:
     ----------
     payload : Mapping
         ``path``, ``index`` (the plane), optionally ``modes`` (``"sum"`` or a
-        mode's index) and ``axis`` (``"wavelength"``, ``"f"`` or ``"omega"``).
+        mode's index), ``axis`` (``"wavelength"``, ``"f"`` or ``"omega"``) and
+        ``bandpass`` (a wavelength band, m, the power is computed within).
 
     Returns
     -------
     dict
-        ``z``, ``labels`` (the file's modes), ``spectrum`` (``x`` and ``y``, the
-        spectral density on the axis), ``power`` (``t`` and ``y``) and ``phase``
-        (``omega`` and ``y``, of one mode; with ``error`` instead for a sum, which
-        has no phase). On a spatial file the spectrum is the plane's energy per
-        bin and the power the axial flux (:func:`spatial_plane`), with
+        ``z``, ``axis``, ``labels`` (the file's modes), ``spectrum`` (``x`` and
+        ``y``, the spectral density on the axis), ``power`` (``t`` and ``y``) and
+        ``phase`` (``omega`` and ``y``, of one mode; with ``error`` instead for a
+        sum, which has no phase). On a spatial file the spectrum is the plane's
+        energy per bin and the power the axial flux (:func:`spatial_plane`), with
         ``fluence`` (:func:`_fluence`) and no phase.
     """
     index = int(payload["index"])  # pyright: ignore[reportArgumentType]
     modes = _modes(payload)
     axis = str(payload.get("axis", "wavelength"))
+    band = band_of(payload)
     path = str(payload["path"])
     caps = capabilities.output(path)
     with open_file(path) as handler:
         if caps.basis == "spatial":
             return {
                 "z": float(np.asarray(handler["z"])[index]),
+                "axis": axis,
                 "labels": [],
-                **spatial_plane(path, handler, index),
+                **spatial_plane(path, handler, index, axis=axis, bandpass=band),
                 "phase": {"error": "a beam's columns are field samples: no phase"},
                 "fluence": _fluence(path, handler, index),
             }
         x, density = get_spectral_density(handler, axis, plane=index, modes=modes)  # pyright: ignore[reportArgumentType]
-        t, power = get_power(handler, plane=index, modes=modes)
+        t, power = get_power(handler, plane=index, modes=modes, bandpass=band)
         phase: dict[str, object]
         try:
             omega, values = get_phase(
@@ -256,6 +301,7 @@ def plane(payload: Payload) -> dict[str, object]:
             phase = {"error": str(error)}
         return {
             "z": float(np.asarray(handler["z"])[index]),
+            "axis": axis,
             "labels": _labels(handler),
             "spectrum": {"x": np.asarray(x), "y": np.asarray(density)},
             "power": {"t": np.asarray(t), "y": np.asarray(power)},

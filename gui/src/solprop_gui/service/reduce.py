@@ -6,19 +6,24 @@
 
 A plane's spectral density and power come from solprop (a
 :class:`~solprop.driver.plane_view.PlaneView` during a run, the file's
-:mod:`solprop.processing` functions after it); this module only puts them on the
-display's bins. Each display bin keeps the **largest** value that falls in it, so a
-narrow peak survives the reduction; a bin no sample falls in takes the value
-interpolated at its centre. The reduction is for display only, and says so: exports and
-"Copy as Python" are computed from the file.
+:mod:`solprop.processing` functions after it), on the display's spectral axis
+(wavelength or frequency, solprop applying the Jacobian) and within its bandpass; this
+module only puts them on the display's bins. Each display bin keeps the **largest**
+value that falls in it, so a narrow peak survives the reduction; a bin no sample falls
+in takes the value interpolated at its centre. The reduction is for display only, and
+says so: exports and "Copy as Python" are computed from the file.
 """
 
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
+from typing import Any
 
 import numpy as np
 
-__all__ = ["Display", "Reducer", "bin_max", "stats_row"]
+__all__ = ["C", "Display", "Reducer", "bin_max", "stats_row"]
+
+C = 299_792_458.0
+"""The speed of light in vacuum, m/s: to turn the wavelength window to frequency."""
 
 
 @dataclass(frozen=True)
@@ -35,6 +40,11 @@ class Display:
         The time window, s; ``None`` takes the first plane's whole window.
     n_time : int
         Time bins.
+    axis : {'wavelength', 'f'}
+        The spectral axis the density is taken on: solprop's ``axis`` keyword.
+    bandpass : tuple of float or None
+        A wavelength band, m, the power is computed within (solprop's ``bandpass``
+        keyword); ``None`` for the whole spectrum.
 
     Examples
     --------
@@ -46,6 +56,8 @@ class Display:
     n_wavelength: int = 512
     time_range: tuple[float, float] | None = None
     n_time: int = 512
+    axis: str = "wavelength"
+    bandpass: tuple[float, float] | None = None
 
     def within(self, keywords: Mapping[str, object]) -> Display:
         """Return the display with the run's wavelength window where it has none.
@@ -148,12 +160,13 @@ class Reducer:
     """Put each plane's spectral density and power on fixed display bins.
 
     The bins are fixed by the first plane reduced (or by the :class:`Display`), so
-    every row of a run shares them.
+    every row of a run shares them. The spectral bins are on the display's axis:
+    a wavelength window becomes the frequency window it spans.
 
     Parameters
     ----------
     display : Display
-        The windows and bin counts.
+        The windows, bin counts and spectral axis.
 
     Examples
     --------
@@ -161,43 +174,68 @@ class Reducer:
     >>> reducer = Reducer(Display(n_wavelength=2, n_time=2))
     >>> lam = np.array([1e-6, 2e-6]); t = np.array([-1e-15, 1e-15])
     >>> density, power = reducer.reduce(lam, np.ones(2), t, np.ones(2))
-    >>> density.shape, reducer.axes()["time"].shape
-    ((2,), (2,))
+    >>> density.shape, reducer.axes()["time"].shape, reducer.axes()["axis"]
+    ((2,), (2,), 'wavelength')
+    >>> f = Reducer(Display(wavelength_range=(1e-6, 2e-6), n_wavelength=1, axis="f"))
+    >>> _ = f.reduce(np.array([2e14]), np.ones(1), t, np.ones(2))
+    >>> [round(float(v) / 1e12, 1) for v in f.axes()["spectral"]]
+    [224.8]
     """
 
     def __init__(self, display: Display) -> None:
         """Hold the display; the bins are made on the first plane."""
         self.display = display
-        self._lam_edges: np.ndarray | None = None
+        self._x_edges: np.ndarray | None = None
         self._t_edges: np.ndarray | None = None
 
-    def _edges(self, lam: np.ndarray, t: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    def _window(self, x: np.ndarray) -> tuple[float, float]:
+        """Return the spectral window on the display's axis.
+
+        Parameters
+        ----------
+        x : numpy.ndarray
+            The first plane's positive spectral axis, m or Hz.
+
+        Returns
+        -------
+        tuple of float
+            The window, ascending: the display's wavelength range on its axis, or
+            the plane's whole band.
+        """
+        limits = self.display.wavelength_range
+        if limits is None:
+            return float(x.min()), float(x.max())
+        if self.display.axis == "wavelength":
+            return limits
+        low, high = sorted(C / limit for limit in limits)
+        return low, high
+
+    def _edges(self, x: np.ndarray, t: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """Return the bin edges, making them from the first plane's axes.
 
         Parameters
         ----------
-        lam : numpy.ndarray
-            The plane's wavelength axis, m.
+        x : numpy.ndarray
+            The plane's spectral axis, m or Hz.
         t : numpy.ndarray
             Its time axis, s.
 
         Returns
         -------
         tuple of numpy.ndarray
-            The wavelength and time edges.
+            The spectral and time edges.
         """
-        if self._lam_edges is None or self._t_edges is None:
+        if self._x_edges is None or self._t_edges is None:
             display = self.display
-            finite = lam[np.isfinite(lam) & (lam > 0)]
-            low, high = display.wavelength_range or (finite.min(), finite.max())
-            self._lam_edges = np.linspace(low, high, display.n_wavelength + 1)
+            low, high = self._window(x[np.isfinite(x) & (x > 0)])
+            self._x_edges = np.linspace(low, high, display.n_wavelength + 1)
             t_low, t_high = display.time_range or (t.min(), t.max())
             self._t_edges = np.linspace(t_low, t_high, display.n_time + 1)
-        return self._lam_edges, self._t_edges
+        return self._x_edges, self._t_edges
 
     def reduce(
         self,
-        lam: np.ndarray,
+        x: np.ndarray,
         density: np.ndarray,
         t: np.ndarray,
         power: np.ndarray,
@@ -206,10 +244,10 @@ class Reducer:
 
         Parameters
         ----------
-        lam : numpy.ndarray
-            The wavelength axis, m.
+        x : numpy.ndarray
+            The spectral axis, m or Hz as the display's axis says.
         density : numpy.ndarray
-            The spectral energy density on it, J/m, summed over modes.
+            The spectral energy density on it, summed over modes.
         t : numpy.ndarray
             The time axis, s.
         power : numpy.ndarray
@@ -220,29 +258,31 @@ class Reducer:
         tuple of numpy.ndarray
             The density and the power on the display bins, as float32.
         """
-        lam_edges, t_edges = self._edges(lam, t)
-        keep = np.isfinite(lam) & (lam > 0)
-        reduced_density = bin_max(lam[keep], density[keep], lam_edges)
+        x_edges, t_edges = self._edges(x, t)
+        keep = np.isfinite(x) & (x > 0)
+        reduced_density = bin_max(x[keep], density[keep], x_edges)
         reduced_power = bin_max(t, power, t_edges)
         return reduced_density.astype(np.float32), reduced_power.astype(np.float32)
 
-    def axes(self) -> dict[str, np.ndarray]:
+    def axes(self) -> dict[str, Any]:
         """Return the bin centres.
 
         Returns
         -------
         dict
-            ``wavelength`` (m) and ``time`` (s), each an array of bin centres.
+            ``spectral`` (m or Hz), ``axis`` (its name) and ``time`` (s), the
+            arrays of bin centres.
 
         Raises
         ------
         RuntimeError
             Before the first plane is reduced, when the bins are not yet known.
         """
-        if self._lam_edges is None or self._t_edges is None:
+        if self._x_edges is None or self._t_edges is None:
             msg = "the bins are made by the first plane reduced"
             raise RuntimeError(msg)
         return {
-            "wavelength": 0.5 * (self._lam_edges[:-1] + self._lam_edges[1:]),
+            "spectral": 0.5 * (self._x_edges[:-1] + self._x_edges[1:]),
+            "axis": self.display.axis,
             "time": 0.5 * (self._t_edges[:-1] + self._t_edges[1:]),
         }

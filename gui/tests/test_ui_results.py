@@ -7,10 +7,12 @@
 from pathlib import Path
 
 import numpy as np
+import pytest
 from PySide6.QtCore import QBuffer, QIODevice
 from PySide6.QtGui import QPixmap
 from pytestqt.qtbot import QtBot
 
+from solprop_gui.model.plot_options import PlotOptions
 from solprop_gui.service.messages import Reply
 from solprop_gui.ui.main_window import MainWindow
 from solprop_gui.views.plane import PlaneView
@@ -67,8 +69,6 @@ def test_the_plane_view_asks_and_draws(qtbot: QtBot, tmp_path: Path):
     assert "first mode" in view.status.text()  # a sum of two modes
     ys = np.asarray(view.phase_curve.getData()[1], dtype=float)
     assert np.isnan(ys).any() and np.isfinite(ys).any()  # dark edges left out
-    view.log.setChecked(False)
-    view.log.setChecked(True)
     view.ask_spectrogram()
     assert asked[-1] == ("sg", 0.0, "sum")
     view.show_spectrogram(png())
@@ -108,6 +108,29 @@ def test_the_plane_view_asks_and_draws(qtbot: QtBot, tmp_path: Path):
     view.ask_compression()  # no planes: nothing asked
     view._ask()
     assert len(asked) == count
+
+
+def test_the_plane_view_follows_the_plot_options(qtbot: QtBot):
+    view = PlaneView()
+    qtbot.addWidget(view)
+    view.resize(1000, 600)
+    view.show_plane(plane_reply())
+    view.apply_options(PlotOptions(scale="linear", time_limits=(-5e-14, 5e-14)))
+    assert view.power_plot.getViewBox().viewRange()[0] == pytest.approx([-50, 50])
+    view.apply_options(PlotOptions(spectral_limits=(6e-7, 1e-6)))
+    assert view.spectrum_plot.getViewBox().viewRange()[0] == pytest.approx([600, 1000])
+    # A frequency axis: the spectrum and the phase in THz; wavelength limits unused.
+    frequency = {**plane_reply(), "axis": "f"}
+    frequency["spectrum"] = {"x": OMEGA / (2 * np.pi), "y": np.ones(OMEGA.size)}
+    view.apply_options(PlotOptions(bandpass=(7e-7, 9e-7)))
+    view.show_plane(frequency)
+    assert view.spectrum_plot.getAxis("bottom").labelText == "Frequency (THz)"
+    xs = np.asarray(view.phase_curve.getData()[0], dtype=float)
+    assert 240 < xs.min() < xs.max() < 610  # 1.2 µm to 500 nm, in THz
+    assert "within 700-900 nm" in view.status.text()
+    view.apply_options(PlotOptions(axis="f", spectral_limits=(300e12, 400e12)))
+    assert view.spectrum_plot.getViewBox().viewRange()[0] == pytest.approx([300, 400])
+    view.show_plane(plane_reply())
 
 
 def test_a_spatial_plane_shows_its_fluence(qtbot: QtBot, tmp_path: Path):

@@ -139,10 +139,11 @@ class LiveObserver(NullReporter):
         plane : solprop.driver.plane_view.PlaneView
             The lazy view of it, valid only during the call.
         """
-        lam, density = plane.spectral_density(axis="wavelength", modes="sum")  # pyright: ignore[reportAttributeAccessIssue]
-        t, power = plane.power(modes="sum")  # pyright: ignore[reportAttributeAccessIssue]
+        display = self.reducer.display
+        x, density = plane.spectral_density(axis=display.axis, modes="sum")  # pyright: ignore[reportAttributeAccessIssue]
+        t, power = plane.power(modes="sum", bandpass=display.bandpass)  # pyright: ignore[reportAttributeAccessIssue]
         reduced_density, reduced_power = self.reducer.reduce(
-            np.asarray(lam), np.asarray(density), np.asarray(t), np.asarray(power)
+            np.asarray(x), np.asarray(density), np.asarray(t), np.asarray(power)
         )
         with self._lock:
             if self.axes is None:

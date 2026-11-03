@@ -29,9 +29,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from solprop_gui.model.plot_options import PlotOptions
 from solprop_gui.model.workspace import new_run_folder
 from solprop_gui.service.client import RunClient
 from solprop_gui.service.messages import Event, Reply
+from solprop_gui.service.reduce import Display
 from solprop_gui.service.remote import RemoteRun
 from solprop_gui.service.states import ACTIVE, ExecutionState, advance
 from solprop_gui.service.worker import OUTPUT, RunSpec
@@ -117,6 +119,7 @@ class RunPanel(QWidget):
         self._pending: dict[int, str] = {}
         self._last_index = -1
         self._z_end = 0.0
+        self.options = PlotOptions()
 
         self.workspace = Path(workspace)
         text = self.palette().windowText().color()
@@ -164,6 +167,11 @@ class RunPanel(QWidget):
         self.progress.setMaximumWidth(200)
         self.progress.setMaximumHeight(16)
         self.steps = QLabel("")
+        self.bar = QProgressBar()
+        self.bar.setObjectName("run-progress")
+        self.bar.setRange(0, 1000)
+        self.bar.setFormat("%p %")
+        self.bar.setToolTip("How far along the guide the run has gone.")
         self.view = OverviewView()
         self.log = QPlainTextEdit()
         self.log.setReadOnly(True)
@@ -190,6 +198,7 @@ class RunPanel(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
         layout.addLayout(buttons)
+        layout.addWidget(self.bar)
         layout.addWidget(self.state_label)
         layout.addLayout(estimate)
         layout.addWidget(self.estimate_text)
@@ -343,7 +352,14 @@ class RunPanel(QWidget):
         self.view.clear()
         self.log.clear()
         self._launch(
-            RunSpec(folder.name, str(folder), recipe=text, base=base), fresh=True
+            RunSpec(
+                folder.name,
+                str(folder),
+                recipe=text,
+                base=base,
+                display=self.display(),
+            ),
+            fresh=True,
         )
 
     def resume(self) -> None:
@@ -358,9 +374,53 @@ class RunPanel(QWidget):
         mode = self.resume_mode
         self.resume_mode = None
         self._launch(
-            RunSpec(self.run_id, str(self.folder), resume=mode),  # pyright: ignore[reportArgumentType]
+            RunSpec(
+                self.run_id,
+                str(self.folder),
+                resume=mode,  # pyright: ignore[reportArgumentType]
+                display=self.display(),
+            ),
             fresh=False,
         )
+
+    def display(self) -> Display:
+        """Return the bins and readings a new run's live views are reduced with.
+
+        Returns
+        -------
+        solprop_gui.service.reduce.Display
+            The plot options' spectral axis and bandpass.
+        """
+        return Display(axis=self.options.axis, bandpass=self.options.bandpass)
+
+    def apply_options(self, options: PlotOptions) -> None:
+        """Take new plot options, for the live view and the next run.
+
+        The live view redraws with them; the next run is reduced on their axis and
+        within their band.
+
+        Parameters
+        ----------
+        options : PlotOptions
+            The options.
+        """
+        self.options = options
+        self.view.apply_options(options)
+
+    def _progress(self, value: int, *, reset: bool = False) -> None:
+        """Show how far the run has gone, never going back but on a reset.
+
+        Parameters
+        ----------
+        value : int
+            The share done, in thousandths.
+        reset : bool, optional
+            Whether to start again from the value.
+        """
+        if not reset:
+            value = max(value, self.bar.value())
+        for bar in (self.progress, self.bar):
+            bar.setValue(min(max(value, 0), 1000))
 
     def _launch(self, spec: RunSpec, *, fresh: bool) -> None:
         """Start a worker.
@@ -379,7 +439,7 @@ class RunPanel(QWidget):
         self._z_end = 0.0
         self.lamp.setText("boundary: ok")
         self.lamp.setStyleSheet("")
-        self.progress.setValue(0)
+        self._progress(0, reset=True)
         self.state = ExecutionState.QUEUED
         self._set_state(advance(self.state, "launch"))
         self.state_label.setText(f"{spec.run_id}: starting")
@@ -467,13 +527,11 @@ class RunPanel(QWidget):
                 f"({data['rejected']} rejected)"
             )
             if self._z_end > 0:
-                self.progress.setValue(
-                    max(self.progress.value(), int(1000 * z / self._z_end))
-                )
+                self._progress(int(1000 * z / self._z_end))
         elif event.kind == "progress":
             z, z_end = float(data["z"]), float(data["z_end"])  # pyright: ignore[reportArgumentType]
             if z_end > 0:
-                self.progress.setValue(int(1000 * z / z_end))
+                self._progress(int(1000 * z / z_end))
             self.steps.setText(
                 f"z {z:.4g} / {z_end:.4g} m   steps {data['steps']} "
                 f"({data['rejected']} rejected)"
@@ -482,6 +540,7 @@ class RunPanel(QWidget):
             self._show_log(data)
         elif event.kind == "started":
             self._z_end = float(data["z_end"])  # pyright: ignore[reportArgumentType]
+            self.view.set_extent(float(data.get("z_start", 0.0)), self._z_end)  # pyright: ignore[reportArgumentType]
             self.state_label.setText(f"{self.run_id}: running")
         elif event.kind == "scan_started":
             self.state_label.setText(f"{self.run_id}: scanning {data['points']} points")
@@ -524,7 +583,7 @@ class RunPanel(QWidget):
         points = int(data.get("points") or 0)  # pyright: ignore[reportArgumentType]
         if points:
             done = int(data["done"])  # pyright: ignore[reportArgumentType]
-            self.progress.setValue(int(1000 * done / points))
+            self._progress(int(1000 * done / points))
         if data["status"] == "failed":
             self.log.appendPlainText(f"point {data['index']} failed")
 
@@ -552,7 +611,7 @@ class RunPanel(QWidget):
                 self.log.appendPlainText(str(detail))
         self.state_label.setText(text)
         if event.kind == "finished":
-            self.progress.setValue(1000)
+            self._progress(1000)
         if self.folder is not None and event.data.get("scan"):
             # A scan's points are run again with retry_failed, not resumed.
             self.ended.emit(str(event.data["path"]))
