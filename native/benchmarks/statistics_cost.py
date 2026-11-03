@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Measure the period-one statistics channel inside propagation."""
+"""Measure the periodic statistics channel inside propagation."""
 
 from __future__ import annotations
 
@@ -59,7 +59,12 @@ def _case_tables() -> tuple[CaseTable, FamilyTable]:
 
 
 def _worker(
-    backend_name: str, case_name: str, target: float, repeats: int, modes: int | None
+    backend_name: str,
+    case_name: str,
+    target: float,
+    repeats: int,
+    modes: int | None,
+    period: int,
 ) -> None:
     blas_backend = "not applicable"
     blas_threads: int | str = "not applicable"
@@ -121,7 +126,7 @@ def _worker(
     )
     watched = replace(
         plain,
-        stats_spec=StatsSpec(names=PERIODIC, periodic=PERIODIC, period=1),
+        stats_spec=StatsSpec(names=PERIODIC, periodic=PERIODIC, period=period),
     )
 
     def run(problem: Any) -> Arm:
@@ -166,8 +171,8 @@ def _worker(
         raise RuntimeError("the statistics channel changed the step count")
     if best["plain"]["steps"] != best["stashed"]["steps"]:
         raise RuntimeError("the plasma stash changed the step count")
-    if best["watched"]["rows"] != best["watched"]["steps"]:
-        raise RuntimeError("period-one statistics did not produce one row per step")
+    if best["watched"]["rows"] != best["watched"]["steps"] // period:
+        raise RuntimeError("the statistics did not produce one row per period")
     ratio = best["watched"]["seconds"] / best["plain"]["seconds"] - 1.0
     collection_ratio = best["watched"]["seconds"] / best["stashed"]["seconds"] - 1.0
     step_seconds = best["plain"]["seconds"] / best["plain"]["steps"]
@@ -184,6 +189,7 @@ def _worker(
                 "collection_percent": 100.0 * collection_ratio,
                 "fftw_threads": fftw_threads,
                 "native_threads": native_threads,
+                "period": period,
                 "load": os.getloadavg()[0],
                 "milliseconds_per_row": 1000.0
                 * (best["watched"]["seconds"] - best["plain"]["seconds"])
@@ -213,9 +219,10 @@ def main() -> None:
     parser.add_argument(
         "--modes", type=int, help="m2_reduced's mode count, in place of its table's"
     )
+    parser.add_argument("--period", type=int, default=1, help="steps between rows")
     arguments = parser.parse_args()
-    if arguments.repeats < 1 or arguments.target <= 0.0:
-        parser.error("repeats and target must be positive")
+    if arguments.repeats < 1 or arguments.target <= 0.0 or arguments.period < 1:
+        parser.error("repeats, target and period must be positive")
     if arguments.case == "ctc_reduced" and arguments.target > 0.1:
         parser.error("the reduced CtC target cannot exceed its 0.1 m length")
     if arguments.modes is not None and arguments.case != "m2_reduced":
@@ -226,6 +233,7 @@ def main() -> None:
         arguments.target,
         arguments.repeats,
         arguments.modes,
+        arguments.period,
     )
 
 
