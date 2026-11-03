@@ -21,7 +21,6 @@ non-negligible.
 """
 
 import math
-import os
 import subprocess
 import sys
 from dataclasses import dataclass, replace
@@ -30,6 +29,11 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from backends.forced_threads import (
+    assert_threaded,
+    saved_sizing,
+    thread_environment,
+)
 from driver.test_coherent_capillary import (
     CF4_WALL,
     LENGTH,
@@ -511,25 +515,21 @@ PROBE = Path(__file__).with_name("native_flow_thread_probe.py")
 def thread_states(probe: Path, threads: int, names, directory: Path):
     """Run a probe at one thread count and return each case's final state.
 
-    The lanes' one-thread budget is lifted and oversubscription allowed (ADR-052), and
-    the probe's Kokkos pool is checked, so a silent cap cannot compare one thread with
-    one thread.
+    The lanes' one-thread budget is lifted and oversubscription allowed (ADR-052), every
+    pool is forced, since these sizes would otherwise keep their flow passes serial, and
+    the probe's Kokkos pool and the flow's own width are checked, so a silent cap cannot
+    compare one thread with one thread.
     """
     path = directory / f"states-{threads}.npz"
-    environment = os.environ | {
-        "SOLPROP_NATIVE_THREADS": str(threads),
-        "SOLPROP_THREADS": "",
-        "SOLPROP_OVERSUBSCRIBE": "1",
-        "OMP_PROC_BIND": "false",
-    }
     subprocess.run(
         [sys.executable, str(probe), str(path), *names],
         check=True,
         capture_output=True,
         text=True,
-        env=environment,
+        env=thread_environment(threads, None),
         cwd=Path(__file__).parents[1],
     )
+    assert_threaded(saved_sizing(path), threads, "kernels.flow", "kernels.stage")
     with np.load(path) as stored:
         assert int(stored["runtime_threads"]) == threads
         return {name: stored[name] for name in names}
@@ -546,8 +546,8 @@ def reference_and_linear(case: Case) -> tuple[np.ndarray, np.ndarray]:
 def test_the_flow_is_invariant_under_the_thread_count(tmp_path):
     """One thread against three, four and eight, within the parity bound.
 
-    The flow's own kernels are fixed-order loops inside one output element, and the
-    engine plans transforms as small as the split block's 256-point two-column inverse
+    Every pool is forced (:func:`thread_states`). The flow's own kernels are fixed-order
+    loops inside one output element, and the engine plans transforms as small as the split block's 256-point two-column inverse
     on one FFTW thread. Bitwise invariance is not promised, though (SEP 25): two thread
     layouts are two orderings of one discrete march, held to the bound that holds two
     implementations of it, :func:`parity_bound`, fixed from the reference before the

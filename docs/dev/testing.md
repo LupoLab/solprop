@@ -132,7 +132,11 @@ thread pool over the same cores. A test that compares thread counts lifts the bu
 to four threads (the `thread_budget_lifted` fixture) and asks for several; a native
 thread probe runs with `SOLPROP_THREADS` blank and `SOLPROP_OVERSUBSCRIBE=1`, so it gets
 the count it asks for on any runner, and saves the Kokkos pool it ran with for its
-caller to check (`tests/backends/matched.py::native_thread_fields`). Serial and parallel runs select the same tests; inspect
+caller to check (`tests/backends/matched.py::native_thread_fields`). Native sizes each
+operation by the work it holds, which keeps a small case on one thread at any pool, so such a
+test forces the pools and asserts the widths its operations took from the run's
+`execution_sizing` (`assert_threaded`, in `tests/backends/forced_threads.py` and
+`native/tests/thread_sizing.py`). Serial and parallel runs select the same tests; inspect
 the current `--durations` output before choosing another independent group to split. The
 lane stays
 reproducible: `pytest-randomly` picks one seed in the controller and the workers share it,

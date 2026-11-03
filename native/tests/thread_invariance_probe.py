@@ -109,6 +109,7 @@ print(
             "threads": solprop_native.build_info().thread_count,
             "synthesis_provider": metadata["synthesis_provider"],
             "projection_provider": metadata["projection_provider"],
+            "execution_sizing": metadata["execution_sizing"],
         },
         sort_keys=True,
     )

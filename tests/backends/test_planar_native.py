@@ -28,6 +28,7 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
+from backends.forced_threads import assert_threaded
 from backends.matched import native_thread_fields
 from backends.test_radial_nonlinear import CHI3, LENGTH, QuadraticRate, derivative
 from bounds import gamma, ladder_bound
@@ -351,6 +352,7 @@ def test_the_planar_kind_agrees_across_thread_counts(tmp_path):
     names = ["envelope_kerr", "field_plasma", "collar_split_step"]
     one = native_thread_fields(PROBE, 1, names, tmp_path)
     four = native_thread_fields(PROBE, 4, names, tmp_path)
+    assert_threaded(four["sizing"], 4, "kernels.stage", "kernels.response", "fft.fft")
     for name in names:
         grid, space, problem = planar_case(name)
         assert problem.stepper.integrator is None

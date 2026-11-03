@@ -17,6 +17,8 @@ fresh process running ``native_forced_thread_probe.py``; :func:`forced_run` retu
 arrays that probe saved, its sizing and the Kokkos pool it ran with.
 """
 
+import atexit
+import importlib
 import json
 import os
 import subprocess
@@ -104,3 +106,42 @@ def widest(sizing: dict[str, dict[str, int]], operation: str) -> int:
         ),
         default=0,
     )
+
+
+def record_sizing(output: str) -> None:
+    """Have this probe save each native backend's ``execution_sizing`` beside `output`.
+
+    One entry per backend, in the order they close, written when the process ends, so a
+    probe whose helpers build and close their own backends needs only this call.
+    """
+    backend = importlib.import_module("solprop_native").NativeBackend
+    close = backend.close
+    sizings = []
+
+    def closing(self) -> None:
+        sizings.append(self.metadata()["execution_sizing"])
+        close(self)
+
+    backend.close = closing
+    atexit.register(
+        lambda: Path(f"{output}.sizing.json").write_text(json.dumps(sizings))
+    )
+
+
+def saved_sizing(output: Path) -> list[dict[str, dict[str, int]]]:
+    """Return what :func:`record_sizing` saved beside `output`."""
+    return json.loads(Path(f"{output}.sizing.json").read_text())
+
+
+def assert_threaded(
+    sizings: list[dict[str, dict[str, int]]], threads: int, *operations: str
+) -> None:
+    """Assert every backend of a run took `threads` for each of `operations`.
+
+    A comparison across thread counts compares one thread with one thread unless this
+    holds. An operation a backend never ran gives 0, which fails too.
+    """
+    assert sizings
+    for index, sizing in enumerate(sizings):
+        for operation in operations:
+            assert widest(sizing, operation) == threads, (index, operation, sizing)

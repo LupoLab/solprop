@@ -41,6 +41,9 @@ def _runtime_threads() -> np.ndarray:
 
 
 if __name__ == "__main__":
+    from backends.forced_threads import record_sizing
+
+    record_sizing(sys.argv[1])
     # The optional plugin is required only by this explicitly launched probe.
     from solprop_native import NativeBackend  # pyright: ignore[reportMissingImports]
 

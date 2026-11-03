@@ -29,6 +29,7 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
+from backends.forced_threads import assert_threaded
 from backends.matched import native_thread_fields
 from backends.native_mixture_launch_probe import (
     NAMES,
@@ -98,6 +99,7 @@ def test_two_channel_fractions_and_rates_on_several_threads(
         for statistic in NAMES
     ]
     threaded = native_thread_fields(PROBE, 4, names, tmp_path)
+    assert_threaded(threaded["sizing"], 4, "kernels.stage")
     for kerr, n_pol in CASES:
         fraction, rate, bound = oracle(kerr, n_pol)
         tag = f"{'kerr' if kerr else 'none'}:{n_pol}"

@@ -62,12 +62,18 @@ try:
     summary = backend.propagate_to(LENGTH)
     field = backend.observe().require_field()
     info = solprop_native.build_info()
+    sizing = backend.metadata()["execution_sizing"]
 finally:
     backend.close()
 np.save(sys.argv[1], field)
 print(
     json.dumps(
-        {"samples": grid.n_to, "steps": summary.n_steps, "threads": info.thread_count},
+        {
+            "samples": grid.n_to,
+            "steps": summary.n_steps,
+            "threads": info.thread_count,
+            "execution_sizing": sizing,
+        },
         sort_keys=True,
     )
 )
