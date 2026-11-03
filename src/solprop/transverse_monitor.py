@@ -57,6 +57,13 @@ NOISE_FACTOR = 8.0
 _SMALL_TRANSFORM = 2**18
 """Host transforms below this many elements run on one thread."""
 
+READ_RESOLUTION = 1e-6
+"""A read may leave out the frequencies whose energy together is at most this fraction
+of the warning (``budget**2`` of the launch energy). By Parseval a frequency cannot put
+more on a face than it holds, so a face's share reads low by at most that, a millionth
+of what warns; a run's light occupies few of a grid's frequencies, and each read would
+otherwise synthesise them all (issue #453)."""
+
 TransverseStatus = Literal[
     "clear", "warned", "stopped", "insensitive", "coarse", "unwatched", "off"
 ]
@@ -310,6 +317,8 @@ class TransverseEdge:
         """
         space = self.space
         flat = state.reshape(state.shape[0], -1)
+        if read:
+            flat = self._occupied_planes(flat)
         if isinstance(space, RadialGrid):
             if self._inverse is None:
                 hankel = space.hankel
@@ -339,6 +348,37 @@ class TransverseEdge:
         nodes = np.zeros(physical.shape[0])
         nodes[rows] = _row_energy(physical[rows])
         return nodes
+
+    def _occupied_planes(
+        self, flat: Complex[np.ndarray, "n_columns n_planes"]
+    ) -> Complex[np.ndarray, "n_columns n_kept"]:
+        """Return the frequency planes a read must synthesise (:data:`READ_RESOLUTION`).
+
+        A requested collar's rate is credited as a removal rather than judged against
+        the warning, so it reads every plane. So does a state that fills more than half
+        of them, where the copy would cost more than the planes it leaves out.
+
+        Parameters
+        ----------
+        flat : numpy.ndarray
+            One member's spectral columns, a plane being one polarisation's frequency.
+
+        Returns
+        -------
+        numpy.ndarray
+            `flat` itself, or a copy holding only the planes kept.
+        """
+        if self.design is not None and self.design.has_collar:
+            return flat
+        energy = np.einsum(
+            "i,ij,ij->j", self._columns, flat.real, flat.real
+        ) + np.einsum("i,ij,ij->j", self._columns, flat.imag, flat.imag)
+        order = np.argsort(energy)
+        limit = READ_RESOLUTION * self.budget**2 * self._launch
+        left_out = int(np.searchsorted(np.cumsum(energy[order]), limit, side="right"))
+        if 2 * left_out < energy.size:
+            return flat
+        return flat[:, np.sort(order[left_out:])]
 
     def _fft_workers(self, cube: np.ndarray) -> int:
         """Return the threads for one host transform of `cube`.
