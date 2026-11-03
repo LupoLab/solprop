@@ -3000,7 +3000,7 @@ def walk_off_buckets(
     are, which on a radial grid fine enough to hold an evanescent column reads that
     column's frame rate. A separable operator is constant along z and is read in
     chunks of columns; a tabulated one that varies is read at its own nodes, every
-    interval's start, middle and end (:func:`_rate_positions`), and each bin takes its
+    interval's start, middle and end, and each bin takes its
     fastest. Between the nodes a smooth guide's rate is the interval's interpolant's,
     whose excursion from its samples is not bounded here.
 
