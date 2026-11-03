@@ -358,6 +358,20 @@ All notable changes to solprop are recorded here. The format follows
   reads, not one per accepted step
   ([#80](https://github.com/LupoLab/solprop/issues/80)).
 - Fixed the reference's single-precision path leaving binary32 on two paths that it then narrowed without a check: the split-step collar now keeps a complex64 state in binary32, as the correction `a + F(F^-1(a)(f - 1))` that `mlx` uses (binary64 runs are unchanged), and a fixed-schedule batch of single-precision `numpy_ref` members now steps each member through its own binary32 trial instead of the binary64 batch arithmetic, and a lockstep batch refuses members of mixed precisions. The finished state is now refused by name if it is not complex64 (#79).
+- On a radial, Cartesian, line or planar output, the processing readers that read each
+  transverse column as a modal amplitude in sqrt(W) now refuse the file by name with an
+  `OutputError` that names the spatial functional to use, instead of returning wrong
+  numbers silently (a 3 nJ launch read back as 4.8e-15 J). They are `energy`,
+  `peak_power`, `get_power`, `get_spectral_density`, `fwhm_t`, `fwhm_f`, `time_bandwidth`,
+  `arrival_time`, `field_autocorrelation`, `intensity_autocorrelation` and
+  `coherence_time`, the plots `prop_2d`, `time_1d`, `spec_1d` and `plot_energy`, and a
+  plane observer's `power` and `spectral_density`. Use `solprop.spatial.spatial_energy`,
+  `spatial_power` and their neighbours on a saved plane, or the run's `stats/energy`,
+  which is unchanged; `get_spectrum`, `get_field` and `get_phase` still return the stored
+  columns. `solprop.capabilities.output` gains `refused_readers`, which states these
+  refusals with the readers' own text, while it still admits a spatial file's `energy`
+  statistic. Modal files read as before (#147, #406).
+- `StepIndexMode` builds fibres up to V = 20000 and refuses larger ones with a message that says so; it refused most fibres above V of about 26, a 100 µm core of numerical aperture 0.22 at 1030 nm among them, because its root scan lost close pairs of HE and EH roots, and from a cladding argument of about 700 the unscaled modified Bessel functions underflowed. It also refused every EH family from an azimuthal order of about 40, where J_n underflowed at small u. The lost roots are now bracketed by each family's own factor of the characteristic product; the scan runs from the family's first cutoff to the one above the requested radial order, so a low-order mode costs the same at any V; and the modified Bessel ratios and exterior fields use the exponentially scaled functions, with a recurrence where those overflow at large order. Effective indices below V = 26 move by at most one rounding (#148).
 - On Windows on Arm, `Pool` scans no longer fail or hang in NumPy's linear solves. Workers now limit BLAS through `threadpoolctl` instead of thread variables, which crash or hang NumPy's OpenBLAS on that platform at small widths, and `import solprop` warns if such a value is set.
 
 ## [0.1.0] - 2026-10-31

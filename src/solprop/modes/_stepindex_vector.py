@@ -4,6 +4,7 @@
 
 """Recover bound Maxwell fields analytically from the existing step-index roots."""
 
+import math
 from dataclasses import dataclass
 from functools import lru_cache
 
@@ -14,7 +15,13 @@ from scipy.special import jv, jvp, kve
 
 from solprop.constants import EPS0, C
 from solprop.exceptions import ModeError
-from solprop.modes.stepindex import PROFILE_MIN_W, StepIndexMode, _material
+from solprop.modes.stepindex import (
+    PROFILE_MIN_W,
+    StepIndexMode,
+    _k_decay,
+    _log_slope,
+    _material,
+)
 from solprop.physdata.glasses import GlassIndex
 
 __all__: list[str] = []
@@ -56,10 +63,16 @@ def _radial(
         divided = np.where(
             argument == 0, 0.5 / jv(order, edge) if order == 1 else 0.0, divided
         )
-    else:
+    elif math.isfinite(kve(order + 1, edge)):
         factor = np.exp(edge - argument) / kve(order, edge)
         value = kve(order, argument) * factor
         slope = -(kve(abs(order - 1), argument) + kve(order + 1, argument)) * factor / 2
+        divided = value / argument
+    else:
+        # At large order and small decay kve overflows; the same ratios come
+        # from the quotient recurrences, finite wherever the field is.
+        value = _k_decay(order, edge, argument / edge)
+        slope = _log_slope(order, argument) * value
         divided = value / argument
     return np.asarray(value), np.asarray(slope), np.asarray(divided)
 
@@ -141,7 +154,7 @@ def _field_parameters(mode: StepIndexMode, omega: float, z: float) -> _FieldPara
             "cladding decay below PROFILE_MIN_W"
         )
     a = jvp(mode.n, u) / (u * jv(mode.n, u))
-    b = -(kve(abs(mode.n - 1), w) + kve(mode.n + 1, w)) / (2 * w * kve(mode.n, w))
+    b = float(_log_slope(mode.n, w)) / w
     electric_amplitude = 0.0 if mode.kind == "TE" else 1.0
     magnetic_amplitude = 1.0 if mode.kind == "TE" else 0.0
     if mode.n:

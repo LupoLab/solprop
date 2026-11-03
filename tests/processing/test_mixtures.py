@@ -20,6 +20,7 @@ from solprop.output import HDF5Output, MemoryOutput, open_file
 from solprop.output.schema import SavedPlane
 from solprop.physdata import Mixture
 from solprop.processing._examples import example_output
+from solprop.processing.fields import _spectral_density
 from solprop.profiles import Constant, Linear
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
@@ -131,7 +132,10 @@ def test_absorption_has_cross_section_density_energy_units(case, outputs):
     assert bound > 0
     memory, reloaded = outputs
     omega, measured = processing.absorbed_spectral_energy(memory)
-    _, spectral = processing.get_spectral_density(memory, axis="omega", band="active")
+    # Each column's own density: get_spectral_density refuses a spatial file, whose
+    # columns it would read as modes, and the weights below are what make them
+    # physical.
+    _, spectral = _spectral_density(memory, axis="omega", band="active")
     spectral = spectral.reshape(memory.n_saved, -1, omega.size)
     weights = simulation.metadata().configuration["mixture_processing"][
         "column_energy_weights"

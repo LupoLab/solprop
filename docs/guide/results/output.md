@@ -303,7 +303,10 @@ power, energy, spectral density and field are **physical fluxes** (an orthogonal
 basis) or **coordinate quantities** (a general modal basis, whose physical energy is
 `physical_energy`, and a spatial grid, per transverse column); which saved planes keep
 their field and which only their statistics; which of the basis-dependent accessors and
-compression its readers refuse, with the refusal they give, read from the same gates;
+compression its readers refuse, with the refusal they give, read from the same gates
+(a spatial file admits `energy`, whose statistic is the beam's physical energy); in
+`refused_readers`, which processing and plotting readers refuse it (on a spatial file
+every reader that would read its columns as modes, such as `get_power`);
 what a general modal reconstruction needs that the file only identifies (the guide and
 the reference tables); whether it records a recipe; and, for a path, its
 [resumability](resuming.md#what-a-file-allows).
