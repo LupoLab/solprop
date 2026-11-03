@@ -357,9 +357,12 @@ def test_the_window_runs_the_whole_lifecycle(qtbot: QtBot, tmp_path: Path):  # n
     assert not window.back_action.isEnabled()
     window.forward_action.trigger()
     assert window.step == "geometry"
-    window.step_actions["results"].trigger()
+    window.step_actions["postprocess"].trigger()
     assert not window.forward_action.isEnabled()
+    assert window.views.currentWidget() is window.postprocess.view
     window.step_by(5)  # past the end: stays
+    window.back_action.trigger()
+    assert window.step == "results"
     window.back_action.trigger()
     assert window.step == "propagate"
 

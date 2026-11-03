@@ -79,8 +79,16 @@ PAGES: Final = (
         "results",
         "Results",
         (),
-        "The run's results: the spectrum and the power along the guide, and a "
-        "comparison of runs.",
+        "The run's results: the spectrum and the power along the guide, a plane, "
+        "its spectrogram, and the statistics.",
+    ),
+    Page(
+        "postprocess",
+        "Post-process",
+        (),
+        "Compress the pulse after the run: a chain of linear optics, from a Taylor "
+        "phase to chirped mirrors, prisms and gratings, some elements searched by "
+        "solprop.",
     ),
 )
 """The steps, in order."""

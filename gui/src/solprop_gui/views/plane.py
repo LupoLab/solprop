@@ -2,14 +2,13 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The Plane view: one saved plane's spectrum, power, phase, spectrogram, compression.
+"""The Plane view: one saved plane's spectrum, power, phase and spectrogram.
 
 A results file's field planes are stepped through with a slider (design 11.2); for the
 plane shown the kernel gives the spectral density, the power and the spectral phase
 from :mod:`solprop.processing`, and the spectrogram (``get_spectrogram``) drawn here
-as an image to zoom and read, with each plane; and
-``compress_taylor`` finds the best Taylor phase, drawn over the power with the transform
-limit. A mode sum has a power and a spectrum but no phase or field, so the phase and the
+as an image to zoom and read, with each plane. Compression is the Post-process step's.
+A mode sum has a power and a spectrum but no phase or field, so the phase and the
 spectrogram take the first mode then, and say so.
 """
 
@@ -25,9 +24,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
     QLabel,
-    QPushButton,
     QSlider,
-    QSpinBox,
     QSplitter,
     QVBoxLayout,
     QWidget,
@@ -174,15 +171,12 @@ class PlaneView(QWidget):
         Emitted with the plane's index and the mode selection.
     spectrogram_wanted : Signal
         Emitted with the plane's index and the mode selection, with each plane.
-    compression_wanted : Signal
-        Emitted with the plane's index, the highest Taylor order and the selection.
     figure_wanted : Signal
         Emitted with a figure's ``file``, ``plot``, ``z`` and ``modes``.
     """
 
     plane_wanted = Signal(int, object)
     spectrogram_wanted = Signal(int, object)
-    compression_wanted = Signal(int, int, object)
     figure_wanted = Signal(object)
 
     def __init__(self, parent: QWidget | None = None) -> None:  # noqa: PLR0915 - a layout
@@ -202,17 +196,6 @@ class PlaneView(QWidget):
         self.modes.currentIndexChanged.connect(self._ask)
         self.options = PlotOptions()
         self.axis = "wavelength"
-        self.order = QSpinBox()
-        self.order.setObjectName("plane-order")
-        self.order.setRange(2, 6)
-        self.order.setPrefix("to order ")
-        self.compress_button = QPushButton("Compress")
-        self.compress_button.setObjectName("plane-compress")
-        self.compress_button.setToolTip(
-            "The Taylor phase that best compresses this plane (compress_taylor), and "
-            "the transform limit."
-        )
-        self.compress_button.clicked.connect(self.ask_compression)
         self.figure = QComboBox()
         self.figure.setObjectName("plane-figure")
         self.figure.addItem("Export figure…", None)
@@ -257,7 +240,6 @@ class PlaneView(QWidget):
         self.plots.add_readout(
             self.phase_plot, curve_lookup(self.phase_curve, "{0:.1f}, {1:.3g} rad")
         )
-        self.compressed: list[pg.PlotDataItem] = []
         self.image = pg.ImageItem()
         self.image.setColorMap(colormap("viridis"))
         self.phase_plot.addItem(self.image)
@@ -273,8 +255,6 @@ class PlaneView(QWidget):
         controls.addWidget(self.where)
         controls.addWidget(self.modes)
         controls.addSpacing(12)
-        controls.addWidget(self.order)
-        controls.addWidget(self.compress_button)
         controls.addWidget(self.figure)
         split = QSplitter(Qt.Orientation.Horizontal)
         split.addWidget(self.plots)
@@ -318,7 +298,6 @@ class PlaneView(QWidget):
         for widget in (
             self.slider,
             self.modes,
-            self.compress_button,
             self.figure,
         ):
             widget.setEnabled(enabled)
@@ -382,14 +361,6 @@ class PlaneView(QWidget):
         """Ask for the shown plane's spectrogram."""
         if self.planes:
             self.spectrogram_wanted.emit(self.index(), self.selection())
-
-    def ask_compression(self) -> None:
-        """Ask for the plane's best compression."""
-        if self.planes:
-            self.status.setText("Compressing…")
-            self.compression_wanted.emit(
-                self.index(), self.order.value(), self.selection()
-            )
 
     def _figure_picked(self, index: int) -> None:  # pragma: no cover - a modal dialog
         """Ask where to write the figure picked, and ask for it.
@@ -488,7 +459,6 @@ class PlaneView(QWidget):
             self._redraw_spectrum()
         t = np.asarray(power["t"], dtype=float) * 1e15
         self.power_curve.setData(t, np.asarray(power["y"], dtype=float))
-        self._clear_compression()
         fluence = plane.get("fluence")
         if isinstance(fluence, Mapping):
             self._show_fluence(fluence, notes)
@@ -563,22 +533,6 @@ class PlaneView(QWidget):
         self.phase_curve.setData(np.asarray(axes[name], dtype=float) * 1e3, values)
         self.phase_plot.setLabel("bottom", f"{name} (mm)")
         self.phase_plot.setLabel("left", f"Fluence ({unit})")
-
-    def set_refused(self, refused: Mapping[str, str]) -> None:
-        """Disable what solprop refuses for the file, saying why.
-
-        Parameters
-        ----------
-        refused : Mapping
-            By operation, solprop's reason (``capabilities.output``).
-        """
-        reason = refused.get("compression")
-        self.compress_button.setEnabled(reason is None and bool(self.planes))
-        self.compress_button.setToolTip(
-            reason
-            or "The Taylor phase that best compresses this plane (compress_taylor), "
-            "and the transform limit."
-        )
 
     def _axis_title(self, *, capital: bool = False) -> str:
         """Return the spectral axis's title, with its unit.
@@ -668,50 +622,8 @@ class PlaneView(QWidget):
         """
         self.spectrogram.show(data, self.options)
 
-    def _clear_compression(self) -> None:
-        """Remove the compressed and transform-limited curves."""
-        for curve in self.compressed:
-            self.power_plot.removeItem(curve)
-        self.compressed = []
-
-    def show_compression(self, found: Mapping[str, object]) -> None:
-        """Draw the compressed pulse and the transform limit over the power.
-
-        Parameters
-        ----------
-        found : Mapping
-            The ``compression`` reply.
-        """
-        self._clear_compression()
-        t = np.asarray(found["t"], dtype=float) * 1e15
-        for key, name, colour in (
-            ("after", "compressed", PALETTE[2]),
-            ("limit", "transform limit", "#888888"),
-        ):
-            curve = self.power_plot.plot(
-                t,
-                np.asarray(found[key], dtype=float),
-                pen=pg.mkPen(colour, width=1.2, style=Qt.PenStyle.DashLine),
-                name=name,
-            )
-            self.compressed.append(curve)
-        before = float(found["fwhm_before"]) * 1e15  # pyright: ignore[reportArgumentType]
-        after = float(found["fwhm_after"]) * 1e15  # pyright: ignore[reportArgumentType]
-        limit = float(found["fwhm_limit"]) * 1e15  # pyright: ignore[reportArgumentType]
-        coefficients: Sequence[float] = found["coefficients"]  # pyright: ignore[reportAssignmentType]
-        phase = ", ".join(
-            f"φ{order} = {value * 1e15**order:.4g} fs^{order}"
-            for order, value in enumerate(coefficients)
-            if order >= 2
-        )
-        self.status.setText(
-            f"FWHM {before:.3g} fs → {after:.3g} fs (limit {limit:.3g} fs), "
-            f"peak {si(float(found['peak_power_after']), 'W')}"  # pyright: ignore[reportArgumentType]
-            f" (limit {si(float(found['peak_power_limit']), 'W')}); {phase}."  # pyright: ignore[reportArgumentType]
-        )
-
     def show_error(self, message: str) -> None:
-        """Say why the plane or its compression is not shown.
+        """Say why the plane or its spectrogram is not shown.
 
         Parameters
         ----------
@@ -725,6 +637,5 @@ class PlaneView(QWidget):
         self._spectrum = None
         for curve in (self.spectrum_curve, self.power_curve, self.phase_curve):
             curve.setData([], [])
-        self._clear_compression()
         self.spectrogram.clear()
         self.set_planes([], [])

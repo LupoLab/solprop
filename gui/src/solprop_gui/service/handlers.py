@@ -30,6 +30,7 @@ from solprop.tools import capillary_params, lambda_rdw_all
 
 from solprop_gui.service.design import DESIGN_HANDLERS, pin_targets
 from solprop_gui.service.figures import FIGURE_HANDLERS
+from solprop_gui.service.postprocess import POSTPROCESS_HANDLERS
 from solprop_gui.service.reduce import SPECTRAL_AXES, C, Display, Reducer, stats_row
 from solprop_gui.service.results import RESULTS_HANDLERS, band_of, spatial_plane
 
@@ -773,6 +774,7 @@ HANDLERS: dict[str, Callable[[Payload], object]] = {
     "to_python": to_python,
     **DESIGN_HANDLERS,
     **FIGURE_HANDLERS,
+    **POSTPROCESS_HANDLERS,
     **RESULTS_HANDLERS,
 }
 """The handlers, by request kind."""

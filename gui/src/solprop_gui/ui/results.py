@@ -113,7 +113,6 @@ class ResultsPage(QWidget):
         self.scan = ScanView()
         self.plane.plane_wanted.connect(self._ask_plane)
         self.plane.spectrogram_wanted.connect(self._ask_spectrogram)
-        self.plane.compression_wanted.connect(self._ask_compression)
         self.plane.figure_wanted.connect(self._ask_figure)
         self.statistics.figure_wanted.connect(self._ask_figure)
         self.stats_selector = StatsSelector()
@@ -320,27 +319,6 @@ class ResultsPage(QWidget):
         }
         self._ask("spectrogram", payload, "spectrogram")
 
-    def _ask_compression(self, index: int, order: int, modes: object) -> None:
-        """Ask for a plane's best compression.
-
-        Parameters
-        ----------
-        index : int
-            The plane.
-        order : int
-            The highest Taylor order searched.
-        modes : object
-            The mode selection.
-        """
-        if self.path is not None:
-            payload = {
-                "path": self.path,
-                "index": index,
-                "order": order,
-                "modes": modes,
-            }
-            self._ask("compression", payload, "compression")
-
     def _ask_figure(self, figure: Mapping[str, object]) -> None:
         """Ask for one of solprop's plots of the open file as a figure.
 
@@ -378,7 +356,7 @@ class ResultsPage(QWidget):
             self._show_scan(path, reply)
             return
         if not reply.ok:
-            if purpose in ("plane", "compression", "spectrogram"):
+            if purpose in ("plane", "spectrogram"):
                 self.plane.show_error(f"{purpose}: {reply.error}")
             else:
                 self.info.setText(f"{_short(path)}: {reply.error}")
@@ -386,7 +364,7 @@ class ResultsPage(QWidget):
         value = reply.value
         if path != self.path and purpose != "compare":
             return  # a reply about the file shown before
-        if purpose in ("plane", "compression", "spectrogram", "statistics", "figure"):
+        if purpose in ("plane", "spectrogram", "statistics", "figure"):
             self._show_view_reply(purpose, value)
             return
         if purpose == "describe" and path == self.path and isinstance(value, dict):
@@ -449,8 +427,6 @@ class ResultsPage(QWidget):
             [z[p] for p in planes if p < len(z)],
             list(value.get("labels") or []),  # pyright: ignore[reportArgumentType]
         )
-        refused: Mapping[str, str] = value.get("refused") or {}  # pyright: ignore[reportAssignmentType]
-        self.plane.set_refused(refused)
         self.overview.set_spatial(value.get("basis") == "spatial")
 
     def _show_view_reply(self, purpose: str, value: object) -> None:
@@ -459,7 +435,7 @@ class ResultsPage(QWidget):
         Parameters
         ----------
         purpose : str
-            ``"plane"``, ``"compression"``, ``"spectrogram"``, ``"statistics"`` or
+            ``"plane"``, ``"spectrogram"``, ``"statistics"`` or
             ``"figure"``.
         value : object
             The reply's value.
@@ -471,8 +447,6 @@ class ResultsPage(QWidget):
             return
         elif purpose == "plane":
             self.plane.show_plane(value)
-        elif purpose == "compression":
-            self.plane.show_compression(value)
         elif purpose == "spectrogram":
             self.plane.show_spectrogram(value)
         else:

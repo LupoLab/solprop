@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The kernel's results requests on a small run: a plane, statistics, compression."""
+"""The kernel's results requests on a small run: a plane, statistics, a spectrogram."""
 
 import warnings
 from collections.abc import Iterator, Mapping
@@ -85,7 +85,7 @@ def test_the_statistics_are_labelled_by_mode(run: str, monkeypatch):
     assert energy["columns"][0]["label"].startswith("energy [")
 
 
-def test_the_spectrogram_compression_and_figures(run: str, tmp_path: Path, monkeypatch):
+def test_the_spectrogram_and_figures(run: str, tmp_path: Path, monkeypatch):
     found = ask("spectrogram", {"path": run, "index": 2})
     assert found["values"].shape == (found["x"].size, found["t"].size)
     assert found["mode"] == 0 and found["axis"] == "wavelength"  # a sum: the first
@@ -104,11 +104,6 @@ def test_the_spectrogram_compression_and_figures(run: str, tmp_path: Path, monke
     gated = ask("spectrogram", narrow)
     assert gated["mode"] == 1 and gated["x"][0] > 1e14 and gated["gate_fwhm"] == 8e-15
     assert np.all(np.abs(gated["t"]) <= 5e-14)
-    found = ask("compression", {"path": run, "index": 2})
-    assert found["fwhm_limit"] <= found["fwhm_after"] <= found["fwhm_before"] * 1.01
-    assert found["after"].shape == found["t"].shape
-    single = ask("compression", {"path": run, "index": 2, "modes": 0, "order": 3})
-    assert len(single["coefficients"]) >= 3
     for kind in ("prop_2d", "spec_1d", "time_1d", "spectrogram", "plot_stats"):
         file = tmp_path / f"{kind}.png"
         written = ask("result_figure", {"path": run, "file": str(file), "plot": kind})

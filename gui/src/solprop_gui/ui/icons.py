@@ -55,6 +55,10 @@ DRAWINGS: Final = {
         '<path d="M5 4v23h24"/><path d="M8 23c4 0 4-14 8-14s4 10 7 10 3-6 5-6"/>'
         '<path d="M8 19h3M8 15h2" stroke-width="1"/>'
     ),
+    "postprocess": (
+        '<path d="M4 25 10 9l6 16z"/>'
+        '<path d="M17 16c2 0 2-7 4-7s2 14 4 14 2-7 4-7" stroke-width="1.4"/>'
+    ),
     "panel-left": (
         '<rect x="4" y="6" width="24" height="20" rx="2"/>'
         '<rect x="4" y="6" width="9" height="20" rx="2" fill="currentColor"/>'

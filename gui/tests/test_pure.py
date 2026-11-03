@@ -239,7 +239,7 @@ def test_a_cards_preset_values_are_written_as_toml():
 
 
 def test_pages_and_labels():
-    assert [page.key for page in PAGES][-1] == "results"
+    assert [page.key for page in PAGES][-2:] == ["results", "postprocess"]
     numerics = page_of("numerics")
     assert numerics is not None and numerics.key == "propagate"
     assert page_of("nothing") is None

@@ -64,7 +64,6 @@ def test_the_plane_view_asks_and_draws(qtbot: QtBot, tmp_path: Path):
     asked = []
     view.plane_wanted.connect(lambda *args: asked.append(("plane", *args)))
     view.spectrogram_wanted.connect(lambda *args: asked.append(("sg", *args)))
-    view.compression_wanted.connect(lambda *args: asked.append(("comp", *args)))
     view.figure_wanted.connect(lambda figure: asked.append(("figure", figure)))
     view.set_planes([0, 2], [0.0, 0.05], ["HE1,1", "HE1,2"])
     # Each plane is asked for with its spectrogram.
@@ -80,29 +79,12 @@ def test_the_plane_view_asks_and_draws(qtbot: QtBot, tmp_path: Path):
     assert "first mode" in view.status.text()  # a sum of two modes
     ys = np.asarray(view.phase_curve.getData()[1], dtype=float)
     assert np.isnan(ys).any() and np.isfinite(ys).any()  # dark edges left out
-    view.ask_compression()
-    assert asked[-1] == ("comp", 0, 2, "sum")
-    t = np.linspace(-1e-13, 1e-13, 64)
-    view.show_compression(
-        {
-            "t": t,
-            "after": np.ones(64),
-            "limit": np.ones(64),
-            "fwhm_before": 1e-14,
-            "fwhm_after": 9e-15,
-            "fwhm_limit": 8e-15,
-            "peak_power_after": 1e9,
-            "peak_power_limit": 1.1e9,
-            "coefficients": [0.0, 0.0, 1e-30],
-        }
-    )
-    assert "φ2 = 1 fs^2" in view.status.text() and len(view.compressed) == 2
     shot(view, tmp_path, "plane")
     view.export_data(tmp_path / "plane.csv")
     lines = (tmp_path / "plane.csv").read_text(encoding="utf-8").splitlines()
     assert lines[0].startswith("spectrum: wavelength (nm)") and len(lines) == 1 + 64
     view.show_plane(plane_reply(phase=False))
-    assert "No phase" in view.status.text() and view.compressed == []
+    assert "No phase" in view.status.text()
     view.export_figure("x.pdf", "spec_1d")
     assert asked[-1][1]["plot"] == "spec_1d"
     view.show_error("refused")
@@ -111,7 +93,6 @@ def test_the_plane_view_asks_and_draws(qtbot: QtBot, tmp_path: Path):
     assert view.planes == [] and "No plane" in view.where.text()
     count = len(asked)
     view.ask_spectrogram()  # no planes: nothing asked
-    view.ask_compression()  # no planes: nothing asked
     view._ask()
     assert len(asked) == count
 
@@ -185,11 +166,6 @@ def test_a_spatial_plane_shows_its_fluence(qtbot: QtBot, tmp_path: Path):
     # A planar plane: no spectrum, solprop says why; the phase still drawn.
     view.show_plane({**reply, "spectrum": {"error": "planar planes are not exchanged"}})
     assert "No spectrum: planar" in view.status.text()
-    view.set_refused({"compression": "no compression on a beam"})
-    assert not view.compress_button.isEnabled()
-    assert view.compress_button.toolTip() == "no compression on a beam"
-    view.set_refused({})
-    assert view.compress_button.isEnabled()
 
 
 def test_the_statistics_view_draws_every_statistic(qtbot: QtBot, tmp_path: Path):
@@ -288,8 +264,6 @@ def test_the_results_open_a_run_s_planes_and_statistics(
     results.spectrogram_options.gate.editingFinished.emit()
     qtbot.waitUntil(lambda: _gate(results) == pytest.approx(12e-15), timeout=WAIT_MS)
     assert results.options.gate_fwhm == pytest.approx(12e-15)
-    results.plane.ask_compression()
-    qtbot.waitUntil(lambda: "FWHM" in results.plane.status.text(), timeout=WAIT_MS)
     figure = tmp_path / "power.pdf"
     results.plane.export_figure(str(figure), "time_1d")
     qtbot.waitUntil(lambda: "Wrote" in results.info.text(), timeout=WAIT_MS)

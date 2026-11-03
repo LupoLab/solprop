@@ -70,6 +70,7 @@ from solprop_gui.ui.design_tool import DesignDialog
 from solprop_gui.ui.icons import icon
 from solprop_gui.ui.pages import ParameterPage, issue_keyword
 from solprop_gui.ui.plot_options import PlotOptionsPanel
+from solprop_gui.ui.postprocess import PostprocessPage
 from solprop_gui.ui.results import ResultsPage
 from solprop_gui.ui.run_panel import RunPanel
 from solprop_gui.ui.scan_editor import ScanEditor
@@ -250,9 +251,14 @@ class MainWindow(QMainWindow):
         self.panels.addWidget(self.start)
         self.scan_editor = ScanEditor()
         self.scan_editor.changed.connect(self.edit_scan)
+        self.postprocess = PostprocessPage(self.bridge, self.results)
+        self.postprocess.view_wanted.connect(lambda: self.show_view("compression"))
         for page in PAGES:
             if page.key == "results":
                 self.panels.addWidget(self.results)
+                continue
+            if page.key == "postprocess":
+                self.panels.addWidget(self.postprocess)
                 continue
             widget = ParameterPage(page)
             widget.edited.connect(self.edit)
@@ -285,6 +291,7 @@ class MainWindow(QMainWindow):
         self.views.addTab(self.results.plane, "Plane")
         self.views.addTab(self.results.statistics, "Statistics")
         self.views.addTab(self.results.scan, "Scan")
+        self.views.addTab(self.postprocess.view, "Compression")
 
         # Below the views: the summary and solprop's check, the log, the code.
         self.summary = QLabel("No setup open.")
@@ -604,6 +611,9 @@ class MainWindow(QMainWindow):
         self.forward_action.setEnabled(index < len(STEPS) - 1)
         if key == "results":
             self.show_view("results")
+        elif key == "postprocess":
+            self.postprocess.refresh()
+            self.show_view("compression")
         elif key in ("geometry", "medium") and self._guided():
             self.show_view("dispersion")
         self.request_modes()
@@ -656,8 +666,8 @@ class MainWindow(QMainWindow):
         ----------
         name : str
             ``"dispersion"``, ``"chart"``, ``"live"``, ``"results"``, ``"plane"``,
-            ``"statistics"``, ``"scan"`` or ``"compare"`` (kept, but not among the
-            tabs: asking for it changes nothing).
+            ``"statistics"``, ``"scan"``, ``"compression"`` or ``"compare"`` (kept,
+            but not among the tabs: asking for it changes nothing).
         """
         widget = {
             "dispersion": self.explorer,
@@ -667,6 +677,7 @@ class MainWindow(QMainWindow):
             "plane": self.results.plane,
             "statistics": self.results.statistics,
             "scan": self.results.scan,
+            "compression": self.postprocess.view,
             "compare": self.results.compare,
         }[name]
         self.views.setCurrentWidget(widget)

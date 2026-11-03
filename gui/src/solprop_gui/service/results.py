@@ -2,13 +2,13 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The kernel's results requests: one plane, the statistics, compression, figures.
+"""The kernel's results requests: one plane, the statistics, a spectrogram, figures.
 
 Each request opens a results file and asks :mod:`solprop.processing` (or
 :mod:`solprop.plotting`, for what has no data function) for one view's numbers (design
 11.3): a plane's spectrum, power and spectral phase; every recorded statistic and the
-step history against z; the spectrogram, drawn by solprop; the best Taylor-phase
-compression of a plane; and a figure of any of these written by solprop's own plotting
+step history against z; a plane's spectrogram as data; and a figure of any of these
+written by solprop's own plotting
 (design 11.4). Like the other handlers, this module computes nothing of its own, and
 runs only in the kernel process.
 """
@@ -28,7 +28,6 @@ from solprop.output import Output, open_file
 from solprop.processing import (
     ModeSelection,
     channel_labels,
-    compress_taylor,
     field_plane,
     get_phase,
     get_power,
@@ -554,55 +553,6 @@ def figure(payload: Payload) -> list[str]:
     return written
 
 
-def compression(payload: Payload) -> dict[str, object]:
-    """Return a plane's best Taylor-phase compression (``compress_taylor``).
-
-    Parameters
-    ----------
-    payload : Mapping
-        ``path``, ``index`` (the plane), optionally ``order`` (2 by default) and
-        ``modes``.
-
-    Returns
-    -------
-    dict
-        The widths and peak powers before, after and at the transform limit, the
-        ``coefficients`` (the phase, from order two, in s^n), its ``quality`` and
-        ``message``; and ``t`` with the power ``before``, ``after`` and ``limit``.
-    """
-    index = int(payload["index"])  # pyright: ignore[reportArgumentType]
-    modes = payload.get("modes")
-    selection = None if modes in (None, "sum") else int(modes)  # pyright: ignore[reportArgumentType]
-    with open_file(str(payload["path"])) as handler:
-        found = compress_taylor(
-            handler,
-            order=int(payload.get("order", 2)),  # pyright: ignore[reportArgumentType]
-            plane=index,
-            modes=selection,
-        )
-        summed = "sum" if selection is None else selection
-        t, before = get_power(handler, plane=index, modes=summed)
-        _, after = get_power(
-            handler, plane=index, modes=summed, transfer=found.transfer
-        )
-        _, limit = get_power(handler, plane=index, modes=summed, transform_limit=True)
-    return {
-        "fwhm_before": float(found.fwhm_before),
-        "fwhm_after": float(found.fwhm_after),
-        "fwhm_limit": float(found.fwhm_limit),
-        "peak_power_before": float(found.peak_power_before),
-        "peak_power_after": float(found.peak_power_after),
-        "peak_power_limit": float(found.peak_power_limit),
-        "coefficients": [float(c) for c in np.atleast_1d(found.coefficients)],
-        "quality": float(found.quality),
-        "message": str(found.message),
-        "t": np.asarray(t),
-        "before": np.asarray(before),
-        "after": np.asarray(after),
-        "limit": np.asarray(limit),
-    }
-
-
 def scan_overview(payload: Payload) -> dict[str, object]:
     """Return a scan's variables, its points' status and every result over the grid.
 
@@ -669,7 +619,6 @@ RESULTS_HANDLERS = {
     "plane": plane,
     "statistics": statistics,
     "spectrogram": spectrogram,
-    "compression": compression,
     "result_figure": figure,
     "scan_overview": scan_overview,
 }
