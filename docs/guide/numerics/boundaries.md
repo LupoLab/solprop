@@ -149,29 +149,42 @@ what the tests assert, and what would be false if the factor of one half were dr
 step's end. A step whose group-delay walk-off exceeds the collar's width carries light
 through the collar and round the periodic window into the interior, where the factor
 does not touch it; on a nearly linear stretch the error estimate sees nothing, and a
-low-source run's steps grow long. So under `absorber_scheme="split_step"` translation
-holds an adaptive run's `dz_max` to
+low-source run's steps grow long. So under `absorber_scheme="split_step"` no step walks
+the light more than half the collar:
 
 $$ h \le c\,\frac{w}{\max |\mathrm{d}\tau/\mathrm{d}z|}, \qquad c = 0.5, $$
 
 with `w` the collar's width and `dτ/dz = ∂(β − β_frame)/∂ω` the group-delay walk-off
 against the frame ({py:func}`solprop.boundaries.split_crossing_step`,
-{py:data}`solprop.boundaries.SPLIT_CROSSING`), and refuses a fixed schedule whose longest
-step exceeds the limit, with a `TranslationError` that names it; lowering `dz_max` is
-logged at `INFO` with the limit, the rate and the collar's width. The rate is read from
-the translated operator ({py:func}`solprop.translate.linop.walk_off_rate`) over two sets
-of bins: every mode or transverse column at the reference frequency, the spread the
-modal walk-off warning reads, and the frame's own column — on a modal route every mode,
-on a transverse grid the column of smallest transverse wavenumber — over the requested
-band, for every batch member, where a pulse off the reference wavelength walks. A transverse column's group delay `k k′/k_z` diverges
-towards its cutoff, so taking every column over the whole band would bound the step by
-the red edge of the outermost columns: on the 256-node radial filament of the benchmark
-suite that limit is 4.7e-5 m over the active band and 1.9e-4 m over the requested one,
-against accepted steps up to 9.6e-4 m, while the two sets above give 1.2e-3 m. On a
-linear GNLSE pulse walking one window per metre, the limit takes `Multistep` from 14
-steps of up to 0.3 m, which left 0.12 of the launch wrapped into the window, to 95
-steps of 0.011 m, which leave 3e-4, the share a 1423 fs window should still hold. The
-in-stage scheme absorbs inside every stage and has no such limit.
+{py:data}`solprop.boundaries.SPLIT_CROSSING`), taken over **the bins that hold light**.
+Every `(mode, frequency)` bin's walk-off is read from the translated operator into one of
+128 rate buckets ({py:class}`solprop.boundaries.SplitCrossing`,
+{py:func}`solprop.translate.linop.walk_off_buckets`); the fastest buckets that between
+them hold at most `1e-6` of the energy ({py:data}`solprop.boundaries.SPLIT_OCCUPIED_SHARE`)
+are set aside, since all of that light wrapping would be a field error within the
+monitor's default budget, and the fastest bucket left gives the rate.
+
+- At translation the rate is read from the launch. It holds an adaptive run's `dz_max`,
+  which is logged at `INFO` when it is lowered, and a fixed schedule whose longest step
+  exceeds it is refused with a `TranslationError` that names the limit.
+- The boundary monitor reads it again from the state at every check, where each
+  backend sums the state's energy per bucket beside its other numbers, and the steps
+  until the next check are capped by it, on every march, the native one included. Light
+  that spreads into faster bins, a filament's or a pulse's broadening spectrum, so
+  shortens the steps as it goes: on the 256-node radial filament of the benchmark suite
+  the cap falls from 0.28 m at the launch to about 6 mm within 2 mm, above every step
+  the run takes. A fixed schedule cannot shorten its steps, so a check whose cap falls
+  below the schedule's next step stops the run with a `BoundaryError` naming the cap.
+- A run with `boundary_check=None` is held to the launch's limit alone.
+
+Read over every bin, outer transverse columns near their cutoff would set the limit even
+where they hold nothing: a 100 µm beam on a 1 mm radial grid of 512 nodes with a 70 fs
+collar took 109 steps over 5 cm instead of 25. Read where the light is, it takes 25 again,
+and the benchmark suite's cases take the steps they took before. On a linear GNLSE pulse
+walking one window per metre, the limit takes `Multistep` from 14 steps of up to 0.3 m,
+which left 0.12 of the launch wrapped into the window, to 27 steps of 0.054 m, which leave
+2e-4, the share a 1423 fs window should still hold. The in-stage scheme absorbs inside
+every stage and has no such limit.
 
 ## Geometry, and the collar that is not one
 

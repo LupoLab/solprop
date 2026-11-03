@@ -80,6 +80,7 @@ import numpy as np
 from jaxtyping import Complex, Float
 
 from solprop import fourier
+from solprop.boundaries import SplitCrossing
 from solprop.exceptions import BackendError, BoundaryError, BoundaryWarning
 from solprop.fourier import GridKind
 from solprop.grid import TimeGrid
@@ -276,6 +277,10 @@ class BoundaryEnergies:
         factor, in the same units; the occupancies are judged on them under the
         ``"split_step"`` scheme. ``None`` under the in-stage scheme, without a collar,
         and before the first accepted step.
+    occupancy : numpy.ndarray or None
+        The state's energy per walk-off bucket of the split collar's crossing limit
+        (:meth:`solprop.boundaries.SplitCrossing.occupancy`), which the steps after the
+        check are capped by; ``None`` without one.
 
     Examples
     --------
@@ -290,6 +295,7 @@ class BoundaryEnergies:
     regions: Float[np.ndarray, " 4"]
     removed: float = 0.0
     found: Float[np.ndarray, " 4"] | None = None
+    occupancy: Float[np.ndarray, " n_buckets"] | None = None
 
 
 @dataclass
@@ -312,6 +318,11 @@ class BoundaryMonitor:
     transverse : solprop.transverse_monitor.TransverseEdge or None
         A free-space run's transverse edge (SEP 40 section 5.3), read on its own
         spacing; its record joins this monitor's under ``transverse``.
+    crossing : solprop.boundaries.SplitCrossing or None
+        The split collar's crossing limit, set by the step driver when the monitor is
+        attached to a split run: every reading then carries the state's occupancy,
+        and the limit it gives caps the steps until the next check
+        (:attr:`step_cap`).
     split : bool
         Whether the temporal collar is applied once per accepted step (the
         ``"split_step"`` scheme), whose removal the backend then adds up exactly at
@@ -328,6 +339,8 @@ class BoundaryMonitor:
     split: bool = False
     interval: float = math.inf
     transverse: TransverseEdge | None = None
+    crossing: SplitCrossing | None = None
+    _cap: float = field(default=math.inf, init=False)
     _launch: float = field(default=math.nan, init=False)
     _floor: float = field(default=0.0, init=False)
     _floor_regions: Float[np.ndarray, " 4"] = field(
@@ -628,6 +641,7 @@ class BoundaryMonitor:
             # The floor is stationary: its expected density is uniform in time.
             self._floor_regions = self._floor * self.weights.mean(axis=1)
         self._committed = z
+        self._read_cap(energies)
         total, regions = self._judged(energies)
         resuming, self._resuming = self._resuming, False
         if resuming:
@@ -774,6 +788,7 @@ class BoundaryMonitor:
             When the square root of a guard occupancy exceeds ``stop_factor`` budgets.
         """
         self._commit(z)
+        self._read_cap(energies)
         total, regions = self._judged(self._found(energies))
         self._steps += 1
         self._left_out_checks += int(self._left_out)
@@ -823,6 +838,42 @@ class BoundaryMonitor:
                 self._guard_max[edge] = float(shares[edge])
                 self._guard_at[edge] = z
         self._judge(shares, z)
+
+    def _read_cap(self, energies: BoundaryEnergies) -> None:
+        """Read the split collar's crossing limit from a reading's occupancy.
+
+        Parameters
+        ----------
+        energies : BoundaryEnergies
+            The backend's reading.
+
+        Raises
+        ------
+        BackendError
+            When the run has a crossing limit and the reading carries no occupancy.
+        """
+        if self.crossing is None:
+            return
+        if energies.occupancy is None:
+            msg = (
+                "under the split_step scheme a reading must carry the state's "
+                "occupancy of the collar's walk-off buckets"
+            )
+            raise BackendError(msg)
+        self._cap = self.crossing.limit(energies.occupancy)
+
+    @property
+    def step_cap(self) -> float:
+        """Return the split collar's crossing limit the last reading gave, m.
+
+        The steps until the next check are held to it; ``inf`` without one.
+
+        Returns
+        -------
+        float
+            The cap, m.
+        """
+        return self._cap
 
     def _found(self, energies: BoundaryEnergies) -> BoundaryEnergies:
         """Return the reading a committed step is judged on.

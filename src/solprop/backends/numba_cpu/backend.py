@@ -2977,7 +2977,16 @@ class NumbaCpuBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
                 .sum(axis=0)
             )
         removed, self._split_removed = self._split_removed, 0.0
-        return BoundaryEnergies(float(sums[0]), sums[1:], removed, self._split_found)
+        crossing = self._monitor.crossing
+        # The state is a host array: its energy per walk-off bucket is one more pass.
+        occupancy = (
+            None
+            if crossing is None
+            else crossing.occupancy(state, self._monitor.columns)
+        )
+        return BoundaryEnergies(
+            float(sums[0]), sums[1:], removed, self._split_found, occupancy
+        )
 
     # --- the tables the stage reads ---------------------------------------------
 

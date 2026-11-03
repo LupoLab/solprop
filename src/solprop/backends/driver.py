@@ -42,7 +42,7 @@ from solprop.backends.protocol import (
     StepStats,
     StepSummary,
 )
-from solprop.exceptions import BackendError, ConvergenceError
+from solprop.exceptions import BackendError, BoundaryError, ConvergenceError
 from solprop.grid import TimeGrid
 from solprop.log import NOT_ESTIMATED, NullReporter, ProgressReporter, StopFlag
 from solprop.modes.protocol import Mode
@@ -1587,7 +1587,9 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             # planes costs more steps than the run needs between them (stepper.md 3).
             stop = landing(
                 self._z,
-                self._transverse_capped(self._quiet_capped(self._proposal)),
+                self._split_capped(
+                    self._transverse_capped(self._quiet_capped(self._proposal))
+                ),
                 targets,
             )
             norm, advanced = self._trial_step(self._z, stop.dz)
@@ -1923,6 +1925,9 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
                 f"state's {n_modes} modes"
             )
             raise BackendError(msg)
+        if monitor.split:
+            # The split collar's crossing limit is read again at every check.
+            monitor.crossing = self._problem.split_crossing
         self._monitor = monitor
         self._bind_monitor(monitor)
         # The noise draw is a host array already, read once.
@@ -1993,6 +1998,27 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             return proposal
         return min(proposal, edge.ceiling(self._z))
 
+    def _split_capped(self, proposal: float) -> float:
+        """Return the proposal, held to the split collar's crossing limit.
+
+        The boundary monitor reads the limit from the state's occupancy at every
+        check (:attr:`solprop.monitor.BoundaryMonitor.step_cap`): light that spreads
+        into faster-walking bins shortens the steps until the next check, which reads
+        it again.
+
+        Parameters
+        ----------
+        proposal : float
+            The controller's proposal, m.
+
+        Returns
+        -------
+        float
+            The proposal, or the cap, m.
+        """
+        monitor = self._monitor
+        return proposal if monitor is None else min(proposal, monitor.step_cap)
+
     def _bind_monitor(self, monitor: BoundaryMonitor | None) -> None:
         """Prepare to read a boundary monitor's energies, or stop reading them.
 
@@ -2054,10 +2080,15 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         if monitor is None:
             raise BackendError(f"{self.name}: no boundary monitor is attached")
         removed, self._split_removed = self._split_removed, 0.0
+        field = self._observed_field(state)
+        crossing = monitor.crossing
         return dataclasses.replace(
-            monitor.energies(self._observed_field(state)),
+            monitor.energies(field),
             removed=removed,
             found=self._split_found,
+            occupancy=None
+            if crossing is None
+            else crossing.occupancy(field, monitor.columns),
         )
 
     def _check_boundaries(self, monitor: BoundaryMonitor) -> None:
@@ -2070,6 +2101,40 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         """
         monitor.step(self._boundary_energies(self._require_state()), self._z)
         self._set_collar_quiet(monitor.collar_quiet)
+        self._refuse_scheduled_crossing(monitor)
+
+    def _refuse_scheduled_crossing(self, monitor: BoundaryMonitor) -> None:
+        """Stop a fixed schedule whose next step the split's crossing cap is below.
+
+        Translation admitted the schedule on the launch's occupancy; light that has
+        since spread into faster-walking bins lowers the cap, and a schedule cannot
+        shorten its steps (:class:`solprop.boundaries.SplitCrossing`).
+
+        Parameters
+        ----------
+        monitor : solprop.monitor.BoundaryMonitor
+            The attached monitor, just read.
+
+        Raises
+        ------
+        BoundaryError
+            Naming the cap and the step.
+        """
+        schedule = self._problem.stepper.schedule
+        if schedule is None or self._schedule_index >= schedule.n_steps:
+            return
+        step = float(schedule.steps[self._schedule_index])
+        cap = monitor.step_cap
+        if step > cap:
+            msg = (
+                f"at z = {self._z:.6e} m the split temporal collar's crossing limit "
+                f"fell to {cap:.3e} m, below the fixed schedule's next step "
+                f"{step:.3e} m: light has spread into bins that walk faster than the "
+                "launch's, and a step that long could carry it through the collar and "
+                "round the window undamped. Take shorter steps, step adaptively, or "
+                'use absorber_scheme="nonlinear"'
+            )
+            raise BoundaryError(msg)
 
     def _set_collar_quiet(self, quiet: bool) -> None:
         """Say whether the collar is quiet.

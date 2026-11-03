@@ -854,3 +854,19 @@ def test_the_split_stops_a_walking_pulse_where_the_in_stage_scheme_does():
     assert _stopped_at(_split_walker("mlx")) == pytest.approx(
         reference, rel=STOP_AGREEMENT
     )
+
+
+def test_the_split_s_crossing_cap_is_the_oracle_s():
+    # The state's energy per walk-off bucket, scattered on the device, against the
+    # binary32 oracle's host sum: the caps are buckets', equal unless a share sits on
+    # the 1e-6 threshold and tips into the next bucket, 10**(9/128) apart.
+    from monitor_cases import probe, record_after_march  # noqa: PLC0415
+
+    # Sixteen steps: binary32's range holds the collar's inverse propagator over
+    # steps below 2.7e-5 m.
+    simulation = probe("gnlse", "split_step", RungeKutta(), steps=16)
+    simulation.settings = dataclasses.replace(simulation.settings, precision="single")
+    theirs = record_after_march(simulation, "numpy_ref")
+    ours = record_after_march(simulation, "mlx")
+    assert math.isfinite(theirs["step_cap"])
+    assert ours["step_cap"] == pytest.approx(theirs["step_cap"], rel=0.18)

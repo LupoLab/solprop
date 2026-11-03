@@ -1015,7 +1015,7 @@ CONTRACT_SECTIONS = (
     Section(
         7,
         "stepper settings and schedule",
-        ("stepper",),
+        ("stepper", "split_crossing"),
         "translate.problem.StepperSettings",
         ("stepper/", "tableau · controller · schedule"),
         "D",

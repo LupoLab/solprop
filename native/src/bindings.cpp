@@ -62,6 +62,7 @@ using ComplexInput =
     nb::ndarray<const std::complex<double>, nb::c_contig, nb::device::cpu>;
 using RealInput = nb::ndarray<const double, nb::c_contig, nb::device::cpu>;
 using BoolInput = nb::ndarray<const bool, nb::c_contig, nb::device::cpu>;
+using ByteInput = nb::ndarray<const std::uint8_t, nb::c_contig, nb::device::cpu>;
 using IndexInput = nb::ndarray<const std::uint64_t, nb::c_contig, nb::device::cpu>;
 using ComplexOutput =
     nb::ndarray<nb::numpy, std::complex<double>, nb::c_contig, nb::device::cpu>;
@@ -982,6 +983,7 @@ march::Bounds march_bounds_from(const nb::dict values) {
     bounds.read_at = bounds.has_read_at ? nb::cast<double>(values["read_at"]) : 0.0;
     bounds.read_spacing =
         bounds.has_read_at ? nb::cast<double>(values["read_spacing"]) : 0.0;
+    bounds.step_cap = nb::cast<double>(values["step_cap"]);
     bounds.max_attempts = nb::cast<std::size_t>(values["max_attempts"]);
     bounds.max_seconds = nb::cast<double>(values["max_seconds"]);
     bounds.replay = nb::cast<bool>(values["replay"]);
@@ -1573,6 +1575,14 @@ public:
       general_state_->unbind_monitor();
     else
       state_->unbind_monitor();
+  }
+  void bind_occupancy(const std::vector<unsigned char>& buckets,
+                      const std::size_t count) {
+    require_open();
+    if (general_state_)
+      general_state_->bind_occupancy(buckets, count);
+    else
+      state_->bind_occupancy(buckets, count);
   }
   std::vector<double> monitor_reading() {
     require_open();
@@ -2903,6 +2913,18 @@ NB_MODULE(_core, module_) {
           },
           "weights"_a.noconvert(), "column_weights"_a.noconvert())
       .def("unbind_monitor", [](BoundState& self) { self.unbind_monitor(); })
+      // solprop #440: the split collar's walk-off bucket of each bin, whose energy
+      // per bucket a reading then returns beside the five.
+      .def(
+          "bind_occupancy",
+          [](BoundState& self, const ByteInput buckets, const std::size_t count) {
+            const auto count_in = element_count(buckets);
+            const std::vector<unsigned char> held(buckets.data(),
+                                                  buckets.data() + count_in);
+            const nb::gil_scoped_release release;
+            self.bind_occupancy(held, count);
+          },
+          "buckets"_a.noconvert(), "count"_a)
       .def("monitor_reading",
            [](BoundState& self) {
              std::vector<double> values;

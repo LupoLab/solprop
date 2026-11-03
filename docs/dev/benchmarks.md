@@ -716,6 +716,26 @@ the median ratio of candidate to baseline over paired rounds. Within the machine
 spread both ways; the line and planar cases' monitored cost is the transverse edge's
 reads (#396). The steps are the same: on these cases the crossing limit does not bind.
 
+**The crossing cap read at every check** (#440). Under the split scheme each check also
+sums the state's energy per walk-off bucket, one more pass over the state where it lives
+(a histogram of 128 buckets: NumPy's `bincount` on the host, a Kokkos `ScatterView` in
+native, a scatter-add on the `mlx` device). Measured as above, the same machine and
+window, before (the previous head of this branch) and after:
+
+| case, a tenth of the guide | backend | monitored / unmonitored, before | after |
+|---|---|---:|---:|
+| radial filament 256 | native | 1.031 | 1.039 |
+| line | native | 1.658 | 1.698 |
+| planar | native | 1.470 | 1.484 |
+| radial filament 256 | `numba_cpu` | 1.022 | 1.033 |
+| line | `numba_cpu` | 1.656 | 1.680 |
+| planar | `numba_cpu` | 1.346 | 1.373 |
+
+One to four per cent of the run on the shared machine, about a third of a check's own
+cost. The Cartesian filament 128² takes 1.158 monitored over unmonitored before; its
+after was not timed, at fifteen minutes a pair at one thread. The steps are unchanged
+on every case: the cap never fell below a step these runs took.
+
 ### The transverse edge and a requested collar
 
 [SEP 40](seps/archive/sep-0040-transverse-absorbing-boundaries.md) puts a k⊥ safety ramp

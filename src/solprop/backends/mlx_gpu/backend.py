@@ -44,6 +44,7 @@ from solprop.backends.mlx_gpu.envelope import DeviceCycle, envelope_cycle
 from solprop.backends.numpy_ref.passes import _kerr as compiled_kerr
 from solprop.backends.numpy_ref.passes import _raman_thg as raman_thg
 from solprop.backends.numpy_ref.single import NumpySingleBackend
+from solprop.boundaries import SPLIT_RATE_BUCKETS
 from solprop.constants import EPS0
 from solprop.exceptions import BackendError, ConvergenceError
 from solprop.grid import TimeGrid
@@ -223,6 +224,10 @@ class MlxBackend(NumpySingleBackend):
     """What the split took at accepted steps not yet read: device scalars, each step's
     rule-6 exponent and its scaled sum (:meth:`_device_removal`), folded into
     :attr:`_split_removed` at the next synchronisation (:meth:`_synchronised`)."""
+
+    _occupancy_buckets: mx.array | None = None
+    """The split collar's walk-off bucket of each ``(mode, frequency)`` bin, flat,
+    ``int32``, while a monitor of a split run is bound; ``None`` otherwise."""
 
     _pending_found: tuple[mx.array, ...] = ()
     """The energy and the guards' energies of what the last accepted step's split found,
@@ -629,6 +634,7 @@ class MlxBackend(NumpySingleBackend):
         self._pending_found = ()
         if monitor is None:
             self._monitor_weights = self._monitor_columns = None
+            self._occupancy_buckets = None
             return
         rows = [narrow(np.asarray(row, dtype=np.float64)) for row in monitor.weights]
         self._monitor_weights = mx.array(np.stack([row.values for row in rows]))
@@ -639,6 +645,44 @@ class MlxBackend(NumpySingleBackend):
             columns = narrow(np.asarray(monitor.columns, dtype=np.float64))
             self._monitor_columns = mx.array(columns.values[None, :, None, None])
             self._column_exponent = columns.exponent
+        crossing = monitor.crossing
+        self._occupancy_buckets = (
+            None
+            if crossing is None
+            else mx.array(np.asarray(crossing.buckets, dtype=np.int32).reshape(-1))
+        )
+
+    def _device_occupancy(self, state: mx.array) -> mx.array:
+        """Return a state's energy per walk-off bucket, lazily, on the device.
+
+        The split collar's crossing limit reads the shares alone
+        (:meth:`solprop.boundaries.SplitCrossing.limit`), so the energies are scaled
+        by one power of two below the state's largest magnitude, which keeps the
+        squares inside binary32's range, and by the narrowed columns' quadrature,
+        neither restored.
+
+        Parameters
+        ----------
+        state : mlx.core.array
+            The scaled binary32 state, canonical layout.
+
+        Returns
+        -------
+        mlx.core.array
+            Shape ``(SPLIT_RATE_BUCKETS,)``, binary32.
+        """
+        buckets = self._occupancy_buckets
+        assert buckets is not None  # bound with the crossing that asks for this
+        peak = mx.max(mx.abs(state))
+        scaled = state * mx.power(
+            2.0, -mx.where(peak > 0, mx.floor(mx.log2(peak)), 0.0)
+        )
+        re, im = mx.real(scaled), mx.imag(scaled)
+        density = re * re + im * im
+        if self._monitor_columns is not None:
+            density = density * self._monitor_columns
+        by_bin = mx.sum(density, axis=(0, 2)).reshape(-1)
+        return mx.zeros((SPLIT_RATE_BUCKETS,), dtype=mx.float32).at[buckets].add(by_bin)
 
     def _boundary_energies(self, state: Any) -> BoundaryEnergies:
         """Return the boundary monitor's reading, reduced on the device.
@@ -671,7 +715,9 @@ class MlxBackend(NumpySingleBackend):
         # Elementwise products and sums, not a matrix product, which MLX may round
         # to TF32 on the GPU.
         regions = mx.sum(weights * density_t[None, :], axis=1)
-        values = self._synchronised([power, mx.sum(density_t), regions])
+        crossing = self._monitor.crossing
+        occupancy = [] if crossing is None else [self._device_occupancy(state)]
+        values = self._synchronised([power, mx.sum(density_t), regions, *occupancy])
         # s**2 for the state's scale, 2**(2 p) for rule 6's, and the narrowed
         # weights' own exponents, restored in binary64.
         power, scale, own = float(values[0]), self.scale**2, self._column_exponent
@@ -679,11 +725,17 @@ class MlxBackend(NumpySingleBackend):
         regions_host = np.array(
             [
                 _restored(float(value), power, own + row) * scale
-                for value, row in zip(values[2:], self._monitor_exponents, strict=True)
+                for value, row in zip(values[2:6], self._monitor_exponents, strict=True)
             ]
         )
         removed, self._split_removed = self._split_removed, 0.0
-        return BoundaryEnergies(total, regions_host, removed, self._split_found)
+        return BoundaryEnergies(
+            total,
+            regions_host,
+            removed,
+            self._split_found,
+            None if crossing is None else values[6:].copy(),
+        )
 
     # The trial step.
 

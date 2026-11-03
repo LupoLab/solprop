@@ -1472,11 +1472,13 @@ Withdrawn (development-process record, not a design decision).
       same finish, and a reading without it is refused (kernel schema 43): the state after
       the split hid a pulse walking out, and the state before it stopped one 40 %
       early ([#127](https://github.com/LupoLab/solprop/issues/127), 2026-11-02);
-    - under the split scheme no adaptive step walks more than half the collar's width,
-      `h ≤ 0.5 w / max|dτ/dz|` beside `dz_max`, the rate read from the operator at the
-      reference frequency over every column and over the requested band on the frame's
-      column, and a fixed schedule past the limit is refused
-      ([#149](https://github.com/LupoLab/solprop/issues/149), 2026-11-02);
+    - under the split scheme no step walks the light more than half the collar's
+      width, `h ≤ 0.5 w / max|dτ/dz|`, the rate that of the fastest bins holding more
+      than `1e-6` of the energy: read from the launch at translation, where it holds
+      `dz_max` and refuses a longer fixed schedule, and from the state at every check,
+      where it caps the steps until the next and stops a fixed schedule it falls below
+      ([#149](https://github.com/LupoLab/solprop/issues/149),
+      [#440](https://github.com/LupoLab/solprop/issues/440), maintainer, 2026-11-03);
     - the monitor's reading is the backend's: at a check each backend reduces the
       state's energy and its four weighted energies where the state lives, and only
       those five numbers and the split's sums reach the host; `numpy_ref`'s host

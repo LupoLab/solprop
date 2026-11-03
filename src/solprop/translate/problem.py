@@ -45,10 +45,9 @@ from jaxtyping import Bool, Complex, Float, Num
 from solprop._process import host_blas
 from solprop.adiabatic import AdiabaticAccuracy, certify_radial_path
 from solprop.boundaries import (
-    SPLIT_CROSSING,
     STABILITY_RADIUS,
     Absorber,
-    split_crossing_step,
+    SplitCrossing,
     stable_step,
 )
 from solprop.constants import EPS0, C
@@ -128,7 +127,7 @@ from solprop.translate.linop import (
     build_phi,
     delta_phi,
     power_weight_row,
-    walk_off_rate,
+    walk_off_buckets,
     with_power_weight,
 )
 from solprop.translate.masks import (
@@ -490,9 +489,13 @@ A backend's ``_boundary_energies`` returns, beside the removal, the energy and t
 guards' and collar's energies of the power the last accepted step's split found,
 halfway through its factor (:attr:`solprop.monitor.BoundaryEnergies.found`), kept by
 its finish in ``StepDriver._split_found``; the monitor judges the occupancies on them
-and refuses a split reading without them. The native reading grows from six numbers
-to ten. An adaptive split run's ``dz_max`` is also held to the split collar's crossing
-limit. No ``KernelProblem`` field, stage bundle or driver signature moves.
+and refuses a split reading without them. ``KernelProblem.split_crossing``
+(:class:`solprop.boundaries.SplitCrossing`) carries each bin's walk-off bucket, a
+``uint8`` leaf, and the launch's crossing limit, which holds an adaptive ``dz_max`` and
+a fixed schedule; under the split every reading also returns the state's energy per
+bucket (``BoundaryEnergies.occupancy``), whose limit caps the steps until the next
+check, the native Adams march's per call (``step_cap``). The native reading grows from
+six numbers to ten and the buckets. No stage bundle or driver signature moves.
 """
 
 DEFAULT_COMPONENTS = ("x",)
@@ -566,6 +569,11 @@ window is a half-open frequency interval whose edges may be infinite, as its man
 documents. Both are read by the statistics alone, only in comparisons, and never enter
 a kernel's arithmetic. NaN stays refused.
 """
+
+_UINT8_LEAVES = frozenset({"split_crossing.buckets"})
+"""The leaves that may be ``uint8``, by dotted name: the split collar's walk-off
+bucket of every bin (kernel schema 43), a byte where a float would be a state's worth
+of memory again."""
 
 _STRIDED_LEAVES = frozenset({"initial.field0"})
 """The leaves that need not be C-contiguous, by dotted name.
@@ -1228,6 +1236,13 @@ class KernelProblem:
     precision : solprop.translate.precision.Precision, optional
         The arithmetic the run is held in (version 36): binary64 by default, or
         binary32 under SEP 33's contract. Tables are binary64 here either way.
+    transverse : solprop.spatial_absorber.SpatialAbsorberDesign or None, optional
+        A free-space run's resolved transverse boundary (version 41).
+    split_crossing : solprop.boundaries.SplitCrossing or None, optional
+        The split temporal collar's crossing limit (version 43): each bin's walk-off
+        bucket, the collar's width and the launch's limit, which the boundary
+        monitor reads again from the state at every check. ``None`` under the
+        in-stage scheme or without a temporal collar.
 
     Examples
     --------
@@ -1265,6 +1280,7 @@ class KernelProblem:
     flux: FluxPlan | None = None
     precision: Precision = DOUBLE
     transverse: SpatialAbsorberDesign | None = None
+    split_crossing: SplitCrossing | None = None
 
     @property
     def device_ready(self) -> bool:
@@ -1675,12 +1691,16 @@ class KernelProblem:
             if values.flags.writeable:
                 msg = f"{name} is writeable; arrays crossing the seam are frozen"
                 raise TranslationError(msg)
-            allowed = _SEAM_DTYPES + ((np.int32,) if name in _INT32_LEAVES else ())
+            allowed = (
+                _SEAM_DTYPES
+                + ((np.int32,) if name in _INT32_LEAVES else ())
+                + ((np.uint8,) if name in _UINT8_LEAVES else ())
+            )
             if values.dtype not in allowed:
                 msg = (
                     f"{name} has dtype {values.dtype}; the contract carries float64, "
-                    "complex128, bool and intp, and int32 only at the index leaves "
-                    "it declares"
+                    "complex128, bool and intp, and int32 and uint8 only at the "
+                    "leaves it declares"
                 )
                 raise TranslationError(msg)
             if name in _UNBOUNDED_LEAVES and not np.any(np.isnan(values)):
@@ -3092,44 +3112,26 @@ def _crossing_clamped(
     return dz_max, min(dz_init, dz_max)
 
 
-@dataclass(frozen=True)
-class _SplitCrossing:
-    """The split temporal collar's crossing limit and what sets it.
-
-    Attributes
-    ----------
-    limit : float
-        The longest step, m.
-    width : float
-        The collar's width at its narrower edge, s.
-    rate : float
-        The fastest walk-off against the frame, s/m.
-    """
-
-    limit: float
-    width: float
-    rate: float
-
-
 def _split_crossing(
     compiled: CompiledResponses,
     linear: LinearOperator,
     grid: TimeGrid,
-    *,
-    modes: bool,
-) -> _SplitCrossing | None:
+    launch: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
+    columns: Float[np.ndarray, " n_modes"] | None,
+) -> SplitCrossing | None:
     """Return the split temporal collar's crossing limit, or ``None`` without one.
 
     Under the ``"split_step"`` scheme the collar damps the state once per accepted
     step, so a step whose walk-off exceeds the collar's width can carry light through
     it and round the periodic window, undamped, where on a linear stretch the error
-    estimate sees nothing. No step may walk more than
+    estimate sees nothing. No step may walk the light more than
     :data:`~solprop.boundaries.SPLIT_CROSSING` of the collar
-    (:func:`~solprop.boundaries.split_crossing_step`, with the rate of
-    :func:`~solprop.translate.linop.walk_off_rate`): an adaptive run's ``dz_max`` is
-    held to it, and a fixed schedule past it refused (:func:`_refuse_split_crossing`),
-    as SEP 40 section 4.7 does for the transverse collar. The in-stage scheme, and a
-    run without a temporal collar, have no such limit.
+    (:class:`~solprop.boundaries.SplitCrossing`, the buckets of
+    :func:`~solprop.translate.linop.walk_off_buckets`), read from where the light is:
+    here from the launch, which holds an adaptive run's ``dz_max``
+    (:func:`_split_clamped`) and a fixed schedule (:func:`_refuse_split_crossing`), and
+    then by the boundary monitor from the state at every check. The in-stage scheme,
+    and a run without a temporal collar, have no such limit.
 
     Parameters
     ----------
@@ -3138,35 +3140,41 @@ def _split_crossing(
     linear : LinearOperator
         The linear operator, whose group delays walk.
     grid : solprop.grid.TimeGrid
-        The grid, with the collar and the requested band.
-    modes : bool
-        Whether the operator's columns are modes, every one of which is read over the
-        band, rather than a transverse grid's.
+        The grid, with the collar and the active band.
+    launch : numpy.ndarray
+        The launched state, canonical layout.
+    columns : numpy.ndarray or None
+        The modes' quadrature weights, as the boundary monitor weighs them, or
+        ``None`` for unit weights.
 
     Returns
     -------
-    _SplitCrossing or None
+    solprop.boundaries.SplitCrossing or None
         The limit, or ``None`` when none applies.
     """
     if compiled.absorber_scheme != "split_step" or compiled.temporal_absorber is None:
         return None
     # A nonzero temporal rate lies in a collar of nonzero width.
     width = min(grid.t_collar.width_low, grid.t_collar.width_high)
-    rate = walk_off_rate(linear, grid.omega, grid.omega0, grid.inband_mask, modes=modes)
-    return _SplitCrossing(split_crossing_step(rate, width), width, rate)
+    crossing = SplitCrossing(
+        walk_off_buckets(linear, grid.omega, grid.active_mask), width
+    )
+    return replace(
+        crossing, launch_limit=crossing.limit(crossing.occupancy(launch, columns))
+    )
 
 
 def _split_clamped(
-    crossing: _SplitCrossing | None,
+    crossing: SplitCrossing | None,
     schedule: FixedSchedule | None,
     dz_max: float,
     dz_init: float,
 ) -> tuple[float, float]:
-    """Return an adaptive run's step bounds held to the split's crossing limit.
+    """Return an adaptive run's step bounds held to the launch's crossing limit.
 
     Parameters
     ----------
-    crossing : _SplitCrossing or None
+    crossing : solprop.boundaries.SplitCrossing or None
         The limit (:func:`_split_crossing`).
     schedule : solprop.stepper.schedule.FixedSchedule or None
         The schedule to replay, which keeps its bounds, or ``None``.
@@ -3183,29 +3191,29 @@ def _split_clamped(
     """
     if crossing is None or schedule is not None:
         return dz_max, dz_init
-    if crossing.limit < dz_max:
+    limit = crossing.launch_limit
+    if limit < dz_max:
         logger.info(
             "the split temporal collar's crossing limit holds dz_max to %.3e m, from "
-            "%.3e m: %g of the collar's %.3e s width over the fastest walk-off "
-            "against the frame, %.3e s/m",
-            crossing.limit,
+            "%.3e m: %g of the collar's %.3e s width over the walk-off of the light "
+            "the launch holds; the boundary monitor reads it again at every check",
+            limit,
             dz_max,
-            SPLIT_CROSSING,
+            crossing.factor,
             crossing.width,
-            crossing.rate,
         )
-    dz_max = min(dz_max, crossing.limit)
+    dz_max = min(dz_max, limit)
     return dz_max, min(dz_init, dz_max)
 
 
 def _refuse_split_crossing(
-    crossing: _SplitCrossing | None, schedule: FixedSchedule | None
+    crossing: SplitCrossing | None, schedule: FixedSchedule | None
 ) -> None:
-    """Refuse a fixed schedule whose longest step exceeds the split's crossing limit.
+    """Refuse a fixed schedule whose longest step exceeds the launch's crossing limit.
 
     Parameters
     ----------
-    crossing : _SplitCrossing or None
+    crossing : solprop.boundaries.SplitCrossing or None
         The limit (:func:`_split_crossing`).
     schedule : solprop.stepper.schedule.FixedSchedule or None
         The schedule to replay, or ``None`` for an adaptive run.
@@ -3213,17 +3221,17 @@ def _refuse_split_crossing(
     Raises
     ------
     TranslationError
-        Naming the limit, the collar's width and the rate.
+        Naming the limit and the collar's width.
     """
     if crossing is None or schedule is None:
         return
     longest = float(np.max(schedule.steps))
-    if longest > crossing.limit:
+    if longest > crossing.launch_limit:
         msg = (
             f"the fixed schedule's longest step {longest:.3e} m exceeds the split "
-            f"temporal collar's crossing limit {crossing.limit:.3e} m, "
-            f"{SPLIT_CROSSING:g} of the collar's {crossing.width:.3e} s width over "
-            f"the fastest walk-off {crossing.rate:.3e} s/m: a step that long could "
+            f"temporal collar's crossing limit {crossing.launch_limit:.3e} m, "
+            f"{crossing.factor:g} of the collar's {crossing.width:.3e} s width over "
+            "the walk-off of the light the launch holds: a step that long could "
             "carry light through the collar and round the window undamped. Take "
             "shorter steps, an adaptive run, which the limit holds, or "
             'absorber_scheme="nonlinear"'
@@ -6905,7 +6913,16 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
     dz_max, dz_init = _crossing_clamped(
         design, dz_max, dz_init, single=precision.single
     )
-    crossing = _split_crossing(compiled, linear, grid, modes=transform.geometry is None)
+    geometry = transform.geometry
+    crossing = _split_crossing(
+        compiled,
+        linear,
+        grid,
+        initial.field0,
+        None
+        if geometry is None or geometry.kind != "radial"
+        else np.asarray(geometry.spectral_weights, dtype=np.float64),
+    )
     dz_max, dz_init = _split_clamped(crossing, schedule, dz_max, dz_init)
     settings = _stepper_settings(
         linear,
@@ -6948,6 +6965,7 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
         flux=flux,
         precision=precision,
         transverse=design,
+        split_crossing=crossing,
     )
     _validated(problem)
     # After validation: a schedule the stability or transverse checks refuse names them.

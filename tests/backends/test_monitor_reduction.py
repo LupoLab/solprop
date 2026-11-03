@@ -127,6 +127,11 @@ def _check_split(backend: str, route: str, march: str) -> None:
     for name in names:
         assert ours[name] == pytest.approx(theirs[name], rel=bound), name
     assert ours["steps"] == theirs["steps"]
+    # The crossing cap is a bucket's: states agreeing to rounding fill the same
+    # buckets, but a share that sits on the 1e-6 threshold may tip into the next
+    # one, a factor of 10**(9/128) apart.
+    assert math.isfinite(theirs["step_cap"])
+    assert ours["step_cap"] == pytest.approx(theirs["step_cap"], rel=0.18)
 
 
 @pytest.mark.parametrize("scheme", SCHEMES)

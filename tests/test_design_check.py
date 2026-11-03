@@ -300,8 +300,7 @@ def test_a_fixed_schedule_beyond_the_collar_s_limits_is_refused() -> None:
 
     with pytest.raises(TranslationError, match=r"section 4\.7"):
         scheduled(LENGTH / 4).translate()
-    # Admitted within the split temporal collar's crossing limit too, 1.7e-4 m here.
-    assert scheduled(LENGTH / 80).translate().transverse is not None
+    assert scheduled(LENGTH / 16).translate().transverse is not None
 
 
 def _line(

@@ -6,6 +6,7 @@
 
 #include <Kokkos_Complex.hpp>
 #include <Kokkos_Core.hpp>
+#include <Kokkos_ScatterView.hpp>
 
 #include "solprop_native/launch.hpp"
 
@@ -95,6 +96,11 @@ struct SplitSums {
 };
 
 using ComplexView = Kokkos::View<Complex*, Layout, MemorySpace>;
+/** The histogram the boundary monitor's occupancy reading adds into, one slot per
+    walk-off bucket (solprop #440): duplicated per thread on the host, atomic on a
+    device. */
+using OccupancyScatter =
+    Kokkos::Experimental::ScatterView<double*, Layout, ExecutionSpace>;
 using ConstComplexView = Kokkos::View<const Complex*, Layout, MemorySpace>;
 using RealView = Kokkos::View<double*, Layout, MemorySpace>;
 using ConstRealView = Kokkos::View<const double*, Layout, MemorySpace>;
@@ -746,6 +752,12 @@ public:
    * split found (zeros before the first such step).
    */
   [[nodiscard]] std::vector<double> monitor_reading();
+  /**
+   * Bind the split collar's walk-off bucket of each frequency bin, `count` buckets
+   * (solprop #440): from here on `monitor_reading` also returns the state's energy
+   * per bucket, the fastest first.
+   */
+  void bind_occupancy(const std::vector<unsigned char>& buckets, std::size_t count);
   [[nodiscard]] std::vector<Complex> field_to_host() const;
   /** The field into `destination`, of the field's size: one copy from the space. */
   void field_to_host(std::span<Complex> destination) const;
@@ -899,6 +911,8 @@ public:
   void unbind_monitor() noexcept;
   /** As `State::monitor_reading`, over every column of the state. */
   [[nodiscard]] std::vector<double> monitor_reading();
+  /** As `State::bind_occupancy`, the buckets by mode, `(n_modes, n_omega)`. */
+  void bind_occupancy(const std::vector<unsigned char>& buckets, std::size_t count);
   [[nodiscard]] double quadrature_error() const;
   [[nodiscard]] double quadrature_peak();
   [[nodiscard]] std::string synthesis_provider() const;
