@@ -159,15 +159,18 @@ general modal file these readers are what they always were.
 
 _SPECTRUM_ADVICE: Mapping[str, str] = MappingProxyType(
     {
-        "radial": "use the spectral_energy of the plane solprop.processing.field_plane "
-        "reads (J per bin) or solprop.spatial.on_axis_spectrum on the axis",
-        "planar": "no spatial functional gives a planar run's spectrum yet",
+        "radial": "use solprop.spatial.spatial_energy_spectrum (J per bin), which is "
+        "the spectral_energy of the plane solprop.processing.field_plane reads, or "
+        "solprop.spatial.on_axis_spectrum on the axis",
+        "planar": "use solprop.spatial.spatial_energy_spectrum (J per bin, summed "
+        "over the slab modes and y frequencies)",
     }
 )
 """The spectral functional of each spatial route.
 
-The Cartesian and line routes share the radial one's; the planar route, whose planes
-``field_plane`` refuses, has none.
+The Cartesian and line routes share the radial one's. The planar route, whose planes
+``field_plane`` refuses and which has no axis, has the per-bin split of the stored slab
+amplitudes alone.
 """
 
 _BEAM_STATISTICS: frozenset[str] = frozenset(

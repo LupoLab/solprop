@@ -28,6 +28,7 @@ WHEEL_IDS = {
     ("Linux", "x86_64"): "linux-x86_64",
     ("Darwin", "arm64"): "macos-arm64",
     ("Windows", "AMD64"): "windows-amd64",
+    ("Windows", "ARM64"): "windows-arm64",
 }
 
 

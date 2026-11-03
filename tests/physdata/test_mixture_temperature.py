@@ -13,7 +13,14 @@ from solprop.constants import ROOM_TEMPERATURE
 from solprop.driver.mixtures import mixture_profiles
 from solprop.exceptions import MaterialError, ModeError
 from solprop.gasflow import steady_fill
-from solprop.modes import MarcatiliMode, RectMode, TubeLattice, VincettiMode
+from solprop.modes import (
+    MarcatiliMode,
+    ModeCollection,
+    RectMode,
+    SlabMode,
+    TubeLattice,
+    VincettiMode,
+)
 from solprop.modes.capillary import _wall_channel_settings
 from solprop.physdata import Mixture, Species, species
 from solprop.profiles import (
@@ -345,3 +352,12 @@ def test_a_mode_refuses_a_temperature_beside_a_mixture_unless_it_is_the_mixtures
     gas = MarcatiliMode(100e-6, "He", 1.0, temperature=WARM)
     assert gas.with_mixture(cool).temperature == room
     assert MarcatiliMode(100e-6, "He", 1.0).temperature == room
+    # Collection factories leave temperature omitted unless the caller gives one.
+    heated = Mixture.fill({"Ar": 1.0}, 1.0, temperature=350.0)
+    (slab,) = ModeCollection.slab(63.5e-6, (1,), mixture=heated)
+    assert isinstance(slab, SlabMode) and slab.temperature == 350.0
+    lattice = TubeLattice(180e-9, 9e-6, 6)
+    (vincetti,) = ModeCollection.vincetti(
+        15e-6, count=1, lattice=lattice, cladding=1.45, mixture=heated
+    )
+    assert isinstance(vincetti, VincettiMode) and vincetti.temperature == 350.0

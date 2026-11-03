@@ -297,8 +297,10 @@ class Material(Displayed):
         an absorption edge.
     pressure : float or None
         Gas pressure in **bar**; required for a built-in gas and refused otherwise.
-    temperature : float
-        Gas temperature in K; ignored for a glass and a mixture.
+    temperature : float or None
+        Gas temperature in K; ``None`` (the default) is
+        :data:`~solprop.constants.ROOM_TEMPERATURE` for a built-in gas, and a
+        temperature is refused otherwise.
 
     Examples
     --------
@@ -315,7 +317,7 @@ class Material(Displayed):
     wavelength: float | None = None
     loss: bool = False
     pressure: float | None = None
-    temperature: float = ROOM_TEMPERATURE
+    temperature: float | None = None
 
     def __post_init__(self) -> None:
         """Resolve a glass name and check the arguments against each other.
@@ -323,8 +325,9 @@ class Material(Displayed):
         Raises
         ------
         MaterialError
-            If the thickness is not finite, the wavelength is not positive, or the
-            pressure is missing for a gas or given for anything else.
+            If the thickness is not finite, the wavelength is not positive, the
+            pressure is missing for a gas or given for anything else, or the
+            temperature is given for anything other than a built-in gas.
         """
         if not math.isfinite(self.thickness):
             raise MaterialError(f"thickness must be finite, got {self.thickness!r}")
@@ -346,16 +349,22 @@ class Material(Displayed):
             raise MaterialError(f"a path through {medium!s} needs its pressure in bar")
         if not is_gas and self.pressure is not None:
             raise MaterialError("pressure is for a built-in gas only; omit it")
+        if not is_gas and self.temperature is not None:
+            raise MaterialError("temperature is for a built-in gas only; omit it")
         if is_gas:
             # A built-in gas is optmat's (SEP 3): its one-population fill at the
             # pressure and temperature given, whose index the mixture path takes.
+            temperature = (
+                ROOM_TEMPERATURE if self.temperature is None else self.temperature
+            )
+            object.__setattr__(self, "temperature", temperature)
             object.__setattr__(
                 self,
                 "medium",
                 Mixture.fill(
                     {cast("Gas | str", medium): 1.0},
                     float(cast("float", self.pressure)),
-                    temperature=self.temperature,
+                    temperature=temperature,
                 ),
             )
 
