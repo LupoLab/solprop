@@ -54,7 +54,6 @@ class State:
         self,
         flags: int,
         apertures: npt.NDArray[np.float64],
-        profile_code: int,
         exponent: int,
         regions: npt.NDArray[np.float64],
         intensity_factor: float,

@@ -2148,7 +2148,7 @@ public:
                                          double z);
   std::vector<double> aperture_statistics(std::uint64_t flags,
                                           const std::vector<double>& apertures,
-                                          int profile_code, int exponent,
+                                          int exponent,
                                           const std::vector<double>& regions,
                                           double intensity_factor);
   std::vector<double> statistics(std::uint64_t flags,
@@ -13882,15 +13882,14 @@ void GeneralWorkspace::separable_time_statistics(const std::size_t axis_peak,
 }
 
 std::vector<double> GeneralWorkspace::aperture_statistics(
-    const std::uint64_t flags, const std::vector<double>& apertures,
-    const int profile_code, const int exponent, const std::vector<double>& regions,
-    const double intensity_factor) {
+    const std::uint64_t flags, const std::vector<double>& apertures, const int exponent,
+    const std::vector<double>& regions, const double intensity_factor) {
   require_open();
   if (!initialized_ || !far_field_)
     throw std::logic_error(
         "far-field statistics need an initial field on a Cartesian or line grid");
   return far_field_->run(
-      flags, apertures, profile_code, exponent, regions, intensity_factor, current_,
+      flags, apertures, exponent, regions, intensity_factor, current_,
       FarFieldPass::Inputs{spatial_spectral_weights_, spatial_on_axis_, spatial_.square,
                            spatial_.square_low, spatial_.transverse,
                            spatial_.transverse_low, spatial_.spectral_rate,
@@ -15761,12 +15760,11 @@ std::vector<double> GeneralState::spatial_statistics(const std::uint64_t flags,
   return workspace_->spatial_statistics(flags, intensity_factor, z);
 }
 std::vector<double> GeneralState::aperture_statistics(
-    const std::uint64_t flags, const std::vector<double>& apertures,
-    const int profile_code, const int exponent, const std::vector<double>& regions,
-    const double intensity_factor) {
+    const std::uint64_t flags, const std::vector<double>& apertures, const int exponent,
+    const std::vector<double>& regions, const double intensity_factor) {
   const CpuTeamScope team(workspace_->cpu_team());
-  return workspace_->aperture_statistics(flags, apertures, profile_code, exponent,
-                                         regions, intensity_factor);
+  return workspace_->aperture_statistics(flags, apertures, exponent, regions,
+                                         intensity_factor);
 }
 void GeneralState::finish(const double dz) {
   const CpuTeamScope team(workspace_->cpu_team());

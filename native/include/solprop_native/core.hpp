@@ -893,8 +893,8 @@ public:
    */
   [[nodiscard]] std::vector<double>
   aperture_statistics(std::uint64_t flags, const std::vector<double>& apertures,
-                      int profile_code, int exponent,
-                      const std::vector<double>& regions, double intensity_factor);
+                      int exponent, const std::vector<double>& regions,
+                      double intensity_factor);
   [[nodiscard]] std::vector<double>
   statistics(std::uint64_t flags, const std::vector<double>& windows,
              const std::vector<double>& on_axis, double density, double taper,

@@ -1485,8 +1485,7 @@ class NativeBackend(StepDriver[_core.State]):
         """Form the far-field statistics in the native banded pass (SEP 23 section 6).
 
         The tables are those solprop's :class:`~solprop.backends.spatial.FarFieldTables`
-        forms for the call's spec, packed as ``(n_apertures, 6 + n_omega)`` rows of
-        centre, half-width, reciprocal width, edge, distance and the scale row, and
+        forms for the call's spec, packed as :func:`_aperture_payload` says, and
         ``(n_regions, 4)`` boxes; the pass returns each statistic finished, in
         :data:`_FAR_FIELD_ORDER`.
         """
@@ -1504,13 +1503,13 @@ class NativeBackend(StepDriver[_core.State]):
                 "forms at construction"
             )
         n_omega = self._problem.shape[-1]
-        apertures, regions, code, exponent = _aperture_payload(tables, n_omega)
+        apertures, regions, exponent = _aperture_payload(tables, n_omega)
         flags = 0
         for name in names:
             flags |= _FAR_FIELD_FLAGS[name]
         packed = np.asarray(
             self._native_state.aperture_statistics(
-                flags, apertures, code, exponent, regions, 0.5 * EPS0 * C
+                flags, apertures, exponent, regions, 0.5 * EPS0 * C
             )
         ).ravel()
         n_apertures = apertures.shape[0]
@@ -3517,31 +3516,34 @@ def _flow_payload(flow: _HostFlow | None) -> dict[str, object]:
     }
 
 
+_APERTURE_CONSTANTS = 11
+"""The constants before an aperture row's scale row (``far_field.hpp``)."""
+
+
 def _aperture_payload(
     tables: ApertureTables | None, n_omega: int
-) -> tuple[RealArray, RealArray, int, int]:
+) -> tuple[RealArray, RealArray, int]:
     """Pack far-field tables as the native pass reads them (solprop SEP 23 section 6).
 
-    Returns the ``(n_apertures, 6 + n_omega)`` aperture rows (centre x and y, the
-    half-width, the reciprocal edge width, the edge or order, the distance, then the
-    scale row ``z c / omega`` that every backend reads to the bit), the
-    ``(n_regions, 4)`` boxes, the profile code and the exponent; empty tables without
-    any.
+    Returns the ``(n_apertures, 11 + n_omega)`` aperture rows (centre x and y, the
+    half-width and half-height, the two stretches, the reciprocal edge width, the edge
+    or order, the profile and shape codes, the distance, then the scale row
+    ``z c / omega`` that every backend reads to the bit), the ``(n_regions, 4)`` boxes
+    and the exponent; empty tables without any.
     """
     if tables is None:
-        return np.empty((0, 6 + n_omega)), np.empty((0, 4)), 0, 2
-    assert tables.shapes is not None and tables.profiles is not None
-    if set(tables.shapes) != {"circle"} or len(set(tables.profiles)) > 1:
-        raise BackendError(
-            "the native far-field pass holds one edge profile per call and circles "
-            "only; use backend='numpy_ref' for other shapes or mixed profiles"
-        )
+        return np.empty((0, _APERTURE_CONSTANTS + n_omega)), np.empty((0, 4)), 2
+    assert tables.half_heights is not None and tables.stretches is not None
     constants = np.column_stack(
         (
             tables.centres,
             tables.half_widths,
+            tables.half_heights,
+            tables.stretches,
             tables.inverse_widths,
             tables.edges,
+            tables.profile_codes,
+            tables.shape_codes,
             tables.distances,
         )
     )
@@ -3549,7 +3551,6 @@ def _aperture_payload(
     return (
         apertures,
         np.ascontiguousarray(tables.regions, dtype=np.float64),
-        int(tables.profile_codes[0]) if tables.n_apertures else 0,
         tables.exponent,
     )
 

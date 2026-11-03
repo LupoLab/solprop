@@ -1,0 +1,1 @@
+Kernel schema 44: a far-field aperture row of solprop-native's pass grows from six constants to eleven and carries its own profile and shape, so `aperture_statistics` takes no profile argument. Rebuild solprop-native. Fields of `ApertureSet` move; no stage bundle or driver signature does (#446).

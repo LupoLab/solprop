@@ -92,6 +92,52 @@ FINE = 50.0
 """The aperture scale on the finely sampled grid of :func:`fine_space`."""
 
 
+def masks(profile: ApertureProfile = "hard", weighting="amplitude"):
+    """Every shape at once, sized for :func:`fine_space`'s column images.
+
+    A half-plane and its complement on each axis, a rectangle, an ellipse and a circle.
+    ``supergauss`` keeps its rows to the shapes it has a meaning on, and leaves the
+    half-planes hard beside them, one set of mixed profiles.
+    """
+    shapes = (
+        "half_plane_x_ge",
+        "half_plane_x_lt",
+        "half_plane_y_ge",
+        "half_plane_y_lt",
+        "rectangle",
+        "ellipse",
+        "circle",
+    )
+    smooth = profile in ("tanh", "rcos")
+    edge = 4.0 if profile == "supergauss" else 5e-3 if smooth else 0.0
+    profiles = tuple(
+        "hard"
+        if profile == "supergauss" and shape.startswith("half_plane")
+        else profile
+        for shape in shapes
+    )
+    return ApertureSet(
+        centres=[
+            [2e-2, 0.0],
+            [2e-2, 0.0],
+            [0.0, -1e-2],
+            [0.0, -1e-2],
+            [1e-2, -5e-3],
+            [-1e-2, 1e-2],
+            [2e-2, 2e-2],
+        ],
+        diameters=[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 6e-2],
+        distances=[DISTANCE] * len(shapes),
+        edges=None
+        if profile == "hard"
+        else [0.0 if one == "hard" else edge for one in profiles],
+        shapes=shapes,
+        profiles=profiles,
+        extents=[[0.0, 0.0]] * 4 + [[0.12, 0.08], [0.1, 0.06], [0.0, 0.0]],
+        weighting=weighting,
+    )
+
+
 def fine_space():
     """A quarter-micron grid: its outer columns are evanescent at every frequency.
 
@@ -149,7 +195,7 @@ def magnitudes(names, grid, problem, field, tables):
     return reference(names, grid, problem, np.abs(field) + 0j, absolute)
 
 
-def bound_for(magnitude, problem, name):
+def bound_for(magnitude, problem, name, factor=1):
     """The rounding bound of one statistic, elementwise, fixed before measuring.
 
     Each value is a sum over the columns of up to 8 rounded operations per term, and
@@ -158,22 +204,25 @@ def bound_for(magnitude, problem, name):
     transcendental routines' error (tanh, sin, exp: two ulps of one, an absolute
     error, which a tail's cancellation in ``1 - tanh`` does not shrink): 8 eps of
     the beam's magnitudes for ``W^p`` and 12 eps of the axis's for the squared
-    amplitude.
+    amplitude. `factor` is how many edges a row's weight multiplies: a rectangle's two
+    double the weight's error, to first order.
     """
     bound = 3 * gamma(8 * problem.shape[1] + 64) * np.abs(magnitude[name])
     if name == "aperture_spectrum":
-        bound = bound + 8 * np.finfo(float).eps * magnitude["beam_spectrum"]
+        bound = bound + factor * 8 * np.finfo(float).eps * magnitude["beam_spectrum"]
     if name == "aperture_on_axis_spectrum":
-        bound = bound + 12 * np.finfo(float).eps * magnitude["on_axis_spectrum"]
+        bound = (
+            bound + factor * 12 * np.finfo(float).eps * magnitude["on_axis_spectrum"]
+        )
     return bound
 
 
-def assert_matches(actual, expected, magnitude, problem, names=WITH_AXIS):
+def assert_matches(actual, expected, magnitude, problem, names=WITH_AXIS, *, factor=1):
     for name in names:
         assert_within(
             actual[name],
             expected[name],
-            bound_for(magnitude, problem, name),
+            bound_for(magnitude, problem, name, factor),
             elementwise=True,
             what=name,
         )

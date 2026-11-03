@@ -207,7 +207,7 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-KERNEL_SCHEMA_VERSION = 43
+KERNEL_SCHEMA_VERSION = 44
 """Version of the kernel contract this module implements.
 
 Incremented on every change to the field list of ``docs/dev/kernel-contract.md``. A
@@ -497,6 +497,15 @@ check: ``StepDriver._split_capped`` on the host marches, the native Adams march'
 required ``step_cap`` bound per call. The native reading, after ``bind_occupancy``
 hands it the table, grows from six numbers to ten and the 128 buckets. No stage
 bundle or existing driver signature moves.
+
+Version 44 lets a far-field aperture set hold other outlines beside circles: optional
+fields of the ``stats_spec.apertures`` leaf, unset on every existing request, so no
+problem that does not use them changes. By the letter a leaf's fields are not rows of
+the contract, but solprop-native's row format moves with them, and only a modulus
+guards a row's width: its aperture tables grow from six constants to eleven and carry
+each row's profile and shape, so a native call takes no profile argument, and a stale
+wheel beside this tree must be refused rather than misread the rows. No stage bundle or
+driver signature moves.
 """
 
 DEFAULT_COMPONENTS = ("x",)
