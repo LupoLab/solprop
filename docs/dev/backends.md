@@ -243,7 +243,10 @@ alike). Only the five cross to the host; `numpy_ref`'s host reduction
 monitor when it is attached, and `None` when a state is loaded. Under the `split_step`
 scheme the backend's `_finish` — and the native engine's own finish, on every march —
 adds what each accepted step's split takes of the power it finds, `P (1 − e^{−αh})`, to an
-accumulator the next reading drains, so the removal is exact on unchecked steps too. The
+accumulator the next reading drains, so the removal is exact on unchecked steps too, and
+keeps the energy and the guards' and collar's energies of that power halfway through the
+factor, `P e^{−αh/2}`, which the reading returns beside the five (`BoundaryEnergies.found`,
+kernel schema 43) and the monitor judges the occupancies on. The
 input-noise floor is read on the host, once, at the launch.
 
 ## 2. `numpy_ref`: the oracle

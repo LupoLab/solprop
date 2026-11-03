@@ -159,7 +159,7 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 <text x="42.0" y="524.75" font-size="12" class="dim">stepper/</text>
 <text x="42.0" y="540.25" font-size="12" class="dim">tableau · controller · schedule</text>
 <rect x="386.0" y="503.0" width="420.0" height="66.0" rx="7" ry="7" class="fill-t" />
-<text x="396.0" y="525.0" font-size="15" class="bold ink-t">§7   stepper</text>
+<text x="396.0" y="525.0" font-size="15" class="bold ink-t">§7   stepper · split_crossing</text>
 <text x="396.0" y="540.5" font-size="12" class="dim">stepper settings and schedule</text>
 <text x="396.0" y="556.0" font-size="12" class="dim">translate.problem.StepperSettings</text>
 <rect x="864.0" y="503.0" width="304.0" height="51.0" rx="7" ry="7" class="fill-b" />

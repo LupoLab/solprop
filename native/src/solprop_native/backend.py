@@ -68,6 +68,7 @@ from solprop.backends.spatial import (
     radial_absorber_matrix,
     signed_fluence_widths,
 )
+from solprop.boundaries import SPLIT_RATE_BUCKETS
 from solprop.constants import EPS0, C
 from solprop.exceptions import (
     BackendError,
@@ -131,6 +132,7 @@ from solprop.translate.problem import (
     KernelProblem,
     PropagatorMode,
 )
+from solprop.translate.responses import CompiledResponses, ResponseStage
 from solprop.translate.stage import (
     StageScalars,
     StageTerms,
@@ -1097,19 +1099,37 @@ class NativeBackend(StepDriver[_core.State]):
         self._native_state.bind_monitor(
             np.ascontiguousarray(monitor.weights, dtype=np.float64).reshape(-1), columns
         )
+        crossing = monitor.crossing
+        if crossing is not None:
+            # The split collar's crossing limit, read from the state's occupancy of
+            # its walk-off buckets at every check (solprop #440).
+            self._native_state.bind_occupancy(
+                np.ascontiguousarray(crossing.buckets, dtype=np.uint8).reshape(-1),
+                SPLIT_RATE_BUCKETS,
+            )
 
     def _boundary_energies(self, state: _core.State) -> BoundaryEnergies:
         """Reduce the monitor's five numbers where the state lives (solprop SEP 21).
 
-        Only they and the split's removal since the last reading cross to the host.
+        Only they, the split's removal since the last reading and the energies of
+        what the last step's split found cross to the host.
         """
         if state is not self._native_state:
             raise BackendError("the monitored state does not belong to this backend")
         if self._monitor is None:
             raise BackendError(f"{self.name}: no boundary monitor is attached")
         reading = np.asarray(state.monitor_reading(), dtype=np.float64).reshape(-1)
+        # Zeros until the first accepted step's split, which the monitor passes over.
+        found = reading[6:10].copy() if self._monitor.split else None
+        occupancy = None
+        if self._monitor.crossing is not None:
+            occupancy = reading[10 : 10 + SPLIT_RATE_BUCKETS].copy()
         return BoundaryEnergies(
-            float(reading[0]), reading[1:5].copy(), removed=float(reading[5])
+            float(reading[0]),
+            reading[1:5].copy(),
+            removed=float(reading[5]),
+            found=found,
+            occupancy=occupancy,
         )
 
     def _finish(self, state: _core.State, dz: float) -> _core.State:
@@ -2650,6 +2670,9 @@ class _NativeAdamsMarch(AdamsMarch):
             "last_check": 0.0 if checked is None else float(checked),
             "read_at": read_at,
             "read_spacing": spacing,
+            # The split collar's crossing limit, read at the last check (solprop
+            # #440): a ceiling on every adaptive step until the next.
+            "step_cap": math.inf if monitor is None else float(monitor.step_cap),
             "max_attempts": self.MAX_ATTEMPTS,
             "max_seconds": self.MAX_SECONDS,
             "replay": slack is not None,
@@ -3151,12 +3174,45 @@ def _refuse_adams(problem: KernelProblem) -> None:
     )
 
 
+def _refuse_omitted_stages(responses: CompiledResponses) -> None:
+    """Refuse a ``response_order`` that leaves out a response the problem holds.
+
+    Native takes each response from its own leaves and doesn't read the order, so an
+    omitted stage would still run. The translation never produces this; a hand-built
+    problem can, and ``numpy_ref``, which reads the order, would run it without.
+    """
+    envelope = responses.envelope_plasma is not None
+    held = {
+        ResponseStage.KERR: responses.kerr_coefficients is not None,
+        ResponseStage.DISPERSIVE_KERR: responses.dispersive_kerr is not None,
+        ResponseStage.RAMAN_DRIVE: bool(responses.raman_terms),
+        ResponseStage.IONISATION_RATE: bool(responses.ionisation_table)
+        and not envelope,
+        ResponseStage.PLASMA_SCAN: bool(responses.plasma_channels) and not envelope,
+        ResponseStage.PLASMA_CURRENT: bool(responses.plasma_channels) and not envelope,
+        ResponseStage.ENVELOPE_POPULATION: envelope,
+    }
+    omitted = [
+        stage.value
+        for stage, present in held.items()
+        if present and stage not in responses.response_order
+    ]
+    if omitted:
+        raise BackendError(
+            f"response_order omits {', '.join(omitted)}, whose responses the problem "
+            "holds; solprop-native takes each response from its own leaves and would "
+            "run it anyway. Remove the response too, or use backend='numpy_ref', which "
+            "follows the order"
+        )
+
+
 def _refuse_unsupported(problem: KernelProblem) -> None:
     if problem.schema_version != KERNEL_SCHEMA_VERSION:
         raise BackendError(
             f"solprop-native implements kernel schema {KERNEL_SCHEMA_VERSION}; "
             f"problem declares {problem.schema_version}"
         )
+    _refuse_omitted_stages(problem.responses)
     if problem.precision.single:
         raise BackendError(
             "solprop-native computes in binary64 only and refuses precision='single' "

@@ -2,14 +2,12 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""A mistyped FFTW planning effort must be refused (SEP 43 inventory, item 73).
+"""A mistyped FFTW planning effort is refused (SEP 43 inventory, item 73; #460).
 
-``numba_cpu`` refused ``flag="fastest"``. Native takes the effort from
-``SOLPROP_FFTW_PLAN`` and reads anything it doesn't know as ``measure``
-(``fftw_seed_effort`` in ``include/solprop_native/fft_plan.hpp``), so a typo changes a
-run's plans in silence. The neighbouring thread variables are refused in a fresh process
-(``test_invalid_thread_variable_is_rejected_in_a_fresh_process``); this holds the
-planning effort to the same.
+Native takes the effort from ``SOLPROP_FFTW_PLAN`` (``fftw_seed_effort`` in
+``include/solprop_native/fft_plan.hpp``). Read as ``measure``, a typo would change a
+run's plans in silence, so it is refused in a fresh process, as the neighbouring thread
+variables are.
 """
 
 from __future__ import annotations
@@ -17,8 +15,6 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
-
-import pytest
 
 SCRIPT = """
 import solprop_native
@@ -49,13 +45,6 @@ solprop_native.NativeBackend(problem, grid=grid).close()
 """
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "SEP 43 inventory: native reads a mistyped SOLPROP_FFTW_PLAN as measure, "
-        "silently (item 73)"
-    ),
-)
 def test_an_unknown_planning_effort_is_refused() -> None:
     completed = subprocess.run(
         [sys.executable, "-c", SCRIPT],
@@ -66,11 +55,12 @@ def test_an_unknown_planning_effort_is_refused() -> None:
     )
     assert completed.returncode != 0
     assert "SOLPROP_FFTW_PLAN" in completed.stderr
+    assert "fastest" in completed.stderr
 
 
 def test_the_planning_efforts_it_names_are_admitted() -> None:
     """The script runs under the known efforts, so a refusal above would be real."""
-    for effort in ("estimate", "measure", "patient"):
+    for effort in ("estimate", "measure", "patient", ""):
         completed = subprocess.run(
             [sys.executable, "-c", SCRIPT],
             capture_output=True,

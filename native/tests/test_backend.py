@@ -263,7 +263,7 @@ def test_schema_mismatch_names_both_versions(
     # The two independently qualified schema-18 branches are not the combined seam.
     problem, _ = phase_a_case
     spoiled = dataclasses.replace(problem, schema_version=declared)
-    with pytest.raises(BackendError, match=rf"version 42.*version {declared}"):
+    with pytest.raises(BackendError, match=rf"version 43.*version {declared}"):
         check_build(spoiled)
 
 
@@ -301,6 +301,29 @@ def test_the_low_storage_march_steps_as_the_reference(
     swept = float(np.max(np.abs(delta_phi(marched.linear, 0.0, target))))
     bound = step_bound(grid.n_to, steps, stages=4) + 64 * EPS * swept
     assert_within(field, reference, bound, what=f"the low-storage march, {mode}")
+
+
+def test_an_order_that_omits_a_held_response_is_refused(
+    phase_a_case: PhaseACase,
+) -> None:
+    # Native reads each response's own leaf, not the order, so the omitted Kerr term
+    # would still run. Removing the response as well is a consistent, linear problem.
+    problem, grid = phase_a_case
+    responses = problem.responses
+    accumulate_only = responses.response_order[-1:]
+    omitted = dataclasses.replace(
+        problem,
+        responses=dataclasses.replace(responses, response_order=accumulate_only),
+    )
+    with pytest.raises(BackendError, match="response_order omits kerr"):
+        NativeBackend(omitted, grid=grid)
+    linear = dataclasses.replace(
+        problem,
+        responses=dataclasses.replace(
+            responses, response_order=accumulate_only, kerr_coefficients=None
+        ),
+    )
+    NativeBackend(linear, grid=grid).close()
 
 
 def test_a_low_storage_table_never_built_is_refused(phase_a_case: PhaseACase) -> None:
@@ -718,7 +741,7 @@ def test_metadata_and_memory_ledger_are_self_consistent(
     n = problem.shape[-1]
     stages = problem.stepper.tableau.n_stages
     assert metadata["backend"] == "native"
-    assert metadata["schema_version"] == 42
+    assert metadata["schema_version"] == 43
     assert metadata["openmp_wait_policy"] == solprop_native.WAIT_POLICY
     assert metadata["openmp_proc_bind"] == solprop_native.PROC_BIND
     # NumPy's own BLAS pool is held while the backend lives (solprop_native._host_blas).

@@ -261,6 +261,18 @@ state, and its Adams march holds its steps to the edge's next read and stops the
 Schema 42 lets the problem's initial state be strided, a broadcast view of the block it
 repeats: ``set_initial`` takes a field of any strides, which the driver's load copies
 contiguous before it crosses.
+Schema 43 widens the boundary monitor's reading under the split scheme and adds the
+split collar's crossing limit. ``StepDriver`` keeps ``_split_found``, the energy and
+the guards' and collar's energies of the power the last step's split found, halfway
+through its factor, and caps adaptive steps with ``_split_capped``;
+``KernelProblem.split_crossing`` carries each bin's walk-off bucket and the launch's
+limit. This backend's finish forms the found sums in its removal pass;
+``bind_occupancy`` hands the state the bucket table, ``(n_modes * n_omega,)`` ``uint8``,
+and ``monitor_reading`` then returns ten numbers (the energy, four weighted sums, the
+removal, the four found sums) followed by the state's energy in each of the
+``SPLIT_RATE_BUCKETS`` buckets, ``10 + 128`` in all, where it returned six. The Adams
+march's bounds carry a required ``step_cap``, the cap the last check read, which every
+adaptive step is held to.
 
 solprop freezes this surface under its ``KERNEL_SCHEMA_VERSION`` (the test in its
 ``tests/backends/test_driver.py``); :func:`check_build` looks each member up so a

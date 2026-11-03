@@ -225,6 +225,13 @@ All notable changes to solprop are recorded here. The format follows
   changelog, avoiding conflicts between unrelated changes. Release tags and publication
   remain manual.
 - A plain `uv sync` in a checkout now compiles the native backend, and `uv sync --extra native` is gone. Python and documentation contributors with no compiler can use `uv run --no-project tools/setup_light.py`, and `poe fetch-wheel` installs the wheel CI built, refusing one that doesn't fit the tree.
+- Kernel schema 43: under `absorber_scheme="split_step"` a backend's boundary reading also
+  returns the energy and the guards' and collar's energies of the power each step's split
+  found (`solprop.monitor.BoundaryEnergies.found`) and the state's energy per walk-off
+  bucket (`BoundaryEnergies.occupancy`), from the problem's new `split_crossing`; the
+  native reading grows from six numbers to ten plus the buckets, and the native Adams march
+  takes the crossing cap per call. A solprop-native build of an earlier schema is refused
+  at import; rebuild it from this tree.
 
 ### Changed (breaking)
 
@@ -385,6 +392,7 @@ All notable changes to solprop are recorded here. The format follows
   before a backend starts.
   Vendor thread defaults are overridden only during construction; the native
   backend's own BLAS keeps its fitted width.
+- The native backend now refuses an unknown `SOLPROP_FFTW_PLAN` value, which it had read as `measure`, and a problem whose `response_order` omits a response it holds, which it had run anyway. An empty `SOLPROP_FFTW_PLAN` now counts as unset (#460).
 - Documented the limits of `FixedSchedule.from_history`. Every collar refusal a replayed history can reach (the temporal collar's stable step, and a requested spatial collar's stable step and its fixed-schedule crossing and damping bounds) now prints its limit rounded down and names the remedy: `dz_max` at or under the printed limit in the discovery run, run with the replay's integrator where the limit is a stability limit, or, for the temporal collar alone, `absorber_scheme="split_step"` in both runs. The docstring and the [fixed schedules guide](docs/guide/numerics/fixed-schedules.md) state these limits and the interpolated-plane and non-abutting-history ones, relate `from_history` to `discover`, and replace the claim that a `Multistep` replay makes its adaptive run's truncation errors: compare two replays of one schedule instead, and for a comparison of the arithmetic alone replay with fixed orders (`RungeKutta()` or `Multistep(variable_order=False)`), since a variable-order replay's order choice can turn on rounding (#82).
 - A translated problem no longer holds a full copy of a broadcast initial field (#5): a
   `numpy.broadcast_to` placeholder, of any numeric dtype, costs only the block it repeats.
@@ -422,6 +430,17 @@ All notable changes to solprop are recorded here. The format follows
   columns. `solprop.capabilities.output` gains `refused_readers`, which states these
   refusals with the readers' own text, while it still admits a spatial file's `energy`
   statistic. Modal files read as before (#147, #406).
+- Under `absorber_scheme="split_step"`, the default on the spatial routes, the boundary
+  monitor judges the time window's guards on the power each step's split finds, halfway
+  through its factor, instead of the state it leaves, whose guards it had damped by about
+  `e^-10`: a pulse walking out of the window is now stopped where the in-stage scheme
+  stops it (#127). Steps are also held to the split collar's crossing limit, half the
+  collar's width over the walk-off of the fastest light holding more than `1e-6` of the
+  energy, so that no step carries light through the collar and round the window undamped
+  (issues #149 and #440). It is read from the launch at translation, which holds `dz_max`
+  and refuses a longer fixed schedule, and again from the state at every check, which caps
+  the steps after it and stops a fixed schedule it falls below. See [absorbing
+  boundaries](docs/guide/numerics/boundaries.md#the-two-temporal-schemes).
 - `StepIndexMode` builds fibres up to V = 20000 and refuses larger ones with a message that says so; it refused most fibres above V of about 26, a 100 µm core of numerical aperture 0.22 at 1030 nm among them, because its root scan lost close pairs of HE and EH roots, and from a cladding argument of about 700 the unscaled modified Bessel functions underflowed. It also refused every EH family from an azimuthal order of about 40, where J_n underflowed at small u. The lost roots are now bracketed by each family's own factor of the characteristic product; the scan runs from the family's first cutoff to the one above the requested radial order, so a low-order mode costs the same at any V; and the modified Bessel ratios and exterior fields use the exponentially scaled functions, with a recurrence where those overflow at large order. Effective indices below V = 26 move by at most one rounding (#148).
 - On Windows on Arm, `Pool` scans no longer fail or hang in NumPy's linear solves. Workers now limit BLAS through `threadpoolctl` instead of thread variables, which crash or hang NumPy's OpenBLAS on that platform at small widths, and `import solprop` warns if such a value is set.
 
