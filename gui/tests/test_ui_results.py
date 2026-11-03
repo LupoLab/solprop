@@ -223,3 +223,14 @@ def test_the_results_open_a_run_s_planes_and_statistics(
     results._pending[-7] = ("statistics", run)
     results.on_reply(Reply("statistics", -7, 0, value="not a mapping"))
     window.close()
+
+
+def test_the_overview_says_when_the_power_is_a_coordinate(qtbot: QtBot):
+    from solprop_gui.views.live import OverviewView  # noqa: PLC0415 - only here
+
+    view = OverviewView()
+    qtbot.addWidget(view)
+    view.set_coordinate(True)
+    assert "Coordinate power" in view.power_map.plot.titleLabel.text
+    view.set_coordinate(False)
+    assert view.power_line.titleLabel.text == "Power at z"

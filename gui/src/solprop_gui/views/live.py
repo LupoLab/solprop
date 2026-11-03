@@ -288,6 +288,19 @@ class OverviewView(QWidget):
 
     # ------------------------------------------------------------------ data
 
+    def set_coordinate(self, coordinate: bool) -> None:
+        """Say on the power plots whether the power is a coordinate quantity.
+
+        Parameters
+        ----------
+        coordinate : bool
+            Whether it is (a spatial run's, summed over the grid's nodes), as
+            ``capabilities.output`` says.
+        """
+        word = "Coordinate power" if coordinate else "Power"
+        self.power_map.plot.setTitle(f"{word} (display-binned)")
+        self.power_line.setTitle(f"{word} at z")
+
     def clear(self) -> None:
         """Forget every row and the axes."""
         self.rows = []
