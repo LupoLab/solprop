@@ -13,10 +13,10 @@ can start a chunk: a thread must not take a fraction its predecessor wrote.
 
 **Weaker than the retired test in one way.** That test wrote the column's input
 directly, so its zeros were exact. Native's column reads a synthesis, so here the
-field's quiet samples are small rather than zero; the rate, a quadratic above a threshold, is what is
-exactly zero there, and it is the exposure's being unchanged that the reuse acts on. The
-retired test's other half, that a one-sample column keeps a preionisation of 1e-20, has
-no input here: no time grid has one sample.
+field's quiet samples are small rather than zero; the rate, a quadratic above a
+threshold, is what is exactly zero there, and it is the exposure's being unchanged that
+the reuse acts on. The retired test's other half, that a one-sample column keeps a
+preionisation of 1e-20, has no input here: no time grid has one sample.
 
 **The bounds, fixed from the operations.** Field and statistics against the first
 width at :func:`test_band_plasma.march_bound` and :func:`assert_statistics_agree`, the

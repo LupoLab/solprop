@@ -559,6 +559,9 @@ def ledger_of(problem: KernelProblem, grid: Any) -> dict[str, int]:
         ledger = backend.memory_ledger()
     finally:
         backend.close()
+    # Native's views go with its state, which refuses to report any more once closed.
+    with pytest.raises(RuntimeError, match="closed"):
+        backend.memory_ledger()
     assert all(row in ledger for row in DISPERSIVE_ROWS)
     assert all(ledger[row] >= 0 for row in DISPERSIVE_ROWS)
     return ledger
