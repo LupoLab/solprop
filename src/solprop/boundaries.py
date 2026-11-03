@@ -878,7 +878,7 @@ class SplitCrossing:
     >>> from solprop.boundaries import SplitCrossing, split_rate_buckets
     >>> buckets = split_rate_buckets(np.array([[1e-12, 1e-10]]))
     >>> crossing = SplitCrossing(buckets, 1e-13, launch_limit=0.05)
-    >>> occupancy = crossing.occupancy(np.array([[[[1.0, 1e-4]]]]))
+    >>> occupancy = crossing.occupancy(np.array([[[[1.0, 1e-4]]]], dtype=complex))
     >>> # The fast bin holds 1e-8 of the energy and is set aside: the slow bin's limit,
     >>> # 50 mm at 1e-12 s/m, a little shorter at its bucket's edge.
     >>> round(crossing.limit(occupancy) * 1e3, 1)
@@ -963,8 +963,8 @@ def split_crossing_step(
     Parameters
     ----------
     rate : float
-        The fastest walk-off against the frame, s/m, nonnegative
-        (:func:`solprop.translate.linop.walk_off_rate`).
+        The fastest walk-off against the frame, s/m, nonnegative: the rate
+        :meth:`SplitCrossing.limit` reads from an occupancy.
     width : float
         The temporal collar's width at its narrower edge, s.
     factor : float, optional

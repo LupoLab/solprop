@@ -15,6 +15,7 @@ fixed schedule past it; the in-stage scheme keeps its bounds.
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 import math
 
@@ -27,13 +28,15 @@ from solprop.backends.registry import available, select
 from solprop.boundaries import (
     SPLIT_CROSSING,
     SPLIT_RATE_BUCKETS,
+    SplitCrossing,
     split_bucket_rates,
     split_crossing_step,
 )
 from solprop.constants import C
 from solprop.driver import Simulation, SimulationSettings
-from solprop.exceptions import BoundaryError, TranslationError
+from solprop.exceptions import BackendError, BoundaryError, TranslationError
 from solprop.grid import EnvelopeGrid, FieldGrid, RadialGrid
+from solprop.monitor import BoundaryCheck
 from solprop.nonlinear.responses import KerrResponse
 from solprop.output import MemoryOutput
 from solprop.physdata import gamma3
@@ -331,3 +334,22 @@ def test_the_axis_ends_and_inactive_bins_are_the_slowest() -> None:
     # An inactive bin, and the bins whose differences reach it.
     assert np.all(buckets[4:7] == last)
     assert np.all(buckets[1:4] < last)
+
+
+def test_no_light_sets_no_cap() -> None:
+    crossing = SplitCrossing(np.zeros((1, 4), dtype=np.uint8), 1e-13)
+    assert math.isinf(crossing.limit(np.zeros(SPLIT_RATE_BUCKETS)))
+
+
+def test_a_split_reading_without_the_occupancy_is_refused() -> None:
+    simulation = _gnlse("numpy_ref", Multistep())
+    problem = simulation.translate()
+    simulation.settings = dataclasses.replace(
+        simulation.settings, boundary_check=BoundaryCheck()
+    )
+    monitor = simulation._boundary_monitor()
+    assert monitor is not None
+    monitor.crossing = problem.split_crossing
+    reading = monitor.energies(problem.initial.field0)
+    with pytest.raises(BackendError, match="occupancy"):
+        monitor.launch(reading, 0.0)
