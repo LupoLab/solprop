@@ -13,7 +13,7 @@ records its recipe can give its setup back ("Open its setup", the resolved
 recipe, design 4).
 """
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
@@ -33,6 +33,8 @@ from solprop_gui.service.messages import Reply
 from solprop_gui.ui.bridge import ServiceBridge
 from solprop_gui.views.compare import CompareView
 from solprop_gui.views.live import OverviewView
+from solprop_gui.views.plane import PlaneView
+from solprop_gui.views.statistics import StatisticsView
 
 __all__ = ["ResultsPage"]
 
@@ -91,6 +93,13 @@ class ResultsPage(QWidget):
 
         self.overview = OverviewView()
         self.compare = CompareView()
+        self.plane = PlaneView()
+        self.statistics = StatisticsView()
+        self.plane.plane_wanted.connect(self._ask_plane)
+        self.plane.spectrogram_wanted.connect(self._ask_spectrogram)
+        self.plane.compression_wanted.connect(self._ask_compression)
+        self.plane.figure_wanted.connect(self._ask_figure)
+        self.statistics.figure_wanted.connect(self._ask_figure)
         self.clear_button.clicked.connect(self.compare.clear)
 
         file = QGridLayout()
@@ -170,11 +179,74 @@ class ResultsPage(QWidget):
         self.info.setText(f"{_short(self.path)}: reading…")
         self.info.setToolTip(self.path)
         self.overview.clear()
+        self.plane.clear()
+        self.statistics.clear()
         self._update_buttons()
         if show:
             self.view_wanted.emit("results")
         self._ask("describe_output", {"path": self.path}, "describe")
         self._ask("overview", {"path": self.path}, "overview")
+        self._ask("statistics", {"path": self.path}, "statistics")
+
+    def _ask_plane(self, index: int, modes: object) -> None:
+        """Ask for one plane of the open file.
+
+        Parameters
+        ----------
+        index : int
+            The plane.
+        modes : object
+            The mode selection.
+        """
+        if self.path is not None:
+            payload = {"path": self.path, "index": index, "modes": modes}
+            self._ask("plane", payload, "plane")
+
+    def _ask_spectrogram(self, z: float, modes: object) -> None:
+        """Ask for a plane's spectrogram.
+
+        Parameters
+        ----------
+        z : float
+            The plane's position.
+        modes : object
+            The mode selection.
+        """
+        if self.path is not None:
+            payload = {"path": self.path, "z": z, "modes": modes}
+            self._ask("spectrogram", payload, "spectrogram")
+
+    def _ask_compression(self, index: int, order: int, modes: object) -> None:
+        """Ask for a plane's best compression.
+
+        Parameters
+        ----------
+        index : int
+            The plane.
+        order : int
+            The highest Taylor order searched.
+        modes : object
+            The mode selection.
+        """
+        if self.path is not None:
+            payload = {
+                "path": self.path,
+                "index": index,
+                "order": order,
+                "modes": modes,
+            }
+            self._ask("compression", payload, "compression")
+
+    def _ask_figure(self, figure: Mapping[str, object]) -> None:
+        """Ask for one of solprop's plots of the open file as a figure.
+
+        Parameters
+        ----------
+        figure : Mapping
+            The figure's ``file``, ``plot`` and its keys.
+        """
+        if self.path is not None:
+            self._ask("result_figure", {"path": self.path, **figure}, "figure")
 
     def open_setup(self) -> None:
         """Ask for the recipe the open file records, as resolved."""
@@ -199,9 +271,17 @@ class ResultsPage(QWidget):
             return
         purpose, path = entry
         if not reply.ok:
-            self.info.setText(f"{_short(path)}: {reply.error}")
+            if purpose in ("plane", "compression", "spectrogram"):
+                self.plane.show_error(f"{purpose}: {reply.error}")
+            else:
+                self.info.setText(f"{_short(path)}: {reply.error}")
             return
         value = reply.value
+        if path != self.path and purpose != "compare":
+            return  # a reply about the file shown before
+        if purpose in ("plane", "compression", "spectrogram", "statistics", "figure"):
+            self._show_view_reply(purpose, value)
+            return
         if purpose == "describe" and path == self.path and isinstance(value, dict):
             self.capabilities = value
             outcome = value.get("outcome") or {}
@@ -219,6 +299,13 @@ class ResultsPage(QWidget):
                 text += "; it records no recipe (a file from a script)"
             self.info.setText(text)
             self._update_buttons()
+            z: list[float] = list(value.get("z") or [])  # pyright: ignore[reportArgumentType]
+            planes = [int(p) for p in planes]  # pyright: ignore[reportGeneralTypeIssues]
+            self.plane.set_planes(
+                planes,
+                [z[p] for p in planes if p < len(z)],
+                list(value.get("labels") or []),  # pyright: ignore[reportArgumentType]
+            )
         elif purpose == "overview" and path == self.path and isinstance(value, dict):
             self.overview.set_rows(value.get("axes", {}), value.get("rows", []))  # pyright: ignore[reportArgumentType]
         elif purpose == "compare" and isinstance(value, dict):
@@ -227,6 +314,31 @@ class ResultsPage(QWidget):
             self.view_wanted.emit("compare")
         elif purpose == "setup" and isinstance(value, str):
             self.setup_opened.emit(value, path)
+
+    def _show_view_reply(self, purpose: str, value: object) -> None:
+        """Hand a view its reply.
+
+        Parameters
+        ----------
+        purpose : str
+            ``"plane"``, ``"compression"``, ``"spectrogram"``, ``"statistics"`` or
+            ``"figure"``.
+        value : object
+            The reply's value.
+        """
+        if purpose == "figure":
+            written: Sequence[str] = value if isinstance(value, list) else []
+            self.info.setText("Wrote " + ", ".join(_short(f) for f in written))
+        elif not isinstance(value, Mapping):
+            return
+        elif purpose == "plane":
+            self.plane.show_plane(value)
+        elif purpose == "compression":
+            self.plane.show_compression(value)
+        elif purpose == "spectrogram":
+            self.plane.show_spectrogram(bytes(value["png"]))  # pyright: ignore[reportArgumentType]
+        else:
+            self.statistics.set_statistics(value)
 
 
 def _short(path: str) -> str:

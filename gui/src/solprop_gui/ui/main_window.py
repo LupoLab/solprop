@@ -217,6 +217,8 @@ class MainWindow(QMainWindow):
         self.views.addTab(self.chart, "ZDW chart")
         self.views.addTab(self.run_panel.view, "Live run")
         self.views.addTab(self.results.overview, "Results")
+        self.views.addTab(self.results.plane, "Plane")
+        self.views.addTab(self.results.statistics, "Statistics")
         self.views.addTab(self.results.compare, "Compare")
 
         # Below the views: the summary and solprop's check, the log, the code.
@@ -537,14 +539,16 @@ class MainWindow(QMainWindow):
         Parameters
         ----------
         name : str
-            ``"dispersion"``, ``"chart"``, ``"live"``, ``"results"`` or
-            ``"compare"``.
+            ``"dispersion"``, ``"chart"``, ``"live"``, ``"results"``, ``"plane"``,
+            ``"statistics"`` or ``"compare"``.
         """
         widget = {
             "dispersion": self.explorer,
             "chart": self.chart,
             "live": self.run_panel.view,
             "results": self.results.overview,
+            "plane": self.results.plane,
+            "statistics": self.results.statistics,
             "compare": self.results.compare,
         }[name]
         self.views.setCurrentWidget(widget)

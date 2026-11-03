@@ -20,6 +20,7 @@ import numpy as np
 from solprop import capabilities
 from solprop.exceptions import SolpropError
 from solprop.output import Output, open_file, resumability
+from solprop.processing import channel_labels
 from solprop.processing.fields import get_power, get_spectral_density
 from solprop.recipe import Parameter, Recipe, parameters
 from solprop.recipe.metadata import REQUIRED, per_unit_width
@@ -30,6 +31,7 @@ from solprop.tools import capillary_params, lambda_rdw_all
 from solprop_gui.service.design import DESIGN_HANDLERS, pin_targets
 from solprop_gui.service.figures import FIGURE_HANDLERS
 from solprop_gui.service.reduce import Display, Reducer, stats_row
+from solprop_gui.service.results import RESULTS_HANDLERS
 
 __all__ = ["HANDLERS"]
 
@@ -598,14 +600,21 @@ def describe_output(payload: Payload) -> dict[str, object]:
     -------
     dict
         ``basis``, ``simulation_kind``, ``field_planes``, ``statistics_planes``,
-        ``refused``, ``recipe``, and ``outcome`` (the run's status, position and
-        message).
+        ``refused``, ``recipe``, ``outcome`` (the run's status, position and
+        message), ``z`` (every plane's position) and ``labels`` (the modes).
     """
     path = str(payload["path"])
     caps = capabilities.output(path)
     with open_file(path) as handler:
         outcome = handler.outcome
+        z = [float(v) for v in np.asarray(handler["z"])]
+        try:
+            labels = [label.display_label for label in channel_labels(handler)]
+        except SolpropError:
+            labels = []
     return {
+        "z": z,
+        "labels": labels,
         "basis": caps.basis,
         "simulation_kind": caps.simulation_kind,
         "field_planes": list(caps.field_planes),
@@ -739,5 +748,6 @@ HANDLERS: dict[str, Callable[[Payload], object]] = {
     "to_python": to_python,
     **DESIGN_HANDLERS,
     **FIGURE_HANDLERS,
+    **RESULTS_HANDLERS,
 }
 """The handlers, by request kind."""
