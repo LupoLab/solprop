@@ -159,8 +159,9 @@ general modal file these readers are what they always were.
 
 _SPECTRUM_ADVICE: Mapping[str, str] = MappingProxyType(
     {
-        "radial": "use the spectral_energy of the plane solprop.processing.field_plane "
-        "reads (J per bin) or solprop.spatial.on_axis_spectrum on the axis",
+        "radial": "use solprop.spatial.spatial_energy_spectrum (J per bin), which is "
+        "the spectral_energy of the plane solprop.processing.field_plane reads, or "
+        "solprop.spatial.on_axis_spectrum on the axis",
         "planar": "no spatial functional gives a planar run's spectrum yet",
     }
 )
