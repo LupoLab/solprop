@@ -28,7 +28,7 @@ from solprop.exceptions import (
     ResponseBudgetError,
     TDSECostWarning,
 )
-from solprop.grid import FieldGrid, RadialGrid
+from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid, RadialGrid
 from solprop.linear import Frame
 from solprop.noise import NoiseRealisation
 from solprop.nonlinear.tdse import (
@@ -54,6 +54,7 @@ from solprop.spatial import SpatialMedium
 from solprop.stats import StatsSpec
 from solprop.stepper import PIController
 from solprop.stepper.multistep import Multistep
+from solprop.translate import problem as problem_module
 from solprop.translate.tdse import AtomicCallLedger
 
 # These fixtures run a TDSE response on a multi-node Gauss-Kronrod rule on purpose;
@@ -150,6 +151,80 @@ def test_with_input_retains_absolute_tables_and_filters_only_explicit_launch():
     again = launch.with_input(launch._field0)
     assert again.initial_z == 5e-6
     assert_array_equal(again.settings.save_planes, launch.settings.save_planes)
+
+
+def test_a_replaced_modal_input_is_copied_once_by_its_conversion(state_copies):
+    # The power conversion is the launch's one copy: the problem takes the quotient
+    # as its own, and a later change to the caller's array reaches neither.
+    simulation = tiny_simulation()
+    simulation.translate()
+    field = np.array(simulation._field0)
+    problem = simulation.with_input(field).translate()
+    assert problem.transform.geometry is None
+    assert problem.shape not in state_copies
+    launch = problem.initial.field0.copy()
+    field[...] = 0.0
+    assert_array_equal(problem.initial.field0, launch)
+    assert np.any(launch)
+
+
+@pytest.fixture
+def state_copies(monkeypatch):
+    """Record the shape of every copy the problem's initial arrays take."""
+    copies = []
+    original_copy = problem_module._held_copy
+
+    def counted(values, dtype):
+        copies.append(values.shape)
+        return original_copy(values, dtype)
+
+    monkeypatch.setattr(problem_module, "_held_copy", counted)
+    return copies
+
+
+def test_a_built_in_pulse_is_held_without_a_copy(state_copies):
+    # solprop's own pulses build a new array: neither the simulation nor the problem
+    # copies it, on a modal route or in free space.
+    modal = tiny_simulation()
+    problem = modal.translate()
+    grid = EnvelopeGrid.from_limits(1e-4, 800e-9, (700e-9, 950e-9), 150e-15, thg=False)
+    space = FreeGrid(4e-4, 4, 3e-4, 3, collar_fraction=0)
+    pulse = SpatialPulse(
+        GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-9), 1e-4
+    )
+    settings = SimulationSettings(
+        save_planes=[1e-4], dz_max=5e-5, dz_init=5e-5, backend="numpy_ref"
+    )
+    free = Simulation.from_free(
+        grid, space, SpatialMedium(), [], pulse, settings=settings, noise=None
+    )
+    spatial = free.translate()
+    assert state_copies == []
+    assert spatial.initial.field0.base is free._field0
+    assert not modal._field0.flags.writeable
+    assert not problem.initial.field0.flags.writeable
+
+
+def test_another_pulse_s_build_is_copied(state_copies):
+    # A pulse that is not solprop's may hand back an array it keeps: it is copied, and
+    # the pulse's array is neither shared nor frozen.
+    simulation = tiny_simulation()
+
+    class Kept:
+        """A duck-typed pulse returning the array it holds."""
+
+        def __init__(self, spectrum):
+            self.spectrum = spectrum
+
+        def build(self, grid):
+            del grid
+            return self.spectrum
+
+    kept = Kept(np.array(simulation._field0))
+    derived = simulation.with_input(kept)
+    assert state_copies == [kept.spectrum.shape]
+    assert kept.spectrum.flags.writeable
+    assert not np.shares_memory(derived._field0, kept.spectrum)
 
 
 def test_interior_input_uses_actual_z_modal_weight():
