@@ -870,7 +870,6 @@ DRIVER_SURFACE = {
     "_bind_monitor": "(self, monitor: solprop.monitor.BoundaryMonitor | None) -> None",
     "_boundary_energies": "(self, state: _StateT) -> solprop.monitor.BoundaryEnergies",
     "_next_step": "(self) -> float",
-    "march_snapshot_nbytes": "(self, z: float) -> int | None",
     "_observed_field": (
         "(self, state: _StateT)"
         " -> jaxtyping.Complex[ndarray, 'n_batch n_modes n_pol n_omega']"
@@ -1005,7 +1004,6 @@ DRIVER_ATTRIBUTES = (
     "_accepted_steps",
     "_clock",
     "_collar_quiet",
-    "_held_z",
     "_history",
     "_monitor",
     "_natural_count",
