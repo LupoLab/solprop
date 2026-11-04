@@ -378,8 +378,17 @@ already reaches its ceiling at the band edges, so any rate added there moves the
 reference length; the explicit collars never move. A zero rate returns the collar field
 for field, so its runs have the collar's results and configuration hash.
 
-The user's rate is summed into the collar's, so a diagnostic of the spectral collar's
-absorbed energy reports the two together.
+The operator takes the sum, and `Absorber.user_rate` keeps the user's share of it:
+`spectral_rate` stays the total, so the operator moves by no bit, and
+`0 <= user_rate <= spectral_rate` holds on every bin. `absorbed_power` reports the share as
+its own `custom` channel and the collar alone as `spectral`, so what your loss took and
+what the numerical collar took read apart, and their sum is the power the spectral rate
+removes. A rate added twice adds its shares. A collar without one has `user_rate=None`,
+which the run record leaves out, so its record and hash stay; set, the share is
+recorded, since two splits of one total are not one run. `absorber=False` clears it with
+the rate it belongs to. In vacuum, on a linear beam, a bin's energy falls by
+$1-e^{-L\sum_i\alpha_i}$ and each rate's share of that is $\alpha_j/\sum_i\alpha_i$
+([the statistic](../results/statistics.md#regions-and-the-beam)).
 
 ### A spectral-only collar
 

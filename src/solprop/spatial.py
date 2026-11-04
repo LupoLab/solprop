@@ -2139,8 +2139,9 @@ class ApertureOutline:
     r"""One aperture's weight as a function of its image's offsets (SEP 23, #186).
 
     The seam the far-field statistics and the offline
-    :class:`solprop.coupling.Aperture` share. A circle is :func:`aperture_profile` of
-    the distance from the centre; an ellipse the same of the distance in the frame
+    :class:`solprop.coupling.elements.Aperture` share. A circle is
+    :func:`aperture_profile` of the distance from the centre; an ellipse the same of the
+    distance in the frame
     where it is a circle of radius ``sqrt(a b)``, so its edge width in metres is
     ``w a/sqrt(a b)`` along x and ``w b/sqrt(a b)`` along y; a rectangle the product
     :math:`W(|x|)W(|y|)` of two straight edges, closed like a circle; and a half-plane

@@ -607,6 +607,19 @@ as much as the `energy` statistic and is 30 to 37 times faster than the host pas
 replaced (which cost 77–84 % of a step). On Kokkos CPU it is compute-bound (square roots
 and saturated `tanh` weights), 15–16 times `energy`.
 
+The per-row profile and shape of kernel schema 44 (#446) left a set of circles' path alone.
+Measured on the pass alone, `NativeBackend.stats` of `aperture_spectrum` and `beam_spectrum`
+called seven times per process on a held 192 × 192 × 192-bin state of a Cartesian grid,
+interleaved old and new builds in four rounds, native CPU at 8 threads on an Intel Xeon Gold
+6240, GCC 16.2. The machine was shared and each round's numbers moved by up to 60 %
+between runs, so the fastest round of each arm is the figure (ms per call, before → after):
+three hard holes 31.75 → 32.16 (+1.3 %), three hard holes on one centre, with the radius
+shared, 32.26 → 32.69 (+1.3 %), three `tanh` holes 79.42 → 76.74 (−3.4 %), sixteen `rcos`
+holes 103.4 → 89.7 (−13 %). The results of both backends on these sets were identical to the
+bit. A shape other than a circle forms its offsets and takes one more branch per row and
+element. This is indicative: `python -m benchmarks ab` was not run, and a quiet machine
+should repeat it; the far-field pass runs at save planes and periodic rows only.
+
 ### Raman kernel rebuild
 
 On a density gradient the Raman kernel is rebuilt at every stage, and its cost scales with

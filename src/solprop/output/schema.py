@@ -120,6 +120,7 @@ __all__ = [
     "field_retention_refusal",
     "package_versions",
     "recorded_input",
+    "refuse_continuing",
     "resolve_metadata_write",
     "serialise",
 ]
@@ -146,8 +147,8 @@ Schema 1 is the first released layout, 0.1.0's: the record types of this module,
 by :class:`solprop.output.memory.MemoryOutput` and
 :class:`solprop.output.hdf5.HDF5Output` as ``docs/guide/results/output.md`` describes
 them. Schema 2 records ``DataPulse.spectral_phase``. Schema 3 gives ``absorbed_power`` a
-fifth column, ``custom``, in ``stats`` and ``step_stats``, and makes its first column the
-spectral collar alone. A record that declares any other version but
+fifth column, ``custom``, in ``stats`` and ``step_stats``, and makes its first column
+the spectral collar alone. A record that declares any other version but
 :data:`READABLE_SCHEMAS` is refused by name (:class:`RunMetadata`): files written by an
 earlier release or by development versions of solprop, which declared output schemas up
 to 28, are not read, and nor is a file from a later release. Read such a file with the

@@ -1122,7 +1122,7 @@ each amplitude is accumulated twice, as `sum alpha W E` and as its closure
 `sum alpha W conj(eta) E` (the internal spectrum takes the conjugate admittance). The
 admittance is formed per element, from the root the operator uses, never stored as a
 column-by-frequency table. The slots (`backends.spatial.far_field_layout`) are the
-present ones of `[beam, absorbed x 4, regions..., per aperture (collected, Re and Im of
+present ones of `[beam, absorbed x 5, regions..., per aperture (collected, Re and Im of
 the on-axis amplitude per polarisation, then of its closure), on-axis amplitude and
 closure]`. The last is the `W = 1` slot: `on_axis_spectrum` is formed there, which holds SEP 23's
 identity between the two to rounding by construction. `native` forms `on_axis_intensity` in

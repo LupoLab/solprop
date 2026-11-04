@@ -11,6 +11,8 @@ the backend doors are in ``tests/backends/test_far_field_statistics.py``.
 """
 
 import contextlib
+import hashlib
+import json
 import math
 
 import numpy as np
@@ -302,6 +304,10 @@ def test_tables_validate_their_shapes_and_derived_constants():
         ApertureTables(**{**shared, "weights": np.ones(3)})
     with pytest.raises(OutputError, match="exponent of 1 or 2"):
         ApertureTables(**shared, exponent=3)
+    with pytest.raises(OutputError, match="one profile and one shape per aperture"):
+        ApertureTables(**shared, profiles=("hard", "hard"))
+    with pytest.raises(OutputError, match="one profile and one shape per aperture"):
+        ApertureTables(**shared, shapes=("circle", "ellipse"))
 
 
 # ------------------------------------------------------ item 3: every weight is one
@@ -1503,6 +1509,22 @@ def test_an_unset_shape_keeps_the_record_and_a_circle_says_nothing_new():
     )
     assert uniform.profile == "rcos" and uniform.profiles is None
     assert uniform.row_profiles == ("rcos", "rcos")
+
+
+def test_a_set_of_circles_records_what_it_recorded_before_shapes():
+    # Pinned as SEP 25 pins a record, against the record of the tree before shapes: the
+    # bytes of a set's JSON, which enter every configuration hash that carries one.
+    holes = ApertureSet(
+        centres=[[0.0, 0.0], [1e-3, 0.0]],
+        diameters=[2e-3, 1e-3],
+        distances=[0.25, 0.25],
+        edges=[2e-4, 1e-4],
+        profile="tanh",
+        weighting="quadrature",
+        labels=("a", "b"),
+    )
+    text = json.dumps(serialise(holes), sort_keys=True)
+    assert hashlib.sha256(text.encode()).hexdigest()[:20] == "219529074794693467ba"
 
 
 def test_a_set_shape_is_recorded_and_two_sets_tell_apart():

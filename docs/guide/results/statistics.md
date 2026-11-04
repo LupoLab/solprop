@@ -348,7 +348,7 @@ record what such a detector measures, at every saved plane, without storing the 
 | `aperture_on_axis_spectrum` | the on-axis spectral fluence behind each aperture placed in a Fourier plane |
 | `region_spectrum` | the spectrum in each box of transverse wavevector of `spectral_regions` |
 | `beam_spectrum` | the whole-beam spectral energy density, the axial flux of the medium at the plane |
-| `absorbed_power` | the power the spectral, transverse, evanescent and material absorbers remove, per unit length |
+| `absorbed_power` | the power the spectral collar, the transverse, evanescent and material absorbers and a custom spectral rate each remove, per unit length |
 
 Their shapes and units are in the [catalogue](statistics-catalogue.md) and their
 equations in the [definitions](statistics-definitions.md#far-field-spectra).
@@ -408,7 +408,7 @@ parameter and is exact for a physical hard stop, at the staircase error above. F
 smooth quadrature weight, prefer `rcos`: it is exactly one inside $r-w$ and zero outside
 $r+w$, flat at its centre and has no tail bias. Quadrature `tanh` is admitted only at
 $w\le D/8$ ($r/w\ge4$), where the centre slope is about $0.02$ of the case measured
-above and its error of order $2	imes10^{-7}$. Amplitude `tanh` with $2\le r/w<4$ is the
+above and its error of order $2\times10^{-7}$. Amplitude `tanh` with $2\le r/w<4$ is the
 one choice that reaches the $10^{-5}$ class: an {py:class}`~solprop.stats.ApertureSet`
 built so warns once ({py:class}`~solprop.exceptions.ApertureEdgeWarning`, naming `rcos`)
 and runs what was asked.
@@ -461,6 +461,91 @@ holds the mask. The amplitude is linear in the field, so $W$ enters it once unde
 weightings (at $D_q$ under quadrature weighting); with $W\equiv1$ it is
 `on_axis_spectrum`.
 
+### Aperture shapes
+
+An {py:class}`~solprop.stats.ApertureSet` row is a circle unless `shapes` says otherwise,
+and each row may have its own profile (`profiles`), so a hard knife edge can sit beside
+apodised holes. `weighting` stays one per set: a hard row's $W^p$ is the same under both.
+
+| `shapes` entry | keeps | measures | with an edge |
+|---|---|---|---|
+| `circle` | $\rho\le r$ | `diameters` | the profile of $\rho-r$ |
+| `ellipse` | $(\Delta x/a)^2+(\Delta y/b)^2\le1$ | `extents` $(2a,2b)$ | a scaled circle: the profile of its radius in the frame where it is a circle of radius $\sqrt{ab}$ |
+| `rectangle` | $|\Delta x|\le a$ and $|\Delta y|\le b$ | `extents` $(2a,2b)$ | the product $W(|\Delta x|)W(|\Delta y|)$ of two straight edges |
+| `half_plane_x_ge` | $x\ge X$ | none | the edge at $X-x$ |
+| `half_plane_x_lt` | $x<X$ | none | one minus `half_plane_x_ge` |
+| `half_plane_y_ge`, `half_plane_y_lt` | $y\ge Y$, $y<Y$ | none | the same in $y$ |
+
+A row's `diameters` entry is zero unless it is a circle, its `extents` entry zero unless
+it is an ellipse or a rectangle, and `extents` is `None` when no row needs it: a table
+that would be silently unused is refused. A half-plane's `centres` row holds its edge's
+position on the axis it names and zero on the other. Every position is physical, and the
+map is the apertures': a column's image lies at $x=s(\omega)\kappa_x$, so an edge fixed
+in the plane sits at $\kappa_x=\omega X/(cz)$, moving with frequency, which no box of
+`spectral_regions` can express. With $W\in\{0,1\}$ the collected spectrum is exactly the
+sum `region_spectrum` forms over the columns the edge admits at that bin, with the same
+Parseval weights and the same axial flux ([below](#regions-and-the-beam)).
+
+**Half-open, so that a half-plane and its complement tile the columns.** The two sides of
+one edge read one sign: an image exactly on $x=X$ belongs to $x\ge X$ and not to $x<X$,
+as regions' edges do. The hard pair sums to one on every column, to the bit. Holes are
+closed, like a circle: an aperture is a stop, and a rectangle on a line is the slit a
+circle of that width is. What the pair tiles is **the columns the map reaches**, those
+with $s|\boldsymbol\kappa|<z$: the weight is zero beyond, as for every aperture. In vacuum
+those carry all the beam's flux; in a medium, columns beyond $\omega/c$ still propagate but
+cannot leave the exit face, so a half-plane and its complement fall short of
+`beam_spectrum`, and `region_spectrum` does not. A half-plane at $X=0$ with its region
+counterpart `(0, inf, -inf, inf)` agrees within that disc. With a smooth edge the
+complement is $1-W$: quadrature weighting then sums to one, while under amplitude weighting
+$W^2+(1-W)^2<1$ on the edge, as two soft masks' powers do; their fields sum to the field.
+
+**The edges.** `supergauss` falls from a centre, so a half-plane refuses it; on an ellipse
+it is $\exp[-(\rho_e)^n]$ with $\rho_e$ the normalised radius, and on a rectangle the
+product of one in each axis. A half-plane's or a rectangle's edge width is $w$ in metres
+all the way along. An ellipse's is not: the scaling makes it $w\,a/\sqrt{ab}$ along $x$ and
+$w\,b/\sqrt{ab}$ along $y$. That is the price of a scaled circle, and it is what makes
+quadrature sound there: the map to the circular frame has a constant Jacobian, so the
+corrected $D_q$ of a circle of diameter $2\sqrt{ab}$ integrates to the hard ellipse's
+$\pi ab$ exactly where it does on a circle, with a residual of the same order. Straight
+edges need no correction: a symmetric edge's $W(u)$ alone integrates to the hard edge's,
+so a rectangle's half-widths and a half-plane's position are used as given. The range of
+$w$ is that of the circle's with $D$ read as $\sqrt{D_xD_y}$ of an ellipse and the smaller
+width of a rectangle, except that quadrature `tanh` on a rectangle stops at $w\le D/10$,
+which keeps its two tails' bias, each $(w/2a)e^{-2a/w}$, under the $2\times10^{-5}$ a
+circle's has at $D/8$. A half-plane needs only $w>0$.
+
+**The paraxial disc.** A hole must lie inside the disc. A half-plane reaches its edge by
+nature: its own edge must lie inside, or it would select all of the disc or nothing. The
+map's paraxial error matters only where the edge decides: a column's true image in a free
+far field lies $O(\theta^2)$ of its $x$ from the paraxial one, $\theta$ its whole angle
+from the axis, so only columns that near the edge can change sides. At $X=0$ the decision
+is the sign of $\kappa_x$ and is exact.
+
+A line takes `half_plane_x_ge`, `half_plane_x_lt` and `rectangle`, whose $y$ edges meet
+nothing, so it is the slit of its $x$ width with $D_q=D$; it refuses an ellipse and a
+half-plane bounded in $y$, which hold every column or none. Radial and planar-hybrid
+geometry have no far-field statistic at all. The offline
+{py:class}`~solprop.coupling.elements.Aperture` takes the same outlines from the same
+seam ({py:class}`~solprop.spatial.ApertureOutline`) and refuses all but a circle on a
+radial grid, and a set of unset `shapes`, `profiles` and `extents` keeps its record and
+its configuration hash from before they existed.
+
+```{code-block} python
+from solprop.stats import ApertureSet, StatsSpec
+
+mask = ApertureSet(
+    centres=[[1.2e-3, 0.0], [1.2e-3, 0.0], [-3e-3, 1e-3]],
+    diameters=[0.0, 0.0, 0.0],
+    distances=[0.25] * 3,
+    edges=[0.0, 0.0, 40e-6],
+    extents=[[0.0, 0.0], [0.0, 0.0], [1.5e-3, 0.4e-3]],
+    shapes=("half_plane_x_ge", "half_plane_x_lt", "rectangle"),
+    profiles=("hard", "hard", "rcos"),
+    labels=("signal", "the rest", "slit"),
+)
+spec = StatsSpec(names=("energy", "aperture_spectrum"), apertures=mask)
+```
+
 ### Regions and the beam
 
 A region is a half-open box
@@ -486,15 +571,22 @@ with its magnetic closure at the same frequency, so each column carries its own
 admittance. These are the powers crossing the run's last plane inside the medium; the
 transmission of an exit face is not modelled.
 
-`absorbed_power` is four powers in J/m, in the order `spectral`, `transverse`,
-`evanescent`, `material` ({py:data}`~solprop.spatial.ABSORBED_CHANNELS`), each a power
-rate weighted by the same real admittance as `energy`: the spectral
-absorber's rate on every bin, as the stages apply it; the transverse-wavevector rate,
-zero until the operator carries one; the evanescent cap
-$2\min(|\operatorname{Im}k_z|,\alpha_{\rm ev})$ on active evanescent bins; and
+`absorbed_power` is five powers in J/m, in the order `spectral`, `transverse`,
+`evanescent`, `material`, `custom` ({py:data}`~solprop.spatial.ABSORBED_CHANNELS`), each a
+power rate weighted by the same real admittance as `energy`: the spectral collar's rate
+on every bin, as the stages apply it; the transverse-wavevector rate, zero until the
+operator carries one; the evanescent cap
+$2\min(|\operatorname{Im}k_z|,\alpha_{\rm ev})$ on active evanescent bins;
 $2\operatorname{Im}k_z$ on active propagating bins, the loss of a complex index (negative
-for gain), exactly zero for a real one. Together they are the whole real part of the
-separable operator, so their sum is $-dU/dz$ of `energy` under the linear flow. The
+for gain), exactly zero for a real one; and a
+[custom spectral rate](../numerics/boundaries.md#a-custom-spectral-absorber), exactly zero
+without one. Together they are the whole real part of the separable operator, so their sum
+is $-dU/dz$ of `energy` under the linear flow. Each is an instantaneous rate at its plane.
+What one channel takes over a length is its integral along $z$, whose quadrature error is
+yours to bound; every channel here is a power rate acting on the one power, so on a linear
+beam a bin's share is $\alpha_j/\sum_i\alpha_i\,(1-e^{-L\sum_i\alpha_i})$, with the
+material and transverse rates inside the sum. A whole channel has no single fraction when
+the rates vary across the bins. The
 physical-space spatial collar and the temporal collar are diagonal in other
 representations and are not included (the collar diagnostic watches the first), nor are
 nonlinear losses. It is the one far-field statistic admitted
@@ -503,8 +595,8 @@ nonlinear losses. It is the one far-field statistic admitted
 ### The line, end bins and what is refused
 
 On a line ($n_y=1$) the spectra and powers are per metre of $y$ and the on-axis spectra
-stay local. An aperture is a slit of full width $D$ along $x$, its $y$ centre must be
-zero, its edges are straight and $D_q=D$; a region selects nothing unless its
+stay local. A circle or a rectangle is a slit of full width $D$ along $x$, its $y$ centre
+must be zero, its edges are straight and $D_q=D$; a region selects nothing unless its
 $\kappa_y$ interval contains zero, and is refused otherwise. At a field grid's
 zero-frequency and Nyquist bins every spectrum follows `spectral_density`'s documented
 rule; both bins are zero on every grid solprop builds.
