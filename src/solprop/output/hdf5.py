@@ -862,12 +862,10 @@ class HDF5Output(PlaneStore):
     append : bool, optional
         Continue the run the file already holds instead of replacing the file: the
         resume path, after :func:`resume` has handed the driver the last plane. The
-        record given to ``open`` is compared with the file's
-        (:meth:`~solprop.output.schema.RunMetadata.compare`) and refused when the
-        layout or a compared value differs; the file's own record is kept, creation
-        time included, and becomes the handler's ``metadata``, and the run's layout is
-        read from the file so that the next plane is checked against the ones already
-        there.
+        record given to ``open`` is refused when its configuration hash differs from
+        the file's; the file's own record is kept, creation time included, and becomes
+        the handler's ``metadata``, and the run's layout is read from the file so that
+        the next plane is checked against the ones already there.
     readonly : bool, optional
         Open the file at once, for reading only: the handler comes back open, with
         the file's own record as its ``metadata``, and refuses ``open`` and ``save``.
