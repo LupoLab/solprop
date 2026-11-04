@@ -576,6 +576,14 @@ TEST(GeneralModal, AnEdgeLineReadsAPlainTransformAndASlope) {
     EXPECT_NEAR(numbers.strip[1], 2.0 * windowed, tolerance);
     EXPECT_NEAR(numbers.current, 3.0 * current, tolerance);
   }
+  // A monitor with no collar after one with: the strip's buffers don't stay held.
+  const auto with_lines = state.memory_ledger().at("transverse_edge");
+  native::EdgeLines none_at_all;
+  none_at_all.batch_bytes = 1024;
+  state.bind_edge_lines(none_at_all);
+  EXPECT_LT(state.memory_ledger().at("transverse_edge"),
+            with_lines - n * 2 * kModes * sizeof(Complex) + 1);
+  EXPECT_TRUE(state.edge_reading(false, false, false, true, false).strip.empty());
 }
 
 TEST(GeneralModal, AnEdgeLineThatDoesNotAccountForItsNodesIsRefused) {

@@ -44,6 +44,7 @@ from solprop.stepper import (
     PIController,
     RungeKutta,
 )
+from solprop.transverse_monitor import TransverseEdge
 
 pytestmark = pytest.mark.skipif(
     "native" not in available(), reason="native is not installed"
@@ -58,6 +59,20 @@ ROUTES = ("radial", "cartesian", "line", "planar")
 
 STEPS = 8
 """Fixed steps over the tiny cases: short enough for the collar's stability limit."""
+
+
+INWARD: dict[str, Any] = {
+    "waist": 60e-6,
+    "propz": -2.4e-2,
+    "boundary_check": BoundaryCheck(budget=1.0, stop_factor=1.0, transverse_budget=1.0),
+}
+"""A converging beam reaching the collar, whose current is inward and above rounding.
+
+A narrow beam's current is 1e-30 and a comparison of it passes whatever it reads.
+"""
+
+CURRENT_FLOOR = 1e-14
+"""Well above rounding in a share of the launch, and what `INWARD`'s current clears."""
 
 
 def _settings(*, planar: bool = False, **overrides: Any) -> SimulationSettings:
@@ -222,6 +237,16 @@ def test_native_reads_a_collars_strip_and_current_as_the_host_does(
     assert host.current > 0.0
     assert native.current == pytest.approx(host.current, rel=64 * budget)
     np.testing.assert_allclose(native.totals, host.totals, rtol=budget)
+    # A later read uses only the collar's rate, from the rows a read can touch.
+    backend, edge = _attached(simulation, state)
+    try:
+        read = backend._edge_reading(backend._require_state(), edge)
+    finally:
+        backend.close()
+    assert read.totals[1] > 0.0
+    assert read.totals[1] == pytest.approx(
+        edge.reduction.reading(state[0]).totals[1], rel=budget
+    )
 
 
 def test_a_plane_wave_reads_its_exact_current() -> None:
@@ -398,6 +423,7 @@ def test_a_collars_read_leaves_the_march_where_it_was(
         )
         simulation = _case(
             route,
+            **INWARD,
             integrator=march,
             schedule=schedule,
             save_planes=[LENGTH],
@@ -435,10 +461,15 @@ def test_a_collars_read_leaves_the_march_where_it_was(
         host, host_record = final()
     assert native == host
     assert record["reads"] == host_record["reads"] >= STEPS // 2
-    # The same numbers by two reducers: their rounding, on a beam far from the edge.
-    assert record["current"] == pytest.approx(
-        host_record["current"], rel=1e-8, abs=1e-15
-    )
+    # The same numbers by two reducers: their rounding. A planar launch can't converge,
+    # so its current stays at rounding, and only its absolute size is left to hold.
+    if route == "planar":
+        assert record["current"] == pytest.approx(host_record["current"], abs=1e-15)
+    else:
+        assert host_record["current"] > CURRENT_FLOOR
+        assert record["current"] == pytest.approx(
+            host_record["current"], rel=1e-8, abs=0.0
+        )
 
 
 @pytest.mark.parametrize("route", ROUTES)
@@ -546,7 +577,9 @@ def test_a_stopped_collar_run_resumes_to_the_whole_runs_record(
         schedule = FixedSchedule.uniform(
             0.0, LENGTH, LENGTH / STEPS, save_planes=[LENGTH / 2, LENGTH]
         )
-        return _case("radial", integrator=march, schedule=schedule, controller=None)
+        return _case(
+            "radial", **INWARD, integrator=march, schedule=schedule, controller=None
+        )
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", BoundaryWarning)
@@ -560,12 +593,14 @@ def test_a_stopped_collar_run_resumes_to_the_whole_runs_record(
     expected = whole.outcome.execution["boundary_monitor"]["transverse"]
     found = cast("Any", resumed).execution["boundary_monitor"]["transverse"]
     assert found["launch_energy"] == pytest.approx(expected["launch_energy"], rel=1e-12)
-    # Field rounding, carried through a share of a share: nothing's restarted.
-    assert expected["current"] > 0.0
-    assert found["current"] == pytest.approx(expected["current"], rel=1e-8)
-    assert found["strip_max"] == pytest.approx(expected["strip_max"], rel=1e-8)
+    # Field rounding, carried through a share of a share: nothing's restarted. Each is
+    # well above rounding, so that one read as zero would fail here.
+    for key in ("current", "strip_max"):
+        assert expected[key] > CURRENT_FLOOR, key
+        assert found[key] == pytest.approx(expected[key], rel=1e-8, abs=0.0), key
+    assert expected["current_baseline"] > CURRENT_FLOOR
     assert found["current_baseline"] == pytest.approx(
-        expected["current_baseline"], rel=1e-12
+        expected["current_baseline"], rel=1e-12, abs=0.0
     )
 
 
@@ -648,12 +683,8 @@ def test_a_collar_run_matches_numpy_ref_on_a_matched_schedule(
     def run(backend: str) -> tuple[np.ndarray, dict[str, Any]]:
         simulation = _case(
             route,
-            waist=60e-6,
-            propz=-2.4e-2,
+            **INWARD,
             backend=backend,
-            boundary_check=BoundaryCheck(
-                budget=1.0, stop_factor=1.0, transverse_budget=1.0
-            ),
             integrator=march,
             schedule=FixedSchedule.uniform(
                 0.0, LENGTH, LENGTH / steps, save_planes=[LENGTH / 2, LENGTH]
@@ -675,8 +706,8 @@ def test_a_collar_run_matches_numpy_ref_on_a_matched_schedule(
     # A planar launch can't converge, so its current stays at rounding: what's left to
     # hold there is its absolute size.
     if route != "planar":
-        assert reference["current"] > 1e-14
-        assert reference["spatial_removed"] > 1e-14
+        assert reference["current"] > CURRENT_FLOOR
+        assert reference["spatial_removed"] > CURRENT_FLOOR
     for key in ("current", "spatial_removed", "strip_max"):
         assert native[key] == pytest.approx(reference[key], rel=1e-8, abs=1e-15), key
 
@@ -694,7 +725,17 @@ def test_a_supplied_unmasked_draw_judges_as_the_host_does_with_no_transfer(
     route: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # The ramp judges the launch without its noise, which is where the load has both
-    # parts. A draw that's been masked would hide the mask's own part of that.
+    # parts. A masked draw would hide the mask's own part of that. The record
+    # can't show it unless the stop's reached, so this looks at what's judged.
+    judge = TransverseEdge._judge_ramp_band
+    judged: list[np.ndarray] = []
+
+    def seen(self: Any, columns: np.ndarray, *args: Any, **kwargs: Any) -> None:
+        judged.append(np.array(columns))
+        judge(self, columns, *args, **kwargs)
+
+    monkeypatch.setattr(TransverseEdge, "_judge_ramp_band", seen)
+
     def launch() -> tuple[dict[str, Any], int]:
         simulation = _case(route, noise="input")
         problem = simulation.translate()
@@ -730,6 +771,10 @@ def test_a_supplied_unmasked_draw_judges_as_the_host_does_with_no_transfer(
     for key in ("launch_energy", "noise_allowance", "noise_share_in_ramp"):
         assert native[key] == pytest.approx(host[key], rel=1e-11, abs=1e-30), key
     assert native["noise_share_in_ramp"] > 0.0
+    # A column's own rounding is that of adding the draw and taking it away again.
+    assert len(judged) == 2
+    assert np.max(judged[0]) > 0.0
+    np.testing.assert_allclose(judged[0], judged[1], rtol=1e-10, atol=1e-30)
 
 
 def _host_clean_columns(self: Any, edge: Any) -> np.ndarray | None:

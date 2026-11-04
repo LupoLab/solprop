@@ -2904,7 +2904,8 @@ NB_MODULE(_core, module_) {
             lines.k_min = k_min;
             lines.scale = real_vector(scale);
             lines.batch_bytes = batch_bytes;
-            const nb::gil_scoped_release release;
+            // Holding the GIL: a strip's plan goes through FFTW's planner, which the
+            // GIL serialises against another thread's backend being built.
             self.bind_edge_lines(lines);
           },
           "axes"_a.noconvert(), "counts"_a.noconvert(), "positions"_a.noconvert(),

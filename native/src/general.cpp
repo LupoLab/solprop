@@ -2198,9 +2198,7 @@ public:
     for (const auto& line : edge_lines_)
       total += line.positions.size() * sizeof(std::size_t) +
                line.window.size() * sizeof(double);
-    for (const auto& [shape, batch] : edge_batches_)
-      total += batch.buffer.size() * sizeof(Complex);
-    return total;
+    return total + edge_strip_.size() * sizeof(Complex);
   }
   // The bytes through this state's crossings since it was built, each way (solprop SEP
   // 44).
@@ -2926,9 +2924,11 @@ public:
   struct EdgeBatch {
     ComplexView2 buffer;
     std::unique_ptr<StripPlan> plan;
+    std::size_t heap_growth{}, device_growth{};
   };
   std::vector<EdgeLine> edge_lines_;
   std::map<std::pair<std::size_t, std::size_t>, EdgeBatch> edge_batches_;
+  ComplexView edge_strip_;
   RealView edge_scale_;
   double edge_k_min_{};
   // A large crossing's pinned chunks, once one has been made (`crossing.hpp`).
@@ -14826,9 +14826,14 @@ void GeneralWorkspace::bind_edge_lines(const EdgeLines& lines) {
   require_extent(lines.onsets.size(), 3 * n_lines, "edge line onsets");
   require_extent(lines.steps.size(), n_lines, "edge line steps");
   require_extent(lines.windows.size(), lines.positions.size(), "edge line windows");
+  if (std::accumulate(lines.counts.begin(), lines.counts.end(), std::size_t{0}) !=
+      lines.positions.size())
+    throw std::invalid_argument("the edge's lines don't account for their nodes");
   const auto planes = problem_.n_pol_state * problem_.n_omega;
-  edge_lines_.clear();
-  edge_k_min_ = lines.k_min;
+  // A runner's next point reuses the plans of its shapes, and only those stay held.
+  decltype(edge_batches_) batches;
+  std::vector<EdgeLine> bound;
+  bound.reserve(n_lines);
   std::size_t offset = 0;
   for (std::size_t index = 0; index < n_lines; ++index) {
     EdgeLine line;
@@ -14847,40 +14852,68 @@ void GeneralWorkspace::bind_edge_lines(const EdgeLines& lines) {
     line.before = lines.onsets[3 * index + 1];
     line.after = lines.onsets[3 * index + 2];
     if (line.nodes != 0) {
-      const auto begin = lines.positions.begin() + static_cast<std::ptrdiff_t>(offset);
-      const auto end = begin + static_cast<std::ptrdiff_t>(line.nodes);
-      if (offset + line.nodes > lines.positions.size())
-        throw std::invalid_argument("the edge's lines overrun their nodes");
+      const auto first = static_cast<std::ptrdiff_t>(offset);
+      const auto last = static_cast<std::ptrdiff_t>(offset + line.nodes);
       line.positions = IndexView("solprop_native.edge.line_nodes", line.nodes);
       line.window = RealView("solprop_native.edge.line_window", line.nodes);
       copy_vector(execution_space_, line.positions,
-                  std::vector<std::size_t>(begin, end));
+                  std::vector<std::size_t>(lines.positions.begin() + first,
+                                           lines.positions.begin() + last));
       copy_vector(execution_space_, line.window,
-                  std::vector<double>(
-                      lines.windows.begin() + static_cast<std::ptrdiff_t>(offset),
-                      lines.windows.begin() +
-                          static_cast<std::ptrdiff_t>(offset + line.nodes)));
+                  std::vector<double>(lines.windows.begin() + first,
+                                      lines.windows.begin() + last));
       offset += line.nodes;
       const std::size_t count = 2 * line.nodes;
       line.batch =
           std::min(line.rows, std::max<std::size_t>(1, lines.batch_bytes /
                                                            (sizeof(Complex) * count)));
-      auto& batch = edge_batches_[{line.batch, count}];
-      if (batch.buffer.extent(0) == 0) {
-        batch.buffer =
-            ComplexView2(Kokkos::view_alloc(Kokkos::WithoutInitializing,
-                                            std::string("solprop_native.edge.strip")),
-                         line.batch, count);
+    }
+    bound.push_back(std::move(line));
+  }
+  // The strips run in turn, so one allocation serves every shape: a positive and a
+  // negative face's lines commonly differ by a node, and would otherwise hold two.
+  std::size_t largest = 0;
+  for (const auto& line : bound)
+    largest = std::max(largest, line.batch * 2 * line.nodes);
+  if (edge_strip_.size() != largest)
+    edge_strip_ =
+        largest == 0
+            ? ComplexView{}
+            : ComplexView(Kokkos::view_alloc(Kokkos::WithoutInitializing,
+                                             std::string("solprop_native.edge.strip")),
+                          largest);
+  for (const auto& line : bound) {
+    if (line.nodes == 0)
+      continue;
+    const std::size_t count = 2 * line.nodes;
+    const std::pair<std::size_t, std::size_t> shape{line.batch, count};
+    if (!batches.contains(shape)) {
+      EdgeBatch batch;
+      if (auto kept = edge_batches_.extract(shape); kept)
+        batch = std::move(kept.mapped());
+      // Not tracked: `edge_strip_` owns the memory, and outlives every shape's view.
+      batch.buffer = ComplexView2(edge_strip_.data(), line.batch, count);
+      if (!batch.plan) {
+        // A plan's own memory is measured as the workspace's are, and listed with them.
+        const auto heap_before = heap_bytes();
+        const auto device_before = device_free_bytes();
         constexpr int along = -1;
         batch.plan = std::make_unique<StripPlan>(fft_space_for(batch.buffer.size()),
                                                  batch.buffer, batch.buffer,
                                                  KokkosFFT::Direction::forward, along);
+        execution_space_.fence("solprop_native edge strip plan");
+        const auto heap_after = heap_bytes();
+        const auto device_after = device_free_bytes();
+        batch.heap_growth = heap_after > heap_before ? heap_after - heap_before : 0;
+        batch.device_growth =
+            device_before > device_after ? device_before - device_after : 0;
       }
+      batches.emplace(shape, std::move(batch));
     }
-    edge_lines_.push_back(std::move(line));
   }
-  if (offset != lines.positions.size())
-    throw std::invalid_argument("the edge's lines don't account for their nodes");
+  edge_lines_ = std::move(bound);
+  edge_batches_ = std::move(batches);
+  edge_k_min_ = lines.k_min;
   if (lines.scale.empty()) {
     edge_scale_ = {};
   } else {
@@ -15400,6 +15433,12 @@ std::map<std::string, std::size_t> GeneralWorkspace::memory_ledger() const {
 }
 
 std::map<std::string, std::size_t> GeneralWorkspace::base_memory_ledger() const {
+  std::size_t edge_plan_heap = 0;
+  std::size_t edge_plan_device = 0;
+  for (const auto& [shape, batch] : edge_batches_) {
+    edge_plan_heap += batch.heap_growth;
+    edge_plan_device += batch.device_growth;
+  }
   const auto complex_bytes = sizeof(Complex);
   const auto real_bytes = sizeof(double);
   const auto byte_bytes = sizeof(unsigned char);
@@ -15667,8 +15706,8 @@ std::map<std::string, std::size_t> GeneralWorkspace::base_memory_ledger() const 
       {"statistics_outputs", (statistics_total_power_.size() +
                               statistics_on_axis_.size() + statistics_packed_.size()) *
                                  real_bytes},
-      {"fft_plan_heap_growth", plan_heap_growth_},
-      {"fft_plan_device_growth", plan_device_growth_},
+      {"fft_plan_heap_growth", plan_heap_growth_ + edge_plan_heap},
+      {"fft_plan_device_growth", plan_device_growth_ + edge_plan_device},
   };
 }
 
@@ -15905,6 +15944,7 @@ void GeneralWorkspace::close() noexcept {
   occupancy_count_ = 0;
   crossing_ring_.release();
   edge_batches_.clear();
+  edge_strip_ = {};
   edge_lines_.clear();
   edge_scale_ = {};
   edge_faces_ = {};

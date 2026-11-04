@@ -118,7 +118,9 @@ class EdgeReading:
     clip : numpy.ndarray or None
         ``EdgeTables.clip @ nodes``, for a launch.
     totals : numpy.ndarray or None
-        ``EdgeTables.totals @ nodes``, for a launch or a collar's read.
+        ``EdgeTables.totals @ nodes``, for a launch or a collar's read. A collar's read
+        uses only the rate, ``[1]``: over the rows a read touches, which hold all of it,
+        the other three can be a different sum on different backends.
     columns : numpy.ndarray or None
         Each spectral column's ``sum |E|^2``, unweighted, shape ``(n_columns,)``;
         ``None`` when only the current was asked for.
@@ -523,13 +525,14 @@ def transverse_edge_bytes(
     lines = edge_lines(space, design)
     if isinstance(space, RadialGrid) and lines:
         total += 8 * space.n_r  # the scale of the radial line's values
-    buffers: set[tuple[int, int]] = set()
+    # The strips run in turn, on one buffer as large as the largest batch needs.
+    largest = 0
     for line in lines:
         total += 16 * line.strip.size
         if line.strip.size:
             rows = line_rows(space, line, n_pol, n_omega)
-            buffers.add((strip_batch(line, rows), 2 * line.strip.size))
-    return total + sum(16 * rows * count for rows, count in buffers)
+            largest = max(largest, strip_batch(line, rows) * 2 * line.strip.size)
+    return total + 16 * largest
 
 
 def _radial_inverse(space: RadialGrid) -> Float[np.ndarray, "n_r n_r"]:
