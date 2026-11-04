@@ -378,7 +378,7 @@ class Observation:
     step_stats: StepStats = dataclasses.field(default_factory=StepStats.empty)
 
     def __post_init__(self) -> None:
-        """Adopt read-only copies and check the plane.
+        """Freeze the arrays, as given when already contiguous, and check the plane.
 
         Raises
         ------
@@ -642,6 +642,11 @@ class Backend(Protocol):
 
     def observe(self, *, field: bool = True) -> Observation:
         """Return the state at the current position, as host arrays.
+
+        Nothing writes to the returned arrays again, the backend included: a run hands
+        them to its output without a copy (:func:`solprop.driver.run.run_problem`), and
+        a handler may keep them. A backend either returns arrays it no longer owns or
+        leaves the ones it returns behind, as a step that replaces its state does.
 
         Parameters
         ----------

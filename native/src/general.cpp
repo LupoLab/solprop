@@ -2086,6 +2086,7 @@ public:
   void adopt(const std::vector<Complex>& field, double dz);
   double low_storage_step(double dz, const TrialScalars& scalars, bool rebuild_table);
   void hold_plane();
+  void release_plane();
   std::vector<Complex> held_to_host() const;
   void low_storage_flows_formed(bool rebuild_table);
   void low_storage_separable_pass(std::size_t pass, double dz);
@@ -5811,6 +5812,12 @@ void GeneralWorkspace::hold_plane() {
         problem_.n_columns(), problem_.n_omega);
   graph::deep_copy(execution_space_, held_plane_, current_);
   held_ready_ = true;
+}
+
+void GeneralWorkspace::release_plane() {
+  execution_space_.fence("solprop_native release_plane");
+  held_plane_ = {};
+  held_ready_ = false;
 }
 
 std::vector<Complex> GeneralWorkspace::held_to_host() const {
@@ -15613,6 +15620,7 @@ void GeneralState::hold_plane() {
   const CpuTeamScope team(workspace_->cpu_team());
   workspace_->hold_plane();
 }
+void GeneralState::release_plane() { workspace_->release_plane(); }
 std::vector<Complex> GeneralState::held_to_host() const {
   const CpuTeamScope team(workspace_->cpu_team());
   return workspace_->held_to_host();

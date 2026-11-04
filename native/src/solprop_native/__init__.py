@@ -182,6 +182,7 @@ DRIVER_SURFACE: tuple[str, ...] = (
     "_bind_monitor",
     "_boundary_energies",
     "_dense_stages",
+    "_drop_held",
     "_finish",
     "_held_field",
     "_hoist",

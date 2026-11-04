@@ -131,6 +131,14 @@ All notable changes to solprop are recorded here. The format follows
   tutorials and the planar compressor ship as examples; `Recipe.preview_input()` gives a
   free-space beam's power, energy and fluence at the launch plane, and `Recipe.modes()`
   the planar route's slab channels.
+- `SimulationSettings(held_plane=False)` drops the state volume a low-storage run holds at
+  its last field-free plane, from `memory_ledger()`, the admission and `estimate()`, for a
+  run that will never resume. An output without `CheckpointOutput` now holds nothing
+  whatever the setting says, since it could never read the state. A step abandoned in flight
+  then records `failed` with no terminal checkpoint, and says plainly when the file cannot be
+  resumed; a stop between steps checkpoints as ever. Outside the configuration hash, with
+  the backend's record saying `held_plane: false` where nothing was held, and a recipe's
+  `[execution]` table takes it (#345).
 - A published-install check after each PyPI release, on all four wheel platforms:
   fresh CPython 3.14 environments resolve the native extra with pip and verify its
   version, dependencies and default backend. The same check can be run by hand for a
@@ -164,6 +172,17 @@ All notable changes to solprop are recorded here. The format follows
   soliton's nonlinear wavenumber where the recipe's pulse and fill give one. The mode set
   says which (`pump`, `nonlinear`). The GNLSE route has a mode preview too: its one specified
   mode, phase-matched with the recipe's `gamma`.
+- `Simulation.with_input` and `SimulationRunner.run` take `input_identity=`, a string the
+  run record holds with the array's dtype and shape (`solprop.output.StatedInput`) in place
+  of the SHA-256 of an array input's bytes. Without it, every hash is unchanged. The
+  identity is not checked: two different arrays stated alike have one configuration hash,
+  so a wrong identity passes a resume and a scan's cache. A derived run no longer digests
+  its parent's input to check its `configuration=` keys either (#449).
+- `solprop.output.RetainingOutput`, the documented protocol for a handler of your own that
+  takes field-free planes: its one method, `retain(retention, field_shape)`, is called once
+  per run, after `open` and before any `save`, with the rule resolved against the run's
+  planes. A run that keeps fewer than every field used to look the method up without
+  declaring it anywhere (#450).
 - The installation page now explains how to install a development version from CI's wheels with no compiler, and `poe fetch-wheel` now finds CI's Windows on Arm wheel.
 - `solprop-native` wheels use CPython's stable ABI, so one wheel serves Python 3.14 and later.
   solprop itself still needs pyFFTW and h5py wheels on 3.15.
@@ -222,6 +241,9 @@ All notable changes to solprop are recorded here. The format follows
 - The README, `CITATION.cff` and the citing page name solprop's Zenodo DOI,
   [10.5281/zenodo.23854248](https://doi.org/10.5281/zenodo.23854248), which covers
   every release.
+- Kernel schema 44: `StepDriver` gains `set_held_plane` and `_drop_held`, and the native
+  state `release_plane`. A solprop-native build of an earlier schema is refused at import;
+  rebuild it from this tree.
 - Kernel schema 42: `KernelProblem.initial.field0` may be a zero-stride broadcast view, and
   every backend's `set_initial`, solprop-native's included, accepts a field of any strides
   and copies it contiguous. No field or signature moves (#5).
@@ -403,8 +425,31 @@ All notable changes to solprop are recorded here. The format follows
   before a backend starts.
   Vendor thread defaults are overridden only during construction; the native
   backend's own BLAS keeps its fitted width.
+- The native backend no longer keeps the last host state it loaded alive after
+  `set_initial`: a temporary, such as an input noise sum, a resumed plane or a delay
+  scan's input, was one host field volume held until the next load, outside
+  `memory_ledger()` and `estimate_memory`. A resident Adams march no longer keeps a host copy
+  of the state for the backend's life either; solprop's host engine, which reads one,
+  lists it as `adams_host_state` (#435).
+- A `SimulationRunner` no longer holds an input through its march. An array recorded by its
+  digest is read in place rather than copied, and neither it, the launch converted from it
+  nor the derived simulation outlives the load, so a delay scan that forms each input in the
+  call holds it only until the backend has it (#447).
+- A run hands its output each plane without copying the field. `SavedPlane` copied an
+  observation's field, and again when the driver added the plane's statistics, so a handler
+  that only reduces a plane paid two field-sized copies and a peak of two volumes per plane.
+  `plane.field` is read-only and nothing changes it afterwards, so a handler can still keep
+  it; a `SavedPlane` constructed by hand copies, as before (#448).
 - The native backend now refuses an unknown `SOLPROP_FFTW_PLAN` value, which it had read as `measure`, and a problem whose `response_order` omits a response it holds, which it had run anyway. An empty `SOLPROP_FFTW_PLAN` now counts as unset (#460).
 - A native run under Runge-Kutta or Adams now records the `propagator_mode` it used, `recompute`, when `tabulate` was asked for; it had recorded `tabulate`, which that march can't do. The run's configuration still keeps what was asked (#464).
+- `estimate_memory` and the admission now count the native backend's own buffers on the
+  Cartesian and line routes (`solprop.backends.memory.free_space_memory`): its statistics and
+  absorber buffers per chunk, a local flux statistic's magnetic closure, and the Runge-Kutta
+  march's rows. The reference's count fell
+  short by up to 46 % on an envelope grid and 80 % on a field grid when one chunk held the
+  whole grid, so a native run could be admitted and then exceed its budget. A constructed
+  Kerr beam's ledger and estimate now agree to the byte, with `default_spec("free")` or no
+  statistics; a boundary monitor's weights, bound when a run starts, are not counted (#7).
 - Documented the limits of `FixedSchedule.from_history`. Every collar refusal a replayed history can reach (the temporal collar's stable step, and a requested spatial collar's stable step and its fixed-schedule crossing and damping bounds) now prints its limit rounded down and names the remedy: `dz_max` at or under the printed limit in the discovery run, run with the replay's integrator where the limit is a stability limit, or, for the temporal collar alone, `absorber_scheme="split_step"` in both runs. The docstring and the [fixed schedules guide](docs/guide/numerics/fixed-schedules.md) state these limits and the interpolated-plane and non-abutting-history ones, relate `from_history` to `discover`, and replace the claim that a `Multistep` replay makes its adaptive run's truncation errors: compare two replays of one schedule instead, and for a comparison of the arithmetic alone replay with fixed orders (`RungeKutta()` or `Multistep(variable_order=False)`), since a variable-order replay's order choice can turn on rounding (#82).
 - A translated problem no longer holds a full copy of a broadcast initial field (#5): a
   `numpy.broadcast_to` placeholder, of any numeric dtype, costs only the block it repeats.
@@ -418,6 +463,9 @@ All notable changes to solprop are recorded here. The format follows
   of a bare `ValueError` on `native` and an accident in `matmul` on `numpy_ref`. A direct call
   to `native`'s `stats` now checks every route for names the route doesn't define, and refuses
   a general flux statistic under a weight other than one rather than ignoring the weight.
+- A recipe with a `[scan]` no longer drops the `[execution]` keys `run_scan` does not take:
+  `resume_history` and `held_plane` now reach each point's settings, as the scan file's
+  recorded recipe says they do.
 - The versions of solprop, solprop-native and solprop-gui now come from `v*` tags only, so another tag on a commit can no longer set them. Building any of them now needs setuptools-scm 9, and solprop-native requires NumPy 2.5, as solprop does (#92).
 - An output file no longer grows with the square of its planes. `HDF5Output` rewrites
   `/meta/outcome` in place instead of deleting and recreating it at every plane, a saved
