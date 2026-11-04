@@ -848,6 +848,7 @@ def apertures(**changes):
         ({"distances": [np.nan]}, "distances must be finite"),
         ({"centres": np.array([["a", "b"]], dtype=object)}, "must be numeric"),
         ({"diameters": [-1e-3]}, "positive"),
+        ({"distances": [-0.25]}, "positive"),
         ({"profile": "hard"}, "silently unused"),
         ({"edges": None}, "needs edges"),
         ({"edges": [3e-4]}, "D/4"),

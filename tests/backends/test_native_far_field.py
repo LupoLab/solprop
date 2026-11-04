@@ -562,6 +562,25 @@ def test_the_native_custom_channel_is_the_reference_s(kind):
     )
 
 
+def test_the_on_axis_spectrum_alone_reads_no_tables():
+    # The W = 1 slot needs no aperture or region table: an empty payload crosses.
+    grid = time_grid("envelope")
+    space = FreeGrid(3e-4, 8, 3e-4, 8, collar_fraction=0)
+    names = ("on_axis_spectrum",)
+    spec = StatsSpec(names=names)
+    field = random_field(space, 1, grid)
+    problem = problem_of(grid, space, field, spec)
+    tables = aperture_tables(spec_of(holes("hard")), grid, space)
+    values, field = native_stats(problem, grid, field, names)
+    assert_matches(
+        values,
+        reference(names, grid, problem, field, tables),
+        magnitudes(names, grid, problem, field, tables),
+        problem,
+        names,
+    )
+
+
 def test_a_native_request_beyond_the_held_partials_grows_them():
     grid = time_grid("envelope")
     space = FreeGrid(3e-4, 8, 3e-4, 8, collar_fraction=0)

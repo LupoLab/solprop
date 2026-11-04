@@ -308,7 +308,8 @@ def test_a_run_using_no_shape_or_custom_rate_keeps_its_record():
     hashed, (skeleton, numbers, floors) = far_field_baseline_record()
     assert hashed["schema_version"] == SCHEMA_VERSION == 2
     text = json.dumps(hashed, sort_keys=True, default=str)
-    for name in ("user_rate", "shapes", "profiles", "extents"):
+    # A medium's record has its own "profiles"; the pin below holds the set's keys.
+    for name in ("user_rate", "shapes", "extents"):
         assert f'"{name}"' not in text, name
     assert skeleton_hash(skeleton) == FAR_FIELD_BASELINE
     assert_record_numbers(numbers, floors, STORED / "far_field_baseline.npz")
