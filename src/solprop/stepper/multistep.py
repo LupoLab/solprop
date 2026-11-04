@@ -311,7 +311,7 @@ class Multistep:
         """Return what defines the history a march of this method keeps.
 
         A resume continues an Adams history only when the snapshot's key equals the
-        resuming method's (SEP 42 section 5.6): the formulation, the carrier frame and
+        resuming method's: the formulation, the carrier frame and
         the highest order define the samples a history holds and how they combine. The
         call budget, the safety factor and the other step-size settings choose the
         next step, not what the history means, so a change of them keeps it.

@@ -109,13 +109,10 @@ output = prop_gnlse(..., output="run.h5", resume=True)
 ```
 
 The file is checked before anything is written:
-{py:func}`~solprop.output.hdf5.check_cache` compares the record of the run about to
-start with the one the file carries, path by path. A file written with a different
-layout, physics, guide or materials is refused by what changed; a changed tolerance or
-integrator continues while there is work left, with a warning, and provenance such as
-the optmat version is ignored; `resume="force"` continues across a changed physics in
-the same file ([what a resume compares](resuming.md#what-a-resume-compares)). When it
-continues, the
+{py:func}`~solprop.output.hdf5.check_cache` compares the configuration hash of the run
+about to start with the one the file carries. A file written with different physics,
+numerics, a different guide or other materials is refused by what changed
+([what a resume compares](resuming.md#what-a-resume-compares)). When it continues, the
 terminal checkpoint, or the last regular plane when no checkpoint exists, is read
 back, converted to the internal convention and loaded at its actual absolute
 position. The next scheduled plane is found from that position. Call ledgers are

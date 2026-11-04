@@ -531,32 +531,6 @@ def test_a_lockstep_batch_still_refuses_a_shared_observation():
         LockstepRunner.observe(object.__new__(LockstepRunner), field=False)
 
 
-def test_the_low_storage_march_holds_its_field_free_plane_with_its_noise_phase():
-    simulation = cartesian("numpy_ref", noise=True)
-    simulation.settings = dataclasses.replace(
-        simulation.settings, integrator=LowStorageRungeKutta()
-    )
-    problem = simulation.translate()
-    backend = NumpyRefBackend(problem, grid=simulation.grid)
-    try:
-        backend.set_initial(problem.initial.field0, None)
-        assert backend.held_observation() is None
-        backend.propagate_to(float(PLANES[0]))
-        assert backend.observe(field=False).field is None
-        held = backend.held_observation()
-        assert held is not None and held.z == float(PLANES[0])
-        observed = backend.observe()
-        # The held state is a copy of the state there (exact), its noise phase the
-        # same evaluation; a kept plane then releases it.
-        assert np.array_equal(held.require_field(), observed.require_field())
-        assert held.noise_phase is not None and observed.noise_phase is not None
-        assert np.array_equal(held.noise_phase, observed.noise_phase)
-        assert held.step_history.n_steps == 0
-        assert backend.held_observation() is None
-    finally:
-        backend.close()
-
-
 def test_a_lockstep_split_refuses_a_field_free_observation():
     from solprop.driver.batch import split_observation  # noqa: PLC0415
 

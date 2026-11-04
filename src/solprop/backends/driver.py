@@ -391,12 +391,6 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         self._row_period = spec.period
         self._accepted_steps = 0
         self._rows = _StepStatsBuffer()
-        # A low-storage march's state at its last field-free plane (SEP 22, Q14): one
-        # volume, allocated at the first such plane and listed by the in-tree
-        # ledgers, so a step abandoned in flight still leaves a resumable state.
-        self._held: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"] | None = None
-        self._held_z: float | None = None
-        self._holds_planes = True
         # Field-free planes at which the spatial collar diagnostic was not evaluated
         # since the load (SEP 22, Q2), recorded in `metadata` and logged once.
         # Physical RK source dispatches, including rejected trials and excluding
@@ -888,10 +882,6 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             record["response_calls"] = self._adams.ledger.to_record()
         if self._low_storage is not None:
             record["source_evaluations"] = self._low_storage.source_evaluations
-            if not self._holds_planes:
-                # Recorded only where it departs: this file has no held state to
-                # checkpoint a step abandoned in flight from (SEP 22, Q14).
-                record["held_plane"] = False
         elif self._adams is None:
             record["source_evaluations"] = self._rk_source_evaluations
         if self._monitor is not None:
@@ -960,9 +950,8 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         Non-TDSE backends inherit logical budget persistence while refusing atomic
         counts. The caller first loads the saved field, which resets Adams history;
         the next source evaluation charges startup against these cumulative counts. A
-        run continued under a Runge-Kutta or low-storage march keeps no logical
-        ledger: the counts stay in the earlier execution records as provenance and are
-        not installed (SEP 42 section 5.6).
+        Runge-Kutta or low-storage march keeps no logical ledger, so nothing is
+        installed for it.
 
         Parameters
         ----------
@@ -980,13 +969,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             raise BackendError(
                 f"{self.name} does not restore atomic response call ledgers"
             )
-        if logical:
-            if self._adams is None:
-                self._logger.info(
-                    "the charged call ledger stays with the earlier executions: "
-                    "this march keeps none"
-                )
-                return
+        if logical and self._adams is not None:
             # The march imports its driver, so the ledger type is loaded only when
             # a constructed backend restores a saved run.
             from solprop.backends.multistep import CallLedger  # noqa: PLC0415
@@ -1253,7 +1236,6 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         if self._adams is not None:
             self._adams.begin_run()
         self._in_flight = None
-        self._held_z = None
         self._rk_source_evaluations = 0
         if self._low_storage is not None:
             self._low_storage.reset()
@@ -1294,29 +1276,6 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             :class:`threading.Event`.
         """
         self._stop = flag
-
-    def set_held_plane(self, held: bool) -> None:
-        """Say whether the low-storage march holds the last field-free plane's state.
-
-        It is what a step abandoned in flight is checkpointed from (SEP 22, Q14), one
-        volume more than the march needs. A run that will never resume, or whose output
-        keeps no checkpoint, does not pay for it. A driver asks at the start of each
-        run; turning it off releases a buffer an earlier run left. Nothing the
-        propagation computes depends on it, and other marches hold nothing either way.
-
-        Parameters
-        ----------
-        held : bool
-            Whether to hold it, the default for a backend nobody asks.
-        """
-        self._holds_planes = held
-        if not held and self._low_storage is not None:
-            self._drop_held()
-
-    def _drop_held(self) -> None:
-        """Release the held plane's buffer, which :meth:`_hold` otherwise keeps."""
-        self._held = None
-        self._held_z = None
 
     def _poll_stop(self) -> None:
         """Raise when the run's stop flag is set; called before every trial step.
@@ -1440,10 +1399,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         carries ``None`` for both. Nothing scans the field for finiteness then: the
         step loop accepts only finite error norms and a replay raises on a non-finite
         one. The spatial collar diagnostic, which reads the field, is not evaluated;
-        the backend counts such planes in :meth:`metadata` and logs the first. Under
-        the low-storage march the state is held, one volume, so that a step abandoned
-        in flight can still be checkpointed at this plane
-        (:meth:`held_observation`).
+        the backend counts such planes in :meth:`metadata` and logs the first.
 
         Parameters
         ----------
@@ -1461,8 +1417,6 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             If the backend is closed or no initial state was loaded.
         """
         state = self._require_state()
-        if self._low_storage is not None:
-            self._hold(None if field or not self._holds_planes else state)
         history = BackendHistory(
             z=np.array([entry[0] for entry in self._history], dtype=np.float64),
             dz=np.array([entry[1] for entry in self._history], dtype=np.float64),
@@ -1484,86 +1438,6 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         self._history = []
         self._clock = time.perf_counter()
         return plane
-
-    def held_observation(self) -> Observation | None:
-        """Return the state the low-storage march held at its last field-free plane.
-
-        SEP 22, Q14: a low-storage step accepts in place, so a step abandoned in
-        flight leaves a state that is neither of its ends. When the last plane kept
-        no field, this is what the driver checkpoints instead: the state as it was
-        observed there, with an empty step history (the plane's own was saved with
-        it) and its noise phase.
-
-        Returns
-        -------
-        Observation or None
-            The held plane, or ``None`` when nothing is held: another march, a plane
-            that kept its field since, a fresh load, or a run that holds no plane
-            (:meth:`set_held_plane`).
-
-        Raises
-        ------
-        BackendError
-            If the backend is closed.
-        """
-        self._check_open()
-        if self._held_z is None:
-            return None
-        z = self._held_z
-        phase = None
-        if self._problem.initial.noise_model != "none":
-            phase = np.ascontiguousarray(
-                np.broadcast_to(
-                    self._unitary_phase(self._stage_scalars(z, z)), self._problem.shape
-                )
-            )
-        return Observation(
-            z=z,
-            field=self._held_field(),
-            noise_phase=phase,
-            step_history=BackendHistory(
-                np.empty(0), np.empty(0), np.empty(0), np.empty(0, bool), np.empty(0)
-            ),
-            n_steps=0,
-            n_rejected=0,
-        )
-
-    def _hold(self, state: _StateT | None) -> None:
-        """Hold a low-storage march's state at a field-free plane, or release the hold.
-
-        The buffer is allocated at the first field-free plane and kept for reuse: a
-        plane that keeps its field only marks the hold released, and the ledger and the
-        admission go on charging the one volume.
-
-        Parameters
-        ----------
-        state : object or None
-            The state at a field-free plane, or ``None`` at a plane that keeps its
-            field, which resumes by itself.
-        """
-        if state is None:
-            self._held_z = None
-            return
-        values = self._observed_field(state)
-        if self._held is None:
-            self._held = np.empty_like(values)
-        np.copyto(self._held, values)
-        self._held_z = self._z
-
-    def _held_field(self) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
-        """Return a host copy of the state :meth:`_hold` holds.
-
-        Called by :meth:`held_observation` only while a plane is held. A backend that
-        holds the plane where its own state lives (solprop-native, in its memory
-        space) overrides this with its own one copy to the host, beside :meth:`_hold`.
-
-        Returns
-        -------
-        numpy.ndarray
-            The held state, an owned host array of the problem's shape.
-        """
-        assert self._held is not None  # the plane is held, so its buffer exists
-        return self._held.copy()
 
     # --- the step loop -------------------------------------------------------------
 

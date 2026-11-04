@@ -2396,3 +2396,28 @@ for Intel's four-thread Raman tail). Mac responses were mixed, including opposit
 RDW and argon directions. No shared dimension threshold or pool policy is changed;
 explicit overrides and global caps retain their existing semantics. A 36-core
 sizing confirmation is unnecessary because no sizing change is retained.
+
+## The run record's cost
+
+[#309](https://github.com/LupoLab/solprop/issues/309) measured how a run's record grows with
+its grid. Moving the record's large arrays beside its text (`RECORD_ARRAY_LIMIT`) takes the
+hash from the record's text to its arrays' bytes.
+
+Measured on an Intel Xeon Gold 6240, pinned to one socket with 16 threads, on a shared
+machine with a load average of about 17, so treat small differences as noise. One run each,
+built and not stepped, on `numpy_ref`, with `#309`'s Cartesian problem of 96 frequency bins.
+The figures are for the record alone, not for a run.
+
+| Grid | | First hash, s | `to_json`, s | `HDF5Output.open`, s | Reading the file's record, s | Hashing a read record, s | JSON, MB | File, MB |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| 256² | before | 0.442 | 0.163 | 0.171 | 0.177 | 0.174 | 5.61 | 5.62 |
+| | after | 0.010 | 0.001 | 0.006 | 0.021 | 0.001 | 0.03 | 3.19 |
+| 512² | before | 1.763 | 0.652 | 0.711 | 0.755 | 0.777 | 22.66 | 22.67 |
+| | after | 0.032 | 0.001 | 0.011 | 0.065 | 0.001 | 0.05 | 12.64 |
+| 768² | before | 4.250 | 1.588 | 1.711 | 2.155 | 1.735 | 55.59 | 55.60 |
+| | after | 0.075 | 0.002 | 0.017 | 0.144 | 0.002 | 0.07 | 28.40 |
+
+A default radial run of 256 nodes and 8192 frequency bins, which carries input noise, holds
+83.21 MB of JSON before and 0.04 MB after, and its first hash goes from 2.603 s to 0.077 s.
+A 64-node grid is about the same before and after, since its arrays sit close to the limit.
+A run into `MemoryOutput` computes no hash at all.

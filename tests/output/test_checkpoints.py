@@ -241,21 +241,18 @@ def test_execution_records_own_json_values_and_keep_resume_history(metadata, tmp
         assert stored.outcome.previous_executions[0]["execution"] == outcome.execution
 
 
-def test_each_recorded_outcome_owns_its_resume_entry_and_history(metadata):
+def test_each_recorded_outcome_owns_its_history(metadata):
     # The store amends each outcome with parts it validated once; each outcome still
     # holds its own copy, so a change to one read back reaches no other.
     memory = MemoryOutput()
     memory.open(metadata)
-    memory.record_resume({"from_z": 0.1, "forced": False, "numerics": {}})
     memory.record_outcome(RunOutcome("failed", 0.1, message="stopped"))
     memory.record_outcome(RunOutcome("running", 0.1))
     first = memory.outcome
     memory.record_outcome(RunOutcome("running", 0.2))
     second = memory.outcome
     assert first is not None and second is not None and first is not second
-    cast("dict[str, Any]", first.execution["resume"])["from_z"] = 9.0
     cast("dict[str, Any]", first.previous_executions[0])["message"] = "changed"
-    assert cast("dict[str, Any]", second.execution["resume"])["from_z"] == 0.1
     assert second.previous_executions[0]["message"] == "stopped"
 
 

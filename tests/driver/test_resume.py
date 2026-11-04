@@ -418,13 +418,13 @@ def test_a_recorded_seed_is_taken_only_for_the_model_the_file_drew(
     # resume is refused as a different run.
     modified = scheduled(build_simulation, noise="modified")
     drawn = modified.noise
-    with pytest.raises(OutputError, match=r"the layout differs: noise: model"):
+    with pytest.raises(OutputError, match=r"these fields changed: noise\.model"):
         modified.run(path, resume=True)
     assert modified.noise is drawn
     quiet = tmp_path / "quiet.h5"
     scheduled(build_simulation).run(quiet)
     noisy = scheduled(build_simulation, noise="input")
-    with pytest.raises(OutputError, match="the layout differs: noise"):
+    with pytest.raises(OutputError, match="these fields changed: noise"):
         noisy.run(quiet, resume=True)
 
 
@@ -437,10 +437,8 @@ def test_a_seeded_realisation_is_not_redrawn_and_the_refusal_names_the_seed(
     assert not other._reseed(17)
     with pytest.raises(OutputError, match="cannot be resumed") as refusal:
         other.run(path, resume=True)
-    # The seed refuses; the spectrum it draws is compared through it (SEP 42).
     message = str(refusal.value)
-    assert "noise: seed 17 -> 18" in message
-    assert "spectrum" not in message
+    assert "noise.seed" in message
     assert "pass seed=17 to draw it again" in message
 
 

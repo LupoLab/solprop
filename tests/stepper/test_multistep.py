@@ -315,3 +315,11 @@ def test_the_basis_is_the_python_loops_to_rounding(seed):
     got_rows = lagrange_coefficients(nodes, check=False)
     assert_basis_close(got_weights, weights, weight_bound, count)
     assert_basis_close(got_rows, rows, row_bound, count)
+
+
+def test_any_change_to_a_comparison_variant_restarts_its_history():
+    variant = ComparisonMultistep(corrector="pec", order=3)
+    assert variant.history_key == repr(variant)
+    assert (
+        variant.history_key != ComparisonMultistep(corrector="pec", order=4).history_key
+    )

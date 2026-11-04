@@ -134,14 +134,6 @@ All notable changes to solprop are recorded here. The format follows
 - The [Cartesian chapter](docs/guide/free-space/cartesian.md) gives a reading of the risk of transverse aliasing, the beam's energy outside `|k| <= k_max / 2` from `region_spectrum` and `beam_spectrum`, tested through `FreeGrid` runs, and states what the proxy leaves out (#216).
 - The [boundaries guide](docs/guide/numerics/boundaries.md#a-spectral-walk-off-absorber) gives a recipe for a spectral walk-off absorber through `custom_absorber`, for runs whose walk-off can be predicted, with its geometry, its strength, its limits and a per-band loss check (#226).
 - `absorber(grid, walkoff=...)` sizes the temporal collar from a group-delay drift over the grid's own length, counted over both edges, as `warn_walkoff` checks, and leaves the spectral rate alone (#226). The [boundaries guide](docs/guide/numerics/boundaries.md) now also says that `boundary_N` gives a slice its own strength and that `boundary_length=parent.reference_length` keeps the parent's.
-- `SimulationSettings(held_plane=False)` drops the state volume a low-storage run holds at
-  its last field-free plane, from `memory_ledger()`, the admission and `estimate()`, for a
-  run that will never resume. An output without `CheckpointOutput` now holds nothing
-  whatever the setting says, since it could never read the state. A step abandoned in flight
-  then records `failed` with no terminal checkpoint, and says plainly when the file cannot be
-  resumed; a stop between steps checkpoints as ever. Outside the configuration hash, with
-  the backend's record saying `held_plane: false` where nothing was held, and a recipe's
-  `[execution]` table takes it (#345).
 - A published-install check after each PyPI release, on all four wheel platforms:
   fresh CPython 3.14 environments resolve the native extra with pip and verify its
   version, dependencies and default backend. The same check can be run by hand for a
@@ -244,14 +236,13 @@ All notable changes to solprop are recorded here. The format follows
 - The README, `CITATION.cff` and the citing page name solprop's Zenodo DOI,
   [10.5281/zenodo.23854248](https://doi.org/10.5281/zenodo.23854248), which covers
   every release.
-- `absorbed_power` has a fifth channel, `custom`, the power a `custom_absorber` rate removes, and its `spectral` channel is now the collar alone, so a frequency-selective loss reads apart from the numerical collar. The statistic's shape goes from `(4,)` to `(5,)`; the first four channels keep their positions and their sum stays `-dE/dz`. `Absorber.user_rate` holds the user's share of `spectral_rate`, which stays the total, so the operator does not move. A run with no custom rate keeps its absorber record; one with a non-zero custom rate records the share, so its earlier files are not continued, by name, whichever statistics they hold (#231). A file from an earlier development build, with four columns, still reads as written, its first column holding the collar and any custom rate together; appending to it, resuming it (`resume="force"` too), using it as a cache or adding a point to such a scan is refused by name: start a new file, or launch a new segment from a saved plane.
-- Kernel schema 44: `StepDriver` gains `set_held_plane` and `_drop_held`, and the native
-  state `release_plane`. A solprop-native build of an earlier schema is refused at import;
-  rebuild it from this tree.
+- `absorbed_power` has a fifth channel, `custom`, the power a `custom_absorber` rate removes, and its `spectral` channel is now the collar alone, so a frequency-selective loss reads apart from the numerical collar. The statistic's shape goes from `(4,)` to `(5,)`; the first four channels keep their positions and their sum stays `-dE/dz`. `Absorber.user_rate` holds the user's share of `spectral_rate`, which stays the total, so the operator does not move. A file from an earlier development build, with four columns, still reads as written, its first column holding the collar and any custom rate together (#231).
+- A run record's numeric arrays of more than 4096 elements are now hashed by their bytes and stored beside its JSON: `/meta/json` holds a reference, and `/meta/arrays/<name>` the array, or `/record_arrays/<name>` in a scan, named by its digest, dtype and shape, shared between points. The text of a 512² Cartesian run's record falls from about 23 MB to under 1 MB, and the first configuration hash from seconds to milliseconds, with every array still readable. `RunMetadata.from_json` takes the arrays as `arrays=`, and `RunMetadata.record_arrays` returns them. A file written before this still reads, its arrays inline. A noise realisation moves too ([#309](https://github.com/LupoLab/solprop/issues/309)).
 - Kernel schema 42: `KernelProblem.initial.field0` may be a zero-stride broadcast view, and
   every backend's `set_initial`, solprop-native's included, accepts a field of any strides
   and copies it contiguous. No field or signature moves (#5).
 - Kernel schema 45: a far-field aperture row of solprop-native's pass grows from six constants to eleven and carries its own profile and shape, so `aperture_statistics` takes no profile argument. Rebuild solprop-native. Fields of `ApertureSet` move; no stage bundle or driver signature does (#446).
+- Kernel schema 46: `StepDriver` loses `set_held_plane`, `held_observation`, `_hold`, `_held_field` and `_drop_held`, and the native state `hold_plane`, `release_plane` and `held_to_host`. A solprop-native build of an earlier schema is refused at import; rebuild it from this tree.
 - Notable changes are recorded in separate release-note fragments and collected into one
   rolling draft release PR after merges. Implementation PRs no longer edit the shared
   changelog, avoiding conflicts between unrelated changes. Release tags and publication
@@ -341,6 +332,7 @@ All notable changes to solprop are recorded here. The format follows
   amplitude −0.9, came out 85 % wrong with no warning. The class evaluates the record's
   transform exactly at the grid's frequencies, 3e-12 from the direct sum on that case,
   less its mean: a baseline is an offset of the instrument, not part of the field.
+- A resume now continues only on an exact configuration hash, and is otherwise refused, naming the fields that changed. This replaces the path-by-path comparison added earlier in this release cycle (ADR-066). A changed tolerance or integrator, an optmat release even with the same numbers, a commit that adds a recorded field or moves a recorded number, and another platform are all refused again: launch a new segment from a saved plane, or write a new file. Files already written still read. `resume="force"`, `solprop resume --force`, `RunMetadata.compare`, `solprop.output.compatibility`, `RunOutcome.resumes` and `forced_positions` are removed, and `Resumability.comparison` becomes `Resumability.differences`, a string. A scan reuses a finished point only under its own hash, and a `source=` simulation must have the file's hash. A long job has to stay on one CPU family to resume, since the record holds numbers computed on the machine that built it.
 - An envelope run's frame beside a third harmonic now follows one rule, `solprop.translate.responses.declares_harmonic_carrier`, which translation checks against the compiled harmonic carrier (#77). Two things change for users. First, an explicit `Frame(omega0, subtract_beta0=True)` beside a `KerrResponse` or `DispersiveKerrResponse` with `thg=True` on an envelope grid is now refused with a `TranslationError`, where it was accepted and drove the harmonic with a spurious phase mismatch: drop the explicit `frame=` to take the co-moving frame, which keeps `beta_0` there, or pass `Frame(omega0, subtract_beta0=False)`. Second, a Raman response's `thg` (the `RamanResponse` default is `True`), which an envelope grid ignores, no longer keeps `beta_0` beside `KerrResponse(thg=False)` when no frame is given: such a run, built from explicit responses or on a spatial route, now removes `beta_0`, so its stored envelope's carrier phase differs from before while intensities and spectral densities agree to the stepper's accuracy, and its run record now states the frame its operator used. A file saved by such a run before this change is refused on resume, naming `configuration: frame`, because continuing it would change frame mid-run: run it again from the start. The keyword interfaces, which set the Raman flag from `thg`, are unaffected.
 - A Multistep run's call ledger (`logical_calls` and `execution.response_calls` in the
   run's outcome, `/meta/outcome` in an HDF5 file) records its predictor orders run-length
@@ -356,6 +348,7 @@ All notable changes to solprop are recorded here. The format follows
 
 ### Removed
 
+- A low-storage run no longer holds a state volume at its last field-free plane, so `memory_ledger()` and `estimate()` are one volume smaller, 5.27 GiB at 768² × 600. A step abandoned in flight after such a plane records `failed` with no terminal checkpoint and says plainly when the file cannot be resumed; a stop between steps checkpoints as ever (ADR-067, #345, #500).
 - solprop no longer estimates a run's memory or checks it against a budget before allocating (ADR-065). `memory_budget=`, `SOLPROP_MEMORY_BUDGET`, `solprop resume --memory-budget`, `estimate_memory`, `estimate_guide_memory`, `solprop.driver.memory`, `MemoryBudgetError` and `MemoryBudgetWarning` are gone, and recipes no longer take `memory_budget`. A run that doesn't fit now fails with `MemoryError`, or is killed by the kernel or a scheduler. `Simulation.estimate` builds the backend and reports what it holds, so `admitted` and `refusal` are gone from `RunEstimate`. Scan workers and TDSE's `memory_limit` are still bounded; going over that limit raises `DriverError`, and it now covers atomic storage alone.
 - The `numba_cpu` backend, and the `numba` and `pyfftw` dependencies ([SEP 43](docs/dev/seps/archive/sep-0043-retire-numba-cpu.md), ADR-064). `backend="numba_cpu"` raises `BackendError`, naming `native` and `numpy_ref`. An output or snapshot of this release's schema that records `numba_cpu` still loads, and a stopped run continues on another backend by changing the name. A file written by 0.1.0 is refused by its output schema, as every file of another schema is: read it with `solprop==0.1.0`, which is also the rollback.
 - The settings that only `numba_cpu` read: `SOLPROP_NUMBA_THREADS`, `SOLPROP_NUMBA_REGIME`, `SOLPROP_FFTW_THREADS`, `SOLPROP_TRANSVERSE_FFTW_THREADS`, `SOLPROP_PASS_TIMERS`, `NUMBA_DISABLE_JIT` and `NUMBA_NUM_THREADS`. Drop them from job scripts; they now do nothing. `SOLPROP_THREADS`, `SOLPROP_NATIVE_THREADS`, `SOLPROP_FFTW_PLAN`, `SOLPROP_FFTW_WISDOM` and `SOLPROP_BLAS_THREADS` stay.
@@ -459,13 +452,15 @@ All notable changes to solprop are recorded here. The format follows
   changing the caller's array after translation can no longer change the problem, and the
   caller's array is no longer made read-only; before, a contiguous complex128 field and a
   noise realisation were shared with the caller.
+- A run into `MemoryOutput`, the default handler, no longer computes the configuration hash
+  for a debug message that is switched off, which took seconds on a large grid.
 - A boundary monitor built for another grid is now refused by name on every backend, instead
   of a bare `ValueError` on `native` and an accident in `matmul` on `numpy_ref`. A direct call
   to `native`'s `stats` now checks every route for names the route doesn't define, and refuses
   a general flux statistic under a weight other than one rather than ignoring the weight.
 - A recipe with a `[scan]` no longer drops the `[execution]` keys `run_scan` does not take:
-  `resume_history` and `held_plane` now reach each point's settings, as the scan file's
-  recorded recipe says they do.
+  `resume_history` now reaches each point's settings, as the scan file's
+  recorded recipe says it does.
 - The versions of solprop, solprop-native and solprop-gui now come from `v*` tags only, so another tag on a commit can no longer set them. Building any of them now needs setuptools-scm 9, and solprop-native requires NumPy 2.5, as solprop does (#92).
 - An output file no longer grows with the square of its planes. `HDF5Output` rewrites
   `/meta/outcome` in place instead of deleting and recreating it at every plane, a saved

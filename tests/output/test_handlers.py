@@ -32,7 +32,6 @@ from solprop.output import (
     resume,
 )
 from solprop.output import hdf5 as hdf5_module
-from solprop.output.resumable import resumability
 from solprop.output.schema import (
     PEAK_FIELDS_ANNOTATION,
     SCHEMA_VERSION,
@@ -705,7 +704,7 @@ def test_check_cache_refuses_a_changed_configuration_by_name(grid, schedule, tmp
     handler.close()
     changed = make_metadata(grid, schedule, configuration={"gamma": 0.22})
     with pytest.raises(
-        OutputError, match=r"these compared values differ: configuration: gamma"
+        OutputError, match=r"these fields changed: configuration\.gamma"
     ):
         check_cache(tmp_path / "run.h5", changed)
 
@@ -811,7 +810,7 @@ def test_an_appending_handler_refuses_a_different_run(grid, schedule, tmp_path):
     again = HDF5Output(path, append=True)
     with pytest.raises(
         OutputError,
-        match=r"cannot be appended to; these compared values differ: configuration",
+        match=r"cannot be appended to; these fields changed: configuration",
     ):
         again.open(make_metadata(grid, schedule, configuration={"gamma": 0.22}))
     again.close()
@@ -1270,31 +1269,6 @@ def test_a_four_column_file_still_reads_as_it_was_written(
                 stored["stats/absorbed_power"], [[1.0, 2.0, 3.0, 4.0]]
             )
     assert ABSORBED_CHANNELS[:4] == ("spectral", "transverse", "evanescent", "material")
-
-
-@pytest.mark.parametrize("in_rows", [False, True])
-def test_every_door_refuses_to_continue_a_four_column_file(
-    grid, metadata, tmp_path, in_rows
-):
-    """Five numbers do not fit four columns, and nothing stored can split a sum."""
-    path = tmp_path / "earlier.h5"
-    _four_column_file(grid, metadata, path, in_rows=in_rows)
-    before = path.read_bytes()
-    refusal = "absorbed_power in 4 columns.*new segment from a saved plane"
-    with pytest.raises(OutputError, match=refusal):
-        hdf5_module.resume(path)
-    with pytest.raises(OutputError, match=refusal):
-        hdf5_module.check_cache(path, metadata)
-    continued = HDF5Output(path, append=True)
-    with pytest.raises(OutputError, match=refusal):
-        continued.open(metadata)
-    continued.close()
-    answer = resumability(path)
-    assert not answer.resumable
-    assert answer.reason is not None
-    assert "absorbed_power in 4 columns" in answer.reason
-    # Refused before anything was written.
-    assert path.read_bytes() == before
 
 
 def test_five_columns_continue_as_before(grid, metadata, tmp_path):

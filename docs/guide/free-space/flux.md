@@ -156,7 +156,8 @@ energy or peak power at that plane, and
 {py:func}`~solprop.noise.spatial_noise` takes a resolved `SpatialFlux`.
 {py:func}`solprop.stats.collect` takes `flux=` for a saved plane, and in-run statistics use the
 measure of the plane at which they are recorded. A saved run records the measure
-(`flux_model` and `flux_plan` in its spatial metadata), and processing resolves each
+(`flux_model` and `flux_plan` in its spatial metadata, with large coefficient arrays
+[stored beside the record](../results/output.md#the-schema-version)), and processing resolves each
 saved plane at its own position. A plane measured at a different position, or in a
 different medium, needs a new record.
 

@@ -60,16 +60,10 @@ def _parser() -> argparse.ArgumentParser:
         "resume", help="continue a run from its output file and the recipe it records"
     )
     resume.add_argument("output", type=Path, help="the HDF5 file to continue")
-    how = resume.add_mutually_exclusive_group()
-    how.add_argument(
+    resume.add_argument(
         "--interpolated",
         action="store_true",
         help="continue from a last plane interpolated inside a step",
-    )
-    how.add_argument(
-        "--force",
-        action="store_true",
-        help="continue across changed physics while the layout agrees",
     )
     resume.add_argument(
         "--progress",
@@ -210,7 +204,7 @@ def _resume(output: Path, mode: bool | str, progress: str) -> int:
     output : pathlib.Path
         The HDF5 file.
     mode : bool or str
-        ``True``, ``"interpolated"`` or ``"force"``.
+        ``True`` or ``"interpolated"``.
     progress : str
         The progress choice.
 
@@ -224,7 +218,7 @@ def _resume(output: Path, mode: bool | str, progress: str) -> int:
     with _stopping() as (flag, received):
         resume_file(
             output,
-            cast("bool | Literal['interpolated', 'force']", mode),
+            cast("bool | Literal['interpolated']", mode),
             progress=cast("ProgressChoice", progress),
             stop=flag,
         )
@@ -293,9 +287,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "check":
             return _check(args.recipe)
         if args.command == "resume":
-            mode = (
-                "force" if args.force else "interpolated" if args.interpolated else True
-            )
+            mode = "interpolated" if args.interpolated else True
             return _resume(args.output, mode, args.progress)
         from solprop.recipe import Recipe  # noqa: PLC0415 - imports the physics
 
