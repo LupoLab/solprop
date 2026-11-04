@@ -4,7 +4,7 @@ A solprop Enhancement Proposal (SEP) is the design document for one major change
 model, route or numerical scheme, a changed default or convention, a redesigned
 interface. It sets out the motivation, the theory with its references, the implementation
 options and how the result will be verified; once accepted it is implemented in phases,
-`numpy_ref` first, then the native backend, and each phase appends its
+on `numpy_ref` and the native backend in either order, and each phase appends its
 report to the SEP. Finished SEPs are archived and linked from the manual pages they
 produced. [SEP 0](sep-0000-process.md) describes the process and says when a SEP is
 needed; new SEPs start from [the template](template.md). The [roadmap](../roadmap.md)

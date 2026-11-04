@@ -217,8 +217,8 @@ The long form is [SEP 0](docs/dev/seps/sep-0000-process.md); the index is
   requests. CI runs on every push to it and need not be green while it is a draft; a push
   that needs no run has `[skip ci]` in its head commit's message. The branch may start on
   top of an open pull request's branch when pull requests are stacked behind CI. Within
-  each phase: `numpy_ref` first with its tests and manual page, then native CPU in
-  `native/`; `mlx` only where the SEP says so (the backend rules, below). A
+  each phase: `numpy_ref` and native CPU in `native/`, in either order (ADR-066), with
+  tests and the manual page; `mlx` only where the SEP says so (the backend rules, below). A
   backend without the feature refuses it by name, never falls back silently; `Final`
   needs parity on `numpy_ref` and native CPU, or an exception written into the accepted
   SEP.
@@ -259,7 +259,8 @@ to it; a function that departs from it says so in the first line of its docstrin
   sentinel where raising is correct.
 - Respect the layers (`architecture.md §3`): physics code never contains performance
   tricks; backend code never contains physics knowledge; the kernel contract
-  (`kernel-contract.md`) is the only crossing.
+  (`kernel-contract.md`) and the protected driver surface (frozen in
+  `tests/backends/test_driver.py`) are the crossings.
 
 ## Environment and dependencies
 
@@ -317,13 +318,15 @@ no blanket `# noqa`). What is left to judgement:
 
 The long form is [`backends.md`](docs/dev/backends.md).
 
-- **Where features land** (ADR-061, ADR-064, `backends.md §10`). `numpy_ref` and `native`:
-  every new feature lands on both, and they come first for testing and development.
-  `mlx`: experimental; keep it runnable and correct, add nothing as part of other work. A
-  backend without a feature refuses it by name.
-- The **NumPy reference backend is the oracle**. Every other backend is validated against
-  it (one linear application, one nonlinear evaluation, one step, eight steps, each
-  statistic, a full run) with tolerances derived from summation bounds and asserted `> 0`.
+- **Where features land** (ADR-061, ADR-064, ADR-066, `backends.md §10`). `native` is the
+  primary backend. `numpy_ref` and `native`: every new feature lands on both, in either
+  order, and `native` may shape the contract. `mlx`: experimental; keep it runnable and
+  correct, add nothing as part of other work. A backend without a feature refuses it by
+  name.
+- The **NumPy reference backend is the oracle** for numbers. Every other backend is
+  validated against it (one linear application, one nonlinear evaluation, one step, eight
+  steps, each statistic, a full run) with tolerances derived from summation bounds and
+  asserted `> 0`.
 - Hot code lives only under `src/solprop/backends/`, `src/solprop/translate/` and
   `native/`.
 - **Native kernels** follow [`native/AGENTS.md`](native/AGENTS.md). The floating-point

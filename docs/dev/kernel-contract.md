@@ -1137,8 +1137,8 @@ the step history and over the same interval, and a row may not index past it.
 2. Add the row here, rewrite the frozen tables the change moves
    (`tests/backends/test_driver.py`) and add a release-note fragment.
 3. Extend `validate()`.
-4. Implement in `numpy_ref` first, with a test; then in the other backends, with the
-   equivalence test.
+4. Implement in `numpy_ref` and `native`, in either order (ADR-066), with a test and the
+   equivalence test; a backend that does not have it yet refuses it by name.
 5. Update the memory budget in [architecture.md §8](architecture.md) if a buffer is added.
 
 ## 11. The Adams march

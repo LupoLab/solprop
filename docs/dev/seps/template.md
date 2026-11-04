@@ -104,9 +104,9 @@ differences page.*
 
 ### 11. Phases
 
-*The proposed phases, each independently mergeable with a green gate. The usual order is
-numpy_ref with tests and the manual page first, then the native CPU build. For each
-phase: its deliverables and what it must verify.*
+*The proposed phases, each independently mergeable with a green gate. numpy_ref and the
+native CPU build come in either order, each with tests, and the manual page with whichever
+lands first. For each phase: its deliverables and what it must verify.*
 
 ### 12. Open questions
 

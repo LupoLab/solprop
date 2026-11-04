@@ -283,8 +283,10 @@ and compares options; it is not a line-by-line plan, which belongs to the implem
 
 ### Implementation rules
 
-- **Backends in order.** A feature is implemented first on `numpy_ref`, the oracle, with
-  its tests and its manual page; then on the native CPU build in `native/`. Device (GPU)
+- **Backends in either order** ([ADR-066](../decisions.md)). A feature is implemented on
+  `numpy_ref`, the oracle for numbers, and on the native CPU build in `native/`, each with
+  its tests, and the manual page with whichever lands first; `native` may shape the
+  contract. Device (GPU)
   qualification follows the standing policy of [backends.md](../backends.md), later and
   in one pass. `mlx` (Tier 3) takes the feature only where the
   SEP says so ([ADR-061](../decisions.md)); the SEP weighs who would run it there.

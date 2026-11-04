@@ -50,11 +50,12 @@ solprop's ADR-059), nanobind
 and scikit-build-core; GoogleTest is test-only. Adding any other dependency needs approval.
 
 Major changes follow solprop's enhancement proposal process (SEPs,
-[`docs/dev/seps/`](../docs/dev/seps/), SEP 0). A SEP is implemented `numpy_ref` first,
-then here. A phase that touches both halves is one branch named for
-the SEP (`feature/sep-NNNN-…`) and one pull request, whose commits cite the SEP number;
-its phase report — deviations, decisions, verification, open questions — is appended to
-the SEP. Until the native phase lands, the backend refuses the new problem by name.
+[`docs/dev/seps/`](../docs/dev/seps/), SEP 0). A SEP is implemented here and on `numpy_ref`
+in either order (solprop's ADR-066). A phase that touches both halves is one branch named
+for the SEP (`feature/sep-NNNN-…`) and one pull request, whose commits cite the SEP
+number; its phase report — deviations, decisions, verification, open questions — is
+appended to the SEP. Until a backend has its phase, that backend refuses the new problem
+by name.
 
 ## Scope
 

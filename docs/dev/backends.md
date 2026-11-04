@@ -197,9 +197,30 @@ both backends in one process, with every other implementation made to raise afte
 translation, and a native z-table run of each march with the plain forms
 forbidden.
 
-**3. One step loop.** The march, the replay, the landing, the controller bookkeeping, the
-history, the noise models, **the progress reporter and the statistics channel between
-planes** are `backends/driver.py` and are not reimplemented. A backend supplies
+**3. One driver, seven marches.** `StepDriver.propagate_to` is the one way in, and it hands
+the steps to one of these loops:
+
+| Loop | Steps | Where its state-sized work runs |
+|---|---|---|
+| `StepDriver._march_to`, in `backends/driver.py` | adaptive Runge-Kutta | the backend's `_trial_step` |
+| `StepDriver._replay_to` | Runge-Kutta on a fixed schedule | the backend's `_trial_step` |
+| `AdamsMarch.march_to`, in `backends/multistep.py` | adaptive Adams | an `AdamsEngine`: `HostHistory`, or `native`'s resident `_ResidentAdams` |
+| `AdamsMarch._replay_to` | Adams on a fixed schedule | the same engines |
+| `LowStorageMarch.replay_to`, in `backends/low_storage.py` | low-storage, always on a schedule | a `LowStorageEngine`: `HostLowStorage`, `MlxLowStorage`, or `native`'s `_ResidentLowStorage`, whose step is one native call |
+| `LockstepRunner._replay_to`, in `backends/batch.py` | a batch's members on one schedule | `_trial_step` under Runge-Kutta; each member's own march otherwise |
+| `_NativeAdamsMarch.march_to`, with `native/src/adams_march.cpp` | Adams, adaptive and replayed, compiled (ADR-060) | the resident engine; it returns to Python only at a host event |
+
+Only the last loop is compiled. The driver's Runge-Kutta march is the reference for the march's
+bookkeeping. `AdamsMarch` is the reference for the compiled Adams march, which holds to it
+through kernel contract §11 (ADR-060), and steps every configuration the compiled march doesn't
+cover. A new compiled loop needs a contract that specifies it in full and a reference to compare
+it with.
+
+What stays common, and is never reimplemented, is what the loops do around a step:
+`propagate_to` and `observe`, the history (`_record`, or `_record_attempt` and `_skip_step`
+for the attempts a compiled march books together), the committed step's work
+(`_take_step_stats`: **the statistics channel between planes** and the boundary monitor), the
+natural stops, the noise models and **the progress reporter**. A backend supplies
 `_trial_step`, `_apply_mask` and `stats`, overrides `_finish` if it has boundary treatments,
 and hooks `_begin_plane` and `_on_accepted_step` if it has something to score.
 
@@ -521,7 +542,7 @@ once-per-run FFTW planning and the output's planes.
 ### 3.1a What exists
 
 The adapter `native/src/solprop_native/backend.py` and the engine `native/src/general.cpp`
-over the shared step loop of `backends/driver.py`. The public default is `"auto"`: the
+over the shared driver of `backends/driver.py`. The public default is `"auto"`: the
 native backend, with no fallback (§1, ADR-029).
 `numpy_ref` stays selectable by name.
 
@@ -757,9 +778,9 @@ Kokkos regions.
 
 ### 3.5 The step driver: Python first, compiled when measured
 
-**One loop, for every backend.** `backends/driver.py` is the march, the replay, the
-landing, the controller bookkeeping, the history and the noise models, and every backend
-inherits it. Per stage a backend asks the translation layer for one bundle of host
+**One driver, for every backend.** `backends/driver.py` is the Runge-Kutta march and replay,
+the controller bookkeeping, the history and the noise models, and every backend inherits it
+(§1, point 3, lists the other marches). Per stage a backend asks the translation layer for one bundle of host
 scalars and combines the terms it holds over them (§1); the driver applies the boundary
 treatments of `_finish` to a step it keeps, so a rejected step does not pay the temporal
 absorber's transform pair for a state that is thrown away.
