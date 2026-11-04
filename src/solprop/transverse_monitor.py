@@ -276,6 +276,7 @@ class TransverseEdge:
     _returned_peak: float = field(default=0.0, init=False)
     _inverse: np.ndarray | None = field(default=None, init=False)
     _read_rows: np.ndarray | None = field(default=None, init=False)
+    _kappa_order: np.ndarray = field(init=False)
     _workers: int = field(default=1, init=False)
 
     def __post_init__(self) -> None:
@@ -292,6 +293,7 @@ class TransverseEdge:
         else:
             self._weights = np.asarray(space.spatial_weights, dtype=np.float64)
             self._kappa = np.sqrt(np.asarray(space.kperp_sq, dtype=np.float64))
+        self._kappa_order = np.argsort(self._kappa)
         self._columns = np.asarray(space.spectral_weights, dtype=np.float64)
         self._peak = [0.0] * len(self._faces)
         self._peak_raw = [0.0] * len(self._faces)
@@ -675,7 +677,7 @@ class TransverseEdge:
         """
         if self._noise_columns is not None:
             columns = np.maximum(columns - self._noise_columns, 0.0)
-        order = np.argsort(self._kappa)
+        order = self._kappa_order
         tail = np.cumsum(columns[order][::-1])[::-1] / self._launch
         above = np.nonzero(tail > self.budget**2)[0]
         kappa_q = float(self._kappa[order][above[-1]]) if above.size else 0.0
@@ -728,6 +730,27 @@ class TransverseEdge:
         """
         return z + proposal >= self._next - 1e-12 * max(abs(z), 1.0)
 
+    def wants_read(self, z: float) -> bool:
+        """Return whether a read at `z` would record anything.
+
+        A saved plane reads the edge whether or not the step that reached it already
+        did, and a read at the position of the last one records nothing. Asking first
+        spares the caller the state it would otherwise hand over for nothing, which on
+        a device is a crossing of the whole state.
+
+        Parameters
+        ----------
+        z : float
+            The committed position, m.
+
+        Returns
+        -------
+        bool
+            False when nothing was launched, the edge is unwatched, or it was last
+            read at `z`.
+        """
+        return self._launch > 0.0 and self._status != "unwatched" and z > self._last_z
+
     def read(
         self, state: Complex[np.ndarray, "n_modes n_pol n_omega"], z: float
     ) -> None:
@@ -745,13 +768,11 @@ class TransverseEdge:
         BoundaryError
             When a face's judged share exceeds ``stop_factor`` budgets.
         """
-        if not self._launch > 0.0 or self._status == "unwatched":
+        if not self.wants_read(z):
             return
         nodes = self._node_power(state, read=True)
         weighted = self._weights * nodes
         gap = z - self._last_z
-        if gap <= 0.0:
-            return
         self._reads += 1
         self._largest_gap = max(self._largest_gap, gap)
         # The ramp's removal over the interval, from each column's power at its start.

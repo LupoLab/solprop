@@ -34,6 +34,7 @@ from typing import Any, cast
 import numpy as np
 import pytest
 
+from solprop.backends.registry import available
 from solprop.driver import Simulation, SimulationSettings
 from solprop.exceptions import BoundaryError, BoundaryWarning
 from solprop.grid import EnvelopeGrid, LineGrid
@@ -43,7 +44,11 @@ from solprop.output.schema import PlaneStore
 from solprop.pulses import GaussianPulse
 from solprop.spatial import SpatialMedium
 from solprop.stepper import FixedSchedule, Multistep, PIController, RungeKutta
+from solprop.transverse_monitor import TransverseEdge
 
+BACKENDS = ("numpy_ref", "native")
+RELAXED = BoundaryCheck(budget=1.0, transverse_budget=1.0)
+"""A check that reads as usual and judges nothing: these packets reach the edge."""
 C = 299792458.0
 WAVELENGTH = 800e-9
 K = 2 * math.pi / WAVELENGTH
@@ -101,7 +106,13 @@ REREVIEW = Packet(100e-6, 256, 25e-6, 0.2, 0.0, 1e-3)
 MISS = Packet(1e-3, 2560, 100e-6, 0.3, -400e-6, 8.18e-3)
 
 
-def packet_run(
+def _require(backend: str) -> None:
+    """Skip when `backend` isn't installed."""
+    if backend not in available():
+        pytest.skip(f"{backend} is not installed")
+
+
+def packet_run(  # noqa: PLR0913 - the settings these runs vary, each independent
     packet: Packet,
     *,
     integrator: Multistep | RungeKutta | None = None,
@@ -109,11 +120,13 @@ def packet_run(
     check: BoundaryCheck | None = BoundaryCheck(),  # noqa: B008 - immutable
     planes: list[float] | None = None,
     space: LineGrid | None = None,
+    dz_init: float = 1e-4,
+    backend: str = "numpy_ref",
 ) -> Simulation:
     """Return `packet` as a free-space run on `space` (its own line by default).
 
     ``rtol = 1e-5``, ``dz_init = 1e-4 L``, ``auto_init`` and ``dz_max = L``: the
-    settings of Part II's table of committed steps.
+    settings of Part II's table of committed steps. `dz_init` is in units of ``L``.
     """
     length = packet.length
     grid = EnvelopeGrid.from_limits(length, WAVELENGTH, (790e-9, 810e-9), packet.window)
@@ -130,10 +143,10 @@ def packet_run(
         controller=None if schedule is not None else PIController(rtol=1e-5, atol=0.0),
         save_planes=[length] if planes is None else planes,
         dz_max=length,
-        dz_init=length * 1e-4,
+        dz_init=length * dz_init,
         auto_init=True,
         integrator=RungeKutta() if integrator is None else integrator,
-        backend="numpy_ref",
+        backend=backend,
         schedule=schedule,
         boundary_check=check,
     )
@@ -380,6 +393,75 @@ def test_the_scaled_miss_is_read_far_above_the_stop() -> None:
     assert record["reads"] >= 16
     assert record["largest_gap"] <= packet.length / 16 * (1 + 1e-9)
     assert max(record["edge_max"]) > 1e3 * STOP
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_a_plane_the_step_already_read_reduces_nothing_more(
+    backend: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Every step of this schedule is longer than the spacing, so each reads the edge,
+    # and a plane landing on one has nothing to add. Its read used to cross the state,
+    # synthesise it and only then find the gap zero: on a device, a whole state's copy
+    # for nothing.
+    _require(backend)
+    packet = REREVIEW
+    length = packet.length
+    planes = [length / 4, length / 2, length]
+    calls = {"nodes": 0}
+    node_power = TransverseEdge._node_power
+
+    def counting(self: TransverseEdge, *args: Any, **keywords: Any) -> np.ndarray:
+        calls["nodes"] += 1
+        return node_power(self, *args, **keywords)
+
+    monkeypatch.setattr(TransverseEdge, "_node_power", counting)
+    schedule = FixedSchedule.uniform(0.0, length, length / 8, save_planes=planes)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", BoundaryWarning)
+        output = packet_run(
+            packet,
+            schedule=schedule,
+            planes=planes,
+            backend=backend,
+            check=RELAXED,
+        ).run(progress="none")
+    assert isinstance(output, PlaneStore)
+    assert edge_record(output)["reads"] == 8
+    # The launch, then one for each of the eight steps and none for the three planes.
+    assert calls["nodes"] == 9
+
+
+@pytest.mark.parametrize("integrator", [RungeKutta(), Multistep()], ids=["rk", "adams"])
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_a_replay_reads_by_its_next_step_whatever_the_first_proposal(
+    backend: str, integrator: RungeKutta | Multistep
+) -> None:
+    # A replay never updates the proposal, so `dz_init` used to stand in for the next
+    # step: a short one read a step late, past the spacing the reads promise, and a long
+    # one read at every step. Steps of L / 40 under the ceiling L / 16 read every other
+    # step whichever it is.
+    _require(backend)
+    packet = REREVIEW
+    length = packet.length
+    schedule = FixedSchedule.uniform(0.0, length, length / 40, save_planes=[length])
+    records = {}
+    for proposal in (1e-4, 0.25):
+        output = packet_run(
+            packet,
+            schedule=schedule,
+            integrator=integrator,
+            dz_init=proposal,
+            backend=backend,
+            check=RELAXED,
+        ).run(progress="none")
+        assert isinstance(output, PlaneStore)
+        records[proposal] = edge_record(output)
+    short, long = records[1e-4], records[0.25]
+    assert short["reads"] == long["reads"]
+    assert short["largest_gap"] == long["largest_gap"]
+    # The spacing, relative to rounding in the position it is measured from.
+    assert short["largest_gap"] <= length / 16 * (1 + 1e-9)
+    assert short["reads"] < 40
 
 
 def test_the_scaled_miss_on_its_own_committed_steps_is_coarse() -> None:

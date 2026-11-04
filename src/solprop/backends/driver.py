@@ -1996,15 +1996,37 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         if edge is None:
             return
         # Read before the next step would carry past the read (`TransverseEdge.due`).
-        due = edge.due(self._z, self._proposal)
-        if not (plane or edge.every_step or due):
+        due = edge.due(self._z, self._next_step())
+        # A plane the step that reached it already read has nothing to add.
+        read = (plane or due) and edge.wants_read(self._z)
+        # A collar's inward current accumulates at every committed step.
+        accumulate = edge.every_step and not plane
+        if not (read or accumulate):
             return
         state = np.asarray(self._observed_field(self._require_state())[0])
-        if edge.every_step and not plane:
-            # A collar's inward current accumulates at every committed step.
+        if accumulate:
             edge.step(state, self._z)
-        if plane or due:
+        if read:
             edge.read(state, self._z)
+
+    def _next_step(self) -> float:
+        """Return the step the march takes next, m.
+
+        A replay takes its schedule's and never updates the proposal, which stays
+        ``dz_init``: read from that, an edge read comes early or late by the difference.
+
+        Returns
+        -------
+        float
+            The schedule's next step on a replay, zero past its end, and otherwise the
+            controller's proposal.
+        """
+        schedule = self._problem.stepper.schedule
+        if schedule is None:
+            return self._proposal
+        if self._schedule_index >= schedule.n_steps:
+            return 0.0
+        return float(schedule.steps[self._schedule_index])
 
     def _transverse_capped(self, proposal: float) -> float:
         """Return the proposal, held to the transverse edge's read spacing (SEP 40 5.3).
