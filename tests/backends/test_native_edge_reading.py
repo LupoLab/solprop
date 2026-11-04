@@ -9,23 +9,27 @@ an inverse transform and a sum, and the two may differ by that transform's round
 """
 
 import dataclasses
+import warnings
 from typing import Any, cast
 
 import numpy as np
 import pytest
 
-from bounds import fft_bound
+from bounds import fft_bound, higham_gamma
 from capability_routes import LENGTH, SPATIAL_GRID
 from capability_routes import ROUTES as CASES
 from solprop.backends.driver import StepDriver
 from solprop.backends.registry import available, select
 from solprop.driver import Simulation
+from solprop.exceptions import BoundaryError, BoundaryWarning
 from solprop.grid import FreeGrid, LineGrid, RadialGrid
+from solprop.modes import PlanarGrid
 from solprop.monitor import BoundaryCheck
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stepper import FixedSchedule, LowStorageRungeKutta, Multistep, RungeKutta
-from solprop.transverse_monitor import EdgeReading
+from solprop.transverse_monitor import GUARD, EdgeReading
+from test_transverse_reads import REREVIEW, packet_run
 
 pytestmark = pytest.mark.skipif(
     "native" not in available(), reason="native is not installed"
@@ -279,6 +283,182 @@ def test_a_read_at_every_step_leaves_the_march_where_it_was(
     assert native.tobytes() == host.tobytes()
 
 
+def _direct_node_energies(space: Any, state: np.ndarray) -> np.ndarray:
+    """Return each node's ``sum |E|^2`` by a plain transform, not the edge's code."""
+    flat = state.reshape(state.shape[0], -1)
+    if isinstance(space, RadialGrid):
+        hankel = space.hankel
+        matrix = (
+            hankel.inverse_scale
+            * (hankel.j1[:, None] / hankel.j1[None, :])
+            * hankel.matrix
+        )
+        return np.sum(np.abs(matrix @ flat) ** 2, axis=1)
+    if isinstance(space, PlanarGrid):
+        cube = flat.reshape(space.n_y, space.n_p, -1)
+        return np.sum(np.abs(np.fft.ifft(cube, axis=0)) ** 2, axis=(1, 2))
+    cube = flat.reshape(space.n_y, space.n_x, -1)
+    return np.sum(np.abs(np.fft.ifftn(cube, axes=(0, 1))) ** 2, axis=2).ravel()
+
+
+def _direct_faces(space: Any) -> tuple[np.ndarray, list[np.ndarray]]:
+    """Return the node weights and each face's mask, from the grid and SEP 40's rule."""
+    if isinstance(space, RadialGrid):
+        r = np.asarray(space.r)
+        return np.asarray(space.radial_weights), [r >= (1 - GUARD) * space.outer_radius]
+
+    def axis_faces(axis: np.ndarray, flat: np.ndarray) -> list[np.ndarray]:
+        outer = 0.5 * axis.size * float(axis[1] - axis[0])
+        return [flat <= -(1 - GUARD) * outer, flat >= (1 - GUARD) * outer]
+
+    if isinstance(space, PlanarGrid):
+        y = np.asarray(space.y)
+        return np.full(space.n_y, float(y[1] - y[0])), axis_faces(y, y)
+    x = np.asarray(space.x)
+    masks = axis_faces(x, np.tile(x, space.n_y))
+    if not isinstance(space, LineGrid):
+        y = np.asarray(space.y)
+        masks += axis_faces(y, np.repeat(y, space.n_x))
+    return np.asarray(space.spatial_weights), masks
+
+
+@pytest.mark.parametrize("route", ROUTES)
+def test_each_region_reads_what_its_definition_says(route: str) -> None:
+    # Against the definition of SEP 40 and a plain transform, not the edge's tables: two
+    # reducers agreeing on one wrongly built table wouldn't show the table is right.
+    simulation = _case(route)
+    problem = simulation.translate()
+    state = _noise_state(problem.shape, np.asarray(problem.grids.active_mask), 53)
+    backend, edge = _attached(simulation, state)
+    try:
+        native = backend._edge_reading(backend._require_state(), edge, full=True)
+    finally:
+        backend.close()
+    assert native.faces is not None and native.totals is not None
+    weights, masks = _direct_faces(edge.space)
+    energies = _direct_node_energies(edge.space, state[0])
+    budget = 4 * fft_bound(state.shape[1] * state.shape[3])
+    expected = np.zeros(4)
+    for index, mask in enumerate(masks):
+        expected[index] = np.sum((weights * energies)[mask])
+    np.testing.assert_allclose(native.faces, expected, rtol=budget)
+    np.testing.assert_allclose(
+        native.totals[0], np.sum(weights * energies), rtol=budget
+    )
+    # A row no region uses is held at zero, so that nothing reads it by accident.
+    np.testing.assert_array_equal(native.totals[3], 0.0)
+
+
+@pytest.mark.parametrize("route", ROUTES)
+def test_the_grids_total_is_its_columns_by_parseval(route: str) -> None:
+    # Two independent paths to one number: the nodes' quadrature on the synthesis, and
+    # the columns' quadrature on the state, which doesn't go through a transform.
+    simulation = _case(route)
+    problem = simulation.translate()
+    state = _noise_state(problem.shape, np.asarray(problem.grids.active_mask), 59)
+    backend, edge = _attached(simulation, state)
+    try:
+        native = backend._edge_reading(backend._require_state(), edge, full=True)
+    finally:
+        backend.close()
+    assert native.totals is not None and native.columns is not None
+    spectral = np.asarray(edge.space.spectral_weights)
+    budget = 4 * fft_bound(state.shape[1] * state.shape[3])
+    if isinstance(edge.space, RadialGrid):
+        # An FFT is unitary to rounding and a discrete Hankel transform isn't: its
+        # columns are orthogonal only as far as its own matrix says, the largest
+        # eigenvalue of the Gram matrix's departure from the identity.
+        matrix = np.asarray(edge.reduction.synthesis())
+        weights = np.asarray(edge.space.radial_weights)
+        scaled = np.sqrt(weights)[:, None] * matrix / np.sqrt(spectral)[None, :]
+        gram = scaled.T @ scaled - np.eye(spectral.size)
+        budget += float(np.max(np.abs(np.linalg.eigvalsh(gram))))
+    np.testing.assert_allclose(
+        native.totals[0], np.sum(spectral * native.columns), rtol=budget
+    )
+
+
+def test_a_nearly_cancelling_radial_read_stays_within_its_absolute_budget() -> None:
+    # A narrow beam's synthesis at the edge is a dense sum that all but cancels, so its
+    # rounding is set by the terms' magnitudes, not by the small result: a bound
+    # relative to the result would fail here. The budget is Higham's for a dot product.
+    simulation = _case("radial")
+    problem = simulation.translate()
+    monitor = simulation._boundary_monitor()
+    assert monitor is not None
+    assert monitor.transverse is not None
+    space = monitor.transverse.space
+    assert isinstance(space, RadialGrid)
+    active = np.asarray(problem.grids.active_mask)
+    r = np.asarray(space.r)
+    narrow = np.exp(-((r / (0.1 * space.radius)) ** 2)).astype(complex)
+    beam = space.hankel.forward(narrow)
+    state = np.zeros(problem.shape, dtype=np.complex128)
+    state[0, :, 0, :] = beam[:, None] * active[None, :]
+    backend, edge = _attached(simulation, state)
+    try:
+        native = backend._edge_reading(backend._require_state(), edge, full=True)
+    finally:
+        backend.close()
+    assert native.faces is not None
+    host = edge.reduction.reading(state[0], full=True)
+    assert host.faces is not None
+    synthesis = np.asarray(edge.reduction.synthesis())
+    flat = state[0].reshape(state.shape[1], -1)
+    weights, masks = _direct_faces(space)
+    terms = np.abs(synthesis) @ np.abs(flat)
+    values = np.abs(synthesis @ flat)
+    # Complex by real, then one sum of `n_r` terms, on each side of the comparison.
+    error = higham_gamma(2 * space.n_r + 4)
+    outer = masks[0]
+    per_node = np.sum(2 * error * values * terms + (error * terms) ** 2, axis=1)
+    bound = float(np.sum((weights * per_node)[outer]))
+    # The share at the edge is rounding: what makes this case the hard one.
+    total = float(np.sum(weights * np.sum(values**2, axis=1)))
+    assert host.faces[0] < 1e-20 * total
+    assert bound > 0.0
+    assert abs(native.faces[0] - host.faces[0]) <= 2 * bound
+
+
+def test_a_runner_reads_its_next_input_as_a_new_runner_would_after_a_stop() -> None:
+    # What a stopped point leaves in the backend mustn't reach the next one: the bound
+    # tables, the scratch and the clean columns are all reused.
+    def run(*inputs: np.ndarray) -> tuple[np.ndarray, dict[str, Any]]:
+        schedule = FixedSchedule.uniform(
+            0.0, REREVIEW.length, REREVIEW.length / 16, save_planes=[REREVIEW.length]
+        )
+        simulation = packet_run(REREVIEW, schedule=schedule, backend="native")
+        with simulation.runner() as runner, warnings.catch_warnings():
+            # The leaving input warns on its way to the stop.
+            warnings.simplefilter("ignore", BoundaryWarning)
+            *earlier, last = inputs
+            for value in earlier:
+                with pytest.raises(BoundaryError):
+                    runner.run(value, progress="none")
+            output = cast("Any", runner.run(last, progress="none"))
+        record = output.outcome.execution["boundary_monitor"]["transverse"]
+        return np.asarray(output["field"])[-1], cast("dict[str, Any]", record)
+
+    schedule = FixedSchedule.uniform(
+        0.0, REREVIEW.length, REREVIEW.length / 16, save_planes=[REREVIEW.length]
+    )
+    base = packet_run(REREVIEW, schedule=schedule, backend="native")
+    leaving = np.asarray(base.translate().initial.field0)[0]
+    space = LineGrid(REREVIEW.half, REREVIEW.samples)
+    staying_physical = dataclasses.replace(REREVIEW, velocity=0.0).physical(space)
+    moving_physical = REREVIEW.physical(space)
+    # The same pulse without the tilt: it stays near the axis and nothing warns.
+    staying = (
+        leaving
+        * (np.fft.fft(staying_physical) / np.fft.fft(moving_physical))[:, None, None]
+    )
+    field_alone, alone = run(staying)
+    field_after, after = run(leaving, staying)
+    assert after["reads"] == alone["reads"] > 0
+    assert after["edge_max"] == alone["edge_max"]
+    assert field_after.tobytes() == field_alone.tobytes()
+
+
 def test_a_field_free_default_run_crosses_no_state(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -290,9 +470,7 @@ def test_a_field_free_default_run_crosses_no_state(
 
     monkeypatch.setattr(NativeBackend, "_observed_field", refused)
     simulation = _case("cartesian")
-    simulation.settings = dataclasses.replace(
-        simulation.settings, fields="none", held_plane=False
-    )
+    simulation.settings = dataclasses.replace(simulation.settings, fields="none")
     problem = simulation.translate()
     with simulation.runner() as runner:
         output = runner.run(np.asarray(problem.initial.field0)[0], progress="none")
