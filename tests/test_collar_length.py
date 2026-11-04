@@ -91,6 +91,7 @@ def test_a_user_rate_is_recorded_only_when_there_is_one(grid):
     held = serialise(custom)
     assert isinstance(held, dict) and "user_rate" in held
     # Two splits of one total are two runs: they must not share a hash.
+    assert custom.user_rate is not None
     lumped = dataclasses.replace(custom, user_rate=None)
     half = dataclasses.replace(custom, user_rate=0.5 * custom.user_rate)
     np.testing.assert_array_equal(lumped.spectral_rate, half.spectral_rate)

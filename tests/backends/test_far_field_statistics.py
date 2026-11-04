@@ -543,9 +543,9 @@ def test_the_collar_and_the_custom_rate_integrate_to_exact_exponential_weights(
         lambda omega: strength * np.exp(-(((omega - centre) / width) ** 2)),
         collar=collar,
     )
-    assert np.any(boundary.user_rate > 0) and np.any(
-        boundary.spectral_rate - boundary.user_rate > 0
-    )
+    assert boundary.user_rate is not None
+    assert np.any(boundary.user_rate > 0)
+    assert np.any(boundary.spectral_rate - boundary.user_rate > 0)
     fastest = float(np.max(boundary.spectral_rate))
     planes = 2**5
     length = 2.0 / fastest  # the fastest bin falls by e^-2, so the sum is well resolved
@@ -632,20 +632,21 @@ def test_a_custom_rate_moves_no_bit_of_the_operator(grid, lossy_launch):
     lumped = dataclasses.replace(boundary, user_rate=None)
     split = free_simulation(grid, space, field, absorber=boundary).translate()
     plain = free_simulation(grid, space, field, absorber=lumped).translate()
+    split_data, plain_data = split.linear.separable, plain.linear.separable
+    assert split_data is not None
+    assert plain_data is not None
+    np.testing.assert_array_equal(split_data.spectral_rate, plain_data.spectral_rate)
     np.testing.assert_array_equal(
-        split.linear.separable.spectral_rate, plain.linear.separable.spectral_rate
+        separable_values(split_data)[0], separable_values(plain_data)[0]
     )
-    np.testing.assert_array_equal(
-        separable_values(split.linear.separable)[0],
-        separable_values(plain.linear.separable)[0],
-    )
-    np.testing.assert_array_equal(split.linear.separable.user_rate, boundary.user_rate)
-    assert not np.any(plain.linear.separable.user_rate)
+    np.testing.assert_array_equal(split_data.user_rate, boundary.user_rate)
+    assert not np.any(plain_data.user_rate)
 
 
 def test_the_operator_refuses_a_share_above_the_total(grid, lossy_launch):
     space, field = lossy_launch
     data = free_simulation(grid, space, field).translate().linear.separable
+    assert data is not None
     with pytest.raises(TranslationError, match="user's share of spectral_rate"):
         dataclasses.replace(data, user_rate=np.ones(grid.n_omega))
     with pytest.raises(TranslationError, match="user's share of spectral_rate"):
@@ -681,7 +682,9 @@ def test_a_run_does_not_continue_an_earlier_four_column_file(
         stored = np.asarray(file["stats/absorbed_power"])
         del file["stats/absorbed_power"]
         file.create_dataset("stats/absorbed_power", data=stored[:, :4])
-        document = json.loads(file["meta/json"][()].decode("utf-8"))
+        stamped = file["meta/json"]
+        assert isinstance(stamped, h5py.Dataset)
+        document = json.loads(stamped[()].decode("utf-8"))
         document["schema_version"] = 2
         del file["meta/json"]
         rewritten = json.dumps(document)

@@ -92,7 +92,9 @@ FINE = 50.0
 """The aperture scale on the finely sampled grid of :func:`fine_space`."""
 
 
-def masks(profile: ApertureProfile = "hard", weighting="amplitude"):
+def masks(
+    profile: ApertureProfile = "hard", weighting: ApertureWeighting = "amplitude"
+):
     """Every shape at once, sized for :func:`fine_space`'s column images.
 
     A half-plane and its complement on each axis, a rectangle, an ellipse and a circle.
@@ -110,7 +112,7 @@ def masks(profile: ApertureProfile = "hard", weighting="amplitude"):
     )
     smooth = profile in ("tanh", "rcos")
     edge = 4.0 if profile == "supergauss" else 5e-3 if smooth else 0.0
-    profiles = tuple(
+    profiles: tuple[ApertureProfile, ...] = tuple(
         "hard"
         if profile == "supergauss" and shape.startswith("half_plane")
         else profile
