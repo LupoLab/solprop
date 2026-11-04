@@ -1214,7 +1214,10 @@ schedule index); and its bounds: the target; for a replay, the edges' slack
 (`replay_tolerance`); whether the collar rests; the accepted steps after which the
 driver has work (the next statistics row, natural stop or monitor check, whichever comes
 first; none for zero); the monitor's last check and interval; and the call's own bound,
-256 attempts or 0.1 s of wall time, which bounds a signal's wait.
+256 attempts or 0.1 s of wall time, read after each attempt, which bounds the wait of a
+signal or a stop flag. Where a call returns is not a decision of the march's: a return
+hands the state back unrounded, so the bound moves no number, and a test holds a bound of
+one attempt, of seven and of none to one set of bits.
 
 **What it returns**:
 
@@ -1230,11 +1233,13 @@ first; none for zero); the monitor's last check and interval; and the call's own
   (convergence, value, backend) and message;
 - the state above, every step before the event committed.
 
-**What solprop does with a call** (`_NativeAdamsMarch`): inside one `committing()` it
-adopts the state and books each row, an accepted row on which the driver has no work
-through `StepDriver._skip_step` and the rest through `StepDriver._record_attempt`; after
-the commit it reports progress per attempt, takes the event step's statistics and natural
-stop, and raises the error the reason names, with the reference's message.
+**What solprop does with a call** (`_NativeAdamsMarch`): before the call it polls the
+run's stop flag, which native code cannot read, as the reference polls before an attempt;
+inside one `committing()` it makes the call, adopts the state and books each row, an
+accepted row on which the driver has no work through `StepDriver._skip_step` and the rest
+through `StepDriver._record_attempt`; after the commit it reports progress per attempt,
+takes the event step's statistics and natural stop, and raises the error the reason
+names, with the reference's message.
 
 **Rounding.** The decisions are compiled without contraction or fast-math in their own
 translation unit and call no elementary function but `pow`, so that they round as
