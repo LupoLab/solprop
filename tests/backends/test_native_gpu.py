@@ -109,6 +109,8 @@ def test_a_large_state_crosses_both_ways_through_the_ring_bit_for_bit(
         rng = np.random.default_rng(53)
         shape = problem.shape
         field = rng.standard_normal(shape) + 1j * rng.standard_normal(shape)
+        # A load masks outside the active band, which isn't what this test is about.
+        field[..., ~np.asarray(problem.grids.active_mask)] = 0.0
         assert field.nbytes >= 2**28
         assert engine.memory_ledger()["host_crossing_ring"] == 0
         engine.set_initial(field, None, z=problem.initial.z)

@@ -14881,20 +14881,27 @@ std::vector<double> GeneralWorkspace::monitor_reading() {
     // most of a reading, several steps' time on an AMD Instinct MI325X.
     const auto buckets = occupancy_buckets_;
     const auto n_pol = problem_.n_pol_state;
-    OccupancySums occupancy;
-    launch::parallel_reduce(
-        "solprop_native.monitor.occupancy",
-        Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, columns),
-        KOKKOS_LAMBDA(const std::size_t row, OccupancySums& update) {
-          const std::size_t offset = (row / n_pol) * n;
-          const double weight = column_weights(row);
-          for (std::size_t index = 0; index < n; ++index)
-            update.values[buckets(offset + index)] +=
-                weight * squared_abs(current(row, index));
-        },
-        Kokkos::Sum<OccupancySums>(occupancy));
-    reading.insert(reading.end(), occupancy.values.data(),
-                   occupancy.values.data() + occupancy_count_);
+    for (std::size_t first = 0; first < occupancy_count_;
+         first += occupancy_reduction_slots) {
+      OccupancySums occupancy;
+      launch::parallel_reduce(
+          "solprop_native.monitor.occupancy",
+          Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, columns),
+          KOKKOS_LAMBDA(const std::size_t row, OccupancySums& update) {
+            const std::size_t offset = (row / n_pol) * n;
+            const double weight = column_weights(row);
+            for (std::size_t index = 0; index < n; ++index) {
+              const std::size_t bucket = buckets(offset + index);
+              if (bucket >= first && bucket - first < occupancy_reduction_slots)
+                update.values[bucket - first] +=
+                    weight * squared_abs(current(row, index));
+            }
+          },
+          Kokkos::Sum<OccupancySums>(occupancy));
+      reading.insert(reading.end(), occupancy.values.data(),
+                     occupancy.values.data() +
+                         std::min(occupancy_reduction_slots, occupancy_count_ - first));
+    }
   }
   execution_space_.fence("solprop_native monitor reading");
   return reading;
