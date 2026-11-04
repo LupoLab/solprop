@@ -2876,8 +2876,7 @@ public:
   // energy per bucket, which a reading returns for the crossing limit (solprop
   // #440); empty unbound.
   ByteView occupancy_buckets_;
-  RealView occupancy_;
-  OccupancyScatter occupancy_scatter_;
+  std::size_t occupancy_count_ = 0;
   [[nodiscard]] bool monitoring_split() const noexcept {
     return monitor_bound_ && problem_.split_step_absorber;
   }
@@ -14717,47 +14716,27 @@ std::vector<double> GeneralWorkspace::monitor_reading() {
                               sums.values[3],  sums.values[4],  removed,
                               found.values[1], found.values[2], found.values[3],
                               found.values[4]};
-  if (occupancy_.extent(0) != 0) {
+  if (occupancy_count_ != 0) {
     // The state's energy per walk-off bucket, beside the five: a state column is
-    // `mode * n_pol + pol`, and the buckets are by mode.
+    // `mode * n_pol + pol`, and the buckets are by mode. A reduction per column, whose
+    // per-thread histograms need no atomics: on a device an atomic per element took
+    // most of a reading, several steps' time on an AMD Instinct MI325X.
     const auto buckets = occupancy_buckets_;
     const auto n_pol = problem_.n_pol_state;
-    auto scatter = occupancy_scatter_;
-    // `contribute` adds the per-thread copies of a host build into the view: each
-    // reading starts the view, as `reset` starts the copies, from zero (a device
-    // build's atomic scatter adds into the view itself).
-    graph::deep_copy(execution_space_, occupancy_, 0.0);
-    scatter.reset(execution_space_);
-    if constexpr (Kokkos::SpaceAccessibility<ExecutionSpace,
-                                             Kokkos::HostSpace>::accessible) {
-      // A host scatter finds its thread's copy at each `access`, which dominated this
-      // loop per element; a row takes it once (issue #453). A device's access is
-      // atomic.
-      launch::parallel_for(
-          "solprop_native.monitor.occupancy",
-          Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, columns),
-          KOKKOS_LAMBDA(const std::size_t row) {
-            auto access = scatter.access();
-            const std::size_t offset = (row / n_pol) * n;
-            const double weight = column_weights(row);
-            for (std::size_t index = 0; index < n; ++index)
-              access(buckets(offset + index)) +=
-                  weight * squared_abs(current(row, index));
-          });
-    } else {
-      launch::parallel_for(
-          "solprop_native.monitor.occupancy",
-          Range2(execution_space_, {0, 0}, {columns, n}),
-          KOKKOS_LAMBDA(const std::size_t row, const std::size_t index) {
-            auto access = scatter.access();
-            access(buckets((row / n_pol) * n + index)) +=
-                column_weights(row) * squared_abs(current(row, index));
-          });
-    }
-    Kokkos::Experimental::contribute(execution_space_, occupancy_, scatter);
-    const auto host =
-        Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace{}, occupancy_);
-    reading.insert(reading.end(), host.data(), host.data() + host.extent(0));
+    OccupancySums occupancy;
+    launch::parallel_reduce(
+        "solprop_native.monitor.occupancy",
+        Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, columns),
+        KOKKOS_LAMBDA(const std::size_t row, OccupancySums& update) {
+          const std::size_t offset = (row / n_pol) * n;
+          const double weight = column_weights(row);
+          for (std::size_t index = 0; index < n; ++index)
+            update.values[buckets(offset + index)] +=
+                weight * squared_abs(current(row, index));
+        },
+        Kokkos::Sum<OccupancySums>(occupancy));
+    reading.insert(reading.end(), occupancy.values.data(),
+                   occupancy.values.data() + occupancy_count_);
   }
   execution_space_.fence("solprop_native monitor reading");
   return reading;
@@ -14765,23 +14744,21 @@ std::vector<double> GeneralWorkspace::monitor_reading() {
 
 // Bind the split collar's walk-off bucket of each (mode, frequency) bin (solprop
 // #440): from here on a monitor reading also returns the state's energy per bucket.
-// The views are allocated at the first bind and kept.
+// The table is allocated at the first bind and kept.
 void GeneralWorkspace::bind_occupancy(const std::vector<unsigned char>& buckets,
                                       const std::size_t count) {
   require_open();
   require_extent(buckets.size(), problem_.n_modes * problem_.n_omega,
                  "occupancy buckets");
-  if (count == 0 || count > 256)
-    throw std::invalid_argument("the occupancy needs between 1 and 256 buckets");
+  if (count == 0 || count > occupancy_bucket_limit)
+    throw std::invalid_argument("the occupancy needs between 1 and 128 buckets");
   for (const auto bucket : buckets)
     if (bucket >= count)
       throw std::invalid_argument("an occupancy bucket lies past the bucket count");
-  if (occupancy_.extent(0) != count) {
+  if (occupancy_count_ == 0)
     occupancy_buckets_ =
         ByteView("solprop_native.monitor.occupancy_buckets", buckets.size());
-    occupancy_ = RealView("solprop_native.monitor.occupancy", count);
-    occupancy_scatter_ = OccupancyScatter(occupancy_);
-  }
+  occupancy_count_ = count;
   auto host = Kokkos::create_mirror_view(occupancy_buckets_);
   for (std::size_t index = 0; index < buckets.size(); ++index)
     host(index) = buckets[index];
@@ -15274,8 +15251,7 @@ std::map<std::string, std::size_t> GeneralWorkspace::base_memory_ledger() const 
       // The boundary monitor's weights and accumulators, once a monitor is bound.
       {"monitor_weights",
        (monitor_weights_.size() + monitor_column_weights_.size() +
-        monitor_share_.size() + monitor_half_.size() + monitor_removed_.size() +
-        occupancy_.size()) *
+        monitor_share_.size() + monitor_half_.size() + monitor_removed_.size()) *
                real_bytes +
            occupancy_buckets_.size() +
            (monitor_split_sum_.size() + monitor_found_.size()) * sizeof(SplitSums)},
@@ -15519,9 +15495,8 @@ void GeneralWorkspace::close() noexcept {
   monitor_removed_ = {};
   monitor_split_sum_ = {};
   monitor_found_ = {};
-  occupancy_scatter_ = {};
   occupancy_buckets_ = {};
-  occupancy_ = {};
+  occupancy_count_ = 0;
   tableau_ = {};
   omega_window_ = {};
   omega_ = {};

@@ -95,6 +95,20 @@ struct SplitSums {
   }
 };
 
+/** The boundary monitor's occupancy of a state (solprop #440), one reduction value: its
+    energy per walk-off bucket. A device's reduction keeps one of these per thread in
+    team memory, with no atomics, so its size bounds the buckets (`SPLIT_RATE_BUCKETS`).
+ */
+inline constexpr std::size_t occupancy_bucket_limit = 128;
+struct OccupancySums {
+  Kokkos::Array<double, occupancy_bucket_limit> values{};
+  KOKKOS_INLINE_FUNCTION OccupancySums& operator+=(const OccupancySums& other) {
+    for (std::size_t slot = 0; slot < occupancy_bucket_limit; ++slot)
+      values[slot] += other.values[slot];
+    return *this;
+  }
+};
+
 using ComplexView = Kokkos::View<Complex*, Layout, MemorySpace>;
 /** The histogram the boundary monitor's occupancy reading adds into, one slot per
     walk-off bucket (solprop #440): duplicated per thread on the host, atomic on a
@@ -978,6 +992,9 @@ void multiply_phase(const ExecutionSpace& execution_space, ConstComplexView valu
 
 template <> struct Kokkos::reduction_identity<solprop_native::MonitorSums> {
   KOKKOS_FUNCTION static solprop_native::MonitorSums sum() { return {}; }
+};
+template <> struct Kokkos::reduction_identity<solprop_native::OccupancySums> {
+  KOKKOS_FUNCTION static solprop_native::OccupancySums sum() { return {}; }
 };
 template <> struct Kokkos::reduction_identity<solprop_native::SplitSums> {
   KOKKOS_FUNCTION static solprop_native::SplitSums sum() { return {}; }

@@ -329,6 +329,7 @@ class NativeBackend(StepDriver[_core.State]):
         # before are imported before planning, and new ones are kept after it.
         wisdom = _wisdom.wisdom_file()
         self._wisdom_loaded = _wisdom.load(wisdom)
+        self._bound_buckets: np.ndarray | None = None
         self._native_state = _core.State(
             _native_problem(problem, self._terms, self._flow, self._z_tables)
             | _low_storage_payload(problem, device=_on_device())
@@ -1117,13 +1118,16 @@ class NativeBackend(StepDriver[_core.State]):
             np.ascontiguousarray(monitor.weights, dtype=np.float64).reshape(-1), columns
         )
         crossing = monitor.crossing
-        if crossing is not None:
+        # A runner's points share the table: uploading it again would move a sixteenth
+        # of a state per point.
+        if crossing is not None and crossing.buckets is not self._bound_buckets:
             # The split collar's crossing limit, read from the state's occupancy of
             # its walk-off buckets at every check (solprop #440).
             self._native_state.bind_occupancy(
                 np.ascontiguousarray(crossing.buckets, dtype=np.uint8).reshape(-1),
                 SPLIT_RATE_BUCKETS,
             )
+            self._bound_buckets = crossing.buckets
 
     def _boundary_energies(self, state: _core.State) -> BoundaryEnergies:
         """Reduce the monitor's five numbers where the state lives (solprop SEP 21).
