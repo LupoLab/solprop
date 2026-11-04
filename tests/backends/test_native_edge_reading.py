@@ -15,23 +15,28 @@ import numpy as np
 import pytest
 
 from bounds import fft_bound
+from capability_routes import LENGTH, SPATIAL_GRID
+from capability_routes import ROUTES as CASES
+from solprop.backends.driver import StepDriver
 from solprop.backends.registry import available, select
 from solprop.driver import Simulation
-from solprop.grid import FreeGrid
+from solprop.grid import FreeGrid, LineGrid, RadialGrid
 from solprop.monitor import BoundaryCheck
+from solprop.pulses import GaussianPulse, SpatialPulse
+from solprop.spatial import SpatialMedium
+from solprop.stepper import FixedSchedule, LowStorageRungeKutta, Multistep, RungeKutta
 from solprop.transverse_monitor import EdgeReading
 
 pytestmark = pytest.mark.skipif(
     "native" not in available(), reason="native is not installed"
 )
+NativeBackend = pytest.importorskip("solprop_native.backend").NativeBackend
 
 ROUTES = ("radial", "cartesian", "line", "planar")
 
 
 def _case(route: str) -> Simulation:
     """Return a tiny route, watched, under a check that stops nothing."""
-    from capability_routes import ROUTES as CASES  # noqa: PLC0415
-
     simulation = CASES[route](None)
     simulation.settings = dataclasses.replace(
         simulation.settings,
@@ -170,14 +175,115 @@ def test_one_lit_node_reaches_only_its_own_faces(
     assert np.max(np.abs(native.faces[~lit])) <= budget * expected
 
 
+def _polarised(route: str) -> Simulation:
+    """Return a tiny free-space route launching two polarisations."""
+    pulse = SpatialPulse(
+        GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=3e-9),
+        80e-6,
+        jones=(1, 0.4j),
+    )
+    medium = SpatialMedium("Ar", 1.0)
+    settings = _case(route).settings
+    if route == "radial":
+        return Simulation.from_radial(
+            SPATIAL_GRID,
+            RadialGrid(3e-4, 16, collar_fraction=0),
+            medium,
+            [],
+            pulse,
+            settings=settings,
+            noise=None,
+        )
+    space = (
+        LineGrid(3e-4, 16, collar_fraction=0)
+        if route == "line"
+        else FreeGrid(3e-4, 12, 4e-4, 16, collar_fraction=0)
+    )
+    return Simulation.from_free(
+        SPATIAL_GRID, space, medium, [], pulse, settings=settings, noise=None
+    )
+
+
+@pytest.mark.parametrize("route", ["radial", "cartesian", "line"])
+def test_two_polarisations_read_as_the_host_reads(route: str) -> None:
+    # A column is `mode * n_pol + pol`, so a mode's energy has to gather both.
+    simulation = _polarised(route)
+    problem = simulation.translate()
+    assert problem.shape[2] == 2
+    state = _noise_state(problem.shape, np.asarray(problem.grids.active_mask), 47)
+    backend, edge = _attached(simulation, state)
+    try:
+        native = backend._edge_reading(backend._require_state(), edge, full=True)
+        host = edge.reduction.reading(state[0], full=True)
+    finally:
+        backend.close()
+    assert native.columns is not None and host.columns is not None
+    assert native.faces is not None and host.faces is not None
+    budget = 4 * fft_bound(state.shape[1] * state.shape[3])
+    np.testing.assert_allclose(native.columns, host.columns, rtol=budget)
+    np.testing.assert_allclose(native.faces, host.faces, rtol=budget)
+
+
+@pytest.mark.parametrize(
+    "march",
+    [RungeKutta(), Multistep(), LowStorageRungeKutta()],
+    ids=["runge_kutta", "adams", "low_storage"],
+)
+@pytest.mark.parametrize("route", ROUTES)
+def test_a_read_at_every_step_leaves_the_march_where_it_was(
+    route: str, march: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A read takes the transverse scratch at a committed position, which every march
+    # has to write again before using. Against the same run with the host's read, which
+    # touches no scratch: same steps, same monitor, one process, so no rounding apart.
+    def final() -> tuple[np.ndarray, int]:
+        simulation = _case(route)
+        simulation.settings = dataclasses.replace(
+            simulation.settings,
+            integrator=march,  # pyright: ignore[reportArgumentType]
+            schedule=FixedSchedule.uniform(
+                0.0, LENGTH, LENGTH / 4, save_planes=[LENGTH]
+            ),
+        )
+        problem = simulation.translate()
+        backend = cast(
+            "Any",
+            select(
+                "native",
+                problem,
+                grid=simulation.grid,
+                modes=simulation.modes,
+                profiles=simulation.profiles,
+            ),
+        )
+        try:
+            backend.set_initial(problem.initial.field0, None)
+            monitor = simulation._boundary_monitor()
+            assert monitor is not None
+            backend.attach_monitor(monitor)
+            backend.propagate_to(LENGTH)
+            record = cast("dict[str, Any]", monitor.summary())
+            return backend.observe(field=True).require_field(), int(
+                record["transverse"]["reads"]
+            )
+        finally:
+            backend.close()
+
+    native, reads = final()
+    # Every step is longer than the spacing.
+    assert reads >= 4
+    with monkeypatch.context() as patch:
+        patch.setattr(NativeBackend, "_edge_reading", StepDriver._edge_reading)
+        host, host_reads = final()
+    assert host_reads == reads
+    assert native.tobytes() == host.tobytes()
+
+
 def test_a_field_free_default_run_crosses_no_state(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # The principle of SEP 44: only numbers cross. Every state-sized read of the host
     # goes through `_observed_field` on this route.
-    from solprop_native.backend import NativeBackend  # noqa: PLC0415
-
-    from solprop.backends.driver import StepDriver  # noqa: PLC0415
 
     def refused(self: StepDriver[Any], state: Any) -> np.ndarray:
         raise AssertionError("a field-free run brought the state to the host")

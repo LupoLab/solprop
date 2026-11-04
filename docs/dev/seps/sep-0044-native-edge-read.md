@@ -287,14 +287,16 @@ a GEMM. A collar still reduces a host copy.
 
 *Verification, on CPU.* `tests/backends/test_native_edge_reading.py`, all passing: the reading of one state against
 `HostEdgeReduction` on all four routes, at a launch and at a read, within four times `tests/bounds.py`'s `fft_bound`;
-the state's bits unchanged by a reading; one lit node reaching only its own faces, with the right weight, which white
-noise can't show; and a field-free default run with `_observed_field` refused, which has to finish having read the edge.
+the state's bits unchanged by a reading; two polarisations on the radial, Cartesian and line routes; one lit node
+reaching only its own faces, with the right weight, which white noise can't show; a read at every step on all four
+routes under the Runge-Kutta, Adams and low-storage marches, whose final field is bit for bit that of the same run with
+the host's read; and a field-free default run with `_observed_field` refused, which has to finish having read the edge.
 `tests/backends/test_transverse_backends.py`, `test_transverse_reads.py`, `test_transverse_monitor.py`,
 `test_transverse_nonlinear.py`, `test_transverse_resolution.py`, `test_transverse_witnesses.py`, `test_split_crossing.py`
 and `test_monitor.py` pass.
 
-*Not yet covered from §7:* a forced read at every commit against an unread run, the adversarial probes beyond the lit
-node, `n_pol = 2`, and every device row.
+*Not yet covered from §7:* the rest of the adversarial probes (`n_to != n_t` radially, a planar `p != 0`, a small node
+chunk), the no-interference matrix's collars, and the device rows, which this SEP's phase 5 holds.
 
 *Timing against `main`, Intel Xeon Gold 6240, 18 cores of one socket.* `python -m benchmarks ab`, `--threading
 passive`, three rounds of one repeat. This also holds this work's steps 1 and 2, which measured neutral on CPU alone.
