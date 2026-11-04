@@ -2580,3 +2580,22 @@ A default radial run of 256 nodes and 8192 frequency bins, which carries input n
 83.21 MB of JSON before and 0.04 MB after, and its first hash goes from 2.603 s to 0.077 s.
 A 64-node grid is about the same before and after, since its arrays sit close to the limit.
 A run into `MemoryOutput` computes no hash at all.
+
+## A free-space point's setup
+
+Building and translating a large free-space launch took longer than the steps of a short point:
+the passes over a beam's elements ran on one thread, its admittance ran twice, and the transverse
+residual took a Python `Fraction` per node.
+
+Measured on an Intel Xeon Gold 6240, one socket's 18 cores, 18 threads, on a shared machine, twice each, unprofiled:
+a 768 × 768 × 600 envelope launch through a Sellmeier glass with a Kerr response, `e49925d1` against `ece75dd7`.
+
+| | before (s) | after (s) |
+|---|---:|---:|
+| `Simulation.from_free` | 169, 179 | 14.9, 14.9 |
+| `translate` | 30.3, 27.5 | 7.2, 7.8 |
+| `runner` | 3.8, 3.0 | 3.5, 3.3 |
+
+A launch's bits don't change, which `tests/test_pulses.py` and `tests/test_cartesian_precision.py` hold across
+thread counts. The sum that scales the field stays one sum in one order for that reason, so it stays on one thread.
+

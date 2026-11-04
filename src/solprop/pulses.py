@@ -43,6 +43,7 @@ from scipy.interpolate import make_interp_spline
 
 from solprop import fourier
 from solprop._display import Displayed, engineering, line, phase_text, summarise
+from solprop._process import parallel_rows
 from solprop.constants import EPS0, C
 from solprop.exceptions import PulseError, SolpropWarning
 from solprop.grid import FreeGrid, LineGrid, RadialGrid, TimeGrid
@@ -350,9 +351,8 @@ class SpatialPulse(Displayed):
             else np.fft.fft2(profile.reshape(space.n_y, space.n_x)).ravel()
         )
         jones = _unit_jones(self.jones)
-        live = np.concatenate(
-            [flux.admittance(columns) != 0 for columns in flux.chunks()]
-        )
+        admittance = flux.whole_admittance()
+        live = admittance != 0
         exponent = None
         if self.propz != 0:
             working_frame = Frame.comoving(grid) if frame is None else frame
@@ -368,10 +368,8 @@ class SpatialPulse(Displayed):
                 msg = "SpatialPulse requires a scalar single-column temporal pulse"
                 raise PulseError(msg)
             # A unit-peak profile keeps intermediate values near the final scale.
-            field = (
-                spectrum[:, None, None]
-                * fourier.to_internal(jones)[None, :, None]
-                * temporal
+            field = _separable_field(
+                spectrum, fourier.to_internal(jones), temporal, grid.n_omega
             )
             if exponent is not None:
                 if np.max(np.real(exponent)) > math.log(np.finfo(float).max) - math.log(
@@ -383,7 +381,8 @@ class SpatialPulse(Displayed):
             if aligner is not None:
                 field = aligner.apply(field)
             field = _hard_masked(field, live, space.spectral_weights, grid)
-            total += _normalised(member, temporal, field, flux, grid)
+            field = _normalised(member, temporal, field, flux, admittance, grid)
+            _add_rows(total, field)
         # Each member is a finite field scaled by the finite factor of a finite,
         # positive measured flux (_normalising_factor refuses the rest), so the sum
         # is finite.
@@ -1139,7 +1138,7 @@ def _hard_masked(
     Returns
     -------
     numpy.ndarray
-        The masked beam.
+        The masked beam: `field`, masked in place.
 
     Raises
     ------
@@ -1147,9 +1146,28 @@ def _hard_masked(
         If the nonpropagating share of the field norm exceeds its rounding budget.
     """
     band = grid.active_mask & (grid.omega > 0)
-    norm = weights[:, None] * np.sum(np.abs(field) ** 2, axis=1)
-    removed = float(np.sum(norm[band[None, :] & ~live]))
-    total = float(np.sum(norm[:, band]))
+    outside = band[None, :] & ~live
+
+    def shares(rows: slice) -> tuple[float, float]:
+        """Return a block's norm in the columns that don't propagate, and in all.
+
+        Parameters
+        ----------
+        rows : slice
+            The block of the first axis.
+
+        Returns
+        -------
+        tuple of float
+            The block's two sums.
+        """
+        norm = weights[rows, None] * np.sum(np.abs(field[rows]) ** 2, axis=1)
+        return float(np.sum(norm[outside[rows]])), float(np.sum(norm[:, band]))
+
+    # Judged against a budget of rounding, so that the blocks' order of summing is free.
+    parts = parallel_rows(field.shape[0], field.nbytes, shares)
+    removed = math.fsum(part[0] for part in parts)
+    total = math.fsum(part[1] for part in parts)
     # The transforms that formed the beam carry a few rounding units of its norm
     # per bin they sum; content above that is physical.
     budget = 8 * field.shape[0] * grid.n_omega * np.finfo(float).eps
@@ -1160,7 +1178,80 @@ def _hard_masked(
             "widen the waist or refine the transverse grid"
         )
         raise PulseError(msg)
-    return field * live[:, None, :]
+
+    def mask(rows: slice) -> None:
+        """Zero one block's dead bins.
+
+        Parameters
+        ----------
+        rows : slice
+            The block of the first axis.
+        """
+        field[rows] *= live[rows, None, :]
+
+    parallel_rows(field.shape[0], field.nbytes, mask)
+    return field
+
+
+def _separable_field(
+    spectrum: np.ndarray, jones: np.ndarray, temporal: np.ndarray, n_omega: int
+) -> np.ndarray:
+    """Return ``spectrum * jones * temporal`` in a new array, its rows in threads.
+
+    Parameters
+    ----------
+    spectrum : numpy.ndarray
+        The beam's transverse spectrum, ``(n_modes,)``.
+    jones : numpy.ndarray
+        Its polarisation, ``(n_pol,)``.
+    temporal : numpy.ndarray
+        Its temporal spectrum, ``(1, 1, n_omega)``.
+    n_omega : int
+        The bins.
+
+    Returns
+    -------
+    numpy.ndarray
+        The field, ``(n_modes, n_pol, n_omega)``.
+    """
+    field = np.empty((spectrum.size, jones.size, n_omega), dtype=np.complex128)
+
+    def work(rows: slice) -> None:
+        """Form one block, whose first touch is then this thread's.
+
+        Parameters
+        ----------
+        rows : slice
+            The block of the first axis.
+        """
+        field[rows] = spectrum[rows, None, None] * jones[None, :, None] * temporal
+
+    parallel_rows(spectrum.size, field.nbytes, work)
+    return field
+
+
+def _add_rows(total: np.ndarray, part: np.ndarray) -> None:
+    """Add `part` to `total` in place, row by row, in threads.
+
+    Parameters
+    ----------
+    total : numpy.ndarray
+        The sum so far.
+    part : numpy.ndarray
+        What to add, of the same shape.
+    """
+
+    def work(rows: slice) -> None:
+        """Add one block.
+
+        Parameters
+        ----------
+        rows : slice
+            The block of the first axis.
+        """
+        total[rows] += part[rows]
+
+    parallel_rows(total.shape[0], total.nbytes, work)
 
 
 def _members(pulse: Pulse) -> list[Pulse]:
@@ -1243,15 +1334,26 @@ def _normalising_factor(
     quantity, target = _target(pulse, temporal, grid)
     if quantity == "energy":
         energy_weights = fourier.energy_weights(grid.n_omega, grid.dt, kind=grid.kind)
-        density = np.sum(np.abs(beam) ** 2, axis=1)
-        measured = plane.scale * float(
-            np.sum(
-                plane.weights[:, None]
+        terms = np.empty((beam.shape[0], beam.shape[2]))
+
+        def work(rows: slice) -> None:
+            """Form one block of the flux's terms.
+
+            Parameters
+            ----------
+            rows : slice
+                The block of the first axis.
+            """
+            terms[rows] = (
+                plane.weights[rows, None]
                 * energy_weights
-                * np.real(plane.admittance)
-                * density
+                * np.real(plane.admittance[rows])
+                * np.sum(np.abs(beam[rows]) ** 2, axis=1)
             )
-        )
+
+        parallel_rows(beam.shape[0], beam.nbytes, work)
+        # One sum over the whole array, in one order: this factor scales the field.
+        measured = plane.scale * float(np.sum(terms))
     else:
         measured = float(
             np.max(
@@ -1275,9 +1377,10 @@ def _normalised(
     temporal: np.ndarray,
     field: np.ndarray,
     flux: SpatialFlux,
+    admittance: np.ndarray,
     grid: TimeGrid,
 ) -> np.ndarray:
-    """Scale a spatial beam to its requested physical energy or peak power.
+    """Scale a spatial beam in place to its requested physical energy or peak power.
 
     Parameters
     ----------
@@ -1286,9 +1389,11 @@ def _normalised(
     temporal : numpy.ndarray
         Its built spectrum, shape ``(1, 1, n_omega)``.
     field : numpy.ndarray
-        The unnormalised beam spectrum, ``(n_modes, n_pol, n_omega)``.
+        The unnormalised beam spectrum, ``(n_modes, n_pol, n_omega)``, scaled in place.
     flux : solprop.spatial.SpatialFlux
         The launch plane's measure.
+    admittance : numpy.ndarray
+        Its admittance, ``(n_modes, n_omega)``.
     grid : solprop.grid.TimeGrid
         Temporal grid.
 
@@ -1299,12 +1404,23 @@ def _normalised(
     """
     plane = _Plane(
         weights=flux.space.spectral_weights,
-        admittance=np.concatenate(
-            [flux.admittance(columns) for columns in flux.chunks()]
-        ),
+        admittance=admittance,
         scale=flux.energy_scale,
     )
-    return field * _normalising_factor(pulse, temporal, field, plane, grid)
+    factor = _normalising_factor(pulse, temporal, field, plane, grid)
+
+    def scale(rows: slice) -> None:
+        """Scale one block.
+
+        Parameters
+        ----------
+        rows : slice
+            The block of the first axis.
+        """
+        field[rows] *= factor
+
+    parallel_rows(field.shape[0], field.nbytes, scale)
+    return field
 
 
 def _frozen_phase(phase: Sequence[float] | np.ndarray) -> Float[np.ndarray, " n_deg"]:

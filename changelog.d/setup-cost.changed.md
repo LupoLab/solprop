@@ -1,0 +1,1 @@
+Building a large free-space launch is faster, with every bit of the launch as it was: its passes over the beam's elements run in threads, its admittance is formed once, and the transverse residual no longer takes a Python `Fraction` per node. Digesting an array not held in its own order no longer builds a whole volume, so a broadcast input costs a few megabytes. (#493, #347)
