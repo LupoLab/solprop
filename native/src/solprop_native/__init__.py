@@ -307,7 +307,7 @@ Naming them here makes a solprop that renamed one fail at :func:`check_build` wi
 message naming the member, rather than as an ``AttributeError`` raised from inside the
 adapter on the first problem it is handed."""
 
-TRANSFORM_FIELDS: tuple[str, ...] = ("modal_tables",)
+TRANSFORM_FIELDS: tuple[str, ...] = ("modal_tables", "chunk_budgeted")
 """``Transform`` rows this backend relies on.
 
 The general-modal reference of schema 12, whose synthesis and projection maps this

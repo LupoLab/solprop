@@ -87,13 +87,34 @@ ENVELOPE = EnvelopeGrid.from_limits(
 )
 
 
-def _blocked(simulation: Simulation, chunk: int | None) -> KernelProblem:
-    """Return the simulation's problem at a node chunk, or at its own."""
+def _blocked(
+    simulation: Simulation, chunk: int | None, *, stated: bool = True
+) -> KernelProblem:
+    """Return the simulation's problem at a node chunk, or at its own.
+
+    Parameters
+    ----------
+    simulation : solprop.driver.Simulation
+        The run.
+    chunk : int or None
+        The node chunk, or ``None`` for the problem's own.
+    stated : bool, optional
+        Whether a caller stated that chunk, which a device build then keeps. Otherwise a
+        device build takes every row at once, as it does under the default budget.
+
+    Returns
+    -------
+    solprop.translate.problem.KernelProblem
+        The problem.
+    """
     problem = simulation.translate()
     if chunk is None:
         return problem
     return dataclasses.replace(
-        problem, transform=dataclasses.replace(problem.transform, node_chunk=chunk)
+        problem,
+        transform=dataclasses.replace(
+            problem.transform, node_chunk=chunk, chunk_budgeted=stated
+        ),
     )
 
 
@@ -122,12 +143,17 @@ def reference(request: pytest.FixtureRequest) -> tuple[str, np.ndarray, dict[str
 
 
 def _check_block(
-    reference: tuple[str, np.ndarray, dict[str, Any]], chunk: int | None
+    reference: tuple[str, np.ndarray, dict[str, Any]],
+    chunk: int | None,
+    *,
+    stated: bool = True,
 ) -> None:
     """Compare the native march at a node chunk with the reference's."""
     march, expected, theirs = reference
     simulation = _beam(ENVELOPE, MARCHES[march])
-    got, ours, ledger = _marched(simulation, "native", _blocked(simulation, chunk))
+    got, ours, ledger = _marched(
+        simulation, "native", _blocked(simulation, chunk, stated=stated)
+    )
     # The low-storage bound of four evaluations a step, scaled to the seven of the
     # longest tableau; the split's pair and product are less than one evaluation's, and
     # its factor's size is inside the bound's margin. A device build adds its
@@ -143,7 +169,7 @@ def _check_block(
     assert_within(got, expected, bound, what=f"{march} at node chunk {chunk}")
     assert theirs["raw_removed_fraction"] > 1e-6
     for name in MONITORED:
-        assert ours[name] == pytest.approx(theirs[name], rel=2 * bound), name
+        assert ours[name] == pytest.approx(theirs[name], rel=2 * bound, abs=0.0), name
     # The rows are the state's own: no spectrum or time buffer of the split's.
     assert ledger["split_absorber_spectrum"] == 0
     assert ledger["split_absorber_time"] == 0
@@ -175,10 +201,26 @@ def test_a_device_takes_every_row_at_once(
     # scratch, at the reference's numbers.
     monkeypatch.setattr(native_backend, "_on_device", lambda: True)
     simulation = _beam(ENVELOPE, MARCHES[reference[0]])
-    problem = _blocked(simulation, 5)
+    problem = _blocked(simulation, 5, stated=False)
     backend: Any = watched(simulation, "native", problem)
     try:
         assert backend._native_state.split_rows == problem.shape[1] * problem.shape[2]
+    finally:
+        backend.close()
+    _check_block(reference, 5, stated=False)
+
+
+def test_a_device_keeps_a_block_the_caller_stated(
+    reference: tuple[str, np.ndarray, dict[str, Any]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A stated node_budget wins on a device too, with its short last block's plan.
+    monkeypatch.setattr(native_backend, "_on_device", lambda: True)
+    simulation = _beam(ENVELOPE, MARCHES[reference[0]])
+    problem = _blocked(simulation, 5)
+    backend: Any = watched(simulation, "native", problem)
+    try:
+        assert backend._native_state.split_rows == 5 * problem.shape[2]
     finally:
         backend.close()
     _check_block(reference, 5)
