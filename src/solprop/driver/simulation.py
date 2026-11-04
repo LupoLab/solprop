@@ -3517,7 +3517,10 @@ class Simulation(Displayed):
             This run's own stop flag: any object with an ``is_set()`` method, such as
             a :class:`threading.Event` (SEP 41, S17). It is polled before the first
             step and before every trial step, so the run answers within one step or
-            trial. When it is set the run writes its state as for SIGTERM, tells the
+            trial; on a native ``Multistep()`` march, whose trials run in native calls
+            that cannot read it, before every call, so the run answers within 256
+            attempts or 0.1 s and the attempt in flight, whichever comes first. When it
+            is set the run writes its state as for SIGTERM, tells the
             reporter through ``interrupted``, and returns the handler: a requested
             stop is not an error. The outcome's message says the caller's flag
             stopped it, and ``resume=True`` continues the file. A front end sets it

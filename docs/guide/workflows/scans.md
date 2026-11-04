@@ -320,8 +320,8 @@ running stops as its executor allows:
 
 | executor | `stop=` |
 |---|---|
-| `Local` | the point in flight polls the flag before every trial step, as `Simulation.run(stop=...)` does, and stops within one step |
-| `Pool` | the controller sends each busy worker a stop message on its pipe, which that worker's run polls before every trial step; it then collects the workers' results and shuts them down. Terminating a worker that does not exit remains the last resort |
+| `Local` | the point in flight polls the flag as `Simulation.run(stop=...)` does: before every trial step, or on a native `Multistep()` march each time a native call returns, so it stops within one step or [that call's bound](../results/resuming.md#stopping-a-run) |
+| `Pool` | the controller sends each busy worker a stop message on its pipe, which that worker's run polls in the same way; it then collects the workers' results and shuts them down. Terminating a worker that does not exit remains the last resort |
 | `Batch` | between groups: a group that has started runs to its end, and the claimed points of a group not yet run are given back |
 | `Queue`, `Slurm` | refused, with an error naming the queue's own tools: the points run in other processes or on other machines, which a flag in this process cannot reach. Use `scancel` for a Slurm job, or stop a queue's controllers with SIGTERM |
 

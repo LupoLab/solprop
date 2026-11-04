@@ -1293,14 +1293,15 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         self._progress_started = False
 
     _stop: StopFlag | None = None
-    """The flag every trial step polls (:meth:`set_stop`); ``None`` by default."""
+    """The flag the march polls (:meth:`set_stop`); ``None`` by default."""
 
     def set_stop(self, flag: StopFlag | None) -> None:
-        """Attach the flag every trial step polls, or detach it with ``None``.
+        """Attach the flag the march polls, or detach it with ``None``.
 
         A run polls its own flag before each trial (SEP 41, S17), where the state is
         the last accepted one, so a stop abandons nothing but the trial not yet taken.
-        Polling changes nothing the propagation computes.
+        A march that runs its trials in a native call polls before each call. Polling
+        changes nothing the propagation computes.
 
         Parameters
         ----------
@@ -1311,7 +1312,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         self._stop = flag
 
     def _poll_stop(self) -> None:
-        """Raise when the run's stop flag is set; called before every trial step.
+        """Raise when the run's stop flag is set; called before every trial or call.
 
         Raises
         ------

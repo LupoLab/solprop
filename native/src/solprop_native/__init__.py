@@ -196,6 +196,7 @@ DRIVER_SURFACE: tuple[str, ...] = (
     "_observed_field",
     "_on_accepted_step",
     "_on_axis_synthesis",
+    "_poll_stop",
     "_record_attempt",
     "_require_grid",
     "_require_state",

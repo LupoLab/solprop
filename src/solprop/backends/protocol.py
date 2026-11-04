@@ -680,7 +680,7 @@ class Backend(Protocol):
         ...
 
     def set_stop(self, flag: StopFlag | None) -> None:
-        """Attach the flag every trial step polls, or detach it with ``None``.
+        """Attach the flag the march polls, or detach it with ``None``.
 
         Parameters
         ----------

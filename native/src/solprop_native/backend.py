@@ -2462,21 +2462,26 @@ class _NativeAdamsMarch(AdamsMarch):
     (a statistics row, a natural stop, a monitor check), the call's bound, the budget,
     the floor or a native error. Between calls the march's state is this object's, as
     the Python march keeps it, so a snapshot, a load, a new run and a reset are the
-    reference's own; each call takes the state and hands it back.
+    reference's own; each call takes the state and hands it back. Where a call returns
+    is therefore not a decision of the march's, and its bound depends on the wall clock
+    without moving a number.
 
     One ``committing()`` spans each call, the state's synchronisation and the step
     history's rows, so a signal arriving meanwhile is raised with the host's records in
     step with the native state. The progress callbacks, the debug lines and the event
-    step's work run after it, and an error is raised last.
+    step's work run after it, and an error is raised last. A run's stop flag, which
+    native code cannot read, is polled before each call, not before each attempt: both
+    a signal and a stop wait for the call in hand, at most its bound and one attempt.
 
     A configuration the native march does not cover runs the Python march
     (:attr:`refusal`), with a warning unless the private switch asked for it.
     """
 
     MAX_ATTEMPTS: ClassVar[int] = 256
-    """A call's most attempts, the bound on a signal's wait (solprop SEP 39 Q3)."""
+    """A call's most attempts, the bound on the wait of a signal or a stop flag (solprop
+    SEP 39 Q3)."""
     MAX_SECONDS: ClassVar[float] = 0.1
-    """A call's most wall time, s."""
+    """A call's most wall time, s, read once per attempt."""
 
     def __init__(
         self,
@@ -2710,6 +2715,7 @@ class _NativeAdamsMarch(AdamsMarch):
         ``None`` for an adaptive march.
         """
         backend = self._driver
+        backend._poll_stop()
         bounds = self._bounds(target, slack)
         started = time.perf_counter() - backend._clock
         with committing():

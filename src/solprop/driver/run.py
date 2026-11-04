@@ -405,9 +405,10 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
         fraction is reported at the end. ``None`` watches nothing.
     stop : solprop.log.StopFlag or None, optional
         The run's own stop flag, any object with an ``is_set()`` method (SEP 41,
-        S17). It is polled before the first step, before every trial step and between
-        save planes; once it is set the run writes its state as for SIGTERM, tells the
-        reporter through ``interrupted``, and raises
+        S17). It is polled before the first step, before every trial step (on a native
+        ``Multistep()`` march, before every native call) and between save planes; once
+        it is set the run writes its state as for SIGTERM, tells the reporter through
+        ``interrupted``, and raises
         :class:`~solprop.exceptions.StopRequested`, which
         :meth:`~solprop.driver.simulation.Simulation.run` turns into a return.
     recipe : solprop.output.schema.RecipeRecord or None, optional

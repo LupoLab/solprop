@@ -187,7 +187,7 @@ is tried.
 ### Stopping a run
 
 `Simulation.run(..., stop=flag)` takes any object with an `is_set()` method, such as a
-{py:class}`threading.Event`. The run polls it before its first step and before every
+{py:class}`threading.Event`. The run polls it before its first step, then before every
 trial step, so it answers within one step. When it is set, the run writes its state as
 SIGTERM would, tells the reporter through `interrupted`, and **returns** the handler: a
 requested stop is not an error, and the outcome's message says the caller's flag stopped
@@ -195,6 +195,16 @@ it. `resume=True` continues the file. A front end sets the flag from any thread,
 platform, with no signals; each run polls its own. `solprop run` and `solprop resume` set
 it on Ctrl-C, SIGTERM and, on Windows, Ctrl-Break, and exit with the usual status; a
 second Ctrl-C interrupts at once.
+
+The exception is the native backend's `Multistep()` march, which runs many attempts in
+one native call, where the flag cannot be read. The run polls before each call instead,
+and a call returns after at most 256 attempts or 0.1 s of wall time, read after each
+attempt, whichever comes first. So a stop waits for that bound and the attempt in flight:
+256 attempts on a small problem, about 0.1 s on a larger one, one attempt where an attempt
+takes longer than 0.1 s. A call also returns at a save plane, a statistics row or a
+boundary check. Where a call returns changes nothing the run computes. SIGTERM and Ctrl-C
+in a script's `Simulation.run` wait for the same return, since Python runs a signal's
+handler only then.
 
 ## Completion status and terminal checkpoints
 
