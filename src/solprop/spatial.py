@@ -1737,8 +1737,8 @@ ABSORBED_CHANNELS: tuple[str, ...] = (
 """The channels of ``absorbed_power``, in the order of its five entries.
 
 ``spectral`` is the spectral collar alone and ``custom`` the user's rate
-(:attr:`solprop.boundaries.Absorber.user_rate`), which an output schema 2 file reports
-in ``spectral``, in four columns.
+(:attr:`solprop.boundaries.Absorber.user_rate`). A file from an earlier development
+build has four columns, in these positions, with both in ``spectral``.
 """
 
 AxialFactors = Callable[[slice], tuple[np.ndarray, np.ndarray | None]]

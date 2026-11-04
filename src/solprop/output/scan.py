@@ -29,6 +29,7 @@ from solprop.output.schema import (
     RecipeRecord,
     RunMetadata,
     _refuse_schema,
+    refuse_earlier_absorbed_power,
     serialise,
 )
 
@@ -254,6 +255,7 @@ class ScanWriter:
                 # The schema first: a scan of another release is refused by the
                 # output schema its records declare, not by its axes.
                 _refuse_other_schemas(self.file)
+                _refuse_earlier_columns(self.file, self.path)
                 if self.file.attrs.get("identity") != _hash(description):
                     raise OutputError(
                         "scan axes, root seed or retention contract changed"
@@ -864,6 +866,32 @@ def _refuse_point_schema(file: h5py.File, index: int, document: object) -> None:
         _refuse_schema(_expand(file, declared))
     except OutputError as error:
         raise OutputError(f"scan point {index}: {error}") from None
+
+
+def _refuse_earlier_columns(file: h5py.File, path: Path) -> None:
+    """Refuse to add a point to a scan whose ``absorbed_power`` has the earlier columns.
+
+    A scan's points stack into one array, so a point of five columns cannot join them.
+
+    Parameters
+    ----------
+    file : h5py.File
+        Open scan file.
+    path : pathlib.Path
+        Its path, named in the refusal.
+
+    Raises
+    ------
+    OutputError
+        As :func:`solprop.output.schema.refuse_earlier_absorbed_power` documents.
+    """
+    shapes = [
+        _dataset(group, name).shape
+        for group in _group(file, "staged").values()
+        for name in ("stats/absorbed_power", "step_stats/absorbed_power")
+        if name in group
+    ]
+    refuse_earlier_absorbed_power(path, shapes)
 
 
 def _refuse_other_schemas(file: h5py.File) -> None:

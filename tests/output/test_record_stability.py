@@ -33,6 +33,7 @@ release writes into a record is neutralised first, as for the printed run record
 
 import dataclasses
 import gzip
+import json
 import logging
 from pathlib import Path
 from typing import Any, cast
@@ -57,7 +58,7 @@ from solprop.output.schema import SCHEMA_VERSION, RunMetadata, serialise
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stats import ApertureSet, StatsSpec
-from solprop.stepper import Multistep, PIController
+from solprop.stepper import Multistep, PIController, RungeKutta
 from test_display import without_optmat_release
 
 STORED = Path(__file__).with_suffix("")
@@ -95,6 +96,49 @@ and the collar fraction outside it in place of ``window_factor``, and gives a ru
 requests no collar no real-space rate. The radial case keeps its former grid: a
 250 µm aperture with a 0.2 collar fraction has its wall at 300 µm, as before.
 """
+
+
+FAR_FIELD_BASELINE = "5098246204c13f64c60a3b7179cb46dca6fe61cecc0e53e3ead54a0f34397ae6"
+"""The structure of a run of circles with no custom rate, on the tree before shapes.
+
+Taken with that tree's own sources, at ``f004a662``, as its numbers beside this test.
+"""
+
+
+def far_field_baseline() -> Simulation:
+    """Return a Cartesian run using far-field apertures, and no shape or custom rate."""
+    grid = EnvelopeGrid.from_limits(1e-3, 800e-9, (700e-9, 900e-9), 100e-15, thg=False)
+    holes = ApertureSet(
+        centres=[[0.0, 0.0], [1e-3, 0.0]],
+        diameters=[2e-3, 1e-3],
+        distances=[0.25, 0.25],
+        edges=[2e-4, 1e-4],
+        profile="tanh",
+        weighting="quadrature",
+        labels=("a", "b"),
+    )
+    field = np.zeros((48, 1, grid.n_omega), complex)
+    field[0, 0, 3] = 1.0
+    return Simulation.from_free(
+        grid,
+        FreeGrid(3e-4, 8, 4e-4, 6, collar_fraction=0.2),
+        SpatialMedium(),
+        [],
+        field,
+        settings=SimulationSettings(
+            controller=PIController(rtol=1e-6, atol=1e-14),
+            save_planes=[1e-4],
+            dz_max=1e-4,
+            dz_init=1e-4,
+            absorber=absorber(grid),
+            backend="numpy_ref",
+            integrator=RungeKutta(),
+            stats=StatsSpec(names=("aperture_spectrum", "energy"), apertures=holes),
+            spatial_absorber=False,
+            boundary_check=None,
+        ),
+        noise=None,
+    )
 
 
 def spatial(kind: str) -> Simulation:
@@ -248,6 +292,26 @@ def test_a_pinned_record_is_what_it_was(kind):
     skeleton, numbers, floors = split(kind)
     assert skeleton_hash(skeleton) == SKELETONS[kind], kind
     assert_record_numbers(numbers, floors, STORED / f"{kind}.npz")
+
+
+def far_field_baseline_record():
+    """Return the baseline case's record, split as a pin compares it."""
+    hashed: dict[str, Any] = far_field_baseline().metadata().hashed()
+    return hashed, record_skeleton(without_optmat_release(hashed))
+
+
+def test_a_run_using_no_shape_or_custom_rate_keeps_its_record():
+    # None of the optional fields of #186 and #231 enters the record of a run that does
+    # not use them, so its structure and numbers are the earlier tree's, and with them
+    # its configuration hash. The digest itself is not pinned: a record's last digits
+    # move across platforms (SEP 25), which the numbers' bound carries.
+    hashed, (skeleton, numbers, floors) = far_field_baseline_record()
+    assert hashed["schema_version"] == SCHEMA_VERSION == 2
+    text = json.dumps(hashed, sort_keys=True, default=str)
+    for name in ("user_rate", "shapes", "profiles", "extents"):
+        assert f'"{name}"' not in text, name
+    assert skeleton_hash(skeleton) == FAR_FIELD_BASELINE
+    assert_record_numbers(numbers, floors, STORED / "far_field_baseline.npz")
 
 
 def test_a_custom_absorber_at_its_defaults_records_the_collar():

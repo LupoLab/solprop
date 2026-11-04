@@ -15,6 +15,7 @@ import importlib.util
 import math
 from contextlib import ExitStack
 
+import h5py
 import numpy as np
 import pytest
 from scipy import integrate
@@ -47,7 +48,7 @@ from solprop.exceptions import (
 )
 from solprop.fourier import energy_weights, spectral_density
 from solprop.grid import EnvelopeGrid, FreeGrid, RadialGrid
-from solprop.output import MemoryOutput
+from solprop.output import MemoryOutput, open_file
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import ABSORBED_CHANNELS, FAR_FIELD_STATISTICS, SpatialMedium
 from solprop.stats import ApertureSet, StatsSpec
@@ -648,6 +649,43 @@ def test_the_operator_refuses_a_share_above_the_total(grid, lossy_launch):
         dataclasses.replace(data, user_rate=np.ones(grid.n_omega))
     with pytest.raises(TranslationError, match="user's share of spectral_rate"):
         dataclasses.replace(data, user_rate=np.zeros(3))
+
+
+@pytest.mark.parametrize("resume", [True, "force"])
+def test_a_run_does_not_continue_a_four_column_file(
+    grid, lossy_launch, tmp_path, resume
+):
+    # An earlier development build's file: four columns of absorbed_power. A run that
+    # asks to continue it is refused before it writes, even with force, since the fifth
+    # column has nowhere to go and the first means something else.
+    space, field = lossy_launch
+    path = tmp_path / "earlier.h5"
+    spec = StatsSpec(names=("energy", "absorbed_power"))
+
+    def simulation():
+        return free_simulation(
+            grid,
+            space,
+            field,
+            absorber=absorber(grid, temporal=False),
+            boundary_check=None,
+            spec=spec,
+            save_planes=[5e-5, 1e-4],
+            dz_max=5e-5,
+            dz_init=5e-5,
+        )
+
+    simulation().run(path, progress="none")
+    with h5py.File(path, "r+") as file:
+        held = file["stats/absorbed_power"]
+        assert isinstance(held, h5py.Dataset)
+        stored = np.asarray(held)
+        del file["stats/absorbed_power"]
+        file.create_dataset("stats/absorbed_power", data=stored[:, :4])
+    with pytest.raises(OutputError, match="absorbed_power in 4 columns"):
+        simulation().run(path, resume=resume, progress="none")
+    with open_file(path) as earlier:
+        np.testing.assert_array_equal(earlier["stats/absorbed_power"], stored[:, :4])
 
 
 # ------------------------------------------------------------- doors and refusals
