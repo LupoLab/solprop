@@ -168,7 +168,7 @@ if ! stage wheel; then
 fi
 quality_temp=$(mktemp -d "${TMPDIR:-/tmp}/solprop-native-check.XXXXXX")
 trap 'rm -rf "$quality_temp"' EXIT
-distribution_wheel=(-Ccmake.define.SOLPROP_NATIVE_PROFILE=DISTRIBUTION "-Cbuild-dir=build/distribution-{wheel_tag}")
+distribution_wheel=(-Ccmake.define.SOLPROP_NATIVE_PROFILE=DISTRIBUTION -Ccmake.define.SOLPROP_NATIVE_WARNINGS_AS_ERRORS=ON "-Cbuild-dir=build/distribution-{wheel_tag}")
 if [[ -n "$qualification_python" ]]; then
   uv build --wheel --no-build-isolation "${distribution_wheel[@]}" --out-dir "$quality_temp/wheel"
 else

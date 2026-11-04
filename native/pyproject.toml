@@ -84,7 +84,7 @@ build = "cp314-*"
 skip = ["cp314t-*", "*-musllinux_*"]
 archs = ["auto64"]
 build-verbosity = 1
-config-settings = { "cmake.define.SOLPROP_NATIVE_PROFILE" = "DISTRIBUTION", "build-dir" = "build/cibw-{wheel_tag}" }
+config-settings = { "cmake.define.SOLPROP_NATIVE_PROFILE" = "DISTRIBUTION", "cmake.define.SOLPROP_NATIVE_WARNINGS_AS_ERRORS" = "ON", "build-dir" = "build/cibw-{wheel_tag}" }
 # A first smoke test in cibuildwheel's test environment, beside solprop from the same
 # checkout (check_build reads solprop's kernel contract); the suite and the
 # coexistence check run in the workflow's test jobs.

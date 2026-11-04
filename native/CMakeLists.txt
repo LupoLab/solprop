@@ -281,8 +281,10 @@ option(SOLPROP_NATIVE_ENABLE_AGGRESSIVE_VECTORIZATION
        "Assert independent Kokkos loop iterations to the vectorizer" ON)
 option(SOLPROP_NATIVE_ENABLE_IPO
        "Enable checked interprocedural/link-time optimization for CPU builds" ON)
+# A build with its tests is development, and CI, and stops on a warning. A user's build
+# from source isn't: one warning from a newer compiler shouldn't stop it.
 option(SOLPROP_NATIVE_WARNINGS_AS_ERRORS
-       "Treat diagnostics in project-owned C++ sources as errors" ON)
+       "Treat diagnostics in project-owned C++ sources as errors" ${BUILD_TESTING})
 option(SOLPROP_NATIVE_ENABLE_CLANG_TIDY
        "Run clang-tidy while compiling project-owned C++ sources" OFF)
 option(SOLPROP_NATIVE_ENABLE_SANITIZERS
