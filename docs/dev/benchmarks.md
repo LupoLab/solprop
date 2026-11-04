@@ -2132,6 +2132,44 @@ within 4 %, fields to 1.5e-15, the same work.
 The check still reads a host copy of the state, on the host, which is what is left of its cost above: the
 entries that follow take that.
 
+### The state's crossing: a ring of pinned chunks
+
+A state crossing to the host was slow for one reason: a fresh pageable buffer takes its first touch inside the
+driver's copy, 1.38 million page faults at 768 x 768 x 600. A bare copy of 5.27 GiB, in GiB/s:
+
+| | NVIDIA H200 | AMD Instinct MI325X |
+|---|---:|---:|
+| Fresh pageable buffer, as it was | 1.8 | 7.9 |
+| Reused pageable buffer | 16.5 | 52 |
+| Pinned, which is the link | 51.5 | 52.6 |
+| 64 MiB pinned ring, a worker per host thread, fresh huge-page destination | 33 | 50 |
+| The same ring, no huge pages | 25 | 33 |
+
+Every state-sized crossing now takes that ring, both ways. `python -m benchmarks.device_split`, against the previous
+entry's commit, the same day, on the same cards and window:
+
+| | H200, before | H200, after | MI325X, before | MI325X, after |
+|---|---:|---:|---:|---:|
+| `field_to_host`, 5.27 GiB, ms | 2,929 | 175 | 506 | 107 |
+| Its page faults | 1,382,401 | 2,758 | 1,382,401 | 2,755 |
+| The point's crossings together, s | 26.5 | 1.6 | 4.3 | 0.96 |
+| Point, default check, s | 51 | 25 | 14 | 9.7 |
+
+Against `main`, with the previous entry, `python -m benchmarks ab --device` on `kerr_beam_384`, three rounds of one repeat,
+which saves its fields: H200 13.451 → 4.672 s, ratio 0.347 (0.347–0.349); MI325X 5.700 → 2.033 s, ratio 0.359
+(0.338–0.362). Fields identical and the same work on both. On a longer window, 384 x 384 x 600 with 51 steps and 17 planes,
+the point with the check takes 14.2 s against 3.9 s without on the H200 (49.8 s before these two entries), and 7.1 s against 3.7 s on
+the MI325X. The NVIDIA A40 sees less (PCIe Gen 4): 183 → 147 ms at 384 x 384.
+
+A kept plane's conversion and its finiteness check take threads too, above `PARALLEL_BYTES`, and a plane converts straight
+into the store's block rather than through a copy. A run that keeps no field allocates no ring: `memory_ledger`'s
+`host_crossing_ring` stays zero, which a device test holds.
+
+On a CPU a crossing is a plain copy and takes no ring. `python -m benchmarks ab` against `main`, with the previous entry, on an Intel
+Xeon Gold 6240 (18 cores of one socket, passive threads, three rounds of one repeat, a shared machine): `kerr_beam_192` 0.976
+at one thread and 0.882 at sixteen, `radial_filament_256` 0.999 and 0.994, `line` 0.983 and 0.990, `planar` 0.997 and 0.980; geometric
+mean 0.975, fields to 4.2e-15, the same work.
+
 ## Reference tables
 
 These tables back the indicative results above.
