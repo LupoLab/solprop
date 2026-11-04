@@ -334,7 +334,7 @@ class _ArrayReference(dict):
         digest = ArrayDigest.of(values)
         super().__init__(
             {
-                _RECORD_ARRAY: digest.sha256,
+                _RECORD_ARRAY: _array_name(digest),
                 "dtype": digest.dtype,
                 "shape": list(digest.shape),
             }
@@ -363,6 +363,22 @@ def _serialise_numpy(value: np.ndarray | np.generic) -> JsonValue:
         return serialise(value.item())
     if value.size > RECORD_ARRAY_LIMIT and value.dtype.kind in "biufc":
         return _ArrayReference(value)
+    return _inline_array(value)
+
+
+def _inline_array(value: np.ndarray) -> dict[str, JsonValue]:
+    """Return an array as a ``__ndarray__`` record, whatever its size.
+
+    Parameters
+    ----------
+    value : numpy.ndarray
+        The array.
+
+    Returns
+    -------
+    dict
+        Its dtype, its shape and its values.
+    """
     record: dict[str, JsonValue] = {
         "dtype": str(value.dtype),
         "shape": list(value.shape),
@@ -375,6 +391,39 @@ def _serialise_numpy(value: np.ndarray | np.generic) -> JsonValue:
         # else goes back through serialise, which records what it cannot reduce.
         record["__ndarray__"] = serialise(value.tolist())
     return record
+
+
+def _inlined(value: JsonValue) -> JsonValue:
+    """Return a serialised structure with each array reference's values in its text.
+
+    For text with no store beside it, which has to stand alone: only a run record keeps
+    its arrays beside its text (:meth:`RunMetadata.record_arrays`). A reference already
+    read back from text carries no array and stays as it is.
+
+    Parameters
+    ----------
+    value : NoneType or bool or int or float or str or list or dict
+        What :func:`serialise` returned.
+
+    Returns
+    -------
+    NoneType or bool or int or float or str or list or dict
+        The structure, with no array left to store.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from solprop.output.schema import _inlined, serialise
+    >>> sorted(_inlined(serialise({"axis": np.zeros(5000)}))["axis"])
+    ['__ndarray__', 'dtype', 'shape']
+    """
+    if isinstance(value, _ArrayReference):
+        return _inline_array(value.array)
+    if isinstance(value, dict):
+        return {key: _inlined(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_inlined(item) for item in value]
+    return value
 
 
 def _serialise_sequence(value: object) -> list[JsonValue]:
@@ -565,6 +614,34 @@ class ArrayDigest:
         )
 
 
+def _array_name(digest: ArrayDigest) -> str:
+    """Return the name a record array is stored under.
+
+    The layout is part of the name because the digest covers only the bytes: arrays of
+    equal bytes and different dtypes or shapes are different arrays, and one must not
+    take the other's place in the store.
+
+    Parameters
+    ----------
+    digest : ArrayDigest
+        The array's digest, dtype and shape.
+
+    Returns
+    -------
+    str
+        The three of them, joined.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from solprop.output.schema import ArrayDigest, _array_name
+    >>> _array_name(ArrayDigest.of(np.zeros((50, 100)))).split("-")[1:]
+    ['float64', '50x100']
+    """
+    shape = "x".join(str(size) for size in digest.shape)
+    return f"{digest.sha256}-{digest.dtype}-{shape}"
+
+
 @dataclass(frozen=True)
 class StatedInput:
     """An array input recorded by the identity its caller states, its bytes unread.
@@ -747,9 +824,10 @@ def _resolved(
     value : object
         The document, as :func:`json.loads` read it.
     arrays : collections.abc.Mapping
-        What holds the arrays, by digest: an HDF5 group, or a mapping of arrays.
+        What holds the arrays, by name (:func:`_array_name`): an HDF5 group, or a
+        mapping of arrays.
     found : dict
-        The arrays read, by digest, which this fills.
+        The arrays read, by name, which this fills.
 
     Returns
     -------
@@ -759,7 +837,7 @@ def _resolved(
     Raises
     ------
     OutputError
-        If an array is absent, or its bytes do not have the digest that names it.
+        If an array is absent, or its bytes or its layout are not what name it.
     """
     if isinstance(value, list):
         return [_resolved(item, arrays, found) for item in value]
@@ -767,20 +845,20 @@ def _resolved(
         return value
     if _RECORD_ARRAY not in value:
         return {key: _resolved(item, arrays, found) for key, item in value.items()}
-    digest = str(value[_RECORD_ARRAY])
-    if digest not in found:
-        if digest not in arrays:
+    name = str(value[_RECORD_ARRAY])
+    if name not in found:
+        if name not in arrays:
             msg = (
-                f"stored metadata names the array {digest}, which is not beside it: "
+                f"stored metadata names the array {name}, which is not beside it: "
                 "read a record through the file that holds it"
             )
             raise OutputError(msg)
-        array = np.asarray(arrays[digest])
-        if ArrayDigest.of(array).sha256 != digest:
-            msg = f"the array stored as {digest} does not have that digest"
+        array = np.asarray(arrays[name])
+        if _array_name(ArrayDigest.of(array)) != name:
+            msg = f"the array stored as {name} does not match that name"
             raise OutputError(msg)
-        found[digest] = array
-    return found[digest]
+        found[name] = array
+    return found[name]
 
 
 def _dotted(path: Sequence[str | int]) -> str:
@@ -3479,7 +3557,8 @@ class RunMetadata(Displayed):
         Returns
         -------
         dict
-            The arrays, not copied, by the SHA-256 digest of their bytes.
+            The arrays, not copied, each by the digest of its bytes with its dtype and
+            shape.
 
         Examples
         --------
