@@ -21,6 +21,7 @@ from scipy.linalg import expm
 from scipy.special import gammainc, j0
 
 from legacy_geometry import LEGACY_GRID
+from solprop.backends.memory import _radial_absorber_bytes
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.spatial import collar_field_fraction
 from solprop.boundaries import Absorber, SpatialAbsorber
@@ -303,3 +304,4 @@ def test_the_ledger_counts_the_composed_absorber_matrix(absorber_case):
     finally:
         backend.close()
     assert matrix > 0
+    assert _radial_absorber_bytes(problem) == matrix

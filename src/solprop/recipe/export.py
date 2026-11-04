@@ -246,12 +246,11 @@ def script(
             *lines,
             ")",
         ]
-        if settings:
-            writer.need("dataclasses", "")
-            body.append(
-                "simulation.settings = dataclasses.replace("
-                f"simulation.settings, {settings})"
-            )
+        writer.need("dataclasses", "")
+        body.append(
+            "simulation.settings = dataclasses.replace("
+            f"simulation.settings, {settings})"
+        )
         body.append(f"output = simulation.run({target})")
     else:
         writer.need("solprop.driver", f"prop_{recipe.route}")
