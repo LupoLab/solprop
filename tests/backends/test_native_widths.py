@@ -324,8 +324,8 @@ def test_a_planar_fluence_is_the_reference_s_at_every_node(monkeypatch, kind):
 @pytest.mark.parametrize("route", ["plane", "plane_scalar"])
 def test_a_plane_s_moments_bound_the_refusal_as_its_fluence_does(route, kind):
     # What a plane's refusal scales by is in its moments, and its width comes out the
-    # same whatever that is unless a negative lobe is near it: flag 16's value is held to
-    # the reference's, so flag 32's is held to that.
+    # same whatever that is unless a negative lobe is near it: flag 16's value is held
+    # to the reference's, so flag 32's is held to that.
     grid, problem = _route(route, kind)
     field = _field_for(route, grid, problem)
     backend = select("native", problem, grid=grid)
