@@ -6,12 +6,12 @@
 | **Title** | Reading the transverse edge where the state lives |
 | **Author** | John Travers |
 | **Drafting agent** | Claude Opus 5.5 |
-| **Status** | Draft |
-| **Review status** | In review |
-| **Reviewers** | GPT-6 (AI) |
+| **Status** | Accepted |
+| **Review status** | Reviewed |
+| **Reviewers** | John Travers (human); GPT-6 (AI) |
 | **Type** | Change |
 | **Created** | 2026-11-04 |
-| **Resolution** | — |
+| **Resolution** | Accepted 2026-11-04, in [#515](https://github.com/LupoLab/solprop/pull/515) |
 | **Requires** | [SEP 40](archive/sep-0040-transverse-absorbing-boundaries.md) |
 | **Supersedes** | — |
 | **Superseded-by** | — |
@@ -445,6 +445,7 @@ No phase has been implemented.
 - 2026-11-04: Drafted. Tracking issue: [#514](https://github.com/LupoLab/solprop/issues/514).
 - 2026-11-04: GPT-6 (AI) reviewed the proposal at `a121c73c`; findings and questions below.
 - 2026-11-04: Revised in response, with the maintainer's decisions on R2, R4 and R7. Phase 4 goes, and SEP 40 §7.7's 2 % limit is retired.
+- 2026-11-04: John Travers (human) reviewed the revised proposal, and the maintainer accepted it.
 
 ### AI review — 2026-11-04
 
