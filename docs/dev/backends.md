@@ -1873,8 +1873,9 @@ plasma do not cover it. The far-field statistics' device pass is not qualified (
 
 These rules set where development goes, not what a backend may run (ADR-061; ADR-064 retired
 `numba_cpu` and superseded the statement that the documentation build installs no native
-backend). Every backend keeps what it runs, correct and in parity with the reference, and
-refuses the rest by name.
+backend; ADR-066 makes `native` the primary backend). A feature lands on `native` and
+`numpy_ref` in either order. Every backend keeps what it runs, correct and in parity with the
+reference, and refuses the rest by name.
 
 | backend | role | new features |
 |---|---|---|

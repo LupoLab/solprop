@@ -2,7 +2,7 @@
 
 `solprop.translate.problem.KernelProblem` is the only object that crosses from the physics and
 translation layers into a backend. It is a frozen dataclass of plain NumPy arrays and scalars,
-validated, versioned, and documented here field by field. A backend may assume everything
+validated, and documented here field by field. A backend may assume everything
 stated here and nothing else; the translation layer promises everything stated here and
 nothing else. Changing this file and the dataclass together is the only way to extend the
 contract, and a test checks that the fields listed here and the fields of the dataclass agree.
