@@ -16,14 +16,16 @@ import h5py
 import numpy as np
 import pytest
 
+from driver.test_field_free_planes import low_storage
 from solprop import fourier
-from solprop.exceptions import OutputError
+from solprop.exceptions import DriverError, OutputError
 from solprop.output import HDF5Output, MemoryOutput, Output, open_file
 from solprop.output.hdf5 import resume
 from solprop.output.schema import (
     INLINE_ARRAY_LIMIT,
     ArrayDigest,
     FieldRetention,
+    RetainingOutput,
     RunOutcome,
     SavedPlane,
     TerminalCheckpoint,
@@ -343,6 +345,126 @@ def test_an_array_above_the_inline_limit_is_recorded_by_its_digest():
     assert isinstance(record, dict)
     assert record["__class__"] == "solprop.output.schema.ArrayDigest"
     assert len(json.dumps(record)) < 300
+
+
+# ---------------------------------------------------- a handler of the caller's own
+
+
+class _Reducing:
+    """A handler that stores no field, in the order the run calls it."""
+
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+        self.kept: list[bool] = []
+        self.phases: list[bool] = []
+        self.rule: FieldRetention | None = None
+        self.shape: tuple[int, ...] | None = None
+        self._saved = 0
+        self._metadata = None
+
+    def open(self, metadata, *, force=False) -> None:
+        self.calls.append("open")
+        self._metadata = metadata
+
+    def reserve(self, n_planes) -> None:
+        self.calls.append("reserve")
+
+    def retain(self, retention, field_shape) -> None:
+        self.calls.append("retain")
+        self.rule, self.shape = retention, field_shape
+
+    def save(self, plane) -> None:
+        self.calls.append("save")
+        self.kept.append(plane.field is not None)
+        self.phases.append(plane.noise_phase is not None)
+        self._saved += 1
+
+    def close(self) -> None:
+        self.calls.append("close")
+
+    @property
+    def n_saved(self) -> int:
+        return self._saved
+
+    @property
+    def metadata(self):
+        return self._metadata
+
+    stat_names = ()
+    step_stat_names = ()
+
+    def __getitem__(self, key: str) -> np.ndarray:
+        raise KeyError(key)
+
+    def __contains__(self, key: object) -> bool:
+        return False
+
+    def fields(self, convention="optics") -> np.ndarray:
+        raise OutputError("this handler stores no field")
+
+
+def _run_with(handler, *, fields, field_planes=()) -> None:
+    simulation = low_storage()
+    simulation.settings = dataclasses.replace(
+        simulation.settings, fields=fields, field_planes=field_planes
+    )
+    simulation.run(output=handler, progress="none")
+
+
+@pytest.mark.parametrize(
+    ("fields", "field_planes", "kept"),
+    [
+        ("none", (), [False, False, False]),
+        ("planes", (-1,), [False, False, True]),
+        ("all", (), [True, True, True]),
+    ],
+)
+def test_a_handler_of_its_own_is_told_the_resolved_rule_before_any_plane(
+    fields, field_planes, kept
+):
+    handler = _Reducing()
+    assert isinstance(handler, RetainingOutput)
+    _run_with(handler, fields=fields, field_planes=field_planes)
+    assert handler.calls[:7] == ["open", "reserve", "retain", *["save"] * 3, "close"]
+    assert handler.kept == kept
+    assert handler.phases == [False, False, False]
+    assert handler.rule is not None
+    assert handler.rule.fields == fields
+    # Resolved: a negative index arrives counted from the entrance.
+    assert all(index >= 0 for index in handler.rule.field_planes)
+    if fields == "planes":
+        assert handler.rule.field_planes == (2,)
+    assert handler.shape is not None and handler.shape[-1] > 1
+
+
+def test_a_handler_without_retain_is_refused_for_field_free_planes_and_runs_all():
+    class Without(_Reducing):
+        retain = None  # pyright: ignore[reportAssignmentType] - a handler without it
+
+    assert not isinstance(Without(), RetainingOutput)
+    with pytest.raises(DriverError, match="RetainingOutput"):
+        _run_with(Without(), fields="none")
+    handler = Without()
+    _run_with(handler, fields="all")
+    assert handler.calls[:2] == ["open", "reserve"]
+    assert "retain" not in handler.calls
+
+
+def test_a_handler_s_refusal_of_the_rule_stops_the_run_before_any_plane():
+    class Refusing(_Reducing):
+        def retain(self, retention, field_shape) -> None:
+            raise OutputError("these planes were saved under another rule")
+
+    handler = Refusing()
+    with pytest.raises(OutputError, match="another rule"):
+        _run_with(handler, fields="none")
+    assert "save" not in handler.calls
+
+
+def test_retain_is_not_a_member_of_the_output_protocol():
+    """A handler that stores every field stays an `Output` without implementing it."""
+    assert not hasattr(Output, "retain")
+    assert isinstance(MemoryOutput(), RetainingOutput)
 
 
 @dataclasses.dataclass(frozen=True)

@@ -60,7 +60,9 @@ sets the spectral rate and the ceiling every spectral rate is validated against;
 ``12.6 (1 - W(t)) / ell_c``, and its ceiling; a free-space run's transverse boundary is
 designed by :class:`SpatialAbsorber` (SEP 40). A custom spectral rate
 (:func:`custom_absorber`) can then be as strong as
-a measurement needs without moving the explicit in-stage collars or their stable step.
+a measurement needs without moving the explicit in-stage collars or their stable step,
+and a temporal collar sized from a run's walk-off (``walkoff`` of :func:`absorber`)
+leaves the spectral rate where it was.
 
 The manual page is ``docs/guide/numerics/boundaries.md``.
 """
@@ -69,7 +71,7 @@ import logging
 import math
 import warnings
 from collections.abc import Callable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import Final
 
 import numpy as np
@@ -166,6 +168,16 @@ MIN_COLLAR_ATTENUATION: Final = math.log(1e3)
 :func:`warn_walkoff` says the absorber is too weak for the walk-off the run can produce.
 """
 
+_WALKOFF_ROUNDING_MARGIN: Final = 1.0 - 1e-9
+"""Factor shortening the collar length ``walkoff`` asks for, just below one.
+
+So that a collar sized for a drift passes :func:`warn_walkoff` at exactly that drift
+whatever the summation's rounding: the rate's integral is summed over ``n_t`` samples,
+each rounded, so it moves by at most ``n_t * eps``, about ``2e-10`` at a million
+samples. The strength moves by a part in ``1e9``, which no measurement of a collar
+resolves.
+"""
+
 SPLIT_CROSSING: Final = 0.5
 """``c`` of the split collar's step limit ``h <= c w / max |d tau / dz|``: no step
 carries light more than half the temporal collar's width (:func:`split_crossing_step`).
@@ -218,10 +230,11 @@ class Absorber:
     Attributes
     ----------
     spectral_rate : numpy.ndarray
-        Power absorption coefficient on the coarse frequency axis, 1/m, shape
-        ``(n_omega,)``. Exactly zero in the flat region and outside the active mask,
-        where the linear operator is zero anyway. Folded into the linear operator as
-        ``-alpha/2``.
+        Total power absorption coefficient on the coarse frequency axis, 1/m, shape
+        ``(n_omega,)``: the collar's and any user's rate (`user_rate`), the one rate the
+        linear operator folds in as ``-alpha/2``. The collar's part is exactly zero in
+        the flat region and outside the active mask, where the linear operator is zero
+        anyway.
     temporal_rate : numpy.ndarray
         Power absorption coefficient on the coarse time axis, 1/m, shape ``(n_t,)``.
     temporal_rate_fine : numpy.ndarray
@@ -232,7 +245,7 @@ class Absorber:
         the physics lives. Applied as a 0/1 multiply, which is idempotent.
     reference_length : float
         The length ``ell`` in metres over which the collar profile is applied once to
-        the field. It sets the spectral rate's ceiling, ``60 / ell``.
+        the field. It sets the total spectral rate's ceiling, ``60 / ell``.
     collar_length : float or None
         The length ``ell_c`` in metres that sets the in-stage temporal collar's
         strength, whose largest rate is ``12.6 / ell_c``; it also sets the temporal
@@ -248,13 +261,21 @@ class Absorber:
         arrays; it is recorded only when ``False``. Any collar whose temporal rates
         are all zero, however it was built, is translated to no temporal absorber
         (:func:`solprop.translate.masks.temporal_rates`).
+    user_rate : numpy.ndarray or None
+        The user's share of `spectral_rate`, 1/m, shape ``(n_omega,)``, with
+        ``0 <= user_rate <= spectral_rate``: what :func:`custom_absorber` added, which
+        ``absorbed_power`` reports apart from the collar. It moves no bit of the
+        operator, which reads the total. ``None``, the default, is no user's rate, and
+        is left out of the run record, so a run without one keeps its record and its
+        hash; set, it is recorded, and two splits of one total hash apart.
 
     Raises
     ------
     GridError
         If a length is not positive and finite, the mask and the spectral rate
-        disagree in shape, a rate is negative, not finite, or above its ceiling, or
-        a collar declared spectral-only carries a temporal rate.
+        disagree in shape, a rate is negative, not finite, or above its ceiling, a
+        collar declared spectral-only carries a temporal rate, or the user's share is
+        not finite, misshaped, negative or above the total.
 
     Examples
     --------
@@ -275,6 +296,9 @@ class Absorber:
     reference_length: float
     collar_length: float | None = None
     temporal: bool = True
+    user_rate: Float[np.ndarray, " n_user_rate"] | None = field(
+        default=None, metadata={"record_none": False}
+    )
 
     def __post_init__(self) -> None:
         """Validate what the shape annotations cannot express.
@@ -318,6 +342,31 @@ class Absorber:
             msg = (
                 "a spectral-only collar (temporal=False) carries no temporal rate; "
                 "set the temporal rates to zero, or temporal=True"
+            )
+            raise GridError(msg)
+        self._check_user_rate()
+
+    def _check_user_rate(self) -> None:
+        """Check that the user's rate is a share of the total spectral rate.
+
+        Raises
+        ------
+        GridError
+            If it is misshaped, not finite, negative or above the total.
+        """
+        if self.user_rate is None:
+            return
+        share = np.asarray(self.user_rate, dtype=np.float64)
+        if share.shape != self.spectral_rate.shape or not np.all(np.isfinite(share)):
+            msg = (
+                f"user_rate must be finite with spectral_rate's shape "
+                f"{self.spectral_rate.shape}, got {share.shape}"
+            )
+            raise GridError(msg)
+        if np.any(share < 0.0) or np.any(share > self.spectral_rate):
+            msg = (
+                "user_rate is the user's share of spectral_rate, the total, so "
+                "0 <= user_rate <= spectral_rate on every bin"
             )
             raise GridError(msg)
 
@@ -565,12 +614,65 @@ def _check_collar(
             raise GridError(msg)
 
 
+def _walkoff_collar_length(grid: TimeGrid, walkoff: float) -> float:
+    r"""Return the collar length that stops a packet of the given drift.
+
+    A packet drifting steadily by ``walkoff`` over ``grid.length`` crosses the collar at
+    ``v = walkoff / length`` seconds per metre, so its field loses
+    ``integral(alpha dt) / (2 v)`` nepers. It re-enters the flat region only after both
+    edges, which meet at the window's end on the periodic axis, so both count. With
+    ``alpha = A (1 - W) / ell_c``, and setting the loss to ``Gamma``
+    (:data:`MIN_COLLAR_ATTENUATION`),
+
+    .. math::
+
+        \ell_c = \frac{L}{\Delta\tau\,\Gamma}\,\frac{A}{2}\int (1 - W)\,dt.
+
+    The integral is taken as :func:`warn_walkoff` takes it, so that the two agree on any
+    grid. For two edges of width ``w`` the Planck taper's symmetry makes it ``w``,
+    giving ``ell_c = 6.3 w L / (Gamma dtau)``.
+
+    Parameters
+    ----------
+    grid : TimeGrid
+        The grid, for its temporal collar and its propagation length.
+    walkoff : float
+        The drift over ``grid.length``, s.
+
+    Returns
+    -------
+    float
+        The collar length in metres.
+
+    Raises
+    ------
+    GridError
+        If the drift is not positive and finite, or the length it asks for is not.
+    """
+    if not (math.isfinite(walkoff) and walkoff > 0.0):
+        msg = (
+            f"walkoff must be positive and finite, got {walkoff!r}; for a collar with "
+            "no temporal part pass temporal=False instead"
+        )
+        raise GridError(msg)
+    unit_rate = temporal_collar_rate(grid.t, grid.t_collar, 1.0)
+    integral = float(np.trapezoid(unit_rate, dx=grid.dt))
+    length = (
+        0.5 * integral * grid.length / (MIN_COLLAR_ATTENUATION * walkoff)
+    ) * _WALKOFF_ROUNDING_MARGIN
+    if not (math.isfinite(length) and length > 0.0):
+        msg = f"walkoff={walkoff!r} s asks for a collar length of {length!r} m"
+        raise GridError(msg)
+    return length
+
+
 def absorber(
     grid: TimeGrid,
     *,
     boundary_N: float = DEFAULT_BOUNDARY_N,  # noqa: N803 - the established parameter name
     boundary_length: float | None = None,
     temporal: bool = True,
+    walkoff: float | None = None,
 ) -> Absorber:
     """Build the absorbing boundaries of a grid.
 
@@ -581,15 +683,43 @@ def absorber(
     boundary_N : float, optional
         Absorber strength, as the number of times the collar profile is applied to the
         field over the whole propagation; the reference length is ``length /
-        boundary_N``.
+        boundary_N``. Beside ``walkoff`` it sets the spectral collar alone.
     boundary_length : float or None, optional
-        Reference length in metres, overriding ``boundary_N``.
+        Reference length in metres, overriding ``boundary_N``. Beside ``walkoff`` it
+        sets the spectral collar alone.
     temporal : bool, optional
         ``False`` builds a **spectral-only** collar (SEP 22): its temporal rates are
         zero arrays on both time axes, the band mask and the spectral rate are as
         before, and the record says ``temporal=False``. It is translated to no
         temporal absorber, so the kernels compile no temporal pass under either
         absorber scheme. The grid is unchanged.
+    walkoff : float or None, optional
+        The steady group-delay drift, in seconds and positive, that the temporal collar
+        must stop: a packet drifting by this much over ``grid.length`` loses
+        :data:`MIN_COLLAR_ATTENUATION` nepers of field crossing the collar, counted over
+        both edges, which is the condition :func:`warn_walkoff` checks. It sets
+        ``collar_length`` to ``6.3 w L / (Gamma walkoff)`` for edges of width ``w``, a
+        length ``L`` and that attenuation ``Gamma``, and changes nothing else; ``None``,
+        the default, leaves the temporal strength to ``boundary_N``.
+
+        **It is measured over this grid's own length.** The collar's rate depends only
+        on the speed ``walkoff / grid.length``, so a slice of a run gets its parent's
+        temporal collar when given the drift of that slice: a quarter of the length, a
+        quarter of the walk-off. Handing a slice its parent's whole drift asks for a
+        collar four times stronger.
+
+        **It does not conflict with** ``boundary_N`` **or** ``boundary_length``, so
+        neither is refused beside it. They keep ``reference_length``, the spectral rate
+        and its ceiling, and ``walkoff`` sets the temporal rates and their ceiling; a
+        slice that keeps its parent's strength in both passes
+        ``boundary_length=parent.reference_length`` and its own drift.
+
+        **Refused beside** ``temporal=False``, which has no temporal collar to size.
+        **The window does not bound it**: the loss needs only the collar's width, and a
+        drift longer than the window is absorbed on its first crossing. A large value
+        costs steps instead, since an explicit method's step is limited to about
+        ``0.48 w / v``, by :func:`stable_step` under the in-stage scheme. A free-space
+        run's transverse collar is designed separately and does not read this length.
 
     Returns
     -------
@@ -599,8 +729,9 @@ def absorber(
     Raises
     ------
     GridError
-        If the reference length is not positive and finite, or either collar is too
-        narrow on its axis to be a taper.
+        If the reference length is not positive and finite, either collar is too narrow
+        on its axis to be a taper, or ``walkoff`` is not positive and finite or is given
+        with ``temporal=False``.
 
     Examples
     --------
@@ -618,12 +749,26 @@ def absorber(
     >>> spectral_only = absorber(grid, temporal=False)
     >>> float(spectral_only.temporal_rate.max()), spectral_only.temporal
     (0.0, False)
+    >>> walking = absorber(grid, walkoff=1e-12)
+    >>> bool(np.array_equal(walking.spectral_rate, boundary.spectral_rate))
+    True
+    >>> round(walking.in_stage_length / boundary.in_stage_length, 3)
+    1.023
     """
+    if walkoff is not None and not temporal:
+        msg = (
+            "walkoff sizes the temporal collar, and temporal=False has none; drop one "
+            "of the two"
+        )
+        raise GridError(msg)
     length = _reference_length(grid, boundary_N, boundary_length)
     _check_collar("spectral", grid.omega_collar, grid.omega, "rad/s")
     if temporal:
         # A spectral-only collar needs no room in time: its grid may have none.
         _check_collar("temporal", grid.t_collar, grid.t, "s")
+    # Only the temporal rates follow the walk-off: a shared length would move the
+    # spectral collar too, which SEP 21 section 5 forbids.
+    in_stage = length if walkoff is None else _walkoff_collar_length(grid, walkoff)
     spectral = collar_rate(grid.omega_window, length)
     # Outside the active mask the linear operator is zero and the nonlinear polarisation
     # is masked, so there is nothing left for a rate to absorb; leaving the capped value
@@ -632,14 +777,15 @@ def absorber(
     spectral[~band_mask] = 0.0
     boundary = Absorber(
         spectral_rate=spectral,
-        temporal_rate=temporal_collar_rate(grid.t, grid.t_collar, length)
+        temporal_rate=temporal_collar_rate(grid.t, grid.t_collar, in_stage)
         if temporal
         else np.zeros(grid.n_t),
-        temporal_rate_fine=temporal_collar_rate(grid.t_fine, grid.t_collar, length)
+        temporal_rate_fine=temporal_collar_rate(grid.t_fine, grid.t_collar, in_stage)
         if temporal
         else np.zeros(grid.n_to),
         band_mask=band_mask,
         reference_length=length,
+        collar_length=in_stage,
         temporal=temporal,
     )
     _log_summary(grid, boundary)
@@ -657,8 +803,8 @@ def no_absorber(
     What ``absorber=False`` on the keyword interfaces means (SEP 21 section 5): the
     temporal and spectral rates are zero, so no light is absorbed at either edge of
     the window, and the hard band mask still keeps the field inside the representable
-    band. The reference length is kept, so that a radial, Cartesian or planar run's
-    real-space collar, which reads it, keeps its strength.
+    band. The reference length is kept for the record; a free-space run's transverse
+    boundary is designed separately (:class:`SpatialAbsorber`) and does not read it.
 
     Parameters
     ----------
@@ -705,7 +851,8 @@ def custom_absorber(
     The spectral rate is diagonal in frequency and folded into the linear operator,
     where it is exact and free whatever its strength (ADR-007); the in-stage collars
     are explicit and their strength bounds a replayed step (SEP 22 section 4.6). The
-    user's rate is therefore added to the collar's spectral rate, and the collar's
+    user's rate is therefore added to the collar's spectral rate, kept apart as
+    ``user_rate`` for the statistic that reports it, and the collar's
     temporal rates, band mask and in-stage strength are kept as they are: its
     ``collar_length`` is the collar's own ``in_stage_length``. Its
     ``reference_length`` stays the collar's when the summed rate fits under the
@@ -732,7 +879,8 @@ def custom_absorber(
     Returns
     -------
     Absorber
-        The collar with the summed spectral rate.
+        The collar with the summed spectral rate, and the user's share of it in
+        ``user_rate``, added to any share `collar` already holds.
 
     Raises
     ------
@@ -776,7 +924,11 @@ def custom_absorber(
     added = np.where(base.band_mask, values, 0.0)
     # A zero rate leaves the collar's own array, signed zeros and all, so the record
     # is the collar's field for field.
-    total = base.spectral_rate + added if np.any(added) else base.spectral_rate
+    rated = bool(np.any(added))
+    total = base.spectral_rate + added if rated else base.spectral_rate
+    # Rounding is monotonic, so the sum of the shares stays under the sum of the totals.
+    held = base.user_rate
+    share = held if not rated else added if held is None else held + added
     largest = float(np.max(total, initial=0.0))
     reference = base.reference_length
     if largest > MAX_ALPHA_LENGTH / reference:
@@ -788,6 +940,7 @@ def custom_absorber(
         spectral_rate=total,
         reference_length=reference,
         collar_length=base.in_stage_length,
+        user_rate=share,
     )
 
 
@@ -1279,8 +1432,12 @@ def warn_walkoff(
         f"the temporal absorber attenuates a packet walking off by "
         f"{group_delay_span * 1e15:.3g} fs over {grid.length:.3g} m by only "
         f"{crossing:.2g} nepers, below the {MIN_COLLAR_ATTENUATION:.2g} that stops it "
-        f"wrapping around the time window; widen trange, or raise boundary_N above "
-        f"{boundary_N * MIN_COLLAR_ATTENUATION / max(crossing, 1e-30):.3g}",
+        "wrapping around the time window; widen trange, give absorber(grid, walkoff="
+        # Half a percent up, so that the three digits shown never fall below the span
+        # and a collar built from this very text passes.
+        f"{group_delay_span * 1.005:.3g}) to strengthen the temporal collar alone, or, "
+        "strengthening the spectral collar too, raise boundary_N above "
+        f"{grid.length / length * MIN_COLLAR_ATTENUATION / max(crossing, 1e-30):.3g}",
         SolpropWarning,
         stacklevel=2,
     )

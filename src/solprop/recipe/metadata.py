@@ -1698,6 +1698,14 @@ _EXECUTION: Final = (
         "Keep the Adams method's history at each plane, for an exact resume.",
         "guide/results/output.md",
     ),
+    Parameter(
+        "held_plane",
+        (_BOOLEAN,),
+        "output",
+        "advanced",
+        "Hold the low-storage march's last field-free plane, for a checkpoint.",
+        _OUTPUT_PAGE,
+    ),
 )
 """The ``[execution]`` table's keys: settings a run reads when it executes."""
 
@@ -2779,6 +2787,13 @@ _ENTRIES: Final[dict[str, tuple[Parameter, ...]]] = {
             _TYPE_BOOLEAN,
             "advanced",
             "Whether the collar absorbs in time; off is a spectral-only collar.",
+        ),
+        _keyword(
+            "walkoff",
+            _TYPE_DURATION,
+            "advanced",
+            "Group-delay drift the temporal collar must stop, over the grid's length.",
+            display="fs",
         ),
     ),
     "TubeLattice": _type(

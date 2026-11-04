@@ -81,6 +81,9 @@ medium, responses, beam and settings.
 _EXAMPLES: Final = "examples"
 """The package directory that holds the example recipes."""
 
+_SCAN_EXECUTION: Final = ("fields", "field_planes")
+"""The ``[execution]`` keys ``run_scan`` takes, rather than each point's settings."""
+
 
 @dataclass(frozen=True)
 class RecipeIssue:
@@ -1026,13 +1029,20 @@ class Recipe:
         for path, values in table.items():
             scan.add(path, cast("ArrayLike", self._axis(path, values)))
         document = self.to_dict()
-        execution = document.pop("execution", {})
         document.pop("scan", None)
+        # What `run_scan` takes is its own, and a builder that sets it is refused; the
+        # rest of the table is the points', which the builder's document keeps.
+        execution = dict(document.pop("execution", {}))
         keywords: dict[str, object] = {
             key: tuple(value) if isinstance(value, list) else value
             for key, value in execution.items()
-            if key in ("fields", "field_planes")
+            if key in _SCAN_EXECUTION
         }
+        kept = {
+            key: value for key, value in execution.items() if key not in _SCAN_EXECUTION
+        }
+        if kept:
+            document["execution"] = kept
         builder = RecipeBuilder(
             dump_text(document),
             None if self._base is None else str(self._base),

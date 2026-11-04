@@ -170,6 +170,8 @@ def resolved_document(
     execution["field_planes"] = list(settings.field_planes)
     if settings.resume_history is not None:
         execution["resume_history"] = settings.resume_history
+    if not settings.held_plane:
+        execution["held_plane"] = False
     document["execution"] = execution
     return document
 

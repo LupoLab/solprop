@@ -252,7 +252,7 @@ _BEAM_UNITS: Final[Mapping[str, UnitSpec]] = {
     "displacement": "m",
     "tilt": "rad",
 }
-_EXECUTION_FIELDS: Final = ("fields", "field_planes", "resume_history")
+_EXECUTION_FIELDS: Final = ("fields", "field_planes", "resume_history", "held_plane")
 """The settings a recipe's ``[execution]`` table holds, and so no ``settings`` table."""
 
 _SETTINGS_OMITTED: Final = (
@@ -328,7 +328,12 @@ REGISTRY: Final[Mapping[str, Factory]] = {
         Factory("Multistep", Multistep),
         Factory("RungeKutta", RungeKutta, omitted=("tableau",)),
         Factory("LowStorageRungeKutta", LowStorageRungeKutta),
-        Factory("absorber", absorber, {"boundary_length": "m"}, context=("grid",)),
+        Factory(
+            "absorber",
+            absorber,
+            {"boundary_length": "m", "walkoff": "s"},
+            context=("grid",),
+        ),
         Factory(
             "TubeLattice", TubeLattice, {"wall_thickness": "m", "tube_radius": "m"}
         ),

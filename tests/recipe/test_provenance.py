@@ -100,6 +100,18 @@ def test_an_authored_object_is_kept_and_rebuilds_the_run(name, path, value):
     assert _hash(Recipe.from_dict(document).build()) == _hash(simulation)
 
 
+def test_held_plane_goes_into_the_execution_table_only_when_turned_off():
+    _, default = _resolved(Recipe.example("soliton"))
+    assert "held_plane" not in default["execution"]
+    simulation, document = _resolved(_soliton_with_execution({"held_plane": False}))
+    assert document["execution"]["held_plane"] is False
+    rebuilt = Recipe.from_dict(document).build()
+    assert rebuilt.settings.held_plane is False
+    # Outside the resume key: the record does not move.
+    assert _hash(rebuilt) == _hash(Recipe.example("soliton").build())
+    assert _hash(simulation) == _hash(rebuilt)
+
+
 def test_resume_history_is_resolved_into_the_execution_table():
     recipe = _soliton_with_execution({"resume_history": True})
     simulation, document = _resolved(recipe)

@@ -182,6 +182,7 @@ DRIVER_SURFACE: tuple[str, ...] = (
     "_bind_monitor",
     "_boundary_energies",
     "_dense_stages",
+    "_drop_held",
     "_finish",
     "_held_field",
     "_hoist",
@@ -273,6 +274,11 @@ removal, the four found sums) followed by the state's energy in each of the
 ``SPLIT_RATE_BUCKETS`` buckets, ``10 + 128`` in all, where it returned six. The Adams
 march's bounds carry a required ``step_cap``, the cap the last check read, which every
 adaptive step is held to.
+Schema 45 widens this backend's far-field aperture rows from six constants to eleven,
+each row's own profile and shape among them, and drops the call's profile code: a
+far-field aperture set may hold other outlines beside circles. It also appends
+``SeparableOperator.user_rate``, the user's share of the spectral rate, which only the
+statistic ``absorbed_power`` reads, in a fifth channel.
 
 solprop freezes this surface under its ``KERNEL_SCHEMA_VERSION`` (the test in its
 ``tests/backends/test_driver.py``); :func:`check_build` looks each member up so a
@@ -441,6 +447,7 @@ SEPARABLE_OPERATOR_FIELDS: tuple[str, ...] = (
     "n_pol",
     "z_span",
     "kperp_rate",
+    "user_rate",
 )
 """Required shared spatial coefficients, frozen since schema 6.
 

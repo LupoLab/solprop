@@ -54,7 +54,6 @@ class State:
         self,
         flags: int,
         apertures: npt.NDArray[np.float64],
-        profile_code: int,
         exponent: int,
         regions: npt.NDArray[np.float64],
         intensity_factor: float,
@@ -98,6 +97,7 @@ class State:
         rebuild_table: bool,
     ) -> float: ...
     def hold_plane(self) -> None: ...
+    def release_plane(self) -> None: ...
     def held_to_host(self) -> npt.NDArray[np.complex128]: ...
     def adams_allocate(
         self, slots: int, compensated: bool = False, interpolate: bool = True

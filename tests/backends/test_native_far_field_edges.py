@@ -39,7 +39,13 @@ from backends.far_field_cases import (
 from backends.test_native_far_field import native_stats, problem_of
 from solprop.backends.spatial import FAR_FIELD_BAND_BUDGET, far_field_partials
 from solprop.grid import FieldGrid, FreeGrid
-from solprop.spatial import FAR_FIELD_STATISTICS, mask_plane_radius
+from solprop.spatial import (
+    FAR_FIELD_STATISTICS,
+    aperture_outline,
+    aperture_scale,
+    mask_plane_offsets,
+    mask_plane_radius,
+)
 from solprop.stats import ApertureSet, StatsSpec
 from solprop.translate.spatial import aperture_tables
 
@@ -112,6 +118,134 @@ def test_the_radius_is_the_reference_radius_to_the_bit():
                 assert spectrum[inner + index, bin_] == 0
                 assert oracle[inner + index, bin_] == 0
     assert fused > 0
+
+
+def test_a_half_plane_and_a_rectangle_decide_as_the_reference_to_the_bit():
+    """Each edge on a column's image, and a unit in the last place either side of it.
+
+    Native's offset can be located as the radius was: a half-plane's edge exactly at the
+    reference's image holds the column, and one a unit further out does not, whichever
+    side it keeps. A fused offset would differ on some of these inputs.
+    """
+    grid = time_grid("envelope")
+    space = FreeGrid(3e-4, 12, 3e-4, 10, collar_fraction=0)
+    columns, all_bins = edge_inputs(grid, space)
+    bins = all_bins[: N_BINS // 8]
+    scale = aperture_scale(np.array([DISTANCE]), grid.omega)[0, bins]
+    fused = 0
+    for column in columns:
+        k_x = float(space.k_x[column % space.n_x])
+        if k_x == 0.0:
+            continue
+        # `across` is exactly zero at X = -(s k), since the product is the one rounded.
+        at = np.array([-(float(one) * k_x) for one in scale])
+        fused += sum(
+            math.fma(float(one), k_x, float(edge)) != 0.0
+            for one, edge in zip(scale, at, strict=True)
+        )
+        further = np.nextafter(at, np.where(at > 0, np.inf, -np.inf))
+        nearer = np.nextafter(at, 0.0)
+        rows = 3 * bins.size
+        # Stored k > 0 means physical kappa < 0: nearer the origin is above the image.
+        field = np.zeros((space.n_columns, 1, grid.n_omega), complex)
+        field[column, 0, bins] = 1e3
+        centres = np.column_stack(
+            (np.concatenate((at, further, nearer)), np.zeros(rows))
+        )
+        for shape in ("half_plane_x_ge", "half_plane_x_lt"):
+            apertures = ApertureSet(
+                centres=centres[:HOLES_PER_SET],
+                diameters=np.zeros(min(rows, HOLES_PER_SET)),
+                distances=np.full(min(rows, HOLES_PER_SET), DISTANCE),
+                shapes=(shape,) * min(rows, HOLES_PER_SET),
+            )
+            spec = StatsSpec(names=("aperture_spectrum",), apertures=apertures)
+            problem = problem_of(grid, space, field, spec)
+            values, held = native_stats(problem, grid, field, spec.names)
+            here = aperture_tables(spec, problem.grids, problem.transform.geometry)
+            assert here is not None
+            expected = reference(spec.names, grid, problem, held, here)
+            spectrum = values["aperture_spectrum"]
+            oracle = expected["aperture_spectrum"]
+            for row in range(min(rows, HOLES_PER_SET)):
+                bin_ = int(bins[row % bins.size])
+                # Structural: the membership is exact: the term is in both or neither.
+                assert (spectrum[row, bin_] > 0) == (oracle[row, bin_] > 0)
+            # The edge itself belongs to the side kept by x >= X, and only to it.
+            for row, bin_ in enumerate(bins):
+                assert (oracle[row, bin_] > 0) == (shape == "half_plane_x_ge")
+    assert fused > 0
+
+
+def test_a_rectangle_and_an_ellipse_decide_as_the_reference_at_their_edges():
+    """Each edge on a column's image, a rectangle's directly, an ellipse's by bisection.
+
+    The rectangle's half-width is the offset itself; the ellipse's stretches move with
+    its size, so the last size that holds the column is found on the reference's outline
+    and native is asked of that size and the next one down.
+    """
+    grid = time_grid("envelope")
+    space = FreeGrid(3e-4, 12, 3e-4, 10, collar_fraction=0)
+    columns, all_bins = edge_inputs(grid, space)
+    bin_ = int(all_bins[N_BINS // 2])
+    scale = aperture_scale(np.array([DISTANCE]), grid.omega)[0, bin_ : bin_ + 1]
+    for column in columns:
+        k_x = space.k_x[column % space.n_x : column % space.n_x + 1]
+        k_y = space.k_y[column // space.n_x : column // space.n_x + 1]
+        across, along = mask_plane_offsets(scale, k_x, k_y, CENTRE)
+        across, along = float(across[0, 0]), float(along[0, 0])
+        width = 2 * abs(across)
+        hold = _ellipse_threshold(across, along)
+        below = np.nextafter(hold, 0.0)
+        rows = [
+            ("rectangle", (width, 4 * abs(along) + 1e-3), True),
+            ("rectangle", (np.nextafter(width, 0.0), 4 * abs(along) + 1e-3), False),
+            ("ellipse", (hold, hold / 2), True),
+            ("ellipse", (below, below / 2), False),
+        ]
+        spec = StatsSpec(
+            names=("aperture_spectrum",),
+            apertures=ApertureSet(
+                centres=[list(CENTRE)] * len(rows),
+                diameters=np.zeros(len(rows)),
+                distances=np.full(len(rows), DISTANCE),
+                shapes=tuple(row[0] for row in rows),
+                extents=[list(row[1]) for row in rows],
+            ),
+        )
+        field = np.zeros((space.n_columns, 1, grid.n_omega), complex)
+        field[column, 0, bin_] = 1e3
+        problem = problem_of(grid, space, field, spec)
+        values, held = native_stats(problem, grid, field, spec.names)
+        here = aperture_tables(spec, problem.grids, problem.transform.geometry)
+        assert here is not None
+        oracle = reference(spec.names, grid, problem, held, here)["aperture_spectrum"]
+        for row, (_, _, inside) in enumerate(rows):
+            # Structural: the membership is exact: the term is in both or neither.
+            assert (oracle[row, bin_] > 0) == inside
+            assert (values["aperture_spectrum"][row, bin_] > 0) == inside
+
+
+def _ellipse_threshold(across, along):
+    """Return the smallest x width of a 2:1 ellipse whose outline holds the offsets."""
+    holds = lambda width: (  # noqa: E731 - one use, the bisection's predicate
+        float(
+            aperture_outline("ellipse", 0.0, (width, width / 2), 0.0, "hard").weight(
+                np.array([across]), np.array([along])
+            )[0]
+        )
+        == 1.0
+    )
+    low, high = 0.0, 8 * math.hypot(across, 2 * along) + 1e-12
+    assert holds(high)
+    while True:
+        middle = 0.5 * (low + high)
+        if middle in (low, high):
+            return high
+        if holds(middle):
+            high = middle
+        else:
+            low = middle
 
 
 def _holes(diameters):

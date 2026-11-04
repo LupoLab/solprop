@@ -1764,6 +1764,11 @@ Withdrawn (development-process record, not a design decision).
   are not compatible with one another, and a known difference between them is refused
   by name rather than read two ways (#80, the Multistep ledger's run-length encoded
   orders, folded into schema 2).
+- **Note, for the maintainer to confirm at review** (2026-11-04, with #186 and #231): a
+  dataclass field whose metadata says `record_none=False` is left out of the record while
+  it is `None`, so an unset `ApertureSet.shapes`, `profiles` or `extents` or
+  `Absorber.user_rate` keeps a run's record and hash. This is an exception to "every field
+  is still recorded" above.
 
 ## ADR-064 — `numba_cpu` is retired: no Tier 2, and the documentation lane runs on the wheel
 

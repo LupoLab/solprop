@@ -52,8 +52,9 @@ import math
 import platform
 import re
 import subprocess
+import weakref
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import Enum
@@ -78,6 +79,7 @@ from solprop.physdata.selection import MaterialManifest, hashed_document
 from solprop.stepper import FixedSchedule, PIController, Tableau
 
 __all__ = [
+    "EARLIER_ABSORBED_COLUMNS",
     "FIELD_LAYOUT",
     "HISTORY_FIELDS",
     "INLINE_ARRAY_LIMIT",
@@ -107,10 +109,12 @@ __all__ = [
     "PlaneStore",
     "RecipeFile",
     "RecipeRecord",
+    "RetainingOutput",
     "RunMetadata",
     "RunOutcome",
     "SavedPlane",
     "SimulationKind",
+    "StatedInput",
     "StepHistory",
     "StepLimits",
     "StepStats",
@@ -119,6 +123,7 @@ __all__ = [
     "field_retention_refusal",
     "package_versions",
     "recorded_input",
+    "refuse_earlier_absorbed_power",
     "resolve_metadata_write",
     "serialise",
 ]
@@ -151,12 +156,22 @@ read, and nor is a file from a later release. Read such a file with the solprop 
 that wrote it.
 """
 
+EARLIER_ABSORBED_COLUMNS = 4
+"""The columns of ``absorbed_power`` an earlier development build of schema 2 stored.
+
+The first holds the spectral collar and any custom rate together, so nothing stored can
+split it, and a new row has five. Such a file reads as it was written and is not
+continued (:func:`refuse_earlier_absorbed_power`; ADR-063's amendment: a known
+difference between development builds is refused by name).
+"""
+
 INLINE_ARRAY_LIMIT = 2**20
 """The most elements an array input is recorded with inline (SEP 22, Q4).
 
 A larger array -- a gigabyte spatial launch -- is recorded by an :class:`ArrayDigest`
 of its bytes, dtype and shape instead, which costs seconds of hashing per input rather
-than tens of gigabytes of JSON, and still changes with any one sample.
+than tens of gigabytes of JSON, and still changes with any one sample. A caller may
+state its identity instead, with a :class:`StatedInput`.
 """
 
 SPECTRAL_CONVENTION = "optics"
@@ -247,6 +262,11 @@ def _serialise_dataclass(value: object) -> dict[str, JsonValue]:
     :class:`~solprop.modes.guide.ChannelSource` holds the provider object, whose
     identity the run records once beside its channels.
 
+    A field whose metadata says ``record_none=False`` is left out while it is ``None``:
+    an optional extension whose absence means what every earlier record means, so a run
+    that does not use it keeps its record and its hash (an aperture's shape, an
+    absorber's ``user_rate``). Set, it is recorded, and two different values hash apart.
+
     Parameters
     ----------
     value : object
@@ -266,7 +286,10 @@ def _serialise_dataclass(value: object) -> dict[str, JsonValue]:
     for entry in dataclasses.fields(value):  # type: ignore[arg-type] - checked by the caller
         if not entry.init or not entry.metadata.get("record", True):
             continue
-        record[entry.name] = serialise(getattr(value, entry.name))
+        held = getattr(value, entry.name)
+        if held is None and not entry.metadata.get("record_none", True):
+            continue
+        record[entry.name] = serialise(held)
     return record
 
 
@@ -491,6 +514,62 @@ class ArrayDigest:
         )
 
 
+@dataclass(frozen=True)
+class StatedInput:
+    """An array input recorded by the identity its caller states, its bytes unread.
+
+    What a run record holds under ``input_identity``
+    (:meth:`solprop.driver.simulation.Simulation.with_input`): for a caller that
+    already identifies its input, such as by a scan's delay and its own configuration,
+    and has no use for a digest of it. The identity is taken on trust: unlike an
+    :class:`ArrayDigest`, two arrays that differ record the same thing if they are
+    stated alike, so a resume and a scan's cache accept one for the other.
+
+    Attributes
+    ----------
+    identity : str
+        What the caller says the input is.
+    dtype : str
+        The array's dtype, as NumPy names it (``"complex128"``), little-endian as an
+        :class:`ArrayDigest` records it.
+    shape : tuple of int
+        The array's shape.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from solprop.output.schema import StatedInput
+    >>> StatedInput.of(np.zeros((2, 3), complex), "delay 12 fs")
+    StatedInput(identity='delay 12 fs', dtype='complex128', shape=(2, 3))
+    """
+
+    identity: str
+    dtype: str
+    shape: tuple[int, ...]
+
+    @classmethod
+    def of(cls, values: np.ndarray, identity: str) -> "StatedInput":  # noqa: UP037 - bound after the class body
+        """Return the record of an array input under a stated identity.
+
+        Parameters
+        ----------
+        values : numpy.ndarray
+            The array, of which only the dtype and the shape are read.
+        identity : str
+            What the caller says it is.
+
+        Returns
+        -------
+        StatedInput
+            The identity, the dtype and the shape.
+        """
+        return cls(
+            identity=identity,
+            dtype=str(values.dtype.newbyteorder("<")),
+            shape=tuple(int(size) for size in values.shape),
+        )
+
+
 def recorded_input(value: object) -> object:
     """Return an input as the run record carries it: inline, or by its digest.
 
@@ -514,9 +593,25 @@ def recorded_input(value: object) -> object:
     >>> type(recorded_input(np.zeros(2**20 + 1))).__name__
     'ArrayDigest'
     """
-    if isinstance(value, np.ndarray) and value.size > INLINE_ARRAY_LIMIT:
+    if isinstance(value, np.ndarray) and not _recorded_inline(value):
         return ArrayDigest.of(value)
     return value
+
+
+def _recorded_inline(values: np.ndarray) -> bool:
+    """Return whether a run record carries an array input itself, not its digest.
+
+    Parameters
+    ----------
+    values : numpy.ndarray
+        The array input.
+
+    Returns
+    -------
+    bool
+        True for at most :data:`INLINE_ARRAY_LIMIT` elements.
+    """
+    return values.size <= INLINE_ARRAY_LIMIT
 
 
 def _canonical_json(value: JsonValue) -> str:
@@ -1803,6 +1898,57 @@ class StepStats(Displayed):
         return tuple(sorted(self.values))
 
 
+_ADOPTED: weakref.WeakValueDictionary[int, np.ndarray] = weakref.WeakValueDictionary()
+"""The arrays :func:`_adopted` marked, by id, for as long as each lives."""
+
+
+def _adopted(values: np.ndarray) -> np.ndarray:
+    """Mark an array a :class:`SavedPlane` takes as it is, instead of copying it.
+
+    The driver's route (:func:`solprop.driver.run.run_problem`) for what an observation
+    holds. Only for an array that nothing writes to again, as
+    :meth:`solprop.backends.protocol.Backend.observe` promises, and never for a batch
+    member, whose view would pin the whole batch.
+
+    Parameters
+    ----------
+    values : numpy.ndarray
+        The array, of the type a plane holds.
+
+    Returns
+    -------
+    numpy.ndarray
+        The same array, read-only.
+    """
+    values.setflags(write=False)
+    _ADOPTED[id(values)] = values
+    return values
+
+
+def _plane_array(
+    values: np.ndarray, dtype: type[np.complex128] | type[np.float64]
+) -> np.ndarray:
+    """Return an array as a :class:`SavedPlane` holds it: read-only, nobody else's.
+
+    Parameters
+    ----------
+    values : numpy.ndarray
+        The array given to the plane, of any numeric dtype.
+    dtype : type
+        The element type the plane holds.
+
+    Returns
+    -------
+    numpy.ndarray
+        `values` itself when :func:`_adopted` marked it, a frozen copy otherwise.
+    """
+    if _ADOPTED.get(id(values)) is values:
+        return values
+    held = np.array(values, dtype=dtype, copy=True)
+    held.setflags(write=False)
+    return held
+
+
 @dataclass(frozen=True, eq=False, kw_only=True)
 class SavedPlane(Displayed):
     """One saved position: the field there, its statistics and how it was reached.
@@ -1917,18 +2063,16 @@ class SavedPlane(Displayed):
                 msg = "a field-free plane carries no noise phase"
                 raise OutputError(msg)
             return
-        field = np.array(self.field, dtype=np.complex128, copy=True)
-        field.setflags(write=False)
+        field = _plane_array(self.field, np.complex128)
         object.__setattr__(self, "field", field)
         if self.noise_phase is not None:
-            phase = np.array(self.noise_phase, dtype=np.float64, copy=True)
+            phase = _plane_array(self.noise_phase, np.float64)
             if phase.shape != field.shape:
                 msg = (
                     f"noise_phase has shape {phase.shape}, expected the field's "
                     f"{field.shape}"
                 )
                 raise OutputError(msg)
-            phase.setflags(write=False)
             object.__setattr__(self, "noise_phase", phase)
 
     @property
@@ -2447,6 +2591,47 @@ def _refuse_schema(declared: object) -> None:
         "not read; read it with the solprop version that wrote it"
     )
     raise OutputError(msg)
+
+
+def refuse_earlier_absorbed_power(
+    where: object, shapes: Iterable[tuple[int, ...]]
+) -> None:
+    """Refuse to continue a file whose ``absorbed_power`` has the earlier columns.
+
+    The one check behind every door that continues a file: an append, a resume, a cache
+    check and a scan writer. It reads the stored shape, since the file's schema number
+    is this release's.
+
+    Parameters
+    ----------
+    where : object
+        The file, named in the refusal.
+    shapes : collections.abc.Iterable of tuple of int
+        The shapes of the stored ``absorbed_power`` datasets, each with a leading axis
+        of planes or rows.
+
+    Raises
+    ------
+    OutputError
+        If a dataset has :data:`EARLIER_ABSORBED_COLUMNS` columns.
+
+    Examples
+    --------
+    >>> from solprop.output.schema import refuse_earlier_absorbed_power
+    >>> refuse_earlier_absorbed_power("run.h5", [(3, 5), (0,)]) is None
+    True
+    """
+    if any(len(one) >= 2 and one[-1] == EARLIER_ABSORBED_COLUMNS for one in shapes):
+        msg = (
+            f"{where} holds absorbed_power in {EARLIER_ABSORBED_COLUMNS} columns, from "
+            "an earlier development build, whose first column holds the spectral "
+            "collar and any custom rate together; this build writes five, with the "
+            "collar alone first and the custom rate last, and nothing stored can split "
+            "that sum. The file still reads as it was written, and cannot be "
+            "continued, forced or not: start a new file, or launch a new segment from "
+            "a saved plane"
+        )
+        raise OutputError(msg)
 
 
 _HASHED_KEYS: tuple[str, ...] = (
@@ -3766,10 +3951,16 @@ class Output(Protocol):
     def save(self, plane: SavedPlane) -> None:
         """Store one saved plane.
 
+        A run gives the handler the backend's observation itself, not a copy: the
+        plane's arrays are read-only, nothing writes to them again, and a handler may
+        keep them or reduce them and let them go, with no copy of its own.
+
         Parameters
         ----------
         plane : SavedPlane
-            The position, field, statistics and step history to store.
+            The position, field, statistics and step history to store. On a plane that
+            keeps no field, ``plane.field`` and ``plane.noise_phase`` are ``None``
+            (:class:`RetainingOutput`).
         """
         ...
 
@@ -3908,6 +4099,52 @@ class CheckpointOutput(Protocol):
         -------
         TerminalCheckpoint or None
             The checkpoint, if one has been recorded.
+        """
+        ...
+
+
+@runtime_checkable
+class RetainingOutput(Protocol):
+    """Declare that a handler accepts field-free planes, and is told the run's rule.
+
+    Separate from :class:`Output`, as :class:`CheckpointOutput` is, because it is
+    optional: a handler that stores every field need not implement it, and a run that
+    keeps fewer than every field refuses a handler that does not
+    (``fields="planes"`` and ``fields="none"``,
+    :class:`~solprop.driver.simulation.SimulationSettings`). On a plane that keeps no
+    field, :meth:`Output.save` is given ``field=None`` and ``noise_phase=None``.
+
+    Examples
+    --------
+    >>> from solprop.output.schema import RetainingOutput
+    >>> class Spectra:
+    ...     def retain(self, retention, field_shape):
+    ...         self.keeps = retention.field_planes
+    >>> isinstance(Spectra(), RetainingOutput)
+    True
+    """
+
+    def retain(self, retention: FieldRetention, field_shape: tuple[int, ...]) -> None:
+        """Say which planes of the run keep their field, before the first is saved.
+
+        The run loop (:func:`solprop.driver.run.run_problem`) calls it once per run,
+        after :meth:`Output.open` and the handler's ``reserve`` if it has one and
+        before any :meth:`Output.save`, and for ``fields="all"`` too.
+
+        Parameters
+        ----------
+        retention : FieldRetention
+            The rule, already :meth:`~FieldRetention.resolved` against the run's planes
+            (its indices count from the entrance, and none is negative).
+        field_shape : tuple of int
+            ``(n_modes, n_pol, n_omega)`` of the run's state, known here even when no
+            plane will carry a field.
+
+        Raises
+        ------
+        OutputError
+            A handler that already holds planes under a different rule raises this,
+            rather than mixing two rules in one record.
         """
         ...
 

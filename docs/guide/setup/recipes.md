@@ -47,7 +47,7 @@ level, so a keyword added to solprop later can never collide with the format:
 |---|---|
 | `[recipe]` | `format` and `route`, required; `title` and `solprop`, informative |
 | `[build]` | the keywords of the route's `Simulation.from_*` constructor, under their own names |
-| `[execution]` | `fields`, `field_planes` and `resume_history`: settings the run reads when it executes |
+| `[execution]` | `fields`, `field_planes`, `resume_history` and `held_plane`: settings the run reads when it executes |
 | `[pins]` | values solved from a design target (a later release) |
 | `[scan]` | a scan over parameter paths (a later release) |
 
@@ -179,8 +179,8 @@ A recipe holds the `from_*` form, so the temporal absorber and its scheme are ke
 of the `settings` table, `absorber = { type = "absorber" }` built on the `grid`, and not
 of `[build]`, although `prop_radial`, `prop_free` and `prop_planar` take them as
 keywords too. The settings table takes the stepping, the planes, the statistics, the
-absorber, the backend and the precision; `fields`, `field_planes` and `resume_history`
-stay in `[execution]`, and the fields a route's builder sets (the density, the
+absorber, the backend and the precision; `fields`, `field_planes`, `resume_history` and
+`held_plane` stay in `[execution]`, and the fields a route's builder sets (the density, the
 transverse quadrature) are not the recipe's. On the `planar` route a slab mode names its
 fill, `{ type = "SlabMode", half_gap = "63.5 um", gas = "Ar", pressure = "1 bar" }`,
 because the fill of its channels is the run's; on the `waveguide` route the same
@@ -317,6 +317,9 @@ scan = recipe.scan()
 run_scan(scan.scan, scan.build, output="scan.h5", **scan.keywords)
 ```
 
+`run_scan` takes `fields` and `field_planes`. The table's other settings, `resume_history`
+and `held_plane`, go to each point's run.
+
 ## The recipe in the output
 
 A simulation built by `recipe.build()` carries its recipe, and its first run records it
@@ -324,7 +327,7 @@ in the output beside the run, as the recipe was written and as it resolved: the 
 that rebuilds the run, seed included ([the file's layout](../results/output.md#the-recipe-a-run-was-built-from)).
 A change the recipe would not describe drops it with a warning, and the run then records
 none: `with_input`, `with_mixture`, or a new value of a setting other than `fields`,
-`field_planes` and `resume_history`.
+`field_planes`, `resume_history` and `held_plane`.
 
 ## The parameter metadata
 

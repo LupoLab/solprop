@@ -62,6 +62,66 @@ def test_an_absorber_at_its_defaults_records_its_defaults(grid):
     assert serialise(explicit) == record
 
 
+def test_a_custom_absorber_keeps_the_users_share_of_the_total(grid):
+    collar = absorber(grid)
+    rates = np.where(collar.band_mask, 2.5, 0.0)
+    custom = custom_absorber(grid, rates, collar=collar)
+    np.testing.assert_array_equal(custom.user_rate, rates)
+    np.testing.assert_array_equal(custom.spectral_rate, collar.spectral_rate + rates)
+    # A second rate adds to the first; a zero one leaves the collar's record.
+    again = custom_absorber(grid, rates, collar=custom)
+    np.testing.assert_array_equal(again.user_rate, rates + rates)
+    assert custom_absorber(grid, 0.0, collar=custom).user_rate is custom.user_rate
+    assert custom_absorber(grid, 0.0, collar=collar).user_rate is None
+
+
+def test_a_rate_outside_the_band_has_no_share(grid):
+    # The band mask zeroes what the operator would not see, in the share as in the sum.
+    custom = custom_absorber(grid, 1.0)
+    assert custom.user_rate is not None
+    assert not np.any(custom.user_rate[~custom.band_mask])
+    assert np.all(custom.user_rate[custom.band_mask] == 1.0)
+
+
+def test_a_user_rate_is_recorded_only_when_there_is_one(grid):
+    collar = absorber(grid)
+    record = serialise(collar)
+    assert isinstance(record, dict) and "user_rate" not in record
+    custom = custom_absorber(grid, 3.0, collar=collar)
+    held = serialise(custom)
+    assert isinstance(held, dict) and "user_rate" in held
+    # Two splits of one total are two runs: they must not share a hash.
+    assert custom.user_rate is not None
+    lumped = dataclasses.replace(custom, user_rate=None)
+    half = dataclasses.replace(custom, user_rate=0.5 * custom.user_rate)
+    np.testing.assert_array_equal(lumped.spectral_rate, half.spectral_rate)
+    records = (serialise(lumped), serialise(half), held)
+    assert records[0] != records[1] != records[2] != records[0]
+    assert "user_rate" not in records[0]  # type: ignore[operator]
+
+
+@pytest.mark.parametrize(
+    "share",
+    [
+        lambda rate: rate + 1.0,
+        lambda rate: -np.ones_like(rate),
+        lambda rate: np.full_like(rate, np.nan),
+        lambda rate: rate[:-1],
+    ],
+)
+def test_a_user_rate_is_a_share_of_the_total(grid, share):
+    custom = custom_absorber(grid, 3.0)
+    with pytest.raises(GridError, match="user_rate"):
+        dataclasses.replace(custom, user_rate=share(custom.spectral_rate))
+
+
+def test_clearing_the_spectral_rate_clears_the_share(grid):
+    # dataclasses.replace keeps a share the zero total can no longer hold.
+    custom = custom_absorber(grid, 3.0)
+    with pytest.raises(GridError, match="user_rate"):
+        dataclasses.replace(custom, spectral_rate=np.zeros_like(custom.spectral_rate))
+
+
 @pytest.mark.parametrize("length", [0.0, -1.0, np.inf, np.nan])
 def test_a_collar_length_is_positive_and_finite(grid, length):
     with pytest.raises(GridError, match="collar_length must be positive and finite"):
