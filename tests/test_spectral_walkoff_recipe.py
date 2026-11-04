@@ -62,7 +62,7 @@ def delays(grid=GRID, length=LENGTH):
 
 
 def recipe_rate(full, delay=None):
-    """The guide's rate on ``GRID``: a rise over the ``h`` before ``W - 2h``, then full."""
+    """The guide's rate on ``GRID``: a rise ending at ``W - 2h``, then full."""
     delay = delays() if delay is None else delay
     rise = np.clip((delay - ONSET) / PROTECTED, 0, 1)
     return full * 0.5 * (1 - np.cos(np.pi * rise))
