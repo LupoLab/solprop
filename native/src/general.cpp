@@ -2210,6 +2210,7 @@ public:
                                           std::size_t n_radii,
                                           const std::vector<double>& cosines,
                                           const std::vector<double>& sines);
+  std::vector<Complex> axis_spectrum(const std::vector<double>& matrix);
   std::vector<double> aperture_statistics(std::uint64_t flags,
                                           const std::vector<double>& apertures,
                                           int exponent,
@@ -14180,6 +14181,62 @@ std::vector<double> GeneralWorkspace::plane_fluence_trace(
   return result;
 }
 
+// The field's spectrum at one physical point, the matrix `(n_rows, n_modes)` contracted
+// with the modal state: `(n_rows * n_pol, n_omega)` samples, each a real and an
+// imaginary part in turn. The on-axis statistics scan this row on the host (solprop SEP
+// 19), so that it is all a plane's scan brings across.
+std::vector<Complex>
+GeneralWorkspace::axis_spectrum(const std::vector<double>& matrix) {
+  require_open();
+  if (!initialized_)
+    throw std::logic_error("no initial field has been loaded");
+  if (problem_.separable_geometry() || matrix.empty() ||
+      matrix.size() % problem_.n_modes != 0 ||
+      matrix.size() / problem_.n_modes > statistics_on_axis_.size() / problem_.n_modes)
+    throw std::invalid_argument(
+        "an on-axis row needs a modal state and at most two rows of n_modes columns");
+  const auto n_rows = matrix.size() / problem_.n_modes;
+  const auto n_pol = problem_.n_pol_state;
+  const auto n_modes = problem_.n_modes;
+  const auto n = problem_.n_omega;
+  const auto columns = checked_product(n_rows, n_pol, "on-axis columns");
+  const auto samples = checked_product(columns, n, "on-axis samples");
+  const auto packed_size = checked_product(2, samples, "on-axis samples");
+  if (statistics_packed_.size() < packed_size) {
+    execution_space_.fence("solprop_native statistics output resize");
+    statistics_packed_ = RealView("solprop_native.statistics.packed", packed_size);
+  }
+  copy_vector(execution_space_,
+              Kokkos::subview(statistics_on_axis_,
+                              std::make_pair<std::size_t>(0, matrix.size())),
+              matrix);
+  const auto weights = statistics_on_axis_;
+  const auto packed = statistics_packed_;
+  const auto current = current_;
+  launch::parallel_for(
+      "solprop_native.statistics.axis_spectrum",
+      Range2(execution_space_, {0, 0}, {columns, n}),
+      KOKKOS_LAMBDA(const std::size_t column, const std::size_t index) {
+        const auto row = column / n_pol;
+        const auto pol = column % n_pol;
+        Complex sum{};
+        for (std::size_t mode = 0; mode < n_modes; ++mode)
+          sum += weights(row * n_modes + mode) * current(mode * n_pol + pol, index);
+        const auto at = 2 * (column * n + index);
+        packed(at) = sum.real();
+        packed(at + 1) = sum.imag();
+      });
+  const auto filled =
+      Kokkos::subview(packed, std::make_pair<std::size_t>(0, packed_size));
+  auto host = Kokkos::create_mirror_view(filled);
+  graph::deep_copy(execution_space_, host, filled);
+  execution_space_.fence("solprop_native on-axis row boundary");
+  std::vector<Complex> result(samples);
+  for (std::size_t index = 0; index < samples; ++index)
+    result[index] = Complex(host(2 * index), host(2 * index + 1));
+  return result;
+}
+
 std::vector<double> GeneralWorkspace::aperture_statistics(
     const std::uint64_t flags, const std::vector<double>& apertures, const int exponent,
     const std::vector<double>& regions, const double intensity_factor) {
@@ -16115,6 +16172,10 @@ std::vector<double> GeneralState::plane_fluence_trace(
   const CpuTeamScope team(workspace_->cpu_team());
   return workspace_->plane_fluence_trace(center_x, center_y, dx, dy, extent, spacing,
                                          n_radii, cosines, sines);
+}
+std::vector<Complex> GeneralState::axis_spectrum(const std::vector<double>& matrix) {
+  const CpuTeamScope team(workspace_->cpu_team());
+  return workspace_->axis_spectrum(matrix);
 }
 std::vector<double> GeneralState::aperture_statistics(
     const std::uint64_t flags, const std::vector<double>& apertures, const int exponent,

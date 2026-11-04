@@ -944,8 +944,14 @@ DRIVER_SURFACE = {
     "propagate_to": "(self, z: float) -> solprop.backends.protocol.StepSummary",
     "available_device_memory": "(self) -> int | None",
     # A subclass's and the shared marches' bookkeeping.
+    "_axis_row_populations": (
+        "(self, field: jaxtyping.Complex[ndarray, 'n_modes n_pol n_omega'] | None, "
+        "axis: jaxtyping.Float[ndarray, 'n_rows n_modes']) -> "
+        "tuple[jaxtyping.Float[ndarray, 'n_channels'], "
+        "jaxtyping.Float[ndarray, 'n_channels']]"
+    ),
     "_axis_statistics": (
-        "(self, field: jaxtyping.Complex[ndarray, 'n_modes n_pol n_omega'], "
+        "(self, field: jaxtyping.Complex[ndarray, 'n_modes n_pol n_omega'] | None, "
         "scan: tuple[numpy.ndarray, numpy.ndarray] | None) -> dict[str, numpy.ndarray]"
     ),
     "_check_open": "(self) -> None",

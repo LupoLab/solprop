@@ -59,7 +59,12 @@ from solprop.backends.numpy_ref.general_modal import (
     node_kerr_tensor,
 )
 from solprop.backends.numpy_ref.passes import plasma_integration_statistics
-from solprop.backends.populations import axis_refusal, population_statistics
+from solprop.backends.populations import (
+    axis_refusal,
+    axis_row_matrix,
+    axis_row_populations,
+    population_statistics,
+)
 from solprop.backends.spatial import (
     AXIS_SPECTRUM_ONLY,
     FarFieldTables,
@@ -1361,9 +1366,9 @@ class NativeBackend(StepDriver[_core.State]):
         if axis_names:
             # SEP 19: the axis row is one host scan per saved plane, shared with the
             # other backends; a Radau rule's axis node comes from the device's own
-            # node scan of this call when the species statistics asked for it.
-            field = self._native_state.field_to_host().reshape(self._problem.shape)
-            axis = self._axis_statistics(field[0], scan)
+            # node scan of this call when the species statistics asked for it. Only
+            # the row's spectrum crosses, never the state (`_axis_row_populations`).
+            axis = self._axis_statistics(None, scan)
             values.update({name: axis[name][None] for name in axis_names})
         if integration_names:
             ratios = dict(
@@ -1380,6 +1385,34 @@ class NativeBackend(StepDriver[_core.State]):
             values.update(self._spatial_statistics(spatial_names, spec))
         values.update(self._profile_statistics(spec))
         return values
+
+    def _axis_row_populations(
+        self,
+        field: ComplexArray | None,
+        axis: RealArray,
+    ) -> tuple[RealArray, RealArray]:
+        """Scan the axis row from its spectrum, read natively (solprop #359).
+
+        Parameters
+        ----------
+        field : None
+            Unused: the row is read from the native state.
+        axis : numpy.ndarray
+            The mode set's synthesis on the axis at this position.
+
+        Returns
+        -------
+        tuple of numpy.ndarray
+            The final ionised fraction and the largest rate on the axis, per channel.
+        """
+        del field
+        matrix = np.ascontiguousarray(axis_row_matrix(self._problem, axis))
+        spectrum = self._native_state.axis_spectrum(matrix)
+        return axis_row_populations(
+            self._problem,
+            np.asarray(spectrum).reshape(1, -1, self._problem.shape[-1]),
+            self._z,
+        )
 
     def _general_statistics(
         self, spec: StatsSpec, grid: TimeGrid

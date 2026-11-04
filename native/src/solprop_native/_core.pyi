@@ -62,6 +62,9 @@ class State:
         cosines: npt.NDArray[np.float64],
         sines: npt.NDArray[np.float64],
     ) -> npt.NDArray[np.float64]: ...
+    def axis_spectrum(
+        self, matrix: npt.NDArray[np.float64]
+    ) -> npt.NDArray[np.complex128]: ...
     def aperture_statistics(
         self,
         flags: int,

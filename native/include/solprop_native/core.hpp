@@ -859,6 +859,12 @@ public:
                       const std::vector<double>& cosines,
                       const std::vector<double>& sines);
   /**
+   * The modal state's spectrum at one physical point: `matrix`, one or two rows of
+   * `n_modes` columns, contracted with the modes, as `(n_rows * n_pol, n_omega)`
+   * samples. What an on-axis scan needs of the state.
+   */
+  [[nodiscard]] std::vector<Complex> axis_spectrum(const std::vector<double>& matrix);
+  /**
    * solprop SEP 23's far-field statistics of the accepted state on a Cartesian or line
    * grid, one banded pass; see `FarFieldPass::run` (`far_field.hpp`) for the tables,
    * the flags (from 32) and the packed order.

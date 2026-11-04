@@ -1353,6 +1353,10 @@ public:
     return general_state_->plane_fluence_trace(center_x, center_y, dx, dy, extent,
                                                spacing, n_radii, cosines, sines);
   }
+  std::vector<native::Complex> axis_spectrum(const std::vector<double>& matrix) {
+    require_open();
+    return general_state_->axis_spectrum(matrix);
+  }
   std::vector<double> aperture_statistics(const std::uint64_t flags,
                                           const std::vector<double>& apertures,
                                           const int exponent,
@@ -2768,6 +2772,20 @@ NB_MODULE(_core, module_) {
           },
           "center_x"_a, "center_y"_a, "dx"_a, "dy"_a, "extent"_a, "spacing"_a,
           "n_radii"_a, "cosines"_a.noconvert(), "sines"_a.noconvert())
+      .def(
+          "axis_spectrum",
+          [](BoundState& self, const RealInput matrix) {
+            if (matrix.ndim() != 2)
+              throw std::invalid_argument("an on-axis matrix must be two-dimensional");
+            const auto held = real_vector(matrix);
+            std::vector<native::Complex> values;
+            {
+              const nb::gil_scoped_release release;
+              values = self.axis_spectrum(held);
+            }
+            return complex_output(values, {values.size()});
+          },
+          "matrix"_a.noconvert())
       .def(
           "aperture_statistics",
           [](BoundState& self, const std::uint64_t flags, const RealInput apertures,
