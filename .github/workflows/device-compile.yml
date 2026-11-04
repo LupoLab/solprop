@@ -1,0 +1,112 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+name: Device compile
+
+# One compile of each device target on a change to native/, on a hosted runner with no
+# device, tests included: what breaks a user's first GPU build is found here and not when
+# someone next rents a card. Nothing here runs on a device, and that stays by hand (#354).
+
+on:
+  pull_request:
+    paths:
+      - "native/**"
+      - ".github/workflows/device-compile.yml"
+  push:
+    branches: [main]
+    paths:
+      - "native/**"
+      - ".github/workflows/device-compile.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: device-compile-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cuda:
+    name: CUDA 12.8
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The full history: the native version comes from the tags.
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          enable-cache: true
+      - name: Make room for the toolkit
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup
+          df -h /
+      - name: Install CUDA 12.8, the floor
+        run: |
+          curl -fsSL https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb -o keyring.deb
+          sudo dpkg -i keyring.deb
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends cmake g++-14 libfftw3-dev libopenblas-dev ninja-build pkg-config cuda-compiler-12-8 cuda-libraries-dev-12-8
+          df -h /
+      - run: uv python install 3.14
+      - name: Configure
+        working-directory: native
+        env:
+          NVCC_WRAPPER_DEFAULT_COMPILER: g++-14
+        run: |
+          export PATH="/usr/local/cuda-12.8/bin:$PATH"
+          cmake --preset cuda \
+            -DCMAKE_C_COMPILER=gcc-14 -DCMAKE_CXX_COMPILER=g++-14 -DCMAKE_CUDA_HOST_COMPILER=g++-14 \
+            -DCUDA_ROOT=/usr/local/cuda-12.8 \
+            -DSOLPROP_NATIVE_BUILD_BENCHMARKS=OFF \
+            -DPython_EXECUTABLE="$(uv python find 3.14)"
+      - name: Compile, tests included
+        working-directory: native
+        env:
+          NVCC_WRAPPER_DEFAULT_COMPILER: g++-14
+        run: |
+          export PATH="/usr/local/cuda-12.8/bin:$PATH"
+          cmake --build --preset cuda --parallel 4
+          df -h /
+
+  hip:
+    name: HIP, ROCm 7.2
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          enable-cache: true
+      - name: Make room for the toolkit
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup
+          df -h /
+      - name: Install ROCm
+        run: |
+          curl -fsSL https://repo.radeon.com/rocm/rocm.gpg.key | gpg --dearmor | sudo tee /etc/apt/keyrings/rocm.gpg > /dev/null
+          echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/rocm.gpg] https://repo.radeon.com/rocm/apt/7.2 noble main" | sudo tee /etc/apt/sources.list.d/rocm.list
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends cmake libfftw3-dev libopenblas-dev ninja-build pkg-config g++-14 hip-dev hipcc rocm-llvm rocm-device-libs rocm-cmake rocfft-dev rocblas-dev
+          df -h /
+      - run: uv python install 3.14
+      - name: Configure
+        working-directory: native
+        run: |
+          export ROCM_PATH=/opt/rocm PATH="/opt/rocm/bin:$PATH"
+          cmake --preset hip \
+            -DCMAKE_CXX_COMPILER="$ROCM_PATH/bin/hipcc" -DCMAKE_PREFIX_PATH="$ROCM_PATH" \
+            -DCMAKE_CXX_SCAN_FOR_MODULES=OFF -DKokkos_ENABLE_ROCTHRUST=OFF \
+            -DSOLPROP_NATIVE_BUILD_BENCHMARKS=OFF \
+            -DPython_EXECUTABLE="$(uv python find 3.14)"
+      - name: Compile, tests included
+        working-directory: native
+        run: |
+          export ROCM_PATH=/opt/rocm PATH="/opt/rocm/bin:$PATH"
+          cmake --build --preset hip --parallel 4
+          df -h /
