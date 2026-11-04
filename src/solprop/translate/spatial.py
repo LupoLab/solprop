@@ -861,9 +861,9 @@ def axial_factors(
     The weights of the far-field statistics (SEP 23 sections 4.8 and 4.9, measured
     by SEP 34's axial flux), from :func:`longitudinal_root`. The admittance is
     :func:`axial_admittance`. The power rates, in the order of
-    :data:`solprop.spatial.ABSORBED_CHANNELS`, are the operator's spectral rate on every bin, as the stages apply it, less the
-    user's share, its own channel, which comes last; the
-    transverse collar's rate on active bins
+    :data:`solprop.spatial.ABSORBED_CHANNELS`, are the operator's spectral rate on
+    every bin, as the stages apply it, less the user's share, its own channel, which
+    comes last; the transverse collar's rate on active bins
     (zero without one); ``2 min(|Im k_z|, cap)`` on active evanescent bins; and
     ``2 Im k_z`` on active propagating bins, the material loss (negative for gain).
     Together they are twice the negated real part of the operator; weighted by the
