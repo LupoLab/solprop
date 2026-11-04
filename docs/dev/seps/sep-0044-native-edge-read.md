@@ -6,7 +6,7 @@
 | **Title** | Reading the transverse edge where the state lives |
 | **Author** | John Travers |
 | **Drafting agent** | Claude Opus 5.5 |
-| **Status** | Accepted |
+| **Status** | In progress |
 | **Review status** | Reviewed |
 | **Reviewers** | John Travers (human); GPT-6 (AI) |
 | **Type** | Change |
@@ -15,7 +15,7 @@
 | **Requires** | [SEP 40](archive/sep-0040-transverse-absorbing-boundaries.md) |
 | **Supersedes** | — |
 | **Superseded-by** | — |
-| **Implementation** | — |
+| **Implementation** | Claude Opus 5.5, on `feature/sep-0044-native-edge`: phases 1 and 2 done; phase 3 next |
 | **Manual pages** | — |
 
 ## Part I — Proposal
@@ -438,7 +438,20 @@ physics decision, left to [#388](https://github.com/LupoLab/solprop/issues/388).
 
 ## Part II — Implementation record
 
-No phase has been implemented.
+### Phases 1 and 2 — 2026-11-04
+
+The prototype §6 measured, carried onto this branch. It stacks on [#518](https://github.com/LupoLab/solprop/pull/518), [#517](https://github.com/LupoLab/solprop/pull/517),
+[#516](https://github.com/LupoLab/solprop/pull/516) and [#508](https://github.com/LupoLab/solprop/pull/508), so it needs no kernel schema number.
+
+**What landed.** Phase 1: `EdgeReading`, `EdgeTables`, `HostEdgeReduction` and `StepDriver._edge_reading`; `READ_RESOLUTION` and `_occupied_planes` gone; clean column powers formed at the load; a resume restores a collar's current, baselines and peaks ([#512](https://github.com/LupoLab/solprop/issues/512)), and the record gains `strip_floor`. Phase 2: `bind_edge` and `edge_reading` in native, on all four routes; `crossed_bytes`, the `transverse_edge` ledger row, `edge_memory` and the estimate's use of it; `benchmarks.edge_overhead`. A requested collar still reduces a host copy, until phase 3.
+
+**Deviations from Part I.** None of design. §7's matrix isn't complete, as below.
+
+**Verification, on CPU.** With #508, #516, #517 and #518 merged in: `tests/backends/test_native_edge_reading.py`, `test_transverse_backends.py`, `test_driver.py`, `test_backend_protocol.py`, the driver's run and estimate modules and the protocol's doctests, 189 passed, 3 skipped; `test_transverse_monitor.py`, `test_transverse_reads.py`, `test_transverse_nonlinear.py`, `test_transverse_resolution.py`, `test_transverse_witnesses.py`, `test_split_crossing.py`, `test_monitor.py`, `test_seps.py` and `tests/translate/test_problem.py`, 613 passed, 3 skipped; `ruff`, `ruff format` and `basedpyright` clean. Native's `tests/`: 555 passed, 7 skipped.
+
+**Not yet done from §7.** Probes: DC, Nyquist and inactive bins, `n_to != n_t` radially, a planar `p != 0`, a small node chunk, and a collar's rate at a lit node. Matrix: field grids at the reading level, modified noise and a supplied unmasked realisation, `numpy_ref`'s binary32 path, and launch-only interruptions. The record: an interruption between edge reads, and a snapshot and its resume. The no-interference matrix's collars and stage-register variants. The radial row of `test_a_nearly_cancelling_radial_read_stays_within_its_absolute_budget` covers one narrow beam. These go with phase 3, where the collar joins them. No device has run this branch since the transfer count was added.
+
+**Open.** None for the maintainer.
 
 ## Part III — History
 
@@ -446,6 +459,7 @@ No phase has been implemented.
 - 2026-11-04: GPT-6 (AI) reviewed the proposal at `a121c73c`; findings and questions below.
 - 2026-11-04: Revised in response, with the maintainer's decisions on R2, R4 and R7. Phase 4 goes, and SEP 40 §7.7's 2 % limit is retired.
 - 2026-11-04: John Travers (human) reviewed the revised proposal, and the maintainer accepted it.
+- 2026-11-04: Implementation started on `feature/sep-0044-native-edge`; phases 1 and 2 reported in Part II.
 
 ### AI review — 2026-11-04
 
