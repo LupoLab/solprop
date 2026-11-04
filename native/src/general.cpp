@@ -691,12 +691,21 @@ KOKKOS_INLINE_FUNCTION void cosine_sine(const double theta, double& cosine,
 #endif
 }
 
+// A flow's magnitude: on a lossless bin `exp(+-0)`, exactly one, taken without a
+// binary64 `exp` per element. Out of line on a host, whose call to its library was out
+// of line already: inlined there, this branch took the tabulated fold's whole kernel
+// past the compiler's inlining limit, 40 % slower (solprop's docs/dev/benchmarks.md).
+#if defined(__GNUC__) && !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+[[gnu::noinline]]
+#endif
+KOKKOS_INLINE_FUNCTION double flow_magnitude(const double real) {
+  return real == 0.0 ? 1.0 : Kokkos::exp(real);
+}
+
 // A stage or step propagator `exp(argument)`: `exponential` with the cosine and sine
 // from `cosine_sine`, so it is `exponential` to the bit on the host.
 KOKKOS_INLINE_FUNCTION Complex propagator_exp(const Complex argument) {
-  // A lossless bin's magnitude, `exp(+-0)`, is exactly one: a binary64 `exp` per
-  // element saved where the operator's real part vanishes.
-  const double magnitude = argument.real() == 0.0 ? 1.0 : Kokkos::exp(argument.real());
+  const double magnitude = flow_magnitude(argument.real());
   double cosine = 0.0;
   double sine = 0.0;
   cosine_sine(argument.imag(), cosine, sine);
