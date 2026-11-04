@@ -35,6 +35,11 @@ being implemented.
   routes, bound response and other geometries remain follow-up work; the first route is
   a single-mode capillary with node quadrature.
 
+- [SEP 44 — Reading the transverse edge where the state lives](seps/sep-0044-native-edge-read.md):
+  the boundary check's transverse reductions move into native memory on the radial, Cartesian,
+  line and planar routes, on CPU and device builds, so that in a field-free native run the monitor brings no
+  state-sized data to the host. Judging stays in Python, and a requested collar's reductions move too.
+
 ## Draft enhancement proposals
 
 SEPs under discussion; their scope may change and implementation has not been accepted.
@@ -89,8 +94,3 @@ The [SEP index](seps/index.md) lists every proposal and its current status.
   subtraction, a weak-response limit and local temporal integration. Its ensemble,
   data and integration questions must be settled before acceptance; shared-level
   ladders, vector saturation and repeated-window histories remain future work.
-
-- [SEP 44 — Reading the transverse edge where the state lives](seps/sep-0044-native-edge-read.md):
-  the boundary check's transverse reductions move into native memory on the radial, Cartesian,
-  line and planar routes, on CPU and device builds, so that a field-free native run crosses no
-  state-sized data. Judging stays in Python, and a requested collar's reductions move too.
