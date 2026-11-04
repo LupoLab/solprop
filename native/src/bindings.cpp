@@ -56,6 +56,11 @@
 namespace nb = nanobind;
 using namespace nb::literals;
 
+namespace solprop_native {
+// The digest of what this extension is compiled from (cmake/SourceDigest.cmake).
+const char* source_digest() noexcept;
+} // namespace solprop_native
+
 namespace {
 
 namespace native = solprop_native;
@@ -332,7 +337,6 @@ native::Problem problem_from(const nb::dict& values) {
     result.self_factor = nb::cast<double>(values["self_factor"]);
     result.conjugate_factor = nb::cast<double>(values["conjugate_factor"]);
     result.harmonic_factor = nb::cast<double>(values["harmonic_factor"]);
-    result.cubic_real = nb::cast<bool>(values["cubic_real"]);
     result.take_real = nb::cast<bool>(values["take_real"]);
     if (values.contains("plasma")) {
       result.plasma = nb::cast<bool>(values["plasma"]);
@@ -340,7 +344,6 @@ native::Problem problem_from(const nb::dict& values) {
       result.raman_thg = nb::cast<bool>(values["raman_thg"]);
       result.stash_plasma = nb::cast<bool>(values["stash_plasma"]);
       result.weighted_controller = nb::cast<bool>(values["weighted_controller"]);
-      result.phase_b_engine = nb::cast<bool>(values["phase_b_engine"]);
       result.dt_fine = nb::cast<double>(values["dt_fine"]);
       result.dt = nb::cast<double>(values["dt"]);
       result.raman_fraction = nb::cast<double>(values["raman_fraction"]);
@@ -1268,10 +1271,7 @@ public:
       : columns_(problem.n_columns()), elements_(problem.n_columns() * problem.n_omega),
         stages_(problem.n_stages), raman_terms_(problem.n_raman_terms),
         raman_(problem.raman) {
-    if (problem.needs_general_engine())
-      general_state_ = std::make_shared<native::GeneralState>(std::move(problem));
-    else
-      state_ = std::make_unique<native::State>(std::move(problem));
+    general_state_ = std::make_shared<native::GeneralState>(std::move(problem));
     const std::scoped_lock lock(runtime_state.mutex);
     runtime_state.states.push_back(this);
   }
@@ -1289,58 +1289,39 @@ public:
   void set_initial(const std::span<const native::Complex> field,
                    const std::span<const native::Complex> noise) {
     require_open();
-    if (general_state_)
-      general_state_->set_initial(field, noise);
-    else
-      state_->set_initial(field, noise);
+    general_state_->set_initial(field, noise);
   }
   std::vector<double> trial_step(const double dz, const native::TrialScalars& scalars,
                                  const bool prepare_only = false) {
     require_open();
-    if (general_state_) {
-      if (prepare_only) {
-        general_state_->prepare_trial(dz, scalars);
-        return {};
-      }
-      return general_state_->trial_step(dz, scalars);
+    if (prepare_only) {
+      general_state_->prepare_trial(dz, scalars);
+      return {};
     }
-    if (prepare_only)
-      throw std::logic_error("batch preparation requires the general native state");
-    const auto values = state_->trial_step(dz, scalars);
-    return {values.begin(), values.end()};
+    return general_state_->trial_step(dz, scalars);
   }
   void set_flow_actions(const std::vector<native::Complex>& forward,
                         const std::vector<native::Complex>& inverse,
                         const std::vector<unsigned char>& identity) {
     require_open();
-    if (!general_state_)
-      throw std::logic_error("a coupled flow requires the general native state");
     general_state_->set_flow_actions(forward, inverse, identity);
   }
   std::vector<native::Complex> flow_actions_to_host(const bool inverse) {
     require_open();
-    if (!general_state_)
-      throw std::logic_error("a coupled flow requires the general native state");
     return general_state_->flow_actions_to_host(inverse);
   }
   std::vector<double> form_flow_actions(const std::size_t section, const double dz,
                                         const std::vector<double>& fractions) {
     require_open();
-    if (!general_state_)
-      throw std::logic_error("a coupled flow requires the general native state");
     return general_state_->form_flow_actions(section, dz, fractions);
   }
   std::vector<double> weighted_error(const std::vector<double>& scale) {
     require_open();
-    if (!general_state_)
-      throw std::logic_error("weighted error requires the general native state");
     return general_state_->weighted_error(scale);
   }
   void prepare_raman(const std::vector<double>& rates,
                      const std::vector<double>& densities) {
     require_open();
-    if (!general_state_)
-      throw std::logic_error("Raman preparation requires the general native state");
     general_state_->prepare_raman(rates, densities);
   }
   std::vector<double> statistics(const std::uint64_t flags,
@@ -1352,8 +1333,6 @@ public:
                                  const std::vector<double>& channel_preionisation,
                                  const std::vector<double>& power_weight) {
     require_open();
-    if (!general_state_)
-      throw std::logic_error("statistics require the general native state");
     return general_state_->statistics(flags, windows, on_axis, density, taper,
                                       preionisation, intensity_factor,
                                       channel_preionisation, power_weight);
@@ -1362,8 +1341,6 @@ public:
                                          const double intensity_factor,
                                          const double z) {
     require_open();
-    if (!general_state_)
-      throw std::logic_error("spatial statistics require the general native state");
     return general_state_->spatial_statistics(flags, intensity_factor, z);
   }
   std::vector<double> aperture_statistics(const std::uint64_t flags,
@@ -1372,79 +1349,45 @@ public:
                                           const std::vector<double>& regions,
                                           const double intensity_factor) {
     require_open();
-    if (!general_state_)
-      throw std::logic_error("far-field statistics require the general native state");
     return general_state_->aperture_statistics(flags, apertures, exponent, regions,
                                                intensity_factor);
   }
   void bind_edge(const std::vector<double>& faces, const std::vector<double>& clip,
                  const std::vector<double>& totals,
                  const std::vector<double>& synthesis, const std::size_t first_row) {
-    require_open();
-    if (!general_state_)
-      throw std::logic_error("the edge's reading requires the general native state");
-    general_state_->bind_edge(faces, clip, totals, synthesis, first_row);
+    open_state().bind_edge(faces, clip, totals, synthesis, first_row);
   }
-  native::CrossedBytes crossed_bytes() {
-    require_open();
-    if (!general_state_)
-      throw std::logic_error("the crossing count requires the general native state");
-    return general_state_->crossed_bytes();
-  }
+  native::CrossedBytes crossed_bytes() { return open_state().crossed_bytes(); }
   native::EdgeNumbers edge_reading(const bool whole, const bool totals) {
-    require_open();
-    if (!general_state_)
-      throw std::logic_error("the edge's reading requires the general native state");
-    return general_state_->edge_reading(whole, totals);
+    return open_state().edge_reading(whole, totals);
   }
+  // Not `require_open`: this stays a no-op on a closed state, whose pointer is null.
   void set_crossing_workers(const std::size_t workers) noexcept {
     if (general_state_)
       general_state_->set_crossing_workers(workers);
   }
   void field_to_host(const std::span<native::Complex> destination) {
     require_open();
-    if (general_state_)
-      general_state_->field_to_host(destination);
-    else
-      state_->field_to_host(destination);
+    general_state_->field_to_host(destination);
   }
   /** The state's element count, `columns * n_omega`. */
   std::size_t elements() const noexcept { return elements_; }
   std::vector<native::Complex> adams_source(const std::vector<native::Complex>& input,
                                             const native::TrialScalars& scalars) {
     require_open();
-    if (!general_state_)
-      throw std::logic_error("the Adams source requires the general native state");
     return general_state_->adams_source(input, scalars);
   }
   void adopt(const std::vector<native::Complex>& field, const double dz) {
     require_open();
-    if (!general_state_)
-      throw std::logic_error("the Adams adoption requires the general native state");
     general_state_->adopt(field, dz);
   }
-  native::GeneralState& low_storage_state() {
+  native::GeneralState& open_state() {
     require_open();
-    if (!general_state_)
-      throw std::logic_error("the low-storage march requires the general native state");
-    return *general_state_;
-  }
-  native::GeneralState& general_state() {
-    require_open();
-    if (!general_state_)
-      throw std::logic_error("a z table requires the general native state");
-    return *general_state_;
-  }
-  native::GeneralState& adams_state() {
-    require_open();
-    if (!general_state_)
-      throw std::logic_error(
-          "the resident Adams history requires the general native state");
     return *general_state_;
   }
   // The stage tables an exponential Adams trial reads natively (solprop SEP 39).
   void set_stage_tables(native::stage::Tables tables) {
-    adams_state();
+    open_state();
     if (tables.n_stages != stages_)
       throw std::invalid_argument("the stage tables name another tableau's stages");
     // A z table's rows are its slots: the tables read the state's one cache.
@@ -1454,7 +1397,7 @@ public:
       throw std::invalid_argument("the stage tables and the z table's slots disagree");
     if (phi_table || prefactor_table) {
       tables.z_slots = &z_slots_;
-      tables.z_state = &general_state();
+      tables.z_state = &open_state();
     }
     stage_tables_ = std::move(tables);
     stage_anchor_ = {};
@@ -1462,18 +1405,18 @@ public:
   // solprop SEP 39 phase 4: the z table's slots, one cache for every consumer.
   void table_slots(const bool phi, const bool prefactor, const std::size_t slots,
                    const bool rate) {
-    general_state();
+    open_state();
     z_slots_.configure(phi, prefactor, slots, rate);
   }
   std::vector<std::size_t> table_load(const std::vector<double>& positions) {
     if (!z_slots_.present())
       throw std::logic_error("no z table's slots were configured");
-    return z_slots_.load(general_state(), positions);
+    return z_slots_.load(open_state(), positions);
   }
   void table_rate_at(const double z, const bool before) {
     if (!z_slots_.has_rate)
       throw std::logic_error("the z table reads no rate");
-    z_slots_.rate(general_state(), z, before);
+    z_slots_.rate(open_state(), z, before);
   }
   [[nodiscard]] std::uint64_t table_evaluations() const { return z_slots_.evaluations; }
   [[nodiscard]] bool has_stage_tables() const { return stage_tables_.has_value(); }
@@ -1493,7 +1436,7 @@ public:
   // solprop SEP 39 phase 2: the native march over the resident engine.
   void march_configure(march::Policy policy, const bool fused, const bool compensated,
                        const bool interpolate, march::Schedule schedule) {
-    adams_state();
+    open_state();
     if (!stage_tables_)
       throw std::logic_error("the native Adams march needs the stage tables");
     if (!schedule.steps.empty() && schedule.edges.size() != schedule.steps.size() + 1)
@@ -1509,7 +1452,7 @@ public:
       throw std::logic_error("the native Adams march is not configured");
     auto state = march_state_from(state_values);
     const auto bounds = march_bounds_from(bounds_values);
-    auto& general = adams_state();
+    auto& general = open_state();
     ResidentEngine engine(general, *stage_tables_, stage_anchor_, march_fused_,
                           march_compensated_, march_interpolate_, march_fault_);
     march::Result result;
@@ -1545,165 +1488,122 @@ public:
   void stage_to_host(const std::size_t stage,
                      const std::span<native::Complex> destination) {
     require_open();
-    if (!general_state_)
-      throw std::logic_error("stage observation requires the general native state");
     general_state_->stage_to_host(stage, destination);
   }
   std::vector<native::Complex> projected_to_host(const bool coarse) {
     require_open();
-    if (!general_state_)
-      throw std::logic_error(
-          "projection observation requires the general native state");
     return general_state_->projected_to_host(coarse);
   }
+  // Not `require_open`: a closed state, whose pointer is null, reads as having none.
   std::map<std::string, bool> dispersive_path() const {
     return general_state_ ? general_state_->dispersive_path()
                           : std::map<std::string, bool>{};
   }
   void finish(const double dz) {
     require_open();
-    if (general_state_)
-      general_state_->finish(dz);
-    else
-      state_->finish(dz);
+    general_state_->finish(dz);
   }
   void promote_fsal() {
     require_open();
-    if (general_state_)
-      general_state_->promote_fsal();
-    else
-      state_->promote_fsal();
+    general_state_->promote_fsal();
   }
   void clear_fsal() {
     require_open();
-    if (general_state_)
-      general_state_->clear_fsal();
-    else
-      state_->clear_fsal();
+    general_state_->clear_fsal();
   }
-  // The engines leave a quiet collar out where the reference does (solprop SEP 21).
+  // The engine leaves a quiet collar out where the reference does (solprop SEP 21).
   void set_absorber_quiet(const bool quiet) {
     require_open();
-    if (general_state_)
-      general_state_->set_absorber_quiet(quiet);
-    else
-      state_->set_absorber_quiet(quiet);
+    general_state_->set_absorber_quiet(quiet);
   }
   void bind_monitor(const std::vector<double>& weights,
                     const std::vector<double>& column_weights) {
     require_open();
-    if (general_state_)
-      general_state_->bind_monitor(weights, column_weights);
-    else
-      state_->bind_monitor(weights, column_weights);
+    general_state_->bind_monitor(weights, column_weights);
   }
   void unbind_monitor() {
     require_open();
-    if (general_state_)
-      general_state_->unbind_monitor();
-    else
-      state_->unbind_monitor();
+    general_state_->unbind_monitor();
   }
   void bind_occupancy(const std::vector<unsigned char>& buckets,
                       const std::size_t count) {
     require_open();
-    if (general_state_)
-      general_state_->bind_occupancy(buckets, count);
-    else
-      state_->bind_occupancy(buckets, count);
+    general_state_->bind_occupancy(buckets, count);
   }
   std::vector<double> monitor_reading() {
     require_open();
-    return general_state_ ? general_state_->monitor_reading()
-                          : state_->monitor_reading();
+    return general_state_->monitor_reading();
   }
   std::map<std::string, std::size_t> memory_ledger() {
     require_open();
-    return general_state_ ? general_state_->memory_ledger() : state_->memory_ledger();
+    return general_state_->memory_ledger();
   }
   native::CpuSizing execution_sizing() const {
     require_open();
-    return general_state_ ? general_state_->execution_sizing()
-                          : state_->execution_sizing();
+    return general_state_->execution_sizing();
   }
   double planning_seconds() const {
     require_open();
-    return general_state_ ? general_state_->planning_seconds()
-                          : state_->planning_seconds();
+    return general_state_->planning_seconds();
   }
   double raman_planning_seconds() const {
     require_open();
-    return general_state_ ? general_state_->raman_planning_seconds() : 0.0;
+    return general_state_->raman_planning_seconds();
   }
   std::string raman_fft_provider() const {
     require_open();
-    return general_state_ ? general_state_->raman_fft_provider() : "none";
+    return general_state_->raman_fft_provider();
   }
   std::map<std::string, int> raman_fft_tasks() const {
     require_open();
-    return general_state_ ? general_state_->raman_fft_tasks()
-                          : std::map<std::string, int>{};
+    return general_state_->raman_fft_tasks();
   }
   std::size_t raman_kernel_transforms() const {
     require_open();
-    return general_state_ ? general_state_->raman_kernel_transforms() : 0;
+    return general_state_->raman_kernel_transforms();
   }
   bool fsal_ready() const {
     require_open();
-    return general_state_ ? general_state_->fsal_ready() : state_->fsal_ready();
+    return general_state_->fsal_ready();
   }
   std::size_t rk_source_evaluations() const {
     require_open();
-    return general_state_ ? general_state_->rk_source_evaluations()
-                          : state_->rk_source_evaluations();
+    return general_state_->rk_source_evaluations();
   }
   double quadrature_error() const {
     require_open();
-    return general_state_ ? general_state_->quadrature_error()
-                          : Kokkos::Experimental::quiet_NaN_v<double>;
+    return general_state_->quadrature_error();
   }
   double quadrature_peak() {
     require_open();
-    return general_state_ ? general_state_->quadrature_peak()
-                          : Kokkos::Experimental::quiet_NaN_v<double>;
+    return general_state_->quadrature_peak();
   }
   std::string synthesis_provider() const {
     require_open();
-    return general_state_ ? general_state_->synthesis_provider() : "custom";
+    return general_state_->synthesis_provider();
   }
   std::string projection_provider() const {
     require_open();
-    return general_state_ ? general_state_->projection_provider() : "custom";
+    return general_state_->projection_provider();
   }
   std::string gemm_shape_policy() const {
     require_open();
-    return general_state_ ? general_state_->gemm_shape_policy()
-                          : "mode-averaged 1 x 1 transforms use custom scaling";
+    return general_state_->gemm_shape_policy();
   }
   std::size_t response_team_size() const {
     require_open();
-    return general_state_ ? general_state_->response_team_size()
-                          : SOLPROP_NATIVE_DEVICE_TEAM_SIZE_RECORD;
+    return general_state_->response_team_size();
   }
   std::shared_ptr<native::GeneralState> batch_member() {
     require_open();
-    if (!general_state_)
-      throw std::logic_error("batch execution requires the general native state");
     return general_state_;
   }
   std::size_t columns() const noexcept { return columns_; }
   std::size_t stages() const noexcept { return stages_; }
   std::size_t raman_terms() const noexcept { return raman_terms_; }
   bool raman() const noexcept { return raman_; }
-  bool closed() const noexcept {
-    return (!state_ || state_->closed()) &&
-           (!general_state_ || general_state_->closed());
-  }
+  bool closed() const noexcept { return !general_state_ || general_state_->closed(); }
   void close() noexcept {
-    if (state_) {
-      state_->close();
-      state_.reset();
-    }
     if (general_state_) {
       general_state_->close();
       general_state_.reset();
@@ -1720,7 +1620,6 @@ private:
   std::size_t stages_{};
   std::size_t raman_terms_{};
   bool raman_{};
-  std::unique_ptr<native::State> state_;
   std::shared_ptr<native::GeneralState> general_state_;
   std::optional<native::stage::Tables> stage_tables_;
   native::stage::Anchor stage_anchor_;
@@ -1947,7 +1846,7 @@ nb::dict build_record() {
   nb::dict result;
   result["backend_commit"] = SOLPROP_NATIVE_BACKEND_COMMIT;
   result["solprop_built_against"] = SOLPROP_NATIVE_SOLPROP_BUILT_AGAINST;
-  result["schema_version"] = 47;
+  result["source_digest"] = native::source_digest();
   result["kokkos_version"] = SOLPROP_NATIVE_KOKKOS_VERSION;
   result["kokkos_fft_version"] = SOLPROP_NATIVE_KOKKOSFFT_VERSION;
   result["kokkos_kernels_version"] = SOLPROP_NATIVE_KOKKOSKERNELS_VERSION;
@@ -2320,7 +2219,7 @@ NB_MODULE(_core, module_) {
             const auto scalars =
                 adams_scalars(phi_delta, phi_at, prefactor, density, taper,
                               preionisation, raman_rates, material);
-            auto& state = self.low_storage_state();
+            auto& state = self.open_state();
             const nb::gil_scoped_release release;
             return state.low_storage_step(dz, scalars, rebuild_table);
           },
@@ -2333,7 +2232,7 @@ NB_MODULE(_core, module_) {
           "adams_allocate",
           [](BoundState& self, const std::size_t slots, const bool compensated,
              const bool interpolate) {
-            self.adams_state().adams_allocate(slots, compensated, interpolate);
+            self.open_state().adams_allocate(slots, compensated, interpolate);
           },
           "slots"_a, "compensated"_a = false, "interpolate"_a = true)
       .def(
@@ -2341,7 +2240,7 @@ NB_MODULE(_core, module_) {
           [](BoundState& self, const std::size_t slot, const RealInput rate) {
             const auto weights = real_vector(rate);
             const nb::gil_scoped_release release;
-            self.adams_state().adams_compensation_start(slot, weights);
+            self.open_state().adams_compensation_start(slot, weights);
           },
           "slot"_a, "rate"_a.noconvert())
       .def(
@@ -2354,7 +2253,7 @@ NB_MODULE(_core, module_) {
                 adams_scalars(phi_delta, phi_at, prefactor, density, taper,
                               preionisation, raman_rates, material);
             const nb::gil_scoped_release release;
-            self.adams_state().adams_start(slot, scalars);
+            self.open_state().adams_start(slot, scalars);
           },
           "slot"_a, "phi_delta"_a.noconvert(), "phi_at"_a.noconvert(),
           "prefactor"_a.noconvert(), "density"_a.noconvert(), "taper"_a.noconvert(),
@@ -2362,7 +2261,7 @@ NB_MODULE(_core, module_) {
       .def("adams_magnitude",
            [](BoundState& self) {
              const nb::gil_scoped_release release;
-             return self.adams_state().adams_magnitude();
+             return self.open_state().adams_magnitude();
            })
       .def(
           "adams_scale",
@@ -2370,7 +2269,7 @@ NB_MODULE(_core, module_) {
              const RealInput weights) {
             const auto values = real_vector(weights);
             const nb::gil_scoped_release release;
-            self.adams_state().adams_scale(rtol, atol, values);
+            self.open_state().adams_scale(rtol, atol, values);
           },
           "rtol"_a, "atol"_a, "weights"_a.noconvert())
       .def(
@@ -2390,7 +2289,7 @@ NB_MODULE(_core, module_) {
             std::vector<double> norms;
             {
               const nb::gil_scoped_release release;
-              norms = self.adams_state().adams_fused_trial(dz, weights, scale, scalars);
+              norms = self.open_state().adams_fused_trial(dz, weights, scale, scalars);
             }
             return real_output(std::move(norms), 1);
           },
@@ -2408,20 +2307,19 @@ NB_MODULE(_core, module_) {
             // The interpolant's slopes are the new source and these rows.
             slopes.width = interpolate ? slopes.width + 1 : 0;
             const nb::gil_scoped_release release;
-            self.adams_state().adams_fused_accept(dz, kept, free, slopes);
+            self.open_state().adams_fused_accept(dz, kept, free, slopes);
           },
           "dz"_a, "keep"_a.noconvert(), "free"_a, "dense"_a.noconvert(),
           "interpolate"_a)
-      .def("adams_hold", [](BoundState& self) { self.adams_state().adams_hold(); })
-      .def("adams_restore",
-           [](BoundState& self) { self.adams_state().adams_restore(); })
+      .def("adams_hold", [](BoundState& self) { self.open_state().adams_hold(); })
+      .def("adams_restore", [](BoundState& self) { self.open_state().adams_restore(); })
       // solprop SEP 29 G2: the resident history's persistent rows across a resume.
       .def("adams_row_names",
-           [](BoundState& self) { return self.adams_state().adams_row_names(); })
+           [](BoundState& self) { return self.open_state().adams_row_names(); })
       .def(
           "adams_rows_to_host",
           [](BoundState& self, const std::string& name) {
-            auto& state = self.adams_state();
+            auto& state = self.open_state();
             const auto extents = state.adams_row_extents(name);
             // The array's own storage is written once, as the host engine's copy is.
             auto storage =
@@ -2443,7 +2341,7 @@ NB_MODULE(_core, module_) {
       .def(
           "adams_rows_from_host",
           [](BoundState& self, const std::string& name, const ComplexInput rows) {
-            auto& state = self.adams_state();
+            auto& state = self.open_state();
             // The extents are checked against the row's view before any copy.
             const auto extents = state.adams_row_extents(name);
             if (rows.ndim() != 3 || rows.shape(0) != extents[0] ||
@@ -2468,7 +2366,7 @@ NB_MODULE(_core, module_) {
             if (edges.ndim() != 1)
               throw std::invalid_argument(
                   "z table breakpoints must be one-dimensional");
-            auto& state = self.general_state();
+            auto& state = self.open_state();
             const nb::gil_scoped_release release;
             state.table_upload(table_kind(kind), real_vector(edges), lower, upper,
                                coefficients.data(), coefficients.shape(0),
@@ -2484,7 +2382,7 @@ NB_MODULE(_core, module_) {
                   "z table slots and positions must be one-dimensional");
             const auto held_slots = index_vector(slots);
             const auto held_positions = real_vector(positions);
-            auto& state = self.general_state();
+            auto& state = self.open_state();
             const nb::gil_scoped_release release;
             state.table_evaluate(held_slots, held_positions);
           },
@@ -2493,7 +2391,7 @@ NB_MODULE(_core, module_) {
           "table_rate",
           [](BoundState& self, const std::size_t slot, const double z,
              const bool before) {
-            auto& state = self.general_state();
+            auto& state = self.open_state();
             const nb::gil_scoped_release release;
             state.table_rate(slot, z, before);
           },
@@ -2501,7 +2399,7 @@ NB_MODULE(_core, module_) {
       .def(
           "table_terms_to_host",
           [](BoundState& self, const std::string& kind, const std::size_t slot) {
-            auto& state = self.general_state();
+            auto& state = self.open_state();
             std::vector<native::Complex> values;
             {
               const nb::gil_scoped_release release;
@@ -2515,7 +2413,7 @@ NB_MODULE(_core, module_) {
           "phase_sum_to_host",
           [](BoundState& self, const RealInput weights) {
             const auto held = real_vector(weights);
-            auto& state = self.general_state();
+            auto& state = self.open_state();
             std::vector<native::Complex> values;
             {
               const nb::gil_scoped_release release;
@@ -2544,7 +2442,7 @@ NB_MODULE(_core, module_) {
                 adams_scalars(phi_delta, phi_at, prefactor, density, taper,
                               preionisation, raman_rates, material);
             const nb::gil_scoped_release release;
-            self.adams_state().adams_observe(table, hermite, scalars);
+            self.open_state().adams_observe(table, hermite, scalars);
           },
           "weights"_a.noconvert(), "hermite"_a, "phi_delta"_a.noconvert(),
           "phi_at"_a.noconvert(), "prefactor"_a.noconvert(), "density"_a.noconvert(),
@@ -2602,7 +2500,7 @@ NB_MODULE(_core, module_) {
             std::vector<double> norms;
             {
               const nb::gil_scoped_release release;
-              norms = self.adams_state().adams_exponential_trial(
+              norms = self.open_state().adams_exponential_trial(
                   dz, weights, scale, step, sample, rate_weights);
             }
             return real_output(std::move(norms), 1);
@@ -2676,7 +2574,7 @@ NB_MODULE(_core, module_) {
             std::vector<double> norms;
             {
               const nb::gil_scoped_release release;
-              norms = self.adams_state().adams_exponential_trial(
+              norms = self.open_state().adams_exponential_trial(
                   dz, weights, scale, trial.step, trial.sample, rate);
             }
             return real_output(std::move(norms), 1);
@@ -2698,7 +2596,7 @@ NB_MODULE(_core, module_) {
             {
               const nb::gil_scoped_release release;
               norms =
-                  self.adams_state().adams_fused_trial(dz, weights, scale, trial.step);
+                  self.open_state().adams_fused_trial(dz, weights, scale, trial.step);
             }
             return real_output(std::move(norms), 1);
           },
@@ -2740,7 +2638,7 @@ NB_MODULE(_core, module_) {
             auto slopes = adams_rows(dense);
             slopes.width = interpolate ? slopes.width + 1 : 0;
             const nb::gil_scoped_release release;
-            self.adams_state().adams_exponential_accept(dz, free, slopes);
+            self.open_state().adams_exponential_accept(dz, free, slopes);
           },
           "dz"_a, "free"_a, "dense"_a.noconvert(), "interpolate"_a)
       .def(
@@ -2771,7 +2669,7 @@ NB_MODULE(_core, module_) {
             // The accepted step's carrier frame, its history rows after the endpoint.
             carrier_frame(weights, carrier, count == 0 ? 0 : count - 1);
             const nb::gil_scoped_release release;
-            self.adams_state().adams_exponential_observe(xi, dz, weights);
+            self.open_state().adams_exponential_observe(xi, dz, weights);
           },
           "xi"_a, "dz"_a, "coefficients"_a.noconvert(), "dense_weight"_a.noconvert(),
           "dense_theta"_a.noconvert(), "carrier"_a.noconvert())

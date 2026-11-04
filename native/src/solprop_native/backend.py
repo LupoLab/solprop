@@ -128,11 +128,7 @@ from solprop.translate.modal import DEFAULT_NODE_BUDGET
 from solprop.translate.plasma_source import (
     _BENCHMARK_GATED,  # pyright: ignore[reportPrivateUsage] - refuse the private NumPy benchmark hook
 )
-from solprop.translate.problem import (
-    KERNEL_SCHEMA_VERSION,
-    KernelProblem,
-    PropagatorMode,
-)
+from solprop.translate.problem import KernelProblem, PropagatorMode
 from solprop.translate.responses import CompiledResponses, ResponseStage
 from solprop.translate.stage import (
     StageScalars,
@@ -269,7 +265,7 @@ class NativeBackend(StepDriver[_core.State]):
     Parameters
     ----------
     problem
-        Validated schema-22 kernel problem. Accepts one batch member,
+        Validated kernel problem. Accepts one batch member,
         modal or spatial scalar or two-component propagation (radial, Cartesian, or
         the hybrid planar kind of slab modes in x times an FFT in y), instantaneous
         Kerr, plasma, scalar time-domain Raman, weighted control, both absorber
@@ -310,7 +306,7 @@ class NativeBackend(StepDriver[_core.State]):
     ) -> None:
         if _BENCHMARK_GATED.get():
             raise BackendError("the gated plasma benchmark requires numpy_ref")
-        check_build(problem)
+        check_build()
         _refuse_unsupported(problem)
         problem.validate()
         # solprop SEP 29 G1: a z table is evaluated natively on a CPU build; a device
@@ -2742,7 +2738,7 @@ class _NativeAdamsMarch(AdamsMarch):
             # steps are capped at its spacing, the march returns before a step
             # would carry past its next read, and a collar's current is taken at
             # every committed step.
-            edge = getattr(monitor, "transverse", None)
+            edge = monitor.transverse
             if edge is not None:
                 if edge.every_step:
                     steps.append(1)
@@ -3296,11 +3292,6 @@ def _refuse_omitted_stages(responses: CompiledResponses) -> None:
 
 
 def _refuse_unsupported(problem: KernelProblem) -> None:
-    if problem.schema_version != KERNEL_SCHEMA_VERSION:
-        raise BackendError(
-            f"solprop-native implements kernel schema {KERNEL_SCHEMA_VERSION}; "
-            f"problem declares {problem.schema_version}"
-        )
     _refuse_omitted_stages(problem.responses)
     if problem.precision.single:
         raise BackendError(
@@ -3868,7 +3859,6 @@ def _native_problem(
         "self_factor": 0.0 if kerr is None else kerr.self_factor,
         "conjugate_factor": 0.0 if kerr is None else kerr.conjugate_factor,
         "harmonic_factor": 0.0 if kerr is None else kerr.harmonic_factor,
-        "cubic_real": kerr is not None and kerr.cubic_form == "real",
         "take_real": kerr is not None and kerr.take_real,
         "plasma": plasma is not None,
         "raman": raman is not None,
@@ -3884,7 +3874,6 @@ def _native_problem(
         ),
         "stash_plasma": stash_plasma,
         "weighted_controller": problem.stepper.controller.weights is not None,
-        "phase_b_engine": True,
         "dt_fine": problem.grids.dt_fine,
         "dt": problem.grids.dt,
         "raman_fraction": 0.0 if raman is None else float(raman.fraction),

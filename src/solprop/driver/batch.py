@@ -82,7 +82,6 @@ def _signature(member: BatchMember) -> str:
     transform = problem.transform
     descriptor = {
         "backend": backend,
-        "schema": problem.schema_version,
         "grid_kind": problem.grid_kind,
         "shape": problem.shape,
         "flags": problem.flags,

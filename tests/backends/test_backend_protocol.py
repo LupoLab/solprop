@@ -319,6 +319,9 @@ class Stub:
 
     name = "stub"
     max_batch = 1
+    reads_transverse_edge = False
+    in_flight = None
+    closed = False
 
     def set_initial(self, field, noise):
         self.field = field
@@ -328,6 +331,30 @@ class Stub:
 
     def set_progress(self, reporter):
         self.reporter = reporter
+
+    def set_stop(self, flag):
+        return None
+
+    def edge_memory(self, space):
+        return 0
+
+    def attach_monitor(self, monitor):
+        return None
+
+    def march_snapshot(self):
+        return None
+
+    def march_snapshot_nbytes(self, z):
+        return None
+
+    def march_export_refusal(self):
+        return None
+
+    def restore_march(self, snapshot):
+        return None
+
+    def timed_step(self):
+        return lambda: None
 
     def propagate_to(self, z):
         return StepSummary(z, 1, 0, 0.5, 0.5, 0.0, True)

@@ -13,6 +13,7 @@ observations are owning host ``complex128`` arrays.
 from __future__ import annotations
 
 import functools
+import hashlib
 import importlib.util
 import logging
 import os
@@ -171,6 +172,7 @@ _core.register_host_blas()
 
 DRIVER_SURFACE: tuple[str, ...] = (
     "_adams_adopt",
+    "_adams_block",
     "_adams_engine",
     "_adams_lab_source",
     "_adams_propagator",
@@ -178,114 +180,60 @@ DRIVER_SURFACE: tuple[str, ...] = (
     "_adams_source",
     "_adams_state",
     "_apply_mask",
+    "_axis_statistics",
     "_begin_plane",
     "_bind_monitor",
     "_boundary_energies",
+    "_collar_changed",
+    "_delta_phi",
     "_dense_stages",
     "_edge_reading",
     "edge_memory",
     "_finish",
     "_hoist",
     "_low_storage_engine",
-    "_observed_field",
+    "_march_to",
     "_natural_stop",
     "_natural_stop_due",
+    "_observed_field",
     "_on_accepted_step",
     "_on_axis_synthesis",
     "_record_attempt",
-    "_release_source_calls",
     "_require_grid",
     "_require_state",
-    "_reserve_source_calls",
     "_skip_step",
     "_stage_bundles",
     "_stage_scalars",
     "_take_step_stats",
     "_trial_step",
+    "_unitary_phase",
+    "available_device_memory",
     "metadata",
-    "observe",
-    "propagate_to",
-    "restore_call_ledgers",
     "set_initial",
-    "set_progress",
     "stats",
 )
-"""Every ``StepDriver`` member this backend overrides, calls or inherits for resume.
+"""Every ``StepDriver`` method this backend overrides or calls.
 
-Schema 19 combines the Adams source/adoption and dense-stage hooks with the response-
-ledger resume and source-reservation hooks. Schema 20 (solprop SEP 16) adds the
-exponential Adams formulation and its lab-frame source hook, which this backend
-implements through its native stage-zero source, on every route but a coupled flow.
-Schema 21 (solprop SEP 16 phase 3b) adds the Adams engine hook, through which the
-interaction formulation's history stays resident in the native state on the modal
-routes. Other Adams runs use the shared host march. Schema 22 (solprop SEP 16 phase 5)
-adds the coupled-block hook; a coupled flow stays refused here with an Adams integrator.
-Both inherit its no-op atomic reservation hooks; all TDSE descriptors, including the
-explicit source-filter identity, remain refused before allocation. Atomic response
-ledgers are unsupported here. Schema 28 (solprop SEP 25) adds ``_stage_bundles``.
-Schema 29 (solprop SEP 24 phase 1) widens the integrator to the low-storage march and
-adds its engine hook and in-flight guard; this backend refuses that march by name
-until SEP 24's phase 3. Schema 30 (solprop SEP 26 phase 1) widens the TDSE descriptor
-to version 4 and the ``gated_derivative`` source filter; TDSE stays refused here by
-name, as every descriptor version is. Schema 31 (solprop SEP 22 phase 2) gives
-``observe`` its ``field`` keyword: with ``field=False`` the inherited observation never
-calls ``_observed_field``, so no device-to-host copy is made. Schema 32 (solprop SEP 24
-phase 3) adds ``_hold`` and ``_held_field`` and the engine protocol's ``atomic``: this
-backend runs the low-storage march with a resident engine (``_low_storage_engine``)
-whose step is one native call, and holds the march's field-free plane in its memory
-space. Schema 33 (solprop SEP 27) adds the analytic collar derivative and held-current
-source identity; its grid member is checked explicitly. Schema 34 (solprop SEP 29
-phase 2) adds the class attribute ``StepDriver.helpers``, through which solprop's
-shared stage and Adams code takes this backend's Chebyshev and basis helpers
-(``NativeBackend.helpers``); it is checked explicitly too. Schema 35 (solprop SEP 34)
-adds ``KernelProblem.flux``, the plane measure every spatial field statistic reads:
-this backend measures energy, spectra and local flux by it natively. Schema 36 (solprop
-SEP 33) adds ``KernelProblem.precision``: this backend computes in binary64 only and
-refuses a single-precision problem by name. Schema 37 (solprop SEP 35) adds
-``Multistep.carrier_frame``: CPU builds step the scalar shift in the resident engine;
-device builds refuse it by name until they are qualified. Schema 38 adds
-``_bind_monitor`` and ``_boundary_energies``: this backend reduces the boundary
-monitor's five numbers in its memory space and adds a split-step collar's removal at
-every accepted step there, so a check copies five numbers rather than the field.
-Schema 39 (solprop SEP 39 phase 2) adds ``_record_attempt`` and ``_skip_step``, the
-bookkeeping of one attempt and of an accepted step on which the driver has no work, and
-freezes ``_take_step_stats``, ``_natural_stop`` and ``_natural_stop_due``: this
-backend's native Adams march runs many attempts per call and books them through these,
-with the policy of :data:`MARCH_POLICY_FIELDS` and the march's members of
-:data:`ADAMS_MARCH_SURFACE`. Schema 40 gives ``set_initial`` its ``resume`` keyword,
-which this backend hands to the driver's load: a stored field never takes the ``input``
-draw again. Schema 41 (solprop SEP 40) adds ``KernelProblem.transverse``, the resolved
-transverse boundary, and ``reads_transverse_edge``: this backend carries the safety ramp
-and a requested collar in its operators, reads the transverse edge on the host from its
-state, and its Adams march holds its steps to the edge's next read and stops there.
-Schema 42 lets the problem's initial state be strided, a broadcast view of the block it
-repeats: ``set_initial`` takes a field of any strides, which the driver's load copies
-contiguous before it crosses.
-Schema 43 widens the boundary monitor's reading under the split scheme and adds the
-split collar's crossing limit. ``StepDriver`` keeps ``_split_found``, the energy and
-the guards' and collar's energies of the power the last step's split found, halfway
-through its factor, and caps adaptive steps with ``_split_capped``;
-``KernelProblem.split_crossing`` carries each bin's walk-off bucket and the launch's
-limit. This backend's finish forms the found sums in its removal pass;
-``bind_occupancy`` hands the state the bucket table, ``(n_modes * n_omega,)`` ``uint8``,
-and ``monitor_reading`` then returns ten numbers (the energy, four weighted sums, the
-removal, the four found sums) followed by the state's energy in each of the
-``SPLIT_RATE_BUCKETS`` buckets, ``10 + 128`` in all, where it returned six. The Adams
-march's bounds carry a required ``step_cap``, the cap the last check read, which every
-adaptive step is held to.
-Schema 45 widens this backend's far-field aperture rows from six constants to eleven,
-each row's own profile and shape among them, and drops the call's profile code: a
-far-field aperture set may hold other outlines beside circles. It also appends
-``SeparableOperator.user_rate``, the user's share of the spectral rate, which only the
-statistic ``absorbed_power`` reads, in a fifth channel. Schema 46 removes the
-low-storage march's held plane: ``_hold``, ``_held_field``, ``_drop_held``, and the
-native state's ``hold_plane``, ``release_plane`` and ``held_to_host``. Schema 47 adds
-``march_snapshot_nbytes``, which the adapter's engine answers with ``snapshot_nbytes``.
-
-solprop freezes this surface under its ``KERNEL_SCHEMA_VERSION`` (the test in its
-``tests/backends/test_driver.py``); :func:`check_build` looks each member up so a
-solprop that renamed one is refused by name rather than failing inside a step.
+solprop freezes the signatures in its ``tests/backends/test_driver.py``, and a change to
+one rewrites that table and adds a release note in the same commit. :func:`check_build`
+looks each name up, so a solprop that renamed one is refused by name rather than failing
+inside a step. What the run layer calls on a backend and this one inherits unchanged
+(``propagate_to``, ``observe``, ``set_stop``, ...) is solprop's to keep consistent with
+itself, and is not listed.
 """
+
+_DRIVER_CLASS_MEMBERS: tuple[str, ...] = (
+    "_collar_quiet",
+    "_monitor",
+    "_propagator_mode",
+    "far_field_statistics",
+    "helpers",
+    "name",
+    "reads_transverse_edge",
+)
+"""The ``StepDriver`` attributes and properties of the class this backend sets or reads,
+which :func:`check_build` looks up as it does :data:`DRIVER_SURFACE`; the attributes set
+at construction are frozen beside it in solprop's test."""
 
 MARCH_POLICY_FIELDS: tuple[str, ...] = (
     "order",
@@ -497,12 +445,15 @@ class BuildInfo:
         Installed ``solprop-native`` distribution version.
     git_commit
         Backend repository commit embedded when CMake configured the extension.
-    schema_version
-        Supported solprop kernel-contract schema.
+    source_digest
+        SHA-256 of what the extension was compiled from: ``CMakeLists.txt`` and the C++
+        sources and headers under ``src`` and ``include``
+        (``cmake/SourceDigest.cmake``). :func:`check_build` compares it with an editable
+        checkout's sources.
     solprop_version_built_against
         The solprop version beside which CMake configured the extension, or
-        ``unknown``. Informational: the contract is ``schema_version`` and the seam
-        members :func:`check_build` looks for, not a version string.
+        ``unknown``. Informational: the contract is the seam members
+        :func:`check_build` looks for, not a version string.
     kokkos_version, kokkos_fft_version, kokkos_kernels_version, nanobind_version
         Native dependency versions.
     build_profile
@@ -607,7 +558,7 @@ class BuildInfo:
 
     package_version: str
     git_commit: str
-    schema_version: int
+    source_digest: str
     solprop_version_built_against: str
     kokkos_version: str
     kokkos_fft_version: str
@@ -713,7 +664,7 @@ def build_info() -> BuildInfo:
     return BuildInfo(
         package_version=__version__,
         git_commit=str(record["backend_commit"]),
-        schema_version=int(record["schema_version"]),
+        source_digest=str(record["source_digest"]),
         solprop_version_built_against=str(record["solprop_built_against"]),
         kokkos_version=str(record["kokkos_version"]),
         kokkos_fft_version=str(record["kokkos_fft_version"]),
@@ -793,36 +744,87 @@ def build_info() -> BuildInfo:
     )
 
 
-def check_build(problem: object | None = None) -> None:
-    """Validate this build and, optionally, a solprop kernel problem.
+def _source_digest(root: Path) -> str:
+    """Return the digest of the sources an extension is compiled from.
+
+    The computation of ``cmake/SourceDigest.cmake``, which embeds it in the build; the
+    two must agree. The record is one ``{path}:{sha256 of its bytes}`` line for
+    ``CMakeLists.txt`` and each C++ source and header under ``src`` and ``include``, the
+    paths relative to `root` and sorted bytewise, and the digest is the SHA-256 of the
+    record.
 
     Parameters
     ----------
-    problem
-        A :class:`solprop.translate.problem.KernelProblem`, or ``None`` to check only
-        the installed extension.
+    root
+        The ``native`` directory of a checkout.
+
+    Returns
+    -------
+    str
+        The digest in lowercase hexadecimal.
+    """
+    paths = ["CMakeLists.txt"]
+    for folder in ("src", "include"):
+        paths.extend(
+            path.relative_to(root).as_posix()
+            for path in (root / folder).rglob("*")
+            if path.suffix in {".cpp", ".hpp", ".h"} and path.is_file()
+        )
+    # Code points sort as their UTF-8 bytes do, so this is CMake's bytewise order.
+    record = "".join(
+        f"{path}:{hashlib.sha256((root / path).read_bytes()).hexdigest()}\n"
+        for path in sorted(paths)
+    )
+    return hashlib.sha256(record.encode()).hexdigest()
+
+
+@functools.cache
+def _checkout_digest() -> str | None:
+    """Return this editable checkout's source digest, computed once per process.
+
+    Returns
+    -------
+    str or None
+        The digest, or ``None`` for an installed wheel, which has no sources beside it
+        and which solprop's metadata pins to its own version.
+    """
+    root = Path(__file__).parents[2]
+    return _source_digest(root) if (root / "CMakeLists.txt").is_file() else None
+
+
+def check_build() -> None:
+    """Validate this build against this checkout's sources and the installed solprop.
 
     Raises
     ------
     solprop.exceptions.BackendError
-        If the installed solprop lacks a seam member this backend relies on
+        If an editable checkout's ``native`` sources are not the ones the extension
+        was compiled from, if the installed solprop lacks a seam member this backend
+        relies on
         (:data:`DRIVER_SURFACE`, :data:`ADAMS_MARCH_SURFACE`,
         :data:`MARCH_POLICY_FIELDS`, :data:`STAGE_TERMS_FIELDS`,
         :data:`STAGE_SCALARS_FIELDS`, :data:`SEPARABLE_OPERATOR_FIELDS`,
         :data:`LINEAR_OPERATOR_FIELDS`, :data:`TRANSFORM_FIELDS`,
         :data:`RESPONSE_FIELDS`, or the leaves' members in :data:`MODAL_TABLES_FIELDS`,
         :data:`REGIONAL_RESPONSE_FIELDS`, :data:`COUPLED_FLOW_FIELDS` and
-        :data:`DISPERSIVE_KERR_FIELDS`), the
-        problem's schema differs,
+        :data:`DISPERSIVE_KERR_FIELDS`),
         execution-space metadata is inconsistent, a reference build carries vendor
         BLAS or machine-specific code, a distribution build carries native code or no
         BLAS, fast-math is enabled, or an accelerator build sees no device. The
-        solprop *version* is recorded, never compared: the seam is versioned by the
-        schema, and solprop bumps it whenever that surface changes.
+        solprop *version* is recorded, never compared here: the two packages are
+        released together and pinned to one version, and the members are looked up by
+        name.
     """
     from solprop.exceptions import BackendError
 
     info = build_info()
+    digest = _checkout_digest()
+    if digest is not None and digest != info.source_digest:
+        raise BackendError(
+            "the solprop-native extension was built from other sources than this "
+            f"checkout's native/ ({Path(__file__).parents[2]}): rebuild it with "
+            "`uv sync --reinstall-package solprop-native`"
+        )
     _check_seam(info, BackendError)
     if info.fast_math_enabled:
         raise BackendError("solprop-native was built with forbidden fast-math")
@@ -876,13 +878,6 @@ def check_build(problem: object | None = None) -> None:
         raise BackendError(
             "the selected BLAS provider cannot access this accelerator's memory"
         )
-    if problem is not None:
-        schema = getattr(problem, "schema_version", None)
-        if schema != info.schema_version:
-            raise BackendError(
-                "solprop-native implements kernel contract version "
-                f"{info.schema_version} and the problem declares version {schema}"
-            )
 
 
 def _check_seam(info: BuildInfo, error: type[Exception]) -> None:
@@ -911,8 +906,11 @@ def _check_seam(info: BuildInfo, error: type[Exception]) -> None:
         for name in DRIVER_SURFACE
         if not callable(getattr(StepDriver, name, None))
     ]
-    if not hasattr(StepDriver, "helpers"):
-        missing.append("StepDriver.helpers")
+    missing.extend(
+        f"StepDriver.{name}"
+        for name in _DRIVER_CLASS_MEMBERS
+        if not hasattr(StepDriver, name)
+    )
     missing.extend(
         f"AdamsMarch.{name}"
         for name in ADAMS_MARCH_SURFACE

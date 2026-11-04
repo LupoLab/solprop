@@ -76,7 +76,6 @@ native::Problem flow_problem(const bool residual) {
   problem.error_weights = {0.5, 0.5, -1.0};
   problem.synthesis_matrix.assign(kModes, 0.0);
   problem.projection_matrix.assign(kModes, 0.0);
-  problem.phase_b_engine = true;
   problem.coupled_flow = true;
   problem.flow_active = kActive;
   problem.flow_sections = kSections;

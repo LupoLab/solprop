@@ -102,10 +102,9 @@ SINGLE_ONLY: frozenset[str] = frozenset({"mlx"})
 FAR_FIELD_BACKENDS: tuple[str, ...] = ("numpy_ref", "native")
 """The backends that form the far-field statistics of SEP 23.
 
-``numpy_ref`` always does; the native backend does from SEP 23's third phase, which a
-build declares by its backend's ``far_field_statistics`` attribute. An
-older build is refused them by name on this side of the seam
-(:func:`statistics_refusal`), before it is built.
+``numpy_ref`` always does; the native backend declares what it forms by its class's
+``far_field_statistics`` attribute. A statistic it does not declare is refused by name
+on this side of the seam (:func:`statistics_refusal`), before it is built.
 """
 
 
@@ -162,9 +161,9 @@ def _plugin_far_field(name: str) -> frozenset[str] | None:
     Returns
     -------
     frozenset of str or None
-        What the plugin's backend class declares in ``far_field_statistics`` (empty for
-        a build that predates the attribute), or ``None`` when the name is not a known,
-        installed plugin.
+        What the plugin's backend class declares in
+        :attr:`~solprop.backends.driver.StepDriver.far_field_statistics`, or ``None``
+        when the name is not a known, installed plugin.
     """
     entry = BACKENDS.get(name)
     if name != "native" or entry is None or not _satisfied(entry):
@@ -173,8 +172,7 @@ def _plugin_far_field(name: str) -> frozenset[str] | None:
         NativeBackend,
     )
 
-    declared = getattr(NativeBackend, "far_field_statistics", frozenset())
-    return frozenset(cast(Collection[str], declared))
+    return frozenset(cast(Collection[str], NativeBackend.far_field_statistics))
 
 
 def available(precision: str = "double") -> tuple[str, ...]:

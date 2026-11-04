@@ -47,7 +47,7 @@ from solprop.modes.collection import ModeCollection
 from solprop.nonlinear.responses import KerrResponse
 from solprop.pulses import GaussianPulse
 from solprop.stepper import FixedSchedule, PIController
-from solprop.translate.problem import KERNEL_SCHEMA_VERSION, assemble
+from solprop.translate.problem import assemble
 
 LENGTH = 0.001
 STEPS = 10
@@ -114,7 +114,6 @@ def main():
     arguments.output.with_suffix(".json").write_text(
         json.dumps(
             {
-                "schema": KERNEL_SCHEMA_VERSION,
                 "backend": arguments.backend,
                 "solprop_source": solprop.__file__,
                 "native_source": None if native is None else native.__file__,

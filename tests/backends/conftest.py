@@ -291,7 +291,6 @@ def substitute():
             parts["initial"],
         )
         problem = KernelProblem(
-            schema_version=base.schema_version,
             grid_kind=base.grid_kind,
             shape=base.shape,
             flags=derived,

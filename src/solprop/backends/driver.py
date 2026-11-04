@@ -28,8 +28,9 @@ import math
 import time
 from abc import ABC, abstractmethod
 from collections import deque
-from collections.abc import Mapping, Sequence
-from typing import TYPE_CHECKING, Literal, TypeVar, cast
+from collections.abc import Callable, Mapping, Sequence
+from functools import partial
+from typing import TYPE_CHECKING, ClassVar, Literal, TypeVar, cast
 
 import numpy as np
 from jaxtyping import Complex, Float
@@ -314,12 +315,18 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         march and engines pass down rather than choosing one (SEP 29 section 6.6).
         Each backend sets its own: ``PLAIN`` (the default) for the NumPy reference,
         the C++ bindings for the native backend.
+    far_field_statistics : frozenset of str
+        The far-field statistics a compiled backend declares it forms (SEP 23), which
+        the registry reads for the native backend alone
+        (:func:`solprop.backends.registry.statistics_refusal`): ``numpy_ref`` forms them
+        all and ``mlx`` refuses them in validation.
     """
 
     name: str = "driver"
     max_batch: int = 1
     propagator_default: PropagatorMode = "tabulate"
     helpers: Helpers = PLAIN
+    far_field_statistics: ClassVar[frozenset[str]] = frozenset()
 
     def __init__(
         self,
@@ -380,7 +387,6 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         self._clock = time.perf_counter()
         self._progress: ProgressReporter = NullReporter()
         self._progress_started = False
-        self._stop: StopFlag | None = None
         # The statistics channel between planes. The spec a row is evaluated with is
         # the periodic subset promoted to `names`, so the row goes through the very
         # same `stats` the save planes use and is bitwise what a plane would record.
@@ -1293,6 +1299,9 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         self._progress = reporter
         self._progress_started = False
 
+    _stop: StopFlag | None = None
+    """The flag every trial step polls (:meth:`set_stop`); ``None`` by default."""
+
     def set_stop(self, flag: StopFlag | None) -> None:
         """Attach the flag every trial step polls, or detach it with ``None``.
 
@@ -1316,8 +1325,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         solprop.exceptions.StopRequested
             If the flag is set.
         """
-        # A harness that builds a driver without __init__ has no flag.
-        poll(getattr(self, "_stop", None))
+        poll(self._stop)
 
     def propagate_to(self, z: float) -> StepSummary:
         """Step the state to a position, landing on it exactly.
@@ -1469,6 +1477,39 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         self._history = []
         self._clock = time.perf_counter()
         return plane
+
+    @property
+    def in_flight(self) -> tuple[float, float] | None:
+        """Return the low-storage step a failure abandoned in flight, or ``None``.
+
+        Returns
+        -------
+        tuple of float or None
+            The step's start and length, m, while the state is neither of its ends
+            (``solprop.backends.low_storage``).
+        """
+        return self._in_flight
+
+    def timed_step(self) -> Callable[[], object]:
+        """Return one step of this run's march, for an estimate to time.
+
+        A low-storage march times its own step, which accepts in place, so repeating it
+        advances the discarded state: the caller closes the backend afterwards. Every
+        other run times the Runge-Kutta trial step, which leaves the state alone. The
+        native low-storage state holds none of that trial's views.
+
+        Returns
+        -------
+        collections.abc.Callable
+            Takes one step, from the loaded state.
+        """
+        if self._low_storage is None:
+            z, dz = float(self._problem.initial.z), float(self._problem.stepper.dz_init)
+            return partial(self._trial_step, z, dz)
+        schedule = self._problem.stepper.schedule
+        assert schedule is not None  # the translation refuses the march without one
+        z, dz = float(schedule.edges[0]), float(schedule.steps[0])
+        return partial(self._low_storage.engine.step, z, dz)
 
     # --- the step loop -------------------------------------------------------------
 
@@ -1873,7 +1914,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         self._set_collar_quiet(monitor.collar_quiet)
         # A resumed fixed schedule is held to the state it resumes from at once.
         self._refuse_scheduled_crossing(monitor)
-        edge = getattr(monitor, "transverse", None)
+        edge = monitor.transverse
         if edge is not None:
             floor = self._input_floor
             schedule = self._problem.stepper.schedule
@@ -1904,7 +1945,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         plane : bool
             Whether a saved plane has just been reached, which is always read.
         """
-        edge = getattr(monitor, "transverse", None)
+        edge = monitor.transverse
         if edge is None:
             return
         # Read before the next step would carry past the read (`TransverseEdge.due`).
@@ -2046,7 +2087,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             The proposal, or the read spacing, m.
         """
         monitor = self._monitor
-        edge = None if monitor is None else getattr(monitor, "transverse", None)
+        edge = None if monitor is None else monitor.transverse
         if edge is None:
             return proposal
         return min(proposal, edge.ceiling(self._z))
@@ -2622,6 +2663,17 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             "last saved plane) before observing or propagating again"
         )
         raise BackendError(msg)
+
+    @property
+    def closed(self) -> bool:
+        """Return whether the backend has released its buffers, as a failure may.
+
+        Returns
+        -------
+        bool
+            ``True`` when it can run no other input.
+        """
+        return self._closed
 
     def _check_open(self) -> None:
         """Refuse a backend that has been closed.

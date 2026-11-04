@@ -2,7 +2,7 @@
 
 `solprop.translate.problem.KernelProblem` is the only object that crosses from the physics and
 translation layers into a backend. It is a frozen dataclass of plain NumPy arrays and scalars,
-validated, versioned, and documented here field by field. A backend may assume everything
+validated, and documented here field by field. A backend may assume everything
 stated here and nothing else; the translation layer promises everything stated here and
 nothing else. Changing this file and the dataclass together is the only way to extend the
 contract, and a test checks that the fields listed here and the fields of the dataclass agree.
@@ -18,9 +18,9 @@ operator, the quadrature, the compiled responses — are in [algorithms.md](algo
 already converted from the optics-convention user inputs; the output layer converts
 observations back. Backends never conjugate.
 
-**The kernel schema and the saved-output schema are versioned independently.** The
-kernel schema's current number is stated in §1 (`KERNEL_SCHEMA_VERSION`), the saved
-output's in [the output guide](../guide/results/output.md#the-schema-version)
+**The saved output has a schema version, and this contract has none.** §1 says how the
+contract is guarded instead; the saved output's number is in
+[the output guide](../guide/results/output.md#the-schema-version)
 (`solprop.output.SCHEMA_VERSION`). Internal modal amplitudes are vacuum normalised; the
 launch and observation boundaries
 carry the true-power conversion, and every backend reads the modal power weight (§3) in its
@@ -43,7 +43,6 @@ hard-mask zeros, and explicitly exact zeros and no-ops.
 
 | field | type | meaning |
 |---|---|---|
-| `schema_version` | `int` | incremented on every change to this contract, to the protected surface of `StepDriver` or to the stage bundles of `translate/stage.py` (both frozen in `tests/backends/test_driver.py`) |
 | `grid_kind` | `"field" \| "envelope"` | selects r2c/c2r vs c2c transforms and the response formulas |
 | `shape` | `(n_batch, n_modes, n_pol, n_omega)` | canonical state shape |
 | `flags` | frozen dataclass of static flags and counts | `single_mode`, `scalar_pol`, `single_batch`, `has_plasma`, `has_raman`, `has_spectral_responses`, `has_noise`, `has_temporal_absorber`, `constant_linop`, `mode_averaged`, `n_channels`, `n_raman` — kernels specialise on these at compile time. Derived from the content, never passed in |
@@ -94,12 +93,16 @@ expansion. A
 total-degree expansion is not part of the contract: it failed the joint memory and
 build-cost criterion on the short fixture.
 
-The current version is kernel schema **47**
-(`solprop.translate.problem.KERNEL_SCHEMA_VERSION`), and the tables of this document
-describe it. A version bump that adds an optional field
-leaves every problem that does not use it unchanged, `schema_version` itself being the
-one thing that moves. Removing an admitted value needs no bump, because no consumer can
-misread a problem that no longer carries it.
+**The contract has no version number** (ADR-068). `KERNEL_SCHEMA_VERSION` ended at 47;
+"kernel schema N" elsewhere in these documents and in the code names the number a change
+took, as history. The tables of this document describe the contract as it stands. A
+change to it, to the protected surface of `StepDriver` or to the stage bundles of
+`translate/stage.py` rewrites the frozen tables in `tests/backends/test_driver.py` in the
+same commit and adds a release-note fragment. solprop and solprop-native are released
+together and pinned to one version; `check_build` looks up every member the native adapter
+relies on by name, and in an editable checkout compares the extension with its `native/`
+sources by digest (`BuildInfo.source_digest`). An added optional field leaves every problem
+that does not use it unchanged.
 
 **Batches and device memory.** `BatchBackend` batches independently translated and loaded
 member backends, which carry their own parameter tables and noise across construction;
@@ -199,8 +202,8 @@ refuses such a problem by name through the shared admission list.
 
 **The frozen literals and the contract tuples.** `tests/backends/test_driver.py` freezes
 `DRIVER_SURFACE`, `LINEAR_OPERATOR_FIELDS` (`dataclasses.fields(LinearOperator)`),
-`STAGE_TERMS_FIELDS`, `STAGE_SCALARS_FIELDS` and `SEPARABLE_OPERATOR_FIELDS` under
-`KERNEL_SCHEMA_VERSION`; a bump rewrites the literal it changes. `solprop-native` exports
+`STAGE_TERMS_FIELDS`, `STAGE_SCALARS_FIELDS` and `SEPARABLE_OPERATOR_FIELDS`; a change to
+the seam rewrites the literal it changes. `solprop-native` exports
 its own tuples of the names it relies on — `LINEAR_OPERATOR_FIELDS`, `TRANSFORM_FIELDS`,
 `RESPONSE_FIELDS`, `STAGE_SCALARS_FIELDS`, and `MODAL_TABLES_FIELDS` (`electric`,
 `omega_fine`, `projection`, `region_index`, `source_frequency_factor`, `synthesis`),
@@ -292,8 +295,7 @@ and shape; masks Boolean; breakpoints strictly increasing and covering `[0, z_ma
 kinks are breakpoints; every `ZProfile` table covers the same z range as `Phi`; every
 general-modal leaf tabulated along z covers `[0, z_max]` and carries `grids.omega`
 itself; a replayed
-schedule lands on every save plane and hard kink; `schema_version` equals the backend's
-expected version. A failed check raises `TranslationError` naming the field. Quadrature
+schedule lands on every save plane and hard kink. A failed check raises `TranslationError` naming the field. Quadrature
 weights and mode matrices are checked in `modes.quadrature`; physical modal weights
 are also carried as `transform.node_weights` for species inventories.
 
@@ -1101,8 +1103,7 @@ steps produce rows and passes their exact history indices:
 
 The defaults keep a host buffer and call `stats()`. No backend needs to
 override the march or read its private row buffer. Device arrays remain behind the
-seam. The native backend inherits the host defaults. A backend must implement the current
-schema (§1),
+seam. The native backend inherits the host defaults. A backend must implement the contract,
 including the batch admission interface of §1, explicit handling or refusal of envelope
 source assemblies, and an explicit refusal of each general-modal leaf, section method and
 spatial kind it does not execute.
@@ -1133,10 +1134,11 @@ the step history and over the same interval, and a row may not index past it.
 
 1. Add the field to the dataclass with a default under which a problem that does not use
    it is unchanged.
-2. Add the row here and bump `schema_version`.
+2. Add the row here, rewrite the frozen tables the change moves
+   (`tests/backends/test_driver.py`) and add a release-note fragment.
 3. Extend `validate()`.
-4. Implement in `numpy_ref` first, with a test; then in the other backends, with the
-   equivalence test.
+4. Implement in `numpy_ref` and `native`, in either order (ADR-068), with a test and the
+   equivalence test; a backend that does not have it yet refuses it by name.
 5. Update the memory budget in [architecture.md §8](architecture.md) if a buffer is added.
 
 ## 11. The Adams march

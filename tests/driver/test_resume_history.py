@@ -18,10 +18,8 @@ being taken up rather than set aside.
 """
 
 import dataclasses
-import inspect
 import logging
 import math
-from types import SimpleNamespace
 from typing import Any, cast
 
 import h5py
@@ -38,7 +36,6 @@ from solprop.backends import available
 from solprop.backends.driver import StepDriver
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.registry import select
-from solprop.driver import Simulation
 from solprop.exceptions import OutputError, SolpropWarning
 from solprop.log import NullReporter
 from solprop.output import HDF5Output
@@ -608,15 +605,3 @@ def test_the_general_path_refuses_a_snapshot_it_cannot_install(build_simulation)
     finally:
         for backend in backends:
             backend.close()
-
-
-def test_a_backend_without_a_march_resumes_without_one(build_simulation, recwarn):
-    # The driver continues a history only on a backend that offers the hooks; one
-    # without them (any `Backend`, not only a step driver) simply loads the plane.
-    simulation = build_simulation(
-        length=LENGTH, n_save=N_SAVE, backend="numpy_ref", integrator=Multistep()
-    )
-    # Unwrapped: the runtime type check would refuse a stand-in for either argument.
-    continue_march = inspect.unwrap(Simulation._continue_march)
-    continue_march(simulation, SimpleNamespace(), SimpleNamespace(march=march()))
-    assert not recwarn.list

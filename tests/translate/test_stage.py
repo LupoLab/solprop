@@ -423,7 +423,6 @@ def tabulated():
         prefactor_constant=None,
     )
     rebuilt = KernelProblem(
-        schema_version=problem.schema_version,
         grid_kind=problem.grid_kind,
         shape=problem.shape,
         flags=Flags.from_content(

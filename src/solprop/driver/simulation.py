@@ -3995,9 +3995,6 @@ class Simulation(Displayed):
             Whether this run steps with an Adams method. Another integrator keeps no
             history, by its own choice, which needs no warning.
         """
-        restore = getattr(backend, "restore_march", None)
-        if restore is None:
-            return
         if self.settings.resume_history is False:
             if state.march is not None:
                 logger.info("the Adams history starts afresh: resume_history=False")
@@ -4006,7 +4003,7 @@ class Simulation(Displayed):
         # to: say so once, as a warning (SEP 29 section 6.6).
         if not adams:
             return
-        refusal = getattr(backend, "march_export_refusal", lambda: None)()
+        refusal = backend.march_export_refusal()
         if refusal is not None:
             warnings.warn(
                 f"the Adams history starts afresh: {refusal}",
@@ -4016,7 +4013,7 @@ class Simulation(Displayed):
             return
         if state.march is None:
             return
-        reason = restore(state.march)
+        reason = backend.restore_march(state.march)
         if reason is None:
             logger.info(
                 "continuing the Adams history at order %d, %d samples",
@@ -7207,7 +7204,7 @@ class SimulationRunner(Displayed):
             )
         except BaseException:
             # A backend that closed itself cannot run another input.
-            if getattr(self._backend, "_closed", False):
+            if self._backend.closed:
                 self._close_held()
             raise
         finally:

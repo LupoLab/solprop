@@ -417,7 +417,7 @@ def test_explicit_native_still_raises_the_baseline_refusal(
 def test_auto_raises_other_native_failures_above_the_baseline(
     linear_problem, narrow_grid, monkeypatch, tmp_path, error
 ):
-    """A refusal at import, a schema mismatch or a broken extension still raise."""
+    """A refusal at import, a stale build or a broken extension still raise."""
     install_native(monkeypatch, tmp_path, "met")
     calls = []
 

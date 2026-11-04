@@ -23,7 +23,7 @@ refused otherwise. Explicit names are preserved, so `backend="numpy_ref"` runs w
 absent and `backend="native"` on a processor below the baseline raises the package's refusal.
 `select` also accepts `"auto"`, checks `SOLPROP_REQUIRE_DEVICE` against the actual build before
 anything is allocated, and logs the actual backend at INFO after
-successful construction. Import, schema, device and unsupported-problem errors stay visible and
+successful construction. Import, build, device and unsupported-problem errors stay visible and
 stay distinct, and the registry finds the processor baseline out
 by running the package's own pure-Python check by path, without importing the package. This
 selection policy changes no kernel-contract member (ADR-029).
@@ -37,6 +37,7 @@ statistic), and that structure is precisely what a fast backend exists to change
 class Backend(Protocol):
     name: str
     max_batch: int  # 1 for backends that step one problem
+    reads_transverse_edge: bool  # whether a requested real-space collar can run on it
 
     def set_initial(
         self,
@@ -57,6 +58,21 @@ class Backend(Protocol):
     def memory_ledger(self) -> dict[str, int]: ...
     def available_device_memory(self) -> int | None: ...
     def close(self) -> None: ...  # idempotent
+
+    # What the run layer asks beside those; StepDriver gives each its default.
+    def set_stop(self, flag: StopFlag | None) -> None: ...  # polled between trials
+    def set_held_plane(self, held: bool) -> None: ...  # the low-storage march's hold
+    def attach_monitor(self, monitor: BoundaryMonitor) -> None: ...
+    @property
+    def in_flight(self) -> tuple[float, float] | None: ...  # a step abandoned there
+    def held_observation(self) -> Observation | None: ...
+    def march_snapshot(self) -> MarchSnapshot | None: ...  # the Adams history
+    def march_snapshot_nbytes(self, z: float) -> int | None: ...  # copying nothing
+    def march_export_refusal(self) -> str | None: ...
+    def restore_march(self, snapshot: MarchSnapshot) -> str | None: ...
+    def timed_step(self) -> Callable[[], object]: ...  # one step, for an estimate
+    @property
+    def closed(self) -> bool: ...  # a failure can close a backend
 ```
 
 The listing is abbreviated; `solprop/backends/protocol.py` holds the exact signatures and
@@ -181,9 +197,30 @@ both backends in one process, with every other implementation made to raise afte
 translation, and a native z-table run of each march with the plain forms
 forbidden.
 
-**3. One step loop.** The march, the replay, the landing, the controller bookkeeping, the
-history, the noise models, **the progress reporter and the statistics channel between
-planes** are `backends/driver.py` and are not reimplemented. A backend supplies
+**3. One driver, seven marches.** `StepDriver.propagate_to` is the one way in, and it hands
+the steps to one of these loops:
+
+| Loop | Steps | Where its state-sized work runs |
+|---|---|---|
+| `StepDriver._march_to`, in `backends/driver.py` | adaptive Runge-Kutta | the backend's `_trial_step` |
+| `StepDriver._replay_to` | Runge-Kutta on a fixed schedule | the backend's `_trial_step` |
+| `AdamsMarch.march_to`, in `backends/multistep.py` | adaptive Adams | an `AdamsEngine`: `HostHistory`, or `native`'s resident `_ResidentAdams` |
+| `AdamsMarch._replay_to` | Adams on a fixed schedule | the same engines |
+| `LowStorageMarch.replay_to`, in `backends/low_storage.py` | low-storage, always on a schedule | a `LowStorageEngine`: `HostLowStorage`, `MlxLowStorage`, or `native`'s `_ResidentLowStorage`, whose step is one native call |
+| `LockstepRunner._replay_to`, in `backends/batch.py` | a batch's members on one schedule | `_trial_step` under Runge-Kutta; each member's own march otherwise |
+| `_NativeAdamsMarch.march_to`, with `native/src/adams_march.cpp` | Adams, adaptive and replayed, compiled (ADR-060) | the resident engine; it returns to Python only at a host event |
+
+Only the last loop is compiled. The driver's Runge-Kutta march is the reference for the march's
+bookkeeping. `AdamsMarch` is the reference for the compiled Adams march, which holds to it
+through kernel contract §11 (ADR-060), and steps every configuration the compiled march doesn't
+cover. A new compiled loop needs a contract that specifies it in full and a reference to compare
+it with.
+
+What stays common, and is never reimplemented, is what the loops do around a step:
+`propagate_to` and `observe`, the history (`_record`, or `_record_attempt` and `_skip_step`
+for the attempts a compiled march books together), the committed step's work
+(`_take_step_stats`: **the statistics channel between planes** and the boundary monitor), the
+natural stops, the noise models and **the progress reporter**. A backend supplies
 `_trial_step`, `_apply_mask` and `stats`, overrides `_finish` if it has boundary treatments,
 and hooks `_begin_plane` and `_on_accepted_step` if it has something to score.
 
@@ -373,7 +410,7 @@ It consumes the contract only through `linop.delta_phi`, `linop.unitary_phase`,
 `responses.prefactor_at` and the scalar tables `responses.density`,
 `transform.taper_scale`, `transform.aeff`, the plasma group's `preionisation` and the Raman
 decay rates, so a change of the operator's representation cannot reach it. It refuses, by
-name and with `BackendError`: an unknown `schema_version`; a spectral response other than
+name and with `BackendError`: a spectral response other than
 the compiled envelope-plasma assembly; scalar-only Raman on a two-component
 problem; general z-dependent response data; a transform and a state that
 would both carry the transverse components; and a batch axis above one.
@@ -448,7 +485,7 @@ complex admittance before forming `Re(E conj(G))/2`, signed and not clipped. The
 refuse a fluence negative beyond its rounding budget. The helper
 `backends.spatial.collar_field_fraction` stays an electric-field-norm share and is named
 as one; its end-of-plane log is retired, and the boundary monitor's transverse edge
-(SEP 40) judges the boundary instead. A backend whose own statistics do not apply this measure refuses the schema.
+(SEP 40) judges the boundary instead. A backend whose own statistics do not apply this measure refuses the problem.
 
 **The transverse edge is read where the state lives** ([SEP 40](seps/archive/sep-0040-transverse-absorbing-boundaries.md), [SEP 44](seps/sep-0044-native-edge-read.md)).
 A backend whose `StepDriver.reads_transverse_edge` is set hands the monitor's
@@ -507,7 +544,7 @@ once-per-run FFTW planning and the output's planes.
 ### 3.1a What exists
 
 The adapter `native/src/solprop_native/backend.py` and the engine `native/src/general.cpp`
-over the shared step loop of `backends/driver.py`. The public default is `"auto"`: the
+over the shared driver of `backends/driver.py`. The public default is `"auto"`: the
 native backend, with no fallback (§1, ADR-029).
 `numpy_ref` stays selectable by name.
 
@@ -743,9 +780,9 @@ Kokkos regions.
 
 ### 3.5 The step driver: Python first, compiled when measured
 
-**One loop, for every backend.** `backends/driver.py` is the march, the replay, the
-landing, the controller bookkeeping, the history and the noise models, and every backend
-inherits it. Per stage a backend asks the translation layer for one bundle of host
+**One driver, for every backend.** `backends/driver.py` is the Runge-Kutta march and replay,
+the controller bookkeeping, the history and the noise models, and every backend inherits it
+(§1, point 3, lists the other marches). Per stage a backend asks the translation layer for one bundle of host
 scalars and combines the terms it holds over them (§1); the driver applies the boundary
 treatments of `_finish` to a step it keeps, so a rejected step does not pay the temporal
 absorber's transform pair for a state that is thrown away.
@@ -1188,17 +1225,21 @@ backend runs on the CPU (OpenMP) or a device. How to build it is
 [Building the native backend](../guide/performance/building-native.md); the native rules are in
 `native/AGENTS.md`.
 
-The backend depends on solprop's versioned seam, `KERNEL_SCHEMA_VERSION` in
-`solprop.translate.problem`: the `KernelProblem`, the protected surface of `StepDriver` and the stage bundles, all frozen under
-`KERNEL_SCHEMA_VERSION` by `tests/backends/test_driver.py`. Its `check_build` refuses another
-schema and looks the driver members, bundle fields and contract tuples it relies on up by
-name. It records the repository version it was built at without comparing it, so an
-editable build stays valid across solprop commits until the schema bumps. Solprop knows only the registry
+The backend depends on solprop's seam: the `KernelProblem`, the protected surface of `StepDriver`
+and the stage bundles, all frozen by `tests/backends/test_driver.py`. A change to any of them
+rewrites those tables in the same commit and adds a release-note fragment. The two packages are
+released together, and solprop's metadata pins this one to its own version. `check_build` looks
+the driver members, bundle fields and contract tuples the adapter relies on up by name. In an editable
+checkout it also recomputes the digest of `native/CMakeLists.txt` and the C++ under `native/src`
+and `native/include`, once per process, and refuses an extension built from anything else
+(`BuildInfo.source_digest`, ADR-068), which catches a C++-only change too. It records the repository
+version it was built at without comparing it, so an editable build stays valid across solprop
+commits that leave `native/` alone. Solprop knows only the registry
 row and imports the package only when it is selected.
 
-**Every backend refuses what it cannot execute.** A schema check is not enough on the
-general modal route: its optional leaves (the coupled flow, the moving guide and the
-others) are part of the schema whether or not a backend executes them, and a backend that
+**Every backend refuses what it cannot execute.** The general modal route's optional
+leaves (the coupled flow, the moving guide and the others) are part of the contract whether
+or not a backend executes them, and a backend that
 accepted a problem carrying one it ignores would silently run a different model. A backend
 therefore calls
 {py:func}`~solprop.backends.driver.refuse_general_leaves` before it runs, naming in
@@ -1831,8 +1872,9 @@ plasma do not cover it. The far-field statistics' device pass is not qualified (
 
 These rules set where development goes, not what a backend may run (ADR-061; ADR-064 retired
 `numba_cpu` and superseded the statement that the documentation build installs no native
-backend). Every backend keeps what it runs, correct and in parity with the reference, and
-refuses the rest by name.
+backend; ADR-068 makes `native` the primary backend). A feature lands on `native` and
+`numpy_ref` in either order. Every backend keeps what it runs, correct and in parity with the
+reference, and refuses the rest by name.
 
 | backend | role | new features |
 |---|---|---|

@@ -330,7 +330,6 @@ def test_missing_backend_history_stops_clearly(working):
     keeper._kept_z = None
     keeper._policy = None
     keeper._save = None
-    keeper._snapshot = None
     with pytest.raises(OutputError, match="backend and output"):
         keeper.keep(0.125, required=True)
     keeper._save = lambda state: None
