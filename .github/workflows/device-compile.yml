@@ -92,11 +92,12 @@ jobs:
         run: |
           curl -fsSL https://repo.radeon.com/rocm/rocm.gpg.key | gpg --dearmor | sudo tee /etc/apt/keyrings/rocm.gpg > /dev/null
           echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/rocm.gpg] https://repo.radeon.com/rocm/apt/7.2 noble main" | sudo tee /etc/apt/sources.list.d/rocm.list
+          # Ubuntu has an older hipcc whose version number sorts higher than AMD's.
+          printf 'Package: *\nPin: origin repo.radeon.com\nPin-Priority: 1001\n' | sudo tee /etc/apt/preferences.d/rocm
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends cmake libfftw3-dev libopenblas-dev ninja-build pkg-config g++-14 hip-dev hipcc rocm-llvm rocm-device-libs rocm-cmake rocfft-dev rocblas-dev
-          # Under its version, with no fixed link at this set of packages.
-          hipcc_path="$(dpkg -L hipcc | grep -m 1 '/bin/hipcc$')"
-          echo "ROCM_PATH=$(dirname "$(dirname "$hipcc_path")")" >> "$GITHUB_ENV"
+          echo "ROCM_PATH=/opt/rocm" >> "$GITHUB_ENV"
+          /opt/rocm/bin/hipcc --version
           df -h /
       - run: uv python install 3.14
       - run: uv sync --locked --no-install-package solprop-native
