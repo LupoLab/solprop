@@ -1706,16 +1706,16 @@ def free_space_memory(problem: KernelProblem, backend: str) -> dict[str, int]:
         )
         * 8,
         "error_partials": 3 * n_modes * n_pol * 8,
-        "spatial_coefficients": 4 * n_omega * 16 + 2 * n_omega * 8 + 4 * n_modes * 8,
+        "spatial_coefficients": 4 * n_omega * 16 + 3 * n_omega * 8 + 4 * n_modes * 8,
         "spatial_statistics_geometry": n_modes * (8 + 16),
         "spatial_statistics_partials": max(n_modes, transform.n_nodes) * 3 * 8,
         "host_problem_arrays": (
             # Per column: the on-axis factors, the four transverse rows and the weights.
             n_modes * (16 + 5 * 8)
-            # On the frequency axis: five complex rows, five real ones, the crop's index
+            # On the frequency axis: four complex rows, five real ones, the crop's index
             # and the two masks; the time window; the wavenumbers along the two axes;
             # the tableau's matrix, nodes and two rows of weights.
-            + n_omega * (4 * 16 + 4 * 8 + 8 + 2)
+            + n_omega * (4 * 16 + 5 * 8 + 8 + 2)
             + n_to * (16 + 8)
             + axes * 8
             + (n_stages * n_stages + 3 * n_stages) * 8

@@ -1122,7 +1122,7 @@ each amplitude is accumulated twice, as `sum alpha W E` and as its closure
 `sum alpha W conj(eta) E` (the internal spectrum takes the conjugate admittance). The
 admittance is formed per element, from the root the operator uses, never stored as a
 column-by-frequency table. The slots (`backends.spatial.far_field_layout`) are the
-present ones of `[beam, absorbed x 4, regions..., per aperture (collected, Re and Im of
+present ones of `[beam, absorbed x 5, regions..., per aperture (collected, Re and Im of
 the on-axis amplitude per polarisation, then of its closure), on-axis amplitude and
 closure]`. The last is the `W = 1` slot: `on_axis_spectrum` is formed there, which holds SEP 23's
 identity between the two to rounding by construction. `native` forms `on_axis_intensity` in
@@ -1145,7 +1145,7 @@ aperture statistic asked for (a periodic `beam_spectrum` sample) evaluate no wei
 The native `Problem` carries the stored axes `spatial_k_x` and `spatial_k_y` and the slot count of
 the problem's own request (`spatial_far_field_slots`), which sizes the band partials at construction
 (`far_field_partials` in the ledger, to the byte the estimate's row in
-`backends.memory.far_field_memory`). The call carries the tables, `(n_apertures, 6 + n_omega)` rows
+`backends.memory.far_field_memory`). The call carries the tables, `(n_apertures, 11 + n_omega)` rows
 of the host-formed constants and scale row and `(n_regions, 4)` boxes, which the native
 `far_field_tables` row holds with the axes and the packed output. A build declares the names it
 forms in `NativeBackend.far_field_statistics`; solprop's registry admits them by it and refuses them

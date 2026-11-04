@@ -478,7 +478,8 @@ CLASS_TABLE: Final[tuple[Row, ...]] = (
         tail=True,
     ),
     Row(
-        "configuration.absorber.{spectral_rate,temporal_rate,temporal_rate_fine}",
+        "configuration.absorber.{spectral_rate,temporal_rate,temporal_rate_fine,"
+        "user_rate}",
         _COMPARED,
         "rates with rounding tails",
         tail=True,

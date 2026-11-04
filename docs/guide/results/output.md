@@ -442,7 +442,10 @@ How a run resumes from its last plane depends on what that plane is:
 
 **Every field is recorded.** A record holds every field of every dataclass it
 serialises, at its default too, so a change that adds a field to a recorded dataclass
-moves the configuration hash. A resume compares the records path by path, so the new
+moves the configuration hash. The exceptions are optional extensions whose absence means
+what every earlier record means, left out while they are `None` (an aperture set's
+`shapes`, `profiles` and `extents`, an absorber's `user_rate`, an offline aperture's `shape`
+and `extent`); set, they are recorded. A resume compares the records path by path, so the new
 field refuses a resume of an earlier file unless a release declares its neutral value,
 the value that reproduces the code before it existed
 ([what a resume compares](resuming.md#what-a-resume-compares)). The test suite pins the
@@ -468,6 +471,19 @@ releases are therefore not compatible with one another: a file written by an ear
 build of the same schema may be refused, by name where the difference is known (a
 Multistep run's predictor orders, which are now recorded as `[order, count]` pairs,
 were one integer per step before), and is read with the build that wrote it.
+
+**Four columns of `absorbed_power`.** The fifth column, `custom`, folded into schema 2 the
+same way, and the first column became the collar alone. A file from an earlier development
+build still **reads**, showing the four columns as they were written, in the same positions
+as the first four now, its first column holding the spectral collar and any custom rate
+together. It is not **continued**: an append, a resume, forced or not, a cache check and a
+scan writer each refuse it by name, from the stored column count, before anything is
+written, because five numbers do not fit four columns and nothing stored can split that
+sum. Start a new file, or launch a new segment from a saved plane.
+
+A run with a non-zero `custom_absorber` rate also records the new `absorber.user_rate`, so
+even a file with no `absorbed_power` is not continued: the comparison names that field as
+absent from the stored record. A run with no custom rate keeps its record.
 
 ## A worked example
 

@@ -210,7 +210,7 @@ def test_every_page_states_the_schemas_the_code_writes():
     History, which names the version a change took, is not a statement of the
     current one; the SEP records are history throughout.
     """
-    assert KERNEL_SCHEMA_VERSION == 44
+    assert KERNEL_SCHEMA_VERSION == 45
     assert OUTPUT_SCHEMA_VERSION == 2
     assert soliton_schema_version_row().startswith("incremented on every change")
     written = {"kernel": KERNEL_SCHEMA_VERSION, "output": OUTPUT_SCHEMA_VERSION}

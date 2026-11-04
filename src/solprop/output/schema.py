@@ -54,7 +54,7 @@ import re
 import subprocess
 import weakref
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import Enum
@@ -79,6 +79,7 @@ from solprop.physdata.selection import MaterialManifest, hashed_document
 from solprop.stepper import FixedSchedule, PIController, Tableau
 
 __all__ = [
+    "EARLIER_ABSORBED_COLUMNS",
     "FIELD_LAYOUT",
     "HISTORY_FIELDS",
     "INLINE_ARRAY_LIMIT",
@@ -122,6 +123,7 @@ __all__ = [
     "field_retention_refusal",
     "package_versions",
     "recorded_input",
+    "refuse_earlier_absorbed_power",
     "resolve_metadata_write",
     "serialise",
 ]
@@ -152,6 +154,15 @@ version is refused by name (:class:`RunMetadata`): files written by an earlier r
 or by development versions of solprop, which declared output schemas up to 28, are not
 read, and nor is a file from a later release. Read such a file with the solprop version
 that wrote it.
+"""
+
+EARLIER_ABSORBED_COLUMNS = 4
+"""The columns of ``absorbed_power`` an earlier development build of schema 2 stored.
+
+The first holds the spectral collar and any custom rate together, so nothing stored can
+split it, and a new row has five. Such a file reads as it was written and is not
+continued (:func:`refuse_earlier_absorbed_power`; ADR-063's amendment: a known
+difference between development builds is refused by name).
 """
 
 INLINE_ARRAY_LIMIT = 2**20
@@ -251,6 +262,11 @@ def _serialise_dataclass(value: object) -> dict[str, JsonValue]:
     :class:`~solprop.modes.guide.ChannelSource` holds the provider object, whose
     identity the run records once beside its channels.
 
+    A field whose metadata says ``record_none=False`` is left out while it is ``None``:
+    an optional extension whose absence means what every earlier record means, so a run
+    that does not use it keeps its record and its hash (an aperture's shape, an
+    absorber's ``user_rate``). Set, it is recorded, and two different values hash apart.
+
     Parameters
     ----------
     value : object
@@ -270,7 +286,10 @@ def _serialise_dataclass(value: object) -> dict[str, JsonValue]:
     for entry in dataclasses.fields(value):  # type: ignore[arg-type] - checked by the caller
         if not entry.init or not entry.metadata.get("record", True):
             continue
-        record[entry.name] = serialise(getattr(value, entry.name))
+        held = getattr(value, entry.name)
+        if held is None and not entry.metadata.get("record_none", True):
+            continue
+        record[entry.name] = serialise(held)
     return record
 
 
@@ -2572,6 +2591,47 @@ def _refuse_schema(declared: object) -> None:
         "not read; read it with the solprop version that wrote it"
     )
     raise OutputError(msg)
+
+
+def refuse_earlier_absorbed_power(
+    where: object, shapes: Iterable[tuple[int, ...]]
+) -> None:
+    """Refuse to continue a file whose ``absorbed_power`` has the earlier columns.
+
+    The one check behind every door that continues a file: an append, a resume, a cache
+    check and a scan writer. It reads the stored shape, since the file's schema number
+    is this release's.
+
+    Parameters
+    ----------
+    where : object
+        The file, named in the refusal.
+    shapes : collections.abc.Iterable of tuple of int
+        The shapes of the stored ``absorbed_power`` datasets, each with a leading axis
+        of planes or rows.
+
+    Raises
+    ------
+    OutputError
+        If a dataset has :data:`EARLIER_ABSORBED_COLUMNS` columns.
+
+    Examples
+    --------
+    >>> from solprop.output.schema import refuse_earlier_absorbed_power
+    >>> refuse_earlier_absorbed_power("run.h5", [(3, 5), (0,)]) is None
+    True
+    """
+    if any(len(one) >= 2 and one[-1] == EARLIER_ABSORBED_COLUMNS for one in shapes):
+        msg = (
+            f"{where} holds absorbed_power in {EARLIER_ABSORBED_COLUMNS} columns, from "
+            "an earlier development build, whose first column holds the spectral "
+            "collar and any custom rate together; this build writes five, with the "
+            "collar alone first and the custom rate last, and nothing stored can split "
+            "that sum. The file still reads as it was written, and cannot be "
+            "continued, forced or not: start a new file, or launch a new segment from "
+            "a saved plane"
+        )
+        raise OutputError(msg)
 
 
 _HASHED_KEYS: tuple[str, ...] = (

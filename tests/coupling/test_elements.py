@@ -35,8 +35,10 @@ from solprop.optics import (
     TaylorPhase,
     littrow_angle,
 )
+from solprop.output.schema import SavedPlane, serialise
 from solprop.profiles import Linear
-from solprop.spatial import SpatialMedium
+from solprop.spatial import SpatialFlux, SpatialMedium
+from solprop.stats import ApertureSet, StatsSpec, collect
 
 BeamFactory = Callable[..., SpatialState]
 EPS = np.finfo(float).eps
@@ -515,3 +517,171 @@ def test_a_field_with_no_forward_flux_cannot_be_certified(
     state = SpatialState(grid, space, spectrum, air)
     with pytest.raises(CouplingError, match="no forward flux"):
         ThinLens(1.0, model_error=1e-3).apply(state)
+
+
+MASK_NODES = 64
+"""Nodes per axis of the mask plane in the offline comparison."""
+
+MASK_SPACING = 40e-6
+"""The node spacing of that plane, m."""
+
+MASK_WAIST = 3e-4
+"""The 1/e^2 intensity radius of its Gaussian, m."""
+
+MASK_DISTANCE = 0.25
+"""The distance the statistic's map uses, m."""
+
+
+def _statistic_share(apertures, grid, centre):
+    """Return an aperture's share of a far-field statistic's beam at one bin.
+
+    A spectrum on the columns whose images land on the mask plane's nodes at that bin,
+    with the amplitude the mask-plane Gaussian has there; the bin stands alone, since
+    the map is chromatic.
+    """
+    scale = MASK_DISTANCE * C / grid.omega[centre]
+    half_span = np.pi * scale / MASK_SPACING
+    columns = FreeGrid(
+        half_span, MASK_NODES, half_span, MASK_NODES, collar_fraction=0.0
+    )
+    kappa_x = -np.tile(columns.k_x, columns.n_y)
+    kappa_y = -np.repeat(columns.k_y, columns.n_x)
+    field = np.zeros((columns.n_columns, 1, grid.n_omega), dtype=complex)
+    field[:, 0, centre] = np.exp(
+        -(((scale * kappa_x) ** 2 + (scale * kappa_y) ** 2) / MASK_WAIST**2)
+    )
+    spec = StatsSpec(names=("aperture_spectrum", "beam_spectrum"), apertures=apertures)
+    flux = SpatialFlux.resolve(grid, columns, SpatialMedium())
+    values = collect(spec, grid, SavedPlane(z=0.0, field=field), flux=flux)
+    return values["aperture_spectrum"][0, centre] / values["beam_spectrum"][centre]
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        ("half_plane_x_ge", None, (1.1e-4, 0.0), {}),
+        ("half_plane_x_lt", None, (1.1e-4, 0.0), {}),
+        ("half_plane_y_ge", None, (0.0, -9e-5), {}),
+        ("half_plane_y_lt", None, (0.0, -9e-5), {}),
+        ("half_plane_x_ge", None, (1.1e-4, 0.0), {"edge": 6e-5, "kind": "tanh"}),
+        ("rectangle", (5.1e-4, 3.1e-4), (5e-5, 0.0), {}),
+        ("rectangle", (5.1e-4, 3.1e-4), (5e-5, 0.0), {"edge": 6e-5, "kind": "rcos"}),
+        (
+            "rectangle",
+            (5.1e-4, 3.1e-4),
+            (5e-5, 0.0),
+            {"edge": 2e-5, "kind": "tanh", "weighting": "quadrature"},
+        ),
+        ("ellipse", (5.1e-4, 3.1e-4), (5e-5, 0.0), {}),
+        ("ellipse", (5.1e-4, 3.1e-4), (5e-5, 0.0), {"edge": 6e-5, "kind": "rcos"}),
+    ],
+)
+def test_the_offline_aperture_agrees_with_the_statistic(
+    beam: BeamFactory, grid: EnvelopeGrid, centre: int, case
+):
+    # An offline mask in the plane, and the far-field statistic of the columns whose
+    # images land on that plane's nodes. Both sum W^p over one lattice with Gaussian
+    # weights. Their assumptions meet where the obliquity is one: each measure's axial
+    # flux departs from the plain sum by at most theta^2 / 2, with theta = pi c /
+    # (omega dx) on the mask's grid: 4.9e-5 here. The edges sit between the nodes, so
+    # the two lattices' rounding cannot move a hard decision.
+    shape, extent, at, options = case
+    half_span = MASK_NODES * MASK_SPACING / 2
+    space = FreeGrid(half_span, MASK_NODES, half_span, MASK_NODES, collar_fraction=0.0)
+    state = beam(space, MASK_WAIST)
+    report = (
+        Aperture(0.0, model_error=0.9, centre=at, shape=shape, extent=extent, **options)
+        .apply(state)
+        .report
+    )
+    offline = report.spectrum_out[centre] / report.spectrum_in[centre]
+    edge = options.get("edge")
+    statistic = _statistic_share(
+        ApertureSet(
+            centres=[list(at)],
+            diameters=[0.0],
+            distances=[MASK_DISTANCE],
+            shapes=(shape,),
+            extents=None if extent is None else [list(extent)],
+            edges=None if edge is None else [edge],
+            profile=options.get("kind", "hard"),
+            weighting=options.get("weighting", "amplitude"),
+        ),
+        grid,
+        centre,
+    )
+    assert 0.0 < statistic < 1.0
+    assert offline == pytest.approx(statistic, abs=1e-4)
+
+
+@pytest.mark.parametrize(
+    ("space", "options", "message"),
+    [
+        (RadialGrid(4e-3, 64), {"shape": "half_plane_x_ge"}, "cylindrical symmetry"),
+        (
+            RadialGrid(4e-3, 64),
+            {"shape": "rectangle", "extent": (1e-3, 1e-3)},
+            "cylindrical symmetry",
+        ),
+        (
+            FreeGrid(4e-3, 32, 4e-3, 32),
+            {"radius": 1e-3, "shape": "half_plane_x_ge"},
+            "radius",
+        ),
+        (FreeGrid(4e-3, 32, 4e-3, 32), {"shape": "rectangle"}, "positive full widths"),
+        (
+            FreeGrid(4e-3, 32, 4e-3, 32),
+            {"shape": "ellipse", "extent": (1e-3, 0.0)},
+            "positive full widths",
+        ),
+        (
+            FreeGrid(4e-3, 32, 4e-3, 32),
+            {"shape": "half_plane_x_ge", "extent": (1e-3, 1e-3)},
+            "needs no extent",
+        ),
+        (
+            FreeGrid(4e-3, 32, 4e-3, 32),
+            {"shape": "half_plane_x_lt", "centre": (0.0, 1e-3)},
+            "other centre must be zero",
+        ),
+        (
+            FreeGrid(4e-3, 32, 4e-3, 32),
+            {"radius": 1e-3, "extent": (1e-3, 1e-3)},
+            "a circle has a radius",
+        ),
+        (
+            FreeGrid(4e-3, 32, 4e-3, 32),
+            {"shape": "half_plane_x_lt", "centre": (float("nan"), 0.0)},
+            "centre must be finite",
+        ),
+        (
+            FreeGrid(4e-3, 32, 4e-3, 32),
+            {"radius": 1e-3, "centre": (float("inf"), 0.0)},
+            "centre must be finite",
+        ),
+        (
+            FreeGrid(4e-3, 32, 4e-3, 32),
+            {"shape": "ellipse", "extent": (float("nan"), 1e-3)},
+            "positive full widths",
+        ),
+    ],
+)
+def test_a_shaped_aperture_refuses_by_name(beam: BeamFactory, space, options, message):
+    state = beam(space, 5e-4)
+    arguments = {"radius": 0.0, "model_error": 0.9, **options}
+    with pytest.raises(CouplingError, match=message):
+        Aperture(**arguments).apply(state)
+
+
+def test_a_half_plane_refuses_a_supergauss_edge_offline(beam: BeamFactory):
+    state = beam(FreeGrid(4e-3, 32, 4e-3, 32), 5e-4)
+    with pytest.raises(CouplingError, match="a half-plane has none"):
+        Aperture(
+            0.0, model_error=0.9, edge=4.0, kind="supergauss", shape="half_plane_x_ge"
+        ).apply(state)
+
+
+def test_naming_the_default_circle_records_nothing_new():
+    named = Aperture(1e-3, model_error=0.1, shape="circle")
+    assert named.shape is None
+    assert serialise(named) == serialise(Aperture(1e-3, model_error=0.1))

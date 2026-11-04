@@ -9954,6 +9954,7 @@ def _with_boundary(
             else dataclasses.replace(
                 current,
                 spectral_rate=np.zeros_like(current.spectral_rate),
+                user_rate=None,
                 temporal_rate=np.zeros(grid.n_t),
                 temporal_rate_fine=np.zeros(grid.n_to),
                 temporal=False,

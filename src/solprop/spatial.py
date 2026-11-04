@@ -43,17 +43,21 @@ if TYPE_CHECKING:
 __all__ = [
     "ABSORBED_CHANNELS",
     "APERTURE_PROFILES",
+    "APERTURE_SHAPES",
     "EDGE_MOMENTS",
     "EVANESCENT_RATE",
     "FAR_FIELD_STATISTICS",
     "OPERATOR_STATISTICS",
+    "ApertureOutline",
     "ApertureProfile",
+    "ApertureShape",
     "ApertureTables",
     "AxialFactors",
     "FluxSide",
     "SpatialDispersion",
     "SpatialFlux",
     "SpatialMedium",
+    "aperture_outline",
     "aperture_profile",
     "aperture_scale",
     "aperture_statistics",
@@ -61,8 +65,11 @@ __all__ = [
     "beam_radius",
     "cartesian_fluence_widths",
     "check_aperture_profile",
+    "check_aperture_shape",
     "critical_power",
+    "edge_profile",
     "fwhm_r",
+    "mask_plane_offsets",
     "mask_plane_radius",
     "on_axis_intensity",
     "on_axis_spectrum",
@@ -1664,6 +1671,33 @@ ApertureProfile = Literal["hard", "tanh", "rcos", "supergauss"]
 APERTURE_PROFILES: tuple[ApertureProfile, ...] = ("hard", "tanh", "rcos", "supergauss")
 """Every aperture edge profile, in the order of their integer profile codes."""
 
+ApertureShape = Literal[
+    "circle",
+    "ellipse",
+    "rectangle",
+    "half_plane_x_ge",
+    "half_plane_x_lt",
+    "half_plane_y_ge",
+    "half_plane_y_lt",
+]
+"""The outline of a far-field aperture (``docs/guide/results/statistics.md``).
+
+A half-plane's name states the side it keeps, as an inequality on the physical
+mask-plane coordinate: ``half_plane_x_ge`` is ``x >= X``, ``half_plane_x_lt`` is
+``x < X``.
+"""
+
+APERTURE_SHAPES: tuple[ApertureShape, ...] = (
+    "circle",
+    "ellipse",
+    "rectangle",
+    "half_plane_x_ge",
+    "half_plane_x_lt",
+    "half_plane_y_ge",
+    "half_plane_y_lt",
+)
+"""Every aperture outline, in the order of their integer shape codes."""
+
 EDGE_MOMENTS: Mapping[str, float] = MappingProxyType(
     {"hard": 0.0, "tanh": math.pi**2 / 48, "rcos": 0.25 - 2 / math.pi**2}
 )
@@ -1698,16 +1732,22 @@ ABSORBED_CHANNELS: tuple[str, ...] = (
     "transverse",
     "evanescent",
     "material",
+    "custom",
 )
-"""The channels of ``absorbed_power``, in the order of its four entries."""
+"""The channels of ``absorbed_power``, in the order of its five entries.
+
+``spectral`` is the spectral collar alone and ``custom`` the user's rate
+(:attr:`solprop.boundaries.Absorber.user_rate`). A file from an earlier development
+build has four columns, in these positions, with both in ``spectral``.
+"""
 
 AxialFactors = Callable[[slice], tuple[np.ndarray, np.ndarray | None]]
 """Per-chunk admittance and absorption rates of the plane's medium (SEP 34).
 
 Called with a slice of transverse columns, it returns the dimensionless complex
 admittance ``c k_z/omega``, shape ``(n_chunk, n_omega)``, zero on bins that are no
-forward power port, and the four power rates of :data:`ABSORBED_CHANNELS` in 1/m,
-shape ``(4, n_chunk, n_omega)``, or None where the run's operator is not available
+forward power port, and the power rates of :data:`ABSORBED_CHANNELS` in 1/m,
+shape ``(5, n_chunk, n_omega)``, or None where the run's operator is not available
 (a saved plane). :func:`solprop.translate.spatial.axial_factors` is the in-run
 implementation and :meth:`SpatialFlux.admittance` the saved-plane one.
 """
@@ -1742,6 +1782,100 @@ def check_aperture_profile(kind: object) -> None:
     if kind not in APERTURE_PROFILES:
         msg = f"unknown aperture profile {kind!r}; choose one of {APERTURE_PROFILES}"
         raise OutputError(msg)
+
+
+def check_aperture_shape(kind: object) -> None:
+    """Refuse, by name, anything that is not one of the aperture outlines.
+
+    It takes any object, because a caller outside the test session's runtime type
+    checker can pass anything.
+
+    Parameters
+    ----------
+    kind : object
+        The outline asked for.
+
+    Raises
+    ------
+    OutputError
+        If `kind` is not in :data:`APERTURE_SHAPES`.
+
+    Examples
+    --------
+    >>> from solprop.spatial import check_aperture_shape
+    >>> check_aperture_shape("half_plane_x_ge") is None
+    True
+    """
+    if kind not in APERTURE_SHAPES:
+        msg = f"unknown aperture shape {kind!r}; choose one of {APERTURE_SHAPES}"
+        raise OutputError(msg)
+
+
+def edge_profile(
+    distance: ArrayLike | float, edge: float, kind: ApertureProfile
+) -> Float[np.ndarray, "*shape"]:
+    r"""Return an edge's weight at signed distances from it, negative on the inside.
+
+    The seam every outline shares. A circle passes ``rho - r``; a half-plane has no
+    radius, and passes the signed distance of the image from its edge. With
+    ``t = u/w``: ``hard``, one for ``u <= 0`` and zero beyond; ``tanh``,
+    :math:`\tfrac12[1-\tanh t]`; ``rcos``, :math:`\tfrac12[1-\sin(\pi t/2)]` with
+    ``t`` clipped to ``[-1, 1]``, exactly one at ``t <= -1`` and exactly zero at
+    ``t >= 1``. ``tanh`` and ``rcos`` satisfy the edge symmetry
+    :math:`W(u)+W(-u)=1`. The sign of a difference of two finite floats is exact, so
+    ``hard`` on ``rho - r`` decides as ``rho <= r`` does on every input.
+
+    Parameters
+    ----------
+    distance : array_like or float
+        The signed distance ``u`` from the edge in m, negative inside.
+    edge : float
+        The edge width ``w`` in m for ``tanh`` and ``rcos``, finite and positive; not
+        used for ``hard``.
+    kind : {'hard', 'tanh', 'rcos'}
+        The edge profile. ``supergauss`` is a function of the distance from a centre,
+        not from an edge, and is refused.
+
+    Returns
+    -------
+    numpy.ndarray
+        The dimensionless weight in ``[0, 1]``, the shape of `distance`.
+
+    Raises
+    ------
+    OutputError
+        If the profile is unknown or ``supergauss``, or the edge width is not finite
+        and positive where it is used.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from solprop.spatial import edge_profile
+    >>> edge_profile(np.array([-1.0, 0.0, 1.0]), 0.0, "hard").tolist()
+    [1.0, 1.0, 0.0]
+    >>> edge_profile(np.array([-0.2, 0.0, 0.2]), 0.1, "rcos").tolist()
+    [1.0, 0.5, 0.0]
+    """
+    check_aperture_profile(kind)
+    signed = np.asarray(distance, dtype=np.float64)
+    if kind == "hard":
+        return np.asarray(np.where(signed <= 0.0, 1.0, 0.0))
+    if kind == "supergauss":
+        msg = "a supergauss profile falls from a centre and has no edge to measure from"
+        raise OutputError(msg)
+    if not math.isfinite(edge) or edge <= 0:
+        msg = f"a {kind} aperture needs a finite positive edge width, got {edge}"
+        raise OutputError(msg)
+    argument = signed * (1.0 / edge)
+    if kind == "tanh":
+        return np.asarray(0.5 * (1.0 - np.tanh(argument)))
+    clipped = np.clip(argument, -1.0, 1.0)
+    # Exactly one and zero beyond the edge, whatever sin(+-pi/2) rounds to: the
+    # compact support is a structural property a pass may rely on (the early-out).
+    edge_values = 0.5 * (1.0 - np.sin((0.5 * math.pi) * clipped))
+    return np.asarray(
+        np.where(argument <= -1.0, 1.0, np.where(argument >= 1.0, 0.0, edge_values))
+    )
 
 
 def aperture_profile(
@@ -1809,8 +1943,6 @@ def aperture_profile(
         msg = f"an aperture half-width must be finite and positive, got {half_width}"
         raise OutputError(msg)
     rho = np.asarray(radius, dtype=np.float64)
-    if kind == "hard":
-        return np.asarray(np.where(rho <= half_width, 1.0, 0.0))
     if kind == "supergauss":
         if not math.isfinite(edge) or edge < 2:
             msg = (
@@ -1818,19 +1950,7 @@ def aperture_profile(
             )
             raise OutputError(msg)
         return np.asarray(np.exp(-((rho / half_width) ** edge)))
-    if not math.isfinite(edge) or edge <= 0:
-        msg = f"a {kind} aperture needs a finite positive edge width, got {edge}"
-        raise OutputError(msg)
-    argument = (rho - half_width) * (1.0 / edge)
-    if kind == "tanh":
-        return np.asarray(0.5 * (1.0 - np.tanh(argument)))
-    clipped = np.clip(argument, -1.0, 1.0)
-    # Exactly one and zero beyond the edge, whatever sin(+-pi/2) rounds to: the
-    # compact support is a structural property a pass may rely on (the early-out).
-    edge_values = 0.5 * (1.0 - np.sin((0.5 * math.pi) * clipped))
-    return np.asarray(
-        np.where(argument <= -1.0, 1.0, np.where(argument >= 1.0, 0.0, edge_values))
-    )
+    return edge_profile(rho - half_width, edge, kind)
 
 
 def quadrature_half_width(
@@ -1930,6 +2050,48 @@ def aperture_scale(
     return scale
 
 
+def mask_plane_offsets(
+    scale: Float[np.ndarray, " n_omega"],
+    k_x: Float[np.ndarray, " n_chunk"],
+    k_y: Float[np.ndarray, " n_chunk"],
+    centre: Sequence[float] | np.ndarray,
+) -> tuple[Float[np.ndarray, "n_chunk n_omega"], Float[np.ndarray, "n_chunk n_omega"]]:
+    r"""Return each column's offsets ``X - x`` and ``Y - y`` from a mask-plane point.
+
+    With the stored column axes :math:`k^{(s)}=-\kappa` (SEP 23 section 4.1) and the
+    paraxial image :math:`x=s\kappa_x`, the offset is
+    :math:`s k^{(s)}_x+X=X-x`, evaluated as written: a product and a sum, each rounded
+    on its own, so that an edge decides identically on every backend that does the
+    same. A column's image lies at ``x >= X`` exactly where the offset is not positive.
+
+    Parameters
+    ----------
+    scale : numpy.ndarray
+        The aperture's row of :func:`aperture_scale`, m^2, shape ``(n_omega,)``.
+    k_x, k_y : numpy.ndarray
+        Each column's stored transverse wavevector in rad/m, shape ``(n_chunk,)``.
+    centre : sequence of float or numpy.ndarray
+        The point ``(X, Y)`` in the mask plane, physical axes, in m.
+
+    Returns
+    -------
+    tuple of numpy.ndarray
+        ``X - x`` and ``Y - y`` in m, each of shape ``(n_chunk, n_omega)``.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from solprop.spatial import mask_plane_offsets
+    >>> scale, k_x, k_y = np.array([1.0]), np.array([-3.0]), np.zeros(1)
+    >>> across, along = mask_plane_offsets(scale, k_x, k_y, (1.0, 4.0))
+    >>> across.tolist(), along.tolist()
+    ([[-2.0]], [[4.0]])
+    """
+    across = scale[None, :] * k_x[:, None] + float(centre[0])
+    along = scale[None, :] * k_y[:, None] + float(centre[1])
+    return across, along
+
+
 def mask_plane_radius(
     scale: Float[np.ndarray, " n_omega"],
     k_x: Float[np.ndarray, " n_chunk"],
@@ -1968,9 +2130,168 @@ def mask_plane_radius(
     >>> radius.tolist()
     [[4.0]]
     """
-    across = scale[None, :] * k_x[:, None] + float(centre[0])
-    along = scale[None, :] * k_y[:, None] + float(centre[1])
+    across, along = mask_plane_offsets(scale, k_x, k_y, centre)
     return np.sqrt(across * across + along * along)
+
+
+@dataclass(frozen=True)
+class ApertureOutline:
+    r"""One aperture's weight as a function of its image's offsets (SEP 23, #186).
+
+    The seam the far-field statistics and the offline
+    :class:`solprop.coupling.elements.Aperture` share. A circle is
+    :func:`aperture_profile` of the distance from the centre; an ellipse the same of the
+    distance in the frame
+    where it is a circle of radius ``sqrt(a b)``, so its edge width in metres is
+    ``w a/sqrt(a b)`` along x and ``w b/sqrt(a b)`` along y; a rectangle the product
+    :math:`W(|x|)W(|y|)` of two straight edges, closed like a circle; and a half-plane
+    :func:`edge_profile` of the offset across its one edge, half-open, its complement
+    ``1 - W``, so that a half-plane and its complement sum to one on every column, to
+    the bit for ``hard``. Build one with :func:`aperture_outline`.
+
+    Attributes
+    ----------
+    shape : str
+        The outline, one of :data:`APERTURE_SHAPES`.
+    half_width : float
+        The profile's half-width in m: the radius of a circle or of an ellipse's
+        scaled frame, corrected under quadrature weighting; a rectangle's half-width
+        along x; zero on a half-plane.
+    half_height : float
+        A rectangle's half-width along y in m; zero otherwise.
+    stretch : tuple of float
+        The dimensionless factors on ``(across, along)`` that make an ellipse a
+        circle; ``(1.0, 1.0)`` otherwise.
+    edge : float
+        The edge width in m for ``tanh`` and ``rcos``, the order for ``supergauss``,
+        unused for ``hard``.
+    kind : {'hard', 'tanh', 'rcos', 'supergauss'}
+        The edge profile.
+    """
+
+    shape: ApertureShape
+    half_width: float
+    half_height: float
+    stretch: tuple[float, float]
+    edge: float
+    kind: ApertureProfile
+
+    def weight(
+        self, across: Float[np.ndarray, "*shape"], along: Float[np.ndarray, "*shape"]
+    ) -> Float[np.ndarray, "*shape"]:
+        """Return the weight of images at the offsets ``X - x`` and ``Y - y``.
+
+        Parameters
+        ----------
+        across, along : numpy.ndarray
+            The offsets in m (:func:`mask_plane_offsets`), of one shape.
+
+        Returns
+        -------
+        numpy.ndarray
+            The dimensionless weight ``W`` in ``[0, 1]``, of that shape.
+
+        Examples
+        --------
+        >>> import numpy as np
+        >>> from solprop.spatial import aperture_outline
+        >>> outline = aperture_outline("half_plane_x_ge", 0.0, (0.0, 0.0), 0.0, "hard")
+        >>> outline.weight(np.array([-1.0, 0.0, 1.0]), np.zeros(3)).tolist()
+        [1.0, 1.0, 0.0]
+        """
+        if self.shape == "circle":
+            radius = np.sqrt(across * across + along * along)
+            return aperture_profile(radius, self.half_width, self.edge, self.kind)
+        if self.shape == "ellipse":
+            scaled_x = self.stretch[0] * across
+            scaled_y = self.stretch[1] * along
+            radius = np.sqrt(scaled_x * scaled_x + scaled_y * scaled_y)
+            return aperture_profile(radius, self.half_width, self.edge, self.kind)
+        if self.shape == "rectangle":
+            return aperture_profile(
+                np.abs(across), self.half_width, self.edge, self.kind
+            ) * aperture_profile(np.abs(along), self.half_height, self.edge, self.kind)
+        offset = across if self.shape.startswith("half_plane_x") else along
+        kept = edge_profile(offset, self.edge, self.kind)
+        return kept if self.shape.endswith("_ge") else 1.0 - kept
+
+
+def aperture_outline(
+    shape: ApertureShape,
+    diameter: float,
+    extent: tuple[float, float],
+    edge: float,
+    kind: ApertureProfile,
+    *,
+    corrected: bool = False,
+) -> ApertureOutline:
+    r"""Return the constants of one aperture's outline, for the statistics and offline.
+
+    Under quadrature weighting a circle's profile is evaluated at the corrected
+    half-width of :func:`quadrature_half_width`. So is an ellipse's: the map to its
+    circular frame has a constant Jacobian, so
+    :math:`\int W\,dA=(ab/r^2)\,\pi r^2=\pi ab` holds exactly where the circle's
+    :math:`\pi r^2` does, and the residual for a varying intensity keeps its order. A
+    rectangle's and a half-plane's edges are straight and need no correction: the edge
+    symmetry alone gives ``W`` the hard edge's integral.
+
+    Parameters
+    ----------
+    shape : str
+        The outline, one of :data:`APERTURE_SHAPES`.
+    diameter : float
+        A circle's diameter in m; not used otherwise.
+    extent : tuple of float
+        The full widths along x and y of an ellipse or a rectangle in m; not used
+        otherwise.
+    edge : float
+        The edge width in m for ``tanh`` and ``rcos``, the order for ``supergauss``,
+        unused for ``hard``.
+    kind : {'hard', 'tanh', 'rcos', 'supergauss'}
+        The edge profile.
+    corrected : bool, optional
+        Whether a circle's or an ellipse's half-width takes the quadrature correction.
+
+    Returns
+    -------
+    ApertureOutline
+        The outline's constants.
+
+    Raises
+    ------
+    OutputError
+        If the shape is unknown, ``supergauss`` is asked of a half-plane, or the
+        quadrature correction does not apply.
+
+    Examples
+    --------
+    >>> from solprop.spatial import aperture_outline
+    >>> aperture_outline("rectangle", 0.0, (2.0, 4.0), 0.0, "hard").half_height
+    2.0
+    >>> ellipse = aperture_outline("ellipse", 0.0, (1.0, 4.0), 0.0, "hard")
+    >>> ellipse.half_width, ellipse.stretch
+    (1.0, (2.0, 0.5))
+    """
+    check_aperture_shape(shape)
+    check_aperture_profile(kind)
+    half_x, half_y = 0.5 * extent[0], 0.5 * extent[1]
+    half_width, half_height, stretch = 0.0, 0.0, (1.0, 1.0)
+    if shape == "circle":
+        half_width = diameter / 2
+    elif shape == "ellipse":
+        half_width = math.sqrt(half_x * half_y)
+        stretch = (half_width / half_x, half_width / half_y)
+    elif shape == "rectangle":
+        half_width, half_height = half_x, half_y
+    elif kind == "supergauss":
+        msg = (
+            "a supergauss profile falls from a centre, and a half-plane has none; "
+            "use a hard, tanh or rcos edge"
+        )
+        raise OutputError(msg)
+    if corrected and shape in ("circle", "ellipse"):
+        half_width = float(quadrature_half_width(half_width, edge, kind))
+    return ApertureOutline(shape, half_width, half_height, stretch, edge, kind)
 
 
 @dataclass(frozen=True, eq=False)
@@ -1999,7 +2320,7 @@ class ApertureTables:
         Aperture centres in the mask plane, physical axes, in m, shape
         ``(n_apertures, 2)``.
     half_widths : numpy.ndarray
-        The profiles' half-widths in m, ``D/2`` or ``D_q/2``, shape
+        The profiles' half-widths in m (:class:`ApertureOutline`), shape
         ``(n_apertures,)``.
     edges : numpy.ndarray
         Edge widths in m (``tanh``, ``rcos``), orders (``supergauss``), or zeros
@@ -2009,17 +2330,25 @@ class ApertureTables:
     scale : numpy.ndarray
         :func:`aperture_scale` of the distances, m^2, shape ``(n_apertures,
         n_omega)``, zero at and below zero frequency.
-    profile : {'hard', 'tanh', 'rcos', 'supergauss'}
-        The edge profile the set shares.
+    profiles : tuple of str or None
+        Each aperture's edge profile; ``None`` is ``hard`` on every row.
     exponent : int
         The power of the weight in ``aperture_spectrum``: 2 for amplitude
         weighting, 1 for quadrature weighting.
+    shapes : tuple of str or None
+        Each aperture's outline; ``None`` is ``circle`` on every row.
+    half_heights : numpy.ndarray or None
+        Each rectangle's half-width along y in m, zero on other rows, shape
+        ``(n_apertures,)``; ``None`` is zeros.
+    stretches : numpy.ndarray or None
+        The factors that make each ellipse a circle, ones on other rows, shape
+        ``(n_apertures, 2)``; ``None`` is ones.
 
     Raises
     ------
     OutputError
-        If the arrays disagree in shape, the profile is unknown or the exponent is
-        not 1 or 2.
+        If the arrays disagree in shape, a profile or a shape is unknown or the
+        exponent is not 1 or 2.
     """
 
     k_x: Float[np.ndarray, " n_kx"]
@@ -2032,11 +2361,19 @@ class ApertureTables:
     edges: Float[np.ndarray, " n_edge_values"]
     distances: Float[np.ndarray, " n_distances"]
     scale: Float[np.ndarray, "n_scale_rows n_scale_omega"]
-    profile: ApertureProfile = "hard"
+    profiles: tuple[ApertureProfile, ...] | None = None
     exponent: int = 2
+    shapes: tuple[ApertureShape, ...] | None = None
+    half_heights: Float[np.ndarray, " n_half_heights"] | None = None
+    stretches: Float[np.ndarray, "n_stretch_rows 2"] | None = None
 
     def __post_init__(self) -> None:
         """Own read-only copies and check that the tables agree with each other."""
+        count = np.size(self.half_widths)
+        if self.half_heights is None:
+            object.__setattr__(self, "half_heights", np.zeros(count))
+        if self.stretches is None:
+            object.__setattr__(self, "stretches", np.ones((count, 2)))
         for name in (
             "k_x",
             "k_y",
@@ -2048,6 +2385,8 @@ class ApertureTables:
             "edges",
             "distances",
             "scale",
+            "half_heights",
+            "stretches",
         ):
             values = np.array(
                 getattr(self, name),
@@ -2058,6 +2397,7 @@ class ApertureTables:
             values.setflags(write=False)
             object.__setattr__(self, name, values)
         n_apertures = self.half_widths.size
+        assert self.half_heights is not None and self.stretches is not None  # above
         if (
             self.weights.shape != (self.k_x.size * self.k_y.size,)
             or self.on_axis.shape != self.weights.shape
@@ -2068,10 +2408,22 @@ class ApertureTables:
             or self.distances.shape != (n_apertures,)
             or self.scale.ndim != 2
             or self.scale.shape[0] != n_apertures
+            or self.half_heights.shape != (n_apertures,)
+            or self.stretches.shape != (n_apertures, 2)
         ):
             msg = "aperture tables disagree in shape with each other or the columns"
             raise OutputError(msg)
-        check_aperture_profile(self.profile)
+        profiles = ("hard",) * n_apertures if self.profiles is None else self.profiles
+        shapes = ("circle",) * n_apertures if self.shapes is None else self.shapes
+        if len(profiles) != n_apertures or len(shapes) != n_apertures:
+            msg = "aperture tables need one profile and one shape per aperture"
+            raise OutputError(msg)
+        for profile in profiles:
+            check_aperture_profile(profile)
+        for shape in shapes:
+            check_aperture_shape(shape)
+        object.__setattr__(self, "profiles", tuple(profiles))
+        object.__setattr__(self, "shapes", tuple(shapes))
         if self.exponent not in (1, 2):
             msg = f"aperture tables need an exponent of 1 or 2, got {self.exponent!r}"
             raise OutputError(msg)
@@ -2110,15 +2462,33 @@ class ApertureTables:
         return int(self.regions.shape[0])
 
     @property
-    def profile_code(self) -> int:
-        """Return the profile's integer code, its index in :data:`APERTURE_PROFILES`.
+    def profile_codes(self) -> Float[np.ndarray, " n_apertures"]:
+        """Return each row's profile code, its index in :data:`APERTURE_PROFILES`.
 
         Returns
         -------
-        int
-            0 for ``hard``, 1 for ``tanh``, 2 for ``rcos``, 3 for ``supergauss``.
+        numpy.ndarray
+            0 for ``hard``, 1 for ``tanh``, 2 for ``rcos``, 3 for ``supergauss``, as
+            float64 for a compiled pass's row, shape ``(n_apertures,)``.
         """
-        return APERTURE_PROFILES.index(self.profile)
+        assert self.profiles is not None  # filled in at construction
+        return np.array(
+            [APERTURE_PROFILES.index(one) for one in self.profiles], dtype=np.float64
+        )
+
+    @property
+    def shape_codes(self) -> Float[np.ndarray, " n_apertures"]:
+        """Return each row's shape code, its index in :data:`APERTURE_SHAPES`.
+
+        Returns
+        -------
+        numpy.ndarray
+            The codes as float64 for a compiled pass's row, shape ``(n_apertures,)``.
+        """
+        assert self.shapes is not None  # filled in at construction
+        return np.array(
+            [APERTURE_SHAPES.index(one) for one in self.shapes], dtype=np.float64
+        )
 
     @property
     def inverse_widths(self) -> Float[np.ndarray, " n_apertures"]:
@@ -2127,12 +2497,40 @@ class ApertureTables:
         Returns
         -------
         numpy.ndarray
-            ``1/w`` in 1/m for ``tanh`` and ``rcos``, zeros otherwise, shape
-            ``(n_apertures,)``: the factor :func:`aperture_profile` forms itself.
+            ``1/w`` in 1/m on ``tanh`` and ``rcos`` rows, zeros otherwise, shape
+            ``(n_apertures,)``: the factor :func:`edge_profile` forms itself.
         """
-        if self.profile in ("tanh", "rcos"):
-            return 1.0 / self.edges
-        return np.zeros(self.n_apertures)
+        assert self.profiles is not None  # filled in at construction
+        smooth = np.array(
+            [one in ("tanh", "rcos") for one in self.profiles], dtype=bool
+        )
+        widths = np.zeros(self.n_apertures)
+        widths[smooth] = 1.0 / self.edges[smooth]
+        return widths
+
+    def outline(self, index: int) -> ApertureOutline:
+        """Return one row's outline.
+
+        Parameters
+        ----------
+        index : int
+            The aperture.
+
+        Returns
+        -------
+        ApertureOutline
+            Its constants.
+        """
+        assert self.profiles is not None and self.shapes is not None  # filled in
+        assert self.half_heights is not None and self.stretches is not None
+        return ApertureOutline(
+            self.shapes[index],
+            float(self.half_widths[index]),
+            float(self.half_heights[index]),
+            (float(self.stretches[index, 0]), float(self.stretches[index, 1])),
+            float(self.edges[index]),
+            self.profiles[index],
+        )
 
 
 def _aperture_weight(
@@ -2155,18 +2553,13 @@ def _aperture_weight(
     Returns
     -------
     numpy.ndarray
-        ``W_a(rho_a(c, k))``, exactly zero at and below zero frequency and wherever
-        the column's image lies at or beyond the mask plane's distance from the
-        origin (SEP 23 sections 4.2 and 4.10), shape ``(n_chunk, n_omega)``.
+        ``W_a`` of the column's image, exactly zero at and below zero frequency and
+        wherever the column's image lies at or beyond the mask plane's distance from
+        the origin (SEP 23 sections 4.2 and 4.10), shape ``(n_chunk, n_omega)``.
     """
     scale = tables.scale[index]
-    radius = mask_plane_radius(scale, k_x, k_y, tables.centres[index])
-    weight = aperture_profile(
-        radius,
-        float(tables.half_widths[index]),
-        float(tables.edges[index]),
-        tables.profile,
-    )
+    across, along = mask_plane_offsets(scale, k_x, k_y, tables.centres[index])
+    weight = tables.outline(index).weight(across, along)
     # |kappa| >= omega/c lands at or beyond z_m and cannot leave the exit face; the
     # unbounded tanh and supergauss tails would otherwise reach those columns.
     origin = mask_plane_radius(scale, k_x, k_y, (0.0, 0.0))
@@ -2193,7 +2586,7 @@ def aperture_statistics(
     aperture in a Fourier plane, the same-frequency pairing of the coherent
     :math:`A_{a,q}=\sum_c\alpha_cW_aE_{c,q}` with its magnetic closure; the spectrum
     in each box of physical transverse wavevector; the beam spectrum; and the power
-    the spectral, transverse, evanescent and material channels of the linear
+    the spectral, transverse, evanescent, material and custom channels of the linear
     operator remove, :math:`P_j=\tfrac{\varepsilon_0c}{2}\sum_cw_c\sum_{q,k}
     \nu_k\eta r_j|E|^2`. It walks the columns in chunks, forms the
     polarisation-summed spectral density once per chunk and adds the chunk partials
@@ -2225,7 +2618,7 @@ def aperture_statistics(
         J/(rad/s), shapes ``(n_apertures, n_omega)`` and ``(n_regions, n_omega)``;
         ``aperture_on_axis_spectrum`` in J s/m^2, ``(n_apertures, n_omega)``;
         ``beam_spectrum`` in J/(rad/s), ``(n_omega,)``;
-        ``absorbed_power`` in J/m, ``(4,)``, in the order of
+        ``absorbed_power`` in J/m, ``(5,)``, in the order of
         :data:`ABSORBED_CHANNELS`. On a line the spectra and powers are per metre
         of y, and the on-axis spectra stay local.
 
