@@ -2314,6 +2314,70 @@ Other work shared the machine during the three-round rows, which is their spread
 when it was quieter, 1.076 and 1.077 before. `planar`'s and `radial_filament_256`'s statistics took only the small change
 to their packed output and fluence, and the same comparison before the on-axis change gave 1.003 and 0.999 at 9 threads.
 
+### A device step beyond its transforms
+
+A low-storage step of the Kerr beam of `python -m benchmarks.device_split` at 768 x 768 x 600 with no boundary check, as `LowStorageRungeKutta` runs it on the Cartesian
+route, was 239 ms on an NVIDIA H200 and 224 ms on an AMD Instinct MI325X, 112 to 144 ms of it in its eight rank-3 transforms. These changes take what lies beside them.
+**No data-centre card was run for this entry.** Its numbers are launch counts, which do not depend on the card, and times on an NVIDIA A40 (CUDA 12.8.1, `AMPERE86`, an
+AMD EPYC 7543 host, 16 threads), whose binary64 rate is a sixty-fourth of its binary32 rate, so its share of each kernel says little about an H200. They were taken at
+`cb2cb068` against the merge base `43ddefab`, by a Kokkos Tools trace of that one case with a fence around each kernel.
+
+| Per step, 768 x 768 x 600 | Before | Collar in place | A whole state on a device |
+|---|---:|---:|---:|
+| Kernels | 330 | 119 | 14 |
+| Transforms | 220 | 220 | 10 |
+
+| NVIDIA A40, ms per step | Before | After |
+|---|---:|---:|
+| Eight rank-3 transforms | 1,840 | 1,840 |
+| The collar's transforms | 142 | 136 |
+| The collar's copies in and out | 41.4 | none |
+| The collar's factor and band mask | 21.0 | 22.0 |
+| Fold, passes 1 to 4 | 134, 64, 129, 123 | 121, 62, 115, 109 |
+| Kerr | 118 | 118 |
+| Input | 42.5 | 24.9 |
+| Whole step, no fences | 2,660 | 2,557 |
+
+The whole step takes 0.961 of its time at 768 x 768 x 600 and 0.956 at 384 x 384 x 600 (589 to 563 ms): three interleaved rounds of fresh processes, whose medians spread by
+0.1 %. `python -m benchmarks ab --device --length 0.3` against the merge base, three rounds, the same steps: `kerr_beam_384` 0.974 (0.972–0.995), `kerr_beam_192` 1.030
+(0.954–1.036, a window of two steps, inside its spread), fields to 3.3e-16; `rdw` 1.000, `he_rdw_averaged` 1.002, `radial_filament_256` 1.000, fields bitwise.
+
+**The collar** depends on time alone, so its transform pair runs in place on the state's own rows, with the normalisation on the factor. Most of the A40's gain is the two
+copies gone at the node chunk: 2,578.6 ms a step, against 2,574.6 for a whole state on the same build. What a whole state saves is launches, and each rocFFT transform is four
+kernels, so what they are worth takes a data-centre card to say. cuFFT's work area is small here: at 589,824 rows of 600 points each plan holds 9 MiB, in place or
+not, 0.1 MiB at the node chunk. The plans' device growth rises by 20 MiB and the two coarse buffers' 102 MiB go, so a device run's default memory falls by 82 MiB of its 38.5 GiB. What rocFFT holds was not measured. A stated `node_budget`
+keeps the block to the chunk. A CPU keeps the chunk too: on an Intel Xeon Gold 6240, nine cores, at 384 x 384 x 600, FFTW's threaded plan of a whole state took
+2.5 s a step in transforms against 1.5 s.
+
+**The fold.** A flow's magnitude on a lossless bin is `exp(+-0)`, exactly one, and took a binary64 `exp` per element: 13.4 ms a pass on the A40, whose reduced binary64 rate
+overstates it. Runge-Kutta's `stage_input` and `finish_transform` fall by 13 % the same way. The flowless pass forms no exponent (64.3 to 61.5 ms). The first input crosses the
+plane's stride through tiles of team scratch (42.5 to 24.9 ms). On a host the branch is out of line: inlined there, it took the tabulated fold's kernel past GCC's inlining limit,
+though a tabulated fold never takes it, every pass 40 % slower and `kerr_beam_384` 1.056.
+
+**Dropped, for no gain on the A40.** Pass 3's dead read of register A: the fourth pass took 13.5 ms less against 13.4 for the other flows' `exp`, so the read is worth 0.1 ms.
+Folding `finish` into the step: the mask it would fold is 1.5 ms of a step on the A40, and a collar's kernels cannot fold. A Kerr pass over a two-dimensional range instead of a division per element:
+117.9 ms either way. The modal routes' two accumulator stores in an Adams trial: 0.997 to 1.000, inside the spread. `weighted_error`'s mirrors: 0.114 to 0.099 ms a call at
+32 x 32 and 10.8 to 10.7 at 384 x 384, on the rare controller that has one.
+
+**The Adams trial.** A Cartesian route's source no longer accumulates its stage (3.4 of 199 ms a trial at 256 x 256 x 600, 186 ms with the collar and the flows), and the
+interaction formulation's fused trial swaps the state aside rather than copying it twice: `ab --device --stepper multistep-interaction`, three rounds, `rdw` 0.994 (0.979–0.994), `he_rdw_averaged` 0.988 (0.878–0.989),
+`argon_blueshift_averaged` 0.978 (0.975–0.979), `radial_filament_256` 0.993 (0.990–0.995), fields bitwise.
+
+**A Runge-Kutta trial.** The accept is one reduction on a device as on the host (26.4 to 23.4 µs a trial on `he_rdw_averaged`, 71.8 to 60.8 on `radial_filament_256`), and its
+partials cross through a persistent pinned mirror (16.8 to 8.8 µs a trial), the ledger's `trial_norms` row, 13.5 MiB at 768 x 768 on the host's pinned memory, outside a low-storage run. `ab --device --stepper rk`, five rounds,
+against the build before them: `he_rdw_averaged` 0.988 (0.986–1.007), `rdw` 0.996 (0.988–0.996), `radial_filament_256` 1.001 (0.999–1.036), fields bitwise.
+
+**The Adams read-back** (#362) is about 2.8 µs a trial from its last kernel's end to the host's return, by an `nsys` trace with graph nodes on the A40: 1.2 % of a 237 µs `he_rdw_averaged` trial, 0.5 % of
+`rdw`'s 586 µs, 0.1 % of `radial_filament_256`'s 3.3 ms, at most 14 µs at the 90th percentile. That is well below #362's 20 %.
+
+**Scratch-order registers on the volume route**, tried on the A40 and not adopted, take the fold from 407 to 387 ms and the step to 2,538 ms, with the fold's tile staging the state rather than the scratch. A layout change needs its own issue.
+
+On a CPU, `python -m benchmarks ab` against the merge base on an Intel Xeon Gold 6240 (nine cores of one socket, bound passive threads, on a machine others shared; three rounds, the same steps): `kerr_beam_192` 0.982 (0.978–0.996) at one thread and 0.974 (0.973–0.987) at nine; `kerr_beam_384` 0.981 (0.981–0.982) at nine, fields to 6.4e-16.
+`rdw` under `rk` and `multistep-interaction`, one and nine threads, without the host's fold fix, which they do not reach: 1.011, 0.974, 0.996 and 0.999.
+Before the fold's fix, `radial_filament_256` 0.993 and `planar` 0.980 at nine threads, five rounds, took neither path.
+
+A data-centre card has to confirm the step on an H200 and an MI325X, what rocFFT's plans hold, and what the launches are worth.
+
 ## Reference tables
 
 These tables back the indicative results above.

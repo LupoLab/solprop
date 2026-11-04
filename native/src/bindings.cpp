@@ -192,6 +192,8 @@ native::Problem problem_from(const nb::dict& values) {
       result.n_pol_transform = nb::cast<std::size_t>(values["n_pol_transform"]);
       result.n_nodes = nb::cast<std::size_t>(values["n_nodes"]);
       result.node_chunk = nb::cast<std::size_t>(values["node_chunk"]);
+      if (values.contains("split_rows"))
+        result.split_rows = nb::cast<std::size_t>(values["split_rows"]);
     }
   } catch (const nb::cast_error&) {
     throw std::invalid_argument("problem dimensions must be integers");
@@ -208,6 +210,8 @@ native::Problem problem_from(const nb::dict& values) {
       result.low_storage_stage_register =
           nb::cast<bool>(values["low_storage_stage_register"]);
       result.low_storage_flows = nb::cast<std::size_t>(values["low_storage_flows"]);
+      result.low_storage_tiled_input =
+          nb::cast<bool>(values["low_storage_tiled_input"]);
     }
   } catch (const nb::cast_error&) {
     throw std::invalid_argument("problem family and flags have wrong types");
@@ -1564,6 +1568,10 @@ public:
   double planning_seconds() const {
     require_open();
     return general_state_->planning_seconds();
+  }
+  std::size_t split_rows() const {
+    require_open();
+    return general_state_->split_rows();
   }
   double raman_planning_seconds() const {
     require_open();
@@ -3023,6 +3031,7 @@ NB_MODULE(_core, module_) {
       .def_prop_ro("execution_sizing", &BoundState::execution_sizing)
       .def_prop_ro("raman_fft_tasks",
                    [](BoundState& self) { return self.raman_fft_tasks(); })
+      .def_prop_ro("split_rows", [](BoundState& self) { return self.split_rows(); })
       .def_prop_ro("raman_planning_seconds",
                    [](BoundState& self) { return self.raman_planning_seconds(); })
       .def_prop_ro("raman_kernel_transforms",

@@ -50,7 +50,7 @@ from solprop.backends.memory import (
     low_storage_stage_register,
 )
 from solprop.backends.numpy_ref.backend import _general_maps
-from solprop.boundaries import absorber
+from solprop.boundaries import Absorber, absorber
 from solprop.constants import C
 from solprop.driver import Simulation
 from solprop.exceptions import BackendError, GeneralModalBasisWarning
@@ -62,7 +62,9 @@ from solprop.nonlinear.responses import KerrResponse, PlasmaResponse
 from solprop.output.memory import MemoryOutput
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialFlux, SpatialMedium
+from solprop.stepper import PIController
 from solprop.translate.ionisation import build_rate_table
+from solprop.translate.problem import assemble
 
 # The fixtures here launch noise-free into time windows kept tight for speed, which
 # hold more than a millionth of the energy in their guards or collar: the boundary
@@ -302,6 +304,47 @@ def test_a_cartesian_kerr_beam_agrees(mode, collar, noisy):
             ),
         )
     assert_parity(problem, grid, noise=noise, transverse=problem.transform.n_nodes)
+
+
+def test_a_recomputed_flow_keeps_a_small_loss():
+    """Only an exact zero's magnitude is one: a real part past it takes its exponential.
+
+    A loss of a thousandth of a neper per metre puts about 6e-8 in each flow's exponent,
+    well above the parity bound and far below any bin a coarser test would notice.
+    """
+    length = 1e-3
+    grid = EnvelopeGrid.from_limits(
+        length, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False
+    )
+    space = FreeGrid(3e-4, 9, 4e-4, 12, collar_fraction=0)
+    pulse = SpatialPulse(
+        GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-7), 80e-6
+    )
+    schedule = uniform(length, 4)
+    problem = assemble(
+        grid,
+        None,
+        [KerrResponse(1e-22, thg=False)],
+        pulse.build(grid, space, medium=SpatialMedium()),
+        spatial_grid=space,
+        medium=SpatialMedium(),
+        controller=PIController(rtol=1e-8, atol=1e-14),
+        save_planes=[length],
+        dz_max=schedule.max_step,
+        dz_init=schedule.max_step,
+        schedule=schedule,
+        integrator=MARCH,
+        propagator_mode="recompute",
+        absorber=Absorber(
+            np.full(grid.n_omega, 1e-3),
+            np.zeros(grid.n_t),
+            np.zeros(grid.n_to),
+            grid.active_mask,
+            5 * length,
+        ),
+        absorber_scheme="nonlinear",
+    )
+    assert_parity(problem, grid, transverse=problem.transform.n_nodes)
 
 
 LINE_FAMILIES = ("field_kerr", "envelope_raman", "field_plasma", "field_kerr_collar")

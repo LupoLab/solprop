@@ -47,7 +47,7 @@
 #include <dlfcn.h>
 #endif
 
-namespace solprop_native::host {
+namespace solprop_native {
 /** The three squared norms an accepted step reports, as one reduction value. */
 struct NormSums {
   double old_sum = 0.0;
@@ -60,10 +60,10 @@ struct NormSums {
     return *this;
   }
 };
-} // namespace solprop_native::host
+} // namespace solprop_native
 
-template <> struct Kokkos::reduction_identity<solprop_native::host::NormSums> {
-  KOKKOS_FUNCTION static solprop_native::host::NormSums sum() { return {}; }
+template <> struct Kokkos::reduction_identity<solprop_native::NormSums> {
+  KOKKOS_FUNCTION static solprop_native::NormSums sum() { return {}; }
 };
 
 namespace solprop_native {
@@ -400,7 +400,6 @@ struct SpatialElement {
   Complex linear, prefactor;
 };
 
-#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
 // A device crossing through a 32-by-32 tile of team scratch (SEP 28): the tile is read
 // with adjacent threads along the side that is contiguous for `read` (rows when
 // `read_rows`, else bins) and written with adjacent threads along the other, so both
@@ -410,7 +409,7 @@ void tiled_crossing(const char* label, const ExecutionSpace& execution,
                     const std::size_t rows, const std::size_t width,
                     const bool read_rows, const Read& read, const Write& write) {
   constexpr int tile = 32;
-  constexpr int depth = 8;
+  const int depth = std::min(8, execution.concurrency());
   using Policy = Kokkos::TeamPolicy<ExecutionSpace>;
   using Member = Policy::member_type;
   using Shared = Kokkos::View<Complex**, Kokkos::LayoutRight,
@@ -455,6 +454,7 @@ void tiled_crossing(const char* label, const ExecutionSpace& execution,
       });
 }
 
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
 // A device update of registers and the transverse scratch together (SEP 28): a tile of
 // the scratch is staged in team scratch with adjacent threads along rows, `body`
 // visits each (row, bin) with adjacent threads along bins (the registers' contiguous
@@ -738,10 +738,21 @@ KOKKOS_INLINE_FUNCTION void cosine_sine(const double theta, double& cosine,
 #endif
 }
 
+// A flow's magnitude: on a lossless bin `exp(+-0)`, exactly one, taken without a
+// binary64 `exp` per element. Out of line on a host, whose call to its library was out
+// of line already: inlined there, this branch took the tabulated fold's whole kernel
+// past the compiler's inlining limit, 40 % slower (solprop's docs/dev/benchmarks.md).
+#if defined(__GNUC__) && !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+[[gnu::noinline]]
+#endif
+KOKKOS_INLINE_FUNCTION double flow_magnitude(const double real) {
+  return real == 0.0 ? 1.0 : Kokkos::exp(real);
+}
+
 // A stage or step propagator `exp(argument)`: `exponential` with the cosine and sine
 // from `cosine_sine`, so it is `exponential` to the bit on the host.
 KOKKOS_INLINE_FUNCTION Complex propagator_exp(const Complex argument) {
-  const double magnitude = Kokkos::exp(argument.real());
+  const double magnitude = flow_magnitude(argument.real());
   double cosine = 0.0;
   double sine = 0.0;
   cosine_sine(argument.imag(), cosine, sine);
@@ -981,6 +992,9 @@ void require_general_problem(const Problem& problem) {
     throw std::invalid_argument("at most two effective node components are supported");
   if (problem.node_chunk == 0 || problem.node_chunk > problem.n_nodes)
     throw std::invalid_argument("node_chunk must lie in [1, n_nodes]");
+  if (problem.split_rows >
+      checked_product(problem.n_modes, problem.n_pol_state, "split collar columns"))
+    throw std::invalid_argument("split_rows must not exceed the field's columns");
   if (problem.n_stages == 0)
     throw std::invalid_argument("the tableau must contain a stage");
   const auto columns =
@@ -1468,18 +1482,24 @@ KOKKOS_INLINE_FUNCTION void slot_range(const std::size_t n, const std::size_t sl
   end = Kokkos::min(n, first + width);
 }
 
-// The update and its three binary64 norms. On a device each column is `slots` teams,
-// each over its own bins, writing its partial sums at offset `slot` from the column's
-// partial pointers; the host reduces them.
+// The update and its three binary64 norms in one pass. On the host one team per column,
+// its threads splitting the bins when the columns are fewer than the threads; on a
+// device `slots` teams per column, each over its own bins, writing its partial sums at
+// offset `slot` from the column's partial pointers. The sums associate as the teams
+// split them (solprop SEP 25), and the host reduces them.
 template <class Columns>
 void accept_update(const ExecutionSpace& execution, const std::size_t count,
                    const std::size_t n, const double dz, const Columns& columns,
                    const char* label, const std::size_t slots) {
-#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
   using ReductionPolicy = Kokkos::TeamPolicy<ExecutionSpace>;
   using ReductionMember = ReductionPolicy::member_type;
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
+  const int team_size = SOLPROP_NATIVE_DEVICE_REDUCTION_SIZE;
+#else
+  const int team_size = host_reduction_team_size(execution, count, n);
+#endif
   const ReductionPolicy reduction_policy(execution, static_cast<int>(count * slots),
-                                         SOLPROP_NATIVE_DEVICE_REDUCTION_SIZE);
+                                         team_size);
   launch::parallel_for(
       label, reduction_policy, KOKKOS_LAMBDA(const ReductionMember& team) {
         const auto league = static_cast<std::size_t>(team.league_rank());
@@ -1489,71 +1509,12 @@ void accept_update(const ExecutionSpace& execution, const std::size_t count,
         std::size_t end = 0;
         slot_range(n, slots, slot, first, end);
         const auto values = columns(column);
-        Kokkos::parallel_for(Kokkos::TeamThreadRange(team, static_cast<int>(first),
-                                                     static_cast<int>(end)),
-                             [&](const int index_value) {
-                               const auto index = static_cast<std::size_t>(index_value);
-                               const Complex candidate =
-                                   values.whole[index] * (values.carried[index] +
-                                                          dz * values.solution[index]);
-                               values.advanced[index] = candidate;
-                               values.residual[index] =
-                                   values.whole[index] * (dz * values.error[index]);
-                             });
-        team.team_barrier();
-        double old_sum = 0.0;
-        double new_sum = 0.0;
-        double error_sum = 0.0;
+        NormSums sums;
         Kokkos::parallel_reduce(
             Kokkos::TeamThreadRange(team, static_cast<int>(first),
                                     static_cast<int>(end)),
-            [&](const int index_value, double& update) {
+            [&](const int index_value, NormSums& update) {
               const auto index = static_cast<std::size_t>(index_value);
-              if (values.in_norm[index] != 0U)
-                update += squared_abs(values.current[index]);
-            },
-            old_sum);
-        Kokkos::parallel_reduce(
-            Kokkos::TeamThreadRange(team, static_cast<int>(first),
-                                    static_cast<int>(end)),
-            [&](const int index_value, double& update) {
-              const auto index = static_cast<std::size_t>(index_value);
-              if (values.in_norm[index] != 0U)
-                update += squared_abs(values.advanced[index]);
-            },
-            new_sum);
-        Kokkos::parallel_reduce(
-            Kokkos::TeamThreadRange(team, static_cast<int>(first),
-                                    static_cast<int>(end)),
-            [&](const int index_value, double& update) {
-              const auto index = static_cast<std::size_t>(index_value);
-              if (values.in_norm[index] != 0U)
-                update += squared_abs(values.residual[index]);
-            },
-            error_sum);
-        Kokkos::single(Kokkos::PerTeam(team), [&]() {
-          values.old_partial[slot] = old_sum;
-          values.new_partial[slot] = new_sum;
-          values.error_partial[slot] = error_sum;
-        });
-      });
-#else
-  // One team per column, its threads splitting the bins when the columns are fewer
-  // than the threads, and the update and the three norms in one pass; the sums
-  // associate as the team splits them (solprop SEP 25). The host keeps one slot.
-  static_cast<void>(slots);
-  using ReductionPolicy = Kokkos::TeamPolicy<ExecutionSpace>;
-  using ReductionMember = ReductionPolicy::member_type;
-  const ReductionPolicy reduction_policy(execution, static_cast<int>(count),
-                                         host_reduction_team_size(execution, count, n));
-  launch::parallel_for(
-      label, reduction_policy, KOKKOS_LAMBDA(const ReductionMember& team) {
-        const auto column = static_cast<std::size_t>(team.league_rank());
-        const auto values = columns(column);
-        host::NormSums sums;
-        Kokkos::parallel_reduce(
-            Kokkos::TeamThreadRange(team, n),
-            [&](const std::size_t index, host::NormSums& update) {
               const Complex candidate =
                   values.whole[index] *
                   (values.carried[index] + dz * values.solution[index]);
@@ -1567,14 +1528,13 @@ void accept_update(const ExecutionSpace& execution, const std::size_t count,
               update.new_sum += squared_abs(candidate);
               update.error_sum += squared_abs(one_residual);
             },
-            Kokkos::Sum<host::NormSums>(sums));
-        Kokkos::single(Kokkos::PerTeam(team), [&] {
-          *values.old_partial = sums.old_sum;
-          *values.new_partial = sums.new_sum;
-          *values.error_partial = sums.error_sum;
+            Kokkos::Sum<NormSums>(sums));
+        Kokkos::single(Kokkos::PerTeam(team), [&]() {
+          values.old_partial[slot] = sums.old_sum;
+          values.new_partial[slot] = sums.new_sum;
+          values.error_partial[slot] = sums.error_sum;
         });
       });
-#endif
 }
 
 // The bins a host work item of the stage's entry kernel takes at a time: every bin's
@@ -2143,6 +2103,7 @@ public:
   }
 
   void set_initial(std::span<const Complex> field, std::span<const Complex> noise);
+  [[nodiscard]] std::size_t split_rows() const noexcept { return split_rows_; }
   std::vector<double> trial_step(double dz, const TrialScalars& scalars);
   void prepare_trial(double dz, const TrialScalars& scalars);
   std::vector<Complex> adams_source(const std::vector<Complex>& input,
@@ -2377,7 +2338,8 @@ public:
   void plan();
   void reuse_fsal();
   void evaluate_stage(std::size_t stage, double dz);
-  void evaluate_stage_source(std::size_t stage, double dz);
+  // `accumulate` false: an Adams trial reads the stage row alone.
+  void evaluate_stage_source(std::size_t stage, double dz, bool accumulate = true);
   bool modal_core(std::size_t stage);
   void general_core(std::size_t stage);
   StageTerms stage_terms(std::size_t stage) const;
@@ -2419,7 +2381,7 @@ public:
   void flux_at(double z);
   void require_flux_closure();
   void fill_statistics_closure();
-  void evaluate_separable_stage(std::size_t stage, double dz);
+  void evaluate_separable_stage(std::size_t stage, double dz, bool accumulate);
   void seed_free_wisdom();
   void seed_modal_wisdom();
   void seed_stream_wisdom();
@@ -2591,8 +2553,10 @@ public:
   void form_split_factor(double dz);
   void split_columns(double dz, std::size_t active_rows = 0, double parseval = 0.0,
                      std::size_t first_column = 0);
+  void split_state_rows(double dz, const ComplexView2& state);
   void add_split_removal(double dz, std::size_t active_rows, double parseval,
-                         std::size_t first_column);
+                         std::size_t first_column, const ComplexView2& complex_time,
+                         double power_scale);
   void separable_to_time(const TransverseChunk& chunk);
   void separable_to_frequency(const TransverseChunk& chunk);
   void separable_split_step(double dz, const ComplexView2& values);
@@ -2871,6 +2835,11 @@ public:
   ComplexView2 adams_source_, adams_propagator_, adams_exponent_, adams_saved_;
   ComplexView2 adams_held_, adams_dense_start_, adams_dense_end_, adams_dense_exponent_;
   Kokkos::View<double*, Layout, MemorySpace> adams_divisor_;
+  // A Runge-Kutta trial's norm partials cross through this mirror, pinned on a device
+  // (the view itself on a host build), so that no trial takes a fresh host buffer. The
+  // copy is asynchronous: it is read after the trial's fence.
+  decltype(Kokkos::create_mirror_view(Kokkos::SharedHostPinnedSpace{},
+                                      std::declval<RealView2>())) pinned_partials_;
   // A trial's squared norms, which its reduction writes and the host reads: in pinned
   // host memory on a device, which the reduction's last block writes directly, so that
   // no copy from the device follows it before the trial's one fence.
@@ -2930,6 +2899,11 @@ public:
   std::unique_ptr<ForwardRealPlan> absorber_real_plan_;
   std::unique_ptr<ComplexPlan> absorber_complex_plan_;
   std::unique_ptr<InverseRealPlan> coarse_inverse_real_plan_;
+  // A free-space envelope's split collar transforms the state's own rows in place, this
+  // many at a time, and holds no coarse buffers (`split_state_rows`).
+  std::size_t split_rows_{};
+  std::unique_ptr<ComplexPlan> split_inverse_plan_, split_forward_plan_;
+  std::unique_ptr<ComplexPlan> split_tail_inverse_plan_, split_tail_forward_plan_;
   std::unique_ptr<ComplexPlan> coarse_inverse_complex_plan_;
   std::unique_ptr<ForwardRealPlan> coarse_forward_real_plan_;
   std::unique_ptr<ComplexPlan> coarse_forward_complex_plan_;
@@ -3595,6 +3569,9 @@ void GeneralWorkspace::allocate() {
         RealView2("solprop_native.transform.quadrature_partials", 2, columns);
   quadrature_scores_ = RealView("solprop_native.transform.quadrature_scores", 2);
   Kokkos::deep_copy(quadrature_scores_, Kokkos::Experimental::quiet_NaN_v<double>);
+  if (!problem_.low_storage)
+    pinned_partials_ =
+        Kokkos::create_mirror_view(Kokkos::SharedHostPinnedSpace{}, partials_);
   if (problem_.weighted_controller) {
     weighted_scale_ = RealView("solprop_native.step.weighted_scale", n);
     weighted_partials_ =
@@ -4225,14 +4202,19 @@ void GeneralWorkspace::allocate() {
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
     split_factor_ = RealView("solprop_native.absorber.split_factor", problem_.n_t);
 #endif
-    coarse_spectrum_ =
-        ComplexView2("solprop_native.absorber.coarse_spectrum", temporal_columns, n);
-    if (problem_.family == FieldFamily::envelope)
-      coarse_time_complex_ = ComplexView2("solprop_native.absorber.coarse_time_complex",
-                                          temporal_columns, problem_.n_t);
-    else
-      coarse_time_real_ = RealView2("solprop_native.absorber.coarse_time_real",
-                                    temporal_columns, problem_.n_t);
+    if (problem_.free_geometry() && problem_.family == FieldFamily::envelope) {
+      split_rows_ = problem_.split_rows != 0 ? problem_.split_rows : temporal_columns;
+    } else {
+      coarse_spectrum_ =
+          ComplexView2("solprop_native.absorber.coarse_spectrum", temporal_columns, n);
+      if (problem_.family == FieldFamily::envelope)
+        coarse_time_complex_ =
+            ComplexView2("solprop_native.absorber.coarse_time_complex",
+                         temporal_columns, problem_.n_t);
+      else
+        coarse_time_real_ = RealView2("solprop_native.absorber.coarse_time_real",
+                                      temporal_columns, problem_.n_t);
+    }
   }
   if (problem_.general_modal) {
     general_ = std::make_unique<GeneralModalSource>(problem_);
@@ -4733,6 +4715,30 @@ void GeneralWorkspace::plan() {
   }
   if (!problem_.split_step_absorber)
     return;
+  if (split_rows_ != 0) {
+    // In place on the state's rows; a later execution may name another row block or the
+    // other of the state's two views, of the same extents.
+    const auto& state = problem_.low_storage ? current_ : advanced_;
+    const auto plan_rows = [&](const std::size_t count,
+                               const KokkosFFT::Direction direction) {
+      const ComplexView2 rows =
+          Kokkos::subview(state, std::make_pair(std::size_t{0}, count), Kokkos::ALL());
+      const auto& space = fft_space_for(rows.size());
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+      // Seeding may overwrite the rows; nothing is loaded yet.
+      seed_row_fft_wisdom(space, rows, rows, direction);
+      graph::deep_copy(execution_space_, rows, Complex{});
+#endif
+      return std::make_unique<ComplexPlan>(space, rows, rows, direction, axis);
+    };
+    split_inverse_plan_ = plan_rows(split_rows_, KokkosFFT::Direction::backward);
+    split_forward_plan_ = plan_rows(split_rows_, KokkosFFT::Direction::forward);
+    if (const auto tail = problem_.n_columns() % split_rows_; tail != 0) {
+      split_tail_inverse_plan_ = plan_rows(tail, KokkosFFT::Direction::backward);
+      split_tail_forward_plan_ = plan_rows(tail, KokkosFFT::Direction::forward);
+    }
+    return;
+  }
   if (problem_.family == FieldFamily::envelope) {
     coarse_inverse_complex_plan_ = std::make_unique<ComplexPlan>(
         fft_space_for(coarse_time_complex_.size()), coarse_spectrum_,
@@ -5660,20 +5666,34 @@ void GeneralWorkspace::low_storage_separable_input(const std::size_t pass) {
   const bool add_noise = problem_.modified_noise && has_noise_;
   const double scale = inverse_transverse_count();
   const auto row = low_storage_rows[pass];
+  const auto input = KOKKOS_LAMBDA(const std::size_t column, const std::size_t omega) {
+    const auto mode = index.mode(column);
+    Complex value =
+        pass == 0 ? state(column, omega) : stage_register.data()[index(column, omega)];
+    if (add_noise) {
+      const auto values = spatial.value(mode, omega, active(omega) != 0U);
+      const double angle = at(row) * values.linear.imag();
+      value += noise(column, omega) * Complex(Kokkos::cos(angle), Kokkos::sin(angle));
+    }
+    return value * scale;
+  };
+  if (problem_.low_storage_tiled_input) {
+    // Read along the state's bins and written along the scratch's rows, a tile at a
+    // time.
+    tiled_crossing(
+        "solprop_native.low_storage.separable_input", execution_space_,
+        problem_.n_columns(), problem_.n_omega, false, input,
+        KOKKOS_LAMBDA(const std::size_t column, const std::size_t omega,
+                      const Complex value) {
+          scratch.data()[index.cell(column, omega)] = value;
+        });
+    return;
+  }
   crossing_for(
       "solprop_native.low_storage.separable_input", execution_space_,
       problem_.n_columns(), problem_.n_omega,
       KOKKOS_LAMBDA(const std::size_t column, const std::size_t omega) {
-        const auto mode = index.mode(column);
-        Complex value = pass == 0 ? state(column, omega)
-                                  : stage_register.data()[index(column, omega)];
-        if (add_noise) {
-          const auto values = spatial.value(mode, omega, active(omega) != 0U);
-          const double angle = at(row) * values.linear.imag();
-          value +=
-              noise(column, omega) * Complex(Kokkos::cos(angle), Kokkos::sin(angle));
-        }
-        scratch.data()[index.cell(column, omega)] = value * scale;
+        scratch.data()[index.cell(column, omega)] = input(column, omega);
       });
 }
 
@@ -5685,7 +5705,6 @@ void GeneralWorkspace::low_storage_separable_fold(const std::size_t pass,
   const auto stage_register = register_stage_;
   const auto flows = low_storage_flows_;
   const bool tabulated = problem_.low_storage_flows != 0;
-  const bool elemental = !tabulated || (problem_.modified_noise && has_noise_);
   const auto scratch = transverse_;
   const auto spatial = spatial_;
   const auto window = omega_window_;
@@ -5716,6 +5735,7 @@ void GeneralWorkspace::low_storage_separable_fold(const std::size_t pass,
   const bool writes_register = stage < 3 && !forward;
   const auto own = low_storage_rows[pass];
   const auto next = low_storage_rows[pass < 3 ? pass + 1 : 3];
+  const bool linear_here = add_noise || (flows_here && !tabulated);
   const std::size_t flow_row = stage == 0 ? 0 : 1;
   const double step = dz;
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
@@ -5729,9 +5749,10 @@ void GeneralWorkspace::low_storage_separable_fold(const std::size_t pass,
                                   Complex& cell, Complex& held) {
     const auto column_mode = index.mode(column);
     const bool in_band = active(omega) != 0U;
-    // Tabulated flows without noise read only the prefactor of the element.
+    // Tabulated flows without noise, or a pass with no flow, read only the prefactor of
+    // the element.
     SpatialElement values{};
-    if (elemental)
+    if (linear_here)
       values = spatial.value(column_mode, omega, in_band);
     else if (term == term_material)
       values.prefactor = spatial.prefactor(column_mode, omega, in_band);
@@ -6121,7 +6142,7 @@ void GeneralWorkspace::adams_evaluate_source(const TrialScalars& scalars) {
     prepare_raman_stage(0, scalars.raman_rates.data(),
                         problem_.n_raman_components > 1 ? scalars.raman_densities.data()
                                                         : nullptr);
-  evaluate_stage_source(0, 0.0);
+  evaluate_stage_source(0, 0.0, false);
   stages_ready_ = true;
   pending_fsal_ = false;
   has_recycled_ = false;
@@ -6311,19 +6332,20 @@ GeneralWorkspace::adams_fused_trial(const double dz, const AdamsWeights& weights
   const auto policy = Range2(execution_space_, {0, 0}, {columns, n});
   const auto store = adams_store_;
   const auto current = current_;
-  const auto saved = adams_saved_;
+  const auto predicted = adams_saved_;
   // The predictor in the anchor's frame, a_n + dz sum_t w_t g_t, is the field the
-  // stage-zero source evaluates; the accepted state is kept aside meanwhile.
-  graph::deep_copy(execution_space_, saved, current);
+  // stage-zero source evaluates; the accepted state is swapped aside meanwhile.
   launch::parallel_for(
       "solprop_native.adams.predict", policy,
       KOKKOS_LAMBDA(const std::size_t column, const std::size_t index) {
         Complex total{};
         for (std::size_t t = 0; t < weights.order; ++t)
           total += weights.predictor[t] * store(weights.slot[t], column, index);
-        current(column, index) = saved(column, index) + dz * total;
+        predicted(column, index) = current(column, index) + dz * total;
       });
-  adams_evaluate(scalars);
+  std::swap(current_, adams_saved_);
+  adams_evaluate_source(scalars);
+  std::swap(current_, adams_saved_);
   const auto stages = stages_;
   const auto source = adams_source_;
   const auto propagator = adams_propagator_;
@@ -8853,8 +8875,9 @@ std::vector<double> GeneralWorkspace::collect_trial() {
   // it is not the next step's first stage; solprop's reference takes no FSAL there.
   pending_fsal_ =
       problem_.first_same_as_last && !problem_.split_step_absorber && !flow_;
+  graph::deep_copy(execution_space_, pinned_partials_, partials_);
   execution_space_.fence("solprop_native trial boundary");
-  const auto host = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace{}, partials_);
+  const auto& host = pinned_partials_;
   // Every column's slots, in order: the host's reduction is the caller's sum of a row.
   const auto slots = host.extent(1);
   std::vector<double> result(3 * slots);
@@ -9107,7 +9130,8 @@ void GeneralWorkspace::separable_finish_transform(const std::size_t stage,
 // back onto the rows in time) or the in-stage absorber on the rows, and back; the
 // forward transverse transform and each column's prefactor and propagator.
 void GeneralWorkspace::evaluate_separable_stage(const std::size_t stage,
-                                                const double dz) {
+                                                const double dz,
+                                                const bool accumulate) {
   auto* const dispersive = separable_dispersive_.get();
   const bool nonlinear =
       problem_.nonlinear || problem_.plasma || problem_.raman || dispersive != nullptr;
@@ -9132,6 +9156,8 @@ void GeneralWorkspace::evaluate_separable_stage(const std::size_t stage,
     separable_core(stage, material);
     separable_finish_transform(stage, material);
   }
+  if (!accumulate)
+    return;
   const double weight = problem_.solution_weights[stage];
   const double error_weight = problem_.error_weights[stage];
   cartesian_for(
@@ -9656,11 +9682,12 @@ void GeneralWorkspace::evaluate_stage(const std::size_t stage, const double dz) 
                     problem_.error_weights[stage], stages_, solution_, error_);
 }
 
-void GeneralWorkspace::evaluate_stage_source(const std::size_t stage, const double dz) {
+void GeneralWorkspace::evaluate_stage_source(const std::size_t stage, const double dz,
+                                             const bool accumulate) {
   if (!defer_quadrature_)
     coarse_pending_ = false;
   if (problem_.separable_geometry()) {
-    evaluate_separable_stage(stage, dz);
+    evaluate_separable_stage(stage, dz, accumulate);
     return;
   }
   stage_entry(stage, dz);
@@ -14828,14 +14855,15 @@ namespace {
 template <class TimeView>
 void split_apply(const char* label, const ExecutionSpace& execution,
                  const TimeView& time, const RealView& rate, const RealView& factors,
-                 const double dz, const std::size_t rows, const std::size_t samples) {
+                 const double dz, const std::size_t rows, const std::size_t samples,
+                 const double scale = 1.0) {
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
   static_cast<void>(rate);
   static_cast<void>(dz);
   launch::parallel_for(
       label, Range2(execution, {0, 0}, {rows, samples}),
       KOKKOS_LAMBDA(const std::size_t row, const std::size_t index) {
-        time(row, index) *= factors(index);
+        time(row, index) *= scale * factors(index);
       });
 #else
   static_cast<void>(factors);
@@ -14855,6 +14883,8 @@ void split_apply(const char* label, const ExecutionSpace& execution,
         for (std::size_t sample = 0; sample < count; ++sample)
           factor[sample] = -0.5 * rate(first + sample) * dz;
         vmath::exp(factor, factor, count);
+        for (std::size_t sample = 0; sample < count; ++sample)
+          factor[sample] *= scale;
         for (std::size_t row = row_first; row < row_last; ++row)
           for (std::size_t sample = 0; sample < count; ++sample)
             time(row, first + sample) *= factor[sample];
@@ -14876,7 +14906,8 @@ void GeneralWorkspace::split_columns(const double dz, std::size_t active_rows,
       graph::execute(*coarse_inverse_complex_plan_, coarse_spectrum_,
                      coarse_time_complex_, KokkosFFT::Normalization::none);
     if (monitoring_split())
-      add_split_removal(dz, active_rows, parseval, first_column);
+      add_split_removal(dz, active_rows, parseval, first_column, coarse_time_complex_,
+                        1.0);
     split_apply("solprop_native.absorber.split_apply_complex", execution_space_,
                 coarse_time_complex_, absorber_coarse_, split_factor_, dz, active_rows,
                 problem_.n_t);
@@ -14892,7 +14923,7 @@ void GeneralWorkspace::split_columns(const double dz, std::size_t active_rows,
       graph::execute(*coarse_inverse_real_plan_, coarse_spectrum_, coarse_time_real_,
                      KokkosFFT::Normalization::none);
     if (monitoring_split())
-      add_split_removal(dz, active_rows, parseval, first_column);
+      add_split_removal(dz, active_rows, parseval, first_column, {}, 1.0);
     split_apply("solprop_native.absorber.split_apply_real", execution_space_,
                 coarse_time_real_, absorber_coarse_, split_factor_, dz, active_rows,
                 problem_.n_t);
@@ -14904,6 +14935,32 @@ void GeneralWorkspace::split_columns(const double dz, std::size_t active_rows,
   }
 }
 
+// Free space's complex rows: the split's factor depends on time alone, so it acts alike
+// on every column of any transverse basis, and the temporal pair runs in place on the
+// state's own rows, a block of them at a time. Nothing is copied to a coarse buffer and
+// back, the transform's normalisation goes with the factor, and the band's mask is the
+// one pass after the blocks. Equal to the reference's split in real space up to the
+// transforms' rounding, at any block size.
+void GeneralWorkspace::split_state_rows(const double dz, const ComplexView2& state) {
+  const double inverse_time = 1.0 / static_cast<double>(problem_.n_t);
+  const auto columns = problem_.n_columns();
+  for (std::size_t first = 0; first < columns; first += split_rows_) {
+    const auto rows = std::min(split_rows_, columns - first);
+    const ComplexView2 block =
+        Kokkos::subview(state, std::make_pair(first, first + rows), Kokkos::ALL());
+    const bool tail = rows != split_rows_;
+    graph::execute(tail ? *split_tail_inverse_plan_ : *split_inverse_plan_, block,
+                   block, KokkosFFT::Normalization::none);
+    if (monitoring_split())
+      add_split_removal(dz, rows, 0.0, first, block, inverse_time * inverse_time);
+    split_apply("solprop_native.absorber.split_apply_complex", execution_space_, block,
+                absorber_coarse_, split_factor_, dz, rows, problem_.n_t, inverse_time);
+    graph::execute(tail ? *split_tail_forward_plan_ : *split_forward_plan_, block,
+                   block, KokkosFFT::Normalization::none);
+  }
+  mask(state);
+}
+
 // What one split takes of the power it finds in the coarse time rows, `sum P (1 -
 // exp(-alpha h))` with the boundary monitor's column weights, added to the run's
 // accumulator in the memory space (solprop SEP 21, ADR-057): the monitor's reading
@@ -14913,10 +14970,13 @@ void GeneralWorkspace::split_columns(const double dz, std::size_t active_rows,
 // monitor judges the occupancies on: the symmetric splitting's state at the step's
 // end. A separable route's rows are real-space rows, measured by `parseval`; zero
 // means the rows are the stored columns from `first_column` on, weighted by their
-// quadrature.
+// quadrature. `complex_time` holds a complex route's rows, whose power `power_scale`
+// brings to the state's measure: the state's own rows carry no transform normalisation.
 void GeneralWorkspace::add_split_removal(const double dz, const std::size_t active_rows,
                                          const double parseval,
-                                         const std::size_t first_column) {
+                                         const std::size_t first_column,
+                                         const ComplexView2& complex_time,
+                                         const double power_scale) {
   const auto rate = absorber_coarse_;
   const auto share = monitor_share_;
   const auto half = monitor_half_;
@@ -14934,13 +14994,13 @@ void GeneralWorkspace::add_split_removal(const double dz, const std::size_t acti
   const auto guards = monitor_weights_;
   const auto samples = Range2(execution_space_, {0, 0}, {active_rows, problem_.n_t});
   if (problem_.family == FieldFamily::envelope) {
-    const auto time = coarse_time_complex_;
+    const auto time = complex_time;
     launch::parallel_reduce(
         "solprop_native.monitor.split_removal_complex", samples,
         KOKKOS_LAMBDA(const std::size_t row, const std::size_t index,
                       SplitSums& update) {
           const double power = (stored ? weights(first_column + row) : parseval) *
-                               squared_abs(time(row, index));
+                               (power_scale * squared_abs(time(row, index)));
           update.values[0] += power * share(index);
           const double found = half(index) * power;
           update.values[1] += found;
@@ -15597,6 +15657,10 @@ void GeneralWorkspace::bind_occupancy(const std::vector<unsigned char>& buckets,
 // y rows of slab amplitudes) between the two transverse transforms.
 void GeneralWorkspace::separable_split_step(const double dz,
                                             const ComplexView2& advanced) {
+  if (split_rows_ != 0) {
+    split_state_rows(dz, advanced);
+    return;
+  }
   if (problem_.free_geometry()) {
     // The split's factor depends on time alone, so it acts alike on every column of
     // any transverse basis (solprop's reference measures its removal on the stored
@@ -16042,8 +16106,12 @@ std::map<std::string, std::size_t> GeneralWorkspace::base_memory_ledger() const 
        stage_staging_.empty() || stage_staging_.front().data() == stage_scalars_.data()
            ? 0
            : stage_staging_.size() * stage_scalars_.size() * real_bytes},
-      // An Adams trial's norms, read back in pinned host memory on a device.
-      {"trial_norms", adams_norms_.size() * real_bytes},
+      // An Adams trial's norms, read back in pinned host memory on a device, and a
+      // Runge-Kutta trial's mirror of its partials (the view itself on a host build).
+      {"trial_norms",
+       (adams_norms_.size() +
+        (pinned_partials_.data() == partials_.data() ? 0 : pinned_partials_.size())) *
+           real_bytes},
       {"crop_index", crop_index_.size() * index_bytes},
       {"masks", (active_mask_.size() + norm_mask_.size()) * byte_bytes},
       {"windows", (omega_window_.size() + time_window_.size()) * real_bytes},
@@ -16203,6 +16271,10 @@ void GeneralWorkspace::close() noexcept {
   absorber_real_plan_.reset();
   absorber_complex_plan_.reset();
   coarse_inverse_real_plan_.reset();
+  split_inverse_plan_.reset();
+  split_forward_plan_.reset();
+  split_tail_inverse_plan_.reset();
+  split_tail_forward_plan_.reset();
   coarse_inverse_complex_plan_.reset();
   coarse_forward_real_plan_.reset();
   coarse_forward_complex_plan_.reset();
@@ -16320,6 +16392,7 @@ void GeneralWorkspace::close() noexcept {
   chunk_projection_stacked_ = {};
   tail_projection_stacked_ = {};
   partials_ = {};
+  pinned_partials_ = {};
   quadrature_partials_ = {};
   weighted_scale_ = {};
   weighted_partials_ = {};
@@ -16464,6 +16537,9 @@ std::vector<Complex> GeneralState::adams_source(const std::vector<Complex>& inpu
 void GeneralState::adopt(const std::vector<Complex>& field, const double dz) {
   const CpuTeamScope team(workspace_->cpu_team());
   workspace_->adopt(field, dz);
+}
+std::size_t GeneralState::split_rows() const noexcept {
+  return workspace_->split_rows();
 }
 double GeneralState::low_storage_step(const double dz, const TrialScalars& scalars,
                                       const bool rebuild_table) {

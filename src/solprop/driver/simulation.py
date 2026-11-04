@@ -681,7 +681,8 @@ class SimulationSettings(Displayed):
         (``docs/dev/architecture.md`` section 13). ``None``, the default, takes 1 GiB
         on a free-space, line or planar grid and 64 MiB otherwise
         (:data:`~solprop.translate.modal.DEFAULT_SPATIAL_NODE_BUDGET`,
-        :data:`~solprop.translate.modal.DEFAULT_NODE_BUDGET`).
+        :data:`~solprop.translate.modal.DEFAULT_NODE_BUDGET`). A stated budget also
+        holds a device's in-place split collar on a free-space envelope to the chunk.
     stats : solprop.stats.StatsSpec or None
         Which statistics to collect at every saved plane; ``None`` collects none.
     polarisation_taper : bool

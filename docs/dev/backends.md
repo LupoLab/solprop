@@ -711,7 +711,8 @@ rows (§4), none-normalised, on a persistent
 plan made once per state at construction: the modal pair (complex on the envelope grid, real
 on the field grid); the doubled-grid Raman pairs, with their kernel's plan and the plans of
 the last, partial chunk at its actual width; the coarse pair of the split-step temporal
-absorber and the forward plan of ADR-025's in-stage absorber term, whose buffers are the
+absorber (on a free-space envelope, an in-place pair on the state's own rows, with no buffer
+of its own) and the forward plan of ADR-025's in-stage absorber term, whose buffers are the
 run's own because the stage's finish still reads the polarisation's spectrum when the term
 is formed; the held and envelope currents' streams; the general route's family (§3.8); and
 the transverse plans of the free and planar kinds. A stage allocates nothing.
@@ -1442,7 +1443,9 @@ analytic map synthesises its retained spectrum there too (the gather and the pad
 per element, the chunk's padded rows zeroed first): the product covers `n_omega` complex
 columns rather than `n_to`, which halves the binary64 work that bounds a radial trial. On free space the split-step collar acts on the stored
 transverse-spectrum columns (every build), and a device forms its factor once a step per
-sample. A free-space envelope whose material response is the Kerr term alone, with one
+sample. A free-space envelope's collar transforms those columns in place, a block of rows at
+a time, through no coarse buffer; the transform's normalisation goes with the factor. A
+free-space envelope whose material response is the Kerr term alone, with one
 polarisation, on a time grid the spectrum fills (`n_t = n_to = n_omega`, the crop the
 identity) takes its stage core on a device through one rank-3 transform of the scratch
 volume each way, forming the polarisation in place between them, instead of the chunks'

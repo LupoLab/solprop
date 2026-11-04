@@ -489,6 +489,9 @@ struct Problem {
   std::size_t n_pol_transform{1};
   std::size_t n_nodes{1};
   std::size_t node_chunk{1};
+  // The temporal rows a free-space envelope's split collar transforms at a time, in
+  // place on the state; zero takes the node chunk's. It holds no buffer of its own.
+  std::size_t split_rows{};
   std::size_t n_stages{};
   // solprop SEP 24 phase 3 (kernel schema 32): the low-storage RK4IP march. With it no
   // Runge-Kutta view is allocated (stages, accumulators, accept buffer, residual,
@@ -499,6 +502,9 @@ struct Problem {
   bool low_storage{};
   bool low_storage_stage_register{true};
   std::size_t low_storage_flows{};
+  // Whether a separable route's first input crosses to the transverse scratch through
+  // tiles of team scratch, as a device's does.
+  bool low_storage_tiled_input{};
   std::size_t n_phi_terms{};
   std::size_t n_prefactor_terms{};
   // solprop SEP 29 G1: Phi or the prefactor is the general z table. Its terms are then
@@ -972,6 +978,8 @@ public:
   [[nodiscard]] std::map<std::string, std::size_t> memory_ledger() const;
   [[nodiscard]] CpuSizing execution_sizing() const;
   [[nodiscard]] double planning_seconds() const noexcept;
+  /** The rows a free-space envelope's split collar transforms at a time, or zero. */
+  [[nodiscard]] std::size_t split_rows() const noexcept;
   [[nodiscard]] double raman_planning_seconds() const noexcept;
   [[nodiscard]] std::string raman_fft_provider() const;
   [[nodiscard]] std::map<std::string, int> raman_fft_tasks() const;
