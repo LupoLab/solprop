@@ -71,7 +71,7 @@ import logging
 import math
 import warnings
 from collections.abc import Callable
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 from typing import Final
 
 import numpy as np
@@ -296,9 +296,7 @@ class Absorber:
     reference_length: float
     collar_length: float | None = None
     temporal: bool = True
-    user_rate: Float[np.ndarray, " n_user_rate"] | None = field(
-        default=None, metadata={"record_none": False}
-    )
+    user_rate: Float[np.ndarray, " n_user_rate"] | None = None
 
     def __post_init__(self) -> None:
         """Validate what the shape annotations cannot express.

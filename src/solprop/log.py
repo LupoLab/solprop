@@ -577,11 +577,9 @@ class ScanReporter(Protocol):
         index : int
             The point's global index.
         status : str
-            ``"done"``; ``"failed"``; ``"skipped"`` for a point complete in the file;
-            ``"conflict"`` for a complete point whose stored record agrees but for
-            rounding, neutral values or provenance, which is kept; or ``"stopped"``
-            for a point the stop flag stopped, which is not committed and a rerun
-            computes again.
+            ``"done"``; ``"failed"``; ``"skipped"`` for a point complete in the file; or
+            ``"stopped"`` for a point the stop flag stopped, which is not committed and
+            a rerun computes again.
         wall : float
             The point's build and run time as its worker measured it, s; for a batch
             member, its group's.

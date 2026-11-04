@@ -293,7 +293,7 @@ def test_a_run_saved_under_the_earlier_frame_rule_is_not_resumed(tmp_path, monke
             raman_harmonic_flag(length=0.01, n_save=4).run(
                 path, progress=StopAfterPlane()
             )
-    with pytest.raises(OutputError, match=r"configuration: frame"):
+    with pytest.raises(OutputError, match=r"configuration\.frame"):
         raman_harmonic_flag(length=0.01, n_save=4).run(
             path, resume=True, progress="none"
         )

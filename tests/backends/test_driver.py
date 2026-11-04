@@ -875,6 +875,8 @@ DRIVER_SURFACE = {
         "faces: bool = True, current: bool = False, full: bool = False"
         ") -> solprop.transverse_monitor.EdgeReading"
     ),
+    "_next_step": "(self) -> float",
+    "march_snapshot_nbytes": "(self, z: float) -> int | None",
     "_observed_field": (
         "(self, state: _StateT)"
         " -> jaxtyping.Complex[ndarray, 'n_batch n_modes n_pol n_omega']"
@@ -940,11 +942,6 @@ DRIVER_SURFACE = {
         "atomic: collections.abc.Mapping[str, object] | None = None) -> None"
     ),
     "observe": "(self, *, field: bool = True) -> solprop.backends.protocol.Observation",
-    "held_observation": "(self) -> solprop.backends.protocol.Observation | None",
-    "_hold": "(self, state: _StateT | None) -> None",
-    "_drop_held": "(self) -> None",
-    "set_held_plane": "(self, held: bool) -> None",
-    "_held_field": f"(self) -> {FIELD}",
     "set_initial": (
         "(self, field: jaxtyping.Complex[ndarray, 'n_batch n_modes n_pol n_omega'], "
         "noise: solprop.noise.NoiseRealisation | None, *, z: float = 0.0, "
@@ -1147,9 +1144,12 @@ def test_the_surface_a_backend_subclasses_is_frozen(driver):
     ``_split_capped``, the cap on adaptive steps. Version 44 adds ``set_held_plane``,
     with which a driver turns the low-storage march's held plane off for a run, and
     ``_drop_held``, which releases its buffer. Version 45 appends ``user_rate`` to the
-    separable leaf, without changing these signatures.
+    separable leaf, without changing these signatures. Version 46 removes
+    ``held_observation``, ``_hold``, ``_held_field``, ``set_held_plane`` and
+    ``_drop_held``: a low-storage march holds no plane (ADR-067). Version 47 adds
+    ``march_snapshot_nbytes`` and ``_next_step``.
     """
-    assert KERNEL_SCHEMA_VERSION == 45, (
+    assert KERNEL_SCHEMA_VERSION == 47, (
         "the seam changed: rewrite the literals of this test"
     )
     assert StepDriver.reads_transverse_edge is False

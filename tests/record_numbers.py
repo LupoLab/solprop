@@ -20,9 +20,13 @@ import numpy as np
 
 from bounds import fft_bound
 
-# The agreement asked of each number in a run record with its stored value, relative:
-# one constant with the resume comparison (SEP 42), whose module states its basis.
-from solprop.output.compatibility import RECORD_RTOL
+RECORD_RTOL = 1e-11
+"""The agreement asked of each number in a run record with its stored value, relative.
+
+Chosen from the largest departure a change of libm, BLAS or compiler makes among a run
+record's numbers: the ionisation threshold, found by bisection to a relative bracket of
+1e-12.
+"""
 
 
 def record_skeleton(value: object) -> tuple[object, list[float], list[float]]:
@@ -108,7 +112,8 @@ def without_sep21_absorber(
 ) -> dict:
     """Return a hashed record as it was before SEP 21 recorded its absorber.
 
-    SEP 21 records ``Absorber.spatial``; the projection drops it. A run that declared
+    SEP 21 records ``Absorber.spatial``, and a later change ``Absorber.user_rate``; the
+    projection drops both. A run that declared
     no absorber recorded ``None`` before and now records the bare boundaries that stand
     for it (``tests/legacy_geometry.py``); with `bare` the projection restores ``None``.
     A spatial run that named no collar scheme now records ``"split_step"``, its route's
@@ -134,7 +139,9 @@ def without_sep21_absorber(
         configuration["absorber"] = None
     elif isinstance(collar, dict):
         configuration["absorber"] = {
-            key: value for key, value in collar.items() if key != "spatial"
+            key: value
+            for key, value in collar.items()
+            if key not in ("spatial", "user_rate")
         }
     if spatial and configuration.get("absorber_scheme") == "split_step":
         configuration["absorber_scheme"] = "nonlinear"

@@ -1941,7 +1941,7 @@ nb::dict build_record() {
   nb::dict result;
   result["backend_commit"] = SOLPROP_NATIVE_BACKEND_COMMIT;
   result["solprop_built_against"] = SOLPROP_NATIVE_SOLPROP_BUILT_AGAINST;
-  result["schema_version"] = 45;
+  result["schema_version"] = 47;
   result["kokkos_version"] = SOLPROP_NATIVE_KOKKOS_VERSION;
   result["kokkos_fft_version"] = SOLPROP_NATIVE_KOKKOSFFT_VERSION;
   result["kokkos_kernels_version"] = SOLPROP_NATIVE_KOKKOSKERNELS_VERSION;
@@ -2322,27 +2322,6 @@ NB_MODULE(_core, module_) {
           "prefactor"_a.noconvert(), "density"_a.noconvert(), "taper"_a.noconvert(),
           "preionisation"_a.noconvert(), "raman_rates"_a.noconvert(), "material"_a,
           "rebuild_table"_a)
-      .def("hold_plane",
-           [](BoundState& self) {
-             auto& state = self.low_storage_state();
-             const nb::gil_scoped_release release;
-             state.hold_plane();
-           })
-      .def("release_plane",
-           [](BoundState& self) { self.low_storage_state().release_plane(); })
-      .def("held_to_host",
-           [](BoundState& self) {
-             auto& state = self.low_storage_state();
-             const auto count = self.elements();
-             auto storage = native::crossing::host_buffer(2 * count);
-             {
-               const nb::gil_scoped_release release;
-               state.held_to_host(
-                   {reinterpret_cast<native::Complex*>(storage.get()), count});
-             }
-             return complex_buffer_output(std::move(storage),
-                                          {self.columns(), count / self.columns()});
-           })
       // solprop SEP 16 phase 3b: the Adams history resident in the engine.
       .def(
           "adams_allocate",

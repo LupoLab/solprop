@@ -16,7 +16,9 @@ A saved result needs the grid, field convention, material models, response choic
    * - ``grid``
      - A :py:class:`~solprop.output.schema.GridRecord`: the scalars that rebuild the
        frequency axis — kind, sizes, spacings, the reference frequency, the band limits.
-       Scalars only, so the record stays small and the digest cheap.
+       Scalars only, so the record stays small and the digest cheap. Elsewhere in the
+       record a large array is a reference to its bytes, stored beside the text
+       (:doc:`the file's layout <output>`).
    * - ``modes``
      - One :py:class:`~solprop.output.schema.ModeRecord` per propagated mode: its class,
        its effective area, its serialised configuration and its ``label``, the physical

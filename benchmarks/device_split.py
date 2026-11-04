@@ -6,7 +6,7 @@
 
 One input of a delay scan through :class:`solprop.driver.SimulationRunner`, with no
 fields kept: a fused-silica Kerr beam at 260 nm on fixed low-storage RK4IP steps, with
-a stated input identity and no held plane. It runs with ``boundary_check=None`` and
+and a stated input identity. It runs with ``boundary_check=None`` and
 with the default check, budgets relaxed so that nothing stops, and profiles one point
 of each. Then it times what a plane can ask of a device: a state's copy to the host, an
 observation and the common statistics.
@@ -112,7 +112,6 @@ def _simulation(
         backend="native",
         boundary_check=check,
         fields="none",
-        held_plane=False,
         stats=StatsSpec(names=("energy",)),
     )
     return Simulation.from_free(

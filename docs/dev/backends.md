@@ -1746,10 +1746,7 @@ outside the ledger. The
 native state refuses what its folds cannot read: an elided stage register beside an
 in-stage absorber, two flow volumes on a separable geometry, and a step reusing a
 constant operator's table it has not built since the field was loaded (solprop's rules
-never ask for any of them). `native` holds a field-free plane's state in its memory space
-(`held_plane`), so nothing crosses to the host at such a plane. A driver says at the start of
-each run whether to hold it at all (`StepDriver.set_held_plane`, kernel schema 44), and
-turning it off releases the buffer (`State.release_plane`).
+never ask for any of them).
 
 **The far-field pass** (§3.13) holds `far_field_partials` on the native backend, the band
 partials, `8 n_bands n_slots n_omega` bytes; the estimate counts them to the byte in `base`.
