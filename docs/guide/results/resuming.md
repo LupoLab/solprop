@@ -17,12 +17,20 @@ after a stop, a crash or a requeue. **These are all refused:**
 - an optmat release, even one that moved no number the run uses, since the optmat version
   is in the key;
 - a solprop release or commit that adds a recorded field or moves a recorded number;
-- another platform, whose mathematics library or FFT moves the last bits of a recorded
-  number (a resume across CPU types on one platform is meant to continue: see
-  [the resume key](#the-resume-key)).
+- another kind of machine, whose mathematics library, BLAS or FFT moves the last bits of a
+  recorded number.
 
 Hashing is exact, and a record has no tolerance: a difference in a number's last bit
 refuses, and the refusal names that number.
+
+**Stay on one kind of machine.** A record holds numbers computed on the machine that built
+it: the launch, the absorber's rates, quadrature weights, effective areas. A rebuilt run has
+the same hash in a fresh process and at another thread count. In one measurement, 31 example
+recipes in one environment had the same hash on AMD EPYC 7763 and EPYC 7513 nodes, but every
+one of them differed between those and an Intel Xeon Gold 6240, which also had another glibc.
+So a job requeued onto a node of the same CPU family should continue. One requeued from an
+Intel node to an AMD node, or moved to another platform, should be expected to be refused.
+Restrict a long job to one CPU family, for example with a scheduler constraint.
 
 {py:func}`~solprop.output.hdf5.check_cache` is the gate; whether any work is left is the
 driver's to decide:
@@ -81,10 +89,7 @@ plasma integrates by the band rule
 rule in its configuration as `plasma_integration`. The record holds the policy, `K`,
 $\theta_b$, the taps at full precision, the certified error, and the boundary and
 exposure policies. A resume that would integrate the plasma differently is therefore
-refused, though the taps and the certified error stay out of the key: `dt` and the band
-edge determine them, through a least-squares fit whose last digits follow the BLAS kernel,
-so that a job requeued onto a node with another CPU type continues. The file's root
-attributes repeat it as `plasma_integration`,
+refused. The file's root attributes repeat it as `plasma_integration`,
 `plasma_integration_half_width`, `plasma_integration_theta_b`, `plasma_integration_taps`
 and `plasma_integration_certified_error`. A field-plasma run also records its
 held-current source equation under `configuration.plasma_source`, whose certificate

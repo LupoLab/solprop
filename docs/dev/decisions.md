@@ -1872,20 +1872,25 @@ Withdrawn (development-process record, not a design decision).
   - Reading is unchanged. A file of output schema 2 written by another build still reads,
     with an absent field taking its default.
   - `source=` in `field_plane` and a scan's reuse of a finished point use the same hash.
-  - A band rule's `taps` and `certified_error` stay in the record and out of the key. They
-    follow entirely from `dt` and `band_edge`, by a least-squares fit, and forcing other
-    OpenBLAS kernels moved their last digits, so a job requeued onto another CPU type would
-    otherwise be refused. They are the only numbers carved out. Provenance stays in the key.
+  - Nothing is carved out of the key for rounding, and provenance stays in it. A carve-out
+    was tried for a band rule's taps and dropped, as the measurement below shows it can't
+    deliver a resume between CPU families without rebuilding the class table.
 - **What is refused again,** each of which ADR-063 existed to allow:
   - a looser or tighter tolerance, or another integrator;
   - an optmat release, even with the same numbers;
   - a solprop release or commit that adds a recorded field or moves a recorded number;
-  - another platform's mathematics library or FFT;
+  - another platform's or CPU family's mathematics library, BLAS or FFT;
   - a `source=` simulation with any of these differences.
 
   These are refused on purpose. To carry on, launch a new segment from a saved plane or write
-  a new file. Any number in the record that moves between CPU types beyond the band rule's
-  would refuse a requeue too; the tests check each route under other BLAS kernels.
+  a new file.
+- **What was measured** (2026-11-04), 31 example recipes built on `numpy_ref` in one
+  environment. Hashes were the same on AMD EPYC 7763 and EPYC 7513 nodes, and on a repeat,
+  apart from 2 recipes with unseeded noise, which a resume redraws from the file's seed. All
+  31 differed between those and an Intel Xeon Gold 6240, which also had another glibc and
+  Python patch version, in the launch, absorber rates, quadrature weights, effective areas
+  and noise spectra. Forcing other OpenBLAS kernels on the Xeon moved 23 to 27 of 34 recipes.
+  So a long job has to stay on one CPU family to resume.
 - **Why not a SEP:** SEP 42 stays `Final` as the record of what it did, with a note pointing
   here. The maintainer judged a decision record enough for removing a mechanism, and the same
   goes for ADR-067's default.

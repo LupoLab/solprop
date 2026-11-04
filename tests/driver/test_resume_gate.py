@@ -10,7 +10,6 @@ must give the same bits, in a fresh process too, since a refusal stops a long jo
 
 import json
 import os
-import platform
 import subprocess
 import sys
 import threading
@@ -27,7 +26,7 @@ from solprop.driver.simulation import _check_resume_choice
 from solprop.exceptions import OutputError
 from solprop.log import NullReporter
 from solprop.output import check_cache, open_file, resumability
-from solprop.output.schema import RunMetadata, serialise
+from solprop.output.schema import serialise
 from solprop.recipe import Recipe, resume_file
 
 pytestmark = pytest.mark.filterwarnings("ignore::solprop.exceptions.BoundaryWarning")
@@ -144,29 +143,6 @@ def test_the_gate_says_what_a_resume_would_say(tmp_path):
         assert stored.outcome is not None and stored.outcome.status == "complete"
 
 
-def test_a_band_rule_keys_on_what_its_design_follows_from():
-    """Its taps follow the BLAS kernel; `dt` and `band_edge` determine them."""
-    metadata = record_routes.capillary().metadata()
-    document = json.loads(metadata.to_json())
-    rule = document["configuration"]["plasma_integration"]
-    assert rule["policy"] == "band" and rule["taps"]
-    hashed = cast("dict[str, Any]", metadata.hashed())
-    assert "taps" not in hashed["configuration"]["plasma_integration"]
-
-    moved = dict(rule, certified_error=rule["certified_error"] * (1 + 1e-13))
-    moved["taps"] = [tap * (1 + 1e-13) for tap in rule["taps"]]
-    document["configuration"]["plasma_integration"] = moved
-    stored = RunMetadata.from_json(json.dumps(document))
-    assert stored.configuration_hash() == metadata.configuration_hash()
-    assert stored.differences(metadata) == ()
-    # The record keeps them for a reader, through a round trip.
-    assert json.loads(stored.to_json())["configuration"]["plasma_integration"] == moved
-
-    document["configuration"]["plasma_integration"] = dict(rule, dt=rule["dt"] * 2.0)
-    changed = RunMetadata.from_json(json.dumps(document))
-    assert changed.differences(metadata) == ("configuration.plasma_integration.dt",)
-
-
 def test_an_unset_optional_field_is_recorded_at_its_default():
     """A new recorded field needs no step beyond adding it (ADR-051, ADR-066)."""
 
@@ -213,17 +189,6 @@ def test_a_rebuilt_run_has_its_hash_in_a_fresh_process(environment):
         for name, build in record_routes.ROUTES.items()
     }
     assert _route_hashes(**environment) == built
-
-
-@pytest.mark.medium
-@pytest.mark.skipif(
-    sys.platform != "linux" or platform.machine() != "x86_64",
-    reason="OPENBLAS_CORETYPE names x86-64 kernels, and only Linux CI runs them here",
-)
-@pytest.mark.parametrize("kernel", ["Haswell", "Sandybridge"])
-def test_a_job_requeued_onto_another_cpu_type_keeps_its_hash(kernel):
-    """Another BLAS kernel stands in for a node with another CPU, on each route."""
-    assert _route_hashes(OPENBLAS_CORETYPE=kernel) == _route_hashes()
 
 
 def test_check_cache_says_there_is_nothing_to_resume(tmp_path):

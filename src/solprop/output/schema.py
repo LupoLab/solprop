@@ -59,7 +59,7 @@ from enum import Enum
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _package_version
 from pathlib import Path
-from typing import Any, Final, Literal, Protocol, cast, runtime_checkable
+from typing import Any, Literal, Protocol, cast, runtime_checkable
 
 import numpy as np
 from jaxtyping import Bool, Complex, Float, Int
@@ -2637,15 +2637,6 @@ def _refuse_schema(declared: object) -> None:
     raise OutputError(msg)
 
 
-_DERIVED_PLASMA_RULE: Final = frozenset({"taps", "certified_error"})
-"""The numbers of a recorded band rule that stay out of the resume key.
-
-:func:`solprop.translate.plasma_integration.design_running_integral` solves for them
-from ``dt`` and ``band_edge``, by a least-squares fit and a maximisation. Their last
-digits follow the BLAS kernel, and so the CPU a job lands on, while what they follow
-from stays hashed: a job requeued onto another CPU type is the same run.
-"""
-
 _HASHED_KEYS: tuple[str, ...] = (
     "schema_version",
     "simulation_kind",
@@ -2670,8 +2661,7 @@ def _stored_hashed(document: Mapping[str, JsonValue]) -> dict[str, JsonValue]:
 
     The entries :meth:`RunMetadata.hashed` covers, taken from the document rather than
     from the objects rebuilt from it: the general modal identity without its accessor
-    list (:func:`_hashed_modal`), the configuration without a plasma rule's derived
-    numbers (:func:`_hashed_configuration`), and the material manifest's hashed part
+    list (:func:`_hashed_modal`), and the material manifest's hashed part
     (:func:`solprop.physdata.selection.hashed_document`). An entry the document lacks
     stays absent, so the record digests to the stamp its writer computed.
 
@@ -2686,10 +2676,6 @@ def _stored_hashed(document: Mapping[str, JsonValue]) -> dict[str, JsonValue]:
         Its hashed part.
     """
     hashed = {name: document[name] for name in _HASHED_KEYS if name in document}
-    if "configuration" in hashed:
-        hashed["configuration"] = _hashed_configuration(
-            cast("Mapping[str, JsonValue]", hashed["configuration"])
-        )
     modal = hashed.get("modal")
     if isinstance(modal, dict):
         hashed["modal"] = {
@@ -2703,39 +2689,6 @@ def _stored_hashed(document: Mapping[str, JsonValue]) -> dict[str, JsonValue]:
                 None if materials is None else cast("dict[str, object]", materials)
             ),
         )
-    return hashed
-
-
-def _hashed_configuration(
-    configuration: Mapping[str, JsonValue],
-) -> dict[str, JsonValue]:
-    """Return a serialised configuration as the resume key sees it.
-
-    All of it but a band rule's derived numbers (:data:`_DERIVED_PLASMA_RULE`), which
-    stay in the record for a reader.
-
-    Parameters
-    ----------
-    configuration : collections.abc.Mapping
-        The serialised configuration.
-
-    Returns
-    -------
-    dict
-        Its hashed part.
-
-    Examples
-    --------
-    >>> from solprop.output.schema import _hashed_configuration
-    >>> _hashed_configuration({"plasma_integration": {"dt": 1.0, "taps": [1.0]}})
-    {'plasma_integration': {'dt': 1.0}}
-    """
-    hashed = dict(configuration)
-    rule = hashed.get("plasma_integration")
-    if isinstance(rule, dict):
-        hashed["plasma_integration"] = {
-            key: value for key, value in rule.items() if key not in _DERIVED_PLASMA_RULE
-        }
     return hashed
 
 
@@ -3306,8 +3259,7 @@ class RunMetadata(Displayed):
         dirty working tree, as long as they move no number the record holds; a new
         library or platform may move one, and the resume is then refused.
         ``modal.accessors`` is excluded for the same reason -- it is what this build can
-        compute, not what this run did (``_hashed_modal``) -- and so is what a plasma
-        rule solves for (:func:`_hashed_configuration`).
+        compute, not what this run did (``_hashed_modal``).
 
         Returns
         -------
@@ -3347,7 +3299,7 @@ class RunMetadata(Displayed):
             "simulation_kind": self.simulation_kind,
             "grid": serialise(self.grid),
             "modes": serialise(list(self.modes)),
-            "configuration": _hashed_configuration(self._serialised_configuration),
+            "configuration": serialise(dict(self.configuration)),
             "noise": serialise(self.noise),
             "stepper": serialise(self.stepper),
             "spatial": serialise(self.spatial),
@@ -3362,18 +3314,6 @@ class RunMetadata(Displayed):
             "tdse": serialise(self.tdse),
             "quadrature": serialise(self.quadrature),
         }
-
-    @functools.cached_property
-    def _serialised_configuration(self) -> dict[str, JsonValue]:
-        """The whole serialised configuration, built once per record.
-
-        Returns
-        -------
-        dict
-            All of it, as :meth:`to_json` stores it; a record read from a file already
-            holds plain structures, which serialise to themselves.
-        """
-        return cast("dict[str, JsonValue]", serialise(dict(self.configuration)))
 
     def configuration_hash(self) -> str:
         """Return the resume key: a digest of everything that was computed.
@@ -3592,8 +3532,6 @@ class RunMetadata(Displayed):
             The hashed part and what is stored beside it, JSON-ready.
         """
         document = self.hashed()
-        # A plasma rule's derived numbers too, which the key leaves out.
-        document["configuration"] = self._serialised_configuration
         # The whole identity, including the accessor list `hashed` leaves out: what a
         # file records and what its resume key is taken over are two different
         # questions, and the published accessors answer only the first

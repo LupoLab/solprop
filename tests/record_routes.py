@@ -43,7 +43,7 @@ def gnlse() -> Simulation:
 
 
 def capillary() -> Simulation:
-    """Return an argon capillary with plasma: optmat, a quadrature and a band rule."""
+    """Return an argon capillary with plasma: optmat models and a quadrature."""
     grid = FieldGrid.from_limits(4e-4, 800e-9, (300e-9, 3e-6), 100e-15)
     return Simulation.from_capillary(
         50e-6,

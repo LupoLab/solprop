@@ -164,9 +164,8 @@ def integration_record(rule: RunningIntegral) -> dict[str, object]:
     Every field of the rule at full precision -- the taps as Python floats, which
     survive the JSON round trip bit for bit -- with the derived ``theta_b`` and ``K``,
     so that a saved file says how its plasma was integrated without being translated
-    again. A resume that would integrate differently is refused by the configuration
-    hash, which covers what the design follows from and leaves out what it solves for,
-    whose last digits follow the BLAS kernel (ADR-066).
+    again, and a resume that would integrate differently is refused by the configuration
+    hash.
 
     Parameters
     ----------
