@@ -15,7 +15,7 @@
 | **Requires** | [SEP 40](archive/sep-0040-transverse-absorbing-boundaries.md) |
 | **Supersedes** | — |
 | **Superseded-by** | — |
-| **Implementation** | Claude Opus 5.5, on `feature/sep-0044-native-edge`: phases 1 and 2 done; phase 3 next |
+| **Implementation** | Claude Opus 5.5, on `feature/sep-0044-native-edge`: phases 1, 2 and 3 done; device qualification next |
 | **Manual pages** | — |
 
 ## Part I — Proposal
@@ -452,6 +452,52 @@ The prototype §6 measured, carried onto this branch. It stacks on [#518](https:
 **Not yet done from §7.** Probes: DC, Nyquist and inactive bins, `n_to != n_t` radially, a planar `p != 0`, a small node chunk, and a collar's rate at a lit node. Matrix: field grids at the reading level, modified noise and a supplied unmasked realisation, `numpy_ref`'s binary32 path, and launch-only interruptions. The record: an interruption between edge reads, and a snapshot and its resume. The no-interference matrix's collars and stage-register variants. The radial row of `test_a_nearly_cancelling_radial_read_stays_within_its_absolute_budget` covers one narrow beam. These go with phase 3, where the collar joins them. No device has run this branch since the transfer count was added.
 
 **Open.** None for the maintainer.
+
+### Phase 3 — 2026-11-04
+
+A requested collar's strip and current are read natively, so a field-free collar run brings no state to the host. It stacks as phases 1 and 2 do.
+
+**What landed.** `EdgeLine` and `edge_lines`, one description of each line that both reductions read, so they differ only in their arithmetic. `bind_edge_lines`, and in `edge_reading` the strip and the current on one load of the transverse scratch, through two kernels, `edge_strip_line` and `edge_current_line`, which are one code on every build. A padded transform runs in batches of planes under `STRIP_BATCH_BYTES`. The current is read at every commit and accumulated in Python, so the host step stays one. `estimate` now counts a collar's edge.
+
+**Deviations from Part I.**
+
+- §6 allocates the strip's buffer at a collar's first read. It's at the bind, since a launch reads at once and the ledger row is then right from attach.
+- The whole runs are in `tests/backends/test_native_edge_collar.py`, not `test_transverse_backends.py`, whose module also runs without native.
+- There's no device-shaped kernel, so §7's rule about one has nothing to hold: the kernels that run on a device are the ones the CPU tests call. The GTest, `AnEdgeLineReadsAPlainTransformAndASlope`, holds them to a plain DFT and a difference written in the test.
+- §6's memory is per shape in effect: a positive and a negative face's lines commonly differ by a node, so the first version held two buffers, twice the stated cap. One allocation now serves every shape, which is what §6 states.
+- A strip plan's own memory is measured and joins the `fft_plan_*` rows, not `transverse_edge`. So the formula `estimate` uses doesn't hold it, as it doesn't hold any other plan's.
+
+**Found on the way.**
+
+- A launch with an input draw and no ramp brought a state to the host, for clean columns nothing reads. `test_a_launch_with_noise_judges_as_the_host_does_with_no_transfer` found it. Those runs now cross nothing.
+- A fresh agent, given the code and not my conclusions, read it for faults and found no wrong number. It did find a race, since binding a strip's plan released the GIL that serialises FFTW's planner, and a test that couldn't fail: the resumed-collar test's beam had a current of 2e-30 against `pytest.approx`'s default absolute tolerance, so it passed with #512 put back. Both are fixed. The tests comparing a current now use a converging beam, whose current clears `1e-14`, with no absolute tolerance. A planar launch can't converge, so its current is held only to an absolute size.
+
+**Verification, on CPU.** __CPU_VERIFIED__
+
+Seven deliberate breaks of the collar's modules, each caught: `resume` doing nothing (3 tests), `resume` zeroing the current (3), clean columns zeroed (3) or left noisy (4), and a change of one part in a million to the current (35), the strip (14) or the collar's rate (9).
+
+§7's list, now run: DC, Nyquist and inactive bins; `n_to != n_t` radially, with a Kerr response on a field grid, on every route with padding; a planar `p != 0`; the smallest node chunk each route allows; an almost-zero current; mixed inward and outward frequencies; field grids at the reading level; input, modified and no noise, with and without a ramp, and a supplied unmasked draw; launch-only interruptions, a resume with and without a monitor's record, an interruption between reads and a snapshot's resume on all three marches; and no interference on Runge-Kutta, split and in-stage, both Adams formulations and low-storage with and without its stage register, which a test holds to what each case takes. `numpy_ref`'s binary32 path has its existing test. Exact parity holds only on the matched-schedule witnesses, against `numpy_ref`, on all four routes and two marches.
+
+**On a device.** __DEVICE__ Neither the NVIDIA H200 nor the AMD Instinct MI325X has run this, so §7's gates remain unmeasured; that's phase 4, which needs a new approval for rented cards.
+
+**Cost.** One collar's read, on 384 x 384 x 600 with $f = 1$, on one state, field-free, native against the host's reduction of a host copy:
+
+| | Step | Current, each commit | Read with its strip and regions |
+|---|---:|---:|---:|
+| Intel Xeon Gold 6240, 18 cores, 18 threads | 2.97 s | 116 ms against 7.36 s | 0.94 s against 41.9 s |
+| NVIDIA A40, 16 host threads | 0.70 s | 36 ms against 1.54 s | 204 ms against 7.98 s |
+
+At each commit the current is then about 4 to 5 % of a step, where it was more than a step. A read with its strip is about 30 % of a step, at each of the run's few reads. Radially, on 256 nodes and 600 bins at 18 threads: the current 0.06 ms against 5.7 ms, a read 8.0 ms against 19.4 ms.
+
+SEP 40's four-way control, `python -m benchmarks.edge_overhead`, native at 18 threads, 5 rounds, default check against no ramp and no reads, with no collar: `line` +15.8 % (its calls rise from 196 to 224, the read ceiling's), `planar` +7.6 %, `radial_filament_256` +4.1 %, `kerr_beam_192` +8.3 %. These match the prototype's within their spread. Against `main`: __AB__
+
+**Memory.** __MEMORY__
+
+**A runner's points.** §6 suggested sharing the tables across points. At 512 x 512 x 600 a point's monitor takes 21 ms and its bind 16 ms, against a step of 1.76 s, so I left it.
+
+**Not yet done.** Phase 4's device qualification; the rest of §8's documents and the final ledger entry, phase 5.
+
+**Open.** Whether to approve a rental for phase 4.
 
 ## Part III — History
 

@@ -52,6 +52,14 @@ def test_the_estimate_reports_what_the_backend_holds_and_costs(backend):
     assert estimate.total_calls is None
 
 
+def test_an_estimate_adds_nothing_for_an_edge_read_on_the_host():
+    # `numpy_ref` reads a copy it has anyway, so the check holds no more memory.
+    simulation = _built("line", "numpy_ref")
+    checked = simulation.estimate().memory
+    simulation.settings = dataclasses.replace(simulation.settings, boundary_check=None)
+    assert simulation.estimate().memory == checked
+
+
 def test_the_output_size_counts_only_the_retained_fields():
     simulation = _built("soliton", "numpy_ref")
     every = simulation.estimate().output_bytes

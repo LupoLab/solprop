@@ -444,7 +444,7 @@ STRIP_BATCH_BYTES = 2**28
 """The most a batch of a strip's padded transforms holds on the state's memory space."""
 
 
-def line_rows(
+def _line_rows(
     space: RadialGrid | FreeGrid | PlanarGrid, line: EdgeLine, n_pol: int, n_omega: int
 ) -> int:
     """Return how many rows of values a line carries.
@@ -472,7 +472,7 @@ def line_rows(
     return planes * (space.n_y if line.axis == "x" else space.n_x)
 
 
-def strip_batch(line: EdgeLine, rows: int) -> int:
+def _strip_batch(line: EdgeLine, rows: int) -> int:
     """Return how many of a line's rows one batch of its padded transform takes.
 
     Parameters
@@ -530,8 +530,8 @@ def transverse_edge_bytes(
     for line in lines:
         total += 16 * line.strip.size
         if line.strip.size:
-            rows = line_rows(space, line, n_pol, n_omega)
-            largest = max(largest, strip_batch(line, rows) * 2 * line.strip.size)
+            rows = _line_rows(space, line, n_pol, n_omega)
+            largest = max(largest, _strip_batch(line, rows) * 2 * line.strip.size)
     return total + 16 * largest
 
 
@@ -886,7 +886,6 @@ class TransverseEdge:
     _current_last: tuple[float, float] | None = field(default=None, init=False)
     _current_baseline: float = field(default=0.0, init=False)
     _returned_peak: float = field(default=0.0, init=False)
-    _read_rows: np.ndarray | None = field(default=None, init=False)
     _kappa_order: np.ndarray = field(init=False)
     tables: EdgeTables = field(init=False)
     reduction: HostEdgeReduction = field(init=False)
@@ -950,15 +949,13 @@ class TransverseEdge:
         numpy.ndarray
             A mask over the nodes.
         """
-        if self._read_rows is None:
-            rows = np.zeros(self._weights.size, dtype=bool)
-            for face in self._faces:
-                rows |= face.edge
-            rate = self._node_rate()
-            if rate is not None:
-                rows |= rate > 0.0
-            self._read_rows = rows
-        return self._read_rows
+        rows = np.zeros(self._weights.size, dtype=bool)
+        for face in self._faces:
+            rows |= face.edge
+        rate = self._node_rate()
+        if rate is not None:
+            rows |= rate > 0.0
+        return rows
 
     def _node_rate(self) -> Float[np.ndarray, " n_nodes"] | None:
         """Return a requested collar's power rate on the nodes (or rows), 1/m.

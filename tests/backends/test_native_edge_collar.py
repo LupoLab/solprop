@@ -812,3 +812,44 @@ def test_a_resume_with_no_monitor_record_crosses_once() -> None:
         assert backend._native_state.crossed_bytes()[0] == state.nbytes
     finally:
         backend.close()
+
+
+def test_a_strip_of_too_few_nodes_reads_nothing_on_either_side(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # One line too short to read a direction beside the real ones: it holds no buffer and
+    # its pair is zero, in the same place in the reading.
+    simulation = _case("line")
+    problem = simulation.translate()
+    state = _noise(problem, 101)
+    lines = transverse_monitor.edge_lines
+
+    def with_an_empty_line(*args: Any) -> tuple[Any, ...]:
+        found = lines(*args)
+        short = np.array([1.0, 2.0, 3.0])
+        return (*found, transverse_monitor._edge_line("x", short, 1.0, (0.0, 4.0), 2.0))
+
+    monkeypatch.setattr(transverse_monitor, "edge_lines", with_an_empty_line)
+    backend, edge = _attached(simulation, state)
+    try:
+        read = backend._edge_reading(backend._require_state(), edge, full=True)
+        held = edge.reduction.reading(state[0], full=True)
+        _, _, n_pol, n_omega = problem.shape
+        assert backend.memory_ledger()["transverse_edge"] == (
+            transverse_monitor.transverse_edge_bytes(
+                edge.space, edge.design, n_pol, n_omega
+            )
+        )
+    finally:
+        backend.close()
+    assert read.strip.shape == held.strip.shape
+    assert read.strip[-1].tolist() == held.strip[-1].tolist() == [0.0, 0.0]
+    assert np.all(read.strip[:-1, 1] > 0.0)
+
+
+def test_a_strip_too_short_for_any_inward_bin_reads_only_its_window() -> None:
+    # Direction needs |q| >= 16 / s. Four nodes span three spacings, so that's beyond
+    # Nyquist's pi / h, and the strip has a window and no inward range.
+    line = transverse_monitor._edge_line("x", np.arange(8.0), 1.0, (2.0, 5.0), 6.0)
+    assert line.strip.size == 4
+    assert line.inward == (0, 0)
