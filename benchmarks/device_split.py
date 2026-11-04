@@ -205,7 +205,7 @@ def main(argv: list[str] | None = None) -> None:
             sink.write(line + "\n")
             sink.flush()
 
-    import solprop_native  # noqa: PLC0415 - loaded first by nothing else here
+    import solprop_native  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
 
     emit(
         "record",
