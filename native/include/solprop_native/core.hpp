@@ -101,10 +101,13 @@ struct SplitSums {
  */
 inline constexpr std::size_t occupancy_bucket_limit = 128;
 // The buckets one reduction holds. A reduction's value has to fit the device's shared
-// memory per block: on HIP, whose smallest block is 64 threads, `(64 + 2) *
-// sizeof(value)` within 64 KiB, so a reading there takes two passes.
+// memory per block, which on HIP's smallest block of 64 threads is `(64 + 2) *
+// sizeof(value)`, with the kernel's own static memory beside it within 64 KiB. Kokkos
+// checks only the first: a value that fills the block passes its check and the dispatch
+// then faults on an AMD Instinct MI325X ("Illegal opcode in command stream"). So a
+// reading there takes two passes, leaving half the block free.
 #if defined(KOKKOS_ENABLE_HIP)
-inline constexpr std::size_t occupancy_reduction_slots = 124;
+inline constexpr std::size_t occupancy_reduction_slots = 64;
 #else
 inline constexpr std::size_t occupancy_reduction_slots = occupancy_bucket_limit;
 #endif
@@ -117,7 +120,7 @@ struct OccupancySums {
   }
 };
 #if defined(KOKKOS_ENABLE_HIP)
-static_assert((64 + 2) * sizeof(OccupancySums) <= 65536);
+static_assert((64 + 2) * sizeof(OccupancySums) <= 48 * 1024);
 #endif
 
 using ComplexView = Kokkos::View<Complex*, Layout, MemorySpace>;
