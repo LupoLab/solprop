@@ -947,8 +947,42 @@ DRIVER_SURFACE = {
     "set_progress": "(self, reporter: solprop.log.ProgressReporter) -> None",
     "propagate_to": "(self, z: float) -> solprop.backends.protocol.StepSummary",
     "available_device_memory": "(self) -> int | None",
+    # A subclass's and the shared marches' bookkeeping.
+    "_axis_statistics": (
+        "(self, field: jaxtyping.Complex[ndarray, 'n_modes n_pol n_omega'], "
+        "scan: tuple[numpy.ndarray, numpy.ndarray] | None) -> dict[str, numpy.ndarray]"
+    ),
+    "_check_open": "(self) -> None",
+    "_collar_changed": "(self) -> None",
+    "_march_to": "(self, target: float) -> None",
+    "_monitor_plane": "(self) -> None",
+    "_noise_at": (
+        "(self, bundle: solprop.translate.stage.StageScalars) -> "
+        "jaxtyping.Complex[ndarray, 'n_batch n_modes n_pol n_omega'] | None"
+    ),
+    "_poll_stop": "(self) -> None",
+    "_quiet_capped": "(self, proposal: float) -> float",
+    "_record": "(self, z: float, dz: float, norm: float, accepted: bool) -> None",
+    "_refuse_in_flight": "(self) -> None",
+    "_replay_to": (
+        "(self, schedule: solprop.stepper.schedule.FixedSchedule, target: float) -> "
+        "None"
+    ),
+    "_set_collar_quiet": "(self, quiet: bool) -> None",
+    "_split_capped": "(self, proposal: float) -> float",
+    "_transverse_capped": "(self, proposal: float) -> float",
+    # What the run layer calls on every backend (the `Backend` protocol).
+    "attach_monitor": "(self, monitor: solprop.monitor.BoundaryMonitor) -> None",
+    "march_export_refusal": "(self) -> str | None",
+    "march_snapshot": "(self) -> solprop.output.schema.MarchSnapshot | None",
+    "march_snapshot_nbytes": "(self, z: float) -> int | None",
+    "restore_march": (
+        "(self, snapshot: solprop.output.schema.MarchSnapshot) -> str | None"
+    ),
+    "set_stop": "(self, flag: solprop.log.StopFlag | None) -> None",
+    "timed_step": "(self) -> collections.abc.Callable[[], object]",
 }
-"""Every ``StepDriver`` member a subclass overrides or calls, with its signature.
+"""Every ``StepDriver`` method a subclass overrides or calls, or the run layer calls.
 
 The literal is the seam a compiled backend is built against: change a signature here
 only together with a release-note fragment (``AGENTS.md``, "Backends, kernels and hot
@@ -970,12 +1004,33 @@ DRIVER_ATTRIBUTES = (
     "_state",
     "_noise",
     "_closed",
+    "_accepted_norms",
+    "_accepted_steps",
+    "_clock",
+    "_collar_quiet",
+    "_held_z",
+    "_history",
+    "_monitor",
+    "_natural_count",
+    "_norm_controller",
+    "_progress",
+    "_propagator_mode",
+    "_proposal",
+    "_row_period",
+    "_row_spec",
+    "_schedule_index",
+    "_split_monitor",
+    "closed",
+    "far_field_statistics",
     "helpers",
+    "in_flight",
+    "name",
+    "reads_transverse_edge",
 )
 """The attributes a subclass reads or sets, present from construction.
 
-``helpers`` (schema 34) is a class attribute: each backend sets its own record of the
-per-stage and per-step evaluations, which the shared code passes down.
+``helpers`` is a class attribute: each backend sets its own record of the per-stage and
+per-step evaluations, which the shared code passes down.
 """
 
 SEPARABLE_OPERATOR_FIELDS = (
@@ -1106,6 +1161,11 @@ def test_the_surface_a_backend_subclasses_is_frozen(driver):
         tuple(f.name for f in dataclasses.fields(StageScalars)) == STAGE_SCALARS_FIELDS
     )
     assert tuple(f.name for f in dataclasses.fields(MarchPolicy)) == MARCH_POLICY_FIELDS
+
+
+def test_the_native_surface_is_inside_the_frozen_one():
+    native = pytest.importorskip("solprop_native")
+    assert set(native.DRIVER_SURFACE) <= set(DRIVER_SURFACE)
 
 
 def test_separable_operator_fields_are_frozen_with_the_driver_seam():

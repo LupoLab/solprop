@@ -151,6 +151,17 @@ def test_a_solprop_without_a_driver_member_is_refused_by_name(
         check_build()
 
 
+def test_the_driver_surface_names_every_method_the_adapter_overrides() -> None:
+    overridden = {
+        name
+        for name, member in vars(NativeBackend).items()
+        if not name.startswith("__")
+        and callable(member)
+        and callable(getattr(StepDriver, name, None))
+    }
+    assert overridden <= set(solprop_native.DRIVER_SURFACE)
+
+
 def test_stage_observation_owns_its_host_copy_and_checks_lifetime(
     phase_a_case: PhaseACase,
 ) -> None:
@@ -445,9 +456,9 @@ def test_tdse_is_refused_by_name_before_integrator_or_native_setup(
 
 @pytest.mark.parametrize(
     "member",
-    ["restore_call_ledgers", "_reserve_source_calls", "_release_source_calls"],
+    ["_adams_block", "_march_to", "_propagator_mode", "reads_transverse_edge"],
 )
-def test_schema_requires_the_inherited_response_accounting_hooks(
+def test_the_build_requires_each_kind_of_driver_member_the_adapter_uses(
     monkeypatch: pytest.MonkeyPatch, member: str
 ) -> None:
     monkeypatch.delattr(StepDriver, member)
