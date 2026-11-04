@@ -41,7 +41,14 @@ from solprop.grid import FreeGrid, LineGrid, RadialGrid
 from solprop.modes.slab import PlanarGrid
 from solprop.spatial_absorber import RAMP_K_FLOOR, SpatialAbsorberDesign
 
-__all__ = ["GUARD", "NOISE_FACTOR", "READS", "TransverseEdge", "TransverseStatus"]
+__all__ = [
+    "GUARD",
+    "NOISE_FACTOR",
+    "READS",
+    "READ_RESOLUTION",
+    "TransverseEdge",
+    "TransverseStatus",
+]
 
 logger = logging.getLogger(__name__)
 
