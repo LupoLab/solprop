@@ -976,7 +976,10 @@ def _summarised(value: JsonValue) -> object:
     elif value.get("__class__") == _DIGEST_CLASS:
         summary = f"digest {str(value.get('sha256', ''))[:12]}"
     elif value.get("__class__") == _STATED_CLASS:
-        summary = f"stated {value.get('identity', '')}"
+        shape = tuple(cast("list[int]", value.get("shape", [])))
+        summary = (
+            f"stated {value.get('identity', '')} ({value.get('dtype', '')}, {shape})"
+        )
     else:
         summary = f"<{value.get('__class__', 'mapping')}>"
     return summary

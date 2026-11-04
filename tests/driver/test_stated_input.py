@@ -177,12 +177,12 @@ def test_a_stated_input_resumes_by_its_statement_alone(tmp_path):
     simulation.with_input(second, input_identity="a").run(
         output=path, resume=True, progress="none"
     )
-    with pytest.raises(OutputError, match="initial 'stated a' -> 'stated b'"):
+    with pytest.raises(OutputError, match=r"initial 'stated a \(.*' -> 'stated b \("):
         simulation.with_input(first, input_identity="b").run(
             output=path, resume=True, progress="none"
         )
     # Nor does the array's own record continue a stated file.
-    with pytest.raises(OutputError, match=r"initial .*'stated a' -> "):
+    with pytest.raises(OutputError, match=r"initial .*'stated a \(.*' -> "):
         simulation.with_input(first).run(output=path, resume=True, progress="none")
 
 
@@ -194,8 +194,24 @@ def test_the_leaf_rule_compares_a_statement_whole_and_names_it():
     two = {"configuration": {"initial": dict(stated, identity="b")}}
     comparison = compare_records(one, two)
     assert not comparison.continues
-    assert "'stated a' -> 'stated b'" in comparison.summary()
+    assert (
+        "'stated a (complex128, (1, 2))' -> 'stated b (complex128, (1, 2))'"
+        in comparison.summary()
+    )
     assert compare_records(one, {"configuration": {"initial": dict(stated)}}).continues
+
+
+def test_a_refusal_shows_what_differs_when_only_the_dtype_or_shape_does():
+    stated = serialise(StatedInput("a", "complex128", (1, 2)))
+    assert isinstance(stated, dict)
+    one = {"configuration": {"initial": stated}}
+    dtype = {"configuration": {"initial": dict(stated, dtype="complex64")}}
+    assert (
+        "'stated a (complex128, (1, 2))' -> 'stated a (complex64, (1, 2))'"
+        in compare_records(one, dtype).summary()
+    )
+    shape = {"configuration": {"initial": dict(stated, shape=[2, 1])}}
+    assert "(complex128, (2, 1))" in compare_records(one, shape).summary()
 
 
 def _point(point) -> Simulation:
