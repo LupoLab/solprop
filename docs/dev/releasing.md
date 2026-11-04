@@ -46,6 +46,9 @@ thread pool for the backend. The wheel carries the licence text of every library
 into it or copied in by the repair (`LICENSE-*.txt` beside the extension). One wheel, built
 on CPython 3.14 against the stable ABI (`cp314-abi3`), serves 3.14 and later; `abi3audit`
 and a load on 3.15 must pass before it is published. Free-threaded CPython is not a target.
+The same workflow's `python-3-15-tests` job runs the default lane on Linux on 3.15, with h5py
+built from source. It's a qualification lane and publishing doesn't wait for it, because 3.15
+is not yet supported ([#319](https://github.com/LupoLab/solprop/issues/319)).
 
 ## Building a wheel locally
 

@@ -51,7 +51,9 @@ recorded.
 field; the field is ignored, since the stored state supersedes it, and the pulse is
 compared. A changed pulse energy is therefore refused: a script that changed its pulse
 and kept its output path is more likely a mistake than a wish to continue the old run.
-An array launch has no other record, and its array is compared. Input noise drawn from
+An array launch has no other record, and its array is compared, by its digest above 2²⁰
+elements, or by the string its caller stated with `input_identity`, which is compared
+as given and so passes for any array stated alike. Input noise drawn from
 a recorded seed is compared by its model and seed; a realisation passed in, and modified
 noise, which acts at every step, are compared by their spectra.
 

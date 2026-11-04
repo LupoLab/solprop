@@ -2086,6 +2086,7 @@ public:
   void adopt(const std::vector<Complex>& field, double dz);
   double low_storage_step(double dz, const TrialScalars& scalars, bool rebuild_table);
   void hold_plane();
+  void release_plane();
   std::vector<Complex> held_to_host() const;
   void low_storage_flows_formed(bool rebuild_table);
   void low_storage_separable_pass(std::size_t pass, double dz);
@@ -5811,6 +5812,12 @@ void GeneralWorkspace::hold_plane() {
         problem_.n_columns(), problem_.n_omega);
   graph::deep_copy(execution_space_, held_plane_, current_);
   held_ready_ = true;
+}
+
+void GeneralWorkspace::release_plane() {
+  execution_space_.fence("solprop_native release_plane");
+  held_plane_ = {};
+  held_ready_ = false;
 }
 
 std::vector<Complex> GeneralWorkspace::held_to_host() const {
@@ -14708,14 +14715,32 @@ std::vector<double> GeneralWorkspace::monitor_reading() {
     // build's atomic scatter adds into the view itself).
     graph::deep_copy(execution_space_, occupancy_, 0.0);
     scatter.reset(execution_space_);
-    launch::parallel_for(
-        "solprop_native.monitor.occupancy",
-        Range2(execution_space_, {0, 0}, {columns, n}),
-        KOKKOS_LAMBDA(const std::size_t row, const std::size_t index) {
-          auto access = scatter.access();
-          access(buckets((row / n_pol) * n + index)) +=
-              column_weights(row) * squared_abs(current(row, index));
-        });
+    if constexpr (Kokkos::SpaceAccessibility<ExecutionSpace,
+                                             Kokkos::HostSpace>::accessible) {
+      // A host scatter finds its thread's copy at each `access`, which dominated this
+      // loop per element; a row takes it once (issue #453). A device's access is
+      // atomic.
+      launch::parallel_for(
+          "solprop_native.monitor.occupancy",
+          Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, columns),
+          KOKKOS_LAMBDA(const std::size_t row) {
+            auto access = scatter.access();
+            const std::size_t offset = (row / n_pol) * n;
+            const double weight = column_weights(row);
+            for (std::size_t index = 0; index < n; ++index)
+              access(buckets(offset + index)) +=
+                  weight * squared_abs(current(row, index));
+          });
+    } else {
+      launch::parallel_for(
+          "solprop_native.monitor.occupancy",
+          Range2(execution_space_, {0, 0}, {columns, n}),
+          KOKKOS_LAMBDA(const std::size_t row, const std::size_t index) {
+            auto access = scatter.access();
+            access(buckets((row / n_pol) * n + index)) +=
+                column_weights(row) * squared_abs(current(row, index));
+          });
+    }
     Kokkos::Experimental::contribute(execution_space_, occupancy_, scatter);
     const auto host =
         Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace{}, occupancy_);
@@ -15595,6 +15620,7 @@ void GeneralState::hold_plane() {
   const CpuTeamScope team(workspace_->cpu_team());
   workspace_->hold_plane();
 }
+void GeneralState::release_plane() { workspace_->release_plane(); }
 std::vector<Complex> GeneralState::held_to_host() const {
   const CpuTeamScope team(workspace_->cpu_team());
   return workspace_->held_to_host();

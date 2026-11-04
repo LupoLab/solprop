@@ -337,10 +337,13 @@ class NativeBackend(StepDriver[_core.State]):
         if self._z_tables is not None:
             self._z_tables.upload(self._native_state)
         _upload_flux_table(self._native_state, problem)
-        self._last_loaded = np.empty(0, dtype=np.complex128)
         # Set while `set_initial` runs the driver's load, whose mask step then leaves
         # the upload to the one with the noise that follows: the state crosses once.
+        # The state it leaves lives for that load alone: the upload copies and fences,
+        # so a temporary, such as the input draw's sum, is not held for the backend's
+        # life, outside its ledger.
         self._loading = False
+        self._to_upload: ComplexArray | None = None
         self._alarm = math.nan
         self._alarm_reported = False
         # solprop's Adams march (SEP 14 phase 2) steps on host arrays, with one native
@@ -368,10 +371,11 @@ class NativeBackend(StepDriver[_core.State]):
         )
 
     def _apply_mask(self, state: ComplexArray) -> _core.State:
-        self._last_loaded = np.ascontiguousarray(state.reshape(-1))
-        if not self._loading:
-            empty = np.empty(0, dtype=np.complex128)
-            self._native_state.set_initial(self._last_loaded, empty)
+        flat = np.ascontiguousarray(state.reshape(-1))
+        if self._loading:
+            self._to_upload = flat
+        else:
+            self._native_state.set_initial(flat, np.empty(0, dtype=np.complex128))
         return self._native_state
 
     def set_initial(
@@ -387,18 +391,24 @@ class NativeBackend(StepDriver[_core.State]):
         self._loading = True
         try:
             super().set_initial(field, noise, z=z, resume=resume)
+            flat = cast("ComplexArray", self._to_upload)
         finally:
             self._loading = False
+            self._to_upload = None
         native_noise = (
             np.empty(0, dtype=np.complex128)
             if self._noise is None
             else np.ascontiguousarray(self._noise.reshape(-1))
         )
-        self._native_state.set_initial(self._last_loaded, native_noise)
+        self._native_state.set_initial(flat, native_noise)
         self._native_state.clear_fsal()
         if self._adams is not None:
-            self._host_state = self._native_state.field_to_host().reshape(
-                self._problem.shape
+            # The host engine's copy of the accepted state; a resident march reads the
+            # native state when it is asked, and holds no such volume.
+            self._host_state = (
+                None
+                if self._resident is not None
+                else self._native_state.field_to_host().reshape(self._problem.shape)
             )
             self._adams.reset()
 
@@ -418,11 +428,10 @@ class NativeBackend(StepDriver[_core.State]):
         With the resident history (solprop SEP 16 phase 3b) the march reads it only to
         report a stopped run, so it is copied from the engine when asked for.
         """
-        if self._host_state is None:
-            raise BackendError("no initial state has been loaded")
+        self._require_state()
         if self._resident is not None:
             return self._native_state.field_to_host().reshape(self._problem.shape)
-        return self._host_state
+        return cast("ComplexArray", self._host_state)
 
     def _adams_engine(
         self,
@@ -614,6 +623,11 @@ class NativeBackend(StepDriver[_core.State]):
         self._native_state.hold_plane()
         self._held_z = self._z
 
+    def _drop_held(self) -> None:
+        """Release the held plane's volume in the native memory space."""
+        self._native_state.release_plane()
+        self._held_z = None
+
     def _held_field(self) -> ComplexArray:
         """Return the held plane's state, copied to the host once."""
         return self._native_state.held_to_host().reshape(self._problem.shape)
@@ -763,10 +777,9 @@ class NativeBackend(StepDriver[_core.State]):
         the field here, so that a restored march keeps adding it to its sources.
         """
         self._z = z
-        self._host_state = state
-        self._last_loaded = np.ascontiguousarray(state.reshape(-1))
+        self._host_state = None if self._resident is not None else state
         self._native_state.set_initial(
-            self._last_loaded,
+            np.ascontiguousarray(state.reshape(-1)),
             np.empty(0, dtype=np.complex128)
             if self._noise is None
             else np.ascontiguousarray(self._noise.reshape(-1)),
@@ -1721,11 +1734,18 @@ class NativeBackend(StepDriver[_core.State]):
         return _core.available_device_memory()
 
     def memory_ledger(self) -> dict[str, int]:
-        """Return every persistent native allocation's byte count by role."""
-        return {
+        """Return every persistent native allocation's byte count by role.
+
+        The host engine's copy of the accepted state, which the Adams march keeps on the
+        host when its history is not resident, is listed beside them.
+        """
+        ledger = {
             str(name): int(value)
             for name, value in self._native_state.memory_ledger().items()
         }
+        held = self._host_state
+        ledger["adams_host_state"] = 0 if held is None else held.nbytes
+        return ledger
 
     def close(self) -> None:
         """Release native plans and views; repeated calls have no effect."""
@@ -1734,6 +1754,7 @@ class NativeBackend(StepDriver[_core.State]):
             _host_blas.release()
         self._state = None
         self._noise = None
+        self._host_state = None
         self._closed = True
 
 

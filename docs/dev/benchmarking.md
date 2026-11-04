@@ -96,7 +96,9 @@ cluster, give it explicitly.
 to neighbouring cores), `default` (the runtime's own short
 spin before sleeping), `active` (idle threads spin), `bound` (threads pinned to
 neighbouring cores) or `bound-active`. The policy is recorded with each row, and rows
-compare only within one policy.
+compare only within one policy. Binding also confines SciPy's transforms on the host to the
+main thread's core, so a free-space row's edge reads cost more under a bound policy than
+under `passive` ([the edge against 0.1.0](benchmarks.md#the-transverse-edge-against-010)).
 
 ## On a GPU
 
@@ -143,7 +145,9 @@ with at least three repeats, and only when:
   changed but its documentation and tests;
 - nothing under `src/`, `native/` or `benchmarks/` is uncommitted (the history files
   aside, so one checkout can record several runs), unless `--allow-dirty`, whose rows
-  are marked dirty.
+  are marked dirty;
+- `SOLPROP_FFTW_PLAN` is unset: a row does not record how it planned, and measured
+  planning changes its construction time and its median.
 
 The hardware name is the CPU model and the production width, plus the instance family
 on a cloud machine, for example `apple-m5-max-18c`, `amd-epyc-7763-16c` or

@@ -1708,6 +1708,14 @@ _EXECUTION: Final = (
         "guide/results/output.md",
     ),
     Parameter(
+        "held_plane",
+        (_BOOLEAN,),
+        "output",
+        "advanced",
+        "Hold the low-storage march's last field-free plane, for a checkpoint.",
+        _OUTPUT_PAGE,
+    ),
+    Parameter(
         "memory_budget",
         (Form("integer", minimum=0), Form("string"), _NONE),
         "numerics",

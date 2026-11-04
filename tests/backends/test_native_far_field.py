@@ -40,7 +40,7 @@ from backends.forced_threads import assert_threaded
 from backends.matched import native_thread_fields
 from bounds import assert_within
 from solprop.backends import select
-from solprop.backends.memory import estimate_memory, far_field_memory
+from solprop.backends.memory import estimate_memory, far_field_memory, ledger_groups
 from solprop.backends.spatial import AXIS_SPECTRUM_ONLY, far_field_partials
 from solprop.boundaries import SpatialAbsorber, absorber
 from solprop.driver import Simulation, SimulationSettings
@@ -352,6 +352,7 @@ def test_the_native_partials_are_held_and_estimated_to_the_byte():
     try:
         ledger = owner.memory_ledger()
         assert ledger["far_field_partials"] == rows["far_field_partials"]
+        constructed = ledger_groups(ledger)["base"]
         # The axes, then the tables and packed output once a call has run.
         assert ledger["far_field_tables"] == 8 * (space.n_x + space.n_y)
         owner.set_initial(problem.initial.field0, None)
@@ -368,11 +369,7 @@ def test_the_native_partials_are_held_and_estimated_to_the_byte():
         assert ledger["far_field_partials"] == rows["far_field_partials"]
     finally:
         owner.close()
-    assert (
-        estimate_memory(problem, "native").groups["base"]
-        == estimate_memory(problem, "numpy_ref").groups["base"]
-        + rows["far_field_partials"]
-    )
+    assert estimate_memory(problem, "native").groups["base"] == constructed
 
 
 def test_on_axis_intensity_takes_no_native_slot():

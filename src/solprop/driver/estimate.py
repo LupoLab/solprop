@@ -159,6 +159,7 @@ def estimate(
             memory_budget,
             retention=retention,
             inputs=simulation._held_inputs(),
+            held_plane=settings.held_plane,
         )
     except MemoryBudgetError as error:
         return RunEstimate(

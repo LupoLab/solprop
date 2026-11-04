@@ -477,7 +477,9 @@ def test_each_free_space_type_builds_from_a_table(table, expected):
 
 def test_the_registered_settings_and_controller_leave_out_what_is_not_a_recipe_s():
     settings = REGISTRY["SimulationSettings"]
-    assert {"fields", "field_planes", "resume_history"} <= set(settings.omitted)
+    assert {"fields", "field_planes", "resume_history", "held_plane"} <= set(
+        settings.omitted
+    )
     assert all(name.startswith("_") or name in settings.omitted for name in ("_route",))
     assert "weights" in REGISTRY["PIController"].omitted
     assert "susceptibility" in REGISTRY["SpatialMedium"].omitted
