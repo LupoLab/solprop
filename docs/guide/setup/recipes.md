@@ -319,6 +319,9 @@ scan = recipe.scan()
 run_scan(scan.scan, scan.build, output="scan.h5", **scan.keywords)
 ```
 
+`run_scan` takes `fields` and `field_planes`. The table's other settings, `resume_history`
+and `held_plane`, go to each point's run.
+
 ## The recipe in the output
 
 A simulation built by `recipe.build()` carries its recipe, and its first run records it
