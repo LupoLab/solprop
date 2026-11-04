@@ -30,6 +30,7 @@ from solprop.physdata import gamma3
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stepper import FixedSchedule, PIController
+from solprop.translate.modal import DEFAULT_SPATIAL_NODE_BUDGET
 from solprop.translate.problem import KernelProblem
 
 native_backend = pytest.importorskip("solprop_native.backend")
@@ -175,7 +176,7 @@ def test_a_device_takes_every_row_at_once(
     monkeypatch.setattr(native_backend, "_on_device", lambda: True)
     simulation = _beam(ENVELOPE, MARCHES[reference[0]])
     problem = _blocked(simulation, 5)
-    backend = watched(simulation, "native", problem)
+    backend: Any = watched(simulation, "native", problem)
     try:
         assert backend._native_state.split_rows == problem.shape[1] * problem.shape[2]
     finally:
@@ -203,12 +204,20 @@ def test_a_stated_budget_keeps_its_chunk_on_a_device() -> None:
     assert native_backend._split_rows(stated, device=True) == 5 * default.shape[2]
     assert native_backend._split_rows(stated, device=False) == 5 * default.shape[2]
 
+    simulation.settings = dataclasses.replace(
+        simulation.settings, node_budget=DEFAULT_SPATIAL_NODE_BUDGET
+    )
+    assert simulation.translate().transform.chunk_budgeted
 
-def test_the_cpu_keeps_the_node_chunk_it_was_given() -> None:
+
+def test_the_cpu_keeps_the_node_chunk_it_was_given(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(native_backend, "_on_device", lambda: False)
     simulation = _beam(ENVELOPE)
     problem = _blocked(simulation, 5)
     assert native_backend._split_rows(problem, device=False) == 5 * problem.shape[2]
-    backend = watched(simulation, "native", problem)
+    backend: Any = watched(simulation, "native", problem)
     try:
         assert backend._native_state.split_rows == 5 * problem.shape[2]
     finally:
