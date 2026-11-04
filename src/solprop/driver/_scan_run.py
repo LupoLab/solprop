@@ -817,6 +817,7 @@ class _Work:
         """
         started = time.perf_counter()
         metadata_json = digest = ""
+        metadata_arrays: Mapping[str, np.ndarray] = {}
         capture: _Capture | None = None
         if stop is not None and stop.is_set():
             return self.stopped(job)
@@ -825,14 +826,16 @@ class _Work:
             metadata = simulation.metadata()
             digest = metadata.configuration_hash()
             metadata_json = metadata.to_json()
+            metadata_arrays = metadata.record_arrays()
             if job.cached_hash:
                 if job.cached_hash != digest:
                     return PointResult(
                         job.point.index,
                         "conflict",
                         digest,
-                        metadata.to_json(),
+                        metadata_json,
                         error=f"point {job.point.index} has a different configuration",
+                        metadata_arrays=metadata_arrays,
                     )
                 return PointResult(
                     job.point.index, "skipped", configuration_hash=digest
@@ -856,6 +859,7 @@ class _Work:
                 arrays = capture.results()
                 if capture.metadata is not None:
                     metadata_json = capture.metadata.to_json()
+                    metadata_arrays = capture.metadata.record_arrays()
                 return PointResult(
                     job.point.index,
                     "done",
@@ -870,10 +874,12 @@ class _Work:
                     n_steps=capture.steps,
                     n_rejected=capture.rejected,
                     boundary_monitor=_closing_monitor(capture),
+                    metadata_arrays=metadata_arrays,
                 )
         except Exception:
             if capture is not None and capture.metadata is not None:
                 metadata_json = capture.metadata.to_json()
+                metadata_arrays = capture.metadata.record_arrays()
             return PointResult(
                 job.point.index,
                 "failed",
@@ -882,6 +888,7 @@ class _Work:
                 error=traceback.format_exc(),
                 wall_time=time.perf_counter() - started,
                 boundary_monitor=_closing_monitor(capture),
+                metadata_arrays=metadata_arrays,
             )
 
 

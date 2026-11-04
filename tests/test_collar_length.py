@@ -45,7 +45,7 @@ def test_an_absorber_at_its_defaults_records_its_defaults(grid):
     assert collar.in_stage_length == collar.reference_length
     record = serialise(collar)
     assert isinstance(record, dict)
-    # Every field is recorded, the two SEP 22 added at their defaults too.
+    # Every field is recorded, the ones added since at their defaults too.
     assert set(record) == {
         "__class__",
         "spectral_rate",
@@ -55,6 +55,7 @@ def test_an_absorber_at_its_defaults_records_its_defaults(grid):
         "reference_length",
         "collar_length",
         "temporal",
+        "user_rate",
     }
     assert record["collar_length"] is None and record["temporal"] is True
     explicit = dataclasses.replace(collar, collar_length=collar.reference_length)
@@ -83,13 +84,13 @@ def test_a_rate_outside_the_band_has_no_share(grid):
     assert np.all(custom.user_rate[custom.band_mask] == 1.0)
 
 
-def test_a_user_rate_is_recorded_only_when_there_is_one(grid):
+def test_a_user_rate_is_recorded_and_its_split_moves_the_record(grid):
     collar = absorber(grid)
     record = serialise(collar)
-    assert isinstance(record, dict) and "user_rate" not in record
+    assert isinstance(record, dict) and record["user_rate"] is None
     custom = custom_absorber(grid, 3.0, collar=collar)
     held = serialise(custom)
-    assert isinstance(held, dict) and "user_rate" in held
+    assert isinstance(held, dict) and held["user_rate"] is not None
     # Two splits of one total are two runs: they must not share a hash.
     assert custom.user_rate is not None
     lumped = dataclasses.replace(custom, user_rate=None)
@@ -97,7 +98,6 @@ def test_a_user_rate_is_recorded_only_when_there_is_one(grid):
     np.testing.assert_array_equal(lumped.spectral_rate, half.spectral_rate)
     records = (serialise(lumped), serialise(half), held)
     assert records[0] != records[1] != records[2] != records[0]
-    assert "user_rate" not in records[0]  # type: ignore[operator]
 
 
 @pytest.mark.parametrize(

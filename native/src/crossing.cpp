@@ -27,9 +27,6 @@ constexpr bool device_build = true;
 constexpr bool device_build = false;
 #endif
 
-/** The size huge pages come in, which a large buffer is aligned to. */
-constexpr std::size_t huge_page = std::size_t{2} << 20;
-
 // Kokkos holds its copies to one thread at a time per instance, so the workers call the
 // vendor's synchronous copy, which is safe from many threads: it is what was measured.
 void device_read(void* destination, const void* source, const std::size_t bytes) {
@@ -103,6 +100,8 @@ HostBuffer host_buffer(const std::size_t count) {
   const std::size_t bytes = count * sizeof(double);
 #if defined(__linux__)
   if (takes_ring(bytes)) {
+    // The size huge pages come in, which a large buffer is aligned to.
+    constexpr std::size_t huge_page = std::size_t{2} << 20;
     const std::size_t rounded = (bytes + huge_page - 1) / huge_page * huge_page;
     auto* pointer = static_cast<double*>(std::aligned_alloc(huge_page, rounded));
     if (pointer == nullptr)

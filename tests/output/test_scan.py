@@ -301,28 +301,6 @@ def test_scan_of_another_output_schema_is_refused_by_every_route(tmp_path):
     assert cast(Mapping, read_point(path, 0)["metadata"])["schema_version"] == 2
 
 
-@pytest.mark.parametrize("name", ["stats/absorbed_power", "step_stats/absorbed_power"])
-def test_scan_with_four_absorbed_columns_reads_and_takes_no_new_point(tmp_path, name):
-    # An earlier development build's scan: its points still read, four columns as they
-    # were written, and opening it to add a point is refused before anything is written.
-    path = tmp_path / "earlier.h5"
-    scan = Scan("scan", x=[1, 2])
-    point = result(0)
-    rows = 2 if name.startswith("step_stats/") else 3
-    four = dataclasses.replace(point, arrays={**point.arrays, name: np.ones((rows, 4))})
-    writer = ScanWriter(path, scan, {})
-    writer.commit(four)
-    writer.close()
-    assert ScanOutput(path).status.tolist() == ["done", "todo"]
-    with h5py.File(path, "r") as file:
-        assert _dataset(file, f"staged/0/{name}").shape == (rows, 4)
-    assert cast(Mapping, read_point(path, 0))["status"] == "done"
-    with pytest.raises(OutputError, match="absorbed_power in 4 columns"):
-        ScanWriter(path, scan, {})
-    with h5py.File(path, "r") as file:
-        assert _dataset(file, "points/status").asstr()[1] == "todo"
-
-
 def test_scan_of_this_output_schema_reads_as_before(tmp_path):
     path = tmp_path / "scan.h5"
     scan = Scan("scan", x=[1, 2])

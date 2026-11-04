@@ -6,7 +6,7 @@
 
 One input of a delay scan through :class:`solprop.driver.SimulationRunner`, with no
 fields kept: a fused-silica Kerr beam at 260 nm on fixed low-storage RK4IP steps, with
-a stated input identity and no held plane. It runs with ``boundary_check=None`` and
+and a stated input identity. It runs with ``boundary_check=None`` and
 with the default check, budgets relaxed so that nothing stops, and profiles one point
 of each. Then it times what a plane can ask of a device: a state's copy to the host, an
 observation and the common statistics.
@@ -30,7 +30,6 @@ import cProfile
 import json
 import platform
 import pstats
-import resource
 import statistics
 import subprocess
 import sys
@@ -112,7 +111,6 @@ def _simulation(
         backend="native",
         boundary_check=check,
         fields="none",
-        held_plane=False,
         stats=StatsSpec(names=("energy",)),
     )
     return Simulation.from_free(
@@ -141,14 +139,29 @@ def _profile_summary(profile: cProfile.Profile, top: int = 30) -> dict[str, Any]
     }
 
 
+def _minor_faults() -> int:
+    """Return this process's minor page faults so far: none are counted on Windows.
+
+    Returns
+    -------
+    int
+        The count.
+    """
+    if sys.platform == "win32":
+        return 0
+    import resource  # noqa: PLC0415 - not on Windows
+
+    return resource.getrusage(resource.RUSAGE_SELF).ru_minflt
+
+
 def _timed(call: Any, repeats: int) -> dict[str, float]:
     times, faults = [], 0
     for _ in range(repeats):
-        before = resource.getrusage(resource.RUSAGE_SELF).ru_minflt
+        before = _minor_faults()
         started = time.perf_counter()
         value = call()
         times.append(time.perf_counter() - started)
-        faults = resource.getrusage(resource.RUSAGE_SELF).ru_minflt - before
+        faults = _minor_faults() - before
         del value
     return {
         "median_ms": round(1e3 * statistics.median(times), 2),
@@ -206,7 +219,7 @@ def main(argv: list[str] | None = None) -> None:
             sink.write(line + "\n")
             sink.flush()
 
-    import solprop_native  # noqa: PLC0415 - loaded first by nothing else here
+    import solprop_native  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
 
     emit(
         "record",
