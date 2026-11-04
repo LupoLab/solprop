@@ -14,6 +14,7 @@ from solprop.backends import (
     Observation,
     StepStats,
     StepSummary,
+    protocol,
 )
 from solprop.exceptions import BackendError
 from solprop.log import NullReporter
@@ -399,3 +400,8 @@ def test_an_object_missing_a_method_is_not_a_backend():
             return None
 
     assert not isinstance(Partial(), Backend)
+
+
+@pytest.mark.parametrize("shape", [(0, 4), (2, 0)])
+def test_an_empty_state_is_finite(shape: tuple[int, int]) -> None:
+    assert protocol._all_finite(np.empty(shape, dtype=np.complex128))
