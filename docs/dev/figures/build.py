@@ -1136,6 +1136,7 @@ SEAM_METHODS = (
     ("set_progress", "the observer each attempted step reports to; never an input"),
     ("set_stop", "the flag polled between trials, or none"),
     ("attach_monitor", "watch the time window's edges from here on"),
+    ("edge_memory", "what reading a grid's edge will hold, for an estimate"),
     ("propagate_to", "the driver's way in, returning a StepSummary"),
     ("observe", "host arrays: the field at the plane and the step history"),
     (

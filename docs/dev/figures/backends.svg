@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
-     width="1200" height="872.5" viewBox="0 0 1200 872.5">
+     width="1200" height="888.0" viewBox="0 0 1200 888.0">
 <defs>
 </defs>
 <style>
@@ -69,11 +69,11 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 .edge-x { stroke: var(--x-edge); }
 .ink-x { fill: var(--x-edge); }
 </style>
-<rect x="0" y="0" width="1200" height="872.5" class="ground" />
+<rect x="0" y="0" width="1200" height="888.0" class="ground" />
 <text x="32" y="44.0" font-size="21" class="bold">One seam, a shared driver, and the backends behind them</text>
 <text x="32" y="64.0" font-size="12" class="dim">backends.md §1: the protocol is drawn at the level of operations on the propagated state, never at the array-namespace level. A backend is constructed from a validated</text>
 <text x="32" y="79.5" font-size="12" class="dim">KernelProblem and host arrays and returns host arrays; its buffers, layout and plans are private.</text>
-<rect x="32" y="115.0" width="1136" height="304.5" rx="7" ry="7" class="fill-b" />
+<rect x="32" y="115.0" width="1136" height="320.0" rx="7" ry="7" class="fill-b" />
 <text x="42.0" y="137.0" font-size="15" class="bold ink-b">the seam  ·  backends.protocol.Backend</text>
 <text x="42.0" y="158.5" font-size="12" class="bold ink-b">set_initial</text>
 <text x="203.8" y="158.5" font-size="12" class="dim">the state and the noise realisation, host to device, once</text>
@@ -83,82 +83,84 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 <text x="203.8" y="189.5" font-size="12" class="dim">the flag polled between trials, or none</text>
 <text x="42.0" y="205.0" font-size="12" class="bold ink-b">attach_monitor</text>
 <text x="203.8" y="205.0" font-size="12" class="dim">watch the time window's edges from here on</text>
-<text x="42.0" y="220.5" font-size="12" class="bold ink-b">propagate_to</text>
-<text x="203.8" y="220.5" font-size="12" class="dim">the driver's way in, returning a StepSummary</text>
-<text x="42.0" y="236.0" font-size="12" class="bold ink-b">observe</text>
-<text x="203.8" y="236.0" font-size="12" class="dim">host arrays: the field at the plane and the step history</text>
-<text x="42.0" y="251.5" font-size="12" class="bold ink-b">restore_call_ledgers</text>
-<text x="203.8" y="251.5" font-size="12" class="dim">resume cumulative calls; numerical history starts afresh</text>
-<text x="42.0" y="267.0" font-size="12" class="bold ink-b">march_snapshot</text>
-<text x="203.8" y="267.0" font-size="12" class="dim">the Adams history for a resume, or None</text>
-<text x="42.0" y="282.5" font-size="12" class="bold ink-b">march_snapshot_nbytes</text>
-<text x="203.8" y="282.5" font-size="12" class="dim">its size, copying nothing</text>
-<text x="42.0" y="298.0" font-size="12" class="bold ink-b">march_export_refusal</text>
-<text x="203.8" y="298.0" font-size="12" class="dim">why the march cannot carry its history, or None</text>
-<text x="42.0" y="313.5" font-size="12" class="bold ink-b">restore_march</text>
-<text x="203.8" y="313.5" font-size="12" class="dim">continue the history, or say why it starts afresh</text>
-<text x="42.0" y="329.0" font-size="12" class="bold ink-b">timed_step</text>
-<text x="203.8" y="329.0" font-size="12" class="dim">one step of the march, for an estimate to time</text>
-<text x="42.0" y="344.5" font-size="12" class="bold ink-b">stats</text>
-<text x="203.8" y="344.5" font-size="12" class="dim">one fused pass, a dict of small host arrays</text>
-<text x="42.0" y="360.0" font-size="12" class="bold ink-b">metadata</text>
-<text x="203.8" y="360.0" font-size="12" class="dim">what the execution was: pools, plans, digests, propagator mode</text>
-<text x="42.0" y="375.5" font-size="12" class="bold ink-b">memory_ledger</text>
-<text x="203.8" y="375.5" font-size="12" class="dim">every named buffer and its size</text>
-<text x="42.0" y="391.0" font-size="12" class="bold ink-b">available_device_memory</text>
-<text x="203.8" y="391.0" font-size="12" class="dim">free device bytes for batch admission; None on hosts</text>
-<text x="42.0" y="406.5" font-size="12" class="bold ink-b">close</text>
-<text x="203.8" y="406.5" font-size="12" class="dim">idempotent</text>
-<path d="M600.0,425.5 L600.0,457.5" class="arrow" />
-<path d="M600.0,457.5 L596.4,448.5 L603.6,448.5 Z" class="head" />
-<text x="600.0" y="433.5" font-size="12" class="mid dim">backends.registry.select(name, problem, grid=, modes=, profiles=)</text>
-<rect x="32" y="463.5" width="560.0" height="165.0" rx="7" ry="7" class="fill-d" />
-<text x="42.0" y="485.5" font-size="15" class="bold ink-d">backends/driver.py  ·  StepDriver, and no backend reimplements it</text>
-<text x="42.0" y="507.0" font-size="12" class="bold ink-d">the march and the landing</text>
-<text x="210.0" y="507.0" font-size="12" class="dim">_march_to</text>
-<text x="42.0" y="522.5" font-size="12" class="bold ink-d">the replay</text>
-<text x="210.0" y="522.5" font-size="12" class="dim">_replay_to · _schedule_index_at</text>
-<text x="42.0" y="538.0" font-size="12" class="bold ink-d">the history</text>
-<text x="210.0" y="538.0" font-size="12" class="dim">_record · observe</text>
-<text x="42.0" y="553.5" font-size="12" class="bold ink-d">the progress reporter</text>
-<text x="210.0" y="553.5" font-size="12" class="dim">set_progress</text>
-<text x="42.0" y="569.0" font-size="12" class="bold ink-d">the statistics channel</text>
-<text x="210.0" y="569.0" font-size="12" class="dim">_take_step_stats · stats</text>
-<text x="42.0" y="584.5" font-size="12" class="bold ink-d">the noise</text>
-<text x="210.0" y="584.5" font-size="12" class="dim">_noise_field · _noise_at · _noise_phase</text>
-<text x="42.0" y="600.0" font-size="12" class="bold ink-d">the per-stage bundle</text>
-<text x="210.0" y="600.0" font-size="12" class="dim">_hoist · _stage_scalars · _delta_phi · _prefactor ·</text>
-<text x="210.0" y="615.5" font-size="12" class="dim">_unitary_phase</text>
-<rect x="640.0" y="463.5" width="528.0" height="134.0" rx="7" ry="7" class="fill-d" />
-<text x="650.0" y="485.5" font-size="15" class="bold ink-d">the stepper it drives</text>
-<text x="650.0" y="507.0" font-size="12" class="bold ink-d">stepper.tableau</text>
-<text x="816.0" y="507.0" font-size="12" class="dim">DOPRI5, Tsit5, the order-condition checks</text>
-<text x="650.0" y="522.5" font-size="12" class="bold ink-d">stepper.controller</text>
-<text x="816.0" y="522.5" font-size="12" class="dim">PIController: propose, accepts, rejection_factor,</text>
-<text x="816.0" y="538.0" font-size="12" class="dim">equivalent_norm</text>
-<text x="650.0" y="553.5" font-size="12" class="bold ink-d">stepper.schedule</text>
-<text x="816.0" y="553.5" font-size="12" class="dim">landing, discover, calibrate, replay</text>
-<text x="650.0" y="569.0" font-size="12" class="bold ink-d">what a backend supplies</text>
-<text x="816.0" y="569.0" font-size="12" class="dim">_trial_step · _apply_mask · _finish · _begin_plane</text>
-<text x="816.0" y="584.5" font-size="12" class="dim">· _on_accepted_step</text>
-<path d="M600.0,634.5 L600.0,650.5 L307.0,650.5 L307.0,666.5" class="arrow" />
-<path d="M307.0,666.5 L303.4,657.5 L310.6,657.5 Z" class="head" />
-<rect x="32.0" y="672.5" width="550.0" height="97.0" rx="7" ry="7" class="fill-b" />
-<text x="42.0" y="694.5" font-size="15" class="bold ink-b">numpy_ref  ·  the oracle</text>
-<text x="42.0" y="710.0" font-size="12" class="dim">plain NumPy and scipy.fft</text>
-<text x="42.0" y="725.5" font-size="12" class="dim">one named function per pass</text>
-<text x="42.0" y="741.0" font-size="12" class="dim">the general representation, the z table included</text>
-<text x="42.0" y="756.5" font-size="12" class="dim">propagator_mode auto → tabulate</text>
-<text x="42.0" y="783.5" font-size="12" class="bold dim">_trial_step · _apply_mask · _finish · _observed_field</text>
-<path d="M600.0,634.5 L600.0,650.5 L893.0,650.5 L893.0,666.5" class="arrow" />
-<path d="M893.0,666.5 L889.4,657.5 L896.6,657.5 Z" class="head" />
-<rect x="618.0" y="672.5" width="550.0" height="97.0" rx="7" ry="7" class="fill-b" />
-<text x="628.0" y="694.5" font-size="15" class="bold ink-b">native  ·  what auto selects</text>
-<text x="628.0" y="710.0" font-size="12" class="dim">solprop-native distribution, native/</text>
-<text x="628.0" y="725.5" font-size="12" class="dim">C++20 Kokkos + persistent Kokkos-FFT plans</text>
-<text x="628.0" y="741.0" font-size="12" class="dim">one native call per seven-stage trial</text>
-<text x="628.0" y="756.5" font-size="12" class="dim">OpenMP on CPUs; CUDA and HIP on GPUs</text>
-<text x="628.0" y="783.5" font-size="12" class="bold dim">_trial_step · _apply_mask · _finish · _observed_field</text>
-<text x="32" y="825.0" font-size="12" class="dim">Three things every backend owes beyond the methods: deterministic reductions, the device form of the stage, and the driver's bookkeeping. The error norm is control flow, so</text>
-<text x="32" y="840.5" font-size="12" class="dim">a sum whose association depends on the thread count forks the trajectory.</text>
+<text x="42.0" y="220.5" font-size="12" class="bold ink-b">edge_memory</text>
+<text x="203.8" y="220.5" font-size="12" class="dim">what reading a grid's edge will hold, for an estimate</text>
+<text x="42.0" y="236.0" font-size="12" class="bold ink-b">propagate_to</text>
+<text x="203.8" y="236.0" font-size="12" class="dim">the driver's way in, returning a StepSummary</text>
+<text x="42.0" y="251.5" font-size="12" class="bold ink-b">observe</text>
+<text x="203.8" y="251.5" font-size="12" class="dim">host arrays: the field at the plane and the step history</text>
+<text x="42.0" y="267.0" font-size="12" class="bold ink-b">restore_call_ledgers</text>
+<text x="203.8" y="267.0" font-size="12" class="dim">resume cumulative calls; numerical history starts afresh</text>
+<text x="42.0" y="282.5" font-size="12" class="bold ink-b">march_snapshot</text>
+<text x="203.8" y="282.5" font-size="12" class="dim">the Adams history for a resume, or None</text>
+<text x="42.0" y="298.0" font-size="12" class="bold ink-b">march_snapshot_nbytes</text>
+<text x="203.8" y="298.0" font-size="12" class="dim">its size, copying nothing</text>
+<text x="42.0" y="313.5" font-size="12" class="bold ink-b">march_export_refusal</text>
+<text x="203.8" y="313.5" font-size="12" class="dim">why the march cannot carry its history, or None</text>
+<text x="42.0" y="329.0" font-size="12" class="bold ink-b">restore_march</text>
+<text x="203.8" y="329.0" font-size="12" class="dim">continue the history, or say why it starts afresh</text>
+<text x="42.0" y="344.5" font-size="12" class="bold ink-b">timed_step</text>
+<text x="203.8" y="344.5" font-size="12" class="dim">one step of the march, for an estimate to time</text>
+<text x="42.0" y="360.0" font-size="12" class="bold ink-b">stats</text>
+<text x="203.8" y="360.0" font-size="12" class="dim">one fused pass, a dict of small host arrays</text>
+<text x="42.0" y="375.5" font-size="12" class="bold ink-b">metadata</text>
+<text x="203.8" y="375.5" font-size="12" class="dim">what the execution was: pools, plans, digests, propagator mode</text>
+<text x="42.0" y="391.0" font-size="12" class="bold ink-b">memory_ledger</text>
+<text x="203.8" y="391.0" font-size="12" class="dim">every named buffer and its size</text>
+<text x="42.0" y="406.5" font-size="12" class="bold ink-b">available_device_memory</text>
+<text x="203.8" y="406.5" font-size="12" class="dim">free device bytes for batch admission; None on hosts</text>
+<text x="42.0" y="422.0" font-size="12" class="bold ink-b">close</text>
+<text x="203.8" y="422.0" font-size="12" class="dim">idempotent</text>
+<path d="M600.0,441.0 L600.0,473.0" class="arrow" />
+<path d="M600.0,473.0 L596.4,464.0 L603.6,464.0 Z" class="head" />
+<text x="600.0" y="449.0" font-size="12" class="mid dim">backends.registry.select(name, problem, grid=, modes=, profiles=)</text>
+<rect x="32" y="479.0" width="560.0" height="165.0" rx="7" ry="7" class="fill-d" />
+<text x="42.0" y="501.0" font-size="15" class="bold ink-d">backends/driver.py  ·  StepDriver, and no backend reimplements it</text>
+<text x="42.0" y="522.5" font-size="12" class="bold ink-d">the march and the landing</text>
+<text x="210.0" y="522.5" font-size="12" class="dim">_march_to</text>
+<text x="42.0" y="538.0" font-size="12" class="bold ink-d">the replay</text>
+<text x="210.0" y="538.0" font-size="12" class="dim">_replay_to · _schedule_index_at</text>
+<text x="42.0" y="553.5" font-size="12" class="bold ink-d">the history</text>
+<text x="210.0" y="553.5" font-size="12" class="dim">_record · observe</text>
+<text x="42.0" y="569.0" font-size="12" class="bold ink-d">the progress reporter</text>
+<text x="210.0" y="569.0" font-size="12" class="dim">set_progress</text>
+<text x="42.0" y="584.5" font-size="12" class="bold ink-d">the statistics channel</text>
+<text x="210.0" y="584.5" font-size="12" class="dim">_take_step_stats · stats</text>
+<text x="42.0" y="600.0" font-size="12" class="bold ink-d">the noise</text>
+<text x="210.0" y="600.0" font-size="12" class="dim">_noise_field · _noise_at · _noise_phase</text>
+<text x="42.0" y="615.5" font-size="12" class="bold ink-d">the per-stage bundle</text>
+<text x="210.0" y="615.5" font-size="12" class="dim">_hoist · _stage_scalars · _delta_phi · _prefactor ·</text>
+<text x="210.0" y="631.0" font-size="12" class="dim">_unitary_phase</text>
+<rect x="640.0" y="479.0" width="528.0" height="134.0" rx="7" ry="7" class="fill-d" />
+<text x="650.0" y="501.0" font-size="15" class="bold ink-d">the stepper it drives</text>
+<text x="650.0" y="522.5" font-size="12" class="bold ink-d">stepper.tableau</text>
+<text x="816.0" y="522.5" font-size="12" class="dim">DOPRI5, Tsit5, the order-condition checks</text>
+<text x="650.0" y="538.0" font-size="12" class="bold ink-d">stepper.controller</text>
+<text x="816.0" y="538.0" font-size="12" class="dim">PIController: propose, accepts, rejection_factor,</text>
+<text x="816.0" y="553.5" font-size="12" class="dim">equivalent_norm</text>
+<text x="650.0" y="569.0" font-size="12" class="bold ink-d">stepper.schedule</text>
+<text x="816.0" y="569.0" font-size="12" class="dim">landing, discover, calibrate, replay</text>
+<text x="650.0" y="584.5" font-size="12" class="bold ink-d">what a backend supplies</text>
+<text x="816.0" y="584.5" font-size="12" class="dim">_trial_step · _apply_mask · _finish · _begin_plane</text>
+<text x="816.0" y="600.0" font-size="12" class="dim">· _on_accepted_step</text>
+<path d="M600.0,650.0 L600.0,666.0 L307.0,666.0 L307.0,682.0" class="arrow" />
+<path d="M307.0,682.0 L303.4,673.0 L310.6,673.0 Z" class="head" />
+<rect x="32.0" y="688.0" width="550.0" height="97.0" rx="7" ry="7" class="fill-b" />
+<text x="42.0" y="710.0" font-size="15" class="bold ink-b">numpy_ref  ·  the oracle</text>
+<text x="42.0" y="725.5" font-size="12" class="dim">plain NumPy and scipy.fft</text>
+<text x="42.0" y="741.0" font-size="12" class="dim">one named function per pass</text>
+<text x="42.0" y="756.5" font-size="12" class="dim">the general representation, the z table included</text>
+<text x="42.0" y="772.0" font-size="12" class="dim">propagator_mode auto → tabulate</text>
+<text x="42.0" y="799.0" font-size="12" class="bold dim">_trial_step · _apply_mask · _finish · _observed_field</text>
+<path d="M600.0,650.0 L600.0,666.0 L893.0,666.0 L893.0,682.0" class="arrow" />
+<path d="M893.0,682.0 L889.4,673.0 L896.6,673.0 Z" class="head" />
+<rect x="618.0" y="688.0" width="550.0" height="97.0" rx="7" ry="7" class="fill-b" />
+<text x="628.0" y="710.0" font-size="15" class="bold ink-b">native  ·  what auto selects</text>
+<text x="628.0" y="725.5" font-size="12" class="dim">solprop-native distribution, native/</text>
+<text x="628.0" y="741.0" font-size="12" class="dim">C++20 Kokkos + persistent Kokkos-FFT plans</text>
+<text x="628.0" y="756.5" font-size="12" class="dim">one native call per seven-stage trial</text>
+<text x="628.0" y="772.0" font-size="12" class="dim">OpenMP on CPUs; CUDA and HIP on GPUs</text>
+<text x="628.0" y="799.0" font-size="12" class="bold dim">_trial_step · _apply_mask · _finish · _observed_field</text>
+<text x="32" y="840.5" font-size="12" class="dim">Three things every backend owes beyond the methods: deterministic reductions, the device form of the stage, and the driver's bookkeeping. The error norm is control flow, so</text>
+<text x="32" y="856.0" font-size="12" class="dim">a sum whose association depends on the thread count forks the trajectory.</text>
 </svg>

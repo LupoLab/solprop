@@ -2028,10 +2028,10 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
     ) -> Float[np.ndarray, " n_columns"] | None:
         """Return each column's launched energy without the input noise, or ``None``.
 
-        What the safety ramp is judged on, so a run with no ramp needs none. It is formed
-        where the load has both parts, which needs no state on the host. Only a resume
-        that found no record of the monitor has none, and then the state has to cross
-        once.
+        What the safety ramp is judged on, so a run with no ramp needs none. It is
+        formed where the load has both parts, which needs no state on the host. Only a
+        resume that found no record of the monitor has none, and then the state has to
+        cross once.
 
         Parameters
         ----------

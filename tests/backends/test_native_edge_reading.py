@@ -639,10 +639,11 @@ def test_a_field_grid_reads_as_the_host_does() -> None:
             budget=1.0, stop_factor=1.0, transverse_budget=1.0
         ),
     )
-    for build, space in (
+    builders: tuple[tuple[Any, Any], ...] = (
         (Simulation.from_radial, RadialGrid(6e-4, 32)),
         (Simulation.from_free, LineGrid(3e-4, 16, collar_fraction=0)),
-    ):
+    )
+    for build, space in builders:
         simulation = build(
             grid,
             space,

@@ -494,8 +494,11 @@ requested collar at every committed step. The reading is numbers and never the f
 column's energy and any collar's strip and current. The default forms them with `HostEdgeReduction` on a host copy,
 the reference, which `numpy_ref` and `mlx` use. `native` forms them on its own state against
 the edge's `EdgeTables`, four regions' weights on the nodes, so it holds no face, mask or judgement, and a
-field-free run crosses no state (`tests/backends/test_native_edge_reading.py`). A requested collar
-still reduces a host copy on `native`. Everything else, the weights, the spacing, the ledgers and the judgement, is one
+field-free run crosses no state (`tests/backends/test_native_edge_reading.py`). A requested collar's lines are described
+once, as `edge_lines`, for both reductions (`tests/backends/test_native_edge_collar.py`): native takes each strip's padded
+transform in batches of planes under `STRIP_BATCH_BYTES`, on buffers listed in the `transverse_edge` ledger row, and the
+current from the onset's three nodes, rectified per row, all on one load of the transverse scratch. The current is still
+accumulated in Python. Everything else, the weights, the spacing, the ledgers and the judgement, is one
 code on every backend. The read spacing is a ceiling on the step, and
 a step is not made to land on a read: the edge is read at the last committed position
 from which the next step, a replay's scheduled one or else the controller's proposal, would

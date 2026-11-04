@@ -504,6 +504,101 @@ TEST(GeneralModal, TheStateCarriesTheSourceAndItsLedger) {
   expect_partials_close(second, first);
 }
 
+// solprop SEP 44: a collar's strip is a windowed transform of a line, padded twice, and
+// its current a slope's flux rectified per row. Written out here as a plain DFT and a
+// difference, with an identity synthesis, so that each node is its own mode, and with
+// one row to a batch and all of them, which only reorders a non-negative sum.
+TEST(GeneralModal, AnEdgeLineReadsAPlainTransformAndASlope) {
+  const auto problem = modal_problem(true, 2, false);
+  native::GeneralState state(problem);
+  const auto n = problem.n_omega;
+  // Rows flowing both ways, so that rectifying a sum would read something else.
+  std::vector<Complex> field(kModes * n);
+  for (std::size_t row = 0; row < n; ++row) {
+    field[row] = Complex(1.0 + static_cast<double>(row), 0.5);
+    field[n + row] = Complex(0.25 * static_cast<double>(row), row == 1 ? -1.0 : 1.0);
+  }
+  state.set_initial(field, {});
+  const auto held = state.field_to_host();
+  const std::vector<double> none(4 * kModes, 0.0);
+  std::vector<double> identity(kModes * kModes, 0.0);
+  for (std::size_t node = 0; node < kModes; ++node)
+    identity[node * kModes + node] = 1.0;
+  state.bind_edge(none, none, none, identity, 0);
+
+  native::EdgeLines lines;
+  lines.axes = {0};
+  lines.counts = {kModes};
+  lines.positions = {1, 0};
+  lines.windows = {0.5, 0.25};
+  lines.inward = {1, 3};
+  lines.factors = {2.0};
+  lines.measures = {3.0};
+  lines.onsets = {0, 0, 1};
+  lines.steps = {0.5};
+  lines.scale = {1.0, 1.0};
+  lines.k_min = 4.0;
+
+  double inward = 0.0;
+  double windowed = 0.0;
+  double current = 0.0;
+  double signed_sum = 0.0;
+  for (std::size_t row = 0; row < n; ++row) {
+    const Complex first = held[row];
+    const Complex second = held[n + row];
+    for (std::size_t bin = 0; bin < 2 * kModes; ++bin) {
+      const double angle = -2.0 * std::numbers::pi * static_cast<double>(bin) /
+                           static_cast<double>(2 * kModes);
+      const Complex phase(std::cos(angle), std::sin(angle));
+      const Complex value = 0.5 * second + 0.25 * first * phase;
+      const double power = std::norm(std::complex<double>(value.real(), value.imag()));
+      windowed += power;
+      if (bin >= 1 && bin < 3)
+        inward += power;
+    }
+    const Complex slope = (second - first) / 0.5;
+    const double flux =
+        (first.real() * slope.imag() - first.imag() * slope.real()) / 4.0;
+    current += std::max(flux, 0.0);
+    signed_sum += flux;
+  }
+  ASSERT_GT(inward, 0.0);
+  ASSERT_GT(current, 0.0);
+  ASSERT_LT(std::max(signed_sum, 0.0), current);
+  const double tolerance = 64.0 * std::numeric_limits<double>::epsilon() * windowed;
+  for (const std::size_t batch_bytes :
+       {2 * kModes * sizeof(Complex), n * 2 * kModes * sizeof(Complex)}) {
+    lines.batch_bytes = batch_bytes;
+    state.bind_edge_lines(lines);
+    const auto numbers = state.edge_reading(false, false, false, true, true);
+    ASSERT_EQ(numbers.strip.size(), 2u);
+    EXPECT_NEAR(numbers.strip[0], 2.0 * inward, tolerance);
+    EXPECT_NEAR(numbers.strip[1], 2.0 * windowed, tolerance);
+    EXPECT_NEAR(numbers.current, 3.0 * current, tolerance);
+  }
+}
+
+TEST(GeneralModal, AnEdgeLineThatDoesNotAccountForItsNodesIsRefused) {
+  const auto problem = modal_problem(true, 2, false);
+  native::GeneralState state(problem);
+  native::EdgeLines lines;
+  lines.axes = {0};
+  lines.positions = {0, 1};
+  lines.windows = {1.0, 1.0};
+  lines.inward = {0, 2};
+  lines.factors = {1.0};
+  lines.measures = {1.0};
+  lines.onsets = {native::EdgeLines::no_onset, 0, 0};
+  lines.steps = {1.0};
+  lines.batch_bytes = 1024;
+  lines.counts = {3};
+  EXPECT_THROW(state.bind_edge_lines(lines), std::invalid_argument);
+  lines.counts = {1};
+  EXPECT_THROW(state.bind_edge_lines(lines), std::invalid_argument);
+  lines.counts = {2, 2};
+  EXPECT_THROW(state.bind_edge_lines(lines), std::invalid_argument);
+}
+
 // solprop SEP 29 G2: the resident Adams history's rows cross to the host and back
 // losslessly, and a malformed row is refused before anything is copied.
 TEST(GeneralModal, TheAdamsRowsRoundTripExactly) {

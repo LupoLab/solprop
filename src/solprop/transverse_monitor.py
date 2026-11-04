@@ -48,10 +48,14 @@ __all__ = [
     "GUARD",
     "NOISE_FACTOR",
     "READS",
+    "STRIP_BATCH_BYTES",
+    "EdgeLine",
     "EdgeReading",
+    "EdgeTables",
     "HostEdgeReduction",
     "TransverseEdge",
     "TransverseStatus",
+    "edge_lines",
     "transverse_edge_bytes",
 ]
 
