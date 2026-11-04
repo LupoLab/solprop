@@ -592,6 +592,11 @@ def test_a_stored_record_missing_an_entry_reads_and_differs_by_path(
     assert stored.initial_z == 0.0
     assert "initial_z" not in stored.hashed()
     assert stored.differences(metadata) == ("initial_z",)
+    # A record with no material manifest reads as one of solprop's own materials.
+    document = json.loads(metadata.to_json())
+    del document["materials"]
+    bare = RunMetadata.from_json(json.dumps(document))
+    assert bare.materials.empty and "materials" not in bare.hashed()
     # A required field of a record class is refused by path.
     document = json.loads(metadata.to_json())
     del document["grid"]["n_t"]
