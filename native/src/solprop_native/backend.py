@@ -66,7 +66,6 @@ from solprop.backends.populations import (
     population_statistics,
 )
 from solprop.backends.spatial import (
-    AXIS_SPECTRUM_ONLY,
     FarFieldTables,
     far_field_partials,
     fluence_budget,
@@ -3715,10 +3714,9 @@ def _native_problem(
         }
         if geometry.kind == "free":
             # solprop SEP 23: the stored axes and the slots of the problem's own
-            # far-field request, which size the native band partials. The pass folds
-            # on_axis_spectrum only: on_axis_intensity is spatial_statistics' own.
+            # far-field request, which size the native band partials.
             k_x, k_y = geometry.spectral_axes
-            slots, _ = far_field_partials(problem, axis_folded=AXIS_SPECTRUM_ONLY)
+            slots, _ = far_field_partials(problem)
             spatial_data |= {
                 "spatial_k_x": np.ascontiguousarray(k_x, dtype=np.float64),
                 "spatial_k_y": np.ascontiguousarray(k_y, dtype=np.float64),

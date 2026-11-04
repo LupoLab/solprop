@@ -187,12 +187,26 @@ def _check_plane(kind, n_pol, state):
     grid, problem = _simulation(kind, space, n_pol)
     assert problem.shape[2] == n_pol
     field = _state(problem, grid, state)
-    spec = StatsSpec(names=WIDTHS)
+    spec = StatsSpec(names=(*WIDTHS, "on_axis_intensity", "peak_intensity"))
     want = _measure("numpy_ref", grid, problem, field, spec)
     got = _measure("native", grid, problem, field, spec)
     x = problem.transform.geometry.axes[0]
     pixel = float(x[1] - x[0])
-    _agree(got, want, _width_budget(grid, problem), pixel, f"{kind} {n_pol} {state}")
+    what = f"{kind} {n_pol} {state}"
+    _agree(got, want, _width_budget(grid, problem), pixel, what)
+    # The axis's coherent sum errs normwise, as a node's synthesis does, so on the
+    # states that cancel on the axis the scale is the beam's peak, not the axis's value.
+    # The time transform and the pairing as for the fluence (`_width_budget`), and no
+    # crossing to interpolate, so without its factor of eight.
+    peak = float(np.max(want["peak_intensity"]))
+    for name in ("on_axis_intensity", "peak_intensity"):
+        assert_within(
+            got[name],
+            want[name],
+            _width_budget(grid, problem) / 8,
+            scale=peak,
+            what=f"{what} {name}",
+        )
 
 
 @native_only
@@ -365,7 +379,7 @@ def test_an_empty_plane_has_no_widths(names):
     grid, problem = _route("plane")
     field = np.zeros_like(problem.initial.field0)
     for backend in ("numpy_ref", "native"):
-        values = _measure(backend, grid, problem, field, StatsSpec(names=WIDTHS))
+        values = _measure(backend, grid, problem, field, StatsSpec(names=names))
         for name in WIDTHS:
             assert np.all(np.isnan(values[name]))
 
@@ -392,6 +406,48 @@ def test_a_negative_lobe_is_refused_on_both():
     for backend in ("numpy_ref", "native"):
         with pytest.raises(BackendError, match="nonnegative fluence profile"):
             _measure(backend, grid, problem, field, spec)
+
+
+@native_only
+def test_the_native_trace_needs_a_held_plane_and_real_rings():
+    grid, problem = _route("plane")
+    backend = select("native", problem, grid=grid)
+    no_rings = np.empty(0)
+    factor = 0.5 * EPS0 * C
+    try:
+        backend.set_initial(problem.initial.field0, None, z=0.0)
+        state = backend._native_state  # pyright: ignore[reportAttributeAccessIssue]
+        with pytest.raises(RuntimeError, match="follows the call that holds it"):
+            state.plane_fluence_trace(
+                0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 0, no_rings, no_rings
+            )
+        with pytest.raises(ValueError, match="invalid spatial statistic flags"):
+            state.spatial_statistics(64, factor, 0.0)
+        np.ravel(state.spatial_statistics(32, factor, 0.0))
+        with pytest.raises(ValueError, match="invalid fluence rings"):
+            state.plane_fluence_trace(
+                0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 0, no_rings, no_rings
+            )
+        np.ravel(state.spatial_statistics(32, factor, 0.0))
+        with pytest.raises(ValueError, match="one-dimensional"):
+            state.plane_fluence_trace(
+                0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1, np.ones((1, 8)), np.ones((1, 8))
+            )
+    finally:
+        backend.close()
+
+
+@native_only
+def test_a_line_has_no_plane_moments():
+    grid, problem = _route("line")
+    backend = select("native", problem, grid=grid)
+    try:
+        backend.set_initial(problem.initial.field0, None, z=0.0)
+        state = backend._native_state  # pyright: ignore[reportAttributeAccessIssue]
+        with pytest.raises(ValueError, match="need a Cartesian plane"):
+            state.spatial_statistics(32, 0.5 * EPS0 * C, 0.0)
+    finally:
+        backend.close()
 
 
 def _ring_trace(samples, x, y):

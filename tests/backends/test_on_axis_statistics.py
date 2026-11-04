@@ -423,6 +423,22 @@ def test_the_native_axis_row_leaves_the_state_on_the_device(grid, table, radial_
     assert np.all(values["on_axis_peak_ionisation_rate"] > 0)
 
 
+def test_the_native_row_refuses_a_matrix_that_is_not_one_or_two_rows(grid, table):
+    pytest.importorskip("solprop_native")
+    mode = argon()
+    rule = transverse_quadrature([mode], n_r=5, radial_rule="field_scale")
+    problem = problem_on(grid, table, [mode], rule)
+    with closing(select("native", problem, grid=grid, modes=[mode])) as backend:
+        state = backend._native_state  # pyright: ignore[reportAttributeAccessIssue]
+        with pytest.raises(RuntimeError, match="no initial field"):
+            state.axis_spectrum(np.ones((1, 1)))
+        backend.set_initial(problem.initial.field0, None)
+        with pytest.raises(ValueError, match="at most two rows"):
+            state.axis_spectrum(np.ones((3, 1)))
+        with pytest.raises(ValueError, match="two-dimensional"):
+            state.axis_spectrum(np.ones(1))
+
+
 def test_a_host_backend_s_axis_scan_needs_the_field(grid, table):
     mode = argon()
     rule = transverse_quadrature([mode], n_r=5, radial_rule="field_scale")

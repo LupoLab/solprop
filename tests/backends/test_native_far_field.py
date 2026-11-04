@@ -41,7 +41,7 @@ from backends.forced_threads import assert_threaded
 from backends.matched import native_thread_fields
 from bounds import assert_within, gamma
 from solprop.backends import select
-from solprop.backends.spatial import AXIS_SPECTRUM_ONLY, far_field_partials
+from solprop.backends.spatial import far_field_partials
 from solprop.boundaries import SpatialAbsorber, absorber, custom_absorber
 from solprop.driver import Simulation, SimulationSettings
 from solprop.exceptions import BackendError
@@ -488,23 +488,24 @@ def test_the_native_partials_are_held_to_the_byte():
         owner.close()
 
 
-def test_on_axis_intensity_takes_no_native_slot():
-    # Kokkos forms on_axis_intensity in its own spatial pass, so its partials leave the
-    # W = 1 slot out.
+def test_on_axis_intensity_reads_the_native_axis_slots():
+    # Its spectra are the W = 1 slot's, so its partials hold them.
     grid = time_grid("envelope")
     space = FreeGrid(3e-4, 12, 2.5e-4, 10, collar_fraction=0.1)
     field = random_field(space, 2, grid)
     spec = StatsSpec(names=("beam_spectrum", "on_axis_intensity"))
     problem = problem_of(grid, space, field, spec)
-    n_slots, n_bands = far_field_partials(problem, axis_folded=AXIS_SPECTRUM_ONLY)
-    assert n_slots == 1
-    # The axis amplitude and its closure, 4 n_pol slots.
-    assert far_field_partials(problem)[0] == 1 + 4 * 2
+    # The beam, then the axis amplitude and its closure, 4 n_pol slots.
+    n_slots, n_bands = far_field_partials(problem)
+    assert n_slots == 1 + 4 * 2
     owner = select("native", problem, grid=grid)
     try:
+        # Held from construction: no statistic allocates them.
+        held = owner.memory_ledger()["far_field_partials"]
+        assert held == 8 * n_bands * n_slots * grid.n_omega
         owner.set_initial(problem.initial.field0, None)
         values = owner.stats(problem.stats_spec)
-        assert owner.memory_ledger()["far_field_partials"] == 8 * n_bands * grid.n_omega
+        assert owner.memory_ledger()["far_field_partials"] == held
     finally:
         owner.close()
     assert values["on_axis_intensity"].shape == (1,)

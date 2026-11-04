@@ -41,7 +41,6 @@ from solprop.translate.spatial import (
 
 __all__ = [
     "AXIS_FOLDED",
-    "AXIS_SPECTRUM_ONLY",
     "FAR_FIELD_BAND_BUDGET",
     "LINE_BLOCK",
     "FarFieldLayout",
@@ -234,14 +233,7 @@ LINE_BLOCK = 64
 """Columns per unit of a line's far-field pass: a plane's unit is a whole row."""
 
 AXIS_FOLDED = frozenset({"on_axis_spectrum", "on_axis_intensity"})
-"""The axis statistics a far-field pass forms from a ``W = 1`` slot, by default."""
-
-AXIS_SPECTRUM_ONLY = frozenset({"on_axis_spectrum"})
-"""The axis statistics Kokkos's far-field pass forms from its ``W = 1`` slot.
-
-Kokkos forms ``on_axis_intensity`` in its own spatial statistics pass, so its slot
-count leaves that name out.
-"""
+"""The axis statistics a far-field pass forms from a ``W = 1`` slot."""
 
 
 @dataclass(frozen=True)
@@ -300,7 +292,6 @@ def far_field_layout(
     n_apertures: int,
     n_regions: int,
     n_pol: int,
-    axis_folded: Collection[str] = AXIS_FOLDED,
 ) -> FarFieldLayout | None:
     """Lay out the slots a compiled far-field pass accumulates for a request.
 
@@ -312,9 +303,6 @@ def far_field_layout(
         The request's table rows.
     n_pol : int
         The state's polarisation components.
-    axis_folded : collections.abc.Collection of str, optional
-        The axis statistics that read the ``W = 1`` slot: :data:`AXIS_FOLDED` by
-        default, :data:`AXIS_SPECTRUM_ONLY` on the native backend.
 
     Returns
     -------
@@ -345,7 +333,7 @@ def far_field_layout(
         ),
         ("regions", n_regions if "region_spectrum" in wanted else 0),
         ("apertures", stride * n_apertures),
-        ("axis", 4 * n_pol if wanted & set(axis_folded) else 0),
+        ("axis", 4 * n_pol if wanted & AXIS_FOLDED else 0),
     )
     first: dict[str, int] = {}
     slots = 0
@@ -402,9 +390,7 @@ def far_field_bands(n_x: int, n_y: int, n_slots: int, n_omega: int) -> np.ndarra
     return np.minimum(units * unit, n_columns)
 
 
-def far_field_partials(
-    problem: KernelProblem, *, axis_folded: Collection[str] = AXIS_FOLDED
-) -> tuple[int, int]:
+def far_field_partials(problem: KernelProblem) -> tuple[int, int]:
     """Return the slots and bands a compiled far-field pass holds for a problem.
 
     Sized from the problem's own request at construction: its names, tables and
@@ -415,8 +401,6 @@ def far_field_partials(
     ----------
     problem : solprop.translate.problem.KernelProblem
         The translated problem.
-    axis_folded : collections.abc.Collection of str, optional
-        The axis statistics the backend's pass forms, as for :func:`far_field_layout`.
 
     Returns
     -------
@@ -434,7 +418,6 @@ def far_field_partials(
         n_apertures=spec.n_apertures,
         n_regions=spec.n_regions,
         n_pol=problem.shape[2],
-        axis_folded=axis_folded,
     )
     if layout is None:
         return 0, 0

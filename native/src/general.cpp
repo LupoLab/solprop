@@ -2412,6 +2412,7 @@ public:
   void separable_time_statistics(std::size_t axis_peak, std::size_t peak, bool fluence,
                                  double intensity_factor);
   void separable_fluence(double intensity_factor);
+  FarFieldPass::Inputs far_field_inputs() const;
   void plane_fluence_moments(double (&moments)[plane_moment_slots]);
   void scale_transform(std::size_t stage, double taper);
   void synthesise(std::size_t first_node, std::size_t node_count);
@@ -13787,26 +13788,35 @@ void GeneralWorkspace::separable_time_statistics(const std::size_t axis_peak,
   const bool envelope = problem_.family == FieldFamily::envelope;
   if (axis_peak != absent) {
     // The axis's closure first, kept in the closure rows, then its field: each the
-    // coherent on-axis sum of the analytic spectrum (solprop SEP 34).
+    // coherent on-axis sum of the analytic spectrum (solprop SEP 34). On free space the
+    // far-field pass forms those sums in its team-local bands. A sum per bin over every
+    // column, as the slab's few columns take here, is a thread's serial walk across a
+    // whole state on a device. A plane's on-axis spectrum reads the same slots.
+    if (far_field_)
+      static_cast<void>(far_field_->run(far_field_axis, {}, 2, {}, intensity_factor,
+                                        current, far_field_inputs()));
     for (const bool closed : {true, false}) {
       graph::deep_copy(execution_space_, spectrum, Complex{});
-      launch::parallel_for(
-          "solprop_native.free.statistics_axis_input",
-          Range2(execution_space_, {0, 0}, {n_pol, n}),
-          KOKKOS_LAMBDA(const std::size_t pol, const std::size_t index) {
-            const bool live = active(index) != 0U;
-            Complex sum{};
-            for (std::size_t mode = 0; mode < n_modes; ++mode) {
-              const Complex value = current(mode * n_pol + pol, index);
-              sum += axis_weights(mode) *
-                     (closed ? flux.closing(mode, index, live, omega(index)) * value
-                             : value);
-            }
-            const double scale =
-                (envelope || index == 0 || index + 1 == n ? 1.0 : 2.0) /
-                static_cast<double>(n_t);
-            spectrum(pol, index) = scale * sum;
-          });
+      if (far_field_)
+        far_field_->axis_spectrum(closed, spectrum);
+      else
+        launch::parallel_for(
+            "solprop_native.free.statistics_axis_input",
+            Range2(execution_space_, {0, 0}, {n_pol, n}),
+            KOKKOS_LAMBDA(const std::size_t pol, const std::size_t index) {
+              const bool live = active(index) != 0U;
+              Complex sum{};
+              for (std::size_t mode = 0; mode < n_modes; ++mode) {
+                const Complex value = current(mode * n_pol + pol, index);
+                sum += axis_weights(mode) *
+                       (closed ? flux.closing(mode, index, live, omega(index)) * value
+                               : value);
+              }
+              const double scale =
+                  (envelope || index == 0 || index + 1 == n ? 1.0 : 2.0) /
+                  static_cast<double>(n_t);
+              spectrum(pol, index) = scale * sum;
+            });
       graph::execute(*statistics_inverse_plan_, statistics_spectrum_, statistics_time_,
                      KokkosFFT::Normalization::none);
       if (closed)
@@ -13978,7 +13988,8 @@ void GeneralWorkspace::separable_fluence(const double intensity_factor) {
           }
         }
         partials(node, 0) = measure * sum;
-        partials(node, 2) = measure * Kokkos::sqrt(electric_size * magnetic_size);
+        partials(node, 2) =
+            measure * Kokkos::sqrt(electric_size) * Kokkos::sqrt(magnetic_size);
       });
 #else
   // A task takes a run of adjacent nodes and reads each plane's cells of the run in
@@ -14009,8 +14020,8 @@ void GeneralWorkspace::separable_fluence(const double intensity_factor) {
         }
         for (std::size_t offset = 0; offset < count; ++offset) {
           partials(first + offset, 0) = measure * sum[offset];
-          partials(first + offset, 2) =
-              measure * Kokkos::sqrt(electric_size[offset] * magnetic_size[offset]);
+          partials(first + offset, 2) = measure * Kokkos::sqrt(electric_size[offset]) *
+                                        Kokkos::sqrt(magnetic_size[offset]);
         }
       });
 #endif
@@ -14244,13 +14255,23 @@ std::vector<double> GeneralWorkspace::aperture_statistics(
   if (!initialized_ || !far_field_)
     throw std::logic_error(
         "far-field statistics need an initial field on a Cartesian or line grid");
-  return far_field_->run(
-      flags, apertures, exponent, regions, intensity_factor, current_,
-      FarFieldPass::Inputs{spatial_spectral_weights_, spatial_on_axis_, spatial_.square,
-                           spatial_.square_low, spatial_.transverse,
-                           spatial_.transverse_low, spatial_.spectral_rate,
-                           spatial_.user_rate, spatial_.transverse_rate, omega_,
-                           active_mask_, spatial_.evanescent});
+  return far_field_->run(flags, apertures, exponent, regions, intensity_factor,
+                         current_, far_field_inputs());
+}
+
+FarFieldPass::Inputs GeneralWorkspace::far_field_inputs() const {
+  return FarFieldPass::Inputs{spatial_spectral_weights_,
+                              spatial_on_axis_,
+                              spatial_.square,
+                              spatial_.square_low,
+                              spatial_.transverse,
+                              spatial_.transverse_low,
+                              spatial_.spectral_rate,
+                              spatial_.user_rate,
+                              spatial_.transverse_rate,
+                              omega_,
+                              active_mask_,
+                              spatial_.evanescent};
 }
 
 std::vector<double> GeneralWorkspace::spatial_statistics(const std::uint64_t flags,
