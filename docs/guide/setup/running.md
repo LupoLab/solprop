@@ -540,6 +540,13 @@ An identity is taken on trust. Two different arrays stated alike have one config
 hash, so **a wrong identity passes a resume and a scan's cache**: the resumed run or the
 cached point is then the wrong one, and nothing can tell. Say everything that makes the
 input what it is, and leave `input_identity` out unless the digest is a measured cost.
+```
+
+Only an array can be stated; a pulse is a small record of itself and is refused. A file
+written with a statement is continued only under the same statement, not by the same array
+without one, since the two records differ. The finiteness pass stays: it costs a few
+percent of a digest, about 0.6 s and 9 s for a 4 GiB input on a Xeon without SHA
+instructions, and it refuses a bad input before it is loaded.
 
 **The boundary check on a free-space scan.** The default
 [`boundary_check`](../numerics/boundaries.md) reads a free-space run's transverse edge on the
@@ -550,10 +557,3 @@ the peak, which neither `memory_ledger` nor the admission counts, and on native 
 input, and from 3.05 to 3.99 s. A scan whose window is already settled can pass
 `boundary_check=None`. That also turns off the check of the time window's edges, since no
 setting keeps one without the other, so settle the window on one input with the check on first.
-```
-
-Only an array can be stated; a pulse is a small record of itself and is refused. A file
-written with a statement is continued only under the same statement, not by the same array
-without one, since the two records differ. The finiteness pass stays: it costs a few
-percent of a digest, about 0.6 s and 9 s for a 4 GiB input on a Xeon without SHA
-instructions, and it refuses a bad input before it is loaded.
