@@ -217,7 +217,11 @@ class MemoryOutput(PlaneStore):
         metadata : RunMetadata
             The record being written.
         """
-        logger.debug("memory output opened for %s", metadata.configuration_hash()[:12])
+        # Guarded: the hash costs seconds on a large grid, and only this line needs it.
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "memory output opened for %s", metadata.configuration_hash()[:12]
+            )
 
     def _allocate(
         self,

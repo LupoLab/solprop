@@ -5,10 +5,11 @@
 """Runs that ``numba_cpu`` wrote, after its removal (SEP 43 section 9).
 
 The files are real, written by versions that had the backend
-(``tests/data/retired_backends/generate.py``). The backend is an execution resource,
-outside a run's identity (SEP 42), so a stopped run continues on another backend by
-changing the name. The continuation is an adaptive pair, held to an envelope against a
-tighter run (SEP 25), never to the original's steps.
+(``tests/data/retired_backends/generate.py``). They read, and a run may name no other
+version's record to continue it (ADR-066). The backend itself is an execution resource,
+outside a run's identity, so a stopped run continues on another backend by changing the
+name. The continuation is an adaptive pair, held to an envelope against a tighter run
+(SEP 25), never to the original's steps.
 """
 
 import shutil
@@ -22,6 +23,7 @@ import pytest
 from march_bounds import TIGHTER, assert_in_envelope
 from solprop.driver import prop_gnlse
 from solprop.exceptions import BackendError, OutputError
+from solprop.log import NullReporter
 
 DATA = Path(__file__).parents[1] / "data" / "retired_backends"
 STOPPED = DATA / "numba_cpu_stopped.h5"
@@ -51,6 +53,43 @@ def run(backend, output=None, *, rtol=RTOL, resume=False):
     )
 
 
+class CrashError(RuntimeError):
+    """What stops a run at a plane, standing in for a machine going away."""
+
+
+class CrashAtTheThirdPlane(NullReporter):
+    """Raise at the third saved plane."""
+
+    planes = 0
+
+    def plane(self, z, summary):
+        self.planes += 1
+        if self.planes == 3:
+            raise CrashError
+
+
+def stopped_on(backend, path):
+    """Stop the run generate.py wrote at its third saved plane, on `backend`."""
+    with pytest.raises(CrashError):
+        prop_gnlse(
+            0.11,
+            2e-4,
+            [0.0, 0.0, -11.83e-27],
+            wavelength=835e-9,
+            wavelength_limits=(500e-9, 2e-6),
+            trange=1e-12,
+            fwhm=50e-15,
+            peak_power=1e3,
+            shape="sech",
+            backend=backend,
+            noise=None,
+            output=path,
+            n_save=5,
+            rtol=RTOL,
+            progress=CrashAtTheThirdPlane(),
+        )
+
+
 def recorded_backend(path):
     with h5py.File(path) as file:
         return file.attrs["backend"]
@@ -69,10 +108,10 @@ def backend_available(name):
 
 
 @pytest.mark.parametrize("backend", ["native", "numpy_ref"])
-def test_a_stopped_numba_run_continues_on_another_backend(tmp_path, backend):
+def test_a_stopped_run_continues_on_another_backend(tmp_path, backend):
     backend_available(backend)
     path = tmp_path / "continued.h5"
-    shutil.copyfile(STOPPED, path)
+    stopped_on("numpy_ref" if backend == "native" else "native", path)
     with h5py.File(path) as handle:
         before: Any = handle
         kept = np.array(before["field"][:3])

@@ -1452,7 +1452,7 @@ def _pick(pin: "Pin", roots: "DesignRoots") -> float:  # noqa: UP037 - TYPE_CHEC
 
 def resume_file(
     path: str | Path,
-    mode: bool | Literal["interpolated", "force"] = True,
+    mode: bool | Literal["interpolated"] = True,
     *,
     node_budget: int | None = None,
     progress: "ProgressReporter | ProgressChoice | None" = None,  # noqa: UP037
@@ -1461,10 +1461,9 @@ def resume_file(
     """Continue a run from its output file alone, rebuilding it from its recipe.
 
     The simulation is rebuilt from the resolved recipe the file records (SEP 41, S2)
-    and run into the same file with ``resume=mode``, so the resume gate decides by its
-    comparison of the stored and rebuilt records, and records any difference as it
-    does for any resume (SEP 42). A file written from a script records no recipe; its
-    script resumes it.
+    and run into the same file with ``resume=mode``, so the resume gate decides by the
+    hashes of the stored and rebuilt records, as for any resume (ADR-066). A file
+    written from a script records no recipe; its script resumes it.
 
     Resuming a file runs the setup it holds. A file received from someone else does
     not choose its own limit: the recipe's ``node_budget`` is ignored, and the caller's
@@ -1474,7 +1473,7 @@ def resume_file(
     ----------
     path : str or pathlib.Path
         The output file.
-    mode : bool or {'interpolated', 'force'}, optional
+    mode : bool or {'interpolated'}, optional
         As :meth:`~solprop.driver.simulation.Simulation.run`'s ``resume`` takes it.
     node_budget : int or None, optional
         The node-buffer budget of a capillary run; ``None`` takes solprop's default.

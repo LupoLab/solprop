@@ -44,9 +44,7 @@ def _with_scan(table):
     return Recipe.from_dict(document)
 
 
-@pytest.mark.parametrize(
-    ("key", "value"), [("held_plane", False), ("resume_history", False)]
-)
+@pytest.mark.parametrize(("key", "value"), [("resume_history", False)])
 def test_the_points_keep_the_execution_keys_the_scan_does_not_take(key, value):
     document = parse_text(TEXT)
     document["scan"] = {"name": "powers", "peak_power": ["5 W", 10]}

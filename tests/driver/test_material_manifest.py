@@ -571,11 +571,8 @@ def test_ten_steps_write_the_manifest_and_a_changed_identity_is_refused(tmp_path
     assert check_cache(path, capillary().metadata())
     override = default_model("Ar").with_parameters(intervals=((120e-9, math.inf),))
     changed = capillary(materials=MaterialSelection(linear=override)).metadata()
-    with pytest.raises(
-        OutputError, match=r"materials: optmat model Ar gas_refractive"
-    ) as refused:
+    with pytest.raises(OutputError, match=r"materials\.records"):
         check_cache(path, changed)
-    assert "the material manifest differs" in str(refused.value)
 
 
 def scan_point(point, linear: object = "recommended"):
@@ -593,7 +590,7 @@ def test_scan_reuse_is_refused_when_a_points_identity_changes(tmp_path):
     # The same selection reuses the completed point.
     assert run_scan(scan, scan_point, **options).point(0)["status"] == "done"
     override = default_model("Ar").with_parameters(intervals=((120e-9, math.inf),))
-    refusal = r"different configuration.*materials: optmat model Ar gas_refractive"
+    refusal = r"different configuration.*materials\.records"
     with pytest.raises(OutputError, match=refusal):
         run_scan(scan, partial(scan_point, linear=override), **options)
 
