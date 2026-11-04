@@ -51,7 +51,6 @@ __all__ = [
     "SINGLE_ONLY",
     "BackendEntry",
     "available",
-    "available_device_memory",
     "metal_available",
     "resolve_name",
     "select",
@@ -409,39 +408,6 @@ def _baseline_probe(source: Path) -> ModuleType:
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
-
-
-def available_device_memory(name: str) -> int | None:
-    """Return a backend's free accelerator bytes before it is constructed.
-
-    The driver admits a run's persistent memory against them before the backend
-    allocates (:func:`solprop.driver.memory.admit_memory`). Only the native backend
-    reports them, and only a device build; asking imports the plugin, as selecting it
-    would.
-
-    Parameters
-    ----------
-    name : str
-        A concrete registry name.
-
-    Returns
-    -------
-    int or None
-        Free bytes on the selected accelerator, or ``None`` for a host backend, a host
-        build or a plugin that does not report them.
-
-    Examples
-    --------
-    >>> from solprop.backends.registry import available_device_memory
-    >>> available_device_memory("numpy_ref") is None
-    True
-    """
-    if name != "native" or not _satisfied(BACKENDS["native"]):
-        return None
-    import solprop_native  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
-
-    probe = getattr(solprop_native, "available_device_memory", None)
-    return None if probe is None else probe()
 
 
 def select(

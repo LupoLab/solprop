@@ -42,7 +42,6 @@ from solprop._interrupts import committing, handled, poll
 from solprop.backends.populations import axis_refusal
 from solprop.backends.protocol import Backend, BackendHistory, Observation
 from solprop.backends.registry import statistics_refusal
-from solprop.driver.memory import MemoryAdmission
 from solprop.driver.plane_view import PlaneWatch
 from solprop.driver.summary import resources, run_summary
 from solprop.exceptions import (
@@ -280,7 +279,6 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
     progress: ProgressReporter | ProgressChoice | None = None,
     progress_period: float = DEFAULT_PROGRESS_PERIOD,
     start_plane: int = 0,
-    memory: MemoryAdmission | None = None,
     tdse_binding: TDSEBinding | None = None,
     resume_history: bool | None = None,
     fields: FieldsChoice = "all",
@@ -342,9 +340,6 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
         loads either the last regular plane or a separate terminal checkpoint at
         its actual absolute position. The launch plane is written when the handler
         holds no regular observations, so a resumed run never stores it twice.
-    memory : solprop.driver.memory.MemoryAdmission or None, optional
-        The run's memory admission (:func:`solprop.driver.memory.admit_memory`),
-        recorded as ``memory`` in the backend record's settings; ``None`` records none.
     tdse_binding : solprop.translate.tdse.TDSEBinding or None, optional
         Explicit live atomic runtime owned by the caller. Its ledgers and execution
         facts are captured before the caller closes it. TDSE requires an output
@@ -469,7 +464,6 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
         metadata,
         backend,
         tdse_binding,
-        memory,
     )
     if resume_record is not None:
         # Only a file resume carries an entry, and its handler is an HDF5Output.
@@ -1072,7 +1066,6 @@ def _open_run(
     metadata: RunMetadata,
     backend: Backend,
     binding: TDSEBinding | None,
-    memory: MemoryAdmission | None,
 ) -> CheckpointOutput | None:
     """Attach actual runtime facts outside the scientific resume identity.
 
@@ -1086,8 +1079,6 @@ def _open_run(
         Prepared optical backend supplying actual execution facts.
     binding : TDSEBinding or None
         Optional atomic service supplying execution provenance.
-    memory : MemoryAdmission or None
-        Optional run admission record in bytes.
 
     Returns
     -------
@@ -1097,8 +1088,6 @@ def _open_run(
     executed = backend.metadata()
     if binding is not None:
         executed = {**executed, "tdse": dict(binding.metadata())}
-    if memory is not None:
-        executed = {**executed, "memory": memory.record()}
     output.open(
         dataclasses.replace(metadata, backend=BackendRecord.from_metadata(executed))
     )
@@ -1110,7 +1099,6 @@ def open_run_record(
     metadata: RunMetadata,
     backend: Backend,
     binding: TDSEBinding | None,
-    memory: MemoryAdmission | None,
 ) -> None:
     """Open an output with the run's record and execution facts, and save nothing.
 
@@ -1129,10 +1117,8 @@ def open_run_record(
         Prepared optical backend.
     binding : TDSEBinding or None
         Optional atomic service supplying execution provenance.
-    memory : MemoryAdmission or None
-        Optional run admission record.
     """
-    _open_run(output, metadata, backend, binding, memory)
+    _open_run(output, metadata, backend, binding)
 
 
 @dataclasses.dataclass(frozen=True)

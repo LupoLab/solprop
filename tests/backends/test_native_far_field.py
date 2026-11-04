@@ -40,7 +40,6 @@ from backends.forced_threads import assert_threaded
 from backends.matched import native_thread_fields
 from bounds import assert_within
 from solprop.backends import select
-from solprop.backends.memory import estimate_memory, far_field_memory
 from solprop.backends.spatial import AXIS_SPECTRUM_ONLY, far_field_partials
 from solprop.boundaries import SpatialAbsorber, absorber
 from solprop.driver import Simulation, SimulationSettings
@@ -338,20 +337,18 @@ def test_the_native_pass_does_not_depend_on_the_thread_count(tmp_path):
     )
 
 
-def test_the_native_partials_are_held_and_estimated_to_the_byte():
+def test_the_native_partials_are_held_to_the_byte():
     grid = time_grid("envelope")
     space = FreeGrid(3e-4, 12, 2.5e-4, 10, collar_fraction=0.1)
     spec = spec_of(holes("tanh"), WITH_AXIS)
     field = random_field(space, 2, grid)
     problem = problem_of(grid, space, field, spec)
     n_slots, n_bands = far_field_partials(problem)
-    rows = far_field_memory(problem, "native")
-    assert rows == {"far_field_partials": 8 * n_bands * n_slots * grid.n_omega}
-    assert far_field_memory(problem, "numpy_ref") == {}
+    partials = 8 * n_bands * n_slots * grid.n_omega
     owner = select("native", problem, grid=grid)
     try:
         ledger = owner.memory_ledger()
-        assert ledger["far_field_partials"] == rows["far_field_partials"]
+        assert ledger["far_field_partials"] == partials
         # The axes, then the tables and packed output once a call has run.
         assert ledger["far_field_tables"] == 8 * (space.n_x + space.n_y)
         owner.set_initial(problem.initial.field0, None)
@@ -365,19 +362,14 @@ def test_the_native_partials_are_held_and_estimated_to_the_byte():
         assert ledger["far_field_tables"] == 8 * (
             space.n_x + space.n_y + tables + packed
         )
-        assert ledger["far_field_partials"] == rows["far_field_partials"]
+        assert ledger["far_field_partials"] == partials
     finally:
         owner.close()
-    assert (
-        estimate_memory(problem, "native").groups["base"]
-        == estimate_memory(problem, "numpy_ref").groups["base"]
-        + rows["far_field_partials"]
-    )
 
 
 def test_on_axis_intensity_takes_no_native_slot():
-    # Kokkos forms on_axis_intensity in its own spatial pass, so its partials, and the
-    # estimate's row, leave the W = 1 slot out.
+    # Kokkos forms on_axis_intensity in its own spatial pass, so its partials leave the
+    # W = 1 slot out.
     grid = time_grid("envelope")
     space = FreeGrid(3e-4, 12, 2.5e-4, 10, collar_fraction=0.1)
     field = random_field(space, 2, grid)
@@ -387,13 +379,11 @@ def test_on_axis_intensity_takes_no_native_slot():
     assert n_slots == 1
     # The axis amplitude and its closure, 4 n_pol slots.
     assert far_field_partials(problem)[0] == 1 + 4 * 2
-    rows = far_field_memory(problem, "native")
-    assert rows == {"far_field_partials": 8 * n_bands * grid.n_omega}
     owner = select("native", problem, grid=grid)
     try:
         owner.set_initial(problem.initial.field0, None)
         values = owner.stats(problem.stats_spec)
-        assert owner.memory_ledger()["far_field_partials"] == rows["far_field_partials"]
+        assert owner.memory_ledger()["far_field_partials"] == 8 * n_bands * grid.n_omega
     finally:
         owner.close()
     assert values["on_axis_intensity"].shape == (1,)
@@ -422,7 +412,6 @@ def test_a_native_request_beyond_the_held_partials_grows_them():
     field = random_field(space, 1, grid)
     bare = problem_of(grid, space, field, StatsSpec(names=("energy",)))
     assert far_field_partials(bare) == (0, 0)
-    assert far_field_memory(bare, "native") == {}
     owner = NativeBackend(bare, grid=grid)
     try:
         assert owner.memory_ledger()["far_field_partials"] == 0

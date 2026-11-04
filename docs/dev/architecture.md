@@ -685,7 +685,7 @@ otherwise, with a warning, `numpy_ref` (ADR-029, ADR-064); the installed native 
   does).
 - `HDF5Output` never holds more than the current plane, in datasets preallocated for the
   planned planes with an `n_saved` count; `MemoryOutput` is allocated for the planned
-  planes, grows by doubling past them, and is charged by the memory admission.
+  planes and grows by doubling past them.
 - A run keeps its fields on every plane, the named planes or none
   (`FieldRetention`,
   [SEP 22](seps/archive/sep-0022-memory-lean-spatial-execution.md)): a plane without its field is not copied, converted or

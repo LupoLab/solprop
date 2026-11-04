@@ -774,7 +774,7 @@ their spectra combine as `P + X/(iω) − Z/(iω)²`; inactive bins are exactly 
 zero-frequency division executes. Modal routes project before transforming; radial
 routes transform on nodes, combine and crop, then project once; Cartesian, line and
 planar routes combine before their transverse transform. The derivative and every
-additional buffer are charged to memory admission. The steady-current certificate uses
+additional buffer are in the memory ledger. The steady-current certificate uses
 the complete fine transform (DC included) in its denominator, must not exceed 1e-10 and
 is recorded under `plasma_source`.
 
@@ -1051,8 +1051,6 @@ caller's array is never frozen: the state, the noise and the batch parameters ar
 copied; a broadcast state (as from `numpy.broadcast_to`) copies only the block it
 repeats, converted to complex128, and broadcasts that copy; and an array the problem
 already holds, or one the translation built for it, is taken without a second copy.
-`estimate_memory` counts what is held as its `initial_field` group (`backends.md`
-section 8).
 
 ## 7. Stepper settings and schedule
 

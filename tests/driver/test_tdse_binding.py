@@ -18,8 +18,8 @@ from numpy.testing import assert_array_equal
 from solprop.driver import tdse
 from solprop.exceptions import (
     BackendError,
+    DriverError,
     MaterialError,
-    MemoryBudgetError,
     ResponseBudgetError,
 )
 from solprop.grid import FieldGrid
@@ -428,31 +428,10 @@ def test_binding_failed_calls_stay_charged_and_preserve_provenance(provider, fai
 
 
 def test_binding_admits_memory_before_native_setup(provider):
-    with pytest.raises(MemoryBudgetError):
+    with pytest.raises(DriverError):
         tdse.prepare_binding(_descriptor(), TDSEExecution(memory_limit=1), 2)
     assert provider.assembled == 0
     assert provider.calls == []
-
-
-def test_binding_memory_budget_includes_optical_host_without_duplicate_ledger(provider):
-    descriptor = _descriptor()
-    estimate = sum(
-        tdse.estimate_binding_memory(descriptor, TDSEExecution(), 2).values()
-    )
-    with pytest.raises(MemoryBudgetError, match="combined"):
-        tdse.prepare_binding(
-            descriptor,
-            TDSEExecution(memory_limit=estimate + 99),
-            2,
-            host_memory_bytes=100,
-        )
-    assert provider.assembled == 0
-    binding = tdse.prepare_binding(
-        descriptor, TDSEExecution(), 2, host_memory_bytes=100
-    )
-    assert "optical.host" not in binding.memory_ledger()
-    assert binding.metadata()["optical_host_memory_bytes"] == 100
-    binding.close()
 
 
 def test_binding_memory_estimate_does_not_import_native_engine(monkeypatch):
@@ -615,17 +594,6 @@ def test_binding_and_estimate_reject_invalid_row_counts_before_provider_work(
     assert provider.created == []
 
 
-@pytest.mark.parametrize("host_bytes", [-1, True])
-def test_binding_refuses_invalid_optical_memory_before_provider_work(
-    provider, host_bytes
-):
-    with pytest.raises(BackendError, match="host_memory_bytes"):
-        tdse.prepare_binding(
-            _descriptor(), TDSEExecution(), 1, host_memory_bytes=host_bytes
-        )
-    assert provider.assembled == 0
-
-
 def test_binding_rejects_changed_atomic_model_before_allocation(provider):
     provider.model_version = 2
     with pytest.raises(BackendError, match="potential revision"):
@@ -692,7 +660,7 @@ def test_measured_memory_refusal_closes_all_resources_after_estimated_admission(
         return setup
 
     monkeypatch.setattr(provider, "SpectralSetup", oversized_setup)
-    with pytest.raises(MemoryBudgetError, match="combined persistent-data"):
+    with pytest.raises(DriverError, match="TDSE persistent data"):
         tdse.prepare_binding(descriptor, replace(execution, memory_limit=estimate), 3)
     assert provider.assembled == 1
     assert len(provider.created) == 2

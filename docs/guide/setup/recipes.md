@@ -47,7 +47,7 @@ level, so a keyword added to solprop later can never collide with the format:
 |---|---|
 | `[recipe]` | `format` and `route`, required; `title` and `solprop`, informative |
 | `[build]` | the keywords of the route's `Simulation.from_*` constructor, under their own names |
-| `[execution]` | `fields`, `field_planes`, `resume_history` and `memory_budget`: settings the run reads when it executes |
+| `[execution]` | `fields`, `field_planes` and `resume_history`: settings the run reads when it executes |
 | `[pins]` | values solved from a design target (a later release) |
 | `[scan]` | a scan over parameter paths (a later release) |
 
@@ -75,8 +75,7 @@ supplies them. An unknown key is refused with the nearest valid one.
   temperature is in K only. Elements of `phases` carry their own units (rad, s, s², ...),
   and so do those of `betas` (sⁿ/m by order).
 - **None.** Leaving a key out gives its default; where that default is not `None` but the
-  keyword takes `None` (`noise`, `boundary_check`, and `memory_budget` under
-  `[execution]`), the string `"none"` says `None`.
+  keyword takes `None` (`noise`, `boundary_check`), the string `"none"` says `None`.
 - **Complex numbers** are `{re = 1.45, im = 0.0}`; an integer beyond 64 bits, such as a
   drawn noise seed, is a decimal string.
 - **Arrays** are lists of at most 10 000 numbers. A longer or a two-dimensional array is a
@@ -205,8 +204,7 @@ has not been edited saves its text verbatim, comments included; an edited one is
 canonically, each quantity in its keyword's display unit, without comments.
 `Recipe.from_keywords("capillary", radius=125e-6, ...)` writes a call made of plain
 values as a recipe, and refuses an object or a function, which have no table form: a
-recipe is built into objects, never made from them. `recipe.run(output)` builds and runs,
-passing `[execution]`'s `memory_budget` to the run.
+recipe is built into objects, never made from them. `recipe.run(output)` builds and runs.
 
 `recipe.check()` decodes every value against the keyword's metadata, then builds the
 simulation and translates it, stopping before a backend is built: a refusal that depends

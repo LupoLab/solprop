@@ -265,12 +265,3 @@ def test_the_python_export_builds_the_same_run(name, tmp_path):
     )
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout.splitlines()[-1]) == _hash(recipe.build())
-
-
-def test_a_build_only_keyword_is_exported_through_the_constructor():
-    # from_waveguide's memory_budget admits a guide's tables at build; prop_waveguide
-    # does not take it.
-    recipe = Recipe.loads(PLANAR + 'memory_budget = "8 GiB"\n')
-    script = recipe.to_python()
-    assert "Simulation.from_waveguide(" in script
-    assert "memory_budget='8 GiB'" in script

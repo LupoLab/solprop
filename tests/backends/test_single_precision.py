@@ -30,10 +30,7 @@ from solprop.backends.batch import LockstepRunner
 from solprop.backends.driver import StepDriver
 from solprop.backends.memory import (
     MLX_GRAPH_BUDGET,
-    estimate_memory,
     mlx_bounded,
-    mlx_graph_bytes,
-    mlx_stage_bytes,
 )
 from solprop.backends.numpy_ref import NumpyRefBackend, passes
 from solprop.backends.numpy_ref.batch import NumpyBatchBackend
@@ -863,12 +860,6 @@ def test_a_table_beyond_binary32_range_is_refused_by_name():
         assert backend._upload("probe", np.array([3.0, 1e-41])).dtype == np.float32
 
 
-def test_the_memory_estimate_counts_binary32_buffers():
-    single = estimate_memory(gnlse("single").translate(), "numpy_ref")
-    double = estimate_memory(gnlse("double").translate(), "numpy_ref")
-    assert single.groups["base"] < double.groups["base"]
-
-
 # The oracle's own branches: routes, switches and the host side's helpers.
 
 
@@ -1220,30 +1211,6 @@ def test_auto_resolves_to_mlx_where_metal_is_present(monkeypatch):
     monkeypatch.setattr(simulation_module, "metal_available", lambda: True)
     assert simulation_module._single_backend("auto") == "mlx"
     assert simulation_module._single_backend("numpy_ref") == "numpy_ref"
-
-
-@pytest.mark.parametrize(
-    "build",
-    [
-        pytest.param(lambda: gnlse("single"), id="gnlse"),
-        pytest.param(lambda: capillary("single"), id="plasma"),
-        pytest.param(lambda: capillary("single", modes=4), id="multimode"),
-        pytest.param(
-            lambda: spatial_kerr("radial", "single", absorbed=True), id="radial"
-        ),
-        pytest.param(lambda: spatial_kerr("cartesian", "single"), id="cartesian"),
-        pytest.param(
-            lambda: capillary("single", envelope=True, plasma=True), id="envelope"
-        ),
-    ],
-)
-def test_the_mlx_estimate_adds_its_device_rows(build):
-    """The device's rows are counted without MLX installed: they are arithmetic."""
-    problem = build().translate()
-    host = estimate_memory(problem, "numpy_ref").total
-    device = estimate_memory(problem, "mlx").total
-    assert device > host
-    assert mlx_graph_bytes(problem) > 0 and mlx_stage_bytes(problem) > 0
 
 
 def test_a_step_graph_past_the_budget_is_evaluated_stage_by_stage():

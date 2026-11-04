@@ -161,7 +161,7 @@ ten steps before committing a long campaign to one backend.
 
 ## Memory and scans
 
-For memory admission, output storage and scan workers, continue to
+For memory, output storage and scan workers, continue to
 [execution resources](resources.md). Choose resolution for the physics before
 tuning thread counts; reducing modes or nodes to fit memory changes the model
 or its numerical accuracy.

@@ -13,7 +13,7 @@ future keyword can never collide with the format:
 ``[build]``
     The keywords of the route's ``Simulation.from_*`` constructor.
 ``[execution]``
-    ``fields``, ``field_planes``, ``resume_history`` and ``memory_budget``.
+    ``fields``, ``field_planes`` and ``resume_history``.
 ``[pins]``
     Values set from a design target.
 ``[scan]``
@@ -87,7 +87,7 @@ TABLES = ("recipe", "build", "execution", "pins", "scan")
 RECIPE_KEYS = ("format", "route", "title", "solprop")
 """The keys of ``[recipe]``, in the order they are written; the first two required."""
 
-EXECUTION_KEYS = ("fields", "field_planes", "resume_history", "memory_budget")
+EXECUTION_KEYS = ("fields", "field_planes", "resume_history")
 """The keys of ``[execution]``: the run's settings that are not build keywords."""
 
 REFUSED_BUILD_KEYS = (

@@ -47,7 +47,6 @@ from general_parity import conditioning as general_conditioning
 from general_parity import nonlinear_scale, problem_for, scaled_case, source_bound
 from solprop._interrupts import handled
 from solprop.backends.memory import (
-    estimate_memory,
     low_storage_flows,
     low_storage_stage_register,
 )
@@ -531,8 +530,6 @@ def test_the_native_state_holds_the_registers_and_no_runge_kutta_view(mode, coll
     assert sum(volumes.values()) == field * (3 + int(collar) + (mode == "tabulate"))
     for row in (*RUNGE_KUTTA_ROWS, "noise", "held_plane", "adams_history"):
         assert ledger[row] == 0, row
-    estimate = estimate_memory(problem, "native")
-    assert estimate.groups["adams_history"] == 0
     assert backend._low_storage is not None
     engine = backend._low_storage.engine
     assert engine.atomic and math.isnan(engine.stiffness)
@@ -542,63 +539,6 @@ def test_the_native_state_holds_the_registers_and_no_runge_kutta_view(mode, coll
     assert metadata["propagator_mode"] == mode
     assert metadata["source_evaluations"] == 4 * schedule.n_steps
     backend.close()
-
-
-@pytest.mark.parametrize("collar", [False, True], ids=["no collar", "in-stage collar"])
-@pytest.mark.parametrize("mode", ["tabulate", "recompute"])
-def test_the_estimate_is_the_ledger_to_the_byte(mode, collar):
-    """The march's field-sized rows of the estimate, row by row, as numpy_ref counts.
-
-    The estimate's base is the reference's rows less the elided register; its march
-    rows -- the state, the scratch, the registers and the flows -- are the native
-    ledger's own, to the byte.
-    """
-    from solprop.backends.memory import (  # noqa: PLC0415
-        reference_base_memory,
-    )
-
-    problem, grid, _ = cartesian_march(mode, collar=collar)
-    field = 16 * math.prod(problem.shape)
-    reference = reference_base_memory(
-        problem,
-        tabulating=mode == "tabulate",
-        embedded=False,
-        noise=False,
-        statistics_weight=0,
-        spatial_absorber=0,
-    )
-    backend = NativeBackend(problem, grid=grid)
-    ledger = backend.memory_ledger()
-    backend.close()
-    for row in MARCH_ROWS:
-        expected = 0 if row == "register_stage" and not collar else reference[row]
-        assert ledger[row] == expected, row
-    estimate = estimate_memory(problem, "native")
-    assert estimate.groups["base"] == sum(reference.values()) - (0 if collar else field)
-
-
-def test_the_low_storage_estimate_counts_the_elided_register():
-    """Q4 in the admission's figure: the march's estimate without ``C`` where elided."""
-    from solprop.backends.memory import low_storage_memory  # noqa: PLC0415
-
-    for collar in (False, True):
-        problem, _, _ = cartesian_march("tabulate", collar=collar)
-        field = 16 * math.prod(problem.shape)
-        under_march = estimate_memory(problem, "native").total
-        assert low_storage_memory(problem, "native") == under_march
-        # The same problem under the Runge-Kutta march: the march's figure is its own.
-        runge_kutta = dataclasses.replace(
-            problem,
-            stepper=dataclasses.replace(
-                problem.stepper, integrator=None, propagator_mode="auto"
-            ),
-        )
-        assert low_storage_memory(runge_kutta, "native") == under_march
-        held = low_storage_stage_register(problem, "native")
-        assert held == collar
-        assert low_storage_memory(problem, "numpy_ref") - under_march == (
-            0 if held else field
-        )
 
 
 def test_a_varying_operator_holds_its_pair_tabulated_and_none_recomputed():

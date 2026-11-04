@@ -253,9 +253,8 @@ records no recipe, and its script resumes it.
 **Resuming a file runs the setup it holds.** A file from someone else is a program to
 run: its recipe passes the same checks as a recipe file (registered types only, no keys
 that choose paths), its embedded data files are read into memory and checked against
-their hashes, and it does not choose its own limits: its `memory_budget` and
-`node_budget` are ignored, and yours apply, refusing by default rather than warning
-(four fifths of the machine's memory unless you give `--memory-budget`). Opening an
+their hashes, and it does not choose its own limit: its `node_budget` is ignored, and
+yours applies. Opening an
 HDF5 file at all exposes the HDF5 library to it.
 
 ### What a file allows

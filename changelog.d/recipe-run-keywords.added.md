@@ -1,1 +1,0 @@
-`Recipe.run_keywords()` returns the keywords of `Simulation.run` the recipe's `[execution]` table sets (`memory_budget`), so a caller that builds the simulation itself, to keep it while it runs, runs it as `Recipe.run` would.

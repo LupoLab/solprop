@@ -269,14 +269,3 @@ def test_a_compiled_backend_follows_the_reference_beside_a_coupled_flow(
     assert compiled.ledger.total == march.ledger.total
     scale = np.max(np.abs(reference))
     np.testing.assert_allclose(field, reference, rtol=0, atol=1e-11 * scale)
-
-
-@pytest.mark.skipif("native" not in available(), reason="native is not installed")
-def test_the_resident_channel_limit_is_the_estimates():
-    from solprop_native.backend import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
-        ADAMS_MAX_CHANNELS,
-    )
-
-    from solprop.backends.memory import RESIDENT_CHANNELS  # noqa: PLC0415
-
-    assert ADAMS_MAX_CHANNELS == RESIDENT_CHANNELS

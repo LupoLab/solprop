@@ -29,8 +29,6 @@ __all__ = [
     "MaterialError",
     "MaterialRangeWarning",
     "MaterialStatusWarning",
-    "MemoryBudgetError",
-    "MemoryBudgetWarning",
     "ModeError",
     "NoZeroDispersionError",
     "NoiseError",
@@ -192,10 +190,6 @@ class StopRequested(BaseException):
 
 class DriverError(SolpropError, RuntimeError):
     """A run was asked for something the driver cannot execute."""
-
-
-class MemoryBudgetError(DriverError):
-    """A run's estimated persistent memory exceeds its declared memory budget."""
 
 
 class BoundaryError(SolpropError, RuntimeError):
@@ -411,10 +405,6 @@ class ApertureEdgeWarning(SolpropWarning):
     profile slopes at its centre, so a bright beam there is collected with a lattice
     error near ``1e-5``, where ``rcos`` is flat inside ``r - w``.
     """
-
-
-class MemoryBudgetWarning(SolpropWarning):
-    """A run's estimated persistent memory exceeds a budget declared to warn."""
 
 
 class GeneralModalBasisWarning(SolpropWarning):

@@ -232,14 +232,6 @@ def test_a_memory_store_allocates_only_the_kept_fields(metadata):
     assert every._fields.shape[0] == 8
 
 
-def test_held_bytes_charge_the_kept_fields_only():
-    memory = MemoryOutput()
-    assert memory.held_bytes(17, 1000) == 17000
-    assert memory.held_bytes(17, 1000, kept=None, field_bytes=900) == 17000
-    assert memory.held_bytes(17, 1000, kept=2, field_bytes=900) == 17 * 100 + 2 * 900
-    assert memory.held_bytes(17, 1000, kept=0, field_bytes=900) == 1700
-
-
 def test_a_plane_that_breaks_the_rule_is_refused_by_name(metadata):
     memory = MemoryOutput()
     memory.open(metadata)

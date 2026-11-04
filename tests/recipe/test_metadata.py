@@ -49,9 +49,6 @@ PROPS = {
     "free": prop_free,
     "planar": prop_planar,
 }
-# from_waveguide's memory_budget admits a guide's tables at build; prop_waveguide has
-# none, so the export writes such a recipe through Simulation.from_waveguide.
-BUILD_ONLY = {route: set() for route in ROUTES} | {"waveguide": {"memory_budget"}}
 
 
 def _resolve(table, name, values):
@@ -85,7 +82,7 @@ def test_the_table_names_every_keyword_of_the_constructor(route):
 def test_the_prop_function_adds_only_the_keywords_a_recipe_refuses(route):
     built = set(inspect.signature(BUILDERS[route]).parameters)
     prop = set(inspect.signature(PROPS[route]).parameters)
-    assert built - prop == BUILD_ONLY[route]
+    assert built <= prop
     assert prop - built <= set(REFUSED_BUILD_KEYS)
 
 
@@ -115,13 +112,11 @@ def test_the_none_spelling_is_exactly_where_the_default_is_not_none(route):
         assert all("none" not in form.choices for form in own), name
 
 
-def test_the_execution_keys_are_settings_or_the_run_s_budget():
+def test_the_execution_keys_are_settings():
     table = metadata.parameters("execution")
     assert tuple(table) == tuple(EXECUTION_KEYS)
     fields = {field.name for field in SimulationSettings.__dataclass_fields__.values()}
-    assert set(table) - fields == {"memory_budget"}
-    assert "memory_budget" in inspect.signature(Simulation.run).parameters
-    assert table["memory_budget"].none
+    assert set(table) <= fields
 
 
 @pytest.mark.parametrize("route", [*ROUTES, "execution", *REGISTRY])

@@ -21,7 +21,6 @@ from scipy.linalg import expm
 from scipy.special import gammainc, j0
 
 from legacy_geometry import LEGACY_GRID
-from solprop.backends.memory import estimate_memory, ledger_groups
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.spatial import collar_field_fraction
 from solprop.boundaries import Absorber, SpatialAbsorber
@@ -296,14 +295,11 @@ def test_spatial_rate_stability_refusal_is_not_lifted_by_temporal_split(
         )
 
 
-def test_memory_estimate_counts_the_composed_absorber_matrix(absorber_case):
-    """The estimate sizes the radial absorber matrix without forming the product."""
+def test_the_ledger_counts_the_composed_absorber_matrix(absorber_case):
     problem = problem_for(absorber_case, 8)
     backend = NumpyRefBackend(problem, grid=absorber_case[0])
     try:
-        held = ledger_groups(backend.memory_ledger())
         matrix = backend.memory_ledger()["spatial_absorber_matrix"]
     finally:
         backend.close()
     assert matrix > 0
-    assert estimate_memory(problem, "numpy_ref").groups["base"] == held["base"]

@@ -54,7 +54,7 @@ import shards  # noqa: E402 - test helper beside conftest
 import solprop  # noqa: E402, F401 - imported after the hook so the package is checked too
 from distribution import remember_nodeid  # noqa: E402 - test helper beside conftest
 from solprop import _process  # noqa: E402 - needs the hook above
-from solprop.backends import memory, registry  # noqa: E402 - needs the hook above
+from solprop.backends import registry  # noqa: E402 - needs the hook above
 from solprop.driver import simulation  # noqa: E402 - needs the hook above
 
 # NumPy's OpenBLAS on Windows on Arm crashes or hangs in small linear solves when a
@@ -85,7 +85,6 @@ def _resolve_for_tests(backend="auto"):
 if _NAMED_BACKEND and importlib.util.find_spec("solprop_native") is None:
     registry.resolve_name = _resolve_for_tests
     simulation.resolve_name = _resolve_for_tests
-    memory.resolve_name = _resolve_for_tests
 
 
 @pytest.fixture(autouse=True)

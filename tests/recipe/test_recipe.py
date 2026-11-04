@@ -159,7 +159,7 @@ def test_execution_settings_reach_the_settings_and_the_run(recipe):
     assert simulation.settings.fields == "planes"
     assert simulation.settings.field_planes == (0, -1)
     for source, built in (
-        (Recipe.loads(text + 'memory_budget = "none"\n'), simulation),
+        (Recipe.loads(text), simulation),
         (recipe, recipe.build()),
     ):
         metadata = source.run().metadata
@@ -505,7 +505,7 @@ _HASH_PROBE = textwrap.dedent(
     from solprop.driver.simulation import Simulation
 
     def run(self, *args, **kwargs):
-        print(self.metadata().configuration_hash(), kwargs.get("memory_budget", "-"))
+        print(self.metadata().configuration_hash())
         raise SystemExit(0)
 
     Simulation.run = run
@@ -530,8 +530,7 @@ def _exported_recipe(kind, tmp_path):
             np.column_stack([frequency, power]),
             delimiter=",",
         )
-        text = GNLSE + '\n[execution]\nmemory_budget = "none"\n'
-        document = Recipe.loads(text).to_dict()
+        document = Recipe.loads(GNLSE).to_dict()
         build = document["build"]
         build["betas"] = _data_file(values, values.read_bytes())
         for key in ("width", "peak_power", "shape"):
@@ -559,7 +558,6 @@ def test_the_export_writes_data_files_and_plain_tables(kind, tmp_path):
     if kind == "data files":
         assert "numpy.load('betas.npy', allow_pickle=False)" in script
         assert "load_spectrum('spectrum.csv'," in script
-        assert "memory_budget=None" in script
     else:
         assert "gas={'He': 0.5, 'Ne': 0.5}" in script
     path = tmp_path / "export.py"
@@ -574,8 +572,7 @@ def test_the_export_writes_data_files_and_plain_tables(kind, tmp_path):
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", MaterialRangeWarning)
         built = recipe.build()
-    budget = "None" if kind == "data files" else "-"
-    assert result.stdout.split() == [_hash(built), budget]
+    assert result.stdout.split() == [_hash(built)]
 
 
 def test_the_command_line_checks_exports_and_runs(tmp_path, capsys):
@@ -681,11 +678,3 @@ def test_a_launch_table_builds_the_call_s_launch():
         )
     record = cast("dict[str, Any]", built.configuration["modal_launch"])
     assert record["pulses"][0]["shares"] == [0.9, 0.1]
-
-
-def test_the_run_keywords_are_the_execution_table_s():
-    assert Recipe.loads(GNLSE).run_keywords() == {}
-    unbounded = Recipe.loads(GNLSE + '\n[execution]\nmemory_budget = "none"\n')
-    assert unbounded.run_keywords() == {"memory_budget": None}
-    bounded = Recipe.loads(GNLSE + '\n[execution]\nmemory_budget = "2 GiB"\n')
-    assert bounded.run_keywords()["memory_budget"] == "2 GiB"
