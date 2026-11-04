@@ -103,7 +103,7 @@ finiteness, so a diverged run is caught by the step loop and its statistics.
 advance.
 
 `LowStorageRungeKutta()` accepts each step in place, so it has no state to checkpoint for a
-step abandoned in flight. By default that step leaves no checkpoint: the execution record
+step abandoned in flight. That step leaves no checkpoint: the execution record
 says `failed` and why, and a file whose last plane kept no field cannot be resumed from
 there (`resume=True` refuses it by name), while one that kept its field resumes from that
 plane. A stop between steps checkpoints as ever. How a step comes to be abandoned depends
@@ -112,15 +112,9 @@ on the backend:
 - On the native backend, only an exception inside the engine can do it, since a signal
   waits for the step.
 - On `numpy_ref`, a Python interrupt can land inside a step as well.
-- A killed process writes nothing, whatever the setting says.
+- A killed process writes nothing.
 
-`SimulationSettings(held_plane=True)` makes the backend hold the state of the last
-field-free plane, one more copy of the state, so that a run stopped in flight after such a
-plane writes its terminal checkpoint from it and resumes there. An output with no
-{py:class}`~solprop.output.schema.CheckpointOutput` holds nothing whatever it says, having
-nowhere to put a checkpoint. The setting is outside the configuration hash and changes
-nothing the march computes, and the backend's record says `held_plane: true` where a plane
-was held for. Code that drives a backend itself asks with `set_held_plane(True)`.
+To keep a resumable state, keep the field at some planes with `fields="planes"`.
 
 `fields` is outside the configuration hash, like
 `resume_history`: it changes what is kept, not what is computed, and it may be changed

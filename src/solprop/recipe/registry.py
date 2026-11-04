@@ -252,7 +252,7 @@ _BEAM_UNITS: Final[Mapping[str, UnitSpec]] = {
     "displacement": "m",
     "tilt": "rad",
 }
-_EXECUTION_FIELDS: Final = ("fields", "field_planes", "resume_history", "held_plane")
+_EXECUTION_FIELDS: Final = ("fields", "field_planes", "resume_history")
 """The settings a recipe's ``[execution]`` table holds, and so no ``settings`` table."""
 
 _SETTINGS_OMITTED: Final = (

@@ -51,9 +51,7 @@ class RunEstimate:
     n_planes : int
         The planes the run saves, the entrance included.
     memory : int
-        The persistent memory the constructed backend holds, its ledger's total, and,
-        with ``held_plane=True``, the state a low-storage march holds at a field-free
-        plane, which it allocates during the run, bytes.
+        The persistent memory the constructed backend holds, its ledger's total, bytes.
     output_bytes : int
         The output's size for the requested planes and retained fields, bytes, as an
         in-memory store holds it (an HDF5 file adds little).
@@ -196,12 +194,6 @@ def estimate(
     )
     try:
         memory = sum(backend.memory_ledger().values())
-        if (
-            settings.held_plane
-            and retention.fields != "all"
-            and isinstance(integrator, LowStorageRungeKutta)
-        ):
-            memory += 16 * math.prod(problem.shape)
         backend.set_initial(problem.initial.field0, None, z=problem.initial.z)
         step, evaluations = _timed_step(backend, problem)
         step()

@@ -443,7 +443,7 @@ _FIELD_RANGE_ABOVE = 30.0
 _PRESSURE_FORM_ENTRIES = 2
 """Entries in either of the two pair forms of the ``pressure`` keyword."""
 
-_RECIPE_EXECUTION = ("fields", "field_planes", "resume_history", "held_plane")
+_RECIPE_EXECUTION = ("fields", "field_planes", "resume_history")
 """The settings a recipe's ``[execution]`` table holds: a change of any other one drops
 the recipe, which would no longer describe the run (SEP 41, S2)."""
 
@@ -454,7 +454,6 @@ _EXECUTION_SETTINGS = (
     "fields",
     "field_planes",
     "boundary_check",
-    "held_plane",
 )
 """The settings read when a run executes, not when it is translated."""
 
@@ -730,9 +729,8 @@ class SimulationSettings(Displayed):
         the resume key, like `resume_history`: it changes what is kept, not what is
         computed. In a scan, :func:`~solprop.driver.scan.run_scan`'s own `fields`
         decide, and a builder that sets this is refused. Beside
-        ``LowStorageRungeKutta()``, `held_plane` asks the backend to hold the last
-        field-free plane's state, so that a step abandoned in flight can still leave
-        a resumable checkpoint (SEP 22, Q14).
+        ``LowStorageRungeKutta()``, a step abandoned in flight leaves no checkpoint, so
+        a file resumes from the last plane that kept its field.
     field_planes : sequence of int
         Saved-plane indices for ``fields='planes'``, the entrance as 0 and negative
         from the end; empty otherwise. Refused beside `step_planes`, whose plane count
@@ -767,15 +765,6 @@ class SimulationSettings(Displayed):
         when light reaches the edge, and the energy the temporal collar removed at the
         end. The default :class:`~solprop.monitor.BoundaryCheck` warns at a field-error
         budget of 1e-3 and stops at ten times it; ``None`` watches nothing.
-    held_plane : bool
-        Whether ``LowStorageRungeKutta()`` holds the last field-free plane's state, one
-        state volume, for a checkpoint if a step is abandoned in flight. ``False``, the
-        default, holds nothing: such a step leaves no terminal checkpoint, and a file
-        whose last plane kept no field cannot be resumed from it (a stop between steps
-        checkpoints as ever). An output without
-        :class:`~solprop.output.schema.CheckpointOutput` has nowhere to put a
-        checkpoint, and holds nothing whatever this says. Outside the resume key: it
-        changes what the run could recover, not what it computes.
 
     Raises
     ------
@@ -833,7 +822,6 @@ class SimulationSettings(Displayed):
     spatial_absorber: SpatialAbsorber | Literal[False] | None = None
     adiabatic_accuracy: AdiabaticAccuracy | None = None
     boundary_check: BoundaryCheck | None = DEFAULT_BOUNDARY_CHECK
-    held_plane: bool = False
     _default_integrator: Multistep | RungeKutta | None = dataclasses.field(
         default=None, repr=False, compare=False
     )
@@ -2311,8 +2299,8 @@ class Simulation(Displayed):
                     f"{', '.join(changed)} would be ignored; set the settings before "
                     "the first translate() or run(), or build a new Simulation (only "
                     "the backend, resume_history, fields, field_planes, the TDSE "
-                    "execution resources, boundary_check and held_plane may change "
-                    "after translation)"
+                    "execution resources and boundary_check may change after "
+                    "translation)"
                 )
                 raise DriverError(msg)
         if self._recipe is not None:
@@ -3656,7 +3644,6 @@ class Simulation(Displayed):
                     tdse_archive=archive,
                     boundary_monitor=self._boundary_monitor(),
                     stop=stop,
-                    held_plane=self.settings.held_plane,
                     recipe=None if self._recipe is None else self._recipe.record(self),
                 )
             except StopRequested as error:
@@ -7325,7 +7312,6 @@ class SimulationRunner(Displayed):
                 fields=loaded.retention.fields,
                 field_planes=loaded.retention.field_planes,
                 boundary_monitor=loaded.boundary_monitor,
-                held_plane=settings.held_plane,
             )
             reports = _peak_field_reports(problem, handler, self._simulation.responses)
         if reports and isinstance(handler, PlaneStore):

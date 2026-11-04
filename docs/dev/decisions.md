@@ -1893,18 +1893,21 @@ Withdrawn (development-process record, not a design decision).
   So a long job has to stay on one CPU family to resume.
 - **Why not a SEP:** SEP 42 stays `Final` as the record of what it did, with a note pointing
   here. The maintainer judged a decision record enough for removing a mechanism, and the same
-  goes for ADR-067's default.
+  goes for ADR-067.
 - **Consequences:** adding a recorded field needs no other step, and a release no longer
   freezes records.
 
-## ADR-067 — A low-storage run holds no plane unless asked
+## ADR-067 — A low-storage run holds no plane
 
-- **Status:** accepted, 2026-11-04. Changes the default of SEP 22's Q14.
-- **Decision:** `SimulationSettings.held_plane`, `run_problem`'s `held_plane` and a
-  `StepDriver` nobody has asked all default to holding nothing, so a low-storage run saves one
-  state volume and a hand loop gets what a run gets. The setting stays, and the seam does not
-  move: no signature, stage bundle or native code changes, so the kernel schema doesn't either.
+- **Status:** accepted, 2026-11-04. Replaces SEP 22's Q14, which held the state of the last
+  field-free plane. Bumps the kernel schema to 46.
+- **Decision:** `SimulationSettings.held_plane`, `StepDriver.set_held_plane`,
+  `held_observation`, `_hold`, `_held_field`, `_drop_held`, the native state's `hold_plane`,
+  `release_plane` and `held_to_host`, and the ledger's `held_plane` row are removed. A
+  low-storage run saves the one state volume it cost, 5.27 GiB at 768² × 600.
 - **What is lost:** a step abandoned in flight after a field-free plane leaves no checkpoint
-  there, and the file resumes from the last plane that kept its field, or not at all. On native
-  only an exception inside the engine can do that, since a signal waits for the step, and a stop
-  between steps checkpoints as ever. A killed process never had the held state.
+  there, and the file resumes from the last plane that kept its field, or not at all. On
+  native only an exception inside the engine can do that, since a signal waits for the step,
+  and on `numpy_ref` a Python interrupt can too. A stop between steps checkpoints as ever. A
+  killed process never had the held state. To keep a resumable state, keep the field at some
+  planes with `fields="planes"`.

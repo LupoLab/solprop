@@ -9,10 +9,8 @@ passes in the route's own scratch, accepted in place. Its parity with ``numpy_re
 on every route the translation admits the march on, each case one schedule of at most
 ten steps within a rounding bound fixed before the comparison
 (:func:`low_storage_cases.parity_bound`). Then what is the engine's own: the ledger and
-the estimate, which agree to the byte, the varying operator's flows, the field-free
-plane held in the native memory space and its resume, the in-flight guard, and the
-commit a signal waits for. No agreement here is bitwise (SEP 25): the resume meets the
-uninterrupted run within the parity bound.
+the estimate, which agree to the byte, the varying operator's flows, the in-flight
+guard, and the commit a signal waits for. No agreement here is bitwise (SEP 25).
 """
 
 import dataclasses
@@ -31,7 +29,6 @@ from backends.forced_threads import assert_threaded
 from backends.low_storage_cases import (
     STEPS,
     parity_bound,
-    replay,
     uniform,
     varying_capillary,
     with_mode,
@@ -52,7 +49,6 @@ from solprop.backends.memory import (
     low_storage_flows,
     low_storage_stage_register,
 )
-from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.numpy_ref.backend import _general_maps
 from solprop.boundaries import absorber
 from solprop.constants import C
@@ -530,7 +526,7 @@ def test_the_native_state_holds_the_registers_and_no_runge_kutta_view(mode, coll
     assert low_storage_stage_register(problem, "native") == collar
     assert low_storage_flows(problem, "native") == (mode == "tabulate")
     assert sum(volumes.values()) == field * (3 + int(collar) + (mode == "tabulate"))
-    for row in (*RUNGE_KUTTA_ROWS, "noise", "held_plane", "adams_history"):
+    for row in (*RUNGE_KUTTA_ROWS, "noise", "adams_history"):
         assert ledger[row] == 0, row
     assert backend._low_storage is not None
     engine = backend._low_storage.engine
@@ -561,53 +557,6 @@ def test_a_varying_operator_holds_its_pair_tabulated_and_none_recomputed():
         assert ledger["register_stage"] == field
         assert all(ledger[row] == 0 for row in RUNGE_KUTTA_ROWS)
         backend.close()
-
-
-def test_a_field_free_plane_is_held_natively_and_resumes_to_rounding():
-    """SEP 22's held plane in the native memory space: one volume, then one copy.
-
-    Nothing crosses at the field-free plane; the ledger names the held volume; a
-    resume from it meets the uninterrupted run within the parity bound (the table is
-    built again from the resumed run's own step, section 4.3).
-    """
-    grid = EnvelopeGrid.from_limits(1e-3, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False)
-    space = FreeGrid(3e-4, 9, 4e-4, 12, collar_fraction=0)
-    noise = spatial_noise(
-        SpatialFlux.resolve(grid, space, SpatialMedium()),
-        np.random.default_rng(7),
-        model="modified",
-    )
-    problem, grid, _ = cartesian_march("tabulate", noise=noise)
-    field = 16 * math.prod(problem.shape)
-    end = float(problem.stepper.save_planes[-1])
-    schedule = problem.stepper.schedule
-    assert schedule is not None
-    middle = float(schedule.edges[2])
-    backend = NativeBackend(problem, grid=grid)
-    backend.set_held_plane(True)
-    backend.set_initial(problem.initial.field0, noise)
-    assert backend.memory_ledger()["noise"] == field
-    backend.propagate_to(middle)
-    assert backend.held_observation() is None
-    assert backend.memory_ledger()["held_plane"] == 0
-    plane = backend.observe(field=False)
-    assert plane.field is None
-    assert backend.memory_ledger()["held_plane"] == field
-    held = backend.held_observation()
-    assert held is not None and held.noise_phase is not None and held.z == middle
-    assert held.field is not None and held.field.shape == problem.shape
-    backend.propagate_to(end)
-    uninterrupted = backend.observe().require_field().copy()
-    # A plane that keeps its field releases the hold; the volume stays charged.
-    assert backend.held_observation() is None
-    assert backend.memory_ledger()["held_plane"] == field
-    backend.close()
-    resumed = NativeBackend(problem, grid=grid)
-    resumed.set_initial(held.field, noise, z=held.z)
-    resumed.propagate_to(end)
-    got = resumed.observe().require_field()
-    resumed.close()
-    assert_within(got, uninterrupted, parity_bound(problem), what="resume")
 
 
 @pytest.mark.parametrize("model", [None, "input"], ids=["no noise", "input noise"])
@@ -659,38 +608,6 @@ def test_a_loaded_state_is_not_held_after_the_load(monkeypatch, model):
     assert np.all(observed[..., mask] == 2.0 + 0.5j)
     assert np.all(observed[..., ~mask] == 0.0)
     backend.close()
-
-
-def test_the_soliton_resumes_from_a_held_plane_on_its_reference(
-    soliton_problem, narrow_grid, scales
-):
-    """The modal route's held plane, and its resume against the reference's run."""
-    length = scales.dispersion_length
-    schedule = uniform(length, 20, save_planes=[length / 2, length])
-    problem = soliton_problem(
-        narrow_grid,
-        2,
-        save_planes=[length / 2, length],
-        dz_max=schedule.max_step,
-        dz_init=schedule.max_step,
-        schedule=schedule,
-        integrator=MARCH,
-    )
-    backend = NativeBackend(problem, grid=narrow_grid)
-    backend.set_held_plane(True)
-    backend.set_initial(problem.initial.field0, None)
-    backend.propagate_to(length / 2)
-    backend.observe(field=False)
-    held = backend.held_observation()
-    backend.close()
-    assert held is not None and held.field is not None
-    resumed = NativeBackend(problem, grid=narrow_grid)
-    resumed.set_initial(held.field, None, z=held.z)
-    resumed.propagate_to(length)
-    got = resumed.observe().require_field()
-    resumed.close()
-    expected = replay(NumpyRefBackend, problem, narrow_grid)
-    assert_within(got, expected, parity_bound(problem), what="resume")
 
 
 def test_a_native_exception_leaves_the_backend_refusing(monkeypatch):
