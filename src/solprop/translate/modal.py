@@ -127,7 +127,7 @@ class Transform:
     chunk_budgeted : bool
         Whether the caller's own ``node_budget`` set `node_chunk`. Without one a backend
         may take a larger block where it holds no buffer of its own for it, as a device
-        does for a free-space envelope's split collar (:func:`assemble`, solprop #361).
+        does for a free-space envelope's split collar (solprop #361).
     aeff : solprop.translate.chebyshev.PiecewiseChebyshev
         Effective area in m^2 as a table along z. It is the normalisation itself when
         ``kind == 'mode_averaged'`` and a diagnostic otherwise.
