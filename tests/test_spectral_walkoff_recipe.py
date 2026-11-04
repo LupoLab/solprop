@@ -43,7 +43,8 @@ def built_grid(length=LENGTH):
 
 GRID = built_grid()
 WINDOW = GRID.n_t * GRID.dt
-ONSET = WINDOW - 2 * PROTECTED
+ARRIVAL = WINDOW - 2 * PROTECTED
+ONSET = ARRIVAL - PROTECTED
 
 
 def beta1(omega):
@@ -61,7 +62,7 @@ def delays(grid=GRID, length=LENGTH):
 
 
 def recipe_rate(full, delay=None):
-    """The guide's rate on ``GRID``: zero to ``W - 2h``, then a rise over ``h``."""
+    """The guide's rate on ``GRID``: a rise over the ``h`` before ``W - 2h``, then full."""
     delay = delays() if delay is None else delay
     rise = np.clip((delay - ONSET) / PROTECTED, 0, 1)
     return full * 0.5 * (1 - np.cos(np.pi * rise))
@@ -161,9 +162,9 @@ def test_the_recipe_removes_what_would_wrap_and_touches_what_would_not():
     rate = recipe_rate(full)
     walked = delays()
     assert np.all(rate[walked <= ONSET] == 0.0)
-    assert np.all(rate[walked >= ONSET + PROTECTED] == full)
+    assert np.all(rate[walked >= ARRIVAL] == full)
 
-    late = (carrier_at(ONSET + 1.5 * PROTECTED), 1e-9, 0.8 * PROTECTED)
+    late = (carrier_at(ARRIVAL + 0.5 * PROTECTED), 1e-9, 0.8 * PROTECTED)
     safe = (carrier_at(0.5 * ONSET), 1e-9, 0.8 * PROTECTED)
     field = launch([safe, late])
     free = run(spectral_only(), field, planes=1)
@@ -196,6 +197,21 @@ def test_the_recipe_removes_what_would_wrap_and_touches_what_would_not():
     assert protected_share(kept_late, free_late) < 1e-3
 
 
+def test_light_just_past_the_arrival_does_not_get_through():
+    """What lands just inside the region is the case a rise must not cover.
+
+    A packet launched at ``+h`` with a walk-off of ``W - 1.85 h`` lands at ``-0.85 h``.
+    With the rise starting at ``W - 2h`` instead of ending there, about 15 % of the free
+    run's energy stayed in the region. The guarantee is ``f``, whatever the packet.
+    """
+    full = math.log(1 / SURVIVAL) / LENGTH * delays()[GRID.inband_mask].max() / ARRIVAL
+    field = launch([(carrier_at(ARRIVAL + 0.15 * PROTECTED), 1e-9, PROTECTED)])
+    free = run(spectral_only(), field, planes=1)
+    kept = run(spectral_only(recipe_rate(full)), field, planes=1)
+    assert protected_share(free, free) > 0.5
+    assert protected_share(kept, free) < SURVIVAL
+
+
 def test_a_recipe_collar_compiles_no_temporal_pass():
     collar = spectral_only(recipe_rate(1e5))
     assert temporal_rates(collar) == (None, None)
@@ -209,13 +225,13 @@ def test_the_strength_holds_for_light_born_part_way():
     The guide's ``alpha_f`` is sized so that this light still leaves ``f``. It is run as
     the same glass over only that distance, with the whole length's rate.
     """
-    walk = ONSET + 1.5 * PROTECTED
-    full = math.log(1 / SURVIVAL) / LENGTH * walk / ONSET
+    walk = ARRIVAL + 0.5 * PROTECTED
+    full = math.log(1 / SURVIVAL) / LENGTH * walk / ARRIVAL
     walked = delays()
     wavelength = carrier_at(walk)
     bin_index = np.argmin(np.abs(GRID.omega - 2 * np.pi * C / wavelength))
     assert walked[bin_index] == pytest.approx(walk, rel=0.02)
-    distance = LENGTH * ONSET / walked[bin_index]
+    distance = LENGTH * ARRIVAL / walked[bin_index]
     grid = built_grid(distance)
     assert grid.n_t == GRID.n_t
     rate = recipe_rate(full, walked)

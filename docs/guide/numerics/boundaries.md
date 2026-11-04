@@ -472,12 +472,15 @@ On a periodic window of length `W`, light that has walked but not wrapped is sti
 physics. Let the pulse and any delay scan occupy the protected region `|t| ≤ h`. A packet
 launched at `τ` and walking later lands at `τ + Δτ − W` once it wraps, so it enters the
 protected region when `Δτ ≥ W − h − τ`; the worst launch, `τ = +h`, gives `Δτ = W − 2h`, and
-one walking earlier from `τ = −h` gives the same. So the rate is zero up to `W − 2h`. By
-`W − h` a packet launched at the centre has arrived too, so it rises as a raised cosine over
-that further `h`, and stays full beyond:
+one walking earlier from `τ = −h` gives the same. So the rate has to be full by `W − 2h`: light
+just past it lands just inside the region, and a rate still rising there would let much of it
+through. It rises as a raised cosine over the `h` before that, and stays full beyond:
 
-$$ \alpha(\omega) = \alpha_f\,P\!\left(\frac{\Delta\tau(\omega) - (W - 2h)}{h}\right),
+$$ \alpha(\omega) = \alpha_f\,P\!\left(\frac{\Delta\tau(\omega) - (W - 3h)}{h}\right),
    \qquad P(x) = \tfrac12\bigl(1 - \cos\pi\,\mathrm{clip}(x, 0, 1)\bigr). $$
+
+Bins in the rise lose light that would not have reached the region. That is the price of the
+guarantee, and the check below measures it.
 
 **The strength.** Power falls as `exp(−αz)`, so light launched at the entrance leaves with
 `exp(−α_f L)`. Light born part-way is the harder case. What walks `Δτ` over the whole length
@@ -485,7 +488,7 @@ reaches the protected region after `(W − 2h)/Δτ` of it, when it has lost onl
 the exponent. To hold a power fraction `f` for all of it, take the largest walk-off the run
 carries, as `warn_walkoff`'s span is taken:
 
-$$ \alpha_f = \frac{\ln(1/f)}{L}\,\frac{\max(\Delta\tau,\,W-h)}{W - 2h}. $$
+$$ \alpha_f = \frac{\ln(1/f)}{L}\,\frac{\max(\Delta\tau,\,W-2h)}{W - 2h}. $$
 
 `f = 10⁻⁶` is the collar's own `Γ = log(10³)` in field. All of it sits in the linear operator,
 where it is exact and needs no transform pair, and it adds no in-stage stability limit.
@@ -523,8 +526,9 @@ delay[active] = (
 )
 carried = delay[grid.inband_mask].max()
 
-onset = window - 2 * protected
-full = np.log(1e6) / length * max(carried, window - protected) / onset
+arrival = window - 2 * protected  # the earliest walk-off to land on the region
+onset = arrival - protected
+full = np.log(1e6) / length * max(carried, arrival) / arrival
 walkoff_rate = (
     full * 0.5 * (1 - np.cos(np.pi * np.clip((delay - onset) / protected, 0, 1)))
 )
@@ -534,9 +538,9 @@ boundary = custom_absorber(grid, walkoff_rate, collar=absorber(grid, temporal=Fa
 For a guide, `delay` comes from {py:func}`solprop.modes.base.beta1` with the mode and the
 frame's `omega0`. On a grid whose collar fraction is zero, as here, the window is the request,
 since a spectral-only collar needs no room in time. Nothing the run carries is absorbed when
-`W ≥ 2h + max Δτ`; keeping `W ≳ 3h + max Δτ` holds the onset `h` clear of the largest walk-off,
-for what the linear estimate misses. A window shorter than that trades light for samples, and
-the check below says how much.
+`W ≥ 3h + max Δτ`; leave some margin on top, for what the linear estimate misses. A window
+shorter than that trades light for samples, and the check below says how much. Here it is
+far shorter, so the rate starts at about 193 nm and is full from about 175 nm.
 
 **The limits.**
 
@@ -550,8 +554,10 @@ the check below says how much.
 - It acts on a frequency and not on a time. A bin past the onset is lost at every delay, also
   where light launched at `−h` would still sit inside the protected region at the end. So the
   loss depends on the delay, and it is worst for the launch furthest from wrapping.
-- It rests on the group-delay picture. A rise over `h` in delay is a rise over `h/(|β₂|L)` in
-  frequency, whose edge spreads in time by about `|β₂|L/h`, so it needs `h² ≫ |β₂|L` where the
+- A narrower rise keeps more of the band, since a width `s` in place of `h` needs only
+  `W ≥ 2h + s + max Δτ`, but it spreads the edge further, as the next point says.
+- It rests on the group-delay picture. A rise over `s` in delay is a rise over `s/(|β₂|L)` in
+  frequency, whose edge spreads in time by about `|β₂|L/s`, so it needs `s² ≫ |β₂|L` where the
   rate rises.
 - It needs the caller's protected half-width. The rate cannot find it from the run.
 - One `(n_omega,)` rate must cover every mode and every transverse column. A multimode or
