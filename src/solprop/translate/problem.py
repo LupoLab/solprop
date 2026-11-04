@@ -207,7 +207,7 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-KERNEL_SCHEMA_VERSION = 44
+KERNEL_SCHEMA_VERSION = 45
 """Version of the kernel contract this module implements.
 
 Incremented on every change to the field list of ``docs/dev/kernel-contract.md``. A
@@ -498,7 +498,13 @@ required ``step_cap`` bound per call. The native reading, after ``bind_occupancy
 hands it the table, grows from six numbers to ten and the 128 buckets. No stage
 bundle or existing driver signature moves.
 
-Version 44 lets a far-field aperture set hold other outlines beside circles: optional
+Version 44 adds ``StepDriver.set_held_plane``, which a driver calls at the start of a
+run to say whether the low-storage march holds its last field-free plane's state, and
+``StepDriver._drop_held``, which releases the buffer; the native backend overrides the
+second with ``State.release_plane``. No ``KernelProblem`` field, stage bundle or
+existing driver signature moves.
+
+Version 45 lets a far-field aperture set hold other outlines beside circles: optional
 fields of the ``stats_spec.apertures`` leaf, unset on every existing request, so no
 problem that does not use them changes. By the letter a leaf's fields are not rows of
 the contract, but solprop-native's row format moves with them, and only a modulus
@@ -1290,7 +1296,7 @@ class KernelProblem:
     ...     dz_max=0.1, dz_init=1e-3, shock=False, prefactor_index=1.0, density=1.0,
     ... )
     >>> problem.shape, problem.grid_kind, problem.schema_version
-    ((1, 1, 1, 3072), 'envelope', 44)
+    ((1, 1, 1, 3072), 'envelope', 45)
     """
 
     schema_version: int
@@ -7049,7 +7055,7 @@ def debug_summary(problem: KernelProblem) -> str:
     ...     width=100e-15, peak_power=9.8, shape="sech", n_save=3,
     ... )
     >>> print(debug_summary(simulation.translate()).splitlines()[0])
-    kernel problem schema 44: envelope grid, route modal
+    kernel problem schema 45: envelope grid, route modal
     """
     linear, transform = problem.linear, problem.transform
     tables, metric = transform.modal_tables, linear.modal_metric

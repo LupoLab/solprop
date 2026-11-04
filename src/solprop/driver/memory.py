@@ -67,7 +67,7 @@ from solprop.exceptions import DriverError, MemoryBudgetError, MemoryBudgetWarni
 from solprop.grid import TimeGrid
 from solprop.modes.guide import ModalGuide
 from solprop.modes.material import JsonValue
-from solprop.output.schema import FieldRetention, Output, PlaneStore
+from solprop.output.schema import CheckpointOutput, FieldRetention, Output, PlaneStore
 from solprop.stats import CATALOGUE
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.translate.problem import KernelProblem
@@ -286,7 +286,7 @@ def resolve_memory_budget(memory_budget: int | str | None = None) -> MemoryLimit
     )
 
 
-def admit_memory(
+def admit_memory(  # noqa: PLR0913 - the run's parts, each charged by its own group
     problem: KernelProblem,
     backend: str,
     memory_budget: int | str | None = None,
@@ -294,6 +294,7 @@ def admit_memory(
     output: Output | None = None,
     retention: FieldRetention | None = None,
     inputs: Sequence[np.ndarray] = (),
+    held_plane: bool = True,
 ) -> MemoryAdmission:
     """Estimate a run's persistent memory and admit it against its budget.
 
@@ -326,6 +327,10 @@ def admit_memory(
         The arrays the simulation holds for its input
         (``Simulation._held_inputs``); each buffer is charged once, and not at all
         when the problem's initial state shares it. Empty by default.
+    held_plane : bool, optional
+        The run's ``SimulationSettings.held_plane``. A low-storage run that keeps fewer
+        than every field is charged one more volume for the plane it holds unless this
+        is ``False`` or `output` has nowhere to put a checkpoint.
 
     Returns
     -------
@@ -366,9 +371,12 @@ def admit_memory(
     solprop.exceptions.MemoryBudgetError: ...
     """
     own = estimate_memory(problem, backend)
+    holds = held_plane and (output is None or isinstance(output, CheckpointOutput))
     estimate = _with_inputs(
         _with_held_plane(
-            _with_output(own, problem, output, retention), problem, retention
+            _with_output(own, problem, output, retention),
+            problem,
+            retention if holds else None,
         ),
         problem,
         inputs,
@@ -472,7 +480,7 @@ def _with_held_plane(
 
     A low-storage run that keeps fewer than every field holds the state of its last
     field-free plane, one volume, so a step abandoned in flight can still be
-    checkpointed (SEP 22, Q14).
+    checkpointed (SEP 22, Q14), unless it was asked not to or cannot checkpoint.
 
     Parameters
     ----------
@@ -481,7 +489,8 @@ def _with_held_plane(
     problem : solprop.translate.problem.KernelProblem
         The translated problem.
     retention : solprop.output.schema.FieldRetention or None
-        Which planes keep their field; ``None``, every plane.
+        Which planes keep their field; ``None``, every plane, or a run that holds no
+        plane whichever they are.
 
     Returns
     -------

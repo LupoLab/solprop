@@ -88,7 +88,9 @@ copy, so an array input costs two states there, and the admission counts the sec
 for the record. A broadcast view such as `numpy.broadcast_to(column, shape)` copies only
 the block it repeats, and a solprop pulse's build is a new array that is not copied at
 all. A caller who loads its own state into one backend for
-run after run can pass a broadcast placeholder and pay for almost no held copy at all.
+run after run can pass a broadcast placeholder and pay for almost no held copy at all, and
+a [runner](../setup/running.md#many-inputs-one-backend-the-runner) holds no copy of an input
+recorded by its digest or a stated identity, and no reference to it once it is loaded.
 
 ```python
 import numpy as np

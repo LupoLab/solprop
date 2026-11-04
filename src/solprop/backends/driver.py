@@ -396,6 +396,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         # ledgers, so a step abandoned in flight still leaves a resumable state.
         self._held: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"] | None = None
         self._held_z: float | None = None
+        self._holds_planes = True
         # Field-free planes at which the spatial collar diagnostic was not evaluated
         # since the load (SEP 22, Q2), recorded in `metadata` and logged once.
         # Physical RK source dispatches, including rejected trials and excluding
@@ -887,6 +888,10 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             record["response_calls"] = self._adams.ledger.to_record()
         if self._low_storage is not None:
             record["source_evaluations"] = self._low_storage.source_evaluations
+            if not self._holds_planes:
+                # Recorded only where it departs: this file has no held state to
+                # checkpoint a step abandoned in flight from (SEP 22, Q14).
+                record["held_plane"] = False
         elif self._adams is None:
             record["source_evaluations"] = self._rk_source_evaluations
         if self._monitor is not None:
@@ -1290,6 +1295,29 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         """
         self._stop = flag
 
+    def set_held_plane(self, held: bool) -> None:
+        """Say whether the low-storage march holds the last field-free plane's state.
+
+        It is what a step abandoned in flight is checkpointed from (SEP 22, Q14), one
+        volume more than the march needs. A run that will never resume, or whose output
+        keeps no checkpoint, does not pay for it. A driver asks at the start of each
+        run; turning it off releases a buffer an earlier run left. Nothing the
+        propagation computes depends on it, and other marches hold nothing either way.
+
+        Parameters
+        ----------
+        held : bool
+            Whether to hold it, the default for a backend nobody asks.
+        """
+        self._holds_planes = held
+        if not held and self._low_storage is not None:
+            self._drop_held()
+
+    def _drop_held(self) -> None:
+        """Release the held plane's buffer, which :meth:`_hold` otherwise keeps."""
+        self._held = None
+        self._held_z = None
+
     def _poll_stop(self) -> None:
         """Raise when the run's stop flag is set; called before every trial step.
 
@@ -1434,7 +1462,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         """
         state = self._require_state()
         if self._low_storage is not None:
-            self._hold(None if field else state)
+            self._hold(None if field or not self._holds_planes else state)
         history = BackendHistory(
             z=np.array([entry[0] for entry in self._history], dtype=np.float64),
             dz=np.array([entry[1] for entry in self._history], dtype=np.float64),
@@ -1470,7 +1498,8 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         -------
         Observation or None
             The held plane, or ``None`` when nothing is held: another march, a plane
-            that kept its field since, or a fresh load.
+            that kept its field since, a fresh load, or a run that holds no plane
+            (:meth:`set_held_plane`).
 
         Raises
         ------

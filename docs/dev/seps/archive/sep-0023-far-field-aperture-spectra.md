@@ -1511,7 +1511,7 @@ following the skeleton in [the template](../template.md).*
 - 2026-10-20: Final (John Travers, on the agreed plan). Phases 1–4 merged with green closing lanes; open questions moved to the roadmap in the phase 4 report; moved to the archive.
 - 2026-11-03: After Final, Q6 was taken up without a new proposal (#186, #446):
   `ApertureSet` holds ellipses, rectangles and half-planes with a per-row profile, kernel
-  schema 44, through a signed-distance seam (`spatial.edge_profile`,
+  schema 45, through a signed-distance seam (`spatial.edge_profile`,
   `spatial.ApertureOutline`) that leaves a circle's `rho - r` and every existing hard-edge
   decision where they were. An ellipse is a scaled circle, whose quadrature correction
   section 4.5's identity carries over exactly, its Jacobian being constant. `absorbed_power`

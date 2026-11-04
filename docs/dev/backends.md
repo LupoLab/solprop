@@ -1723,7 +1723,7 @@ declared shape and before the route builds its reference, maps and chunk
 allocates none of them. An in-memory output is charged as the `output` group for the
 planes whose fields the run keeps ([SEP 22](seps/archive/sep-0022-memory-lean-spatial-execution.md)'s
 `fields`), and a field-free run under the low-storage march adds one `held_plane`
-volume; a `SimulationRunner` is admitted once for its backend and each run for its own
+volume unless `SimulationSettings.held_plane` is off or the output keeps no checkpoint; a `SimulationRunner` is admitted once for its backend and each run for its own
 output beside it. On the general modal route memory is dominated by the dense maps
 and the resident E/H reference, `16 Q C M n_omega` bytes per map and up to 14 such maps on
 a constant guide on every backend (`native` holds two natively; the other twelve are the
@@ -1744,7 +1744,9 @@ problem does not share, on a modal route). The route groups equal each
 backend's ledger to the byte. `base` is the reference's count of its buffers on every
 backend, plus the native backend's own rows where the
 two differ (the far-field partials, the dispersive response's buffers, the held
-field-current source's). What is not counted is named on every estimate: FFTW's planning
+field-current source's, and on the Cartesian and line routes its statistics and absorber
+buffers per chunk, `free_space_memory`, where a Kerr beam's ledger is matched to the
+byte). What is not counted is named on every estimate: FFTW's planning
 heap, per-stage transients and the problem's
 own tables. A run over its budget is refused by name before anything is written — the
 estimate, the budget, the largest groups and what to change — rather than paging or being
@@ -1775,7 +1777,9 @@ native state refuses what its folds cannot read: an elided stage register beside
 in-stage absorber, two flow volumes on a separable geometry, and a step reusing a
 constant operator's table it has not built since the field was loaded (solprop's rules
 never ask for any of them). `native` holds a field-free plane's state in its memory space
-(`held_plane`), so nothing crosses to the host at such a plane.
+(`held_plane`), so nothing crosses to the host at such a plane. A driver says at the start of
+each run whether to hold it at all (`StepDriver.set_held_plane`, kernel schema 44), and
+turning it off releases the buffer (`State.release_plane`).
 
 **The far-field pass** (§3.13) holds `far_field_partials` on the native backend, the band
 partials, `8 n_bands n_slots n_omega` bytes; the estimate counts them to the byte in `base`.
