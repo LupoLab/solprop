@@ -1460,10 +1460,8 @@ class Aperture:
     kind: Literal["hard", "tanh", "rcos", "supergauss"] = "hard"
     centre: tuple[float, float] = (0.0, 0.0)
     weighting: Literal["amplitude", "quadrature"] = "amplitude"
-    shape: ApertureShape | None = field(default=None, metadata={"record_none": False})
-    extent: tuple[float, float] | None = field(
-        default=None, metadata={"record_none": False}
-    )
+    shape: ApertureShape | None = None
+    extent: tuple[float, float] | None = None
 
     def __post_init__(self) -> None:
         """Store a circle as ``None``, so naming the default records nothing new."""

@@ -54,7 +54,7 @@ The GUI holds presentation only, and solprop holds the physics, the defaults and
 
 | Proposal | What it gives the GUI | Implementation pull request | Tracking issue |
 |---|---|---|---|
-| **SEP 42**, *Resuming by what matters to the run* | Resuming by comparing records: changed numerics allowed and recorded, `resume="force"`, and refusals that name what changed (ADR-063) | [LupoLab/solprop#336](https://github.com/LupoLab/solprop/pull/336) | [LupoLab/solprop#142](https://github.com/LupoLab/solprop/issues/142) |
+| **SEP 42**, *Resuming by what matters to the run* | Refusals that name what changed; ADR-066 has since replaced its comparison with an exact hash | [LupoLab/solprop#336](https://github.com/LupoLab/solprop/pull/336) | [LupoLab/solprop#142](https://github.com/LupoLab/solprop/issues/142) |
 | **SEP 40**, *Transverse absorbing boundaries for free-space propagation* | The free-space edge: no real-space collar by default (`collar_fraction` 0), a collar on request with its design check | [LupoLab/solprop#71](https://github.com/LupoLab/solprop/pull/71) | [LupoLab/solprop#124](https://github.com/LupoLab/solprop/issues/124) |
 | **SEP 41**, *Recipes, and the hooks a front end needs* | The recipe, and changes S1–S18: metadata, validation, observer, stop, previews and the rest | [LupoLab/solprop#376](https://github.com/LupoLab/solprop/pull/376) | [LupoLab/solprop#143](https://github.com/LupoLab/solprop/issues/143) |
 
@@ -106,8 +106,7 @@ Section 3's user scenarios use the same `S` numbers, so "Serves S1, S3" at the h
 | S16 result capabilities | 11.1, 11.3 | SEP 41 phase 3 |
 | S17 stop flag, `resumability` | 4, 10.1, 10.2, 13.1 | SEP 41 phase 2 |
 | S18 previews | 7.4, 9.2, 13.3 | SEP 41 phase 4 |
-| The comparison, numerics changes, refusals | 4, 13.1 | SEP 42 phase 1 |
-| `resume="force"` and what a forced file can give | 4, 11.1, 13.1 | SEP 42 phase 1 |
+| Refusals that name what changed | 4, 13.1 | SEP 42 phase 1, ADR-066 |
 
 **What each milestone of section 16 needs** from the three proposals, all delivered; the
 further solprop changes each needs are in 21.2.
@@ -215,7 +214,7 @@ serves.
   run. "Open setup from this run" shows the resolved values; adopting the current defaults or
   re-solving the pins is a separate, explicit action ("Update to current solprop"), which lists
   what would change. A frozen setup can still be refused at resume if the materials data or the
-  physics differ; solprop's comparison says which, and the user can force it (SEP 42).
+  physics differ; solprop names the fields that changed (ADR-066).
 - **Run.** One execution of a recipe revision: a results file (solprop HDF5) with both
   recipes embedded, a log, and two separate states. The *execution state* is the GUI's:
   queued, starting, running, stopping, stopped, complete, failed, worker lost. The
@@ -681,11 +680,6 @@ only GUI runs: it needs only solprop's `Output` interface (`open_file`). If the 
 carries a recipe, the setup pages can be restored from it (the resolved values, section
 4); if not (a scripted run), the setup pages show the run metadata read-only.
 
-A file with a forced session (`resume="force"`, SEP 42) is shown as one, with the position. Its
-statistics and fields are what ran, but anything solprop rebuilds from the record does not describe
-the planes after that position, so those views are offered only where solprop says they hold, and
-exporting a plane from past it is refused by solprop.
-
 What a file can show depends on what it stores, not on its route. The GUI asks solprop
 (`capabilities.output`, SEP 41 S16) and offers only the views whose inputs and physical
 meaning are available: which planes kept fields and which only statistics; whether a
@@ -918,10 +912,9 @@ filtering, and the reduction used for display.
   process that runs the simulation, through solprop's plane observer (S3), which gives
   read-only, lazy access to each committed plane. An observer that raises is detached
   by solprop and the run continues, but the worker still catches its own pipe errors.
-- Resume needs a `Simulation` rebuilt in Python and compared with the file's record (SEP 42):
+- Resume needs a `Simulation` rebuilt in Python with the file's configuration hash (ADR-066):
   solprop rebuilds it from the resolved recipe in the file (S2), so the GUI needs no state of
-  its own to resume. A forced resume is offered only after showing what differs
-  (`resumability(file, gate=True)`).
+  its own to resume. `resumability(file, gate=True)` shows what differs before one is tried.
 
 ### 13.2 The options
 
@@ -1349,7 +1342,7 @@ recipe has one `[build]` table (12.5); the resolved recipe holds what rebuilds t
 default (4); a two-value design is a tool and not a pin (7.5); pins resolve in two fixed stages (7.5);
 the boundary lamp reads warnings, with no observer hook (10.2); `run` returns when its stop flag stops
 it (10.2); and `resumability` also says whether a file can be rebuilt and, on request, whether the gate
-passes (4, 13.1). SEP 42 adds `resume="force"`, which the GUI offers only after showing what differs.
+passes (4, 13.1).
 
 ## 21. What solprop delivered, and what changed here
 

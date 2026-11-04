@@ -2049,15 +2049,9 @@ class ApertureSet:
     profile: ApertureProfile = "hard"
     weighting: ApertureWeighting = "amplitude"
     labels: tuple[str, ...] | None = None
-    shapes: tuple[ApertureShape, ...] | None = field(
-        default=None, metadata={"record_none": False}
-    )
-    profiles: tuple[ApertureProfile, ...] | None = field(
-        default=None, metadata={"record_none": False}
-    )
-    extents: Sequence[Sequence[float]] | np.ndarray | None = field(
-        default=None, metadata={"record_none": False}
-    )
+    shapes: tuple[ApertureShape, ...] | None = None
+    profiles: tuple[ApertureProfile, ...] | None = None
+    extents: Sequence[Sequence[float]] | np.ndarray | None = None
 
     def __post_init__(self) -> None:
         """Own the tables and check them against the list of SEP 23 section 5.

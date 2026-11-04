@@ -203,12 +203,11 @@ def test_scan_equals_single_points_and_reruns_skip(tmp_path, executor):
 @pytest.mark.parametrize(
     "executor", [Local(), Pool(2), Batch(2)], ids=["local", "pool", "batch"]
 )
-def test_a_rerun_differing_only_in_rounding_skips_and_other_changes_conflict(
+def test_a_rerun_with_the_same_record_skips_and_any_change_conflicts(
     tmp_path, executor
 ):
-    # A finished point is reused when its record differs only in rounding, neutral
-    # values or provenance; numerics are held to agreement, since a done point has
-    # nothing left to continue (SEP 42 section 5.7).
+    # A finished point is reused only under its own hash (ADR-066), even if nothing
+    # but a number's last bit moved; the refusal names what changed.
     scan = Scan("scan", power=[1.0, 2.0])
     path = tmp_path / "scan.h5"
     keywords = {
@@ -226,19 +225,18 @@ def test_a_rerun_differing_only_in_rounding_skips_and_other_changes_conflict(
     output = run_scan(scan, build_point, **keywords)
     before = output.point(0)["fields/values"]
     hashes = stored_hashes()
-    rounded = functools.partial(build_point, gamma=math.nextafter(0.11, 1.0))
-    first = next(iter(scan.points()))
     assert len(hashes[0]) == 64
-    assert rounded(first).metadata().configuration_hash() not in hashes
-    output = run_scan(scan, rounded, **keywords)
+    output = run_scan(scan, build_point, **keywords)
     np.testing.assert_array_equal(output.point(0)["fields/values"], before)
     assert stored_hashes() == hashes
-    with pytest.raises(OutputError, match="the numerics changed: stepper"):
+    rounded = functools.partial(build_point, gamma=math.nextafter(0.11, 1.0))
+    with pytest.raises(OutputError, match=r"these fields changed: .*gamma"):
+        run_scan(scan, rounded, **keywords)
+    with pytest.raises(OutputError, match=r"these fields changed: stepper"):
         run_scan(scan, functools.partial(build_point, rtol=1e-5), **keywords)
-    with pytest.raises(
-        OutputError, match="these compared values differ: configuration"
-    ):
+    with pytest.raises(OutputError, match=r"these fields changed: .*gamma"):
         run_scan(scan, functools.partial(build_point, gamma=0.12), **keywords)
+    assert stored_hashes() == hashes
 
 
 def test_reductions_and_selected_fields(tmp_path):

@@ -385,7 +385,6 @@
   "tests/output/test_power_convention.py": 0.1,
   "tests/output/test_preallocation.py": 3.3,
   "tests/output/test_record_reuse.py": 0.1,
-  "tests/output/test_record_stability.py": 0.6,
   "tests/output/test_scan.py": 1.8,
   "tests/output/test_scan_artifacts.py": 0.3,
   "tests/output/test_schema.py": 24.8,

@@ -1,0 +1,1 @@
+Kernel schema 47: `StepDriver` gains `march_snapshot_nbytes` and `_next_step`, and the Adams engine protocol gains `snapshot_nbytes`, so that a run asks a snapshot's size before taking it. No `KernelProblem` field or stage bundle moves.

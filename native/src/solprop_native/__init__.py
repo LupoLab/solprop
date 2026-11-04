@@ -182,11 +182,8 @@ DRIVER_SURFACE: tuple[str, ...] = (
     "_bind_monitor",
     "_boundary_energies",
     "_dense_stages",
-    "_drop_held",
     "_finish",
-    "_held_field",
     "_hoist",
-    "_hold",
     "_low_storage_engine",
     "_observed_field",
     "_natural_stop",
@@ -278,7 +275,10 @@ Schema 45 widens this backend's far-field aperture rows from six constants to el
 each row's own profile and shape among them, and drops the call's profile code: a
 far-field aperture set may hold other outlines beside circles. It also appends
 ``SeparableOperator.user_rate``, the user's share of the spectral rate, which only the
-statistic ``absorbed_power`` reads, in a fifth channel.
+statistic ``absorbed_power`` reads, in a fifth channel. Schema 46 removes the
+low-storage march's held plane: ``_hold``, ``_held_field``, ``_drop_held``, and the
+native state's ``hold_plane``, ``release_plane`` and ``held_to_host``. Schema 47 adds
+``march_snapshot_nbytes``, which the adapter's engine answers with ``snapshot_nbytes``.
 
 solprop freezes this surface under its ``KERNEL_SCHEMA_VERSION`` (the test in its
 ``tests/backends/test_driver.py``); :func:`check_build` looks each member up so a
