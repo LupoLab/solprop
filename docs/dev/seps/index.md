@@ -35,6 +35,7 @@ Proposals that are active, in draft, accepted, in progress or deferred.
 | [17](sep-0017-gas-two-photon-ionisation.md) | Broadband two-photon continuum response beside strong-field ionisation | Accepted | Feature |
 | [21](archive/sep-0021-absorbing-boundaries.md) | Temporal boundaries: wider windows, absorption and the escaped field | Final | Change |
 | [32](sep-0032-raman-maxwell-bloch.md) | Raman Maxwell–Bloch dynamics | Draft | Feature |
+| [44](sep-0044-native-edge-read.md) | Reading the transverse edge where the state lives | Draft | Change |
 
 SEP 13, the standalone numerical prerequisite for SEP 12, SEP 14, which carried it to
 the compiled backends, and SEP 16, which unified the multistep family and made it the
@@ -96,6 +97,7 @@ sep-0010-low-rank-raman
 sep-0011-finite-density-gas-index
 sep-0017-gas-two-photon-ionisation
 sep-0032-raman-maxwell-bloch
+sep-0044-native-edge-read
 template
 archive/index
 ```
