@@ -165,23 +165,14 @@ def test_a_device_block_of_any_size_takes_the_reference_s_steps(
     _check_block(reference, chunk)
 
 
-def _device_shaped(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Have the adapter size the split's block as a device build does, on any build."""
-    sized = native_backend._split_rows
-    monkeypatch.setattr(
-        native_backend,
-        "_split_rows",
-        lambda problem, *, device: sized(problem, device=True),
-    )
-
-
 def test_a_device_takes_every_row_at_once(
     reference: tuple[str, np.ndarray, dict[str, Any]],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # A device's choice, run on any build: its plan, its one block and the reference's
-    # numbers, though the node chunk would have made it 39.
-    _device_shaped(monkeypatch)
+    # A device's choices, run on any build: one block where the node chunk would have
+    # made 39, flows recomputed under "auto", and its input through tiles of team
+    # scratch, at the reference's numbers.
+    monkeypatch.setattr(native_backend, "_on_device", lambda: True)
     simulation = _beam(ENVELOPE, MARCHES[reference[0]])
     problem = _blocked(simulation, 5)
     backend = watched(simulation, "native", problem)

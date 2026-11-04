@@ -378,7 +378,6 @@ struct SpatialElement {
   Complex linear, prefactor;
 };
 
-#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
 // A device crossing through a 32-by-32 tile of team scratch (SEP 28): the tile is read
 // with adjacent threads along the side that is contiguous for `read` (rows when
 // `read_rows`, else bins) and written with adjacent threads along the other, so both
@@ -388,7 +387,7 @@ void tiled_crossing(const char* label, const ExecutionSpace& execution,
                     const std::size_t rows, const std::size_t width,
                     const bool read_rows, const Read& read, const Write& write) {
   constexpr int tile = 32;
-  constexpr int depth = 8;
+  const int depth = std::min(8, execution.concurrency());
   using Policy = Kokkos::TeamPolicy<ExecutionSpace>;
   using Member = Policy::member_type;
   using Shared = Kokkos::View<Complex**, Kokkos::LayoutRight,
@@ -433,6 +432,7 @@ void tiled_crossing(const char* label, const ExecutionSpace& execution,
       });
 }
 
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
 // A device update of registers and the transverse scratch together (SEP 28): a tile of
 // the scratch is staged in team scratch with adjacent threads along rows, `body`
 // visits each (row, bin) with adjacent threads along bins (the registers' contiguous
@@ -694,7 +694,9 @@ KOKKOS_INLINE_FUNCTION void cosine_sine(const double theta, double& cosine,
 // A stage or step propagator `exp(argument)`: `exponential` with the cosine and sine
 // from `cosine_sine`, so it is `exponential` to the bit on the host.
 KOKKOS_INLINE_FUNCTION Complex propagator_exp(const Complex argument) {
-  const double magnitude = Kokkos::exp(argument.real());
+  // A lossless bin's magnitude, `exp(+-0)`, is exactly one: a binary64 `exp` per
+  // element saved where the operator's real part vanishes.
+  const double magnitude = argument.real() == 0.0 ? 1.0 : Kokkos::exp(argument.real());
   double cosine = 0.0;
   double sine = 0.0;
   cosine_sine(argument.imag(), cosine, sine);
@@ -5593,20 +5595,34 @@ void GeneralWorkspace::low_storage_separable_input(const std::size_t pass) {
   const bool add_noise = problem_.modified_noise && has_noise_;
   const double scale = inverse_transverse_count();
   const auto row = low_storage_rows[pass];
+  const auto input = KOKKOS_LAMBDA(const std::size_t column, const std::size_t omega) {
+    const auto mode = index.mode(column);
+    Complex value =
+        pass == 0 ? state(column, omega) : stage_register.data()[index(column, omega)];
+    if (add_noise) {
+      const auto values = spatial.value(mode, omega, active(omega) != 0U);
+      const double angle = at(row) * values.linear.imag();
+      value += noise(column, omega) * Complex(Kokkos::cos(angle), Kokkos::sin(angle));
+    }
+    return value * scale;
+  };
+  if (problem_.low_storage_tiled_input) {
+    // Read along the state's bins and written along the scratch's rows, a tile at a
+    // time.
+    tiled_crossing(
+        "solprop_native.low_storage.separable_input", execution_space_,
+        problem_.n_columns(), problem_.n_omega, false, input,
+        KOKKOS_LAMBDA(const std::size_t column, const std::size_t omega,
+                      const Complex value) {
+          scratch.data()[index.cell(column, omega)] = value;
+        });
+    return;
+  }
   crossing_for(
       "solprop_native.low_storage.separable_input", execution_space_,
       problem_.n_columns(), problem_.n_omega,
       KOKKOS_LAMBDA(const std::size_t column, const std::size_t omega) {
-        const auto mode = index.mode(column);
-        Complex value = pass == 0 ? state(column, omega)
-                                  : stage_register.data()[index(column, omega)];
-        if (add_noise) {
-          const auto values = spatial.value(mode, omega, active(omega) != 0U);
-          const double angle = at(row) * values.linear.imag();
-          value +=
-              noise(column, omega) * Complex(Kokkos::cos(angle), Kokkos::sin(angle));
-        }
-        scratch.data()[index.cell(column, omega)] = value * scale;
+        scratch.data()[index.cell(column, omega)] = input(column, omega);
       });
 }
 
@@ -5618,7 +5634,6 @@ void GeneralWorkspace::low_storage_separable_fold(const std::size_t pass,
   const auto stage_register = register_stage_;
   const auto flows = low_storage_flows_;
   const bool tabulated = problem_.low_storage_flows != 0;
-  const bool elemental = !tabulated || (problem_.modified_noise && has_noise_);
   const auto scratch = transverse_;
   const auto spatial = spatial_;
   const auto window = omega_window_;
@@ -5649,6 +5664,7 @@ void GeneralWorkspace::low_storage_separable_fold(const std::size_t pass,
   const bool writes_register = stage < 3 && !forward;
   const auto own = low_storage_rows[pass];
   const auto next = low_storage_rows[pass < 3 ? pass + 1 : 3];
+  const bool linear_here = add_noise || (flows_here && !tabulated);
   const std::size_t flow_row = stage == 0 ? 0 : 1;
   const double step = dz;
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
@@ -5662,9 +5678,10 @@ void GeneralWorkspace::low_storage_separable_fold(const std::size_t pass,
                                   Complex& cell, Complex& held) {
     const auto column_mode = index.mode(column);
     const bool in_band = active(omega) != 0U;
-    // Tabulated flows without noise read only the prefactor of the element.
+    // Tabulated flows without noise, or a pass with no flow, read only the prefactor of
+    // the element.
     SpatialElement values{};
-    if (elemental)
+    if (linear_here)
       values = spatial.value(column_mode, omega, in_band);
     else if (term == term_material)
       values.prefactor = spatial.prefactor(column_mode, omega, in_band);

@@ -210,6 +210,8 @@ native::Problem problem_from(const nb::dict& values) {
       result.low_storage_stage_register =
           nb::cast<bool>(values["low_storage_stage_register"]);
       result.low_storage_flows = nb::cast<std::size_t>(values["low_storage_flows"]);
+      result.low_storage_tiled_input =
+          nb::cast<bool>(values["low_storage_tiled_input"]);
     }
   } catch (const nb::cast_error&) {
     throw std::invalid_argument("problem family and flags have wrong types");

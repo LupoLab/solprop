@@ -469,6 +469,9 @@ struct Problem {
   bool low_storage{};
   bool low_storage_stage_register{true};
   std::size_t low_storage_flows{};
+  // Whether a separable route's first input crosses to the transverse scratch through
+  // tiles of team scratch, as a device's does.
+  bool low_storage_tiled_input{};
   std::size_t n_phi_terms{};
   std::size_t n_prefactor_terms{};
   // solprop SEP 29 G1: Phi or the prefactor is the general z table. Its terms are then

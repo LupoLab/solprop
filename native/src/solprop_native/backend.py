@@ -2422,7 +2422,8 @@ def _low_storage_payload(problem: KernelProblem, *, device: bool) -> dict[str, o
     The march's own allocation: its registers in place of the Runge-Kutta views, the
     stage register elided where solprop's estimate elides it, and the flows solprop's
     estimate counts -- except that a device build recomputes under ``"auto"``, where
-    the estimate's CPU count over-states it by the table.
+    the estimate's CPU count over-states it by the table. A device's input crosses the
+    state's layout through tiles (``docs/dev/benchmarks.md``); a CPU's has its own.
     """
     if not isinstance(problem.stepper.integrator, LowStorageRungeKutta):
         return {}
@@ -2433,6 +2434,7 @@ def _low_storage_payload(problem: KernelProblem, *, device: bool) -> dict[str, o
         "low_storage": True,
         "low_storage_stage_register": low_storage_stage_register(problem, "native"),
         "low_storage_flows": flows,
+        "low_storage_tiled_input": device,
     }
 
 
