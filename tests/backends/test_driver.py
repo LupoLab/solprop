@@ -1137,9 +1137,10 @@ def test_the_surface_a_backend_subclasses_is_frozen(driver):
     (``_split_found``) and the state's occupancy of the split collar's walk-off buckets
     (``KernelProblem.split_crossing``); the native reading's ``bind_occupancy`` and its
     ``10 + 128`` numbers, and the native march's required ``step_cap`` bound. It adds
-    ``_split_capped``, the cap on adaptive steps.
+    ``_split_capped``, the cap on adaptive steps. Version 44 appends ``user_rate`` to
+    the separable leaf, without changing these signatures.
     """
-    assert KERNEL_SCHEMA_VERSION == 43, (
+    assert KERNEL_SCHEMA_VERSION == 44, (
         "the seam changed: rewrite the literals of this test"
     )
     assert StepDriver.reads_transverse_edge is False
