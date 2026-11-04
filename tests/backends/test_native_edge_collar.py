@@ -817,7 +817,7 @@ def test_a_resume_with_no_monitor_record_crosses_once() -> None:
 def test_a_strip_of_too_few_nodes_reads_nothing_on_either_side(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # One line too short to read a direction beside the real ones: it holds no buffer and
+    # A line too short to read a direction beside the real ones: it holds no buffer and
     # its pair is zero, in the same place in the reading.
     simulation = _case("line")
     problem = simulation.translate()

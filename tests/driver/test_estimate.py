@@ -54,7 +54,7 @@ def test_the_estimate_reports_what_the_backend_holds_and_costs(backend):
 
 def test_an_estimate_adds_nothing_for_an_edge_read_on_the_host():
     # `numpy_ref` reads a copy it has anyway, so the check holds no more memory.
-    simulation = _built("line", "numpy_ref")
+    simulation = _built("cartesian_beam", "numpy_ref")
     checked = simulation.estimate().memory
     simulation.settings = dataclasses.replace(simulation.settings, boundary_check=None)
     assert simulation.estimate().memory == checked

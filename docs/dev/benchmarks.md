@@ -847,6 +847,32 @@ on the aperture against a bare wall at 8 R:
 Most of a collar's cost is its design check at translation. That check also raised the
 process's peak memory from 0.45 to 0.68 GB. The SEP's phase 3 report has the full tables.
 
+### The native read of the transverse edge
+
+[SEP 44](seps/sep-0044-native-edge-read.md) reads the edge on the state's own memory, with only numbers returning. Phase 3 holds the measurements and what's still unmeasured, namely the NVIDIA H200 and the AMD Instinct MI325X.
+
+Against itself, SEP 40's four-way control, `python -m benchmarks.edge_overhead`, native at 18 threads of an Intel Xeon Gold 6240, 5 rounds, default check against no ramp and no reads:
+
+| case | neither (s) | default (s) | added | reads |
+|---|---:|---:|---:|---:|
+| `line` | 0.227 | 0.263 | +15.8 % | 23 |
+| `planar` | 0.126 | 0.136 | +7.6 % | 23 |
+| `radial_filament_256` | 1.335 | 1.389 | +4.1 % | 21 |
+| `kerr_beam_192` | 1.837 | 1.989 | +8.3 % | 4 |
+
+`line` takes 224 calls where it took 196, which is the read ceiling on the step and not a read's cost. SEP 40 section 7.7's 2 % limit is retired: the cost is to be as small as possible, and reported.
+
+Against the code before it, `python -m benchmarks ab`, `e49925d1` to this stack, 3 rounds, passive threads, 18 cores available, the same work and fields within 4.2e-15:
+
+| case | 1 thread | 16 threads |
+|---|---:|---:|
+| `kerr_beam_192` | 0.903 | 0.483 |
+| `radial_filament_256` | 0.987 | 0.796 |
+| `line` | 0.996 | 0.938 |
+| `planar` | 0.994 | 0.835 |
+
+The geometric mean is 0.85. A requested collar's read, at 384 x 384 x 600 on those 18 cores, one state: the current at each commit 116 ms against the host's 7.36 s, and a read with its strip 0.94 s against 41.9 s, against a step of 2.97 s. On an NVIDIA A40 with 16 host threads, 36 ms against 1.54 s, and 204 ms against 7.98 s, against 0.70 s.
+
 ### The transverse edge against 0.1.0
 
 [#453](https://github.com/LupoLab/solprop/issues/453) found the tracking set's `kerr_beam`
