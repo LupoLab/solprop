@@ -882,7 +882,8 @@ and ×1.015.
 Two changes reduce it, neither moving a field by more than rounding:
 
 - **A read leaves out what cannot reach its resolution** (`READ_RESOLUTION`,
-  `transverse_monitor.py`). Each read synthesised every frequency plane, and a run's light
+  `transverse_monitor.py`; removed by [SEP 44](seps/sep-0044-native-edge-read.md), since a
+  read on the state's own memory has no copy to save). Each read synthesised every frequency plane, and a run's light
   occupies from a fifth to a third of them at this level on the filaments and Kerr beams.
   A read now leaves out the planes whose energy together is at most 1e-3 of the warning. By
   Parseval a plane cannot put more on a face than it holds, so a face's share reads low by

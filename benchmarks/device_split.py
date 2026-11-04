@@ -59,9 +59,9 @@ STEP = 0.5e-6
 
 NAMED = (
     "_read_transverse",
-    "_node_power",
-    "_occupied_planes",
-    "_column_power",
+    "_edge_reading",
+    "node_power",
+    "column_power",
     "_spacing",
     "_observed_field",
     "_boundary_energies",
