@@ -584,6 +584,7 @@ def test_a_field_free_plane_is_held_natively_and_resumes_to_rounding():
     assert schedule is not None
     middle = float(schedule.edges[2])
     backend = NativeBackend(problem, grid=grid)
+    backend.set_held_plane(True)
     backend.set_initial(problem.initial.field0, noise)
     assert backend.memory_ledger()["noise"] == field
     backend.propagate_to(middle)
@@ -676,6 +677,7 @@ def test_the_soliton_resumes_from_a_held_plane_on_its_reference(
         integrator=MARCH,
     )
     backend = NativeBackend(problem, grid=narrow_grid)
+    backend.set_held_plane(True)
     backend.set_initial(problem.initial.field0, None)
     backend.propagate_to(length / 2)
     backend.observe(field=False)

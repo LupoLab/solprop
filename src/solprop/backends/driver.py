@@ -391,12 +391,13 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         self._row_period = spec.period
         self._accepted_steps = 0
         self._rows = _StepStatsBuffer()
-        # A low-storage march's state at its last field-free plane (SEP 22, Q14): one
-        # volume, allocated at the first such plane and listed by the in-tree
-        # ledgers, so a step abandoned in flight still leaves a resumable state.
+        # A low-storage march's state at its last field-free plane (SEP 22, Q14), when
+        # asked for (`set_held_plane`): one volume, allocated at the first such plane
+        # and listed by the in-tree ledgers, so a step abandoned in flight still leaves
+        # a resumable state.
         self._held: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"] | None = None
         self._held_z: float | None = None
-        self._holds_planes = True
+        self._holds_planes = False
         # Field-free planes at which the spatial collar diagnostic was not evaluated
         # since the load (SEP 22, Q2), recorded in `metadata` and logged once.
         # Physical RK source dispatches, including rejected trials and excluding
@@ -888,10 +889,10 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             record["response_calls"] = self._adams.ledger.to_record()
         if self._low_storage is not None:
             record["source_evaluations"] = self._low_storage.source_evaluations
-            if not self._holds_planes:
-                # Recorded only where it departs: this file has no held state to
+            if self._holds_planes:
+                # Recorded only where it departs: this file has a held state to
                 # checkpoint a step abandoned in flight from (SEP 22, Q14).
-                record["held_plane"] = False
+                record["held_plane"] = True
         elif self._adams is None:
             record["source_evaluations"] = self._rk_source_evaluations
         if self._monitor is not None:
@@ -1299,15 +1300,15 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         """Say whether the low-storage march holds the last field-free plane's state.
 
         It is what a step abandoned in flight is checkpointed from (SEP 22, Q14), one
-        volume more than the march needs. A run that will never resume, or whose output
-        keeps no checkpoint, does not pay for it. A driver asks at the start of each
-        run; turning it off releases a buffer an earlier run left. Nothing the
-        propagation computes depends on it, and other marches hold nothing either way.
+        volume more than the march needs, so nothing is held until a caller asks. A
+        driver says at the start of each run; turning it off releases a buffer an
+        earlier run left. Nothing the propagation computes depends on it, and other
+        marches hold nothing either way.
 
         Parameters
         ----------
         held : bool
-            Whether to hold it, the default for a backend nobody asks.
+            Whether to hold it. A backend nobody asks holds nothing.
         """
         self._holds_planes = held
         if not held and self._low_storage is not None:
@@ -1441,9 +1442,9 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         step loop accepts only finite error norms and a replay raises on a non-finite
         one. The spatial collar diagnostic, which reads the field, is not evaluated;
         the backend counts such planes in :meth:`metadata` and logs the first. Under
-        the low-storage march the state is held, one volume, so that a step abandoned
-        in flight can still be checkpointed at this plane
-        (:meth:`held_observation`).
+        the low-storage march, if asked (:meth:`set_held_plane`), the state is held,
+        one volume, so that a step abandoned in flight can still be checkpointed at
+        this plane (:meth:`held_observation`).
 
         Parameters
         ----------

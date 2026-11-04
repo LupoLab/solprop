@@ -45,7 +45,7 @@ def _with_scan(table):
 
 
 @pytest.mark.parametrize(
-    ("key", "value"), [("held_plane", False), ("resume_history", False)]
+    ("key", "value"), [("held_plane", True), ("resume_history", False)]
 )
 def test_the_points_keep_the_execution_keys_the_scan_does_not_take(key, value):
     document = parse_text(TEXT)

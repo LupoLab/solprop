@@ -100,20 +100,28 @@ keeping every field. A plane that keeps no field is observed without one: nothin
 crosses from the backend (on a device, no copy is made) and nothing scans the field for
 finiteness, so a diverged run is caught by the step loop and its statistics.
 `fields="planes"` is refused beside `step_planes`, whose plane count is not known in
-advance. Beside `LowStorageRungeKutta()`, which accepts each step in place and so has no
-state to checkpoint for a step abandoned in flight, the backend holds the state of the
-last field-free plane, one more copy of the state: a run stopped in flight
-after such a plane writes its terminal checkpoint from it and resumes there.
-`SimulationSettings(held_plane=False)` drops that volume, for a run that will never resume,
-such as one of many short runs in a scan, and an output with no
+advance.
+
+`LowStorageRungeKutta()` accepts each step in place, so it has no state to checkpoint for a
+step abandoned in flight. By default that step leaves no checkpoint: the execution record
+says `failed` and why, and a file whose last plane kept no field cannot be resumed from
+there (`resume=True` refuses it by name), while one that kept its field resumes from that
+plane. A stop between steps checkpoints as ever. How a step comes to be abandoned depends
+on the backend:
+
+- On the native backend, only an exception inside the engine can do it, since a signal
+  waits for the step.
+- On `numpy_ref`, a Python interrupt can land inside a step as well.
+- A killed process writes nothing, whatever the setting says.
+
+`SimulationSettings(held_plane=True)` makes the backend hold the state of the last
+field-free plane, one more copy of the state, so that a run stopped in flight after such a
+plane writes its terminal checkpoint from it and resumes there. An output with no
 {py:class}`~solprop.output.schema.CheckpointOutput` holds nothing whatever it says, having
-nowhere to put a checkpoint. Then a step abandoned in flight leaves no checkpoint: the
-execution record says `failed` and why, and a file whose last plane kept no field cannot be
-resumed from there (`resume=True` refuses it by name), while one that kept its field
-resumes from that plane. On the native backend only an exception inside the engine can do
-that, since a signal waits for the step; a stop between steps checkpoints as ever. The
-setting is outside the configuration hash and changes nothing the march computes, and the
-backend's record says `held_plane: false` where nothing was held.
+nowhere to put a checkpoint. The setting is outside the configuration hash and changes
+nothing the march computes, and the backend's record says `held_plane: true` where a plane
+was held for. Code that drives a backend itself asks with `set_held_plane(True)`.
+
 `fields` is outside the configuration hash, like
 `resume_history`: it changes what is kept, not what is computed, and it may be changed
 after the simulation is translated.

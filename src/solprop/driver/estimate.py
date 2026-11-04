@@ -51,9 +51,9 @@ class RunEstimate:
     n_planes : int
         The planes the run saves, the entrance included.
     memory : int
-        The persistent memory the constructed backend holds, its ledger's total, and the
-        state a low-storage march holds at a field-free plane, which it allocates during
-        the run, bytes.
+        The persistent memory the constructed backend holds, its ledger's total, and,
+        with ``held_plane=True``, the state a low-storage march holds at a field-free
+        plane, which it allocates during the run, bytes.
     output_bytes : int
         The output's size for the requested planes and retained fields, bytes, as an
         in-memory store holds it (an HDF5 file adds little).

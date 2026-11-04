@@ -737,10 +737,9 @@ class SimulationSettings(Displayed):
         the resume key, like `resume_history`: it changes what is kept, not what is
         computed. In a scan, :func:`~solprop.driver.scan.run_scan`'s own `fields`
         decide, and a builder that sets this is refused. Beside
-        ``LowStorageRungeKutta()`` the backend holds the last field-free plane's
-        state, one more state volume, so a step abandoned in
-        flight still leaves a resumable checkpoint (SEP 22, Q14); `held_plane` turns
-        that off.
+        ``LowStorageRungeKutta()``, `held_plane` asks the backend to hold the last
+        field-free plane's state, so that a step abandoned in flight can still leave
+        a resumable checkpoint (SEP 22, Q14).
     field_planes : sequence of int
         Saved-plane indices for ``fields='planes'``, the entrance as 0 and negative
         from the end; empty otherwise. Refused beside `step_planes`, whose plane count
@@ -777,9 +776,8 @@ class SimulationSettings(Displayed):
         budget of 1e-3 and stops at ten times it; ``None`` watches nothing.
     held_plane : bool
         Whether ``LowStorageRungeKutta()`` holds the last field-free plane's state, one
-        state volume, for a checkpoint if a step is abandoned in flight. ``False``
-        drops the volume from the backend's ledger, for a run that
-        will never resume: such a step then leaves no terminal checkpoint, and a file
+        state volume, for a checkpoint if a step is abandoned in flight. ``False``, the
+        default, holds nothing: such a step leaves no terminal checkpoint, and a file
         whose last plane kept no field cannot be resumed from it (a stop between steps
         checkpoints as ever). An output without
         :class:`~solprop.output.schema.CheckpointOutput` has nowhere to put a
@@ -842,7 +840,7 @@ class SimulationSettings(Displayed):
     spatial_absorber: SpatialAbsorber | Literal[False] | None = None
     adiabatic_accuracy: AdiabaticAccuracy | None = None
     boundary_check: BoundaryCheck | None = DEFAULT_BOUNDARY_CHECK
-    held_plane: bool = True
+    held_plane: bool = False
     _default_integrator: Multistep | RungeKutta | None = dataclasses.field(
         default=None, repr=False, compare=False
     )

@@ -1211,7 +1211,7 @@ def held_soliton(fields="all"):
     )
     if fields != "all":
         simulation.settings = dataclasses.replace(
-            simulation.settings, fields=fields, field_planes=(0, -1)
+            simulation.settings, fields=fields, field_planes=(0, -1), held_plane=True
         )
     return simulation, schedule, length
 

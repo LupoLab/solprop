@@ -324,7 +324,7 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
     resume_record: Mapping[str, object] | None = None,
     stop: StopFlag | None = None,
     recipe: RecipeRecord | None = None,
-    held_plane: bool = True,
+    held_plane: bool = False,
 ) -> None:
     """Run one translated problem to its save planes, writing each one out.
 
@@ -422,9 +422,9 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
         the first run start and never rewritten; ``None`` records none.
     held_plane : bool, optional
         Whether a low-storage march holds the last field-free plane's state for a
-        checkpoint (:class:`~solprop.driver.simulation.SimulationSettings`). An output
-        without :class:`~solprop.output.schema.CheckpointOutput` holds nothing either
-        way.
+        checkpoint (:class:`~solprop.driver.simulation.SimulationSettings`); by default
+        it does not. An output without :class:`~solprop.output.schema.CheckpointOutput`
+        holds nothing either way.
 
     Raises
     ------
@@ -1402,7 +1402,8 @@ def _record_abandoned_step(
         "from which resume=True continues"
         if failure.last_kept_field
         else "which kept no field, and no state of it was held, so this file cannot "
-        "be resumed (SimulationSettings.held_plane, or rerun it)"
+        "be resumed; rerun it, keeping a plane's field or with "
+        "SimulationSettings(held_plane=True)"
     )
     reason = (
         f"no terminal checkpoint is written: the low-storage step of {dz:.6g} m from "

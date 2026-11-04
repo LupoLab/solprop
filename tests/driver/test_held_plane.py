@@ -2,17 +2,18 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""A low-storage run that never resumes can drop its held plane (SEP 22, Q14).
+"""A low-storage run holds a plane only when asked to (SEP 22, Q14).
 
-With ``held_plane=False``, a statistics-only run holds one state volume less by the
-backend's ledger and by the admission, on both backends; a step abandoned in flight
-leaves no terminal checkpoint and says why, a stop between steps checkpoints as ever,
-and an output with nowhere to put a checkpoint is the same run whatever the setting
-says. The ledgers are exact accounting. The setting moves no number the march computes,
-compared exactly on the reference, whose repeated run does the same arithmetic.
+By default a statistics-only run holds one state volume less by the backend's ledger, on
+both backends, than with ``held_plane=True``. A step abandoned in flight then leaves no
+terminal checkpoint and says why, a stop between steps checkpoints as ever, and an
+output with nowhere to put a checkpoint is the same run whatever the setting says. The
+ledgers are exact accounting. The setting moves no number the march computes, compared
+exactly on the reference, whose repeated run does the same arithmetic.
 """
 
 import dataclasses
+import inspect
 import logging
 import math
 import threading
@@ -24,7 +25,7 @@ import pytest
 from solprop.backends.driver import StepDriver
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.registry import available
-from solprop.driver import Simulation
+from solprop.driver import Simulation, SimulationSettings
 from solprop.driver.run import run_problem
 from solprop.exceptions import DriverError, StopRequested
 from solprop.log import NullReporter
@@ -90,6 +91,40 @@ def ledger(simulation: Simulation, output) -> tuple[int, int]:
         )
 
 
+def test_the_setting_is_off_by_default():
+    fields = {one.name: one for one in dataclasses.fields(SimulationSettings)}
+    assert fields["held_plane"].default is False
+    assert inspect.signature(run_problem).parameters["held_plane"].default is False
+
+
+@pytest.mark.parametrize("backend", available())
+def test_a_default_run_holds_nothing(backend, tmp_path):
+    """The run the settings and the driver make when nobody says anything."""
+    simulation = built(backend, held=False)
+    assert ledger(simulation, tmp_path / "run.h5")[0] == 0
+
+
+@pytest.mark.parametrize("backend", available())
+def test_a_hand_loop_holds_nothing_until_it_asks(backend):
+    """#500: a loop over the backend protocol gets what a run gets."""
+    simulation = built(backend)
+    problem = simulation.translate()
+    volume = 16 * math.prod(problem.shape)
+    middle = LENGTH / 2
+    with simulation.runner() as runner:
+        # The surface is StepDriver's, which the native backend shares.
+        hand = cast("NumpyRefBackend", runner.backend)
+        hand.set_initial(problem.initial.field0, None, z=0.0)
+        hand.propagate_to(middle)
+        hand.observe(field=False)
+        assert hand.memory_ledger()["held_plane"] == 0
+        assert hand.held_observation() is None
+        hand.set_held_plane(True)
+        hand.observe(field=False)
+        assert hand.memory_ledger()["held_plane"] == volume
+        assert hand.held_observation() is not None
+
+
 @pytest.mark.parametrize("backend", available())
 def test_the_ledger_drops_one_volume(backend, tmp_path):
     on = built(backend)
@@ -112,10 +147,10 @@ def test_a_file_says_it_has_no_held_state(backend, tmp_path):
     built(backend).run(tmp_path / "on.h5", progress="none")
     with open_file(tmp_path / "off.h5") as stored:
         assert stored.metadata is not None and stored.metadata.backend is not None
-        assert stored.metadata.backend.settings["held_plane"] is False
+        assert "held_plane" not in stored.metadata.backend.settings
     with open_file(tmp_path / "on.h5") as stored:
         assert stored.metadata is not None and stored.metadata.backend is not None
-        assert "held_plane" not in stored.metadata.backend.settings
+        assert stored.metadata.backend.settings["held_plane"] is True
 
 
 def test_the_setting_is_outside_the_resume_key_and_moves_no_number(tmp_path):
@@ -236,7 +271,7 @@ def test_an_output_without_checkpoints_holds_nothing_whatever_the_setting(backen
     held, _ = ledger(simulation, output)
     assert held == 0
     assert output.metadata is not None and output.metadata.backend is not None
-    assert output.metadata.backend.settings["held_plane"] is False
+    assert "held_plane" not in output.metadata.backend.settings
 
 
 @pytest.mark.parametrize("backend", available())
