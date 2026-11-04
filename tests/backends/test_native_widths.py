@@ -73,10 +73,11 @@ def _simulation(kind, space, n_pol, medium=LOSSY, waist=60e-6):
         integrator=RungeKutta(),
         stats=StatsSpec(names=WIDTHS),
     )
-    pulse = SpatialPulse(
-        GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=3e-9),
-        waist,
-        **({"jones": (1, 0.5j)} if n_pol == 2 else {}),
+    temporal = GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=3e-9)
+    pulse = (
+        SpatialPulse(temporal, waist, jones=(1, 0.5j))
+        if n_pol == 2
+        else SpatialPulse(temporal, waist)
     )
     simulation = Simulation.from_free(
         grid, space, medium, [], pulse, settings=settings, noise=None
@@ -190,7 +191,9 @@ def _check_plane(kind, n_pol, state):
     spec = StatsSpec(names=(*WIDTHS, "on_axis_intensity", "peak_intensity"))
     want = _measure("numpy_ref", grid, problem, field, spec)
     got = _measure("native", grid, problem, field, spec)
-    x = problem.transform.geometry.axes[0]
+    geometry = problem.transform.geometry
+    assert geometry is not None
+    x = geometry.axes[0]
     pixel = float(x[1] - x[0])
     what = f"{kind} {n_pol} {state}"
     _agree(got, want, _width_budget(grid, problem), pixel, what)
