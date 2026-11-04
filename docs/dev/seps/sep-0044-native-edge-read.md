@@ -178,7 +178,7 @@ count and the node count, so it has no route branch beyond those. Planar's node 
 **Native, radial.** The same sums, with the node's value a dense product per plane of the synthesis's row and the
 state, from the first row a read's regions can touch. It needs no scratch, so neither `statistics_time_` nor
 `modal_complex_`, whose non-crop bins the retained path relies on staying zero. It is slower at one thread than
-the host's BLAS (§ Part II); a GEMM remains open to it if that ever matters.
+the host's BLAS (the cost below); a GEMM remains open to it if that ever matters.
 
 **Collar.** Python computes each line's strides, window, inward bin range and onset triple, captured by value,
 so native does no tie-breaking. The strip uses a persistent padded transform per axis. The current accumulates in
@@ -193,10 +193,34 @@ the route this SEP is mainly for. It's left out unless a CPU measurement asks fo
 
 **Kernel contract.** New `StepDriver` members, so a schema bump under today's rule. `KernelProblem` doesn't change.
 
-**Cost.** Estimated before the work: 30 to 50 ms a read at 768 x 768 x 600 on a data-centre GPU, against 4.3 s then
-on an H200 and against a step of about 230 ms. On CPU a read now transforms every plane, where the host read
-transformed a fifth to a third of them, but it loses the copy and the host's single-thread scan. Part II has what
-was measured (Q2).
+**Cost, estimated.** 30 to 50 ms a read at 768 x 768 x 600 on a data-centre GPU, against 4.3 s then on an H200 and
+against a step of about 230 ms. On CPU a read now transforms every plane, where the host read transformed a fifth to
+a third of them, but it loses the copy and the host's single-thread scan.
+
+**Cost, on a prototype.** Phases 1 and 2 were prototyped on a branch to test Option E and that estimate, before review.
+On an NVIDIA A40 (CUDA 12.8.1) at 384 x 384 x 600, eight fixed steps and four planes, `python -m benchmarks.device_split`:
+12 reads took 0.41 s together, and the point took 6.6 s against 5.8 s with no check and 9.8 s with #502's ring alone, with
+no state crossing. A40 timings say little of a data-centre card, whose reads this hasn't measured. On CPU, against
+`main`, with #510 and #502 in, `python -m benchmarks ab`, Intel Xeon Gold 6240, 18 cores of one socket, passive
+threads, three rounds of one repeat, exploratory on a shared machine:
+
+| case | threads | wall, s | ratio (range) | field difference |
+|---|---:|---|---:|---:|
+| `kerr_beam_192` | 1 | 18.74 → 17.62 | 0.934 (0.934–0.955) | 1.6e-16 |
+| `radial_filament_256` | 1 | 7.66 → 7.93 | 1.036 (1.024–1.059) | 4.2e-15 |
+| `line` | 1 | 1.017 → 1.011 | 0.997 (0.986–1.008) | 1.4e-15 |
+| `planar` | 1 | 0.571 → 0.571 | 1.004 (1.001–1.007) | 0 |
+| `kerr_beam_192` | 16 | 3.08 → 2.08 | 0.675 (0.662–0.683) | 0 |
+| `radial_filament_256` | 16 | 1.763 → 1.722 | 0.984 (0.936–0.986) | 0 |
+| `line` | 16 | 0.296 → 0.286 | 0.934 (0.900–1.053) | 0 |
+| `planar` | 16 | 0.172 → 0.163 | 0.945 (0.937–0.980) | 0 |
+
+The same work in every row. On a point of 256 x 256 x 48, sixteen fixed steps and two planes at sixteen threads, the
+default check went from 2.4 s to 2.0 s against 1.8 s without it, and from 3.9 to 2.1 field volumes above the level before
+the run against 1.5 without it. The prototype's read of one state agrees with `HostEdgeReduction`'s on all four routes,
+at a launch and a read, within four times `tests/bounds.py`'s `fft_bound`; a read at every step under each march leaves the
+final field bit for bit that of the same run read on the host; and a field-free default run finishes with
+`_observed_field` refused, on the CPU and the A40. The wheel compiles for `AMD_GFX942` under ROCm 7.2.4.
 
 ### 7. Verification and validation
 
@@ -262,8 +286,8 @@ physics decision, left to [#388](https://github.com/LupoLab/solprop/issues/388).
 
 - **Q1.** Whether `Simulation.estimate` should count a collar's strip buffers, as it does the held plane. Recommended: yes.
 - **Q2.** Whether a CPU read, with every plane now transformed, stays within SEP 40's 2 % on a long run. If not, the
-  read-as-first-pass reuse of §6 comes back, on routes where it's provable. Measured in phase 2: see Part II. It holds
-  except for the radial route at one thread, ×1.036.
+  read-as-first-pass reuse of §6 comes back, on routes where it's provable. On the prototype it holds except for the
+  radial route at one thread, ×1.036 on a window (§6); a GEMM could take that, if it's worth a second code path.
 - **Q3.** Whether an interrupted collar run's record should drain the native current on the way out, or may lag by a few
   steps. Recommended: drain it.
 
@@ -274,49 +298,8 @@ physics decision, left to [#388](https://github.com/LupoLab/solprop/issues/388).
 
 ## Part II — Implementation record
 
-Phases 1 and 2 are implemented on the branch `feature/sep-0044-native-edge`, ahead of this SEP's review.
-
-**Phase 1, the Python split.** As designed, with `EdgeTables` in place of `EdgeBinding`. `READ_RESOLUTION` and
-`_occupied_planes` are gone. The launch's clean column powers are formed at the load. A resume restores a collar's
-current, baselines and peaks ([#512](https://github.com/LupoLab/solprop/issues/512)), and the record gained
-`strip_floor`.
-
-**Phase 2, the native read without a collar.** Deviations from the draft: native sums against weight tables (Option E)
-rather than returning $u_n$ (Option C), for the reason in §6; the radial read is a dense product per plane rather than
-a GEMM. A collar still reduces a host copy.
-
-*Verification, on CPU.* `tests/backends/test_native_edge_reading.py`, all passing: the reading of one state against
-`HostEdgeReduction` on all four routes, at a launch and at a read, within four times `tests/bounds.py`'s `fft_bound`;
-the state's bits unchanged by a reading; one lit node reaching only its own faces, with the right weight, which white
-noise can't show; and a field-free default run with `_observed_field` refused, which has to finish having read the edge.
-`tests/backends/test_transverse_backends.py`, `test_transverse_reads.py`, `test_transverse_monitor.py`,
-`test_transverse_nonlinear.py`, `test_transverse_resolution.py`, `test_transverse_witnesses.py`, `test_split_crossing.py`
-and `test_monitor.py` pass.
-
-*Not yet covered from §7:* a forced read at every commit against an unread run, the adversarial probes beyond the lit
-node, `n_pol = 2`, and every device row.
-
-*Timing against `main`, Intel Xeon Gold 6240, 18 cores of one socket.* `python -m benchmarks ab`, `--threading
-passive`, three rounds of one repeat. This also holds this work's steps 1 and 2, which measured neutral on CPU alone.
-Exploratory, on a shared machine:
-
-| case | threads | wall, s | ratio (range) | field difference |
-|---|---:|---|---:|---:|
-| `kerr_beam_192` | 1 | 18.74 → 17.62 | 0.934 (0.934–0.955) | 1.6e-16 |
-| `radial_filament_256` | 1 | 7.66 → 7.93 | 1.036 (1.024–1.059) | 4.2e-15 |
-| `line` | 1 | 1.017 → 1.011 | 0.997 (0.986–1.008) | 1.4e-15 |
-| `planar` | 1 | 0.571 → 0.571 | 1.004 (1.001–1.007) | 0 |
-| `kerr_beam_192` | 16 | 3.08 → 2.08 | 0.675 (0.662–0.683) | 0 |
-| `radial_filament_256` | 16 | 1.763 → 1.722 | 0.984 (0.936–0.986) | 0 |
-| `line` | 16 | 0.296 → 0.286 | 0.934 (0.900–1.053) | 0 |
-| `planar` | 16 | 0.172 → 0.163 | 0.945 (0.937–0.980) | 0 |
-
-The same work in every row. On a point of 256 x 256 x 48, sixteen fixed steps and two planes at sixteen threads, one
-runner, the default check went from 2.4 s to 2.0 s against 1.8 s without it, and from 3.9 to 2.1 field volumes above
-the level before the run against 1.5 without it.
-
-*HIP.* The wheel compiles offline for `AMD_GFX942` under ROCm 7.2.4.
+No phase has been implemented.
 
 ## Part III — History
 
-- 2026-11-04: Drafted. Tracking issue: to be opened with this draft.
+- 2026-11-04: Drafted. Tracking issue: [#514](https://github.com/LupoLab/solprop/issues/514).
