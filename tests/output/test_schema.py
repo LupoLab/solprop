@@ -935,8 +935,10 @@ def test_ten_thousand_row_table_metadata_size(envelope_grid, stepper):
         envelope_grid, stepper, modes=(ModeRecord.from_mode(mode),)
     )
     size = len(metadata.to_json().encode("utf-8"))
-    # A reporting threshold, not a record-format limit.
-    assert 500_000 < size < 5_000_000
+    # A reporting threshold, not a record-format limit: the table's rows are stored
+    # beside the text, whose references take about a hundred bytes each.
+    assert size < 50_000
+    assert metadata.record_arrays()
 
 
 def test_cubic_spline_metadata_survives_independent_construction(

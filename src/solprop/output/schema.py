@@ -82,6 +82,7 @@ __all__ = [
     "INTERNAL_CONVENTION",
     "INTERPOLATED_RESUMES_ANNOTATION",
     "PEAK_FIELDS_ANNOTATION",
+    "RECORD_ARRAY_LIMIT",
     "RUN_SUMMARY_ANNOTATION",
     "SCHEMA_VERSION",
     "SPECTRAL_CONVENTION",
@@ -150,6 +151,20 @@ or by development versions of solprop, which declared output schemas up to 28, a
 read, and nor is a file from a later release. Read such a file with the solprop version
 that wrote it.
 """
+
+RECORD_ARRAY_LIMIT = 4096
+"""The most elements a numeric array of a run record holds as JSON (#309).
+
+A larger one -- a per-node weight, a flux plan's coefficients -- is recorded by a
+reference holding its digest, dtype and shape, and its bytes are stored beside the
+record, named by that digest (:meth:`RunMetadata.record_arrays`). So the hash takes the
+array's bytes rather than its text, which costs milliseconds rather than seconds, and
+the array stays readable. The limit keeps a grid's axes in the text, for a person
+reading it.
+"""
+
+_RECORD_ARRAY = "__record_array__"
+"""The key of a reference to an array stored beside the record."""
 
 INLINE_ARRAY_LIMIT = 2**20
 """The most elements an array input is recorded with inline (SEP 22, Q4).
@@ -294,11 +309,43 @@ def _serialise_enum(value: Enum) -> dict[str, JsonValue]:
     }
 
 
+class _ArrayReference(dict):
+    """A reference to a record array, in its JSON form, carrying the array it names.
+
+    A serialised record is JSON-ready, so a reference is a plain mapping to :mod:`json`,
+    and the array travels with it until the record is stored
+    (:meth:`RunMetadata.record_arrays`).
+
+    Parameters
+    ----------
+    values : numpy.ndarray
+        The array, kept by reference and not copied.
+
+    Attributes
+    ----------
+    array : numpy.ndarray
+        The array.
+    """
+
+    def __init__(self, values: np.ndarray) -> None:
+        """Digest the array and hold it."""
+        digest = ArrayDigest.of(values)
+        super().__init__(
+            {
+                _RECORD_ARRAY: digest.sha256,
+                "dtype": digest.dtype,
+                "shape": list(digest.shape),
+            }
+        )
+        self.array = values
+
+
 def _serialise_numpy(value: np.ndarray | np.generic) -> JsonValue:
     """Return a NumPy array as a nested list with its dtype, or a scalar as a scalar.
 
     A complex array is split into its real and imaginary parts, because JSON has no
-    complex number and a nested list of them would not survive a round trip.
+    complex number and a nested list of them would not survive a round trip. A numeric
+    array of more than :data:`RECORD_ARRAY_LIMIT` elements is a reference instead.
 
     Parameters
     ----------
@@ -312,6 +359,8 @@ def _serialise_numpy(value: np.ndarray | np.generic) -> JsonValue:
     """
     if isinstance(value, np.generic):
         return serialise(value.item())
+    if value.size > RECORD_ARRAY_LIMIT and value.dtype.kind in "biufc":
+        return _ArrayReference(value)
     record: dict[str, JsonValue] = {
         "dtype": str(value.dtype),
         "shape": list(value.shape),
@@ -390,7 +439,8 @@ def serialise(value: object) -> JsonValue:
     Dataclasses become tagged dictionaries of their constructor fields (less a live
     handle whose field metadata says ``record=False``), enumerations
     their qualified name and value, NumPy arrays a nested list with their dtype and
-    shape, cubic splines their knots, coefficients, axis and extrapolation setting,
+    shape, or above :data:`RECORD_ARRAY_LIMIT` elements a reference to their bytes,
+    cubic splines their knots, coefficients, axis and extrapolation setting,
     complex numbers a real/imaginary pair, and mappings and sequences are
     recursed. Anything that cannot be reduced -- a function, a lambda, an object with
     no structure -- is recorded as its ``repr`` and marked ``reproducible: False``,
@@ -421,7 +471,7 @@ def serialise(value: object) -> JsonValue:
     >>> serialise(abs)["reproducible"]
     False
     """
-    if value is None or isinstance(value, bool):
+    if value is None or isinstance(value, bool | _ArrayReference):
         return value
     if isinstance(value, Enum):
         return _serialise_enum(value)
@@ -639,7 +689,7 @@ def _decode_array(record: Mapping[str, object]) -> np.ndarray:
     return np.array(record["__ndarray__"], dtype=dtype)
 
 
-def _decode(value: JsonValue) -> object:
+def _decode(value: object) -> object:
     """Return a serialised value with an array field rebuilt.
 
     An array is the only form a record type holds that JSON cannot carry directly, so
@@ -649,8 +699,8 @@ def _decode(value: JsonValue) -> object:
 
     Parameters
     ----------
-    value : NoneType or bool or int or float or str or list or dict
-        A value produced by :func:`serialise`.
+    value : object
+        A value produced by :func:`serialise`, or an array read from beside the record.
 
     Returns
     -------
@@ -660,6 +710,54 @@ def _decode(value: JsonValue) -> object:
     if isinstance(value, dict) and "__ndarray__" in value:
         return _decode_array(value)
     return value
+
+
+def _resolved(
+    value: JsonValue,
+    arrays: Mapping[str, object],
+    found: dict[str, np.ndarray],
+) -> object:
+    """Return a stored document with each array reference replaced by its array.
+
+    Parameters
+    ----------
+    value : object
+        The document, as :func:`json.loads` read it.
+    arrays : collections.abc.Mapping
+        What holds the arrays, by digest: an HDF5 group, or a mapping of arrays.
+    found : dict
+        The arrays read, by digest, which this fills.
+
+    Returns
+    -------
+    object
+        The document, with an array in place of each reference.
+
+    Raises
+    ------
+    OutputError
+        If an array is absent, or its bytes do not have the digest that names it.
+    """
+    if isinstance(value, list):
+        return [_resolved(item, arrays, found) for item in value]
+    if not isinstance(value, dict):
+        return value
+    if _RECORD_ARRAY not in value:
+        return {key: _resolved(item, arrays, found) for key, item in value.items()}
+    digest = str(value[_RECORD_ARRAY])
+    if digest not in found:
+        if digest not in arrays:
+            msg = (
+                f"stored metadata names the array {digest}, which is not beside it: "
+                "read a record through the file that holds it"
+            )
+            raise OutputError(msg)
+        array = np.asarray(arrays[digest])
+        if ArrayDigest.of(array).sha256 != digest:
+            msg = f"the array stored as {digest} does not have that digest"
+            raise OutputError(msg)
+        found[digest] = array
+    return found[digest]
 
 
 def _dotted(path: Sequence[str | int]) -> str:
@@ -688,13 +786,13 @@ def _dotted(path: Sequence[str | int]) -> str:
 
 
 def _stored_entry(
-    document: Mapping[str, JsonValue],
+    document: Mapping[str, object],
     name: str,
     path: tuple[str, ...],
     *,
-    default: JsonValue = None,
+    default: object = None,
     required: bool = False,
-) -> JsonValue:
+) -> object:
     """Return one entry of a stored record, reading an absent one as `default`.
 
     Parameters
@@ -730,7 +828,7 @@ def _stored_entry(
 
 def _rebuild[T](
     build: type[T],
-    record: Mapping[str, JsonValue],
+    record: Mapping[str, object],
     path: tuple[str | int, ...] = (),
 ) -> T:
     """Return a record instance from the dictionary :func:`serialise` made of it.
@@ -2472,6 +2570,11 @@ def _differences(
         Accumulator the paths are appended to, in depth-first order.
     """
     if isinstance(left, dict) and isinstance(right, dict):
+        if _RECORD_ARRAY in left and _RECORD_ARRAY in right:
+            # One entry, whatever changed in it: the array has no text to walk.
+            if dict(left) != dict(right):
+                found.append(path)
+            return
         for key in sorted(set(left) | set(right)):
             child = f"{path}.{key}" if path else key
             if key not in left or key not in right:
@@ -3051,6 +3154,9 @@ class RunMetadata(Displayed):
     _stored: dict[str, JsonValue] | None = dataclasses.field(
         default=None, init=False, repr=False, compare=False, metadata={"record": False}
     )
+    _stored_arrays: dict[str, np.ndarray] | None = dataclasses.field(
+        default=None, init=False, repr=False, compare=False, metadata={"record": False}
+    )
 
     def __repr__(self) -> str:
         """Return a one-line description: what kind of run, on what, made when.
@@ -3407,8 +3513,56 @@ class RunMetadata(Displayed):
             )
         return f"these fields changed: {text}"
 
+    def record_arrays(self) -> dict[str, np.ndarray]:
+        """Return the arrays stored beside the record, by digest.
+
+        What :meth:`to_json`'s references name: each numeric array of more than
+        :data:`RECORD_ARRAY_LIMIT` elements. A store keeps them with the document, and
+        :meth:`from_json` takes them back.
+
+        Returns
+        -------
+        dict
+            The arrays, not copied, by the SHA-256 digest of their bytes.
+
+        Examples
+        --------
+        >>> import dataclasses
+        >>> import numpy as np
+        >>> from solprop.output.schema import _example_metadata
+        >>> metadata = dataclasses.replace(
+        ...     _example_metadata(), configuration={"rate": np.zeros(5000)}
+        ... )
+        >>> [array.size for array in metadata.record_arrays().values()]
+        [5000]
+        """
+        found = dict(self._stored_arrays or {})
+
+        def walk(value: object) -> None:
+            """Collect the arrays of a serialised structure.
+
+            Parameters
+            ----------
+            value : object
+                The structure.
+            """
+            if isinstance(value, _ArrayReference):
+                found[str(value[_RECORD_ARRAY])] = value.array
+            elif isinstance(value, dict):
+                for item in value.values():
+                    walk(item)
+            elif isinstance(value, list):
+                for item in value:
+                    walk(item)
+
+        walk(self._document)
+        return found
+
     def to_json(self) -> str:
         """Return the whole record as one JSON document.
+
+        An array of more than :data:`RECORD_ARRAY_LIMIT` elements is a reference to what
+        :meth:`record_arrays` holds.
 
         Returns
         -------
@@ -3425,6 +3579,17 @@ class RunMetadata(Displayed):
         >>> from solprop.output.schema import _example_metadata
         >>> sorted(json.loads(_example_metadata().to_json()))[:3]
         ['backend', 'configuration', 'created']
+        """
+        return _canonical_json(self._document)
+
+    @functools.cached_property
+    def _document(self) -> dict[str, JsonValue]:
+        """The whole serialised record, built once per record (:meth:`to_json`).
+
+        Returns
+        -------
+        dict
+            The hashed part and what is stored beside it, JSON-ready.
         """
         document = self.hashed()
         # A plasma rule's derived numbers too, which the key leaves out.
@@ -3453,10 +3618,14 @@ class RunMetadata(Displayed):
         document["versions"] = serialise(dict(self.versions))
         document["git"] = serialise(self.git)
         document["created"] = self.created
-        return _canonical_json(document)
+        return document
 
     @classmethod
-    def from_json(cls, text: str) -> "RunMetadata":  # noqa: UP037 - bound after the class body
+    def from_json(
+        cls,
+        text: str,
+        arrays: Mapping[str, object] | None = None,
+    ) -> "RunMetadata":  # noqa: UP037 - bound after the class body
         """Return the record a JSON document describes.
 
         The configuration comes back as the plain structures :func:`serialise` made of
@@ -3467,6 +3636,9 @@ class RunMetadata(Displayed):
         ----------
         text : str
             A document produced by :meth:`to_json`.
+        arrays : collections.abc.Mapping or None, optional
+            What :meth:`record_arrays` gave for it, by digest, or an HDF5 group holding
+            them. Each comes back in place of its reference, its digest checked.
 
         Returns
         -------
@@ -3477,7 +3649,8 @@ class RunMetadata(Displayed):
         ------
         OutputError
             If the document is not valid JSON, declares an output schema other than
-            :data:`SCHEMA_VERSION`, or a required field is missing.
+            :data:`SCHEMA_VERSION`, a required field is missing, or an array it names
+            is absent from `arrays` or does not have its digest.
 
         Examples
         --------
@@ -3498,6 +3671,10 @@ class RunMetadata(Displayed):
         # The version first: a file of another schema is refused by its version,
         # not by the first field its layout lacks.
         _refuse_schema(document["schema_version"])
+        # The record as written, references and all, is what digests to its stamp.
+        written = document
+        held: dict[str, np.ndarray] = {}
+        document = cast("dict[str, Any]", _resolved(document, arrays or {}, held))
 
         # Another build of this schema may lack a top-level entry.
         stored = cast(
@@ -3552,7 +3729,8 @@ class RunMetadata(Displayed):
             raise OutputError(msg) from error
         # The record as written: it digests to its own stamp, whatever today's code
         # would write.
-        object.__setattr__(metadata, "_stored", _stored_hashed(document))
+        object.__setattr__(metadata, "_stored", _stored_hashed(written))
+        object.__setattr__(metadata, "_stored_arrays", held)
         return metadata
 
 

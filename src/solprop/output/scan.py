@@ -68,6 +68,10 @@ def _hash(text: str) -> str:
     return hashlib.sha256(text.encode()).hexdigest()
 
 
+_RECORD_ARRAYS = "record_arrays"
+"""The group of the points' record arrays, each named by its digest."""
+
+
 def _write_array(group: h5py.Group, name: str, values: np.ndarray) -> None:
     """Store numerical or textual axes without pickling objects.
 
@@ -110,6 +114,9 @@ class PointResult:
         Single-run configuration digest, empty if construction failed.
     metadata_json : str
         Complete run metadata, empty if construction failed.
+    metadata_arrays : dict
+        The arrays the metadata names by digest
+        (:meth:`solprop.output.schema.RunMetadata.record_arrays`).
     arrays : dict
         Named retained fields, statistics and reduction arrays.
     reductions : dict
@@ -139,6 +146,7 @@ class PointResult:
     n_steps: int = 0
     n_rejected: int = 0
     boundary_monitor: Mapping[str, object] | None = None
+    metadata_arrays: Mapping[str, np.ndarray] = field(default_factory=dict)
 
 
 def _validate_metadata(result: PointResult) -> None:
@@ -155,7 +163,9 @@ def _validate_metadata(result: PointResult) -> None:
     if not isinstance(document, dict) or "grid" not in document:
         raise OutputError("completed result requires run metadata")
     if (
-        RunMetadata.from_json(result.metadata_json).configuration_hash()
+        RunMetadata.from_json(
+            result.metadata_json, result.metadata_arrays
+        ).configuration_hash()
         != result.configuration_hash
     ):
         raise OutputError("result metadata does not match its configuration hash")
@@ -464,8 +474,11 @@ class ScanWriter:
         document = _expand(
             self.file, json.loads(str(_group(self.file, key).attrs["metadata_refs"]))
         )
-        stored = RunMetadata.from_json(json.dumps(document))
-        new = RunMetadata.from_json(result.metadata_json)
+        held = self.file.get(_RECORD_ARRAYS)
+        stored = RunMetadata.from_json(
+            json.dumps(document), held if isinstance(held, h5py.Group) else None
+        )
+        new = RunMetadata.from_json(result.metadata_json, result.metadata_arrays)
         return f"{result.error}; {stored.summarise_differences(new)}"
 
     def _stage(self, result: PointResult) -> None:
@@ -488,6 +501,9 @@ class ScanWriter:
                 versions.get("solprop", "unknown")
             )
         references = self._common_record(document)
+        for digest, array in result.metadata_arrays.items():
+            if f"{_RECORD_ARRAYS}/{digest}" not in file:
+                file.create_dataset(f"{_RECORD_ARRAYS}/{digest}", data=array)
         noise = document.get("noise")
         _dataset(file, "points/noise_seed")[result.index] = str(
             noise.get("seed") if isinstance(noise, dict) else None
@@ -557,7 +573,11 @@ class ScanWriter:
         object
             Reference tree with leaves stored once.
         """
-        if isinstance(document, dict) and "__ndarray__" not in document:
+        if (
+            isinstance(document, dict)
+            and "__ndarray__" not in document
+            and "__record_array__" not in document
+        ):
             return {key: self._common_record(value) for key, value in document.items()}
         text = _json(document)
         digest = _hash(text)

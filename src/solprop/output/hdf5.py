@@ -121,6 +121,8 @@ _COLUMN_CHUNK = 256
 """Entries per chunk of a one-dimensional column; one per plane would be wasteful."""
 
 _METADATA_KEY = "meta/json"
+_RECORD_ARRAYS_KEY = "meta/arrays"
+"""The group of the record's arrays, each named by its digest (#309)."""
 
 _ANNOTATIONS_KEY = "meta/annotations"
 """Group of the post-run annotations, one JSON string dataset each; optional."""
@@ -563,19 +565,48 @@ def _stored_shape(file: h5py.File) -> tuple[int, ...]:
     return tuple(int(size) for size in np.asarray(file.attrs["field_shape"]))
 
 
-def _write_json(file: h5py.File, text: str) -> None:
-    """Write, or replace, the metadata document of an open file.
+def _write_record(file: h5py.File, metadata: RunMetadata) -> None:
+    """Write, or replace, the run record of an open file and the arrays beside it.
 
     Parameters
     ----------
     file : h5py.File
         The open file.
-    text : str
-        The document.
+    metadata : RunMetadata
+        The record.
     """
-    if _METADATA_KEY in file:
-        del file[_METADATA_KEY]
-    file.create_dataset(_METADATA_KEY, data=text, dtype=h5py.string_dtype())
+    for key in (_METADATA_KEY, _RECORD_ARRAYS_KEY):
+        if key in file:
+            del file[key]
+    file.create_dataset(
+        _METADATA_KEY, data=metadata.to_json(), dtype=h5py.string_dtype()
+    )
+    for digest, array in metadata.record_arrays().items():
+        file.create_dataset(f"{_RECORD_ARRAYS_KEY}/{digest}", data=array)
+
+
+def _read_record(file: h5py.File) -> RunMetadata:
+    """Return the run record of an open file, with the arrays beside it.
+
+    Parameters
+    ----------
+    file : h5py.File
+        The open file.
+
+    Returns
+    -------
+    RunMetadata
+        The record.
+
+    Raises
+    ------
+    OutputError
+        If the file carries no metadata, or the record cannot be read.
+    """
+    held = file.get(_RECORD_ARRAYS_KEY)
+    return RunMetadata.from_json(
+        _read_json(file), held if isinstance(held, h5py.Group) else None
+    )
 
 
 _RECIPE_KEY = "recipe"
@@ -1082,7 +1113,7 @@ class HDF5Output(PlaneStore):
             msg = f"cannot read the output file {self._path}: {error}"
             raise OutputError(msg) from error
         try:
-            self._metadata = RunMetadata.from_json(_read_json(file))
+            self._metadata = _read_record(file)
         except OutputError:
             file.close()
             raise
@@ -1185,7 +1216,7 @@ class HDF5Output(PlaneStore):
                 raise OutputError("suspended optical file was replaced")
             file = h5py.File(self.path, "r+")
             try:
-                metadata = RunMetadata.from_json(_read_json(file))
+                metadata = _read_record(file)
                 if (
                     metadata.configuration_hash()
                     != self._require_metadata().configuration_hash()
@@ -1222,7 +1253,7 @@ class HDF5Output(PlaneStore):
         file : h5py.File
             The file being continued.
         """
-        metadata = RunMetadata.from_json(_read_json(file))
+        metadata = _read_record(file)
         self._outcome = _read_outcome(file)
         self._resume_outcome_pending = self._append_mode and self._outcome is not None
         self._terminal_checkpoint = _read_checkpoint(file, metadata)
@@ -1323,7 +1354,7 @@ class HDF5Output(PlaneStore):
             self._file = self._open_file()
         file = self._file
         if self._append_mode:
-            stored = RunMetadata.from_json(_read_json(file))
+            stored = _read_record(file)
             if stored.configuration_hash() != metadata.configuration_hash():
                 msg = (
                     f"{self._path} holds a different run and cannot be appended to; "
@@ -1380,7 +1411,7 @@ class HDF5Output(PlaneStore):
             # The one thing a reader wants without parsing the whole record: which
             # backend produced the file. The rest of the group is in `meta/json`.
             file.attrs["backend"] = metadata.backend.name
-        _write_json(file, metadata.to_json())
+        _write_record(file, metadata)
         logger.debug("opened %s for %s", self._path, metadata.configuration_hash()[:12])
 
     def _new_dataset(
@@ -1893,7 +1924,7 @@ def _stored_metadata(path: Path | str) -> tuple[RunMetadata, str]:
     """
     try:
         with h5py.File(path, "r") as file:
-            metadata = RunMetadata.from_json(_read_json(file))
+            metadata = _read_record(file)
             stamped = str(file.attrs.get("configuration_hash", ""))
     except OSError as error:
         msg = f"cannot read the output file {path}: {error}"
