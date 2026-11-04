@@ -522,7 +522,8 @@ class ArrayDigest:
             for block in np.nditer(
                 array,
                 flags=["external_loop", "buffered"],
-                op_flags=["readonly", "contig"],
+                # NumPy's stubs leave "contig" out of the flags they list.
+                op_flags=["readonly", "contig"],  # pyright: ignore[reportArgumentType]
                 op_dtypes=[little],
                 casting="equiv",
                 order="C",
