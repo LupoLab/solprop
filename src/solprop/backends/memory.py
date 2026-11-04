@@ -125,8 +125,7 @@ def mlx_rows(problem: KernelProblem, rows: dict[str, int]) -> dict[str, int]:
     temporaries), a scan's ``2 ceil(log2 n_to) + 4`` arrays over the node chunk, and the
     stages and their propagators are live at once; below it, a whole step's seven
     stages of rows are, the scans' levels released as they go. Measured against MLX's
-    own peak in
-    ``tests/backends/test_mlx.py``.
+    own peak.
 
     Parameters
     ----------
@@ -206,8 +205,8 @@ def mlx_stage_bytes(problem: KernelProblem) -> int:
 # Fine-grid column arrays a stage's graph holds beyond the reference's rows on the
 # spatial routes: MLX's transverse transforms copy their axes to the last one and
 # back, and the reference's in-place passes are separate arrays on the device.
-# Measured against MLX's peak on radial and Cartesian beams (tests/backends/test_mlx);
-# the radial count is nine since SEP 40's safety ramp gave the radial operator a rate,
+# Measured against MLX's peak on radial and Cartesian beams; the radial count is nine
+# since SEP 40's safety ramp gave the radial operator a rate,
 # with which MLX's peak on the 32-node beam varied from 7.0 to 7.8 MB between runs
 # against six columns' 7.2 MB (nine give 8.6 MB).
 _MLX_TRANSIENT_COLUMNS = {"free": 18, "radial": 9}

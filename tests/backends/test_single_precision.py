@@ -31,6 +31,8 @@ from solprop.backends.driver import StepDriver
 from solprop.backends.memory import (
     MLX_GRAPH_BUDGET,
     mlx_bounded,
+    mlx_graph_bytes,
+    mlx_stage_bytes,
 )
 from solprop.backends.numpy_ref import NumpyRefBackend, passes
 from solprop.backends.numpy_ref.batch import NumpyBatchBackend
@@ -1216,6 +1218,27 @@ def test_auto_resolves_to_mlx_where_metal_is_present(monkeypatch):
 def test_a_step_graph_past_the_budget_is_evaluated_stage_by_stage():
     assert mlx_bounded(7, MLX_GRAPH_BUDGET)
     assert not mlx_bounded(7, 1)
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        pytest.param(lambda: gnlse("single"), id="gnlse"),
+        pytest.param(lambda: capillary("single"), id="plasma"),
+        pytest.param(lambda: capillary("single", modes=4), id="multimode"),
+        pytest.param(
+            lambda: spatial_kerr("radial", "single", absorbed=True), id="radial"
+        ),
+        pytest.param(lambda: spatial_kerr("cartesian", "single"), id="cartesian"),
+        pytest.param(
+            lambda: capillary("single", envelope=True, plasma=True), id="envelope"
+        ),
+    ],
+)
+def test_the_mlx_graph_sizes_are_arithmetic(build):
+    """The sizes the device's limits are set from need no MLX installed."""
+    problem = build().translate()
+    assert mlx_graph_bytes(problem) > 0 and mlx_stage_bytes(problem) > 0
 
 
 @pytest.mark.parametrize("n", [255, 256])
