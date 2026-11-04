@@ -199,8 +199,8 @@ a third of them, but it loses the copy and the host's single-thread scan.
 
 **Cost, on a prototype.** Phases 1 and 2 were prototyped on a branch to test Option E and that estimate, before review.
 On an NVIDIA A40 (CUDA 12.8.1) at 384 x 384 x 600, eight fixed steps and four planes, `python -m benchmarks.device_split`:
-12 reads took 0.41 s together, and the point took 6.6 s against 5.8 s with no check and 9.8 s with #502's ring alone, with
-no state crossing. A40 timings say little of a data-centre card, whose reads this hasn't measured. On CPU, against
+the 8 reads took 0.41 s together, about 50 ms each, and the point took 6.6 s against 5.8 s with no check and 9.8 s with
+#502's ring alone, with no state crossing. A40 timings say little of a data-centre card, whose reads this hasn't measured. On CPU, against
 `main`, with #510 and #502 in, `python -m benchmarks ab`, Intel Xeon Gold 6240, 18 cores of one socket, passive
 threads, three rounds of one repeat, exploratory on a shared machine:
 
