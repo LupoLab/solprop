@@ -483,8 +483,8 @@ def test_a_field_free_default_run_crosses_no_state(
     outcome = cast("Any", output).outcome
     edge = outcome.execution["boundary_monitor"]["transverse"]
     assert edge["reads"] > 0
-    # Refusing `_observed_field` can't see a direct `field_to_host`, so native's own count
-    # says it too: nothing to the host, and the one load from it.
+    # Refusing `_observed_field` can't see a direct `field_to_host`, so native's own
+    # count says it too: nothing to the host, and the one load from it.
     assert to_host == 0
     assert from_host == field.nbytes
 
@@ -533,31 +533,20 @@ def test_the_edge_holds_memory_only_once_a_monitor_binds_it(route: str) -> None:
         backend.close()
 
 
-def test_an_estimate_counts_the_edge_only_for_a_run_that_reads_it() -> None:
-    # An estimate attaches no monitor, so it adds the row from the grid: against the same
-    # problem's own ledger before anything binds, it is exactly that row or nothing.
-    def difference(check: BoundaryCheck | None) -> tuple[int, Any]:
+def test_an_estimate_counts_the_edge_only_for_a_run_that_reads_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # An estimate attaches no monitor, so it adds the row from the grid. A sentinel,
+    # since a ledger's `fft_plan_heap_growth` is measured and differs between backends.
+    sentinel = 2**50
+
+    def estimated(check: BoundaryCheck | None) -> int:
         simulation = _case("cartesian")
         simulation.settings = dataclasses.replace(
             simulation.settings, boundary_check=check, backend="native"
         )
-        problem = simulation.translate()
-        backend = select(
-            "native",
-            problem,
-            grid=simulation.grid,
-            modes=simulation.modes,
-            profiles=simulation.profiles,
-        )
-        try:
-            held = sum(backend.memory_ledger().values())
-        finally:
-            backend.close()
-        return simulation.estimate().memory - held, simulation
+        return simulation.estimate().memory
 
-    added, simulation = difference(BoundaryCheck(budget=1.0, stop_factor=1.0))
-    monitor = simulation._boundary_monitor()
-    assert monitor is not None
-    assert monitor.transverse is not None
-    assert added == transverse_edge_bytes(monitor.transverse.space)
-    assert difference(None)[0] == 0
+    monkeypatch.setattr(NativeBackend, "edge_memory", lambda _self, _space: sentinel)
+    assert estimated(BoundaryCheck(budget=1.0, stop_factor=1.0)) >= sentinel
+    assert estimated(None) < sentinel
