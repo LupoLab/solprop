@@ -403,8 +403,12 @@ class NativeBackend(StepDriver[_core.State]):
         self._native_state.set_initial(flat, native_noise)
         self._native_state.clear_fsal()
         if self._adams is not None:
-            self._host_state = self._native_state.field_to_host().reshape(
-                self._problem.shape
+            # The host engine's copy of the accepted state; a resident march reads the
+            # native state when it is asked, and holds no such volume.
+            self._host_state = (
+                None
+                if self._resident is not None
+                else self._native_state.field_to_host().reshape(self._problem.shape)
             )
             self._adams.reset()
 
@@ -424,11 +428,10 @@ class NativeBackend(StepDriver[_core.State]):
         With the resident history (solprop SEP 16 phase 3b) the march reads it only to
         report a stopped run, so it is copied from the engine when asked for.
         """
-        if self._host_state is None:
-            raise BackendError("no initial state has been loaded")
+        self._require_state()
         if self._resident is not None:
             return self._native_state.field_to_host().reshape(self._problem.shape)
-        return self._host_state
+        return cast("ComplexArray", self._host_state)
 
     def _adams_engine(
         self,
@@ -774,7 +777,7 @@ class NativeBackend(StepDriver[_core.State]):
         the field here, so that a restored march keeps adding it to its sources.
         """
         self._z = z
-        self._host_state = state
+        self._host_state = None if self._resident is not None else state
         self._native_state.set_initial(
             np.ascontiguousarray(state.reshape(-1)),
             np.empty(0, dtype=np.complex128)
@@ -1731,11 +1734,18 @@ class NativeBackend(StepDriver[_core.State]):
         return _core.available_device_memory()
 
     def memory_ledger(self) -> dict[str, int]:
-        """Return every persistent native allocation's byte count by role."""
-        return {
+        """Return every persistent native allocation's byte count by role.
+
+        The host engine's copy of the accepted state, which the Adams march keeps on the
+        host when its history is not resident, is listed beside them.
+        """
+        ledger = {
             str(name): int(value)
             for name, value in self._native_state.memory_ledger().items()
         }
+        held = self._host_state
+        ledger["adams_host_state"] = 0 if held is None else held.nbytes
+        return ledger
 
     def close(self) -> None:
         """Release native plans and views; repeated calls have no effect."""
@@ -1744,6 +1754,7 @@ class NativeBackend(StepDriver[_core.State]):
             _host_blas.release()
         self._state = None
         self._noise = None
+        self._host_state = None
         self._closed = True
 
 

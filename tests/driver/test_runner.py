@@ -12,8 +12,10 @@ pieces of state a load restores (section 4.7) are structural and compared exactl
 
 import dataclasses
 import gc
+import math
 import threading
 import types
+import warnings
 import weakref
 from typing import cast
 
@@ -28,7 +30,7 @@ from solprop.backends.registry import available, select
 from solprop.boundaries import absorber
 from solprop.driver import Simulation, SimulationRunner
 from solprop.driver.simulation import check_derived_problem
-from solprop.exceptions import DriverError, TranslationError
+from solprop.exceptions import DriverError, SolpropWarning, TranslationError
 from solprop.log import NullReporter
 from solprop.noise import NoiseRealisation, spatial_noise
 from solprop.output import MemoryOutput, open_file
@@ -42,7 +44,7 @@ from solprop.output.schema import (
 )
 from solprop.pulses import GaussianPulse
 from solprop.spatial import SpatialFlux
-from solprop.stepper import FixedSchedule, RungeKutta
+from solprop.stepper import FixedSchedule, Multistep, RungeKutta
 
 LENGTH = 1e-3
 STEPS = 10
@@ -481,6 +483,61 @@ def test_a_runner_s_inline_record_outlives_the_caller_s_changes():
     assert output.metadata is not None
     recorded = cast("np.ndarray", output.metadata.configuration["initial"])
     assert np.array_equal(recorded, before)
+
+
+@pytest.mark.parametrize("route", ["modal", "spatial"])
+def test_a_resident_adams_march_holds_no_host_copy_of_the_state(route):
+    """The native engine holds the state; a stopped run's report reads it on demand."""
+    pytest.importorskip("solprop_native")
+    simulation = capillary("native") if route == "modal" else cartesian("native")
+    if route == "spatial":
+        simulation.settings = dataclasses.replace(
+            simulation.settings, integrator=Multistep()
+        )
+    with simulation.runner() as runner:
+        backend = cast("StepDriver", runner.backend)
+        assert getattr(backend, "_resident", None) is not None
+        output = stored(runner.run(np.array(simulation._field0), progress="none"))
+        assert getattr(backend, "_host_state", ...) is None
+        assert runner.backend.memory_ledger()["adams_host_state"] == 0
+        # What a budget stop reports is the engine's: the state, read when it is asked.
+        assert np.array_equal(
+            backend._adams_state(), backend._observed_field(backend._require_state())
+        )
+    assert output.n_saved > 1
+    assert getattr(backend, "_host_state", ...) is None
+
+
+def test_a_host_adams_march_lists_its_copy_of_the_state_and_closes_it(monkeypatch):
+    """Solprop's host engine reads the state on the host, one volume in the ledger.
+
+    A flow off the eigenbasis route is what takes that engine (``_adams_engine``).
+    """
+    pytest.importorskip("solprop_native")
+    flow_parity = pytest.importorskip("flow_parity")
+    monkeypatch.setattr(
+        "solprop.translate.coupled.eigenbasis_limit", lambda n_modes: 0.0
+    )
+    with warnings.catch_warnings():
+        for category in (*flow_parity.QUIET, SolpropWarning):
+            warnings.simplefilter("ignore", category)
+        simulation = flow_parity.build("scalar", schedule=None)
+        simulation.settings = dataclasses.replace(
+            simulation.settings, integrator=Multistep(), backend="native"
+        )
+        problem = simulation.translate()
+        backend = select(
+            "native", problem, grid=simulation.grid, modes=simulation.modes
+        )
+    try:
+        assert getattr(backend, "_resident", ...) is None
+        assert backend.memory_ledger()["adams_host_state"] == 0
+        backend.set_initial(problem.initial.field0, None)
+        volume = 16 * math.prod(problem.shape)
+        assert backend.memory_ledger()["adams_host_state"] == volume
+    finally:
+        backend.close()
+    assert getattr(backend, "_host_state", ...) is None
 
 
 @pytest.mark.medium
