@@ -619,6 +619,20 @@ def test_a_read_of_a_state_filling_its_planes_takes_no_copy() -> None:
     assert edge._occupied_planes(flat) is flat  # pyright: ignore[reportPrivateUsage]
 
 
+def test_a_read_of_light_fainter_than_its_resolution_keeps_no_plane() -> None:
+    # Most of the launch has been absorbed: every plane is left out, and the read
+    # reports an empty edge rather than failing on an empty transform.
+    space = LineGrid(200e-6, 128)
+    edge = _edge(space, None)
+    beam = _faint_planes(space, 0.0)
+    _launched(edge, beam)
+    state = 1e-6 * beam
+    flat = state.reshape(state.shape[0], -1)
+    assert edge._occupied_planes(flat).shape == (128, 0)  # pyright: ignore[reportPrivateUsage]
+    edge.read(state, 1e-4)
+    assert np.all(np.asarray(edge.summary()["edge_max_raw"], dtype=float) == 0.0)
+
+
 def test_a_requested_collar_reads_every_plane() -> None:
     # Its rate is credited as a removal, not judged against the warning.
     space = LineGrid(200e-6, 128, collar_fraction=0.5)
