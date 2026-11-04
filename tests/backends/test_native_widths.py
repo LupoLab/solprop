@@ -312,6 +312,45 @@ def test_a_planar_fluence_is_the_reference_s_at_every_node(monkeypatch):
     _check_fluence(monkeypatch, "planar", "envelope")
 
 
+def _check_axis(route):
+    """One route's on-axis intensity: the far-field slots', or the planar kernel's."""
+    grid, problem = _route(route)
+    field = _field_for(route, grid, problem)
+    spec = StatsSpec(names=("on_axis_intensity", "peak_intensity"))
+    want = _measure("numpy_ref", grid, problem, field, spec)
+    got = _measure("native", grid, problem, field, spec)
+    # The fluence's budget without the interpolation's factor of eight.
+    assert_within(
+        got["on_axis_intensity"],
+        want["on_axis_intensity"],
+        _width_budget(grid, problem) / 8,
+        scale=float(np.max(want["peak_intensity"])),
+        what=f"{route} axis",
+    )
+
+
+@native_only
+@pytest.mark.parametrize("route", ["plane", "plane_scalar", "line", "planar"])
+def test_the_on_axis_intensity_is_the_reference_s(route):
+    _check_axis(route)
+
+
+@pytest.mark.gpu
+@native_only
+@pytest.mark.parametrize("route", ["plane", "plane_scalar", "line", "planar"])
+def test_a_device_s_on_axis_intensity_is_the_reference_s(route):
+    _require_device()
+    _check_axis(route)
+
+
+@pytest.mark.gpu
+@native_only
+@pytest.mark.parametrize("route", ["plane", "plane_scalar", "line", "planar"])
+def test_a_device_s_fluence_is_the_reference_s_at_every_node(monkeypatch, route):
+    _require_device()
+    _check_fluence(monkeypatch, route, "envelope")
+
+
 class _NoState:
     """A native state that refuses to bring its field across."""
 

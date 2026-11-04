@@ -2170,6 +2170,63 @@ Xeon Gold 6240 (18 cores of one socket, passive threads, three rounds of one rep
 at one thread and 0.882 at sixteen, `radial_filament_256` 0.999 and 0.994, `line` 0.983 and 0.990, `planar` 0.997 and 0.980; geometric
 mean 0.975, fields to 4.2e-15, the same work.
 
+### A plane's widths and its axis where the field lives
+
+`beam_radius` was the costliest statistic on a device by far: about 1.0 s a call on an NVIDIA H200 and 0.9 s on an
+AMD Instinct MI325X at 768 x 768 x 600 (`python -m benchmarks.device_split`), against 77 and 86 ms for `peak_intensity`
+and about 230 ms for a step. A width ran `peak_intensity`'s kernels and copied 9.4 MiB, so most of that second lay in what
+else it did, and it did two things:
+
+- **A sum per bin over every column.** A separable width formed the axis's fluence, which only a radial width reads,
+  through the kernel `on_axis_intensity` uses: for each of the 600 bins, twice, one work item walking all 589,824 columns
+  in turn. It has the shape of the `energy` kernel an earlier entry replaced, a single thread's walk across the plane.
+- **The azimuthal average in Python, on one host thread.** About 3.7 million bilinear samples, 0.23 s on an Intel Xeon
+  Gold 6240.
+
+On that CPU the two make up about 80 to 90 % of what a width took beyond `peak_intensity` (the table's "before" columns:
+the axis's row plus 64 or 240 ms). Both are gone. A width no longer forms the axis's fluence, and `on_axis_intensity`,
+which the default spec asks for, reads the same sums from the far-field pass's team-local bands, the slots
+`on_axis_spectrum` reads. A separable fluence takes no time transform: by Parseval's theorem it is a sum over the bins
+that the transverse volumes already hold. On a Cartesian plane the centroid, the second moment and the rings are
+kernels too, so that about 780 values cross at 768 x 768, not 1.18 million. The on-axis plasma statistics read their row
+natively, not a copy of the state, and `species_statistics` lost a Python loop over the nodes that took 0.2 s per
+species at 768 x 768, with its additions unchanged.
+
+**None of this is measured on a device.** That these two make up the devices' second is inferred from the CPU's split
+and the kernels' shape. `python -m benchmarks.device_split` now reports `on_axis_intensity`, `fwhm_r`, the default spec, a
+width's native moments and the same azimuthal average on the host, which will settle it.
+
+On a CPU: one call, the median of at least three after a warm one, of the launch of that module's Kerr beam, against
+`facf2b23`, on an Intel Xeon Gold 6240 shared with other work, in ms:
+
+| | 768 x 768 x 600, 9 threads, before | after | 384 x 384 x 600, 9 threads, before | after | 192 x 192 x 600, 1 thread, before | after |
+|---|---:|---:|---:|---:|---:|---:|
+| `energy` | 226 | 208 | 55 | 54 | 114 | 111 |
+| `beam_spectrum` | 657 | 600 | 162 | 150 | 307 | 315 |
+| `on_axis_spectrum` | 873 | 743 | 193 | 184 | 381 | 388 |
+| `absorbed_power` | 741 | 733 | 186 | 181 | 373 | 378 |
+| `on_axis_intensity` | 3,224 | 746 | 686 | 194 | 818 | 429 |
+| `peak_intensity` | 6,567 | 6,467 | 1,688 | 1,556 | 2,037 | 1,992 |
+| `beam_radius` | 10,863 | 3,507 | 2,528 | 788 | 2,861 | 804 |
+| `fwhm_r` | 11,119 | 3,532 | 2,501 | 784 | 2,858 | 803 |
+| The default spec | 11,341 | 8,437 | 2,606 | 2,061 | 3,448 | 3,040 |
+
+The two builds' widths of that state agree to 7e-15 at 768 x 768. A whole run moves little, since these take one plane.
+`python -m benchmarks ab` against `facf2b23` on the same machine, complete runs, passive threads, one repeat, median and
+range over the rounds, the same work and identical fields in every row:
+
+| case | 1 thread, three rounds | 9 threads |
+|---|---:|---:|
+| `kerr_beam_192` | 0.969 (0.891–0.988) | 1.004 (0.997–1.019), five rounds |
+| `kerr_beam_384` | | 1.015 (0.970–1.193), three rounds |
+| `line` | 0.913 (0.879–1.047) | 1.005 (0.948–1.065), five rounds |
+| `planar` | 1.022 (0.972–1.028) | 1.030 (0.833–1.084), three rounds |
+| `radial_filament_256` | 1.024 (1.000–1.041) | 1.056 (1.014–1.106), three rounds |
+
+Other work shared the machine during the three-round rows, which is their spread. The five-round rows repeat two of them
+when it was quieter, 1.076 and 1.077 before. `planar`'s and `radial_filament_256`'s statistics took only the small change
+to their packed output and fluence, and the same comparison before the on-axis change gave 1.003 and 0.999 at 9 threads.
+
 ## Reference tables
 
 These tables back the indicative results above.

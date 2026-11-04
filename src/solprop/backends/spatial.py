@@ -738,7 +738,8 @@ def fluence_budget(
     Parameters
     ----------
     magnitude : numpy.ndarray
-        The fluence magnitude at each node in J/m^2.
+        The fluence magnitude at each node in J/m^2, or a bound on it from above: a
+        backend that forms the fluence without a time transform has only the bound.
     n_terms : int
         ``n_pol * n_t + n_modes``.
 
