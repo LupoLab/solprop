@@ -94,6 +94,24 @@ struct CrossedBytes {
 struct EdgeNumbers {
   std::vector<double> sums;
   std::vector<double> columns;
+  /** A requested collar's `(inward, windowed)` per line. */
+  std::vector<double> strip;
+  /** A requested collar's rectified inward current. */
+  double current{};
+};
+
+/** A requested collar's lines, as Python describes them (solprop SEP 44): for each, its
+    axis (0 `r`, 1 `x`, 2 `y`), its count of strip nodes and those nodes, its window,
+   its inward bins `[first, last)`, the factor on its strip's sums and the measure on
+   its current, and its onset's node, before and after, with the distance between the
+    last two. An onset whose node is `no_onset` has no slope to read. */
+struct EdgeLines {
+  static constexpr std::size_t no_onset = static_cast<std::size_t>(-1);
+  std::vector<std::size_t> axes, counts, positions, inward, onsets;
+  std::vector<double> windows, factors, measures, steps, scale;
+  double k_min{};
+  /** The most one batch of a padded transform holds. */
+  std::size_t batch_bytes{};
 };
 
 /** What a split-step collar's finish reads of the power it finds (solprop SEP 21,
@@ -915,7 +933,10 @@ public:
   /** The bytes through this state's crossings since it was built, each way. */
   [[nodiscard]] CrossedBytes crossed_bytes() const noexcept;
   /** The edge's region sums and each mode's energy, where the state lives. */
-  EdgeNumbers edge_reading(bool whole, bool totals);
+  /** A requested collar's lines, whose strip and current a reading then forms. */
+  void bind_edge_lines(const EdgeLines& lines);
+  EdgeNumbers edge_reading(bool faces, bool whole, bool totals, bool strip,
+                           bool current);
   /** The threads a large crossing takes (`crossing.hpp`), from solprop's budget. */
   void set_crossing_workers(std::size_t workers) noexcept;
   [[nodiscard]] std::vector<Complex> stage_to_host(std::size_t stage) const;

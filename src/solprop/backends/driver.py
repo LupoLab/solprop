@@ -2019,7 +2019,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         return edge.reduction.reading(
             np.asarray(self._observed_field(state)[0]),
             faces=faces,
-            current=edge.current_scale if current else None,
+            current=current,
             full=full,
         )
 

@@ -42,7 +42,7 @@ def _launch(edge: TransverseEdge, state: np.ndarray, z: float, **options: Any) -
     reading = edge.reduction.reading(
         state,
         full=not edge.resumed,
-        current=edge.current_scale if edge.every_step and edge.resumed else None,
+        current=edge.every_step and edge.resumed,
     )
     edge.launch(reading, z, clean_columns=clean, **options)
 
@@ -54,12 +54,12 @@ def _read(edge: TransverseEdge, state: np.ndarray, z: float) -> None:
 
 def _current(edge: TransverseEdge, state: np.ndarray) -> float:
     """Return the state's inward current as a share of the launch."""
-    return edge.reduction.current(state, *edge.current_scale) / edge._launch  # pyright: ignore[reportPrivateUsage]
+    return edge.reduction.current(state) / edge._launch  # pyright: ignore[reportPrivateUsage]
 
 
 def _step(edge: TransverseEdge, state: np.ndarray, z: float) -> None:
     """Accumulate `edge`'s current on a state's host reading."""
-    edge.step(edge.reduction.current(state, *edge.current_scale), z)
+    edge.step(edge.reduction.current(state), z)
 
 
 def edge_record(output: object) -> dict[str, Any]:

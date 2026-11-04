@@ -21,6 +21,7 @@ from typing import Any, ClassVar, Literal, Protocol, cast
 
 import numpy as np
 import numpy.typing as npt
+from solprop import transverse_monitor
 from solprop._helpers import Helpers
 from solprop._interrupts import committing
 from solprop._process import acquire_host_blas, thread_budget
@@ -75,7 +76,7 @@ from solprop.exceptions import (
     ConvergenceError,
     HostMarchWarning,
 )
-from solprop.grid import TimeGrid
+from solprop.grid import RadialGrid, TimeGrid
 from solprop.modes.protocol import Mode
 from solprop.monitor import BoundaryEnergies, BoundaryMonitor
 from solprop.noise import NoiseRealisation
@@ -1107,7 +1108,7 @@ class NativeBackend(StepDriver[_core.State]):
             )
             self._bound_buckets = crossing.buckets
         edge = getattr(monitor, "transverse", None)
-        if edge is not None and not edge.every_step:
+        if edge is not None:
             # Weights and no faces: what it reads comes back to the edge's judging.
             tables = edge.tables
             synthesis = edge.reduction.synthesis()
@@ -1120,6 +1121,49 @@ class NativeBackend(StepDriver[_core.State]):
                 else np.ascontiguousarray(synthesis, dtype=np.float64).reshape(-1),
                 int(np.argmax(tables.rows)),
             )
+            self._bind_edge_lines(edge)
+
+    def _bind_edge_lines(self, edge: TransverseEdge) -> None:
+        """Hand native a requested collar's lines, as arrays (solprop SEP 44).
+
+        Parameters
+        ----------
+        edge : solprop.transverse_monitor.TransverseEdge
+            The run's edge, whose lines may be none.
+        """
+        lines = edge.reduction.lines
+        axes = {"r": 0, "x": 1, "y": 2}
+        none = 2**64 - 1
+        strip = [np.asarray(line.strip, dtype=np.uint64) for line in lines]
+        window = [np.asarray(line.window, dtype=np.float64) for line in lines]
+        onsets = [
+            line.onset if line.onset is not None else (none, 0, 0) for line in lines
+        ]
+        space = edge.space
+        self._native_state.bind_edge_lines(
+            np.array([axes[line.axis] for line in lines], dtype=np.uint64),
+            np.array([array.size for array in strip], dtype=np.uint64),
+            np.concatenate(strip) if strip else np.empty(0, dtype=np.uint64),
+            np.concatenate(window) if window else np.empty(0, dtype=np.float64),
+            np.array([line.inward for line in lines], dtype=np.uint64).reshape(-1),
+            np.array(
+                [
+                    line.spacing / (2 * array.size) * line.measure
+                    if array.size
+                    else 0.0
+                    for line, array in zip(lines, strip, strict=True)
+                ],
+                dtype=np.float64,
+            ),
+            np.array([line.measure for line in lines], dtype=np.float64),
+            np.array(onsets, dtype=np.uint64).reshape(-1),
+            np.array([line.onset_step for line in lines], dtype=np.float64),
+            float(edge.k_min),
+            np.sqrt(np.asarray(space.r, dtype=np.float64))
+            if lines and isinstance(space, RadialGrid)
+            else np.empty(0, dtype=np.float64),
+            transverse_monitor.STRIP_BATCH_BYTES,
+        )
 
     def edge_memory(self, space: object) -> int:
         """Return what reading the edge holds in the state's memory space (SEP 44).
@@ -1134,7 +1178,10 @@ class NativeBackend(StepDriver[_core.State]):
         int
             The bytes of a `transverse_edge` ledger row, from the grid alone.
         """
-        return transverse_edge_bytes(cast("Any", space))
+        _, _, n_pol, n_omega = self._problem.shape
+        return transverse_edge_bytes(
+            cast("Any", space), self._problem.transverse, n_pol, n_omega
+        )
 
     def _edge_reading(
         self,
@@ -1166,19 +1213,27 @@ class NativeBackend(StepDriver[_core.State]):
             The reading, of which only numbers crossed. A requested collar still reduces
             a host copy of the state.
         """
-        if edge.every_step:
-            return super()._edge_reading(
-                state, edge, faces=faces, current=current, full=full
-            )
         if state is not self._native_state:
             raise BackendError("the read state does not belong to this backend")
-        sums, columns = state.edge_reading(full, False)
+        collar = edge.every_step
+        sums, columns, strip, rate = state.edge_reading(
+            faces, full, collar, faces and collar, current
+        )
+        rate_value = float(rate) if current else None
+        if not faces:
+            return EdgeReading(current=rate_value)
         values = np.asarray(sums).reshape(-1)
+        if full:
+            clip, totals = values[4:8], values[8:12]
+        else:
+            clip, totals = None, values[4:8] if collar else None
         return EdgeReading(
             faces=values[:4],
-            clip=values[4:8] if full else None,
-            totals=values[8:12] if full else None,
+            clip=clip,
+            totals=totals,
             columns=np.asarray(columns).reshape(-1),
+            strip=np.asarray(strip).reshape(-1, 2) if collar else None,
+            current=rate_value,
         )
 
     def _boundary_energies(self, state: _core.State) -> BoundaryEnergies:

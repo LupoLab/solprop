@@ -186,14 +186,11 @@ def estimate(
     )
     try:
         memory = sum(backend.memory_ledger().values())
-        # Bound only when a monitor attaches, which an estimate doesn't do. A requested
-        # collar still reads a host copy (SEP 44).
-        design = problem.transverse
+        # Bound only when a monitor attaches, which an estimate doesn't do (SEP 44).
         if (
             settings.boundary_check is not None
             and simulation.medium is not None
             and isinstance(simulation.spatial_grid, RadialGrid | FreeGrid | PlanarGrid)
-            and not (design is not None and design.has_collar)
         ):
             memory += backend.edge_memory(simulation.spatial_grid)
         backend.set_initial(problem.initial.field0, None, z=problem.initial.z)

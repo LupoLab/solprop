@@ -267,11 +267,48 @@ def _guard_width(space: RadialGrid | FreeGrid | PlanarGrid) -> float:
     return GUARD * min(widths)
 
 
-def transverse_edge_bytes(space: RadialGrid | FreeGrid | PlanarGrid) -> int:
-    """Return what a native read of the edge holds resident, from the grid alone.
+@dataclass(frozen=True, eq=False)
+class EdgeLine:
+    """A face's outward normal, as a requested collar's reductions walk it.
 
-    Three tables of four binary64 rows on the nodes, the columns' energies, and radially
-    the synthesis. A run reading no edge holds none of it.
+    One description for the host's reduction and native's, so that they differ only in
+    their arithmetic. Python chooses every node, window and bin here, and native does no
+    tie-breaking of its own.
+
+    Attributes
+    ----------
+    axis : {"r", "x", "y"}
+        The grid axis the line runs along.
+    measure : float
+        What a row's sum is multiplied by: the cross-section of one row.
+    strip : numpy.ndarray
+        The axis's nodes in the return strip, by increasing outward coordinate; empty
+        when there are too few of them to resolve a direction.
+    window : numpy.ndarray
+        The Kaiser(8) window on those nodes.
+    spacing : float
+        Their mean spacing, m.
+    inward : tuple of int
+        The padded transform's bins ``[first, last)``, inward at ``|q| >= 16 / s``.
+    onset : tuple of int or None
+        The axis nodes at the requested size and either side of it, in outward order;
+        ``None`` when the node has no neighbour on one side.
+    onset_step : float
+        The outward distance between those two neighbours, m.
+    """
+
+    axis: str
+    measure: float
+    strip: Int[np.ndarray, " m"]
+    window: Float[np.ndarray, " m"]
+    spacing: float
+    inward: tuple[int, int]
+    onset: tuple[int, int, int] | None
+    onset_step: float
+
+
+def _requested_size(space: RadialGrid | FreeGrid | PlanarGrid) -> float:
+    """Return the requested half-size on the narrowest axis, m.
 
     Parameters
     ----------
@@ -280,14 +317,215 @@ def transverse_edge_bytes(space: RadialGrid | FreeGrid | PlanarGrid) -> int:
 
     Returns
     -------
+    float
+        The size, m.
+    """
+    if isinstance(space, RadialGrid):
+        return space.radius
+    if isinstance(space, PlanarGrid):
+        return space.radius_y
+    if isinstance(space, LineGrid):
+        return space.radius_x
+    return min(space.radius_x, space.radius_y)
+
+
+def _edge_line(
+    axis: str,
+    s: Float[np.ndarray, " n"],
+    measure: float,
+    bounds: tuple[float, float],
+    size: float,
+) -> EdgeLine:
+    """Return one line's description, from its outward coordinate.
+
+    Parameters
+    ----------
+    axis : str
+        The grid axis.
+    s : numpy.ndarray
+        The outward coordinate of each of its nodes, m.
+    measure : float
+        What a row's sum is multiplied by.
+    bounds : tuple of float
+        The return strip, ``(a, b)`` in `s`, m.
+    size : float
+        The requested half-size, m.
+
+    Returns
+    -------
+    solprop.transverse_monitor.EdgeLine
+        The description.
+    """
+    a, b = bounds
+    selected = np.nonzero((s >= a) & (s <= b))[0]
+    strip = np.empty(0, dtype=np.int64)
+    window = np.empty(0)
+    spacing = 0.0
+    inward = (0, 0)
+    if selected.size >= 4:
+        strip = selected[np.argsort(s[selected])]
+        coordinate = s[strip]
+        spacing = float(np.mean(np.diff(coordinate)))
+        u = 2 * (coordinate - a) / (b - a) - 1
+        window = np.i0(8.0 * np.sqrt(np.clip(1 - u * u, 0.0, 1.0))) / np.i0(8.0)
+        # solprop propagates as exp(-i k_z z) (the operator carries -i(k_z - k)), so
+        # a component exp(i q s) travels towards smaller s: inward is q > 0.
+        count = 2 * strip.size
+        q = 2 * np.pi * np.fft.fftfreq(count, d=spacing)
+        bins = np.nonzero(q >= 16.0 / (b - a))[0]
+        if bins.size:
+            inward = (int(bins[0]), int(bins[-1]) + 1)
+    node = int(np.argmin(np.abs(s - size)))
+    # A node without a neighbour on each side has no slope to read.
+    order = np.argsort(s)
+    position = int(np.nonzero(order == node)[0][0])
+    onset = None
+    onset_step = 0.0
+    if 0 < position < s.size - 1:
+        before, after = int(order[position - 1]), int(order[position + 1])
+        onset = (node, before, after)
+        onset_step = float(s[after] - s[before])
+    return EdgeLine(axis, measure, strip, window, spacing, inward, onset, onset_step)
+
+
+def edge_lines(
+    space: RadialGrid | FreeGrid | PlanarGrid, design: SpatialAbsorberDesign | None
+) -> tuple[EdgeLine, ...]:
+    """Return the lines a requested collar's strip and current run along.
+
+    Parameters
+    ----------
+    space : solprop.grid.RadialGrid, solprop.grid.FreeGrid or PlanarGrid
+        The run's grid.
+    design : solprop.spatial_absorber.SpatialAbsorberDesign or None
+        The run's transverse boundary.
+
+    Returns
+    -------
+    tuple of solprop.transverse_monitor.EdgeLine
+        One per direction along each axis; none without a collar.
+    """
+    if design is None or not design.has_collar:
+        return ()
+    size = _requested_size(space)
+    width = min(design.width)
+    bounds = (size - min(0.5 * width, 0.25 * size), size + width)
+    if isinstance(space, RadialGrid):
+        return (_edge_line("r", np.asarray(space.r), 2 * np.pi, bounds, size),)
+    if isinstance(space, PlanarGrid):
+        y = np.asarray(space.y)
+        return (
+            _edge_line("y", y, 1.0, bounds, size),
+            _edge_line("y", -y, 1.0, bounds, size),
+        )
+    x = np.asarray(space.x)
+    dy = 1.0 if isinstance(space, LineGrid) else float(space.y[1] - space.y[0])
+    lines = [
+        _edge_line("x", x, dy, bounds, size),
+        _edge_line("x", -x, dy, bounds, size),
+    ]
+    if not isinstance(space, LineGrid):
+        y = np.asarray(space.y)
+        dx = float(space.x[1] - space.x[0])
+        lines += [
+            _edge_line("y", y, dx, bounds, size),
+            _edge_line("y", -y, dx, bounds, size),
+        ]
+    return tuple(lines)
+
+
+STRIP_BATCH_BYTES = 2**28
+"""The most a batch of a strip's padded transforms holds on the state's memory space."""
+
+
+def line_rows(
+    space: RadialGrid | FreeGrid | PlanarGrid, line: EdgeLine, n_pol: int, n_omega: int
+) -> int:
+    """Return how many rows of values a line carries.
+
+    Parameters
+    ----------
+    space : solprop.grid.RadialGrid, solprop.grid.FreeGrid or PlanarGrid
+        The run's grid.
+    line : solprop.transverse_monitor.EdgeLine
+        The line.
+    n_pol, n_omega : int
+        The state's polarisations and bins.
+
+    Returns
+    -------
+    int
+        The rows: one per polarisation and bin, and per transverse position across the
+        line, or per slab channel on the planar kind.
+    """
+    planes = n_pol * n_omega
+    if isinstance(space, RadialGrid):
+        return planes
+    if isinstance(space, PlanarGrid):
+        return planes * space.n_p
+    return planes * (space.n_y if line.axis == "x" else space.n_x)
+
+
+def strip_batch(line: EdgeLine, rows: int) -> int:
+    """Return how many of a line's rows one batch of its padded transform takes.
+
+    Parameters
+    ----------
+    line : solprop.transverse_monitor.EdgeLine
+        The line, with nodes in its strip.
+    rows : int
+        Its rows in all.
+
+    Returns
+    -------
+    int
+        The rows in a batch, under :data:`STRIP_BATCH_BYTES`.
+    """
+    return min(rows, max(1, STRIP_BATCH_BYTES // (16 * 2 * line.strip.size)))
+
+
+def transverse_edge_bytes(
+    space: RadialGrid | FreeGrid | PlanarGrid,
+    design: SpatialAbsorberDesign | None,
+    n_pol: int,
+    n_omega: int,
+) -> int:
+    """Return what a native read of the edge holds resident, from the grid alone.
+
+    Three tables of four binary64 rows on the nodes and the columns' energies; radially
+    the synthesis; and with a requested collar each line's nodes and window, and one
+    padded buffer per distinct batch. A run reading no edge holds none of it.
+
+    Parameters
+    ----------
+    space : solprop.grid.RadialGrid, solprop.grid.FreeGrid or PlanarGrid
+        The run's grid.
+    design : solprop.spatial_absorber.SpatialAbsorberDesign or None
+        Its transverse boundary.
+    n_pol, n_omega : int
+        The state's polarisations and bins.
+
+    Returns
+    -------
     int
         The bytes.
     """
     columns = int(np.asarray(space.spectral_weights).size)
     if isinstance(space, RadialGrid):
-        return 8 * (12 * space.n_r + columns + space.n_r**2)
-    nodes = space.n_y if isinstance(space, PlanarGrid) else space.n_y * space.n_x
-    return 8 * (12 * nodes + columns)
+        total = 8 * (12 * space.n_r + columns + space.n_r**2)
+    else:
+        nodes = space.n_y if isinstance(space, PlanarGrid) else space.n_y * space.n_x
+        total = 8 * (12 * nodes + columns)
+    lines = edge_lines(space, design)
+    if isinstance(space, RadialGrid) and lines:
+        total += 8 * space.n_r  # the scale of the radial line's values
+    buffers: set[tuple[int, int]] = set()
+    for line in lines:
+        total += 16 * line.strip.size
+        if line.strip.size:
+            rows = line_rows(space, line, n_pol, n_omega)
+            buffers.add((strip_batch(line, rows), 2 * line.strip.size))
+    return total + sum(16 * rows * count for rows, count in buffers)
 
 
 def _radial_inverse(space: RadialGrid) -> Float[np.ndarray, "n_r n_r"]:
@@ -322,13 +560,16 @@ class HostEdgeReduction:
         The run's grid.
     tables : solprop.transverse_monitor.EdgeTables
         What a state's node energies are summed with.
-    strip_bounds : tuple of float or None
-        A requested collar's return strip in the outward coordinate, m.
+    lines : tuple of solprop.transverse_monitor.EdgeLine
+        A requested collar's lines; none without one.
+    k_min : float
+        The smallest wavenumber over the requested band, rad/m.
     """
 
     space: RadialGrid | FreeGrid | PlanarGrid
     tables: EdgeTables
-    strip_bounds: tuple[float, float] | None
+    lines: tuple[EdgeLine, ...]
+    k_min: float
     _inverse: np.ndarray | None = field(default=None, init=False)
     # The host's transverse transforms take the process's thread budget (ADR-052).
     _workers: int = field(default_factory=lambda: thread_budget().threads, init=False)
@@ -338,7 +579,7 @@ class HostEdgeReduction:
         state: Complex[np.ndarray, "n_modes n_pol n_omega"],
         *,
         faces: bool = True,
-        current: tuple[float, float] | None = None,
+        current: bool = False,
         full: bool = False,
     ) -> EdgeReading:
         """Return what the edge asked of a state.
@@ -349,9 +590,8 @@ class HostEdgeReduction:
             One batch member's spectral columns.
         faces : bool, optional
             Whether to read the nodes, the columns and any strip.
-        current : tuple of float or None, optional
-            ``(size, k_min)``: to read the current at the onset of that requested size,
-            m, on that wavenumber, rad/m.
+        current : bool, optional
+            Whether to read a collar's inward current.
         full : bool, optional
             Whether every node is wanted, as a launch wants, not only the read's rows.
 
@@ -360,11 +600,11 @@ class HostEdgeReduction:
         solprop.transverse_monitor.EdgeReading
             The reading.
         """
-        rate = None if current is None else self.current(state, *current)
+        rate = self.current(state) if current else None
         if not faces:
             return EdgeReading(current=rate)
         nodes = self.node_power(state, full=full)
-        collar = self.strip_bounds is not None
+        collar = bool(self.lines)
         return EdgeReading(
             faces=self.tables.faces @ nodes,
             clip=self.tables.clip @ nodes if full else None,
@@ -473,10 +713,10 @@ class HostEdgeReduction:
         """
         return _row_energy(state.reshape(state.shape[0], -1))
 
-    def lines(
+    def _axis_values(
         self, state: Complex[np.ndarray, "n_modes n_pol n_omega"]
-    ) -> list[tuple[np.ndarray, np.ndarray, float]]:
-        """Return the field along each face's outward normal, line by line.
+    ) -> dict[str, np.ndarray]:
+        """Return the field along each axis's nodes, line by line.
 
         Parameters
         ----------
@@ -485,35 +725,23 @@ class HostEdgeReduction:
 
         Returns
         -------
-        list of tuple
-            ``(s, values, measure)``: the outward coordinate of the line's nodes, m;
-            the field on them, ``(n_nodes, n_rows)`` with one row per frequency,
-            polarisation and transverse line (``sqrt(r) E`` radially); and the
-            measure each row's sum is multiplied by.
+        dict
+            By axis, the field on its nodes, ``(n_nodes, n_rows)`` with one row per
+            frequency, polarisation and transverse position (``sqrt(r) E`` radially).
         """
         space = self.space
         flat = state.reshape(state.shape[0], -1)
         if isinstance(space, RadialGrid):
-            r = np.asarray(space.r)
-            return [
-                (r, np.sqrt(r)[:, None] * (_radial_inverse(space) @ flat), 2 * np.pi)
-            ]
+            scale = np.sqrt(np.asarray(space.r))[:, None]
+            return {"r": scale * (_radial_inverse(space) @ flat)}
         if isinstance(space, PlanarGrid):
             cube = np.fft.ifft(flat.reshape(space.n_y, space.n_p, -1), axis=0)
-            rows = cube.reshape(space.n_y, -1)
-            y = np.asarray(space.y)
-            return [(y, rows, 1.0), (-y, rows, 1.0)]
+            return {"y": cube.reshape(space.n_y, -1)}
         cube = np.fft.ifftn(flat.reshape(space.n_y, space.n_x, -1), axes=(0, 1))
-        x = np.asarray(space.x)
-        dy = 1.0 if isinstance(space, LineGrid) else float(space.y[1] - space.y[0])
-        along_x = np.moveaxis(cube, 1, 0).reshape(space.n_x, -1)
-        lines = [(x, along_x, dy), (-x, along_x, dy)]
+        values = {"x": np.moveaxis(cube, 1, 0).reshape(space.n_x, -1)}
         if not isinstance(space, LineGrid):
-            y = np.asarray(space.y)
-            dx = float(space.x[1] - space.x[0])
-            along_y = cube.reshape(space.n_y, -1)
-            lines += [(y, along_y, dx), (-y, along_y, dx)]
-        return lines
+            values["y"] = cube.reshape(space.n_y, -1)
+        return values
 
     def strip(
         self, state: Complex[np.ndarray, "n_modes n_pol n_omega"]
@@ -535,40 +763,27 @@ class HostEdgeReduction:
             ``(inward, windowed)`` per line, unweighted by the launch; zero on a line
             with too few nodes in the strip.
         """
-        assert self.strip_bounds is not None
-        a, b = self.strip_bounds
-        resolved = 16.0 / (b - a)
+        values = self._axis_values(state)
         found = []
-        for s, values, measure in self.lines(state):
-            select = (s >= a) & (s <= b)
-            if np.count_nonzero(select) < 4:
+        for line in self.lines:
+            if not line.strip.size:
                 found.append((0.0, 0.0))
                 continue
-            order = np.argsort(s[select])
-            coordinate = s[select][order]
-            spacing = float(np.mean(np.diff(coordinate)))
-            u = 2 * (coordinate - a) / (b - a) - 1
-            window = np.i0(8.0 * np.sqrt(np.clip(1 - u * u, 0.0, 1.0))) / np.i0(8.0)
-            lines = window[:, None] * values[select][order]
-            count = 2 * coordinate.size
-            spectrum = np.abs(np.fft.fft(lines, count, axis=0)) ** 2 * spacing / count
-            q = 2 * np.pi * np.fft.fftfreq(count, d=spacing)
-            # solprop propagates as exp(-i k_z z) (the operator carries -i(k_z - k)), so
-            # a component exp(i q s) travels towards smaller s: inward is q > 0.
+            rows = line.window[:, None] * values[line.axis][line.strip]
+            count = 2 * line.strip.size
+            spectrum = (
+                np.abs(np.fft.fft(rows, count, axis=0)) ** 2 * line.spacing / count
+            )
+            first, last = line.inward
             found.append(
                 (
-                    float(np.sum(spectrum[q >= resolved])) * measure,
-                    float(np.sum(spectrum)) * measure,
+                    float(np.sum(spectrum[first:last])) * line.measure,
+                    float(np.sum(spectrum)) * line.measure,
                 )
             )
         return np.array(found, dtype=np.float64).reshape(-1, 2)
 
-    def current(
-        self,
-        state: Complex[np.ndarray, "n_modes n_pol n_omega"],
-        size: float,
-        k_min: float,
-    ) -> float:
+    def current(self, state: Complex[np.ndarray, "n_modes n_pol n_omega"]) -> float:
         """Return the inward energy current across the collar's onset, rectified.
 
         ``J = Im(E* dE/dn) / k`` on the requested size's boundary, summed over its
@@ -579,29 +794,23 @@ class HostEdgeReduction:
         ----------
         state : numpy.ndarray
             One member's spectral columns.
-        size : float
-            The requested half-size on the narrowest axis, m.
-        k_min : float
-            The smallest wavenumber over the requested band, rad/m.
 
         Returns
         -------
         float
             The current, unweighted by the launch.
         """
+        values = self._axis_values(state)
         total = 0.0
-        for s, values, measure in self.lines(state):
-            index = int(np.argmin(np.abs(s - size)))
-            # A node without a neighbour on each side has no slope to read.
-            order = np.argsort(s)
-            position = int(np.nonzero(order == index)[0][0])
-            if position == 0 or position == s.size - 1:
+        for line in self.lines:
+            if line.onset is None:
                 continue
-            before, after = order[position - 1], order[position + 1]
-            slope = (values[after] - values[before]) / float(s[after] - s[before])
+            node, before, after = line.onset
+            along = values[line.axis]
+            slope = (along[after] - along[before]) / line.onset_step
             # Under exp(-i k_z z), Im(E* dE/ds) / k is the flux towards smaller s.
-            flux = np.imag(np.conj(values[index]) * slope) / k_min
-            total += float(np.sum(np.maximum(flux, 0.0))) * measure
+            flux = np.imag(np.conj(along[node]) * slope) / self.k_min
+            total += float(np.sum(np.maximum(flux, 0.0))) * line.measure
         return total
 
 
@@ -694,12 +903,9 @@ class TransverseEdge:
         self._peak = [0.0] * len(self._faces)
         self._peak_raw = [0.0] * len(self._faces)
         self._baseline = [0.0] * len(self._faces)
-        collar = self.design is not None and self.design.has_collar
         self.tables = self._edge_tables()
         self.reduction = HostEdgeReduction(
-            space,
-            self.tables,
-            self._strip_bounds() if collar else None,
+            space, self.tables, edge_lines(space, self.design), self.k_min
         )
 
     def _edge_tables(self) -> EdgeTables:
@@ -725,7 +931,7 @@ class TransverseEdge:
             for face in self._faces:
                 outside &= ~face.clip
             if isinstance(self.space, RadialGrid):
-                outside = np.asarray(self.space.r) > self._requested_size()
+                outside = np.asarray(self.space.r) > _requested_size(self.space)
             totals[2] = weights * outside
         return EdgeTables(faces, clip, totals, self._rows_read())
 
@@ -780,18 +986,6 @@ class TransverseEdge:
         return self._columns * columns
 
     # ------------------------------------------------------------------ the record
-    @property
-    def current_scale(self) -> tuple[float, float]:
-        """Return what a reading of the inward current needs of the edge.
-
-        Returns
-        -------
-        tuple of float
-            The requested half-size on the narrowest axis, m, and the band's smallest
-            wavenumber, rad/m.
-        """
-        return self._requested_size(), self.k_min
-
     @property
     def resumed(self) -> bool:
         """Return whether this edge continues an earlier execution's record.
@@ -1180,38 +1374,6 @@ class TransverseEdge:
         self._judge_ramp_removal()
 
     # ------------------------------------------------------------------ a collar
-    def _strip_bounds(self) -> tuple[float, float]:
-        """Return a collar's return strip, ``(a, b)`` in the outward coordinate, m.
-
-        The collar plus ``min(w/2, R/4)`` of the request (section 5.3).
-
-        Returns
-        -------
-        tuple of float
-            The strip's inner and outer edges.
-        """
-        assert self.design is not None
-        width = min(self.design.width)
-        size = self._requested_size()
-        return size - min(0.5 * width, 0.25 * size), size + width
-
-    def _requested_size(self) -> float:
-        """Return the requested half-size on the narrowest axis, m.
-
-        Returns
-        -------
-        float
-            The size, m.
-        """
-        space = self.space
-        if isinstance(space, RadialGrid):
-            return space.radius
-        if isinstance(space, PlanarGrid):
-            return space.radius_y
-        if isinstance(space, LineGrid):
-            return space.radius_x
-        return min(space.radius_x, space.radius_y)
-
     def _strip_shares(
         self, strip: Float[np.ndarray, "n_lines 2"]
     ) -> tuple[float, float]:

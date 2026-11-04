@@ -526,7 +526,10 @@ def test_the_edge_holds_memory_only_once_a_monitor_binds_it(route: str) -> None:
         assert monitor is not None
         assert monitor.transverse is not None
         backend._bind_monitor(monitor)
-        expected = transverse_edge_bytes(monitor.transverse.space)
+        _, _, n_pol, n_omega = problem.shape
+        expected = transverse_edge_bytes(
+            monitor.transverse.space, monitor.transverse.design, n_pol, n_omega
+        )
         assert backend.memory_ledger()["transverse_edge"] == expected
         assert backend.edge_memory(monitor.transverse.space) == expected
     finally:

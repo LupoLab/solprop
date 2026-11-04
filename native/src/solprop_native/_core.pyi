@@ -291,9 +291,26 @@ class State:
         first_row: int,
     ) -> None: ...
     def crossed_bytes(self) -> tuple[int, int]: ...
+    def bind_edge_lines(
+        self,
+        axes: npt.NDArray[np.uint64],
+        counts: npt.NDArray[np.uint64],
+        positions: npt.NDArray[np.uint64],
+        windows: npt.NDArray[np.float64],
+        inward: npt.NDArray[np.uint64],
+        factors: npt.NDArray[np.float64],
+        measures: npt.NDArray[np.float64],
+        onsets: npt.NDArray[np.uint64],
+        steps: npt.NDArray[np.float64],
+        k_min: float,
+        scale: npt.NDArray[np.float64],
+        batch_bytes: int,
+    ) -> None: ...
     def edge_reading(
-        self, whole: bool, totals: bool
-    ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]: ...
+        self, faces: bool, whole: bool, totals: bool, strip: bool, current: bool
+    ) -> tuple[
+        npt.NDArray[np.float64], npt.NDArray[np.float64], npt.NDArray[np.float64], float
+    ]: ...
     def set_crossing_workers(self, workers: int) -> None: ...
     def stage_to_host(self, stage: int) -> npt.NDArray[np.complex128]: ...
     def projected_to_host(self, coarse: bool = False) -> npt.NDArray[np.complex128]: ...

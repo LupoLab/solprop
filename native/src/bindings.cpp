@@ -1358,8 +1358,13 @@ public:
     open_state().bind_edge(faces, clip, totals, synthesis, first_row);
   }
   native::CrossedBytes crossed_bytes() { return open_state().crossed_bytes(); }
-  native::EdgeNumbers edge_reading(const bool whole, const bool totals) {
-    return open_state().edge_reading(whole, totals);
+  void bind_edge_lines(const native::EdgeLines& lines) {
+    open_state().bind_edge_lines(lines);
+  }
+  native::EdgeNumbers edge_reading(const bool faces, const bool whole,
+                                   const bool totals, const bool strip,
+                                   const bool current) {
+    return open_state().edge_reading(faces, whole, totals, strip, current);
   }
   // Not `require_open`: this stays a no-op on a closed state, whose pointer is null.
   void set_crossing_workers(const std::size_t workers) noexcept {
@@ -2866,16 +2871,46 @@ NB_MODULE(_core, module_) {
           "synthesis"_a.noconvert(), "first_row"_a)
       .def(
           "edge_reading",
-          [](BoundState& self, const bool whole, const bool totals) {
+          [](BoundState& self, const bool faces, const bool whole, const bool totals,
+             const bool strip, const bool current) {
             native::EdgeNumbers numbers;
             {
               const nb::gil_scoped_release release;
-              numbers = self.edge_reading(whole, totals);
+              numbers = self.edge_reading(faces, whole, totals, strip, current);
             }
             return nb::make_tuple(real_output(std::move(numbers.sums), 1),
-                                  real_output(std::move(numbers.columns), 1));
+                                  real_output(std::move(numbers.columns), 1),
+                                  real_output(std::move(numbers.strip), 1),
+                                  numbers.current);
           },
-          "whole"_a, "totals"_a)
+          "faces"_a, "whole"_a, "totals"_a, "strip"_a, "current"_a)
+      .def(
+          "bind_edge_lines",
+          [](BoundState& self, const IndexInput axes, const IndexInput counts,
+             const IndexInput positions, const RealInput windows,
+             const IndexInput inward, const RealInput factors, const RealInput measures,
+             const IndexInput onsets, const RealInput steps, const double k_min,
+             const RealInput scale, const std::size_t batch_bytes) {
+            native::EdgeLines lines;
+            lines.axes = index_vector(axes);
+            lines.counts = index_vector(counts);
+            lines.positions = index_vector(positions);
+            lines.windows = real_vector(windows);
+            lines.inward = index_vector(inward);
+            lines.factors = real_vector(factors);
+            lines.measures = real_vector(measures);
+            lines.onsets = index_vector(onsets);
+            lines.steps = real_vector(steps);
+            lines.k_min = k_min;
+            lines.scale = real_vector(scale);
+            lines.batch_bytes = batch_bytes;
+            const nb::gil_scoped_release release;
+            self.bind_edge_lines(lines);
+          },
+          "axes"_a.noconvert(), "counts"_a.noconvert(), "positions"_a.noconvert(),
+          "windows"_a.noconvert(), "inward"_a.noconvert(), "factors"_a.noconvert(),
+          "measures"_a.noconvert(), "onsets"_a.noconvert(), "steps"_a.noconvert(),
+          "k_min"_a, "scale"_a.noconvert(), "batch_bytes"_a)
       .def(
           "set_crossing_workers",
           [](BoundState& self, const std::size_t workers) {

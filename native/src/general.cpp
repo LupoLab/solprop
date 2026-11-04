@@ -245,6 +245,9 @@ using TransversePlan = KokkosFFT::Plan<ExecutionSpace, ComplexView3, ComplexView
 using VolumePlan = KokkosFFT::Plan<ExecutionSpace, ComplexView3, ComplexView3, 3>;
 // The hybrid planar kind transforms y alone, the trailing axis of (bins, n_p, n_y).
 using SlabPlan = KokkosFFT::Plan<ExecutionSpace, ComplexView3, ComplexView3, 1>;
+// A requested collar's padded transform, along the last axis of a batch (solprop SEP
+// 44).
+using StripPlan = KokkosFFT::Plan<ExecutionSpace, ComplexView2, ComplexView2, 1>;
 
 // Each current keeps its own chunk accumulator, including stacked embedded
 // quadrature. Sharing the latter would mix currents between partial chunks.
@@ -2183,7 +2186,22 @@ public:
   void bind_edge(const std::vector<double>& faces, const std::vector<double>& clip,
                  const std::vector<double>& totals,
                  const std::vector<double>& synthesis, std::size_t first_row);
-  EdgeNumbers edge_reading(bool whole, bool totals);
+  void bind_edge_lines(const EdgeLines& lines);
+  EdgeNumbers edge_reading(bool faces, bool whole, bool totals, bool strip,
+                           bool want_current);
+  // What reading the edge holds in the state's memory space (solprop SEP 44).
+  [[nodiscard]] std::size_t edge_bytes() const noexcept {
+    std::size_t total =
+        (edge_faces_.size() + edge_clip_.size() + edge_totals_.size() +
+         edge_synthesis_.size() + edge_columns_.size() + edge_scale_.size()) *
+        sizeof(double);
+    for (const auto& line : edge_lines_)
+      total += line.positions.size() * sizeof(std::size_t) +
+               line.window.size() * sizeof(double);
+    for (const auto& [shape, batch] : edge_batches_)
+      total += batch.buffer.size() * sizeof(Complex);
+    return total;
+  }
   // The bytes through this state's crossings since it was built, each way (solprop SEP
   // 44).
   [[nodiscard]] CrossedBytes crossed_bytes() const noexcept { return crossed_; }
@@ -2896,6 +2914,23 @@ public:
   RealView2 edge_faces_, edge_clip_, edge_totals_, edge_synthesis_;
   RealView edge_columns_;
   std::size_t edge_first_row_ = 0;
+  // A requested collar's lines, and one padded batch per distinct shape, kept across a
+  // runner's points. Native chooses none of what's in them.
+  struct EdgeLine {
+    std::size_t axis{}, nodes{}, rows{}, batch{}, first{}, last{};
+    double factor{}, measure{}, step{};
+    std::size_t onset{EdgeLines::no_onset}, before{}, after{};
+    IndexView positions;
+    RealView window;
+  };
+  struct EdgeBatch {
+    ComplexView2 buffer;
+    std::unique_ptr<StripPlan> plan;
+  };
+  std::vector<EdgeLine> edge_lines_;
+  std::map<std::pair<std::size_t, std::size_t>, EdgeBatch> edge_batches_;
+  RealView edge_scale_;
+  double edge_k_min_{};
   // A large crossing's pinned chunks, once one has been made (`crossing.hpp`).
   mutable crossing::Ring crossing_ring_;
   [[nodiscard]] bool monitoring_split() const noexcept {
@@ -14632,6 +14667,100 @@ MonitorSums monitor_sums(const char* label, const ExecutionSpace& execution,
 } // namespace
 
 namespace {
+// The field on a line's node, in a row of the transverse scratch (solprop SEP 44): a
+// row is a plane and a position across the line, and no route has a branch here.
+struct EdgeScratchValue {
+  ComplexView3 scratch;
+  std::size_t units{}, across{}, row_stride{}, node_stride{};
+  KOKKOS_INLINE_FUNCTION Complex operator()(const std::size_t row,
+                                            const std::size_t node) const {
+    return scratch.data()[(row / across) * units + (row % across) * row_stride +
+                          node * node_stride];
+  }
+};
+
+// The same radially: `sqrt(r) E`, a dense product per value, in a row of (pol, omega).
+struct EdgeRadialValue {
+  RealView2 synthesis;
+  ComplexView2 current;
+  RealView scale;
+  std::size_t n_pol{}, n{}, modes{};
+  KOKKOS_INLINE_FUNCTION Complex operator()(const std::size_t row,
+                                            const std::size_t node) const {
+    const auto pol = row / n;
+    const auto omega = row % n;
+    Complex value{};
+    for (std::size_t mode = 0; mode < modes; ++mode)
+      value += synthesis(node, mode) * current(mode * n_pol + pol, omega);
+    return scale(node) * value;
+  }
+};
+
+// One line's `(inward, windowed)`, unscaled: a Kaiser-windowed transform along its
+// normal, padded twice, batch by batch so that the buffer stays bounded.
+template <class Value>
+MonitorSums edge_strip_line(const ExecutionSpace& execution, const Value& value,
+                            const std::size_t rows, const std::size_t batch,
+                            const std::size_t nodes, const std::size_t first,
+                            const std::size_t last, const IndexView& positions,
+                            const RealView& window, const ComplexView2& buffer,
+                            StripPlan& plan) {
+  const std::size_t count = 2 * nodes;
+  MonitorSums sums;
+  for (std::size_t start = 0; start < rows; start += batch) {
+    launch::parallel_for(
+        "solprop_native.edge.strip_fill",
+        Kokkos::RangePolicy<ExecutionSpace>(execution, 0, batch),
+        KOKKOS_LAMBDA(const std::size_t row) {
+          // A short last batch leaves its other rows zero, whose energy is none.
+          const bool live = start + row < rows;
+          for (std::size_t index = 0; index < nodes; ++index)
+            buffer(row, index) =
+                live ? window(index) * value(start + row, positions(index)) : Complex{};
+          for (std::size_t index = nodes; index < count; ++index)
+            buffer(row, index) = Complex{};
+        });
+    graph::execute(plan, buffer, buffer, KokkosFFT::Normalization::none);
+    MonitorSums part;
+    launch::parallel_reduce(
+        "solprop_native.edge.strip_sums",
+        Kokkos::RangePolicy<ExecutionSpace>(execution, 0, batch),
+        KOKKOS_LAMBDA(const std::size_t row, MonitorSums& update) {
+          for (std::size_t index = 0; index < count; ++index) {
+            const double power = squared_abs(buffer(row, index));
+            update.values[1] += power;
+            if (index >= first && index < last)
+              update.values[0] += power;
+          }
+        },
+        Kokkos::Sum<MonitorSums>(part));
+    sums += part;
+  }
+  return sums;
+}
+
+// One line's rectified inward current: `Im(E* dE/ds) / k`, rectified per row before
+// it's summed, as a collar's current is defined (solprop SEP 40 section 5.3).
+template <class Value>
+double edge_current_line(const ExecutionSpace& execution, const Value& value,
+                         const std::size_t rows, const std::size_t node,
+                         const std::size_t before, const std::size_t after,
+                         const double step, const double k_min) {
+  double total = 0.0;
+  launch::parallel_reduce(
+      "solprop_native.edge.current",
+      Kokkos::RangePolicy<ExecutionSpace>(execution, 0, rows),
+      KOKKOS_LAMBDA(const std::size_t row, double& update) {
+        const Complex here = value(row, node);
+        const Complex slope = (value(row, after) - value(row, before)) / step;
+        const double flux =
+            (here.real() * slope.imag() - here.imag() * slope.real()) / k_min;
+        update += flux > 0.0 ? flux : 0.0;
+      },
+      Kokkos::Sum<double>(total));
+  return total;
+}
+
 // The transverse edge's region weights (solprop SEP 44), from the rows given on: a
 // radial read synthesises only the outer rows its regions can touch.
 struct EdgeWeights {
@@ -14684,12 +14813,91 @@ void GeneralWorkspace::bind_edge(const std::vector<double>& faces,
   execution_space_.fence("solprop_native edge bind");
 }
 
+// Bind a requested collar's lines (solprop SEP 44), which Python describes: their
+// nodes, windows, inward bins and onsets. A batch of one shape serves every line that
+// has it.
+void GeneralWorkspace::bind_edge_lines(const EdgeLines& lines) {
+  require_open();
+  const auto n_lines = lines.axes.size();
+  require_extent(lines.counts.size(), n_lines, "edge line counts");
+  require_extent(lines.inward.size(), 2 * n_lines, "edge line bins");
+  require_extent(lines.factors.size(), n_lines, "edge line factors");
+  require_extent(lines.measures.size(), n_lines, "edge line measures");
+  require_extent(lines.onsets.size(), 3 * n_lines, "edge line onsets");
+  require_extent(lines.steps.size(), n_lines, "edge line steps");
+  require_extent(lines.windows.size(), lines.positions.size(), "edge line windows");
+  const auto planes = problem_.n_pol_state * problem_.n_omega;
+  edge_lines_.clear();
+  edge_k_min_ = lines.k_min;
+  std::size_t offset = 0;
+  for (std::size_t index = 0; index < n_lines; ++index) {
+    EdgeLine line;
+    line.axis = lines.axes[index];
+    line.nodes = lines.counts[index];
+    line.rows = planes * (problem_.slab_geometry()         ? problem_.n_p
+                          : !problem_.separable_geometry() ? std::size_t{1}
+                          : line.axis == 1                 ? problem_.n_y
+                                                           : problem_.n_x);
+    line.first = lines.inward[2 * index];
+    line.last = lines.inward[2 * index + 1];
+    line.factor = lines.factors[index];
+    line.measure = lines.measures[index];
+    line.step = lines.steps[index];
+    line.onset = lines.onsets[3 * index];
+    line.before = lines.onsets[3 * index + 1];
+    line.after = lines.onsets[3 * index + 2];
+    if (line.nodes != 0) {
+      const auto begin = lines.positions.begin() + static_cast<std::ptrdiff_t>(offset);
+      const auto end = begin + static_cast<std::ptrdiff_t>(line.nodes);
+      if (offset + line.nodes > lines.positions.size())
+        throw std::invalid_argument("the edge's lines overrun their nodes");
+      line.positions = IndexView("solprop_native.edge.line_nodes", line.nodes);
+      line.window = RealView("solprop_native.edge.line_window", line.nodes);
+      copy_vector(execution_space_, line.positions,
+                  std::vector<std::size_t>(begin, end));
+      copy_vector(execution_space_, line.window,
+                  std::vector<double>(
+                      lines.windows.begin() + static_cast<std::ptrdiff_t>(offset),
+                      lines.windows.begin() +
+                          static_cast<std::ptrdiff_t>(offset + line.nodes)));
+      offset += line.nodes;
+      const std::size_t count = 2 * line.nodes;
+      line.batch =
+          std::min(line.rows, std::max<std::size_t>(1, lines.batch_bytes /
+                                                           (sizeof(Complex) * count)));
+      auto& batch = edge_batches_[{line.batch, count}];
+      if (batch.buffer.extent(0) == 0) {
+        batch.buffer =
+            ComplexView2(Kokkos::view_alloc(Kokkos::WithoutInitializing,
+                                            std::string("solprop_native.edge.strip")),
+                         line.batch, count);
+        constexpr int along = -1;
+        batch.plan = std::make_unique<StripPlan>(fft_space_for(batch.buffer.size()),
+                                                 batch.buffer, batch.buffer,
+                                                 KokkosFFT::Direction::forward, along);
+      }
+    }
+    edge_lines_.push_back(std::move(line));
+  }
+  if (offset != lines.positions.size())
+    throw std::invalid_argument("the edge's lines don't account for their nodes");
+  if (lines.scale.empty()) {
+    edge_scale_ = {};
+  } else {
+    edge_scale_ = RealView("solprop_native.edge.line_scale", lines.scale.size());
+    copy_vector(execution_space_, edge_scale_, lines.scale);
+  }
+  execution_space_.fence("solprop_native edge lines");
+}
+
 // The state's reading for the transverse edge: its region sums and each mode's energy,
 // with only those numbers crossing. With `whole` (a launch) every table on every node;
-// otherwise the faces', and with `totals` a collar's, on the rows a read uses. The
-// transverse scratch is free at a committed position: a step's first pass writes it
-// again.
-EdgeNumbers GeneralWorkspace::edge_reading(const bool whole, const bool totals) {
+// otherwise the faces', and with `totals` a collar's, on the rows a read uses; and with
+// a requested collar its strip and current, on the same transform. The transverse
+// scratch is free at a committed position: a step's first pass writes it again.
+EdgeNumbers GeneralWorkspace::edge_reading(const bool faces, const bool whole,
+                                           const bool totals, const bool strip,
+                                           const bool want_current) {
   require_open();
   if (!initialized_)
     throw std::logic_error("no initial field has been loaded");
@@ -14699,12 +14907,16 @@ EdgeNumbers GeneralWorkspace::edge_reading(const bool whole, const bool totals) 
   const auto n_pol = problem_.n_pol_state;
   const auto n = problem_.n_omega;
   EdgeNumbers reading;
+  const bool separable = problem_.separable_geometry();
+  if (separable)
+    separable_load_current();
   const auto take = [&reading](const MonitorSums& sums) {
     reading.sums.insert(reading.sums.end(), sums.values.data() + 1,
                         sums.values.data() + 5);
   };
-  if (problem_.separable_geometry()) {
-    separable_load_current();
+  if (!faces) {
+    // Only what follows was asked for.
+  } else if (separable) {
     const auto scratch = transverse_;
     const auto units = transverse_units();
     const auto planes = scratch.size() / units;
@@ -14743,20 +14955,58 @@ EdgeNumbers GeneralWorkspace::edge_reading(const bool whole, const bool totals) 
     if (whole || totals)
       take(sums("solprop_native.edge.totals", edge_totals_));
   }
-  const auto energies = edge_columns_;
-  launch::parallel_for(
-      "solprop_native.edge.columns",
-      Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, problem_.n_modes),
-      KOKKOS_LAMBDA(const std::size_t mode) {
-        double sum = 0.0;
-        for (std::size_t pol = 0; pol < n_pol; ++pol)
-          for (std::size_t index = 0; index < n; ++index)
-            sum += squared_abs(current(mode * n_pol + pol, index));
-        energies(mode) = sum;
-      });
-  execution_space_.fence("solprop_native edge columns");
-  const auto host = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace{}, energies);
-  reading.columns.assign(host.data(), host.data() + host.size());
+  if (faces) {
+    const auto energies = edge_columns_;
+    launch::parallel_for(
+        "solprop_native.edge.columns",
+        Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, problem_.n_modes),
+        KOKKOS_LAMBDA(const std::size_t mode) {
+          double sum = 0.0;
+          for (std::size_t pol = 0; pol < n_pol; ++pol)
+            for (std::size_t index = 0; index < n; ++index)
+              sum += squared_abs(current(mode * n_pol + pol, index));
+          energies(mode) = sum;
+        });
+    execution_space_.fence("solprop_native edge columns");
+    const auto host =
+        Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace{}, energies);
+    reading.columns.assign(host.data(), host.data() + host.size());
+  }
+  // The same two kernels on any route: only where a row's value comes from differs.
+  const auto take_line = [&](const EdgeLine& line, const auto& value) {
+    if (strip) {
+      MonitorSums sums;
+      if (line.nodes != 0) {
+        auto& batch = edge_batches_.at({line.batch, 2 * line.nodes});
+        sums = edge_strip_line(execution_space_, value, line.rows, line.batch,
+                               line.nodes, line.first, line.last, line.positions,
+                               line.window, batch.buffer, *batch.plan);
+      }
+      reading.strip.push_back(sums.values[0] * line.factor);
+      reading.strip.push_back(sums.values[1] * line.factor);
+    }
+    if (want_current && line.onset != EdgeLines::no_onset)
+      reading.current +=
+          line.measure * edge_current_line(execution_space_, value, line.rows,
+                                           line.onset, line.before, line.after,
+                                           line.step, edge_k_min_);
+  };
+  if (strip || want_current) {
+    for (const auto& line : edge_lines_) {
+      if (!separable) {
+        take_line(line, EdgeRadialValue{edge_synthesis_, current, edge_scale_, n_pol, n,
+                                        problem_.n_modes});
+      } else if (problem_.slab_geometry()) {
+        take_line(line, EdgeScratchValue{transverse_, transverse_units(), 1, 0, 1});
+      } else if (line.axis == 1) {
+        take_line(line, EdgeScratchValue{transverse_, transverse_units(), problem_.n_y,
+                                         problem_.n_x, 1});
+      } else {
+        take_line(line, EdgeScratchValue{transverse_, transverse_units(), problem_.n_x,
+                                         1, problem_.n_x});
+      }
+    }
+  }
   return reading;
 }
 
@@ -15413,10 +15663,7 @@ std::map<std::string, std::size_t> GeneralWorkspace::base_memory_ledger() const 
            (monitor_split_sum_.size() + monitor_found_.size()) * sizeof(SplitSums)},
       {"statistics_flux_magnitude", statistics_magnitude_.size() * real_bytes},
       {"host_crossing_ring", crossing_ring_.bytes()},
-      {"transverse_edge",
-       (edge_faces_.size() + edge_clip_.size() + edge_totals_.size() +
-        edge_synthesis_.size() + edge_columns_.size()) *
-           real_bytes},
+      {"transverse_edge", edge_bytes()},
       {"statistics_outputs", (statistics_total_power_.size() +
                               statistics_on_axis_.size() + statistics_packed_.size()) *
                                  real_bytes},
@@ -15657,6 +15904,9 @@ void GeneralWorkspace::close() noexcept {
   occupancy_buckets_ = {};
   occupancy_count_ = 0;
   crossing_ring_.release();
+  edge_batches_.clear();
+  edge_lines_.clear();
+  edge_scale_ = {};
   edge_faces_ = {};
   edge_clip_ = {};
   edge_totals_ = {};
@@ -15967,9 +16217,15 @@ void GeneralState::bind_edge(const std::vector<double>& faces,
 CrossedBytes GeneralState::crossed_bytes() const noexcept {
   return workspace_->crossed_bytes();
 }
-EdgeNumbers GeneralState::edge_reading(const bool whole, const bool totals) {
+void GeneralState::bind_edge_lines(const EdgeLines& lines) {
   const CpuTeamScope team(workspace_->cpu_team());
-  return workspace_->edge_reading(whole, totals);
+  workspace_->bind_edge_lines(lines);
+}
+EdgeNumbers GeneralState::edge_reading(const bool faces, const bool whole,
+                                       const bool totals, const bool strip,
+                                       const bool current) {
+  const CpuTeamScope team(workspace_->cpu_team());
+  return workspace_->edge_reading(faces, whole, totals, strip, current);
 }
 void GeneralState::bind_occupancy(const std::vector<unsigned char>& buckets,
                                   const std::size_t count) {
