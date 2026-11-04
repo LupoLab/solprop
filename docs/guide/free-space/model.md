@@ -187,10 +187,7 @@ lower bound: light generated late, by a filament, may need more. Reads are space
 light cannot cross the edge unseen between two of them, at most `min(L/16, 4g/v)` apart,
 with `g` the edge's width and `v` the spread of the current spectrum, and the spacing is a
 ceiling on the step: a low-source run, which would otherwise take long steps, takes a few
-more. A fixed schedule cannot be held to it, and reports itself as `coarse`. A read
-synthesises only the frequencies that hold light: those it leaves out hold, together, at
-most a thousandth of the warning, so a share reads low by at most `1e-9` of the launch at
-the default budget. With a requested collar it reads every frequency.
+more. A fixed schedule cannot be held to it, and reports itself as `coarse`.
 
 Every run reports a `transverse_status` in its monitor record and says at the start what
 it will be able to report: `clear` (read at the spacing, below the warning), `warned`,

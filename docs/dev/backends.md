@@ -450,10 +450,16 @@ refuse a fluence negative beyond its rounding budget. The helper
 as one; its end-of-plane log is retired, and the boundary monitor's transverse edge
 (SEP 40) judges the boundary instead. A backend whose own statistics do not apply this measure refuses the schema.
 
-**The transverse edge is read on the host** ([SEP 40](seps/archive/sep-0040-transverse-absorbing-boundaries.md)).
+**The transverse edge is read where the state lives** ([SEP 40](seps/archive/sep-0040-transverse-absorbing-boundaries.md), [SEP 44](seps/sep-0044-native-edge-read.md)).
 A backend whose `StepDriver.reads_transverse_edge` is set hands the monitor's
-`TransverseEdge` its observed field at the edge's reads, at saved planes, and with a
-requested collar at every committed step. The read spacing is a ceiling on the step, and
+`TransverseEdge` an `EdgeReading` from `StepDriver._edge_reading` at the edge's reads, at saved planes, and with a
+requested collar at every committed step. The reading is numbers and never the field: region sums, each
+column's energy and any collar's strip and current. The default forms them with `HostEdgeReduction` on a host copy,
+the reference, which `numpy_ref` and `mlx` use. `native` forms them on its own state against
+the edge's `EdgeTables`, four regions' weights on the nodes, so it holds no face, mask or judgement, and a
+field-free run crosses no state (`tests/backends/test_native_edge_reading.py`). A requested collar
+still reduces a host copy on `native`. Everything else, the weights, the spacing, the ledgers and the judgement, is one
+code on every backend. The read spacing is a ceiling on the step, and
 a step is not made to land on a read: the edge is read at the last committed position
 from which the next step, a replay's scheduled one or else the controller's proposal, would
 carry past the next read (`TransverseEdge.due`), so
@@ -466,11 +472,7 @@ an adaptive step is capped at the spacing, and the call returns at the committed
 position from which the next step would pass the read, so the host reads the state
 there. With a collar the host step is one, so the march returns at every committed step.
 A saved plane reads the edge unless the step that reached it already did (`TransverseEdge.wants_read`), as a second read at one position records nothing.
-A native device build reads the edge the same way, copying its state to the host at each
-read; it is compiled, not qualified on a device. A backend that does not set it reports
-`unwatched` and refuses a requested collar by name. The edge's reductions run on the
-host copy of the field; moving them into the native memory space is left to the cost
-measurement of SEP 40 section 7.7.
+A backend that does not set it reports `unwatched` and refuses a requested collar by name.
 
 ## 3. Compiled execution: the design `native` runs
 
