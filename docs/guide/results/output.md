@@ -188,7 +188,9 @@ rather than a copy of it, and nothing writes to that again, so a handler
 that reduces each plane to a few numbers and drops it costs one field volume on the host at
 that plane, the one the observation already crossed with, and a handler may equally keep
 `plane.field` for as long as it likes. A `SavedPlane` you construct yourself copies what it
-is given.
+is given. On a free-space run the boundary check reads the transverse edge on the host as
+well, which [costs more](../setup/running.md#many-inputs-one-backend-the-runner) than the
+plane does.
 
 The handler converts the field on the way out, because the file is where the internal
 FFT convention meets the user's optics convention: stored spectra go through

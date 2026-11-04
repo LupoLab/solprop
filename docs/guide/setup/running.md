@@ -540,6 +540,16 @@ An identity is taken on trust. Two different arrays stated alike have one config
 hash, so **a wrong identity passes a resume and a scan's cache**: the resumed run or the
 cached point is then the wrong one, and nothing can tell. Say everything that makes the
 input what it is, and leave `input_identity` out unless the digest is a measured cost.
+
+**The boundary check on a free-space scan.** The default
+[`boundary_check`](../numerics/boundaries.md) reads a free-space run's transverse edge on the
+host at the launch, at every plane and at every read: it copies the state across and
+transforms it out of place, even with `fields="none"`. That is about 1.1 field volumes more at
+the peak, which neither `memory_ledger` nor the admission counts, and on native CPU at 256 ×
+256 × 96 with two planes it took a point from 0.96 to 2.1 volumes above the level before the
+input, and from 3.05 to 3.99 s. A scan whose window is already settled can pass
+`boundary_check=None`. That also turns off the check of the time window's edges, since no
+setting keeps one without the other, so settle the window on one input with the check on first.
 ```
 
 Only an array can be stated; a pulse is a small record of itself and is refused. A file
