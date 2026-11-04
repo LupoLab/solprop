@@ -77,7 +77,7 @@ from solprop.translate.stage import (
     terms,
 )
 from solprop.translate.tdse import TDSEPurpose
-from solprop.transverse_monitor import EdgeReading, TransverseEdge
+from solprop.transverse_monitor import TransverseEdge, _EdgeReading
 
 if TYPE_CHECKING:
     from solprop.backends.low_storage import LowStorageMarch
@@ -1992,11 +1992,11 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         faces: bool = True,
         current: bool = False,
         full: bool = False,
-    ) -> EdgeReading:
+    ) -> _EdgeReading:
         """Return what the transverse edge asks of a state (SEP 44).
 
         The default reduces a host copy of the field, the reference
-        (:class:`~solprop.transverse_monitor.HostEdgeReduction`); a backend whose state
+        (``_HostEdgeReduction``); a backend whose state
         lives elsewhere reduces it there and returns the numbers, without a copy of it.
 
         Parameters
@@ -2014,7 +2014,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
 
         Returns
         -------
-        solprop.transverse_monitor.EdgeReading
+        solprop.transverse_monitor._EdgeReading
             The reading.
         """
         return edge.reduction.reading(

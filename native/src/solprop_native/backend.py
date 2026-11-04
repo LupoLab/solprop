@@ -144,9 +144,9 @@ from solprop.translate.stage import (
 )
 from solprop.translate.tdse import TDSEPurpose
 from solprop.transverse_monitor import (
-    EdgeReading,
     TransverseEdge,
-    transverse_edge_bytes,
+    _EdgeReading,
+    _transverse_edge_bytes,
 )
 
 from . import (
@@ -1178,7 +1178,7 @@ class NativeBackend(StepDriver[_core.State]):
             np.sqrt(np.asarray(space.r, dtype=np.float64))
             if lines and isinstance(space, RadialGrid)
             else np.empty(0, dtype=np.float64),
-            transverse_monitor.STRIP_BATCH_BYTES,
+            transverse_monitor._STRIP_BATCH_BYTES,
         )
 
     def edge_memory(self, space: object) -> int:
@@ -1195,7 +1195,7 @@ class NativeBackend(StepDriver[_core.State]):
             The bytes of a `transverse_edge` ledger row, from the grid alone.
         """
         _, _, n_pol, n_omega = self._problem.shape
-        return transverse_edge_bytes(
+        return _transverse_edge_bytes(
             cast("Any", space), self._problem.transverse, n_pol, n_omega
         )
 
@@ -1207,7 +1207,7 @@ class NativeBackend(StepDriver[_core.State]):
         faces: bool = True,
         current: bool = False,
         full: bool = False,
-    ) -> EdgeReading:
+    ) -> _EdgeReading:
         """Read the state for the transverse edge where it lives (solprop SEP 44).
 
         Parameters
@@ -1225,7 +1225,7 @@ class NativeBackend(StepDriver[_core.State]):
 
         Returns
         -------
-        solprop.transverse_monitor.EdgeReading
+        solprop.transverse_monitor._EdgeReading
             The reading, of which only numbers crossed. A requested collar still reduces
             a host copy of the state.
         """
@@ -1237,13 +1237,13 @@ class NativeBackend(StepDriver[_core.State]):
         )
         rate_value = float(rate) if current else None
         if not faces:
-            return EdgeReading(current=rate_value)
+            return _EdgeReading(current=rate_value)
         values = np.asarray(sums).reshape(-1)
         if full:
             clip, totals = values[4:8], values[8:12]
         else:
             clip, totals = None, values[4:8] if collar else None
-        return EdgeReading(
+        return _EdgeReading(
             faces=values[:4],
             clip=clip,
             totals=totals,

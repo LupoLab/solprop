@@ -44,7 +44,7 @@ from solprop.output.schema import PlaneStore
 from solprop.pulses import GaussianPulse
 from solprop.spatial import SpatialMedium
 from solprop.stepper import FixedSchedule, Multistep, PIController, RungeKutta
-from solprop.transverse_monitor import EdgeReading
+from solprop.transverse_monitor import _EdgeReading
 
 BACKENDS = ("numpy_ref", "native")
 RELAXED = BoundaryCheck(budget=1.0, transverse_budget=1.0)
@@ -424,7 +424,7 @@ def test_a_plane_the_step_already_read_reduces_nothing_more(
     driver = cast("type[Any]", _driver_class(backend))
     edge_reading = driver._edge_reading
 
-    def counting(self: Any, *args: Any, **keywords: Any) -> EdgeReading:
+    def counting(self: Any, *args: Any, **keywords: Any) -> _EdgeReading:
         calls["readings"] += 1
         return edge_reading(self, *args, **keywords)
 

@@ -366,7 +366,7 @@ def test_a_small_batch_reads_what_one_batch_reads(
         whole = backend._edge_reading(backend._require_state(), edge, full=True)
     finally:
         backend.close()
-    monkeypatch.setattr(transverse_monitor, "STRIP_BATCH_BYTES", 2**12)
+    monkeypatch.setattr(transverse_monitor, "_STRIP_BATCH_BYTES", 2**12)
     backend, edge = _attached(simulation, state)
     try:
         small = backend._edge_reading(backend._require_state(), edge, full=True)
@@ -384,7 +384,7 @@ def test_a_collars_memory_is_its_row(route: str) -> None:
     backend, edge = _attached(simulation, state)
     try:
         _, _, n_pol, n_omega = problem.shape
-        expected = transverse_monitor.transverse_edge_bytes(
+        expected = transverse_monitor._transverse_edge_bytes(
             edge.space, edge.design, n_pol, n_omega
         )
         assert backend.memory_ledger()["transverse_edge"] == expected
@@ -822,21 +822,21 @@ def test_a_strip_of_too_few_nodes_reads_nothing_on_either_side(
     simulation = _case("line")
     problem = simulation.translate()
     state = _noise(problem, 101)
-    lines = transverse_monitor.edge_lines
+    lines = transverse_monitor._edge_lines
 
     def with_an_empty_line(*args: Any) -> tuple[Any, ...]:
         found = lines(*args)
         short = np.array([1.0, 2.0, 3.0])
         return (*found, transverse_monitor._edge_line("x", short, 1.0, (0.0, 4.0), 2.0))
 
-    monkeypatch.setattr(transverse_monitor, "edge_lines", with_an_empty_line)
+    monkeypatch.setattr(transverse_monitor, "_edge_lines", with_an_empty_line)
     backend, edge = _attached(simulation, state)
     try:
         read = backend._edge_reading(backend._require_state(), edge, full=True)
         held = edge.reduction.reading(state[0], full=True)
         _, _, n_pol, n_omega = problem.shape
         assert backend.memory_ledger()["transverse_edge"] == (
-            transverse_monitor.transverse_edge_bytes(
+            transverse_monitor._transverse_edge_bytes(
                 edge.space, edge.design, n_pol, n_omega
             )
         )

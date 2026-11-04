@@ -873,7 +873,7 @@ DRIVER_SURFACE = {
     "_edge_reading": (
         "(self, state: _StateT, edge: solprop.transverse_monitor.TransverseEdge, *, "
         "faces: bool = True, current: bool = False, full: bool = False"
-        ") -> solprop.transverse_monitor.EdgeReading"
+        ") -> solprop.transverse_monitor._EdgeReading"
     ),
     "_next_step": "(self) -> float",
     "_observed_field": (

@@ -21,11 +21,11 @@ from solprop.spatial import (
     FAR_FIELD_STATISTICS,
     OPERATOR_STATISTICS,
     ApertureTables,
+    _fluence_rings,
+    _ring_fluence_widths,
     aperture_statistics,
     cartesian_fluence_widths,
-    fluence_rings,
     radial_fluence_widths,
-    ring_fluence_widths,
 )
 from solprop.stats import PROFILE_STATISTICS, StatsSpec, analytic_field, profile_value
 from solprop.translate.modal import Transform
@@ -861,7 +861,7 @@ def plane_fluence_widths(
     extent = math.hypot(
         max(center_x - x[0], x[-1] - center_x), max(center_y - y[0], y[-1] - center_y)
     )
-    rings = fluence_rings(x, y, center_x, center_y)
+    rings = _fluence_rings(x, y, center_x, center_y)
     empty = np.empty(0)
     packed = trace(
         center_x - float(x[0]),
@@ -881,7 +881,7 @@ def plane_fluence_widths(
         raise GridError(msg)
     if rings is None:
         return second, math.nan, math.nan
-    return second, *ring_fluence_widths(rings.radii, values[1:])
+    return second, *_ring_fluence_widths(rings.radii, values[1:])
 
 
 def _negative_fluence(value: float, node: int) -> BackendError:

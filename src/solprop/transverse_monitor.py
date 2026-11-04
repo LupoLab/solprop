@@ -19,7 +19,7 @@ is credited per read interval and judged above the realised input noise's own sh
 Every run reports a ``transverse_status``; only ``clear`` is a clean verdict.
 
 A backend reduces its committed spectral state where the state lives and hands the edge
-an :class:`EdgeReading`, numbers and never the field. :class:`HostEdgeReduction` is the
+an ``_EdgeReading``, numbers and never the field. ``_HostEdgeReduction`` is the
 reference, on a host copy of the state, and everything else here is the same on every
 backend: the faces, the weights, the spacing, the ledgers and the judgement (SEP 44). A
 backend that does not read the edge leaves the run ``unwatched``, which it says before
@@ -48,15 +48,8 @@ __all__ = [
     "GUARD",
     "NOISE_FACTOR",
     "READS",
-    "STRIP_BATCH_BYTES",
-    "EdgeLine",
-    "EdgeReading",
-    "EdgeTables",
-    "HostEdgeReduction",
     "TransverseEdge",
     "TransverseStatus",
-    "edge_lines",
-    "transverse_edge_bytes",
 ]
 
 logger = logging.getLogger(__name__)
@@ -79,7 +72,7 @@ TransverseStatus = Literal[
 
 
 @dataclass(frozen=True, eq=False)
-class EdgeTables:
+class _EdgeTables:
     """The weights a state's node energies are summed with, region by region.
 
     Each table holds four regions' weights on the nodes (or rows), so that a backend
@@ -107,18 +100,18 @@ class EdgeTables:
 
 
 @dataclass(frozen=True, eq=False)
-class EdgeReading:
+class _EdgeReading:
     """What a backend reads of its state for the edge: numbers, never the field.
 
     Attributes
     ----------
     faces : numpy.ndarray or None
-        ``EdgeTables.faces @ nodes``, shape ``(4,)``; ``None`` when only the current was
-        asked for.
+        ``_EdgeTables.faces @ nodes``, shape ``(4,)``; ``None`` when only the current
+        was asked for.
     clip : numpy.ndarray or None
-        ``EdgeTables.clip @ nodes``, for a launch.
+        ``_EdgeTables.clip @ nodes``, for a launch.
     totals : numpy.ndarray or None
-        ``EdgeTables.totals @ nodes``, for a launch or a collar's read. A collar's read
+        ``_EdgeTables.totals @ nodes``, for a launch or a collar's read. A collar's read
         uses only the rate, ``[1]``: over the rows a read touches, which hold all of it,
         the other three can be a different sum on different backends.
     columns : numpy.ndarray or None
@@ -274,7 +267,7 @@ def _guard_width(space: RadialGrid | FreeGrid | PlanarGrid) -> float:
 
 
 @dataclass(frozen=True, eq=False)
-class EdgeLine:
+class _EdgeLine:
     """A face's outward normal, as a requested collar's reductions walk it.
 
     One description for the host's reduction and native's, so that they differ only in
@@ -341,7 +334,7 @@ def _edge_line(
     measure: float,
     bounds: tuple[float, float],
     size: float,
-) -> EdgeLine:
+) -> _EdgeLine:
     """Return one line's description, from its outward coordinate.
 
     Parameters
@@ -359,7 +352,7 @@ def _edge_line(
 
     Returns
     -------
-    solprop.transverse_monitor.EdgeLine
+    solprop.transverse_monitor._EdgeLine
         The description.
     """
     a, b = bounds
@@ -391,12 +384,12 @@ def _edge_line(
         before, after = int(order[position - 1]), int(order[position + 1])
         onset = (node, before, after)
         onset_step = float(s[after] - s[before])
-    return EdgeLine(axis, measure, strip, window, spacing, inward, onset, onset_step)
+    return _EdgeLine(axis, measure, strip, window, spacing, inward, onset, onset_step)
 
 
-def edge_lines(
+def _edge_lines(
     space: RadialGrid | FreeGrid | PlanarGrid, design: SpatialAbsorberDesign | None
-) -> tuple[EdgeLine, ...]:
+) -> tuple[_EdgeLine, ...]:
     """Return the lines a requested collar's strip and current run along.
 
     Parameters
@@ -408,7 +401,7 @@ def edge_lines(
 
     Returns
     -------
-    tuple of solprop.transverse_monitor.EdgeLine
+    tuple of solprop.transverse_monitor._EdgeLine
         One per direction along each axis; none without a collar.
     """
     if design is None or not design.has_collar:
@@ -440,12 +433,12 @@ def edge_lines(
     return tuple(lines)
 
 
-STRIP_BATCH_BYTES = 2**28
+_STRIP_BATCH_BYTES = 2**28
 """The most a batch of a strip's padded transforms holds on the state's memory space."""
 
 
 def _line_rows(
-    space: RadialGrid | FreeGrid | PlanarGrid, line: EdgeLine, n_pol: int, n_omega: int
+    space: RadialGrid | FreeGrid | PlanarGrid, line: _EdgeLine, n_pol: int, n_omega: int
 ) -> int:
     """Return how many rows of values a line carries.
 
@@ -453,7 +446,7 @@ def _line_rows(
     ----------
     space : solprop.grid.RadialGrid, solprop.grid.FreeGrid or PlanarGrid
         The run's grid.
-    line : solprop.transverse_monitor.EdgeLine
+    line : solprop.transverse_monitor._EdgeLine
         The line.
     n_pol, n_omega : int
         The state's polarisations and bins.
@@ -472,12 +465,12 @@ def _line_rows(
     return planes * (space.n_y if line.axis == "x" else space.n_x)
 
 
-def _strip_batch(line: EdgeLine, rows: int) -> int:
+def _strip_batch(line: _EdgeLine, rows: int) -> int:
     """Return how many of a line's rows one batch of its padded transform takes.
 
     Parameters
     ----------
-    line : solprop.transverse_monitor.EdgeLine
+    line : solprop.transverse_monitor._EdgeLine
         The line, with nodes in its strip.
     rows : int
         Its rows in all.
@@ -485,12 +478,12 @@ def _strip_batch(line: EdgeLine, rows: int) -> int:
     Returns
     -------
     int
-        The rows in a batch, under :data:`STRIP_BATCH_BYTES`.
+        The rows in a batch, under ``_STRIP_BATCH_BYTES``.
     """
-    return min(rows, max(1, STRIP_BATCH_BYTES // (16 * 2 * line.strip.size)))
+    return min(rows, max(1, _STRIP_BATCH_BYTES // (16 * 2 * line.strip.size)))
 
 
-def transverse_edge_bytes(
+def _transverse_edge_bytes(
     space: RadialGrid | FreeGrid | PlanarGrid,
     design: SpatialAbsorberDesign | None,
     n_pol: int,
@@ -522,7 +515,7 @@ def transverse_edge_bytes(
     else:
         nodes = space.n_y if isinstance(space, PlanarGrid) else space.n_y * space.n_x
         total = 8 * (12 * nodes + columns)
-    lines = edge_lines(space, design)
+    lines = _edge_lines(space, design)
     if isinstance(space, RadialGrid) and lines:
         total += 8 * space.n_r  # the scale of the radial line's values
     # The strips run in turn, on one buffer as large as the largest batch needs.
@@ -555,7 +548,7 @@ def _radial_inverse(space: RadialGrid) -> Float[np.ndarray, "n_r n_r"]:
 
 
 @dataclass
-class HostEdgeReduction:
+class _HostEdgeReduction:
     """The reference reductions of the edge, on a host copy of a state (SEP 44).
 
     A backend whose state lives elsewhere forms the same numbers there instead
@@ -565,17 +558,17 @@ class HostEdgeReduction:
     ----------
     space : solprop.grid.RadialGrid, solprop.grid.FreeGrid or PlanarGrid
         The run's grid.
-    tables : solprop.transverse_monitor.EdgeTables
+    tables : solprop.transverse_monitor._EdgeTables
         What a state's node energies are summed with.
-    lines : tuple of solprop.transverse_monitor.EdgeLine
+    lines : tuple of solprop.transverse_monitor._EdgeLine
         A requested collar's lines; none without one.
     k_min : float
         The smallest wavenumber over the requested band, rad/m.
     """
 
     space: RadialGrid | FreeGrid | PlanarGrid
-    tables: EdgeTables
-    lines: tuple[EdgeLine, ...]
+    tables: _EdgeTables
+    lines: tuple[_EdgeLine, ...]
     k_min: float
     _inverse: np.ndarray | None = field(default=None, init=False)
     # The host's transverse transforms take the process's thread budget (ADR-052).
@@ -588,7 +581,7 @@ class HostEdgeReduction:
         faces: bool = True,
         current: bool = False,
         full: bool = False,
-    ) -> EdgeReading:
+    ) -> _EdgeReading:
         """Return what the edge asked of a state.
 
         Parameters
@@ -604,15 +597,15 @@ class HostEdgeReduction:
 
         Returns
         -------
-        solprop.transverse_monitor.EdgeReading
+        solprop.transverse_monitor._EdgeReading
             The reading.
         """
         rate = self.current(state) if current else None
         if not faces:
-            return EdgeReading(current=rate)
+            return _EdgeReading(current=rate)
         nodes = self.node_power(state, full=full)
         collar = bool(self.lines)
-        return EdgeReading(
+        return _EdgeReading(
             faces=self.tables.faces @ nodes,
             clip=self.tables.clip @ nodes if full else None,
             totals=self.tables.totals @ nodes if full or collar else None,
@@ -887,8 +880,8 @@ class TransverseEdge:
     _current_baseline: float = field(default=0.0, init=False)
     _returned_peak: float = field(default=0.0, init=False)
     _kappa_order: np.ndarray = field(init=False)
-    tables: EdgeTables = field(init=False)
-    reduction: HostEdgeReduction = field(init=False)
+    tables: _EdgeTables = field(init=False)
+    reduction: _HostEdgeReduction = field(init=False)
 
     def __post_init__(self) -> None:
         """Build the faces, the node weights and the column wavenumbers."""
@@ -910,16 +903,16 @@ class TransverseEdge:
         self._peak_raw = [0.0] * len(self._faces)
         self._baseline = [0.0] * len(self._faces)
         self.tables = self._edge_tables()
-        self.reduction = HostEdgeReduction(
-            space, self.tables, edge_lines(space, self.design), self.k_min
+        self.reduction = _HostEdgeReduction(
+            space, self.tables, _edge_lines(space, self.design), self.k_min
         )
 
-    def _edge_tables(self) -> EdgeTables:
+    def _edge_tables(self) -> _EdgeTables:
         """Return the weights a state's node energies are summed with.
 
         Returns
         -------
-        solprop.transverse_monitor.EdgeTables
+        solprop.transverse_monitor._EdgeTables
             The tables, over the grid's nodes (or rows).
         """
         weights = self._weights
@@ -939,7 +932,7 @@ class TransverseEdge:
             if isinstance(self.space, RadialGrid):
                 outside = np.asarray(self.space.r) > _requested_size(self.space)
             totals[2] = weights * outside
-        return EdgeTables(faces, clip, totals, self._rows_read())
+        return _EdgeTables(faces, clip, totals, self._rows_read())
 
     def _rows_read(self) -> np.ndarray:
         """Return the nodes (or rows) a read uses: the faces' and a collar's.
@@ -1003,7 +996,7 @@ class TransverseEdge:
 
     def launch(  # noqa: PLR0912, PLR0913, PLR0915 - the launch and judgements, in order
         self,
-        reading: EdgeReading,
+        reading: _EdgeReading,
         z: float,
         *,
         noise: Complex[np.ndarray, "n_modes n_pol n_omega"] | None,
@@ -1016,7 +1009,7 @@ class TransverseEdge:
 
         Parameters
         ----------
-        reading : solprop.transverse_monitor.EdgeReading
+        reading : solprop.transverse_monitor._EdgeReading
             The launched state's reading: every node, unless :attr:`resumed`.
         z : float
             Its position, m.
@@ -1195,12 +1188,12 @@ class TransverseEdge:
                 stacklevel=5,
             )
 
-    def _collar_rate(self, reading: EdgeReading) -> float:
+    def _collar_rate(self, reading: _EdgeReading) -> float:
         """Return a requested collar's removal rate, as a share of the launch per m.
 
         Parameters
         ----------
-        reading : solprop.transverse_monitor.EdgeReading
+        reading : solprop.transverse_monitor._EdgeReading
             The state's reading.
 
         Returns
@@ -1302,12 +1295,12 @@ class TransverseEdge:
         """
         return self._launch > 0.0 and self._status != "unwatched" and z > self._last_z
 
-    def read(self, reading: EdgeReading, z: float) -> None:
+    def read(self, reading: _EdgeReading, z: float) -> None:
         """Take a reading at a committed position, credit the removals and judge.
 
         Parameters
         ----------
-        reading : solprop.transverse_monitor.EdgeReading
+        reading : solprop.transverse_monitor._EdgeReading
             The state's reading.
         z : float
             Its position, m.
@@ -1452,14 +1445,14 @@ class TransverseEdge:
 
     def _launch_return(
         self,
-        reading: EdgeReading,
+        reading: _EdgeReading,
         noise: Complex[np.ndarray, "n_modes n_pol n_omega"] | None,
     ) -> None:
         """Record a collar's launch baselines and floors (section 5.3).
 
         Parameters
         ----------
-        reading : solprop.transverse_monitor.EdgeReading
+        reading : solprop.transverse_monitor._EdgeReading
             The launched state's reading.
         noise : numpy.ndarray or None
             Its input noise.
@@ -1474,12 +1467,12 @@ class TransverseEdge:
         self._current_last = None
         self._current = 0.0
 
-    def _judge_return(self, reading: EdgeReading, z: float) -> None:
+    def _judge_return(self, reading: _EdgeReading, z: float) -> None:
         """Judge what a collar returns: the strip and the current (section 5.3).
 
         Parameters
         ----------
-        reading : solprop.transverse_monitor.EdgeReading
+        reading : solprop.transverse_monitor._EdgeReading
             The state's reading.
         z : float
             Its position, m.

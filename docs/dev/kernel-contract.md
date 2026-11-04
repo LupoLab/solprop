@@ -229,13 +229,13 @@ in both directions; a second test checks the flags and counts named in the `flag
 against the fields of `Flags`.
 
 **The transverse edge.** `StepDriver._edge_reading(state, edge, *, faces, current, full)`
-returns an `EdgeReading` ([SEP 44](seps/sep-0044-native-edge-read.md)): region sums, each column's unweighted energy, each
+returns an `_EdgeReading` ([SEP 44](seps/sep-0044-native-edge-read.md)): region sums, each column's unweighted energy, each
 line's `(inward, windowed)` strip and the summed rectified current, never the field. The default forms them with
-`HostEdgeReduction` on a host copy. An override takes the edge's `EdgeTables` and `EdgeLine`s, whose weights, strides,
+`_HostEdgeReduction` on a host copy. An override takes the edge's `_EdgeTables` and `_EdgeLine`s, whose weights, strides,
 windows and onsets say all there is to know about the geometry, so a backend holds no face, mask or judgement of its own. It
 reads the state at a committed position, so it may use scratch that a step writes before reading, and it must leave the march
 as it was. `StepDriver.edge_memory(space)` says what binding holds, from the grid alone, for `estimate`: the default holds
-nothing beyond the state, and native's is `transverse_edge_bytes`, equal to its `transverse_edge` ledger row.
+nothing beyond the state, and native's is `_transverse_edge_bytes`, equal to its `transverse_edge` ledger row.
 
 **Source reservations in the shared Adams march.** The protected hooks
 `StepDriver._reserve_source_calls(count)` and `StepDriver._release_source_calls()`

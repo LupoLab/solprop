@@ -35,7 +35,7 @@ from solprop.stepper import (
     PIController,
     RungeKutta,
 )
-from solprop.transverse_monitor import GUARD, EdgeReading, transverse_edge_bytes
+from solprop.transverse_monitor import GUARD, _EdgeReading, _transverse_edge_bytes
 from test_transverse_reads import REREVIEW, packet_run
 
 pytestmark = pytest.mark.skipif(
@@ -89,7 +89,7 @@ def _attached(simulation: Simulation, state: np.ndarray) -> Any:
 
 def _read_both(
     route: str, *, full: bool
-) -> tuple[EdgeReading, EdgeReading, np.ndarray]:
+) -> tuple[_EdgeReading, _EdgeReading, np.ndarray]:
     """Return native's and the host's reading of one state, and the state."""
     simulation = _case(route)
     problem = simulation.translate()
@@ -547,7 +547,7 @@ def test_the_edge_holds_memory_only_once_a_monitor_binds_it(route: str) -> None:
         assert monitor.transverse is not None
         backend._bind_monitor(monitor)
         _, _, n_pol, n_omega = problem.shape
-        expected = transverse_edge_bytes(
+        expected = _transverse_edge_bytes(
             monitor.transverse.space, monitor.transverse.design, n_pol, n_omega
         )
         assert backend.memory_ledger()["transverse_edge"] == expected

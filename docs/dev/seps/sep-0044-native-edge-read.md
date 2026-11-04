@@ -495,6 +495,8 @@ SEP 40's four-way control, `python -m benchmarks.edge_overhead`, native at 18 th
 
 **A runner's points.** §6 suggested sharing the tables across points. At 512 x 512 x 600 a point's monitor takes 21 ms and its bind 16 ms, against a step of 1.76 s, so I left it.
 
+**Names.** By the maintainer's decision, the edge's new names are private, with a leading underscore, since `solprop` and `solprop-native` are released together: `_EdgeReading`, `_EdgeTables`, `_EdgeLine`, `_HostEdgeReduction`, `_edge_lines`, `_transverse_edge_bytes` and `_STRIP_BATCH_BYTES`. Part I and the reports above use their earlier spellings.
+
 **Not yet done.** Phase 4's device qualification; the rest of §8's documents and the final ledger entry, phase 5.
 
 **Open.** Whether to approve a rental for phase 4.

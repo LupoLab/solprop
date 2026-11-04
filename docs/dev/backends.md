@@ -489,14 +489,14 @@ as one; its end-of-plane log is retired, and the boundary monitor's transverse e
 
 **The transverse edge is read where the state lives** ([SEP 40](seps/archive/sep-0040-transverse-absorbing-boundaries.md), [SEP 44](seps/sep-0044-native-edge-read.md)).
 A backend whose `StepDriver.reads_transverse_edge` is set hands the monitor's
-`TransverseEdge` an `EdgeReading` from `StepDriver._edge_reading` at the edge's reads, at saved planes, and with a
+`TransverseEdge` an `_EdgeReading` from `StepDriver._edge_reading` at the edge's reads, at saved planes, and with a
 requested collar at every committed step. The reading is numbers and never the field: region sums, each
-column's energy and any collar's strip and current. The default forms them with `HostEdgeReduction` on a host copy,
+column's energy and any collar's strip and current. The default forms them with `_HostEdgeReduction` on a host copy,
 the reference, which `numpy_ref` and `mlx` use. `native` forms them on its own state against
-the edge's `EdgeTables`, four regions' weights on the nodes, so it holds no face, mask or judgement, and a
+the edge's `_EdgeTables`, four regions' weights on the nodes, so it holds no face, mask or judgement, and a
 field-free run crosses no state (`tests/backends/test_native_edge_reading.py`). A requested collar's lines are described
-once, as `edge_lines`, for both reductions (`tests/backends/test_native_edge_collar.py`): native takes each strip's padded
-transform in batches of planes under `STRIP_BATCH_BYTES`, on buffers listed in the `transverse_edge` ledger row, and the
+once, as `_edge_lines`, for both reductions (`tests/backends/test_native_edge_collar.py`): native takes each strip's padded
+transform in batches of planes under `_STRIP_BATCH_BYTES`, on buffers listed in the `transverse_edge` ledger row, and the
 current from the onset's three nodes, rectified per row, all on one load of the transverse scratch. The current is still
 accumulated in Python. Everything else, the weights, the spacing, the ledgers and the judgement, is one
 code on every backend. The read spacing is a ceiling on the step, and
@@ -1231,7 +1231,7 @@ The axis's fluence, which only a radial width reads, isn't formed.
 (`solprop.spatial.cartesian_fluence_widths`): a centroid, a second moment, and an azimuthal average
 of the bilinear interpolant on a few thousand angles per ring, about 3.7 million samples at
 768 x 768. Native forms each as a kernel over the fluence it holds, so that the moments and one value
-per ring cross, and solprop keeps the rule: `solprop.spatial.fluence_rings` fixes the rings,
+per ring cross, and solprop keeps the rule: `solprop.spatial._fluence_rings` fixes the rings,
 `backends.spatial.plane_fluence_widths` reads the refusal and the widths. A line's and a planar
 fluence are short profiles, and these still cross.
 

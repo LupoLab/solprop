@@ -33,9 +33,9 @@ from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid, LineGrid
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import (
     SpatialMedium,
+    _fluence_rings,
+    _ring_fluence_widths,
     cartesian_fluence_widths,
-    fluence_rings,
-    ring_fluence_widths,
 )
 from solprop.stats import StatsSpec
 from solprop.stepper import PIController, RungeKutta
@@ -661,16 +661,16 @@ def test_plane_widths_at_an_edge_have_only_a_moment():
 def test_the_rings_are_the_host_widths_rule():
     x = np.linspace(-1.0, 1.0, 9)
     y = np.linspace(-2.0, 2.0, 17)
-    rings = fluence_rings(x, y, 0.0, 0.0)
+    rings = _fluence_rings(x, y, 0.0, 0.0)
     assert rings is not None
     # Half the finest spacing, to the largest circle inside the axes about the centroid.
     assert rings.radii[1] == 0.125
     assert rings.radii[-1] == 1.0
     assert rings.cosines.size == rings.sines.size >= 8
     # A centroid within two half-spacings of an edge has none.
-    assert fluence_rings(x, y, 0.9, 0.0) is None
+    assert _fluence_rings(x, y, 0.9, 0.0) is None
     # A Gaussian trace: its 1/e^2 radius and its FWHM, to the interpolant's accuracy.
     radii = np.linspace(0.0, 4.0, 4001)
-    radius, width = ring_fluence_widths(radii, np.exp(-2 * radii**2))
+    radius, width = _ring_fluence_widths(radii, np.exp(-2 * radii**2))
     assert radius == pytest.approx(1.0, abs=1e-6)
     assert width == pytest.approx(np.sqrt(2 * np.log(2)), abs=1e-6)

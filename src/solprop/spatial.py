@@ -54,7 +54,6 @@ __all__ = [
     "ApertureShape",
     "ApertureTables",
     "AxialFactors",
-    "FluenceRings",
     "FluxSide",
     "SpatialDispersion",
     "SpatialFlux",
@@ -70,7 +69,6 @@ __all__ = [
     "check_aperture_shape",
     "critical_power",
     "edge_profile",
-    "fluence_rings",
     "fwhm_r",
     "mask_plane_offsets",
     "mask_plane_radius",
@@ -85,7 +83,6 @@ __all__ = [
     "power_trace",
     "quadrature_half_width",
     "radial_fluence_widths",
-    "ring_fluence_widths",
     "spatial_energy",
     "spatial_energy_spectrum",
     "spatial_fluence",
@@ -3186,7 +3183,7 @@ def cartesian_fluence_widths(
     if not math.isfinite(second):
         msg = "Cartesian fluence moments are not representable"
         raise GridError(msg)
-    rings = fluence_rings(x, y, center_x, center_y)
+    rings = _fluence_rings(x, y, center_x, center_y)
     if rings is None:
         return second, math.nan, math.nan
     averaged = np.empty(rings.radii.size)
@@ -3204,11 +3201,11 @@ def cartesian_fluence_widths(
             (1 - fx) * samples[iy, ix] + fx * samples[iy, ix + 1]
         ) + fy * ((1 - fx) * samples[iy + 1, ix] + fx * samples[iy + 1, ix + 1])
         averaged[index] = np.mean(interpolated)
-    return second, *ring_fluence_widths(rings.radii, averaged)
+    return second, *_ring_fluence_widths(rings.radii, averaged)
 
 
 @dataclass(frozen=True)
-class FluenceRings:
+class _FluenceRings:
     """The rings on which a Cartesian fluence is averaged about its centroid.
 
     Attributes
@@ -3224,12 +3221,12 @@ class FluenceRings:
     sines: Float[np.ndarray, " n_angles"]
 
 
-def fluence_rings(
+def _fluence_rings(
     x: Float[np.ndarray, " n_x"],
     y: Float[np.ndarray, " n_y"],
     center_x: float,
     center_y: float,
-) -> FluenceRings | None:
+) -> _FluenceRings | None:
     """Return the rings of :func:`cartesian_fluence_widths` about a centroid.
 
     Half the finest pixel spacing in radius, out to the largest circle about the
@@ -3245,7 +3242,7 @@ def fluence_rings(
 
     Returns
     -------
-    FluenceRings or None
+    _FluenceRings or None
         The rings, or ``None`` when the centroid lies within two half-spacings of an
         edge, where the threshold widths are undefined.
     """
@@ -3260,10 +3257,10 @@ def fluence_rings(
     largest_circle = min(x[-1] - x[0], y[-1] - y[0]) / 2
     n_angles = max(8, math.ceil(2 * np.pi * largest_circle / spacing))
     angles = 2 * np.pi * np.arange(n_angles) / n_angles
-    return FluenceRings(radii, np.cos(angles), np.sin(angles))
+    return _FluenceRings(radii, np.cos(angles), np.sin(angles))
 
 
-def ring_fluence_widths(
+def _ring_fluence_widths(
     radii: Float[np.ndarray, " n_radii"], averaged: Float[np.ndarray, " n_radii"]
 ) -> tuple[float, float]:
     """Return the threshold widths of a fluence averaged on its rings.
@@ -3271,7 +3268,7 @@ def ring_fluence_widths(
     Parameters
     ----------
     radii : numpy.ndarray
-        The rings' radii in m, the first zero (:func:`fluence_rings`).
+        The rings' radii in m, the first zero (``_fluence_rings``).
     averaged : numpy.ndarray
         The nonnegative fluence averaged on each ring.
 
