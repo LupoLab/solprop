@@ -1192,6 +1192,66 @@ to 70 kernels, most of it launch-bound
 (`h2_raman_averaged`) and 65 → 4.7 (`radial_filament_256`, 0.1); walls −15 %, −21 %, −4 %,
 −23 % and −3 %.
 
+
+### A native Adams call's return and the stop flag
+
+A native call returns at a host event or at its bound, 256 attempts or 0.1 s
+([SEP 39](seps/archive/sep-0039-native-adams-march.md), Q3), and a run's stop flag is polled
+before each call ([#519](https://github.com/LupoLab/solprop/issues/519)). That adds no
+return, only a Python call: 56 ns with no flag and 82 ns with a `threading.Event`
+(`timeit`). Everything here is on an Intel Xeon Gold 6240 pinned to CPUs of one socket on a
+shared machine, load average 4 to 16, GCC 16.2, `-march=cascadelake`, no wisdom file: read
+the ratios, not the times.
+
+**The poll.** Interleaved pairs in one process, 21 rounds, one thread, with a
+`threading.Event` as the flag, where returns are most frequent: an N = 8 soliton on 576
+bins, 1 m at `rtol = 1e-8`, whose busy monitor returns at 4780 of its 4783 attempts, 0.90 s.
+
+| | median | range |
+|---|---:|---:|
+| poll / no poll | 1.0027 | 0.983–1.058 |
+| no poll / no poll | 1.0010 | 0.990–1.020 |
+
+The difference is inside the control's range; 4780 polls at 82 ns are 0.04 % of the run.
+
+**Against the parent.** `benchmarks ab`, `--stepper multistep`, `--length 0.2`, nine logical
+CPUs, 3 rounds, the same steps and fields to rounding (at most 1.3e-13), median ratio and
+range, with an A/A control of the parent against itself:
+
+| threads | case | candidate / parent | A/A |
+|---|---|---:|---:|
+| 1 | `gnlse_soliton` | 0.997 [0.957, 1.031] | 1.022 [0.993, 1.025] |
+| | `he_rdw_averaged` | 1.025 [0.951, 1.087] | 0.994 [0.887, 1.098] |
+| | `argon_blueshift_averaged` | 0.992 [0.817, 1.004] | 1.006 [0.889, 1.011] |
+| | `rdw_one_mode` | 1.116 [0.981, 1.355] | 0.995 [0.978, 1.059] |
+| 8 | `gnlse_soliton` | 0.990 [0.930, 1.125] | 1.052 [0.885, 1.089] |
+| | `he_rdw_averaged` | 1.060 [0.998, 1.263] | 0.982 [0.818, 1.018] |
+| | `argon_blueshift_averaged` | 1.025 [1.021, 1.033] | 1.029 [0.995, 1.087] |
+| | `rdw_one_mode` | 0.995 [0.869, 1.315] | 1.032 [1.008, 1.065] |
+| | geometric mean | 1.024 | 1.014 |
+
+This machine could not resolve the change. Five rounds of the two highest rows read 0.966
+[0.732, 1.019] (`rdw_one_mode`, 1 thread) and 0.982 [0.820, 1.149] (`he_rdw_averaged`, 8
+threads).
+
+**What a return costs**, as it has since SEP 39: this change makes none of them. One plane
+and no boundary monitor, so nothing but the bound returns the march; a bound of none, the
+production bound and a bound of one attempt interleaved in one process, medians of 3 to 5
+rounds of the run's wall time, setup included. One return is the excess of the bound of one
+over none, per return:
+
+| case, threads | bins | attempts | wall, no bound | returns at the bound | one return | their share |
+|---|---:|---:|---:|---:|---:|---:|
+| N = 2 soliton, 0.3 m, 1 | 512 | 946 | 0.085 s | 4 | 44 µs | 0.21 % |
+| N = 8 soliton, 0.1 m, 1 | 576 | 974 | 0.105 s | 4 | 47 µs | 0.18 % |
+| the same, interaction form, 1 | 576 | 2046 | 0.186 s | 8 | 29 µs | 0.13 % |
+| `gnlse_soliton` (0.3), 1 | 3072 | 285 | 0.143 s | 2 | 63 µs | 0.09 % |
+| `he_rdw_averaged` (0.3), 1 | 2561 | 483 | 0.464 s | 4 | 62 µs | 0.05 % |
+| `he_rdw_averaged` (0.3), 8 | 2561 | 483 | 0.291 s | 3 | 91 µs | 0.09 % |
+
+The share is read from the return's cost: comparing the production bound with none directly
+reads −2.7 to +1.8 %, which is noise. Where 256 attempts take less than 0.1 s, the share
+grows as the grid shrinks, so it passes 0.1 % on grids of about a thousand bins.
 ### The Adams passes on x86-64 lanes
 
 The exponential Adams trial's predict and correct passes on a host block of 32 elements
