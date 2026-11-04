@@ -7,8 +7,8 @@
 | **Author** | John Travers |
 | **Drafting agent** | Claude Opus 5.5 |
 | **Status** | Draft |
-| **Review status** | Not reviewed |
-| **Reviewers** | — |
+| **Review status** | In review |
+| **Reviewers** | GPT-6 (AI) |
 | **Type** | Change |
 | **Created** | 2026-11-04 |
 | **Resolution** | — |
@@ -303,3 +303,153 @@ No phase has been implemented.
 ## Part III — History
 
 - 2026-11-04: Drafted. Tracking issue: [#514](https://github.com/LupoLab/solprop/issues/514).
+- 2026-11-04: GPT-6 (AI) reviewed the proposal at `a121c73c`; findings and questions below.
+
+### AI review — 2026-11-04
+
+Reviewer: **GPT-6 (AI)**. Reviewed all of Part I against SEP 0, SEP 40, the current
+monitor and native implementation, the numerical comparison rules, and the linked
+issues. Part I is unchanged. These are requests for the drafting agent and
+maintainer to address, not amendments or acceptance decisions. All findings remain
+open under [#514](https://github.com/LupoLab/solprop/issues/514).
+
+The separation recommended in Option E is sound in principle: Python supplies the
+geometry and judges the readings, while native performs numerical operations on
+resident data. Keeping per-line, per-frequency rectification and testing scratch
+interference are particularly important. The proposal still needs the following
+contract and qualification details before acceptance.
+
+1. **R1 — P1: specify the actual weighted-reduction contract (§§1, 4–6, 11).**
+   The abstract promises node and mode energies, but Option E returns twelve
+   regional sums and column powers. `EdgeTables.totals` and `EdgeReading.totals`
+   have no defined row meanings, units or normalisation; the requested collar's
+   removal rate has no named result. The current consumers need distinct values:
+   total launch norm, face sums, clip sums, the launch region used by
+   `_launch_return`, and the rate-weighted sum used by `_collar_rate`. The last
+   must also be available at later reads, although §6 says the other two tables
+   run only at launch. See the
+   [existing consumers](https://github.com/LupoLab/solprop/blob/a121c73c/src/solprop/transverse_monitor.py).
+   These choices determine the measured quantity, rather than just its storage.
+   Please give each table row and returned component an equation, shape and
+   scaling, define unused rows and the `faces/current/full` flags, and say whether
+   `columns` already includes the column quadrature. Include how planar mode and
+   polarisation axes are summed and how the strip's winning face retains its own
+   companion `windowed` value. Which result carries the collar rate at an ordinary
+   read? Add independent weighted-sum tests; agreement between two reducers using
+   the same incorrectly constructed tables would not establish correctness.
+
+2. **R2 — P1: make the current accumulator's lifecycle part of the contract
+   (§§6, 7, 9, 11, Q3).** Moving accumulation into native memory introduces state
+   beyond the scalar `current`: its previous accepted sample, position or interval,
+   and the undrained integral. Draining only at an edge read leaves Python's record
+   stale after a native march returns between reads. The existing
+   [execution-record path](https://github.com/LupoLab/solprop/blob/a121c73c/src/solprop/driver/run.py)
+   obtains `backend.metadata()` for saved states, snapshots and failures, and
+   [loading a new input](https://github.com/LupoLab/solprop/blob/a121c73c/src/solprop/backends/driver.py#L1148)
+   promises to reset everything a reused backend reads. Fixing #512 requires more
+   than adding `strip_floor`: losing the preceding current sample drops the first
+   trapezoid across a resume, even if the cumulative integral is restored.
+   **Needs a maintainer decision:** resolve Q3 before phase 4; recommend a current
+   record through the last committed state. Specify an idempotent drain, retention
+   of the last sample across drains, reset on `set_initial`, restore on resume,
+   and the initial-sample rule. Update only after the final mask/split treatment,
+   never for a rejected trial or an interpolated observation. Test repeated metadata
+   reads, an interruption between edge reads, snapshot/resume, and two runner
+   inputs, including one after failure. How are partially completed low-storage
+   steps kept from changing the last committed monitor record?
+
+3. **R3 — P2: derive bounds for the complete readings (§§4, 6, 7).** The stated
+   current bound, proportional to `epsilon * sum(abs(v) * abs(s))`, addresses the
+   product cancellation at supplied values, but does not account for synthesis,
+   the finite-difference slope, the reduction's addition depth or accumulation over
+   accepted steps. A slope formed from nearly equal neighbours can have error set
+   by their magnitudes divided by their separation, rather than by the resulting
+   slope's magnitude. Likewise, the radial path is a dense dot product, not an FFT;
+   four times `fft_bound` alone does not justify its error at arbitrary `n_r` or
+   under cancellation. Please declare an absolute error budget through synthesis,
+   squaring/weighting, reduction, division by the launch norm, rectification and
+   the current's trapezoid, using the applicable helpers in `tests/bounds.py`.
+   Distinguish unit roundoff from machine epsilon. Include a nearly cancelling
+   radial synthesis and an almost-zero inward current. Whole adaptive runs need
+   accuracy envelopes; exact stop/read-count parity should be limited to controlled
+   witnesses with matched histories and margins from decision thresholds. This
+   does not request a strict floating-point block or bitwise parity.
+
+4. **R4 — P2: measure the CPU criterion against the right baseline (§§3, 6, 7,
+   Q2).** SEP 40 §7.7's 2 % is the overhead of enabling the ramp and transverse
+   monitor on the *same implementation*, compared with disabling them. The table
+   in §6 instead compares the prototype with `main`; a ratio below 1.02 does not
+   establish that requirement. The separate 2.0 s versus 1.8 s point has about
+   11.1 % check-on overhead, although that point alone does not establish a miss of
+   SEP 40's more specific transverse-only criterion. Please separate improvement
+   over the old code, monitor overhead, and the whole-point GPU target. Measure
+   ramp only, transverse reads only and both, reporting construction separately
+   and actual steps/source calls as SEP 40 requires. The comparison with 0.1.0 is
+   useful historical evidence but cannot replace this control. Include `numpy_ref`
+   after removing plane skipping: it retains host synthesis and does not gain
+   native's avoided transfer. **Needs a maintainer decision:** retain the 2 % CPU
+   criterion or explicitly replace/defer it. Also reconcile “fixes #396” with the
+   excluded read-ceiling question; keep the remaining work in that issue or a
+   linked successor rather than treating faster reductions as its full closure.
+
+5. **R5 — P2: account for default tables as well as collar buffers (§§5, 6,
+   Q1).** Q1 asks only about the collar's strip buffers, but Option E also adds
+   tables to the default check. At 768 by 768, twelve binary64 rows occupy
+   56,623,104 bytes, **54 MiB** (about 57 MB), per resident copy. Python's tables,
+   upload staging, column results, radial rows and transform workspaces can add to
+   that. The current
+   [`estimate`](https://github.com/LupoLab/solprop/blob/a121c73c/src/solprop/driver/estimate.py#L158)
+   reads the ledger before loading the input and never attaches a monitor, so a
+   ledger entry allocated at attachment alone would remain invisible to it.
+   Recommend answering Q1 yes for all persistent resources this SEP introduces,
+   and specify how estimation sees them without reading a field. State ownership,
+   allocation and release points, host versus device accounting, and which buffers
+   can actually be shared across runner inputs. Test the estimate against the bound
+   backend's ledger, and verify that a newly constructed check-off run pays no edge
+   allocation. How much temporary memory does a collar's padded transform need on
+   each route, at the widest supported strip?
+
+6. **R6 — P2: complete and scope the qualification matrix (§§6, 7, 11).** The
+   adversarial probes are useful, but the matrix should explicitly include field
+   and envelope grids, DC/Nyquist and inactive bins, input/modified/no noise, a
+   supplied unmasked realisation, and the supported binary32 host path. The clean
+   launch identity in §6 is correct for a fresh input-noise launch; a resume already
+   carries the noise and must follow a separately stated path. Include launch-only
+   interruption and resume with and without a monitor record. Scope the no-crossing
+   promise to monitor-induced transfers: requested fields, some statistics,
+   interpolation and terminal checkpoints have separate transfer requirements.
+   Failing `_observed_field` alone cannot detect a direct
+   `field_to_host()` call, which the native adapter also contains. Add a lower-level
+   transfer count or trace for the stated field-free workload, including launch,
+   ordinary reads, collar commits and shutdown. For the CPU exercise of device
+   logic, require tests that actually invoke the device-shaped implementation;
+   merely compiling both alternatives does not exercise the unused one.
+
+7. **R7 — P2: make the performance evidence and phase gates reproducible
+   (§§6–8, 11).** The draft correctly labels the prototype as unpublished and the
+   GPU target as unmeasured. However, `benchmarks.device_split` is absent from the
+   reviewed tree, and neither the prototype revision nor the exact revisions
+   carrying #510/#502 are identified for the prototype comparisons. Before using
+   these numbers to accept Option E, provide a public reproducible harness or
+   patch, pinned baseline and candidate revisions, full commands/settings and
+   enough per-repeat results to assess the shared-machine spread. Keep the
+   51-step historical measurement as context; specify the short qualification
+   window, or obtain an explicit exception to the standing roughly-ten-step rule.
+   Assign the schema bump and protected-surface test update to phase 1, where the
+   new driver hook first appears. Put the host-path manual changes and release
+   note for removing `READ_RESOLUTION` there too, rather than deferring all
+   documentation to phase 6. The maintainer's decision to remove it is respected;
+   the compatibility text should retain the general omission bound
+   `1e-3 * budget**2` and allow a changed verdict for a state within that distance
+   of a threshold, even though the existing witnesses are not near one.
+
+**Evidence and limits.** Read the proposal at `a121c73c`, its base at `e49925d1`,
+the existing host/native reduction and commit paths, SEP 40's definition and cost
+criterion, `tests/bounds.py`, the existing transverse tests, #396, #510, #512, #514
+and PR #508. Ran small, non-propagating NumPy probes: a line-grid sample of amplitudes
+2 and 3 in two polarisations at the last frequency gives node power 13 and matching
+weighted node/column totals to rounding; a supplied unmasked-noise example gives
+327 by both the existing mask-and-subtract expression and the proposed clean-power
+identity. Checked the table-byte calculation and the check-on/off ratio above.
+No prototype, native build, GPU execution or performance measurement was run for
+this review. No new physical constants or literature coefficients were introduced.
