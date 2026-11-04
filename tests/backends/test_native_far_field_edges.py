@@ -37,7 +37,6 @@ from backends.far_field_cases import (
     time_grid,
 )
 from backends.test_native_far_field import native_stats, problem_of
-from solprop.backends.memory import far_field_memory
 from solprop.backends.spatial import FAR_FIELD_BAND_BUDGET, far_field_partials
 from solprop.grid import FieldGrid, FreeGrid
 from solprop.spatial import (
@@ -297,9 +296,6 @@ def test_a_problem_at_the_band_cap_is_the_reference_s():
     # The cap is what decides, not the rows.
     assert n_bands == FAR_FIELD_BAND_BUDGET // (8 * n_slots * grid.n_omega)
     assert 1 < n_bands < space.n_y
-    assert far_field_memory(problem, "native") == {
-        "far_field_partials": 8 * n_bands * n_slots * grid.n_omega
-    }
     actual, held = native_stats(problem, grid, field, FAR_FIELD_STATISTICS)
     tables = aperture_tables(spec, problem.grids, problem.transform.geometry)
     assert tables is not None

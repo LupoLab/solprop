@@ -4827,53 +4827,6 @@ class PlaneStore(Displayed, ABC):
             return self._layout.field_shape
         return self._field_shape
 
-    def held_bytes(
-        self,
-        n_planes: int,
-        plane_bytes: int,
-        *,
-        kept: int | None = None,
-        field_bytes: int = 0,
-    ) -> int:
-        """Return the bytes the store keeps in memory for a run, for its admission.
-
-        A store that writes each plane out keeps none beyond the plane being written,
-        which is what this base answer says; one that keeps the run in memory
-        overrides it (:meth:`solprop.output.memory.MemoryOutput.held_bytes`). The
-        run's memory admission adds the answer to the backend's estimate
-        (:func:`solprop.driver.memory.admit_memory`).
-
-        Parameters
-        ----------
-        n_planes : int
-            The planes the run will save, the entrance included.
-        plane_bytes : int
-            The bytes of one plane as the store holds it: the field, the noise phase
-            and the statistics.
-        kept : int or None, optional
-            How many of the planes keep their field (:class:`FieldRetention`);
-            ``None``, every one.
-        field_bytes : int, optional
-            The part of `plane_bytes` a plane without its field does not hold: the
-            field and the noise phase.
-
-        Returns
-        -------
-        int
-            Zero: the plane in flight is a transient, not a persistent allocation.
-
-        Examples
-        --------
-        >>> import tempfile
-        >>> from pathlib import Path
-        >>> from solprop.output import HDF5Output
-        >>> with tempfile.TemporaryDirectory() as folder:
-        ...     HDF5Output(Path(folder) / "run.h5").held_bytes(201, 2**20)
-        0
-        """
-        del n_planes, plane_bytes, kept, field_bytes
-        return 0
-
     def close(self) -> None:
         """Finish the run, releasing whatever the store holds open.
 

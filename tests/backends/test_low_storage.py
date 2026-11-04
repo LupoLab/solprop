@@ -45,7 +45,6 @@ from bounds import (
 from legacy_geometry import with_collar_rate
 from solprop.backends.driver import StepDriver
 from solprop.backends.low_storage import HostLowStorage, schedule_key, table_steps
-from solprop.backends.memory import estimate_memory, ledger_groups
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.registry import resolve_name
 from solprop.boundaries import absorber
@@ -1217,20 +1216,6 @@ def held_soliton(fields="all"):
     return simulation, schedule, length
 
 
-def test_the_held_plane_is_charged_at_admission_when_fields_are_dropped():
-    from solprop.driver.memory import admit_memory  # noqa: PLC0415
-    from solprop.output.schema import FieldRetention  # noqa: PLC0415
-
-    simulation, _, _ = held_soliton("planes")
-    problem = simulation.translate()
-    kept = FieldRetention("planes", (0, -1)).resolved(3)
-    admission = admit_memory(problem, "numpy_ref", "none", retention=kept)
-    assert admission.estimate.groups["held_plane"] == 16 * math.prod(problem.shape)
-    every = FieldRetention("all", ()).resolved(3)
-    groups = admit_memory(problem, "numpy_ref", "none", retention=every).estimate.groups
-    assert "held_plane" not in groups
-
-
 def test_a_field_free_plane_is_held_and_checkpointed_from_a_step_in_flight(tmp_path):
     """SEP 22, Q14: the state of the last field-free plane is held, one volume.
 
@@ -1460,70 +1445,6 @@ def test_the_ledger_holds_three_registers_the_scratch_and_the_table(mode, collar
     assert sum(volumes.values()) == (5 if mode == "tabulate" else 4) * field
     # Every other row is a node chunk's, bounded by the chunk and not the state.
     assert all(size < field for row, size in ledger.items() if row not in FIELD_ROWS)
-    # The construction-free estimate is the ledger to the byte, beside the problem's
-    # own initial state, which no ledger holds.
-    estimate = estimate_memory(problem, "numpy_ref")
-    assert estimate.groups == {
-        name: size for name, size in ledger_groups(ledger).items() if name != "measured"
-    } | {"initial_field": problem.initial.field0.nbytes}
-
-
-def test_the_noise_adds_one_volume_and_the_estimate_names_it():
-    noise = spatial_noise(
-        SpatialFlux.resolve(
-            EnvelopeGrid.from_limits(
-                1e-3, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False
-            ),
-            FreeGrid(3e-4, 9, 4e-4, 12, collar_fraction=0),
-            SpatialMedium(),
-        ),
-        np.random.default_rng(7),
-        model="modified",
-    )
-    problem, grid, _ = cartesian_march("tabulate", noise=noise)
-    field = 16 * math.prod(problem.shape)
-    backend = NumpyRefBackend(problem, grid=grid)
-    backend.set_initial(problem.initial.field0, None)
-    ledger = backend.memory_ledger()
-    backend.close()
-    assert sum(ledger[row] for row in FIELD_ROWS) == 6 * field
-    estimate = estimate_memory(problem, "numpy_ref")
-    assert ledger_groups(ledger)["base"] == estimate.groups["base"] + field
-    assert any("noise field" in item for item in estimate.not_counted)
-
-
-def test_a_run_too_large_for_the_adams_history_fits_under_the_march(
-    soliton_problem, narrow_grid
-):
-    """``_admit_history`` refuses the default integrator and admits the march (7.3)."""
-    from solprop.driver.memory import MemoryLimit, _admit_history  # noqa: PLC0415
-    from solprop.exceptions import MemoryBudgetError  # noqa: PLC0415
-    from solprop.stepper import Multistep  # noqa: PLC0415
-
-    length = 0.1
-    schedule = FixedSchedule.uniform(0.0, length, length / 10)
-    adams = estimate_memory(
-        soliton_problem(
-            narrow_grid,
-            1,
-            save_planes=[length],
-            schedule=schedule,
-            integrator=Multistep(),
-        ),
-        "numpy_ref",
-    )
-    march = estimate_memory(
-        soliton_problem(
-            narrow_grid, 1, save_planes=[length], schedule=schedule, integrator=MARCH
-        ),
-        "numpy_ref",
-    )
-    assert march.groups["adams_history"] == 0
-    limit = MemoryLimit(adams.total - 1, "warn", "machine")
-    with pytest.raises(MemoryBudgetError, match="RungeKutta"):
-        _admit_history(adams, limit)
-    assert limit.limit is not None and march.total <= limit.limit
-    _admit_history(march, limit)
 
 
 # --- the noise (section 7.1, Q3) ----------------------------------------------------

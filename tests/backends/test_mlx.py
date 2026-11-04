@@ -47,7 +47,6 @@ from monitor_cases import (
     record_after_march,
     watched,
 )
-from solprop.backends.memory import estimate_memory
 from solprop.backends.mlx_gpu.arithmetic import (
     DoubleFloatTerms,
     fft_probe,
@@ -750,53 +749,6 @@ def test_the_state_stays_complex64_on_the_device():
         assert isinstance(state, mx.array)
         assert state.dtype == mx.complex64
         assert all(stage.dtype == mx.complex64 for stage in backend._last_stages)
-
-
-@pytest.mark.parametrize("modes", [1, 4])
-def test_the_memory_estimate_bounds_the_measured_peak(modes):
-    simulation = on("mlx", capillary("single", modes=modes, length=0.002, energy=20e-6))
-    problem = simulation.translate()
-    estimate = estimate_memory(problem, "mlx")
-    mx.reset_peak_memory()
-    backend = select("mlx", problem, grid=simulation.grid)
-    try:
-        backend.set_initial(problem.initial.field0, None)
-        backend.propagate_to(0.002)
-        assert mx.get_peak_memory() <= estimate.total
-    finally:
-        backend.close()
-
-
-@pytest.mark.parametrize("route", ["radial", "cartesian"])
-def test_the_memory_estimate_bounds_the_measured_peak_in_free_space(route):
-    """The transverse transforms' transients, with both collars in each stage."""
-    simulation = on("mlx", spatial_kerr(route, "single", absorbed=True))
-    problem = simulation.translate()
-    estimate = estimate_memory(problem, "mlx")
-    mx.reset_peak_memory()
-    backend = select("mlx", problem, grid=simulation.grid)
-    try:
-        backend.set_initial(problem.initial.field0, None)
-        backend.propagate_to(float(simulation.settings.save_planes[-1]))
-        assert mx.get_peak_memory() <= estimate.total
-    finally:
-        backend.close()
-
-
-@gpu_only
-def test_the_memory_estimate_bounds_the_measured_peak_with_envelope_plasma():
-    """The cycle kernel's outputs, the histories and the drive and loss per stage."""
-    simulation = on("mlx", envelope_plasma_case())
-    problem = simulation.translate()
-    estimate = estimate_memory(problem, "mlx")
-    mx.reset_peak_memory()
-    backend = select("mlx", problem, grid=simulation.grid)
-    try:
-        backend.set_initial(problem.initial.field0, None)
-        backend.propagate_to(0.001)
-        assert mx.get_peak_memory() <= estimate.total
-    finally:
-        backend.close()
 
 
 def _split_walker(backend: str, scheme: str = "split_step", **settings) -> Simulation:

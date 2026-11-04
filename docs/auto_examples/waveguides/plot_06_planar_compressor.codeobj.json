@@ -1687,43 +1687,6 @@
    "name": "Displayed.run"
   }
  ],
- "clean.translate": [
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "solprop.driver.simulation",
-   "module_short": "solprop.driver",
-   "name": "Simulation.translate"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "solprop.driver",
-   "module_short": "solprop.driver",
-   "name": "Simulation.translate"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "solprop",
-   "module_short": "solprop",
-   "name": "Simulation.translate"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "solprop._display",
-   "module_short": "solprop._display",
-   "name": "Displayed.translate"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "solprop",
-   "module_short": "solprop",
-   "name": "Displayed.translate"
-  }
- ],
  "clean_b": [
   {
    "is_class": false,
@@ -2140,77 +2103,6 @@
    "module": "numpy",
    "module_short": "numpy",
    "name": "ndarray"
-  }
- ],
- "estimate": [
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "solprop.backends.memory",
-   "module_short": "solprop.backends.memory",
-   "name": "MemoryEstimate"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "solprop.backends",
-   "module_short": "solprop.backends",
-   "name": "MemoryEstimate"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "solprop",
-   "module_short": "solprop",
-   "name": "MemoryEstimate"
-  }
- ],
- "estimate.backend": [
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "builtins",
-   "module_short": "builtins",
-   "name": "str"
-  }
- ],
- "estimate.total": [
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "solprop.backends.memory",
-   "module_short": "solprop.backends.memory",
-   "name": "MemoryEstimate.total"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "solprop.backends",
-   "module_short": "solprop.backends",
-   "name": "MemoryEstimate.total"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "solprop",
-   "module_short": "solprop",
-   "name": "MemoryEstimate.total"
-  }
- ],
- "estimate_memory": [
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "builtins",
-   "module_short": "builtins",
-   "name": "function"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "solprop.backends.memory",
-   "module_short": "solprop.backends.memory",
-   "name": "estimate_memory"
   }
  ],
  "exit_": [

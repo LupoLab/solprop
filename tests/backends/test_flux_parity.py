@@ -24,7 +24,6 @@ import pytest
 from backends.planar_cases import planar_case
 from bounds import assert_within, gamma
 from solprop.backends import select
-from solprop.backends.memory import flux_closure_memory
 from solprop.backends.spatial import fluence_budget, signed_fluence_widths
 from solprop.driver import Simulation, SimulationSettings
 from solprop.exceptions import BackendError
@@ -220,15 +219,13 @@ def test_a_width_refuses_a_fluence_negative_beyond_its_normwise_budget():
 def test_the_native_closure_buffers_are_in_the_ledger():
     """The closure's transverse volume, the radial plane measure and its table."""
     grid, problem = _free(FreeGrid(3e-4, 24, 3e-4, 16))
-    rows = flux_closure_memory(problem, "native")
     # One state's bytes beside the transverse scratch, sized for the problem's own
-    # local statistics; the reference forms the closure per call.
-    assert rows == {"flux_closure_transverse": 16 * int(np.prod(problem.shape[1:]))}
-    assert flux_closure_memory(problem, "numpy_ref") == {}
+    # local statistics.
+    closure = 16 * int(np.prod(problem.shape[1:]))
     owner = select("native", problem, grid=grid)
     try:
         ledger = owner.memory_ledger()
-        assert ledger["flux_closure_transverse"] == rows["flux_closure_transverse"]
+        assert ledger["flux_closure_transverse"] == closure
         # A separable run's plane measure is its operator's own views.
         assert ledger["flux_coefficients"] == ledger["flux_table"] == 0
         assert ledger["statistics_flux_magnitude"] > 0
@@ -236,16 +233,12 @@ def test_the_native_closure_buffers_are_in_the_ledger():
         owner.close()
     # Without a local statistic nothing is held until a call first needs it.
     bare = dataclasses.replace(problem, stats_spec=StatsSpec(names=("energy",)))
-    assert flux_closure_memory(bare, "native") == {}
     owner = select("native", bare, grid=grid)
     try:
         assert owner.memory_ledger()["flux_closure_transverse"] == 0
         owner.set_initial(bare.initial.field0, None)
         owner.stats(StatsSpec(names=("peak_intensity",)))
-        assert (
-            owner.memory_ledger()["flux_closure_transverse"]
-            == rows["flux_closure_transverse"]
-        )
+        assert owner.memory_ledger()["flux_closure_transverse"] == closure
     finally:
         owner.close()
     grid, radial = _radial(SpatialMedium("Ar", pressure=Linear(0.5, 3.0, 1e-3)))

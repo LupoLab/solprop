@@ -22,7 +22,6 @@ from solprop.driver._scan_run import _Capture, _Job, _Work
 from solprop.driver.batch import BatchMember, compatible_groups, shared_table_bytes
 from solprop.driver.executors.batch import Batch
 from solprop.driver.executors.pool import _memory_limit, peak_rss
-from solprop.driver.memory import admit_memory
 from solprop.driver.run import _power_observation, plane_from_observation
 from solprop.driver.simulation import Simulation
 from solprop.exceptions import DriverError
@@ -60,7 +59,6 @@ def _load(simulation: Simulation, cleanup: ExitStack) -> Backend:
         Loaded backend retaining the member's noise and parameter tables.
     """
     problem = simulation.translate()
-    admit_memory(problem, simulation.settings.backend, inputs=simulation._held_inputs())
     owner = select(
         simulation.settings.backend,
         problem,

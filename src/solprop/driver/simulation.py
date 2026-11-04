@@ -102,7 +102,6 @@ from solprop.driver.material_output import (
     material_record,
     processing_record,
 )
-from solprop.driver.memory import MemoryAdmission, admit_guide_memory, admit_memory
 from solprop.driver.mixtures import (
     ResponseSelection,
     capillary_fill,
@@ -125,8 +124,6 @@ from solprop.exceptions import (
     GridError,
     MaterialRangeWarning,
     MaterialStatusWarning,
-    MemoryBudgetError,
-    MemoryBudgetWarning,
     OutputError,
     ParameterPath,
     SampledPeakWarning,
@@ -734,14 +731,14 @@ class SimulationSettings(Displayed):
         Which saved planes keep their field (SEP 22): every one, the default; those
         of `field_planes`; or none, for a run wanted as statistics alone. A plane
         without its field stores no field and no noise phase, and an in-memory output
-        is charged and allocated for the kept fields only; the march is the same. A
+        is allocated for the kept fields only; the march is the same. A
         terminal checkpoint carries the field anyway, so a stopped run resumes, but a
         file whose last regular plane kept no field resumes only from one. Outside
         the resume key, like `resume_history`: it changes what is kept, not what is
         computed. In a scan, :func:`~solprop.driver.scan.run_scan`'s own `fields`
         decide, and a builder that sets this is refused. Beside
         ``LowStorageRungeKutta()`` the backend holds the last field-free plane's
-        state, one more state volume charged at admission, so a step abandoned in
+        state, one more state volume, so a step abandoned in
         flight still leaves a resumable checkpoint (SEP 22, Q14); `held_plane` turns
         that off.
     field_planes : sequence of int
@@ -781,7 +778,7 @@ class SimulationSettings(Displayed):
     held_plane : bool
         Whether ``LowStorageRungeKutta()`` holds the last field-free plane's state, one
         state volume, for a checkpoint if a step is abandoned in flight. ``False``
-        drops the volume from the backend's ledger and the admission, for a run that
+        drops the volume from the backend's ledger, for a run that
         will never resume: such a step then leaves no terminal checkpoint, and a file
         whose last plane kept no field cannot be resumed from it (a stop between steps
         checkpoints as ever). An output without
@@ -2007,14 +2004,11 @@ class _AtomicContext:
         What a resumed file holds.
     metadata : RunMetadata
         The run's record.
-    admission : MemoryAdmission
-        The run's optical memory admission.
     """
 
     handler: Output
     state: ResumeState | None
     metadata: RunMetadata
-    admission: MemoryAdmission
 
 
 class Simulation(Displayed):
@@ -2047,8 +2041,7 @@ class Simulation(Displayed):
         view (:func:`numpy.broadcast_to`) copies only the block it repeats. On a
         free-space or spatial route the translated problem holds the same complex128
         copy rather than another; on a modal route it holds the launch converted to
-        its internal amplitude beside the simulation's copy, two states in all, which
-        the memory admission counts (``simulation_input`` and ``initial_field``).
+        its internal amplitude beside the simulation's copy, two states in all.
     settings : SimulationSettings
         How to step it, what to record and which backend to use.
     initial_z : float, optional
@@ -2228,20 +2221,6 @@ class Simulation(Displayed):
             # What was passed is what runs and what is recorded: a read-only view of
             # the simulation's own copy, as the caller gave it (`_given_input`).
             self.initial = _given_input(initial, self._field0)
-
-    def _held_inputs(self) -> tuple[np.ndarray, ...]:
-        """Return the arrays the simulation holds for its input, for the admission.
-
-        Returns
-        -------
-        tuple of numpy.ndarray
-            Its own copy of the input and, for an array input of another dtype than
-            complex128, the copy it records; nothing for an input it does not hold.
-        """
-        held = [self._field0]
-        if isinstance(self.initial, np.ndarray):
-            held.append(self.initial)
-        return tuple(held)
 
     def _built_input(
         self,
@@ -2955,17 +2934,12 @@ class Simulation(Displayed):
         if not np.all(np.isfinite(noise.spectrum)):
             raise DriverError("with_input requires a finite noise realisation")
 
-    def runner(self, *, memory_budget: int | str | None = None) -> "SimulationRunner":  # noqa: UP037 - defined below
+    def runner(self) -> "SimulationRunner":  # noqa: UP037 - defined below
         """Return a runner that keeps this translation and one backend for many inputs.
 
-        Translates (or reuses the cached translation), admits memory and constructs
-        the backend once; each :meth:`SimulationRunner.run` then runs one input on it
-        (SEP 22 section 5.2). Close it, or use it in a ``with`` block.
-
-        Parameters
-        ----------
-        memory_budget : int or str or None, optional
-            The budget the backend is admitted against, as for :meth:`run`.
+        Translates (or reuses the cached translation) and constructs the backend once;
+        each :meth:`SimulationRunner.run` then runs one input on it (SEP 22 section
+        5.2). Close it, or use it in a ``with`` block.
 
         Returns
         -------
@@ -2976,10 +2950,8 @@ class Simulation(Displayed):
         ------
         DriverError
             If the run has a TDSE response.
-        MemoryBudgetError
-            If the backend does not fit its budget.
         """
-        return SimulationRunner(self, memory_budget=memory_budget)
+        return SimulationRunner(self)
 
     def _drop_recipe(self, reason: str) -> None:
         """Forget the recipe, which no longer describes this simulation, and warn.
@@ -3516,7 +3488,6 @@ class Simulation(Displayed):
         progress: ProgressReporter | ProgressChoice | None = None,
         progress_period: float = DEFAULT_PROGRESS_PERIOD,
         resume: _ResumeChoice = False,
-        memory_budget: int | str | None = None,
         tdse_archive: TDSEArchive | None = None,
         snapshots: SnapshotController | None = None,
         stop: StopFlag | None = None,
@@ -3560,12 +3531,6 @@ class Simulation(Displayed):
             the statistics fit and work is left, restarting the Adams history and
             marking the file, past which its record no longer describes its planes; a
             forced file then continues only under ``"force"``.
-        memory_budget : int or str or None, optional
-            The memory budget this run is admitted against before its backend
-            allocates: bytes, or a string such as ``"16 GiB"`` or ``"warn:16 GiB"``,
-            or ``"none"``; ``None`` takes ``SOLPROP_MEMORY_BUDGET`` and otherwise four
-            fifths of the machine's memory, which only warns
-            (:mod:`solprop.driver.memory`).
         tdse_archive : solprop.output.TDSEArchive or None, optional
             Archive every raw TDSE provider evaluation of a run with a TDSE
             response in this separate HDF5 file (SEP 20 section 5.8); ``None``
@@ -3606,9 +3571,6 @@ class Simulation(Displayed):
         TDSEArchiveError
             If the archive's path holds another file, or a write to it fails; the
             run then stops at its last optical checkpoint.
-        MemoryBudgetError
-            If the run's estimated persistent memory exceeds its budget; nothing has
-            been allocated or written.
         OutputError
             If a file is there and its layout or physics differ (unless forced), a
             forced file is resumed without ``"force"``, a finished file was computed
@@ -3659,19 +3621,8 @@ class Simulation(Displayed):
                     handler.close()
                     return handler
             _warn_sampled_peak(self.settings.quadrature, problem.stats_spec)
-            # Admitted before the output is opened and the backend allocates, so
-            # that a refused run leaves nothing behind.
             retention = field_retention(
                 problem, self.settings.fields, self.settings.field_planes
-            )
-            admission = admit_memory(
-                problem,
-                self.settings.backend,
-                memory_budget,
-                output=handler,
-                retention=retention,
-                inputs=self._held_inputs(),
-                held_plane=self.settings.held_plane,
             )
             if problem.tdse is not None and not isinstance(handler, CheckpointOutput):
                 raise DriverError(
@@ -3704,7 +3655,7 @@ class Simulation(Displayed):
                 if problem.tdse is not None:
                     binding, archive = self._prepare_atomic(
                         problem,
-                        _AtomicContext(handler, state, metadata, admission),
+                        _AtomicContext(handler, state, metadata),
                         tdse_archive,
                     )
                 backend = select(
@@ -3722,9 +3673,7 @@ class Simulation(Displayed):
                     restart=continuation is not None and continuation.forced,
                 )
                 _confirm_continuation(continuation, backend, problem, output)
-                self._consistency_gate(
-                    binding, problem, handler, metadata, backend, admission
-                )
+                self._consistency_gate(binding, problem, handler, metadata, backend)
                 run_problem(
                     problem,
                     backend,
@@ -3734,7 +3683,6 @@ class Simulation(Displayed):
                     progress=progress,
                     progress_period=progress_period,
                     start_plane=start_plane,
-                    memory=admission,
                     tdse_binding=binding,
                     resume_history=self.settings.resume_history,
                     fields=retention.fields,
@@ -3780,19 +3728,14 @@ class Simulation(Displayed):
             )
         return handler
 
-    def estimate(self, *, memory_budget: int | str | None = None) -> "RunEstimate":  # noqa: UP037 - checked at run time
+    def estimate(self) -> "RunEstimate":  # noqa: UP037 - checked at run time
         """Estimate what the run would cost, without running it (SEP 41, S11).
 
-        The grid, the persistent memory admitted against the budget before anything
-        is allocated (a run that would be refused is reported, not attempted), the
-        output's size, the cost of one right-hand-side evaluation on the backend,
-        timed after an untimed warm-up that takes compilation and planning, and the
-        integrator's calls per step (:mod:`solprop.driver.estimate`).
-
-        Parameters
-        ----------
-        memory_budget : int or str or None, optional
-            The budget, as :meth:`run` takes it.
+        The grid, the persistent memory the constructed backend holds, the output's
+        size, the cost of one right-hand-side evaluation on the backend, timed after an
+        untimed warm-up that takes compilation and planning, and the integrator's calls
+        per step (:mod:`solprop.driver.estimate`). It constructs the backend, so a run
+        that doesn't fit in memory fails here as the run would.
 
         Returns
         -------
@@ -3801,7 +3744,7 @@ class Simulation(Displayed):
         """
         from solprop.driver.estimate import estimate  # noqa: PLC0415 - imports this
 
-        return estimate(self, memory_budget=memory_budget)
+        return estimate(self)
 
     def _prepare_atomic(
         self,
@@ -3809,14 +3752,14 @@ class Simulation(Displayed):
         context: _AtomicContext,
         tdse_archive: TDSEArchive | None,
     ) -> tuple[TDSEBinding, TDSEArchiveWriter | None]:
-        """Admit a TDSE run's atomic memory, open its archive and prepare its binding.
+        """Open a TDSE run's archive and prepare its binding.
 
         Parameters
         ----------
         problem : KernelProblem
             The translated problem, with its TDSE descriptor.
         context : _AtomicContext
-            The optical output, resume state, record and memory admission.
+            The optical output, resume state and record.
         tdse_archive : TDSEArchive or None
             The archive request.
 
@@ -3832,12 +3775,6 @@ class Simulation(Displayed):
         execution = self.settings.tdse_execution
         if execution is None:
             raise DriverError("TDSE requires explicit tdse_execution settings")
-        execution = _tdse_memory_execution(
-            problem,
-            execution,
-            context.admission,
-            archive=None if tdse_archive is None else tdse_archive.outputs,
-        )
         # Opened and validated before any atomic work (SEP 20, 5.8).
         archive = _open_tdse_archive(
             tdse_archive,
@@ -3855,7 +3792,6 @@ class Simulation(Displayed):
                 descriptor,
                 execution,
                 problem.transform.n_nodes,
-                host_memory_bytes=context.admission.estimate.total,
                 defer_plans=descriptor.model == "hacc",
                 archive=archive,
             )
@@ -3871,7 +3807,6 @@ class Simulation(Displayed):
         handler: Output,
         metadata: RunMetadata,
         backend: Backend,
-        admission: MemoryAdmission,
     ) -> None:
         """Check a haCC run's weak-field linear response before propagating.
 
@@ -3894,8 +3829,6 @@ class Simulation(Displayed):
             The run's record.
         backend : Backend
             The prepared optical backend.
-        admission : MemoryAdmission
-            The run's memory admission.
         """
         descriptor = problem.tdse
         if binding is None or descriptor is None or descriptor.model != "hacc":
@@ -3921,7 +3854,7 @@ class Simulation(Displayed):
         binding.record_consistency(result.to_record())
         if result.outcome in ("refused", "invalid"):
             try:
-                open_run_record(handler, metadata, backend, binding, admission)
+                open_run_record(handler, metadata, backend, binding)
             except Exception:
                 logger.exception("could not record the refused consistency check")
         tdse_consistency.apply_outcome(result)
@@ -5513,7 +5446,6 @@ class Simulation(Displayed):
         precision: PrecisionName = "double",
         polarisation: str | float | None = None,
         taper_coupling: bool = True,
-        memory_budget: int | str | None = None,
         materials: MaterialSelection | None = None,
     ) -> "Simulation":  # noqa: UP037 - beartype resolves it while the body still runs
         """Build a pulse simulation in a waveguide: a gas-filled mode set, or a guide.
@@ -5858,12 +5790,6 @@ class Simulation(Displayed):
             :meth:`from_capillary` does; ``False`` is the opt-out to the adiabatic
             route. Refused as ``False`` beside a `provider`, whose moving guide carries
             its own connection.
-        memory_budget : int or str or None, optional
-            The budget a guide's route is admitted against **before** its dense E/H
-            reference and maps are built, which happens here rather than when the run
-            starts (:func:`solprop.driver.memory.admit_guide_memory`): a declaration as
-            :meth:`run` takes it, and ``None`` takes ``SOLPROP_MEMORY_BUDGET`` or the
-            machine's memory, warned on. Requires `provider`.
         materials : solprop.physdata.selection.MaterialSelection or None, optional
             Take the fill from optmat under this selection: a gas or fraction mapping
             of built-in gases, ``"air"`` and ``Gas.Air`` resolve through
@@ -5885,9 +5811,6 @@ class Simulation(Displayed):
             If the modes cannot bind a gas mixture, a gas keyword is given beside a
             provider, a general-guide keyword is given without one, or any supplied
             setting is invalid.
-        MemoryBudgetError
-            If a guide's reference and maps exceed a budget declared to refuse;
-            nothing of them has been built.
         """
         if provider is not None:
             return cls._from_general(
@@ -5950,13 +5873,11 @@ class Simulation(Displayed):
                 node_budget=node_budget,
                 backend=backend,
                 precision=precision,
-                memory_budget=memory_budget,
                 polarisation=polarisation,
                 taper_coupling=taper_coupling,
                 materials=MaterialSelection() if materials is None else materials,
             )
         for name, value in (
-            ("memory_budget", memory_budget),
             ("channel", channel),
             ("incident", incident),
             ("coupling", coupling),
@@ -6078,7 +5999,6 @@ class Simulation(Displayed):
         stats: StatsSpec | None,
         backend: str,
         precision: PrecisionName,
-        memory_budget: int | str | None,
         materials: MaterialSelection | None = None,
         integrator: Multistep | RungeKutta | LowStorageRungeKutta | None = None,
         launch: ModalLaunch | None = None,
@@ -6143,8 +6063,6 @@ class Simulation(Displayed):
         precision : {'double', 'single'}
             The arithmetic the run is held in; the general route is refused under
             single precision.
-        memory_budget : int or str or None
-            The budget the guide's route is admitted against before it is built.
         materials : solprop.physdata.selection.MaterialSelection or None, optional
             The run's material selection, recorded in its manifest. Under it a
             region's default :class:`~solprop.nonlinear.raman.SilicaTensorResponse`
@@ -6238,17 +6156,6 @@ class Simulation(Displayed):
             phases=phases,
             pulses=pulses,
         )
-        if provider.sampling is not None:
-            # Before the route and not after it: the route builds the dense E/H
-            # reference and the maps, which on a large guide are nearly all of the
-            # run's memory, and admission after them could only say so.
-            admit_guide_memory(
-                provider,
-                working,
-                z_max=float(np.max(planes)),
-                backend=backend,
-                memory_budget=memory_budget,
-            )
         built = (pulse.temporal if isinstance(pulse, SpatialPulse) else pulse).build(
             working
         )
@@ -7109,8 +7016,6 @@ class _LoadedRun:
         The run's record.
     retention : solprop.output.schema.FieldRetention
         Which planes keep their field.
-    admission : solprop.driver.memory.MemoryAdmission
-        The run's memory admission.
     boundary_monitor : solprop.monitor.BoundaryMonitor or None
         The run's monitor of the window's edges.
     material_log : solprop.physdata.selection.MaterialLog
@@ -7121,7 +7026,6 @@ class _LoadedRun:
     handler: Output
     metadata: RunMetadata
     retention: FieldRetention
-    admission: MemoryAdmission
     boundary_monitor: BoundaryMonitor | None
     material_log: MaterialLog
 
@@ -7130,7 +7034,7 @@ class SimulationRunner(Displayed):
     """One translated problem and one backend, run for many inputs (SEP 22 section 5.2).
 
     Built by :meth:`Simulation.runner`: the problem is translated (or the cached
-    translation reused), memory is admitted and one backend is constructed, once. Each
+    translation reused) and one backend is constructed, once. Each
     :meth:`run` then derives the input with :meth:`Simulation.with_input`, loads it
     into the same backend and runs the save-plane loop, returning that input's own
     handler. A large problem so pays its backend's allocation and transform planning
@@ -7151,18 +7055,12 @@ class SimulationRunner(Displayed):
     simulation : Simulation
         The run to repeat. Its settings, and the translation they fix, are used as
         they are; only the input changes from run to run.
-    memory_budget : int or str or None, optional
-        The budget the backend is admitted against
-        (:func:`solprop.driver.memory.admit_memory`); each run's in-memory output is
-        admitted against it again when the run starts.
 
     Raises
     ------
     DriverError
         If the simulation has a TDSE response, whose atomic binding has its own
         lifecycle and is never reused.
-    MemoryBudgetError
-        If the backend does not fit its budget; nothing has been allocated.
 
     Examples
     --------
@@ -7185,9 +7083,7 @@ class SimulationRunner(Displayed):
     ([3, 3], True)
     """
 
-    def __init__(
-        self, simulation: Simulation, *, memory_budget: int | str | None = None
-    ) -> None:
+    def __init__(self, simulation: Simulation) -> None:
         """Translate, admit and construct the backend, once."""
         problem = simulation.translate()
         if problem.tdse is not None:
@@ -7200,19 +7096,11 @@ class SimulationRunner(Displayed):
         settings = simulation.settings
         self._simulation = simulation
         self._problem = problem
-        self._memory_budget = memory_budget
         self._lock = threading.Lock()
         self._closed = False
         self.runs = 0
         with _optmat.material_context(simulation._material_log):
             _warn_sampled_peak(settings.quadrature, problem.stats_spec)
-            # Admitted before the backend allocates, so a refused runner holds nothing.
-            admit_memory(
-                problem,
-                settings.backend,
-                memory_budget,
-                inputs=simulation._held_inputs(),
-            )
             self._backend = select(
                 settings.backend,
                 problem,
@@ -7362,8 +7250,6 @@ class SimulationRunner(Displayed):
             position, or a shared leaf replaced); if the noise model differs from
             the runner's, which the backend could not carry; or if `input_identity`
             is empty or names anything but an array input.
-        MemoryBudgetError
-            If this input's in-memory output does not fit beside the backend.
         """
         if not self._lock.acquire(blocking=False):
             msg = (
@@ -7442,15 +7328,6 @@ class SimulationRunner(Displayed):
             metadata = derived.metadata()
             handler, _, _ = _open_output(output, metadata, resume=False)
             retention = field_retention(problem, settings.fields, settings.field_planes)
-            admission = admit_memory(
-                problem,
-                settings.backend,
-                self._memory_budget,
-                output=handler,
-                retention=retention,
-                inputs=derived._held_inputs(),
-                held_plane=settings.held_plane,
-            )
             monitor = derived._boundary_monitor()
             self._backend.set_initial(
                 problem.initial.field0,
@@ -7462,7 +7339,6 @@ class SimulationRunner(Displayed):
             handler,
             metadata,
             retention,
-            admission,
             monitor,
             derived._material_log,
         )
@@ -7501,7 +7377,6 @@ class SimulationRunner(Displayed):
                 stats_spec=problem.stats_spec,
                 progress=progress,
                 progress_period=progress_period,
-                memory=loaded.admission,
                 resume_history=settings.resume_history,
                 fields=loaded.retention.fields,
                 field_planes=loaded.retention.field_planes,
@@ -8386,65 +8261,6 @@ def _validate_resume(
     return next_plane
 
 
-def _tdse_memory_execution(
-    problem: KernelProblem,
-    execution: TDSEExecution,
-    admission: MemoryAdmission,
-    *,
-    archive: Literal["full", "required"] | None = None,
-) -> TDSEExecution:
-    """Apply the run's budget to combined optical and atomic persistent storage.
-
-    Parameters
-    ----------
-    problem : KernelProblem
-        Translated problem supplying the atomic descriptor and node count.
-    execution : TDSEExecution
-        Atomic device choices and memory cap in bytes.
-    admission : MemoryAdmission
-        Optical host estimate and declared run budget in bytes.
-    archive : {'full', 'required'} or None, optional
-        The raw archive's output selection, whose writer buffers and widened
-        provider histories are admitted too; None without an archive.
-
-    Returns
-    -------
-    TDSEExecution
-        Resource choices with the combined hard memory limit enforced.
-    """
-    descriptor = problem.tdse
-    if descriptor is None:
-        raise DriverError("atomic memory admission requires a TDSE descriptor")
-    budget = admission.budget
-    limits = [execution.memory_limit]
-    if budget.action == "refuse":
-        limits.append(budget.limit)
-    finite_limits = [value for value in limits if value is not None]
-    effective = dataclasses.replace(
-        execution, memory_limit=min(finite_limits) if finite_limits else None
-    )
-    atomic_bytes = sum(
-        tdse_runtime.estimate_binding_memory(
-            descriptor, effective, problem.transform.n_nodes, archive=archive
-        ).values()
-    )
-    combined = admission.estimate.total + atomic_bytes
-    if effective.memory_limit is not None and combined > effective.memory_limit:
-        raise MemoryBudgetError(
-            f"combined optical and TDSE estimate requires {combined} bytes, "
-            f"exceeding {effective.memory_limit} bytes"
-        )
-    if budget.action == "warn" and budget.limit is not None and combined > budget.limit:
-        warnings.warn(
-            f"combined optical and TDSE estimate requires {combined} bytes, "
-            f"exceeding the advisory run budget of {budget.limit} bytes "
-            f"({budget.source})",
-            MemoryBudgetWarning,
-            stacklevel=3,
-        )
-    return effective
-
-
 def _check_tdse_archive(
     archive: object, problem: KernelProblem, handler: Output
 ) -> None:
@@ -8814,7 +8630,7 @@ def _replaced_launch(
 
     On a free-space or spatial route the launch is a view of the derived simulation's
     own copy; on a modal route it is the power conversion of that copy, a second array
-    beside it, which the memory admission counts.
+    beside it.
 
     Parameters
     ----------

@@ -5001,6 +5001,11 @@ void GeneralWorkspace::prepare_raman_stage(const std::size_t stage, const double
 
 void GeneralWorkspace::prepare_trial(const double dz, const TrialScalars& scalars) {
   require_open();
+  if (problem_.low_storage)
+    throw std::logic_error(
+        "trial_step: a low-storage state of " + std::to_string(current_.extent(0)) +
+        " x " + std::to_string(current_.extent(1)) +
+        " holds no Runge-Kutta views; its steps are low_storage_step's");
   if (!initialized_)
     throw std::logic_error("no initial field has been loaded");
   require_trial_scalars(scalars);

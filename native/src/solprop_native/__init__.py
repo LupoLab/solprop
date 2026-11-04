@@ -685,8 +685,7 @@ class BuildInfo:
 def available_device_memory() -> int | None:
     """Return the selected accelerator's free bytes, or None for a host build.
 
-    The solprop driver admits a run's persistent memory against them before the
-    backend is constructed.
+    A scan batch sizes its groups against them.
 
     Returns
     -------

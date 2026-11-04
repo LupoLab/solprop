@@ -13,7 +13,6 @@ import dataclasses
 import pytest
 
 from backends.test_band_plasma_parity import case
-from solprop.backends.memory import _native_held_current_memory, held_current_memory
 from solprop.exceptions import TranslationError
 from solprop.translate.plasma_integration import design_running_integral
 from solprop.translate.problem import _balanced_chunk, _held_current_chunk
@@ -38,9 +37,6 @@ def test_node_admission_counts_all_held_histories_together():
         plasma_integral=design_running_integral(grid, "trapezoid"),
     )
     assert _held_current_chunk(transform, absent, 1, grid.n_to, 1) is transform
-    no_plasma = dataclasses.replace(problem, responses=absent)
-    assert sum(held_current_memory(no_plasma).values()) == 0
-    assert sum(_native_held_current_memory(no_plasma).values()) == 0
 
 
 def test_planar_admission_reserves_a_whole_transverse_row():

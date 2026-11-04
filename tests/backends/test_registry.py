@@ -28,7 +28,6 @@ from typing import Any
 import pytest
 
 from solprop.backends import Backend, available, registry, resolve_name, select
-from solprop.backends.memory import estimate_memory
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.registry import BACKENDS, REMOVED_BACKENDS, _construct
 from solprop.driver import SimulationSettings
@@ -240,15 +239,6 @@ def test_settings_naming_the_removed_backend_name_the_replacements():
     assert_names_the_replacements(refused)
 
 
-def test_a_memory_estimate_on_the_removed_backend_names_the_replacements(
-    linear_problem, narrow_grid
-):
-    problem = linear_problem(narrow_grid, save_planes=[LENGTH])
-    with pytest.raises(BackendError) as refused:
-        estimate_memory(problem, "numba_cpu")
-    assert_names_the_replacements(refused)
-
-
 def test_a_known_name_without_its_extra_names_the_extra(
     linear_problem, narrow_grid, monkeypatch
 ):
@@ -298,24 +288,6 @@ def test_optional_backend_constructor_forwards_the_context(
         assert isinstance(backend, Backend)
     finally:
         backend.close()
-
-
-@pytest.mark.parametrize("free", [None, 3 * 2**30])
-def test_the_device_memory_probe_is_the_native_package_s_own(monkeypatch, free):
-    """The free bytes come from the installed package's probe, or None without one.
-
-    The host backends report none, and a native package without the probe (an older
-    build, or a host one) is taken as reporting none rather than as an error.
-    """
-    module = types.ModuleType("solprop_native")
-    if free is not None:
-        monkeypatch.setattr(
-            module, "available_device_memory", lambda: free, raising=False
-        )
-    monkeypatch.setitem(sys.modules, "solprop_native", module)
-    monkeypatch.setattr(registry, "_satisfied", lambda entry: True)
-    assert registry.available_device_memory("native") == free
-    assert registry.available_device_memory("numpy_ref") is None
 
 
 # Automatic selection has no fallback (SEP 43 section 5): an installed distribution

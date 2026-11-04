@@ -33,9 +33,8 @@ per plane would come to 26 MB for 201 planes of four modes on 2049 bins.
 handler for fast, small problems and for the members of a scan, where a file per run
 costs more than the run. Its plane-indexed arrays are allocated once, for the planes the
 run will save, and grow by doubling only if it saves more, so a hundred planes cost one
-allocation rather than a hundred copies. That store is part of the run's memory: the
-[memory admission](../performance/resources.md#memory) charges it, at its planned size, as the group
-`output`, and charges a file output nothing.
+allocation rather than a hundred copies. That store is part of the
+[run's memory](../performance/resources.md#memory); a file output holds none of it.
 
 ```{note}
 For a run that records statistics between the save planes,
@@ -94,9 +93,8 @@ vocabulary {py:func}`~solprop.driver.scan.run_scan` already uses:
 A run is **homogeneous**: it keeps its fields by one rule, declared to the output before
 its first plane ({py:meth}`~solprop.output.schema.PlaneStore.retain`), and a plane that
 breaks it is refused by name. A plane without its field is not copied, converted or
-stored, and an in-memory output allocates no field block for it and is charged none of
-it by the [memory admission](../performance/resources.md#memory): a statistics-only run
-is charged its statistics. The march is unchanged — the statistics are computed from
+stored, and an in-memory output allocates no field block for it: a statistics-only run
+holds its statistics. The march is unchanged — the statistics are computed from
 the live state either way — so a statistics-only run's numbers are those of the same run
 keeping every field. A plane that keeps no field is observed without one: nothing
 crosses from the backend (on a device, no copy is made) and nothing scans the field for
@@ -104,8 +102,7 @@ finiteness, so a diverged run is caught by the step loop and its statistics.
 `fields="planes"` is refused beside `step_planes`, whose plane count is not known in
 advance. Beside `LowStorageRungeKutta()`, which accepts each step in place and so has no
 state to checkpoint for a step abandoned in flight, the backend holds the state of the
-last field-free plane, one more copy of the state, charged at
-[admission](../performance/resources.md#memory) as `held_plane`: a run stopped in flight
+last field-free plane, one more copy of the state: a run stopped in flight
 after such a plane writes its terminal checkpoint from it and resumes there.
 `SimulationSettings(held_plane=False)` drops that volume, for a run that will never resume,
 such as one of many short runs in a scan, and an output with no

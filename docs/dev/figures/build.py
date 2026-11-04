@@ -784,7 +784,6 @@ MODULES = {
                 "tdse_consistency",
                 "scan",
                 "batch",
-                "memory",
                 "defaults",
                 "estimate",
                 "plane_view",

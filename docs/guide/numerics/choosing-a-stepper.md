@@ -257,13 +257,11 @@ ledger, and the default 44: about three times the memory. The low-storage march 
 | `LowStorageRungeKutta()` | 5 with the half-step flow tabulated, 4 recomputed; one more with the `modified` noise; on `native` one fewer without an in-stage collar |
 
 At 768 × 768 columns and 600 bins one copy is 5.3 GiB: 26 GiB under the low-storage
-march, against 79 or 84 GiB for the Runge–Kutta march and 232 GiB for Adams on the native backend. The estimate is made
-before anything is allocated ({py:func}`solprop.backends.memory.estimate_memory`,
-group `adams_history`). A run that would fit with `RungeKutta()` but not with its
-history is refused before it starts, naming `RungeKutta()`: against the machine's
-memory less a fifth when no budget is declared, and on a device against four fifths of
-its free memory. A declared `memory_budget` or `SOLPROP_MEMORY_BUDGET` is admitted as
-declared ([execution resources](../performance/resources.md#memory)).
+march, against 79 or 84 GiB for the Runge–Kutta march and 232 GiB for Adams on the native backend. If a large
+run doesn't fit in memory under the default, `RungeKutta()` keeps no history and
+`LowStorageRungeKutta()` holds the least. solprop doesn't check this for you: a run that
+doesn't fit fails with an out-of-memory error
+([execution resources](../performance/resources.md#memory)).
 
 ## The low-storage march
 

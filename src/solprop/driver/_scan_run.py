@@ -28,7 +28,6 @@ from solprop.driver.executors._request import ScanRequest
 from solprop.driver.executors.pool import PlaneScalars, peak_rss
 from solprop.driver.executors.queue import Queue, collect
 from solprop.driver.executors.slurm import Slurm
-from solprop.driver.memory import admit_memory
 from solprop.driver.simulation import Simulation
 from solprop.exceptions import DriverError, OutputError, StopRequested
 from solprop.fourier import spectrum_to_optics
@@ -185,38 +184,6 @@ class _Capture(MemoryOutput):
             if any(not isinstance(r, _Builtin) for r in options.reductions)
             else None
         )
-
-    def held_bytes(
-        self,
-        n_planes: int,
-        plane_bytes: int,
-        *,
-        kept: int | None = None,
-        field_bytes: int = 0,
-    ) -> int:
-        """Return nothing for the run's admission: the scan admits what it retains.
-
-        The capture never fills the store's own blocks; the arrays it keeps are
-        counted by the scan's own admission of its members.
-
-        Parameters
-        ----------
-        n_planes : int
-            The planes the run will save.
-        plane_bytes : int
-            The bytes of one plane.
-        kept : int or None, optional
-            The planes that keep their field.
-        field_bytes : int, optional
-            The bytes of one plane's field.
-
-        Returns
-        -------
-        int
-            Zero.
-        """
-        del n_planes, plane_bytes, kept, field_bytes
-        return 0
 
     def retain(self, retention: FieldRetention, field_shape: tuple[int, ...]) -> None:
         """Adopt the run's field retention, and hand it to the spool of a reduction.
@@ -702,11 +669,6 @@ class _Work:
         """
         baseline = peak_rss()
         simulation = self.simulation(job)
-        admit_memory(
-            simulation.translate(),
-            simulation.settings.backend,
-            inputs=simulation._held_inputs(),
-        )
         backend = select(
             simulation.settings.backend,
             simulation.translate(),

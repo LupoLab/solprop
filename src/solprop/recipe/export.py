@@ -232,11 +232,10 @@ def script(
         prelude.extend(["keywords = dict(", *lines, ")", *pinned.lines])
         lines = [f"{_INDENT}**keywords,", *pinned.keywords]
     execution = dict(document.get("execution", {}))
-    budget = execution.pop("memory_budget", None)
     target = repr(output)
     title = recipe.title or f"a {recipe.route} run"
     header = [f'"""{title}, written from its recipe by solprop."""', ""]
-    if execution or budget is not None or not _on_prop(recipe.route, document["build"]):
+    if execution:
         writer.need("solprop.driver", "Simulation")
         settings = ", ".join(
             f"{key}={tuple(item) if isinstance(item, list) else item!r}"
@@ -247,16 +246,12 @@ def script(
             *lines,
             ")",
         ]
-        if settings:
-            writer.need("dataclasses", "")
-            body.append(
-                "simulation.settings = dataclasses.replace("
-                f"simulation.settings, {settings})"
-            )
-        run = f"output = simulation.run({target}"
-        if budget is not None:
-            run += f", memory_budget={None if budget == NONE else budget!r}"
-        body.append(run + ")")
+        writer.need("dataclasses", "")
+        body.append(
+            "simulation.settings = dataclasses.replace("
+            f"simulation.settings, {settings})"
+        )
+        body.append(f"output = simulation.run({target})")
     else:
         writer.need("solprop.driver", f"prop_{recipe.route}")
         body = [f"output = prop_{recipe.route}(", *lines]
@@ -388,33 +383,6 @@ def _array_pins(
     for path in paths:
         build = set_path(build, parse_path(path), resolved.get(path))
     return build
-
-
-def _on_prop(route: str, build: Mapping[str, object]) -> bool:
-    """Return whether every build keyword is one the route's ``prop_*`` takes.
-
-    ``from_waveguide``'s ``memory_budget`` admits a guide's tables at build and is not
-    a keyword of ``prop_waveguide``, so a recipe that sets it is written through
-    ``Simulation.from_waveguide``.
-
-    Parameters
-    ----------
-    route : str
-        The route.
-    build : collections.abc.Mapping
-        The ``[build]`` table.
-
-    Returns
-    -------
-    bool
-        True when the ``prop_*`` call can hold the recipe.
-    """
-    import inspect  # noqa: PLC0415 - only here
-
-    from solprop.driver import interface  # noqa: PLC0415 - layer D
-
-    accepted = inspect.signature(getattr(interface, f"prop_{route}")).parameters
-    return set(build) <= set(accepted)
 
 
 def _imports(writer: _Writer) -> list[str]:

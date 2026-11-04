@@ -22,8 +22,7 @@ import numpy as np
 import pytest
 
 from solprop.driver import Simulation
-from solprop.driver.memory import _catalogued_entries, admit_memory, plane_bytes
-from solprop.exceptions import MemoryBudgetError
+from solprop.driver.estimate import _catalogued_entries, plane_bytes
 from solprop.grid import EnvelopeGrid
 from solprop.output import HDF5Output, MemoryOutput, open_file, resume
 from solprop.output.schema import (
@@ -225,7 +224,7 @@ def test_a_reservation_only_rises_and_is_never_negative():
     store = MemoryOutput()
     store.reserve(9)
     store.reserve(4)
-    assert store.held_bytes(2, 10) == 90
+    assert store._planned == 9
     with pytest.raises(Exception, match="non-negative"):
         store.reserve(-1)
 
@@ -364,37 +363,7 @@ def problem():
     return simulation.translate()
 
 
-def test_admission_charges_the_planned_memory_store(problem):
-    without = admit_memory(problem, "numpy_ref", "none")
-    assert "output" not in without.estimate.groups
-    admission = admit_memory(problem, "numpy_ref", "none", output=MemoryOutput())
-    planned = len(problem.stepper.save_planes) + 1
-    assert admission.estimate.groups["output"] == planned * plane_bytes(problem)
-    assert admission.estimate.total == without.estimate.total + planned * plane_bytes(
-        problem
-    )
-    assert admission.record()["groups"]["output"] == planned * plane_bytes(problem)  # type: ignore[index]
-
-
-def test_admission_charges_a_file_output_nothing(problem, tmp_path):
-    without = admit_memory(problem, "numpy_ref", "none")
-    admission = admit_memory(
-        problem, "numpy_ref", "none", output=HDF5Output(tmp_path / "run.h5")
-    )
-    assert admission.estimate == without.estimate
-
-
-def test_a_memory_store_over_the_budget_is_refused_naming_the_output(problem):
-    total = admit_memory(problem, "numpy_ref", "none").estimate.total
-    admit_memory(problem, "numpy_ref", total, output=None)
-    with pytest.raises(MemoryBudgetError, match="output"):
-        admit_memory(problem, "numpy_ref", total, output=MemoryOutput())
-
-
 def test_a_plane_is_charged_what_the_memory_store_holds_for_it(problem):
-    simulation_planes = len(problem.stepper.save_planes) + 1
-    store = MemoryOutput()
-    store.reserve(simulation_planes)
     # One plane of the problem's shape, with every statistic it records.
     entries = int(np.prod(problem.shape[1:]))
     expected = 16 * entries + 8 * 3
@@ -413,7 +382,6 @@ def test_a_plane_is_charged_what_the_memory_store_holds_for_it(problem):
             },
         )
     assert plane_bytes(problem) == expected
-    assert store.held_bytes(simulation_planes, 1) == simulation_planes
 
 
 def test_every_catalogued_statistic_shape_has_known_axes():
@@ -434,33 +402,3 @@ def test_every_catalogued_statistic_shape_has_known_axes():
         assert _catalogued_entries(entry.shape, sizes) >= 1
     with pytest.raises(Exception, match="n_unknown"):
         _catalogued_entries("(n_unknown,)", sizes)
-
-
-@pytest.mark.medium
-def test_a_run_in_memory_records_its_output_in_the_admission(tmp_path):
-    simulation = Simulation.from_gnlse(
-        0.11,
-        0.01,
-        [0.0, 0.0, -1.183e-26],
-        wavelength=835e-9,
-        wavelength_limits=(500e-9, 2e-6),
-        trange=1e-12,
-        width=100e-15,
-        peak_power=9.8,
-        shape="sech",
-        n_save=3,
-        backend="numpy_ref",
-        noise=None,
-    )
-    handler = simulation.run(MemoryOutput(), progress="none", memory_budget="none")
-    assert handler.metadata is not None
-    assert handler.metadata.backend is not None
-    record: Any = handler.metadata.backend.settings["memory"]
-    assert record["groups"]["output"] == 3 * plane_bytes(simulation.translate())
-    file = simulation.run(tmp_path / "run.h5", progress="none", memory_budget="none")
-    with open_file(tmp_path / "run.h5") as stored_file:
-        assert stored_file.metadata is not None
-        assert stored_file.metadata.backend is not None
-        record = stored_file.metadata.backend.settings["memory"]
-    assert "output" not in record["groups"]
-    assert file.n_saved == 3

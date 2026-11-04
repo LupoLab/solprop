@@ -184,8 +184,7 @@ class InputPreview:
 def modes(recipe: "Recipe", z: float | None = None) -> ModeSetPreview:  # noqa: UP037 - run time
     """Return the mode set a guided recipe builds, without building its run.
 
-    Its cost is the mode solve: on a guide route, the dense tables, with the memory
-    admission the route's constructor makes.
+    Its cost is the mode solve: on a guide route, the dense tables.
 
     Parameters
     ----------

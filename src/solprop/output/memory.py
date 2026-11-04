@@ -219,51 +219,6 @@ class MemoryOutput(PlaneStore):
         """
         logger.debug("memory output opened for %s", metadata.configuration_hash()[:12])
 
-    def held_bytes(
-        self,
-        n_planes: int,
-        plane_bytes: int,
-        *,
-        kept: int | None = None,
-        field_bytes: int = 0,
-    ) -> int:
-        """Return the bytes the store will allocate for a run's planes.
-
-        The store allocates the planes the run reserves, which the run loop sets to
-        `n_planes`, or more if a larger count was reserved already; past that it grows
-        by doubling, which this does not foresee. A run that keeps its field on some
-        planes only is charged the field on those alone (SEP 22): its statistics on
-        every plane, its field on `kept` of them. The step history and the
-        between-planes rows grow with the steps taken and are not counted.
-
-        Parameters
-        ----------
-        n_planes : int
-            The planes the run will save, the entrance included.
-        plane_bytes : int
-            The bytes of one plane: the field, the noise phase and the statistics.
-        kept : int or None, optional
-            How many planes keep their field; ``None``, every allocated one.
-        field_bytes : int, optional
-            The part of `plane_bytes` a plane without its field does not hold.
-
-        Returns
-        -------
-        int
-            The planes allocated times their bytes, the field only where it is kept.
-
-        Examples
-        --------
-        >>> from solprop.output import MemoryOutput
-        >>> MemoryOutput().held_bytes(201, 1024)
-        205824
-        >>> MemoryOutput().held_bytes(201, 1024, kept=2, field_bytes=1000)
-        6824
-        """
-        rows = max(n_planes, self._planned)
-        fields = rows if kept is None else kept
-        return rows * (plane_bytes - field_bytes) + fields * field_bytes
-
     def _allocate(
         self,
         plane: SavedPlane,

@@ -15,6 +15,7 @@ import numpy as np
 import pytest
 
 from legacy_geometry import LEGACY_GRID
+from solprop.backends.memory import adams_memory
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.registry import resolve_name
 from solprop.driver.simulation import Simulation, SimulationSettings
@@ -48,6 +49,12 @@ def narrow_grid():
     The measurements here were fixed on it, and their subject is not the boundaries.
     """
     return EnvelopeGrid.from_limits(1.0, 835e-9, (500e-9, 2e-6), 1e-12, **LEGACY_GRID)
+
+
+def test_an_unfused_method_holds_no_history_rows(linear_problem, narrow_grid):
+    # Its history is a list of arrays, outside the fused store's rows.
+    problem = linear_problem(narrow_grid, save_planes=[0.01], integrator=PECE4)
+    assert adams_memory(problem) == {}
 
 
 def run(problem, grid):

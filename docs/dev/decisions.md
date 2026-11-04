@@ -1824,3 +1824,33 @@ Withdrawn (development-process record, not a design decision).
     `SOLPROP_REQUIRE_DEVICE`, which reads the actual build.
   - Records keep the rows `numba_cpu` wrote, as evidence of what it measured. Records of
     decisions that name it, this log's included, stay as written.
+
+## ADR-065 — No memory admission: a run that doesn't fit fails with an out-of-memory error
+
+- **Status:** accepted, 2026-11-04. Supersedes the memory admission of SEP 22, SEP 41 and
+  earlier decisions. Those records stay as written.
+- **Decision:** solprop no longer estimates a run's memory before allocating or compares
+  it with a budget. `estimate_memory`, `estimate_guide_memory`, `solprop.driver.memory`,
+  `memory_budget=`, `SOLPROP_MEMORY_BUDGET`, `--memory-budget`, `MemoryBudgetError`,
+  `MemoryBudgetWarning` and the record's `memory` entry are removed. A run that doesn't
+  fit fails with `MemoryError` or is killed by the kernel or the scheduler.
+  - Each backend's `memory_ledger()` stays. It reports the buffers a constructed backend
+    holds, and `Simulation.estimate` reports its total.
+  - Scan workers and batch groups stay bounded, from measured RSS and the ledger, because
+    those limits decide how much runs at once rather than warn. TDSE's
+    `TDSEExecution.memory_limit` stays and raises `DriverError`; it now covers atomic
+    storage alone.
+- **Why:** the estimate duplicated in Python the buffers the backends hold, and that cost
+  grows with every route. On `native` its base was `numpy_ref`'s count, not native's own,
+  and an exact count would have meant mirroring dozens of C++ buffers per route. Measured
+  on `c2090d6c`, native held 1.04 to 1.41 times the estimate on ordinary runs (#501). The
+  check usually only warned, and a backend first-touches its buffers at construction, so
+  a run that doesn't fit normally fails near the start anyway.
+- **Consequences:**
+  - A run killed by the kernel or a scheduler gets no Python error: exit status 137, with
+    no message from solprop.
+  - A large run that fits only without the Adams history no longer gets a refusal naming
+    `RungeKutta()`; the stepper and resources pages give that advice.
+  - A run keeping its planes in memory can run out partway through, and a general modal
+    guide fails while its tables are built. Both were previously refused or warned about
+    before they started.
