@@ -1952,6 +1952,47 @@ Nothing measured is slower. The Multistep file run, a plane every six steps, is 
 faster, outside its A/A range; the others sit inside theirs. The record's old cost grew
 with the steps times the planes, so these windows show only its start.
 
+### A run's planes without a copy
+
+The fix of [#448](https://github.com/LupoLab/solprop/issues/448) hands an output each plane
+without copying its field, by adopting the observation's arrays, and adds one branch to
+`StepDriver.observe` for the held plane of
+[#345](https://github.com/LupoLab/solprop/issues/345). Before: `f004a662`; after:
+`643db910` on the pull request's branch. An exclusive node, AMD EPYC 7763, 16 cores in one
+NUMA domain, `--threading passive-bound`, `SOLPROP_FFTW_PLAN=measure`.
+
+`python -m benchmarks ab --length 0.1 --rounds 5 --repeats 1`, as the median of the
+per-round paired medians (after / before), with its range over the rounds:
+
+| case | threads | ratio | range |
+|---|---:|---:|---:|
+| `rdw` | 1 | 0.9911 | 0.980 to 0.998 |
+| `rdw` | 16 | 0.9982 | 0.990 to 1.007 |
+| `far_field_stats` | 1 | 1.0017 | 0.995 to 1.012 |
+| `far_field_stats` | 16 | 0.9980 | 0.544 to 0.999 |
+
+Geometric mean 0.9972, the fields within 3.6e-15 and the same work in both builds. The
+range of `far_field_stats` at 16 threads has one outlier round, in which the baseline took
+16.2 s. This shows **no regression**. It does not measure the saving at large fields: these
+cases save few planes at a field size where the copy is small.
+
+The saving is in memory, and is measured separately, on a loaded machine and so as field
+volumes rather than times. A delay scan through `SimulationRunner` with a handler that
+reduces each plane, against a hand loop over the backend protocol, on native CPU: a
+low-storage Kerr beam at 128 x 128 x 80 (20 MiB a volume), a window of 6 steps and 3 planes
+per input, the peak above the level before each input after a warm first one, on an Intel
+Xeon Gold 6240. The change is this fix together with
+[#435](https://github.com/LupoLab/solprop/issues/435) and
+[#447](https://github.com/LupoLab/solprop/issues/447), which release the input:
+
+| measure | hand loop | runner, before | runner, after |
+|---|---:|---:|---:|
+| peak by `tracemalloc`, volumes | 1.006 | 3.003 | 1.063 |
+| peak resident, volumes | 0.94 to 0.99 | 2.86 to 2.94 | 0.93 to 1.00 |
+
+`numpy_ref`, whose stages allocate per pass, went from 14.50 to 12.50 volumes by
+`tracemalloc`, the hand loop's figure. Not measured at full size, and not extrapolated to it.
+
 ### Single-precision collar and batches
 
 [#428](https://github.com/LupoLab/solprop/pull/428) keeps the reference backend's split

@@ -94,7 +94,7 @@ expansion. A
 total-degree expansion is not part of the contract: it failed the joint memory and
 build-cost criterion on the short fixture.
 
-The current version is kernel schema **43**
+The current version is kernel schema **44**
 (`solprop.translate.problem.KERNEL_SCHEMA_VERSION`), and the tables of this document
 describe it. A version bump that adds an optional field
 leaves every problem that does not use it unchanged, `schema_version` itself being the
@@ -1116,7 +1116,10 @@ diverged field-free run is caught by the step loop's finite-norm rule and the
 statistics, `step_history` (arrays of z, h, error norm, accepted flag, wall time since the
 last observation; recorded whether the run was adaptive or replayed a schedule, since the
 embedded estimate is computed either way), `n_steps`, `n_rejected`, and `step_stats`. `stats()` returns a dict of small host arrays
-keyed by statistic name with a leading batch axis.
+keyed by statistic name with a leading batch axis. Nothing writes to an observation's
+arrays again, the backend included: `run_problem` hands them to the output without a copy,
+and a handler may keep them. The array-backed state of a host backend is observed as it is
+and frozen, so its next step replaces it rather than accepting in place.
 
 `step_stats` is a `StepStats`: `z` `(n_rows,)` and `step` `(n_rows,)` — the index of the
 accepted step each row was taken after, into *this* observation's `step_history`, which

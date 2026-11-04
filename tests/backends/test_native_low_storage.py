@@ -17,9 +17,11 @@ uninterrupted run within the parity bound.
 
 import dataclasses
 import functools
+import gc
 import math
 import signal
 import warnings
+import weakref
 from pathlib import Path
 
 import numpy as np
@@ -48,6 +50,7 @@ from general_parity import nonlinear_scale, problem_for, scaled_case, source_bou
 from solprop._interrupts import handled
 from solprop.backends.memory import (
     estimate_memory,
+    ledger_groups,
     low_storage_flows,
     low_storage_stage_register,
 )
@@ -549,16 +552,15 @@ def test_the_native_state_holds_the_registers_and_no_runge_kutta_view(mode, coll
 def test_the_estimate_is_the_ledger_to_the_byte(mode, collar):
     """The march's field-sized rows of the estimate, row by row, as numpy_ref counts.
 
-    The estimate's base is the reference's rows less the elided register; its march
-    rows -- the state, the scratch, the registers and the flows -- are the native
-    ledger's own, to the byte.
+    The march rows -- the state, the scratch, the registers and the flows -- are the
+    reference's less the elided register, and the estimate's whole base is the native
+    ledger's own, to the byte (``free_space_memory``).
     """
     from solprop.backends.memory import (  # noqa: PLC0415
         reference_base_memory,
     )
 
     problem, grid, _ = cartesian_march(mode, collar=collar)
-    field = 16 * math.prod(problem.shape)
     reference = reference_base_memory(
         problem,
         tabulating=mode == "tabulate",
@@ -574,7 +576,7 @@ def test_the_estimate_is_the_ledger_to_the_byte(mode, collar):
         expected = 0 if row == "register_stage" and not collar else reference[row]
         assert ledger[row] == expected, row
     estimate = estimate_memory(problem, "native")
-    assert estimate.groups["base"] == sum(reference.values()) - (0 if collar else field)
+    assert estimate.groups["base"] == ledger_groups(ledger)["base"]
 
 
 def test_the_low_storage_estimate_counts_the_elided_register():
@@ -583,7 +585,6 @@ def test_the_low_storage_estimate_counts_the_elided_register():
 
     for collar in (False, True):
         problem, _, _ = cartesian_march("tabulate", collar=collar)
-        field = 16 * math.prod(problem.shape)
         under_march = estimate_memory(problem, "native").total
         assert low_storage_memory(problem, "native") == under_march
         # The same problem under the Runge-Kutta march: the march's figure is its own.
@@ -594,11 +595,7 @@ def test_the_low_storage_estimate_counts_the_elided_register():
             ),
         )
         assert low_storage_memory(runge_kutta, "native") == under_march
-        held = low_storage_stage_register(problem, "native")
-        assert held == collar
-        assert low_storage_memory(problem, "numpy_ref") - under_march == (
-            0 if held else field
-        )
+        assert low_storage_stage_register(problem, "native") == collar
 
 
 def test_a_varying_operator_holds_its_pair_tabulated_and_none_recomputed():
@@ -665,6 +662,57 @@ def test_a_field_free_plane_is_held_natively_and_resumes_to_rounding():
     got = resumed.observe().require_field()
     resumed.close()
     assert_within(got, uninterrupted, parity_bound(problem), what="resume")
+
+
+@pytest.mark.parametrize("model", [None, "input"], ids=["no noise", "input noise"])
+def test_a_loaded_state_is_not_held_after_the_load(monkeypatch, model):
+    """The upload copies and fences, so a temporary dies with the load; no ledger row.
+
+    A delay scan's input, the input noise model's sum and a resumed plane are all
+    temporaries: each would otherwise stay alive until the next load. The field is read
+    back to show that the load took.
+    """
+    grid = EnvelopeGrid.from_limits(1e-3, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False)
+    noise = (
+        None
+        if model is None
+        else spatial_noise(
+            SpatialFlux.resolve(
+                grid, FreeGrid(3e-4, 9, 4e-4, 12, collar_fraction=0), SpatialMedium()
+            ),
+            np.random.default_rng(7),
+            model=model,
+        )
+    )
+    problem, grid, _ = cartesian_march("tabulate", noise=noise)
+    backend = NativeBackend(problem, grid=grid)
+    loaded: list[weakref.ref[np.ndarray]] = []
+    apply_mask = backend._apply_mask
+
+    def watched(state: np.ndarray) -> object:
+        loaded.append(weakref.ref(state))
+        return apply_mask(state)
+
+    monkeypatch.setattr(backend, "_apply_mask", watched)
+    temporary = np.full(problem.shape, 1.0 + 0.5j)
+    given = weakref.ref(temporary)
+    backend.set_initial(temporary, noise)
+    del temporary
+    # A second route to the upload, outside `set_initial`: the driver's own mask step.
+    loaded_again = np.full(problem.shape, 2.0 + 0.5j)
+    again = weakref.ref(loaded_again)
+    apply_mask(loaded_again)
+    observed = backend.observe().require_field()
+    del loaded_again
+    gc.collect()
+    assert given() is None
+    assert again() is None
+    assert len(loaded) == 1 and loaded[0]() is None
+    # Exact: the state crosses twice without arithmetic, and the mask keeps or zeroes.
+    mask = problem.grids.active_mask
+    assert np.all(observed[..., mask] == 2.0 + 0.5j)
+    assert np.all(observed[..., ~mask] == 0.0)
+    backend.close()
 
 
 def test_the_soliton_resumes_from_a_held_plane_on_its_reference(
