@@ -759,3 +759,15 @@ def test_the_march_agrees_across_thread_counts(tmp_path):
         bound = parity_bound(problem, transverse=problem.transform.n_nodes)
         assert_within(again[name], one[name], bound, what=f"repeat, {name}")
         assert_within(four[name], one[name], bound, what=f"four threads, {name}")
+
+
+def test_a_trial_step_on_a_low_storage_state_is_refused_by_name():
+    # #492: this state allocates none of the views the trial step writes to.
+    problem, grid, _ = cartesian_march("tabulate")
+    backend = NativeBackend(problem, grid=grid)
+    try:
+        backend.set_initial(problem.initial.field0, None)
+        with pytest.raises(RuntimeError, match=r"low-storage state .* no Runge-Kutta"):
+            backend._trial_step(0.0, problem.stepper.dz_init)
+    finally:
+        backend.close()

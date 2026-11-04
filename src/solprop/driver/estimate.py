@@ -14,8 +14,9 @@ physics.
 import math
 import statistics
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from functools import partial
 from typing import TYPE_CHECKING, Final
 
 from solprop.backends.registry import select
@@ -96,6 +97,42 @@ class RunEstimate:
         return self.rhs * self.calls_per_step
 
 
+def _timed_step(
+    backend: object, problem: KernelProblem
+) -> tuple[Callable[[], object], int]:
+    """Return the step to time for a run, and the evaluations it makes.
+
+    A low-storage march times its own step, which accepts in place, so repeating it
+    advances the discarded state: the backend is closed after the estimate. Every other
+    run times the Runge-Kutta trial step, which leaves the state alone. The native
+    low-storage state holds none of that trial's views.
+
+    Parameters
+    ----------
+    backend : object
+        The constructed backend, with its initial state loaded.
+    problem : solprop.translate.problem.KernelProblem
+        The translated problem.
+
+    Returns
+    -------
+    tuple
+        A callable taking one step, and the right-hand-side evaluations in it.
+    """
+    march = getattr(backend, "_low_storage")  # noqa: B009 - every StepDriver has it
+    if march is None:
+        z = float(problem.initial.z)
+        dz = float(problem.stepper.dz_init)
+        trial = getattr(backend, "_trial_step")  # noqa: B009 - every StepDriver has it
+        return partial(trial, z, dz), len(problem.stepper.tableau.nodes)
+    schedule = problem.stepper.schedule
+    assert schedule is not None  # the translation refuses the march without one
+    z, dz = float(schedule.edges[0]), float(schedule.steps[0])
+    return partial(march.engine.step, z, dz), _calls_per_step(
+        problem.stepper.integrator
+    )
+
+
 def _calls_per_step(integrator: object) -> int:
     """Return an integrator's right-hand-side evaluations per accepted step.
 
@@ -158,18 +195,15 @@ def estimate(
     try:
         memory = sum(backend.memory_ledger().values())
         backend.set_initial(problem.initial.field0, None, z=problem.initial.z)
-        z0 = float(problem.initial.z)
-        dz = float(problem.stepper.dz_init)
-        trial = getattr(backend, "_trial_step")  # noqa: B009 - every StepDriver has it
-        trial(z0, dz)
+        step, evaluations = _timed_step(backend, problem)
+        step()
         setup = time.perf_counter() - started
         timings = []
         for _ in range(max(1, repeats)):
             begun = time.perf_counter()
-            trial(z0, dz)
+            step()
             timings.append(time.perf_counter() - begun)
-        stages = len(problem.stepper.tableau.nodes)
-        rhs = statistics.median(timings) / stages
+        rhs = statistics.median(timings) / evaluations
         reported = backend.metadata()
         # Each backend names its own: native "thread_count"; numpy_ref runs on one
         # thread and names none.
