@@ -3829,7 +3829,6 @@ def _native_problem(
         ),
         "stash_plasma": stash_plasma,
         "weighted_controller": problem.stepper.controller.weights is not None,
-        "phase_b_engine": True,
         "dt_fine": problem.grids.dt_fine,
         "dt": problem.grids.dt,
         "raman_fraction": 0.0 if raman is None else float(raman.fraction),

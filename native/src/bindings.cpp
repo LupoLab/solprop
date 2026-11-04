@@ -340,7 +340,6 @@ native::Problem problem_from(const nb::dict& values) {
       result.raman_thg = nb::cast<bool>(values["raman_thg"]);
       result.stash_plasma = nb::cast<bool>(values["stash_plasma"]);
       result.weighted_controller = nb::cast<bool>(values["weighted_controller"]);
-      result.phase_b_engine = nb::cast<bool>(values["phase_b_engine"]);
       result.dt_fine = nb::cast<double>(values["dt_fine"]);
       result.dt = nb::cast<double>(values["dt"]);
       result.raman_fraction = nb::cast<double>(values["raman_fraction"]);

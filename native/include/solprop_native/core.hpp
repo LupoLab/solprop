@@ -513,7 +513,6 @@ struct Problem {
   bool raman_tensor_capable{};
   bool stash_plasma{};
   bool weighted_controller{};
-  bool phase_b_engine{};
   double dt_fine{};
   double dt{};
   std::size_t n_raman_terms{};
@@ -613,11 +612,6 @@ struct Problem {
   [[nodiscard]] std::size_t n_columns() const noexcept { return n_modes * n_pol_state; }
   [[nodiscard]] std::size_t effective_node_pol() const noexcept {
     return n_pol_transform * n_pol_state;
-  }
-  [[nodiscard]] bool needs_general_engine() const noexcept {
-    return phase_b_engine || general_modal || coupled_flow || n_columns() != 1 ||
-           n_nodes != 1 || n_pol_transform != 1 || plasma || raman ||
-           weighted_controller || dispersive || !projection_coarse_matrix.empty();
   }
   [[nodiscard]] std::size_t raman_drives() const noexcept {
     if (effective_node_pol() == 2)

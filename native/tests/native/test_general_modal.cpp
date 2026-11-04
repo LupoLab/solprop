@@ -86,7 +86,6 @@ native::Problem modal_problem(const bool real_form, const std::size_t chunk,
   problem.error_weights = {0.25};
   problem.synthesis_matrix = {0.0, 0.0};
   problem.projection_matrix = {0.0, 0.0};
-  problem.phase_b_engine = true;
   problem.general_modal = true;
   problem.general_real_form = real_form;
   problem.general_components = kComponents;
