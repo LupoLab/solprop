@@ -52,6 +52,7 @@ __all__ = [
     "HostEdgeReduction",
     "TransverseEdge",
     "TransverseStatus",
+    "transverse_edge_bytes",
 ]
 
 logger = logging.getLogger(__name__)
@@ -264,6 +265,29 @@ def _guard_width(space: RadialGrid | FreeGrid | PlanarGrid) -> float:
     if not isinstance(space, LineGrid):
         widths.append(0.5 * space.n_y * float(space.y[1] - space.y[0]))
     return GUARD * min(widths)
+
+
+def transverse_edge_bytes(space: RadialGrid | FreeGrid | PlanarGrid) -> int:
+    """Return what a native read of the edge holds resident, from the grid alone.
+
+    Three tables of four binary64 rows on the nodes, the columns' energies, and radially
+    the synthesis. A run reading no edge holds none of it.
+
+    Parameters
+    ----------
+    space : solprop.grid.RadialGrid, solprop.grid.FreeGrid or PlanarGrid
+        The run's grid.
+
+    Returns
+    -------
+    int
+        The bytes.
+    """
+    columns = int(np.asarray(space.spectral_weights).size)
+    if isinstance(space, RadialGrid):
+        return 8 * (12 * space.n_r + columns + space.n_r**2)
+    nodes = space.n_y if isinstance(space, PlanarGrid) else space.n_y * space.n_x
+    return 8 * (12 * nodes + columns)
 
 
 def _radial_inverse(space: RadialGrid) -> Float[np.ndarray, "n_r n_r"]:

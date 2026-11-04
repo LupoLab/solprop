@@ -17,11 +17,14 @@ import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from functools import partial
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Any, Final, cast
 
+from solprop.backends.driver import StepDriver
 from solprop.backends.registry import select
 from solprop.driver.run import field_retention
 from solprop.exceptions import DriverError
+from solprop.grid import FreeGrid, RadialGrid
+from solprop.modes.slab import PlanarGrid
 from solprop.stats import CATALOGUE
 from solprop.stepper import LowStorageRungeKutta, Multistep
 from solprop.translate.problem import KernelProblem
@@ -194,6 +197,18 @@ def estimate(
     )
     try:
         memory = sum(backend.memory_ledger().values())
+        # Bound only when a monitor attaches, which an estimate doesn't do. A requested
+        # collar still reads a host copy (SEP 44).
+        design = problem.transverse
+        if (
+            settings.boundary_check is not None
+            and simulation.medium is not None
+            and isinstance(simulation.spatial_grid, RadialGrid | FreeGrid | PlanarGrid)
+            and not (design is not None and design.has_collar)
+        ):
+            memory += cast("StepDriver[Any]", backend).edge_memory(
+                simulation.spatial_grid
+            )
         backend.set_initial(problem.initial.field0, None, z=problem.initial.z)
         step, evaluations = _timed_step(backend, problem)
         step()

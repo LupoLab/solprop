@@ -141,7 +141,11 @@ from solprop.translate.stage import (
     require_device_ready,
 )
 from solprop.translate.tdse import TDSEPurpose
-from solprop.transverse_monitor import EdgeReading, TransverseEdge
+from solprop.transverse_monitor import (
+    EdgeReading,
+    TransverseEdge,
+    transverse_edge_bytes,
+)
 
 from . import (
     PROC_BIND,
@@ -1120,6 +1124,21 @@ class NativeBackend(StepDriver[_core.State]):
                 else np.ascontiguousarray(synthesis, dtype=np.float64).reshape(-1),
                 int(np.argmax(tables.rows)),
             )
+
+    def edge_memory(self, space: object) -> int:
+        """Return what reading the edge holds in the state's memory space (SEP 44).
+
+        Parameters
+        ----------
+        space : object
+            The run's transverse grid.
+
+        Returns
+        -------
+        int
+            The bytes of a `transverse_edge` ledger row, from the grid alone.
+        """
+        return transverse_edge_bytes(cast("Any", space))
 
     def _edge_reading(
         self,

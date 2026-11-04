@@ -82,6 +82,14 @@ struct MonitorSums {
   }
 };
 
+/** A state's whole-state transfers, in bytes, each way (solprop SEP 44): what lets a
+   test hold a field-free run to no transfer at all, whichever path would have made one.
+ */
+struct CrossedBytes {
+  std::size_t to_host{};
+  std::size_t from_host{};
+};
+
 /** What the transverse edge reads of a state (solprop SEP 44): four numbers per weight
     table, and each mode's energy. */
 struct EdgeNumbers {
@@ -960,6 +968,8 @@ public:
   void bind_edge(const std::vector<double>& faces, const std::vector<double>& clip,
                  const std::vector<double>& totals,
                  const std::vector<double>& synthesis, std::size_t first_row);
+  /** The bytes through this state's crossings since it was built, each way. */
+  [[nodiscard]] CrossedBytes crossed_bytes() const noexcept;
   /** The edge's region sums and each mode's energy, where the state lives. */
   EdgeNumbers edge_reading(bool whole, bool totals);
   /** The threads a large crossing takes (`crossing.hpp`), from solprop's budget. */

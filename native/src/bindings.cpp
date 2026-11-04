@@ -1385,6 +1385,12 @@ public:
       throw std::logic_error("the edge's reading requires the general native state");
     general_state_->bind_edge(faces, clip, totals, synthesis, first_row);
   }
+  native::CrossedBytes crossed_bytes() {
+    require_open();
+    if (!general_state_)
+      throw std::logic_error("the crossing count requires the general native state");
+    return general_state_->crossed_bytes();
+  }
   native::EdgeNumbers edge_reading(const bool whole, const bool totals) {
     require_open();
     if (!general_state_)
@@ -2937,6 +2943,12 @@ NB_MODULE(_core, module_) {
                values = self.monitor_reading();
              }
              return real_output(std::move(values), 1);
+           })
+      // solprop SEP 44: the bytes through the state's crossings, each way.
+      .def("crossed_bytes",
+           [](BoundState& self) {
+             const auto crossed = self.crossed_bytes();
+             return nb::make_tuple(crossed.to_host, crossed.from_host);
            })
       // solprop SEP 44: the transverse edge's reading, where the state lives.
       .def(

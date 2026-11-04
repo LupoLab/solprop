@@ -1924,6 +1924,24 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         if read:
             edge.read(reading, self._z)
 
+    def edge_memory(self, space: object) -> int:
+        """Return what reading the edge holds in the state's memory space.
+
+        What :func:`solprop.driver.estimate.estimate` adds: it attaches no monitor.
+
+        Parameters
+        ----------
+        space : object
+            The run's transverse grid.
+
+        Returns
+        -------
+        int
+            Zero by default: a read on the host holds nothing beside the state there.
+        """
+        del space
+        return 0
+
     def _edge_reading(
         self,
         state: _StateT,

@@ -870,6 +870,7 @@ DRIVER_SURFACE = {
     "_finish": "(self, state: _StateT, dz: float) -> _StateT",
     "_bind_monitor": "(self, monitor: solprop.monitor.BoundaryMonitor | None) -> None",
     "_boundary_energies": "(self, state: _StateT) -> solprop.monitor.BoundaryEnergies",
+    "edge_memory": "(self, space: object) -> int",
     "_edge_reading": (
         "(self, state: _StateT, edge: solprop.transverse_monitor.TransverseEdge, *, "
         "faces: bool = True, current: bool = False, full: bool = False"

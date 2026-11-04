@@ -183,6 +183,7 @@ DRIVER_SURFACE: tuple[str, ...] = (
     "_boundary_energies",
     "_dense_stages",
     "_edge_reading",
+    "edge_memory",
     "_finish",
     "_hoist",
     "_low_storage_engine",

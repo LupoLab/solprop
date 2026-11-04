@@ -2184,6 +2184,9 @@ public:
                  const std::vector<double>& totals,
                  const std::vector<double>& synthesis, std::size_t first_row);
   EdgeNumbers edge_reading(bool whole, bool totals);
+  // The bytes through this state's crossings since it was built, each way (solprop SEP
+  // 44).
+  [[nodiscard]] CrossedBytes crossed_bytes() const noexcept { return crossed_; }
   std::vector<Complex> field_to_host() const;
   void field_to_host(std::span<Complex> destination) const;
   void cross_to_host(const ComplexView2& source, std::span<Complex> destination) const;
@@ -2888,6 +2891,7 @@ public:
   // #440); empty unbound.
   ByteView occupancy_buckets_;
   std::size_t occupancy_count_ = 0;
+  mutable CrossedBytes crossed_;
   // What the transverse edge's reading sums with, once a monitor is bound (SEP 44).
   RealView2 edge_faces_, edge_clip_, edge_totals_, edge_synthesis_;
   RealView edge_columns_;
@@ -4680,6 +4684,7 @@ void GeneralWorkspace::set_initial(const std::span<const Complex> field,
   if (!noise.empty())
     require_extent(noise.size(), field.size(), "noise");
   upload_span(execution_space_, crossing_ring_, current_, field);
+  crossed_.from_host += field.size_bytes();
   if (noise.empty()) {
     if (problem_.modified_noise)
       graph::deep_copy(execution_space_, noise_, Complex{});
@@ -4689,6 +4694,7 @@ void GeneralWorkspace::set_initial(const std::span<const Complex> field,
       throw std::invalid_argument(
           "a native noise field is valid only for modified noise");
     upload_span(execution_space_, crossing_ring_, noise_, noise);
+    crossed_.from_host += noise.size_bytes();
     has_noise_ = true;
   }
   mask(current_);
@@ -6380,6 +6386,7 @@ void GeneralWorkspace::adams_rows_to_host(const std::string& name,
     throw std::invalid_argument("the Adams history row '" + name +
                                 "' has the wrong extent");
   execution_space_.fence("solprop_native Adams rows_to_host");
+  crossed_.to_host += size * sizeof(Complex);
   if (crossing::takes_ring(size * sizeof(Complex))) {
     crossing_ring_.to_host(destination, view.data(), size * sizeof(Complex));
     return;
@@ -15045,6 +15052,7 @@ std::vector<Complex> GeneralWorkspace::field_to_host() const {
 // element loop, so a large state crosses once (a device's one transfer).
 void GeneralWorkspace::cross_to_host(const ComplexView2& source,
                                      const std::span<Complex> destination) const {
+  crossed_.to_host += destination.size_bytes();
   if (crossing::takes_ring(destination.size_bytes())) {
     crossing_ring_.to_host(destination.data(), source.data(), destination.size_bytes());
     return;
@@ -15085,6 +15093,7 @@ void GeneralWorkspace::stage_to_host(const std::size_t stage,
                  "stage destination");
   execution_space_.fence("solprop_native stage_to_host");
   const auto selected = Kokkos::subview(stages_, stage, Kokkos::ALL, Kokkos::ALL);
+  crossed_.to_host += destination.size_bytes();
   if (crossing::takes_ring(destination.size_bytes())) {
     crossing_ring_.to_host(destination.data(), selected.data(),
                            destination.size_bytes());
@@ -15954,6 +15963,9 @@ void GeneralState::bind_edge(const std::vector<double>& faces,
                              const std::size_t first_row) {
   const CpuTeamScope team(workspace_->cpu_team());
   workspace_->bind_edge(faces, clip, totals, synthesis, first_row);
+}
+CrossedBytes GeneralState::crossed_bytes() const noexcept {
+  return workspace_->crossed_bytes();
 }
 EdgeNumbers GeneralState::edge_reading(const bool whole, const bool totals) {
   const CpuTeamScope team(workspace_->cpu_team());

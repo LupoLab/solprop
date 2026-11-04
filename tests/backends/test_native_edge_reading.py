@@ -28,7 +28,7 @@ from solprop.monitor import BoundaryCheck
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stepper import FixedSchedule, LowStorageRungeKutta, Multistep, RungeKutta
-from solprop.transverse_monitor import GUARD, EdgeReading
+from solprop.transverse_monitor import GUARD, EdgeReading, transverse_edge_bytes
 from test_transverse_reads import REREVIEW, packet_run
 
 pytestmark = pytest.mark.skipif(
@@ -470,10 +470,94 @@ def test_a_field_free_default_run_crosses_no_state(
 
     monkeypatch.setattr(NativeBackend, "_observed_field", refused)
     simulation = _case("cartesian")
-    simulation.settings = dataclasses.replace(simulation.settings, fields="none")
+    simulation.settings = dataclasses.replace(
+        simulation.settings, fields="none", backend="native"
+    )
     problem = simulation.translate()
+    field = np.asarray(problem.initial.field0)[0]
     with simulation.runner() as runner:
-        output = runner.run(np.asarray(problem.initial.field0)[0], progress="none")
+        output = runner.run(field, progress="none")
+        assert isinstance(runner.backend, NativeBackend)
+        state = cast("Any", runner.backend)._native_state
+        to_host, from_host = state.crossed_bytes()
     outcome = cast("Any", output).outcome
     edge = outcome.execution["boundary_monitor"]["transverse"]
     assert edge["reads"] > 0
+    # Refusing `_observed_field` can't see a direct `field_to_host`, so native's own count
+    # says it too: nothing to the host, and the one load from it.
+    assert to_host == 0
+    assert from_host == field.nbytes
+
+
+def test_the_crossing_count_sees_a_direct_copy() -> None:
+    simulation = _case("cartesian")
+    problem = simulation.translate()
+    state = _noise_state(problem.shape, np.asarray(problem.grids.active_mask), 61)
+    backend, _ = _attached(simulation, state)
+    try:
+        native = backend._native_state
+        assert native.crossed_bytes() == (0, state.nbytes)
+        native.field_to_host()
+        assert native.crossed_bytes() == (state.nbytes, state.nbytes)
+    finally:
+        backend.close()
+
+
+@pytest.mark.parametrize("route", ROUTES)
+def test_the_edge_holds_memory_only_once_a_monitor_binds_it(route: str) -> None:
+    # A check-off run pays nothing, and the formula an estimate adds is the row itself.
+    simulation = _case(route)
+    problem = simulation.translate()
+    backend = cast(
+        "Any",
+        select(
+            "native",
+            problem,
+            grid=simulation.grid,
+            modes=simulation.modes,
+            profiles=simulation.profiles,
+        ),
+    )
+    try:
+        assert backend.memory_ledger()["transverse_edge"] == 0
+        backend.set_initial(problem.initial.field0, None)
+        assert backend.memory_ledger()["transverse_edge"] == 0
+        monitor = simulation._boundary_monitor()
+        assert monitor is not None
+        assert monitor.transverse is not None
+        backend._bind_monitor(monitor)
+        expected = transverse_edge_bytes(monitor.transverse.space)
+        assert backend.memory_ledger()["transverse_edge"] == expected
+        assert backend.edge_memory(monitor.transverse.space) == expected
+    finally:
+        backend.close()
+
+
+def test_an_estimate_counts_the_edge_only_for_a_run_that_reads_it() -> None:
+    # An estimate attaches no monitor, so it adds the row from the grid: against the same
+    # problem's own ledger before anything binds, it is exactly that row or nothing.
+    def difference(check: BoundaryCheck | None) -> tuple[int, Any]:
+        simulation = _case("cartesian")
+        simulation.settings = dataclasses.replace(
+            simulation.settings, boundary_check=check, backend="native"
+        )
+        problem = simulation.translate()
+        backend = select(
+            "native",
+            problem,
+            grid=simulation.grid,
+            modes=simulation.modes,
+            profiles=simulation.profiles,
+        )
+        try:
+            held = sum(backend.memory_ledger().values())
+        finally:
+            backend.close()
+        return simulation.estimate().memory - held, simulation
+
+    added, simulation = difference(BoundaryCheck(budget=1.0, stop_factor=1.0))
+    monitor = simulation._boundary_monitor()
+    assert monitor is not None
+    assert monitor.transverse is not None
+    assert added == transverse_edge_bytes(monitor.transverse.space)
+    assert difference(None)[0] == 0

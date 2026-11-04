@@ -55,7 +55,7 @@ VARIANTS = {
 def _variant(
     name: str, backend: str, width: int, fraction: float, ramp: bool, edge: bool
 ) -> tuple[Simulation, float]:
-    """Return a case's simulation with the ramp and the reads as asked, and its build time.
+    """Return a case's simulation with the ramp and the reads asked for, and its build.
 
     Parameters
     ----------
@@ -82,8 +82,8 @@ def _variant(
             simulation.settings, spatial_absorber=False
         )
     if not edge:
-        # Keep the temporal monitor: the control is the edge's cost, not the whole check's.
-        simulation._transverse_edge = lambda *_: None  # type: ignore[method-assign, assignment]  # noqa: SLF001
+        # Keep the temporal monitor: the control is the edge's cost, not the check's.
+        simulation._transverse_edge = lambda *_: None  # type: ignore[method-assign, assignment]
     simulation.translate()
     return simulation, time.perf_counter() - started
 
@@ -131,7 +131,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--seed", type=int, default=44)
     parser.add_argument("--out", type=Path)
     arguments = parser.parse_args(argv)
-    shuffled = random.Random(arguments.seed)  # noqa: S311 - the order, not a secret
+    shuffled = random.Random(arguments.seed)
     lines: list[dict[str, Any]] = [
         {
             "section": "record",
@@ -147,7 +147,7 @@ def main(argv: list[str] | None = None) -> None:
             },
         }
     ]
-    print(json.dumps(lines[0]), flush=True)  # noqa: T201
+    print(json.dumps(lines[0]), flush=True)
     with warnings.catch_warnings():
         # A case whose light reaches its edge warns on purpose: its status is reported.
         warnings.simplefilter("ignore", BoundaryWarning)
@@ -169,7 +169,7 @@ def main(argv: list[str] | None = None) -> None:
                     "seconds": round(seconds, 4),
                 }
                 lines.append(line)
-                print(json.dumps(line), flush=True)  # noqa: T201
+                print(json.dumps(line), flush=True)
             for index in range(arguments.rounds):
                 order = list(variants)
                 shuffled.shuffle(order)
@@ -186,7 +186,7 @@ def main(argv: list[str] | None = None) -> None:
                         **_took(output),
                     }
                     lines.append(line)
-                    print(json.dumps(line), flush=True)  # noqa: T201
+                    print(json.dumps(line), flush=True)
     if arguments.out is not None:
         arguments.out.write_text(
             "".join(json.dumps(line) + "\n" for line in lines), encoding="utf-8"
@@ -225,7 +225,7 @@ def _summary(lines: list[dict[str, Any]], cases: list[str]) -> None:
                 f"({100 * (median / base - 1):+.1f}%) "
                 f"calls {taken['calls']} reads {taken['reads']}"
             )
-        print(f"{case}: " + "; ".join(parts), flush=True)  # noqa: T201
+        print(f"{case}: " + "; ".join(parts), flush=True)
 
 
 if __name__ == "__main__":
