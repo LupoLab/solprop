@@ -148,7 +148,7 @@ refuses a handler without it, by name.
 
 ```{code-block} python
 class Energies:
-    """Keep each plane's energy, for a run with fields="none"."""
+    """Keep each plane's energy, for fields="none" and stats=StatsSpec(names=("energy",))."""
 
     def retain(self, retention, field_shape):
         # Once per run: after open (and reserve, if it has one), before any save, and
