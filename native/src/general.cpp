@@ -2512,8 +2512,10 @@ public:
   void form_split_factor(double dz);
   void split_columns(double dz, std::size_t active_rows = 0, double parseval = 0.0,
                      std::size_t first_column = 0);
+  void split_state_rows(double dz, const ComplexView2& state);
   void add_split_removal(double dz, std::size_t active_rows, double parseval,
-                         std::size_t first_column);
+                         std::size_t first_column, const ComplexView2& complex_time,
+                         double power_scale);
   void separable_to_time(const TransverseChunk& chunk);
   void separable_to_frequency(const TransverseChunk& chunk);
   void separable_split_step(double dz, const ComplexView2& values);
@@ -2849,6 +2851,11 @@ public:
   std::unique_ptr<ForwardRealPlan> absorber_real_plan_;
   std::unique_ptr<ComplexPlan> absorber_complex_plan_;
   std::unique_ptr<InverseRealPlan> coarse_inverse_real_plan_;
+  // A free-space envelope's split collar transforms the state's own rows in place, this
+  // many at a time, and holds no coarse buffers (`split_state_rows`).
+  std::size_t split_rows_{};
+  std::unique_ptr<ComplexPlan> split_inverse_plan_, split_forward_plan_;
+  std::unique_ptr<ComplexPlan> split_tail_inverse_plan_, split_tail_forward_plan_;
   std::unique_ptr<ComplexPlan> coarse_inverse_complex_plan_;
   std::unique_ptr<ForwardRealPlan> coarse_forward_real_plan_;
   std::unique_ptr<ComplexPlan> coarse_forward_complex_plan_;
@@ -4120,14 +4127,19 @@ void GeneralWorkspace::allocate() {
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
     split_factor_ = RealView("solprop_native.absorber.split_factor", problem_.n_t);
 #endif
-    coarse_spectrum_ =
-        ComplexView2("solprop_native.absorber.coarse_spectrum", temporal_columns, n);
-    if (problem_.family == FieldFamily::envelope)
-      coarse_time_complex_ = ComplexView2("solprop_native.absorber.coarse_time_complex",
-                                          temporal_columns, problem_.n_t);
-    else
-      coarse_time_real_ = RealView2("solprop_native.absorber.coarse_time_real",
-                                    temporal_columns, problem_.n_t);
+    if (problem_.free_geometry() && problem_.family == FieldFamily::envelope) {
+      split_rows_ = temporal_columns;
+    } else {
+      coarse_spectrum_ =
+          ComplexView2("solprop_native.absorber.coarse_spectrum", temporal_columns, n);
+      if (problem_.family == FieldFamily::envelope)
+        coarse_time_complex_ =
+            ComplexView2("solprop_native.absorber.coarse_time_complex",
+                         temporal_columns, problem_.n_t);
+      else
+        coarse_time_real_ = RealView2("solprop_native.absorber.coarse_time_real",
+                                      temporal_columns, problem_.n_t);
+    }
   }
   if (problem_.general_modal) {
     general_ = std::make_unique<GeneralModalSource>(problem_);
@@ -4628,6 +4640,30 @@ void GeneralWorkspace::plan() {
   }
   if (!problem_.split_step_absorber)
     return;
+  if (split_rows_ != 0) {
+    // In place on the state's rows; a later execution may name another row block or the
+    // other of the state's two views, of the same extents.
+    const auto& state = problem_.low_storage ? current_ : advanced_;
+    const auto plan_rows = [&](const std::size_t count,
+                               const KokkosFFT::Direction direction) {
+      const ComplexView2 rows =
+          Kokkos::subview(state, std::make_pair(std::size_t{0}, count), Kokkos::ALL());
+      const auto& space = fft_space_for(rows.size());
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+      // Seeding may overwrite the rows; nothing is loaded yet.
+      seed_row_fft_wisdom(space, rows, rows, direction);
+      graph::deep_copy(execution_space_, rows, Complex{});
+#endif
+      return std::make_unique<ComplexPlan>(space, rows, rows, direction, axis);
+    };
+    split_inverse_plan_ = plan_rows(split_rows_, KokkosFFT::Direction::backward);
+    split_forward_plan_ = plan_rows(split_rows_, KokkosFFT::Direction::forward);
+    if (const auto tail = problem_.n_columns() % split_rows_; tail != 0) {
+      split_tail_inverse_plan_ = plan_rows(tail, KokkosFFT::Direction::backward);
+      split_tail_forward_plan_ = plan_rows(tail, KokkosFFT::Direction::forward);
+    }
+    return;
+  }
   if (problem_.family == FieldFamily::envelope) {
     coarse_inverse_complex_plan_ = std::make_unique<ComplexPlan>(
         fft_space_for(coarse_time_complex_.size()), coarse_spectrum_,
@@ -14369,14 +14405,15 @@ namespace {
 template <class TimeView>
 void split_apply(const char* label, const ExecutionSpace& execution,
                  const TimeView& time, const RealView& rate, const RealView& factors,
-                 const double dz, const std::size_t rows, const std::size_t samples) {
+                 const double dz, const std::size_t rows, const std::size_t samples,
+                 const double scale = 1.0) {
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
   static_cast<void>(rate);
   static_cast<void>(dz);
   launch::parallel_for(
       label, Range2(execution, {0, 0}, {rows, samples}),
       KOKKOS_LAMBDA(const std::size_t row, const std::size_t index) {
-        time(row, index) *= factors(index);
+        time(row, index) *= scale * factors(index);
       });
 #else
   static_cast<void>(factors);
@@ -14396,6 +14433,8 @@ void split_apply(const char* label, const ExecutionSpace& execution,
         for (std::size_t sample = 0; sample < count; ++sample)
           factor[sample] = -0.5 * rate(first + sample) * dz;
         vmath::exp(factor, factor, count);
+        for (std::size_t sample = 0; sample < count; ++sample)
+          factor[sample] *= scale;
         for (std::size_t row = row_first; row < row_last; ++row)
           for (std::size_t sample = 0; sample < count; ++sample)
             time(row, first + sample) *= factor[sample];
@@ -14417,7 +14456,8 @@ void GeneralWorkspace::split_columns(const double dz, std::size_t active_rows,
       graph::execute(*coarse_inverse_complex_plan_, coarse_spectrum_,
                      coarse_time_complex_, KokkosFFT::Normalization::none);
     if (monitoring_split())
-      add_split_removal(dz, active_rows, parseval, first_column);
+      add_split_removal(dz, active_rows, parseval, first_column, coarse_time_complex_,
+                        1.0);
     split_apply("solprop_native.absorber.split_apply_complex", execution_space_,
                 coarse_time_complex_, absorber_coarse_, split_factor_, dz, active_rows,
                 problem_.n_t);
@@ -14433,7 +14473,7 @@ void GeneralWorkspace::split_columns(const double dz, std::size_t active_rows,
       graph::execute(*coarse_inverse_real_plan_, coarse_spectrum_, coarse_time_real_,
                      KokkosFFT::Normalization::none);
     if (monitoring_split())
-      add_split_removal(dz, active_rows, parseval, first_column);
+      add_split_removal(dz, active_rows, parseval, first_column, {}, 1.0);
     split_apply("solprop_native.absorber.split_apply_real", execution_space_,
                 coarse_time_real_, absorber_coarse_, split_factor_, dz, active_rows,
                 problem_.n_t);
@@ -14445,6 +14485,32 @@ void GeneralWorkspace::split_columns(const double dz, std::size_t active_rows,
   }
 }
 
+// Free space's complex rows: the split's factor depends on time alone, so it acts alike
+// on every column of any transverse basis, and the temporal pair runs in place on the
+// state's own rows, a block of them at a time. Nothing is copied to a coarse buffer and
+// back, the transform's normalisation goes with the factor, and the band's mask is the
+// one pass after the blocks. Equal to the reference's split in real space up to the
+// transforms' rounding, at any block size.
+void GeneralWorkspace::split_state_rows(const double dz, const ComplexView2& state) {
+  const double inverse_time = 1.0 / static_cast<double>(problem_.n_t);
+  const auto columns = problem_.n_columns();
+  for (std::size_t first = 0; first < columns; first += split_rows_) {
+    const auto rows = std::min(split_rows_, columns - first);
+    const ComplexView2 block =
+        Kokkos::subview(state, std::make_pair(first, first + rows), Kokkos::ALL());
+    const bool tail = rows != split_rows_;
+    graph::execute(tail ? *split_tail_inverse_plan_ : *split_inverse_plan_, block,
+                   block, KokkosFFT::Normalization::none);
+    if (monitoring_split())
+      add_split_removal(dz, rows, 0.0, first, block, inverse_time * inverse_time);
+    split_apply("solprop_native.absorber.split_apply_complex", execution_space_, block,
+                absorber_coarse_, split_factor_, dz, rows, problem_.n_t, inverse_time);
+    graph::execute(tail ? *split_tail_forward_plan_ : *split_forward_plan_, block,
+                   block, KokkosFFT::Normalization::none);
+  }
+  mask(state);
+}
+
 // What one split takes of the power it finds in the coarse time rows, `sum P (1 -
 // exp(-alpha h))` with the boundary monitor's column weights, added to the run's
 // accumulator in the memory space (solprop SEP 21, ADR-057): the monitor's reading
@@ -14454,10 +14520,13 @@ void GeneralWorkspace::split_columns(const double dz, std::size_t active_rows,
 // monitor judges the occupancies on: the symmetric splitting's state at the step's
 // end. A separable route's rows are real-space rows, measured by `parseval`; zero
 // means the rows are the stored columns from `first_column` on, weighted by their
-// quadrature.
+// quadrature. `complex_time` holds a complex route's rows, whose power `power_scale`
+// brings to the state's measure: the state's own rows carry no transform normalisation.
 void GeneralWorkspace::add_split_removal(const double dz, const std::size_t active_rows,
                                          const double parseval,
-                                         const std::size_t first_column) {
+                                         const std::size_t first_column,
+                                         const ComplexView2& complex_time,
+                                         const double power_scale) {
   const auto rate = absorber_coarse_;
   const auto share = monitor_share_;
   const auto half = monitor_half_;
@@ -14475,13 +14544,13 @@ void GeneralWorkspace::add_split_removal(const double dz, const std::size_t acti
   const auto guards = monitor_weights_;
   const auto samples = Range2(execution_space_, {0, 0}, {active_rows, problem_.n_t});
   if (problem_.family == FieldFamily::envelope) {
-    const auto time = coarse_time_complex_;
+    const auto time = complex_time;
     launch::parallel_reduce(
         "solprop_native.monitor.split_removal_complex", samples,
         KOKKOS_LAMBDA(const std::size_t row, const std::size_t index,
                       SplitSums& update) {
           const double power = (stored ? weights(first_column + row) : parseval) *
-                               squared_abs(time(row, index));
+                               (power_scale * squared_abs(time(row, index)));
           update.values[0] += power * share(index);
           const double found = half(index) * power;
           update.values[1] += found;
@@ -14761,6 +14830,10 @@ void GeneralWorkspace::bind_occupancy(const std::vector<unsigned char>& buckets,
 // y rows of slab amplitudes) between the two transverse transforms.
 void GeneralWorkspace::separable_split_step(const double dz,
                                             const ComplexView2& advanced) {
+  if (split_rows_ != 0) {
+    split_state_rows(dz, advanced);
+    return;
+  }
   if (problem_.free_geometry()) {
     // The split's factor depends on time alone, so it acts alike on every column of
     // any transverse basis (solprop's reference measures its removal on the stored
@@ -15358,6 +15431,10 @@ void GeneralWorkspace::close() noexcept {
   absorber_real_plan_.reset();
   absorber_complex_plan_.reset();
   coarse_inverse_real_plan_.reset();
+  split_inverse_plan_.reset();
+  split_forward_plan_.reset();
+  split_tail_inverse_plan_.reset();
+  split_tail_forward_plan_.reset();
   coarse_inverse_complex_plan_.reset();
   coarse_forward_real_plan_.reset();
   coarse_forward_complex_plan_.reset();
