@@ -317,7 +317,7 @@ error.
 - Tabulated modes from any mode solver.
 - Planar guides, including a planar guide resolved across its width, and a line
   geometry of free space.
-- Gas mixtures and steady-flow fills.
+- Steady-flow gas fills.
 - Vector Raman responses.
 - A frequency-dependent electronic response (opt-in, on every backend): optmat's
   whole hyperpolarisability fit evaluated at every quartet's frequencies, where Luna
@@ -331,7 +331,6 @@ error.
 - Coupling one simulation's output field into another (a capillary, a fibre, a gas gap) through coherent field planes, with transport through free space, lenses, apertures, mirrors and spectral optics ([coupling simulations](coupling.md)).
 - Design tools with multi-soliton content, and the inverse design of a capillary's
   pressure and energy for a soliton order, count or largest eigenvalue.
-- Scans on process pools and Slurm clusters.
 - The native backend for multi-core CPUs and GPUs.
 
 ## Validation against Luna
