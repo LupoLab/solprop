@@ -361,6 +361,22 @@ def _serialise_numpy(value: np.ndarray | np.generic) -> JsonValue:
         return serialise(value.item())
     if value.size > RECORD_ARRAY_LIMIT and value.dtype.kind in "biufc":
         return _ArrayReference(value)
+    return _inline_array(value)
+
+
+def _inline_array(value: np.ndarray) -> dict[str, JsonValue]:
+    """Return an array as a ``__ndarray__`` record, whatever its size.
+
+    Parameters
+    ----------
+    value : numpy.ndarray
+        The array.
+
+    Returns
+    -------
+    dict
+        Its dtype, its shape and its values.
+    """
     record: dict[str, JsonValue] = {
         "dtype": str(value.dtype),
         "shape": list(value.shape),
@@ -373,6 +389,39 @@ def _serialise_numpy(value: np.ndarray | np.generic) -> JsonValue:
         # else goes back through serialise, which records what it cannot reduce.
         record["__ndarray__"] = serialise(value.tolist())
     return record
+
+
+def _inlined(value: JsonValue) -> JsonValue:
+    """Return a serialised structure with each array reference's values in its text.
+
+    For text with no store beside it, which has to stand alone: only a run record keeps
+    its arrays beside its text (:meth:`RunMetadata.record_arrays`). A reference already
+    read back from text carries no array and stays as it is.
+
+    Parameters
+    ----------
+    value : NoneType or bool or int or float or str or list or dict
+        What :func:`serialise` returned.
+
+    Returns
+    -------
+    NoneType or bool or int or float or str or list or dict
+        The structure, with no array left to store.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from solprop.output.schema import _inlined, serialise
+    >>> sorted(_inlined(serialise({"axis": np.zeros(5000)}))["axis"])
+    ['__ndarray__', 'dtype', 'shape']
+    """
+    if isinstance(value, _ArrayReference):
+        return _inline_array(value.array)
+    if isinstance(value, dict):
+        return {key: _inlined(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_inlined(item) for item in value]
+    return value
 
 
 def _serialise_sequence(value: object) -> list[JsonValue]:

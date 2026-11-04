@@ -27,6 +27,7 @@ from solprop.output.hdf5 import _dataset, _group, write_recipe
 from solprop.output.schema import (
     RecipeRecord,
     RunMetadata,
+    _inlined,
     _refuse_schema,
     serialise,
 )
@@ -39,6 +40,10 @@ __all__ = ["PointResult", "ScanWriter", "grid_values", "read_point", "validate_r
 def _json(value: object) -> str:
     """Encode metadata using the single-run JSON representation.
 
+    The text stands alone, so that a Queue's manifest can rebuild the scan from it: an
+    array keeps its values here, whatever its size. A run record's arrays go beside its
+    text instead, through :attr:`PointResult.metadata_arrays`.
+
     Parameters
     ----------
     value : object
@@ -49,7 +54,7 @@ def _json(value: object) -> str:
     str
         Canonical JSON text.
     """
-    return json.dumps(serialise(value), sort_keys=True, separators=(",", ":"))
+    return json.dumps(_inlined(serialise(value)), sort_keys=True, separators=(",", ":"))
 
 
 def _hash(text: str) -> str:
