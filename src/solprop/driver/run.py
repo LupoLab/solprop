@@ -1199,6 +1199,7 @@ class _MarchKeeper:
         """Hold what keeping a snapshot needs."""
         self._save = getattr(output, "save_march", None)
         self._snapshot = getattr(backend, "march_snapshot", None)
+        self._snapshot_nbytes = getattr(backend, "march_snapshot_nbytes", None)
         self._policy = policy
         self._kept_z: float | None = None
 
@@ -1220,7 +1221,11 @@ class _MarchKeeper:
         """
         if required and self._kept_z == z:
             return
-        if self._save is None or self._snapshot is None:
+        if (
+            self._save is None
+            or self._snapshot is None
+            or self._snapshot_nbytes is None
+        ):
             if required:
                 raise OutputError(
                     "snapshot requires a backend and output with Adams history"
@@ -1228,6 +1233,22 @@ class _MarchKeeper:
             return
         if self._policy is False and not required:
             return
+        if self._policy is None and not required:
+            # Before any copy: the snapshot over the limit is the state and the whole
+            # history, on the host.
+            nbytes = self._snapshot_nbytes(z)
+            if nbytes is None:
+                return
+            if nbytes > MARCH_SNAPSHOT_AUTO_BYTES:
+                logger.info(
+                    "the Adams march's state is not kept for a resume: %d bytes is "
+                    "over the %d kept by default (resume_history=True keeps it)",
+                    nbytes,
+                    MARCH_SNAPSHOT_AUTO_BYTES,
+                )
+                self._policy = False
+                return
+            self._policy = True
         snapshot = self._snapshot()
         if snapshot is None or snapshot.z != z:
             if required:
@@ -1235,17 +1256,6 @@ class _MarchKeeper:
                     "snapshot requires Adams history at the accepted endpoint"
                 )
             return
-        if self._policy is None and not required:
-            if snapshot.nbytes > MARCH_SNAPSHOT_AUTO_BYTES:
-                logger.info(
-                    "the Adams march's state is not kept for a resume: %d bytes is "
-                    "over the %d kept by default (resume_history=True keeps it)",
-                    snapshot.nbytes,
-                    MARCH_SNAPSHOT_AUTO_BYTES,
-                )
-                self._policy = False
-                return
-            self._policy = True
         self._save(snapshot)
         self._kept_z = z
 

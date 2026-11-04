@@ -1955,6 +1955,16 @@ class AdamsEngine(Protocol):
         """
         ...
 
+    def snapshot_nbytes(self) -> int:
+        """Return the bytes :meth:`snapshot_rows` would copy, copying nothing.
+
+        Returns
+        -------
+        int
+            The size of every row.
+        """
+        ...
+
     def load_rows(self, rows: Mapping[str, np.ndarray], shape: tuple[int, ...]) -> None:
         """Install rows :meth:`snapshot_rows` returned, refusing rows it does not keep.
 
@@ -2295,6 +2305,21 @@ class HostHistory:
         return self._store[slot]
 
     # --- persistence across a resume --------------------------------------------------
+
+    def snapshot_nbytes(self) -> int:
+        """Return the bytes :meth:`snapshot_rows` would copy, copying nothing.
+
+        Returns
+        -------
+        int
+            The size of every row.
+        """
+        assert self._store is not None
+        rows = [self._store, *self._weights]
+        if self.compensated:
+            assert self._states is not None and self._rates is not None
+            rows += [self._states, self._rates]
+        return sum(int(row.nbytes) for row in rows if row is not None)
 
     def snapshot_rows(self) -> dict[str, np.ndarray]:
         """Return copies of the rows a resume needs to continue the history.
@@ -3074,6 +3099,26 @@ class AdamsMarch:
             collar_was_quiet=self._collar_was_quiet,
             history_key=self._method.history_key,
         )
+
+    def snapshot_nbytes(self) -> int | None:
+        """Return the bytes :meth:`snapshot` would copy, copying nothing.
+
+        Returns
+        -------
+        int or None
+            The state and every engine row, or ``None`` where :meth:`snapshot` returns
+            ``None``.
+        """
+        if (
+            self.export_refusal() is not None
+            or not self._history
+            or self._ahead is not None
+        ):
+            return None
+        state = (
+            math.prod(self._backend._problem.shape) * np.dtype(np.complex128).itemsize
+        )
+        return state + self._engine.snapshot_nbytes()
 
     def export_refusal(self) -> str | None:
         """Return why this march cannot carry its history across a resume, or ``None``.

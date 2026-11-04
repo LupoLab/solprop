@@ -918,6 +918,30 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             return self._low_storage.snapshot()
         return None if self._adams is None else self._adams.snapshot()
 
+    def march_snapshot_nbytes(self, z: float) -> int | None:
+        """Return the bytes :meth:`march_snapshot` would copy at `z`, copying nothing.
+
+        Parameters
+        ----------
+        z : float
+            The position the snapshot is wanted at, m.
+
+        Returns
+        -------
+        int or None
+            The state and every engine row, or ``None`` where a snapshot would be
+            ``None`` or stand somewhere other than `z`.
+
+        Raises
+        ------
+        BackendError
+            If a low-storage step was abandoned in flight.
+        """
+        self._refuse_in_flight()
+        if self._low_storage is not None or self._adams is None or self._z != z:
+            return None
+        return self._adams.snapshot_nbytes()
+
     def march_export_refusal(self) -> str | None:
         """Return why this backend's Adams march cannot carry its history, or ``None``.
 

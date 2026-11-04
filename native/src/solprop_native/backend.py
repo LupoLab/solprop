@@ -2021,6 +2021,11 @@ class _ResidentAdams:
 
     # --- persistence across a resume (solprop SEP 29 G2) ------------------------------
 
+    def snapshot_nbytes(self) -> int:
+        """Return the bytes :meth:`snapshot_rows` would copy, copying nothing."""
+        rows = len(self.native.adams_row_names())
+        return rows * self.n_slots * math.prod(self.shape) * 2 * 8
+
     def snapshot_rows(self) -> dict[str, ComplexArray]:
         """Return host copies of the rows a resume needs to continue the history.
 

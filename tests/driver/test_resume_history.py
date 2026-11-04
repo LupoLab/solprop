@@ -22,6 +22,7 @@ import inspect
 import logging
 import math
 from types import SimpleNamespace
+from typing import Any, cast
 
 import h5py
 import numpy as np
@@ -34,7 +35,9 @@ from flow_parity import LENGTH as FLOW_LENGTH
 from flow_parity import build as flow_case
 from march_bounds import TIGHTER, assert_in_envelope
 from solprop.backends import available
+from solprop.backends.driver import StepDriver
 from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.registry import select
 from solprop.driver import Simulation
 from solprop.exceptions import OutputError, SolpropWarning
 from solprop.log import NullReporter
@@ -256,6 +259,56 @@ def test_a_snapshot_over_the_default_size_is_kept_only_on_request(
         asked, progress="none"
     )
     assert resume(asked).march is not None
+
+
+@pytest.mark.parametrize("backend", ["numpy_ref", "native"])
+def test_a_snapshot_over_the_default_size_is_never_copied(
+    build_simulation, tmp_path, monkeypatch, backend
+):
+    # The state and the whole history on the host, to learn a size that needs no copy.
+    if backend not in available():
+        pytest.skip(f"{backend} is not installed")
+    monkeypatch.setattr(run_module, "MARCH_SNAPSHOT_AUTO_BYTES", 1)
+
+    def refuse(self):
+        pytest.fail("a snapshot over the limit was taken")
+
+    monkeypatch.setattr(StepDriver, "march_snapshot", refuse)
+    path = tmp_path / "run.h5"
+    soliton(build_simulation, backend)().run(path, progress="none")
+    assert resume(path).march is None
+
+
+@pytest.mark.parametrize(
+    "integrator", [Multistep(), INTERACTION], ids=["exponential", "interaction"]
+)
+@pytest.mark.parametrize("backend", ["numpy_ref", "native"])
+def test_a_snapshot_s_size_is_known_without_it(build_simulation, backend, integrator):
+    # Exact: both count the same arrays' bytes.
+    if backend not in available():
+        pytest.skip(f"{backend} is not installed")
+    simulation = soliton(build_simulation, backend, integrator=integrator)()
+    problem = simulation.translate()
+    engine = cast(
+        "Any",
+        select(
+            backend,
+            problem,
+            grid=simulation.grid,
+            modes=simulation.modes,
+            profiles=simulation.profiles,
+        ),
+    )
+    try:
+        engine.set_initial(problem.initial.field0, None, z=problem.initial.z)
+        assert engine.march_snapshot_nbytes(0.0) is None
+        engine.propagate_to(0.5 * LENGTH)
+        snapshot = engine.march_snapshot()
+        assert snapshot is not None
+        assert engine.march_snapshot_nbytes(snapshot.z) == snapshot.nbytes
+        assert engine.march_snapshot_nbytes(0.5 * snapshot.z) is None
+    finally:
+        engine.close()
 
 
 @pytest.mark.medium
