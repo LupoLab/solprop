@@ -4,6 +4,8 @@
 
 """Cartesian cutoff certificates from an independent decimal oracle."""
 
+from fractions import Fraction
+
 import numpy as np
 import pytest
 
@@ -11,7 +13,12 @@ from cartesian_oracles import longitudinal_square
 from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid
 from solprop.linear import Frame
 from solprop.pulses import GaussianPulse, SpatialPulse
-from solprop.spatial import SpatialDispersion, SpatialMedium
+from solprop.spatial import (
+    SpatialDispersion,
+    SpatialMedium,
+    _exact_squares,
+    _transverse_residual,
+)
 from solprop.translate.free import free_operators
 from solprop.translate.spatial import separable_values
 from spatial_records import record_metric
@@ -135,3 +142,35 @@ def test_cartesian_launch_uses_the_corrected_exact_linear_operator():
         rtol=0,
         atol=(8 * eps + phase_error + normalisation) * float(np.max(np.abs(start))),
     )
+
+
+@pytest.mark.parametrize(
+    ("half_x", "n_x", "half_y", "n_y"),
+    [(3e-7, 9, 4e-7, 12), (2.3e-4, 64, 7.1e-5, 48), (1.0, 2, 1e-3, 33)],
+)
+def test_the_transverse_residual_is_the_rational_ones_bit_for_bit(
+    half_x, n_x, half_y, n_y
+):
+    # The rational sum is the definition; `math.fsum` of exact squares is its fast form.
+    space = FreeGrid(half_x, n_x, half_y, n_y, collar_fraction=0)
+    x_squared = [Fraction(float(value)) ** 2 for value in space.k_x]
+    y_squared = [Fraction(float(value)) ** 2 for value in space.k_y]
+    expected = np.array(
+        [
+            float(x + y - Fraction(float(high)))
+            for (x, y), high in zip(
+                ((x, y) for y in y_squared for x in x_squared),
+                space.kperp_sq,
+                strict=True,
+            )
+        ]
+    )
+    assert _transverse_residual(space).tobytes() == expected.tobytes()
+
+
+def test_the_exact_squares_are_exact():
+    rng = np.random.default_rng(61)
+    values = rng.standard_normal(4096) * 10.0 ** rng.integers(-100, 100, 4096)
+    high, low = _exact_squares(values)
+    for value, a, b in zip(values.tolist(), high.tolist(), low.tolist(), strict=True):
+        assert Fraction(a) + Fraction(b) == Fraction(value) ** 2

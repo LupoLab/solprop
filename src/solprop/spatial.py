@@ -25,6 +25,7 @@ from jaxtyping import Complex, Float
 from numpy.typing import ArrayLike
 
 from solprop import fourier
+from solprop._process import parallel_rows
 from solprop.constants import EPS0, ROOM_TEMPERATURE, C
 from solprop.exceptions import GridError, MaterialError, OutputError
 from solprop.grid import FreeGrid, LineGrid, RadialGrid, TimeGrid
@@ -519,19 +520,7 @@ class SpatialDispersion:
             Inactive material bins are zero. No spatial-frequency table is built.
         """
         square, low = self.material_squares(z)
-        x_squared = [Fraction(float(value)) ** 2 for value in space.k_x]
-        y_squared = [Fraction(float(value)) ** 2 for value in space.k_y]
-        transverse_low = np.array(
-            [
-                float(x + y - Fraction(float(high)))
-                for (x, y), high in zip(
-                    ((x, y) for y in y_squared for x in x_squared),
-                    space.kperp_sq,
-                    strict=True,
-                )
-            ]
-        )
-        return square, low, transverse_low
+        return square, low, _transverse_residual(space)
 
     def material_squares(
         self, z: float = 0.0
@@ -918,6 +907,26 @@ class SpatialFlux:
             columns,
         )
 
+    def whole_admittance(self) -> Complex[np.ndarray, "n_modes n_omega"]:
+        """Return every column's admittance, its chunks formed in threads.
+
+        Returns
+        -------
+        numpy.ndarray
+            :meth:`admittance` of every column, shape ``(n_modes, n_omega)``.
+        """
+        chunks = self.chunks()
+        admittance = np.empty(
+            (self.space.spectral_weights.size, self.grid.n_omega), dtype=np.complex128
+        )
+
+        def work(rows: slice) -> None:
+            for columns in chunks[rows]:
+                admittance[columns] = self.admittance(columns)
+
+        parallel_rows(len(chunks), admittance.nbytes, work)
+        return admittance
+
     def chunks(self) -> list[slice]:
         """Return column slices bounding an integrated sum's working memory.
 
@@ -932,6 +941,77 @@ class SpatialFlux:
             slice(start, min(start + size, n_columns))
             for start in range(0, n_columns, size)
         ]
+
+
+def _exact_squares(
+    values: Float[np.ndarray, " n"],
+) -> tuple[Float[np.ndarray, " n"], Float[np.ndarray, " n"]]:
+    """Return each value's square as the sum of two floats, exactly (Dekker, Veltkamp).
+
+    Parameters
+    ----------
+    values : numpy.ndarray
+        Each zero or of magnitude within ``[2**-450, 2**500]``, where the split can't
+        overflow and the low part can't underflow.
+
+    Returns
+    -------
+    tuple of numpy.ndarray
+        The rounded squares and their exact residuals.
+    """
+    split = 134217729.0 * values  # 2**27 + 1
+    upper = split - (split - values)
+    lower = values - upper
+    high = values * values
+    return high, ((upper * upper - high) + 2.0 * upper * lower) + lower * lower
+
+
+def _transverse_residual(space: FreeGrid) -> Float[np.ndarray, " n_modes"]:
+    """Return ``k_x**2 + k_y**2 - kperp_sq`` per column, rounded from its exact value.
+
+    ``math.fsum`` rounds the exact sum of its floats, as a rational sum would.
+
+    Parameters
+    ----------
+    space : solprop.grid.FreeGrid
+        Stored unsquared transverse axes in rad/m, with x fastest.
+
+    Returns
+    -------
+    numpy.ndarray
+        The real residuals in m^-2.
+    """
+    k_x, k_y = np.asarray(space.k_x), np.asarray(space.k_y)
+    moduli = np.abs(np.concatenate((k_x, k_y)))
+    moduli = moduli[moduli != 0.0]
+    if moduli.size and not (moduli.min() >= 2.0**-450 and moduli.max() <= 2.0**500):
+        x_squared = [Fraction(float(value)) ** 2 for value in k_x]
+        y_squared = [Fraction(float(value)) ** 2 for value in k_y]
+        return np.array(
+            [
+                float(x + y - Fraction(float(high)))
+                for (x, y), high in zip(
+                    ((x, y) for y in y_squared for x in x_squared),
+                    space.kperp_sq,
+                    strict=True,
+                )
+            ]
+        )
+    x_parts = list(zip(*map(np.ndarray.tolist, _exact_squares(k_x)), strict=True))
+    y_parts = list(zip(*map(np.ndarray.tolist, _exact_squares(k_y)), strict=True))
+    fsum = math.fsum
+    return np.fromiter(
+        (
+            fsum((y_high, y_low, x_high, x_low, -high))
+            for ((y_high, y_low), (x_high, x_low)), high in zip(
+                ((y, x) for y in y_parts for x in x_parts),
+                np.asarray(space.kperp_sq).tolist(),
+                strict=True,
+            )
+        ),
+        dtype=np.float64,
+        count=k_x.size * k_y.size,
+    )
 
 
 def _check_flux(
