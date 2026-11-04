@@ -32,7 +32,7 @@ from solprop.driver.scan import Scan, run_scan
 from solprop.exceptions import DriverError, OutputError
 from solprop.output.hdf5 import _dataset
 from solprop.output.scan import PointResult
-from solprop.output.schema import _example_metadata
+from solprop.output.schema import RECORD_ARRAY_LIMIT, _example_metadata
 
 pytestmark = pytest.mark.skipif(
     sys.platform == "win32",
@@ -58,10 +58,10 @@ class Work:
         )
 
 
-def prepare(tmp_path, *, size=2):
+def prepare(tmp_path, *, size=2, work=None):
     scan = Scan("queue", x=np.arange(size))
     queue = Queue(tmp_path / "queue", pool=Pool(workers=1))
-    queue.prepare(ScanRequest(scan, {}, tmp_path / "scan.h5", Work()))
+    queue.prepare(ScanRequest(scan, {}, tmp_path / "scan.h5", work or Work()))
     return scan, queue
 
 
@@ -71,8 +71,8 @@ def claim(queue, point, holder=None):
     return next(queue._claims([point], holder, heartbeat))
 
 
-def publish(queue, claimed):
-    return _QueueWork(Path(queue.path), Work())(claimed)
+def publish(queue, claimed, work=None):
+    return _QueueWork(Path(queue.path), work or Work())(claimed)
 
 
 @pytest.mark.parametrize(
@@ -242,6 +242,64 @@ def test_queue_artifacts_collect_idempotently(tmp_path):
     np.testing.assert_array_equal(result.as_grid("stats/energy"), np.ones((2, 2)))
     collect(path, tmp_path / "scan.h5")
     assert result.status.tolist() == ["done", "done"]
+
+
+@dataclasses.dataclass(frozen=True)
+class WorkWithRecordArray(Work):
+    """Return points whose run records hold an array too large for their text."""
+
+    def __call__(self, point):
+        metadata = dataclasses.replace(
+            _example_metadata(),
+            configuration={"rate": np.arange(RECORD_ARRAY_LIMIT + 1.0)},
+        )
+        return PointResult(
+            point.index,
+            "done",
+            metadata.configuration_hash(),
+            metadata.to_json(),
+            {"z": np.array([0.0, 1.0]), "stats/energy": np.array([1.0, 1.0])},
+            metadata_arrays=metadata.record_arrays(),
+        )
+
+
+def test_a_record_array_survives_a_queue_to_the_collected_file(tmp_path):
+    work = WorkWithRecordArray()
+    scan, queue = prepare(tmp_path, work=work)
+    for point in scan.points():
+        assert publish(queue, claim(queue, point), work).status == "done"
+    assert queue.path is not None
+    result = collect(Path(queue.path), tmp_path / "scan.h5")
+    assert result.status.tolist() == ["done", "done"]
+    expected = np.arange(RECORD_ARRAY_LIMIT + 1.0)
+    with h5py.File(tmp_path / "scan.h5") as file:
+        arrays = file["record_arrays"]
+        assert isinstance(arrays, h5py.Group)
+        assert len(arrays) == 1
+        for name in arrays:
+            np.testing.assert_array_equal(
+                _dataset(file, f"record_arrays/{name}"), expected
+            )
+
+
+@pytest.mark.parametrize(
+    "axis",
+    [
+        np.arange(RECORD_ARRAY_LIMIT + 1.0),
+        np.arange(RECORD_ARRAY_LIMIT + 1),
+        np.arange(RECORD_ARRAY_LIMIT + 1.0) + 1j,
+    ],
+    ids=["float", "int", "complex"],
+)
+def test_a_long_axis_rebuilds_from_the_manifest(tmp_path, axis):
+    scan = Scan("queue", x=axis)
+    queue = Queue(tmp_path / "queue", pool=Pool(workers=1))
+    queue.prepare(ScanRequest(scan, {}, tmp_path / "scan.h5", Work()))
+    assert queue.path is not None
+    manifest = json.loads((Path(queue.path) / "manifest.json").read_text())
+    rebuilt = module._restore_scan(manifest).variables["x"]
+    assert rebuilt.dtype == axis.dtype
+    np.testing.assert_array_equal(rebuilt, axis)
 
 
 def test_live_local_owner_is_not_stolen_by_elapsed_time(tmp_path):

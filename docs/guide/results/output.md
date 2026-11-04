@@ -233,7 +233,7 @@ For a modal run:
                                configuration_hash, simulation_kind, grid_kind, created,
                                n_saved, fields, field_shape
 /meta/json              the whole RunMetadata as one UTF-8 JSON string
-/meta/arrays/<digest>   each large array of the record, named by its SHA-256 digest
+/meta/arrays/<name>     each large array of the record, by digest, dtype and shape
 /meta/outcome           status, call ledgers, execution provenance, machine and resources (JSON)
 /meta/annotations/<name>  optional post-run annotations, one JSON string each
 /z                      (n_z,)                              plane positions, m
@@ -452,12 +452,13 @@ identity by that string instead (`StatedInput`,
 **Large arrays sit beside the text.** Any other numeric array of more than 4096 elements
 (`RECORD_ARRAY_LIMIT`), such as a per-node weight, a flux plan's coefficients or a noise
 realisation, appears in `/meta/json` as a reference,
-`{"__record_array__": <digest>, "dtype": ..., "shape": ...}`, with its bytes in
-`/meta/arrays/<digest>`. This keeps the text under 1 MB at 512², and the hash takes the
-array's bytes, so a changed element, dtype or shape still changes the hash. Reading a file
-through {py:func}`~solprop.output.hdf5.open_file` puts each array back in the record,
-checking its digest. A scan keeps its points' arrays in `/record_arrays/<digest>`, shared
-between points; a point's `metadata` stays JSON and holds the references.
+`{"__record_array__": <name>, "dtype": ..., "shape": ...}`, with its bytes in
+`/meta/arrays/<name>`. The name is the SHA-256 digest of the bytes followed by the dtype
+and shape, so arrays of equal bytes and different layouts are stored apart. This keeps the
+text under 1 MB at 512², and the hash takes the name, so a changed element, dtype or shape
+still changes the hash. Reading a file through
+{py:func}`~solprop.output.hdf5.open_file` puts each array back in the record, checking its
+name. A scan keeps its points' arrays in `/record_arrays/<name>`, shared between points; a point's `metadata` stays JSON and holds the references.
 
 **When the schema is bumped.** Only for a change an older reader would misread, or
 could not append to: a dataset renamed, re-laid or given new units; an attribute that

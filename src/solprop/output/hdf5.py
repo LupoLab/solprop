@@ -122,7 +122,7 @@ _COLUMN_CHUNK = 256
 
 _METADATA_KEY = "meta/json"
 _RECORD_ARRAYS_KEY = "meta/arrays"
-"""The group of the record's arrays, each named by its digest (#309)."""
+"""The group of the record's arrays, named by digest, dtype and shape (#309)."""
 
 _ANNOTATIONS_KEY = "meta/annotations"
 """Group of the post-run annotations, one JSON string dataset each; optional."""
@@ -581,8 +581,8 @@ def _write_record(file: h5py.File, metadata: RunMetadata) -> None:
     file.create_dataset(
         _METADATA_KEY, data=metadata.to_json(), dtype=h5py.string_dtype()
     )
-    for digest, array in metadata.record_arrays().items():
-        file.create_dataset(f"{_RECORD_ARRAYS_KEY}/{digest}", data=array)
+    for name, array in metadata.record_arrays().items():
+        file.create_dataset(f"{_RECORD_ARRAYS_KEY}/{name}", data=array)
 
 
 def _read_record(file: h5py.File) -> RunMetadata:

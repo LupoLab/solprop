@@ -27,6 +27,9 @@ from solprop.output.scan import (
 
 __all__ = ["artifact_digest", "read_artifact", "write_artifact"]
 
+_ARTIFACT_SCHEMA_VERSION = 2
+"""Version 2 keeps a run record's arrays beside its text, in ``metadata_arrays``."""
+
 
 def artifact_digest(path: Path) -> str:
     """Hash a complete artifact with bounded memory.
@@ -71,11 +74,11 @@ def write_artifact(
     elif result.arrays:
         raise OutputError("failed artifacts must not retain numerical arrays")
     with h5py.File(path, "x") as file:
-        file.attrs.update(artifact_schema_version=1, **identity)
+        file.attrs.update(artifact_schema_version=_ARTIFACT_SCHEMA_VERSION, **identity)
         record = {
             field.name: getattr(result, field.name)
             for field in dataclasses.fields(result)
-            if field.name != "arrays"
+            if field.name not in ("arrays", "metadata_arrays")
         }
         file.create_dataset("record", data=_json(record), dtype=h5py.string_dtype())
         arrays = file.create_group("arrays")
@@ -84,6 +87,9 @@ def write_artifact(
             _write_array(
                 arrays.require_group(parent) if parent else arrays, leaf, array
             )
+        held = file.create_group("metadata_arrays")
+        for name, array in result.metadata_arrays.items():
+            held.create_dataset(name, data=array)
         file.flush()
     # Windows commits a file only through a handle open for writing.
     with path.open("r+b") as stream:
@@ -117,7 +123,7 @@ def read_artifact(
     if digest is not None and artifact_digest(path) != digest:
         raise OutputError(f"artifact digest changed: {path}")
     with h5py.File(path, "r") as file:
-        if file.attrs.get("artifact_schema_version") != 1 or any(
+        if file.attrs.get("artifact_schema_version") != _ARTIFACT_SCHEMA_VERSION or any(
             file.attrs.get(key) != value for key, value in identity.items()
         ):
             raise OutputError("artifact scan, point, owner or schema does not match")
@@ -126,7 +132,11 @@ def read_artifact(
             name: np.asarray(_dataset(file, f"arrays/{name}")[...])
             for name in _array_paths(cast(h5py.Group, file["arrays"]))
         }
-    result = PointResult(**record, arrays=arrays)
+        metadata_arrays = {
+            name: np.asarray(_dataset(file, f"metadata_arrays/{name}")[...])
+            for name in _array_paths(cast(h5py.Group, file["metadata_arrays"]))
+        }
+    result = PointResult(**record, arrays=arrays, metadata_arrays=metadata_arrays)
     if result.status == "done":
         validate_result(result)
     elif result.status != "failed":
