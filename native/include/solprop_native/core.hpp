@@ -6,7 +6,6 @@
 
 #include <Kokkos_Complex.hpp>
 #include <Kokkos_Core.hpp>
-#include <Kokkos_ScatterView.hpp>
 
 #include "solprop_native/launch.hpp"
 
@@ -110,11 +109,6 @@ struct OccupancySums {
 };
 
 using ComplexView = Kokkos::View<Complex*, Layout, MemorySpace>;
-/** The histogram the boundary monitor's occupancy reading adds into, one slot per
-    walk-off bucket (solprop #440): duplicated per thread on the host, atomic on a
-    device. */
-using OccupancyScatter =
-    Kokkos::Experimental::ScatterView<double*, Layout, ExecutionSpace>;
 using ConstComplexView = Kokkos::View<const Complex*, Layout, MemorySpace>;
 using RealView = Kokkos::View<double*, Layout, MemorySpace>;
 using ConstRealView = Kokkos::View<const double*, Layout, MemorySpace>;
@@ -724,65 +718,8 @@ enum class TableKind { phi, prefactor, rate, flux };
     general modal route, a coupled flow nor a separable geometry. */
 [[nodiscard]] bool compact_problem(const Problem& problem) noexcept;
 
-/** Execution-space views, FFT plans, and scratch owned by one State. */
-class Workspace;
 class GeneralWorkspace;
 class GeneralBatchWorkspace;
-
-/** Persistent single-column execution-space state, plans, and scratch storage. */
-class State {
-public:
-  explicit State(Problem problem);
-  ~State();
-  State(const State&) = delete;
-  State& operator=(const State&) = delete;
-  State(State&&) = delete;
-  State& operator=(State&&) = delete;
-
-  /** Load the field and noise from host memory, one copy into the memory space. */
-  void set_initial(std::span<const Complex> field, std::span<const Complex> noise);
-  [[nodiscard]] std::array<double, 3> trial_step(double dz,
-                                                 const TrialScalars& scalars);
-  void finish(double dz);
-  void promote_fsal();
-  void clear_fsal();
-  void set_absorber_quiet(bool quiet);
-  /**
-   * Bind solprop's boundary monitor (SEP 21): its four time weights, row-major
-   * `(4, n_t)`, and its columns' quadrature by mode (empty for unit weights). From
-   * here on each split-step finish adds what it takes to an accumulator, which
-   * `monitor_reading` drains, and keeps the energies of the power it found.
-   */
-  void bind_monitor(const std::vector<double>& weights,
-                    const std::vector<double>& column_weights);
-  void unbind_monitor() noexcept;
-  /**
-   * The bound monitor's reading of the accepted state: `sum_t P`, the four weighted
-   * sums `sum_t w_k P`, what the split collar took since the last reading, and
-   * `sum_t P` and the two guards' and the collar's sums of the power the last step's
-   * split found (zeros before the first such step).
-   */
-  [[nodiscard]] std::vector<double> monitor_reading();
-  /**
-   * Bind the split collar's walk-off bucket of each frequency bin, `count` buckets
-   * (solprop #440): from here on `monitor_reading` also returns the state's energy
-   * per bucket, the fastest first.
-   */
-  void bind_occupancy(const std::vector<unsigned char>& buckets, std::size_t count);
-  [[nodiscard]] std::vector<Complex> field_to_host() const;
-  /** The field into `destination`, of the field's size: one copy from the space. */
-  void field_to_host(std::span<Complex> destination) const;
-  [[nodiscard]] std::map<std::string, std::size_t> memory_ledger() const;
-  [[nodiscard]] CpuSizing execution_sizing() const;
-  [[nodiscard]] double planning_seconds() const noexcept;
-  [[nodiscard]] bool fsal_ready() const noexcept;
-  [[nodiscard]] std::size_t rk_source_evaluations() const noexcept;
-  [[nodiscard]] bool closed() const noexcept;
-  void close() noexcept;
-
-private:
-  std::unique_ptr<Workspace> workspace_;
-};
 
 /** Multicolumn general state with batched FFTs and chunked node transforms. */
 class GeneralState {
@@ -918,13 +855,27 @@ public:
   void promote_fsal();
   void clear_fsal();
   void set_absorber_quiet(bool quiet);
-  /** As `State::bind_monitor`; the columns' weights are by mode. */
+  /**
+   * Bind solprop's boundary monitor (SEP 21): its four time weights, row-major
+   * `(4, n_t)`, and its columns' quadrature by mode (empty for unit weights). From
+   * here on each split-step finish adds what it takes to an accumulator, which
+   * `monitor_reading` drains, and keeps the energies of the power it found.
+   */
   void bind_monitor(const std::vector<double>& weights,
                     const std::vector<double>& column_weights);
   void unbind_monitor() noexcept;
-  /** As `State::monitor_reading`, over every column of the state. */
+  /**
+   * The bound monitor's reading of the accepted state, over every column: `sum_t P`,
+   * the four weighted sums `sum_t w_k P`, what the split collar took since the last
+   * reading, and `sum_t P` and the two guards' and the collar's sums of the power the
+   * last step's split found (zeros before the first such step).
+   */
   [[nodiscard]] std::vector<double> monitor_reading();
-  /** As `State::bind_occupancy`, the buckets by mode, `(n_modes, n_omega)`. */
+  /**
+   * Bind the split collar's walk-off bucket of each frequency bin, by mode
+   * `(n_modes, n_omega)`, `count` buckets (solprop #440): from here on
+   * `monitor_reading` also returns the state's energy per bucket, the fastest first.
+   */
   void bind_occupancy(const std::vector<unsigned char>& buckets, std::size_t count);
   [[nodiscard]] double quadrature_error() const;
   [[nodiscard]] double quadrature_peak();

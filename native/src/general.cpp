@@ -3187,9 +3187,9 @@ bool GeneralWorkspace::use_chunked_blas_for_synthesis() const noexcept {
 
 // One node, one mode and one scalar component: the synthesis and the projection are
 // each one product, which the response column forms itself (solprop SEP 25 section
-// 6.7), as the Kerr-only engine's `kerr_1x1` does, in place of the stage's taper
-// scaling, two one-element GEMMs and the zero fill of the projection. Each folded
-// product is the GEMM's own one rounding, `(s * taper) * x` and `(p / taper) * y`.
+// 6.7), in place of the stage's taper scaling, two one-element GEMMs and the zero
+// fill of the projection. Each folded product is the GEMM's own one rounding,
+// `(s * taper) * x` and `(p / taper) * y`.
 // The host's columns only: a device keeps its own column kernels.
 bool GeneralWorkspace::folds_single_node() const noexcept {
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
