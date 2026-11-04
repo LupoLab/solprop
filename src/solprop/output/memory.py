@@ -343,15 +343,13 @@ class MemoryOutput(PlaneStore):
         plane : SavedPlane
             The plane, whose field is still in the internal convention.
         stored : numpy.ndarray or None
-            That field converted to the optics convention, normally its row of the
-            block already; ``None`` on a field-free plane, which stores none.
+            That field converted to the optics convention, in its row of the block
+            (:meth:`_stored_field`); ``None`` on a field-free plane, which stores none.
         """
         self._make_room(plane)
         index = self._n_saved
         self._z[index] = plane.z
         if stored is not None:
-            if stored.base is not self._fields:
-                self._fields[self._n_fields] = stored
             if self._noise_phase is not None:
                 self._noise_phase[self._n_fields] = plane.noise_phase
             self._n_fields += 1
