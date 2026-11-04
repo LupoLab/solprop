@@ -3206,8 +3206,7 @@ class AdamsMarch:
             return refusal
         checks = (
             (
-                # A snapshot naming no key was written before SEP 42: starting afresh
-                # is always safe.
+                # Starting afresh is always safe.
                 snapshot.history_key is None,
                 "the snapshot names no history key",
             ),

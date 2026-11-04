@@ -1164,7 +1164,7 @@ Withdrawn (development-process record, not a design decision).
   [SEP 12](seps/archive/sep-0012-tdse-nonlinear-response.md) and
   [SEP 26](seps/archive/sep-0026-edge-free-tdse-source.md); one exception added on
   2026-10-28 (`collar_placement="inside"`); its rules on resuming and on recorded fields
-  narrowed by ADR-063
+  narrowed by ADR-063, and restored by ADR-066
 - **Context:** before a first release there are no external output files to keep. An
   option or reader whose only purpose is to reproduce an earlier form of a configuration
   or record is a second code path to test and document, with no scientific use.
@@ -1189,10 +1189,8 @@ Withdrawn (development-process record, not a design decision).
   no scientific use of it was found.
 - **Consequences:** an unwindowed native SAE run's lattice must pass the certificate. A
   change that moves an identity bumps the version it moves and adds no compatibility
-  layer. ADR-063 sets the resume-compatibility policy: a file of another output schema
-  is still never resumed, but by that precondition rather than through the resume key,
-  and a field added to a record carries a neutral value rather than refusing every
-  earlier file.
+  layer. ADR-066 sets the resume policy: a file of another output schema is never resumed,
+  by that precondition, and a field added to a record refuses every earlier file.
 
 ## ADR-052 — One thread budget per process, which every pool stays within
 
@@ -1536,8 +1534,7 @@ Withdrawn (development-process record, not a design decision).
 - **Why:** breaking costs nothing before anyone depends on the package, and a promise
   made now would freeze seams already known to need work.
 - **Consequences:** a released version cannot read a development output file; keep an
-  older install for those. ADR-063 sets the resume-compatibility policy
-  ([SEP 42](seps/archive/sep-0042-tolerant-resume.md)).
+  older install for those. ADR-066 sets the resume policy.
 
 ## ADR-059 — Host vector maths on SLEEF for the native CPU kernels on x86-64
 
@@ -1650,7 +1647,7 @@ Withdrawn (development-process record, not a design decision).
 - **Status:** accepted (maintainer, 2026-10-31); amends
   [SEP 0](seps/sep-0000-process.md)'s completion rule, which asked for every feature on
   `numpy_ref`, `numba_cpu` and the native CPU build; Tier 2 and the statement that the
-  documentation build installs no native backend are superseded by ADR-064; ADR-066 makes
+  documentation build installs no native backend are superseded by ADR-064; ADR-068 makes
   `native` the primary backend
 - **Context:** solprop has four backends, and each new feature was implemented three
   times before its SEP could be final: in the reference, in Numba and in C++. The native
@@ -1715,8 +1712,9 @@ Withdrawn (development-process record, not a design decision).
 
 ## ADR-063 — A resume compares records by what matters to the run
 
-- **Status:** accepted (maintainer, 2026-11-01, with
-  [SEP 42](seps/archive/sep-0042-tolerant-resume.md)); narrows ADR-051 and sets the policy
+- **Status:** superseded by ADR-066, except its amendment on how often the schema is bumped,
+  which stands. Accepted (maintainer, 2026-11-01, with
+  [SEP 42](seps/archive/sep-0042-tolerant-resume.md)); narrowed ADR-051 and set the policy
   ADR-058 left open; amended 2026-11-02 for how often the schema is bumped (the last
   bullet)
 - **Context:** a file resumed only when the rebuilt run's configuration hash equalled
@@ -1765,11 +1763,6 @@ Withdrawn (development-process record, not a design decision).
   are not compatible with one another, and a known difference between them is refused
   by name rather than read two ways (#80, the Multistep ledger's run-length encoded
   orders, folded into schema 2).
-- **Note, for the maintainer to confirm at review** (2026-11-04, with #186 and #231): a
-  dataclass field whose metadata says `record_none=False` is left out of the record while
-  it is `None`, so an unset `ApertureSet.shapes`, `profiles` or `extents` or
-  `Absorber.user_rate` keeps a run's record and hash. This is an exception to "every field
-  is still recorded" above.
 
 ## ADR-064 — `numba_cpu` is retired: no Tier 2, and the documentation lane runs on the wheel
 
@@ -1856,7 +1849,71 @@ Withdrawn (development-process record, not a design decision).
     guide fails while its tables are built. Both were previously refused or warned about
     before they started.
 
-## ADR-066 — Native is the primary backend; `numpy_ref` stays the oracle for numbers
+## ADR-066 — A resume continues on an exact configuration hash
+
+- **Status:** accepted, 2026-11-04. Supersedes ADR-063 and the design of
+  [SEP 42](seps/archive/sep-0042-tolerant-resume.md), except ADR-063's amendment on how often
+  the schema is bumped. Restores ADR-051's rule that every field is recorded.
+- **Context:** restarting a run is rare, and restarting from an earlier version essentially
+  never happens. SEP 42's path-by-path comparison cost a classification for each new recorded
+  field, frozen records at each release, and a decision in every pull request that touched
+  the record, to serve a case nobody uses.
+- **Decision:**
+  - A resume continues when the file's configuration hash equals the requested run's.
+    Otherwise it is refused, naming the fields that differ. "The same version" means this
+    hash and nothing else: the solprop version is not compared, so a commit that leaves the
+    record alone still continues.
+  - `resume="force"` and `--force` are removed. `resume` takes `False`, `True` or
+    `"interpolated"`.
+  - `solprop.output.compatibility`, its class and neutral tables, the frozen records,
+    `RunMetadata.compare`, the `resume` entry of a session's execution record,
+    `RunOutcome.resumes` and `forced_positions` are removed. So are `record_none` and the
+    refusal of four-column `absorbed_power`: every field is recorded at its default, and
+    development builds are not compatible with one another.
+  - Reading is unchanged. A file of output schema 2 written by another build still reads,
+    with an absent field taking its default.
+  - `source=` in `field_plane` and a scan's reuse of a finished point use the same hash.
+  - Nothing is carved out of the key for rounding, and provenance stays in it. A carve-out
+    was tried for a band rule's taps and dropped, as the measurement below shows it can't
+    deliver a resume between CPU families without rebuilding the class table.
+- **What is refused again,** each of which ADR-063 existed to allow:
+  - a looser or tighter tolerance, or another integrator;
+  - an optmat release, even with the same numbers;
+  - a solprop release or commit that adds a recorded field or moves a recorded number;
+  - another platform's or CPU family's mathematics library, BLAS or FFT;
+  - a `source=` simulation with any of these differences.
+
+  These are refused on purpose. To carry on, launch a new segment from a saved plane or write
+  a new file.
+- **What was measured** (2026-11-04), 31 example recipes built on `numpy_ref` in one
+  environment. Hashes were the same on AMD EPYC 7763 and EPYC 7513 nodes, and on a repeat,
+  apart from 2 recipes with unseeded noise, which a resume redraws from the file's seed. All
+  31 differed between those and an Intel Xeon Gold 6240, which also had another glibc and
+  Python patch version, in the launch, absorber rates, quadrature weights, effective areas
+  and noise spectra. Forcing other OpenBLAS kernels on the Xeon moved 23 to 27 of 34 recipes.
+  So a long job has to stay on one CPU family to resume.
+- **Why not a SEP:** SEP 42 stays `Final` as the record of what it did, with a note pointing
+  here. The maintainer judged a decision record enough for removing a mechanism, and the same
+  goes for ADR-067.
+- **Consequences:** adding a recorded field needs no other step, and a release no longer
+  freezes records.
+
+## ADR-067 — A low-storage run holds no plane
+
+- **Status:** accepted, 2026-11-04. Replaces SEP 22's Q14, which held the state of the last
+  field-free plane. Bumps the kernel schema to 46.
+- **Decision:** `SimulationSettings.held_plane`, `StepDriver.set_held_plane`,
+  `held_observation`, `_hold`, `_held_field`, `_drop_held`, the native state's `hold_plane`,
+  `release_plane` and `held_to_host`, and the ledger's `held_plane` row are removed. A
+  low-storage run saves the one state volume it cost, 5.27 GiB at 768² × 600.
+- **What is lost:** a step abandoned in flight after a field-free plane leaves no checkpoint
+  there, and the file resumes from the last plane that kept its field, or not at all. On
+  native only an exception inside the engine can do that, since a signal waits for the step,
+  and on `numpy_ref` a Python interrupt can too. A stop between steps checkpoints as ever. A
+  killed process never had the held state. To keep a resumable state, keep the field at some
+  planes with `fields="planes"`.
+
+## ADR-068 — Native is the primary backend; `numpy_ref` stays the oracle for numbers
 
 - **Status:** accepted (maintainer), 2026-11-04. Amends ADR-061 and
   [SEP 0](seps/sep-0000-process.md)'s implementation rules. Those records, and the SEPs

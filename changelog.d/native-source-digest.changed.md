@@ -4,4 +4,4 @@ sources and `CMakeLists.txt` the extension was compiled from: a native run's rec
 in `backend.settings` in place of the number. Neither enters a configuration hash or a resume
 check. `solprop_native.check_build()` takes no problem, and in an editable checkout refuses
 an extension built from other sources than `native/`, naming `uv sync --reinstall-package
-solprop-native` (ADR-066).
+solprop-native` (ADR-068).

@@ -206,7 +206,7 @@ def test_every_page_states_the_schema_the_code_writes():
     number current, or says what this release writes, is held to it, so a stale
     statement elsewhere fails here too. History, which names the version a change took,
     is not a statement of the current one; the SEP records are history throughout. The
-    kernel contract no longer has a number (ADR-066): it names the last one as history.
+    kernel contract no longer has a number (ADR-068): it names the last one as history.
     """
     assert OUTPUT_SCHEMA_VERSION == 2
     stated: dict[str, list[str]] = {}

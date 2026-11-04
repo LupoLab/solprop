@@ -98,6 +98,7 @@ def _prepare(job: _Job, work: _Work) -> _Prepared | PointResult:
                     digest,
                     metadata.to_json(),
                     error=f"point {job.point.index} has a different configuration",
+                    metadata_arrays=metadata.record_arrays(),
                 )
             return PointResult(job.point.index, "skipped", configuration_hash=digest)
         return _Prepared(job, simulation, metadata)
@@ -319,6 +320,7 @@ def _run(group: Sequence[_Prepared], work: _Work) -> Iterator[PointResult]:
             n_steps=0 if capture is None else capture.steps,
             n_rejected=0 if capture is None else capture.rejected,
             boundary_monitor=records[index],
+            metadata_arrays=metadata.record_arrays(),
         )
 
     try:
@@ -408,6 +410,7 @@ def _run(group: Sequence[_Prepared], work: _Work) -> Iterator[PointResult]:
                             n_steps=capture.steps,
                             n_rejected=capture.rejected,
                             boundary_monitor=records[index],
+                            metadata_arrays=capture.metadata.record_arrays(),
                         )
                     )
                 except Exception:

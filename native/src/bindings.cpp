@@ -2218,26 +2218,6 @@ NB_MODULE(_core, module_) {
           "prefactor"_a.noconvert(), "density"_a.noconvert(), "taper"_a.noconvert(),
           "preionisation"_a.noconvert(), "raman_rates"_a.noconvert(), "material"_a,
           "rebuild_table"_a)
-      .def("hold_plane",
-           [](BoundState& self) {
-             auto& state = self.open_state();
-             const nb::gil_scoped_release release;
-             state.hold_plane();
-           })
-      .def("release_plane", [](BoundState& self) { self.open_state().release_plane(); })
-      .def("held_to_host",
-           [](BoundState& self) {
-             auto& state = self.open_state();
-             const auto count = self.elements();
-             auto storage = native::crossing::host_buffer(2 * count);
-             {
-               const nb::gil_scoped_release release;
-               state.held_to_host(
-                   {reinterpret_cast<native::Complex*>(storage.get()), count});
-             }
-             return complex_buffer_output(std::move(storage),
-                                          {self.columns(), count / self.columns()});
-           })
       // solprop SEP 16 phase 3b: the Adams history resident in the engine.
       .def(
           "adams_allocate",

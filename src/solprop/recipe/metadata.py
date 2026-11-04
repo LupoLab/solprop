@@ -1698,14 +1698,6 @@ _EXECUTION: Final = (
         "Keep the Adams method's history at each plane, for an exact resume.",
         "guide/results/output.md",
     ),
-    Parameter(
-        "held_plane",
-        (_BOOLEAN,),
-        "output",
-        "advanced",
-        "Hold the low-storage march's last field-free plane, for a checkpoint.",
-        _OUTPUT_PAGE,
-    ),
 )
 """The ``[execution]`` table's keys: settings a run reads when it executes."""
 

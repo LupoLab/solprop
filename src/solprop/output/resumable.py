@@ -8,18 +8,18 @@
 can say which applies without trying a resume:
 
 - **Can it continue, and from where?** The position, and the ``resume=`` value it needs
-  (``True``, ``"interpolated"`` or ``"force"``), or why not: no work left, no
+  (``True`` or ``"interpolated"``), or why not: no work left, no
   checkpoint written before a failure, another output schema, or a writer still alive.
 - **Can it be rebuilt from itself?** Whether it records a recipe (SEP 41, S2), and
   whether this solprop reads its format. A file without one can still continue, from
   the script that wrote it.
-- **Does the gate pass?** Only on request, at the cost of a rebuild: the comparison of
-  the stored record with the one the recorded recipe rebuilds (SEP 42).
+- **Does the gate pass?** Only on request, at the cost of a rebuild: whether the stored
+  record and the one the recorded recipe rebuilds have one hash (ADR-066).
 """
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, cast
+from typing import Literal, cast
 
 import h5py
 import numpy as np
@@ -29,12 +29,9 @@ from solprop.output._writer_lock import WriterLock
 from solprop.output.hdf5 import ResumeState, resume
 from solprop.output.schema import SCHEMA_VERSION, _decode
 
-if TYPE_CHECKING:
-    from solprop.output.compatibility import RecordComparison
-
 __all__ = ["Resumability", "ResumeMode", "resumability"]
 
-ResumeMode = Literal[True, "interpolated", "force"]
+ResumeMode = Literal[True, "interpolated"]
 """The ``resume=`` value a file needs to continue."""
 
 
@@ -50,9 +47,9 @@ class Resumability:
         Whether a run can continue it.
     z : float or None
         Where it would continue from, m; ``None`` when it cannot.
-    mode : {True, 'interpolated', 'force'} or None
-        The ``resume=`` value it needs: ``"force"`` for a file a forced session
-        wrote, ``"interpolated"`` when its last plane lies inside a step.
+    mode : {True, 'interpolated'} or None
+        The ``resume=`` value it needs: ``"interpolated"`` when its last plane lies
+        inside a step.
     reason : str or None
         Why it cannot continue; ``None`` when it can.
     recipe : {'stored', 'none', 'newer'}
@@ -60,9 +57,10 @@ class Resumability:
         or one of a newer format.
     recipe_format : int or None
         The format of the recipe it records.
-    comparison : solprop.output.compatibility.RecordComparison or None
+    differences : str or None
         With ``gate=True`` and a readable recipe, what separates the stored record
-        from the one the recipe rebuilds.
+        from the one the recipe rebuilds: empty when the two have one hash, so that a
+        resume would continue. ``None`` when no gate ran.
     gate_error : str or None
         With ``gate=True``, why the recipe could not be rebuilt.
     """
@@ -74,7 +72,7 @@ class Resumability:
     reason: str | None
     recipe: Literal["stored", "none", "newer"]
     recipe_format: int | None = None
-    comparison: "RecordComparison | None" = None  # noqa: UP037 - TYPE_CHECKING only
+    differences: str | None = None
     gate_error: str | None = None
 
     @property
@@ -185,8 +183,8 @@ def resumability(path: str | Path, *, gate: bool = False) -> Resumability:
     path : str or pathlib.Path
         The HDF5 output.
     gate : bool, optional
-        Also rebuild the run from its recorded recipe and compare the records, as a
-        resume would (SEP 42), so that, for example, a moved optmat digest shows
+        Also rebuild the run from its recorded recipe and compare the records' hashes,
+        as a resume would (ADR-066), so that, for example, a new optmat release shows
         before a resume is tried. It costs a rebuild.
 
     Returns
@@ -249,20 +247,21 @@ def resumability(path: str | Path, *, gate: bool = False) -> Resumability:
     unusable = _unusable_state(state)
     if unusable is not None:
         return refused(unusable)
-    forced = state.outcome is not None and bool(state.outcome.forced_positions)
-    mode: ResumeMode = (
-        "force" if forced else "interpolated" if state.interpolated else True
-    )
-    comparison = None
+    mode: ResumeMode = "interpolated" if state.interpolated else True
+    differences = None
     gate_error = None
     if gate and recipe == "stored":
         from solprop.recipe import Recipe  # noqa: PLC0415 - the layer above
 
         try:
             rebuilt = Recipe.from_output(path, resolved=True).build().metadata()
-            comparison = state.metadata.compare(rebuilt)
+            differences = (
+                ""
+                if state.metadata.configuration_hash() == rebuilt.configuration_hash()
+                else state.metadata.summarise_differences(rebuilt)
+            )
         except SolpropError as error:
             gate_error = str(error)
     return Resumability(
-        path, True, position, mode, None, recipe, found, comparison, gate_error
+        path, True, position, mode, None, recipe, found, differences, gate_error
     )

@@ -2098,6 +2098,78 @@ column's norm inside the request, because no light has reached a collar: the ent
 and compares no absorption. It is a window, and the temporal pass's share of a step moves with
 the response's: a heavier response gives a smaller saving.
 
+### The default check on a device: reads, occupancy and sums
+
+A field-free point of a free-space Kerr beam at 768 x 768 x 600 (5.27 GiB), eight fixed low-storage
+RK4IP steps and four planes, with a stated input identity, took 12 to 7 times as long
+with the default `boundary_check` as without it. `python -m benchmarks.device_split 768`, the second point
+of one `SimulationRunner`, on an NVIDIA H200 (CUDA 13.1) and an AMD Instinct MI325X (ROCm 10). Before is
+`7a224ea5`, measured the same way that morning with the probe that became this module, on another machine
+of the same type; after is this entry's commit, both cards the same day:
+
+| | H200, before | H200, after | MI325X, before | MI325X, after |
+|---|---:|---:|---:|---:|
+| Point, `boundary_check=None`, s | 5.9 | 5.7 | 4.2 | 3.8 |
+| Point, default check, s | 70 | 51 | 29 | 14 |
+| State crossings in a point | 13 | 9 | 13 | 9 |
+| `monitor.occupancy`, one reading, ms | 184 | 10 | 1,240 | 13 |
+| `energy` statistic, ms | 55 | 2.3 | 80 | 6.6 |
+| `peak_intensity` statistic, ms | 134 | 77 | 164 | 86 |
+
+What changed: a saved plane that the step reaching it already read takes no second read, which was a whole
+state's copy thrown away; a replay decides its reads by its next step, not by `dz_init`; the occupancy is
+a reduction per column, without an atomic per element; `energy`, the peak and a low-storage step's norm are real
+reductions, not sums on one thread of a device; a runner's points share the occupancy's table; an
+Adams run past its snapshot limit takes no snapshot to learn its size.
+
+HIP's smallest block is 64 threads, and a reduction's value has to fit `(64 + 2) * sizeof(value)` of 64 KiB
+with the kernel's own static memory beside it, which Kokkos's check doesn't count. So a reading there holds 64
+buckets a pass and takes two passes of 6.4 ms, not one of 128: 124 passed Kokkos's check and the dispatch then faulted
+("Illegal opcode in command stream"). On a CPU, `python -m benchmarks ab` against `main` on an Intel Xeon Gold 6240
+at 1 and 16 threads, three rounds, on `kerr_beam_192`, `line` and `planar`: geometric mean 1.002, each case
+within 4 %, fields to 1.5e-15, the same work.
+
+The check still reads a host copy of the state, on the host, which is what is left of its cost above: the
+entries that follow take that.
+
+### The state's crossing: a ring of pinned chunks
+
+A state crossing to the host was slow for one reason: a fresh pageable buffer takes its first touch inside the
+driver's copy, 1.38 million page faults at 768 x 768 x 600. A bare copy of 5.27 GiB, in GiB/s:
+
+| | NVIDIA H200 | AMD Instinct MI325X |
+|---|---:|---:|
+| Fresh pageable buffer, as it was | 1.8 | 7.9 |
+| Reused pageable buffer | 16.5 | 52 |
+| Pinned, which is the link | 51.5 | 52.6 |
+| 64 MiB pinned ring, a worker per host thread, fresh huge-page destination | 33 | 50 |
+| The same ring, no huge pages | 25 | 33 |
+
+Every state-sized crossing now takes that ring, both ways. `python -m benchmarks.device_split`, against the previous
+entry's commit, the same day, on the same cards and window:
+
+| | H200, before | H200, after | MI325X, before | MI325X, after |
+|---|---:|---:|---:|---:|
+| `field_to_host`, 5.27 GiB, ms | 2,929 | 175 | 506 | 107 |
+| Its page faults | 1,382,401 | 2,758 | 1,382,401 | 2,755 |
+| The point's crossings together, s | 26.5 | 1.6 | 4.3 | 0.96 |
+| Point, default check, s | 51 | 25 | 14 | 9.7 |
+
+Against `main`, with the previous entry, `python -m benchmarks ab --device` on `kerr_beam_384`, three rounds of one repeat,
+which saves its fields: H200 13.451 → 4.672 s, ratio 0.347 (0.347–0.349); MI325X 5.700 → 2.033 s, ratio 0.359
+(0.338–0.362). Fields identical and the same work on both. On a longer window, 384 x 384 x 600 with 51 steps and 17 planes,
+the point with the check takes 14.2 s against 3.9 s without on the H200 (49.8 s before these two entries), and 7.1 s against 3.7 s on
+the MI325X. The NVIDIA A40 sees less (PCIe Gen 4): 183 → 147 ms at 384 x 384.
+
+A kept plane's conversion and its finiteness check take threads too, above `PARALLEL_BYTES`, and a plane converts straight
+into the store's block rather than through a copy. A run that keeps no field allocates no ring: `memory_ledger`'s
+`host_crossing_ring` stays zero, which a device test holds.
+
+On a CPU a crossing is a plain copy and takes no ring. `python -m benchmarks ab` against `main`, with the previous entry, on an Intel
+Xeon Gold 6240 (18 cores of one socket, passive threads, three rounds of one repeat, a shared machine): `kerr_beam_192` 0.976
+at one thread and 0.882 at sixteen, `radial_filament_256` 0.999 and 0.994, `line` 0.983 and 0.990, `planar` 0.997 and 0.980; geometric
+mean 0.975, fields to 4.2e-15, the same work.
+
 ## Reference tables
 
 These tables back the indicative results above.
@@ -2396,3 +2468,28 @@ for Intel's four-thread Raman tail). Mac responses were mixed, including opposit
 RDW and argon directions. No shared dimension threshold or pool policy is changed;
 explicit overrides and global caps retain their existing semantics. A 36-core
 sizing confirmation is unnecessary because no sizing change is retained.
+
+## The run record's cost
+
+[#309](https://github.com/LupoLab/solprop/issues/309) measured how a run's record grows with
+its grid. Moving the record's large arrays beside its text (`RECORD_ARRAY_LIMIT`) takes the
+hash from the record's text to its arrays' bytes.
+
+Measured on an Intel Xeon Gold 6240, pinned to one socket with 16 threads, on a shared
+machine with a load average of about 17, so treat small differences as noise. One run each,
+built and not stepped, on `numpy_ref`, with `#309`'s Cartesian problem of 96 frequency bins.
+The figures are for the record alone, not for a run.
+
+| Grid | | First hash, s | `to_json`, s | `HDF5Output.open`, s | Reading the file's record, s | Hashing a read record, s | JSON, MB | File, MB |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| 256² | before | 0.442 | 0.163 | 0.171 | 0.177 | 0.174 | 5.61 | 5.62 |
+| | after | 0.010 | 0.001 | 0.006 | 0.021 | 0.001 | 0.03 | 3.19 |
+| 512² | before | 1.763 | 0.652 | 0.711 | 0.755 | 0.777 | 22.66 | 22.67 |
+| | after | 0.032 | 0.001 | 0.011 | 0.065 | 0.001 | 0.05 | 12.64 |
+| 768² | before | 4.250 | 1.588 | 1.711 | 2.155 | 1.735 | 55.59 | 55.60 |
+| | after | 0.075 | 0.002 | 0.017 | 0.144 | 0.002 | 0.07 | 28.40 |
+
+A default radial run of 256 nodes and 8192 frequency bins, which carries input noise, holds
+83.21 MB of JSON before and 0.04 MB after, and its first hash goes from 2.603 s to 0.077 s.
+A 64-node grid is about the same before and after, since its arrays sit close to the limit.
+A run into `MemoryOutput` computes no hash at all.

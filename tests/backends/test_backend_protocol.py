@@ -335,13 +335,7 @@ class Stub:
     def set_stop(self, flag):
         return None
 
-    def set_held_plane(self, held):
-        return None
-
     def attach_monitor(self, monitor):
-        return None
-
-    def held_observation(self):
         return None
 
     def march_snapshot(self):

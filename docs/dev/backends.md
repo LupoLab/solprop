@@ -1230,7 +1230,7 @@ released together, and solprop's metadata pins this one to its own version. `che
 the driver members, bundle fields and contract tuples the adapter relies on up by name. In an editable
 checkout it also recomputes the digest of `native/CMakeLists.txt` and the C++ under `native/src`
 and `native/include`, once per process, and refuses an extension built from anything else
-(`BuildInfo.source_digest`, ADR-066), which catches a C++-only change too. It records the repository
+(`BuildInfo.source_digest`, ADR-068), which catches a C++-only change too. It records the repository
 version it was built at without comparing it, so an editable build stays valid across solprop
 commits that leave `native/` alone. Solprop knows only the registry
 row and imports the package only when it is selected.
@@ -1785,10 +1785,7 @@ outside the ledger. The
 native state refuses what its folds cannot read: an elided stage register beside an
 in-stage absorber, two flow volumes on a separable geometry, and a step reusing a
 constant operator's table it has not built since the field was loaded (solprop's rules
-never ask for any of them). `native` holds a field-free plane's state in its memory space
-(`held_plane`), so nothing crosses to the host at such a plane. A driver says at the start of
-each run whether to hold it at all (`StepDriver.set_held_plane`, kernel schema 44), and
-turning it off releases the buffer (`State.release_plane`).
+never ask for any of them).
 
 **The far-field pass** (§3.13) holds `far_field_partials` on the native backend, the band
 partials, `8 n_bands n_slots n_omega` bytes; the estimate counts them to the byte in `base`.
@@ -1873,7 +1870,7 @@ plasma do not cover it. The far-field statistics' device pass is not qualified (
 
 These rules set where development goes, not what a backend may run (ADR-061; ADR-064 retired
 `numba_cpu` and superseded the statement that the documentation build installs no native
-backend; ADR-066 makes `native` the primary backend). A feature lands on `native` and
+backend; ADR-068 makes `native` the primary backend). A feature lands on `native` and
 `numpy_ref` in either order. Every backend keeps what it runs, correct and in parity with the
 reference, and refuses the rest by name.
 

@@ -217,7 +217,7 @@ The long form is [SEP 0](docs/dev/seps/sep-0000-process.md); the index is
   requests. CI runs on every push to it and need not be green while it is a draft; a push
   that needs no run has `[skip ci]` in its head commit's message. The branch may start on
   top of an open pull request's branch when pull requests are stacked behind CI. Within
-  each phase: `numpy_ref` and native CPU in `native/`, in either order (ADR-066), with
+  each phase: `numpy_ref` and native CPU in `native/`, in either order (ADR-068), with
   tests and the manual page; `mlx` only where the SEP says so (the backend rules, below). A
   backend without the feature refuses it by name, never falls back silently; `Final`
   needs parity on `numpy_ref` and native CPU, or an exception written into the accepted
@@ -318,7 +318,7 @@ no blanket `# noqa`). What is left to judgement:
 
 The long form is [`backends.md`](docs/dev/backends.md).
 
-- **Where features land** (ADR-061, ADR-064, ADR-066, `backends.md §10`). `native` is the
+- **Where features land** (ADR-061, ADR-064, ADR-068, `backends.md §10`). `native` is the
   primary backend. `numpy_ref` and `native`: every new feature lands on both, in either
   order, and `native` may shape the contract. `mlx`: experimental; keep it runnable and
   correct, add nothing as part of other work. A backend without a feature refuses it by
@@ -360,7 +360,7 @@ The long form is [`backends.md`](docs/dev/backends.md).
   arrays. Between `StepDriver` and its subclass the state is an opaque handle (an MLX
   array, a native state), and the shared code reads it only through `_observed_field`,
   which copies it to the host.
-- **The seam has no version number** (ADR-066). A change to the `KernelProblem` fields,
+- **The seam has no version number** (ADR-068). A change to the `KernelProblem` fields,
   the protected `StepDriver` surface or the stage bundles of `translate/stage.py` rewrites
   the frozen tables in `tests/backends/test_driver.py` in the same commit and adds a
   release-note fragment. solprop and solprop-native are released together and pinned to

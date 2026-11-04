@@ -11,8 +11,6 @@ the backend doors are in ``tests/backends/test_far_field_statistics.py``.
 """
 
 import contextlib
-import hashlib
-import json
 import math
 
 import numpy as np
@@ -1481,12 +1479,12 @@ def test_circle_weights_keep_their_expression_to_the_bit(grid):
         np.testing.assert_array_equal(np.where(live, outline.weight(*got), 0.0), weight)
 
 
-def test_an_unset_shape_keeps_the_record_and_a_circle_says_nothing_new():
+def test_an_unset_shape_is_recorded_as_unset_and_a_circle_says_nothing_new():
     plain = hole(1e-3)
     assert plain.shapes is None and plain.profiles is None and plain.extents is None
     record = serialise(plain)
     assert isinstance(record, dict)
-    # Exactly the record of a set before shapes existed.
+    # Every field is recorded, at its default too.
     assert set(record) == {
         "__class__",
         "centres",
@@ -1496,7 +1494,11 @@ def test_an_unset_shape_keeps_the_record_and_a_circle_says_nothing_new():
         "profile",
         "weighting",
         "labels",
+        "shapes",
+        "profiles",
+        "extents",
     }
+    assert record["shapes"] is None
     # One request, one record: rows that add nothing are stored as unset.
     named = hole(1e-3, shapes=("circle",), profiles=("hard",))
     assert named.shapes is None and named.profiles is None
@@ -1512,28 +1514,12 @@ def test_an_unset_shape_keeps_the_record_and_a_circle_says_nothing_new():
     assert uniform.row_profiles == ("rcos", "rcos")
 
 
-def test_a_set_of_circles_records_what_it_recorded_before_shapes():
-    # Pinned as SEP 25 pins a record, against the record of the tree before shapes: the
-    # bytes of a set's JSON, which enter every configuration hash that carries one.
-    holes = ApertureSet(
-        centres=[[0.0, 0.0], [1e-3, 0.0]],
-        diameters=[2e-3, 1e-3],
-        distances=[0.25, 0.25],
-        edges=[2e-4, 1e-4],
-        profile="tanh",
-        weighting="quadrature",
-        labels=("a", "b"),
-    )
-    text = json.dumps(serialise(holes), sort_keys=True)
-    assert hashlib.sha256(text.encode()).hexdigest()[:20] == "219529074794693467ba"
-
-
 def test_a_set_shape_is_recorded_and_two_sets_tell_apart():
     upper = set_of(("half_plane_x_ge",), [[1e-3, 0.0]])
     lower = set_of(("half_plane_x_lt",), [[1e-3, 0.0]])
     record = serialise(upper)
     assert isinstance(record, dict) and record["shapes"] == ["half_plane_x_ge"]
-    assert "extents" not in record and "profiles" not in record
+    assert record["extents"] is None and record["profiles"] is None
     assert upper.row_shapes == ("half_plane_x_ge",)
     assert serialise(lower) != record
     assert upper.same_as(set_of(("half_plane_x_ge",), [[1e-3, 0.0]]))

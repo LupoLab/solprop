@@ -283,7 +283,7 @@ and compares options; it is not a line-by-line plan, which belongs to the implem
 
 ### Implementation rules
 
-- **Backends in either order** ([ADR-066](../decisions.md)). A feature is implemented on
+- **Backends in either order** ([ADR-068](../decisions.md)). A feature is implemented on
   `numpy_ref`, the oracle for numbers, and on the native CPU build in `native/`, each with
   its tests, and the manual page with whichever lands first; `native` may shape the
   contract. Device (GPU)

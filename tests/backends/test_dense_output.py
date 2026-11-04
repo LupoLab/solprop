@@ -21,7 +21,7 @@ from legacy_geometry import LEGACY_GRID
 from solprop.backends import available
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.driver.simulation import Simulation, _interpolated
-from solprop.exceptions import DriverError, TranslationError
+from solprop.exceptions import DriverError, OutputError, TranslationError
 from solprop.grid import EnvelopeGrid
 from solprop.log import NullReporter
 from solprop.noise import modified_noise
@@ -362,10 +362,9 @@ def test_an_interpolated_plane_is_resumed_only_on_request(tmp_path, dense):
     assert _interpolated(state)
     with pytest.raises(DriverError, match="resume='interpolated'"):
         capillary(backend="numpy_ref", **dense).run(path, resume=True)
-    # The file decides, not the request: a run resumed without interpolation would
-    # otherwise continue silently from a state the march never passed through.
+    # A run asking for no interpolation is another run, which the hash refuses.
     sparse = {**dense, "interpolate_planes": False}
-    with pytest.raises(DriverError, match="resume='interpolated'"):
+    with pytest.raises(OutputError, match=r"stepper\.limits\.interpolate_planes"):
         capillary(backend="numpy_ref", **sparse).run(path, resume=True)
     handler = capillary(backend="numpy_ref", **dense).run(
         path, resume="interpolated", progress="none"

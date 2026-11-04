@@ -144,14 +144,8 @@ class NullBackend:
     def set_stop(self, flag):
         pass
 
-    def set_held_plane(self, held):
-        pass
-
     def attach_monitor(self, monitor):
         pass
-
-    def held_observation(self):
-        return None
 
     def march_snapshot(self):
         return None

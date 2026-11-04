@@ -93,7 +93,7 @@ expansion. A
 total-degree expansion is not part of the contract: it failed the joint memory and
 build-cost criterion on the short fixture.
 
-**The contract has no version number** (ADR-066). `KERNEL_SCHEMA_VERSION` ended at 45;
+**The contract has no version number** (ADR-068). `KERNEL_SCHEMA_VERSION` ended at 47;
 "kernel schema N" elsewhere in these documents and in the code names the number a change
 took, as history. The tables of this document describe the contract as it stands. A
 change to it, to the protected surface of `StepDriver` or to the stage bundles of
@@ -1137,7 +1137,7 @@ the step history and over the same interval, and a row may not index past it.
 2. Add the row here, rewrite the frozen tables the change moves
    (`tests/backends/test_driver.py`) and add a release-note fragment.
 3. Extend `validate()`.
-4. Implement in `numpy_ref` and `native`, in either order (ADR-066), with a test and the
+4. Implement in `numpy_ref` and `native`, in either order (ADR-068), with a test and the
    equivalence test; a backend that does not have it yet refuses it by name.
 5. Update the memory budget in [architecture.md §8](architecture.md) if a buffer is added.
 

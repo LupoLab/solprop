@@ -614,13 +614,13 @@ class Backend(Protocol):
     >>> names[:4]
     ['attach_monitor', 'available_device_memory', 'close', 'closed']
     >>> names[4:8]
-    ['held_observation', 'in_flight', 'march_export_refusal', 'march_snapshot']
+    ['in_flight', 'march_export_refusal', 'march_snapshot', 'march_snapshot_nbytes']
     >>> names[8:12]
-    ['march_snapshot_nbytes', 'memory_ledger', 'metadata', 'observe']
+    ['memory_ledger', 'metadata', 'observe', 'propagate_to']
     >>> names[12:16]
-    ['propagate_to', 'restore_call_ledgers', 'restore_march', 'set_held_plane']
+    ['restore_call_ledgers', 'restore_march', 'set_initial', 'set_progress']
     >>> names[16:]
-    ['set_initial', 'set_progress', 'set_stop', 'stats', 'timed_step']
+    ['set_stop', 'stats', 'timed_step']
     """
 
     name: str
@@ -690,16 +690,6 @@ class Backend(Protocol):
         """
         ...
 
-    def set_held_plane(self, held: bool) -> None:
-        """Say whether the low-storage march holds the last field-free plane's state.
-
-        Parameters
-        ----------
-        held : bool
-            Whether to hold it; other marches hold nothing either way.
-        """
-        ...
-
     def attach_monitor(self, monitor: BoundaryMonitor) -> None:
         """Watch the time window's edges from here on, starting with the current state.
 
@@ -754,16 +744,6 @@ class Backend(Protocol):
         -------
         tuple of float or None
             The step's start and length, m, while the state is neither of its ends.
-        """
-        ...
-
-    def held_observation(self) -> Observation | None:
-        """Return the state the low-storage march held at its last field-free plane.
-
-        Returns
-        -------
-        Observation or None
-            The held plane with an empty step history, or ``None`` when nothing is held.
         """
         ...
 

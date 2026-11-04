@@ -2608,17 +2608,8 @@ TEST(GeneralState, LowStoragePassesMatchTheHostInteractionPictureStep) {
     EXPECT_EQ(ledger.at("propagators"), flows * field);
     for (const char* row :
          {"advanced", "stages", "accumulator_solution", "accumulator_error",
-          "weighted_residual", "recycled_stage", "stage_inverse", "held_plane"})
+          "weighted_residual", "recycled_stage", "stage_inverse"})
       EXPECT_EQ(ledger.at(row), 0U) << row;
-    // The field-free plane held in the memory space, one volume, copied back once.
-    EXPECT_THROW(state.held_to_host(std::span<native::Complex>{}), std::logic_error);
-    state.hold_plane();
-    EXPECT_EQ(state.memory_ledger().at("held_plane"), field);
-    const auto current = state.field_to_host();
-    std::vector<native::Complex> held(current.size());
-    state.held_to_host(held);
-    for (std::size_t index = 0; index < held.size(); ++index)
-      EXPECT_EQ(held[index], current[index]);
   }
 }
 

@@ -869,6 +869,8 @@ DRIVER_SURFACE = {
     "_finish": "(self, state: _StateT, dz: float) -> _StateT",
     "_bind_monitor": "(self, monitor: solprop.monitor.BoundaryMonitor | None) -> None",
     "_boundary_energies": "(self, state: _StateT) -> solprop.monitor.BoundaryEnergies",
+    "_next_step": "(self) -> float",
+    "march_snapshot_nbytes": "(self, z: float) -> int | None",
     "_observed_field": (
         "(self, state: _StateT)"
         " -> jaxtyping.Complex[ndarray, 'n_batch n_modes n_pol n_omega']"
@@ -934,11 +936,6 @@ DRIVER_SURFACE = {
         "atomic: collections.abc.Mapping[str, object] | None = None) -> None"
     ),
     "observe": "(self, *, field: bool = True) -> solprop.backends.protocol.Observation",
-    "held_observation": "(self) -> solprop.backends.protocol.Observation | None",
-    "_hold": "(self, state: _StateT | None) -> None",
-    "_drop_held": "(self) -> None",
-    "set_held_plane": "(self, held: bool) -> None",
-    "_held_field": f"(self) -> {FIELD}",
     "set_initial": (
         "(self, field: jaxtyping.Complex[ndarray, 'n_batch n_modes n_pol n_omega'], "
         "noise: solprop.noise.NoiseRealisation | None, *, z: float = 0.0, "
