@@ -519,10 +519,10 @@ class ArrayDigest:
         elif array.flags.c_contiguous and array.dtype == little:
             digest.update(memoryview(array).cast("B"))
         else:
-            for block in np.nditer(
+            # NumPy's stubs leave "contig" out of the flags they list.
+            for block in np.nditer(  # pyright: ignore[reportCallIssue, reportUnknownVariableType]
                 array,
                 flags=["external_loop", "buffered"],
-                # NumPy's stubs leave "contig" out of the flags they list.
                 op_flags=["readonly", "contig"],  # pyright: ignore[reportArgumentType]
                 op_dtypes=[little],
                 casting="equiv",
