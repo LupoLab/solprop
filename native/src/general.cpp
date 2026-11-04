@@ -14708,14 +14708,32 @@ std::vector<double> GeneralWorkspace::monitor_reading() {
     // build's atomic scatter adds into the view itself).
     graph::deep_copy(execution_space_, occupancy_, 0.0);
     scatter.reset(execution_space_);
-    launch::parallel_for(
-        "solprop_native.monitor.occupancy",
-        Range2(execution_space_, {0, 0}, {columns, n}),
-        KOKKOS_LAMBDA(const std::size_t row, const std::size_t index) {
-          auto access = scatter.access();
-          access(buckets((row / n_pol) * n + index)) +=
-              column_weights(row) * squared_abs(current(row, index));
-        });
+    if constexpr (Kokkos::SpaceAccessibility<ExecutionSpace,
+                                             Kokkos::HostSpace>::accessible) {
+      // A host scatter finds its thread's copy at each `access`, which dominated this
+      // loop per element; a row takes it once (issue #453). A device's access is
+      // atomic.
+      launch::parallel_for(
+          "solprop_native.monitor.occupancy",
+          Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, columns),
+          KOKKOS_LAMBDA(const std::size_t row) {
+            auto access = scatter.access();
+            const std::size_t offset = (row / n_pol) * n;
+            const double weight = column_weights(row);
+            for (std::size_t index = 0; index < n; ++index)
+              access(buckets(offset + index)) +=
+                  weight * squared_abs(current(row, index));
+          });
+    } else {
+      launch::parallel_for(
+          "solprop_native.monitor.occupancy",
+          Range2(execution_space_, {0, 0}, {columns, n}),
+          KOKKOS_LAMBDA(const std::size_t row, const std::size_t index) {
+            auto access = scatter.access();
+            access(buckets((row / n_pol) * n + index)) +=
+                column_weights(row) * squared_abs(current(row, index));
+          });
+    }
     Kokkos::Experimental::contribute(execution_space_, occupancy_, scatter);
     const auto host =
         Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace{}, occupancy_);
