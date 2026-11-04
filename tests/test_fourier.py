@@ -87,6 +87,18 @@ def test_the_spectrum_helpers_add_the_alternating_sign_to_the_conjugation(kind):
 
 
 @pytest.mark.parametrize("kind", KINDS)
+def test_a_spectrum_converted_into_room_is_the_same_bits(kind):
+    spectrum = make_spectrum(kind, 16, seed=5)
+    room = np.empty_like(spectrum)
+    written = fourier.spectrum_to_optics(spectrum, kind=kind, out=room)
+    assert written is room
+    # A lossless structural contract: the same two ufuncs on the same numbers.
+    assert room.tobytes() == fourier.spectrum_to_optics(spectrum, kind=kind).tobytes()
+    sign = np.array([(-1.0) ** k for k in range(spectrum.size)])
+    assert room.tobytes() == (sign * fourier.to_optics(spectrum)).tobytes()
+
+
+@pytest.mark.parametrize("kind", KINDS)
 def test_a_flat_optics_spectrum_is_a_pulse_at_the_window_centre(kind):
     # The whole point of the origin shift: a spectrum that is flat and real in the
     # optics convention is a transform-limited pulse sitting at t = 0, which is sample
