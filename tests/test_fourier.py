@@ -87,6 +87,18 @@ def test_the_spectrum_helpers_add_the_alternating_sign_to_the_conjugation(kind):
 
 
 @pytest.mark.parametrize("kind", KINDS)
+def test_a_real_spectrum_converts_without_writing_on_itself(kind):
+    # A real array can't hold the origin's shift, so the product needs its own room.
+    spectrum = make_spectrum(kind, 16, seed=7).real
+    original = spectrum.copy()
+    sign = np.array([(-1.0) ** k for k in range(spectrum.size)])
+    assert np.array_equal(
+        fourier.spectrum_to_optics(spectrum, kind=kind), sign * original
+    )
+    assert np.array_equal(spectrum, original)
+
+
+@pytest.mark.parametrize("kind", KINDS)
 def test_a_spectrum_converted_into_room_is_the_same_bits(kind):
     spectrum = make_spectrum(kind, 16, seed=5)
     room = np.empty_like(spectrum)
