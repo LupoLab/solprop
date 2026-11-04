@@ -447,15 +447,8 @@ How a run resumes from its last plane depends on what that plane is:
 
 **Every field is recorded.** A record holds every field of every dataclass it
 serialises, at its default too, so a change that adds a field to a recorded dataclass
-moves the configuration hash. The exceptions are optional extensions whose absence means
-what every earlier record means, left out while they are `None` (an aperture set's
-`shapes`, `profiles` and `extents`, an absorber's `user_rate`, an offline aperture's `shape`
-and `extent`); set, they are recorded. A resume compares the records path by path, so the new
-field refuses a resume of an earlier file unless a release declares its neutral value,
-the value that reproduces the code before it existed
-([what a resume compares](resuming.md#what-a-resume-compares)). The test suite pins the
-records of a modal, a radial and two Cartesian runs, and of a custom absorber at its
-defaults, and keeps each release's whole records, so that such a change is deliberate.
+moves the configuration hash, and a file written before it can be read but not resumed
+([what a resume compares](resuming.md#what-a-resume-compares)).
 An array input of more than 2²⁰ elements is recorded by the SHA-256 of its bytes, with
 its dtype and shape (`ArrayDigest`), rather than inline; one whose caller states its
 identity by that string instead (`StatedInput`,
@@ -466,8 +459,7 @@ could not append to: a dataset renamed, re-laid or given new units; an attribute
 changes meaning; anything added inside `stats`, `step_history` or `step_stats`; or
 anything grown per plane. A new field of the JSON run record, a new root attribute or a
 new top-level group written once does not bump it: readers already tolerate them, and a
-resume decides by comparing the records (ADR-063,
-[SEP 42](../../dev/seps/archive/sep-0042-tolerant-resume.md)).
+resume decides by the configuration hash (ADR-066).
 
 **How often.** At most once between two releases. The first such change after a
 release bumps the schema; every later one before the next release folds into that

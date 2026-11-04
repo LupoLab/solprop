@@ -45,20 +45,15 @@ dataset. :func:`resume` continues only from a plane that carries a field: a
 terminal checkpoint always does, and a file whose last regular plane is field-free and
 which holds no checkpoint is refused by name when a run is continued from it.
 
-**Cache and resume.** :func:`check_cache` compares the file's record with the requested
-one path by path (:meth:`~solprop.output.schema.RunMetadata.compare`, SEP 42): the
-layout and the physics must agree, numbers to a rounding-level tolerance, so resuming
-with different physics of the same shape is refused, by naming what changed; the
-numerics may change, and provenance -- the optmat version, a model's name -- is
-ignored, while an optmat model whose numbers changed is refused by name. A file of
-another output schema is not read at all
-(:data:`~solprop.output.schema.SCHEMA_VERSION`).
+**Cache and resume.** :func:`check_cache` compares the file's configuration hash with
+the requested one (ADR-066): they must be equal, so resuming with different physics or
+numerics of the same shape is refused, by naming what changed. A file of another output
+schema is not read at all (:data:`~solprop.output.schema.SCHEMA_VERSION`).
 :func:`resume` returns the metadata, the last plane -- converted back to the internal
 convention -- and the step history. A handler built with ``append=True`` then carries
 on in the same file: it opens it read-write instead of replacing it, compares the
-record offered with the file's unless the driver's gate already has, holds the file's
-record as its own, and continues numbering planes and attempts where the file left
-off. :func:`open_file`
+record offered with the file's, holds the file's record as its own, and continues
+numbering planes and attempts where the file left off. :func:`open_file`
 opens a finished file **read-only** through the same protocol it was written with, which
 is how :mod:`solprop.processing` reads a run after the driver has closed it.
 
@@ -71,7 +66,6 @@ The manual page is ``docs/guide/results/output.md``.
 import json
 import logging
 import math
-import warnings
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -83,9 +77,8 @@ from jaxtyping import Complex
 
 from solprop import fourier
 from solprop._display import Displayed, line, tail
-from solprop.exceptions import OutputError, SolpropWarning
+from solprop.exceptions import OutputError
 from solprop.output._writer_lock import WriterLock
-from solprop.output.compatibility import RecordComparison
 from solprop.output.schema import (
     HISTORY_FIELDS,
     STEP_STATS_INDEX,
@@ -103,7 +96,6 @@ from solprop.output.schema import (
     StepHistory,
     StepStats,
     TerminalCheckpoint,
-    refuse_earlier_absorbed_power,
 )
 
 __all__ = [
@@ -849,10 +841,6 @@ class HDF5Output(PlaneStore):
         Open the file at once, for reading only: the handler comes back open, with
         the file's own record as its ``metadata``, and refuses ``open`` and ``save``.
         This is what :func:`open_file` builds.
-    gated : bool, optional
-        With ``append``: the driver's resume gate has already compared the records and
-        decided to continue, forced or not, so the record given to ``open`` is not
-        compared again (SEP 42 section 5.3). Without it, appending compares.
 
     Raises
     ------
@@ -899,7 +887,6 @@ class HDF5Output(PlaneStore):
         compression_opts: int | None = None,
         append: bool = False,
         readonly: bool = False,
-        gated: bool = False,
     ) -> None:
         """Prepare a handler; only a read-only one opens its file now."""
         super().__init__()
@@ -912,7 +899,6 @@ class HDF5Output(PlaneStore):
         self._compression_opts = compression_opts
         self._append_mode = append
         self._readonly = readonly
-        self._gated = gated
         self._adopted: RunMetadata | None = None
         self._file: h5py.File | None = None
         self._writer_lock = WriterLock(self._path)
@@ -1001,7 +987,7 @@ class HDF5Output(PlaneStore):
         super().open(metadata, force=force)
         if self._adopted is not None:
             # The session holds the file's record, which the exact checks of a
-            # suspend, a reopen and a snapshot compare the file with (SEP 42 §5.3).
+            # suspend, a reopen and a snapshot compare the file with.
             self._metadata = self._adopted
 
     def save(self, plane: SavedPlane) -> None:
@@ -1320,8 +1306,7 @@ class HDF5Output(PlaneStore):
         """Open the file if it is not open yet, and write the run record.
 
         When appending, the record the file already carries is kept -- its creation
-        time included -- and becomes the session's; the one offered is compared with
-        it, unless the driver's gate has done so (``gated``).
+        time included -- and becomes the session's; the one offered must have its hash.
 
         Parameters
         ----------
@@ -1331,23 +1316,20 @@ class HDF5Output(PlaneStore):
         Raises
         ------
         OutputError
-            If appending without the gate, and the file's layout or a compared value
-            differs; the message names what changed.
+            If appending and the two records' hashes differ; the message names what
+            changed.
         """
         if self._file is None:
             self._file = self._open_file()
         file = self._file
         if self._append_mode:
             stored = RunMetadata.from_json(_read_json(file))
-            _refuse_earlier_columns(file, self._path)
-            if not self._gated:
-                comparison = stored.compare(metadata)
-                if not comparison.continues:
-                    msg = (
-                        f"{self._path} holds a different run and cannot be appended "
-                        f"to; {comparison.summary()}"
-                    )
-                    raise OutputError(msg)
+            if stored.configuration_hash() != metadata.configuration_hash():
+                msg = (
+                    f"{self._path} holds a different run and cannot be appended to; "
+                    f"{stored.summarise_differences(metadata)}"
+                )
+                raise OutputError(msg)
             self._adopted = stored
             logger.debug("continuing %s from plane %d", self._path, self._n_saved)
             return
@@ -1925,42 +1907,10 @@ def _stored_metadata(path: Path | str) -> tuple[RunMetadata, str]:
     return metadata, stamped
 
 
-def _compare_cache(
-    path: Path | str, metadata: RunMetadata
-) -> tuple[RunMetadata, RecordComparison] | None:
-    """Return a file's record and its comparison with a requested one.
-
-    The checks that refuse before any comparison come first: the output schema and
-    the stamp (:func:`_stored_metadata`), the gated plasma benchmark and the general
-    modal accessors.
-
-    Parameters
-    ----------
-    path : pathlib.Path or str
-        The file to check.
-    metadata : RunMetadata
-        The record of the run about to start.
-
-    Returns
-    -------
-    tuple or None
-        The stored record and the comparison, or ``None`` when there is no file.
-    """
-    if not Path(path).exists():
-        logger.debug("no cache at %s; starting from the beginning", path)
-        return None
-    stored, _ = _stored_metadata(path)
-    with h5py.File(path, "r") as file:
-        _refuse_earlier_columns(file, path)
-    _check_plasma_benchmark(stored)
-    _check_accessors(path, stored, metadata)
-    return stored, stored.compare(metadata)
-
-
 def _resume_refusal(
-    path: Path | str, stored: RunMetadata, comparison: RecordComparison
+    path: Path | str, stored: RunMetadata, requested: RunMetadata
 ) -> str:
-    """Return the message refusing a resume across a comparison's differences.
+    """Return the message refusing a resume, naming what changed.
 
     Parameters
     ----------
@@ -1968,102 +1918,27 @@ def _resume_refusal(
         The file.
     stored : RunMetadata
         Its record.
-    comparison : RecordComparison
-        What separates it from the requested record.
+    requested : RunMetadata
+        The record of the run asked for.
 
     Returns
     -------
     str
-        What differs, and what to do instead: a new file for a layout change, a new
-        segment or ``resume="force"`` for a compared one.
+        What differs, and what to do instead.
     """
-    text = f"{path} cannot be resumed; {comparison.summary()}"
-    noise = stored.noise
-    if (
-        noise is not None
-        and noise.seed is not None
-        and any(change.path[:1] == ("noise",) for change in comparison.refused)
-    ):
-        text += (
-            f"\nThe stored run drew its {noise.model} noise from seed {noise.seed}: "
-            f"pass seed={noise.seed} to draw it again."
-        )
-    if any(change.path[:1] == ("materials",) for change in comparison.refused):
-        text += (
-            "\nNote that the material manifest differs: an optmat model is "
-            "compared by the digest of its numbers, and a material policy as recorded."
-        )
-    if comparison.layout:
-        return (
-            text + "\nThe layout of the stored arrays differs, which nothing continues "
-            "across: write a new file."
-        )
     return (
-        text + "\nTo change the physics, launch a new segment from a saved plane; to "
-        'continue in this file regardless, pass resume="force".'
+        f"{path} cannot be resumed; {stored.summarise_differences(requested)}.\n"
+        "A resume needs the same configuration hash: to change the physics or the "
+        "numerics, launch a new segment from a saved plane, or write a new file."
     )
-
-
-def _refuse_earlier_columns(file: h5py.File, path: Path | str) -> None:
-    """Refuse to continue a file whose ``absorbed_power`` has the earlier columns.
-
-    Parameters
-    ----------
-    file : h5py.File
-        The open file.
-    path : pathlib.Path or str
-        Its path, named in the refusal.
-
-    Raises
-    ------
-    OutputError
-        As :func:`solprop.output.schema.refuse_earlier_absorbed_power` documents.
-    """
-    refuse_earlier_absorbed_power(
-        path,
-        [
-            _dataset(file, name).shape
-            for name in ("stats/absorbed_power", "step_stats/absorbed_power")
-            if name in file
-        ],
-    )
-
-
-def _stored_stat_shapes(path: Path | str) -> dict[str, tuple[int, ...]]:
-    """Return the shape one plane's entry of each stored statistic has.
-
-    Parameters
-    ----------
-    path : pathlib.Path or str
-        The file.
-
-    Returns
-    -------
-    dict
-        Each ``stats/<name>`` dataset's shape without its plane axis; empty for a
-        file that has saved no plane.
-    """
-    with h5py.File(path, "r") as file:
-        stats = file.get("stats")
-        if not isinstance(stats, h5py.Group):
-            return {}
-        return {
-            str(name): tuple(int(size) for size in dataset.shape[1:])
-            for name, dataset in stats.items()
-            if isinstance(dataset, h5py.Dataset)
-        }
 
 
 def check_cache(path: Path | str, metadata: RunMetadata) -> bool:
     """Say whether a file may be continued as the run ``metadata`` describes.
 
-    The resume gate (SEP 42). The two records are compared path by path
-    (:meth:`~solprop.output.schema.RunMetadata.compare`): the layout of the stored
-    arrays and every compared value -- physics and launch parameters -- must agree,
-    numbers to a rounding-level tolerance; the numerics (``rtol``, the integrator) may
-    differ, and provenance (package and optmat versions, model names) is ignored. A
-    refusal names what differs. The checks that depend on the file's state, such as
-    whether any work is left, are the driver's.
+    The resume gate (ADR-066): the two records' configuration hashes must be equal. A
+    refusal names the fields that differ. The checks that depend on the file's state,
+    such as whether any work is left, are the driver's.
 
     Parameters
     ----------
@@ -2081,10 +1956,9 @@ def check_cache(path: Path | str, metadata: RunMetadata) -> bool:
     Raises
     ------
     OutputError
-        If the file's layout or a compared value differs, or it was written at
-        another output schema; or if the file's general modal record names an
-        accessor this build no longer admits (``_check_accessors``). An optmat model
-        whose numbers changed is named by its material and kind.
+        If the hashes differ, or the file was written at another output schema; or
+        if the file's general modal record names an accessor this build no longer
+        admits (``_check_accessors``).
 
     Examples
     --------
@@ -2093,13 +1967,15 @@ def check_cache(path: Path | str, metadata: RunMetadata) -> bool:
     >>> check_cache("no-such-file.h5", _example_metadata())
     False
     """
-    found = _compare_cache(path, metadata)
-    if found is None:
+    if not Path(path).exists():
+        logger.debug("no cache at %s; starting from the beginning", path)
         return False
-    stored, comparison = found
-    if comparison.continues:
+    stored, _ = _stored_metadata(path)
+    _check_plasma_benchmark(stored)
+    _check_accessors(path, stored, metadata)
+    if stored.configuration_hash() == metadata.configuration_hash():
         return True
-    raise OutputError(_resume_refusal(path, stored, comparison))
+    raise OutputError(_resume_refusal(path, stored, metadata))
 
 
 def _check_plasma_benchmark(metadata: RunMetadata) -> None:
@@ -2294,7 +2170,6 @@ def resume(path: Path | str) -> ResumeState:
     metadata, _ = _stored_metadata(path)
     _check_plasma_benchmark(metadata)
     with h5py.File(path, "r") as file:
-        _refuse_earlier_columns(file, path)
         checkpoint = _read_checkpoint(file, metadata)
         outcome = _read_outcome(file)
         n_saved = _stored_counts(file)[0] if "z" in file else 0
@@ -2407,12 +2282,6 @@ def open_file(path: Path | str) -> HDF5Output:
     OutputError
         If the file cannot be opened, or carries no metadata.
 
-    Warns
-    -----
-    SolpropWarning
-        Once, for a file a session continued with ``resume="force"``, naming where
-        (SEP 42 section 5.5).
-
     Examples
     --------
     >>> import numpy as np, tempfile
@@ -2440,16 +2309,4 @@ def open_file(path: Path | str) -> HDF5Output:
     >>> shape, planes, stored.closed
     ((1, 1, 1, 2560), 1, True)
     """
-    handler = HDF5Output(path, readonly=True)
-    outcome = handler.outcome
-    forced = () if outcome is None else outcome.forced_positions
-    if forced:
-        where = ", ".join(f"{z:.6g}" for z in forced)
-        warnings.warn(
-            f"{path} was continued with resume='force' at z = {where} m: past there "
-            "its record does not describe its planes. stats/* hold; anything rebuilt "
-            "from the record does not, and those planes are not exchanged",
-            SolpropWarning,
-            stacklevel=2,
-        )
-    return handler
+    return HDF5Output(path, readonly=True)

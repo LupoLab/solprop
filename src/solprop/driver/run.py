@@ -321,7 +321,6 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
     snapshots: SnapshotController | None = None,
     tdse_archive: TDSEArchiveWriter | None = None,
     boundary_monitor: BoundaryMonitor | None = None,
-    resume_record: Mapping[str, object] | None = None,
     stop: StopFlag | None = None,
     recipe: RecipeRecord | None = None,
     held_plane: bool = False,
@@ -405,11 +404,6 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
         the execution record at every save plane without the per-plane rows, which
         the closing record (complete, failed or out of budget) carries, and its removed
         fraction is reported at the end. ``None`` watches nothing.
-    resume_record : collections.abc.Mapping or None, optional
-        The ``resume`` entry of a session that continues a file across differences
-        from its record (SEP 42 section 5.3): every execution record this session
-        writes carries it, from the first, written before any step, so a session
-        that stops or fails still leaves it. ``None`` records none.
     stop : solprop.log.StopFlag or None, optional
         The run's own stop flag, any object with an ``is_set()`` method (SEP 41,
         S17). It is polled before the first step, before every trial step and between
@@ -510,9 +504,6 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
         backend,
         tdse_binding,
     )
-    if resume_record is not None:
-        # Only a file resume carries an entry, and its handler is an HDF5Output.
-        cast("PlaneStore", output).record_resume(resume_record)
     if recipe is not None and isinstance(output, PlaneStore):
         with committing():
             output.record_recipe(recipe)

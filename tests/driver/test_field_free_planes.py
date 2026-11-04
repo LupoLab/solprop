@@ -539,6 +539,7 @@ def test_the_low_storage_march_holds_its_field_free_plane_with_its_noise_phase()
     problem = simulation.translate()
     backend = NumpyRefBackend(problem, grid=simulation.grid)
     try:
+        backend.set_held_plane(True)
         backend.set_initial(problem.initial.field0, None)
         assert backend.held_observation() is None
         backend.propagate_to(float(PLANES[0]))

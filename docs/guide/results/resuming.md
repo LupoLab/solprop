@@ -4,75 +4,28 @@ Continue a saved calculation only when the saved state and the requested problem
 
 ## What a resume compares
 
-A resume asks whether continuing the stored state with the requested problem gives the
-run the user asked for. Solprop answers it by comparing the file's run record with the
-record of the run about to start, path by path
-({py:meth}`~solprop.output.schema.RunMetadata.compare`,
-[SEP 42](../../dev/seps/archive/sep-0042-tolerant-resume.md)). Every recorded path belongs to
-one of four classes:
+A resume continues a file exactly when the file's configuration hash equals the hash of
+the run about to start ([ADR-066](../../dev/decisions.md)). Otherwise it is refused, by
+naming the fields that differ. There is no override: to change the physics or the numerics,
+[launch a new segment from a saved field](interior-launch.md) or write a new file.
 
-| Class | What it holds | A difference |
-|---|---|---|
-| layout | what gives the stored arrays their meaning: the grid, the save planes, the launch position, the mode count and labels, the transverse axes, the quadrature counts, the noise model, the precision | refuses, with no override |
-| compared | physics and launch parameters: everything no row classifies | refuses, unless the resume is forced |
-| numerics | how accurately the run steps: the stepper record (`rtol`, the integrator, the step limits) and the propagator mode | continues while there is work left, with a warning, and is recorded |
-| ignored | provenance -- the optmat version, model names, statuses, sources, citations -- and a launch realisation whose parameters are compared | nothing |
+So a resume is for carrying on the same run, with the same solprop and the same libraries,
+after a stop, a crash or a requeue. **These are all refused:**
 
-The table is {py:data}`~solprop.output.compatibility.CLASS_TABLE`; a path no row
-classifies is compared, so a field nobody has classified is held to agreement.
+- a changed tolerance or integrator, in either direction;
+- a changed launch, pulse or noise seed;
+- an optmat release, even one that moved no number the run uses, since the optmat version
+  is in the key;
+- a solprop release or commit that adds a recorded field or moves a recorded number;
+- another platform, whose mathematics library or FFT moves the last bits of a recorded
+  number (a resume across CPU types on one platform is meant to continue: see
+  [the resume key](#the-resume-key)).
 
-**Numbers** agree element by element when
-$|a_i - b_i| \le \varepsilon \max(|a_i|, |b_i|)$ with
-$\varepsilon = 10^{-11}$ ({py:data}`~solprop.output.compatibility.RECORD_RTOL`), the
-largest departure a change of libm, BLAS or compiler makes among a record's numbers. The
-test is per element because one array may hold different quantities: the dispersion
-coefficients `[β2, β3, β4]` span eighteen orders of magnitude, and a change of β4 is
-seen. A few arrays with tails of rounding -- an array launch, a passed-in noise
-realisation, the absorber's rates -- add a floor of $\varepsilon$ times their largest
-element. The save planes, the length and the launch position are compared exactly,
-since a resume does exact arithmetic on them. So a run resumes on another platform, or
-after an upgrade that moved a derived table in its last bits.
+Hashing is exact, and a record has no tolerance: a difference in a number's last bit
+refuses, and the refusal names that number.
 
-**A path one record lacks** is a difference, unless a release declared its *neutral
-value*, the value that reproduces the code before the path existed
-({py:data}`~solprop.output.compatibility.NEUTRAL_VALUES`). A field's default is
-deliberately not consulted: a new field that changes what runs compute would otherwise
-agree with itself. A stored record is read as it was written, so a file from another
-release of the same output schema is read, and resumes if the comparison allows it.
-
-**Materials** are compared by the digest of each optmat model's numbers, keyed by
-material, kind and digest, so a model renamed or re-graded with the same numbers is the
-same model, and an optmat release that changed no number a run uses continues it. A model
-whose numbers changed is refused by name, `optmat model Ar gas_refractive (digest
-f0efa785e42d) only in the stored run`, and the material policies are compared as
-recorded.
-
-**The launch.** A launch built from a pulse records both the pulse and the realised
-field; the field is ignored, since the stored state supersedes it, and the pulse is
-compared. A changed pulse energy is therefore refused: a script that changed its pulse
-and kept its output path is more likely a mistake than a wish to continue the old run.
-An array launch has no other record, and its array is compared, by its digest above 2²⁰
-elements, or by the string its caller stated with `input_identity`, which is compared
-as given and so passes for any array stated alike. Input noise drawn from
-a recorded seed is compared by its model and seed; a realisation passed in, and modified
-noise, which acts at every step, are compared by their spectra.
-
-### The verdict
-
-What a resume does depends on the differences and on whether the file has work left: a
-save plane ahead of it, or a terminal checkpoint still owed its plane. That is decided by
-position, not status, so a file killed after its last plane has none.
-
-| The differences | `resume=True`, work left | `resume=True`, finished | `resume="force"` |
-|---|---|---|---|
-| none, or only rounding and neutral values | continues | returned, if every session ran under these numerics | as `resume=True`, and accepts an interpolated last plane |
-| numerics | continues, warned and recorded | refused: nothing would be computed | as `resume=True` |
-| compared | refused | refused | continues if work is left, marked, with the Adams history restarted |
-| layout, or the statistics do not fit | refused | refused | refused |
-| a session already forced the file | refused, naming the position | returned, with a warning | continues if work is left |
-
-{py:func}`~solprop.output.hdf5.check_cache` is the comparison's gate; the decisions that
-need the file's state are the driver's:
+{py:func}`~solprop.output.hdf5.check_cache` is the gate; whether any work is left is the
+driver's to decide:
 
 ```{code-block} python
 from solprop.output import check_cache, resume
@@ -82,99 +35,40 @@ if check_cache("run.h5", metadata):        # False when there is no file
     start_from(state.plane)                # already back in the FFT convention
 ```
 
-A refusal raises {py:class}`~solprop.exceptions.OutputError` naming what differs, by
-class and by part of the record, an array as one entry with its count and largest
-difference, and says what to do instead:
+A refusal raises {py:class}`~solprop.exceptions.OutputError` naming every part of the
+record that changed, with an array as one entry and its count, and says what to do instead:
 
 ```text
-OutputError: run.h5 cannot be resumed; these compared values differ:
-  configuration: medium.shared_pressure.values (257 elements, largest 0.2), ...
-To change the physics, launch a new segment from a saved plane; to continue in this
-file regardless, pass resume="force".
+OutputError: run.h5 cannot be resumed; these fields changed: stepper.controller.rtol.
+A resume needs the same configuration hash: to change the physics or the numerics, launch
+a new segment from a saved plane, or write a new file.
 ```
 
-### Changed numerics
+A `source=` simulation given to {py:func}`~solprop.processing.planes.field_plane` is held
+to the same rule, since it has to be the run that wrote the file.
 
-An unfinished run continues under a changed tolerance or integrator:
+### The verdict
 
-```{code-block} python
-sim = Simulation.from_capillary(..., rtol=1e-6)
-sim.run("run.h5")                       # stopped part-way
+With equal hashes, what a resume does depends on whether the file has work left: a save
+plane ahead of it, or a terminal checkpoint still owed its plane. That is decided by
+position, not status, so a file killed after its last plane has none.
 
-sim = Simulation.from_capillary(..., rtol=1e-5)
-sim.run("run.h5", resume=True)
-# SolpropWarning: resuming run.h5 at z = 0.0412 m with changed numerics;
-#   the numerics changed: stepper: controller.rtol 1e-06 -> 1e-05
-```
+| The file | `resume=True` | `resume="interpolated"` |
+|---|---|---|
+| has work left | continues | continues |
+| has work left, from a plane interpolated inside a step | refused | continues afresh from that field |
+| is finished | returned, nothing computed | returned, nothing computed |
 
-The continued run is two adaptive integrations from one state, each held to its own
-tolerance, so it is no better than the looser of the two. The session records how it
-continued in a `resume` entry of its execution record, written before any step:
-
-```text
-{"from_z": 0.0412, "from_plane": 82, "forced": false,
- "numerics": {"stepper.controller.rtol": [1e-06, 1e-05]},
- "compared": "", "neutral": []}
-```
-
-{py:attr}`~solprop.output.schema.RunOutcome.resumes` reads every session's entries back.
-A finished file is returned only when every session ran under the requested numerics:
-a tightened `rtol` never hands back the loose result, and a file finished under another
-tolerance than it started with matches neither. Write a new file instead. A run moving
-from the Adams integrator to Runge--Kutta keeps its charged call ledger in the earlier
-execution record, and an Adams history continues across a changed call budget or safety
-factor, since only the formulation, the carrier frame and the highest order define it
-({py:attr}`~solprop.stepper.multistep.Multistep.history_key`).
-
-### Forcing a resume
-
-`resume="force"` continues in the same file across compared differences, whenever the
-layout agrees, the statistics fit and there is work left. It is for a user who knows
-why the records differ: a corrected optmat model on a long run, a release that moved a
-derived table, a change of physics they mean.
-
-```{code-block} python
-sim = Simulation.from_capillary(..., pressure=1.2)
-sim.run("run.h5", resume="force")
-# SolpropWarning: forcing a resume of run.h5 at z = 0.0412 m; these compared values
-#   differ: configuration: medium.shared_pressure.values (257 elements, largest 0.2), ...
-#   The Adams history starts afresh. From here the file's record does not describe its
-#   planes: stats/* hold, and anything rebuilt from the record does not.
-```
-
-- The state comes from the stored plane, and the Adams history starts afresh: the
-  snapshot was stepped under the other physics.
-- Before any step, the backend's statistics are checked against the file's `stats/*`,
-  so force cannot change the number of species or turn plasma on or off, and a refused
-  force writes nothing.
-- The session's `resume` entry says `"forced": true` and holds the compared differences
-  as text. It is written before any step, so a stopped or failed force leaves its mark.
-- The file's record is never rewritten: it describes the run as first written. From the
-  forced position on it does not describe the planes. `stats/*` hold, because the
-  requested problem wrote them; anything rebuilt from the record does not.
-- The mark is respected. `resume=True` refuses a forced file with work left, naming the
-  position, and returns a finished one with a warning; only `resume="force"` continues
-  it. {py:func}`~solprop.processing.planes.field_plane` refuses a plane beyond the position,
-  `source=` included. The peak-field report reads only the forced session's planes.
-  {py:func}`~solprop.output.hdf5.open_file` warns once.
-- A mistyped value of `resume` is a `ValueError`; scans have no `resume` and never
-  force.
-
-**Force or a new segment.** {py:meth}`~solprop.driver.simulation.Simulation.with_input` from the
-last plane records a changed physics properly, in its own file, and that file can be
-coupled onward and processed from its record. Force keeps the same file, cumulative
-call ledgers, modified noise and fixed schedules, at the cost of a record that stops
-describing the later planes. Anything that will be coupled onward or processed from the
-record takes {py:meth}`~solprop.driver.simulation.Simulation.with_input`
-([starting from a saved interior field](interior-launch.md)).
+Any other value of `resume` is a `ValueError`. A scan has no `resume`, and rules on its
+points by the same hash ([scans](../workflows/scans.md)).
 
 ### The resume key
 
-The record a resume compares is the hashed part of the run record,
-{py:meth}`~solprop.output.schema.RunMetadata.hashed`, whose digest
-{py:meth}`~solprop.output.schema.RunMetadata.configuration_hash` is stamped in every
-file; the stamp tells whether the file is intact, and the exact checks of a suspended
-writer, a snapshot and a scan row compare it.
+The hash a resume compares is
+{py:meth}`~solprop.output.schema.RunMetadata.configuration_hash`, the digest of the hashed
+part of the run record, {py:meth}`~solprop.output.schema.RunMetadata.hashed`. It is stamped
+in every file; the stamp tells whether the file is intact, and a suspended writer, a
+snapshot and a scan row compare it too.
 
 The record holds the schema version, the grid, the modes, the configuration, the noise,
 the stepper settings, the material manifest's identities and policies, the stepping
@@ -187,7 +81,10 @@ plasma integrates by the band rule
 rule in its configuration as `plasma_integration`. The record holds the policy, `K`,
 $\theta_b$, the taps at full precision, the certified error, and the boundary and
 exposure policies. A resume that would integrate the plasma differently is therefore
-refused. The file's root attributes repeat it as `plasma_integration`,
+refused, though the taps and the certified error stay out of the key: `dt` and the band
+edge determine them, through a least-squares fit whose last digits follow the BLAS kernel,
+so that a job requeued onto a node with another CPU type continues. The file's root
+attributes repeat it as `plasma_integration`,
 `plasma_integration_half_width`, `plasma_integration_theta_b`, `plasma_integration_taps`
 and `plasma_integration_certified_error`. A field-plasma run also records its
 held-current source equation under `configuration.plasma_source`, whose certificate
@@ -211,22 +108,23 @@ and its breakpoints, so a run never resumes under another gate or window
 ([the edge-free gated source](../media/tdse.md#the-edge-free-gated-source)).
 
 Four things are deliberately outside it: the wall-clock start time, the package
-versions, the git provenance and the backend record. A NumPy upgrade, an unrelated commit
-or a change of backend must not refuse to resume a run that is otherwise the same run.
-So is the boundary check's budget and guard width: a run stopped at the time window's
+versions, the git provenance and the backend record. An unrelated commit or a change of
+backend does not refuse to resume a run that is otherwise the same run, and nor does a
+library upgrade, as long as it moves no number the record holds. So is the boundary
+check's budget and guard width: a run stopped at the time window's
 edge may be resumed under a relaxed check, and its monitor's record continues across the
 resume ([watching the window's edges](../numerics/boundaries.md#watching-the-windows-edges)).
 Only the quiet-collar opt-in, which changes what the stages compute, is part of the key.
 
-The output schema is in the record too, but not in the comparison: a file of another
-output schema is not read at all ([the schema version](output.md#the-schema-version)).
+A file of another output schema is not read at all
+([the schema version](output.md#the-schema-version)).
 
 ### Noise drawn without a seed
 
 A call without `seed=` draws fresh operating-system entropy each time it is built
 ([reproducibility](../media/noise.md#reproducibility)). So that re-running the same call
 with `resume=True` continues its own file, a realisation the constructor drew without a
-seed is drawn again from the seed the file recorded before the records are compared,
+seed is drawn again from the seed the file recorded before the hashes are compared,
 and the run logs that it did. This covers the default noise of `prop_gnlse`,
 `prop_capillary`, `prop_waveguide` and `prop_radial` and an explicit `noise="input"` or
 `"modified"` given without a seed. A seed the call gives, or a realisation it passes in,
@@ -234,9 +132,8 @@ is never replaced: a resume that differs in it is refused, and the refusal names
 seed the file was drawn from (`pass seed=17 to draw it again`).
 
 To carry on in the same file by hand, build the handler with `append=True`: it opens the
-file read-write instead of replacing it, compares the record offered with the file's and
-refuses a layout or compared difference, keeps the file's own record and creation time as
-its own, and numbers the next plane and the next attempt where the file left off.
+file read-write instead of replacing it, refuses a record offered with another hash, keeps
+the file's own record and creation time as its own, and numbers the next plane and the next attempt where the file left off.
 
 ## Resuming from the file alone
 
@@ -244,12 +141,12 @@ A run built from a [recipe](../setup/recipes.md) records it in its output, and t
 then resumes without the script that made it:
 
 ```text
-solprop resume run.h5 [--interpolated | --force]
+solprop resume run.h5 [--interpolated]
 ```
 
 or `solprop.recipe.resume_file(path, mode=True)` from Python. The simulation is rebuilt
-from the file's resolved recipe and continued with `resume=mode`, so the comparison above
-decides, and records any difference, as for any resume. A file written from a script
+from the file's resolved recipe and continued with `resume=mode`, so the hash decides, as
+for any resume. A file written from a script
 records no recipe, and its script resumes it.
 
 **Resuming a file runs the setup it holds.** A file from someone else is a program to
@@ -274,13 +171,13 @@ print(answer.resumable, answer.z, answer.mode)
 print(answer.reason)
 # "stored", "none" (a file from a script) or "newer".
 print(answer.recipe)
-# What a resume would compare, at the cost of a rebuild.
-print(resumability("run.h5", gate=True).comparison)
+# What a resume would refuse over, at the cost of a rebuild: empty if nothing.
+print(resumability("run.h5", gate=True).differences)
 ```
 
-`mode` is `"force"` for a file a forced session wrote and `"interpolated"` when its last
-plane lies inside a step. `gate=True` rebuilds the run from its recipe and compares the
-records, so a moved optmat digest shows before a resume is tried.
+`mode` is `"interpolated"` when its last plane lies inside a step. `gate=True` rebuilds the
+run from its recipe and compares the hashes, so a new optmat release shows before a resume
+is tried.
 
 ### Stopping a run
 
@@ -541,8 +438,6 @@ Snapshots never claim that propagation finished. Even one taken at the requested
 end is a `running` endpoint; the normal resume workflow establishes completion.
 Independent resumed computations meet the repository's accuracy-envelope policy;
 stored copies, history arrays and structural identifiers remain exact.
-
-The design is [SEP 42](../../dev/seps/archive/sep-0042-tolerant-resume.md).
 
 Resuming a run from its file and the recipe it records were proposed and carried out by
 [SEP 41](../../dev/seps/archive/sep-0041-recipes-and-front-ends.md).

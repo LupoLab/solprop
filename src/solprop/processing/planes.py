@@ -42,7 +42,7 @@ from solprop.exceptions import CouplingError, OutputError, ProcessingError
 from solprop.grid import FreeGrid, LineGrid, RadialGrid, TimeGrid
 from solprop.modes.guide import ModalGuide
 from solprop.modes.protocol import Mode
-from solprop.output.schema import Output, RunMetadata, RunOutcome
+from solprop.output.schema import Output, RunMetadata
 from solprop.processing.axes import _plane_field, grid_of
 from solprop.processing.modal import _checked_tables, _plane_rule, _spectra
 from solprop.spatial import SpatialFlux, SpatialMedium
@@ -291,9 +291,7 @@ def _spatial_metric(
 def _check_source(metadata: RunMetadata, record: RunMetadata) -> None:
     """Refuse a ``source=`` simulation that did not write this output.
 
-    By the resume comparison (SEP 42): the layout and every compared value must agree,
-    numbers to a rounding-level tolerance; numerics and provenance may differ, since
-    they do not change what the source rebuilds. Equal digests pass at once.
+    As a resume does (ADR-066): the two records' configuration hashes must be equal.
 
     Parameters
     ----------
@@ -305,13 +303,12 @@ def _check_source(metadata: RunMetadata, record: RunMetadata) -> None:
     Raises
     ------
     ProcessingError
-        If the records differ in the layout or a compared value.
+        If the hashes differ; the message names what changed.
     """
-    comparison = metadata.compare(record)
-    if not comparison.continues:
+    if metadata.configuration_hash() != record.configuration_hash():
         msg = (
             "source= is not the simulation that wrote this output; "
-            f"{comparison.summary()}"
+            f"{metadata.summarise_differences(record)}"
         )
         raise ProcessingError(msg)
 
@@ -489,8 +486,7 @@ def field_plane(
     ProcessingError
         If the output holds no record or no plane reference, both `plane` and `z`
         are given, the selection names no stored plane, the run is planar or used
-        the modified noise model, the plane lies beyond a forced resume
-        (``resume="force"``), or `source` is not the run that wrote it.
+        the modified noise model, or `source` is not the run that wrote it.
 
     Examples
     --------
@@ -531,18 +527,6 @@ def field_plane(
         msg = f"give a plane index or a position, not both: plane={plane}, z={z}"
         raise ProcessingError(msg)
     index, position = _selected(output, plane, z)
-    outcome = getattr(output, "outcome", None)
-    forced = () if not isinstance(outcome, RunOutcome) else outcome.forced_positions
-    if forced and position > forced[0]:
-        # The record describes the run as first written; past a forced resume it
-        # does not describe the planes, and a downstream run would record its
-        # reference frame and hash as its parent's (SEP 42 section 5.5).
-        msg = (
-            f"the plane at z = {position:.6g} m lies beyond the forced resume at "
-            f"z = {forced[0]:.6g} m, past which the file's record does not describe "
-            "its planes: its reference and identity cannot be exported"
-        )
-        raise ProcessingError(msg)
     samples = _plane_field(output, index, None, convention="optics")
     grid = grid_of(output)
     route, identity = _recorded_basis(metadata, position)

@@ -23,13 +23,11 @@ import numpy as np
 from solprop.driver._scan_model import Scan
 from solprop.exceptions import OutputError, ProcessingError
 from solprop.output._scan_lock import read_scan, write_scan
-from solprop.output.compatibility import RecordComparison
 from solprop.output.hdf5 import _dataset, _group, write_recipe
 from solprop.output.schema import (
     RecipeRecord,
     RunMetadata,
     _refuse_schema,
-    refuse_earlier_absorbed_power,
     serialise,
 )
 
@@ -255,7 +253,6 @@ class ScanWriter:
                 # The schema first: a scan of another release is refused by the
                 # output schema its records declare, not by its axes.
                 _refuse_other_schemas(self.file)
-                _refuse_earlier_columns(self.file, self.path)
                 if self.file.attrs.get("identity") != _hash(description):
                     raise OutputError(
                         "scan axes, root seed or retention contract changed"
@@ -401,22 +398,11 @@ class ScanWriter:
         Raises
         ------
         OutputError
-            If a cached configuration differs in more than rounding, neutral values
-            and provenance, a completed point would be demoted, or numerical results
-            are not finite.
+            If a cached configuration differs, a completed point would be demoted, or
+            numerical results are not finite.
         """
         if result.status == "conflict":
-            comparison = self._comparison(result)
-            if comparison is not None and comparison.identical:
-                # A finished point whose record differs only in rounding, neutral
-                # values or provenance is the same point (SEP 42 section 5.7).
-                logger.info(
-                    "point %d: its stored record agrees with the new one but for "
-                    "rounding, neutral values or provenance; reused",
-                    result.index,
-                )
-                return
-            raise OutputError(self._conflict(result, comparison))
+            raise OutputError(self._conflict(result))
         if result.status == "skipped":
             return
         if result.status not in ("done", "failed"):
@@ -457,8 +443,8 @@ class ScanWriter:
         _dataset(file, "points/status")[result.index] = result.status
         file.flush()
 
-    def _comparison(self, result: PointResult) -> RecordComparison | None:
-        """Compare a conflicting point's stored record with its new one.
+    def _conflict(self, result: PointResult) -> str:
+        """Explain a refused reuse by what changed in the run record.
 
         Parameters
         ----------
@@ -467,40 +453,20 @@ class ScanWriter:
 
         Returns
         -------
-        solprop.output.compatibility.RecordComparison or None
-            The comparison, or ``None`` when either record is missing.
+        str
+            The worker's explanation, followed by what changed when both records can
+            be read: a scan with a changed record, a tolerance among it, writes to a
+            new file.
         """
         key = f"staged/{result.index}"
         if not result.metadata_json or key not in self.file:
-            return None
+            return result.error
         document = _expand(
             self.file, json.loads(str(_group(self.file, key).attrs["metadata_refs"]))
         )
         stored = RunMetadata.from_json(json.dumps(document))
-        return stored.compare(RunMetadata.from_json(result.metadata_json))
-
-    def _conflict(
-        self, result: PointResult, comparison: RecordComparison | None
-    ) -> str:
-        """Explain a refused reuse by what changed in the run record.
-
-        Parameters
-        ----------
-        result : PointResult
-            The conflict a worker reported.
-        comparison : solprop.output.compatibility.RecordComparison or None
-            The comparison of its stored and new records, when both could be read.
-
-        Returns
-        -------
-        str
-            The worker's explanation, followed by what changed, by class: a changed
-            tolerance among it, since a finished point has nothing left to continue
-            and a scan with changed numerics writes to a new file.
-        """
-        if comparison is None:
-            return result.error
-        return f"{result.error}; {comparison.summary()}"
+        new = RunMetadata.from_json(result.metadata_json)
+        return f"{result.error}; {stored.summarise_differences(new)}"
 
     def _stage(self, result: PointResult) -> None:
         """Write recoverable point arrays and references to common metadata.
@@ -866,32 +832,6 @@ def _refuse_point_schema(file: h5py.File, index: int, document: object) -> None:
         _refuse_schema(_expand(file, declared))
     except OutputError as error:
         raise OutputError(f"scan point {index}: {error}") from None
-
-
-def _refuse_earlier_columns(file: h5py.File, path: Path) -> None:
-    """Refuse to add a point to a scan whose ``absorbed_power`` has the earlier columns.
-
-    A scan's points stack into one array, so a point of five columns cannot join them.
-
-    Parameters
-    ----------
-    file : h5py.File
-        Open scan file.
-    path : pathlib.Path
-        Its path, named in the refusal.
-
-    Raises
-    ------
-    OutputError
-        As :func:`solprop.output.schema.refuse_earlier_absorbed_power` documents.
-    """
-    shapes = [
-        _dataset(group, name).shape
-        for group in _group(file, "staged").values()
-        for name in ("stats/absorbed_power", "step_stats/absorbed_power")
-        if name in group
-    ]
-    refuse_earlier_absorbed_power(path, shapes)
 
 
 def _refuse_other_schemas(file: h5py.File) -> None:

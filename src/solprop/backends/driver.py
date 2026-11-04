@@ -961,9 +961,8 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         Non-TDSE backends inherit logical budget persistence while refusing atomic
         counts. The caller first loads the saved field, which resets Adams history;
         the next source evaluation charges startup against these cumulative counts. A
-        run continued under a Runge-Kutta or low-storage march keeps no logical
-        ledger: the counts stay in the earlier execution records as provenance and are
-        not installed (SEP 42 section 5.6).
+        Runge-Kutta or low-storage march keeps no logical ledger, so nothing is
+        installed for it.
 
         Parameters
         ----------

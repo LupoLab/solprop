@@ -579,22 +579,20 @@ def test_a_record_of_another_output_schema_is_refused_by_name(
         RunMetadata.from_json(json.dumps(document))
 
 
-def test_a_stored_record_missing_an_entry_reads_and_compares_by_path(
+def test_a_stored_record_missing_an_entry_reads_and_differs_by_path(
     envelope_grid, stepper
 ):
-    # Another release of this schema may lack an entry: the record reads, as written,
-    # and a resume refuses it by the path it lacks (SEP 42 section 5.4), not by the
-    # first rebuild that trips over it.
+    # Another build of this schema may lack an entry: the record reads, as written, and
+    # a resume refuses it by the path it lacks, not by the first rebuild that trips
+    # over it.
     metadata = make_metadata(envelope_grid, stepper)
     document = json.loads(metadata.to_json())
     del document["initial_z"]
     stored = RunMetadata.from_json(json.dumps(document))
     assert stored.initial_z == 0.0
     assert "initial_z" not in stored.hashed()
-    comparison = stored.compare(metadata)
-    assert [change.path for change in comparison.layout] == [("initial_z",)]
-    assert comparison.layout[0].absent == "stored"
-    # A required field of a record class with no neutral value is refused by path.
+    assert stored.differences(metadata) == ("initial_z",)
+    # A required field of a record class is refused by path.
     document = json.loads(metadata.to_json())
     del document["grid"]["n_t"]
     with pytest.raises(OutputError, match=r"lacks grid\.n_t"):

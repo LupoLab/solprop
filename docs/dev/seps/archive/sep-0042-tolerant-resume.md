@@ -18,6 +18,8 @@
 | **Implementation** | Complete 2026-11-01: John Travers, with Opus 5.5, on `feature/sep-0042-tolerant-resume`; phases 1 and 2 (Part II) |
 | **Manual pages** | [Resuming a calculation and checking compatibility](../../../guide/results/resuming.md); [output: the schema version](../../../guide/results/output.md#the-schema-version); [scans](../../../guide/workflows/scans.md) |
 
+**Note, 2026-11-04:** [ADR-066](../../decisions.md) replaced this design: a resume now continues on an exact configuration hash, and `resume="force"` is gone. This page records what was done at the time.
+
 ## Part I — Proposal
 
 ### 1. Abstract
