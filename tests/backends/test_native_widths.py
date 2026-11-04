@@ -244,7 +244,10 @@ def _route(route, kind="envelope"):
     if route == "line":
         return _simulation(kind, LineGrid(4e-4, 48), 2)
     assert route == "planar"
-    grid, _, problem = planar_case("kerr", steps=0)
+    # The field grid's time is padded, which a slab's fluence has to scale away.
+    grid, _, problem = planar_case(
+        "kerr" if kind == "envelope" else "field-kerr", steps=0
+    )
     return grid, dataclasses.replace(problem, stats_spec=StatsSpec(names=WIDTHS))
 
 
@@ -309,10 +312,40 @@ def test_a_separable_fluence_is_the_reference_s_at_every_node(monkeypatch, route
 
 
 @native_only
-def test_a_planar_fluence_is_the_reference_s_at_every_node(monkeypatch):
+@pytest.mark.parametrize("kind", ["envelope", "field"])
+def test_a_planar_fluence_is_the_reference_s_at_every_node(monkeypatch, kind):
     # The hybrid kind's guide has real dispersion across its slab orders, so its bound
     # need not be nearly tight. It is only held to bound the reference's from above.
-    _check_fluence(monkeypatch, "planar", "envelope")
+    _check_fluence(monkeypatch, "planar", kind)
+
+
+@native_only
+@pytest.mark.parametrize("kind", ["envelope", "field"])
+@pytest.mark.parametrize("route", ["plane", "plane_scalar"])
+def test_a_plane_s_moments_bound_the_refusal_as_its_fluence_does(route, kind):
+    # What a plane's refusal scales by is in its moments, and its width comes out the
+    # same whatever that is unless a negative lobe is near it: flag 16's value is held to
+    # the reference's, so flag 32's is held to that.
+    grid, problem = _route(route, kind)
+    field = _field_for(route, grid, problem)
+    backend = select("native", problem, grid=grid)
+    try:
+        backend.set_initial(field, None, z=0.0)
+        state = backend._native_state  # pyright: ignore[reportAttributeAccessIssue]
+        fluence = np.ravel(state.spatial_statistics(16, 0.5 * EPS0 * C, 0.0))
+        moments = np.ravel(state.spatial_statistics(32, 0.5 * EPS0 * C, 0.0))
+    finally:
+        backend.close()
+    n_nodes = problem.transform.n_nodes
+    largest = fluence[n_nodes + 1]
+    assert largest > 0.0
+    assert moments[2] == pytest.approx(largest, rel=1e-12, abs=0.0)
+    # And the fluence's own largest value and most negative one, the refusal's input.
+    assert moments[3] == pytest.approx(np.max(fluence[:n_nodes]), rel=1e-12, abs=0.0)
+    assert moments[0] == pytest.approx(
+        np.min(fluence[:n_nodes]), rel=1e-12, abs=1e-12 * largest
+    )
+    assert moments[1] == np.argmin(fluence[:n_nodes])
 
 
 def _check_axis(route):

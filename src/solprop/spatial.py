@@ -3193,6 +3193,11 @@ def ring_fluence_widths(
     tuple of float
         The first 1/e^2 radius and the FWHM in m, as :func:`radial_fluence_widths`
         defines them, with the first ring as the axis.
+
+    Raises
+    ------
+    GridError
+        With fewer than three radii, too few to find a width from.
     """
     _, radius_e2, width = radial_fluence_widths(
         radii[1:], averaged[1:], np.ones(radii.size - 1), float(averaged[0])

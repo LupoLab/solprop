@@ -14,6 +14,7 @@ the legacy statistic; and every route and backend that does not define them refu
 them by name.
 """
 
+import math
 import warnings
 from contextlib import closing
 from typing import cast
@@ -62,8 +63,8 @@ def table():
     return build_rate_table(adk_oracle(Gas.Ar), (1e9, 2e11))
 
 
-def argon(m=1):
-    return MarcatiliMode(125e-6, "Ar", 1.0, m=m, cladding=1.45, loss=False)
+def argon(m=1, phi=0.0):
+    return MarcatiliMode(125e-6, "Ar", 1.0, m=m, cladding=1.45, loss=False, phi=phi)
 
 
 def problem_on(grid, table, modes, rule, start=None):
@@ -334,6 +335,12 @@ def _axis_state(grid, name):
         return [argon()], built, 1.0
     if name == "two_polarisations":
         return [argon()], np.concatenate([built, 0.3j * built], axis=1), 1.0
+    if name == "rotated":
+        # A mode with field on the axis's y row, which `phi = 0` leaves at zero, so that
+        # a row dropping y would still read the same.
+        modes = [argon(phi=math.pi / 4)]
+        assert np.all(np.abs(_axis_row(modes)) > 0.0)
+        return modes, built, 1.0
     if name == "one_bin":
         # All the energy in the peak bin: a tone of the pulse's peak amplitude.
         tone = np.zeros_like(built)
@@ -350,7 +357,14 @@ def _axis_state(grid, name):
     return modes, np.concatenate([10 * built, 10 * second], axis=0), 19.0
 
 
-AXIS_STATES = ("one_mode", "two_polarisations", "one_bin", "two_modes", "cancelling")
+AXIS_STATES = (
+    "one_mode",
+    "rotated",
+    "two_polarisations",
+    "one_bin",
+    "two_modes",
+    "cancelling",
+)
 
 
 def _check_axis_row(grid, table, name):
