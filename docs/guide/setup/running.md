@@ -502,10 +502,15 @@ smaller array, which the record carries inline, is copied into it, and the simul
 runner was built from keeps its own input for as long as it lives. For a scan over large
 arrays, build that simulation from a broadcast, which holds one repeated block:
 
+
 ```{code-block} python
 placeholder = np.broadcast_to(np.zeros((1, 1, 1), dtype=np.complex128), shape)
 simulation = Simulation(grid, (), responses, placeholder, settings=settings, ...)
 ```
+
+Spell the call's keywords out too: when any argument is unpacked, Python keeps a call's
+positional arguments for as long as the call runs, so
+`runner.run(build_input(delay), **options)` holds the input through the march, one volume.
 
 `with_input` itself validates only what changed: the replaced input's shape, dtype and
 one finiteness pass, and the replaced noise's, with every other leaf of the translated

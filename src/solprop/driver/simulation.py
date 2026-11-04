@@ -453,7 +453,7 @@ _FIELD_RANGE_ABOVE = 30.0
 _PRESSURE_FORM_ENTRIES = 2
 """Entries in either of the two pair forms of the ``pressure`` keyword."""
 
-_RECIPE_EXECUTION = ("fields", "field_planes", "resume_history")
+_RECIPE_EXECUTION = ("fields", "field_planes", "resume_history", "held_plane")
 """The settings a recipe's ``[execution]`` table holds: a change of any other one drops
 the recipe, which would no longer describe the run (SEP 41, S2)."""
 
@@ -2342,8 +2342,8 @@ class Simulation(Displayed):
                     f"{', '.join(changed)} would be ignored; set the settings before "
                     "the first translate() or run(), or build a new Simulation (only "
                     "the backend, resume_history, fields, field_planes, the TDSE "
-                    "execution resources and boundary_check may change after "
-                    "translation)"
+                    "execution resources, boundary_check and held_plane may change "
+                    "after translation)"
                 )
                 raise DriverError(msg)
         if self._recipe is not None:

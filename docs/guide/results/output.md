@@ -147,19 +147,19 @@ A handler of your own takes field-free planes by declaring
 refuses a handler without it, by name.
 
 ```{code-block} python
-class Spectra:
-    """Keep each plane's far-field spectrum, for a run with fields="none"."""
+class Energies:
+    """Keep each plane's energy, for a run with fields="none"."""
 
     def retain(self, retention, field_shape):
         # Once per run: after open (and reserve, if it has one), before any save, and
         # for fields="all" too. Its rule is resolved against the run's planes.
-        if self.spectra and retention != self.rule:
+        if self.energies and retention != self.rule:
             raise OutputError("these planes were saved under another field rule")
         self.rule = retention
 
     def save(self, plane):
         # On a plane that keeps no field, plane.field and plane.noise_phase are None.
-        self.spectra.append(plane.stats["far_field_spectrum"])
+        self.energies.append(plane.stats["energy"])
 
     ...  # the rest of the Output protocol
 ```
