@@ -216,7 +216,7 @@ The long form is [SEP 0](docs/dev/seps/sep-0000-process.md); the index is
   starts and marked ready when the last commit sets `Final`; there are no per-phase pull
   requests. CI runs on every push to it and need not be green while it is a draft; a push
   that needs no run has `[skip ci]` in its head commit's message. The branch may start on
-  top of an open pull request's branch when pull requests are stacked behind CI. Within
+  top of another agent's open pull request, when the SEP needs that work first. Within
   each phase: `numpy_ref` and native CPU in `native/`, in either order (ADR-068), with
   tests and the manual page; `mlx` only where the SEP says so (the backend rules, below). A
   backend without the feature refuses it by name, never falls back silently; `Final`
@@ -479,6 +479,10 @@ The long form is [`testing.md`](docs/dev/testing.md).
   commits rather than one large one. Stage deliberately with `git add <paths>`.
 - Changes reach `main` as pull requests with green CI, or by a local merge when the
   maintainers ask for one.
+- **Few pull requests, few pushes.** CI runs its whole matrix on every push to every pull
+  request, so keep one agent's work in one pull request, or a few, rather than one per
+  step. Stack only on another agent's open pull request, when your work needs it before it
+  lands. Commit as often as you like and push in batches.
 - **Before opening an issue or a pull request,** read [`CONTRIBUTING.md`](CONTRIBUTING.md):
   search the issues, the pull requests and the SEPs, link what is related, and follow its
   sections and labels.

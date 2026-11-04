@@ -211,7 +211,7 @@ supersedes it. A return to `Draft` moves its roadmap listing back to the draft s
 An implementer picks up an accepted SEP with a commit that sets the status to
 `In progress` and records, in the **Implementation** field, who is implementing it and the
 branch. Every phase is made on that one branch, `feature/sep-NNNN-short-slug`, which may
-start on top of an open pull request's branch when pull requests are stacked behind CI.
+start on top of another agent's open pull request, when the SEP needs that work first.
 Push that commit and open the SEP's one pull request from it, as a draft titled
 `WIP: SEP N …` and linked from the tracking issue, so that CI can run during development
 and the work can be followed. Each phase is:
@@ -377,3 +377,6 @@ that edits this document and adds a line to its history.
   implementation starts, not when the SEP is set `Final`, so that CI can run during
   development and the work can be followed; it is marked ready at `Final` (maintainer's
   decision, already the practice on SEP 40 and SEP 41).
+- 2026-11-04: A SEP's branch stacks only on another agent's open pull request, and one agent's
+  work isn't divided across a stack, since every pull request and push runs CI's whole
+  matrix (maintainer's decision).
