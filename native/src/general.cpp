@@ -5353,10 +5353,21 @@ double GeneralWorkspace::low_storage_step(const double dz, const TrialScalars& s
   stages_ready_ = false;
   stash_is_current_ = false;
   execution_space_.fence("solprop_native low-storage step");
-  const auto host = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace{}, partials_);
   double total = 0.0;
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
+  // One number crosses, not the whole of the partials' table.
+  const auto partials = partials_;
+  launch::parallel_reduce(
+      "solprop_native.low_storage.norm_total",
+      Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, problem_.n_columns()),
+      KOKKOS_LAMBDA(const std::size_t column, double& sum) {
+        sum += partials(0, column);
+      },
+      Kokkos::Sum<double>(total));
+#else
   for (std::size_t column = 0; column < problem_.n_columns(); ++column)
-    total += host(0, column);
+    total += partials_(0, column);
+#endif
   return total;
 }
 
@@ -13890,15 +13901,13 @@ void GeneralWorkspace::separable_time_statistics(const std::size_t axis_peak,
         });
   }
   if (peak != absent)
-    launch::parallel_for(
+    launch::parallel_reduce(
         "solprop_native.free.statistics_peak",
-        Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, 1),
-        KOKKOS_LAMBDA(const std::size_t) {
-          double maximum = lowest;
-          for (std::size_t node = 0; node < n_nodes; ++node)
-            maximum = Kokkos::max(maximum, partials(node, 1));
-          packed(peak) = maximum;
-        });
+        Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, n_nodes),
+        KOKKOS_LAMBDA(const std::size_t node, double& maximum) {
+          maximum = Kokkos::max(maximum, partials(node, 1));
+        },
+        Kokkos::Max<double, MemorySpace>(Kokkos::subview(packed, peak)));
 }
 
 std::vector<double> GeneralWorkspace::aperture_statistics(
@@ -13997,15 +14006,13 @@ std::vector<double> GeneralWorkspace::spatial_statistics(const std::uint64_t fla
           partials(mode, 0) = intensity_factor * spectral_weights(mode) * dt /
                               static_cast<double>(n_t) * sum;
         });
-    launch::parallel_for(
+    launch::parallel_reduce(
         "solprop_native.spatial.pack_energy",
-        Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, 1),
-        KOKKOS_LAMBDA(const std::size_t) {
-          double sum = 0.0;
-          for (std::size_t mode = 0; mode < n_modes; ++mode)
-            sum += partials(mode, 0);
-          packed(energy_offset) = sum;
-        });
+        Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, n_modes),
+        KOKKOS_LAMBDA(const std::size_t mode, double& sum) {
+          sum += partials(mode, 0);
+        },
+        Kokkos::Sum<double, MemorySpace>(Kokkos::subview(packed, energy_offset)));
   }
   if (spectrum_offset != absent) {
     // The coherent on-axis amplitude paired at each frequency with its closure.
