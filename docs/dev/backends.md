@@ -485,7 +485,7 @@ complex admittance before forming `Re(E conj(G))/2`, signed and not clipped. The
 refuse a fluence negative beyond its rounding budget. The helper
 `backends.spatial.collar_field_fraction` stays an electric-field-norm share and is named
 as one; its end-of-plane log is retired, and the boundary monitor's transverse edge
-(SEP 40) judges the boundary instead. A backend whose own statistics do not apply this measure refuses the schema.
+(SEP 40) judges the boundary instead. A backend whose own statistics do not apply this measure refuses the problem.
 
 **The transverse edge is read on the host** ([SEP 40](seps/archive/sep-0040-transverse-absorbing-boundaries.md)).
 A backend whose `StepDriver.reads_transverse_edge` is set hands the monitor's

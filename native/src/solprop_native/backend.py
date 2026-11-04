@@ -260,7 +260,7 @@ class NativeBackend(StepDriver[_core.State]):
     Parameters
     ----------
     problem
-        Validated schema-22 kernel problem. Accepts one batch member,
+        Validated kernel problem. Accepts one batch member,
         modal or spatial scalar or two-component propagation (radial, Cartesian, or
         the hybrid planar kind of slab modes in x times an FFT in y), instantaneous
         Kerr, plasma, scalar time-domain Raman, weighted control, both absorber

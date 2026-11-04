@@ -483,8 +483,8 @@ def node_kerr_form(regional: RegionalResponseTables | None) -> KerrForm:
 
     The form is a physical-model choice and travels in ``model_id``, which is a
     representation tag inside the resume identity already; it is **not** a leaf
-    field, because adding one would move a contract row and bump the kernel schema
-    for a string the record can carry.
+    field, because adding one would move a contract row for a string the record can
+    carry.
 
     Parameters
     ----------

@@ -2695,7 +2695,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         Returns
         -------
         bool
-            Whether it can run another input.
+            ``True`` when it can run no other input.
         """
         return self._closed
 

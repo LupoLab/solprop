@@ -909,7 +909,7 @@ class Backend(Protocol):
         Returns
         -------
         bool
-            Whether it can run another input.
+            ``True`` when it can run no other input.
         """
         ...
 
