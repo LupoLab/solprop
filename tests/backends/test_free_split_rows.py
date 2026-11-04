@@ -32,7 +32,7 @@ from solprop.spatial import SpatialMedium
 from solprop.stepper import FixedSchedule, PIController
 from solprop.translate.problem import KernelProblem
 
-pytest.importorskip("solprop_native")
+native_backend = pytest.importorskip("solprop_native.backend")
 
 BLOCKS = [1, 5, None]
 """Node chunks: one row at a time, one that leaves a shorter last block (192 columns
@@ -163,6 +163,77 @@ def test_a_device_block_of_any_size_takes_the_reference_s_steps(
     if device_backend("native") == "none":
         pytest.skip("the installed solprop-native build has no accelerator backend")
     _check_block(reference, chunk)
+
+
+def _device_shaped(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Have the adapter size the split's block as a device build does, on any build."""
+    sized = native_backend._split_rows
+    monkeypatch.setattr(
+        native_backend,
+        "_split_rows",
+        lambda problem, *, device: sized(problem, device=True),
+    )
+
+
+def test_a_device_takes_every_row_at_once(
+    reference: tuple[str, np.ndarray, dict[str, Any]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A device's choice, run on any build: its plan, its one block and the reference's
+    # numbers, though the node chunk would have made it 39.
+    _device_shaped(monkeypatch)
+    simulation = _beam(ENVELOPE, MARCHES[reference[0]])
+    problem = _blocked(simulation, 5)
+    backend = watched(simulation, "native", problem)
+    try:
+        assert backend._native_state.split_rows == problem.shape[1] * problem.shape[2]
+    finally:
+        backend.close()
+    _check_block(reference, 5)
+
+
+def test_a_stated_budget_keeps_its_chunk_on_a_device() -> None:
+    # An explicit node_budget wins (#361): the block stays the node chunk it set, and
+    # the unset budget is told apart from one equal to the default.
+    default = _beam(ENVELOPE).translate()
+    columns = default.shape[1] * default.shape[2]
+    assert not default.transform.chunk_budgeted
+    assert native_backend._split_rows(default, device=True) == columns
+    assert native_backend._split_rows(default, device=False) == columns
+
+    simulation = _beam(ENVELOPE)
+    column_bytes = 20 * 16 * default.shape[2] * ENVELOPE.n_to
+    simulation.settings = dataclasses.replace(
+        simulation.settings, node_budget=5 * column_bytes
+    )
+    stated = simulation.translate()
+    assert stated.transform.chunk_budgeted
+    assert stated.transform.node_chunk == 5
+    assert native_backend._split_rows(stated, device=True) == 5 * default.shape[2]
+    assert native_backend._split_rows(stated, device=False) == 5 * default.shape[2]
+
+
+def test_the_cpu_keeps_the_node_chunk_it_was_given() -> None:
+    simulation = _beam(ENVELOPE)
+    problem = _blocked(simulation, 5)
+    assert native_backend._split_rows(problem, device=False) == 5 * problem.shape[2]
+    backend = watched(simulation, "native", problem)
+    try:
+        assert backend._native_state.split_rows == 5 * problem.shape[2]
+    finally:
+        backend.close()
+
+
+def test_a_block_past_the_field_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    simulation = _beam(ENVELOPE)
+    problem = simulation.translate()
+    monkeypatch.setattr(
+        native_backend,
+        "_split_rows",
+        lambda problem, *, device: problem.shape[1] * problem.shape[2] + 1,
+    )
+    with pytest.raises(ValueError, match="split_rows"):
+        watched(simulation, "native", problem)
 
 
 def test_real_rows_keep_their_buffers() -> None:

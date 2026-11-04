@@ -6416,6 +6416,7 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
     >>> problem.flags.single_mode, problem.linear.n_intervals
     (True, 1)
     """
+    budgeted = node_budget is not None
     if node_budget is None:
         node_budget = (
             DEFAULT_SPATIAL_NODE_BUDGET
@@ -6611,8 +6612,11 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
         grid.n_to,
         node_budget,
     )
-    transform = _balanced_chunk(
-        _held_current_chunk(transform, compiled, n_pol, grid.n_to, node_budget)
+    transform = replace(
+        _balanced_chunk(
+            _held_current_chunk(transform, compiled, n_pol, grid.n_to, node_budget)
+        ),
+        chunk_budgeted=budgeted,
     )
     initial = _power_initial(
         Initial(
