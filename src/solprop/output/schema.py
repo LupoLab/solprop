@@ -4257,6 +4257,13 @@ def stored_spectrum(
     written = target.reshape(-1, field.shape[-1])
 
     def convert(selected: slice) -> None:
+        """Convert the selected rows into their room.
+
+        Parameters
+        ----------
+        selected : slice
+            The rows.
+        """
         fourier.spectrum_to_optics(rows[selected], kind=kind, out=written[selected])
 
     parallel_rows(rows.shape[0], field.nbytes, convert)

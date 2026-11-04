@@ -173,6 +173,7 @@ def test_a_store_converts_a_plane_in_threads_to_the_same_bits(
     grid, metadata, monkeypatch
 ):
     plane = make_plane(grid, 0)
+    assert plane.field is not None
     expected = fourier.spectrum_to_optics(plane.field, kind=grid.kind)
     monkeypatch.setattr(_process, "PARALLEL_BYTES", 0)
     monkeypatch.setattr(_process, "thread_budget", lambda: SimpleNamespace(threads=3))
@@ -186,6 +187,7 @@ def test_a_store_converts_a_plane_in_threads_to_the_same_bits(
 
 def test_a_store_keeps_its_own_copy_of_a_plane(grid, metadata):
     plane = make_plane(grid, 0)
+    assert plane.field is not None
     expected = fourier.spectrum_to_optics(plane.field, kind=grid.kind)
     handler = MemoryOutput()
     handler.open(metadata)
@@ -204,6 +206,7 @@ def test_a_store_grows_past_its_block_with_every_plane_intact(grid, metadata):
     for plane in planes:
         handler.save(plane)
     for index, plane in enumerate(planes):
+        assert plane.field is not None
         assert np.array_equal(
             handler["field"][index],
             fourier.spectrum_to_optics(plane.field, kind=grid.kind),

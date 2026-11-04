@@ -339,6 +339,18 @@ def _all_finite(state: Complex[np.ndarray, "*shape n_omega"]) -> bool:
     rows = state.reshape(-1, state.shape[-1])
 
     def finite(selected: slice) -> bool:
+        """Return whether the selected rows are finite.
+
+        Parameters
+        ----------
+        selected : slice
+            The rows.
+
+        Returns
+        -------
+        bool
+            True when none holds a NaN or an infinity.
+        """
         part = rows[selected]
         # Per thread: a sum that overflows is what the second look is for.
         with np.errstate(over="ignore", invalid="ignore"):
