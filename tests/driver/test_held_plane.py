@@ -299,3 +299,26 @@ def test_a_stop_without_a_checkpoint_does_not_say_one_was_written(caplog):
         )
     assert "no state was written there" in caplog.text
     assert "resume=True continues" not in caplog.text
+
+
+def test_a_backend_that_has_no_such_setting_runs_as_ever():
+    """The driver asks only a backend that has it; one of its own need not."""
+
+    class Plain(NumpyRefBackend):
+        set_held_plane = None  # pyright: ignore[reportAssignmentType] - without it
+
+    simulation = built()
+    problem = simulation.translate()
+    backend = Plain(problem, grid=simulation.grid, modes=simulation.modes)
+    backend.set_initial(problem.initial.field0, None)
+    output = MemoryOutput()
+    run_problem(
+        problem,
+        backend,
+        output,
+        metadata=simulation.metadata(),
+        progress="none",
+        fields="none",
+    )
+    backend.close()
+    assert output.n_saved == 3

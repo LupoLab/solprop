@@ -18,12 +18,13 @@ import numpy as np
 import pytest
 
 from backends import test_free_ladders
+from backends.test_dispersive_kerr_routes import ARGON, free_grid, free_problem
 from solprop.backends.memory import estimate_memory, free_space_memory, ledger_groups
 from solprop.backends.registry import select
 from solprop.boundaries import absorber
 from solprop.driver import Simulation, SimulationSettings
 from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid, LineGrid
-from solprop.nonlinear.responses import KerrResponse
+from solprop.nonlinear.responses import DispersiveKerrResponse, KerrResponse
 from solprop.spatial import SpatialMedium
 from solprop.stepper import (
     FixedSchedule,
@@ -190,6 +191,25 @@ def test_a_response_of_its_own_stays_close(free_response):
     estimate = estimate_memory(problem, "native").groups["base"]
     if family.endswith("kerr"):
         assert estimate == ledger
+    assert -0.02 * ledger <= ledger - estimate <= 0.005 * ledger
+
+
+@pytest.mark.parametrize("evaluator", ["polynomial", "symmetric"])
+@pytest.mark.parametrize("kind", ["field", "envelope"])
+def test_a_dispersive_beam_keeps_its_node_rows_apart(evaluator, kind):
+    """The dispersive pass needs its nodes apart, so they do not alias the chunk's."""
+    grid = free_grid(kind)
+    problem = free_problem(DispersiveKerrResponse(ARGON, evaluator, thg=False), grid)
+    rows = free_space_memory(problem, "native")
+    assert rows["node_field"] > 0
+    assert "node_polarisation" not in rows
+    backend = select("native", problem, grid=grid)
+    try:
+        ledger = ledger_groups(backend.memory_ledger())["base"]
+    finally:
+        backend.close()
+    estimate = estimate_memory(problem, "native").groups["base"]
+    # The response's multipliers are not counted, by the estimate's own statement.
     assert -0.02 * ledger <= ledger - estimate <= 0.005 * ledger
 
 

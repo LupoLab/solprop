@@ -1730,8 +1730,11 @@ def free_space_memory(problem: KernelProblem, backend: str) -> dict[str, int]:
             "split_absorber_spectrum": temporal * n_omega * 16,
             "split_absorber_time": temporal * n_t * (16 if envelope else 8),
         }
-    if problem.responses.dispersive_kerr is None:
+    # The nodes alias the chunk's own rows unless a dispersive pass needs them apart.
+    if dispersive is None:
         rows |= {"node_field": 0, "node_polarisation": 0}
+    else:
+        rows["node_field"] = temporal * n_to * (16 if complex_time else 8)
     return rows
 
 
