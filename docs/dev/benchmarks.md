@@ -622,7 +622,27 @@ rows only. The whole-run check is `python -m benchmarks ab --case rdw --case far
 --threads 1,16 --length 0.1 --rounds 5 --repeats 1`, an exclusive AMD EPYC 7763 node, GCC 16.2,
 base f004a662: candidate/baseline `far_field_stats` 0.994 at one thread (21.48 → 21.38 s) and
 0.994 at 16 (4.699 → 4.696 s), `rdw` 0.997 at both, geometric mean 0.995, the fields agreeing
-to 6e-15 and the same work on every row. Those holes are circles; the new shapes were not timed.
+to 6e-15 and the same work on every row. Those holes are circles; the new shapes were not timed
+there.
+
+On a device (#364): one `stats` call of `aperture_spectrum` on the marched field, `rcos` edges
+and quadrature weighting, the median of six in one process, against one low-storage RK4IP step
+of the same process. NVIDIA H200 with CUDA 13.1 and AMD Instinct MI325X with ROCm 10, 2026-11-04.
+
+| Grid | Holes | H200 call / ms | of a step | MI325X call / ms | of a step |
+|---|---:|---:|---:|---:|---:|
+| 384² × 600 | 4 circles | 6.2 | 11.6 % | 6.1 | 9.9 % |
+| 384² × 600 | 16 circles | 13.6 | 25.3 % | 14.6 | 23.9 % |
+| 768² × 600 | 4 circles | 15.4 | 6.5 % | 14.4 | 6.5 % |
+| 768² × 600 | 16 circles | 33.3 | 14.1 % | 33.8 | 15.2 % |
+| 768² × 600 | 4 mixed shapes | 16.0 | 6.7 % | 16.7 | 7.5 % |
+| 768² × 600 | 16 mixed shapes | 36.9 | 15.6 % | 44.7 | 20.0 % |
+
+A step takes 53.9 and 236 ms on the H200, 61.0 and 223 ms on the MI325X. So at a few steps per
+saved plane the pass is under 5 % of the plane, and SEP 23 §6's registers and groups have
+little left to win: the pass costs about 1.5 ms per hole on top of the 9 ms `beam_spectrum`
+takes, and even sixteen holes cost less than the 54 ms (H200) and 80 ms (MI325X) of `energy` on
+the same field.
 
 ### Raman kernel rebuild
 

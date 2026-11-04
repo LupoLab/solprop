@@ -521,11 +521,11 @@ TEST(FarFieldPass, TheShapesAreTheirFormulas) {
   // The offset is X - x, so x >= X reads across <= 0, whichever side is asked for.
   EXPECT_EQ(native::far_field_offset(2.0, -3.0, 1.0), -5.0);
   const auto plane = outline(0.0, 0.0, 1.0, 1.0, 0.0);
-  for (const auto [across, kept] : {std::pair{-1.0, 1.0},
-                                    {-0.0, 1.0},
-                                    {0.0, 1.0},
-                                    {std::nextafter(0.0, 1.0), 0.0},
-                                    {1.0, 0.0}}) {
+  for (const auto& [across, kept] : {std::pair{-1.0, 1.0},
+                                     {-0.0, 1.0},
+                                     {0.0, 1.0},
+                                     {std::nextafter(0.0, 1.0), 0.0},
+                                     {1.0, 0.0}}) {
     SCOPED_TRACE(across);
     EXPECT_EQ(native::far_field_shaped_weight(across, 9.0, plane,
                                               native::far_field_half_plane_x_ge, 0),
