@@ -11,6 +11,7 @@ name.
 
 import dataclasses
 import json
+from collections.abc import Mapping
 
 import h5py
 import numpy as np
@@ -21,6 +22,7 @@ from solprop.exceptions import OutputError
 from solprop.grid import EnvelopeGrid, FreeGrid
 from solprop.nonlinear.responses import KerrResponse
 from solprop.output import HDF5Output, check_cache, open_file
+from solprop.output.hdf5 import _read_record, _write_record
 from solprop.output.scan import PointResult, ScanWriter, read_point
 from solprop.output.schema import RECORD_ARRAY_LIMIT, RunMetadata, _example_metadata
 from solprop.processing.planes import field_plane
@@ -121,6 +123,58 @@ def test_an_array_named_twice_is_read_and_stored_once():
     assert back.configuration_hash() == record.configuration_hash()
 
 
+SAME_BYTES = {
+    "one": np.zeros(2 * LARGE),
+    "two": np.zeros((2, LARGE)),
+    "three": np.zeros(2 * LARGE, dtype=np.int64),
+}
+"""Arrays of equal bytes and different layouts, which a digest cannot tell apart."""
+
+
+def check_same_bytes(configuration: Mapping[str, object]) -> None:
+    """Check that each array came back with its own dtype and shape."""
+    for name, values in SAME_BYTES.items():
+        back = configuration[name]
+        assert isinstance(back, np.ndarray)
+        assert back.dtype == values.dtype and back.shape == values.shape
+        assert np.array_equal(back, values)
+
+
+def test_arrays_of_equal_bytes_and_different_layouts_stay_apart():
+    record = dataclasses.replace(_example_metadata(), configuration=SAME_BYTES)
+    assert len(record.record_arrays()) == len(SAME_BYTES)
+    back = RunMetadata.from_json(record.to_json(), record.record_arrays())
+    check_same_bytes(back.configuration)
+    assert back.configuration_hash() == record.configuration_hash()
+
+
+def test_a_file_keeps_arrays_of_equal_bytes_apart(tmp_path):
+    record = dataclasses.replace(_example_metadata(), configuration=SAME_BYTES)
+    path = tmp_path / "run.h5"
+    with h5py.File(path, "w") as file:
+        _write_record(file, record)
+    with h5py.File(path) as file:
+        back = _read_record(file)
+    check_same_bytes(back.configuration)
+    assert back.configuration_hash() == record.configuration_hash()
+
+
+def test_a_scan_keeps_arrays_of_equal_bytes_apart(tmp_path):
+    from solprop.driver.scan import Scan  # noqa: PLC0415 - the layer above
+
+    path = tmp_path / "scan.h5"
+    record = dataclasses.replace(_example_metadata(), configuration=SAME_BYTES)
+    writer = ScanWriter(path, Scan("scan", x=[1]), {})
+    writer.commit(_point(0, record))
+    writer.close()
+    with h5py.File(path) as file:
+        arrays = file["record_arrays"]
+        assert isinstance(arrays, h5py.Group)
+        held = {str(name): np.asarray(arrays[name]) for name in arrays}
+    back = RunMetadata.from_json(record.to_json(), held)
+    check_same_bytes(back.configuration)
+
+
 def test_an_array_that_did_not_change_is_not_named():
     values = large()
     one = dataclasses.replace(
@@ -181,7 +235,7 @@ def test_a_file_whose_array_was_altered_is_refused_on_reading(tmp_path):
         held = file[f"meta/arrays/{digest}"]
         assert isinstance(held, h5py.Dataset)
         held[0] = 99.0
-    with pytest.raises(OutputError, match="does not have that digest"):
+    with pytest.raises(OutputError, match="does not match that name"):
         open_file(path)
 
 

@@ -69,7 +69,7 @@ def _hash(text: str) -> str:
 
 
 _RECORD_ARRAYS = "record_arrays"
-"""The group of the points' record arrays, each named by its digest."""
+"""The group of the points' record arrays, named by digest, dtype and shape."""
 
 
 def _write_array(group: h5py.Group, name: str, values: np.ndarray) -> None:
@@ -115,7 +115,7 @@ class PointResult:
     metadata_json : str
         Complete run metadata, empty if construction failed.
     metadata_arrays : dict
-        The arrays the metadata names by digest
+        The arrays the metadata names
         (:meth:`solprop.output.schema.RunMetadata.record_arrays`).
     arrays : dict
         Named retained fields, statistics and reduction arrays.
@@ -501,9 +501,9 @@ class ScanWriter:
                 versions.get("solprop", "unknown")
             )
         references = self._common_record(document)
-        for digest, array in result.metadata_arrays.items():
-            if f"{_RECORD_ARRAYS}/{digest}" not in file:
-                file.create_dataset(f"{_RECORD_ARRAYS}/{digest}", data=array)
+        for name, array in result.metadata_arrays.items():
+            if f"{_RECORD_ARRAYS}/{name}" not in file:
+                file.create_dataset(f"{_RECORD_ARRAYS}/{name}", data=array)
         noise = document.get("noise")
         _dataset(file, "points/noise_seed")[result.index] = str(
             noise.get("seed") if isinstance(noise, dict) else None
