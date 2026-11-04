@@ -458,6 +458,10 @@ def serialise(value: object) -> JsonValue:
     return _serialise_object(value)
 
 
+_DIGEST_BLOCK = 2**16
+"""Elements a digest of an array not held in its order reads at a time."""
+
+
 @dataclass(frozen=True)
 class ArrayDigest:
     """An array recorded by the digest of its contents rather than inline.
@@ -497,8 +501,9 @@ class ArrayDigest:
         Parameters
         ----------
         values : numpy.ndarray
-            The array; read once, in little-endian byte order, without a copy when it
-            is already contiguous and little-endian.
+            The array; read once, in C order and little-endian byte order, a block at
+            a time unless it is held that way already, so that a broadcast input never
+            becomes a whole volume.
 
         Returns
         -------
@@ -506,12 +511,27 @@ class ArrayDigest:
             The digest, the dtype and the shape.
         """
         array = np.asarray(values)
-        # One byte order, so that the same numbers digest alike on every platform; a
-        # copy only where the array is not contiguous in it already.
-        ordered = np.ascontiguousarray(array, dtype=array.dtype.newbyteorder("<"))
+        # One byte order, so that the same numbers digest alike on every platform.
+        little = array.dtype.newbyteorder("<")
+        digest = hashlib.sha256()
+        if array.size == 0:
+            pass
+        elif array.flags.c_contiguous and array.dtype == little:
+            digest.update(memoryview(array).cast("B"))
+        else:
+            for block in np.nditer(
+                array,
+                flags=["external_loop", "buffered"],
+                op_flags=[["readonly", "contig"]],
+                op_dtypes=[little],
+                casting="equiv",
+                order="C",
+                buffersize=_DIGEST_BLOCK,
+            ):
+                digest.update(np.asarray(block).tobytes())
         return cls(
-            sha256=hashlib.sha256(memoryview(ordered).cast("B")).hexdigest(),
-            dtype=str(ordered.dtype),
+            sha256=digest.hexdigest(),
+            dtype=str(little),
             shape=tuple(int(size) for size in array.shape),
         )
 
