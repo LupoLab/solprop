@@ -35,7 +35,6 @@ from solprop.stepper import PIController
 from solprop.stepper.multistep import MarchPolicy
 from solprop.stepper.schedule import FixedSchedule
 from solprop.translate.linop import LinearOperator, delta_phi
-from solprop.translate.problem import KERNEL_SCHEMA_VERSION
 from solprop.translate.spatial import SeparableOperator
 from solprop.translate.stage import StageScalars, StageTerms, scalars
 
@@ -951,11 +950,11 @@ DRIVER_SURFACE = {
 }
 """Every ``StepDriver`` member a subclass overrides or calls, with its signature.
 
-The literal is the seam a separately built backend is compiled against, and
-``KERNEL_SCHEMA_VERSION`` is its version: change a signature here only together with a
-bump of the version and a changelog line (``AGENTS.md``, "Backends, kernels and hot
-paths"). ``solprop-native`` looks these names up at construction (its
-``DRIVER_SURFACE``).
+The literal is the seam a compiled backend is built against: change a signature here
+only together with a release-note fragment (``AGENTS.md``, "Backends, kernels and hot
+paths"). ``solprop-native`` looks the names it relies on up at construction (its
+``DRIVER_SURFACE``, which :func:`test_the_native_surface_is_inside_the_frozen_one`
+holds inside this one).
 """
 
 DRIVER_ATTRIBUTES = (
@@ -1081,72 +1080,13 @@ def test_a_trials_bundles_taken_together_are_kept_until_the_next_hoist(driver):
 
 
 def test_the_surface_a_backend_subclasses_is_frozen(driver):
-    """The protected driver surface and stage bundles are ``KERNEL_SCHEMA_VERSION``'s.
+    """The protected driver surface and stage bundles are the seam's literal.
 
-    A separately built backend is compiled against these names and shapes, and its build
-    stays valid across solprop commits because this test, not a version pin, guards
-    them: a change here is a change of the kernel contract and bumps the version.
-    Version 6 added the four mixture bundles -- ``kerr_density``, ``plasma_densities``,
-    ``plasma_preionisation`` and ``raman_densities`` -- beside the total ``density`` and
-    per-term ``raman_rates`` of version 5, so a compiled backend packs one scalar per
-    plasma channel and per Raman term rather than one. Version 13 added ``flow_section``
-    and ``flow_weights`` at the end, which is the whole of that bump: a varying coupled
-    flow's frozen section and the weights its residual is evaluated over are host
-    scalars, and no driver signature and no `LinearOperator` row moved with them.
-    Version 14 added ``transform_weights`` at the end, the weights a moving guide's
-    synthesis and projection maps are combined over, and nothing else. Version 15 moved
-    none of these: it added the ``"slab"`` spatial kind and appended ``kappa_sq`` to the
-    separable leaf, whose literal is :data:`SEPARABLE_OPERATOR_FIELDS`. Version 17 added
-    the five ``_adams_*`` hooks of the shared Adams march (SEP 14 phase 2) and version
-    18 ``_dense_stages``, the accepted step's stages for DOPRI5's
-    continuous extension. Version 20 added ``_adams_lab_source``, the exponential
-    Adams formulation's untransported source (SEP 16), and version 21 ``_adams_engine``,
-    the Adams history's engine (SEP 16 phase 3b), and version 22 ``_adams_block``, a
-    coupled flow's frozen block (SEP 16 phase 5). Version 23 moved no hook. Version 24
-    appended ``dispersive_kerr_densities``, each dispersive electronic channel's
-    number density at the stage (SEP 6 phase 1), and moved no hook. Version 25 moved
-    none of these: it appended the plasma column's running-integral rule (SEP 18).
-    Version 26 moved none either: it stored the transform's kind (SEP 19). Version 27
-    moved none: it widened the TDSE descriptor to haCC and atomic windows (SEP 20).
-    Version 28 added ``_stage_bundles``, a trial's stage bundles read together (SEP 25).
-    Version 29 added ``_low_storage_engine`` and the attributes ``_low_storage`` and
-    ``_in_flight``, the low-storage march's engine hook, march and in-flight guard
-    (SEP 24 phase 1). Version 30 moved none: it widened the TDSE descriptor to the
-    version-4 ``gated_derivative`` source filter (SEP 26 phase 1). Version 31 gave
-    ``observe`` its ``field`` keyword and added ``held_observation`` (SEP 22 phase 2),
-    and appended ``kperp_rate`` to the separable leaf. Version 32 added ``_hold`` and
-    ``_held_field``, where a backend holds the low-storage march's field-free plane
-    and copies it to the host, and the engine protocol's ``atomic`` (SEP 24 phase 3).
-    Version 33 adds the analytic collar derivative to Grids (SEP 27), without
-    changing these driver or stage signatures. Version 34 adds the class attribute
-    ``helpers``, the backend's per-stage and per-step evaluations (SEP 29 phase 2).
-    Version 35 adds the problem's plane measure ``flux`` (SEP 34), without changing
-    these driver or stage signatures.
-    Version 36 adds the problem's ``precision`` (SEP 33), without changing these
-    driver or stage signatures.
-    Version 38 adds ``_bind_monitor`` and ``_boundary_energies``: the boundary
-    monitor's reading is the backend's. Version 39 adds ``_record_attempt`` and
-    ``_skip_step`` and freezes ``_take_step_stats``, ``_natural_stop`` and
-    ``_natural_stop_due``, which a native Adams march books its attempts through, and
-    the march's policy record (SEP 39). Version 40 gives ``set_initial`` its ``resume``
-    keyword: a stored field never takes the ``input`` draw again. Version 41 adds the
-    problem's ``transverse`` design and the class attribute ``reads_transverse_edge``,
-    whether a backend reads a free-space run's transverse edge (SEP 40), without
-    changing these signatures. Version 42 lets the initial state be strided, which
-    ``set_initial`` accepts, without changing its signature.
-    Version 43 widens what ``_boundary_energies`` returns under the split scheme,
-    without changing its signature: the energies of what each step's split found
-    (``_split_found``) and the state's occupancy of the split collar's walk-off buckets
-    (``KernelProblem.split_crossing``); the native reading's ``bind_occupancy`` and its
-    ``10 + 128`` numbers, and the native march's required ``step_cap`` bound. It adds
-    ``_split_capped``, the cap on adaptive steps. Version 44 adds ``set_held_plane``,
-    with which a driver turns the low-storage march's held plane off for a run, and
-    ``_drop_held``, which releases its buffer. Version 45 appends ``user_rate`` to the
-    separable leaf, without changing these signatures.
+    A compiled backend is built against these names and shapes, and its build stays
+    valid across solprop commits because this test, not a version pin, guards them: a
+    change here is a change of the seam, which rewrites these literals and adds a
+    release-note fragment in the same commit.
     """
-    assert KERNEL_SCHEMA_VERSION == 45, (
-        "the seam changed: rewrite the literals of this test"
-    )
     assert StepDriver.reads_transverse_edge is False
     for name, signature in {
         "observe_members": (

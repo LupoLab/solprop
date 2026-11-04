@@ -293,7 +293,8 @@ and compares options; it is not a line-by-line plan, which belongs to the implem
   A SEP is Final only when the backends that run the feature agree within tolerances
   derived from summation bounds, as for every other feature ([testing.md](../testing.md)).
 - **The seam.** A change to the kernel problem, the stage bundles or the protected driver
-  surface bumps `KERNEL_SCHEMA_VERSION`, as `AGENTS.md` requires; the SEP says in which phase.
+  surface rewrites the frozen tables and adds a release-note fragment, as `AGENTS.md`
+  requires; the SEP says in which phase.
 - **Tests.** Unit, invariant, convergence and parity tests as [testing.md](../testing.md)
   sets out, against the analytic and independent references the SEP names; every
   tolerance justified in a comment.

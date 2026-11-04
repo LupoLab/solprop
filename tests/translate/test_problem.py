@@ -38,7 +38,6 @@ from solprop.translate.masks import Grids
 from solprop.translate.modal import Transform
 from solprop.translate.problem import (
     DEFAULT_COMPONENTS,
-    KERNEL_SCHEMA_VERSION,
     Flags,
     Initial,
     KernelProblem,
@@ -199,21 +198,17 @@ def test_the_contract_document_lists_every_flag(soliton):
     assert documented == {entry.name for entry in dataclasses.fields(Flags)}
 
 
-def test_every_page_states_the_schemas_the_code_writes():
-    """A bump of a schema without its pages is exactly what this test is for.
+def test_every_page_states_the_schema_the_code_writes():
+    """A bump of the output schema without its pages is what this test is for.
 
-    A page states a current schema number in bold after the schema's name, and each
-    is stated once: the kernel's in the contract (``KERNEL_SCHEMA_VERSION``), the
-    saved output's in the output guide (``solprop.output.SCHEMA_VERSION``). A
-    sentence that calls a plain number current, or says what this release writes,
-    is held to the same numbers, so a stale statement elsewhere fails here too.
-    History, which names the version a change took, is not a statement of the
-    current one; the SEP records are history throughout.
+    A page states the current number in bold after the schema's name, once: in the
+    output guide (``solprop.output.SCHEMA_VERSION``). A sentence that calls a plain
+    number current, or says what this release writes, is held to it, so a stale
+    statement elsewhere fails here too. History, which names the version a change took,
+    is not a statement of the current one; the SEP records are history throughout. The
+    kernel contract no longer has a number (ADR-066): it names the last one as history.
     """
-    assert KERNEL_SCHEMA_VERSION == 45
     assert OUTPUT_SCHEMA_VERSION == 2
-    assert soliton_schema_version_row().startswith("incremented on every change")
-    written = {"kernel": KERNEL_SCHEMA_VERSION, "output": OUTPUT_SCHEMA_VERSION}
     stated: dict[str, list[str]] = {}
     for page in sorted(DOCS.rglob("*.md")):
         name = page.relative_to(DOCS).as_posix()
@@ -221,36 +216,25 @@ def test_every_page_states_the_schemas_the_code_writes():
             continue
         text = " ".join(page.read_text(encoding="utf-8").split())
         for kind, number in CURRENT_SCHEMA.findall(text):
-            assert int(number) == written[kind], (name, kind, number)
+            assert kind == "output" and int(number) == OUTPUT_SCHEMA_VERSION, (
+                name,
+                kind,
+                number,
+            )
             stated.setdefault(name, []).append(kind)
         for sentence in re.split(r"(?<=\.)\s+", text):
             if not re.search(r"\b(current|currently|this release)\b", sentence, re.I):
                 continue
             for kind, number in NUMBERED_SCHEMA.findall(sentence):
-                schema = "kernel" if kind == "kernel" else "output"
-                assert int(number) == written[schema], (name, sentence)
-    assert stated == {
-        "dev/kernel-contract.md": ["kernel"],
-        "guide/results/output.md": ["output"],
-    }
-    assert f"current version is kernel schema **{KERNEL_SCHEMA_VERSION}**" in (
-        " ".join(CONTRACT.read_text(encoding="utf-8").split())
-    )
-
-
-def soliton_schema_version_row():
-    """The meaning column of the schema_version row, as the document states it."""
-    for line in CONTRACT.read_text(encoding="utf-8").splitlines():
-        if line.startswith("| `schema_version`"):
-            return line.split("|")[3].strip()
-    raise AssertionError("the contract document has no schema_version row")
+                assert kind != "kernel", (name, sentence)
+                assert int(number) == OUTPUT_SCHEMA_VERSION, (name, sentence)
+    assert stated == {"guide/results/output.md": ["output"]}
 
 
 # ------------------------------------------------------------------------- assembly
 
 
 def test_the_soliton_problem_assembles(soliton, envelope_grid):
-    assert soliton.schema_version == KERNEL_SCHEMA_VERSION
     assert soliton.grid_kind == "envelope"
     assert soliton.shape == (1, 1, 1, envelope_grid.n_omega)
     assert soliton.flags == Flags(
@@ -433,13 +417,6 @@ def corrupt(problem, group, name, value):
     object.__setattr__(member, name, value)
     object.__setattr__(copy, group, member)
     return copy
-
-
-def test_validate_rejects_a_wrong_schema_version(soliton):
-    stale = dataclasses.replace(soliton)
-    object.__setattr__(stale, "schema_version", KERNEL_SCHEMA_VERSION + 1)
-    with pytest.raises(TranslationError, match="schema_version"):
-        stale.validate()
 
 
 def test_validate_rejects_a_not_finite_array(soliton):
@@ -733,7 +710,7 @@ def test_validate_allows_a_fixed_fibre_to_go_without_the_fast_path(soliton):
 
 def test_the_problem_cannot_be_mutated(soliton):
     with pytest.raises(dataclasses.FrozenInstanceError):
-        soliton.schema_version = 2
+        soliton.grid_kind = "field"
     with pytest.raises(dataclasses.FrozenInstanceError):
         soliton.grids.dt = 1.0
     with pytest.raises(ValueError, match="read-only"):
@@ -1068,7 +1045,6 @@ def test_the_stats_request_is_the_catalogue_object(envelope_grid, gnlse, soliton
 def test_a_kernel_problem_can_be_built_by_hand_from_its_groups(soliton):
     """The contract is a dataclass, so a backend test can substitute one group."""
     rebuilt = KernelProblem(
-        schema_version=soliton.schema_version,
         grid_kind=soliton.grid_kind,
         shape=soliton.shape,
         flags=soliton.flags,

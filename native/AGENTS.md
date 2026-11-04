@@ -31,10 +31,10 @@ contract and its conventions; where both apply, follow the stricter rule.
   -- with every parameter handed over by solprop and solprop's implementation as the
   reference, and it never chooses or defaults a parameter itself.
 - solprop imports this package only lazily, through its backend registry. The wheel
-  does not depend on solprop at run time; the contract is solprop's kernel-contract
-  schema plus the members named by the tuples above, which `check_build()` checks at
-  import, so mismatched halves (a stale extension beside newer sources) are refused by
-  name.
+  does not depend on solprop at run time; the contract is solprop's kernel contract and
+  the members named by the tuples above, which `check_build()` looks up. In an editable
+  checkout it also compares the extension with the sources by digest, so mismatched
+  halves (a stale extension beside newer sources) are refused, naming `uv sync`.
 - Kokkos runtime ownership is process-wide and locked. Initialise at most once, destroy
   plans and views before an owned finalisation, and never call Python during native
   teardown.
@@ -149,9 +149,11 @@ the gate.
 
 ## Python and nanobind seam
 
-- The contract with solprop is its kernel-contract schema plus the `StepDriver`
-  members and bundle fields listed in the contract tuples. `check_build()` refuses a
-  schema mismatch or a missing member by name and records solprop's version without
+- The contract with solprop is its kernel contract plus the `StepDriver` members and
+  bundle fields listed in the contract tuples. `check_build()` refuses a missing member
+  by name and, in an editable checkout, an extension built from other sources than
+  `native/` (`build_info().source_digest`; `cmake/SourceDigest.cmake` and
+  `_source_digest` compute it, and stay in step). It records solprop's version without
   comparing it. Add a name to the tuples whenever the adapter starts reading another
   member; never pin solprop's version.
 - Accept the documented NumPy dtype, rank, shape and C-contiguity exactly and refuse

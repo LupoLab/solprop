@@ -255,7 +255,7 @@ user script / prop_capillary(...)                                  (D)
    │  Boundaries, StepperSettings, Output
    ▼
 Simulation(...)                                                    (D)
-   │  .translate() → KernelProblem  (validated arrays, schema_version)   (T)
+   │  .translate() → KernelProblem  (validated arrays)                   (T)
    │  .backend = backends.select(name, problem)                     (B)
    ▼
 run loop over save planes and stats periods                        (D)

@@ -353,11 +353,16 @@ The long form is [`backends.md`](docs/dev/backends.md).
     tolerance. Adaptive work counts may differ; accounting for actual work is exact.
 - **In-place and `out=`** only inside the backends, wrapped by the seam; every buffer is
   listed by `memory_ledger()`, which is tested.
-- Device arrays never cross the seam; backends take and return host arrays.
-- **`KERNEL_SCHEMA_VERSION` versions the whole seam** (the `KernelProblem` fields, the
-  protected `StepDriver` surface and the stage bundles of `translate/stage.py`, frozen in
-  `tests/backends/test_driver.py`). Changing any of them bumps the version, rewrites the
-  literal in the same commit and adds a release-note fragment.
+- Device arrays never cross the `Backend` protocol, whose methods take and return host
+  arrays. Between `StepDriver` and its subclass the state is an opaque handle (an MLX
+  array, a native state), and the shared code reads it only through `_observed_field`,
+  which copies it to the host.
+- **The seam has no version number** (ADR-066). A change to the `KernelProblem` fields,
+  the protected `StepDriver` surface or the stage bundles of `translate/stage.py` rewrites
+  the frozen tables in `tests/backends/test_driver.py` in the same commit and adds a
+  release-note fragment. solprop and solprop-native are released together and pinned to
+  one version, and an editable checkout's extension is compared with its `native/` sources
+  by digest (`check_build`).
 - Every hot-path change comes with a benchmark ledger entry
   ([`benchmarks.md`](docs/dev/benchmarks.md)), measured with `python -m benchmarks ab`
   on about ten steps or a short `ab --length` window; report the window measured and

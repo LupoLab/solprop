@@ -128,11 +128,7 @@ from solprop.translate.modal import DEFAULT_NODE_BUDGET
 from solprop.translate.plasma_source import (
     _BENCHMARK_GATED,  # pyright: ignore[reportPrivateUsage] - refuse the private NumPy benchmark hook
 )
-from solprop.translate.problem import (
-    KERNEL_SCHEMA_VERSION,
-    KernelProblem,
-    PropagatorMode,
-)
+from solprop.translate.problem import KernelProblem, PropagatorMode
 from solprop.translate.responses import CompiledResponses, ResponseStage
 from solprop.translate.stage import (
     StageScalars,
@@ -305,7 +301,7 @@ class NativeBackend(StepDriver[_core.State]):
     ) -> None:
         if _BENCHMARK_GATED.get():
             raise BackendError("the gated plasma benchmark requires numpy_ref")
-        check_build(problem)
+        check_build()
         _refuse_unsupported(problem)
         problem.validate()
         # solprop SEP 29 G1: a z table is evaluated natively on a CPU build; a device
@@ -3241,11 +3237,6 @@ def _refuse_omitted_stages(responses: CompiledResponses) -> None:
 
 
 def _refuse_unsupported(problem: KernelProblem) -> None:
-    if problem.schema_version != KERNEL_SCHEMA_VERSION:
-        raise BackendError(
-            f"solprop-native implements kernel schema {KERNEL_SCHEMA_VERSION}; "
-            f"problem declares {problem.schema_version}"
-        )
     _refuse_omitted_stages(problem.responses)
     if problem.precision.single:
         raise BackendError(

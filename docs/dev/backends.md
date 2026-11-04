@@ -23,7 +23,7 @@ refused otherwise. Explicit names are preserved, so `backend="numpy_ref"` runs w
 absent and `backend="native"` on a processor below the baseline raises the package's refusal.
 `select` also accepts `"auto"`, checks `SOLPROP_REQUIRE_DEVICE` against the actual build before
 anything is allocated, and logs the actual backend at INFO after
-successful construction. Import, schema, device and unsupported-problem errors stay visible and
+successful construction. Import, build, device and unsupported-problem errors stay visible and
 stay distinct, and the registry finds the processor baseline out
 by running the package's own pure-Python check by path, without importing the package. This
 selection policy changes no kernel-contract member (ADR-029).
@@ -373,7 +373,7 @@ It consumes the contract only through `linop.delta_phi`, `linop.unitary_phase`,
 `responses.prefactor_at` and the scalar tables `responses.density`,
 `transform.taper_scale`, `transform.aeff`, the plasma group's `preionisation` and the Raman
 decay rates, so a change of the operator's representation cannot reach it. It refuses, by
-name and with `BackendError`: an unknown `schema_version`; a spectral response other than
+name and with `BackendError`: a spectral response other than
 the compiled envelope-plasma assembly; scalar-only Raman on a two-component
 problem; general z-dependent response data; a transform and a state that
 would both carry the transverse components; and a batch axis above one.
@@ -1186,17 +1186,21 @@ backend runs on the CPU (OpenMP) or a device. How to build it is
 [Building the native backend](../guide/performance/building-native.md); the native rules are in
 `native/AGENTS.md`.
 
-The backend depends on solprop's versioned seam, `KERNEL_SCHEMA_VERSION` in
-`solprop.translate.problem`: the `KernelProblem`, the protected surface of `StepDriver` and the stage bundles, all frozen under
-`KERNEL_SCHEMA_VERSION` by `tests/backends/test_driver.py`. Its `check_build` refuses another
-schema and looks the driver members, bundle fields and contract tuples it relies on up by
-name. It records the repository version it was built at without comparing it, so an
-editable build stays valid across solprop commits until the schema bumps. Solprop knows only the registry
+The backend depends on solprop's seam: the `KernelProblem`, the protected surface of `StepDriver`
+and the stage bundles, all frozen by `tests/backends/test_driver.py`. A change to any of them
+rewrites those tables in the same commit and adds a release-note fragment. The two packages are
+released together, and solprop's metadata pins this one to its own version. `check_build` looks
+the driver members, bundle fields and contract tuples the adapter relies on up by name. In an editable
+checkout it also recomputes the digest of `native/CMakeLists.txt` and the C++ under `native/src`
+and `native/include`, once per process, and refuses an extension built from anything else
+(`BuildInfo.source_digest`, ADR-066), which catches a C++-only change too. It records the repository
+version it was built at without comparing it, so an editable build stays valid across solprop
+commits that leave `native/` alone. Solprop knows only the registry
 row and imports the package only when it is selected.
 
-**Every backend refuses what it cannot execute.** A schema check is not enough on the
-general modal route: its optional leaves (the coupled flow, the moving guide and the
-others) are part of the schema whether or not a backend executes them, and a backend that
+**Every backend refuses what it cannot execute.** The general modal route's optional
+leaves (the coupled flow, the moving guide and the others) are part of the contract whether
+or not a backend executes them, and a backend that
 accepted a problem carrying one it ignores would silently run a different model. A backend
 therefore calls
 {py:func}`~solprop.backends.driver.refuse_general_leaves` before it runs, naming in

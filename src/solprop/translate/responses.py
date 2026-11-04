@@ -179,8 +179,8 @@ KERR_FORM_MODEL_IDS: Final[Mapping[str, str]] = {
 
 The form is a **physical model** choice and so lives in ``model_id``, which is already
 a representation tag inside the resume identity. It is not a new
-leaf field: adding one would move a contract row and bump the kernel schema, and there
-is nothing else the form needs to carry.
+leaf field: adding one would move a contract row, and there is nothing else the form needs
+to carry.
 """
 
 KERR_MODEL_FORMS: Final[Mapping[str, str]] = {

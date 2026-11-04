@@ -13,6 +13,7 @@ observations are owning host ``complex128`` arrays.
 from __future__ import annotations
 
 import functools
+import hashlib
 import importlib.util
 import logging
 import os
@@ -495,12 +496,15 @@ class BuildInfo:
         Installed ``solprop-native`` distribution version.
     git_commit
         Backend repository commit embedded when CMake configured the extension.
-    schema_version
-        Supported solprop kernel-contract schema.
+    source_digest
+        SHA-256 of what the extension was compiled from: ``CMakeLists.txt`` and the C++
+        sources and headers under ``src`` and ``include``
+        (``cmake/SourceDigest.cmake``). :func:`check_build` compares it with an editable
+        checkout's sources.
     solprop_version_built_against
         The solprop version beside which CMake configured the extension, or
-        ``unknown``. Informational: the contract is ``schema_version`` and the seam
-        members :func:`check_build` looks for, not a version string.
+        ``unknown``. Informational: the contract is the seam members
+        :func:`check_build` looks for, not a version string.
     kokkos_version, kokkos_fft_version, kokkos_kernels_version, nanobind_version
         Native dependency versions.
     build_profile
@@ -605,7 +609,7 @@ class BuildInfo:
 
     package_version: str
     git_commit: str
-    schema_version: int
+    source_digest: str
     solprop_version_built_against: str
     kokkos_version: str
     kokkos_fft_version: str
@@ -711,7 +715,7 @@ def build_info() -> BuildInfo:
     return BuildInfo(
         package_version=__version__,
         git_commit=str(record["backend_commit"]),
-        schema_version=int(record["schema_version"]),
+        source_digest=str(record["source_digest"]),
         solprop_version_built_against=str(record["solprop_built_against"]),
         kokkos_version=str(record["kokkos_version"]),
         kokkos_fft_version=str(record["kokkos_fft_version"]),
@@ -791,32 +795,83 @@ def build_info() -> BuildInfo:
     )
 
 
-def check_build(problem: object | None = None) -> None:
-    """Validate this build and, optionally, a solprop kernel problem.
+def _source_digest(root: Path) -> str:
+    """Return the digest of the sources an extension is compiled from.
+
+    The computation of ``cmake/SourceDigest.cmake``, which embeds it in the build; the
+    two must agree. The record is one ``{path}:{sha256 of its bytes}`` line for
+    ``CMakeLists.txt`` and each C++ source and header under ``src`` and ``include``, the
+    paths relative to `root` and sorted bytewise, and the digest is the SHA-256 of the
+    record.
 
     Parameters
     ----------
-    problem
-        A :class:`solprop.translate.problem.KernelProblem`, or ``None`` to check only
-        the installed extension.
+    root
+        The ``native`` directory of a checkout.
+
+    Returns
+    -------
+    str
+        The digest in lowercase hexadecimal.
+    """
+    paths = ["CMakeLists.txt"]
+    for folder in ("src", "include"):
+        paths.extend(
+            path.relative_to(root).as_posix()
+            for path in (root / folder).rglob("*")
+    digest = _checkout_digest()
+    if digest is not None and digest != info.source_digest:
+        raise BackendError(
+            "the solprop-native extension was built from other sources than this "
+            f"checkout's native/ ({Path(__file__).parents[2]}): rebuild it with "
+            "`uv sync --reinstall-package solprop-native`"
+        )
+            if path.suffix in {".cpp", ".hpp", ".h"} and path.is_file()
+        )
+    # Code points sort as their UTF-8 bytes do, so this is CMake's bytewise order.
+    record = "".join(
+        f"{path}:{hashlib.sha256((root / path).read_bytes()).hexdigest()}\n"
+        for path in sorted(paths)
+    )
+    return hashlib.sha256(record.encode()).hexdigest()
+
+
+@functools.cache
+def _checkout_digest() -> str | None:
+    """Return this editable checkout's source digest, computed once per process.
+
+    Returns
+    -------
+    str or None
+        The digest, or ``None`` for an installed wheel, which has no sources beside it
+        and which solprop's metadata pins to its own version.
+    """
+    root = Path(__file__).parents[2]
+    return _source_digest(root) if (root / "CMakeLists.txt").is_file() else None
+
+
+def check_build() -> None:
+    """Validate this build against this checkout's sources and the installed solprop.
 
     Raises
     ------
     solprop.exceptions.BackendError
-        If the installed solprop lacks a seam member this backend relies on
+        If an editable checkout's ``native`` sources are not the ones the extension
+        was compiled from, if the installed solprop lacks a seam member this backend
+        relies on
         (:data:`DRIVER_SURFACE`, :data:`ADAMS_MARCH_SURFACE`,
         :data:`MARCH_POLICY_FIELDS`, :data:`STAGE_TERMS_FIELDS`,
         :data:`STAGE_SCALARS_FIELDS`, :data:`SEPARABLE_OPERATOR_FIELDS`,
         :data:`LINEAR_OPERATOR_FIELDS`, :data:`TRANSFORM_FIELDS`,
         :data:`RESPONSE_FIELDS`, or the leaves' members in :data:`MODAL_TABLES_FIELDS`,
         :data:`REGIONAL_RESPONSE_FIELDS`, :data:`COUPLED_FLOW_FIELDS` and
-        :data:`DISPERSIVE_KERR_FIELDS`), the
-        problem's schema differs,
+        :data:`DISPERSIVE_KERR_FIELDS`),
         execution-space metadata is inconsistent, a reference build carries vendor
         BLAS or machine-specific code, a distribution build carries native code or no
         BLAS, fast-math is enabled, or an accelerator build sees no device. The
-        solprop *version* is recorded, never compared: the seam is versioned by the
-        schema, and solprop bumps it whenever that surface changes.
+        solprop *version* is recorded, never compared here: the two packages are
+        released together and pinned to one version, and the members are looked up by
+        name.
     """
     from solprop.exceptions import BackendError
 
@@ -874,13 +929,6 @@ def check_build(problem: object | None = None) -> None:
         raise BackendError(
             "the selected BLAS provider cannot access this accelerator's memory"
         )
-    if problem is not None:
-        schema = getattr(problem, "schema_version", None)
-        if schema != info.schema_version:
-            raise BackendError(
-                "solprop-native implements kernel contract version "
-                f"{info.schema_version} and the problem declares version {schema}"
-            )
 
 
 def _check_seam(info: BuildInfo, error: type[Exception]) -> None:

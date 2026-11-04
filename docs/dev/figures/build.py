@@ -30,8 +30,6 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import NamedTuple
 
-from solprop.translate.problem import KERNEL_SCHEMA_VERSION
-
 try:
     import drawsvg
 except ImportError:  # pragma: no cover - only on an install without the dev group
@@ -877,7 +875,7 @@ RUN_STAGES = (
             "translate.assemble(...)  →  KernelProblem",
             "backends.select(name, problem, grid=, modes=, profiles=)",
         ),
-        "validated arrays, schema_version",
+        "validated arrays",
     ),
     Stage(
         "B",
@@ -936,7 +934,7 @@ CONTRACT_SECTIONS = (
     Section(
         1,
         "identity and validation",
-        ("schema_version", "grid_kind", "shape", "flags", "precision"),
+        ("grid_kind", "shape", "flags", "precision"),
         "translate.problem.Flags",
         ("derived from the content of §2 to §8", "by translate.assemble"),
         "T",
@@ -1684,7 +1682,7 @@ RUN_ARTEFACTS = (
     (
         "T",
         "KernelProblem",
-        (f"plain arrays, frozen, validated, schema_version {KERNEL_SCHEMA_VERSION}",),
+        ("plain arrays, frozen, validated",),
     ),
     ("B", "StepSummary", ("z, n_steps, n_rejected, max_norm, mean_norm, wall_time",)),
     (

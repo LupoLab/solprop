@@ -56,6 +56,11 @@
 namespace nb = nanobind;
 using namespace nb::literals;
 
+namespace solprop_native {
+// The digest of what this extension is compiled from (cmake/SourceDigest.cmake).
+const char* source_digest() noexcept;
+} // namespace solprop_native
+
 namespace {
 
 namespace native = solprop_native;
@@ -1832,7 +1837,7 @@ nb::dict build_record() {
   nb::dict result;
   result["backend_commit"] = SOLPROP_NATIVE_BACKEND_COMMIT;
   result["solprop_built_against"] = SOLPROP_NATIVE_SOLPROP_BUILT_AGAINST;
-  result["schema_version"] = 45;
+  result["source_digest"] = native::source_digest();
   result["kokkos_version"] = SOLPROP_NATIVE_KOKKOS_VERSION;
   result["kokkos_fft_version"] = SOLPROP_NATIVE_KOKKOSFFT_VERSION;
   result["kokkos_kernels_version"] = SOLPROP_NATIVE_KOKKOSKERNELS_VERSION;
