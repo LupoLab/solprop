@@ -53,6 +53,7 @@ __all__ = [
     "ApertureShape",
     "ApertureTables",
     "AxialFactors",
+    "FluenceRings",
     "FluxSide",
     "SpatialDispersion",
     "SpatialFlux",
@@ -68,6 +69,7 @@ __all__ = [
     "check_aperture_shape",
     "critical_power",
     "edge_profile",
+    "fluence_rings",
     "fwhm_r",
     "mask_plane_offsets",
     "mask_plane_radius",
@@ -82,6 +84,7 @@ __all__ = [
     "power_trace",
     "quadrature_half_width",
     "radial_fluence_widths",
+    "ring_fluence_widths",
     "spatial_energy",
     "spatial_energy_spectrum",
     "spatial_fluence",
@@ -3096,24 +3099,16 @@ def cartesian_fluence_widths(
     if not math.isfinite(second):
         msg = "Cartesian fluence moments are not representable"
         raise GridError(msg)
-    limit = min(center_x - x[0], x[-1] - center_x, center_y - y[0], y[-1] - center_y)
-    spacing = min(x[1] - x[0], y[1] - y[0]) / 2
-    if limit < 2 * spacing:
+    rings = fluence_rings(x, y, center_x, center_y)
+    if rings is None:
         return second, math.nan, math.nan
-    # Anchor the rule to the grid, not the rounded centroid: otherwise a
-    # one-ulp change in the limiting radius can change every interpolation
-    # point through ceil/linspace, amplifying roundoff into sampling error.
-    radii = spacing * np.arange(math.floor(limit / spacing) + 1)
-    largest_circle = min(x[-1] - x[0], y[-1] - y[0]) / 2
-    n_angles = max(8, math.ceil(2 * np.pi * largest_circle / spacing))
-    angles = 2 * np.pi * np.arange(n_angles) / n_angles
-    averaged = np.empty(radii.size)
-    for index, distance in enumerate(radii):
+    averaged = np.empty(rings.radii.size)
+    for index, distance in enumerate(rings.radii):
         horizontal = np.clip(
-            (center_x + distance * np.cos(angles) - x[0]) / (x[1] - x[0]), 0, x.size - 1
+            (center_x + distance * rings.cosines - x[0]) / (x[1] - x[0]), 0, x.size - 1
         )
         vertical = np.clip(
-            (center_y + distance * np.sin(angles) - y[0]) / (y[1] - y[0]), 0, y.size - 1
+            (center_y + distance * rings.sines - y[0]) / (y[1] - y[0]), 0, y.size - 1
         )
         ix = np.minimum(horizontal.astype(np.intp), x.size - 2)
         iy = np.minimum(vertical.astype(np.intp), y.size - 2)
@@ -3122,10 +3117,87 @@ def cartesian_fluence_widths(
             (1 - fx) * samples[iy, ix] + fx * samples[iy, ix + 1]
         ) + fy * ((1 - fx) * samples[iy + 1, ix] + fx * samples[iy + 1, ix + 1])
         averaged[index] = np.mean(interpolated)
+    return second, *ring_fluence_widths(rings.radii, averaged)
+
+
+@dataclass(frozen=True)
+class FluenceRings:
+    """The rings on which a Cartesian fluence is averaged about its centroid.
+
+    Attributes
+    ----------
+    radii : numpy.ndarray
+        The rings' radii in m, the first zero, shape ``(n_radii,)``.
+    cosines, sines : numpy.ndarray
+        The cosine and the sine of each ring's sampling angles, shape ``(n_angles,)``.
+    """
+
+    radii: Float[np.ndarray, " n_radii"]
+    cosines: Float[np.ndarray, " n_angles"]
+    sines: Float[np.ndarray, " n_angles"]
+
+
+def fluence_rings(
+    x: Float[np.ndarray, " n_x"],
+    y: Float[np.ndarray, " n_y"],
+    center_x: float,
+    center_y: float,
+) -> FluenceRings | None:
+    """Return the rings of :func:`cartesian_fluence_widths` about a centroid.
+
+    Half the finest pixel spacing in radius, out to the largest circle about the
+    centroid inside the axes, and an angular spacing no larger than that arc length on
+    the largest ring of the plane.
+
+    Parameters
+    ----------
+    x, y : numpy.ndarray
+        Uniform increasing physical axes in m, of at least two samples each.
+    center_x, center_y : float
+        The fluence centroid in m.
+
+    Returns
+    -------
+    FluenceRings or None
+        The rings, or ``None`` when the centroid lies within two half-spacings of an
+        edge, where the threshold widths are undefined.
+    """
+    limit = min(center_x - x[0], x[-1] - center_x, center_y - y[0], y[-1] - center_y)
+    spacing = min(x[1] - x[0], y[1] - y[0]) / 2
+    if limit < 2 * spacing:
+        return None
+    # Anchor the rule to the grid, not the rounded centroid: otherwise a
+    # one-ulp change in the limiting radius can change every interpolation
+    # point through ceil/linspace, amplifying roundoff into sampling error.
+    radii = spacing * np.arange(math.floor(limit / spacing) + 1)
+    largest_circle = min(x[-1] - x[0], y[-1] - y[0]) / 2
+    n_angles = max(8, math.ceil(2 * np.pi * largest_circle / spacing))
+    angles = 2 * np.pi * np.arange(n_angles) / n_angles
+    return FluenceRings(radii, np.cos(angles), np.sin(angles))
+
+
+def ring_fluence_widths(
+    radii: Float[np.ndarray, " n_radii"], averaged: Float[np.ndarray, " n_radii"]
+) -> tuple[float, float]:
+    """Return the threshold widths of a fluence averaged on its rings.
+
+    Parameters
+    ----------
+    radii : numpy.ndarray
+        The rings' radii in m, the first zero (:func:`fluence_rings`).
+    averaged : numpy.ndarray
+        The nonnegative fluence averaged on each ring.
+
+    Returns
+    -------
+    tuple of float
+        The first 1/e^2 radius and the FWHM in m, as :func:`radial_fluence_widths`
+        defines them, with the first ring as the axis.
+    """
     _, radius_e2, width = radial_fluence_widths(
         radii[1:], averaged[1:], np.ones(radii.size - 1), float(averaged[0])
     )
-    return second, radius_e2, width
+    return radius_e2, width
 
 
 def _line_fluence_widths(

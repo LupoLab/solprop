@@ -50,6 +50,18 @@ class State:
     def spatial_statistics(
         self, flags: int, intensity_factor: float, z: float
     ) -> npt.NDArray[np.float64]: ...
+    def plane_fluence_trace(
+        self,
+        center_x: float,
+        center_y: float,
+        dx: float,
+        dy: float,
+        extent: float,
+        spacing: float,
+        n_radii: int,
+        cosines: npt.NDArray[np.float64],
+        sines: npt.NDArray[np.float64],
+    ) -> npt.NDArray[np.float64]: ...
     def aperture_statistics(
         self,
         flags: int,

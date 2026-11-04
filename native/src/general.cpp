@@ -67,6 +67,25 @@ template <> struct Kokkos::reduction_identity<solprop_native::host::NormSums> {
 };
 
 namespace solprop_native {
+/** A plane's scaled fluence, one reduction value: its sum and its index moments. */
+struct FluenceMoments {
+  double total = 0.0;
+  double x = 0.0;
+  double y = 0.0;
+  KOKKOS_INLINE_FUNCTION FluenceMoments& operator+=(const FluenceMoments& other) {
+    total += other.total;
+    x += other.x;
+    y += other.y;
+    return *this;
+  }
+};
+} // namespace solprop_native
+
+template <> struct Kokkos::reduction_identity<solprop_native::FluenceMoments> {
+  KOKKOS_FUNCTION static solprop_native::FluenceMoments sum() { return {}; }
+};
+
+namespace solprop_native {
 namespace {
 
 // Sets a coupled flow aside for a stage evaluation and puts it back however the scope
@@ -544,6 +563,31 @@ struct TransverseLayout {
   }
   KOKKOS_INLINE_FUNCTION std::size_t second(const std::size_t column) const {
     return channel_fastest ? column / inner : column % inner;
+  }
+};
+
+// A node's physical spectrum in a transverse volume after the inverse transverse plan:
+// on free space the node's own cell; on the hybrid planar kind the slab rule over its y
+// row's channels, without the temporal pad scale the planar synthesis carries, since
+// the statistics read the coarse field (solprop's `collect_spatial`).
+struct PhysicalSpectrum {
+  TransverseLayout layout{};
+  RealView2 synthesis{};
+  std::size_t n_x{}, n_p{};
+  double crop_scale = 1.0;
+  bool slab = false;
+  template <class View>
+  KOKKOS_INLINE_FUNCTION Complex read(const View& source, const std::size_t plane,
+                                      const std::size_t node) const {
+    if (!slab)
+      return layout.cell(source, plane, node);
+    const auto ix = node % n_x;
+    const auto rows = (node / n_x) * n_p;
+    Complex sum{};
+    for (std::size_t channel = 0; channel < n_p; ++channel)
+      sum += synthesis(ix, channel) *
+             source(plane, layout.first(rows + channel), layout.second(rows + channel));
+    return crop_scale * sum;
   }
 };
 
@@ -2016,6 +2060,9 @@ struct StageTerms {
 
 } // namespace
 
+// What a Cartesian plane's widths read of its fluence (`plane_fluence_moments`).
+inline constexpr std::size_t plane_moment_slots = 8;
+
 class GeneralWorkspace {
 public:
   explicit GeneralWorkspace(Problem problem) : problem_(std::move(problem)) {
@@ -2158,6 +2205,11 @@ public:
                      const std::vector<double>& densities);
   std::vector<double> spatial_statistics(std::uint64_t flags, double intensity_factor,
                                          double z);
+  std::vector<double> plane_fluence_trace(double center_x, double center_y, double dx,
+                                          double dy, double extent, double spacing,
+                                          std::size_t n_radii,
+                                          const std::vector<double>& cosines,
+                                          const std::vector<double>& sines);
   std::vector<double> aperture_statistics(std::uint64_t flags,
                                           const std::vector<double>& apertures,
                                           int exponent,
@@ -2356,8 +2408,10 @@ public:
   void separable_nodes(const TransverseChunk& chunk);
   void slab_project(const TransverseChunk& chunk, const EnvelopeStream* stream);
   void separable_finish_transform(std::size_t stage, bool material);
-  void separable_time_statistics(std::size_t axis_peak, std::size_t peak,
-                                 std::size_t fluence, double intensity_factor);
+  void separable_time_statistics(std::size_t axis_peak, std::size_t peak, bool fluence,
+                                 double intensity_factor);
+  void separable_fluence(double intensity_factor);
+  void plane_fluence_moments(double (&moments)[plane_moment_slots]);
   void scale_transform(std::size_t stage, double taper);
   void synthesise(std::size_t first_node, std::size_t node_count);
   void response(std::size_t stage, std::size_t first_node, std::size_t node_count);
@@ -2704,9 +2758,11 @@ public:
   RealView2 chunk_projection_stacked_, tail_projection_stacked_;
   RealView2 partials_, quadrature_partials_, stash_candidate_, stash_current_;
   RealView2 statistics_power_, plasma_statistics_scratch_;
-  // solprop SEP 34: each node's `|E| |G|` beside its signed flux, which bounds the
+  // solprop SEP 34: each node's `|E| |G|` beside its signed flux, which bounds a radial
   // fluence's rounding; allocated with the closure's buffers.
   RealView2 statistics_magnitude_;
+  // `spatial_statistics_partials_` holds a plane's scaled fluence for its trace.
+  bool plane_fluence_held_ = false;
   RealView2 plasma_rate_, plasma_exposure_, plasma_fraction_;
   RealView2 plasma_current_integrand_, plasma_free_current_;
   // The device trapezoid plasma's tile totals, by component row, and its tile count
@@ -3523,7 +3579,7 @@ void GeneralWorkspace::allocate() {
                    problem_.n_t);
   statistics_power_ =
       RealView2("solprop_native.statistics.power", statistic_nodes, problem_.n_t);
-  if (problem_.flux_closure)
+  if (problem_.flux_closure && !problem_.separable_geometry())
     statistics_magnitude_ = RealView2("solprop_native.statistics.flux_magnitude",
                                       statistic_nodes, problem_.n_t);
   statistics_total_power_ =
@@ -13652,7 +13708,8 @@ std::vector<double> GeneralWorkspace::statistics(
 void GeneralWorkspace::require_flux_closure() {
   const auto rows = statistics_time_.extent(0);
   const bool time = statistics_weighted_time_.extent(0) != rows;
-  const bool magnitude = statistics_magnitude_.extent(0) != statistics_power_.extent(0);
+  const bool magnitude = !problem_.separable_geometry() &&
+                         statistics_magnitude_.extent(0) != statistics_power_.extent(0);
   const bool volume = problem_.separable_geometry() && flux_transverse_.empty();
   if (!time && !magnitude && !volume)
     return;
@@ -13702,7 +13759,7 @@ void GeneralWorkspace::fill_statistics_closure() {
 
 void GeneralWorkspace::separable_time_statistics(const std::size_t axis_peak,
                                                  const std::size_t peak,
-                                                 const std::size_t fluence,
+                                                 const bool fluence,
                                                  const double intensity_factor) {
   constexpr auto absent = std::numeric_limits<std::size_t>::max();
   constexpr double lowest = std::numeric_limits<double>::lowest();
@@ -13715,7 +13772,6 @@ void GeneralWorkspace::separable_time_statistics(const std::size_t axis_peak,
   const auto scratch = transverse_;
   const auto closure_scratch = flux_transverse_;
   const auto power = statistics_power_;
-  const auto magnitude = statistics_magnitude_;
   const auto partials = spatial_statistics_partials_;
   const auto synthesis = synthesis_;
   const auto flux = flux_;
@@ -13727,9 +13783,8 @@ void GeneralWorkspace::separable_time_statistics(const std::size_t axis_peak,
   const auto layout = transverse_layout();
   const auto n = problem_.n_omega;
   const auto n_t = problem_.n_t;
-  const auto dt = problem_.dt;
   const bool envelope = problem_.family == FieldFamily::envelope;
-  if (axis_peak != absent || fluence != absent) {
+  if (axis_peak != absent) {
     // The axis's closure first, kept in the closure rows, then its field: each the
     // coherent on-axis sum of the analytic spectrum (solprop SEP 34).
     for (const bool closed : {true, false}) {
@@ -13764,21 +13819,17 @@ void GeneralWorkspace::separable_time_statistics(const std::size_t axis_peak,
         "solprop_native.free.statistics_axis_reduce",
         Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, 1),
         KOKKOS_LAMBDA(const std::size_t) {
-          double sum = 0.0, maximum = lowest;
+          double maximum = lowest;
           for (std::size_t time = 0; time < n_t; ++time) {
             double value = 0.0;
             for (std::size_t pol = 0; pol < n_pol; ++pol)
               value += (field(pol, time) * Kokkos::conj(closure(pol, time))).real();
-            sum += value;
             maximum = Kokkos::max(maximum, value);
           }
-          if (axis_peak != absent)
-            packed(axis_peak) = intensity_factor * maximum;
-          if (fluence != absent)
-            packed(fluence + n_nodes) = intensity_factor * dt * sum;
+          packed(axis_peak) = intensity_factor * maximum;
         });
   }
-  if (peak == absent && fluence == absent)
+  if (peak == absent && !fluence)
     return;
   const auto transverse_count =
       static_cast<double>(problem_.slab_geometry() ? problem_.n_y : n_modes);
@@ -13795,6 +13846,10 @@ void GeneralWorkspace::separable_time_statistics(const std::size_t axis_peak,
       });
   transverse_inverse();
   transverse_inverse(flux_transverse_);
+  if (fluence)
+    separable_fluence(intensity_factor);
+  if (peak == absent)
+    return;
   const bool slab = problem_.slab_geometry();
   const auto n_x = problem_.n_x;
   const auto n_p = problem_.n_p;
@@ -13849,41 +13904,280 @@ void GeneralWorkspace::separable_time_statistics(const std::size_t axis_peak,
         "solprop_native.free.statistics_intensity",
         Range2(execution_space_, {0, 0}, {count, n_t}),
         KOKKOS_LAMBDA(const std::size_t node, const std::size_t time) {
-          double value = 0.0, size = 0.0;
-          for (std::size_t pol = 0; pol < n_pol; ++pol) {
-            const Complex electric = field(node * n_pol + pol, time);
-            const Complex magnetic = closure(node * n_pol + pol, time);
-            value += (electric * Kokkos::conj(magnetic)).real();
-            size += Kokkos::sqrt(squared_abs(electric) * squared_abs(magnetic));
-          }
+          double value = 0.0;
+          for (std::size_t pol = 0; pol < n_pol; ++pol)
+            value += (field(node * n_pol + pol, time) *
+                      Kokkos::conj(closure(node * n_pol + pol, time)))
+                         .real();
           power(node, time) = intensity_factor * value;
-          magnitude(node, time) = intensity_factor * size;
         });
     launch::parallel_for(
-        "solprop_native.free.statistics_fluence",
+        "solprop_native.free.statistics_node_peak",
         Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, count),
         KOKKOS_LAMBDA(const std::size_t node) {
-          double maximum = lowest, sum = 0.0, size = 0.0;
-          for (std::size_t time = 0; time < n_t; ++time) {
-            sum += power(node, time);
-            size += magnitude(node, time);
+          double maximum = lowest;
+          for (std::size_t time = 0; time < n_t; ++time)
             maximum = Kokkos::max(maximum, power(node, time));
-          }
           partials(first + node, 1) = maximum;
-          if (fluence != absent) {
-            packed(fluence + first + node) = dt * sum;
-            packed(fluence + n_nodes + 1 + first + node) = dt * size;
-          }
         });
   }
-  if (peak != absent)
+  launch::parallel_reduce(
+      "solprop_native.free.statistics_peak",
+      Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, n_nodes),
+      KOKKOS_LAMBDA(const std::size_t node, double& maximum) {
+        maximum = Kokkos::max(maximum, partials(node, 1));
+      },
+      Kokkos::Max<double, MemorySpace>(Kokkos::subview(packed, peak)));
+}
+
+// Each node's signed fluence into `partials(node, 0)` and a bound on its magnitude into
+// `partials(node, 2)`, from the physical spectra of the transverse volumes, with no
+// time transform. The analytic signal's spectrum is `s_k a_k`, with `s_k` one or two
+// over `n_t`, so Parseval's theorem over the `n_t` samples gives `sum_t Re(E(t)
+// conj(G(t))) = (1 / n_t) sum_k w_k Re(a_k conj(b_k))`, with `w_k` one or four: exactly
+// the time sum the reference takes. The same pairs bound that sum's magnitude: by
+// Cauchy-Schwarz over time and polarisation, `sum_t |E(t)| |G(t)| <= (1 / n_t)
+// sqrt(sum_k w_k |a_k|^2 sum_k w_k |b_k|^2)`, with equality where `G` is proportional
+// to `E`, as in a beam whose admittance varies little across its band. So a rounding
+// budget set from it is never below the reference's.
+void GeneralWorkspace::separable_fluence(const double intensity_factor) {
+  const auto scratch = transverse_;
+  const auto closure_scratch = flux_transverse_;
+  const auto partials = spatial_statistics_partials_;
+  const PhysicalSpectrum spectrum{transverse_layout(),
+                                  synthesis_,
+                                  problem_.n_x,
+                                  problem_.n_p,
+                                  static_cast<double>(problem_.n_t) /
+                                      static_cast<double>(problem_.n_to),
+                                  problem_.slab_geometry()};
+  const auto n_nodes = problem_.n_nodes;
+  const auto n_pol = problem_.n_pol_state;
+  const auto n = problem_.n_omega;
+  const bool envelope = problem_.family == FieldFamily::envelope;
+  const double measure =
+      intensity_factor * problem_.dt / static_cast<double>(problem_.n_t);
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
+  // One node per thread, whole planes per block: adjacent threads read adjacent cells.
+  launch::parallel_for(
+      "solprop_native.free.statistics_fluence",
+      Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, n_nodes),
+      KOKKOS_LAMBDA(const std::size_t node) {
+        double sum = 0.0, electric_size = 0.0, magnetic_size = 0.0;
+        for (std::size_t index = 0; index < n; ++index) {
+          const double weight = envelope || index == 0 || index + 1 == n ? 1.0 : 4.0;
+          for (std::size_t pol = 0; pol < n_pol; ++pol) {
+            const Complex electric = spectrum.read(scratch, index * n_pol + pol, node);
+            const Complex magnetic =
+                spectrum.read(closure_scratch, index * n_pol + pol, node);
+            sum += weight * (electric.real() * magnetic.real() +
+                             electric.imag() * magnetic.imag());
+            electric_size += weight * squared_abs(electric);
+            magnetic_size += weight * squared_abs(magnetic);
+          }
+        }
+        partials(node, 0) = measure * sum;
+        partials(node, 2) = measure * Kokkos::sqrt(electric_size * magnetic_size);
+      });
+#else
+  // A task takes a run of adjacent nodes and reads each plane's cells of the run in
+  // order: one node at a time would touch a new plane at every sample.
+  constexpr std::size_t run = 256;
+  const std::size_t runs = (n_nodes + run - 1) / run;
+  launch::parallel_for(
+      "solprop_native.free.statistics_fluence",
+      Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, runs),
+      KOKKOS_LAMBDA(const std::size_t item) {
+        const std::size_t first = item * run;
+        const std::size_t count = n_nodes - first < run ? n_nodes - first : run;
+        double sum[run] = {}, electric_size[run] = {}, magnetic_size[run] = {};
+        for (std::size_t index = 0; index < n; ++index) {
+          const double weight = envelope || index == 0 || index + 1 == n ? 1.0 : 4.0;
+          for (std::size_t pol = 0; pol < n_pol; ++pol) {
+            const auto plane = index * n_pol + pol;
+            for (std::size_t offset = 0; offset < count; ++offset) {
+              const Complex electric = spectrum.read(scratch, plane, first + offset);
+              const Complex magnetic =
+                  spectrum.read(closure_scratch, plane, first + offset);
+              sum[offset] += weight * (electric.real() * magnetic.real() +
+                                       electric.imag() * magnetic.imag());
+              electric_size[offset] += weight * squared_abs(electric);
+              magnetic_size[offset] += weight * squared_abs(magnetic);
+            }
+          }
+        }
+        for (std::size_t offset = 0; offset < count; ++offset) {
+          partials(first + offset, 0) = measure * sum[offset];
+          partials(first + offset, 2) =
+              measure * Kokkos::sqrt(electric_size[offset] * magnetic_size[offset]);
+        }
+      });
+#endif
+}
+
+// What a plane's widths read of its fluence (`separable_fluence`), each a reduction
+// over the nodes, so that the profile itself stays on the device: `moments` takes the
+// lowest value and its node, the largest magnitude, the largest value and the count of
+// values that aren't finite and, when the plane has a positive value and none that
+// isn't finite, the scaled profile's sum and index moments. That scaled profile is left
+// in `partials(node, 0)` for `plane_fluence_trace`. Each reduction blocks: one plane's
+// work.
+void GeneralWorkspace::plane_fluence_moments(double (&moments)[plane_moment_slots]) {
+  const auto partials = spatial_statistics_partials_;
+  const auto n_nodes = problem_.n_nodes;
+  const auto n_x = problem_.n_x;
+  const Kokkos::RangePolicy<ExecutionSpace> nodes(execution_space_, 0, n_nodes);
+  std::size_t nonfinite = 0;
+  launch::parallel_reduce(
+      "solprop_native.free.plane_fluence_finite", nodes,
+      KOKKOS_LAMBDA(const std::size_t node, std::size_t& update) {
+        if (!Kokkos::isfinite(partials(node, 0)))
+          ++update;
+      },
+      Kokkos::Sum<std::size_t>(nonfinite));
+  Kokkos::MinLoc<double, std::size_t>::value_type worst{};
+  launch::parallel_reduce(
+      "solprop_native.free.plane_fluence_worst", nodes,
+      KOKKOS_LAMBDA(const std::size_t node,
+                    Kokkos::MinLoc<double, std::size_t>::value_type& update) {
+        if (partials(node, 0) < update.val) {
+          update.val = partials(node, 0);
+          update.loc = node;
+        }
+      },
+      Kokkos::MinLoc<double, std::size_t>(worst));
+  double size = 0.0;
+  launch::parallel_reduce(
+      "solprop_native.free.plane_fluence_size", nodes,
+      KOKKOS_LAMBDA(const std::size_t node, double& update) {
+        update = Kokkos::max(update, partials(node, 2));
+      },
+      Kokkos::Max<double>(size));
+  double highest = 0.0;
+  launch::parallel_reduce(
+      "solprop_native.free.plane_fluence_highest", nodes,
+      KOKKOS_LAMBDA(const std::size_t node, double& update) {
+        update = Kokkos::max(update, partials(node, 0));
+      },
+      Kokkos::Max<double>(highest));
+  // A negative value within its budget is read as zero, as the reference reads it.
+  const double maximum = Kokkos::max(highest, 0.0);
+  FluenceMoments sums;
+  plane_fluence_held_ = nonfinite == 0 && maximum > 0.0;
+  if (plane_fluence_held_)
     launch::parallel_reduce(
-        "solprop_native.free.statistics_peak",
-        Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, n_nodes),
-        KOKKOS_LAMBDA(const std::size_t node, double& maximum) {
-          maximum = Kokkos::max(maximum, partials(node, 1));
+        "solprop_native.free.plane_fluence_moments", nodes,
+        KOKKOS_LAMBDA(const std::size_t node, FluenceMoments& update) {
+          // Scaling cancels in the centroid and the widths and keeps them from
+          // overflowing on a bright beam.
+          const double sample = Kokkos::max(partials(node, 0), 0.0) / maximum;
+          partials(node, 0) = sample;
+          update.total += sample;
+          update.x += sample * static_cast<double>(node % n_x);
+          update.y += sample * static_cast<double>(node / n_x);
         },
-        Kokkos::Max<double, MemorySpace>(Kokkos::subview(packed, peak)));
+        Kokkos::Sum<FluenceMoments>(sums));
+  moments[0] = worst.val;
+  moments[1] = static_cast<double>(worst.loc);
+  moments[2] = size;
+  moments[3] = maximum;
+  moments[4] = static_cast<double>(nonfinite);
+  moments[5] = sums.total;
+  moments[6] = sums.x;
+  moments[7] = sums.y;
+}
+
+// The second moment and the azimuthal average of a plane's scaled fluence, left by a
+// call that asked for its moments. The rule is solprop's
+// (`solprop.spatial.cartesian_fluence_widths`), which owns the rings and hands them
+// over: each ring samples the bilinear interpolant at `cosines.size()` angles about the
+// centroid, with the centre in metres from the axes' first samples, so that only the
+// trace crosses, not the profile. Returned: the second-moment sum, then the trace.
+std::vector<double> GeneralWorkspace::plane_fluence_trace(
+    const double center_x, const double center_y, const double dx, const double dy,
+    const double extent, const double spacing, const std::size_t n_radii,
+    const std::vector<double>& cosines, const std::vector<double>& sines) {
+  require_open();
+  if (!plane_fluence_held_)
+    throw std::logic_error("a plane's fluence trace follows the call that holds it");
+  plane_fluence_held_ = false;
+  if (cosines.size() != sines.size() || (n_radii != 0 && cosines.empty()) ||
+      !(dx > 0.0) || !(dy > 0.0) || !(extent > 0.0) ||
+      (n_radii != 0 && !(spacing > 0.0)))
+    throw std::invalid_argument("invalid fluence rings");
+  const auto n_angles = cosines.size();
+  const auto packed_size =
+      checked_sum(checked_sum(1, n_radii, "fluence trace"),
+                  checked_product(2, n_angles, "fluence rings"), "fluence trace");
+  if (statistics_packed_.size() < packed_size) {
+    execution_space_.fence("solprop_native spatial statistics output resize");
+    statistics_packed_ = RealView("solprop_native.statistics.packed", packed_size);
+  }
+  const auto packed = statistics_packed_;
+  const auto samples = spatial_statistics_partials_;
+  const auto n_x = problem_.n_x;
+  const auto n_y = problem_.n_y;
+  const auto first_ring = n_radii + 1;
+  if (n_angles != 0) {
+    std::vector<double> rings(cosines);
+    rings.insert(rings.end(), sines.begin(), sines.end());
+    copy_vector(execution_space_,
+                Kokkos::subview(packed, std::make_pair(first_ring, packed_size)),
+                rings);
+  }
+  double second = 0.0;
+  launch::parallel_reduce(
+      "solprop_native.free.plane_fluence_second",
+      Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, problem_.n_nodes),
+      KOKKOS_LAMBDA(const std::size_t node, double& update) {
+        const double x = (static_cast<double>(node % n_x) * dx - center_x) / extent;
+        const double y = (static_cast<double>(node / n_x) * dy - center_y) / extent;
+        update += samples(node, 0) * (x * x + y * y);
+      },
+      Kokkos::Sum<double>(second));
+  const double last_x = static_cast<double>(n_x - 1);
+  const double last_y = static_cast<double>(n_y - 1);
+  // One thread per ring: a ring's samples are few, and a thread's sum needs no
+  // reduction.
+  launch::parallel_for(
+      "solprop_native.free.plane_fluence_rings",
+      Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, n_radii),
+      KOKKOS_LAMBDA(const std::size_t ring) {
+        const double distance = spacing * static_cast<double>(ring);
+        double sum = 0.0;
+        for (std::size_t angle = 0; angle < n_angles; ++angle) {
+          const double horizontal = Kokkos::min(
+              Kokkos::max((center_x + distance * packed(first_ring + angle)) / dx, 0.0),
+              last_x);
+          const double vertical = Kokkos::min(
+              Kokkos::max(
+                  (center_y + distance * packed(first_ring + n_angles + angle)) / dy,
+                  0.0),
+              last_y);
+          const auto ix =
+              Kokkos::min(static_cast<std::size_t>(horizontal), n_x - std::size_t{2});
+          const auto iy =
+              Kokkos::min(static_cast<std::size_t>(vertical), n_y - std::size_t{2});
+          const double fx = horizontal - static_cast<double>(ix);
+          const double fy = vertical - static_cast<double>(iy);
+          const auto low = iy * n_x + ix;
+          const auto high = low + n_x;
+          sum +=
+              (1.0 - fy) * ((1.0 - fx) * samples(low, 0) + fx * samples(low + 1, 0)) +
+              fy * ((1.0 - fx) * samples(high, 0) + fx * samples(high + 1, 0));
+        }
+        packed(1 + ring) = sum / static_cast<double>(n_angles);
+      });
+  const auto trace =
+      Kokkos::subview(packed, std::make_pair(std::size_t{1}, first_ring));
+  auto host = Kokkos::create_mirror_view(trace);
+  graph::deep_copy(execution_space_, host, trace);
+  execution_space_.fence("solprop_native fluence trace boundary");
+  std::vector<double> result(first_ring);
+  result[0] = second;
+  for (std::size_t ring = 0; ring < n_radii; ++ring)
+    result[1 + ring] = host(ring);
+  return result;
 }
 
 std::vector<double> GeneralWorkspace::aperture_statistics(
@@ -13911,10 +14205,13 @@ std::vector<double> GeneralWorkspace::spatial_statistics(const std::uint64_t fla
         "spatial statistics need an initial field and spatial geometry");
   if (flux_.square.empty())
     throw std::logic_error("spatial statistics need the run's plane measure");
-  if ((flags & ~std::uint64_t{31}) != 0 || !std::isfinite(intensity_factor) ||
+  if ((flags & ~std::uint64_t{63}) != 0 || !std::isfinite(intensity_factor) ||
       intensity_factor <= 0.0 || !std::isfinite(z))
     throw std::invalid_argument(
         "invalid spatial statistic flags, intensity factor or position");
+  if ((flags & 32U) != 0 &&
+      (!problem_.free_geometry() || problem_.slab_geometry() || problem_.n_y < 2))
+    throw std::invalid_argument("a plane's fluence moments need a Cartesian plane");
   constexpr auto absent = std::numeric_limits<std::size_t>::max();
   constexpr double lowest = std::numeric_limits<double>::lowest();
   std::size_t packed_size = 0;
@@ -13930,12 +14227,13 @@ std::vector<double> GeneralWorkspace::spatial_statistics(const std::uint64_t fla
   const auto axis_peak_offset = reserve(2, 1);
   const auto peak_offset = reserve(4, 1);
   const auto spectrum_offset = reserve(8, problem_.n_omega);
-  // Widths read the signed fluence at the nodes, the separately reconstructed axis
-  // and each node's magnitude `dt sum |E| |G|`, whose largest value fixes the
+  // Widths read the signed fluence at the nodes, the separately reconstructed axis,
+  // which only a radial width reads, and the largest magnitude, which fixes the
   // fluence's rounding budget (solprop SEP 34).
   const auto fluence_offset =
-      reserve(16, checked_sum(checked_product(2, problem_.n_nodes, "spatial nodes"), 1,
-                              "spatial statistics output"));
+      reserve(16, checked_sum(problem_.n_nodes, 2, "spatial statistics output"));
+  // On a Cartesian plane the widths reduce here instead, and the moments cross.
+  const auto moments_offset = reserve(32, plane_moment_slots);
   if (packed_size == 0)
     return {};
   if (statistics_packed_.size() < packed_size) {
@@ -13944,7 +14242,7 @@ std::vector<double> GeneralWorkspace::spatial_statistics(const std::uint64_t fla
   }
   // Every field statistic is the axial flux of the medium at the plane z.
   flux_at(z);
-  const bool local = (flags & (2U | 4U | 16U)) != 0;
+  const bool local = (flags & (2U | 4U | 16U | 32U)) != 0;
   if (local)
     require_flux_closure();
   const auto packed = statistics_packed_;
@@ -14014,9 +14312,29 @@ std::vector<double> GeneralWorkspace::spatial_statistics(const std::uint64_t fla
               (2.0 * Kokkos::numbers::pi_v<double>)*weight * power;
         });
   }
+  double moments[plane_moment_slots] = {};
   if (problem_.separable_geometry()) {
-    separable_time_statistics(axis_peak_offset, peak_offset, fluence_offset,
+    separable_time_statistics(axis_peak_offset, peak_offset,
+                              fluence_offset != absent || moments_offset != absent,
                               intensity_factor);
+    if (fluence_offset != absent) {
+      launch::parallel_for(
+          "solprop_native.free.fluence_rows",
+          Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, n_nodes),
+          KOKKOS_LAMBDA(const std::size_t node) {
+            packed(fluence_offset + node) = partials(node, 0);
+          });
+      launch::parallel_reduce(
+          "solprop_native.free.fluence_largest",
+          Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, n_nodes),
+          KOKKOS_LAMBDA(const std::size_t node, double& maximum) {
+            maximum = Kokkos::max(maximum, partials(node, 2));
+          },
+          Kokkos::Max<double, MemorySpace>(
+              Kokkos::subview(packed, fluence_offset + n_nodes + 1)));
+    }
+    if (moments_offset != absent)
+      plane_fluence_moments(moments);
   } else if (local) {
     if (n_nodes != n_modes)
       throw std::logic_error("radial statistics need one node per Hankel column");
@@ -14119,11 +14437,19 @@ std::vector<double> GeneralWorkspace::spatial_statistics(const std::uint64_t fla
               size += magnitude(node, time);
             }
             partials(node, 1) = peak;
-            if (fluence_offset != absent) {
+            partials(node, 2) = dt * size;
+            if (fluence_offset != absent)
               packed(fluence_offset + node) = dt * sum;
-              packed(fluence_offset + n_nodes + 1 + node) = dt * size;
-            }
           });
+      if (fluence_offset != absent)
+        launch::parallel_reduce(
+            "solprop_native.spatial.fluence_largest",
+            Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, n_nodes),
+            KOKKOS_LAMBDA(const std::size_t node, double& maximum) {
+              maximum = Kokkos::max(maximum, partials(node, 2));
+            },
+            Kokkos::Max<double, MemorySpace>(
+                Kokkos::subview(packed, fluence_offset + n_nodes + 1)));
       if (peak_offset != absent)
         launch::parallel_for(
             "solprop_native.spatial.pack_peak",
@@ -14144,6 +14470,11 @@ std::vector<double> GeneralWorkspace::spatial_statistics(const std::uint64_t fla
   std::vector<double> result(packed_size);
   for (std::size_t index = 0; index < packed_size; ++index)
     result[index] = host(index);
+  // The separable routes don't form the axis's fluence: only a radial width reads it.
+  if (fluence_offset != absent && problem_.separable_geometry())
+    result[fluence_offset + n_nodes] = Kokkos::Experimental::quiet_NaN_v<double>;
+  if (moments_offset != absent)
+    std::copy_n(moments, plane_moment_slots, result.data() + moments_offset);
   return result;
 }
 
@@ -15776,6 +16107,14 @@ std::vector<double> GeneralState::spatial_statistics(const std::uint64_t flags,
                                                      const double z) {
   const CpuTeamScope team(workspace_->cpu_team());
   return workspace_->spatial_statistics(flags, intensity_factor, z);
+}
+std::vector<double> GeneralState::plane_fluence_trace(
+    const double center_x, const double center_y, const double dx, const double dy,
+    const double extent, const double spacing, const std::size_t n_radii,
+    const std::vector<double>& cosines, const std::vector<double>& sines) {
+  const CpuTeamScope team(workspace_->cpu_team());
+  return workspace_->plane_fluence_trace(center_x, center_y, dx, dy, extent, spacing,
+                                         n_radii, cosines, sines);
 }
 std::vector<double> GeneralState::aperture_statistics(
     const std::uint64_t flags, const std::vector<double>& apertures, const int exponent,

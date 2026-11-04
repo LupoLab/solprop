@@ -65,6 +65,7 @@ from solprop.backends.spatial import (
     FarFieldTables,
     far_field_partials,
     fluence_budget,
+    plane_fluence_widths,
     radial_absorber_matrix,
     signed_fluence_widths,
 )
@@ -200,6 +201,17 @@ _SPATIAL_STAT_FLAGS = {
     "beam_radius": 16,
     "fwhm_r": 16,
 }
+
+_PLANE_WIDTHS_FLAG = 32
+"""A Cartesian plane's widths: the native moments of its fluence, not flag 16's rows.
+
+The native pass holds the fluence and
+:func:`solprop.backends.spatial.plane_fluence_widths` reads the reductions. Radial, line
+and planar profiles are small, and cross.
+"""
+
+_PLANE_MOMENTS = 8
+"""The values flag 32 packs, in the order ``plane_fluence_widths`` reads them."""
 
 _FAR_FIELD_FLAGS = {
     "beam_spectrum": 1 << 5,
@@ -1430,6 +1442,9 @@ class NativeBackend(StepDriver[_core.State]):
         flags = 0
         for name in names:
             flags |= _SPATIAL_STAT_FLAGS[name]
+        plane = geometry.kind == "free" and geometry.axes[1].size > 1
+        if plane and flags & _SPATIAL_STAT_FLAGS["beam_radius"]:
+            flags += _PLANE_WIDTHS_FLAG - _SPATIAL_STAT_FLAGS["beam_radius"]
         packed = np.asarray(
             self._native_state.spatial_statistics(flags, 0.5 * EPS0 * C, self._z)
         ).ravel()
@@ -1446,23 +1461,33 @@ class NativeBackend(StepDriver[_core.State]):
                 values[name] = data[None] if name == "on_axis_spectrum" else data
                 offset += count
         if names & {"beam_radius", "fwhm_r"}:
-            # The signed fluence, the axis fluence and each node's magnitude, whose
-            # largest value fixes the rounding budget (solprop SEP 34).
-            count = self._problem.transform.n_nodes
-            fluence = packed[offset : offset + count]
-            axis_fluence = float(packed[offset + count])
-            magnitude = packed[offset + count + 1 : offset + 2 * count + 1]
-            n_pol = self._problem.shape[2]
-            budget = fluence_budget(
-                magnitude,
-                n_pol * self._problem.grids.n_t + self._problem.transform.n_modes,
+            n_terms = (
+                self._problem.shape[2] * self._problem.grids.n_t
+                + self._problem.transform.n_modes
             )
-            widths = signed_fluence_widths(geometry, fluence, budget, axis_fluence)
+            if plane:
+                widths = plane_fluence_widths(
+                    geometry,
+                    packed[offset : offset + _PLANE_MOMENTS],
+                    n_terms,
+                    self._native_state.plane_fluence_trace,
+                )
+                offset += _PLANE_MOMENTS
+            else:
+                # The signed fluence, the axis fluence (a radial width's alone) and the
+                # largest magnitude, which fixes the rounding budget (solprop SEP 34).
+                count = self._problem.transform.n_nodes
+                widths = signed_fluence_widths(
+                    geometry,
+                    packed[offset : offset + count],
+                    fluence_budget(np.full(count, packed[offset + count + 1]), n_terms),
+                    float(packed[offset + count]),
+                )
+                offset += count + 2
             if "beam_radius" in names:
                 values["beam_radius"] = np.asarray([widths[:2]])
             if "fwhm_r" in names:
                 values["fwhm_r"] = np.asarray([widths[2]])
-            offset += 2 * count + 1
         if offset != packed.size:
             raise BackendError(
                 f"native spatial statistics returned {packed.size} values; "

@@ -1343,6 +1343,16 @@ public:
     require_open();
     return general_state_->spatial_statistics(flags, intensity_factor, z);
   }
+  std::vector<double> plane_fluence_trace(const double center_x, const double center_y,
+                                          const double dx, const double dy,
+                                          const double extent, const double spacing,
+                                          const std::size_t n_radii,
+                                          const std::vector<double>& cosines,
+                                          const std::vector<double>& sines) {
+    require_open();
+    return general_state_->plane_fluence_trace(center_x, center_y, dx, dy, extent,
+                                               spacing, n_radii, cosines, sines);
+  }
   std::vector<double> aperture_statistics(const std::uint64_t flags,
                                           const std::vector<double>& apertures,
                                           const int exponent,
@@ -2737,6 +2747,27 @@ NB_MODULE(_core, module_) {
             return real_output(std::move(values), 1);
           },
           "flags"_a, "intensity_factor"_a, "z"_a)
+      .def(
+          "plane_fluence_trace",
+          [](BoundState& self, const double center_x, const double center_y,
+             const double dx, const double dy, const double extent,
+             const double spacing, const std::size_t n_radii, const RealInput cosines,
+             const RealInput sines) {
+            if (cosines.ndim() != 1 || sines.ndim() != 1)
+              throw std::invalid_argument("fluence rings must be one-dimensional");
+            const auto held_cosines = real_vector(cosines);
+            const auto held_sines = real_vector(sines);
+            std::vector<double> values;
+            {
+              const nb::gil_scoped_release release;
+              values =
+                  self.plane_fluence_trace(center_x, center_y, dx, dy, extent, spacing,
+                                           n_radii, held_cosines, held_sines);
+            }
+            return real_output(std::move(values), 1);
+          },
+          "center_x"_a, "center_y"_a, "dx"_a, "dy"_a, "extent"_a, "spacing"_a,
+          "n_radii"_a, "cosines"_a.noconvert(), "sines"_a.noconvert())
       .def(
           "aperture_statistics",
           [](BoundState& self, const std::uint64_t flags, const RealInput apertures,

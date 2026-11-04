@@ -838,11 +838,26 @@ public:
    * The spatial statistics of the accepted state at the plane `z`, measured by the
    * medium's axial flux (solprop SEP 34): flags 1 energy, 2 on-axis peak intensity, 4
    * peak intensity, 8 on-axis spectrum, 16 the widths' fluence block (the signed
-   * fluence at each node, the axis fluence, then each node's magnitude
-   * `dt sum |E| |G|`), packed in that order.
+   * fluence at each node, the axis fluence, which a separable route leaves NaN since
+   * only a radial width reads it, then the bound on the largest magnitude), 32 a
+   * Cartesian plane's fluence moments, which hold its scaled profile for
+   * `plane_fluence_trace` (the lowest value, its node, the bound on the largest
+   * magnitude, the largest value, the count of values that aren't finite, then the
+   * scaled sum and its x and y index moments), packed in that order.
    */
   [[nodiscard]] std::vector<double>
   spatial_statistics(std::uint64_t flags, double intensity_factor, double z);
+  /**
+   * The second moment and the azimuthal average of the plane's scaled fluence that a
+   * `spatial_statistics` call with flag 32 left, on rings solprop's own rule fixes,
+   * with the centre in metres from the axes' first samples. Returns the second-moment
+   * sum, then one average per ring. The profile itself stays in the execution space.
+   */
+  [[nodiscard]] std::vector<double>
+  plane_fluence_trace(double center_x, double center_y, double dx, double dy,
+                      double extent, double spacing, std::size_t n_radii,
+                      const std::vector<double>& cosines,
+                      const std::vector<double>& sines);
   /**
    * solprop SEP 23's far-field statistics of the accepted state on a Cartesian or line
    * grid, one banded pass; see `FarFieldPass::run` (`far_field.hpp`) for the tables,

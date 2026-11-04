@@ -4,7 +4,8 @@
 
 """Collect spatial host statistics through bounded transverse reconstruction chunks."""
 
-from collections.abc import Collection, Mapping
+import math
+from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass, fields
 
 import numpy as np
@@ -12,7 +13,7 @@ from jaxtyping import Complex, Float
 
 from solprop import fourier
 from solprop.constants import EPS0, C
-from solprop.exceptions import BackendError
+from solprop.exceptions import BackendError, GridError
 from solprop.grid import TimeGrid
 from solprop.profiles import ZProfile
 from solprop.spatial import (
@@ -22,7 +23,9 @@ from solprop.spatial import (
     ApertureTables,
     aperture_statistics,
     cartesian_fluence_widths,
+    fluence_rings,
     radial_fluence_widths,
+    ring_fluence_widths,
 )
 from solprop.stats import PROFILE_STATISTICS, StatsSpec, analytic_field, profile_value
 from solprop.translate.modal import Transform
@@ -50,6 +53,7 @@ __all__ = [
     "far_field_layout",
     "far_field_partials",
     "fluence_budget",
+    "plane_fluence_widths",
     "radial_absorber_matrix",
     "signed_fluence_widths",
     "slab_columns",
@@ -800,12 +804,7 @@ def signed_fluence_widths(
     """
     if np.any(fluence < -budget):
         worst = int(np.argmin(fluence + budget))
-        msg = (
-            "beam_radius and fwhm_r need a nonnegative fluence profile, and the "
-            f"signed axial flux is {fluence[worst]:.3e} J/m^2 at node {worst}, "
-            "beyond its rounding budget; the width is undefined for it"
-        )
-        raise BackendError(msg)
+        raise _negative_fluence(float(fluence[worst]), worst)
     fluence = np.maximum(fluence, 0.0)
     if geometry.kind == "radial":
         return radial_fluence_widths(
@@ -815,6 +814,112 @@ def signed_fluence_widths(
         moment, radius, fwhm = _slab_widths(geometry, fluence)
         return moment, radius, fwhm
     return cartesian_fluence_widths(geometry.axes[0], geometry.axes[1], fluence)
+
+
+def plane_fluence_widths(
+    geometry: SpatialGeometry,
+    moments: Float[np.ndarray, " 8"],
+    n_terms: int,
+    trace: Callable[..., np.ndarray],
+) -> tuple[float, float, float]:
+    """Return a Cartesian plane's widths from reductions a backend took of its fluence.
+
+    :func:`signed_fluence_widths` and :func:`solprop.spatial.cartesian_fluence_widths`
+    for a backend that reduces the fluence where the field lives, so that the profile
+    itself never crosses: the refusal, the clamp, the centroid, the rings and the widths
+    are read as those functions read them.
+
+    Parameters
+    ----------
+    geometry : solprop.translate.spatial.SpatialGeometry
+        The plane's ``"free"`` geometry, with at least two samples on each axis.
+    moments : numpy.ndarray
+        The lowest fluence in J/m^2, its node, the bound on the largest magnitude in
+        J/m^2 (at least :func:`fluence_budget`'s), the largest fluence read as
+        nonnegative, the count of values that aren't finite, then the sum of the fluence
+        scaled by that largest value, clamped to be nonnegative, and that sum weighted
+        by the samples' x and y indices.
+    n_terms : int
+        As for :func:`fluence_budget`.
+    trace : collections.abc.Callable
+        Called with the centroid in m from the axes' first samples, their spacings, the
+        extent, the rings' spacing, their count, and the rings' cosines and sines. It
+        returns the sum of the scaled fluence times the squared distance from the
+        centroid over the squared extent, then the scaled fluence averaged on each ring.
+
+    Returns
+    -------
+    tuple of float
+        Second-moment, 1/e^2 and FWHM widths in m.
+
+    Raises
+    ------
+    BackendError
+        If the fluence is negative beyond its budget anywhere.
+    GridError
+        If a value isn't finite or the second moment isn't representable.
+    """
+    worst, node, size, maximum, nonfinite, total, moment_x, moment_y = moments
+    if nonfinite:
+        msg = (
+            "Cartesian fluence widths require finite axes "
+            "and matching nonnegative samples"
+        )
+        raise GridError(msg)
+    if worst < -fluence_budget(np.array([size]), n_terms)[0]:
+        raise _negative_fluence(float(worst), int(node))
+    if maximum == 0:
+        return math.nan, math.nan, math.nan
+    x, y = geometry.axes
+    dx, dy = float(x[1] - x[0]), float(y[1] - y[0])
+    center_x = float(x[0]) + dx * float(moment_x / total)
+    center_y = float(y[0]) + dy * float(moment_y / total)
+    extent = math.hypot(
+        max(center_x - x[0], x[-1] - center_x), max(center_y - y[0], y[-1] - center_y)
+    )
+    rings = fluence_rings(x, y, center_x, center_y)
+    empty = np.empty(0)
+    packed = trace(
+        center_x - float(x[0]),
+        center_y - float(y[0]),
+        dx,
+        dy,
+        extent,
+        float(rings.radii[1]) if rings is not None else 0.0,
+        0 if rings is None else rings.radii.size,
+        empty if rings is None else rings.cosines,
+        empty if rings is None else rings.sines,
+    )
+    values = np.ravel(packed)
+    second = extent * math.sqrt(2 * float(values[0]) / float(total))
+    if not math.isfinite(second):
+        msg = "Cartesian fluence moments are not representable"
+        raise GridError(msg)
+    if rings is None:
+        return second, math.nan, math.nan
+    return second, *ring_fluence_widths(rings.radii, values[1:])
+
+
+def _negative_fluence(value: float, node: int) -> BackendError:
+    """Return the refusal of a fluence negative beyond its rounding budget.
+
+    Parameters
+    ----------
+    value : float
+        The fluence in J/m^2.
+    node : int
+        Its node.
+
+    Returns
+    -------
+    solprop.exceptions.BackendError
+        The refusal, to raise.
+    """
+    return BackendError(
+        "beam_radius and fwhm_r need a nonnegative fluence profile, and the "
+        f"signed axial flux is {value:.3e} J/m^2 at node {node}, "
+        "beyond its rounding budget; the width is undefined for it"
+    )
 
 
 def _rows(
