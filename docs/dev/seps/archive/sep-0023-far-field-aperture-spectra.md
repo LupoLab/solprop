@@ -1516,5 +1516,5 @@ following the skeleton in [the template](../template.md).*
   decision where they were. An ellipse is a scaled circle, whose quadrature correction
   section 4.5's identity carries over exactly, its Jacobian being constant. `absorbed_power`
   gained a fifth channel, `custom` (#231), so Q7's shape `(4,)` is `(5,)`; the first four
-  keep their positions, and `spectral` is the collar alone. Q2, the tabulated profile,
-  stays open in #186. Part I is unchanged.
+  keep their positions, and `spectral` is the collar alone. Q2, the tabulated profile, was
+  closed with #186 until someone needs it. Part I is unchanged.
