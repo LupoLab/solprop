@@ -2297,37 +2297,30 @@ def _json_copy(value: object) -> object:
 def _amended_outcome(
     outcome: RunOutcome,
     *,
-    execution: Mapping[str, object] | None = None,
-    previous_executions: tuple[Mapping[str, object], ...] | None = None,
+    previous_executions: tuple[Mapping[str, object], ...],
 ) -> RunOutcome:
-    """Return a copy of an outcome with parts a store has already validated.
+    """Return a copy of an outcome with closing records a store has already validated.
 
     :func:`dataclasses.replace` would validate the whole record again; the store's
-    own parts -- its session's resume entry and its earlier closing records -- were
-    validated when it took them, so a saved plane validates its record once. The
-    caller hands over copies of them (:func:`_json_copy`), so that each outcome holds
-    its own and a change to one read back reaches no other.
+    earlier closing records were validated when it took them, so a saved plane validates
+    its record once. The caller hands over copies of them (:func:`_json_copy`), so that
+    each outcome holds its own and a change to one read back reaches no other.
 
     Parameters
     ----------
     outcome : RunOutcome
         The validated outcome.
-    execution : collections.abc.Mapping or None, optional
-        Its execution record with the store's resume entry, owned by the store.
-    previous_executions : tuple of collections.abc.Mapping or None, optional
+    previous_executions : tuple of collections.abc.Mapping
         The store's closing records of earlier executions.
 
     Returns
     -------
     RunOutcome
-        The amended copy; the parts not given are shared with `outcome`, which the
-        store holds alone.
+        The amended copy; its other parts are shared with `outcome`, which the store
+        holds alone.
     """
     amended = copy.copy(outcome)
-    if execution is not None:
-        object.__setattr__(amended, "execution", execution)
-    if previous_executions is not None:
-        object.__setattr__(amended, "previous_executions", previous_executions)
+    object.__setattr__(amended, "previous_executions", previous_executions)
     return amended
 
 

@@ -1135,11 +1135,9 @@ SEAM_METHODS = (
     ("set_initial", "the state and the noise realisation, host to device, once"),
     ("set_progress", "the observer each attempted step reports to; never an input"),
     ("set_stop", "the flag polled between trials, or none"),
-    ("set_held_plane", "whether the low-storage march holds a field-free plane"),
     ("attach_monitor", "watch the time window's edges from here on"),
     ("propagate_to", "the driver's way in, returning a StepSummary"),
     ("observe", "host arrays: the field at the plane and the step history"),
-    ("held_observation", "the held plane, for a checkpoint after a failed step"),
     (
         "restore_call_ledgers",
         "resume cumulative calls; numerical history starts afresh",
