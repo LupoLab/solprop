@@ -870,6 +870,11 @@ DRIVER_SURFACE = {
     "_finish": "(self, state: _StateT, dz: float) -> _StateT",
     "_bind_monitor": "(self, monitor: solprop.monitor.BoundaryMonitor | None) -> None",
     "_boundary_energies": "(self, state: _StateT) -> solprop.monitor.BoundaryEnergies",
+    "_edge_reading": (
+        "(self, state: _StateT, edge: solprop.transverse_monitor.TransverseEdge, *, "
+        "faces: bool = True, current: bool = False, full: bool = False"
+        ") -> solprop.transverse_monitor.EdgeReading"
+    ),
     "_observed_field": (
         "(self, state: _StateT)"
         " -> jaxtyping.Complex[ndarray, 'n_batch n_modes n_pol n_omega']"

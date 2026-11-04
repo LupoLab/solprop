@@ -82,6 +82,13 @@ struct MonitorSums {
   }
 };
 
+/** What the transverse edge reads of a state (solprop SEP 44): four numbers per weight
+    table, and each mode's energy. */
+struct EdgeNumbers {
+  std::vector<double> sums;
+  std::vector<double> columns;
+};
+
 /** What a split-step collar's finish reads of the power it finds (solprop SEP 21,
     ADR-057), one reduction value: the energy it takes, then the energy, the low
     guard's, the high guard's and the collar's, which the monitor judges the
@@ -941,6 +948,12 @@ public:
   [[nodiscard]] std::vector<Complex> field_to_host() const;
   /** The field into `destination`, of the field's size: one copy from the space. */
   void field_to_host(std::span<Complex> destination) const;
+  /** What the transverse edge's reading sums with (solprop SEP 44). */
+  void bind_edge(const std::vector<double>& faces, const std::vector<double>& clip,
+                 const std::vector<double>& totals,
+                 const std::vector<double>& synthesis, std::size_t first_row);
+  /** The edge's region sums and each mode's energy, where the state lives. */
+  EdgeNumbers edge_reading(bool whole, bool totals);
   /** The threads a large crossing takes (`crossing.hpp`), from solprop's budget. */
   void set_crossing_workers(std::size_t workers) noexcept;
   [[nodiscard]] std::vector<Complex> stage_to_host(std::size_t stage) const;

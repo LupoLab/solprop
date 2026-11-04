@@ -74,15 +74,46 @@ TransverseStatus = Literal[
 
 
 @dataclass(frozen=True, eq=False)
+class EdgeTables:
+    """The weights a state's node energies are summed with, region by region.
+
+    Each table holds four regions' weights on the nodes (or rows), so that a backend
+    needs no faces, masks or geometry of its own: it forms ``table @ nodes``, where
+    ``nodes`` is each node's unweighted ``sum |E|^2`` over polarisation and frequency,
+    and returns the numbers. A region no face uses is zero.
+
+    Attributes
+    ----------
+    faces : numpy.ndarray
+        Each face's edge, in the outer :data:`GUARD` of the outer size.
+    clip : numpy.ndarray
+        Each face's clip, in the outer :data:`GUARD` of the requested size: a launch's.
+    totals : numpy.ndarray
+        The whole grid; a requested collar's rate over it, 1/m; and what lies outside
+        the request, for the launch's baseline of the current.
+    rows : numpy.ndarray
+        Boolean mask of the nodes (or rows) a read's sums can touch.
+    """
+
+    faces: Float[np.ndarray, "4 n_nodes"]
+    clip: Float[np.ndarray, "4 n_nodes"]
+    totals: Float[np.ndarray, "4 n_nodes"]
+    rows: Bool[np.ndarray, " n_nodes"]
+
+
+@dataclass(frozen=True, eq=False)
 class EdgeReading:
     """What a backend reads of its state for the edge: numbers, never the field.
 
     Attributes
     ----------
-    nodes : numpy.ndarray or None
-        Each physical node's (or row's) ``sum |E|^2`` over polarisation and frequency,
-        unweighted, shape ``(n_nodes,)``. A read need form only the rows the edge named,
-        and leaves the others zero. ``None`` when only the current was asked for.
+    faces : numpy.ndarray or None
+        ``EdgeTables.faces @ nodes``, shape ``(4,)``; ``None`` when only the current was
+        asked for.
+    clip : numpy.ndarray or None
+        ``EdgeTables.clip @ nodes``, for a launch.
+    totals : numpy.ndarray or None
+        ``EdgeTables.totals @ nodes``, for a launch or a collar's read.
     columns : numpy.ndarray or None
         Each spectral column's ``sum |E|^2``, unweighted, shape ``(n_columns,)``;
         ``None`` when only the current was asked for.
@@ -95,7 +126,9 @@ class EdgeReading:
         launch; ``None`` when it was not asked for.
     """
 
-    nodes: Float[np.ndarray, " n_nodes"] | None = None
+    faces: Float[np.ndarray, " 4"] | None = None
+    clip: Float[np.ndarray, " 4"] | None = None
+    totals: Float[np.ndarray, " 4"] | None = None
     columns: Float[np.ndarray, " n_columns"] | None = None
     strip: Float[np.ndarray, "n_lines 2"] | None = None
     current: float | None = None
@@ -263,14 +296,14 @@ class HostEdgeReduction:
     ----------
     space : solprop.grid.RadialGrid, solprop.grid.FreeGrid or PlanarGrid
         The run's grid.
-    rows : numpy.ndarray
-        Boolean mask of the nodes (or rows) a read uses: the edge's and a collar's.
+    tables : solprop.transverse_monitor.EdgeTables
+        What a state's node energies are summed with.
     strip_bounds : tuple of float or None
         A requested collar's return strip in the outward coordinate, m.
     """
 
     space: RadialGrid | FreeGrid | PlanarGrid
-    rows: Bool[np.ndarray, " n_nodes"]
+    tables: EdgeTables
     strip_bounds: tuple[float, float] | None
     _inverse: np.ndarray | None = field(default=None, init=False)
     # The host's transverse transforms take the process's thread budget (ADR-052).
@@ -306,12 +339,30 @@ class HostEdgeReduction:
         rate = None if current is None else self.current(state, *current)
         if not faces:
             return EdgeReading(current=rate)
+        nodes = self.node_power(state, full=full)
+        collar = self.strip_bounds is not None
         return EdgeReading(
-            self.node_power(state, full=full),
-            self.column_power(state),
-            None if self.strip_bounds is None else self.strip(state),
-            rate,
+            faces=self.tables.faces @ nodes,
+            clip=self.tables.clip @ nodes if full else None,
+            totals=self.tables.totals @ nodes if full or collar else None,
+            columns=self.column_power(state),
+            strip=self.strip(state) if collar else None,
+            current=rate,
         )
+
+    def synthesis(self) -> Float[np.ndarray, "n_r n_r"] | None:
+        """Return a radial grid's synthesis from columns to nodes, or ``None``.
+
+        Returns
+        -------
+        numpy.ndarray or None
+            The dense matrix; ``None`` on a grid whose transform is an FFT.
+        """
+        if not isinstance(self.space, RadialGrid):
+            return None
+        if self._inverse is None:
+            self._inverse = _radial_inverse(self.space)
+        return self._inverse
 
     def node_power(
         self,
@@ -343,7 +394,8 @@ class HostEdgeReduction:
             if full:
                 return _row_energy(self._inverse @ flat)
             nodes = np.zeros(space.n_r)
-            nodes[self.rows] = _row_energy(self._inverse[self.rows] @ flat)
+            rows = self.tables.rows
+            nodes[rows] = _row_energy(self._inverse[rows] @ flat)
             return nodes
         if isinstance(space, PlanarGrid):
             cube = flat.reshape(space.n_y, space.n_p, -1)
@@ -357,7 +409,8 @@ class HostEdgeReduction:
         if full:
             return _row_energy(physical)
         nodes = np.zeros(physical.shape[0])
-        nodes[self.rows] = _row_energy(physical[self.rows])
+        rows = self.tables.rows
+        nodes[rows] = _row_energy(physical[rows])
         return nodes
 
     def _fft_workers(self, cube: np.ndarray) -> int:
@@ -595,6 +648,7 @@ class TransverseEdge:
     _returned_peak: float = field(default=0.0, init=False)
     _read_rows: np.ndarray | None = field(default=None, init=False)
     _kappa_order: np.ndarray = field(init=False)
+    tables: EdgeTables = field(init=False)
     reduction: HostEdgeReduction = field(init=False)
 
     def __post_init__(self) -> None:
@@ -617,11 +671,39 @@ class TransverseEdge:
         self._peak_raw = [0.0] * len(self._faces)
         self._baseline = [0.0] * len(self._faces)
         collar = self.design is not None and self.design.has_collar
+        self.tables = self._edge_tables()
         self.reduction = HostEdgeReduction(
             space,
-            self._rows_read(),
+            self.tables,
             self._strip_bounds() if collar else None,
         )
+
+    def _edge_tables(self) -> EdgeTables:
+        """Return the weights a state's node energies are summed with.
+
+        Returns
+        -------
+        solprop.transverse_monitor.EdgeTables
+            The tables, over the grid's nodes (or rows).
+        """
+        weights = self._weights
+        faces, clip = np.zeros((2, 4, weights.size))
+        for index, face in enumerate(self._faces):
+            faces[index] = weights * face.edge
+            clip[index] = weights * face.clip
+        totals = np.zeros((4, weights.size))
+        totals[0] = weights
+        rate = self._node_rate()
+        if rate is not None:
+            totals[1] = rate * weights
+        if self.design is not None and self.design.has_collar:
+            outside = np.ones(weights.size, dtype=bool)
+            for face in self._faces:
+                outside &= ~face.clip
+            if isinstance(self.space, RadialGrid):
+                outside = np.asarray(self.space.r) > self._requested_size()
+            totals[2] = weights * outside
+        return EdgeTables(faces, clip, totals, self._rows_read())
 
     def _rows_read(self) -> np.ndarray:
         """Return the nodes (or rows) a read uses: the faces' and a collar's.
@@ -734,10 +816,8 @@ class TransverseEdge:
             When physical light launched into the safety ramp's band exceeds ten
             budgets (section 5.3).
         """
-        assert reading.nodes is not None and reading.columns is not None
-        nodes = reading.nodes
+        assert reading.faces is not None and reading.columns is not None
         columns = reading.columns
-        weighted = self._weights * nodes
         if self._resumed:
             # The launch was judged by the first execution; its baselines and totals
             # are restored, and the reads continue from the resumed state.
@@ -749,13 +829,14 @@ class TransverseEdge:
             self._last_columns = self._column_power(columns)
             self._spacing_now = self._spacing(self._last_columns)
             self._next = z + self._spacing_now if reads else math.inf
-            self._last_rate = (z, self._collar_rate(nodes))
+            self._last_rate = (z, self._collar_rate(reading))
             if reading.current is not None and self._launch > 0.0:
                 self._current_last = (z, reading.current / self._launch)
             if not reads:
                 self._status = "unwatched"
             return
-        self._launch = float(np.sum(weighted))
+        assert reading.clip is not None and reading.totals is not None
+        self._launch = float(reading.totals[0])
         self._last_z = z
         if not self._launch > 0.0:
             self._next = math.inf
@@ -780,9 +861,8 @@ class TransverseEdge:
             )
             return
         for index, face in enumerate(self._faces):
-            share = float(np.sum(weighted[face.edge])) / self._launch
-            self._baseline[index] = share
-            clipped = float(np.sum(weighted[face.clip])) / self._launch
+            self._baseline[index] = float(reading.faces[index]) / self._launch
+            clipped = float(reading.clip[index]) / self._launch
             if clipped > warn:
                 warnings.warn(
                     f"the launch holds {clipped:.2e} of its energy in the outer "
@@ -835,9 +915,9 @@ class TransverseEdge:
                 BoundaryWarning,
                 stacklevel=4,
             )
-        self._last_rate = (z, self._collar_rate(nodes))
+        self._last_rate = (z, self._collar_rate(reading))
         if self.every_step:
-            self._launch_return(reading, noise, weighted)
+            self._launch_return(reading, noise)
 
     def _judge_ramp_band(
         self,
@@ -893,23 +973,23 @@ class TransverseEdge:
                 stacklevel=5,
             )
 
-    def _collar_rate(self, nodes: Float[np.ndarray, " n_nodes"]) -> float:
+    def _collar_rate(self, reading: EdgeReading) -> float:
         """Return a requested collar's removal rate, as a share of the launch per m.
 
         Parameters
         ----------
-        nodes : numpy.ndarray
-            Each node's unweighted energy.
+        reading : solprop.transverse_monitor.EdgeReading
+            The state's reading.
 
         Returns
         -------
         float
             ``sum alpha w |E|^2 / U_launch``; zero without a collar.
         """
-        rate = self._node_rate()
-        if rate is None:
+        if self.design is None or self.design.collar_rate is None:
             return 0.0
-        return float(np.sum(rate * self._weights * nodes)) / self._launch
+        assert reading.totals is not None
+        return float(reading.totals[1]) / self._launch
 
     def _spacing(self, columns: Float[np.ndarray, " n_columns"]) -> float:
         """Return the read spacing for the current spectrum, ``min(L/16, 4 g / v_q)``.
@@ -1017,9 +1097,7 @@ class TransverseEdge:
         """
         if not self.wants_read(z):
             return
-        assert reading.nodes is not None and reading.columns is not None
-        nodes = reading.nodes
-        weighted = self._weights * nodes
+        assert reading.faces is not None and reading.columns is not None
         gap = z - self._last_z
         self._reads += 1
         self._largest_gap = max(self._largest_gap, gap)
@@ -1031,7 +1109,7 @@ class TransverseEdge:
                 self._ramp_noise += float(np.sum(self._noise_columns * taken)) / (
                     self._launch
                 )
-        rate = self._collar_rate(nodes)
+        rate = self._collar_rate(reading)
         # Every launch that leaves the edge read sets the rate's first sample.
         assert self._last_rate is not None
         previous_z, previous = self._last_rate
@@ -1043,8 +1121,8 @@ class TransverseEdge:
         self._next = z + self._spacing_now
         if self.design is not None and self.design.has_collar:
             # With a collar, outward flow is intended: recorded at INFO, never stopped.
-            for index, face in enumerate(self._faces):
-                share = float(np.sum(weighted[face.edge])) / self._launch
+            for index in range(len(self._faces)):
+                share = float(reading.faces[index]) / self._launch
                 self._peak_raw[index] = max(self._peak_raw[index], share)
             self._judge_return(reading, z)
             self._judge_ramp_removal()
@@ -1052,7 +1130,7 @@ class TransverseEdge:
         warn, stop = self.budget**2, (self.stop_factor * self.budget) ** 2
         judgements = []
         for index, face in enumerate(self._faces):
-            share = float(np.sum(weighted[face.edge])) / self._launch
+            share = float(reading.faces[index]) / self._launch
             self._peak_raw[index] = max(self._peak_raw[index], share)
             judged = share - self._baseline[index] - self._allowance
             self._peak[index] = max(self._peak[index], judged)
@@ -1186,7 +1264,6 @@ class TransverseEdge:
         self,
         reading: EdgeReading,
         noise: Complex[np.ndarray, "n_modes n_pol n_omega"] | None,
-        weighted: Float[np.ndarray, " n_nodes"],
     ) -> None:
         """Record a collar's launch baselines and floors (section 5.3).
 
@@ -1196,21 +1273,14 @@ class TransverseEdge:
             The launched state's reading.
         noise : numpy.ndarray or None
             Its input noise.
-        weighted : numpy.ndarray
-            Each node's weighted energy.
         """
         assert reading.strip is not None
         strip, _ = self._strip_shares(reading.strip)
         self._strip_baseline = strip
         if noise is not None:
             self._strip_floor = 3.0 * self._strip_shares(self.reduction.strip(noise))[0]
-        outside = np.ones(weighted.size, dtype=bool)
-        for face in self._faces:
-            outside &= ~face.clip
-        size = self._requested_size()
-        if isinstance(self.space, RadialGrid):
-            outside = np.asarray(self.space.r) > size
-        self._current_baseline = float(np.sum(weighted[outside])) / self._launch
+        assert reading.totals is not None
+        self._current_baseline = float(reading.totals[2]) / self._launch
         self._current_last = None
         self._current = 0.0
 

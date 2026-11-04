@@ -2183,6 +2183,10 @@ public:
   void unbind_monitor() noexcept { monitor_bound_ = false; }
   void bind_occupancy(const std::vector<unsigned char>& buckets, std::size_t count);
   std::vector<double> monitor_reading();
+  void bind_edge(const std::vector<double>& faces, const std::vector<double>& clip,
+                 const std::vector<double>& totals,
+                 const std::vector<double>& synthesis, std::size_t first_row);
+  EdgeNumbers edge_reading(bool whole, bool totals);
   std::vector<Complex> field_to_host() const;
   void field_to_host(std::span<Complex> destination) const;
   void cross_to_host(const ComplexView2& source, std::span<Complex> destination) const;
@@ -2889,6 +2893,10 @@ public:
   // #440); empty unbound.
   ByteView occupancy_buckets_;
   std::size_t occupancy_count_ = 0;
+  // What the transverse edge's reading sums with, once a monitor is bound (SEP 44).
+  RealView2 edge_faces_, edge_clip_, edge_totals_, edge_synthesis_;
+  RealView edge_columns_;
+  std::size_t edge_first_row_ = 0;
   // A large crossing's pinned chunks, once one has been made (`crossing.hpp`).
   mutable crossing::Ring crossing_ring_;
   [[nodiscard]] bool monitoring_split() const noexcept {
@@ -14611,10 +14619,10 @@ namespace {
 // `power(row, index)`, in total and weighed by each of the four regions' weights. A
 // host work item takes a run of one row's samples, its sums in sample order, so that
 // no sample divides its flat index by the row length; a device takes one sample.
-template <class Power>
+template <class Weights, class Power>
 MonitorSums monitor_sums(const char* label, const ExecutionSpace& execution,
                          const std::size_t count, const std::size_t n_t,
-                         const RealView2& weights, const Power& power) {
+                         const Weights& weights, const Power& power) {
   MonitorSums sums;
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
   launch::parallel_reduce(
@@ -14653,6 +14661,135 @@ MonitorSums monitor_sums(const char* label, const ExecutionSpace& execution,
   return sums;
 }
 } // namespace
+
+namespace {
+// The transverse edge's region weights (solprop SEP 44), from the rows given on: a
+// radial read synthesises only the outer rows its regions can touch.
+struct EdgeWeights {
+  RealView2 weights;
+  std::size_t first{};
+  KOKKOS_INLINE_FUNCTION double operator()(const std::size_t region,
+                                           const std::size_t index) const {
+    return weights(region, first + index);
+  }
+};
+} // namespace
+
+// Bind what the transverse edge's reading sums with (solprop SEP 44): three tables of
+// four regions' weights on the nodes, and radially the synthesis and the first row a
+// read uses. Native holds no face, mask or judgement. The views are allocated at the
+// first bind and kept.
+void GeneralWorkspace::bind_edge(const std::vector<double>& faces,
+                                 const std::vector<double>& clip,
+                                 const std::vector<double>& totals,
+                                 const std::vector<double>& synthesis,
+                                 const std::size_t first_row) {
+  require_open();
+  const auto nodes = faces.size() / 4;
+  require_extent(faces.size(), 4 * nodes, "edge faces");
+  require_extent(clip.size(), 4 * nodes, "edge clip");
+  require_extent(totals.size(), 4 * nodes, "edge totals");
+  if (problem_.separable_geometry()) {
+    require_extent(nodes, transverse_units(), "edge nodes");
+    require_extent(synthesis.size(), 0, "a separable edge's synthesis");
+  } else {
+    require_extent(nodes, problem_.n_modes, "edge nodes");
+    require_extent(synthesis.size(), nodes * nodes, "edge synthesis");
+  }
+  if (first_row >= nodes)
+    throw std::invalid_argument("the edge's first row lies past its nodes");
+  if (edge_faces_.extent(0) == 0) {
+    edge_faces_ = RealView2("solprop_native.edge.faces", 4, nodes);
+    edge_clip_ = RealView2("solprop_native.edge.clip", 4, nodes);
+    edge_totals_ = RealView2("solprop_native.edge.totals", 4, nodes);
+    edge_columns_ = RealView("solprop_native.edge.columns", problem_.n_modes);
+    if (!synthesis.empty())
+      edge_synthesis_ = RealView2("solprop_native.edge.synthesis", nodes, nodes);
+  }
+  copy_vector(execution_space_, edge_faces_, faces);
+  copy_vector(execution_space_, edge_clip_, clip);
+  copy_vector(execution_space_, edge_totals_, totals);
+  if (!synthesis.empty())
+    copy_vector(execution_space_, edge_synthesis_, synthesis);
+  edge_first_row_ = first_row;
+  execution_space_.fence("solprop_native edge bind");
+}
+
+// The state's reading for the transverse edge: its region sums and each mode's energy,
+// with only those numbers crossing. With `whole` (a launch) every table on every node;
+// otherwise the faces', and with `totals` a collar's, on the rows a read uses. The
+// transverse scratch is free at a committed position: a step's first pass writes it
+// again.
+EdgeNumbers GeneralWorkspace::edge_reading(const bool whole, const bool totals) {
+  require_open();
+  if (!initialized_)
+    throw std::logic_error("no initial field has been loaded");
+  if (edge_faces_.extent(0) == 0)
+    throw std::logic_error("no transverse edge is bound");
+  const auto current = current_;
+  const auto n_pol = problem_.n_pol_state;
+  const auto n = problem_.n_omega;
+  EdgeNumbers reading;
+  const auto take = [&reading](const MonitorSums& sums) {
+    reading.sums.insert(reading.sums.end(), sums.values.data() + 1,
+                        sums.values.data() + 5);
+  };
+  if (problem_.separable_geometry()) {
+    separable_load_current();
+    const auto scratch = transverse_;
+    const auto units = transverse_units();
+    const auto planes = scratch.size() / units;
+    const auto power = KOKKOS_LAMBDA(const std::size_t plane, const std::size_t node) {
+      return squared_abs(scratch.data()[plane * units + node]);
+    };
+    take(monitor_sums("solprop_native.edge.faces", execution_space_, planes, units,
+                      edge_faces_, power));
+    if (whole)
+      take(monitor_sums("solprop_native.edge.clip", execution_space_, planes, units,
+                        edge_clip_, power));
+    if (whole || totals)
+      take(monitor_sums("solprop_native.edge.totals", execution_space_, planes, units,
+                        edge_totals_, power));
+  } else {
+    // Each plane's synthesis on the rows wanted. A launch reads every node: its total
+    // is the grid's. A dense product per sample, on a read's few outer rows.
+    const auto synthesis = edge_synthesis_;
+    const auto nodes = problem_.n_modes;
+    const auto first = whole ? std::size_t{0} : edge_first_row_;
+    const auto power = KOKKOS_LAMBDA(const std::size_t plane, const std::size_t row) {
+      const auto pol = plane / n;
+      const auto omega = plane % n;
+      Complex value{};
+      for (std::size_t mode = 0; mode < nodes; ++mode)
+        value += synthesis(first + row, mode) * current(mode * n_pol + pol, omega);
+      return squared_abs(value);
+    };
+    const auto sums = [&](const char* label, const RealView2& weights) {
+      return monitor_sums(label, execution_space_, n_pol * n, nodes - first,
+                          EdgeWeights{weights, first}, power);
+    };
+    take(sums("solprop_native.edge.faces", edge_faces_));
+    if (whole)
+      take(sums("solprop_native.edge.clip", edge_clip_));
+    if (whole || totals)
+      take(sums("solprop_native.edge.totals", edge_totals_));
+  }
+  const auto energies = edge_columns_;
+  launch::parallel_for(
+      "solprop_native.edge.columns",
+      Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, problem_.n_modes),
+      KOKKOS_LAMBDA(const std::size_t mode) {
+        double sum = 0.0;
+        for (std::size_t pol = 0; pol < n_pol; ++pol)
+          for (std::size_t index = 0; index < n; ++index)
+            sum += squared_abs(current(mode * n_pol + pol, index));
+        energies(mode) = sum;
+      });
+  execution_space_.fence("solprop_native edge columns");
+  const auto host = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace{}, energies);
+  reading.columns.assign(host.data(), host.data() + host.size());
+  return reading;
+}
 
 std::vector<double> GeneralWorkspace::monitor_reading() {
   require_open();
@@ -15299,6 +15436,10 @@ std::map<std::string, std::size_t> GeneralWorkspace::base_memory_ledger() const 
            (monitor_split_sum_.size() + monitor_found_.size()) * sizeof(SplitSums)},
       {"statistics_flux_magnitude", statistics_magnitude_.size() * real_bytes},
       {"host_crossing_ring", crossing_ring_.bytes()},
+      {"transverse_edge",
+       (edge_faces_.size() + edge_clip_.size() + edge_totals_.size() +
+        edge_synthesis_.size() + edge_columns_.size()) *
+           real_bytes},
       {"statistics_outputs", (statistics_total_power_.size() +
                               statistics_on_axis_.size() + statistics_packed_.size()) *
                                  real_bytes},
@@ -15541,6 +15682,11 @@ void GeneralWorkspace::close() noexcept {
   occupancy_buckets_ = {};
   occupancy_count_ = 0;
   crossing_ring_.release();
+  edge_faces_ = {};
+  edge_clip_ = {};
+  edge_totals_ = {};
+  edge_synthesis_ = {};
+  edge_columns_ = {};
   tableau_ = {};
   omega_window_ = {};
   omega_ = {};
@@ -15843,6 +15989,18 @@ void GeneralState::unbind_monitor() noexcept {
 std::vector<double> GeneralState::monitor_reading() {
   const CpuTeamScope team(workspace_->cpu_team());
   return workspace_->monitor_reading();
+}
+void GeneralState::bind_edge(const std::vector<double>& faces,
+                             const std::vector<double>& clip,
+                             const std::vector<double>& totals,
+                             const std::vector<double>& synthesis,
+                             const std::size_t first_row) {
+  const CpuTeamScope team(workspace_->cpu_team());
+  workspace_->bind_edge(faces, clip, totals, synthesis, first_row);
+}
+EdgeNumbers GeneralState::edge_reading(const bool whole, const bool totals) {
+  const CpuTeamScope team(workspace_->cpu_team());
+  return workspace_->edge_reading(whole, totals);
 }
 void GeneralState::bind_occupancy(const std::vector<unsigned char>& buckets,
                                   const std::size_t count) {

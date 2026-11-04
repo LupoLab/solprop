@@ -44,7 +44,7 @@ from solprop.output.schema import PlaneStore
 from solprop.pulses import GaussianPulse
 from solprop.spatial import SpatialMedium
 from solprop.stepper import FixedSchedule, Multistep, PIController, RungeKutta
-from solprop.transverse_monitor import HostEdgeReduction
+from solprop.transverse_monitor import EdgeReading
 
 BACKENDS = ("numpy_ref", "native")
 RELAXED = BoundaryCheck(budget=1.0, transverse_budget=1.0)
@@ -395,6 +395,17 @@ def test_the_scaled_miss_is_read_far_above_the_stop() -> None:
     assert max(record["edge_max"]) > 1e3 * STOP
 
 
+def _driver_class(backend: str) -> type:
+    """Return the class of `backend`'s step driver, which holds its edge reading."""
+    if backend == "native":
+        from solprop_native.backend import NativeBackend  # noqa: PLC0415
+
+        return NativeBackend
+    from solprop.backends.driver import StepDriver  # noqa: PLC0415
+
+    return StepDriver
+
+
 @pytest.mark.parametrize("backend", BACKENDS)
 def test_a_plane_the_step_already_read_reduces_nothing_more(
     backend: str, monkeypatch: pytest.MonkeyPatch
@@ -407,14 +418,15 @@ def test_a_plane_the_step_already_read_reduces_nothing_more(
     packet = REREVIEW
     length = packet.length
     planes = [length / 4, length / 2, length]
-    calls = {"nodes": 0}
-    node_power = HostEdgeReduction.node_power
+    calls = {"readings": 0}
+    driver = cast("type[Any]", _driver_class(backend))
+    edge_reading = driver._edge_reading
 
-    def counting(self: HostEdgeReduction, *args: Any, **keywords: Any) -> np.ndarray:
-        calls["nodes"] += 1
-        return node_power(self, *args, **keywords)
+    def counting(self: Any, *args: Any, **keywords: Any) -> EdgeReading:
+        calls["readings"] += 1
+        return edge_reading(self, *args, **keywords)
 
-    monkeypatch.setattr(HostEdgeReduction, "node_power", counting)
+    monkeypatch.setattr(driver, "_edge_reading", counting)
     schedule = FixedSchedule.uniform(0.0, length, length / 8, save_planes=planes)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", BoundaryWarning)
@@ -428,7 +440,7 @@ def test_a_plane_the_step_already_read_reduces_nothing_more(
     assert isinstance(output, PlaneStore)
     assert edge_record(output)["reads"] == 8
     # The launch, then one for each of the eight steps and none for the three planes.
-    assert calls["nodes"] == 9
+    assert calls["readings"] == 9
 
 
 @pytest.mark.parametrize("integrator", [RungeKutta(), Multistep()], ids=["rk", "adams"])

@@ -1377,6 +1377,20 @@ public:
     return general_state_->aperture_statistics(flags, apertures, exponent, regions,
                                                intensity_factor);
   }
+  void bind_edge(const std::vector<double>& faces, const std::vector<double>& clip,
+                 const std::vector<double>& totals,
+                 const std::vector<double>& synthesis, const std::size_t first_row) {
+    require_open();
+    if (!general_state_)
+      throw std::logic_error("the edge's reading requires the general native state");
+    general_state_->bind_edge(faces, clip, totals, synthesis, first_row);
+  }
+  native::EdgeNumbers edge_reading(const bool whole, const bool totals) {
+    require_open();
+    if (!general_state_)
+      throw std::logic_error("the edge's reading requires the general native state");
+    return general_state_->edge_reading(whole, totals);
+  }
   void set_crossing_workers(const std::size_t workers) noexcept {
     if (general_state_)
       general_state_->set_crossing_workers(workers);
@@ -2945,6 +2959,34 @@ NB_MODULE(_core, module_) {
              }
              return real_output(std::move(values), 1);
            })
+      // solprop SEP 44: the transverse edge's reading, where the state lives.
+      .def(
+          "bind_edge",
+          [](BoundState& self, const RealInput faces, const RealInput clip,
+             const RealInput totals, const RealInput synthesis,
+             const std::size_t first_row) {
+            const auto held_faces = real_vector(faces);
+            const auto held_clip = real_vector(clip);
+            const auto held_totals = real_vector(totals);
+            const auto held_synthesis = real_vector(synthesis);
+            const nb::gil_scoped_release release;
+            self.bind_edge(held_faces, held_clip, held_totals, held_synthesis,
+                           first_row);
+          },
+          "faces"_a.noconvert(), "clip"_a.noconvert(), "totals"_a.noconvert(),
+          "synthesis"_a.noconvert(), "first_row"_a)
+      .def(
+          "edge_reading",
+          [](BoundState& self, const bool whole, const bool totals) {
+            native::EdgeNumbers numbers;
+            {
+              const nb::gil_scoped_release release;
+              numbers = self.edge_reading(whole, totals);
+            }
+            return nb::make_tuple(real_output(std::move(numbers.sums), 1),
+                                  real_output(std::move(numbers.columns), 1));
+          },
+          "whole"_a, "totals"_a)
       .def(
           "set_crossing_workers",
           [](BoundState& self, const std::size_t workers) {

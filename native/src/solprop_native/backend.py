@@ -141,6 +141,7 @@ from solprop.translate.stage import (
     require_device_ready,
 )
 from solprop.translate.tdse import TDSEPurpose
+from solprop.transverse_monitor import EdgeReading, TransverseEdge
 
 from . import (
     PROC_BIND,
@@ -1129,6 +1130,65 @@ class NativeBackend(StepDriver[_core.State]):
                 SPLIT_RATE_BUCKETS,
             )
             self._bound_buckets = crossing.buckets
+        edge = getattr(monitor, "transverse", None)
+        if edge is not None and not edge.every_step:
+            # Weights and no faces: what it reads comes back to the edge's judging.
+            tables = edge.tables
+            synthesis = edge.reduction.synthesis()
+            self._native_state.bind_edge(
+                np.ascontiguousarray(tables.faces, dtype=np.float64).reshape(-1),
+                np.ascontiguousarray(tables.clip, dtype=np.float64).reshape(-1),
+                np.ascontiguousarray(tables.totals, dtype=np.float64).reshape(-1),
+                np.empty(0, dtype=np.float64)
+                if synthesis is None
+                else np.ascontiguousarray(synthesis, dtype=np.float64).reshape(-1),
+                int(np.argmax(tables.rows)),
+            )
+
+    def _edge_reading(
+        self,
+        state: _core.State,
+        edge: TransverseEdge,
+        *,
+        faces: bool = True,
+        current: bool = False,
+        full: bool = False,
+    ) -> EdgeReading:
+        """Read the state for the transverse edge where it lives (solprop SEP 44).
+
+        Parameters
+        ----------
+        state : solprop_native._core.State
+            This backend's state.
+        edge : solprop.transverse_monitor.TransverseEdge
+            The run's edge.
+        faces : bool, optional
+            Whether the regions, the columns and any collar's strip are wanted.
+        current : bool, optional
+            Whether a collar's inward current is wanted.
+        full : bool, optional
+            Whether every node is wanted, as a launch wants.
+
+        Returns
+        -------
+        solprop.transverse_monitor.EdgeReading
+            The reading, of which only numbers crossed. A requested collar still reduces
+            a host copy of the state.
+        """
+        if edge.every_step:
+            return super()._edge_reading(
+                state, edge, faces=faces, current=current, full=full
+            )
+        if state is not self._native_state:
+            raise BackendError("the read state does not belong to this backend")
+        sums, columns = state.edge_reading(full, False)
+        values = np.asarray(sums).reshape(-1)
+        return EdgeReading(
+            faces=values[:4],
+            clip=values[4:8] if full else None,
+            totals=values[8:12] if full else None,
+            columns=np.asarray(columns).reshape(-1),
+        )
 
     def _boundary_energies(self, state: _core.State) -> BoundaryEnergies:
         """Reduce the monitor's five numbers where the state lives (solprop SEP 21).
