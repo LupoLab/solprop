@@ -67,23 +67,6 @@ template <> struct Kokkos::reduction_identity<solprop_native::host::NormSums> {
 
 namespace solprop_native {
 namespace {
-// Deliberately broken, to show that the compile jobs can fail (#151). Reverted next.
-#if defined(KOKKOS_ENABLE_CUDA)
-template <class Value>
-void deliberately_broken_capture(const Kokkos::View<Value*>& view) {
-  const Value amount{1};
-  if constexpr (std::is_same_v<Value, double>) {
-    Kokkos::parallel_for(
-        "deliberately_broken", view.extent(0),
-        KOKKOS_LAMBDA(const std::size_t index) { view(index) = amount; });
-  }
-}
-[[maybe_unused]] void deliberately_broken_use(const Kokkos::View<double*>& view) {
-  deliberately_broken_capture(view);
-}
-#elif defined(KOKKOS_ENABLE_HIP)
-void deliberately_broken_unused() { const int unused = 1; }
-#endif
 
 // Sets a coupled flow aside for a stage evaluation and puts it back however the scope
 // is left: the Adams sample is the material source alone (solprop SEP 16 phase 5).
