@@ -204,6 +204,7 @@ def test_a_stated_budget_keeps_its_chunk_on_a_device() -> None:
     assert native_backend._split_rows(stated, device=True) == 5 * default.shape[2]
     assert native_backend._split_rows(stated, device=False) == 5 * default.shape[2]
 
+    simulation = _beam(ENVELOPE)
     simulation.settings = dataclasses.replace(
         simulation.settings, node_budget=DEFAULT_SPATIAL_NODE_BUDGET
     )
