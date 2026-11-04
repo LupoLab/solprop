@@ -86,6 +86,8 @@ def test_same_card_launch_geometry_is_repeatable(
     assert_within(second, first, bound, what="repeat launch")
 
 
+# The probe's band reaches below the glass's tabulated range, which isn't the point here.
+@pytest.mark.filterwarnings("ignore::solprop.exceptions.MaterialRangeWarning")
 def test_a_large_state_crosses_both_ways_through_the_ring_bit_for_bit(
     accelerator_backend,
 ):
@@ -119,6 +121,7 @@ def test_a_large_state_crosses_both_ways_through_the_ring_bit_for_bit(
         engine.close()
 
 
+@pytest.mark.filterwarnings("ignore::solprop.exceptions.MaterialRangeWarning")
 def test_a_small_state_holds_no_pinned_ring(accelerator_backend):
     del accelerator_backend
     simulation = _simulation(32, 2, 1, None)
