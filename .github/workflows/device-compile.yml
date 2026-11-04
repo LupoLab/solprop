@@ -52,6 +52,7 @@ jobs:
           sudo apt-get install --yes --no-install-recommends cmake g++-14 libfftw3-dev libopenblas-dev ninja-build pkg-config cuda-compiler-12-8 cuda-libraries-dev-12-8
           df -h /
       - run: uv python install 3.14
+      - run: uv sync --locked --no-install-package solprop-native
       - name: Configure
         working-directory: native
         env:
@@ -62,7 +63,7 @@ jobs:
             -DCMAKE_C_COMPILER=gcc-14 -DCMAKE_CXX_COMPILER=g++-14 -DCMAKE_CUDA_HOST_COMPILER=g++-14 \
             -DCUDA_ROOT=/usr/local/cuda-12.8 \
             -DSOLPROP_NATIVE_BUILD_BENCHMARKS=OFF \
-            -DPython_EXECUTABLE="$(uv python find 3.14)"
+            -DPython_EXECUTABLE="$GITHUB_WORKSPACE/.venv/bin/python"
       - name: Compile, tests included
         working-directory: native
         env:
@@ -93,20 +94,24 @@ jobs:
           echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/rocm.gpg] https://repo.radeon.com/rocm/apt/7.2 noble main" | sudo tee /etc/apt/sources.list.d/rocm.list
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends cmake libfftw3-dev libopenblas-dev ninja-build pkg-config g++-14 hip-dev hipcc rocm-llvm rocm-device-libs rocm-cmake rocfft-dev rocblas-dev
+          # Under its version, with no fixed link at this set of packages.
+          hipcc_path="$(dpkg -L hipcc | grep -m 1 '/bin/hipcc$')"
+          echo "ROCM_PATH=$(dirname "$(dirname "$hipcc_path")")" >> "$GITHUB_ENV"
           df -h /
       - run: uv python install 3.14
+      - run: uv sync --locked --no-install-package solprop-native
       - name: Configure
         working-directory: native
         run: |
-          export ROCM_PATH=/opt/rocm PATH="/opt/rocm/bin:$PATH"
+          export PATH="$ROCM_PATH/bin:$PATH"
           cmake --preset hip \
             -DCMAKE_CXX_COMPILER="$ROCM_PATH/bin/hipcc" -DCMAKE_PREFIX_PATH="$ROCM_PATH" \
             -DCMAKE_CXX_SCAN_FOR_MODULES=OFF -DKokkos_ENABLE_ROCTHRUST=OFF \
             -DSOLPROP_NATIVE_BUILD_BENCHMARKS=OFF \
-            -DPython_EXECUTABLE="$(uv python find 3.14)"
+            -DPython_EXECUTABLE="$GITHUB_WORKSPACE/.venv/bin/python"
       - name: Compile, tests included
         working-directory: native
         run: |
-          export ROCM_PATH=/opt/rocm PATH="/opt/rocm/bin:$PATH"
+          export PATH="$ROCM_PATH/bin:$PATH"
           cmake --build --preset hip --parallel 4
           df -h /
