@@ -1250,8 +1250,8 @@ over none, per return:
 | `he_rdw_averaged` (0.3), 8 | 2561 | 483 | 0.291 s | 3 | 91 µs | 0.09 % |
 
 The share is read from the return's cost: comparing the production bound with none directly
-reads −2.7 to +1.8 %, which is noise. Where 256 attempts take less than 0.1 s, the share
-grows as the grid shrinks, so it passes 0.1 % on grids of about a thousand bins.
+reads −2.7 to +1.8 %, which is noise. Where 256 attempts take less than 0.1 s the share
+grows as an attempt gets cheaper, and it is above 0.1 % on the two smallest grids here.
 ### The Adams passes on x86-64 lanes
 
 The exponential Adams trial's predict and correct passes on a host block of 32 elements
