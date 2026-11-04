@@ -213,10 +213,10 @@ def axis_populations(
     The one implementation every backend uses, on the host: the axis is one row per
     saved plane, against every node of every stage, so its scan costs nothing a
     backend would compile. A device reads only the row
-    (:func:`axis_row_populations`). The field is the same as the node fields' -- the same pad
-    scale, taper and fine grid -- with both Cartesian components of the mode profiles,
-    as for ``peak_intensity``; when the state carries the components itself, the
-    profile's magnitude on the axis is the scalar synthesis. The tables,
+    (:func:`axis_row_populations`). The field is the same as the node fields' -- the
+    same pad scale, taper and fine grid -- with both Cartesian components of the mode
+    profiles, as for ``peak_intensity``; when the state carries the components itself,
+    the profile's magnitude on the axis is the scalar synthesis. The tables,
     preionisation and running-integral rule are the node scan's.
 
     Parameters
