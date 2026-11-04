@@ -335,6 +335,7 @@ def test_missing_backend_history_stops_clearly(working):
         keeper.keep(0.125, required=True)
     keeper._save = lambda state: None
     keeper._snapshot = lambda: None
+    keeper._snapshot_nbytes = lambda z: None
     with pytest.raises(OutputError, match="accepted endpoint"):
         keeper.keep(0.125, required=True)
 
