@@ -100,14 +100,25 @@ struct SplitSums {
     team memory, with no atomics, so its size bounds the buckets (`SPLIT_RATE_BUCKETS`).
  */
 inline constexpr std::size_t occupancy_bucket_limit = 128;
+// The buckets one reduction holds. A reduction's value has to fit the device's shared
+// memory per block: on HIP, whose smallest block is 64 threads, `(64 + 2) *
+// sizeof(value)` within 64 KiB, so a reading there takes two passes.
+#if defined(KOKKOS_ENABLE_HIP)
+inline constexpr std::size_t occupancy_reduction_slots = 124;
+#else
+inline constexpr std::size_t occupancy_reduction_slots = occupancy_bucket_limit;
+#endif
 struct OccupancySums {
-  Kokkos::Array<double, occupancy_bucket_limit> values{};
+  Kokkos::Array<double, occupancy_reduction_slots> values{};
   KOKKOS_INLINE_FUNCTION OccupancySums& operator+=(const OccupancySums& other) {
-    for (std::size_t slot = 0; slot < occupancy_bucket_limit; ++slot)
+    for (std::size_t slot = 0; slot < occupancy_reduction_slots; ++slot)
       values[slot] += other.values[slot];
     return *this;
   }
 };
+#if defined(KOKKOS_ENABLE_HIP)
+static_assert((64 + 2) * sizeof(OccupancySums) <= 65536);
+#endif
 
 using ComplexView = Kokkos::View<Complex*, Layout, MemorySpace>;
 /** The histogram the boundary monitor's occupancy reading adds into, one slot per
