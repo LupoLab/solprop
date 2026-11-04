@@ -10,10 +10,12 @@ import warnings
 
 import pytest
 
+from capability_routes import ROUTES
 from solprop.backends.registry import available
 from solprop.driver import Simulation
 from solprop.driver import estimate as estimate_module
 from solprop.exceptions import MaterialRangeWarning, SolpropWarning
+from solprop.monitor import BoundaryCheck
 from solprop.recipe import Recipe
 from solprop.stepper import FixedSchedule, LowStorageRungeKutta
 
@@ -54,7 +56,12 @@ def test_the_estimate_reports_what_the_backend_holds_and_costs(backend):
 
 def test_an_estimate_adds_nothing_for_an_edge_read_on_the_host():
     # `numpy_ref` reads a copy it has anyway, so the check holds no more memory.
-    simulation = _built("cartesian_beam", "numpy_ref")
+    simulation = ROUTES["line"](None)
+    simulation.settings = dataclasses.replace(
+        simulation.settings,
+        backend="numpy_ref",
+        boundary_check=BoundaryCheck(budget=1.0, stop_factor=1.0),
+    )
     checked = simulation.estimate().memory
     simulation.settings = dataclasses.replace(simulation.settings, boundary_check=None)
     assert simulation.estimate().memory == checked
