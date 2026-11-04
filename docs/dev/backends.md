@@ -246,7 +246,9 @@ adds what each accepted step's split takes of the power it finds, `P (1 − e^{�
 accumulator the next reading drains, so the removal is exact on unchecked steps too, and
 keeps the energy and the guards' and collar's energies of that power halfway through the
 factor, `P e^{−αh/2}`, which the reading returns beside the five (`BoundaryEnergies.found`,
-kernel schema 43) and the monitor judges the occupancies on. The
+kernel schema 43) and the monitor judges the occupancies on. The split collar's crossing limit
+reads the state's energy per walk-off bucket at each check, in the same reduction style: one
+histogram per thread and no atomics, which is why its bucket count has a compiled limit. The
 input-noise floor is read on the host, once, at the launch.
 
 ## 2. `numpy_ref`: the oracle
@@ -453,15 +455,17 @@ A backend whose `StepDriver.reads_transverse_edge` is set hands the monitor's
 `TransverseEdge` its observed field at the edge's reads, at saved planes, and with a
 requested collar at every committed step. The read spacing is a ceiling on the step, and
 a step is not made to land on a read: the edge is read at the last committed position
-from which the next proposal would carry past the next read (`TransverseEdge.due`), so
+from which the next step, a replay's scheduled one or else the controller's proposal, would
+carry past the next read (`TransverseEdge.due`), so
 reads stay at most a spacing apart without shortening the steps between them (landing on
 each read cost 10-35 % more steps on the suite's line and planar cases). Every solprop
 backend sets it; `numpy_ref` keeps its state on the host and steps from there, under the
 driver's ceiling, as mlx does from its widened device state. The native Adams march
 takes the next read and the spacing as the call's `read_at` and `read_spacing` bounds:
 an adaptive step is capped at the spacing, and the call returns at the committed
-position from which the next proposal would pass the read, so the host reads the state
+position from which the next step would pass the read, so the host reads the state
 there. With a collar the host step is one, so the march returns at every committed step.
+A saved plane reads the edge unless the step that reached it already did (`TransverseEdge.wants_read`), as a second read at one position records nothing.
 A native device build reads the edge the same way, copying its state to the host at each
 read; it is compiled, not qualified on a device. A backend that does not set it reports
 `unwatched` and refuses a requested collar by name. The edge's reductions run on the
