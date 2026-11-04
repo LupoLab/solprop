@@ -34,6 +34,7 @@ from typing import Protocol, runtime_checkable
 import numpy as np
 from jaxtyping import Bool, Complex, Float, Int
 
+from solprop._process import parallel_rows
 from solprop.exceptions import BackendError, BoundaryError, BoundaryWarning
 from solprop.log import ProgressReporter
 from solprop.monitor import BoundaryMonitor
@@ -316,6 +317,37 @@ class StepStats:
         return tuple(sorted(self.values))
 
 
+def _all_finite(state: Complex[np.ndarray, "*shape n_omega"]) -> bool:
+    """Return whether every entry of a complex state is finite, allocating no mask.
+
+    A sum holding a NaN or an infinity isn't finite, so a finite sum settles it in one
+    pass over the rows. Only a sum that overflows takes the second look, which allows
+    for finite entries too large to add.
+
+    Parameters
+    ----------
+    state : numpy.ndarray
+        A contiguous complex state.
+
+    Returns
+    -------
+    bool
+        True when no entry is a NaN or an infinity.
+    """
+    if state.size == 0:
+        return True
+    rows = state.reshape(-1, state.shape[-1])
+
+    def finite(selected: slice) -> bool:
+        part = rows[selected]
+        # Per thread: a sum that overflows is what the second look is for.
+        with np.errstate(over="ignore", invalid="ignore"):
+            total = np.sum(part)
+        return bool(np.isfinite(total)) or bool(np.all(np.isfinite(part)))
+
+    return all(parallel_rows(rows.shape[0], state.nbytes, finite))
+
+
 @dataclass(frozen=True, eq=False)
 class Observation:
     """The state at a save plane, on the host.
@@ -394,7 +426,7 @@ class Observation:
         state = np.ascontiguousarray(self.field, dtype=np.complex128)
         state.setflags(write=False)
         object.__setattr__(self, "field", state)
-        if not np.all(np.isfinite(state)):
+        if not _all_finite(state):
             bad = int(np.sum(~np.isfinite(state)))
             msg = (
                 f"field has {bad} of {state.size} entries that are not finite at "

@@ -2,9 +2,12 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 
+from solprop import _process
 from solprop.backends import (
     Backend,
     BackendHistory,
@@ -149,6 +152,31 @@ def test_a_diverged_field_is_refused_rather_than_observed():
     spoiled[0, 0, 0, 2] = np.nan
     with pytest.raises(BackendError, match="a diverged run must raise"):
         Observation(0.1, spoiled, None, history(1), 1, 0)
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [np.nan, np.inf, -np.inf, complex(0.0, np.inf), complex(np.nan, 1.0)],
+    ids=["nan", "inf", "minus-inf", "imaginary-inf", "real-nan"],
+)
+@pytest.mark.parametrize("threaded", [False, True], ids=["one-call", "threads"])
+def test_any_non_finite_entry_in_any_row_is_found(bad, threaded, monkeypatch):
+    if threaded:
+        monkeypatch.setattr(_process, "PARALLEL_BYTES", 0)
+        monkeypatch.setattr(
+            _process, "thread_budget", lambda: SimpleNamespace(threads=3)
+        )
+    spoiled = np.ones((1, 8, 1, 4), complex)
+    spoiled[0, 7, 0, 3] = bad
+    with pytest.raises(BackendError, match="1 of 32 entries"):
+        Observation(0.1, spoiled, None, history(1), 1, 0)
+
+
+def test_finite_entries_too_large_to_add_are_still_finite():
+    # Their sum overflows, which alone doesn't make an entry infinite.
+    huge = np.full((1, 2, 1, 4), 1e308 + 0j)
+    plane = Observation(0.1, huge, None, history(1), 1, 0)
+    assert plane.require_field().shape == huge.shape
 
 
 def test_a_noise_phase_that_does_not_match_the_field_is_refused():

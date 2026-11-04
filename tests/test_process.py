@@ -8,6 +8,7 @@ import importlib.util
 import sys
 import warnings
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -496,3 +497,23 @@ def test_a_small_load_time_blas_width_is_fine_elsewhere(monkeypatch):
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         _process._warn_of_load_time_blas_width()
+
+
+def test_parallel_rows_covers_each_row_once_in_threads_when_it_pays(monkeypatch):
+    monkeypatch.setattr(_process, "PARALLEL_BYTES", 100)
+    monkeypatch.setattr(_process, "thread_budget", lambda: SimpleNamespace(threads=3))
+    slices = _process.parallel_rows(10, 100, lambda part: part)
+    assert slices == [slice(0, 3), slice(3, 6), slice(6, 10)]
+    # Fewer rows than threads: a thread per row, and none left idle.
+    assert _process.parallel_rows(2, 100, lambda part: part) == [
+        slice(0, 1),
+        slice(1, 2),
+    ]
+
+
+def test_parallel_rows_takes_one_call_when_threads_would_not_pay(monkeypatch):
+    monkeypatch.setattr(_process, "PARALLEL_BYTES", 100)
+    monkeypatch.setattr(_process, "thread_budget", lambda: SimpleNamespace(threads=3))
+    assert _process.parallel_rows(10, 99, lambda part: part) == [slice(0, 10)]
+    monkeypatch.setattr(_process, "thread_budget", lambda: SimpleNamespace(threads=1))
+    assert _process.parallel_rows(10, 100, lambda part: part) == [slice(0, 10)]
