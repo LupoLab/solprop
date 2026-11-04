@@ -332,7 +332,6 @@ native::Problem problem_from(const nb::dict& values) {
     result.self_factor = nb::cast<double>(values["self_factor"]);
     result.conjugate_factor = nb::cast<double>(values["conjugate_factor"]);
     result.harmonic_factor = nb::cast<double>(values["harmonic_factor"]);
-    result.cubic_real = nb::cast<bool>(values["cubic_real"]);
     result.take_real = nb::cast<bool>(values["take_real"]);
     if (values.contains("plasma")) {
       result.plasma = nb::cast<bool>(values["plasma"]);
@@ -1368,21 +1367,13 @@ public:
     require_open();
     general_state_->adopt(field, dz);
   }
-  native::GeneralState& low_storage_state() {
-    require_open();
-    return *general_state_;
-  }
-  native::GeneralState& general_state() {
-    require_open();
-    return *general_state_;
-  }
-  native::GeneralState& adams_state() {
+  native::GeneralState& open_state() {
     require_open();
     return *general_state_;
   }
   // The stage tables an exponential Adams trial reads natively (solprop SEP 39).
   void set_stage_tables(native::stage::Tables tables) {
-    adams_state();
+    open_state();
     if (tables.n_stages != stages_)
       throw std::invalid_argument("the stage tables name another tableau's stages");
     // A z table's rows are its slots: the tables read the state's one cache.
@@ -1392,7 +1383,7 @@ public:
       throw std::invalid_argument("the stage tables and the z table's slots disagree");
     if (phi_table || prefactor_table) {
       tables.z_slots = &z_slots_;
-      tables.z_state = &general_state();
+      tables.z_state = &open_state();
     }
     stage_tables_ = std::move(tables);
     stage_anchor_ = {};
@@ -1400,18 +1391,18 @@ public:
   // solprop SEP 39 phase 4: the z table's slots, one cache for every consumer.
   void table_slots(const bool phi, const bool prefactor, const std::size_t slots,
                    const bool rate) {
-    general_state();
+    open_state();
     z_slots_.configure(phi, prefactor, slots, rate);
   }
   std::vector<std::size_t> table_load(const std::vector<double>& positions) {
     if (!z_slots_.present())
       throw std::logic_error("no z table's slots were configured");
-    return z_slots_.load(general_state(), positions);
+    return z_slots_.load(open_state(), positions);
   }
   void table_rate_at(const double z, const bool before) {
     if (!z_slots_.has_rate)
       throw std::logic_error("the z table reads no rate");
-    z_slots_.rate(general_state(), z, before);
+    z_slots_.rate(open_state(), z, before);
   }
   [[nodiscard]] std::uint64_t table_evaluations() const { return z_slots_.evaluations; }
   [[nodiscard]] bool has_stage_tables() const { return stage_tables_.has_value(); }
@@ -1431,7 +1422,7 @@ public:
   // solprop SEP 39 phase 2: the native march over the resident engine.
   void march_configure(march::Policy policy, const bool fused, const bool compensated,
                        const bool interpolate, march::Schedule schedule) {
-    adams_state();
+    open_state();
     if (!stage_tables_)
       throw std::logic_error("the native Adams march needs the stage tables");
     if (!schedule.steps.empty() && schedule.edges.size() != schedule.steps.size() + 1)
@@ -1447,7 +1438,7 @@ public:
       throw std::logic_error("the native Adams march is not configured");
     auto state = march_state_from(state_values);
     const auto bounds = march_bounds_from(bounds_values);
-    auto& general = adams_state();
+    auto& general = open_state();
     ResidentEngine engine(general, *stage_tables_, stage_anchor_, march_fused_,
                           march_compensated_, march_interpolate_, march_fault_);
     march::Result result;
@@ -2214,7 +2205,7 @@ NB_MODULE(_core, module_) {
             const auto scalars =
                 adams_scalars(phi_delta, phi_at, prefactor, density, taper,
                               preionisation, raman_rates, material);
-            auto& state = self.low_storage_state();
+            auto& state = self.open_state();
             const nb::gil_scoped_release release;
             return state.low_storage_step(dz, scalars, rebuild_table);
           },
@@ -2224,15 +2215,14 @@ NB_MODULE(_core, module_) {
           "rebuild_table"_a)
       .def("hold_plane",
            [](BoundState& self) {
-             auto& state = self.low_storage_state();
+             auto& state = self.open_state();
              const nb::gil_scoped_release release;
              state.hold_plane();
            })
-      .def("release_plane",
-           [](BoundState& self) { self.low_storage_state().release_plane(); })
+      .def("release_plane", [](BoundState& self) { self.open_state().release_plane(); })
       .def("held_to_host",
            [](BoundState& self) {
-             auto& state = self.low_storage_state();
+             auto& state = self.open_state();
              const auto count = self.elements();
              auto storage = native::crossing::host_buffer(2 * count);
              {
@@ -2248,7 +2238,7 @@ NB_MODULE(_core, module_) {
           "adams_allocate",
           [](BoundState& self, const std::size_t slots, const bool compensated,
              const bool interpolate) {
-            self.adams_state().adams_allocate(slots, compensated, interpolate);
+            self.open_state().adams_allocate(slots, compensated, interpolate);
           },
           "slots"_a, "compensated"_a = false, "interpolate"_a = true)
       .def(
@@ -2256,7 +2246,7 @@ NB_MODULE(_core, module_) {
           [](BoundState& self, const std::size_t slot, const RealInput rate) {
             const auto weights = real_vector(rate);
             const nb::gil_scoped_release release;
-            self.adams_state().adams_compensation_start(slot, weights);
+            self.open_state().adams_compensation_start(slot, weights);
           },
           "slot"_a, "rate"_a.noconvert())
       .def(
@@ -2269,7 +2259,7 @@ NB_MODULE(_core, module_) {
                 adams_scalars(phi_delta, phi_at, prefactor, density, taper,
                               preionisation, raman_rates, material);
             const nb::gil_scoped_release release;
-            self.adams_state().adams_start(slot, scalars);
+            self.open_state().adams_start(slot, scalars);
           },
           "slot"_a, "phi_delta"_a.noconvert(), "phi_at"_a.noconvert(),
           "prefactor"_a.noconvert(), "density"_a.noconvert(), "taper"_a.noconvert(),
@@ -2277,7 +2267,7 @@ NB_MODULE(_core, module_) {
       .def("adams_magnitude",
            [](BoundState& self) {
              const nb::gil_scoped_release release;
-             return self.adams_state().adams_magnitude();
+             return self.open_state().adams_magnitude();
            })
       .def(
           "adams_scale",
@@ -2285,7 +2275,7 @@ NB_MODULE(_core, module_) {
              const RealInput weights) {
             const auto values = real_vector(weights);
             const nb::gil_scoped_release release;
-            self.adams_state().adams_scale(rtol, atol, values);
+            self.open_state().adams_scale(rtol, atol, values);
           },
           "rtol"_a, "atol"_a, "weights"_a.noconvert())
       .def(
@@ -2305,7 +2295,7 @@ NB_MODULE(_core, module_) {
             std::vector<double> norms;
             {
               const nb::gil_scoped_release release;
-              norms = self.adams_state().adams_fused_trial(dz, weights, scale, scalars);
+              norms = self.open_state().adams_fused_trial(dz, weights, scale, scalars);
             }
             return real_output(std::move(norms), 1);
           },
@@ -2323,20 +2313,19 @@ NB_MODULE(_core, module_) {
             // The interpolant's slopes are the new source and these rows.
             slopes.width = interpolate ? slopes.width + 1 : 0;
             const nb::gil_scoped_release release;
-            self.adams_state().adams_fused_accept(dz, kept, free, slopes);
+            self.open_state().adams_fused_accept(dz, kept, free, slopes);
           },
           "dz"_a, "keep"_a.noconvert(), "free"_a, "dense"_a.noconvert(),
           "interpolate"_a)
-      .def("adams_hold", [](BoundState& self) { self.adams_state().adams_hold(); })
-      .def("adams_restore",
-           [](BoundState& self) { self.adams_state().adams_restore(); })
+      .def("adams_hold", [](BoundState& self) { self.open_state().adams_hold(); })
+      .def("adams_restore", [](BoundState& self) { self.open_state().adams_restore(); })
       // solprop SEP 29 G2: the resident history's persistent rows across a resume.
       .def("adams_row_names",
-           [](BoundState& self) { return self.adams_state().adams_row_names(); })
+           [](BoundState& self) { return self.open_state().adams_row_names(); })
       .def(
           "adams_rows_to_host",
           [](BoundState& self, const std::string& name) {
-            auto& state = self.adams_state();
+            auto& state = self.open_state();
             const auto extents = state.adams_row_extents(name);
             // The array's own storage is written once, as the host engine's copy is.
             auto storage =
@@ -2358,7 +2347,7 @@ NB_MODULE(_core, module_) {
       .def(
           "adams_rows_from_host",
           [](BoundState& self, const std::string& name, const ComplexInput rows) {
-            auto& state = self.adams_state();
+            auto& state = self.open_state();
             // The extents are checked against the row's view before any copy.
             const auto extents = state.adams_row_extents(name);
             if (rows.ndim() != 3 || rows.shape(0) != extents[0] ||
@@ -2383,7 +2372,7 @@ NB_MODULE(_core, module_) {
             if (edges.ndim() != 1)
               throw std::invalid_argument(
                   "z table breakpoints must be one-dimensional");
-            auto& state = self.general_state();
+            auto& state = self.open_state();
             const nb::gil_scoped_release release;
             state.table_upload(table_kind(kind), real_vector(edges), lower, upper,
                                coefficients.data(), coefficients.shape(0),
@@ -2399,7 +2388,7 @@ NB_MODULE(_core, module_) {
                   "z table slots and positions must be one-dimensional");
             const auto held_slots = index_vector(slots);
             const auto held_positions = real_vector(positions);
-            auto& state = self.general_state();
+            auto& state = self.open_state();
             const nb::gil_scoped_release release;
             state.table_evaluate(held_slots, held_positions);
           },
@@ -2408,7 +2397,7 @@ NB_MODULE(_core, module_) {
           "table_rate",
           [](BoundState& self, const std::size_t slot, const double z,
              const bool before) {
-            auto& state = self.general_state();
+            auto& state = self.open_state();
             const nb::gil_scoped_release release;
             state.table_rate(slot, z, before);
           },
@@ -2416,7 +2405,7 @@ NB_MODULE(_core, module_) {
       .def(
           "table_terms_to_host",
           [](BoundState& self, const std::string& kind, const std::size_t slot) {
-            auto& state = self.general_state();
+            auto& state = self.open_state();
             std::vector<native::Complex> values;
             {
               const nb::gil_scoped_release release;
@@ -2430,7 +2419,7 @@ NB_MODULE(_core, module_) {
           "phase_sum_to_host",
           [](BoundState& self, const RealInput weights) {
             const auto held = real_vector(weights);
-            auto& state = self.general_state();
+            auto& state = self.open_state();
             std::vector<native::Complex> values;
             {
               const nb::gil_scoped_release release;
@@ -2459,7 +2448,7 @@ NB_MODULE(_core, module_) {
                 adams_scalars(phi_delta, phi_at, prefactor, density, taper,
                               preionisation, raman_rates, material);
             const nb::gil_scoped_release release;
-            self.adams_state().adams_observe(table, hermite, scalars);
+            self.open_state().adams_observe(table, hermite, scalars);
           },
           "weights"_a.noconvert(), "hermite"_a, "phi_delta"_a.noconvert(),
           "phi_at"_a.noconvert(), "prefactor"_a.noconvert(), "density"_a.noconvert(),
@@ -2517,7 +2506,7 @@ NB_MODULE(_core, module_) {
             std::vector<double> norms;
             {
               const nb::gil_scoped_release release;
-              norms = self.adams_state().adams_exponential_trial(
+              norms = self.open_state().adams_exponential_trial(
                   dz, weights, scale, step, sample, rate_weights);
             }
             return real_output(std::move(norms), 1);
@@ -2591,7 +2580,7 @@ NB_MODULE(_core, module_) {
             std::vector<double> norms;
             {
               const nb::gil_scoped_release release;
-              norms = self.adams_state().adams_exponential_trial(
+              norms = self.open_state().adams_exponential_trial(
                   dz, weights, scale, trial.step, trial.sample, rate);
             }
             return real_output(std::move(norms), 1);
@@ -2613,7 +2602,7 @@ NB_MODULE(_core, module_) {
             {
               const nb::gil_scoped_release release;
               norms =
-                  self.adams_state().adams_fused_trial(dz, weights, scale, trial.step);
+                  self.open_state().adams_fused_trial(dz, weights, scale, trial.step);
             }
             return real_output(std::move(norms), 1);
           },
@@ -2655,7 +2644,7 @@ NB_MODULE(_core, module_) {
             auto slopes = adams_rows(dense);
             slopes.width = interpolate ? slopes.width + 1 : 0;
             const nb::gil_scoped_release release;
-            self.adams_state().adams_exponential_accept(dz, free, slopes);
+            self.open_state().adams_exponential_accept(dz, free, slopes);
           },
           "dz"_a, "free"_a, "dense"_a.noconvert(), "interpolate"_a)
       .def(
@@ -2686,7 +2675,7 @@ NB_MODULE(_core, module_) {
             // The accepted step's carrier frame, its history rows after the endpoint.
             carrier_frame(weights, carrier, count == 0 ? 0 : count - 1);
             const nb::gil_scoped_release release;
-            self.adams_state().adams_exponential_observe(xi, dz, weights);
+            self.open_state().adams_exponential_observe(xi, dz, weights);
           },
           "xi"_a, "dz"_a, "coefficients"_a.noconvert(), "dense_weight"_a.noconvert(),
           "dense_theta"_a.noconvert(), "carrier"_a.noconvert())

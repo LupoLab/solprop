@@ -3813,7 +3813,6 @@ def _native_problem(
         "self_factor": 0.0 if kerr is None else kerr.self_factor,
         "conjugate_factor": 0.0 if kerr is None else kerr.conjugate_factor,
         "harmonic_factor": 0.0 if kerr is None else kerr.harmonic_factor,
-        "cubic_real": kerr is not None and kerr.cubic_form == "real",
         "take_real": kerr is not None and kerr.take_real,
         "plasma": plasma is not None,
         "raman": raman is not None,

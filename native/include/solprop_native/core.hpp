@@ -495,7 +495,6 @@ struct Problem {
   double self_factor{};
   double conjugate_factor{};
   double harmonic_factor{};
-  bool cubic_real{};
   bool take_real{};
   bool plasma{};
   bool envelope_plasma{};

@@ -124,7 +124,6 @@ native::Problem base_problem(const native::FieldFamily family) {
   problem.self_factor = 0.5;
   problem.conjugate_factor = 0.25;
   problem.harmonic_factor = 0.0;
-  problem.cubic_real = family == native::FieldFamily::field_real;
   problem.take_real = family != native::FieldFamily::envelope;
   return problem;
 }
