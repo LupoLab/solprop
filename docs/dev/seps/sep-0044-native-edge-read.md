@@ -130,9 +130,9 @@ Nothing public changes, except that `solprop.transverse_monitor.READ_RESOLUTION`
 numbers can rise by at most the bound above. `memory_ledger` gains a `transverse_edge` row.
 
 ```text
-StepDriver._edge_reading(state, *, full) -> EdgeReading      # host by default
-EdgeReading(nodes, columns, strip, current)
-EdgeBinding(rows, matrix, lines)                             # from the edge, at attach
+StepDriver._edge_reading(state, edge, *, faces, current, full) -> EdgeReading   # host by default
+EdgeReading(faces, clip, totals, columns, strip, current)                       # numbers only
+EdgeTables(faces, clip, totals, rows)                 # four regions' weights on the nodes, from the edge
 ```
 
 ### 6. Implementation strategies
@@ -141,13 +141,21 @@ EdgeBinding(rows, matrix, lines)                             # from the edge, at
 a crossing from 2.9 s to about 0.2 s on an H200. It leaves the host's reductions and a host volume per read,
 and on a CPU it changes nothing. Worth having for a saved plane, not enough here.
 
-**Option B: native forms each face's sum.** Fewest numbers cross. But native would have to hold each face's
-masks, weights and a reducer per route, and a parity failure could lie in any of them.
+**Option B: native forms each face's sum with its own masks.** Fewest numbers cross. But native would have to
+hold each face's masks and a reducer per route, and a parity failure could lie in any of them.
 
-**Option C, recommended: native forms $u_n$ and $c_m$ and returns them.** About 6 MiB per read at 768 x 768,
-with $u_n$ only on the edge's rows. Every mask, weight, face and judgement stays in Python, and is the same
-code on every backend. Native adds two reductions and carries no geometry beyond the row list. Corners, which
-count on two faces, come out right by construction.
+**Option C: native forms $u_n$ and $c_m$ and returns them.** About 6 MiB per read at 768 x 768, with $u_n$ only
+on the edge's rows. Every mask, weight, face and judgement stays in Python. But $u_n$ sums over planes at each
+node: against the scratch's order that is a stride of a whole plane per element, and in the scratch's order it
+is a histogram with a thread's copy or an atomic per element, which is what step 1 of this work removed from the
+temporal monitor's occupancy.
+
+**Option E, recommended: native sums against weight tables Python gives it.** The edge gives native three tables,
+each four regions' weights on the nodes, and native runs the temporal monitor's existing kernel (`monitor_sums`, in
+the scratch's own order, one reduction of five numbers) against them, returning twelve numbers and $c_m$. Native
+holds no face, mask or judgement, only rows of weights; there is no reducer per route, so a parity failure can lie
+only in the synthesis. Corners count on two faces because two tables hold them. The price is the tables: 96 bytes a
+node, 57 MiB at 768 x 768 against a 5.3 GiB state, and an upload per point until a runner shares them.
 
 **Option D: native also judges.** Returning to Python per read costs microseconds against a read's tens of
 milliseconds, and a stop needs Python anyway. Not worth moving.
@@ -162,15 +170,15 @@ the host reducer's. `_judge_ramp_band` needs `state - noise`: `set_initial` comp
 powers before it adds the draw, as $\sum_\text{active} |f|^2 + \sum_\text{inactive} |n|^2$, because a supplied
 realisation isn't masked. One corner keeps a single copy: a resume with no monitor record.
 
-**Native, Cartesian, line and planar.** `separable_load_current`, then a node-energy pass over the edge's rows
-and a column-energy pass on the state. `separable_load_current`'s scale makes the scratch equal the host's
-synthesis, the scratch is dead at a committed position on all three marches, and a device fences before reading.
-The kernel takes `plane_size` and `planes`, so it has no route branch. Planar's node count is `n_y`, not
-`n_nodes`.
+**Native, Cartesian, line and planar.** `separable_load_current`, whose scale makes the scratch equal the host's
+synthesis, on a scratch that is dead at a committed position on all three marches; then `monitor_sums` on the
+faces' table, and at a launch the other two; then a column-energy pass on the state. The kernel takes the plane
+count and the node count, so it has no route branch beyond those. Planar's node count is `n_y`, not `n_nodes`.
 
-**Native, radial.** A GEMM of the edge's rows of `_inverse` into `statistics_time_`, which is idle between steps.
-`modal_complex_` can't serve, because the retained path relies on its non-crop bins staying zero. The scale includes
-`pad_scale`, which the adapter supplies.
+**Native, radial.** The same sums, with the node's value a dense product per plane of the synthesis's row and the
+state, from the first row a read's regions can touch. It needs no scratch, so neither `statistics_time_` nor
+`modal_complex_`, whose non-crop bins the retained path relies on staying zero. It is slower at one thread than
+the host's BLAS (§ Part II); a GEMM remains open to it if that ever matters.
 
 **Collar.** Python computes each line's strides, window, inward bin range and onset triple, captured by value,
 so native does no tie-breaking. The strip uses a persistent padded transform per axis. The current accumulates in
@@ -185,14 +193,14 @@ the route this SEP is mainly for. It's left out unless a CPU measurement asks fo
 
 **Kernel contract.** New `StepDriver` members, so a schema bump under today's rule. `KernelProblem` doesn't change.
 
-**Cost.** Estimated, not measured: 30 to 50 ms a read at 768 x 768 x 600 on a data-centre GPU, against 4.3 s today
+**Cost.** Estimated before the work: 30 to 50 ms a read at 768 x 768 x 600 on a data-centre GPU, against 4.3 s then
 on an H200 and against a step of about 230 ms. On CPU a read now transforms every plane, where the host read
-transformed a fifth to a third of them, but it loses the copy and the host's single-thread scan. Its net effect has
-to be measured (Q2).
+transformed a fifth to a third of them, but it loses the copy and the host's single-thread scan. Part II has what
+was measured (Q2).
 
 ### 7. Verification and validation
 
-- **Same-state parity.** New `tests/backends/test_edge_reading.py`: native's reading of a state against
+- **Same-state parity.** New `tests/backends/test_native_edge_reading.py`: native's reading of a state against
   `HostEdgeReduction` on that state's own host copy, which removes trajectory rounding and leaves the budgets of
   `tests/bounds.py`. Over route, scheme and march, with adversarial probes: energy in one (polarisation, last
   frequency) bin, an anisotropic box with light in one corner, `n_pol = 2`, `n_to != n_t` radially, a planar
@@ -239,7 +247,7 @@ physics decision, left to [#388](https://github.com/LupoLab/solprop/issues/388).
 
 ### 11. Phases
 
-1. **Python split.** `EdgeReading`, `EdgeBinding`, `HostEdgeReduction`; `READ_RESOLUTION` goes; clean column powers;
+1. **Python split.** `EdgeReading`, `EdgeTables`, `HostEdgeReduction`; `READ_RESOLUTION` goes; clean column powers;
    [#512](https://github.com/LupoLab/solprop/issues/512). Native inherits the host path. Verify: the edge's tests, adapted
    to pass readings.
 2. **Native read, no collar.** All four routes on CPU, with same-state parity and the no-crossing test. Native falls back
@@ -254,7 +262,8 @@ physics decision, left to [#388](https://github.com/LupoLab/solprop/issues/388).
 
 - **Q1.** Whether `Simulation.estimate` should count a collar's strip buffers, as it does the held plane. Recommended: yes.
 - **Q2.** Whether a CPU read, with every plane now transformed, stays within SEP 40's 2 % on a long run. If not, the
-  read-as-first-pass reuse of §6 comes back, on routes where it's provable. Measured in phase 2.
+  read-as-first-pass reuse of §6 comes back, on routes where it's provable. Measured in phase 2: see Part II. It holds
+  except for the radial route at one thread, ×1.036.
 - **Q3.** Whether an interrupted collar run's record should drain the native current on the way out, or may lag by a few
   steps. Recommended: drain it.
 
@@ -265,7 +274,48 @@ physics decision, left to [#388](https://github.com/LupoLab/solprop/issues/388).
 
 ## Part II — Implementation record
 
-No phase has been implemented.
+Phases 1 and 2 are implemented on the branch `feature/sep-0044-native-edge`, ahead of this SEP's review.
+
+**Phase 1, the Python split.** As designed, with `EdgeTables` in place of `EdgeBinding`. `READ_RESOLUTION` and
+`_occupied_planes` are gone. The launch's clean column powers are formed at the load. A resume restores a collar's
+current, baselines and peaks ([#512](https://github.com/LupoLab/solprop/issues/512)), and the record gained
+`strip_floor`.
+
+**Phase 2, the native read without a collar.** Deviations from the draft: native sums against weight tables (Option E)
+rather than returning $u_n$ (Option C), for the reason in §6; the radial read is a dense product per plane rather than
+a GEMM. A collar still reduces a host copy.
+
+*Verification, on CPU.* `tests/backends/test_native_edge_reading.py`, all passing: the reading of one state against
+`HostEdgeReduction` on all four routes, at a launch and at a read, within four times `tests/bounds.py`'s `fft_bound`;
+the state's bits unchanged by a reading; one lit node reaching only its own faces, with the right weight, which white
+noise can't show; and a field-free default run with `_observed_field` refused, which has to finish having read the edge.
+`tests/backends/test_transverse_backends.py`, `test_transverse_reads.py`, `test_transverse_monitor.py`,
+`test_transverse_nonlinear.py`, `test_transverse_resolution.py`, `test_transverse_witnesses.py`, `test_split_crossing.py`
+and `test_monitor.py` pass.
+
+*Not yet covered from §7:* a forced read at every commit against an unread run, the adversarial probes beyond the lit
+node, `n_pol = 2`, and every device row.
+
+*Timing against `main`, Intel Xeon Gold 6240, 18 cores of one socket.* `python -m benchmarks ab`, `--threading
+passive`, three rounds of one repeat. This also holds this work's steps 1 and 2, which measured neutral on CPU alone.
+Exploratory, on a shared machine:
+
+| case | threads | wall, s | ratio (range) | field difference |
+|---|---:|---|---:|---:|
+| `kerr_beam_192` | 1 | 18.74 → 17.62 | 0.934 (0.934–0.955) | 1.6e-16 |
+| `radial_filament_256` | 1 | 7.66 → 7.93 | 1.036 (1.024–1.059) | 4.2e-15 |
+| `line` | 1 | 1.017 → 1.011 | 0.997 (0.986–1.008) | 1.4e-15 |
+| `planar` | 1 | 0.571 → 0.571 | 1.004 (1.001–1.007) | 0 |
+| `kerr_beam_192` | 16 | 3.08 → 2.08 | 0.675 (0.662–0.683) | 0 |
+| `radial_filament_256` | 16 | 1.763 → 1.722 | 0.984 (0.936–0.986) | 0 |
+| `line` | 16 | 0.296 → 0.286 | 0.934 (0.900–1.053) | 0 |
+| `planar` | 16 | 0.172 → 0.163 | 0.945 (0.937–0.980) | 0 |
+
+The same work in every row. On a point of 256 x 256 x 48, sixteen fixed steps and two planes at sixteen threads, one
+runner, the default check went from 2.4 s to 2.0 s against 1.8 s without it, and from 3.9 to 2.1 field volumes above
+the level before the run against 1.5 without it.
+
+*HIP.* The wheel compiles offline for `AMD_GFX942` under ROCm 7.2.4.
 
 ## Part III — History
 
