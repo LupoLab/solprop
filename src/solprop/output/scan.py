@@ -27,6 +27,7 @@ from solprop.output.hdf5 import _dataset, _group, write_recipe
 from solprop.output.schema import (
     RecipeRecord,
     RunMetadata,
+    _inlined,
     _refuse_schema,
     serialise,
 )
@@ -39,6 +40,10 @@ __all__ = ["PointResult", "ScanWriter", "grid_values", "read_point", "validate_r
 def _json(value: object) -> str:
     """Encode metadata using the single-run JSON representation.
 
+    The text stands alone, so that a Queue's manifest can rebuild the scan from it: an
+    array keeps its values here, whatever its size. A run record's arrays go beside its
+    text instead, through :attr:`PointResult.metadata_arrays`.
+
     Parameters
     ----------
     value : object
@@ -49,7 +54,7 @@ def _json(value: object) -> str:
     str
         Canonical JSON text.
     """
-    return json.dumps(serialise(value), sort_keys=True, separators=(",", ":"))
+    return json.dumps(_inlined(serialise(value)), sort_keys=True, separators=(",", ":"))
 
 
 def _hash(text: str) -> str:
@@ -69,7 +74,7 @@ def _hash(text: str) -> str:
 
 
 _RECORD_ARRAYS = "record_arrays"
-"""The group of the points' record arrays, each named by its digest."""
+"""The group of the points' record arrays, named by digest, dtype and shape."""
 
 
 def _write_array(group: h5py.Group, name: str, values: np.ndarray) -> None:
@@ -115,7 +120,7 @@ class PointResult:
     metadata_json : str
         Complete run metadata, empty if construction failed.
     metadata_arrays : dict
-        The arrays the metadata names by digest
+        The arrays the metadata names
         (:meth:`solprop.output.schema.RunMetadata.record_arrays`).
     arrays : dict
         Named retained fields, statistics and reduction arrays.
@@ -501,9 +506,9 @@ class ScanWriter:
                 versions.get("solprop", "unknown")
             )
         references = self._common_record(document)
-        for digest, array in result.metadata_arrays.items():
-            if f"{_RECORD_ARRAYS}/{digest}" not in file:
-                file.create_dataset(f"{_RECORD_ARRAYS}/{digest}", data=array)
+        for name, array in result.metadata_arrays.items():
+            if f"{_RECORD_ARRAYS}/{name}" not in file:
+                file.create_dataset(f"{_RECORD_ARRAYS}/{name}", data=array)
         noise = document.get("noise")
         _dataset(file, "points/noise_seed")[result.index] = str(
             noise.get("seed") if isinstance(noise, dict) else None
