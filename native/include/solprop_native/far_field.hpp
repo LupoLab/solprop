@@ -141,20 +141,37 @@ KOKKOS_INLINE_FUNCTION std::size_t far_field_band_edge(const std::size_t band,
 }
 
 /**
+ * The strict block of the far-field helpers on a HIP build, where
+ * `SOLPROP_NATIVE_STRICT_BLOCK` is empty. Clang's HIP `__dmul_rn` and `__dadd_rn` are a
+ * plain `x * y` and `x + y` in its headers, contractable once inlined, so only a
+ * protected block of plain arithmetic rounds each operation on its own. CUDA's
+ * intrinsics are real.
+ */
+#if defined(__HIPCC__)
+#define SOLPROP_NATIVE_FAR_FIELD_HIP_STRICT _Pragma("clang fp contract(off)")
+#else
+#define SOLPROP_NATIVE_FAR_FIELD_HIP_STRICT
+#endif
+
+/**
  * How far a column's mask-plane image lies from an aperture's centre (SEP 23 (4)):
  * `sqrt((s k_x + X)^2 + (s k_y + Y)^2)` with the stored axes and the physical centre.
  *
  * Protected: every product and sum rounded on its own and a correctly rounded square
  * root, never `hypot`, so a hard edge decides as solprop's reference decides on every
  * input (an exact hard-mask contract). A device compiler keeps its own contraction
- * default, so a device build spells each operation with a round-to-nearest intrinsic.
+ * default, so a CUDA build spells each operation with a round-to-nearest intrinsic and
+ * a HIP build, whose intrinsics are no protection, takes the block above. A HIP
+ * device's square root is the compiler's own, which decided every edge the device tests
+ * tried; its correct rounding is observed there, not guaranteed by its documentation.
  */
 SOLPROP_NATIVE_STRICT_FUNCTION
 KOKKOS_INLINE_FUNCTION double far_field_radius(const double scale, const double k_x,
                                                const double k_y, const double centre_x,
                                                const double centre_y) {
   SOLPROP_NATIVE_STRICT_BLOCK
-#if defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__)
+  SOLPROP_NATIVE_FAR_FIELD_HIP_STRICT
+#if defined(__CUDA_ARCH__)
   const double across = __dadd_rn(__dmul_rn(scale, k_x), centre_x);
   const double along = __dadd_rn(__dmul_rn(scale, k_y), centre_y);
   return __dsqrt_rn(__dadd_rn(__dmul_rn(across, across), __dmul_rn(along, along)));
@@ -177,7 +194,8 @@ SOLPROP_NATIVE_STRICT_FUNCTION
 KOKKOS_INLINE_FUNCTION double far_field_offset(const double scale, const double k,
                                                const double centre) {
   SOLPROP_NATIVE_STRICT_BLOCK
-#if defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__)
+  SOLPROP_NATIVE_FAR_FIELD_HIP_STRICT
+#if defined(__CUDA_ARCH__)
   return __dadd_rn(__dmul_rn(scale, k), centre);
 #else
   return scale * k + centre;
@@ -196,7 +214,8 @@ KOKKOS_INLINE_FUNCTION double far_field_scaled_radius(const double across,
                                                       const double stretch_x,
                                                       const double stretch_y) {
   SOLPROP_NATIVE_STRICT_BLOCK
-#if defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__)
+  SOLPROP_NATIVE_FAR_FIELD_HIP_STRICT
+#if defined(__CUDA_ARCH__)
   const double scaled_x = __dmul_rn(stretch_x, across);
   const double scaled_y = __dmul_rn(stretch_y, along);
   return __dsqrt_rn(
