@@ -518,12 +518,16 @@ def beta1(omega):
 
 active = grid.active_mask
 delay = np.zeros(grid.n_omega)  # what walks furthest is what the run carries
-delay[active] = np.abs(beta1(grid.omega[active]) - beta1(np.array([grid.omega0]))) * length
+delay[active] = (
+    np.abs(beta1(grid.omega[active]) - beta1(np.array([grid.omega0]))) * length
+)
 carried = delay[grid.inband_mask].max()
 
 onset = window - 2 * protected
 full = np.log(1e6) / length * max(carried, window - protected) / onset
-walkoff_rate = full * 0.5 * (1 - np.cos(np.pi * np.clip((delay - onset) / protected, 0, 1)))
+walkoff_rate = (
+    full * 0.5 * (1 - np.cos(np.pi * np.clip((delay - onset) / protected, 0, 1)))
+)
 boundary = custom_absorber(grid, walkoff_rate, collar=absorber(grid, temporal=False))
 ```
 
@@ -589,13 +593,18 @@ output = Simulation.from_free(
     grid, space, medium, [], beam, settings=settings, noise=None
 ).run(progress="none")
 
-spectrum = np.asarray(output["stats/beam_spectrum"])  # (n_z, n_omega), J/(rad/s) per metre of y
+# (n_z, n_omega), J/(rad/s) per metre of y
+spectrum = np.asarray(output["stats/beam_spectrum"])
 z = np.asarray(output["z"])
 lost = np.trapezoid(walkoff_rate * spectrum, z, axis=0)
-collar_lost = np.trapezoid((boundary.spectral_rate - walkoff_rate) * spectrum, z, axis=0)
+collar_lost = np.trapezoid(
+    (boundary.spectral_rate - walkoff_rate) * spectrum, z, axis=0
+)
 wavelength = 2 * np.pi * C / np.where(grid.omega > 0, grid.omega, np.inf)
 band = (wavelength >= 150e-9) & (wavelength <= 190e-9)
-share = lost[band].sum() / (lost[band].sum() + collar_lost[band].sum() + spectrum[-1, band].sum())
+share = lost[band].sum() / (
+    lost[band].sum() + collar_lost[band].sum() + spectrum[-1, band].sum()
+)
 print(f"the walk-off rate took {share:.2f} of the 150-190 nm band")
 ```
 

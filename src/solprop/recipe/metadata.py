@@ -2798,6 +2798,13 @@ _ENTRIES: Final[dict[str, tuple[Parameter, ...]]] = {
             "advanced",
             "Whether the collar absorbs in time; off is a spectral-only collar.",
         ),
+        _keyword(
+            "walkoff",
+            _TYPE_DURATION,
+            "advanced",
+            "Group-delay drift the temporal collar must stop, over the grid's length.",
+            display="fs",
+        ),
     ),
     "TubeLattice": _type(
         "geometry",
