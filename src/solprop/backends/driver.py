@@ -2028,9 +2028,10 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
     ) -> Float[np.ndarray, " n_columns"] | None:
         """Return each column's launched energy without the input noise, or ``None``.
 
-        What the safety ramp is judged on. It is formed where the load has both parts,
-        which needs no state on the host. Only a resume that found no record of the
-        monitor has none, and then the state has to cross once.
+        What the safety ramp is judged on, so a run with no ramp needs none. It is formed
+        where the load has both parts, which needs no state on the host. Only a resume
+        that found no record of the monitor has none, and then the state has to cross
+        once.
 
         Parameters
         ----------
@@ -2040,10 +2041,11 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         Returns
         -------
         numpy.ndarray or None
-            The unweighted energies, or ``None`` with no noise or on a resumed launch.
+            The unweighted energies, or ``None`` with no noise, no ramp or on a resumed
+            launch.
         """
         floor = self._input_floor
-        if floor is None or edge.resumed:
+        if floor is None or edge.resumed or edge.design is None:
             return None
         if self._clean_columns is not None:
             return self._clean_columns

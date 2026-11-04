@@ -19,15 +19,22 @@ from bounds import fft_bound, higham_gamma
 from capability_routes import LENGTH, SPATIAL_GRID
 from capability_routes import ROUTES as CASES
 from solprop.backends.driver import StepDriver
+from solprop.backends.memory import low_storage_stage_register
 from solprop.backends.registry import available, select
-from solprop.driver import Simulation
+from solprop.driver import Simulation, SimulationSettings
 from solprop.exceptions import BoundaryError, BoundaryWarning
-from solprop.grid import FreeGrid, LineGrid, RadialGrid
+from solprop.grid import FieldGrid, FreeGrid, LineGrid, RadialGrid
 from solprop.modes import PlanarGrid
 from solprop.monitor import BoundaryCheck
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
-from solprop.stepper import FixedSchedule, LowStorageRungeKutta, Multistep, RungeKutta
+from solprop.stepper import (
+    FixedSchedule,
+    LowStorageRungeKutta,
+    Multistep,
+    PIController,
+    RungeKutta,
+)
 from solprop.transverse_monitor import GUARD, EdgeReading, transverse_edge_bytes
 from test_transverse_reads import REREVIEW, packet_run
 
@@ -281,6 +288,19 @@ def test_a_read_at_every_step_leaves_the_march_where_it_was(
         host, host_reads = final()
     assert host_reads == reads
     assert native.tobytes() == host.tobytes()
+
+
+@pytest.mark.parametrize("route", ["cartesian", "line"])
+def test_the_march_above_runs_without_its_stage_register(route: str) -> None:
+    # Then a pass writes the next input straight into the transverse scratch, which
+    # a read takes. If this stopped being so, the test above would stop covering it.
+    simulation = _case(route)
+    simulation.settings = dataclasses.replace(
+        simulation.settings,
+        integrator=LowStorageRungeKutta(),
+        schedule=FixedSchedule.uniform(0.0, LENGTH, LENGTH / 4, save_planes=[LENGTH]),
+    )
+    assert not low_storage_stage_register(simulation.translate(), "native")
 
 
 def _direct_node_energies(space: Any, state: np.ndarray) -> np.ndarray:
@@ -553,3 +573,160 @@ def test_an_estimate_counts_the_edge_only_for_a_run_that_reads_it(
     monkeypatch.setattr(NativeBackend, "edge_memory", lambda _self, _space: sentinel)
     assert estimated(BoundaryCheck(budget=1.0, stop_factor=1.0)) >= sentinel
     assert estimated(None) < sentinel
+
+
+def _with_noise(route: str, model: str | None, *, ramp: bool) -> Simulation:
+    """Return a tiny route with a noise model, field-free and on native."""
+    simulation = CASES[route](model)
+    simulation.settings = dataclasses.replace(
+        simulation.settings,
+        boundary_check=BoundaryCheck(
+            budget=1.0, stop_factor=1.0, transverse_budget=1.0
+        ),
+        fields="none",
+        backend="native",
+        spatial_absorber=None if ramp else False,
+    )
+    return simulation
+
+
+@pytest.mark.parametrize("ramp", [True, False], ids=["ramp", "no_ramp"])
+@pytest.mark.parametrize("model", ["input", "modified", None], ids=str)
+@pytest.mark.parametrize("route", ["radial", "cartesian", "line"])
+def test_a_launch_with_noise_judges_as_the_host_does_with_no_transfer(
+    route: str, model: str | None, ramp: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The clean columns are formed at the load, so judging a noisy launch needs no copy
+    # of the state to subtract the noise from. Against the same launch read on the host.
+    def launch() -> tuple[dict[str, Any], tuple[int, int]]:
+        simulation = _with_noise(route, model, ramp=ramp)
+        field = np.asarray(simulation.translate().initial.field0)[0]
+        with simulation.runner() as runner, warnings.catch_warnings():
+            warnings.simplefilter("ignore", BoundaryWarning)
+            output = cast("Any", runner.run(field, progress="none"))
+            crossed = cast("Any", runner.backend)._native_state.crossed_bytes()
+        record = output.outcome.execution["boundary_monitor"]["transverse"]
+        return cast("dict[str, Any]", record), crossed
+
+    native, (to_host, _) = launch()
+    assert to_host == 0
+    with monkeypatch.context() as patch:
+        patch.setattr(NativeBackend, "_edge_reading", StepDriver._edge_reading)
+        host, _ = launch()
+    assert native["launch_energy"] == pytest.approx(host["launch_energy"], rel=1e-11)
+    assert native["noise_allowance"] == pytest.approx(
+        host["noise_allowance"], rel=1e-11, abs=1e-30
+    )
+    assert native["noise_share_in_ramp"] == pytest.approx(
+        host["noise_share_in_ramp"], rel=1e-11, abs=1e-30
+    )
+
+
+def test_a_field_grid_reads_as_the_host_does() -> None:
+    # A real-signal grid's bins carry their own weights elsewhere: a reading has none on
+    # either kind of grid, and a padded field grid's `n_to != n_t` changes nothing here.
+    grid = FieldGrid.from_limits(1e-4, 800e-9, (500e-9, 1.6e-6), 200e-15)
+    pulse = SpatialPulse(
+        GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=3e-9), 80e-6
+    )
+    settings = SimulationSettings(
+        controller=PIController(rtol=1e-6, atol=0.0),
+        save_planes=[1e-4],
+        dz_max=1e-4,
+        dz_init=1e-5,
+        backend="native",
+        boundary_check=BoundaryCheck(
+            budget=1.0, stop_factor=1.0, transverse_budget=1.0
+        ),
+    )
+    for build, space in (
+        (Simulation.from_radial, RadialGrid(6e-4, 32)),
+        (Simulation.from_free, LineGrid(3e-4, 16, collar_fraction=0)),
+    ):
+        simulation = build(
+            grid,
+            space,
+            SpatialMedium("Ar", 1.0),
+            [],
+            pulse,
+            settings=settings,
+            noise=None,
+        )
+        problem = simulation.translate()
+        state = _noise_state(problem.shape, np.asarray(problem.grids.active_mask), 79)
+        backend, edge = _attached(simulation, state)
+        try:
+            native = backend._edge_reading(backend._require_state(), edge, full=True)
+            host = edge.reduction.reading(state[0], full=True)
+        finally:
+            backend.close()
+        budget = 4 * fft_bound(state.shape[1] * state.shape[3])
+        np.testing.assert_allclose(native.faces, host.faces, rtol=budget)
+        np.testing.assert_allclose(native.columns, host.columns, rtol=budget)
+
+
+@pytest.mark.parametrize(
+    "where", ["last_bin", "dc_column", "nyquist_column", "inactive_bin"], ids=str
+)
+def test_energy_in_one_extreme_bin_reads_as_the_host_does(where: str) -> None:
+    # Off-by-one and stride errors hide under white noise. Unit energy in one element
+    # of the state, at the band's last bin, at the transverse DC, or at its Nyquist.
+    simulation = _case("cartesian")
+    problem = simulation.translate()
+    monitor = simulation._boundary_monitor()
+    assert monitor is not None
+    assert monitor.transverse is not None
+    space = monitor.transverse.space
+    assert isinstance(space, FreeGrid)
+    active = np.nonzero(np.asarray(problem.grids.active_mask))[0]
+    state = np.zeros(problem.shape, dtype=np.complex128)
+    if where == "last_bin":
+        state[0, 5, 0, active[-1]] = 1.0
+    elif where == "dc_column":
+        state[0, 0, 0, active[0]] = 1.0
+    elif where == "inactive_bin":
+        # The load masks it, so a read sees only the lit bin beside it.
+        state[0, 5, 0, active[0]] = 1.0
+        state[0, 7, 0, np.nonzero(~np.asarray(problem.grids.active_mask))[0][0]] = 1.0
+    else:
+        nyquist = (space.n_y // 2) * space.n_x + space.n_x // 2
+        state[0, nyquist, 0, active[0]] = 1.0
+    backend, edge = _attached(simulation, state)
+    try:
+        native = backend._edge_reading(backend._require_state(), edge, full=True)
+        held = backend.observe(field=True).require_field()
+        host = edge.reduction.reading(held[0], full=True)
+    finally:
+        backend.close()
+    budget = 4 * fft_bound(space.n_y * space.n_x)
+    np.testing.assert_allclose(native.faces, host.faces, rtol=budget)
+    np.testing.assert_allclose(native.totals, host.totals, rtol=budget, atol=1e-30)
+    np.testing.assert_allclose(native.columns, host.columns, rtol=budget)
+
+
+def test_a_planar_channel_above_the_first_reads_its_own_column() -> None:
+    # A planar column is (y, p), with its own place in the scratch: the energy has to
+    # come back on that column, and on the same row's node whichever channel holds it.
+    simulation = _case("planar")
+    problem = simulation.translate()
+    monitor = simulation._boundary_monitor()
+    assert monitor is not None
+    assert monitor.transverse is not None
+    space = monitor.transverse.space
+    assert isinstance(space, PlanarGrid)
+    assert space.n_p >= 2
+    active = np.nonzero(np.asarray(problem.grids.active_mask))[0]
+    column = 1 * space.n_p + 1  # y row 1, channel 1
+    state = np.zeros(problem.shape, dtype=np.complex128)
+    state[0, column, 0, active[0]] = 1.0
+    backend, edge = _attached(simulation, state)
+    try:
+        native = backend._edge_reading(backend._require_state(), edge, full=True)
+        host = edge.reduction.reading(state[0], full=True)
+    finally:
+        backend.close()
+    expected = np.zeros(problem.shape[1])
+    expected[column] = 1.0
+    np.testing.assert_array_equal(native.columns, expected)
+    budget = 4 * fft_bound(space.n_y)
+    np.testing.assert_allclose(native.totals, host.totals, rtol=budget, atol=1e-30)

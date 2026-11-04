@@ -398,7 +398,9 @@ def test_the_scaled_miss_is_read_far_above_the_stop() -> None:
 def _driver_class(backend: str) -> type:
     """Return the class of `backend`'s step driver, which holds its edge reading."""
     if backend == "native":
-        from solprop_native.backend import NativeBackend  # noqa: PLC0415
+        from solprop_native.backend import (  # pyright: ignore[reportMissingImports]  # noqa: PLC0415
+            NativeBackend,
+        )
 
         return NativeBackend
     from solprop.backends.driver import StepDriver  # noqa: PLC0415

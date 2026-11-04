@@ -9,8 +9,11 @@ reducer: two reducers agreeing on one wrong line would show nothing. The strip i
 to the host's on the same state, and each direction to where a packet actually goes.
 """
 
+import contextlib
 import math
+import threading
 import warnings
+from pathlib import Path
 from typing import Any, cast
 
 import numpy as np
@@ -19,12 +22,19 @@ import pytest
 from bounds import fft_bound
 from solprop import transverse_monitor
 from solprop.backends.driver import StepDriver
+from solprop.backends.memory import low_storage_stage_register
 from solprop.backends.registry import available, select
 from solprop.boundaries import SpatialAbsorber
 from solprop.driver import Simulation, SimulationSettings
-from solprop.exceptions import BoundaryWarning
-from solprop.grid import EnvelopeGrid, FreeGrid, LineGrid, RadialGrid
+from solprop.exceptions import BoundaryWarning, StopRequested
+from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid, LineGrid, RadialGrid
+from solprop.log import NullReporter
 from solprop.modes import PlanarGrid, SlabMode
+from solprop.monitor import BoundaryCheck
+from solprop.noise import NoiseRealisation
+from solprop.nonlinear.responses import KerrResponse
+from solprop.output.hdf5 import resume
+from solprop.physdata import gamma3
 from solprop.pulses import GaussianPulse, PlanarPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stepper import (
@@ -63,34 +73,72 @@ def _settings(*, planar: bool = False, **overrides: Any) -> SimulationSettings:
     return SimulationSettings(**(keywords | overrides))
 
 
-def _case(route: str, **overrides: Any) -> Simulation:
-    """Return a linear run with a requested collar outside its aperture."""
-    grid = EnvelopeGrid.from_limits(LENGTH, 800e-9, (700e-9, 900e-9), 200e-15)
+def _case(
+    route: str,
+    *,
+    kerr: bool = False,
+    waist: float = 40e-6,
+    propz: float = 0.0,
+    noise: str | None = None,
+    **overrides: Any,
+) -> Simulation:
+    """Return a run with a requested collar outside its aperture.
+
+    Parameters
+    ----------
+    route : str
+        The route.
+    kerr : bool, optional
+        Whether the medium has a Kerr response, on a field grid, whose time is padded.
+    waist : float, optional
+        The beam's waist on a 300 um aperture, m; the planar case's scales with its own.
+    propz : float, optional
+        The launch's signed distance from the waist, m: negative is converging. A
+        planar launch is at the guide's entrance, so it ignores this.
+    noise : str or None, optional
+        The noise model; the planar route takes none.
+    **overrides : Any
+        Settings to change.
+
+    Returns
+    -------
+    solprop.driver.Simulation
+        The run.
+    """
+    grid = (
+        FieldGrid.from_limits(LENGTH, 800e-9, (600e-9, 1.2e-6), 150e-15)
+        if kerr
+        else EnvelopeGrid.from_limits(LENGTH, 800e-9, (700e-9, 900e-9), 200e-15)
+    )
     temporal = GaussianPulse(wavelength=800e-9, fwhm=50e-15, energy=1e-9)
     settings = _settings(planar=route == "planar", **overrides)
+    responses: list[Any] = (
+        [KerrResponse(gamma3("Ar", wavelength=800e-9), thg=False)] if kerr else []
+    )
+    medium = SpatialMedium("Ar", 1.0) if kerr else SpatialMedium(1.0)
     if route == "planar":
         modes = [SlabMode(63.5e-6, "Ar", 1.0, order=p) for p in (1, 3)]
         return Simulation.from_planar(
             EnvelopeGrid.from_limits(LENGTH, 800e-9, (650e-9, 1000e-9), 600e-15),
             PlanarGrid(modes, 1e-4, 40, collar_fraction=1.0),
-            [],
+            responses,
             PlanarPulse(
                 GaussianPulse(wavelength=800e-9, fwhm=100e-15, energy=1e-3),
-                20e-6,
+                waist / 2.0,
                 waist_x=0.735 * 63.5e-6,
             ),
             settings=settings,
         )
-    pulse = SpatialPulse(temporal, 40e-6)
+    pulse = SpatialPulse(temporal, waist, propz=propz)
     if route == "radial":
         return Simulation.from_radial(
             grid,
             RadialGrid(300e-6, 48, collar_fraction=1.0),
-            SpatialMedium(1.0),
-            [],
+            medium,
+            responses,
             pulse,
             settings=settings,
-            noise=None,
+            noise=cast("Any", noise),
         )
     space = (
         LineGrid(300e-6, 96, collar_fraction=1.0)
@@ -98,8 +146,19 @@ def _case(route: str, **overrides: Any) -> Simulation:
         else FreeGrid(300e-6, 64, 360e-6, 80, collar_fraction=1.0)
     )
     return Simulation.from_free(
-        grid, space, SpatialMedium(1.0), [], pulse, settings=settings, noise=None
+        grid,
+        space,
+        medium,
+        responses,
+        pulse,
+        settings=settings,
+        noise=cast("Any", noise),
     )
+
+
+def node_chunk(problem: Any) -> int:
+    """Return how many nodes a pass of a problem's march takes at once."""
+    return int(problem.transform.node_chunk)
 
 
 def _attached(simulation: Simulation, state: np.ndarray) -> tuple[Any, Any]:
@@ -133,10 +192,16 @@ def _noise(problem: Any, seed: int) -> np.ndarray:
     return state
 
 
+@pytest.mark.parametrize("kerr", [False, True], ids=["linear", "padded"])
 @pytest.mark.parametrize("route", ROUTES)
-def test_native_reads_a_collars_strip_and_current_as_the_host_does(route: str) -> None:
-    simulation = _case(route)
+def test_native_reads_a_collars_strip_and_current_as_the_host_does(
+    route: str, kerr: bool
+) -> None:
+    simulation = _case(route, kerr=kerr)
     problem = simulation.translate()
+    if kerr and route != "planar":
+        # A radial synthesis carries the padding's scale, and a read must too.
+        assert problem.grids.n_to != problem.grids.n_t
     state = _noise(problem, 67)
     backend, edge = _attached(simulation, state)
     try:
@@ -170,6 +235,7 @@ def test_a_plane_wave_reads_its_exact_current() -> None:
     edge = monitor.transverse
     assert edge is not None
     space = edge.space
+    assert isinstance(space, LineGrid)
     x = np.asarray(space.x)
     h = float(x[1] - x[0])
     mode = 40
@@ -199,6 +265,7 @@ def test_the_current_is_rectified_per_row_and_not_after_summing() -> None:
     edge = monitor.transverse
     assert edge is not None
     space = edge.space
+    assert isinstance(space, LineGrid)
     x = np.asarray(space.x)
     h = float(x[1] - x[0])
     mode = 40
@@ -241,6 +308,7 @@ def test_the_strip_tells_a_packets_direction(kappa: float, reads_inward: bool) -
     edge = monitor.transverse
     assert edge is not None
     space = edge.space
+    assert isinstance(space, LineGrid)
     bounds = edge.reduction.lines[0]
     x = np.asarray(space.x)
     centre = float(np.mean(x[bounds.strip]))
@@ -300,21 +368,31 @@ def test_a_collars_memory_is_its_row(route: str) -> None:
         backend.close()
 
 
-@pytest.mark.parametrize(
-    "march",
-    [RungeKutta(), Multistep(), LowStorageRungeKutta()],
-    ids=["runge_kutta", "adams", "low_storage"],
-)
+MARCHES = {
+    "runge_kutta": (RungeKutta(), None),
+    "runge_kutta_split": (RungeKutta(), "split_step"),
+    "runge_kutta_in_stage": (RungeKutta(), "nonlinear"),
+    "adams_exponential": (Multistep(), None),
+    "adams_interaction": (Multistep(formulation="interaction"), None),
+    "low_storage": (LowStorageRungeKutta(), None),
+    "low_storage_in_stage": (LowStorageRungeKutta(), "nonlinear"),
+}
+"""Each march and temporal collar scheme a read has to leave undisturbed."""
+
+
+@pytest.mark.parametrize("name", MARCHES)
 @pytest.mark.parametrize("route", ROUTES)
 def test_a_collars_read_leaves_the_march_where_it_was(
-    route: str, march: object, monkeypatch: pytest.MonkeyPatch
+    route: str, name: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    march, scheme = MARCHES[name]
+
     # A collar reads at every commit, on the transverse scratch, which every march has
     # to write again before it's used. Against the same run read on the host, which
     # touches no scratch: same steps, same monitor, one process, so no rounding apart.
     def final() -> tuple[bytes, dict[str, Any]]:
         # The planar kind's collar has the much shorter stability limit.
-        steps = 16 * STEPS if route == "planar" else STEPS
+        steps = 16 * STEPS if route == "planar" or scheme == "nonlinear" else STEPS
         schedule = FixedSchedule.uniform(
             0.0, LENGTH, LENGTH / steps, save_planes=[LENGTH]
         )
@@ -324,6 +402,8 @@ def test_a_collars_read_leaves_the_march_where_it_was(
             schedule=schedule,
             save_planes=[LENGTH],
             controller=None,
+            absorber_scheme=scheme,
+            dz_max=LENGTH / steps,
         )
         problem = simulation.translate()
         backend = cast(
@@ -380,3 +460,310 @@ def test_a_collar_run_brings_no_state_to_the_host(
     assert record["reads"] > 0
     assert to_host == 0
     assert from_host == field.nbytes
+
+
+def test_a_lit_node_reads_the_collars_rate_from_its_design() -> None:
+    # `totals[1]` is what `_collar_rate` reads at every read: `alpha w |E|^2`. The
+    # design gives alpha and the grid gives w, so this needs neither reducer's tables.
+    simulation = _case("line")
+    problem = simulation.translate()
+    monitor = simulation._boundary_monitor()
+    assert monitor is not None
+    edge = monitor.transverse
+    assert edge is not None
+    space = edge.space
+    assert isinstance(space, LineGrid)
+    assert edge.design is not None
+    rate = np.asarray(edge.design.collar_rate)
+    node = int(np.argmax(rate))
+    assert rate[node] > 0.0
+    phase = np.exp(-2j * np.pi * np.arange(space.n_x) * node / space.n_x)
+    active = np.nonzero(np.asarray(problem.grids.active_mask))[0]
+    state = np.zeros(problem.shape, dtype=np.complex128)
+    state[0, :, 0, active[3]] = phase
+    backend, edge = _attached(simulation, state)
+    try:
+        read = backend._edge_reading(backend._require_state(), edge)
+    finally:
+        backend.close()
+    expected = rate[node] * float(np.asarray(space.spatial_weights)[node])
+    assert read.totals[1] == pytest.approx(expected, rel=64 * fft_bound(space.n_x))
+
+
+def test_a_standing_wave_reads_almost_no_current() -> None:
+    # A real field carries no flux, so each row's product cancels to rounding: there the
+    # bound is absolute, set by the terms and not by the result.
+    simulation = _case("line")
+    problem = simulation.translate()
+    monitor = simulation._boundary_monitor()
+    assert monitor is not None
+    edge = monitor.transverse
+    assert edge is not None
+    space = edge.space
+    assert isinstance(space, LineGrid)
+    x = np.asarray(space.x)
+    h = float(x[1] - x[0])
+    kappa = 2 * math.pi * 40 / (space.n_x * h)
+    active = np.nonzero(np.asarray(problem.grids.active_mask))[0]
+    state = np.zeros(problem.shape, dtype=np.complex128)
+    state[0, :, 0, active[3]] = np.fft.fft(np.cos(kappa * x).astype(np.complex128))
+    backend, edge = _attached(simulation, state)
+    try:
+        native = backend._edge_reading(
+            backend._require_state(), edge, faces=False, current=True
+        )
+    finally:
+        backend.close()
+    # Unit field: |v| |s| / k, for |s| at most 2 / (2 h), times the transform's
+    # rounding, on each of the two lines, which rectification can only keep.
+    bound = 2 * fft_bound(space.n_x) / h / edge.k_min
+    assert 0.0 <= native.current <= bound
+
+
+class _StopAtFirstPlane(NullReporter):
+    """Set a run's stop flag at its first saved plane, between two edge reads."""
+
+    def __init__(self, flag: threading.Event) -> None:
+        self.flag = flag
+
+    def plane(self, z: float, summary: object) -> None:
+        del z, summary
+        self.flag.set()
+
+
+@pytest.mark.parametrize(
+    "march",
+    [RungeKutta(), Multistep(), LowStorageRungeKutta()],
+    ids=["runge_kutta", "adams", "low_storage"],
+)
+def test_a_stopped_collar_run_resumes_to_the_whole_runs_record(
+    march: object, tmp_path: Path
+) -> None:
+    # #512: a resumed collar run judged against zero, with its current and peaks
+    # restarted. The trapezoid picks up from the resumed state's own sample, so the
+    # current is the whole run's. On a fixed schedule, so both take the same steps.
+    def build() -> Simulation:
+        schedule = FixedSchedule.uniform(
+            0.0, LENGTH, LENGTH / STEPS, save_planes=[LENGTH / 2, LENGTH]
+        )
+        return _case("radial", integrator=march, schedule=schedule, controller=None)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", BoundaryWarning)
+        whole = cast("Any", build().run(progress="none"))
+        path = tmp_path / "run.h5"
+        flag = threading.Event()
+        build().run(path, progress=_StopAtFirstPlane(flag), stop=flag)
+        build().run(path, resume=True, progress="none")
+    resumed = resume(path).outcome
+    assert resumed is not None
+    expected = whole.outcome.execution["boundary_monitor"]["transverse"]
+    found = cast("Any", resumed).execution["boundary_monitor"]["transverse"]
+    assert found["launch_energy"] == pytest.approx(expected["launch_energy"], rel=1e-12)
+    # Field rounding, carried through a share of a share: nothing's restarted.
+    assert expected["current"] > 0.0
+    assert found["current"] == pytest.approx(expected["current"], rel=1e-8)
+    assert found["strip_max"] == pytest.approx(expected["strip_max"], rel=1e-8)
+    assert found["current_baseline"] == pytest.approx(
+        expected["current_baseline"], rel=1e-12
+    )
+
+
+def test_a_collar_run_stopped_before_its_first_step_resumes_as_a_launch(
+    tmp_path: Path,
+) -> None:
+    # A launch-only record: the run's first step never happened, so the next execution
+    # has a launch to continue from and no integral yet.
+    def build() -> Simulation:
+        return _case("radial", integrator=RungeKutta())
+
+    flag = threading.Event()
+    flag.set()
+    path = tmp_path / "run.h5"
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", BoundaryWarning)
+        with contextlib.suppress(StopRequested):
+            build().run(path, progress="none", stop=flag)
+        whole = cast("Any", build().run(progress="none"))
+        build().run(path, resume=True, progress="none")
+    resumed = resume(path).outcome
+    assert resumed is not None
+    expected = whole.outcome.execution["boundary_monitor"]["transverse"]
+    found = cast("Any", resumed).execution["boundary_monitor"]["transverse"]
+    assert found["launch_energy"] == pytest.approx(expected["launch_energy"], rel=1e-12)
+    assert found["reads"] == expected["reads"]
+
+
+def test_a_collars_low_storage_march_holds_its_stage_register() -> None:
+    # A march without one writes the next pass's input straight into the transverse
+    # scratch, which is what a read takes. `test_native_edge_reading` holds that one.
+    simulation = _case(
+        "line",
+        integrator=LowStorageRungeKutta(),
+        schedule=FixedSchedule.uniform(0.0, LENGTH, LENGTH / STEPS),
+        controller=None,
+        dz_max=LENGTH / STEPS,
+    )
+    assert low_storage_stage_register(simulation.translate(), "native")
+
+
+@pytest.mark.parametrize("route", ROUTES)
+def test_the_smallest_node_chunk_reads_what_the_default_reads(route: str) -> None:
+    # A read owes nothing to how a march chunks its nodes, on one state.
+    simulation = _case(route)
+    problem = simulation.translate()
+    state = _noise(problem, 83)
+    backend, edge = _attached(simulation, state)
+    try:
+        whole = backend._edge_reading(
+            backend._require_state(), edge, current=True, full=True
+        )
+    finally:
+        backend.close()
+    budget = 20 * 16 * problem.shape[2] * problem.grids.n_to
+    small = _case(route, node_budget=budget)
+    assert node_chunk(small.translate()) < node_chunk(problem)
+    backend, edge = _attached(small, state)
+    try:
+        read = backend._edge_reading(
+            backend._require_state(), edge, current=True, full=True
+        )
+    finally:
+        backend.close()
+    assert read.strip.tobytes() == whole.strip.tobytes()
+    assert read.totals.tobytes() == whole.totals.tobytes()
+    assert read.current == whole.current
+
+
+@pytest.mark.parametrize("march", [RungeKutta(), Multistep()], ids=["rk", "adams"])
+@pytest.mark.parametrize("route", ROUTES)
+def test_a_collar_run_matches_numpy_ref_on_a_matched_schedule(
+    route: str, march: object
+) -> None:
+    # A controlled witness: one schedule, so the same reads at the same places, and a
+    # converging beam reaching the collar, so that the current's truly inward and above
+    # rounding, and the relative comparison means something.
+    steps = 16 * STEPS if route == "planar" else STEPS
+
+    def run(backend: str) -> tuple[np.ndarray, dict[str, Any]]:
+        simulation = _case(
+            route,
+            waist=60e-6,
+            propz=-2.4e-2,
+            backend=backend,
+            boundary_check=BoundaryCheck(
+                budget=1.0, stop_factor=1.0, transverse_budget=1.0
+            ),
+            integrator=march,
+            schedule=FixedSchedule.uniform(
+                0.0, LENGTH, LENGTH / steps, save_planes=[LENGTH / 2, LENGTH]
+            ),
+            controller=None,
+            dz_max=LENGTH / steps,
+        )
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", BoundaryWarning)
+            output = cast("Any", simulation.run(progress="none"))
+        record = output.outcome.execution["boundary_monitor"]["transverse"]
+        return np.asarray(output["field"][-1]), record
+
+    expected, reference = run("numpy_ref")
+    found, native = run("native")
+    assert np.linalg.norm(found - expected) <= 1e-10 * np.linalg.norm(expected)
+    assert native["reads"] == reference["reads"] > 0
+    assert native["transverse_status"] == reference["transverse_status"]
+    # A planar launch can't converge, so its current stays at rounding: what's left to
+    # hold there is its absolute size.
+    if route != "planar":
+        assert reference["current"] > 1e-14
+        assert reference["spatial_removed"] > 1e-14
+    for key in ("current", "spatial_removed", "strip_max"):
+        assert native[key] == pytest.approx(reference[key], rel=1e-8, abs=1e-15), key
+
+
+def _unmasked(problem: Any, seed: int) -> NoiseRealisation:
+    """Return a hand-built input draw with energy outside the active band."""
+    rng = np.random.default_rng(seed)
+    shape = problem.shape[1:]
+    spectrum = 1e-9 * (rng.standard_normal(shape) + 1j * rng.standard_normal(shape))
+    return NoiseRealisation(spectrum=spectrum, seed=None, model="input")
+
+
+@pytest.mark.parametrize("route", ["radial", "cartesian", "line"])
+def test_a_supplied_unmasked_draw_judges_as_the_host_does_with_no_transfer(
+    route: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The ramp judges the launch without its noise, which is where the load has both
+    # parts. A draw that's been masked would hide the mask's own part of that.
+    def launch() -> tuple[dict[str, Any], int]:
+        simulation = _case(route, noise="input")
+        problem = simulation.translate()
+        assert problem.transverse is not None
+        backend = cast(
+            "Any",
+            select(
+                "native",
+                problem,
+                grid=simulation.grid,
+                modes=simulation.modes,
+                profiles=simulation.profiles,
+            ),
+        )
+        try:
+            backend.set_initial(problem.initial.field0, _unmasked(problem, 89))
+            monitor = simulation._boundary_monitor()
+            assert monitor is not None
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", BoundaryWarning)
+                backend.attach_monitor(monitor)
+            record = cast("dict[str, Any]", monitor.summary())["transverse"]
+            return record, backend._native_state.crossed_bytes()[0]
+        finally:
+            backend.close()
+
+    native, to_host = launch()
+    assert to_host == 0
+    with monkeypatch.context() as patch:
+        patch.setattr(NativeBackend, "_edge_reading", StepDriver._edge_reading)
+        patch.setattr(NativeBackend, "_edge_clean_columns", _host_clean_columns)
+        host, _ = launch()
+    for key in ("launch_energy", "noise_allowance", "noise_share_in_ramp"):
+        assert native[key] == pytest.approx(host[key], rel=1e-11, abs=1e-30), key
+    assert native["noise_share_in_ramp"] > 0.0
+
+
+def _host_clean_columns(self: Any, edge: Any) -> np.ndarray | None:
+    """Return a launch's clean columns the way a state on the host gives them."""
+    floor = self._input_floor
+    if floor is None or edge.resumed:
+        return None
+    state = np.asarray(self._observed_field(self._require_state())[0])
+    return edge.reduction.column_power(state - np.asarray(floor[0]))
+
+
+def test_a_resume_with_no_monitor_record_crosses_once() -> None:
+    # The one launch whose clean columns the load didn't form: a resumed state with its
+    # draw, whose run has no record of the monitor, so it's judged here as a launch.
+    simulation = _case("line", noise="input")
+    problem = simulation.translate()
+    backend = cast(
+        "Any",
+        select(
+            "native",
+            problem,
+            grid=simulation.grid,
+            modes=simulation.modes,
+            profiles=simulation.profiles,
+        ),
+    )
+    try:
+        state = np.asarray(problem.initial.field0)
+        backend.set_initial(state, _unmasked(problem, 97), resume=True)
+        monitor = simulation._boundary_monitor()
+        assert monitor is not None
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", BoundaryWarning)
+            backend.attach_monitor(monitor)
+        assert backend._native_state.crossed_bytes()[0] == state.nbytes
+    finally:
+        backend.close()
