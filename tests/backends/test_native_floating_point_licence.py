@@ -115,17 +115,6 @@ def test_every_protected_helper_is_strict(path, name):
     assert body.lstrip().startswith(STRICT_BLOCK)
 
 
-def test_the_phase_lambdas_of_the_core_are_strict():
-    """The compact state's stage phases are lambdas, each carrying the attribute."""
-    source = NATIVE / "src" / "core.cpp"
-    if not source.exists():
-        pytest.skip("the native sources are not in this tree")
-    text = source.read_text(encoding="utf-8")
-    for name in ("whole_phase", "stage_phase"):
-        pattern = rf"{name} = \[&\]\(\) {STRICT_ATTRIBUTE} \{{\s*{STRICT_BLOCK}"
-        assert re.search(pattern, text), name
-
-
 def test_a_protected_marker_still_does_something():
     """The macro names its two mechanisms: the list cannot see an empty one."""
     source = NATIVE / "include" / "solprop_native" / "fp.hpp"

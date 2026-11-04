@@ -2525,8 +2525,8 @@ def backends() -> drawsvg.Drawing:
     footer = (
         "Three things every backend owes beyond the methods: deterministic "
         "reductions, the device form of the stage, and the driver's bookkeeping. The "
-        "error norm is control flow, so a sum whose association depends on the thread count "
-        "forks the trajectory."
+        "error norm is control flow, so a sum whose association depends on the thread "
+        "count forks the trajectory."
     )
     top = header_height(subtitle) + 20
     gap = 44.0
@@ -2543,7 +2543,9 @@ def backends() -> drawsvg.Drawing:
     )
 
     drawing = _canvas(height)
-    _header(drawing, "One seam, a shared driver, and the backends behind them", subtitle)
+    _header(
+        drawing, "One seam, a shared driver, and the backends behind them", subtitle
+    )
 
     y = top
     _table(
