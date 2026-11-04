@@ -19,13 +19,21 @@ import pytest
 
 from backends import test_free_ladders
 from backends.test_dispersive_kerr_routes import ARGON, free_grid, free_problem
-from solprop.backends.memory import estimate_memory, free_space_memory, ledger_groups
+from solprop.backends.memory import (
+    LOCAL_FLUX_STATISTICS,
+    estimate_memory,
+    free_space_memory,
+    ledger_groups,
+)
 from solprop.backends.registry import select
 from solprop.boundaries import absorber
 from solprop.driver import Simulation, SimulationSettings
 from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid, LineGrid
+from solprop.monitor import DEFAULT_BOUNDARY_CHECK, BoundaryCheck
 from solprop.nonlinear.responses import DispersiveKerrResponse, KerrResponse
+from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
+from solprop.stats import StatsSpec, default_spec
 from solprop.stepper import (
     FixedSchedule,
     LowStorageRungeKutta,
@@ -38,6 +46,9 @@ from solprop.translate.masks import AbsorberScheme
 pytest.importorskip("solprop_native")
 
 free_response = test_free_ladders.free_case
+
+FREE = default_spec("free")
+"""The statistics a free-space run records unless told otherwise."""
 
 LENGTH = 1e-3
 MIB = 2**20
@@ -54,6 +65,8 @@ def beam(  # noqa: PLR0913 - one case's shape, budget and the route's choices
     grid: type = EnvelopeGrid,
     collar: AbsorberScheme | None = None,
     n_pol: int = 1,
+    stats: StatsSpec | None = None,
+    monitor: BoundaryCheck | None = None,
 ) -> Simulation:
     """Return a Kerr beam on a Cartesian or line grid, from a broadcast placeholder."""
     limits = (LENGTH, 800e-9, (600e-9, 1.2e-6), window)
@@ -79,8 +92,9 @@ def beam(  # noqa: PLR0913 - one case's shape, budget and the route's choices
         ),
         integrator=LowStorageRungeKutta() if integrator is None else integrator,
         backend="native",
-        boundary_check=None,
+        boundary_check=monitor,
         node_budget=budget,
+        stats=stats,
         absorber=absorber(time_grid) if collar else None,
         absorber_scheme=collar,
     )
@@ -157,16 +171,65 @@ def test_the_estimate_is_the_low_storage_ledger_to_the_byte(nx, ny, window, budg
         pytest.param({"n_pol": 2}, id="two polarisations"),
     ],
 )
-def test_the_estimate_holds_across_the_route_s_marches_and_terms(keywords):
+@pytest.mark.parametrize("stats", [None, FREE], ids=["no statistics", "default free"])
+def test_the_estimate_holds_across_the_route_s_marches_and_terms(keywords, stats):
     options = {"window": 144e-15, "budget": GIB} | keywords
     window, budget = options.pop("window"), options.pop("budget")
-    estimate, ledger = compared(beam(64, 64, window, budget, **options))
+    estimate, ledger = compared(beam(64, 64, window, budget, stats=stats, **options))
     assert estimate == ledger
+
+
+@pytest.mark.parametrize("budget", [16 * MIB, GIB], ids=["several chunks", "one chunk"])
+@pytest.mark.parametrize(
+    "stats",
+    [
+        pytest.param(FREE, id="default free"),
+        *(
+            pytest.param(StatsSpec(names=(name,)), id=name)
+            for name in sorted(LOCAL_FLUX_STATISTICS)
+        ),
+        pytest.param(StatsSpec(names=("energy", "on_axis_spectrum")), id="no closure"),
+    ],
+)
+def test_the_estimate_counts_what_each_statistic_asks_for(stats, budget):
+    """A local flux statistic holds the magnetic closure's rows; the others none."""
+    simulation = beam(64, 64, 144e-15, budget, stats=stats)
+    problem = simulation.translate()
+    rows = free_space_memory(problem, "native")
+    closure = bool(set(stats.names) & LOCAL_FLUX_STATISTICS)
+    assert ("statistics_weighted_time" in rows) == closure
+    assert ("statistics_flux_magnitude" in rows) == closure
+    estimate, ledger = compared(simulation)
+    assert estimate == ledger
+
+
+def test_a_run_adds_its_monitor_s_weights_and_the_far_field_s_tables_alone():
+    """The estimate is of what is constructed; these two arrive when a run starts."""
+    simulation = beam(32, 32, 144e-15, GIB, stats=FREE, monitor=DEFAULT_BOUNDARY_CHECK)
+    problem = simulation.translate()
+    field = SpatialPulse(
+        GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-9), 4e-5
+    ).build(
+        simulation.grid,
+        FreeGrid(3e-4, 32, 3e-4, 32, collar_fraction=0.0),
+        medium=SpatialMedium(),
+    )
+    estimate = estimate_memory(problem, "native").groups["base"]
+    with simulation.runner() as runner:
+        before = runner.backend.memory_ledger()
+        assert ledger_groups(before)["base"] == estimate
+        runner.run(field, progress="none")
+        ledger = runner.backend.memory_ledger()
+    weights = ledger["monitor_weights"]
+    tables = ledger["far_field_tables"] - before["far_field_tables"]
+    assert 0 < weights + tables < 0.01 * estimate
+    assert ledger_groups(ledger)["base"] == estimate + weights + tables
 
 
 def test_the_line_route_is_counted_the_same_way():
-    estimate, ledger = compared(beam(128, 1, 120e-15, GIB))
-    assert estimate == ledger
+    for stats in (None, FREE):
+        estimate, ledger = compared(beam(128, 1, 120e-15, GIB, stats=stats))
+        assert estimate == ledger
 
 
 def test_the_adams_march_differs_by_its_norms_alone():

@@ -60,11 +60,14 @@ tables, its statistics buffers and a device copy of each z table.
 On the Cartesian and line routes the estimate counts ``native``'s own rows instead
 (:func:`free_space_memory`), where the reference's count fell furthest short when one
 chunk holds the whole grid, by factors of 1.46 on an envelope grid and 1.80 on a field
-grid in the measured set: a Kerr beam's ledger and estimate now agree to the byte, one
-chunk or several, on each march (the Adams march's norms aside, 24 bytes), and Raman and
-plasma beams to within 0.2 % under and 1.1 % over
-(``tests/backends/test_free_space_estimate.py``). The heap FFT planning grows stays
-apart from the group, in the ledger's own row.
+grid in the measured set. A constructed Kerr beam's ledger and estimate now agree to
+the byte, with no statistics or with ``default_spec("free")``, one chunk or several, on
+each march (the Adams march's norms aside, 24 bytes); Raman and plasma beams to within
+0.2 % under and 1.1 % over (``tests/backends/test_free_space_estimate.py``). What a run
+adds after construction is not counted: a boundary monitor's weights, 0.3 % to 0.5 % of
+the base on a 32 x 32 beam (``monitor_weights``), and the far field's tables once it is
+first called. The heap FFT planning grows stays apart from the group, in the ledger's
+own row.
 For SEP 27's held field-current source, the estimate replaces the reference's
 allowance with the native backend's current buffers, projection rows,
 spectra and tables. FFT-provider allocator growth remains a measured ledger row.
@@ -218,7 +221,9 @@ _NOT_COUNTED = {
         "the Schur factors of a coupled flow, formed on the host",
         "a noise field loaded after construction (one state's bytes)",
         "the translated problem's own tables other than the general reference",
-        "the Adams general path's history (PECE and the comparison variants)",
+        "the Adams general path's history (PECE and the comparison variants) and its "
+        "host copy of the state (adams_host_state)",
+        "a boundary monitor's weights, bound when a run starts",
     ),
     "mlx": (
         "MLX's compiled kernels and its allocator's cache beyond one step's graph",
@@ -1571,8 +1576,9 @@ def flux_closure_memory(problem: KernelProblem, backend: str) -> dict[str, int]:
     A row of the ``base`` group, to the byte: on Kokkos a Cartesian, line or planar
     run whose own request has a local flux statistic holds the closure's
     transverse volume beside the transform's scratch, one state's bytes. Its time
-    rows and per-node magnitudes are chunk-sized statistics buffers, which the
-    reference's count already stands for; ``numpy_ref`` forms the closure per call.
+    rows and per-node magnitudes are chunk-sized statistics buffers, counted by
+    :func:`free_space_memory` on the Cartesian and line routes and stood for by the
+    reference's count on the planar one; ``numpy_ref`` forms the closure per call.
 
     Parameters
     ----------
@@ -1613,6 +1619,9 @@ def free_space_memory(problem: KernelProblem, backend: str) -> dict[str, int]:
 
     - ``K`` rows of the forward spectrum and the absorber's spectrum and time;
     - ``K`` rows of the statistics' spectrum and time, and the power of a chunk's nodes;
+    - with a local flux statistic (``on_axis_intensity``, ``peak_intensity``,
+      ``beam_radius``, ``fwhm_r``, all in ``default_spec("free")``), ``K`` rows of the
+      magnetic closure in time and the magnitude of a chunk's nodes;
     - the statistics' outputs, the norm's partials, and each column's spatial
       coefficients and statistics weights;
     - the host copies of the problem's arrays a Kerr beam carries, ``M`` of them per
@@ -1729,6 +1738,11 @@ def free_space_memory(problem: KernelProblem, backend: str) -> dict[str, int]:
         rows |= {
             "split_absorber_spectrum": temporal * n_omega * 16,
             "split_absorber_time": temporal * n_t * (16 if envelope else 8),
+        }
+    if set(problem.stats_spec.names) & LOCAL_FLUX_STATISTICS:
+        rows |= {
+            "statistics_weighted_time": temporal * n_t * 16,
+            "statistics_flux_magnitude": transform.node_chunk * n_t * 8,
         }
     # The nodes alias the chunk's own rows unless a dispersive pass needs them apart.
     if dispersive is None:
