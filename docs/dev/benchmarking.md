@@ -96,7 +96,9 @@ cluster, give it explicitly.
 to neighbouring cores), `default` (the runtime's own short
 spin before sleeping), `active` (idle threads spin), `bound` (threads pinned to
 neighbouring cores) or `bound-active`. The policy is recorded with each row, and rows
-compare only within one policy.
+compare only within one policy. Binding also confines SciPy's transforms on the host to the
+main thread's core, so a free-space row's edge reads cost more under a bound policy than
+under `passive` ([the edge against 0.1.0](benchmarks.md#the-transverse-edge-against-010)).
 
 ## On a GPU
 

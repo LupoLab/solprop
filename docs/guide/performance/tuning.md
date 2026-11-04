@@ -264,7 +264,10 @@ The native CPU backend runs on OpenMP, whose standard variables apply:
   and Kokkos does not print its notice that the variable is unset, whose advice is for a
   run with the machine to itself. The run's metadata records what applied as
   `openmp_proc_bind`. With a build whose FFTW uses pthreads rather than OpenMP, prefer
-  `OMP_PROC_BIND=false`.
+  `OMP_PROC_BIND=false`. Binding also holds back SciPy's transforms on the host, which a
+  free-space run's launch and edge reads use: on 16 cores of an AMD EPYC 7763, a transform
+  of 384² × 256 took 0.48 s with 16 workers under `OMP_PROC_BIND=close OMP_PLACES=cores`,
+  as long as with one worker, and 0.11 s unbound.
 - `OMP_WAIT_POLICY` decides what idle threads do between parallel regions: `active`
   keeps them spinning, `passive` lets them sleep at once. **The native backend chooses
   for you** when none of `OMP_WAIT_POLICY`, `GOMP_SPINCOUNT` and `KMP_BLOCKTIME` is set.
