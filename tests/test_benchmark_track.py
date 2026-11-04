@@ -227,6 +227,7 @@ def test_the_history_takes_only_a_complete_default_run_of_committed_code():
         track.refuse_partial(namespace(), rows[:-1], 16, clean)
 
 
+@pytest.mark.usefixtures("sixteen_cpus")
 def test_a_planning_override_is_not_recorded(monkeypatch):
     # A row does not say how it planned, so the override would read as a regression.
     rows, _ = runner.plan_rows(select(), ("default",), None, 16)
