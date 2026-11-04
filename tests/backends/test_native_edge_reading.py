@@ -639,20 +639,28 @@ def test_a_field_grid_reads_as_the_host_does() -> None:
             budget=1.0, stop_factor=1.0, transverse_budget=1.0
         ),
     )
-    builders: tuple[tuple[Any, Any], ...] = (
-        (Simulation.from_radial, RadialGrid(6e-4, 32)),
-        (Simulation.from_free, LineGrid(3e-4, 16, collar_fraction=0)),
-    )
-    for build, space in builders:
-        simulation = build(
+    medium = SpatialMedium("Ar", 1.0)
+    simulations = [
+        Simulation.from_radial(
             grid,
-            space,
-            SpatialMedium("Ar", 1.0),
+            RadialGrid(6e-4, 32),
+            medium,
             [],
             pulse,
             settings=settings,
             noise=None,
-        )
+        ),
+        Simulation.from_free(
+            grid,
+            LineGrid(3e-4, 16, collar_fraction=0),
+            medium,
+            [],
+            pulse,
+            settings=settings,
+            noise=None,
+        ),
+    ]
+    for simulation in simulations:
         problem = simulation.translate()
         state = _noise_state(problem.shape, np.asarray(problem.grids.active_mask), 79)
         backend, edge = _attached(simulation, state)
