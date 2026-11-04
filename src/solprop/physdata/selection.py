@@ -706,8 +706,7 @@ def hashed_document(document: Mapping[str, object] | None) -> dict[str, object] 
 
     :meth:`MaterialManifest.hashed` of the manifest :meth:`MaterialManifest.to_dict`
     wrote, taken from the stored document without rebuilding its records, so that a
-    record written by another release of the same output schema hashes as it was
-    written (SEP 42 section 5.4).
+    record written by another build of the same output schema hashes as it was written.
 
     Parameters
     ----------

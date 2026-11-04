@@ -321,10 +321,8 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
     snapshots: SnapshotController | None = None,
     tdse_archive: TDSEArchiveWriter | None = None,
     boundary_monitor: BoundaryMonitor | None = None,
-    resume_record: Mapping[str, object] | None = None,
     stop: StopFlag | None = None,
     recipe: RecipeRecord | None = None,
-    held_plane: bool = True,
 ) -> None:
     """Run one translated problem to its save planes, writing each one out.
 
@@ -405,11 +403,6 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
         the execution record at every save plane without the per-plane rows, which
         the closing record (complete, failed or out of budget) carries, and its removed
         fraction is reported at the end. ``None`` watches nothing.
-    resume_record : collections.abc.Mapping or None, optional
-        The ``resume`` entry of a session that continues a file across differences
-        from its record (SEP 42 section 5.3): every execution record this session
-        writes carries it, from the first, written before any step, so a session
-        that stops or fails still leaves it. ``None`` records none.
     stop : solprop.log.StopFlag or None, optional
         The run's own stop flag, any object with an ``is_set()`` method (SEP 41,
         S17). It is polled before the first step, before every trial step and between
@@ -420,11 +413,6 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
     recipe : solprop.output.schema.RecipeRecord or None, optional
         The recipe the run was built from (SEP 41, S2), recorded in a plane store at
         the first run start and never rewritten; ``None`` records none.
-    held_plane : bool, optional
-        Whether a low-storage march holds the last field-free plane's state for a
-        checkpoint (:class:`~solprop.driver.simulation.SimulationSettings`). An output
-        without :class:`~solprop.output.schema.CheckpointOutput` holds nothing either
-        way.
 
     Raises
     ------
@@ -492,10 +480,6 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
     set_stop = getattr(backend, "set_stop", None)
     if set_stop is not None:
         set_stop(stop)
-    # An output with nowhere to put a checkpoint would never read the held state.
-    set_held_plane = getattr(backend, "set_held_plane", None)
-    if set_held_plane is not None:
-        set_held_plane(held_plane and isinstance(output, CheckpointOutput))
     started = time.perf_counter()
     clock = RunClock.start()
     logger.debug(
@@ -510,9 +494,6 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
         backend,
         tdse_binding,
     )
-    if resume_record is not None:
-        # Only a file resume carries an entry, and its handler is an HDF5Output.
-        cast("PlaneStore", output).record_resume(resume_record)
     if recipe is not None and isinstance(output, PlaneStore):
         with committing():
             output.record_recipe(recipe)
@@ -1294,31 +1275,12 @@ def _persist_failure(
         return None
     pending = failure.pending
     in_flight = getattr(backend, "_in_flight", None)
-    held = None
     if pending is None and in_flight is not None:
-        holder = getattr(backend, "held_observation", None)
-        try:
-            held = None if holder is None else holder()
-        except Exception as held_error:
-            # A held state that cannot be observed (one not finite outside the norm
-            # mask, say) must not replace the original exception: the failure is
-            # recorded as an abandoned step, with the reason beside it.
-            failure.error.add_note(
-                f"the held plane could not be observed: {held_error}"
-            )
-            logger.exception("could not observe the held plane")
-            held = None
-        if held is None:
-            _record_abandoned_step(backend, output, binding, failure, in_flight)
-            return None
+        _record_abandoned_step(backend, output, binding, failure, in_flight)
+        return None
     reached = None
     try:
-        if held is not None:
-            # The low-storage step in flight holds neither end, and the last plane
-            # kept no field: the state held there is checkpointed (SEP 22, Q14).
-            # Its history went out with the plane, so the checkpoint carries none.
-            pending = _adopted_plane(_power_observation(problem, held))
-        elif pending is None:
+        if pending is None:
             pending = _adopted_plane(_power_observation(problem, backend.observe()))
         elif pending.field is None:
             # A field-free plane keeps no field, and a checkpoint always does (SEP
@@ -1387,9 +1349,7 @@ def _record_abandoned_step(
 
     The low-storage march accepts each step in place (SEP 24 section 6.2), so a step
     abandoned between its start and its commit leaves a state that is neither of the
-    step's ends, which the backend refuses to observe. When the last plane kept its
-    field nothing is held either (a field-free one's state is held and checkpointed
-    instead, SEP 22, Q14, unless the run holds none), and nothing honest can be written
+    step's ends, which the backend refuses to observe, so nothing honest can be written
     as a terminal checkpoint. The file ends at its last saved plane: a resume continues
     from one that kept its field, to rounding, with ``step_planes`` bounding what is
     lost, and refuses one that did not.
@@ -1411,8 +1371,8 @@ def _record_abandoned_step(
     ending = (
         "from which resume=True continues"
         if failure.last_kept_field
-        else "which kept no field, and no state of it was held, so this file cannot "
-        "be resumed (SimulationSettings.held_plane, or rerun it)"
+        else "which kept no field, so this file cannot be resumed; rerun it, keeping "
+        "a plane's field"
     )
     reason = (
         f"no terminal checkpoint is written: the low-storage step of {dz:.6g} m from "

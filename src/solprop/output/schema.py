@@ -32,12 +32,10 @@ identities and policies of the run's material manifest, and nothing else: not th
 wall-clock time the run started, not the package versions, and not the git provenance.
 :meth:`RunMetadata.configuration_hash` is a SHA-256 of its canonical JSON rather than
 :func:`hash`, so it is stable across processes; it is stamped in every file and is the
-exact identity a suspended writer, a snapshot and a scan row are checked by. A resume
-compares the hashed parts path by path instead (:meth:`RunMetadata.compare`, SEP 42):
-the layout and the physics must agree, the numerics may change, and provenance is
-ignored, so a resume with different physics of the same shape is refused and a run
-continues after an upgrade or on another platform. A record read from a file is
-compared as it was written.
+exact identity a resume, a suspended writer, a snapshot and a scan row are checked by
+(ADR-066): a resume with different physics or numerics of the same shape is refused,
+naming the fields that changed (:meth:`RunMetadata.summarise_differences`). A record
+read from a file is compared as it was written.
 
 The manual page is ``docs/guide/results/output.md``.
 """
@@ -54,7 +52,7 @@ import re
 import subprocess
 import weakref
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import Enum
@@ -74,18 +72,17 @@ from solprop.grid import EnvelopeGrid, TimeGrid
 from solprop.modes.material import JsonValue
 from solprop.modes.protocol import Mode, TransverseMeasure
 from solprop.noise import NoiseRealisation
-from solprop.output import compatibility
 from solprop.physdata.selection import MaterialManifest, hashed_document
 from solprop.stepper import FixedSchedule, PIController, Tableau
 
 __all__ = [
-    "EARLIER_ABSORBED_COLUMNS",
     "FIELD_LAYOUT",
     "HISTORY_FIELDS",
     "INLINE_ARRAY_LIMIT",
     "INTERNAL_CONVENTION",
     "INTERPOLATED_RESUMES_ANNOTATION",
     "PEAK_FIELDS_ANNOTATION",
+    "RECORD_ARRAY_LIMIT",
     "RUN_SUMMARY_ANNOTATION",
     "SCHEMA_VERSION",
     "SPECTRAL_CONVENTION",
@@ -123,7 +120,6 @@ __all__ = [
     "field_retention_refusal",
     "package_versions",
     "recorded_input",
-    "refuse_earlier_absorbed_power",
     "resolve_metadata_write",
     "serialise",
 ]
@@ -156,14 +152,19 @@ read, and nor is a file from a later release. Read such a file with the solprop 
 that wrote it.
 """
 
-EARLIER_ABSORBED_COLUMNS = 4
-"""The columns of ``absorbed_power`` an earlier development build of schema 2 stored.
+RECORD_ARRAY_LIMIT = 4096
+"""The most elements a numeric array of a run record holds as JSON (#309).
 
-The first holds the spectral collar and any custom rate together, so nothing stored can
-split it, and a new row has five. Such a file reads as it was written and is not
-continued (:func:`refuse_earlier_absorbed_power`; ADR-063's amendment: a known
-difference between development builds is refused by name).
+A larger one -- a per-node weight, a flux plan's coefficients -- is recorded by a
+reference holding its digest, dtype and shape, and its bytes are stored beside the
+record, named by that digest (:meth:`RunMetadata.record_arrays`). So the hash takes the
+array's bytes rather than its text, which costs milliseconds rather than seconds, and
+the array stays readable. The limit keeps a grid's axes in the text, for a person
+reading it.
 """
+
+_RECORD_ARRAY = "__record_array__"
+"""The key of a reference to an array stored beside the record."""
 
 INLINE_ARRAY_LIMIT = 2**20
 """The most elements an array input is recorded with inline (SEP 22, Q4).
@@ -262,11 +263,6 @@ def _serialise_dataclass(value: object) -> dict[str, JsonValue]:
     :class:`~solprop.modes.guide.ChannelSource` holds the provider object, whose
     identity the run records once beside its channels.
 
-    A field whose metadata says ``record_none=False`` is left out while it is ``None``:
-    an optional extension whose absence means what every earlier record means, so a run
-    that does not use it keeps its record and its hash (an aperture's shape, an
-    absorber's ``user_rate``). Set, it is recorded, and two different values hash apart.
-
     Parameters
     ----------
     value : object
@@ -286,10 +282,7 @@ def _serialise_dataclass(value: object) -> dict[str, JsonValue]:
     for entry in dataclasses.fields(value):  # type: ignore[arg-type] - checked by the caller
         if not entry.init or not entry.metadata.get("record", True):
             continue
-        held = getattr(value, entry.name)
-        if held is None and not entry.metadata.get("record_none", True):
-            continue
-        record[entry.name] = serialise(held)
+        record[entry.name] = serialise(getattr(value, entry.name))
     return record
 
 
@@ -316,11 +309,43 @@ def _serialise_enum(value: Enum) -> dict[str, JsonValue]:
     }
 
 
+class _ArrayReference(dict):
+    """A reference to a record array, in its JSON form, carrying the array it names.
+
+    A serialised record is JSON-ready, so a reference is a plain mapping to :mod:`json`,
+    and the array travels with it until the record is stored
+    (:meth:`RunMetadata.record_arrays`).
+
+    Parameters
+    ----------
+    values : numpy.ndarray
+        The array, kept by reference and not copied.
+
+    Attributes
+    ----------
+    array : numpy.ndarray
+        The array.
+    """
+
+    def __init__(self, values: np.ndarray) -> None:
+        """Digest the array and hold it."""
+        digest = ArrayDigest.of(values)
+        super().__init__(
+            {
+                _RECORD_ARRAY: digest.sha256,
+                "dtype": digest.dtype,
+                "shape": list(digest.shape),
+            }
+        )
+        self.array = values
+
+
 def _serialise_numpy(value: np.ndarray | np.generic) -> JsonValue:
     """Return a NumPy array as a nested list with its dtype, or a scalar as a scalar.
 
     A complex array is split into its real and imaginary parts, because JSON has no
-    complex number and a nested list of them would not survive a round trip.
+    complex number and a nested list of them would not survive a round trip. A numeric
+    array of more than :data:`RECORD_ARRAY_LIMIT` elements is a reference instead.
 
     Parameters
     ----------
@@ -334,6 +359,8 @@ def _serialise_numpy(value: np.ndarray | np.generic) -> JsonValue:
     """
     if isinstance(value, np.generic):
         return serialise(value.item())
+    if value.size > RECORD_ARRAY_LIMIT and value.dtype.kind in "biufc":
+        return _ArrayReference(value)
     record: dict[str, JsonValue] = {
         "dtype": str(value.dtype),
         "shape": list(value.shape),
@@ -412,7 +439,8 @@ def serialise(value: object) -> JsonValue:
     Dataclasses become tagged dictionaries of their constructor fields (less a live
     handle whose field metadata says ``record=False``), enumerations
     their qualified name and value, NumPy arrays a nested list with their dtype and
-    shape, cubic splines their knots, coefficients, axis and extrapolation setting,
+    shape, or above :data:`RECORD_ARRAY_LIMIT` elements a reference to their bytes,
+    cubic splines their knots, coefficients, axis and extrapolation setting,
     complex numbers a real/imaginary pair, and mappings and sequences are
     recursed. Anything that cannot be reduced -- a function, a lambda, an object with
     no structure -- is recorded as its ``repr`` and marked ``reproducible: False``,
@@ -443,7 +471,7 @@ def serialise(value: object) -> JsonValue:
     >>> serialise(abs)["reproducible"]
     False
     """
-    if value is None or isinstance(value, bool):
+    if value is None or isinstance(value, bool | _ArrayReference):
         return value
     if isinstance(value, Enum):
         return _serialise_enum(value)
@@ -661,7 +689,7 @@ def _decode_array(record: Mapping[str, object]) -> np.ndarray:
     return np.array(record["__ndarray__"], dtype=dtype)
 
 
-def _decode(value: JsonValue) -> object:
+def _decode(value: object) -> object:
     """Return a serialised value with an array field rebuilt.
 
     An array is the only form a record type holds that JSON cannot carry directly, so
@@ -671,8 +699,8 @@ def _decode(value: JsonValue) -> object:
 
     Parameters
     ----------
-    value : NoneType or bool or int or float or str or list or dict
-        A value produced by :func:`serialise`.
+    value : object
+        A value produced by :func:`serialise`, or an array read from beside the record.
 
     Returns
     -------
@@ -684,19 +712,88 @@ def _decode(value: JsonValue) -> object:
     return value
 
 
+def _resolved(
+    value: JsonValue,
+    arrays: Mapping[str, object],
+    found: dict[str, np.ndarray],
+) -> object:
+    """Return a stored document with each array reference replaced by its array.
+
+    Parameters
+    ----------
+    value : object
+        The document, as :func:`json.loads` read it.
+    arrays : collections.abc.Mapping
+        What holds the arrays, by digest: an HDF5 group, or a mapping of arrays.
+    found : dict
+        The arrays read, by digest, which this fills.
+
+    Returns
+    -------
+    object
+        The document, with an array in place of each reference.
+
+    Raises
+    ------
+    OutputError
+        If an array is absent, or its bytes do not have the digest that names it.
+    """
+    if isinstance(value, list):
+        return [_resolved(item, arrays, found) for item in value]
+    if not isinstance(value, dict):
+        return value
+    if _RECORD_ARRAY not in value:
+        return {key: _resolved(item, arrays, found) for key, item in value.items()}
+    digest = str(value[_RECORD_ARRAY])
+    if digest not in found:
+        if digest not in arrays:
+            msg = (
+                f"stored metadata names the array {digest}, which is not beside it: "
+                "read a record through the file that holds it"
+            )
+            raise OutputError(msg)
+        array = np.asarray(arrays[digest])
+        if ArrayDigest.of(array).sha256 != digest:
+            msg = f"the array stored as {digest} does not have that digest"
+            raise OutputError(msg)
+        found[digest] = array
+    return found[digest]
+
+
+def _dotted(path: Sequence[str | int]) -> str:
+    """Return a path into a stored record as a refusal writes it.
+
+    Parameters
+    ----------
+    path : collections.abc.Sequence
+        Mapping keys and list indices.
+
+    Returns
+    -------
+    str
+        The keys joined by dots, with each index in brackets.
+
+    Examples
+    --------
+    >>> from solprop.output.schema import _dotted
+    >>> _dotted(("modes", 2, "label"))
+    'modes[2].label'
+    """
+    text = ""
+    for part in path:
+        text += f"[{part}]" if isinstance(part, int) else f".{part}" if text else part
+    return text
+
+
 def _stored_entry(
-    document: Mapping[str, JsonValue],
+    document: Mapping[str, object],
     name: str,
     path: tuple[str, ...],
     *,
-    default: JsonValue = None,
+    default: object = None,
     required: bool = False,
-) -> JsonValue:
-    """Return one entry of a stored record, reading an absent one as neutral.
-
-    Another release of the same output schema may lack an entry (SEP 42 section 5.4):
-    it reads as its neutral value (:func:`solprop.output.compatibility.neutral_value`),
-    else as `default`, unless it is required.
+) -> object:
+    """Return one entry of a stored record, reading an absent one as `default`.
 
     Parameters
     ----------
@@ -707,44 +804,39 @@ def _stored_entry(
     path : tuple of str
         Where the mapping sits in the run record.
     default : object, optional
-        What an absent entry with no neutral value reads as.
+        What an absent entry reads as.
     required : bool, optional
-        Whether an absent entry with no neutral value is refused.
+        Whether an absent entry is refused.
 
     Returns
     -------
     object
-        The entry, its neutral value or `default`.
+        The entry, or `default`.
 
     Raises
     ------
     OutputError
-        If a required entry is absent and has no neutral value.
+        If a required entry is absent.
     """
     if name in document:
         return document[name]
-    found, value = compatibility.neutral_value((*path, name))
-    if found:
-        return value
     if required:
-        msg = f"stored metadata lacks {compatibility.dotted((*path, name))}"
+        msg = f"stored metadata lacks {_dotted((*path, name))}"
         raise OutputError(msg)
     return default
 
 
 def _rebuild[T](
     build: type[T],
-    record: Mapping[str, JsonValue],
+    record: Mapping[str, object],
     path: tuple[str | int, ...] = (),
 ) -> T:
     """Return a record instance from the dictionary :func:`serialise` made of it.
 
-    The instance is for reading. A record another release of the same output schema
-    wrote may lack a field this class has, or hold one it does not (SEP 42 section
-    5.4): a field the class no longer has is dropped, and an absent field is filled
-    from its neutral value (:func:`solprop.output.compatibility.neutral_value`) or,
-    where it has one, the field's default. A resume never compares the rebuilt
-    instance: it compares the stored text (:meth:`RunMetadata.compare`).
+    The instance is for reading, so a file another build of the same output schema
+    wrote stays readable: a field the class no longer has is dropped, and an absent
+    field takes the field's default. A resume never compares the rebuilt instance: it
+    compares the stored text (:meth:`RunMetadata.configuration_hash`).
 
     Parameters
     ----------
@@ -763,23 +855,19 @@ def _rebuild[T](
     Raises
     ------
     OutputError
-        If a required field is absent and has no neutral value.
+        If a field with no default is absent.
     """
     fields = {entry.name: entry for entry in dataclasses.fields(build) if entry.init}  # pyright: ignore[reportArgumentType] - a record dataclass
     arguments = {name: _decode(item) for name, item in record.items() if name in fields}
     for name, entry in fields.items():
-        if name in arguments:
-            continue
-        found, value = compatibility.neutral_value((*path, name))
-        if found:
-            arguments[name] = _decode(value)
-        elif (
-            entry.default is dataclasses.MISSING
+        if (
+            name not in arguments
+            and entry.default is dataclasses.MISSING
             and entry.default_factory is dataclasses.MISSING
         ):
             msg = (
-                f"stored metadata lacks {compatibility.dotted((*path, name))}, which "
-                "this release requires and declares no neutral value for"
+                f"stored metadata lacks {_dotted((*path, name))}, which this build "
+                "requires"
             )
             raise OutputError(msg)
     return build(**arguments)
@@ -1579,7 +1667,7 @@ class StepperRecord:
         >>> StepperRecord.from_record(serialise(one)).tableau
         'Tsit5'
         """
-        # Another release of this schema may lack an optional field (SEP 42 §5.4).
+        # Another build of this schema may lack an optional field.
         stored = cast(
             "Callable[..., Any]",
             functools.partial(_stored_entry, document, path=("stepper",)),
@@ -2159,55 +2247,6 @@ class RunOutcome:
             tuple(cast("list[dict[str, object]]", owned["previous_executions"])),
         )
 
-    @property
-    def resumes(self) -> tuple[Mapping[str, object], ...]:
-        """Return the ``resume`` entries of every session, oldest first (SEP 42).
-
-        A session that continued a file across differences from its record writes one
-        in its execution record before any step: where it continued from, whether it
-        was forced, which numerics it changed (path to stored and requested value),
-        the compared values it forced past, and the paths read as neutral.
-
-        Returns
-        -------
-        tuple of collections.abc.Mapping
-            The entries, from the earlier executions and then this one.
-
-        Examples
-        --------
-        >>> from solprop.output.schema import RunOutcome
-        >>> resume = {"from_z": 0.04, "forced": True, "numerics": {}}
-        >>> RunOutcome("running", 0.05, execution={"resume": resume}).forced_positions
-        (0.04,)
-        """
-        executions = [
-            record.get("execution") for record in self.previous_executions
-        ] + [self.execution]
-        return tuple(
-            cast("Mapping[str, object]", execution["resume"])
-            for execution in executions
-            if isinstance(execution, Mapping)
-            and isinstance(execution.get("resume"), Mapping)
-        )
-
-    @property
-    def forced_positions(self) -> tuple[float, ...]:
-        """Return where sessions forced a resume past a compared difference, m.
-
-        From such a position on, the file's record does not describe its planes
-        (SEP 42 section 5.5): what is rebuilt from the record is not what stepped.
-
-        Returns
-        -------
-        tuple of float
-            The positions, oldest first; empty for a file never forced.
-        """
-        return tuple(
-            float(cast("float", entry["from_z"]))
-            for entry in self.resumes
-            if entry.get("forced")
-        )
-
 
 def _json_failure(part: object) -> str | None:
     """Return why a part of a run outcome is not finite JSON, or ``None`` if it is.
@@ -2402,7 +2441,7 @@ class MarchSnapshot:  # numpydoc ignore=PR02
         What defines the history
         (:attr:`solprop.stepper.multistep.Multistep.history_key`), which the resuming
         method's must equal; ``None`` for a snapshot that names none, which starts the
-        history afresh (SEP 42 section 5.6).
+        history afresh.
 
     Raises
     ------
@@ -2531,6 +2570,11 @@ def _differences(
         Accumulator the paths are appended to, in depth-first order.
     """
     if isinstance(left, dict) and isinstance(right, dict):
+        if _RECORD_ARRAY in left and _RECORD_ARRAY in right:
+            # One entry, whatever changed in it: the array has no text to walk.
+            if dict(left) != dict(right):
+                found.append(path)
+            return
         for key in sorted(set(left) | set(right)):
             child = f"{path}.{key}" if path else key
             if key not in left or key not in right:
@@ -2591,47 +2635,6 @@ def _refuse_schema(declared: object) -> None:
         "not read; read it with the solprop version that wrote it"
     )
     raise OutputError(msg)
-
-
-def refuse_earlier_absorbed_power(
-    where: object, shapes: Iterable[tuple[int, ...]]
-) -> None:
-    """Refuse to continue a file whose ``absorbed_power`` has the earlier columns.
-
-    The one check behind every door that continues a file: an append, a resume, a cache
-    check and a scan writer. It reads the stored shape, since the file's schema number
-    is this release's.
-
-    Parameters
-    ----------
-    where : object
-        The file, named in the refusal.
-    shapes : collections.abc.Iterable of tuple of int
-        The shapes of the stored ``absorbed_power`` datasets, each with a leading axis
-        of planes or rows.
-
-    Raises
-    ------
-    OutputError
-        If a dataset has :data:`EARLIER_ABSORBED_COLUMNS` columns.
-
-    Examples
-    --------
-    >>> from solprop.output.schema import refuse_earlier_absorbed_power
-    >>> refuse_earlier_absorbed_power("run.h5", [(3, 5), (0,)]) is None
-    True
-    """
-    if any(len(one) >= 2 and one[-1] == EARLIER_ABSORBED_COLUMNS for one in shapes):
-        msg = (
-            f"{where} holds absorbed_power in {EARLIER_ABSORBED_COLUMNS} columns, from "
-            "an earlier development build, whose first column holds the spectral "
-            "collar and any custom rate together; this build writes five, with the "
-            "collar alone first and the custom rate last, and nothing stored can split "
-            "that sum. The file still reads as it was written, and cannot be "
-            "continued, forced or not: start a new file, or launch a new segment from "
-            "a saved plane"
-        )
-        raise OutputError(msg)
 
 
 _HASHED_KEYS: tuple[str, ...] = (
@@ -3104,6 +3107,9 @@ class RunMetadata(Displayed):
     _stored: dict[str, JsonValue] | None = dataclasses.field(
         default=None, init=False, repr=False, compare=False, metadata={"record": False}
     )
+    _stored_arrays: dict[str, np.ndarray] | None = dataclasses.field(
+        default=None, init=False, repr=False, compare=False, metadata={"record": False}
+    )
 
     def __repr__(self) -> str:
         """Return a one-line description: what kind of run, on what, made when.
@@ -3249,10 +3255,11 @@ class RunMetadata(Displayed):
 
         Everything that describes *what was computed*, and nothing that describes
         *when* or *with which build*: the wall-clock time, the package versions and the
-        git provenance are excluded, so that a resume survives an unrelated commit, a
-        dirty working tree or a NumPy upgrade. ``modal.accessors`` is excluded for
-        the same reason -- it is what this build can compute, not what this run did
-        (``_hashed_modal``).
+        git provenance are excluded, so that a resume survives an unrelated commit or a
+        dirty working tree, as long as they move no number the record holds; a new
+        library or platform may move one, and the resume is then refused.
+        ``modal.accessors`` is excluded for the same reason -- it is what this build can
+        compute, not what this run did (``_hashed_modal``).
 
         Returns
         -------
@@ -3313,8 +3320,8 @@ class RunMetadata(Displayed):
 
         A SHA-256 of the canonical JSON of :meth:`hashed`, so it is stable across
         processes -- unlike :func:`hash`, which is salted per interpreter. It covers the
-        physics and not only the statistic names and the state shape, so a resume with
-        different physics of the same shape is refused.
+        physics and the numerics, and not only the statistic names and the state shape,
+        so a resume continues exactly when the two hashes are equal (ADR-066).
 
         Returns
         -------
@@ -3371,43 +3378,6 @@ class RunMetadata(Displayed):
         found: list[str] = []
         _differences(self.hashed(), other.hashed(), "", found)
         return tuple(found)
-
-    def compare(self, requested: "RunMetadata") -> compatibility.RecordComparison:  # noqa: UP037 - bound after the class body
-        """Compare this stored record with a requested one, path by path (SEP 42).
-
-        Each difference is sorted by :data:`solprop.output.compatibility.CLASS_TABLE`
-        into the layout, which no resume continues across; compared paths (physics and
-        launch parameters), which only a forced resume continues across; and the
-        numerics, which a resume continues across while there is work left, recording
-        them. Provenance is ignored, numbers agree per element to
-        :data:`~solprop.output.compatibility.RECORD_RTOL`, and a path one record lacks
-        is a difference unless a release declared its neutral value. Equal digests
-        mean no differences, without a walk.
-
-        Parameters
-        ----------
-        requested : RunMetadata
-            The record of the run asked for.
-
-        Returns
-        -------
-        solprop.output.compatibility.RecordComparison
-            The differences, by class.
-
-        Examples
-        --------
-        >>> import dataclasses
-        >>> from solprop.output.schema import _example_metadata
-        >>> stored = _example_metadata()
-        >>> stored.compare(stored).continues
-        True
-        >>> changed = dataclasses.replace(stored, configuration={"gamma": 0.22})
-        >>> print(stored.compare(changed).summary())
-        these compared values differ: configuration: gamma 0.11 -> 0.22
-        """
-        if self.configuration_hash() == requested.configuration_hash():
-            return compatibility.RecordComparison()
-        return compatibility.compare_records(self.hashed(), requested.hashed())
 
     def summarise_differences(
         self,
@@ -3483,8 +3453,56 @@ class RunMetadata(Displayed):
             )
         return f"these fields changed: {text}"
 
+    def record_arrays(self) -> dict[str, np.ndarray]:
+        """Return the arrays stored beside the record, by digest.
+
+        What :meth:`to_json`'s references name: each numeric array of more than
+        :data:`RECORD_ARRAY_LIMIT` elements. A store keeps them with the document, and
+        :meth:`from_json` takes them back.
+
+        Returns
+        -------
+        dict
+            The arrays, not copied, by the SHA-256 digest of their bytes.
+
+        Examples
+        --------
+        >>> import dataclasses
+        >>> import numpy as np
+        >>> from solprop.output.schema import _example_metadata
+        >>> metadata = dataclasses.replace(
+        ...     _example_metadata(), configuration={"rate": np.zeros(5000)}
+        ... )
+        >>> [array.size for array in metadata.record_arrays().values()]
+        [5000]
+        """
+        found = dict(self._stored_arrays or {})
+
+        def walk(value: object) -> None:
+            """Collect the arrays of a serialised structure.
+
+            Parameters
+            ----------
+            value : object
+                The structure.
+            """
+            if isinstance(value, _ArrayReference):
+                found[str(value[_RECORD_ARRAY])] = value.array
+            elif isinstance(value, dict):
+                for item in value.values():
+                    walk(item)
+            elif isinstance(value, list):
+                for item in value:
+                    walk(item)
+
+        walk(self._document)
+        return found
+
     def to_json(self) -> str:
         """Return the whole record as one JSON document.
+
+        An array of more than :data:`RECORD_ARRAY_LIMIT` elements is a reference to what
+        :meth:`record_arrays` holds.
 
         Returns
         -------
@@ -3501,6 +3519,17 @@ class RunMetadata(Displayed):
         >>> from solprop.output.schema import _example_metadata
         >>> sorted(json.loads(_example_metadata().to_json()))[:3]
         ['backend', 'configuration', 'created']
+        """
+        return _canonical_json(self._document)
+
+    @functools.cached_property
+    def _document(self) -> dict[str, JsonValue]:
+        """The whole serialised record, built once per record (:meth:`to_json`).
+
+        Returns
+        -------
+        dict
+            The hashed part and what is stored beside it, JSON-ready.
         """
         document = self.hashed()
         # The whole identity, including the accessor list `hashed` leaves out: what a
@@ -3527,10 +3556,14 @@ class RunMetadata(Displayed):
         document["versions"] = serialise(dict(self.versions))
         document["git"] = serialise(self.git)
         document["created"] = self.created
-        return _canonical_json(document)
+        return document
 
     @classmethod
-    def from_json(cls, text: str) -> "RunMetadata":  # noqa: UP037 - bound after the class body
+    def from_json(
+        cls,
+        text: str,
+        arrays: Mapping[str, object] | None = None,
+    ) -> "RunMetadata":  # noqa: UP037 - bound after the class body
         """Return the record a JSON document describes.
 
         The configuration comes back as the plain structures :func:`serialise` made of
@@ -3541,6 +3574,9 @@ class RunMetadata(Displayed):
         ----------
         text : str
             A document produced by :meth:`to_json`.
+        arrays : collections.abc.Mapping or None, optional
+            What :meth:`record_arrays` gave for it, by digest, or an HDF5 group holding
+            them. Each comes back in place of its reference, its digest checked.
 
         Returns
         -------
@@ -3551,7 +3587,8 @@ class RunMetadata(Displayed):
         ------
         OutputError
             If the document is not valid JSON, declares an output schema other than
-            :data:`SCHEMA_VERSION`, or a required field is missing.
+            :data:`SCHEMA_VERSION`, a required field is missing, or an array it names
+            is absent from `arrays` or does not have its digest.
 
         Examples
         --------
@@ -3572,8 +3609,12 @@ class RunMetadata(Displayed):
         # The version first: a file of another schema is refused by its version,
         # not by the first field its layout lacks.
         _refuse_schema(document["schema_version"])
+        # The record as written, references and all, is what digests to its stamp.
+        written = document
+        held: dict[str, np.ndarray] = {}
+        document = cast("dict[str, Any]", _resolved(document, arrays or {}, held))
 
-        # Another release of this schema may lack a top-level entry (SEP 42 §5.4).
+        # Another build of this schema may lack a top-level entry.
         stored = cast(
             "Callable[..., Any]", functools.partial(_stored_entry, document, path=())
         )
@@ -3624,9 +3665,10 @@ class RunMetadata(Displayed):
         except (KeyError, TypeError, MaterialError) as error:
             msg = f"stored metadata is missing or malformed: {error}"
             raise OutputError(msg) from error
-        # The record as written: it digests to its own stamp and is compared by its
-        # own text, whatever today's code would write (SEP 42 section 5.4).
-        object.__setattr__(metadata, "_stored", _stored_hashed(document))
+        # The record as written: it digests to its own stamp, whatever today's code
+        # would write.
+        object.__setattr__(metadata, "_stored", _stored_hashed(written))
+        object.__setattr__(metadata, "_stored_arrays", held)
         return metadata
 
 
@@ -4261,7 +4303,6 @@ class PlaneStore(Displayed, ABC):
     def __init__(self) -> None:
         """Start with nothing stored and nothing opened."""
         self._metadata: RunMetadata | None = None
-        self._session_resume: dict[str, object] | None = None
         self._recipe: RecipeRecord | None = None
         self._n_saved = 0
         self._planned = 0
@@ -4298,21 +4339,6 @@ class PlaneStore(Displayed, ABC):
             A field in the internal FFT convention and output amplitude units.
         """
         return self._terminal_checkpoint
-
-    def record_resume(self, entry: Mapping[str, object]) -> None:
-        """Attach a ``resume`` entry to every execution record this session writes.
-
-        A session that continues a file across differences from its record says how
-        (SEP 42 section 5.3): every outcome it records from now on carries the entry
-        in its execution record, the first included, so a session that stops or fails
-        still leaves it, and :attr:`RunOutcome.resumes` reads it back.
-
-        Parameters
-        ----------
-        entry : collections.abc.Mapping
-            The entry: finite JSON values.
-        """
-        self._session_resume = _outcome_record(entry)
 
     def record_recipe(self, record: RecipeRecord) -> None:
         """Record the recipe the run was built from, unless one is recorded already.
@@ -4373,14 +4399,6 @@ class PlaneStore(Displayed, ABC):
         """
         self._check_usable()
         self._require_metadata()
-        if self._session_resume is not None:
-            outcome = _amended_outcome(
-                outcome,
-                execution={
-                    **outcome.execution,
-                    "resume": _json_copy(self._session_resume),
-                },
-            )
         previous = self._outcome
         if previous is not None:
             history = previous.previous_executions

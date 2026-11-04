@@ -2092,9 +2092,6 @@ public:
                                     const TrialScalars& scalars);
   void adopt(const std::vector<Complex>& field, double dz);
   double low_storage_step(double dz, const TrialScalars& scalars, bool rebuild_table);
-  void hold_plane();
-  void release_plane();
-  std::vector<Complex> held_to_host() const;
   void low_storage_flows_formed(bool rebuild_table);
   void low_storage_separable_pass(std::size_t pass, double dz);
   void low_storage_separable_input(std::size_t pass);
@@ -2643,11 +2640,9 @@ public:
   std::unique_ptr<SlabPlan> slab_forward_, slab_inverse_;
   ComplexView2 current_, advanced_, solution_, error_, residual_, recycled_, noise_;
   // solprop SEP 24 phase 3: the low-storage march's registers B and C (the state is
-  // A), its flows and the field-free plane it holds (SEP 22, Q15), allocated at the
-  // first such plane.
-  ComplexView2 register_accumulator_, register_stage_, held_plane_;
+  // A) and its flows.
+  ComplexView2 register_accumulator_, register_stage_;
   ComplexView3 low_storage_flows_;
-  bool held_ready_{};
   ComplexView2 whole_propagator_, fine_spectrum_, projected_spectrum_;
   // The stage's `sum_t dPhi_t Phi_t`, formed by the combination for a coupled flow's
   // residual, and its inverse propagator `exp(-sum)`, which the finish applies.
@@ -5819,43 +5814,6 @@ void GeneralWorkspace::low_storage_modal_input(const std::size_t pass) {
         for (std::size_t gap = index; gap < gaps; gap += n)
           terms.zero_gaps(column, gap, gap + 1);
       });
-}
-
-// The accepted state at a field-free plane (SEP 22, Q15), held in the memory space: one
-// volume, allocated at the first such plane and kept, so that a step abandoned in
-// flight still leaves a resumable state without any host transfer at the plane.
-void GeneralWorkspace::hold_plane() {
-  require_open();
-  if (!initialized_)
-    throw std::logic_error("no initial field has been loaded");
-  // The copy writes every element: no initialising pass first.
-  if (!held_plane_.is_allocated())
-    held_plane_ = ComplexView2(
-        Kokkos::view_alloc(Kokkos::WithoutInitializing,
-                           std::string("solprop_native.low_storage.held_plane")),
-        problem_.n_columns(), problem_.n_omega);
-  graph::deep_copy(execution_space_, held_plane_, current_);
-  held_ready_ = true;
-}
-
-void GeneralWorkspace::release_plane() {
-  execution_space_.fence("solprop_native release_plane");
-  held_plane_ = {};
-  held_ready_ = false;
-}
-
-std::vector<Complex> GeneralWorkspace::held_to_host() const {
-  require_open();
-  if (!held_ready_)
-    throw std::logic_error("no field-free plane is held");
-  execution_space_.fence("solprop_native held_to_host");
-  const auto host =
-      Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace{}, held_plane_);
-  std::vector<Complex> result(problem_.n_columns() * problem_.n_omega);
-  for (std::size_t column = 0; column < problem_.n_columns(); ++column)
-    for (std::size_t index = 0; index < problem_.n_omega; ++index)
-      result[column * problem_.n_omega + index] = host(column, index);
-  return result;
 }
 
 // --- solprop SEP 16 phase 3b: the Adams history resident in the engine ---------------
@@ -15063,7 +15021,6 @@ std::map<std::string, std::size_t> GeneralWorkspace::base_memory_ledger() const 
        (whole_propagator_.size() + low_storage_flows_.size()) * complex_bytes},
       {"register_accumulator", register_accumulator_.size() * complex_bytes},
       {"register_stage", register_stage_.size() * complex_bytes},
-      {"held_plane", held_plane_.size() * complex_bytes},
       {"stage_phase", stage_phase_.size() * complex_bytes},
       {"stage_inverse", stage_inverse_.size() * complex_bytes},
       {"fine_spectrum", fine_spectrum_.size() * complex_bytes},
@@ -15383,9 +15340,7 @@ void GeneralWorkspace::close() noexcept {
   current_ = {};
   register_accumulator_ = {};
   register_stage_ = {};
-  held_plane_ = {};
   low_storage_flows_ = {};
-  held_ready_ = false;
   advanced_ = {};
   stages_ = {};
   solution_ = {};
@@ -15619,15 +15574,6 @@ double GeneralState::low_storage_step(const double dz, const TrialScalars& scala
                                       const bool rebuild_table) {
   const CpuTeamScope team(workspace_->cpu_team());
   return workspace_->low_storage_step(dz, scalars, rebuild_table);
-}
-void GeneralState::hold_plane() {
-  const CpuTeamScope team(workspace_->cpu_team());
-  workspace_->hold_plane();
-}
-void GeneralState::release_plane() { workspace_->release_plane(); }
-std::vector<Complex> GeneralState::held_to_host() const {
-  const CpuTeamScope team(workspace_->cpu_team());
-  return workspace_->held_to_host();
 }
 void GeneralState::adams_allocate(const std::size_t slots, const bool compensated,
                                   const bool interpolate) {

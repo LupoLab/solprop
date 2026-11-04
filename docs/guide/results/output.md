@@ -100,20 +100,22 @@ keeping every field. A plane that keeps no field is observed without one: nothin
 crosses from the backend (on a device, no copy is made) and nothing scans the field for
 finiteness, so a diverged run is caught by the step loop and its statistics.
 `fields="planes"` is refused beside `step_planes`, whose plane count is not known in
-advance. Beside `LowStorageRungeKutta()`, which accepts each step in place and so has no
-state to checkpoint for a step abandoned in flight, the backend holds the state of the
-last field-free plane, one more copy of the state: a run stopped in flight
-after such a plane writes its terminal checkpoint from it and resumes there.
-`SimulationSettings(held_plane=False)` drops that volume, for a run that will never resume,
-such as one of many short runs in a scan, and an output with no
-{py:class}`~solprop.output.schema.CheckpointOutput` holds nothing whatever it says, having
-nowhere to put a checkpoint. Then a step abandoned in flight leaves no checkpoint: the
-execution record says `failed` and why, and a file whose last plane kept no field cannot be
-resumed from there (`resume=True` refuses it by name), while one that kept its field
-resumes from that plane. On the native backend only an exception inside the engine can do
-that, since a signal waits for the step; a stop between steps checkpoints as ever. The
-setting is outside the configuration hash and changes nothing the march computes, and the
-backend's record says `held_plane: false` where nothing was held.
+advance.
+
+`LowStorageRungeKutta()` accepts each step in place, so it has no state to checkpoint for a
+step abandoned in flight. That step leaves no checkpoint: the execution record
+says `failed` and why, and a file whose last plane kept no field cannot be resumed from
+there (`resume=True` refuses it by name), while one that kept its field resumes from that
+plane. A stop between steps checkpoints as ever. How a step comes to be abandoned depends
+on the backend:
+
+- On the native backend, only an exception inside the engine can do it, since a signal
+  waits for the step.
+- On `numpy_ref`, a Python interrupt can land inside a step as well.
+- A killed process writes nothing.
+
+To keep a resumable state, keep the field at some planes with `fields="planes"`.
+
 `fields` is outside the configuration hash, like
 `resume_history`: it changes what is kept, not what is computed, and it may be changed
 after the simulation is translated.
@@ -231,6 +233,7 @@ For a modal run:
                                configuration_hash, simulation_kind, grid_kind, created,
                                n_saved, fields, field_shape
 /meta/json              the whole RunMetadata as one UTF-8 JSON string
+/meta/arrays/<digest>   each large array of the record, named by its SHA-256 digest
 /meta/outcome           status, call ledgers, execution provenance, machine and resources (JSON)
 /meta/annotations/<name>  optional post-run annotations, one JSON string each
 /z                      (n_z,)                              plane positions, m
@@ -439,27 +442,29 @@ How a run resumes from its last plane depends on what that plane is:
 
 **Every field is recorded.** A record holds every field of every dataclass it
 serialises, at its default too, so a change that adds a field to a recorded dataclass
-moves the configuration hash. The exceptions are optional extensions whose absence means
-what every earlier record means, left out while they are `None` (an aperture set's
-`shapes`, `profiles` and `extents`, an absorber's `user_rate`, an offline aperture's `shape`
-and `extent`); set, they are recorded. A resume compares the records path by path, so the new
-field refuses a resume of an earlier file unless a release declares its neutral value,
-the value that reproduces the code before it existed
-([what a resume compares](resuming.md#what-a-resume-compares)). The test suite pins the
-records of a modal, a radial and two Cartesian runs, and of a custom absorber at its
-defaults, and keeps each release's whole records, so that such a change is deliberate.
+moves the configuration hash, and a file written before it can be read but not resumed
+([what a resume compares](resuming.md#what-a-resume-compares)).
 An array input of more than 2²⁰ elements is recorded by the SHA-256 of its bytes, with
 its dtype and shape (`ArrayDigest`), rather than inline; one whose caller states its
 identity by that string instead (`StatedInput`,
 [`input_identity`](../setup/running.md#many-inputs-one-backend-the-runner)).
+
+**Large arrays sit beside the text.** Any other numeric array of more than 4096 elements
+(`RECORD_ARRAY_LIMIT`), such as a per-node weight, a flux plan's coefficients or a noise
+realisation, appears in `/meta/json` as a reference,
+`{"__record_array__": <digest>, "dtype": ..., "shape": ...}`, with its bytes in
+`/meta/arrays/<digest>`. This keeps the text under 1 MB at 512², and the hash takes the
+array's bytes, so a changed element, dtype or shape still changes the hash. Reading a file
+through {py:func}`~solprop.output.hdf5.open_file` puts each array back in the record,
+checking its digest. A scan keeps its points' arrays in `/record_arrays/<digest>`, shared
+between points; a point's `metadata` stays JSON and holds the references.
 
 **When the schema is bumped.** Only for a change an older reader would misread, or
 could not append to: a dataset renamed, re-laid or given new units; an attribute that
 changes meaning; anything added inside `stats`, `step_history` or `step_stats`; or
 anything grown per plane. A new field of the JSON run record, a new root attribute or a
 new top-level group written once does not bump it: readers already tolerate them, and a
-resume decides by comparing the records (ADR-063,
-[SEP 42](../../dev/seps/archive/sep-0042-tolerant-resume.md)).
+resume decides by the configuration hash (ADR-066).
 
 **How often.** At most once between two releases. The first such change after a
 release bumps the schema; every later one before the next release folds into that

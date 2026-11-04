@@ -610,30 +610,6 @@ class NativeBackend(StepDriver[_core.State]):
             return "recompute"
         return super()._propagator_mode
 
-    def _hold(self, state: _core.State | None) -> None:
-        """Hold the field-free plane's state in the native memory space (SEP 22, Q15).
-
-        One volume of the native state, allocated at the first such plane and counted
-        in its ledger; nothing crosses to the host at the plane. A checkpoint after a
-        step abandoned in flight copies it once (`_held_field`).
-        """
-        if state is None:
-            self._held_z = None
-            return
-        if state is not self._native_state:
-            raise BackendError("the held state does not belong to this backend")
-        self._native_state.hold_plane()
-        self._held_z = self._z
-
-    def _drop_held(self) -> None:
-        """Release the held plane's volume in the native memory space."""
-        self._native_state.release_plane()
-        self._held_z = None
-
-    def _held_field(self) -> ComplexArray:
-        """Return the held plane's state, copied to the host once."""
-        return self._native_state.held_to_host().reshape(self._problem.shape)
-
     def _resident_arrays(self, anchor: float, position: float) -> _TrialArrays:
         """Return a resident trial's arrays, every stage row at `position`."""
         bundle = self._stage_scalars(anchor, position)

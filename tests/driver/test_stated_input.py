@@ -9,6 +9,8 @@ digest is taken, a run's hash follows the statement and not the bytes, and so a 
 statement passes a resume and a scan's cache. Runs compare structurally, by the record.
 """
 
+import dataclasses
+
 import numpy as np
 import pytest
 
@@ -20,8 +22,7 @@ from solprop.driver.scan import Scan, run_scan
 from solprop.exceptions import DriverError, OutputError
 from solprop.output import open_file
 from solprop.output import schema as output_schema
-from solprop.output.compatibility import compare_records
-from solprop.output.schema import ArrayDigest, StatedInput, serialise
+from solprop.output.schema import ArrayDigest, StatedInput, _example_metadata
 from solprop.physdata import Mixture
 from solprop.pulses import GaussianPulse
 
@@ -177,41 +178,35 @@ def test_a_stated_input_resumes_by_its_statement_alone(tmp_path):
     simulation.with_input(second, input_identity="a").run(
         output=path, resume=True, progress="none"
     )
-    with pytest.raises(OutputError, match=r"initial 'stated a \(.*' -> 'stated b \("):
+    with pytest.raises(OutputError, match=r"configuration\.initial\.identity"):
         simulation.with_input(first, input_identity="b").run(
             output=path, resume=True, progress="none"
         )
     # Nor does the array's own record continue a stated file.
-    with pytest.raises(OutputError, match=r"initial .*'stated a \(.*' -> "):
+    with pytest.raises(OutputError, match=r"configuration\.initial"):
         simulation.with_input(first).run(output=path, resume=True, progress="none")
 
 
-def test_the_leaf_rule_compares_a_statement_whole_and_names_it():
-    stated = serialise(StatedInput("a", "complex128", (1, 2)))
-    assert isinstance(stated, dict)
-    assert stated["__class__"] == "solprop.output.schema.StatedInput"
-    one = {"configuration": {"initial": stated}}
-    two = {"configuration": {"initial": dict(stated, identity="b")}}
-    comparison = compare_records(one, two)
-    assert not comparison.continues
-    assert (
-        "'stated a (complex128, (1, 2))' -> 'stated b (complex128, (1, 2))'"
-        in comparison.summary()
-    )
-    assert compare_records(one, {"configuration": {"initial": dict(stated)}}).continues
+def test_a_refusal_names_what_differs_in_a_statement():
+    metadata = _example_metadata()
+    stated = StatedInput("a", "complex128", (1, 2))
 
+    def differs(other: StatedInput) -> tuple[str, ...]:
+        one = dataclasses.replace(metadata, configuration={"initial": stated})
+        two = dataclasses.replace(metadata, configuration={"initial": other})
+        return one.differences(two)
 
-def test_a_refusal_shows_what_differs_when_only_the_dtype_or_shape_does():
-    stated = serialise(StatedInput("a", "complex128", (1, 2)))
-    assert isinstance(stated, dict)
-    one = {"configuration": {"initial": stated}}
-    dtype = {"configuration": {"initial": dict(stated, dtype="complex64")}}
-    assert (
-        "'stated a (complex128, (1, 2))' -> 'stated a (complex64, (1, 2))'"
-        in compare_records(one, dtype).summary()
+    assert differs(stated) == ()
+    assert differs(StatedInput("b", "complex128", (1, 2))) == (
+        "configuration.initial.identity",
     )
-    shape = {"configuration": {"initial": dict(stated, shape=[2, 1])}}
-    assert "(complex128, (2, 1))" in compare_records(one, shape).summary()
+    assert differs(StatedInput("a", "complex64", (1, 2))) == (
+        "configuration.initial.dtype",
+    )
+    assert differs(StatedInput("a", "complex128", (2, 1))) == (
+        "configuration.initial.shape[0]",
+        "configuration.initial.shape[1]",
+    )
 
 
 def _point(point) -> Simulation:
