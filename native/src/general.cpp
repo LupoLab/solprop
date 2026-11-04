@@ -2307,7 +2307,8 @@ public:
   void plan();
   void reuse_fsal();
   void evaluate_stage(std::size_t stage, double dz);
-  void evaluate_stage_source(std::size_t stage, double dz);
+  // `accumulate` false: an Adams trial reads the stage row alone.
+  void evaluate_stage_source(std::size_t stage, double dz, bool accumulate = true);
   bool modal_core(std::size_t stage);
   void general_core(std::size_t stage);
   StageTerms stage_terms(std::size_t stage) const;
@@ -2349,7 +2350,7 @@ public:
   void flux_at(double z);
   void require_flux_closure();
   void fill_statistics_closure();
-  void evaluate_separable_stage(std::size_t stage, double dz);
+  void evaluate_separable_stage(std::size_t stage, double dz, bool accumulate);
   void seed_free_wisdom();
   void seed_modal_wisdom();
   void seed_stream_wisdom();
@@ -6071,7 +6072,7 @@ void GeneralWorkspace::adams_evaluate_source(const TrialScalars& scalars) {
     prepare_raman_stage(0, scalars.raman_rates.data(),
                         problem_.n_raman_components > 1 ? scalars.raman_densities.data()
                                                         : nullptr);
-  evaluate_stage_source(0, 0.0);
+  evaluate_stage_source(0, 0.0, false);
   stages_ready_ = true;
   pending_fsal_ = false;
   has_recycled_ = false;
@@ -6261,19 +6262,20 @@ GeneralWorkspace::adams_fused_trial(const double dz, const AdamsWeights& weights
   const auto policy = Range2(execution_space_, {0, 0}, {columns, n});
   const auto store = adams_store_;
   const auto current = current_;
-  const auto saved = adams_saved_;
+  const auto predicted = adams_saved_;
   // The predictor in the anchor's frame, a_n + dz sum_t w_t g_t, is the field the
-  // stage-zero source evaluates; the accepted state is kept aside meanwhile.
-  graph::deep_copy(execution_space_, saved, current);
+  // stage-zero source evaluates; the accepted state is swapped aside meanwhile.
   launch::parallel_for(
       "solprop_native.adams.predict", policy,
       KOKKOS_LAMBDA(const std::size_t column, const std::size_t index) {
         Complex total{};
         for (std::size_t t = 0; t < weights.order; ++t)
           total += weights.predictor[t] * store(weights.slot[t], column, index);
-        current(column, index) = saved(column, index) + dz * total;
+        predicted(column, index) = current(column, index) + dz * total;
       });
-  adams_evaluate(scalars);
+  std::swap(current_, adams_saved_);
+  adams_evaluate_source(scalars);
+  std::swap(current_, adams_saved_);
   const auto stages = stages_;
   const auto source = adams_source_;
   const auto propagator = adams_propagator_;
@@ -9056,7 +9058,8 @@ void GeneralWorkspace::separable_finish_transform(const std::size_t stage,
 // back onto the rows in time) or the in-stage absorber on the rows, and back; the
 // forward transverse transform and each column's prefactor and propagator.
 void GeneralWorkspace::evaluate_separable_stage(const std::size_t stage,
-                                                const double dz) {
+                                                const double dz,
+                                                const bool accumulate) {
   auto* const dispersive = separable_dispersive_.get();
   const bool nonlinear =
       problem_.nonlinear || problem_.plasma || problem_.raman || dispersive != nullptr;
@@ -9081,6 +9084,8 @@ void GeneralWorkspace::evaluate_separable_stage(const std::size_t stage,
     separable_core(stage, material);
     separable_finish_transform(stage, material);
   }
+  if (!accumulate)
+    return;
   const double weight = problem_.solution_weights[stage];
   const double error_weight = problem_.error_weights[stage];
   cartesian_for(
@@ -9605,11 +9610,12 @@ void GeneralWorkspace::evaluate_stage(const std::size_t stage, const double dz) 
                     problem_.error_weights[stage], stages_, solution_, error_);
 }
 
-void GeneralWorkspace::evaluate_stage_source(const std::size_t stage, const double dz) {
+void GeneralWorkspace::evaluate_stage_source(const std::size_t stage, const double dz,
+                                             const bool accumulate) {
   if (!defer_quadrature_)
     coarse_pending_ = false;
   if (problem_.separable_geometry()) {
-    evaluate_separable_stage(stage, dz);
+    evaluate_separable_stage(stage, dz, accumulate);
     return;
   }
   stage_entry(stage, dz);
