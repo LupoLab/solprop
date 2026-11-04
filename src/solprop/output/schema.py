@@ -522,7 +522,7 @@ class ArrayDigest:
             for block in np.nditer(
                 array,
                 flags=["external_loop", "buffered"],
-                op_flags=[["readonly", "contig"]],
+                op_flags=["readonly", "contig"],
                 op_dtypes=[little],
                 casting="equiv",
                 order="C",
