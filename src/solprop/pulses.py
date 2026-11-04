@@ -1149,7 +1149,18 @@ def _hard_masked(
     outside = band[None, :] & ~live
 
     def shares(rows: slice) -> tuple[float, float]:
-        """Return a block's norm in the columns that don't propagate, and in all."""
+        """Return a block's norm in the columns that don't propagate, and in all.
+
+        Parameters
+        ----------
+        rows : slice
+            The block of the first axis.
+
+        Returns
+        -------
+        tuple of float
+            The block's two sums.
+        """
         norm = weights[rows, None] * np.sum(np.abs(field[rows]) ** 2, axis=1)
         return float(np.sum(norm[outside[rows]])), float(np.sum(norm[:, band]))
 
@@ -1169,7 +1180,13 @@ def _hard_masked(
         raise PulseError(msg)
 
     def mask(rows: slice) -> None:
-        """Zero one block's dead bins."""
+        """Zero one block's dead bins.
+
+        Parameters
+        ----------
+        rows : slice
+            The block of the first axis.
+        """
         field[rows] *= live[rows, None, :]
 
     parallel_rows(field.shape[0], field.nbytes, mask)
@@ -1200,7 +1217,13 @@ def _separable_field(
     field = np.empty((spectrum.size, jones.size, n_omega), dtype=np.complex128)
 
     def work(rows: slice) -> None:
-        """Form one block, whose first touch is then this thread's."""
+        """Form one block, whose first touch is then this thread's.
+
+        Parameters
+        ----------
+        rows : slice
+            The block of the first axis.
+        """
         field[rows] = spectrum[rows, None, None] * jones[None, :, None] * temporal
 
     parallel_rows(spectrum.size, field.nbytes, work)
@@ -1219,7 +1242,13 @@ def _add_rows(total: np.ndarray, part: np.ndarray) -> None:
     """
 
     def work(rows: slice) -> None:
-        """Add one block."""
+        """Add one block.
+
+        Parameters
+        ----------
+        rows : slice
+            The block of the first axis.
+        """
         total[rows] += part[rows]
 
     parallel_rows(total.shape[0], total.nbytes, work)
@@ -1308,7 +1337,13 @@ def _normalising_factor(
         terms = np.empty((beam.shape[0], beam.shape[2]))
 
         def work(rows: slice) -> None:
-            """Form one block of the flux's terms."""
+            """Form one block of the flux's terms.
+
+            Parameters
+            ----------
+            rows : slice
+                The block of the first axis.
+            """
             terms[rows] = (
                 plane.weights[rows, None]
                 * energy_weights
@@ -1375,7 +1410,13 @@ def _normalised(
     factor = _normalising_factor(pulse, temporal, field, plane, grid)
 
     def scale(rows: slice) -> None:
-        """Scale one block."""
+        """Scale one block.
+
+        Parameters
+        ----------
+        rows : slice
+            The block of the first axis.
+        """
         field[rows] *= factor
 
     parallel_rows(field.shape[0], field.nbytes, scale)

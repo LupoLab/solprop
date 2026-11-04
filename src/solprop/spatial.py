@@ -921,6 +921,13 @@ class SpatialFlux:
         )
 
         def work(rows: slice) -> None:
+            """Form one block of the chunks' admittance.
+
+            Parameters
+            ----------
+            rows : slice
+                The block of chunks.
+            """
             for columns in chunks[rows]:
                 admittance[columns] = self.admittance(columns)
 

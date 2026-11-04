@@ -1091,7 +1091,18 @@ class SplitCrossing:
         weights = None if columns is None else np.asarray(columns, dtype=np.float64)
 
         def block(rows: slice) -> Float[np.ndarray, " n_buckets"]:
-            """Return a block of modes' energy per bucket."""
+            """Return a block of modes' energy per bucket.
+
+            Parameters
+            ----------
+            rows : slice
+                The block of modes.
+
+            Returns
+            -------
+            numpy.ndarray
+                The block's energy in each bucket.
+            """
             energy = np.einsum("bmpw,bmpw->mw", re[:, rows], re[:, rows]) + np.einsum(
                 "bmpw,bmpw->mw", im[:, rows], im[:, rows]
             )
