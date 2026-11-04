@@ -252,6 +252,7 @@ def free_operators(  # noqa: PLR0913 - geometry, operator settings and controls
         n_pol=n_pol,
         z_span=(0.0, span),
         kperp_rate=transverse_rate,
+        user_rate=None if absorber is None else absorber.user_rate,
     )
     _warn_grazing(space, grid, data)
     beta0, beta1 = dispersion.frame_quantities(0.0)

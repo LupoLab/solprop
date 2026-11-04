@@ -179,7 +179,6 @@ build works offline and survives a flaky mirror; refresh the copies occasionally
   `SOLPROP_FFTW_WISDOM` (a file name, beside which the native backend keeps its wisdom)
   and `SOLPROP_BLAS_THREADS` (the width of the other BLAS libraries while a native
   backend lives).
-- `SOLPROP_MEMORY_BUDGET`, the memory admission budget ([backends.md §8](backends.md)).
 - In the test suite: `SOLPROP_TEST_BACKEND` (the backend the driver tests select; by
   default what `backend="auto"` selects, `native` where it is installed),
   `SOLPROP_TEST_TYPECHECK=0` (leave out the runtime type checks, ADR-053),

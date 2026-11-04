@@ -12,7 +12,6 @@ import pytest
 from backends.test_band_plasma_parity import CASES, bound, case
 from backends.test_radial_nonlinear import derivative
 from gated_source import _gated_source
-from solprop.backends.memory import _native_held_current_memory
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.exceptions import BackendError
 from solprop.translate.plasma_integration import design_running_integral
@@ -51,8 +50,6 @@ def test_current_assembly_and_ledger_on_each_route(name, rule):
     backend = native.NativeBackend(problem, grid=grid)
     try:
         ledger = backend.memory_ledger()
-        for key, count in _native_held_current_memory(problem).items():
-            assert ledger[key] == count, key
         backend.set_initial(problem.initial.field0, None)
         backend._trial_step(0.0, 0.0)
         backend.set_initial(np.zeros_like(problem.initial.field0), None)

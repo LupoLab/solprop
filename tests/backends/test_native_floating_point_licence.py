@@ -71,6 +71,8 @@ PROTECTED = [
     ("src/general.cpp", "adams_defect_block"),
     # The far field's plane radius (mask_plane_radius).
     ("include/solprop_native/far_field.hpp", "far_field_radius"),
+    ("include/solprop_native/far_field.hpp", "far_field_offset"),
+    ("include/solprop_native/far_field.hpp", "far_field_scaled_radius"),
 ]
 """Each helper the licence protects, and the file that defines it.
 

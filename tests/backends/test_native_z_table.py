@@ -25,7 +25,6 @@ import pytest
 
 from bounds import EPS
 from march_bounds import FIXED_ORDER, assert_matched, march_bound
-from solprop.backends.memory import estimate_memory, ledger_groups, z_table_slots
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.boundaries import absorber
 from solprop.exceptions import BackendError, MaterialRangeWarning
@@ -369,16 +368,3 @@ def test_the_slots_are_reused_least_recently_used_first(tabulated, field_grid):
             tables.load([LENGTH * index / (3 * count) for index in range(count + 1)])
     finally:
         backend.close()
-
-
-def test_the_adams_history_estimate_counts_the_rate_slot(tabulated, field_grid):
-    # The compensated history's rate weights cover every Phi term: the position slots
-    # and the rate's own (solprop's estimate, to the byte).
-    estimate = estimate_memory(tabulated, "native").groups["adams_history"]
-    backend = NativeBackend(tabulated, grid=field_grid)
-    try:
-        held = ledger_groups(backend.memory_ledger())["adams_history"]
-        assert backend._z_tables.slots == z_table_slots(tabulated)
-    finally:
-        backend.close()
-    assert estimate == held > 0

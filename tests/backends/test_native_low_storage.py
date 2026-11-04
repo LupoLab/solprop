@@ -49,8 +49,6 @@ from general_parity import conditioning as general_conditioning
 from general_parity import nonlinear_scale, problem_for, scaled_case, source_bound
 from solprop._interrupts import handled
 from solprop.backends.memory import (
-    estimate_memory,
-    ledger_groups,
     low_storage_flows,
     low_storage_stage_register,
 )
@@ -534,8 +532,6 @@ def test_the_native_state_holds_the_registers_and_no_runge_kutta_view(mode, coll
     assert sum(volumes.values()) == field * (3 + int(collar) + (mode == "tabulate"))
     for row in (*RUNGE_KUTTA_ROWS, "noise", "held_plane", "adams_history"):
         assert ledger[row] == 0, row
-    estimate = estimate_memory(problem, "native")
-    assert estimate.groups["adams_history"] == 0
     assert backend._low_storage is not None
     engine = backend._low_storage.engine
     assert engine.atomic and math.isnan(engine.stiffness)
@@ -545,57 +541,6 @@ def test_the_native_state_holds_the_registers_and_no_runge_kutta_view(mode, coll
     assert metadata["propagator_mode"] == mode
     assert metadata["source_evaluations"] == 4 * schedule.n_steps
     backend.close()
-
-
-@pytest.mark.parametrize("collar", [False, True], ids=["no collar", "in-stage collar"])
-@pytest.mark.parametrize("mode", ["tabulate", "recompute"])
-def test_the_estimate_is_the_ledger_to_the_byte(mode, collar):
-    """The march's field-sized rows of the estimate, row by row, as numpy_ref counts.
-
-    The march rows -- the state, the scratch, the registers and the flows -- are the
-    reference's less the elided register, and the estimate's whole base is the native
-    ledger's own, to the byte (``free_space_memory``).
-    """
-    from solprop.backends.memory import (  # noqa: PLC0415
-        reference_base_memory,
-    )
-
-    problem, grid, _ = cartesian_march(mode, collar=collar)
-    reference = reference_base_memory(
-        problem,
-        tabulating=mode == "tabulate",
-        embedded=False,
-        noise=False,
-        statistics_weight=0,
-        spatial_absorber=0,
-    )
-    backend = NativeBackend(problem, grid=grid)
-    ledger = backend.memory_ledger()
-    backend.close()
-    for row in MARCH_ROWS:
-        expected = 0 if row == "register_stage" and not collar else reference[row]
-        assert ledger[row] == expected, row
-    estimate = estimate_memory(problem, "native")
-    assert estimate.groups["base"] == ledger_groups(ledger)["base"]
-
-
-def test_the_low_storage_estimate_counts_the_elided_register():
-    """Q4 in the admission's figure: the march's estimate without ``C`` where elided."""
-    from solprop.backends.memory import low_storage_memory  # noqa: PLC0415
-
-    for collar in (False, True):
-        problem, _, _ = cartesian_march("tabulate", collar=collar)
-        under_march = estimate_memory(problem, "native").total
-        assert low_storage_memory(problem, "native") == under_march
-        # The same problem under the Runge-Kutta march: the march's figure is its own.
-        runge_kutta = dataclasses.replace(
-            problem,
-            stepper=dataclasses.replace(
-                problem.stepper, integrator=None, propagator_mode="auto"
-            ),
-        )
-        assert low_storage_memory(runge_kutta, "native") == under_march
-        assert low_storage_stage_register(problem, "native") == collar
 
 
 def test_a_varying_operator_holds_its_pair_tabulated_and_none_recomputed():
@@ -867,3 +812,15 @@ def test_the_march_agrees_across_thread_counts(tmp_path):
         bound = parity_bound(problem, transverse=problem.transform.n_nodes)
         assert_within(again[name], one[name], bound, what=f"repeat, {name}")
         assert_within(four[name], one[name], bound, what=f"four threads, {name}")
+
+
+def test_a_trial_step_on_a_low_storage_state_is_refused_by_name():
+    # #492: this state allocates none of the views the trial step writes to.
+    problem, grid, _ = cartesian_march("tabulate")
+    backend = NativeBackend(problem, grid=grid)
+    try:
+        backend.set_initial(problem.initial.field0, None)
+        with pytest.raises(RuntimeError, match=r"low-storage state .* no Runge-Kutta"):
+            backend._trial_step(0.0, problem.stepper.dz_init)
+    finally:
+        backend.close()

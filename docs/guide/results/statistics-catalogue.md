@@ -267,11 +267,12 @@ across the seam to reconstruct them.
        potential against the electrons it freed, normalised by the most-ionised node.
        Second order in :math:`\delta t`; recorded, not acted on.
    * - ``absorbed_power``
-     - ``(4,)``
+     - ``(5,)``
      - J/m
      - yes
-     - The power the spectral, transverse, evanescent and material channels of the
-       linear operator remove, in that order, each weighted by the real axial
+     - The power the spectral collar, the transverse, evanescent and material channels
+       and a custom spectral rate of the linear operator remove, in that order, each
+       weighted by the real axial
        admittance as ``energy`` is: together the whole energy decrement
        of the linear flow on a Cartesian or line grid; on a line per metre of y, in J/m².
    * - ``plasma_boundary_level``

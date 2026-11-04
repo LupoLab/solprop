@@ -225,26 +225,6 @@ def test_the_gate_shows_a_moved_record(tmp_path):
     assert "gamma" in answer.comparison.summary()
 
 
-def test_a_received_file_does_not_choose_its_own_budget(tmp_path, monkeypatch):
-    path = tmp_path / "budget.h5"
-    recipe = _soliton()
-    document = recipe.to_dict()
-    document["execution"] = {"memory_budget": "none"}
-    _stopped(path, Recipe.from_dict(document))
-    seen = {}
-    original = Simulation.run
-
-    def run(self, output, **keywords):
-        seen["budget"] = keywords.get("memory_budget")
-        return original(self, output, **keywords)
-
-    monkeypatch.setattr(Simulation, "run", run)
-    resume_file(path, progress="none")
-    assert isinstance(seen["budget"], int)
-    resume_file(tmp_path / "budget.h5", memory_budget="warn:1 TiB", progress="none")
-    assert seen["budget"] == "warn:1 TiB"
-
-
 def test_a_file_that_is_not_hdf5_is_refused(tmp_path):
     path = tmp_path / "notes.h5"
     path.write_text("not an HDF5 file")

@@ -103,6 +103,7 @@ from solprop.output.schema import (
     StepHistory,
     StepStats,
     TerminalCheckpoint,
+    refuse_earlier_absorbed_power,
 )
 
 __all__ = [
@@ -1338,6 +1339,7 @@ class HDF5Output(PlaneStore):
         file = self._file
         if self._append_mode:
             stored = RunMetadata.from_json(_read_json(file))
+            _refuse_earlier_columns(file, self._path)
             if not self._gated:
                 comparison = stored.compare(metadata)
                 if not comparison.continues:
@@ -1948,6 +1950,8 @@ def _compare_cache(
         logger.debug("no cache at %s; starting from the beginning", path)
         return None
     stored, _ = _stored_metadata(path)
+    with h5py.File(path, "r") as file:
+        _refuse_earlier_columns(file, path)
     _check_plasma_benchmark(stored)
     _check_accessors(path, stored, metadata)
     return stored, stored.compare(metadata)
@@ -1997,6 +2001,31 @@ def _resume_refusal(
     return (
         text + "\nTo change the physics, launch a new segment from a saved plane; to "
         'continue in this file regardless, pass resume="force".'
+    )
+
+
+def _refuse_earlier_columns(file: h5py.File, path: Path | str) -> None:
+    """Refuse to continue a file whose ``absorbed_power`` has the earlier columns.
+
+    Parameters
+    ----------
+    file : h5py.File
+        The open file.
+    path : pathlib.Path or str
+        Its path, named in the refusal.
+
+    Raises
+    ------
+    OutputError
+        As :func:`solprop.output.schema.refuse_earlier_absorbed_power` documents.
+    """
+    refuse_earlier_absorbed_power(
+        path,
+        [
+            _dataset(file, name).shape
+            for name in ("stats/absorbed_power", "step_stats/absorbed_power")
+            if name in file
+        ],
     )
 
 
@@ -2265,6 +2294,7 @@ def resume(path: Path | str) -> ResumeState:
     metadata, _ = _stored_metadata(path)
     _check_plasma_benchmark(metadata)
     with h5py.File(path, "r") as file:
+        _refuse_earlier_columns(file, path)
         checkpoint = _read_checkpoint(file, metadata)
         outcome = _read_outcome(file)
         n_saved = _stored_counts(file)[0] if "z" in file else 0

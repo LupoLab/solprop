@@ -240,6 +240,8 @@ native::Problem problem_from(const nb::dict& values) {
           real_vector(exact_array<RealInput>(values["spatial_frame"]));
       result.spatial_spectral_rate =
           real_vector(exact_array<RealInput>(values["spatial_spectral_rate"]));
+      result.spatial_user_rate =
+          real_vector(exact_array<RealInput>(values["spatial_user_rate"]));
       result.spatial_absorber_rate =
           real_vector(exact_array<RealInput>(values["spatial_absorber_rate"]));
       result.spatial_kperp_rate =
@@ -1365,14 +1367,14 @@ public:
   }
   std::vector<double> aperture_statistics(const std::uint64_t flags,
                                           const std::vector<double>& apertures,
-                                          const int profile_code, const int exponent,
+                                          const int exponent,
                                           const std::vector<double>& regions,
                                           const double intensity_factor) {
     require_open();
     if (!general_state_)
       throw std::logic_error("far-field statistics require the general native state");
-    return general_state_->aperture_statistics(flags, apertures, profile_code, exponent,
-                                               regions, intensity_factor);
+    return general_state_->aperture_statistics(flags, apertures, exponent, regions,
+                                               intensity_factor);
   }
   void field_to_host(const std::span<native::Complex> destination) {
     require_open();
@@ -1919,7 +1921,7 @@ nb::dict build_record() {
   nb::dict result;
   result["backend_commit"] = SOLPROP_NATIVE_BACKEND_COMMIT;
   result["solprop_built_against"] = SOLPROP_NATIVE_SOLPROP_BUILT_AGAINST;
-  result["schema_version"] = 44;
+  result["schema_version"] = 45;
   result["kokkos_version"] = SOLPROP_NATIVE_KOKKOS_VERSION;
   result["kokkos_fft_version"] = SOLPROP_NATIVE_KOKKOSFFT_VERSION;
   result["kokkos_kernels_version"] = SOLPROP_NATIVE_KOKKOSKERNELS_VERSION;
@@ -2842,25 +2844,24 @@ NB_MODULE(_core, module_) {
       .def(
           "aperture_statistics",
           [](BoundState& self, const std::uint64_t flags, const RealInput apertures,
-             const int profile_code, const int exponent, const RealInput regions,
+             const int exponent, const RealInput regions,
              const double intensity_factor) {
             if (apertures.ndim() != 2 || regions.ndim() != 2 || regions.shape(1) != 4)
               throw std::invalid_argument(
-                  "aperture tables must be (n_apertures, 6 + n_omega) and regions "
+                  "aperture tables must be (n_apertures, 11 + n_omega) and regions "
                   "(n_regions, 4)");
             const auto held_apertures = real_vector(apertures);
             const auto held_regions = real_vector(regions);
             std::vector<double> values;
             {
               const nb::gil_scoped_release release;
-              values =
-                  self.aperture_statistics(flags, held_apertures, profile_code,
-                                           exponent, held_regions, intensity_factor);
+              values = self.aperture_statistics(flags, held_apertures, exponent,
+                                                held_regions, intensity_factor);
             }
             return real_output(std::move(values), 1);
           },
-          "flags"_a, "apertures"_a.noconvert(), "profile_code"_a, "exponent"_a,
-          "regions"_a.noconvert(), "intensity_factor"_a)
+          "flags"_a, "apertures"_a.noconvert(), "exponent"_a, "regions"_a.noconvert(),
+          "intensity_factor"_a)
       .def(
           "statistics",
           [](BoundState& self, const std::uint64_t flags, const RealInput windows,

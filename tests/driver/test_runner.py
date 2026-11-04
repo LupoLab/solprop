@@ -246,7 +246,7 @@ def test_a_load_restores_what_a_failed_run_left_as_a_fresh_backend_holds(
 
 def test_a_runner_refuses_what_its_backend_cannot_carry(tmp_path):
     simulation = capillary("numpy_ref")
-    with SimulationRunner(simulation, memory_budget="none") as runner:
+    with SimulationRunner(simulation) as runner:
         # Into a file, with the caller's key in its record.
         path = tmp_path / "run.h5"
         output = stored(

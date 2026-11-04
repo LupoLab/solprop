@@ -131,6 +131,9 @@ All notable changes to solprop are recorded here. The format follows
   tutorials and the planar compressor ship as examples; `Recipe.preview_input()` gives a
   free-space beam's power, energy and fluence at the launch plane, and `Recipe.modes()`
   the planar route's slab channels.
+- The [Cartesian chapter](docs/guide/free-space/cartesian.md) gives a reading of the risk of transverse aliasing, the beam's energy outside `|k| <= k_max / 2` from `region_spectrum` and `beam_spectrum`, tested through `FreeGrid` runs, and states what the proxy leaves out (#216).
+- The [boundaries guide](docs/guide/numerics/boundaries.md#a-spectral-walk-off-absorber) gives a recipe for a spectral walk-off absorber through `custom_absorber`, for runs whose walk-off can be predicted, with its geometry, its strength, its limits and a per-band loss check (#226).
+- `absorber(grid, walkoff=...)` sizes the temporal collar from a group-delay drift over the grid's own length, counted over both edges, as `warn_walkoff` checks, and leaves the spectral rate alone (#226). The [boundaries guide](docs/guide/numerics/boundaries.md) now also says that `boundary_N` gives a slice its own strength and that `boundary_length=parent.reference_length` keeps the parent's.
 - `SimulationSettings(held_plane=False)` drops the state volume a low-storage run holds at
   its last field-free plane, from `memory_ledger()`, the admission and `estimate()`, for a
   run that will never resume. An output without `CheckpointOutput` now holds nothing
@@ -184,6 +187,7 @@ All notable changes to solprop are recorded here. The format follows
   planes. A run that keeps fewer than every field used to look the method up without
   declaring it anywhere (#450).
 - The installation page now explains how to install a development version from CI's wheels with no compiler, and `poe fetch-wheel` now finds CI's Windows on Arm wheel.
+- An `ApertureSet` row may be an ellipse, a rectangle or a half-plane (`shapes`, `extents`), with its own edge profile (`profiles`), so a far-field statistic can express an instrument's mask: a knife edge at a fixed position in a far-field plane, whose wavevector moves with frequency, no longer needs the field on the host. A half-plane is half-open and tiles the columns with its complement. Line grids take half-planes bounded in x and rectangles, and the offline `Aperture` takes the same shapes. Unset, the new fields leave every existing result, record and configuration hash as they were (#446, part of #186).
 - `solprop-native` wheels use CPython's stable ABI, so one wheel serves Python 3.14 and later.
   solprop itself still needs pyFFTW and h5py wheels on 3.15.
 - `solprop-native` wheels for Windows on Arm (`win-arm64`), and an x86-64-v2 build beside the
@@ -191,7 +195,6 @@ All notable changes to solprop are recorded here. The format follows
   without AVX2 now run the native backend. The v2 build runs about 20 to 25 % longer by
   geometric mean. `SOLPROP_NATIVE_CPU_VARIANT=x86-64-v2` asks for it.
 - A plane observer can measure a spatial run's planes while it runs: `PlaneView.stored()` returns the plane's stored spectrum (what the `solprop.spatial` functionals take with the run's `SpatialFlux`) and `PlaneView.field_plane()` the plane as `processing.field_plane` reads it, whose `spectral_energy` is the beam's energy per bin.
-- `Recipe.run_keywords()` returns the keywords of `Simulation.run` the recipe's `[execution]` table sets (`memory_budget`), so a caller that builds the simulation itself, to keep it while it runs, runs it as `Recipe.run` would.
 - `SOLPROP_REQUIRE_DEVICE` (`cuda`, `hip` or `any`) makes a run refuse before allocating anything unless it would execute on a native device build that sees a device, so a job doesn't fall onto a CPU wheel that a new release installed over its source build.
 - `solprop.processing.get_spectrogram` returns a plane's spectrogram as data (gate positions,
   spectral axis and map, per unit of the axis asked for, with a `bandpass=` window), the map
@@ -241,12 +244,14 @@ All notable changes to solprop are recorded here. The format follows
 - The README, `CITATION.cff` and the citing page name solprop's Zenodo DOI,
   [10.5281/zenodo.23854248](https://doi.org/10.5281/zenodo.23854248), which covers
   every release.
+- `absorbed_power` has a fifth channel, `custom`, the power a `custom_absorber` rate removes, and its `spectral` channel is now the collar alone, so a frequency-selective loss reads apart from the numerical collar. The statistic's shape goes from `(4,)` to `(5,)`; the first four channels keep their positions and their sum stays `-dE/dz`. `Absorber.user_rate` holds the user's share of `spectral_rate`, which stays the total, so the operator does not move. A run with no custom rate keeps its absorber record; one with a non-zero custom rate records the share, so its earlier files are not continued, by name, whichever statistics they hold (#231). A file from an earlier development build, with four columns, still reads as written, its first column holding the collar and any custom rate together; appending to it, resuming it (`resume="force"` too), using it as a cache or adding a point to such a scan is refused by name: start a new file, or launch a new segment from a saved plane.
 - Kernel schema 44: `StepDriver` gains `set_held_plane` and `_drop_held`, and the native
   state `release_plane`. A solprop-native build of an earlier schema is refused at import;
   rebuild it from this tree.
 - Kernel schema 42: `KernelProblem.initial.field0` may be a zero-stride broadcast view, and
   every backend's `set_initial`, solprop-native's included, accepts a field of any strides
   and copies it contiguous. No field or signature moves (#5).
+- Kernel schema 45: a far-field aperture row of solprop-native's pass grows from six constants to eleven and carries its own profile and shape, so `aperture_statistics` takes no profile argument. Rebuild solprop-native. Fields of `ApertureSet` move; no stage bundle or driver signature does (#446).
 - Notable changes are recorded in separate release-note fragments and collected into one
   rolling draft release PR after merges. Implementation PRs no longer edit the shared
   changelog, avoiding conflicts between unrelated changes. Release tags and publication
@@ -351,6 +356,7 @@ All notable changes to solprop are recorded here. The format follows
 
 ### Removed
 
+- solprop no longer estimates a run's memory or checks it against a budget before allocating (ADR-065). `memory_budget=`, `SOLPROP_MEMORY_BUDGET`, `solprop resume --memory-budget`, `estimate_memory`, `estimate_guide_memory`, `solprop.driver.memory`, `MemoryBudgetError` and `MemoryBudgetWarning` are gone, and recipes no longer take `memory_budget`. A run that doesn't fit now fails with `MemoryError`, or is killed by the kernel or a scheduler. `Simulation.estimate` builds the backend and reports what it holds, so `admitted` and `refusal` are gone from `RunEstimate`. Scan workers and TDSE's `memory_limit` are still bounded; going over that limit raises `DriverError`, and it now covers atomic storage alone.
 - The `numba_cpu` backend, and the `numba` and `pyfftw` dependencies ([SEP 43](docs/dev/seps/archive/sep-0043-retire-numba-cpu.md), ADR-064). `backend="numba_cpu"` raises `BackendError`, naming `native` and `numpy_ref`. An output or snapshot of this release's schema that records `numba_cpu` still loads, and a stopped run continues on another backend by changing the name. A file written by 0.1.0 is refused by its output schema, as every file of another schema is: read it with `solprop==0.1.0`, which is also the rollback.
 - The settings that only `numba_cpu` read: `SOLPROP_NUMBA_THREADS`, `SOLPROP_NUMBA_REGIME`, `SOLPROP_FFTW_THREADS`, `SOLPROP_TRANSVERSE_FFTW_THREADS`, `SOLPROP_PASS_TIMERS`, `NUMBA_DISABLE_JIT` and `NUMBA_NUM_THREADS`. Drop them from job scripts; they now do nothing. `SOLPROP_THREADS`, `SOLPROP_NATIVE_THREADS`, `SOLPROP_FFTW_PLAN`, `SOLPROP_FFTW_WISDOM` and `SOLPROP_BLAS_THREADS` stay.
 
@@ -414,6 +420,8 @@ All notable changes to solprop are recorded here. The format follows
   record's length from `t = 0` changed its phase by more than pi per bin, so it was moved
   by one record length with no warning: at 500 fs in a record from 0 to 800 fs it came out
   at −300 fs.
+- `warn_walkoff` suggested a `boundary_N` counted from the default strength when it was given a `boundary_length`; it now counts from the length in force. The guide and the docstring of `no_absorber` no longer say that an explicit absorber switches on a free-space run's real-space collar or that the collar reads the reference length (#226).
+- [Building the native backend](docs/guide/performance/building-native.md) records why the macOS refusal after pyFFTW stays and what would lift it, and no longer says that importing solprop first avoids it: importing solprop does not load the backend (#315).
 - Correct the 0.1.0 limitation statement about `mlx`: its custom Metal kernels already
   run in continuous integration's macOS default lane. That lane now requires Metal,
   so losing the device fails the job rather than silently skipping the kernel tests.
@@ -442,23 +450,15 @@ All notable changes to solprop are recorded here. The format follows
   it; a `SavedPlane` constructed by hand copies, as before (#448).
 - The native backend now refuses an unknown `SOLPROP_FFTW_PLAN` value, which it had read as `measure`, and a problem whose `response_order` omits a response it holds, which it had run anyway. An empty `SOLPROP_FFTW_PLAN` now counts as unset (#460).
 - A native run under Runge-Kutta or Adams now records the `propagator_mode` it used, `recompute`, when `tabulate` was asked for; it had recorded `tabulate`, which that march can't do. The run's configuration still keeps what was asked (#464).
-- `estimate_memory` and the admission now count the native backend's own buffers on the
-  Cartesian and line routes (`solprop.backends.memory.free_space_memory`): its statistics and
-  absorber buffers per chunk, a local flux statistic's magnetic closure, and the Runge-Kutta
-  march's rows. The reference's count fell
-  short by up to 46 % on an envelope grid and 80 % on a field grid when one chunk held the
-  whole grid, so a native run could be admitted and then exceed its budget. A constructed
-  Kerr beam's ledger and estimate now agree to the byte, with `default_spec("free")` or no
-  statistics; a boundary monitor's weights, bound when a run starts, are not counted (#7).
+- `Simulation.estimate()` no longer crashes the process on the native backend under `LowStorageRungeKutta()`, and on every backend it now times that march's own step, so its time per step is the low-storage march's (#492). A trial step on a native low-storage state now raises a named error instead of faulting.
+- On an AMD device, the far-field pass decided about 3 % of the columns exactly at a hard aperture's edge differently from `numpy_ref`, because the compiler fused products and sums the pass meant to round separately. The radius is now rounded as on every other build.
 - Documented the limits of `FixedSchedule.from_history`. Every collar refusal a replayed history can reach (the temporal collar's stable step, and a requested spatial collar's stable step and its fixed-schedule crossing and damping bounds) now prints its limit rounded down and names the remedy: `dz_max` at or under the printed limit in the discovery run, run with the replay's integrator where the limit is a stability limit, or, for the temporal collar alone, `absorber_scheme="split_step"` in both runs. The docstring and the [fixed schedules guide](docs/guide/numerics/fixed-schedules.md) state these limits and the interpolated-plane and non-abutting-history ones, relate `from_history` to `discover`, and replace the claim that a `Multistep` replay makes its adaptive run's truncation errors: compare two replays of one schedule instead, and for a comparison of the arithmetic alone replay with fixed orders (`RungeKutta()` or `Multistep(variable_order=False)`), since a variable-order replay's order choice can turn on rounding (#82).
 - A translated problem no longer holds a full copy of a broadcast initial field (#5): a
   `numpy.broadcast_to` placeholder, of any numeric dtype, costs only the block it repeats.
   Every other initial field, noise realisation and batch parameter is now copied, so
   changing the caller's array after translation can no longer change the problem, and the
   caller's array is no longer made read-only; before, a contiguous complex128 field and a
-  noise realisation were shared with the caller. `estimate_memory` and the memory
-  admission count the field the problem holds, as the resident group `initial_field`
-  (#6), which the admission charges to the host and not to an accelerator.
+  noise realisation were shared with the caller.
 - A boundary monitor built for another grid is now refused by name on every backend, instead
   of a bare `ValueError` on `native` and an accident in `matmul` on `numpy_ref`. A direct call
   to `native`'s `stats` now checks every route for names the route doesn't define, and refuses
@@ -481,8 +481,7 @@ All notable changes to solprop are recorded here. The format follows
   its recorded configuration (#434). `Simulation.initial` is a read-only view of that copy
   as the caller gave it, so an input of another dtype is recorded unchanged and older
   files resume. On free-space and spatial routes the translated problem holds the same
-  copy; on a modal route it holds the converted launch beside it, two states, which the
-  memory admission counts as `simulation_input`. A `numpy.broadcast_to` input copies only
+  copy; on a modal route it holds the converted launch beside it, two states. A `numpy.broadcast_to` input copies only
   the block it repeats.
 - Fixed the reference's single-precision path leaving binary32 on two paths that it then narrowed without a check: the split-step collar now keeps a complex64 state in binary32, as the correction `a + F(F^-1(a)(f - 1))` that `mlx` uses (binary64 runs are unchanged), and a fixed-schedule batch of single-precision `numpy_ref` members now steps each member through its own binary32 trial instead of the binary64 batch arithmetic, and a lockstep batch refuses members of mixed precisions. The finished state is now refused by name if it is not complex64 (#79).
 - On a radial, Cartesian, line or planar output, the processing readers that read each

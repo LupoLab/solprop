@@ -4,32 +4,39 @@
 
 """What a run will cost, before it runs (SEP 41, S11).
 
-:func:`estimate` reports a translated simulation's grid, its persistent memory
-admitted against its budget **before** anything is allocated, the size of its output,
-the cost of one right-hand-side evaluation on the chosen backend timed after an untimed
-warm-up, and its integrator's calls per step. It does not predict the number of
-adaptive steps, which depends on the physics.
+:func:`estimate` reports a translated simulation's grid, the persistent memory its
+constructed backend holds, the size of its output, the cost of one right-hand-side
+evaluation on the chosen backend timed after an untimed warm-up, and its integrator's
+calls per step. It does not predict the number of adaptive steps, which depends on the
+physics.
 """
 
+import math
 import statistics
 import time
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from functools import partial
 from typing import TYPE_CHECKING, Final
 
 from solprop.backends.registry import select
-from solprop.driver.memory import admit_memory, field_bytes, plane_bytes
 from solprop.driver.run import field_retention
-from solprop.exceptions import MemoryBudgetError
+from solprop.exceptions import DriverError
+from solprop.stats import CATALOGUE
 from solprop.stepper import LowStorageRungeKutta, Multistep
 from solprop.translate.problem import KernelProblem
 
 if TYPE_CHECKING:
     from solprop.driver.simulation import Simulation
 
-__all__ = ["RunEstimate", "estimate"]
+__all__ = ["RunEstimate", "estimate", "field_bytes", "plane_bytes"]
 
 _REPEATS: Final = 3
 """Timed trial steps, after the warm-up; the median is reported."""
+
+_COUNTED_PER_PLANE: Final = 3
+"""Eight-byte entries a memory store keeps per plane beside the arrays: ``z`` and
+the two per-plane counts."""
 
 
 @dataclass(frozen=True)
@@ -44,25 +51,22 @@ class RunEstimate:
     n_planes : int
         The planes the run saves, the entrance included.
     memory : int
-        The persistent memory the run would hold, bytes.
-    admitted : bool
-        Whether it is admitted against the memory budget.
-    refusal : str or None
-        Why it is not, when it is not; nothing was allocated.
+        The persistent memory the constructed backend holds, its ledger's total, and the
+        state a low-storage march holds at a field-free plane, which it allocates during
+        the run, bytes.
     output_bytes : int
         The output's size for the requested planes and retained fields, bytes, as an
         in-memory store holds it (an HDF5 file adds little).
     backend : str
         The backend the run would use.
     threads : object
-        The backend's thread count, as it reports it, or ``None`` when the run is
-        not admitted and no backend was built.
-    setup : float or None
+        The backend's thread count, as it reports it.
+    setup : float
         Seconds to build the backend and take the untimed first step: compilation and
-        transform planning; ``None`` when the run is not admitted.
-    rhs : float or None
+        transform planning.
+    rhs : float
         Seconds per right-hand-side evaluation, the median of timed trial steps
-        divided by the tableau's stages; ``None`` when the run is not admitted.
+        divided by the tableau's stages.
     calls_per_step : int
         Right-hand-side evaluations per accepted step of the integrator: six for the
         Runge-Kutta march (its first stage is the last's), one for the Adams method,
@@ -75,26 +79,60 @@ class RunEstimate:
     shape: tuple[int, ...]
     n_planes: int
     memory: int
-    admitted: bool
-    refusal: str | None
     output_bytes: int
     backend: str
     threads: object
-    setup: float | None
-    rhs: float | None
+    setup: float
+    rhs: float
     calls_per_step: int
     total_calls: int | None
 
     @property
-    def step(self) -> float | None:
+    def step(self) -> float:
         """Return the evaluations' share of an accepted step's time.
 
         Returns
         -------
-        float or None
-            Seconds per step, or ``None`` when the run was not timed.
+        float
+            Seconds per step.
         """
-        return None if self.rhs is None else self.rhs * self.calls_per_step
+        return self.rhs * self.calls_per_step
+
+
+def _timed_step(
+    backend: object, problem: KernelProblem
+) -> tuple[Callable[[], object], int]:
+    """Return the step to time for a run, and the evaluations it makes.
+
+    A low-storage march times its own step, which accepts in place, so repeating it
+    advances the discarded state: the backend is closed after the estimate. Every other
+    run times the Runge-Kutta trial step, which leaves the state alone. The native
+    low-storage state holds none of that trial's views.
+
+    Parameters
+    ----------
+    backend : object
+        The constructed backend, with its initial state loaded.
+    problem : solprop.translate.problem.KernelProblem
+        The translated problem.
+
+    Returns
+    -------
+    tuple
+        A callable taking one step, and the right-hand-side evaluations in it.
+    """
+    march = getattr(backend, "_low_storage")  # noqa: B009 - every StepDriver has it
+    if march is None:
+        z = float(problem.initial.z)
+        dz = float(problem.stepper.dz_init)
+        trial = getattr(backend, "_trial_step")  # noqa: B009 - every StepDriver has it
+        return partial(trial, z, dz), len(problem.stepper.tableau.nodes)
+    schedule = problem.stepper.schedule
+    assert schedule is not None  # the translation refuses the march without one
+    z, dz = float(schedule.edges[0]), float(schedule.steps[0])
+    return partial(march.engine.step, z, dz), _calls_per_step(
+        problem.stepper.integrator
+    )
 
 
 def _calls_per_step(integrator: object) -> int:
@@ -120,7 +158,6 @@ def _calls_per_step(integrator: object) -> int:
 def estimate(
     simulation: "Simulation",  # noqa: UP037 - checked at run time
     *,
-    memory_budget: int | str | None = None,
     repeats: int = _REPEATS,
 ) -> RunEstimate:
     """Estimate what a simulation's run would cost, without running it.
@@ -129,9 +166,6 @@ def estimate(
     ----------
     simulation : solprop.driver.simulation.Simulation
         The simulation; it is translated if it is not already.
-    memory_budget : int or str or None, optional
-        The budget its memory is admitted against, as
-        :meth:`~solprop.driver.simulation.Simulation.run` takes it.
     repeats : int, optional
         Timed trial steps after the warm-up.
 
@@ -152,30 +186,6 @@ def estimate(
     calls = _calls_per_step(integrator)
     schedule = problem.stepper.schedule
     total = None if schedule is None else int(schedule.steps.size) * calls
-    try:
-        admission = admit_memory(
-            problem,
-            settings.backend,
-            memory_budget,
-            retention=retention,
-            inputs=simulation._held_inputs(),
-            held_plane=settings.held_plane,
-        )
-    except MemoryBudgetError as error:
-        return RunEstimate(
-            tuple(problem.shape),
-            n_planes,
-            _requested(problem, settings.backend),
-            False,
-            str(error),
-            output_bytes,
-            settings.backend,
-            None,
-            None,
-            None,
-            calls,
-            total,
-        )
     started = time.perf_counter()
     backend = select(
         settings.backend,
@@ -185,19 +195,23 @@ def estimate(
         profiles=simulation.profiles,
     )
     try:
+        memory = sum(backend.memory_ledger().values())
+        if (
+            settings.held_plane
+            and retention.fields != "all"
+            and isinstance(integrator, LowStorageRungeKutta)
+        ):
+            memory += 16 * math.prod(problem.shape)
         backend.set_initial(problem.initial.field0, None, z=problem.initial.z)
-        z0 = float(problem.initial.z)
-        dz = float(problem.stepper.dz_init)
-        trial = getattr(backend, "_trial_step")  # noqa: B009 - every StepDriver has it
-        trial(z0, dz)
+        step, evaluations = _timed_step(backend, problem)
+        step()
         setup = time.perf_counter() - started
         timings = []
         for _ in range(max(1, repeats)):
             begun = time.perf_counter()
-            trial(z0, dz)
+            step()
             timings.append(time.perf_counter() - begun)
-        stages = len(problem.stepper.tableau.nodes)
-        rhs = statistics.median(timings) / stages
+        rhs = statistics.median(timings) / evaluations
         reported = backend.metadata()
         # Each backend names its own: native "thread_count"; numpy_ref runs on one
         # thread and names none.
@@ -214,9 +228,7 @@ def estimate(
     return RunEstimate(
         tuple(problem.shape),
         n_planes,
-        admission.estimate.total,
-        True,
-        None,
+        memory,
         output_bytes,
         settings.backend,
         threads,
@@ -227,20 +239,119 @@ def estimate(
     )
 
 
-def _requested(problem: KernelProblem, backend: str) -> int:
-    """Return the persistent memory a refused run asked for.
+def plane_bytes(problem: KernelProblem) -> int:
+    """Return the bytes one saved plane occupies in an in-memory store.
+
+    The field (complex128), the noise phase (float64) when the run carries a noise
+    model, every statistic at its catalogued shape (float64; a statistic catalogued
+    with a smaller shape for spatial beams is counted at the modal one, an upper bound
+    of a few entries), and the position and the two per-plane counts.
 
     Parameters
     ----------
     problem : solprop.translate.problem.KernelProblem
         The translated problem.
-    backend : str
-        The backend.
 
     Returns
     -------
     int
-        The estimate's total, bytes.
+        Bytes per plane.
+
+    Examples
+    --------
+    >>> from solprop.driver import Simulation
+    >>> from solprop.driver.estimate import plane_bytes
+    >>> simulation = Simulation.from_gnlse(
+    ...     0.11, 0.01, [0.0, 0.0, -1.183e-26], wavelength=835e-9,
+    ...     wavelength_limits=(500e-9, 2e-6), trange=1e-12,
+    ...     width=100e-15, peak_power=9.8, shape="sech",
+    ... )
+    >>> problem = simulation.translate()
+    >>> plane_bytes(problem) >= 16 * problem.shape[-1]
+    True
     """
-    admission = admit_memory(problem, backend, "none")
-    return admission.estimate.total
+    _, n_modes, n_pol, n_omega = problem.shape
+    entries = n_modes * n_pol * n_omega
+    total = 16 * entries + 8 * _COUNTED_PER_PLANE
+    if problem.initial.noise_model != "none":
+        total += 8 * entries
+    sizes = {
+        "n_modes": n_modes,
+        "n_pol": n_pol,
+        "n_omega": n_omega,
+        "n_windows": problem.stats_spec.n_windows,
+        "n_apertures": problem.stats_spec.n_apertures,
+        "n_regions": problem.stats_spec.n_regions,
+        "n_species": problem.responses.n_species,
+        "n_nodes": problem.transform.n_nodes,
+    }
+    for name in problem.stats_spec.names:
+        total += 8 * _catalogued_entries(CATALOGUE[name].shape, sizes)
+    return total
+
+
+def field_bytes(problem: KernelProblem) -> int:
+    """Return the bytes of one plane's field, and its noise phase, in a memory store.
+
+    The part of :func:`plane_bytes` a plane that keeps no field does not hold (SEP 22).
+
+    Parameters
+    ----------
+    problem : solprop.translate.problem.KernelProblem
+        The translated problem.
+
+    Returns
+    -------
+    int
+        Sixteen bytes per state entry, and eight more with a noise model.
+
+    Examples
+    --------
+    >>> from solprop.driver import Simulation
+    >>> from solprop.driver.estimate import field_bytes
+    >>> simulation = Simulation.from_gnlse(
+    ...     0.11, 0.01, [0.0, 0.0, -1.183e-26], wavelength=835e-9,
+    ...     wavelength_limits=(500e-9, 2e-6), trange=1e-12,
+    ...     width=100e-15, peak_power=9.8, shape="sech", noise=None,
+    ... )
+    >>> field_bytes(simulation.translate()) == 16 * simulation.translate().shape[-1]
+    True
+    """
+    entries = math.prod(problem.shape[1:])
+    return (16 + (8 if problem.initial.noise_model != "none" else 0)) * entries
+
+
+def _catalogued_entries(shape: str, sizes: Mapping[str, int]) -> int:
+    """Return how many entries a statistic of a catalogued shape holds.
+
+    Parameters
+    ----------
+    shape : str
+        The catalogue's shape, such as ``'(n_windows, n_modes)'``, ``'(2,)'`` or
+        ``'()'``; an alternative after ``';'`` is ignored.
+    sizes : collections.abc.Mapping
+        The length of every axis name a catalogued shape uses.
+
+    Returns
+    -------
+    int
+        The product of the axis lengths, one for a scalar.
+
+    Raises
+    ------
+    DriverError
+        If the shape names an axis `sizes` does not give.
+    """
+    axes = shape.partition(";")[0].strip().strip("()")
+    count = 1
+    for axis in (one.strip() for one in axes.split(",")):
+        if not axis:
+            continue
+        if axis.isdigit():
+            count *= int(axis)
+        elif axis in sizes:
+            count *= sizes[axis]
+        else:
+            msg = f"no length is known for the statistics axis {axis!r} in {shape!r}"
+            raise DriverError(msg)
+    return count

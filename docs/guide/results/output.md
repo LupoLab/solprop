@@ -33,9 +33,8 @@ per plane would come to 26 MB for 201 planes of four modes on 2049 bins.
 handler for fast, small problems and for the members of a scan, where a file per run
 costs more than the run. Its plane-indexed arrays are allocated once, for the planes the
 run will save, and grow by doubling only if it saves more, so a hundred planes cost one
-allocation rather than a hundred copies. That store is part of the run's memory: the
-[memory admission](../performance/resources.md#memory) charges it, at its planned size, as the group
-`output`, and charges a file output nothing.
+allocation rather than a hundred copies. That store is part of the
+[run's memory](../performance/resources.md#memory); a file output holds none of it.
 
 ```{note}
 For a run that records statistics between the save planes,
@@ -94,9 +93,8 @@ vocabulary {py:func}`~solprop.driver.scan.run_scan` already uses:
 A run is **homogeneous**: it keeps its fields by one rule, declared to the output before
 its first plane ({py:meth}`~solprop.output.schema.PlaneStore.retain`), and a plane that
 breaks it is refused by name. A plane without its field is not copied, converted or
-stored, and an in-memory output allocates no field block for it and is charged none of
-it by the [memory admission](../performance/resources.md#memory): a statistics-only run
-is charged its statistics. The march is unchanged — the statistics are computed from
+stored, and an in-memory output allocates no field block for it: a statistics-only run
+holds its statistics. The march is unchanged — the statistics are computed from
 the live state either way — so a statistics-only run's numbers are those of the same run
 keeping every field. A plane that keeps no field is observed without one: nothing
 crosses from the backend (on a device, no copy is made) and nothing scans the field for
@@ -104,8 +102,7 @@ finiteness, so a diverged run is caught by the step loop and its statistics.
 `fields="planes"` is refused beside `step_planes`, whose plane count is not known in
 advance. Beside `LowStorageRungeKutta()`, which accepts each step in place and so has no
 state to checkpoint for a step abandoned in flight, the backend holds the state of the
-last field-free plane, one more copy of the state, charged at
-[admission](../performance/resources.md#memory) as `held_plane`: a run stopped in flight
+last field-free plane, one more copy of the state: a run stopped in flight
 after such a plane writes its terminal checkpoint from it and resumes there.
 `SimulationSettings(held_plane=False)` drops that volume, for a run that will never resume,
 such as one of many short runs in a scan, and an output with no
@@ -442,7 +439,10 @@ How a run resumes from its last plane depends on what that plane is:
 
 **Every field is recorded.** A record holds every field of every dataclass it
 serialises, at its default too, so a change that adds a field to a recorded dataclass
-moves the configuration hash. A resume compares the records path by path, so the new
+moves the configuration hash. The exceptions are optional extensions whose absence means
+what every earlier record means, left out while they are `None` (an aperture set's
+`shapes`, `profiles` and `extents`, an absorber's `user_rate`, an offline aperture's `shape`
+and `extent`); set, they are recorded. A resume compares the records path by path, so the new
 field refuses a resume of an earlier file unless a release declares its neutral value,
 the value that reproduces the code before it existed
 ([what a resume compares](resuming.md#what-a-resume-compares)). The test suite pins the
@@ -468,6 +468,19 @@ releases are therefore not compatible with one another: a file written by an ear
 build of the same schema may be refused, by name where the difference is known (a
 Multistep run's predictor orders, which are now recorded as `[order, count]` pairs,
 were one integer per step before), and is read with the build that wrote it.
+
+**Four columns of `absorbed_power`.** The fifth column, `custom`, folded into schema 2 the
+same way, and the first column became the collar alone. A file from an earlier development
+build still **reads**, showing the four columns as they were written, in the same positions
+as the first four now, its first column holding the spectral collar and any custom rate
+together. It is not **continued**: an append, a resume, forced or not, a cache check and a
+scan writer each refuse it by name, from the stored column count, before anything is
+written, because five numbers do not fit four columns and nothing stored can split that
+sum. Start a new file, or launch a new segment from a saved plane.
+
+A run with a non-zero `custom_absorber` rate also records the new `absorber.user_rate`, so
+even a file with no `absorbed_power` is not continued: the comparison names that field as
+absent from the stored record. A run with no custom rate keeps its record.
 
 ## A worked example
 

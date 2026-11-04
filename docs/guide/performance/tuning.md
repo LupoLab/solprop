@@ -445,7 +445,7 @@ is loaded, and `SOLPROP_NATIVE_CPU_VARIANT=x86-64-v2` asks for that build on a f
 processor, for comparisons ([The native backend](native.md#installing)).
 
 **Memory.** Large multimode and general modal problems can be limited by memory before
-threads; `SOLPROP_MEMORY_BUDGET` and the admission check are described in
+threads; how to size and shrink them is described in
 [Execution resources](resources.md#memory).
 
 ## Checking what was used

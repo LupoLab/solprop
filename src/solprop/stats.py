@@ -41,6 +41,7 @@ The manual page is ``docs/guide/results/statistics.md``.
 """
 
 import logging
+import math
 import warnings
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -67,10 +68,12 @@ from solprop.spatial import (
     FAR_FIELD_STATISTICS,
     OPERATOR_STATISTICS,
     ApertureProfile,
+    ApertureShape,
     SpatialFlux,
     aperture_statistics,
     beam_radius,
     check_aperture_profile,
+    check_aperture_shape,
     fwhm_r,
     on_axis_intensity,
     on_axis_spectrum,
@@ -1628,7 +1631,7 @@ def _catalogue() -> dict[str, StatDefinition]:
         StatDefinition(
             name="absorbed_power",
             summary="Power each absorbing channel of the linear operator removes.",
-            shape="(4,)",
+            shape="(5,)",
             units="J/m",
             requires=("spatial_geometry", "separable_operator"),
             backend=True,
@@ -1913,31 +1916,52 @@ def check_aperture_choices(profile: object, weighting: object) -> None:
         raise OutputError(msg)
 
 
+def _off_axis(shape: str) -> int:
+    """Return the index of the coordinate a half-plane does not depend on.
+
+    Parameters
+    ----------
+    shape : str
+        A half-plane's name.
+
+    Returns
+    -------
+    int
+        1 for a half-plane bounded in x, 0 for one bounded in y.
+    """
+    return 1 if shape.startswith("half_plane_x") else 0
+
+
 @dataclass(frozen=True, eq=False)
 class ApertureSet:
-    """Circular apertures in a far-field or Fourier plane behind a free-space run.
+    """Apertures in a far-field or Fourier plane behind a free-space run.
 
     The tables of ``aperture_spectrum`` and ``aperture_on_axis_spectrum`` (SEP 23):
     each aperture collects the light whose paraxial image ``x = z c kappa / omega``
     falls inside it, a chromatic weight on the stored transverse spectrum. Every
     position is physical: a beam travelling towards positive x lands at positive x.
-    Equality is by identity; the arrays are owned read-only copies.
+    Circles by default; `shapes` asks for an ellipse, a rectangle or a half-plane on
+    any row. Equality is by identity; the arrays are owned read-only copies.
 
     Attributes
     ----------
     centres : numpy.ndarray
         Aperture centres ``(x, y)`` in the mask plane, in m, shape
-        ``(n_apertures, 2)``.
+        ``(n_apertures, 2)``. A half-plane has an edge rather than a centre: its row
+        holds the edge's position on the axis it names and zero on the other.
     diameters : numpy.ndarray
-        Diameters in m, finite and positive, shape ``(n_apertures,)``. On a line the
-        aperture is a slit of this full width along x.
+        Diameters in m, shape ``(n_apertures,)``: finite and positive on a circle's
+        row, zero on any other. On a line a circle is a slit of this full width
+        along x.
     distances : numpy.ndarray
         Distance from the exit face to the mask plane, or a lens's focal length for
         a Fourier plane, in m, finite and positive, shape ``(n_apertures,)``.
     edges : numpy.ndarray or None
         Edge widths ``w`` in m for ``tanh`` and ``rcos``, orders ``n >= 2`` for
-        ``supergauss``, shape ``(n_apertures,)``; ``None`` for ``hard``, and only
-        for ``hard``.
+        ``supergauss``, zero for a ``hard`` row beside others, shape
+        ``(n_apertures,)``; ``None`` when every row is ``hard``, and only then. An
+        ellipse's edge width is in its circular frame: ``w a/sqrt(a b)`` along x and
+        ``w b/sqrt(a b)`` along y, in m.
     profile : {'hard', 'tanh', 'rcos', 'supergauss'}
         The edge profile the set shares (:func:`solprop.spatial.aperture_profile`).
         The default is ``hard``.
@@ -1949,18 +1973,37 @@ class ApertureSet:
     labels : tuple of str
         One unique non-empty label per aperture, recorded with the run's
         configuration; ``None`` (the default) labels them ``"0"``, ``"1"``, ...
+    shapes : tuple of str or None
+        Each row's outline, one of :data:`solprop.spatial.APERTURE_SHAPES`: ``circle``,
+        ``ellipse``, ``rectangle``, or a half-plane named for the side it keeps,
+        ``half_plane_x_ge`` (``x >= X``), ``half_plane_x_lt`` (``x < X``),
+        ``half_plane_y_ge`` and ``half_plane_y_lt``. ``None`` (the default) is a
+        circle on every row, and all circles are stored as ``None``. A set of unset
+        shapes, profiles and extents records and hashes as it did before they existed.
+    profiles : tuple of str or None
+        Each row's edge profile, for a set that mixes them; ``profile`` is then left
+        at its default, and rows that all agree are stored as that ``profile``.
+    extents : numpy.ndarray or None
+        Full widths ``(D_x, D_y)`` in m, shape ``(n_apertures, 2)``: finite and
+        positive on the row of an ellipse or a rectangle, zero on any other; ``None``
+        when no row needs them, and only then.
 
     Raises
     ------
     OutputError
         If there are no apertures or more than :data:`MAX_APERTURES`; an array is
-        not finite or not of its stated shape; a diameter or distance is not
-        positive; an edge is missing, given for ``hard``, or out of its range (``0 <
-        w <= D/4`` for ``rcos`` and for ``tanh`` under amplitude weighting, ``0 < w
-        <= D/8`` for ``tanh`` under quadrature weighting, ``n >= 2`` for
-        ``supergauss``); quadrature weighting is asked of ``supergauss``; an
-        aperture reaches the paraxial disc's edge, ``|X| + D/2 (+ w for rcos) >=
-        z``; or the labels are not unique non-empty strings, one per aperture.
+        not finite or not of its stated shape; a diameter, an extent or a distance
+        breaks its rule above; a half-plane's centre is off the axis it names; an edge
+        is missing, given for a ``hard`` set or row, or out of its range (with ``D``
+        a circle's diameter, ``sqrt(D_x D_y)`` of an ellipse and the smaller of a
+        rectangle's widths: ``0 < w <= D/4`` for ``rcos`` and for ``tanh`` under
+        amplitude weighting, ``0 < w <= D/8`` for ``tanh`` under quadrature weighting,
+        ``D/10`` on a rectangle; ``w > 0`` on a half-plane; ``n >= 2`` for
+        ``supergauss``); quadrature weighting or a half-plane is asked of
+        ``supergauss``; ``profile`` is given beside `profiles`; an aperture reaches the
+        paraxial disc's edge, ``|X| + D/2 (+ w for rcos) >= z`` (a half-plane's edge
+        must lie inside it); or the labels are not unique non-empty strings, one per
+        aperture.
 
     Warns
     -----
@@ -1984,6 +2027,19 @@ class ApertureSet:
     ... )
     >>> holes.n_apertures, holes.labels
     (2, ('probe', 'signal'))
+
+    A knife edge at a fixed position in the plane, beside an apodised hole:
+
+    >>> mixed = ApertureSet(
+    ...     centres=[[2e-3, 0.0], [-4e-3, 0.0]],
+    ...     diameters=[0.0, 1.5e-3],
+    ...     distances=[0.25, 0.25],
+    ...     edges=[0.0, 40e-6],
+    ...     shapes=("half_plane_x_ge", "circle"),
+    ...     profiles=("hard", "rcos"),
+    ... )
+    >>> mixed.row_shapes
+    ('half_plane_x_ge', 'circle')
     """
 
     centres: Sequence[Sequence[float]] | np.ndarray
@@ -1993,6 +2049,15 @@ class ApertureSet:
     profile: ApertureProfile = "hard"
     weighting: ApertureWeighting = "amplitude"
     labels: tuple[str, ...] | None = None
+    shapes: tuple[ApertureShape, ...] | None = field(
+        default=None, metadata={"record_none": False}
+    )
+    profiles: tuple[ApertureProfile, ...] | None = field(
+        default=None, metadata={"record_none": False}
+    )
+    extents: Sequence[Sequence[float]] | np.ndarray | None = field(
+        default=None, metadata={"record_none": False}
+    )
 
     def __post_init__(self) -> None:
         """Own the tables and check them against the list of SEP 23 section 5.
@@ -2014,12 +2079,12 @@ class ApertureSet:
         object.__setattr__(
             self, "distances", _aperture_array(self.distances, (count,), "distances")
         )
-        if np.any(np.asarray(self.diameters) <= 0) or np.any(
-            np.asarray(self.distances) <= 0
-        ):
+        check_aperture_choices(self.profile, self.weighting)
+        self._adopt_rows(count)
+        self._check_outlines(count)
+        if np.any(np.asarray(self.distances) <= 0):
             msg = "every aperture diameter and distance must be positive"
             raise OutputError(msg)
-        check_aperture_choices(self.profile, self.weighting)
         self._check_edges(count)
         self._check_paraxial()
         labels = (
@@ -2036,8 +2101,11 @@ class ApertureSet:
             raise OutputError(msg)
         object.__setattr__(self, "labels", labels)
 
-    def _check_edges(self, count: int) -> None:
-        """Own the edge table and check it against the profile and the weighting.
+    def _adopt_rows(self, count: int) -> None:
+        """Check the per-row choices and store rows that say nothing new as unset.
+
+        All circles are stored as no `shapes`, and rows of one profile as that
+        `profile`, so that one request has one record.
 
         Parameters
         ----------
@@ -2047,9 +2115,127 @@ class ApertureSet:
         Raises
         ------
         OutputError
-            If the edges disagree with the profile or the weighting.
+            If a choice is unknown, there is not one per aperture, or `profile` is
+            given beside `profiles`.
         """
-        if self.profile == "hard":
+        if self.shapes is not None:
+            shapes = tuple(self.shapes)
+            if len(shapes) != count:
+                msg = f"ApertureSet.shapes must hold {count}, got {len(shapes)}"
+                raise OutputError(msg)
+            for shape in shapes:
+                check_aperture_shape(shape)
+            object.__setattr__(
+                self, "shapes", None if set(shapes) == {"circle"} else shapes
+            )
+        if self.profiles is None:
+            return
+        profiles = tuple(self.profiles)
+        if len(profiles) != count:
+            msg = (
+                f"ApertureSet.profiles must hold {count} profiles, got {len(profiles)}"
+            )
+            raise OutputError(msg)
+        for profile in profiles:
+            check_aperture_profile(profile)
+        if self.profile != "hard":
+            msg = (
+                "give the set's edge profile or a profile per row, not both; pass "
+                "profile or profiles"
+            )
+            raise OutputError(msg)
+        one = set(profiles)
+        object.__setattr__(self, "profile", profiles[0] if len(one) == 1 else "hard")
+        object.__setattr__(self, "profiles", None if len(one) == 1 else profiles)
+
+    def _check_outlines(self, count: int) -> None:
+        """Own the extents and check each row's measures against its shape.
+
+        Parameters
+        ----------
+        count : int
+            The number of apertures.
+
+        Raises
+        ------
+        OutputError
+            If a diameter or an extent is missing, not positive or silently unused,
+            or a half-plane's centre is off the axis it names.
+        """
+        shapes = self.row_shapes
+        circle = np.array([shape == "circle" for shape in shapes])
+        sized = np.array([shape in ("ellipse", "rectangle") for shape in shapes])
+        diameters = np.asarray(self.diameters)
+        if np.any(diameters[circle] <= 0):
+            msg = "every aperture diameter and distance must be positive"
+            raise OutputError(msg)
+        if np.any(diameters[~circle] != 0):
+            msg = "a diameter is a circle's; give zero on every row of another shape"
+            raise OutputError(msg)
+        if self.extents is None:
+            if np.any(sized):
+                msg = "an ellipse or a rectangle needs extents, (D_x, D_y) per aperture"
+                raise OutputError(msg)
+        else:
+            extents = _aperture_array(self.extents, (count, 2), "extents")
+            object.__setattr__(self, "extents", extents)
+            if not np.any(sized):
+                msg = (
+                    "extents are an ellipse's or a rectangle's, and would be silently "
+                    "unused here; pass extents=None"
+                )
+                raise OutputError(msg)
+            if np.any(extents[sized] <= 0) or np.any(extents[~sized] != 0):
+                msg = (
+                    "ApertureSet.extents must be positive on the row of an ellipse or "
+                    "a rectangle and zero on any other"
+                )
+                raise OutputError(msg)
+        centres = np.asarray(self.centres)
+        for row, shape in enumerate(shapes):
+            if shape.startswith("half_plane") and centres[row, _off_axis(shape)] != 0:
+                msg = (
+                    f"aperture {row}, a half-plane, has an edge on one axis only; its "
+                    "centre on the other must be zero"
+                )
+                raise OutputError(msg)
+
+    def _edge_measures(self) -> Float[np.ndarray, " n_apertures"]:
+        """Return the width each row's edge width is measured against.
+
+        Returns
+        -------
+        numpy.ndarray
+            A circle's diameter, ``sqrt(D_x D_y)`` of an ellipse (the diameter of its
+            circular frame), the smaller of a rectangle's widths, and zero on a
+            half-plane, which has none, in m, shape ``(n_apertures,)``.
+        """
+        measures = np.array(np.asarray(self.diameters))
+        if self.extents is not None:
+            extents = np.asarray(self.extents)
+            for row, shape in enumerate(self.row_shapes):
+                if shape == "ellipse":
+                    measures[row] = math.sqrt(extents[row, 0] * extents[row, 1])
+                elif shape == "rectangle":
+                    measures[row] = np.min(extents[row])
+        return measures
+
+    def _check_edges(self, count: int) -> None:
+        """Own the edge table and check it against the profiles and the weighting.
+
+        Parameters
+        ----------
+        count : int
+            The number of apertures.
+
+        Raises
+        ------
+        OutputError
+            If the edges disagree with the profiles or the weighting.
+        """
+        kinds = self.row_profiles
+        smooth = [kind for kind in kinds if kind != "hard"]
+        if not smooth:
             if self.edges is not None:
                 msg = (
                     "a hard aperture has no edge, and an edge given beside it would "
@@ -2058,36 +2244,112 @@ class ApertureSet:
                 raise OutputError(msg)
             return
         if self.edges is None:
-            msg = f"a {self.profile} aperture needs edges, one per aperture"
+            msg = f"a {smooth[0]} aperture needs edges, one per aperture"
             raise OutputError(msg)
         edges = _aperture_array(self.edges, (count,), "edges")
         object.__setattr__(self, "edges", edges)
-        diameters = np.asarray(self.diameters)
-        if self.profile == "supergauss":
-            if self.weighting == "quadrature":
-                msg = (
-                    "quadrature weighting needs a symmetric edge, and a supergauss "
-                    "profile has none; use amplitude weighting"
-                )
-                raise OutputError(msg)
-            if np.any(edges < 2):
-                msg = "every supergauss order must be at least 2"
-                raise OutputError(msg)
-            return
-        # tanh under quadrature weighting keeps its tail's area bias below 2e-5.
-        fraction = 8 if self.profile == "tanh" and self.weighting == "quadrature" else 4
-        if np.any(edges <= 0) or np.any(edges > diameters / fraction):
+        rows = np.array(kinds)
+        if np.any(edges[rows == "hard"] != 0):
             msg = (
-                f"a {self.profile} aperture under {self.weighting} weighting needs "
-                f"0 < w <= D/{fraction} for every aperture"
+                "a hard aperture has no edge, and an edge given beside it would be "
+                "silently unused; give zero on its row"
             )
             raise OutputError(msg)
-        if self.profile == "tanh" and self.weighting == "amplitude":
+        for kind in dict.fromkeys(smooth):
+            if kind == "supergauss":
+                self._check_orders(edges, rows == kind)
+            else:
+                self._check_widths(kind, edges, rows == kind)
+
+    def _check_orders(
+        self, edges: Float[np.ndarray, " n_apertures"], rows: np.ndarray
+    ) -> None:
+        """Check the rows with a supergauss profile.
+
+        Parameters
+        ----------
+        edges : numpy.ndarray
+            The edge table.
+        rows : numpy.ndarray
+            Which rows have the profile.
+
+        Raises
+        ------
+        OutputError
+            Under quadrature weighting, on a half-plane, or for an order below 2.
+        """
+        if self.weighting == "quadrature":
+            msg = (
+                "quadrature weighting needs a symmetric edge, and a supergauss "
+                "profile has none; use amplitude weighting"
+            )
+            raise OutputError(msg)
+        if any(
+            shape.startswith("half_plane")
+            for shape, row in zip(self.row_shapes, rows, strict=True)
+            if row
+        ):
+            msg = (
+                "a supergauss profile falls from a centre, and a half-plane has none; "
+                "use a hard, tanh or rcos edge"
+            )
+            raise OutputError(msg)
+        if np.any(edges[rows] < 2):
+            msg = "every supergauss order must be at least 2"
+            raise OutputError(msg)
+
+    def _check_widths(
+        self, kind: str, edges: Float[np.ndarray, " n_apertures"], rows: np.ndarray
+    ) -> None:
+        """Check the rows with one symmetric edge profile.
+
+        Parameters
+        ----------
+        kind : str
+            The profile, ``tanh`` or ``rcos``.
+        edges : numpy.ndarray
+            The edge table.
+        rows : numpy.ndarray
+            Which rows have the profile.
+
+        Raises
+        ------
+        OutputError
+            If an edge width is out of its range.
+
+        Warns
+        -----
+        solprop.exceptions.ApertureEdgeWarning
+            For ``tanh`` under amplitude weighting with ``r/w < 4``.
+        """
+        shapes = self.row_shapes
+        half_plane = np.array([shape.startswith("half_plane") for shape in shapes])
+        rectangle = np.array([shape == "rectangle" for shape in shapes])
+        tail = kind == "tanh" and self.weighting == "quadrature"
+        measures = self._edge_measures()
+        for chosen, fraction in (
+            (rows & ~half_plane & ~rectangle, 8 if tail else 4),
+            # Two tails, each (w/2a) exp(-2a/w) of a width: D/10 keeps their sum below
+            # the 2e-5 that D/8 keeps a circle's (SEP 23 section 4.5).
+            (rows & rectangle, 10 if tail else 4),
+        ):
+            if np.any(edges[chosen] <= 0) or np.any(
+                edges[chosen] > measures[chosen] / fraction
+            ):
+                msg = (
+                    f"a {kind} aperture under {self.weighting} weighting needs "
+                    f"0 < w <= D/{fraction} for every aperture"
+                )
+                raise OutputError(msg)
+        if np.any(edges[rows & half_plane] <= 0):
+            msg = f"a {kind} half-plane needs a positive edge width"
+            raise OutputError(msg)
+        if kind == "tanh" and self.weighting == "amplitude":
             # tanh is not flat at its centre: W'(0) = -sech^2(r/w) / 2w, so for
             # r/w < 4 a bright beam there converges only at third order in the mask
             # plane's spacing (about 1e-5 of the collected energy at r/w = 2). At
             # r/w >= 4 the slope is 0.02 of that and the error near 2e-7.
-            wide = np.flatnonzero(diameters / 2 < 4 * edges)
+            wide = np.flatnonzero(rows & ~half_plane & (measures / 2 < 4 * edges))
             if wide.size:
                 warnings.warn(
                     f"tanh apertures {wide.tolist()} under amplitude weighting have "
@@ -2095,11 +2357,15 @@ class ApertureSet:
                     "collected with a lattice error near 1e-5; rcos is flat inside "
                     "r - w and is preferred (or w <= D/8)",
                     ApertureEdgeWarning,
-                    stacklevel=4,
+                    stacklevel=5,
                 )
 
     def _check_paraxial(self) -> None:
         """Check that every aperture lies inside the paraxial disc ``|x| < z``.
+
+        A half-plane reaches the disc's edge by its nature, and the columns there
+        carry zero weight (SEP 23 section 4.2); its edge must lie inside the disc, or
+        it would select all of the disc or nothing.
 
         Raises
         ------
@@ -2107,9 +2373,12 @@ class ApertureSet:
             Naming the apertures that reach it.
         """
         centres = np.asarray(self.centres)
-        reach = np.hypot(centres[:, 0], centres[:, 1]) + np.asarray(self.diameters) / 2
-        if self.profile == "rcos":
-            reach = reach + np.asarray(self.edges)
+        reach = np.array(
+            [
+                self._reach(row, shape, centres[row])
+                for row, shape in enumerate(self.row_shapes)
+            ]
+        )
         outside = np.flatnonzero(reach >= np.asarray(self.distances))
         if outside.size:
             msg = (
@@ -2118,6 +2387,74 @@ class ApertureSet:
                 "exit face (SEP 23 section 4.2)"
             )
             raise OutputError(msg)
+
+    def _reach(self, row: int, shape: str, centre: Float[np.ndarray, " 2"]) -> float:
+        """Return how far from the origin a row's outline reaches in the mask plane.
+
+        Parameters
+        ----------
+        row : int
+            The aperture.
+        shape : str
+            Its outline.
+        centre : numpy.ndarray
+            Its centre, m.
+
+        Returns
+        -------
+        float
+            The reach in m. A raised cosine's reaches its edge width further out; the
+            unbounded ``tanh`` and ``supergauss`` tails are zeroed at the disc's edge.
+        """
+        width = (
+            float(np.asarray(self.edges)[row])
+            if self.row_profiles[row] == "rcos"
+            else 0.0
+        )
+        if shape.startswith("half_plane"):
+            return float(abs(centre[1 - _off_axis(shape)])) + width
+        if shape == "circle":
+            return (
+                float(np.hypot(centre[0], centre[1]))
+                + float(np.asarray(self.diameters)[row]) / 2
+                + width
+            )
+        half_x, half_y = 0.5 * np.asarray(self.extents)[row]
+        if shape == "rectangle":
+            return float(
+                np.hypot(
+                    abs(centre[0]) + half_x + width, abs(centre[1]) + half_y + width
+                )
+            )
+        # The ellipse's semi-axes grow by w/sqrt(a b) of themselves in its frame.
+        grown = max(half_x, half_y) * (1.0 + width / math.sqrt(half_x * half_y))
+        return float(np.hypot(centre[0], centre[1])) + float(grown)
+
+    @property
+    def row_shapes(self) -> tuple[ApertureShape, ...]:
+        """Return every row's outline.
+
+        Returns
+        -------
+        tuple of str
+            One of :data:`solprop.spatial.APERTURE_SHAPES` per aperture.
+        """
+        if self.shapes is None:
+            return ("circle",) * int(np.asarray(self.diameters).size)
+        return self.shapes
+
+    @property
+    def row_profiles(self) -> tuple[ApertureProfile, ...]:
+        """Return every row's edge profile.
+
+        Returns
+        -------
+        tuple of str
+            One of :data:`solprop.spatial.APERTURE_PROFILES` per aperture.
+        """
+        if self.profiles is None:
+            return (self.profile,) * int(np.asarray(self.diameters).size)
+        return self.profiles
 
     @property
     def n_apertures(self) -> int:
@@ -2141,8 +2478,8 @@ class ApertureSet:
         Returns
         -------
         bool
-            True when every table, the profile, the weighting and the labels agree
-            exactly: a structural comparison of two requests.
+            True when every table, each row's shape and profile, the weighting and
+            the labels agree exactly: a structural comparison of two requests.
         """
         if other is None:
             return False
@@ -2152,13 +2489,18 @@ class ApertureSet:
                 np.array_equal(np.asarray(getattr(self, name)), getattr(other, name))
                 for name in tables
             )
-            and (self.edges is None) == (other.edges is None)
-            and (
-                self.edges is None
-                or np.array_equal(np.asarray(self.edges), np.asarray(other.edges))
+            and all(
+                (mine is None) == (theirs is None)
+                and (
+                    mine is None or np.array_equal(np.asarray(mine), np.asarray(theirs))
+                )
+                for mine, theirs in (
+                    (self.edges, other.edges),
+                    (self.extents, other.extents),
+                )
             )
-            and (self.profile, self.weighting, self.labels)
-            == (other.profile, other.weighting, other.labels)
+            and (self.row_shapes, self.row_profiles, self.weighting, self.labels)
+            == (other.row_shapes, other.row_profiles, other.weighting, other.labels)
         )
 
 

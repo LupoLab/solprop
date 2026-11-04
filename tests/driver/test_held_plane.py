@@ -25,12 +25,10 @@ from solprop.backends.driver import StepDriver
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.registry import available
 from solprop.driver import Simulation
-from solprop.driver.memory import admit_memory
 from solprop.driver.run import run_problem
 from solprop.exceptions import DriverError, StopRequested
 from solprop.log import NullReporter
 from solprop.output import MemoryOutput, open_file
-from solprop.output.schema import FieldRetention
 from solprop.stepper import FixedSchedule, LowStorageRungeKutta
 
 # A soliton in a tight window, without a collar: its edges are not what is tested here.
@@ -93,25 +91,16 @@ def ledger(simulation: Simulation, output) -> tuple[int, int]:
 
 
 @pytest.mark.parametrize("backend", available())
-def test_the_ledger_and_the_admission_drop_one_volume(backend, tmp_path):
+def test_the_ledger_drops_one_volume(backend, tmp_path):
     on = built(backend)
     off = built(backend, held=False)
     held, volume = ledger(on, tmp_path / "on.h5")
     assert held == volume
     assert ledger(off, tmp_path / "off.h5") == (0, volume)
-    problem = off.translate()
-    rule = FieldRetention("none", ()).resolved(3)
-    charged = admit_memory(problem, backend, "none", retention=rule).estimate
-    spared = admit_memory(
-        problem, backend, "none", retention=rule, held_plane=False
-    ).estimate
-    assert charged.groups["held_plane"] == volume
-    assert "held_plane" not in spared.groups
-    assert charged.total - spared.total == volume
 
 
 def test_the_estimate_a_caller_reads_says_the_same():
-    """On the reference: it times a trial step, which a native march does not take."""
+    """On the reference: native's ledger has a measured heap row, which varies."""
     on, off = built(), built(held=False)
     volume = 16 * math.prod(off.translate().shape)
     assert on.estimate().memory - off.estimate().memory == volume
@@ -241,19 +230,13 @@ def test_a_step_abandoned_natively_leaves_no_checkpoint(monkeypatch, tmp_path):
 
 @pytest.mark.parametrize("backend", available())
 def test_an_output_without_checkpoints_holds_nothing_whatever_the_setting(backend):
-    """It would never read the state, so it is neither charged nor held."""
+    """It would never read the state, so it isn't held."""
     simulation = built(backend)
     output = _NoCheckpoints()
     held, _ = ledger(simulation, output)
     assert held == 0
     assert output.metadata is not None and output.metadata.backend is not None
     assert output.metadata.backend.settings["held_plane"] is False
-    problem = simulation.translate()
-    rule = FieldRetention("none", ()).resolved(3)
-    groups = admit_memory(
-        problem, backend, "none", output=_NoCheckpoints(), retention=rule
-    ).estimate.groups
-    assert "held_plane" not in groups
 
 
 @pytest.mark.parametrize("backend", available())

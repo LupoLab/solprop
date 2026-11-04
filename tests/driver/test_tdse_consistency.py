@@ -43,7 +43,7 @@ from solprop.driver.tdse_consistency import (
 )
 from solprop.exceptions import (
     BackendError,
-    MemoryBudgetError,
+    DriverError,
     TDSEConsistencyError,
     TDSEConsistencyWarning,
 )
@@ -666,7 +666,7 @@ def test_binding_diagnostic_is_one_charged_one_row_call(monkeypatch):
     assert binding.ledger.attempted == 2
     fake.failure = None
     fake.plan_bytes = 10**12
-    with pytest.raises(MemoryBudgetError):
+    with pytest.raises(DriverError):
         tdse.prepare_binding(descriptor, TDSEExecution(memory_limit=10**9), 2)
     binding.close()
 
@@ -683,7 +683,7 @@ def test_diagnostic_memory_is_admitted_beside_the_propagation_plans(monkeypatch)
         descriptor, TDSEExecution(memory_limit=limit), 1
     )
     spacing, field = protocol_field(_LAMBDA)
-    with pytest.raises(MemoryBudgetError):
+    with pytest.raises(DriverError):
         binding.diagnostic_currents(field[None, :], spacing)
     assert binding.ledger.attempted == 0
     binding.close()
@@ -745,7 +745,7 @@ def test_standalone_check_refuses_sae_and_reports_provider_failures(monkeypatch)
         check_consistency(response, TDSEExecution(), reference_wavelength=_LAMBDA)
     fake.preset_changes = {}
     fake.model_bytes = 10**9
-    with pytest.raises(MemoryBudgetError):
+    with pytest.raises(DriverError):
         check_consistency(
             response, TDSEExecution(memory_limit=10**6), reference_wavelength=_LAMBDA
         )

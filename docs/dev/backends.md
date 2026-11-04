@@ -544,8 +544,7 @@ its two collared products, the projected rows, the spectra and all forward plans
 construction (the `held_current*` ledger rows). Modal routes project before transforming;
 radial routes transform and combine at each node, crop, then make one frequency-space
 projection. Cartesian and line sources combine before their transverse FFT, and planar
-sources before the y transform. The memory estimate replaces the reference's held-source
-allowance with the native workspace's actual array sizes.
+sources before the y transform.
 
 **Mixtures.** The fused column takes a channel loop around the plasma recurrence: one
 exposure scan per labelled channel with its own rate table, potential, density and
@@ -1122,7 +1121,7 @@ each amplitude is accumulated twice, as `sum alpha W E` and as its closure
 `sum alpha W conj(eta) E` (the internal spectrum takes the conjugate admittance). The
 admittance is formed per element, from the root the operator uses, never stored as a
 column-by-frequency table. The slots (`backends.spatial.far_field_layout`) are the
-present ones of `[beam, absorbed x 4, regions..., per aperture (collected, Re and Im of
+present ones of `[beam, absorbed x 5, regions..., per aperture (collected, Re and Im of
 the on-axis amplitude per polarisation, then of its closure), on-axis amplitude and
 closure]`. The last is the `W = 1` slot: `on_axis_spectrum` is formed there, which holds SEP 23's
 identity between the two to rounding by construction. `native` forms `on_axis_intensity` in
@@ -1144,8 +1143,7 @@ aperture statistic asked for (a periodic `beam_spectrum` sample) evaluate no wei
 
 The native `Problem` carries the stored axes `spatial_k_x` and `spatial_k_y` and the slot count of
 the problem's own request (`spatial_far_field_slots`), which sizes the band partials at construction
-(`far_field_partials` in the ledger, to the byte the estimate's row in
-`backends.memory.far_field_memory`). The call carries the tables, `(n_apertures, 6 + n_omega)` rows
+(`far_field_partials` in the ledger). The call carries the tables, `(n_apertures, 11 + n_omega)` rows
 of the host-formed constants and scale row and `(n_regions, 4)` boxes, which the native
 `far_field_tables` row holds with the axes and the packed output. A build declares the names it
 forms in `NativeBackend.far_field_statistics`; solprop's registry admits them by it and refuses them
@@ -1483,8 +1481,7 @@ route (one to three Cartesian components). What is the native backend's own:
   applies to what it reads (a power of two).
 - **Order and memory.** Every kernel is a fixed-order loop inside one output element;
   views and plans are made at construction, and seven `dispersive_*` rows join
-  `memory_ledger()`, zero on every other problem;
-  `solprop.backends.memory.dispersive_memory` predicts the rows on each route to the byte.
+  `memory_ledger()`, zero on every other problem.
 
 **CPU-build arithmetic choices.** Each is a speed choice that moves an answer by rounding
 at most:
@@ -1643,8 +1640,7 @@ coherent bias; the split-step collar is therefore applied as the correction
 `memory.MLX_GRAPH_BUDGET` (1 GiB) a whole step is one graph, read with its norm in one
 synchronisation (the three scaled sums and the trial state's finiteness); above it
 each stage and each running integral is evaluated as it is formed.
-`estimate_memory("mlx")` counts the device tables, the double-float terms and the
-graph the backend keeps, and bounds MLX's measured peak; on the spatial routes a stage
+On the spatial routes a stage
 also holds the transverse transforms' copies and the reference's in-place passes as
 separate arrays, measured at up to 18 fine-grid columns per column on the Cartesian
 route and 9 on the radial one, whose operator carries SEP 40's safety ramp
@@ -1711,46 +1707,16 @@ All required buffers are allocated before stepping. This changes storage, not th
 method or its maximum order. The [Cartesian memory investigation](benchmarks.md#resident-adams-storage)
 distinguishes these allocations from process peak RSS, host copies and FFT workspaces.
 
-**Admission.** Before a backend allocates, the driver estimates every run from the same
-formulas (`solprop.backends.memory.estimate_memory`, equal to each backend's route ledger
-rows to the byte, the Python-owned reference counted on the native backend too) and compares the
-estimate with a budget: the `memory_budget=` keyword, else `SOLPROP_MEMORY_BUDGET`, else
-four fifths of the machine's memory (the smallest of physical memory, a cgroup limit and a
-Slurm allocation). A declared budget refuses; the undeclared default warns
-(`solprop.driver.memory`). A general modal guide is admitted at construction too, from its
-declared shape and before the route builds its reference, maps and chunk
-(`estimate_guide_memory`, `admit_guide_memory`), so a guide over a refusing budget
-allocates none of them. An in-memory output is charged as the `output` group for the
-planes whose fields the run keeps ([SEP 22](seps/archive/sep-0022-memory-lean-spatial-execution.md)'s
-`fields`), and a field-free run under the low-storage march adds one `held_plane`
-volume unless `SimulationSettings.held_plane` is off or the output keeps no checkpoint; a `SimulationRunner` is admitted once for its backend and each run for its own
-output beside it. On the general modal route memory is dominated by the dense maps
-and the resident E/H reference, `16 Q C M n_omega` bytes per map and up to 14 such maps on
-a constant guide on every backend (`native` holds two natively; the other twelve are the
-Python-owned record).
-
-**The estimate's groups** (`solprop.backends.memory.MEMORY_GROUPS`) are grouped as the
-backends' own ledgers group their buffers, so a refusal can name the largest and what to
-change: `base` (the state, the stages, the propagators and the transform buffers), on the
-general modal route `general_maps`, `general_reference` (the dense E/H reference at every
-frequency bin, the largest group on a guide with many channels), `general_chunk` and
-`general_delayed`, `coupled_flow` for a coherent wall or a varying guide, and
-`adams_history` for the Adams integrator's history rows (on the native backend the resident
-engine's); beside them `initial_field`, the translated problem's initial state at the
-bytes it holds (a broadcast input's repeated block alone, `kernel-contract.md` section 6),
-resident like the general reference and in no backend's ledger; the driver adds `output`,
-`held_plane` and `simulation_input` (a simulation's own copy of an array input that the
-problem does not share, on a modal route). The route groups equal each
-backend's ledger to the byte. `base` is the reference's count of its buffers on every
-backend, plus the native backend's own rows where the
-two differ (the far-field partials, the dispersive response's buffers, the held
-field-current source's, and on the Cartesian and line routes its statistics and absorber
-buffers per chunk, `free_space_memory`, where a Kerr beam's ledger is matched to the
-byte). What is not counted is named on every estimate: FFTW's planning
-heap, per-stage transients and the problem's
-own tables. A run over its budget is refused by name before anything is written — the
-estimate, the budget, the largest groups and what to change — rather than paging or being
-killed hours in; nothing is ever approximated to fit. The user-facing account is
+**No admission check.** Nothing compares a run's memory with the machine's before the
+backend allocates ([ADR-065](decisions.md)). A backend allocates and first-touches its
+buffers at construction, so a run that doesn't fit fails there, with `MemoryError` or
+killed by the kernel or the scheduler; `Simulation.estimate` reports the constructed
+ledger's total. Scan workers and batch groups are still bounded, from measured RSS and
+the ledger ([scans](../guide/workflows/scans.md)), and so is TDSE's atomic storage, by
+`TDSEExecution.memory_limit`. On the general modal route memory is dominated by the dense
+maps and the resident E/H reference, `16 Q C M n_omega` bytes per map and up to 14 such
+maps on a constant guide on every backend (`native` holds two natively; the other twelve
+are the Python-owned record). The user-facing account is
 [Execution resources](../guide/performance/resources.md#memory).
 
 **The low-storage march** ([SEP 24](seps/archive/sep-0024-low-storage-interaction-picture-runge-kutta.md))
@@ -1760,17 +1726,15 @@ holds no stage, accumulator or propagator-pair row: `numpy_ref`'s ledger
 table in `propagators` (one volume of `exp(h D / 2)` on a constant operator, the step's
 `P` and `Q` on a varying one, nothing when recomputing). On a Cartesian grid that is five
 field-sized volumes tabulated and four recomputed, one more with the `modified` noise,
-against 13 to 16 for the Runge–Kutta march and 20 to 44 with the Adams history;
-`estimate_memory` equals the ledger to the byte (`tests/backends/test_low_storage.py`).
-A run `_admit_history` refuses under Adams but that fits under the march is admitted
-with it. The native backend runs it on register kernels
+against 13 to 16 for the Runge–Kutta march and 20 to 44 with the Adams history.
+The native backend runs it on register kernels
 holding none of the Runge–Kutta march's buffers -- `GeneralWorkspace` then
 allocates no `stages_`, `solution_`, `error_`, `residual_`, `recycled_`, `advanced_`,
 `whole_propagator_` or `stage_inverse_` -- and elides the stage register on the
 Cartesian and line routes without an in-stage collar (`low_storage_stage_register`):
 four volumes tabulated, three recomputed. Its ledger's march rows (the state, the
-registers, the flows counted by `low_storage_flows`, the transverse scratch) equal the
-estimate to the byte. Recomputing on a modal or general route, `native` forms the flows
+registers, the flows counted by `low_storage_flows`, the transverse scratch) are the
+reference's. Recomputing on a modal or general route, `native` forms the flows
 per element from the phase terms and holds none, so no flow or exponent is a transient
 outside the ledger. The
 native state refuses what its folds cannot read: an elided stage register beside an

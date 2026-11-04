@@ -94,7 +94,7 @@ expansion. A
 total-degree expansion is not part of the contract: it failed the joint memory and
 build-cost criterion on the short fixture.
 
-The current version is kernel schema **44**
+The current version is kernel schema **45**
 (`solprop.translate.problem.KERNEL_SCHEMA_VERSION`), and the tables of this document
 describe it. A version bump that adds an optional field
 leaves every problem that does not use it unchanged, `schema_version` itself being the
@@ -353,7 +353,9 @@ refuses varying media and `propagator_mode="tabulate"` explicitly.
 are `k_squared` and `k_squared_low` (complex128, material wave-number square
 and its residual in m^-2), `frame`
 (float64, frame subtraction in m^-1), `spectral_rate` (float64, nonnegative power
-absorption in m^-1), `prefactor_numerator` and `prefactor_clamped` (complex128,
+absorption in m^-1), `user_rate` (float64, the share of `spectral_rate` a custom rate
+supplies, between zero and it, read only by `absorbed_power`; zeros when there is none,
+kernel schema 45), `prefactor_numerator` and `prefactor_clamped` (complex128,
 purely imaginary, with temporal crop scaling), and `active` (bool). Each has
 `n_omega` entries. `kperp_sq` is a nonnegative float64 vector of `n_modes`
 transverse wave-number squares in m^-2; `kperp_sq_low` has the same shape and
@@ -774,7 +776,7 @@ their spectra combine as `P + X/(iω) − Z/(iω)²`; inactive bins are exactly 
 zero-frequency division executes. Modal routes project before transforming; radial
 routes transform on nodes, combine and crop, then project once; Cartesian, line and
 planar routes combine before their transverse transform. The derivative and every
-additional buffer are charged to memory admission. The steady-current certificate uses
+additional buffer are in the memory ledger. The steady-current certificate uses
 the complete fine transform (DC included) in its denominator, must not exceed 1e-10 and
 is recorded under `plasma_source`.
 
@@ -1051,8 +1053,6 @@ caller's array is never frozen: the state, the noise and the batch parameters ar
 copied; a broadcast state (as from `numpy.broadcast_to`) copies only the block it
 repeats, converted to complex128, and broadcasts that copy; and an array the problem
 already holds, or one the translation built for it, is taken without a second copy.
-`estimate_memory` counts what is held as its `initial_field` group (`backends.md`
-section 8).
 
 ## 7. Stepper settings and schedule
 
@@ -1081,7 +1081,7 @@ xfail in `tests/backends/test_native_planar_statistics.py` records the differenc
 
 | field | type | meaning |
 |---|---|---|
-| `stats_spec` | frozen dataclass | `solprop.stats.StatsSpec`: which statistics, energy windows (`(n_windows, 2)` in ω), periodic subset and period, validated against the catalogue at construction; and the far-field tables of [SEP 23](seps/archive/sep-0023-far-field-aperture-spectra.md), `apertures` (an `ApertureSet`: centres, diameters, distances, edges, profile, weighting, labels) and `spectral_regions` (`(n_regions, 4)` boxes of physical transverse wavevector in rad/m, the one leaf whose entries may be infinite), read only when a name that uses them is requested, so a backend that does not know a name refuses it rather than misreading a table. Fields of the leaf, not rows of the contract |
+| `stats_spec` | frozen dataclass | `solprop.stats.StatsSpec`: which statistics, energy windows (`(n_windows, 2)` in ω), periodic subset and period, validated against the catalogue at construction; and the far-field tables of [SEP 23](seps/archive/sep-0023-far-field-aperture-spectra.md), `apertures` (an `ApertureSet`: centres, diameters, distances, edges, profile, weighting, labels, and from schema 45 the optional shapes, profiles and extents, which a record leaves out while they are unset) and `spectral_regions` (`(n_regions, 4)` boxes of physical transverse wavevector in rad/m, the one leaf whose entries may be infinite), read only when a name that uses them is requested, so a backend that does not know a name refuses it rather than misreading a table. Fields of the leaf, not rows of the contract |
 
 The `periodic` subset and its `period` are read **when the backend is built**, not when a
 run is started: the shared step loop arms the between-planes channel from

@@ -72,7 +72,7 @@ In scripts and library code, import from the home modules listed below.
 
 **Internals.** {mod}`solprop.translate` turns the physics objects into the kernel problem
 a backend executes, and {mod}`solprop.backends` holds the in-tree reference backend (`numpy_ref`),
-the registry that selects a backend by name and the memory estimate. They
+and the registry that selects a backend by name. They
 are documented for developers and backend authors rather than for everyday use; the
 design behind both is in the [developer documentation](../dev/index.md).
 

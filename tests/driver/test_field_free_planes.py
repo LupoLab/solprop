@@ -27,7 +27,6 @@ from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.protocol import BackendHistory, Observation
 from solprop.backends.registry import available, select
 from solprop.driver import Simulation, SimulationSettings
-from solprop.driver.memory import admit_memory, field_bytes, plane_bytes
 from solprop.driver.run import field_retention, run_problem
 from solprop.exceptions import BackendError, ConvergenceError, DriverError
 from solprop.grid import EnvelopeGrid, FreeGrid
@@ -429,25 +428,6 @@ def test_an_output_that_cannot_store_field_free_planes_is_refused():
             )
     finally:
         backend.close()
-
-
-def test_the_memory_admission_charges_only_the_kept_fields():
-    simulation = cartesian("numpy_ref")
-    problem = simulation.translate()
-    n_planes = len(PLANES) + 1
-    groups = {}
-    for fields, field_planes in RULES:
-        retention = FieldRetention(fields, field_planes).resolved(n_planes)
-        admission = admit_memory(
-            problem, "numpy_ref", "none", output=MemoryOutput(), retention=retention
-        )
-        groups[fields] = admission.estimate.groups["output"]
-    per_plane, field = plane_bytes(problem), field_bytes(problem)
-    # Exact arithmetic of the store's allocation: the statistics of every plane, the
-    # field of the kept ones.
-    assert groups["all"] == n_planes * per_plane
-    assert groups["planes"] == n_planes * (per_plane - field) + 2 * field
-    assert groups["none"] == n_planes * (per_plane - field)
 
 
 # --- the seam: observe(field=False) (SEP 22 phase 2) --------------------------------

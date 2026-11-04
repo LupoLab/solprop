@@ -435,12 +435,12 @@ translation.
 ## What a run will cost
 
 `simulation.estimate()` answers before a run: the state's shape, the persistent memory
-admitted against the budget before anything is allocated (a run that would be refused is
-reported, not attempted), the output's size for the planes and fields it keeps, the cost
-of one right-hand-side evaluation on its backend, timed after an untimed warm-up that
+its constructed backend holds, the output's size for the planes and fields it keeps, the
+cost of one right-hand-side evaluation on its backend, timed after an untimed warm-up that
 takes the compilation and transform planning (reported as `setup`), and the integrator's
 evaluations per step, with their total for a replayed schedule. It does not predict the
-number of adaptive steps, which the physics decides.
+number of adaptive steps, which the physics decides. It builds the backend, so a run
+that doesn't fit in memory fails here as the run would.
 
 ## Many inputs, one backend: the runner
 
@@ -448,7 +448,7 @@ A large problem pays for its backend before it takes a step: about fifteen copie
 state are allocated and first touched, and the transforms are planned. A delay scan or a
 sweep of the input runs the same translated problem for hundreds of inputs, and need pay
 that once. {py:meth}`~solprop.driver.simulation.Simulation.runner` translates (or reuses
-the cached translation), admits the memory and constructs one backend; each
+the cached translation) and constructs one backend; each
 {py:meth}`~solprop.driver.simulation.SimulationRunner.run` then loads one input into it
 and runs the save-plane loop
 ([SEP 22](../../dev/seps/archive/sep-0022-memory-lean-spatial-execution.md) §5.2):
@@ -458,7 +458,7 @@ import dataclasses
 
 simulation.settings = dataclasses.replace(simulation.settings, fields="none")
 spectra = []
-with simulation.runner(memory_budget="60 GiB") as runner:
+with simulation.runner() as runner:
     for delay in delays:
         output = runner.run(
             build_input(delay),                  # an array or a pulse, as with_input takes
@@ -490,9 +490,7 @@ for the input, and refuses by name:
 - a second run started while one is running: one backend steps one input at a time.
 
 A run that raises leaves the runner open, since the next input resets everything; a
-backend that closed itself closes the runner. The runner admits the backend's memory
-once, before constructing it, and admits each run's in-memory output beside it when the
-run starts.
+backend that closed itself closes the runner.
 
 The march holds no input. An array the record keeps by its digest (below) is read in
 place rather than copied, and the runner drops every reference to it, and to the launch

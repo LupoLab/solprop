@@ -40,7 +40,6 @@ from modal_provider_cases import (
     make_provider,
 )
 from solprop.backends import select
-from solprop.backends.memory import estimate_memory, ledger_groups
 from solprop.backends.numpy_ref.admission import refuse_general_route
 from solprop.backends.numpy_ref.backend import NumpyRefBackend
 from solprop.backends.numpy_ref.batch import NumpyBatchBackend
@@ -335,26 +334,6 @@ def test_a_run_longer_than_the_declared_path_is_refused(kinked):
     """The geometry is declared over the provider's z domain and not past it."""
     with pytest.raises((DriverError, TranslationError, Exception), match="path"):
         build(kinked, grin_grid(z_end=2 * LENGTH), length=2 * LENGTH).translate()
-
-
-def test_the_memory_estimate_counts_the_moving_maps_to_the_byte(kinked_problem):
-    """Sections times degree of each map, and the two a stage evaluates."""
-    simulation, problem = kinked_problem
-    estimate = estimate_memory(problem, "numpy_ref")
-    backend = select("numpy_ref", problem, grid=simulation.grid)
-    try:
-        ledger = backend.memory_ledger()
-        held = ledger_groups(ledger)
-    finally:
-        backend.close()
-    for group, value in held.items():
-        if group != "measured":
-            assert estimate.groups[group] == value, group
-    tables = problem.transform.modal_tables
-    assert tables is not None and tables.synthesis is not None
-    one = tables.synthesis[0, 0].nbytes
-    assert ledger["general_synthesis"] == 10 * one
-    assert ledger["general_stage_maps"] == 2 * one
 
 
 @pytest.mark.medium

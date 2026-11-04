@@ -50,7 +50,6 @@ pulse, noise and output keywords; these differ, by interface:
 | `step_planes`, `interpolate_planes` | yes (`step_planes=None`, the default, and `0` are off) | yes (`None` is off, or every step with the TDSE response) | yes (`None` is off) | in the settings |
 | `polarisation_taper` | yes | yes | yes | in the settings |
 | the launch | the pulse | `launch=`, or the first mode | `launch=`; with `provider=` also `channel=` or `incident=` with `coupling=`; or the first channel | a beam (`SpatialPulse`, `PlanarPulse`) |
-| `memory_budget` | `Simulation.run(memory_budget=)` | as the GNLSE | as the GNLSE; with `provider=` also `Simulation.from_waveguide(memory_budget=)` | as the GNLSE |
 
 The default integrators and tolerances, and the reason for each difference between the
 interfaces, are in [choosing a stepper](../numerics/choosing-a-stepper.md#the-defaults);
@@ -69,9 +68,6 @@ deliberate:
   so they keep different names.
 - **`noise`** is not drawn on `prop_planar`: a planar grid declares no photon measure, and
   adding one is physics, not a keyword.
-- **`memory_budget`** has one unit everywhere and two gates: `Simulation.run` admits the
-  run's buffers when it starts, and a guide given to `from_waveguide` admits its tables
-  and maps before they are built, which happens there.
 
 **Which one?** A hollow guide filled with gas is the capillary route; add the coherent
 wall when linear coupling through the boundary matters to the retained modes,
