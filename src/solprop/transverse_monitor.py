@@ -18,9 +18,12 @@ current spectrum, and the spacing is a ceiling on the step. The safety ramp's re
 is credited per read interval and judged above the realised input noise's own share.
 Every run reports a ``transverse_status``; only ``clear`` is a clean verdict.
 
-The field read is the backend's committed spectral state; the reduction is the host's,
-which ``numpy_ref`` carries in phase 1 of SEP 40. A backend that does not read the edge
-leaves the run ``unwatched``, which it says before the first step.
+A backend reduces its committed spectral state where the state lives and hands the edge
+an :class:`EdgeReading`, numbers and never the field. :class:`HostEdgeReduction` is the
+reference, on a host copy of the state, and everything else here is the same on every
+backend: the faces, the weights, the spacing, the ledgers and the judgement (SEP 44). A
+backend that does not read the edge leaves the run ``unwatched``, which it says before
+the first step.
 """
 
 from __future__ import annotations
@@ -33,7 +36,7 @@ from typing import Literal, cast
 
 import numpy as np
 import scipy.fft
-from jaxtyping import Complex, Float, Int
+from jaxtyping import Bool, Complex, Float, Int
 
 from solprop._process import thread_budget
 from solprop.exceptions import BoundaryError, BoundaryWarning
@@ -45,7 +48,8 @@ __all__ = [
     "GUARD",
     "NOISE_FACTOR",
     "READS",
-    "READ_RESOLUTION",
+    "EdgeReading",
+    "HostEdgeReduction",
     "TransverseEdge",
     "TransverseStatus",
 ]
@@ -64,17 +68,37 @@ NOISE_FACTOR = 8.0
 _SMALL_TRANSFORM = 2**18
 """Host transforms below this many elements run on one thread."""
 
-READ_RESOLUTION = 1e-3
-"""A read may leave out the frequencies whose energy together is at most this fraction
-of the warning (``budget**2`` of the launch energy). By Parseval a frequency cannot put
-more on a face than it holds, so a face's share reads low by at most that, a thousandth
-of what warns. A run's light occupies a fraction of a grid's frequencies at this level
-(from a fifth to a third on filaments and Kerr beams), and each read would otherwise
-synthesise them all (issue #453)."""
-
 TransverseStatus = Literal[
     "clear", "warned", "stopped", "insensitive", "coarse", "unwatched", "off"
 ]
+
+
+@dataclass(frozen=True, eq=False)
+class EdgeReading:
+    """What a backend reads of its state for the edge: numbers, never the field.
+
+    Attributes
+    ----------
+    nodes : numpy.ndarray or None
+        Each physical node's (or row's) ``sum |E|^2`` over polarisation and frequency,
+        unweighted, shape ``(n_nodes,)``. A read need form only the rows the edge named,
+        and leaves the others zero. ``None`` when only the current was asked for.
+    columns : numpy.ndarray or None
+        Each spectral column's ``sum |E|^2``, unweighted, shape ``(n_columns,)``;
+        ``None`` when only the current was asked for.
+    strip : numpy.ndarray or None
+        A requested collar's return strip, ``(inward, windowed)`` energy per line along
+        a face's normal, shape ``(n_lines, 2)``, unweighted by the launch; ``None``
+        without a collar, or when only the current was asked for.
+    current : float or None
+        The rectified inward current across the collar's onset, unweighted by the
+        launch; ``None`` when it was not asked for.
+    """
+
+    nodes: Float[np.ndarray, " n_nodes"] | None = None
+    columns: Float[np.ndarray, " n_columns"] | None = None
+    strip: Float[np.ndarray, "n_lines 2"] | None = None
+    current: float | None = None
 
 
 @dataclass(frozen=True)
@@ -209,6 +233,301 @@ def _guard_width(space: RadialGrid | FreeGrid | PlanarGrid) -> float:
     return GUARD * min(widths)
 
 
+def _radial_inverse(space: RadialGrid) -> Float[np.ndarray, "n_r n_r"]:
+    """Return the radial grid's synthesis from its spectral columns to its nodes.
+
+    Parameters
+    ----------
+    space : solprop.grid.RadialGrid
+        The grid.
+
+    Returns
+    -------
+    numpy.ndarray
+        The dense matrix.
+    """
+    hankel = space.hankel
+    return (
+        hankel.inverse_scale * (hankel.j1[:, None] / hankel.j1[None, :]) * hankel.matrix
+    )
+
+
+@dataclass
+class HostEdgeReduction:
+    """The reference reductions of the edge, on a host copy of a state (SEP 44).
+
+    A backend whose state lives elsewhere forms the same numbers there instead
+    (``StepDriver._edge_reading``), and is held to these.
+
+    Attributes
+    ----------
+    space : solprop.grid.RadialGrid, solprop.grid.FreeGrid or PlanarGrid
+        The run's grid.
+    rows : numpy.ndarray
+        Boolean mask of the nodes (or rows) a read uses: the edge's and a collar's.
+    strip_bounds : tuple of float or None
+        A requested collar's return strip in the outward coordinate, m.
+    """
+
+    space: RadialGrid | FreeGrid | PlanarGrid
+    rows: Bool[np.ndarray, " n_nodes"]
+    strip_bounds: tuple[float, float] | None
+    _inverse: np.ndarray | None = field(default=None, init=False)
+    # The host's transverse transforms take the process's thread budget (ADR-052).
+    _workers: int = field(default_factory=lambda: thread_budget().threads, init=False)
+
+    def reading(
+        self,
+        state: Complex[np.ndarray, "n_modes n_pol n_omega"],
+        *,
+        faces: bool = True,
+        current: tuple[float, float] | None = None,
+        full: bool = False,
+    ) -> EdgeReading:
+        """Return what the edge asked of a state.
+
+        Parameters
+        ----------
+        state : numpy.ndarray
+            One batch member's spectral columns.
+        faces : bool, optional
+            Whether to read the nodes, the columns and any strip.
+        current : tuple of float or None, optional
+            ``(size, k_min)``: to read the current at the onset of that requested size,
+            m, on that wavenumber, rad/m.
+        full : bool, optional
+            Whether every node is wanted, as a launch wants, not only the read's rows.
+
+        Returns
+        -------
+        solprop.transverse_monitor.EdgeReading
+            The reading.
+        """
+        rate = None if current is None else self.current(state, *current)
+        if not faces:
+            return EdgeReading(current=rate)
+        return EdgeReading(
+            self.node_power(state, full=full),
+            self.column_power(state),
+            None if self.strip_bounds is None else self.strip(state),
+            rate,
+        )
+
+    def node_power(
+        self,
+        state: Complex[np.ndarray, "n_modes n_pol n_omega"],
+        *,
+        full: bool = True,
+    ) -> Float[np.ndarray, " n_nodes"]:
+        """Return each physical node's (or row's) energy, over pol and frequency.
+
+        Parameters
+        ----------
+        state : numpy.ndarray
+            One batch member's spectral columns.
+        full : bool, optional
+            Whether every node is wanted. Otherwise radially the rows a read doesn't use
+            are not synthesised and are zero: a read happens many times a run, and the
+            full synthesis is an ``n_r``-square product per frequency.
+
+        Returns
+        -------
+        numpy.ndarray
+            ``|E|^2`` summed, unweighted, in the state's units squared.
+        """
+        space = self.space
+        flat = state.reshape(state.shape[0], -1)
+        if isinstance(space, RadialGrid):
+            if self._inverse is None:
+                self._inverse = _radial_inverse(space)
+            if full:
+                return _row_energy(self._inverse @ flat)
+            nodes = np.zeros(space.n_r)
+            nodes[self.rows] = _row_energy(self._inverse[self.rows] @ flat)
+            return nodes
+        if isinstance(space, PlanarGrid):
+            cube = flat.reshape(space.n_y, space.n_p, -1)
+            physical = scipy.fft.ifft(cube, axis=0, workers=self._fft_workers(cube))
+            physical = physical.reshape(space.n_y, -1)
+        else:
+            cube = flat.reshape(space.n_y, space.n_x, -1)
+            workers = self._fft_workers(cube)
+            physical = scipy.fft.ifftn(cube, axes=(0, 1), workers=workers)
+            physical = physical.reshape(space.n_y * space.n_x, -1)
+        if full:
+            return _row_energy(physical)
+        nodes = np.zeros(physical.shape[0])
+        nodes[self.rows] = _row_energy(physical[self.rows])
+        return nodes
+
+    def _fft_workers(self, cube: np.ndarray) -> int:
+        """Return the threads for one host transform of `cube`.
+
+        A small transform is faster on one thread than on a pool woken beside the
+        backend's own threads.
+
+        Parameters
+        ----------
+        cube : numpy.ndarray
+            The array transformed.
+
+        Returns
+        -------
+        int
+            The thread budget's threads, or 1 below ``2**18`` elements.
+        """
+        return self._workers if cube.size >= _SMALL_TRANSFORM else 1
+
+    @staticmethod
+    def column_power(
+        state: Complex[np.ndarray, "n_modes n_pol n_omega"],
+    ) -> Float[np.ndarray, " n_columns"]:
+        """Return each spectral column's unweighted energy.
+
+        Parameters
+        ----------
+        state : numpy.ndarray
+            One batch member's spectral columns.
+
+        Returns
+        -------
+        numpy.ndarray
+            ``sum |E|^2`` over polarisation and frequency.
+        """
+        return _row_energy(state.reshape(state.shape[0], -1))
+
+    def lines(
+        self, state: Complex[np.ndarray, "n_modes n_pol n_omega"]
+    ) -> list[tuple[np.ndarray, np.ndarray, float]]:
+        """Return the field along each face's outward normal, line by line.
+
+        Parameters
+        ----------
+        state : numpy.ndarray
+            One member's spectral columns.
+
+        Returns
+        -------
+        list of tuple
+            ``(s, values, measure)``: the outward coordinate of the line's nodes, m;
+            the field on them, ``(n_nodes, n_rows)`` with one row per frequency,
+            polarisation and transverse line (``sqrt(r) E`` radially); and the
+            measure each row's sum is multiplied by.
+        """
+        space = self.space
+        flat = state.reshape(state.shape[0], -1)
+        if isinstance(space, RadialGrid):
+            r = np.asarray(space.r)
+            return [
+                (r, np.sqrt(r)[:, None] * (_radial_inverse(space) @ flat), 2 * np.pi)
+            ]
+        if isinstance(space, PlanarGrid):
+            cube = np.fft.ifft(flat.reshape(space.n_y, space.n_p, -1), axis=0)
+            rows = cube.reshape(space.n_y, -1)
+            y = np.asarray(space.y)
+            return [(y, rows, 1.0), (-y, rows, 1.0)]
+        cube = np.fft.ifftn(flat.reshape(space.n_y, space.n_x, -1), axes=(0, 1))
+        x = np.asarray(space.x)
+        dy = 1.0 if isinstance(space, LineGrid) else float(space.y[1] - space.y[0])
+        along_x = np.moveaxis(cube, 1, 0).reshape(space.n_x, -1)
+        lines = [(x, along_x, dy), (-x, along_x, dy)]
+        if not isinstance(space, LineGrid):
+            y = np.asarray(space.y)
+            dx = float(space.x[1] - space.x[0])
+            along_y = cube.reshape(space.n_y, -1)
+            lines += [(y, along_y, dx), (-y, along_y, dx)]
+        return lines
+
+    def strip(
+        self, state: Complex[np.ndarray, "n_modes n_pol n_omega"]
+    ) -> Float[np.ndarray, "n_lines 2"]:
+        """Return each line's resolved inward energy and windowed energy in the strip.
+
+        A Kaiser(8)-windowed transform along each face's normal, padded twice; the
+        inward energy is that at ``|q| >= 16 / s`` travelling inward, where the
+        window's leakage is about ``1e-6`` (section 5.3).
+
+        Parameters
+        ----------
+        state : numpy.ndarray
+            One member's spectral columns.
+
+        Returns
+        -------
+        numpy.ndarray
+            ``(inward, windowed)`` per line, unweighted by the launch; zero on a line
+            with too few nodes in the strip.
+        """
+        assert self.strip_bounds is not None
+        a, b = self.strip_bounds
+        resolved = 16.0 / (b - a)
+        found = []
+        for s, values, measure in self.lines(state):
+            select = (s >= a) & (s <= b)
+            if np.count_nonzero(select) < 4:
+                found.append((0.0, 0.0))
+                continue
+            order = np.argsort(s[select])
+            coordinate = s[select][order]
+            spacing = float(np.mean(np.diff(coordinate)))
+            u = 2 * (coordinate - a) / (b - a) - 1
+            window = np.i0(8.0 * np.sqrt(np.clip(1 - u * u, 0.0, 1.0))) / np.i0(8.0)
+            lines = window[:, None] * values[select][order]
+            count = 2 * coordinate.size
+            spectrum = np.abs(np.fft.fft(lines, count, axis=0)) ** 2 * spacing / count
+            q = 2 * np.pi * np.fft.fftfreq(count, d=spacing)
+            # solprop propagates as exp(-i k_z z) (the operator carries -i(k_z - k)), so
+            # a component exp(i q s) travels towards smaller s: inward is q > 0.
+            found.append(
+                (
+                    float(np.sum(spectrum[q >= resolved])) * measure,
+                    float(np.sum(spectrum)) * measure,
+                )
+            )
+        return np.array(found, dtype=np.float64).reshape(-1, 2)
+
+    def current(
+        self,
+        state: Complex[np.ndarray, "n_modes n_pol n_omega"],
+        size: float,
+        k_min: float,
+    ) -> float:
+        """Return the inward energy current across the collar's onset, rectified.
+
+        ``J = Im(E* dE/dn) / k`` on the requested size's boundary, summed over its
+        frequencies and lines, per metre of propagation, counting inward flow only
+        (section 5.3).
+
+        Parameters
+        ----------
+        state : numpy.ndarray
+            One member's spectral columns.
+        size : float
+            The requested half-size on the narrowest axis, m.
+        k_min : float
+            The smallest wavenumber over the requested band, rad/m.
+
+        Returns
+        -------
+        float
+            The current, unweighted by the launch.
+        """
+        total = 0.0
+        for s, values, measure in self.lines(state):
+            index = int(np.argmin(np.abs(s - size)))
+            # A node without a neighbour on each side has no slope to read.
+            order = np.argsort(s)
+            position = int(np.nonzero(order == index)[0][0])
+            if position == 0 or position == s.size - 1:
+                continue
+            before, after = order[position - 1], order[position + 1]
+            slope = (values[after] - values[before]) / float(s[after] - s[before])
+            # Under exp(-i k_z z), Im(E* dE/ds) / k is the flux towards smaller s.
+            flux = np.imag(np.conj(values[index]) * slope) / k_min
+            total += float(np.sum(np.maximum(flux, 0.0))) * measure
+        return total
+
+
 @dataclass
 class TransverseEdge:
     """The transverse edge of one free-space run: geometry, totals and record.
@@ -274,10 +593,9 @@ class TransverseEdge:
     _current_last: tuple[float, float] | None = field(default=None, init=False)
     _current_baseline: float = field(default=0.0, init=False)
     _returned_peak: float = field(default=0.0, init=False)
-    _inverse: np.ndarray | None = field(default=None, init=False)
     _read_rows: np.ndarray | None = field(default=None, init=False)
     _kappa_order: np.ndarray = field(init=False)
-    _workers: int = field(default=1, init=False)
+    reduction: HostEdgeReduction = field(init=False)
 
     def __post_init__(self) -> None:
         """Build the faces, the node weights and the column wavenumbers."""
@@ -298,116 +616,12 @@ class TransverseEdge:
         self._peak = [0.0] * len(self._faces)
         self._peak_raw = [0.0] * len(self._faces)
         self._baseline = [0.0] * len(self._faces)
-        # The host's transverse transforms take the process's thread budget (ADR-052).
-        self._workers = thread_budget().threads
-
-    # ------------------------------------------------------------------ reductions
-    def _node_power(
-        self,
-        state: Complex[np.ndarray, "n_modes n_pol n_omega"],
-        *,
-        read: bool = False,
-    ) -> Float[np.ndarray, " n_nodes"]:
-        """Return each physical node's (or row's) energy, summed over pol and frequency.
-
-        Parameters
-        ----------
-        state : numpy.ndarray
-            One batch member's spectral columns.
-        read : bool, optional
-            Whether only the rows a read uses are wanted: the edge's faces, and a
-            requested collar's (:meth:`_rows_read`). Radially the others are not
-            synthesised and are zero; a read happens many times a run, and the full
-            synthesis is an ``n_r``-square product per frequency.
-
-        Returns
-        -------
-        numpy.ndarray
-            ``|E|^2`` summed, unweighted, in the state's units squared.
-        """
-        space = self.space
-        flat = state.reshape(state.shape[0], -1)
-        if read:
-            flat = self._occupied_planes(flat)
-        if isinstance(space, RadialGrid):
-            if self._inverse is None:
-                hankel = space.hankel
-                self._inverse = (
-                    hankel.inverse_scale
-                    * (hankel.j1[:, None] / hankel.j1[None, :])
-                    * hankel.matrix
-                )
-            if not read:
-                return _row_energy(self._inverse @ flat)
-            rows = self._rows_read()
-            nodes = np.zeros(space.n_r)
-            nodes[rows] = _row_energy(self._inverse[rows] @ flat)
-            return nodes
-        if isinstance(space, PlanarGrid):
-            cube = flat.reshape(space.n_y, space.n_p, -1)
-            physical = scipy.fft.ifft(cube, axis=0, workers=self._fft_workers(cube))
-            physical = physical.reshape(space.n_y, -1)
-        else:
-            cube = flat.reshape(space.n_y, space.n_x, -1)
-            workers = self._fft_workers(cube)
-            physical = scipy.fft.ifftn(cube, axes=(0, 1), workers=workers)
-            physical = physical.reshape(space.n_y * space.n_x, -1)
-        if not read:
-            return _row_energy(physical)
-        rows = self._rows_read()
-        nodes = np.zeros(physical.shape[0])
-        nodes[rows] = _row_energy(physical[rows])
-        return nodes
-
-    def _occupied_planes(
-        self, flat: Complex[np.ndarray, "n_columns n_planes"]
-    ) -> Complex[np.ndarray, "n_columns n_kept"]:
-        """Return the frequency planes a read must synthesise (:data:`READ_RESOLUTION`).
-
-        A requested collar's rate is credited as a removal rather than judged against
-        the warning, so it reads every plane. So does a state that fills more than half
-        of them, where the copy would cost more than the planes it leaves out.
-
-        Parameters
-        ----------
-        flat : numpy.ndarray
-            One member's spectral columns, a plane being one polarisation's frequency.
-
-        Returns
-        -------
-        numpy.ndarray
-            `flat` itself, or a copy holding only the planes kept.
-        """
-        if self.design is not None and self.design.has_collar:
-            return flat
-        real, imaginary = np.real(flat), np.imag(flat)
-        energy = np.einsum("i,ij,ij->j", self._columns, real, real) + np.einsum(
-            "i,ij,ij->j", self._columns, imaginary, imaginary
+        collar = self.design is not None and self.design.has_collar
+        self.reduction = HostEdgeReduction(
+            space,
+            self._rows_read(),
+            self._strip_bounds() if collar else None,
         )
-        order = np.argsort(energy)
-        limit = READ_RESOLUTION * self.budget**2 * self._launch
-        left_out = int(np.searchsorted(np.cumsum(energy[order]), limit, side="right"))
-        if 2 * left_out < energy.size:
-            return flat
-        return flat[:, np.sort(order[left_out:])]
-
-    def _fft_workers(self, cube: np.ndarray) -> int:
-        """Return the threads for one host transform of `cube`.
-
-        A small transform is faster on one thread than on a pool woken beside the
-        backend's own threads.
-
-        Parameters
-        ----------
-        cube : numpy.ndarray
-            The array transformed.
-
-        Returns
-        -------
-        int
-            The thread budget's threads, or 1 below ``2**18`` elements.
-        """
-        return self._workers if cube.size >= _SMALL_TRANSFORM else 1
 
     def _rows_read(self) -> np.ndarray:
         """Return the nodes (or rows) a read uses: the faces' and a collar's.
@@ -443,29 +657,53 @@ class TransverseEdge:
         return rate
 
     def _column_power(
-        self, state: Complex[np.ndarray, "n_modes n_pol n_omega"]
+        self, columns: Float[np.ndarray, " n_columns"]
     ) -> Float[np.ndarray, " n_columns"]:
         """Return each spectral column's energy, in the node reduction's units.
 
         Parameters
         ----------
-        state : numpy.ndarray
-            One batch member's spectral columns.
+        columns : numpy.ndarray
+            Each column's unweighted energy, as a reading gives it.
 
         Returns
         -------
         numpy.ndarray
             Weighted ``|E|^2``, scaled so that its sum is the node reduction's total.
         """
-        return self._columns * _row_energy(state.reshape(state.shape[0], -1))
+        return self._columns * columns
 
     # ------------------------------------------------------------------ the record
-    def launch(  # noqa: PLR0915 - the launch, its noise and its judgements, in order
+    @property
+    def current_scale(self) -> tuple[float, float]:
+        """Return what a reading of the inward current needs of the edge.
+
+        Returns
+        -------
+        tuple of float
+            The requested half-size on the narrowest axis, m, and the band's smallest
+            wavenumber, rad/m.
+        """
+        return self._requested_size(), self.k_min
+
+    @property
+    def resumed(self) -> bool:
+        """Return whether this edge continues an earlier execution's record.
+
+        Returns
+        -------
+        bool
+            True after :meth:`resume` found a record, so that the launch is not judged.
+        """
+        return self._resumed
+
+    def launch(  # noqa: PLR0912, PLR0913, PLR0915 - the launch and judgements, in order
         self,
-        state: Complex[np.ndarray, "n_modes n_pol n_omega"],
+        reading: EdgeReading,
         z: float,
         *,
         noise: Complex[np.ndarray, "n_modes n_pol n_omega"] | None,
+        clean_columns: Float[np.ndarray, " n_columns"] | None = None,
         steps: Float[np.ndarray, " n_steps"] | None,
         reads: bool,
         declared: bool,
@@ -474,12 +712,15 @@ class TransverseEdge:
 
         Parameters
         ----------
-        state : numpy.ndarray
-            The launched state, one member, spectral columns.
+        reading : solprop.transverse_monitor.EdgeReading
+            The launched state's reading: every node, unless :attr:`resumed`.
         z : float
             Its position, m.
         noise : numpy.ndarray or None
-            The input noise it carries, if any.
+            The input noise it carries, if any, which is always a host array.
+        clean_columns : numpy.ndarray or None, optional
+            Each column's unweighted energy without that noise, for the safety ramp's
+            judgement. ``None`` when there is no noise, or the launch was resumed.
         steps : numpy.ndarray or None
             A fixed schedule's steps, which the read spacing cannot limit.
         reads : bool
@@ -493,18 +734,24 @@ class TransverseEdge:
             When physical light launched into the safety ramp's band exceeds ten
             budgets (section 5.3).
         """
-        nodes = self._node_power(state)
+        assert reading.nodes is not None and reading.columns is not None
+        nodes = reading.nodes
+        columns = reading.columns
         weighted = self._weights * nodes
         if self._resumed:
             # The launch was judged by the first execution; its baselines and totals
             # are restored, and the reads continue from the resumed state.
             self._last_z = z
             if noise is not None:
-                self._noise_columns = self._column_power(noise)
-            self._last_columns = self._column_power(state)
+                self._noise_columns = self._column_power(
+                    self.reduction.column_power(noise)
+                )
+            self._last_columns = self._column_power(columns)
             self._spacing_now = self._spacing(self._last_columns)
             self._next = z + self._spacing_now if reads else math.inf
             self._last_rate = (z, self._collar_rate(nodes))
+            if reading.current is not None and self._launch > 0.0:
+                self._current_last = (z, reading.current / self._launch)
             if not reads:
                 self._status = "unwatched"
             return
@@ -516,7 +763,10 @@ class TransverseEdge:
         warn, stop = self.budget**2, (self.stop_factor * self.budget) ** 2
         # About the launch, not the backend: judged whether or not the edge is read.
         self._judge_ramp_band(
-            state if noise is None else state - noise, stop, warn, declared=declared
+            self._column_power(columns if clean_columns is None else clean_columns),
+            stop,
+            warn,
+            declared=declared,
         )
         if not reads:
             self._status = "unwatched"
@@ -542,7 +792,7 @@ class TransverseEdge:
                     stacklevel=4,
                 )
         if noise is not None:
-            noise_nodes = self._weights * self._node_power(noise)
+            noise_nodes = self._weights * self.reduction.node_power(noise)
             eta = float(np.sum(noise_nodes)) / self._launch
             share = float(np.sum(self._weights[self._faces[0].edge])) / float(
                 np.sum(self._weights)
@@ -551,7 +801,7 @@ class TransverseEdge:
                 int(self.band.size), 1
             )
             self._allowance = NOISE_FACTOR * eta * share / math.sqrt(modes)
-            self._noise_columns = self._column_power(noise)
+            self._noise_columns = self._column_power(self.reduction.column_power(noise))
             if self.design is not None:
                 ramp = self.design.ramp_rate > 0.0
                 self._noise_share_in_ramp = (
@@ -570,7 +820,7 @@ class TransverseEdge:
                     BoundaryWarning,
                     stacklevel=4,
                 )
-        self._last_columns = self._column_power(state)
+        self._last_columns = self._column_power(columns)
         spacing = self._spacing(self._last_columns)
         self._spacing_now = spacing
         self._next = z + spacing
@@ -587,11 +837,11 @@ class TransverseEdge:
             )
         self._last_rate = (z, self._collar_rate(nodes))
         if self.every_step:
-            self._launch_return(state, noise, weighted)
+            self._launch_return(reading, noise, weighted)
 
     def _judge_ramp_band(
         self,
-        launch: Complex[np.ndarray, "n_modes n_pol n_omega"],
+        columns: Float[np.ndarray, " n_columns"],
         stop: float,
         warn: float,
         *,
@@ -601,8 +851,8 @@ class TransverseEdge:
 
         Parameters
         ----------
-        launch : numpy.ndarray
-            The launch as attached, less the input noise it carries.
+        columns : numpy.ndarray
+            Each column's weighted energy in the launch, without the input noise.
         stop, warn : float
             The stop and warning levels as energy shares.
         declared : bool
@@ -615,7 +865,6 @@ class TransverseEdge:
         """
         if self.design is None:
             return
-        columns = self._column_power(launch)
         total = float(np.sum(columns))
         share = (
             float(np.sum(columns[self.design.ramp_rate > 0.0])) / total
@@ -751,15 +1000,13 @@ class TransverseEdge:
         """
         return self._launch > 0.0 and self._status != "unwatched" and z > self._last_z
 
-    def read(
-        self, state: Complex[np.ndarray, "n_modes n_pol n_omega"], z: float
-    ) -> None:
-        """Read the edge at a committed position, credit the removals and judge.
+    def read(self, reading: EdgeReading, z: float) -> None:
+        """Take a reading at a committed position, credit the removals and judge.
 
         Parameters
         ----------
-        state : numpy.ndarray
-            One member's spectral columns.
+        reading : solprop.transverse_monitor.EdgeReading
+            The state's reading.
         z : float
             Its position, m.
 
@@ -770,7 +1017,8 @@ class TransverseEdge:
         """
         if not self.wants_read(z):
             return
-        nodes = self._node_power(state, read=True)
+        assert reading.nodes is not None and reading.columns is not None
+        nodes = reading.nodes
         weighted = self._weights * nodes
         gap = z - self._last_z
         self._reads += 1
@@ -790,7 +1038,7 @@ class TransverseEdge:
         self._spatial_removed += 0.5 * (z - previous_z) * (previous + rate)
         self._last_rate = (z, rate)
         self._last_z = z
-        self._last_columns = self._column_power(state)
+        self._last_columns = self._column_power(reading.columns)
         self._spacing_now = self._spacing(self._last_columns)
         self._next = z + self._spacing_now
         if self.design is not None and self.design.has_collar:
@@ -798,7 +1046,7 @@ class TransverseEdge:
             for index, face in enumerate(self._faces):
                 share = float(np.sum(weighted[face.edge])) / self._launch
                 self._peak_raw[index] = max(self._peak_raw[index], share)
-            self._judge_return(state, z)
+            self._judge_return(reading, z)
             self._judge_ramp_removal()
             return
         warn, stop = self.budget**2, (self.stop_factor * self.budget) ** 2
@@ -862,140 +1110,37 @@ class TransverseEdge:
             return space.radius_x
         return min(space.radius_x, space.radius_y)
 
-    def _lines(
-        self, state: Complex[np.ndarray, "n_modes n_pol n_omega"]
-    ) -> list[tuple[np.ndarray, np.ndarray, float]]:
-        """Return the field along each face's outward normal, line by line.
-
-        Parameters
-        ----------
-        state : numpy.ndarray
-            One member's spectral columns.
-
-        Returns
-        -------
-        list of tuple
-            ``(s, values, measure)``: the outward coordinate of the line's nodes, m;
-            the field on them, ``(n_nodes, n_rows)`` with one row per frequency,
-            polarisation and transverse line (``sqrt(r) E`` radially); and the
-            measure each row's sum is multiplied by.
-        """
-        space = self.space
-        flat = state.reshape(state.shape[0], -1)
-        if isinstance(space, RadialGrid):
-            hankel = space.hankel
-            inverse = (
-                hankel.inverse_scale
-                * (hankel.j1[:, None] / hankel.j1[None, :])
-                * hankel.matrix
-            )
-            r = np.asarray(space.r)
-            return [(r, np.sqrt(r)[:, None] * (inverse @ flat), 2 * np.pi)]
-        if isinstance(space, PlanarGrid):
-            cube = np.fft.ifft(flat.reshape(space.n_y, space.n_p, -1), axis=0)
-            rows = cube.reshape(space.n_y, -1)
-            y = np.asarray(space.y)
-            return [(y, rows, 1.0), (-y, rows, 1.0)]
-        cube = np.fft.ifftn(flat.reshape(space.n_y, space.n_x, -1), axes=(0, 1))
-        x = np.asarray(space.x)
-        dy = 1.0 if isinstance(space, LineGrid) else float(space.y[1] - space.y[0])
-        along_x = np.moveaxis(cube, 1, 0).reshape(space.n_x, -1)
-        lines = [(x, along_x, dy), (-x, along_x, dy)]
-        if not isinstance(space, LineGrid):
-            y = np.asarray(space.y)
-            dx = float(space.x[1] - space.x[0])
-            along_y = cube.reshape(space.n_y, -1)
-            lines += [(y, along_y, dx), (-y, along_y, dx)]
-        return lines
-
-    def _strip_inward(
-        self, state: Complex[np.ndarray, "n_modes n_pol n_omega"]
+    def _strip_shares(
+        self, strip: Float[np.ndarray, "n_lines 2"]
     ) -> tuple[float, float]:
         """Return the strip's resolved inward energy and its windowed energy.
 
-        A Kaiser(8)-windowed transform along each face's normal, padded twice; the
-        inward energy is that at ``|q| >= 16 / s`` travelling inward, where the
-        window's leakage is about ``1e-6`` (section 5.3). The larger face's, as
-        shares of the launch.
+        The larger line's, as shares of the launch (section 5.3).
 
         Parameters
         ----------
-        state : numpy.ndarray
-            One member's spectral columns.
+        strip : numpy.ndarray
+            ``(inward, windowed)`` per line, as a reading gives it.
 
         Returns
         -------
         tuple of float
             The inward share and the windowed share.
         """
-        a, b = self._strip_bounds()
-        resolved = 16.0 / (b - a)
         best, windowed = 0.0, 0.0
-        for s, values, measure in self._lines(state):
-            select = (s >= a) & (s <= b)
-            if np.count_nonzero(select) < 4:
-                continue
-            order = np.argsort(s[select])
-            coordinate = s[select][order]
-            spacing = float(np.mean(np.diff(coordinate)))
-            u = 2 * (coordinate - a) / (b - a) - 1
-            window = np.i0(8.0 * np.sqrt(np.clip(1 - u * u, 0.0, 1.0))) / np.i0(8.0)
-            lines = window[:, None] * values[select][order]
-            count = 2 * coordinate.size
-            spectrum = np.abs(np.fft.fft(lines, count, axis=0)) ** 2 * spacing / count
-            q = 2 * np.pi * np.fft.fftfreq(count, d=spacing)
-            # solprop propagates as exp(-i k_z z) (the operator carries -i(k_z - k)), so
-            # a component exp(i q s) travels towards smaller s: inward is q > 0.
-            inward = float(np.sum(spectrum[q >= resolved])) * measure / self._launch
-            total = float(np.sum(spectrum)) * measure / self._launch
-            if inward > best:
-                best, windowed = inward, total
+        for inward, total in strip:
+            share = float(inward) / self._launch
+            if share > best:
+                best, windowed = share, float(total) / self._launch
         return best, windowed
 
-    def _onset_current(
-        self, state: Complex[np.ndarray, "n_modes n_pol n_omega"]
-    ) -> float:
-        """Return the inward energy current across the collar's onset, rectified.
-
-        ``J = Im(E* dE/dn) / k`` on the requested size's boundary, summed over its
-        frequencies and lines, per metre of propagation, as a share of the launch,
-        counting inward flow only (section 5.3).
-
-        Parameters
-        ----------
-        state : numpy.ndarray
-            One member's spectral columns.
-
-        Returns
-        -------
-        float
-            The current, 1/m.
-        """
-        size = self._requested_size()
-        total = 0.0
-        for s, values, measure in self._lines(state):
-            index = int(np.argmin(np.abs(s - size)))
-            # A node without a neighbour on each side has no slope to read.
-            order = np.argsort(s)
-            position = int(np.nonzero(order == index)[0][0])
-            if position == 0 or position == s.size - 1:
-                continue
-            before, after = order[position - 1], order[position + 1]
-            slope = (values[after] - values[before]) / float(s[after] - s[before])
-            # Under exp(-i k_z z), Im(E* dE/ds) / k is the flux towards smaller s.
-            flux = np.imag(np.conj(values[index]) * slope) / self.k_min
-            total += float(np.sum(np.maximum(flux, 0.0))) * measure
-        return total / self._launch
-
-    def step(
-        self, state: Complex[np.ndarray, "n_modes n_pol n_omega"], z: float
-    ) -> None:
+    def step(self, current: float, z: float) -> None:
         """Accumulate a collar's inward current at a committed step (section 5.3).
 
         Parameters
         ----------
-        state : numpy.ndarray
-            One member's spectral columns.
+        current : float
+            The rectified current across the onset, unweighted by the launch.
         z : float
             Its position, m.
         """
@@ -1006,11 +1151,11 @@ class TransverseEdge:
             or self._status == "unwatched"
         ):
             return
-        current = self._onset_current(state)
+        share = current / self._launch
         if self._current_last is not None:
             previous_z, previous = self._current_last
-            self._current += 0.5 * (z - previous_z) * (previous + current)
-        self._current_last = (z, current)
+            self._current += 0.5 * (z - previous_z) * (previous + share)
+        self._current_last = (z, share)
 
     @property
     def next_read(self) -> float:
@@ -1039,7 +1184,7 @@ class TransverseEdge:
 
     def _launch_return(
         self,
-        state: Complex[np.ndarray, "n_modes n_pol n_omega"],
+        reading: EdgeReading,
         noise: Complex[np.ndarray, "n_modes n_pol n_omega"] | None,
         weighted: Float[np.ndarray, " n_nodes"],
     ) -> None:
@@ -1047,17 +1192,18 @@ class TransverseEdge:
 
         Parameters
         ----------
-        state : numpy.ndarray
-            The launched state.
+        reading : solprop.transverse_monitor.EdgeReading
+            The launched state's reading.
         noise : numpy.ndarray or None
             Its input noise.
         weighted : numpy.ndarray
             Each node's weighted energy.
         """
-        strip, _ = self._strip_inward(state)
+        assert reading.strip is not None
+        strip, _ = self._strip_shares(reading.strip)
         self._strip_baseline = strip
         if noise is not None:
-            self._strip_floor = 3.0 * self._strip_inward(noise)[0]
+            self._strip_floor = 3.0 * self._strip_shares(self.reduction.strip(noise))[0]
         outside = np.ones(weighted.size, dtype=bool)
         for face in self._faces:
             outside &= ~face.clip
@@ -1068,15 +1214,13 @@ class TransverseEdge:
         self._current_last = None
         self._current = 0.0
 
-    def _judge_return(
-        self, state: Complex[np.ndarray, "n_modes n_pol n_omega"], z: float
-    ) -> None:
+    def _judge_return(self, reading: EdgeReading, z: float) -> None:
         """Judge what a collar returns: the strip and the current (section 5.3).
 
         Parameters
         ----------
-        state : numpy.ndarray
-            One member's spectral columns.
+        reading : solprop.transverse_monitor.EdgeReading
+            The state's reading.
         z : float
             Its position, m.
 
@@ -1085,7 +1229,8 @@ class TransverseEdge:
         BoundaryError
             When the returned share exceeds ``stop_factor`` budgets.
         """
-        strip, windowed = self._strip_inward(state)
+        assert reading.strip is not None
+        strip, windowed = self._strip_shares(reading.strip)
         self._strip_peak = max(self._strip_peak, strip)
         judged_strip = max(
             strip - self._strip_baseline - self._strip_floor - 1e-6 * windowed, 0.0
@@ -1283,6 +1428,12 @@ class TransverseEdge:
         self._noise_share_in_ramp = number("noise_share_in_ramp")
         self._declared_share = number("declared_share_in_ramp")
         self._spatial_removed = number("spatial_removed")
+        self._current = number("current")
+        self._current_baseline = number("current_baseline")
+        self._strip_baseline = number("strip_baseline")
+        self._strip_floor = number("strip_floor")
+        self._strip_peak = number("strip_max")
+        self._returned_peak = number("returned_max")
         self._reads = int(number("reads"))
         self._largest_gap = number("largest_gap")
         self._warned_at = number("warned_at", math.nan)
@@ -1326,6 +1477,7 @@ class TransverseEdge:
             "returned_max": self._returned_peak,
             "strip_max": self._strip_peak,
             "strip_baseline": self._strip_baseline,
+            "strip_floor": self._strip_floor,
             "current": self._current,
             "current_baseline": self._current_baseline,
             "largest_gap": self._largest_gap,

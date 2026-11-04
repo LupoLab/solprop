@@ -76,6 +76,7 @@ from solprop.translate.stage import (
     terms,
 )
 from solprop.translate.tdse import TDSEPurpose
+from solprop.transverse_monitor import EdgeReading, TransverseEdge
 
 if TYPE_CHECKING:
     from solprop.backends.low_storage import LowStorageMarch
@@ -358,6 +359,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         self._noise: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"] | None = None
         self._z = 0.0
         self._proposal = problem.stepper.dz_init
+        self._clean_columns: Float[np.ndarray, " n_columns"] | None = None
         self._schedule_index = 0
         self._closed = False
         # The controller reads one norm a fixed lag back, and the one before it
@@ -1243,12 +1245,17 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         position = self._checked_position(float(z))
         drawn = self._noise_field(noise)
         model = self._problem.initial.noise_model
+        self._clean_columns = None
         if (
             model == "input"
             and drawn is not None
             and not resume
             and position == self._problem.initial.z
         ):
+            if self._problem.transverse is not None:
+                self._clean_columns = _clean_launch_columns(
+                    values[0], drawn[0], self._problem.grids.active_mask
+                )
             values = values + drawn
         self._state = self._apply_mask(values)
         self._noise = drawn if model == "modified" else None
@@ -1994,13 +2001,20 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         self._refuse_scheduled_crossing(monitor)
         edge = getattr(monitor, "transverse", None)
         if edge is not None:
-            state = self._observed_field(self._require_state())
             floor = self._input_floor
             schedule = self._problem.stepper.schedule
+            state = self._require_state()
             edge.launch(
-                np.asarray(state[0]),
+                self._edge_reading(
+                    state,
+                    edge,
+                    # A resumed launch reads no share, but continues the current.
+                    full=not edge.resumed,
+                    current=edge.every_step and edge.resumed,
+                ),
                 self._z,
                 noise=None if floor is None else np.asarray(floor[0]),
+                clean_columns=self._edge_clean_columns(edge),
                 steps=None if schedule is None else np.asarray(schedule.steps),
                 reads=self.reads_transverse_edge,
                 declared=_declared_discard(self._problem),
@@ -2027,11 +2041,81 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         accumulate = edge.every_step and not plane
         if not (read or accumulate):
             return
-        state = np.asarray(self._observed_field(self._require_state())[0])
+        reading = self._edge_reading(
+            self._require_state(), edge, faces=read, current=accumulate
+        )
         if accumulate:
-            edge.step(state, self._z)
+            assert reading.current is not None
+            edge.step(reading.current, self._z)
         if read:
-            edge.read(state, self._z)
+            edge.read(reading, self._z)
+
+    def _edge_reading(
+        self,
+        state: _StateT,
+        edge: TransverseEdge,
+        *,
+        faces: bool = True,
+        current: bool = False,
+        full: bool = False,
+    ) -> EdgeReading:
+        """Return what the transverse edge asks of a state (SEP 44).
+
+        The default reduces a host copy of the field, the reference
+        (:class:`~solprop.transverse_monitor.HostEdgeReduction`); a backend whose state
+        lives elsewhere reduces it there and returns the numbers, without a copy of it.
+
+        Parameters
+        ----------
+        state : object
+            The backend's protected state representation.
+        edge : solprop.transverse_monitor.TransverseEdge
+            The run's edge.
+        faces : bool, optional
+            Whether the nodes, the columns and any collar's strip are wanted.
+        current : bool, optional
+            Whether a collar's inward current is wanted.
+        full : bool, optional
+            Whether every node is wanted, not only the rows a read uses.
+
+        Returns
+        -------
+        solprop.transverse_monitor.EdgeReading
+            The reading.
+        """
+        return edge.reduction.reading(
+            np.asarray(self._observed_field(state)[0]),
+            faces=faces,
+            current=edge.current_scale if current else None,
+            full=full,
+        )
+
+    def _edge_clean_columns(
+        self, edge: TransverseEdge
+    ) -> Float[np.ndarray, " n_columns"] | None:
+        """Return each column's launched energy without the input noise, or ``None``.
+
+        What the safety ramp is judged on. It is formed where the load has both parts,
+        which needs no state on the host. Only a resume that found no record of the
+        monitor has none, and then the state has to cross once.
+
+        Parameters
+        ----------
+        edge : solprop.transverse_monitor.TransverseEdge
+            The run's edge.
+
+        Returns
+        -------
+        numpy.ndarray or None
+            The unweighted energies, or ``None`` with no noise or on a resumed launch.
+        """
+        floor = self._input_floor
+        if floor is None or edge.resumed:
+            return None
+        if self._clean_columns is not None:
+            return self._clean_columns
+        state = np.asarray(self._observed_field(self._require_state())[0])
+        return edge.reduction.column_power(state - np.asarray(floor[0]))
 
     def _next_step(self) -> float:
         """Return the step the march takes next, m.
@@ -2800,6 +2884,36 @@ def refuse_general_leaves(
                 "converge and be the wrong physics"
             )
             raise BackendError(msg)
+
+
+def _clean_launch_columns(
+    field: Complex[np.ndarray, "n_modes n_pol n_omega"],
+    noise: Complex[np.ndarray, "n_modes n_pol n_omega"],
+    active: np.ndarray,
+) -> Float[np.ndarray, " n_modes"]:
+    """Return each column's energy in a masked launch, less the input noise it carries.
+
+    That is ``mask(field + noise) - noise``: the launch on the active band, and the
+    noise alone off it, as a supplied realisation needn't be masked. Formed from the
+    parts, so that no state has to come back from where it lives to subtract the noise.
+
+    Parameters
+    ----------
+    field : numpy.ndarray
+        The launch before the noise is added.
+    noise : numpy.ndarray
+        The realisation added to it.
+    active : numpy.ndarray
+        The active band's mask, shape ``(n_omega,)``.
+
+    Returns
+    -------
+    numpy.ndarray
+        The unweighted energies, shape ``(n_modes,)``.
+    """
+    inside = np.abs(field[..., active]) ** 2
+    outside = np.abs(noise[..., ~active]) ** 2
+    return np.sum(inside, axis=(1, 2)) + np.sum(outside, axis=(1, 2))
 
 
 def _declared_discard(problem: KernelProblem) -> bool:

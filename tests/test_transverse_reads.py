@@ -44,7 +44,7 @@ from solprop.output.schema import PlaneStore
 from solprop.pulses import GaussianPulse
 from solprop.spatial import SpatialMedium
 from solprop.stepper import FixedSchedule, Multistep, PIController, RungeKutta
-from solprop.transverse_monitor import TransverseEdge
+from solprop.transverse_monitor import HostEdgeReduction
 
 BACKENDS = ("numpy_ref", "native")
 RELAXED = BoundaryCheck(budget=1.0, transverse_budget=1.0)
@@ -408,13 +408,13 @@ def test_a_plane_the_step_already_read_reduces_nothing_more(
     length = packet.length
     planes = [length / 4, length / 2, length]
     calls = {"nodes": 0}
-    node_power = TransverseEdge._node_power
+    node_power = HostEdgeReduction.node_power
 
-    def counting(self: TransverseEdge, *args: Any, **keywords: Any) -> np.ndarray:
+    def counting(self: HostEdgeReduction, *args: Any, **keywords: Any) -> np.ndarray:
         calls["nodes"] += 1
         return node_power(self, *args, **keywords)
 
-    monkeypatch.setattr(TransverseEdge, "_node_power", counting)
+    monkeypatch.setattr(HostEdgeReduction, "node_power", counting)
     schedule = FixedSchedule.uniform(0.0, length, length / 8, save_planes=planes)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", BoundaryWarning)
