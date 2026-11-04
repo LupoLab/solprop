@@ -165,10 +165,13 @@ jobs:
       # The default lane's peak memory with four test workers is at the edge of a 16 GB
       # runner (the aarch64 runner shut down mid-suite, as CI's did): swap on Linux and
       # three workers, as in CI's native-suite job.
+      # A safeguard only: with three workers no lane used any swap when measured. Keep it
+      # small, because some runners have 13 GB of free disk and 12 GB of swap filled them,
+      # which kills the job with its log.
       - name: Add swap
         if: runner.os == 'Linux'
         run: |
-          sudo fallocate -l 12G /swap.extra
+          sudo fallocate -l 4G /swap.extra
           sudo chmod 600 /swap.extra
           sudo mkswap /swap.extra
           sudo swapon /swap.extra
@@ -254,9 +257,12 @@ jobs:
           uv run --no-sync python -c "import sys; from solprop.backends.registry import
           resolve_name; assert sys.version_info[:2] == (3, 15), sys.version;
           assert resolve_name() == 'native', resolve_name()"
+      # A safeguard only: with three workers no lane used any swap when measured. Keep it
+      # small, because some runners have 13 GB of free disk and 12 GB of swap filled them,
+      # which kills the job with its log.
       - name: Add swap
         run: |
-          sudo fallocate -l 12G /swap.extra
+          sudo fallocate -l 4G /swap.extra
           sudo chmod 600 /swap.extra
           sudo mkswap /swap.extra
           sudo swapon /swap.extra
