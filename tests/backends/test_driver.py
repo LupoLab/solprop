@@ -870,6 +870,8 @@ DRIVER_SURFACE = {
     "_finish": "(self, state: _StateT, dz: float) -> _StateT",
     "_bind_monitor": "(self, monitor: solprop.monitor.BoundaryMonitor | None) -> None",
     "_boundary_energies": "(self, state: _StateT) -> solprop.monitor.BoundaryEnergies",
+    "_next_step": "(self) -> float",
+    "march_snapshot_nbytes": "(self, z: float) -> int | None",
     "_observed_field": (
         "(self, state: _StateT)"
         " -> jaxtyping.Complex[ndarray, 'n_batch n_modes n_pol n_omega']"
@@ -1139,9 +1141,10 @@ def test_the_surface_a_backend_subclasses_is_frozen(driver):
     ``_drop_held``, which releases its buffer. Version 45 appends ``user_rate`` to the
     separable leaf, without changing these signatures. Version 46 removes
     ``held_observation``, ``_hold``, ``_held_field``, ``set_held_plane`` and
-    ``_drop_held``: a low-storage march holds no plane (ADR-067).
+    ``_drop_held``: a low-storage march holds no plane (ADR-067). Version 47 adds
+    ``march_snapshot_nbytes`` and ``_next_step``.
     """
-    assert KERNEL_SCHEMA_VERSION == 46, (
+    assert KERNEL_SCHEMA_VERSION == 47, (
         "the seam changed: rewrite the literals of this test"
     )
     assert StepDriver.reads_transverse_edge is False

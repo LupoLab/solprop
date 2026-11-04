@@ -833,12 +833,6 @@ public:
    */
   [[nodiscard]] double low_storage_step(double dz, const TrialScalars& scalars,
                                         bool rebuild_table);
-  /** Hold the accepted state at a field-free plane, in the memory space (SEP 22). */
-  void hold_plane();
-  /** Release the held plane's volume, for a run that holds none. */
-  void release_plane();
-  /** The held plane's state on the host: the one copy a checkpoint takes. */
-  [[nodiscard]] std::vector<Complex> held_to_host() const;
   /** The resident Adams history (solprop SEP 16 phase 3b, solprop ADR-043). */
   void adams_allocate(std::size_t slots, bool compensated, bool interpolate = true);
   void adams_compensation_start(std::size_t slot, const std::vector<double>& rate);

@@ -2101,7 +2101,7 @@ the response's: a heavier response gives a smaller saving.
 ### The default check on a device: reads, occupancy and sums
 
 A field-free point of a free-space Kerr beam at 768 x 768 x 600 (5.27 GiB), eight fixed low-storage
-RK4IP steps and four planes, with a stated input identity and no held plane, took 12 to 7 times as long
+RK4IP steps and four planes, with a stated input identity, took 12 to 7 times as long
 with the default `boundary_check` as without it. `python -m benchmarks.device_split 768`, the second point
 of one `SimulationRunner`, on an NVIDIA H200 (CUDA 13.1) and an AMD Instinct MI325X (ROCm 10). Before is
 `7a224ea5`, measured the same way that morning with the probe that became this module, on another droplet

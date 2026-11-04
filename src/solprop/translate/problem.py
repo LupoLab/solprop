@@ -207,7 +207,7 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-KERNEL_SCHEMA_VERSION = 46
+KERNEL_SCHEMA_VERSION = 47
 """Version of the kernel contract this module implements.
 
 Incremented on every change to the field list of ``docs/dev/kernel-contract.md``. A
@@ -519,6 +519,11 @@ Version 46 removes the low-storage march's held plane: ``StepDriver.set_held_pla
 ``held_observation``, ``_hold``, ``_held_field`` and ``_drop_held``, the native state's
 ``hold_plane``, ``release_plane`` and ``held_to_host``, and the ledger's ``held_plane``
 row (ADR-067). No ``KernelProblem`` field or stage bundle moves.
+
+Version 47 adds ``StepDriver.march_snapshot_nbytes``, with which a run asks a snapshot's
+size before taking it, the engine protocol's ``snapshot_nbytes`` behind it, and
+``StepDriver._next_step``, the step a read is judged by. No ``KernelProblem`` field or
+stage bundle moves.
 """
 
 DEFAULT_COMPONENTS = ("x",)
