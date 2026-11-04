@@ -2504,7 +2504,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
 
     def _axis_statistics(
         self,
-        field: Complex[np.ndarray, "n_modes n_pol n_omega"],
+        field: Complex[np.ndarray, "n_modes n_pol n_omega"] | None,
         scan: tuple[np.ndarray, np.ndarray] | None,
     ) -> dict[str, np.ndarray]:
         """Return the four on-axis plasma statistics of one batch member (SEP 19).
@@ -2515,8 +2515,9 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
 
         Parameters
         ----------
-        field : numpy.ndarray
-            One batch member at this plane, shape (n_modes, n_pol, n_omega).
+        field : numpy.ndarray or None
+            One batch member at this plane, shape (n_modes, n_pol, n_omega), or ``None``
+            from a backend whose :meth:`_axis_row_populations` reads its own state.
         scan : tuple or None
             This observation's channel fractions and peak rates at every node, when
             the node statistics already scanned them.
@@ -2540,7 +2541,6 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             raise BackendError(msg)
         from solprop.backends.populations import (  # noqa: PLC0415 - a cycle
             axis_node,
-            axis_populations,
             axis_statistics,
         )
 
@@ -2562,10 +2562,45 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
                 self._problem, self._z, fractions[:, node], peaks[:, node]
             )
         self.axis_scans += 1
-        fractions, peaks = axis_populations(
-            self._problem, field, self._z, self._on_axis_synthesis(self._modes)
+        fractions, peaks = self._axis_row_populations(
+            field, self._on_axis_synthesis(self._modes)
         )
         return axis_statistics(self._problem, self._z, fractions, peaks)
+
+    def _axis_row_populations(
+        self,
+        field: Complex[np.ndarray, "n_modes n_pol n_omega"] | None,
+        axis: Float[np.ndarray, "n_rows n_modes"],
+    ) -> tuple[Float[np.ndarray, " n_channels"], Float[np.ndarray, " n_channels"]]:
+        """Scan this plane's axis row: one row, every channel.
+
+        A device backend overrides this hook to read only the row from its state.
+
+        Parameters
+        ----------
+        field : numpy.ndarray or None
+            One batch member at this plane, shape (n_modes, n_pol, n_omega).
+        axis : numpy.ndarray
+            The mode set's synthesis on the axis at this position
+            (:meth:`_on_axis_synthesis`).
+
+        Returns
+        -------
+        tuple of numpy.ndarray
+            The final ionised fraction and the largest rate on the axis, per channel.
+
+        Raises
+        ------
+        BackendError
+            If this backend needs the field and was not given it.
+        """
+        if field is None:
+            raise BackendError("the on-axis statistics scan needs the field")
+        from solprop.backends.populations import (  # noqa: PLC0415 - a cycle
+            axis_populations,
+        )
+
+        return axis_populations(self._problem, field, self._z, axis)
 
     def _on_axis_synthesis(
         self, modes: Sequence[Mode]

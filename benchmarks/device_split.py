@@ -19,8 +19,9 @@ It prints one JSON object per section (``record``, ``setup``, ``point`` twice,
 ``calls``), and writes them to ``FILE`` too when given. ``point`` names each function's
 calls, own and cumulative seconds, and ``calls`` each crossing's minor page faults.
 The profiler inflates Python-heavy work, so compare ``walls_s``, which it doesn't run
-under. The native backend is required, and a device build is what it's for; on a CPU
-build the crossings are plain copies.
+under. ``calls`` also splits a width: its native moments, and what the same azimuthal
+average takes on the host. The native backend is required, and a device build is what
+it's for; on a CPU build the crossings are plain copies.
 """
 
 from __future__ import annotations
@@ -47,8 +48,8 @@ from solprop.monitor import BoundaryCheck
 from solprop.nonlinear.responses import KerrResponse
 from solprop.physdata.glasses import SellmeierGlass
 from solprop.pulses import GaussianPulse, SpatialPulse
-from solprop.spatial import SpatialMedium
-from solprop.stats import StatsSpec
+from solprop.spatial import SpatialMedium, cartesian_fluence_widths
+from solprop.stats import StatsSpec, default_spec
 from solprop.stepper import FixedSchedule, LowStorageRungeKutta, PIController
 
 __all__ = ["main"]
@@ -177,19 +178,40 @@ def _calls(backend: Any) -> dict[str, Any]:
             "energy",
             "beam_spectrum",
             "absorbed_power",
+            "on_axis_intensity",
             "peak_intensity",
             "beam_radius",
+            "fwhm_r",
         )
     }
+    specs["default"] = default_spec("free")
+    geometry = backend._problem.transform.geometry
+    x, y = geometry.axes
+    state = backend._native_state
     return {
         "crossings": {
-            "field_to_host": _timed(backend._native_state.field_to_host, 3),
+            "field_to_host": _timed(state.field_to_host, 3),
             "observe_field": _timed(lambda: backend.observe(field=True), 3),
             "observe_free": _timed(lambda: backend.observe(field=False), 3),
         },
         "statistics": {
             name: _timed(lambda spec=spec: backend.stats(spec), 5)
             for name, spec in specs.items()
+        },
+        # A width's parts: the fluence and its moments, one native call; and what the
+        # host's azimuthal average of a Gaussian's fluence takes on this machine.
+        "widths": {
+            "moments": _timed(
+                lambda: state.spatial_statistics(32, 0.5 * EPS0 * C, backend._z), 5
+            ),
+            "host_average": _timed(
+                lambda: cartesian_fluence_widths(
+                    x,
+                    y,
+                    np.exp(-2 * (x[None, :] ** 2 + y[:, None] ** 2) / 40e-6**2).ravel(),
+                ),
+                3,
+            ),
         },
     }
 

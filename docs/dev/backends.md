@@ -1170,9 +1170,10 @@ column-by-frequency table. The slots (`backends.spatial.far_field_layout`) are t
 present ones of `[beam, absorbed x 5, regions..., per aperture (collected, Re and Im of
 the on-axis amplitude per polarisation, then of its closure), on-axis amplitude and
 closure]`. The last is the `W = 1` slot: `on_axis_spectrum` is formed there, which holds SEP 23's
-identity between the two to rounding by construction. `native` forms `on_axis_intensity` in
-`spatial_statistics`, not from that slot, so its slot count leaves that name out
-(`far_field_partials(problem, axis_folded=AXIS_SPECTRUM_ONLY)`).
+identity between the two to rounding by construction. `spatial_statistics` reads `on_axis_intensity`'s
+spectra from that slot too (`FarFieldPass::axis_spectrum`) and transforms them, on the Cartesian and
+line kinds: a sum per bin over every column would otherwise be a thread's serial walk across a whole
+state on a device.
 
 The per-element parts mirror the reference's: the radius of `mask_plane_radius` as a protected
 function (strict on the host; round-to-nearest intrinsics in a device build), so a hard edge
@@ -1210,11 +1211,29 @@ spectrum pairs the coherent axis amplitude with its closure; the on-axis intensi
 and fluence synthesise the closure `G` beside `E` -- on the radial kind through the dense synthesis
 of a closure time volume (`statistics_weighted_time`), on the separable kinds through a second
 transverse volume (`flux_closure_transverse`, one state's bytes, the estimate's
-`flux_closure_memory`) and the chunk's closure time rows -- and pack each node's signed fluence with
-its magnitude `dt sum |E| |G|`, whose largest value fixes the width refusal's normwise budget
-(`backends.spatial.fluence_budget`). The closure buffers are allocated at construction when the
-problem's own request has a local statistic and, outside any step, when a later request first needs
-one.
+`flux_closure_memory`) and, for the intensities, the chunk's closure time rows. The largest magnitude
+over the nodes fixes the width refusal's normwise budget (`backends.spatial.fluence_budget`). The
+closure buffers are allocated at construction when the problem's own request has a local statistic
+and, outside any step, when a later request first needs one.
+
+**A separable fluence takes no time transform.** The reference sums `Re(E conj(G))` over `n_t`
+samples; by Parseval's theorem that is a sum over the bins the transverse volumes already hold,
+weighted one or four as the energy is (`separable_fluence`). Its magnitude, the reference's
+`dt sum_t |E| |G|`, would need the samples, so the budget's scale is the Cauchy-Schwarz bound on it,
+`dt sqrt(sum_t |E|^2 sum_t |G|^2)`, formed from the same bins. That is never below the reference's,
+and equal where `G` is proportional to `E` at the node, as it is across a beam whose admittance varies
+little over its band. Only a negative value between the two budgets would be refused by the reference
+and read as rounding here.
+The axis's fluence, which only a radial width reads, isn't formed.
+
+**A Cartesian plane's widths reduce where the field lives** (`plane_fluence_moments`,
+`plane_fluence_trace`). The reference forms them on the host from every node's fluence
+(`solprop.spatial.cartesian_fluence_widths`): a centroid, a second moment, and an azimuthal average
+of the bilinear interpolant on a few thousand angles per ring, about 3.7 million samples at
+768 x 768. Native forms each as a kernel over the fluence it holds, so that the moments and one value
+per ring cross, and solprop keeps the rule: `solprop.spatial.fluence_rings` fixes the rings,
+`backends.spatial.plane_fluence_widths` reads the refusal and the widths. A line's and a planar
+fluence are short profiles, and these still cross.
 
 ## 4. `native`: the compiled CPU and GPU backend, a second distribution
 

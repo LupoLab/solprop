@@ -231,6 +231,28 @@ std::vector<double> FarFieldPass::run(const std::uint64_t flags,
   return {host_packed_.data(), host_packed_.data() + packed_size};
 }
 
+void FarFieldPass::axis_spectrum(const bool closed, const ComplexView2& spectrum) {
+  const auto layout = far_field_layout(far_field_axis, 0, 0, n_pol_);
+  const auto n_bands = far_field_band_count(n_x_, n_y_, layout.n_slots, n_omega_);
+  const auto partials = partials_;
+  const auto n = n_omega_;
+  const auto slots = layout.n_slots;
+  const auto first = static_cast<std::size_t>(layout.axis) + (closed ? 2 * n_pol_ : 0);
+  const auto n_t = static_cast<double>(n_t_);
+  const bool envelope = envelope_;
+  launch::parallel_for(
+      "solprop_native.far_field.axis_spectrum", Range2(execution_, {0, 0}, {n_pol_, n}),
+      KOKKOS_LAMBDA(const std::size_t pol, const std::size_t bin) {
+        double real = 0.0, imag = 0.0;
+        for (std::size_t band = 0; band < n_bands; ++band) {
+          real += partials((band * slots + first + 2 * pol) * n + bin);
+          imag += partials((band * slots + first + 2 * pol + 1) * n + bin);
+        }
+        const double scale = (envelope || bin == 0 || bin + 1 == n ? 1.0 : 2.0) / n_t;
+        spectrum(pol, bin) = scale * Complex(real, imag);
+      });
+}
+
 void FarFieldPass::accumulate(const FarFieldLayout& layout, const std::size_t n_bands,
                               const std::size_t n_apertures,
                               const std::size_t n_regions, const int exponent,

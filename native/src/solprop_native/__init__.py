@@ -180,6 +180,7 @@ DRIVER_SURFACE: tuple[str, ...] = (
     "_adams_source",
     "_adams_state",
     "_apply_mask",
+    "_axis_row_populations",
     "_axis_statistics",
     "_begin_plane",
     "_bind_monitor",
