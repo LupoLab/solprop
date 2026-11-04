@@ -100,7 +100,7 @@ def test_the_ledger_drops_one_volume(backend, tmp_path):
 
 
 def test_the_estimate_a_caller_reads_says_the_same():
-    """On the reference: it times a trial step, which a native march does not take."""
+    """On the reference: native's ledger has a measured heap row, which varies."""
     on, off = built(), built(held=False)
     volume = 16 * math.prod(off.translate().shape)
     assert on.estimate().memory - off.estimate().memory == volume
