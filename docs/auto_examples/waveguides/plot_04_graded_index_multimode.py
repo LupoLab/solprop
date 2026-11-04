@@ -76,6 +76,7 @@ from dataclasses import dataclass
 
 import matplotlib.pyplot as plt
 import numpy as np
+from scipy.optimize import brentq
 
 from solprop.constants import C
 from solprop.coupling import CouplingModel
@@ -360,11 +361,11 @@ figures[-1].tight_layout()
 # ``z_p`` and the group-velocity dispersion of bulk silica at the pump (the fibre's
 # waveguide contribution to it is small for a core this large).
 #
-# The anti-Stokes band sits within 2 % of the predicted 802 nm -- close agreement
-# for a formula that keeps only ``beta_2`` across a 90 THz shift. The long-wavelength
-# band is *not* at the predicted Stokes position (1.58 um), nor at the
-# energy-conserving partner of the anti-Stokes band (1.64 um); the leading-order
-# formula does not explain it, and this page leaves it as an open observation.
+# The anti-Stokes band sits within 2 % of the predicted 802 nm, which is close for a
+# formula that keeps only ``beta_2`` across a 90 THz shift. The long-wavelength band
+# is *not* at the predicted Stokes position (1.58 um), nor at the partner the
+# anti-Stokes band would have if the pump's centre drove it (1.64 um). The next
+# section shows what it is.
 
 omega0 = 2.0 * np.pi * C / WAVELENGTH
 index = fused_silica(model="malitson_1965/sellmeier")
@@ -407,6 +408,98 @@ ax.legend(frameon=False, fontsize="small")
 fig.tight_layout()
 
 # %%
+# The two bands are one pair
+# --------------------------
+# Parametric gain makes photons in pairs, so the two bands of one process hold equal
+# photon numbers, and energy conservation gives the wavelength that drives them:
+# :math:`2/\lambda_p = 1/\lambda_a + 1/\lambda_s`. The solved channels then give the
+# exact phase matching, with no expansion of the dispersion: two ``LP_01`` pump photons
+# at :math:`\omega_p` become an anti-Stokes photon in ``LP_01`` and a Stokes photon in
+# ``LP_02``, so :math:`\beta_{01}(\omega_p+\Omega)+\beta_{02}(\omega_p-\Omega)
+# =2\beta_{01}(\omega_p)`. The Kerr phase is left out: it is a few per cent of the
+# channel spacing.
+
+
+def modal_beta(channel, omega):
+    """Return one channel's propagation constant at one frequency, 1/m."""
+    mode = guide.mode_collection.modes[channel]
+    return float(mode.neff(np.array([omega]))[0].real) * omega / C
+
+
+def phase_matched_pair(pump, near):
+    """Return the exact pair in nm for a pump wavelength, nearest a measured shift."""
+    pump_omega = 2.0 * np.pi * C / pump
+
+    def mismatch(offset):
+        return (
+            modal_beta(0, pump_omega + offset)
+            + modal_beta(1, pump_omega - offset)
+            - 2.0 * modal_beta(0, pump_omega)
+        )
+
+    offset = brentq(mismatch, 0.8 * near, 1.2 * near)
+    return tuple(
+        2.0e9 * np.pi * C / (pump_omega + sign * offset) for sign in (1.0, -1.0)
+    )
+
+
+exit_wavelength = 2.0 * np.pi * C / grid.omega[1:]
+for position in (0.05, 0.075, 0.1):
+    plane = int(np.argmin(np.abs(z - position)))
+    channels = np.abs(np.asarray(run["field"])[plane, :, 0, 1:]) ** 2
+    spectrum = np.sum(channels, axis=0)
+    smooth = np.convolve(spectrum, np.ones(5) / 5.0, mode="same")
+    bands = {
+        "blue": (WAVELENGTH - 180e-9, WAVELENGTH - 5e-9),
+        "anti-Stokes": (740e-9, 840e-9),
+        "Stokes": (WAVELENGTH + 300e-9, 1.7e-6),
+    }
+    peaks = {}
+    for name, (low, high) in bands.items():
+        inside = (exit_wavelength > low) & (exit_wavelength < high)
+        peaks[name] = float(exit_wavelength[inside][np.argmax(smooth[inside])])
+    anti_stokes = np.abs(exit_wavelength - peaks["anti-Stokes"]) < 25e-9
+    stokes = np.abs(exit_wavelength - peaks["Stokes"]) < 100e-9
+    centre_partner = (exit_wavelength > 1.6e-6) & (exit_wavelength < 1.7e-6)
+    photons = spectrum / grid.omega[1:]
+    pump_implied = 2.0 / (1.0 / peaks["anti-Stokes"] + 1.0 / peaks["Stokes"])
+    measured_offset = (
+        C * np.pi * 2.0 * (1.0 / peaks["anti-Stokes"] - 1.0 / pump_implied)
+    )
+    pair = phase_matched_pair(pump_implied, measured_offset)
+    print(
+        f"z = {z[plane] * 100:4.1f} cm: photons, as fractions of the total, "
+        f"{photons[anti_stokes].sum() / photons.sum():.2e} anti-Stokes, "
+        f"{photons[stokes].sum() / photons.sum():.2e} Stokes, "
+        f"{photons[centre_partner].sum() / photons.sum():.2e} in 1.6-1.7 um"
+    )
+    print(
+        f"    bands {peaks['anti-Stokes'] * 1e9:.0f} and "
+        f"{peaks['Stokes'] * 1e9:.0f} nm "
+        f"imply a pump at {pump_implied * 1e9:.0f} nm (blue lobe of the pump's "
+        f"spectrum {peaks['blue'] * 1e9:.0f} nm); exact pair there "
+        f"{pair[0]:.0f} and {pair[1]:.0f} nm"
+    )
+centre_pair = phase_matched_pair(WAVELENGTH, shift)
+print(
+    f"exact pair at the pump's centre: {centre_pair[0]:.0f} and {centre_pair[1]:.0f} nm"
+)
+
+# %%
+# The photon numbers agree as both bands grow, while the partner of the pump's centre
+# stays near the noise. So the long-wavelength band is the anti-Stokes band's partner.
+# The pump the two bands imply is not the launched 1064 nm but the blue side of the
+# spectrum self-phase modulation has built, about 10 nm beyond its blue lobe, and the
+# exact pair there lands within a few nanometres of the anti-Stokes band and within
+# 10 nm of the Stokes band. The anti-Stokes wavelength is nearly stationary against the
+# pump wavelength while the Stokes wavelength is not, which is why one band is narrow
+# and fixed and the other broad, moving to shorter wavelengths as the lobe does.
+#
+# Why the blue lobe drives the pair is not settled here. The pump's centre has an exact
+# pair of its own, printed last, at which nothing grows, and the red lobe makes no
+# visible pair. This is one noise seed in four channels without Raman scattering.
+
+# %%
 # The channels
 # ------------
 # The energy in each channel along the fibre, as a fraction of the launched
@@ -440,9 +533,9 @@ for position, index in (("entrance", 0), ("exit", -1)):
 
 # %%
 # Which channel carries which band: the exit spectrum of each channel. The pump
-# stays mostly in ``LP_01``; the bands the parametric process built are shared
-# between the channels, because the process that made them is the beat between
-# the channels.
+# stays mostly in ``LP_01``. So does the anti-Stokes band, while ``LP_02`` carries most
+# of the long-wavelength band, as the pair above requires; the other channels hold
+# smaller shares of both.
 
 wavelength, densities = get_spectral_density(run, "wavelength", plane=-1)
 order = np.argsort(wavelength)
