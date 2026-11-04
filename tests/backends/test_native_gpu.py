@@ -4,11 +4,15 @@
 
 """Focused CUDA/HIP bring-up checks for the optional native backend."""
 
+from typing import Any, cast
+
 import numpy as np
 import pytest
+from benchmarks.device_split import _simulation
 
 from bounds import assert_within, ladder_bound
 from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.registry import select
 from solprop.stepper import FixedSchedule
 
 pytestmark = pytest.mark.gpu
@@ -80,3 +84,58 @@ def test_same_card_launch_geometry_is_repeatable(
     assert first_summary.n_rejected == second_summary.n_rejected
     bound = ladder_bound("native", 16 * np.finfo(float).eps, soliton_grid.n_to, 7)
     assert_within(second, first, bound, what="repeat launch")
+
+
+def test_a_large_state_crosses_both_ways_through_the_ring_bit_for_bit(
+    accelerator_backend,
+):
+    # The ring needs 256 MiB; 192^2 x 600 is 354 MiB. A lossless copy is exact (SEP 25).
+    del accelerator_backend
+    simulation = _simulation(192, 2, 1, None)
+    problem = simulation.translate()
+    engine = cast(
+        "Any",
+        select(
+            "native",
+            problem,
+            grid=simulation.grid,
+            modes=simulation.modes,
+            profiles=simulation.profiles,
+        ),
+    )
+    try:
+        rng = np.random.default_rng(53)
+        shape = problem.shape
+        field = rng.standard_normal(shape) + 1j * rng.standard_normal(shape)
+        assert field.nbytes >= 2**28
+        assert engine.memory_ledger()["host_crossing_ring"] == 0
+        engine.set_initial(field, None, z=problem.initial.z)
+        assert engine.memory_ledger()["host_crossing_ring"] > 0
+        back = engine._native_state.field_to_host().reshape(shape)
+        assert back.tobytes() == field.tobytes()
+        observed = engine.observe(field=True).require_field()
+        assert observed.tobytes() == field.tobytes()
+    finally:
+        engine.close()
+
+
+def test_a_small_state_holds_no_pinned_ring(accelerator_backend):
+    del accelerator_backend
+    simulation = _simulation(32, 2, 1, None)
+    problem = simulation.translate()
+    engine = cast(
+        "Any",
+        select(
+            "native",
+            problem,
+            grid=simulation.grid,
+            modes=simulation.modes,
+            profiles=simulation.profiles,
+        ),
+    )
+    try:
+        engine.set_initial(problem.initial.field0, None, z=problem.initial.z)
+        engine.observe(field=True)
+        assert engine.memory_ledger()["host_crossing_ring"] == 0
+    finally:
+        engine.close()

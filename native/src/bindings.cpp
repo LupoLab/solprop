@@ -5,6 +5,7 @@
 #include "helpers.hpp"
 #include "solprop_native/adams_march.hpp"
 #include "solprop_native/core.hpp"
+#include "solprop_native/crossing.hpp"
 #include "solprop_native/fft_plan.hpp"
 #include "solprop_native/lagrange_basis.hpp"
 #include "solprop_native/stage_tables.hpp"
@@ -815,11 +816,11 @@ ComplexOutput complex_output(const std::vector<native::Complex>& values,
 }
 
 /** A complex array owning `storage`, uninitialised doubles a native copy filled. */
-ComplexOutput complex_buffer_output(std::unique_ptr<double[]> storage,
+ComplexOutput complex_buffer_output(native::crossing::HostBuffer storage,
                                     std::vector<std::size_t> shape) {
   auto* pointer = storage.release();
   nb::capsule owner(pointer, [](void* value) noexcept {
-    const std::unique_ptr<double[]> held(static_cast<double*>(value));
+    const native::crossing::HostBuffer held(static_cast<double*>(value));
   });
   return ComplexOutput(reinterpret_cast<std::complex<double>*>(pointer), shape.size(),
                        shape.data(), owner);
@@ -1376,6 +1377,10 @@ public:
     return general_state_->aperture_statistics(flags, apertures, exponent, regions,
                                                intensity_factor);
   }
+  void set_crossing_workers(const std::size_t workers) noexcept {
+    if (general_state_)
+      general_state_->set_crossing_workers(workers);
+  }
   void field_to_host(const std::span<native::Complex> destination) {
     require_open();
     if (general_state_)
@@ -1517,11 +1522,12 @@ public:
     fault.after = after;
     march_fault_ = fault;
   }
-  std::vector<native::Complex> stage_to_host(const std::size_t stage) {
+  void stage_to_host(const std::size_t stage,
+                     const std::span<native::Complex> destination) {
     require_open();
     if (!general_state_)
       throw std::logic_error("stage observation requires the general native state");
-    return general_state_->stage_to_host(stage);
+    general_state_->stage_to_host(stage, destination);
   }
   std::vector<native::Complex> projected_to_host(const bool coarse) {
     require_open();
@@ -2313,13 +2319,15 @@ NB_MODULE(_core, module_) {
       .def("held_to_host",
            [](BoundState& self) {
              auto& state = self.low_storage_state();
-             std::vector<native::Complex> values;
+             const auto count = self.elements();
+             auto storage = native::crossing::host_buffer(2 * count);
              {
                const nb::gil_scoped_release release;
-               values = state.held_to_host();
+               state.held_to_host(
+                   {reinterpret_cast<native::Complex*>(storage.get()), count});
              }
-             return complex_output(values,
-                                   {self.columns(), values.size() / self.columns()});
+             return complex_buffer_output(std::move(storage),
+                                          {self.columns(), count / self.columns()});
            })
       // solprop SEP 16 phase 3b: the Adams history resident in the engine.
       .def(
@@ -2937,11 +2945,17 @@ NB_MODULE(_core, module_) {
              }
              return real_output(std::move(values), 1);
            })
+      .def(
+          "set_crossing_workers",
+          [](BoundState& self, const std::size_t workers) {
+            self.set_crossing_workers(workers);
+          },
+          "workers"_a)
       .def("field_to_host",
            [](BoundState& self) {
              // The state crosses once, straight into the returned array's memory.
              const auto count = self.elements();
-             auto storage = std::make_unique_for_overwrite<double[]>(2 * count);
+             auto storage = native::crossing::host_buffer(2 * count);
              {
                const nb::gil_scoped_release release;
                self.field_to_host(
@@ -2953,13 +2967,15 @@ NB_MODULE(_core, module_) {
       .def(
           "stage_to_host",
           [](BoundState& self, const std::size_t stage) {
-            std::vector<native::Complex> values;
+            const auto count = self.elements();
+            auto storage = native::crossing::host_buffer(2 * count);
             {
               const nb::gil_scoped_release release;
-              values = self.stage_to_host(stage);
+              self.stage_to_host(
+                  stage, {reinterpret_cast<native::Complex*>(storage.get()), count});
             }
-            return complex_output(values,
-                                  {self.columns(), values.size() / self.columns()});
+            return complex_buffer_output(std::move(storage),
+                                         {self.columns(), count / self.columns()});
           },
           "stage"_a)
       .def(

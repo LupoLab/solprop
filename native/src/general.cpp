@@ -5,6 +5,7 @@
 #include "solprop_native/adams_phi.hpp"
 #include "solprop_native/core.hpp"
 #include "solprop_native/coupled_flow.hpp"
+#include "solprop_native/crossing.hpp"
 #include "solprop_native/dispersive.hpp"
 #include "solprop_native/envelope_plasma.hpp"
 #include "solprop_native/far_field.hpp"
@@ -860,14 +861,20 @@ void ionisation_rates_within(double* values, const std::size_t live,
 // A host span as an unmanaged view of a state-shaped memory-space view, for one copy
 // between them: no staging mirror, no element loop. A span whose data is not aligned
 // as `Complex` (a NumPy buffer need not be) is staged in an aligned vector first.
-void upload_span(const ExecutionSpace& execution_space, const ComplexView2& destination,
+void upload_span(const ExecutionSpace& execution_space, crossing::Ring& ring,
+                 const ComplexView2& destination,
                  const std::span<const Complex> source) {
   if (destination.size() != source.size())
     throw std::invalid_argument("fixed problem array has the wrong extent");
   if (reinterpret_cast<std::uintptr_t>(source.data()) % alignof(Complex) != 0) {
     const std::vector<Complex> aligned(source.begin(), source.end());
-    upload_span(execution_space, destination, aligned);
+    upload_span(execution_space, ring, destination, aligned);
     execution_space.fence("solprop_native unaligned upload");
+    return;
+  }
+  if (crossing::takes_ring(source.size_bytes())) {
+    execution_space.fence("solprop_native upload");
+    ring.from_host(destination.data(), source.data(), source.size_bytes());
     return;
   }
   const Kokkos::View<const Complex**, Layout, Kokkos::HostSpace,
@@ -2094,7 +2101,7 @@ public:
   double low_storage_step(double dz, const TrialScalars& scalars, bool rebuild_table);
   void hold_plane();
   void release_plane();
-  std::vector<Complex> held_to_host() const;
+  void held_to_host(std::span<Complex> destination) const;
   void low_storage_flows_formed(bool rebuild_table);
   void low_storage_separable_pass(std::size_t pass, double dz);
   void low_storage_separable_input(std::size_t pass);
@@ -2178,7 +2185,12 @@ public:
   std::vector<double> monitor_reading();
   std::vector<Complex> field_to_host() const;
   void field_to_host(std::span<Complex> destination) const;
+  void cross_to_host(const ComplexView2& source, std::span<Complex> destination) const;
+  void set_crossing_workers(const std::size_t workers) noexcept {
+    crossing_ring_.set_workers(workers);
+  }
   std::vector<Complex> stage_to_host(std::size_t stage) const;
+  void stage_to_host(std::size_t stage, std::span<Complex> destination) const;
   std::vector<Complex> projected_to_host(bool coarse);
   std::map<std::string, bool> dispersive_path() const;
   std::map<std::string, std::size_t> memory_ledger() const;
@@ -2877,6 +2889,8 @@ public:
   // #440); empty unbound.
   ByteView occupancy_buckets_;
   std::size_t occupancy_count_ = 0;
+  // A large crossing's pinned chunks, once one has been made (`crossing.hpp`).
+  mutable crossing::Ring crossing_ring_;
   [[nodiscard]] bool monitoring_split() const noexcept {
     return monitor_bound_ && problem_.split_step_absorber;
   }
@@ -4662,7 +4676,7 @@ void GeneralWorkspace::set_initial(const std::span<const Complex> field,
                  "initial field");
   if (!noise.empty())
     require_extent(noise.size(), field.size(), "noise");
-  upload_span(execution_space_, current_, field);
+  upload_span(execution_space_, crossing_ring_, current_, field);
   if (noise.empty()) {
     if (problem_.modified_noise)
       graph::deep_copy(execution_space_, noise_, Complex{});
@@ -4671,7 +4685,7 @@ void GeneralWorkspace::set_initial(const std::span<const Complex> field,
     if (!problem_.modified_noise)
       throw std::invalid_argument(
           "a native noise field is valid only for modified noise");
-    upload_span(execution_space_, noise_, noise);
+    upload_span(execution_space_, crossing_ring_, noise_, noise);
     has_noise_ = true;
   }
   mask(current_);
@@ -5844,18 +5858,14 @@ void GeneralWorkspace::release_plane() {
   held_ready_ = false;
 }
 
-std::vector<Complex> GeneralWorkspace::held_to_host() const {
+void GeneralWorkspace::held_to_host(const std::span<Complex> destination) const {
   require_open();
   if (!held_ready_)
     throw std::logic_error("no field-free plane is held");
+  require_extent(destination.size(), problem_.n_columns() * problem_.n_omega,
+                 "held field destination");
   execution_space_.fence("solprop_native held_to_host");
-  const auto host =
-      Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace{}, held_plane_);
-  std::vector<Complex> result(problem_.n_columns() * problem_.n_omega);
-  for (std::size_t column = 0; column < problem_.n_columns(); ++column)
-    for (std::size_t index = 0; index < problem_.n_omega; ++index)
-      result[column * problem_.n_omega + index] = host(column, index);
-  return result;
+  cross_to_host(held_plane_, destination);
 }
 
 // --- solprop SEP 16 phase 3b: the Adams history resident in the engine ---------------
@@ -6400,6 +6410,10 @@ void GeneralWorkspace::adams_rows_to_host(const std::string& name,
     throw std::invalid_argument("the Adams history row '" + name +
                                 "' has the wrong extent");
   execution_space_.fence("solprop_native Adams rows_to_host");
+  if (crossing::takes_ring(size * sizeof(Complex))) {
+    crossing_ring_.to_host(destination, view.data(), size * sizeof(Complex));
+    return;
+  }
   const auto host = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace{}, view);
   const auto* source = host.data();
   for (std::size_t index = 0; index < size; ++index)
@@ -14923,6 +14937,21 @@ std::vector<Complex> GeneralWorkspace::field_to_host() const {
 
 // One copy from the memory space into the caller's buffer: no staging mirror and no
 // element loop, so a large state crosses once (a device's one transfer).
+void GeneralWorkspace::cross_to_host(const ComplexView2& source,
+                                     const std::span<Complex> destination) const {
+  if (crossing::takes_ring(destination.size_bytes())) {
+    crossing_ring_.to_host(destination.data(), source.data(), destination.size_bytes());
+    return;
+  }
+  const Kokkos::View<Complex**, Layout, Kokkos::HostSpace,
+                     Kokkos::MemoryTraits<Kokkos::Unmanaged>>
+      host(destination.data(), source.extent(0), source.extent(1));
+  // On the stage's instance: a compact problem's team, which the default instance's
+  // whole-runtime copy would end and restart.
+  graph::deep_copy(execution_space_, host, source);
+  execution_space_.fence("solprop_native crossing");
+}
+
 void GeneralWorkspace::field_to_host(const std::span<Complex> destination) const {
   require_open();
   if (!initialized_)
@@ -14930,29 +14959,35 @@ void GeneralWorkspace::field_to_host(const std::span<Complex> destination) const
   require_extent(destination.size(), problem_.n_columns() * problem_.n_omega,
                  "field destination");
   execution_space_.fence("solprop_native field_to_host");
-  const Kokkos::View<Complex**, Layout, Kokkos::HostSpace,
-                     Kokkos::MemoryTraits<Kokkos::Unmanaged>>
-      host(destination.data(), problem_.n_columns(), problem_.n_omega);
-  // On the stage's instance: a compact problem's team, which the default instance's
-  // whole-runtime copy would end and restart.
-  graph::deep_copy(execution_space_, host, current_);
-  execution_space_.fence("solprop_native field_to_host copy");
+  cross_to_host(current_, destination);
 }
 
 std::vector<Complex> GeneralWorkspace::stage_to_host(const std::size_t stage) const {
+  std::vector<Complex> result(problem_.n_columns() * problem_.n_omega);
+  stage_to_host(stage, result);
+  return result;
+}
+
+void GeneralWorkspace::stage_to_host(const std::size_t stage,
+                                     const std::span<Complex> destination) const {
   require_open();
   if (!stages_ready_)
     throw std::logic_error("no trial stages have been evaluated");
   if (stage >= problem_.n_stages)
     throw std::out_of_range("stage index is outside the tableau");
+  require_extent(destination.size(), problem_.n_columns() * problem_.n_omega,
+                 "stage destination");
   execution_space_.fence("solprop_native stage_to_host");
   const auto selected = Kokkos::subview(stages_, stage, Kokkos::ALL, Kokkos::ALL);
+  if (crossing::takes_ring(destination.size_bytes())) {
+    crossing_ring_.to_host(destination.data(), selected.data(),
+                           destination.size_bytes());
+    return;
+  }
   const auto host = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace{}, selected);
-  std::vector<Complex> result(problem_.n_columns() * problem_.n_omega);
   for (std::size_t column = 0; column < problem_.n_columns(); ++column)
     for (std::size_t index = 0; index < problem_.n_omega; ++index)
-      result[column * problem_.n_omega + index] = host(column, index);
-  return result;
+      destination[column * problem_.n_omega + index] = host(column, index);
 }
 
 std::vector<Complex> GeneralWorkspace::projected_to_host(const bool coarse) {
@@ -15263,6 +15298,7 @@ std::map<std::string, std::size_t> GeneralWorkspace::base_memory_ledger() const 
            occupancy_buckets_.size() +
            (monitor_split_sum_.size() + monitor_found_.size()) * sizeof(SplitSums)},
       {"statistics_flux_magnitude", statistics_magnitude_.size() * real_bytes},
+      {"host_crossing_ring", crossing_ring_.bytes()},
       {"statistics_outputs", (statistics_total_power_.size() +
                               statistics_on_axis_.size() + statistics_packed_.size()) *
                                  real_bytes},
@@ -15504,6 +15540,7 @@ void GeneralWorkspace::close() noexcept {
   monitor_found_ = {};
   occupancy_buckets_ = {};
   occupancy_count_ = 0;
+  crossing_ring_.release();
   tableau_ = {};
   omega_window_ = {};
   omega_ = {};
@@ -15618,9 +15655,9 @@ void GeneralState::hold_plane() {
   workspace_->hold_plane();
 }
 void GeneralState::release_plane() { workspace_->release_plane(); }
-std::vector<Complex> GeneralState::held_to_host() const {
+void GeneralState::held_to_host(const std::span<Complex> destination) const {
   const CpuTeamScope team(workspace_->cpu_team());
-  return workspace_->held_to_host();
+  workspace_->held_to_host(destination);
 }
 void GeneralState::adams_allocate(const std::size_t slots, const bool compensated,
                                   const bool interpolate) {
@@ -15849,9 +15886,18 @@ std::vector<Complex> GeneralState::field_to_host() const {
   const CpuTeamScope team(workspace_->cpu_team());
   return workspace_->field_to_host();
 }
+void GeneralState::set_crossing_workers(const std::size_t workers) noexcept {
+  if (workspace_)
+    workspace_->set_crossing_workers(workers);
+}
 void GeneralState::field_to_host(const std::span<Complex> destination) const {
   const CpuTeamScope team(workspace_->cpu_team());
   workspace_->field_to_host(destination);
+}
+void GeneralState::stage_to_host(const std::size_t stage,
+                                 const std::span<Complex> destination) const {
+  const CpuTeamScope team(workspace_->cpu_team());
+  workspace_->stage_to_host(stage, destination);
 }
 std::vector<Complex> GeneralState::stage_to_host(const std::size_t stage) const {
   const CpuTeamScope team(workspace_->cpu_team());

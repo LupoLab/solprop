@@ -845,7 +845,7 @@ if(SOLPROP_NATIVE_ENABLE_COVERAGE)
   install(TARGETS solprop_native_labels LIBRARY DESTINATION solprop_native)
 endif()
 
-add_library(solprop_native_core STATIC src/core.cpp src/general.cpp
+add_library(solprop_native_core STATIC src/core.cpp src/crossing.cpp src/general.cpp
   src/general_modal.cpp src/coupled_flow.cpp src/dispersive.cpp src/far_field.cpp
   src/adams_march.cpp)
 # solprop SEP 39: the Adams march's decisions round as solprop's Python does, so their
@@ -976,6 +976,7 @@ if(BUILD_TESTING)
     tests/native/test_adams_march.cpp
     tests/native/test_adams_phi.cpp
     tests/native/test_core.cpp
+    tests/native/test_crossing.cpp
     tests/native/test_envelope_plasma.cpp
     tests/native/test_fft.cpp
     tests/native/test_fp.cpp

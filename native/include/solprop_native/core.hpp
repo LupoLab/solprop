@@ -824,7 +824,7 @@ public:
   /** Release the held plane's volume, for a run that holds none. */
   void release_plane();
   /** The held plane's state on the host: the one copy a checkpoint takes. */
-  [[nodiscard]] std::vector<Complex> held_to_host() const;
+  void held_to_host(std::span<Complex> destination) const;
   /** The resident Adams history (solprop SEP 16 phase 3b, solprop ADR-043). */
   void adams_allocate(std::size_t slots, bool compensated, bool interpolate = true);
   void adams_compensation_start(std::size_t slot, const std::vector<double>& rate);
@@ -941,7 +941,10 @@ public:
   [[nodiscard]] std::vector<Complex> field_to_host() const;
   /** The field into `destination`, of the field's size: one copy from the space. */
   void field_to_host(std::span<Complex> destination) const;
+  /** The threads a large crossing takes (`crossing.hpp`), from solprop's budget. */
+  void set_crossing_workers(std::size_t workers) noexcept;
   [[nodiscard]] std::vector<Complex> stage_to_host(std::size_t stage) const;
+  void stage_to_host(std::size_t stage, std::span<Complex> destination) const;
   /**
    * The last evaluation's projected polarisation spectrum on the fine rule, or on the
    * embedded one (finishing SEP 6's dispersive products there first), a diagnostic.

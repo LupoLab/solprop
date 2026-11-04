@@ -23,7 +23,7 @@ import numpy as np
 import numpy.typing as npt
 from solprop._helpers import Helpers
 from solprop._interrupts import committing
-from solprop._process import acquire_host_blas
+from solprop._process import acquire_host_blas, thread_budget
 from solprop.backends.driver import StepDriver, reached, replay_tolerance
 from solprop.backends.exponential import (
     CarrierReference,
@@ -334,6 +334,7 @@ class NativeBackend(StepDriver[_core.State]):
             _native_problem(problem, self._terms, self._flow, self._z_tables)
             | _low_storage_payload(problem, device=_on_device())
         )
+        self._native_state.set_crossing_workers(thread_budget().threads)
         _wisdom.store(wisdom)
         self._wisdom_digest: str | None = None
         if self._z_tables is not None:
