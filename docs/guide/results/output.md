@@ -431,6 +431,10 @@ scan writer each refuse it by name, from the stored column count, before anythin
 written, because five numbers do not fit four columns and nothing stored can split that
 sum. Start a new file, or launch a new segment from a saved plane.
 
+A run with a non-zero `custom_absorber` rate also records the new `absorber.user_rate`, so
+even a file with no `absorbed_power` is not continued: the comparison names that field as
+absent from the stored record. A run with no custom rate keeps its record.
+
 ## A worked example
 
 ```{code-block} python

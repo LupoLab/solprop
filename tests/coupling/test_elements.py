@@ -25,7 +25,7 @@ from solprop.coupling.elements import (
     ThinLens,
     TransmissionMask,
 )
-from solprop.exceptions import CouplingError, OutputError
+from solprop.exceptions import CouplingError
 from solprop.grid import EnvelopeGrid, FreeGrid, LineGrid, RadialGrid
 from solprop.optics import (
     Chain,
@@ -35,7 +35,7 @@ from solprop.optics import (
     TaylorPhase,
     littrow_angle,
 )
-from solprop.output.schema import SavedPlane
+from solprop.output.schema import SavedPlane, serialise
 from solprop.profiles import Linear
 from solprop.spatial import SpatialFlux, SpatialMedium
 from solprop.stats import ApertureSet, StatsSpec, collect
@@ -649,6 +649,21 @@ def test_the_offline_aperture_agrees_with_the_statistic(
             {"radius": 1e-3, "extent": (1e-3, 1e-3)},
             "a circle has a radius",
         ),
+        (
+            FreeGrid(4e-3, 32, 4e-3, 32),
+            {"shape": "half_plane_x_lt", "centre": (float("nan"), 0.0)},
+            "centre must be finite",
+        ),
+        (
+            FreeGrid(4e-3, 32, 4e-3, 32),
+            {"radius": 1e-3, "centre": (float("inf"), 0.0)},
+            "centre must be finite",
+        ),
+        (
+            FreeGrid(4e-3, 32, 4e-3, 32),
+            {"shape": "ellipse", "extent": (float("nan"), 1e-3)},
+            "positive full widths",
+        ),
     ],
 )
 def test_a_shaped_aperture_refuses_by_name(beam: BeamFactory, space, options, message):
@@ -660,7 +675,13 @@ def test_a_shaped_aperture_refuses_by_name(beam: BeamFactory, space, options, me
 
 def test_a_half_plane_refuses_a_supergauss_edge_offline(beam: BeamFactory):
     state = beam(FreeGrid(4e-3, 32, 4e-3, 32), 5e-4)
-    with pytest.raises(OutputError, match="a half-plane has none"):
+    with pytest.raises(CouplingError, match="a half-plane has none"):
         Aperture(
             0.0, model_error=0.9, edge=4.0, kind="supergauss", shape="half_plane_x_ge"
         ).apply(state)
+
+
+def test_naming_the_default_circle_records_nothing_new():
+    named = Aperture(1e-3, model_error=0.1, shape="circle")
+    assert named.shape is None
+    assert serialise(named) == serialise(Aperture(1e-3, model_error=0.1))

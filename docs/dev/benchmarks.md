@@ -617,8 +617,12 @@ three hard holes 31.75 → 32.16 (+1.3 %), three hard holes on one centre, with 
 shared, 32.26 → 32.69 (+1.3 %), three `tanh` holes 79.42 → 76.74 (−3.4 %), sixteen `rcos`
 holes 103.4 → 89.7 (−13 %). The results of both backends on these sets were identical to the
 bit. A shape other than a circle forms its offsets and takes one more branch per row and
-element. This is indicative: `python -m benchmarks ab` was not run, and a quiet machine
-should repeat it; the far-field pass runs at save planes and periodic rows only.
+element. That comparison is indicative; the far-field pass runs at save planes and periodic
+rows only. The whole-run check is `python -m benchmarks ab --case rdw --case far_field_stats
+--threads 1,16 --length 0.1 --rounds 5 --repeats 1`, an exclusive AMD EPYC 7763 node, GCC 16.2,
+base f004a662: candidate/baseline `far_field_stats` 0.994 at one thread (21.48 → 21.38 s) and
+0.994 at 16 (4.699 → 4.696 s), `rdw` 0.997 at both, geometric mean 0.995, the fields agreeing
+to 6e-15 and the same work on every row. Those holes are circles; the new shapes were not timed.
 
 ### Raman kernel rebuild
 

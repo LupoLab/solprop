@@ -353,7 +353,9 @@ refuses varying media and `propagator_mode="tabulate"` explicitly.
 are `k_squared` and `k_squared_low` (complex128, material wave-number square
 and its residual in m^-2), `frame`
 (float64, frame subtraction in m^-1), `spectral_rate` (float64, nonnegative power
-absorption in m^-1), `prefactor_numerator` and `prefactor_clamped` (complex128,
+absorption in m^-1), `user_rate` (float64, the share of `spectral_rate` a custom rate
+supplies, between zero and it, read only by `absorbed_power`; zeros when there is none,
+kernel schema 44), `prefactor_numerator` and `prefactor_clamped` (complex128,
 purely imaginary, with temporal crop scaling), and `active` (bool). Each has
 `n_omega` entries. `kperp_sq` is a nonnegative float64 vector of `n_modes`
 transverse wave-number squares in m^-2; `kperp_sq_low` has the same shape and

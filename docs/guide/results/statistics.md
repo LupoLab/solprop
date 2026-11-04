@@ -522,8 +522,10 @@ from the axis, so only columns that near the edge can change sides. At $X=0$ the
 is the sign of $\kappa_x$ and is exact.
 
 A line takes `half_plane_x_ge`, `half_plane_x_lt` and `rectangle`, whose $y$ edges meet
-nothing, so it is the slit of its $x$ width with $D_q=D$; it refuses an ellipse and a
-half-plane bounded in $y$, which hold every column or none. Radial and planar-hybrid
+no column, so it is the slit of its $x$ width with $D_q=D$; it refuses an ellipse and a
+half-plane bounded in $y$, which hold every column or none. The table is checked without
+its grid, so $D_y$ still counts towards the paraxial reach and the limit on the edge
+width: give a slit a $D_y$ like its $D_x$. Radial and planar-hybrid
 geometry have no far-field statistic at all. The offline
 {py:class}`~solprop.coupling.elements.Aperture` takes the same outlines from the same
 seam ({py:class}`~solprop.spatial.ApertureOutline`) and refuses all but a circle on a

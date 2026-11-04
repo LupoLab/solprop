@@ -49,7 +49,7 @@ from scipy.special import j0
 
 from solprop import fourier
 from solprop.constants import C
-from solprop.exceptions import CouplingError
+from solprop.exceptions import CouplingError, OutputError
 from solprop.grid import FreeGrid, LineGrid, RadialGrid, TimeGrid
 from solprop.optics import (
     Chain,
@@ -1442,7 +1442,7 @@ class Aperture:
         ``sqrt(W)``. Default ``'amplitude'``.
     shape : str or None
         One of :data:`solprop.spatial.APERTURE_SHAPES`; ``None`` (the default) is
-        ``circle``.
+        ``circle``, and ``"circle"`` is stored as ``None``, so the two record alike.
     extent : tuple of float or None
         The full widths ``(D_x, D_y)`` of an ellipse or a rectangle in m, positive;
         ``None`` for any other shape.
@@ -1465,6 +1465,11 @@ class Aperture:
         default=None, metadata={"record_none": False}
     )
 
+    def __post_init__(self) -> None:
+        """Store a circle as ``None``, so naming the default records nothing new."""
+        if self.shape == "circle":
+            object.__setattr__(self, "shape", None)
+
     def apply(self, state: SpatialState) -> ElementResult:
         """Apply the aperture.
 
@@ -1481,11 +1486,15 @@ class Aperture:
         Raises
         ------
         CouplingError
-            If the weighting is unknown; an off-axis aperture or anything but a circle
-            is asked of a radial grid; or the shape's measures break their rules.
+            If the weighting is unknown; the centre is not finite; an off-axis aperture
+            or anything but a circle is asked of a radial grid; or the shape's measures
+            break their rules.
         """
         if self.weighting not in ("amplitude", "quadrature"):
             msg = f"weighting is 'amplitude' or 'quadrature', got {self.weighting!r}"
+            raise CouplingError(msg)
+        if not np.all(np.isfinite(self.centre)):
+            msg = f"an aperture's centre must be finite, got {self.centre}"
             raise CouplingError(msg)
         if isinstance(state.space, RadialGrid) and any(self.centre):
             msg = (
@@ -1494,10 +1503,10 @@ class Aperture:
             )
             raise CouplingError(msg)
         x, y = _nodes(state.space)
-        if self.shape in (None, "circle") and self.extent is not None:
+        if self.shape is None and self.extent is not None:
             msg = "extent is an ellipse's or a rectangle's; a circle has a radius"
             raise CouplingError(msg)
-        if self.shape in (None, "circle"):
+        if self.shape is None:
             distance = np.hypot(x - self.centre[0], y - self.centre[1])
             weight = aperture_profile(distance, self.radius, self.edge, self.kind)
         else:
@@ -1505,11 +1514,7 @@ class Aperture:
         amplitude = np.sqrt(weight) if self.weighting == "quadrature" else weight
         n_band = int(np.sum(_band(state.grid)))
         transmission = np.repeat(amplitude[:, None], n_band, axis=1).astype(complex)
-        outline = (
-            f"radius={self.radius:g} m"
-            if self.shape in (None, "circle")
-            else f"{self.shape}"
-        )
+        outline = f"radius={self.radius:g} m" if self.shape is None else f"{self.shape}"
         return _apply_screen(
             state,
             transmission,
@@ -1561,12 +1566,17 @@ class Aperture:
             msg = f"a radius is a circle's; give zero for a {shape}, and extent"
             raise CouplingError(msg)
         if half_plane == (self.extent is not None) or (
-            self.extent is not None and min(self.extent) <= 0
+            self.extent is not None
+            and (
+                len(self.extent) != 2
+                or not np.all(np.isfinite(self.extent))
+                or min(self.extent) <= 0
+            )
         ):
             msg = (
                 f"a {shape} needs no extent"
                 if half_plane
-                else f"a {shape} needs positive full widths, extent=(D_x, D_y)"
+                else f"a {shape} needs finite, positive full widths, extent=(D_x, D_y)"
             )
             raise CouplingError(msg)
         off_axis = 1 if shape.startswith("half_plane_x") else 0
@@ -1574,7 +1584,10 @@ class Aperture:
             msg = f"a {shape} has an edge on one axis; its other centre must be zero"
             raise CouplingError(msg)
         extent = (0.0, 0.0) if self.extent is None else self.extent
-        outline = aperture_outline(shape, 0.0, extent, self.edge, self.kind)
+        try:
+            outline = aperture_outline(shape, 0.0, extent, self.edge, self.kind)
+        except OutputError as error:
+            raise CouplingError(str(error)) from error
         return outline.weight(self.centre[0] - x, self.centre[1] - y)
 
 
