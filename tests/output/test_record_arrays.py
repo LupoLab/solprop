@@ -110,6 +110,28 @@ def test_a_record_round_trips_through_its_text_and_arrays(values):
     assert again.configuration_hash() == record.configuration_hash()
 
 
+def test_an_array_named_twice_is_read_and_stored_once():
+    values = large()
+    record = dataclasses.replace(
+        _example_metadata(), configuration={"one": values, "two": values.copy()}
+    )
+    assert len(record.record_arrays()) == 1
+    back = RunMetadata.from_json(record.to_json(), record.record_arrays())
+    assert back.configuration["one"] is back.configuration["two"]
+    assert back.configuration_hash() == record.configuration_hash()
+
+
+def test_an_array_that_did_not_change_is_not_named():
+    values = large()
+    one = dataclasses.replace(
+        _example_metadata(), configuration={"rate": values, "gamma": 0.1}
+    )
+    two = dataclasses.replace(
+        _example_metadata(), configuration={"rate": values.copy(), "gamma": 0.2}
+    )
+    assert one.differences(two) == ("configuration.gamma",)
+
+
 def test_a_record_read_without_its_arrays_is_refused_by_name():
     record = holding(large())
     with pytest.raises(OutputError, match="not beside it"):

@@ -980,13 +980,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             raise BackendError(
                 f"{self.name} does not restore atomic response call ledgers"
             )
-        if logical:
-            if self._adams is None:
-                self._logger.info(
-                    "the charged call ledger stays with the earlier executions: "
-                    "this march keeps none"
-                )
-                return
+        if logical and self._adams is not None:
             # The march imports its driver, so the ledger type is loaded only when
             # a constructed backend restores a saved run.
             from solprop.backends.multistep import CallLedger  # noqa: PLC0415

@@ -597,6 +597,10 @@ def test_a_stored_record_missing_an_entry_reads_and_differs_by_path(
     del document["grid"]["n_t"]
     with pytest.raises(OutputError, match=r"lacks grid\.n_t"):
         RunMetadata.from_json(json.dumps(document))
+    document = json.loads(metadata.to_json())
+    del document["stepper"]["tableau"]
+    with pytest.raises(OutputError, match=r"lacks stepper\.tableau"):
+        RunMetadata.from_json(json.dumps(document))
     # A stored version is the integer 1, not a string that reads as one.
     document = json.loads(make_metadata(envelope_grid, stepper).to_json())
     document["schema_version"] = "1"

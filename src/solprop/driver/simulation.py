@@ -4018,11 +4018,6 @@ class Simulation(Displayed):
         # A march that cannot carry its history restarts it without having been asked
         # to: say so once, as a warning (SEP 29 section 6.6).
         if not adams:
-            if state.march is not None:
-                logger.info(
-                    "the Adams history is not continued: this run steps "
-                    "with another integrator"
-                )
             return
         refusal = getattr(backend, "march_export_refusal", lambda: None)()
         if refusal is not None:
