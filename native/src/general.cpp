@@ -47,7 +47,7 @@
 #include <dlfcn.h>
 #endif
 
-namespace solprop_native::host {
+namespace solprop_native {
 /** The three squared norms an accepted step reports, as one reduction value. */
 struct NormSums {
   double old_sum = 0.0;
@@ -60,10 +60,10 @@ struct NormSums {
     return *this;
   }
 };
-} // namespace solprop_native::host
+} // namespace solprop_native
 
-template <> struct Kokkos::reduction_identity<solprop_native::host::NormSums> {
-  KOKKOS_FUNCTION static solprop_native::host::NormSums sum() { return {}; }
+template <> struct Kokkos::reduction_identity<solprop_native::NormSums> {
+  KOKKOS_FUNCTION static solprop_native::NormSums sum() { return {}; }
 };
 
 namespace solprop_native {
@@ -1426,18 +1426,24 @@ KOKKOS_INLINE_FUNCTION void slot_range(const std::size_t n, const std::size_t sl
   end = Kokkos::min(n, first + width);
 }
 
-// The update and its three binary64 norms. On a device each column is `slots` teams,
-// each over its own bins, writing its partial sums at offset `slot` from the column's
-// partial pointers; the host reduces them.
+// The update and its three binary64 norms in one pass. On the host one team per column,
+// its threads splitting the bins when the columns are fewer than the threads; on a
+// device `slots` teams per column, each over its own bins, writing its partial sums at
+// offset `slot` from the column's partial pointers. The sums associate as the teams
+// split them (solprop SEP 25), and the host reduces them.
 template <class Columns>
 void accept_update(const ExecutionSpace& execution, const std::size_t count,
                    const std::size_t n, const double dz, const Columns& columns,
                    const char* label, const std::size_t slots) {
-#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
   using ReductionPolicy = Kokkos::TeamPolicy<ExecutionSpace>;
   using ReductionMember = ReductionPolicy::member_type;
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
+  const int team_size = SOLPROP_NATIVE_DEVICE_REDUCTION_SIZE;
+#else
+  const int team_size = host_reduction_team_size(execution, count, n);
+#endif
   const ReductionPolicy reduction_policy(execution, static_cast<int>(count * slots),
-                                         SOLPROP_NATIVE_DEVICE_REDUCTION_SIZE);
+                                         team_size);
   launch::parallel_for(
       label, reduction_policy, KOKKOS_LAMBDA(const ReductionMember& team) {
         const auto league = static_cast<std::size_t>(team.league_rank());
@@ -1447,71 +1453,12 @@ void accept_update(const ExecutionSpace& execution, const std::size_t count,
         std::size_t end = 0;
         slot_range(n, slots, slot, first, end);
         const auto values = columns(column);
-        Kokkos::parallel_for(Kokkos::TeamThreadRange(team, static_cast<int>(first),
-                                                     static_cast<int>(end)),
-                             [&](const int index_value) {
-                               const auto index = static_cast<std::size_t>(index_value);
-                               const Complex candidate =
-                                   values.whole[index] * (values.carried[index] +
-                                                          dz * values.solution[index]);
-                               values.advanced[index] = candidate;
-                               values.residual[index] =
-                                   values.whole[index] * (dz * values.error[index]);
-                             });
-        team.team_barrier();
-        double old_sum = 0.0;
-        double new_sum = 0.0;
-        double error_sum = 0.0;
+        NormSums sums;
         Kokkos::parallel_reduce(
             Kokkos::TeamThreadRange(team, static_cast<int>(first),
                                     static_cast<int>(end)),
-            [&](const int index_value, double& update) {
+            [&](const int index_value, NormSums& update) {
               const auto index = static_cast<std::size_t>(index_value);
-              if (values.in_norm[index] != 0U)
-                update += squared_abs(values.current[index]);
-            },
-            old_sum);
-        Kokkos::parallel_reduce(
-            Kokkos::TeamThreadRange(team, static_cast<int>(first),
-                                    static_cast<int>(end)),
-            [&](const int index_value, double& update) {
-              const auto index = static_cast<std::size_t>(index_value);
-              if (values.in_norm[index] != 0U)
-                update += squared_abs(values.advanced[index]);
-            },
-            new_sum);
-        Kokkos::parallel_reduce(
-            Kokkos::TeamThreadRange(team, static_cast<int>(first),
-                                    static_cast<int>(end)),
-            [&](const int index_value, double& update) {
-              const auto index = static_cast<std::size_t>(index_value);
-              if (values.in_norm[index] != 0U)
-                update += squared_abs(values.residual[index]);
-            },
-            error_sum);
-        Kokkos::single(Kokkos::PerTeam(team), [&]() {
-          values.old_partial[slot] = old_sum;
-          values.new_partial[slot] = new_sum;
-          values.error_partial[slot] = error_sum;
-        });
-      });
-#else
-  // One team per column, its threads splitting the bins when the columns are fewer
-  // than the threads, and the update and the three norms in one pass; the sums
-  // associate as the team splits them (solprop SEP 25). The host keeps one slot.
-  static_cast<void>(slots);
-  using ReductionPolicy = Kokkos::TeamPolicy<ExecutionSpace>;
-  using ReductionMember = ReductionPolicy::member_type;
-  const ReductionPolicy reduction_policy(execution, static_cast<int>(count),
-                                         host_reduction_team_size(execution, count, n));
-  launch::parallel_for(
-      label, reduction_policy, KOKKOS_LAMBDA(const ReductionMember& team) {
-        const auto column = static_cast<std::size_t>(team.league_rank());
-        const auto values = columns(column);
-        host::NormSums sums;
-        Kokkos::parallel_reduce(
-            Kokkos::TeamThreadRange(team, n),
-            [&](const std::size_t index, host::NormSums& update) {
               const Complex candidate =
                   values.whole[index] *
                   (values.carried[index] + dz * values.solution[index]);
@@ -1525,14 +1472,13 @@ void accept_update(const ExecutionSpace& execution, const std::size_t count,
               update.new_sum += squared_abs(candidate);
               update.error_sum += squared_abs(one_residual);
             },
-            Kokkos::Sum<host::NormSums>(sums));
-        Kokkos::single(Kokkos::PerTeam(team), [&] {
-          *values.old_partial = sums.old_sum;
-          *values.new_partial = sums.new_sum;
-          *values.error_partial = sums.error_sum;
+            Kokkos::Sum<NormSums>(sums));
+        Kokkos::single(Kokkos::PerTeam(team), [&]() {
+          values.old_partial[slot] = sums.old_sum;
+          values.new_partial[slot] = sums.new_sum;
+          values.error_partial[slot] = sums.error_sum;
         });
       });
-#endif
 }
 
 // The bins a host work item of the stage's entry kernel takes at a time: every bin's
@@ -2799,6 +2745,11 @@ public:
   ComplexView2 adams_source_, adams_propagator_, adams_exponent_, adams_saved_;
   ComplexView2 adams_held_, adams_dense_start_, adams_dense_end_, adams_dense_exponent_;
   Kokkos::View<double*, Layout, MemorySpace> adams_divisor_;
+  // A Runge-Kutta trial's norm partials cross through this mirror, pinned on a device
+  // (the view itself on a host build), so that no trial takes a fresh host buffer. The
+  // copy is asynchronous: it is read after the trial's fence.
+  decltype(Kokkos::create_mirror_view(Kokkos::SharedHostPinnedSpace{},
+                                      std::declval<RealView2>())) pinned_partials_;
   // A trial's squared norms, which its reduction writes and the host reads: in pinned
   // host memory on a device, which the reduction's last block writes directly, so that
   // no copy from the device follows it before the trial's one fence.
@@ -3504,6 +3455,9 @@ void GeneralWorkspace::allocate() {
         RealView2("solprop_native.transform.quadrature_partials", 2, columns);
   quadrature_scores_ = RealView("solprop_native.transform.quadrature_scores", 2);
   Kokkos::deep_copy(quadrature_scores_, Kokkos::Experimental::quiet_NaN_v<double>);
+  if (!problem_.low_storage)
+    pinned_partials_ =
+        Kokkos::create_mirror_view(Kokkos::SharedHostPinnedSpace{}, partials_);
   if (problem_.weighted_controller) {
     weighted_scale_ = RealView("solprop_native.step.weighted_scale", n);
     weighted_partials_ =
@@ -8804,8 +8758,9 @@ std::vector<double> GeneralWorkspace::collect_trial() {
   // it is not the next step's first stage; solprop's reference takes no FSAL there.
   pending_fsal_ =
       problem_.first_same_as_last && !problem_.split_step_absorber && !flow_;
+  graph::deep_copy(execution_space_, pinned_partials_, partials_);
   execution_space_.fence("solprop_native trial boundary");
-  const auto host = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace{}, partials_);
+  const auto& host = pinned_partials_;
   // Every column's slots, in order: the host's reduction is the caller's sum of a row.
   const auto slots = host.extent(1);
   std::vector<double> result(3 * slots);
@@ -15298,8 +15253,12 @@ std::map<std::string, std::size_t> GeneralWorkspace::base_memory_ledger() const 
        stage_staging_.empty() || stage_staging_.front().data() == stage_scalars_.data()
            ? 0
            : stage_staging_.size() * stage_scalars_.size() * real_bytes},
-      // An Adams trial's norms, read back in pinned host memory on a device.
-      {"trial_norms", adams_norms_.size() * real_bytes},
+      // An Adams trial's norms, read back in pinned host memory on a device, and a
+      // Runge-Kutta trial's mirror of its partials (the view itself on a host build).
+      {"trial_norms",
+       (adams_norms_.size() +
+        (pinned_partials_.data() == partials_.data() ? 0 : pinned_partials_.size())) *
+           real_bytes},
       {"crop_index", crop_index_.size() * index_bytes},
       {"masks", (active_mask_.size() + norm_mask_.size()) * byte_bytes},
       {"windows", (omega_window_.size() + time_window_.size()) * real_bytes},
@@ -15579,6 +15538,7 @@ void GeneralWorkspace::close() noexcept {
   chunk_projection_stacked_ = {};
   tail_projection_stacked_ = {};
   partials_ = {};
+  pinned_partials_ = {};
   quadrature_partials_ = {};
   weighted_scale_ = {};
   weighted_partials_ = {};
