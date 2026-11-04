@@ -489,13 +489,9 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
         estimated=not isinstance(problem.stepper.integrator, LowStorageRungeKutta),
     )
     backend.set_progress(reporter)
-    set_stop = getattr(backend, "set_stop", None)
-    if set_stop is not None:
-        set_stop(stop)
+    backend.set_stop(stop)
     # An output with nowhere to put a checkpoint would never read the held state.
-    set_held_plane = getattr(backend, "set_held_plane", None)
-    if set_held_plane is not None:
-        set_held_plane(held_plane and isinstance(output, CheckpointOutput))
+    backend.set_held_plane(held_plane and isinstance(output, CheckpointOutput))
     started = time.perf_counter()
     clock = RunClock.start()
     logger.debug(
@@ -583,8 +579,7 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
                     clock=clock,
                 )
             watch.show(pending, output.n_saved - 1)
-        attach = getattr(backend, "attach_monitor", None)
-        if boundary_monitor is not None and attach is not None:
+        if boundary_monitor is not None:
             if resumed:
                 # The record continues across the resume (SEP 21, ADR-057).
                 boundary_monitor.resume(
@@ -592,7 +587,7 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
                     plane=output.n_saved > 0 and float(output["z"][-1]) == reached,
                     unwatched=unwatched,
                 )
-            attach(boundary_monitor)
+            backend.attach_monitor(boundary_monitor)
         index = start_plane
         while index < planes.size:
             # Before the first step and between planes, for a backend that does not
@@ -664,7 +659,7 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
             # A natural step can stop short of the requested plane (SEP 14).
             if math.isclose(summary.z, target, rel_tol=1e-12, abs_tol=0.0):
                 index += 1
-        if boundary_monitor is not None and attach is not None:
+        if boundary_monitor is not None:
             boundary_monitor.finish()
         with committing():
             _record_execution(
@@ -714,8 +709,7 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
             reporter.interrupted(reached, error)
         raise
     finally:
-        if set_stop is not None:
-            set_stop(None)
+        backend.set_stop(None)
         try:
             output.close()
         except BaseException as error:
@@ -1037,11 +1031,10 @@ def _refuse_unread_collar(problem: KernelProblem, backend: Backend) -> None:
     design = problem.transverse
     if design is None or not design.has_collar:
         return
-    if getattr(backend, "reads_transverse_edge", False):
+    if backend.reads_transverse_edge:
         return
-    name = getattr(backend, "name", type(backend).__name__)
     msg = (
-        f"the {name} backend does not carry a requested real-space collar "
+        f"the {backend.name} backend does not carry a requested real-space collar "
         "(SpatialAbsorber with real_space=True): run it on one of solprop's own "
         "backends, or ask for the safety ramp alone"
     )
@@ -1190,7 +1183,7 @@ class _MarchKeeper:
     output : solprop.output.schema.Output
         The run's handler; only one with ``save_march`` keeps a snapshot.
     backend : solprop.backends.protocol.Backend
-        The run's backend; only one with ``march_snapshot`` has one to keep.
+        The run's backend, whose march has a snapshot to keep or none.
     policy : bool or None
         The run's ``resume_history``.
     """
@@ -1198,8 +1191,8 @@ class _MarchKeeper:
     def __init__(self, output: Output, backend: Backend, policy: bool | None) -> None:
         """Hold what keeping a snapshot needs."""
         self._save = getattr(output, "save_march", None)
-        self._snapshot = getattr(backend, "march_snapshot", None)
-        self._snapshot_nbytes = getattr(backend, "march_snapshot_nbytes", None)
+        self._snapshot = backend.march_snapshot
+        self._snapshot_nbytes = backend.march_snapshot_nbytes
         self._policy = policy
         self._kept_z: float | None = None
 
@@ -1221,11 +1214,7 @@ class _MarchKeeper:
         """
         if required and self._kept_z == z:
             return
-        if (
-            self._save is None
-            or self._snapshot is None
-            or self._snapshot_nbytes is None
-        ):
+        if self._save is None:
             if required:
                 raise OutputError(
                     "snapshot requires a backend and output with Adams history"
@@ -1293,12 +1282,11 @@ def _persist_failure(
     if output is None:
         return None
     pending = failure.pending
-    in_flight = getattr(backend, "_in_flight", None)
+    in_flight = backend.in_flight
     held = None
     if pending is None and in_flight is not None:
-        holder = getattr(backend, "held_observation", None)
         try:
-            held = None if holder is None else holder()
+            held = backend.held_observation()
         except Exception as held_error:
             # A held state that cannot be observed (one not finite outside the norm
             # mask, say) must not replace the original exception: the failure is

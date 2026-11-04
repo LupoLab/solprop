@@ -27,7 +27,7 @@ never conjugate.
 
 import dataclasses
 import logging
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
@@ -36,9 +36,10 @@ from jaxtyping import Bool, Complex, Float, Int
 
 from solprop._process import parallel_rows
 from solprop.exceptions import BackendError, BoundaryError, BoundaryWarning
-from solprop.log import ProgressReporter
+from solprop.log import ProgressReporter, StopFlag
 from solprop.monitor import BoundaryMonitor
 from solprop.noise import NoiseRealisation
+from solprop.output.schema import MarchSnapshot
 from solprop.stats import StatsSpec
 
 __all__ = [
@@ -602,20 +603,29 @@ class Backend(Protocol):
     max_batch : int
         Largest batch axis this backend steps at once; 1 for a backend that steps one
         problem.
+    reads_transverse_edge : bool
+        Whether it reads a free-space run's transverse edge (SEP 40 section 5.3), which
+        a run with a requested real-space collar needs.
 
     Examples
     --------
     >>> from solprop.backends.protocol import Backend
-    >>> [name for name in sorted(dir(Backend)) if not name.startswith("_")][:4]
-    ['available_device_memory', 'close', 'memory_ledger', 'metadata']
-    >>> [name for name in sorted(dir(Backend)) if not name.startswith("_")][4:7]
-    ['observe', 'propagate_to', 'restore_call_ledgers']
-    >>> [name for name in sorted(dir(Backend)) if not name.startswith("_")][7:]
-    ['set_initial', 'set_progress', 'stats']
+    >>> names = [name for name in sorted(dir(Backend)) if not name.startswith("_")]
+    >>> names[:4]
+    ['attach_monitor', 'available_device_memory', 'close', 'closed']
+    >>> names[4:8]
+    ['held_observation', 'in_flight', 'march_export_refusal', 'march_snapshot']
+    >>> names[8:12]
+    ['march_snapshot_nbytes', 'memory_ledger', 'metadata', 'observe']
+    >>> names[12:16]
+    ['propagate_to', 'restore_call_ledgers', 'restore_march', 'set_held_plane']
+    >>> names[16:]
+    ['set_initial', 'set_progress', 'set_stop', 'stats', 'timed_step']
     """
 
     name: str
     max_batch: int
+    reads_transverse_edge: bool
 
     def set_initial(
         self,
@@ -669,8 +679,39 @@ class Backend(Protocol):
         """
         ...
 
+    def set_stop(self, flag: StopFlag | None) -> None:
+        """Attach the flag every trial step polls, or detach it with ``None``.
+
+        Parameters
+        ----------
+        flag : solprop.log.StopFlag or None
+            Any object with an ``is_set()`` method, such as a
+            :class:`threading.Event`.
+        """
+        ...
+
+    def set_held_plane(self, held: bool) -> None:
+        """Say whether the low-storage march holds the last field-free plane's state.
+
+        Parameters
+        ----------
+        held : bool
+            Whether to hold it; other marches hold nothing either way.
+        """
+        ...
+
+    def attach_monitor(self, monitor: BoundaryMonitor) -> None:
+        """Watch the time window's edges from here on, starting with the current state.
+
+        Parameters
+        ----------
+        monitor : solprop.monitor.BoundaryMonitor
+            The monitor, fed every committed step.
+        """
+        ...
+
     def propagate_to(self, z: float) -> StepSummary:
-        """Step the state to a position through the shared step loop.
+        """Step the state to a position through the shared driver's marches.
 
         Parameters
         ----------
@@ -702,6 +743,27 @@ class Backend(Protocol):
         -------
         Observation
             The field, the noise phase and the step history since the last call.
+        """
+        ...
+
+    @property
+    def in_flight(self) -> tuple[float, float] | None:
+        """Return the low-storage step a failure abandoned in flight, or ``None``.
+
+        Returns
+        -------
+        tuple of float or None
+            The step's start and length, m, while the state is neither of its ends.
+        """
+        ...
+
+    def held_observation(self) -> Observation | None:
+        """Return the state the low-storage march held at its last field-free plane.
+
+        Returns
+        -------
+        Observation or None
+            The held plane with an empty step history, or ``None`` when nothing is held.
         """
         ...
 
@@ -753,6 +815,67 @@ class Backend(Protocol):
         """
         ...
 
+    def march_snapshot(self) -> MarchSnapshot | None:
+        """Return the Adams march's state at the accepted position, for a resume.
+
+        Returns
+        -------
+        solprop.output.schema.MarchSnapshot or None
+            The snapshot, or ``None`` wherever the march has nothing to continue.
+        """
+        ...
+
+    def march_snapshot_nbytes(self, z: float) -> int | None:
+        """Return the bytes :meth:`march_snapshot` would copy at `z`, copying nothing.
+
+        Parameters
+        ----------
+        z : float
+            The position the snapshot is wanted at, m.
+
+        Returns
+        -------
+        int or None
+            The size, or ``None`` where a snapshot would be ``None`` or stand elsewhere.
+        """
+        ...
+
+    def march_export_refusal(self) -> str | None:
+        """Return why this backend's Adams march cannot carry its history, or ``None``.
+
+        Returns
+        -------
+        str or None
+            The reason, or ``None`` when it can or when the march keeps none.
+        """
+        ...
+
+    def restore_march(self, snapshot: MarchSnapshot) -> str | None:
+        """Continue the Adams march from a snapshot at the loaded position.
+
+        Parameters
+        ----------
+        snapshot : solprop.output.schema.MarchSnapshot
+            The snapshot a file holds.
+
+        Returns
+        -------
+        str or None
+            ``None`` when the history was continued, otherwise why it starts afresh.
+        """
+        ...
+
+    def timed_step(self) -> Callable[[], object]:
+        """Return one step of this run's march, for an estimate to time.
+
+        Returns
+        -------
+        collections.abc.Callable
+            Takes one step from the loaded state. It may advance that state, so the
+            caller closes the backend afterwards.
+        """
+        ...
+
     def available_device_memory(self) -> int | None:
         """Return currently free device bytes, or None for a host backend.
 
@@ -777,6 +900,17 @@ class Backend(Protocol):
 
     def close(self) -> None:
         """Release the buffers and plans. Idempotent."""
+        ...
+
+    @property
+    def closed(self) -> bool:
+        """Return whether the backend has released its buffers, as a failure may.
+
+        Returns
+        -------
+        bool
+            Whether it can run another input.
+        """
         ...
 
 

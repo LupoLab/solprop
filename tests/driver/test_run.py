@@ -127,6 +127,10 @@ class NullBackend:
     name = "null"
     max_batch = 1
 
+    reads_transverse_edge = False
+    in_flight = None
+    closed = False
+
     def __init__(self, failure=None, *, shape=(1, 1, 1, 8)):
         self.failure = failure
         self.shape = shape
@@ -136,6 +140,33 @@ class NullBackend:
 
     def set_progress(self, reporter):
         self.reporter = reporter
+
+    def set_stop(self, flag):
+        pass
+
+    def set_held_plane(self, held):
+        pass
+
+    def attach_monitor(self, monitor):
+        pass
+
+    def held_observation(self):
+        return None
+
+    def march_snapshot(self):
+        return None
+
+    def march_snapshot_nbytes(self, z):
+        return None
+
+    def march_export_refusal(self):
+        return None
+
+    def restore_march(self, snapshot):
+        return None
+
+    def timed_step(self):
+        return lambda: None
 
     def propagate_to(self, z):
         if self.failure is not None:

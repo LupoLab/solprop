@@ -37,6 +37,7 @@ statistic), and that structure is precisely what a fast backend exists to change
 class Backend(Protocol):
     name: str
     max_batch: int  # 1 for backends that step one problem
+    reads_transverse_edge: bool  # whether a requested real-space collar can run on it
 
     def set_initial(
         self,
@@ -57,6 +58,21 @@ class Backend(Protocol):
     def memory_ledger(self) -> dict[str, int]: ...
     def available_device_memory(self) -> int | None: ...
     def close(self) -> None: ...  # idempotent
+
+    # What the run layer asks beside those; StepDriver gives each its default.
+    def set_stop(self, flag: StopFlag | None) -> None: ...  # polled between trials
+    def set_held_plane(self, held: bool) -> None: ...  # the low-storage march's hold
+    def attach_monitor(self, monitor: BoundaryMonitor) -> None: ...
+    @property
+    def in_flight(self) -> tuple[float, float] | None: ...  # a step abandoned there
+    def held_observation(self) -> Observation | None: ...
+    def march_snapshot(self) -> MarchSnapshot | None: ...  # the Adams history, for a resume
+    def march_snapshot_nbytes(self, z: float) -> int | None: ...  # copying nothing
+    def march_export_refusal(self) -> str | None: ...
+    def restore_march(self, snapshot: MarchSnapshot) -> str | None: ...
+    def timed_step(self) -> Callable[[], object]: ...  # one step, for an estimate
+    @property
+    def closed(self) -> bool: ...  # a failure can close a backend
 ```
 
 The listing is abbreviated; `solprop/backends/protocol.py` holds the exact signatures and

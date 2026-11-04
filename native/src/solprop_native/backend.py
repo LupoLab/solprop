@@ -2683,7 +2683,7 @@ class _NativeAdamsMarch(AdamsMarch):
             # steps are capped at its spacing, the march returns before a step
             # would carry past its next read, and a collar's current is taken at
             # every committed step.
-            edge = getattr(monitor, "transverse", None)
+            edge = monitor.transverse
             if edge is not None:
                 if edge.every_step:
                     steps.append(1)

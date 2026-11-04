@@ -1135,12 +1135,21 @@ TABLEAU = (
 SEAM_METHODS = (
     ("set_initial", "the state and the noise realisation, host to device, once"),
     ("set_progress", "the observer each attempted step reports to; never an input"),
-    ("propagate_to", "the shared step loop, returning a StepSummary"),
+    ("set_stop", "the flag polled between trials, or none"),
+    ("set_held_plane", "whether the low-storage march holds a field-free plane"),
+    ("attach_monitor", "watch the time window's edges from here on"),
+    ("propagate_to", "the driver's way in, returning a StepSummary"),
     ("observe", "host arrays: the field at the plane and the step history"),
+    ("held_observation", "the held plane, for a checkpoint after a failed step"),
     (
         "restore_call_ledgers",
         "resume cumulative calls; numerical history starts afresh",
     ),
+    ("march_snapshot", "the Adams history for a resume, or None"),
+    ("march_snapshot_nbytes", "its size, copying nothing"),
+    ("march_export_refusal", "why the march cannot carry its history, or None"),
+    ("restore_march", "continue the history, or say why it starts afresh"),
+    ("timed_step", "one step of the march, for an estimate to time"),
     ("stats", "one fused pass, a dict of small host arrays"),
     ("metadata", "what the execution was: pools, plans, digests, propagator mode"),
     ("memory_ledger", "every named buffer and its size"),
@@ -2467,7 +2476,7 @@ DEVICE_SLOT = (
 
 
 def backends() -> drawsvg.Drawing:
-    """Draw figure 5: the seam, the one step loop, and the backends behind it.
+    """Draw figure 5: the seam, the shared driver, and the backends behind it.
 
     Returns
     -------
@@ -2515,8 +2524,8 @@ def backends() -> drawsvg.Drawing:
     )
     footer = (
         "Three things every backend owes beyond the methods: deterministic "
-        "reductions, the device form of the stage, and one step loop. The error norm "
-        "is control flow, so a sum whose association depends on the thread count "
+        "reductions, the device form of the stage, and the driver's bookkeeping. The "
+        "error norm is control flow, so a sum whose association depends on the thread count "
         "forks the trajectory."
     )
     top = header_height(subtitle) + 20
@@ -2534,7 +2543,7 @@ def backends() -> drawsvg.Drawing:
     )
 
     drawing = _canvas(height)
-    _header(drawing, "One seam, one step loop, and the backends behind them", subtitle)
+    _header(drawing, "One seam, a shared driver, and the backends behind them", subtitle)
 
     y = top
     _table(

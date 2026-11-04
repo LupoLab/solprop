@@ -1789,6 +1789,10 @@ class AdamsEngine(Protocol):
     compensated: bool
     """Whether trials carry a varying operator's linear compensation (SEP 16 4.2)."""
 
+    carrier: CarrierReference | None
+    """The run's carrier frame (SEP 35), or ``None`` when off; an exponential trial
+    removes its phase from the samples it reads."""
+
     @property
     def n_slots(self) -> int:
         """The history store's rows."""
@@ -3024,7 +3028,7 @@ class AdamsMarch:
         # section 4.2); the decisions are `adams_core`'s functions of it.
         settings = backend._problem.stepper
         linear = backend._problem.linear
-        carrier = getattr(self._engine, "carrier", None)
+        carrier = self._engine.carrier
         self._policy: MarchPolicy = march_policy(
             method,
             dz_min=settings.dz_min,
@@ -3527,7 +3531,7 @@ class AdamsMarch:
         """
         if not self._policy.carrier:
             return proposal
-        carrier = cast("CarrierReference", getattr(self._engine, "carrier", None))
+        carrier = cast("CarrierReference", self._engine.carrier)
         return adams_core.carrier_capped(
             self._policy, self._backend._z, proposal, carrier.chord_phase
         )
