@@ -2098,6 +2098,40 @@ column's norm inside the request, because no light has reached a collar: the ent
 and compares no absorption. It is a window, and the temporal pass's share of a step moves with
 the response's: a heavier response gives a smaller saving.
 
+### The default check on a device: reads, occupancy and sums
+
+A field-free point of a free-space Kerr beam at 768 x 768 x 600 (5.27 GiB), eight fixed low-storage
+RK4IP steps and four planes, with a stated input identity and no held plane, took 12 to 7 times as long
+with the default `boundary_check` as without it. `python -m benchmarks.device_split 768`, the second point
+of one `SimulationRunner`, on an NVIDIA H200 (CUDA 13.1) and an AMD Instinct MI325X (ROCm 10). Before is
+`7a224ea5`, measured the same way that morning with the probe that became this module, on another droplet
+of the same type; after is this entry's commit, both cards the same day:
+
+| | H200, before | H200, after | MI325X, before | MI325X, after |
+|---|---:|---:|---:|---:|
+| Point, `boundary_check=None`, s | 5.9 | 5.7 | 4.2 | 3.8 |
+| Point, default check, s | 70 | 51 | 29 | 14 |
+| State crossings in a point | 13 | 9 | 13 | 9 |
+| `monitor.occupancy`, one reading, ms | 184 | 10 | 1,240 | 13 |
+| `energy` statistic, ms | 55 | 2.3 | 80 | 6.6 |
+| `peak_intensity` statistic, ms | 134 | 77 | 164 | 86 |
+
+What changed: a saved plane that the step reaching it already read takes no second read, which was a whole
+state's copy thrown away; a replay decides its reads by its next step, not by `dz_init`; the occupancy is
+a reduction per column, without an atomic per element; `energy`, the peak and a low-storage step's norm are real
+reductions, not sums on one thread of a device; a runner's points share the occupancy's table; an
+Adams run past its snapshot limit takes no snapshot to learn its size.
+
+HIP's smallest block is 64 threads, and a reduction's value has to fit `(64 + 2) * sizeof(value)` of 64 KiB
+with the kernel's own static memory beside it, which Kokkos's check doesn't count. So a reading there holds 64
+buckets a pass and takes two passes of 6.4 ms, not one of 128: 124 passed Kokkos's check and the dispatch then faulted
+("Illegal opcode in command stream"). On a CPU, `python -m benchmarks ab` against `main` on an Intel Xeon Gold 6240
+at 1 and 16 threads, three rounds, on `kerr_beam_192`, `line` and `planar`: geometric mean 1.002, each case
+within 4 %, fields to 1.5e-15, the same work.
+
+The check still reads a host copy of the state, on the host, which is what is left of its cost above: the
+entries that follow take that.
+
 ## Reference tables
 
 These tables back the indicative results above.
