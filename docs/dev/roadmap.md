@@ -92,5 +92,5 @@ The [SEP index](seps/index.md) lists every proposal and its current status.
 
 - [SEP 44 — Reading the transverse edge where the state lives](seps/sep-0044-native-edge-read.md):
   the boundary check's transverse reductions move into native memory on the radial, Cartesian,
-  line and planar routes, on CPU and device builds, so that a field-free native run crosses no
-  state-sized data. Judging stays in Python, and a requested collar's reductions move too.
+  line and planar routes, on CPU and device builds, so that in a field-free native run the monitor brings no
+  state-sized data to the host. Judging stays in Python, and a requested collar's reductions move too.
