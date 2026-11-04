@@ -29,7 +29,6 @@ from solprop.output.schema import (
     RecipeRecord,
     RunMetadata,
     _refuse_schema,
-    refuse_continuing,
     serialise,
 )
 
@@ -254,7 +253,7 @@ class ScanWriter:
             if "scan_schema_version" in self.file.attrs:
                 # The schema first: a scan of another release is refused by the
                 # output schema its records declare, not by its axes.
-                _refuse_other_schemas(self.file, continuing=True)
+                _refuse_other_schemas(self.file)
                 if self.file.attrs.get("identity") != _hash(description):
                     raise OutputError(
                         "scan axes, root seed or retention contract changed"
@@ -841,9 +840,7 @@ def _expand(file: h5py.File, value: object) -> object:
     return value
 
 
-def _refuse_point_schema(
-    file: h5py.File, index: int, document: object, *, continuing: bool = False
-) -> None:
+def _refuse_point_schema(file: h5py.File, index: int, document: object) -> None:
     """Refuse one point's stored run record if it declares another output schema.
 
     Parameters
@@ -854,42 +851,37 @@ def _refuse_point_schema(
         Global point index, named in the refusal.
     document : object
         The point's parsed ``metadata_refs``.
-    continuing : bool, optional
-        Whether the scan is being written to, which a schema that is only read refuses.
 
     Raises
     ------
     OutputError
-        If this release cannot read the output schema the record declares, or continue
-        it when `continuing`, in the words a run file is refused with, after the point's
-        index.
+        If the record declares an output schema other than
+        :data:`~solprop.output.schema.SCHEMA_VERSION`, in the words a run file is
+        refused with, after the point's index.
     """
     declared = document.get("schema_version") if isinstance(document, dict) else None
     try:
-        refusal = refuse_continuing if continuing else _refuse_schema
-        refusal(_expand(file, declared))
+        _refuse_schema(_expand(file, declared))
     except OutputError as error:
         raise OutputError(f"scan point {index}: {error}") from None
 
 
-def _refuse_other_schemas(file: h5py.File, *, continuing: bool = False) -> None:
+def _refuse_other_schemas(file: h5py.File) -> None:
     """Refuse a scan file whose stored run records declare another output schema.
 
     The scan's own ``scan_schema_version`` versions its container; the output schema
     is declared by each point's run record, done or failed, and a record of any schema
-    this release does not read is refused by name, as a run file is (ADR-058).
+    but this release's is refused by name, as a run file is (ADR-058).
 
     Parameters
     ----------
     file : h5py.File
         Open scan file.
-    continuing : bool, optional
-        Whether the scan is being written to, which a schema that is only read refuses.
 
     Raises
     ------
     OutputError
-        If any staged point's record declares such a schema.
+        If any staged point's record declares another output schema.
     """
     accepted: set[str] = set()
     for name, group in _group(file, "staged").items():
@@ -901,7 +893,7 @@ def _refuse_other_schemas(file: h5py.File, *, continuing: bool = False) -> None:
         # same reference and the common record is read once.
         key = json.dumps(declared, sort_keys=True)
         if key not in accepted:
-            _refuse_point_schema(file, int(name), document, continuing=continuing)
+            _refuse_point_schema(file, int(name), document)
             accepted.add(key)
 
 

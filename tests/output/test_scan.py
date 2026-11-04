@@ -298,22 +298,7 @@ def test_scan_of_another_output_schema_is_refused_by_every_route(tmp_path):
         status = np.asarray(_dataset(file, "points/status").asstr()[...])
     assert status.tolist() == ["done", "failed", "todo"]
     # The point of this release's schema is still read alone.
-    assert cast(Mapping, read_point(path, 0)["metadata"])["schema_version"] == 3
-
-
-def test_scan_of_a_schema_only_read_is_read_and_not_continued(tmp_path):
-    # An earlier build's scan: its points still read, four columns and all, and
-    # opening it to add a point is refused before anything is written.
-    path = tmp_path / "earlier.h5"
-    scan = Scan("scan", x=[1, 2])
-    writer = ScanWriter(path, scan, {})
-    writer.commit(result(0))
-    writer.close()
-    _declare_schema(path, 0, 2)
-    assert ScanOutput(path).status.tolist() == ["done", "todo"]
     assert cast(Mapping, read_point(path, 0)["metadata"])["schema_version"] == 2
-    with pytest.raises(OutputError, match="reads but does not continue"):
-        ScanWriter(path, scan, {})
 
 
 def test_scan_of_this_output_schema_reads_as_before(tmp_path):
@@ -323,7 +308,7 @@ def test_scan_of_this_output_schema_reads_as_before(tmp_path):
     writer.commit(result(0))
     writer.commit(result(1))
     writer.close()
-    _declare_schema(path, 0, 3)
+    _declare_schema(path, 0, 2)
     reader = ScanOutput(path)
     assert reader.status.tolist() == ["done", "done"]
     assert reader.as_grid("stats/energy").shape == (2, 3, 2)

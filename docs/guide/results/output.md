@@ -358,26 +358,16 @@ it with `open_tdse_archive` ([the TDSE response](../media/tdse.md#the-raw-respon
 
 ## The schema version
 
-Every file records its `schema_version`; this release writes output schema **3**
-(`solprop.output.SCHEMA_VERSION`). Schema 1 was the first released layout, that of 0.1.0;
-schema 2 adds `spectral_phase` to the record of a
-{py:class}`~solprop.pulses.DataPulse`; schema 3 gives `absorbed_power` a fifth column,
-`custom`, in `stats` and `step_stats`, and makes its first column, `spectral`, the collar
-alone.
-
-A schema 2 file is still **read**, as it was written. Its `absorbed_power` has
-four columns, in the same positions as the first four of schema 3, and its first column
-holds the collar and any custom rate together, which nothing stored can split. It does
-not **continue** one: an append, a resume, a cache check and a scan writer refuse it by
-name, before anything is written, because five numbers do not fit four columns. Read it,
-and start a new file or launch a new segment from a saved plane.
-
-A file of any other schema is refused by name wherever it is opened, read or resumed:
-files written by an earlier release or by development versions of solprop, which declared
-output schemas up to 28, are not read, and nor is a file from a later release. Read such
-a file with the solprop version that wrote it. A scan file is treated the same way, by the
-output schema each point's run record declares; its own `scan_schema_version` versions the
-scan container, not the records in it, and is still 1. A resume needs the file's
+Every file records its `schema_version`; this release writes and reads output
+schema **2** (`solprop.output.SCHEMA_VERSION`). Schema 1 was the first released layout,
+that of 0.1.0; schema 2 adds `spectral_phase` to the record of a
+{py:class}`~solprop.pulses.DataPulse`. A file of any other schema is refused by name
+wherever it is opened, read or resumed: files written by an earlier release or by
+development versions of solprop, which declared output schemas up to 28, are not read,
+and nor is a file from a later release. Read such a file with the solprop version that
+wrote it. A scan file is refused the same way, by the output schema each point's run
+record declares, whether it is read or resumed; its own `scan_schema_version` versions
+the scan container, not the records in it, and is still 1. A resume needs the file's
 schema to be this one, and checks that before it compares the records
 ([what a resume compares](resuming.md#what-a-resume-compares)).
 
@@ -404,9 +394,7 @@ How a run resumes from its last plane depends on what that plane is:
 
 **Every field is recorded.** A record holds every field of every dataclass it
 serialises, at its default too, so a change that adds a field to a recorded dataclass
-moves the configuration hash. The exceptions are an optional extension whose absence
-means what every earlier record means, left out while it is `None` (an aperture set's
-`shapes`, `profiles` and `extents`, and an absorber's `user_rate`); set, it is recorded. A resume compares the records path by path, so the new
+moves the configuration hash. A resume compares the records path by path, so the new
 field refuses a resume of an earlier file unless a release declares its neutral value,
 the value that reproduces the code before it existed
 ([what a resume compares](resuming.md#what-a-resume-compares)). The test suite pins the

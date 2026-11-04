@@ -84,7 +84,6 @@ __all__ = [
     "INTERNAL_CONVENTION",
     "INTERPOLATED_RESUMES_ANNOTATION",
     "PEAK_FIELDS_ANNOTATION",
-    "READABLE_SCHEMAS",
     "RUN_SUMMARY_ANNOTATION",
     "SCHEMA_VERSION",
     "SPECTRAL_CONVENTION",
@@ -120,7 +119,6 @@ __all__ = [
     "field_retention_refusal",
     "package_versions",
     "recorded_input",
-    "refuse_continuing",
     "resolve_metadata_write",
     "serialise",
 ]
@@ -140,29 +138,17 @@ _ELEMENT_INDICES = re.compile(r"(?:\[\d+\])+$")
 _ARRAY_PART = re.compile(r"\.__(?:ndarray|imaginary)__$")
 """The key of an array record's real or imaginary part, dropped from its stem."""
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 2
 """Version of the saved-output layout; incremented when a stored field changes meaning.
 
 Schema 1 is the first released layout, 0.1.0's: the record types of this module, written
 by :class:`solprop.output.memory.MemoryOutput` and
 :class:`solprop.output.hdf5.HDF5Output` as ``docs/guide/results/output.md`` describes
-them. Schema 2 records ``DataPulse.spectral_phase``. Schema 3 gives ``absorbed_power`` a
-fifth column, ``custom``, in ``stats`` and ``step_stats``, and makes its first column
-the spectral collar alone. A record that declares any other version but
-:data:`READABLE_SCHEMAS` is refused by name (:class:`RunMetadata`): files written by an
-earlier release or by development versions of solprop, which declared output schemas up
-to 28, are not read, and nor is a file from a later release. Read such a file with the
-solprop version that wrote it.
-"""
-
-READABLE_SCHEMAS: frozenset[int] = frozenset({2})
-"""The earlier output schemas this release reads and does not continue.
-
-A schema 2 file differs from schema 3 only in ``absorbed_power``, whose four columns
-keep their positions, with the first holding the collar and any custom rate together. A
-reader sees the columns as they were written. Appending would have to put five numbers
-in four columns and split a sum nothing stored can split, so every door that continues
-a file refuses it (:func:`refuse_continuing`).
+them. Schema 2 records ``DataPulse.spectral_phase``. A record that declares any other
+version is refused by name (:class:`RunMetadata`): files written by an earlier release
+or by development versions of solprop, which declared output schemas up to 28, are not
+read, and nor is a file from a later release. Read such a file with the solprop version
+that wrote it.
 """
 
 INLINE_ARRAY_LIMIT = 2**20
@@ -2444,42 +2430,11 @@ def _optional_text(value: JsonValue) -> str | None:
 
 
 def _refuse_schema(declared: object) -> None:
-    """Refuse a record of any output schema this release does not read.
+    """Refuse a record of any output schema but :data:`SCHEMA_VERSION`.
 
     One rule for every other number: an earlier release wrote a lower output schema, a
     development version of solprop wrote schemas up to 28, and a later release may write
-    a higher one, and this release reads none of them (ADR-058) but
-    :data:`SCHEMA_VERSION` and :data:`READABLE_SCHEMAS`.
-
-    Parameters
-    ----------
-    declared : object
-        The ``schema_version`` the record declares.
-
-    Raises
-    ------
-    OutputError
-        If `declared` is neither.
-    """
-    if type(declared) is int and (
-        declared == SCHEMA_VERSION or declared in READABLE_SCHEMAS
-    ):
-        return
-    msg = (
-        f"this record declares output schema_version {declared!r}, and this release "
-        f"of solprop reads output schema {SCHEMA_VERSION}, and "
-        f"{sorted(READABLE_SCHEMAS)} without continuing them: a file written by "
-        "another earlier release, by a development version of solprop or by a later "
-        "release is not read; read it with the solprop version that wrote it"
-    )
-    raise OutputError(msg)
-
-
-def refuse_continuing(declared: object) -> None:
-    """Refuse to continue a file of a schema this release only reads.
-
-    Every door that would write to a file or take its last state as this run's: an
-    append, a resume, a cache check and a scan writer.
+    a higher one, and this release reads none of them (ADR-058).
 
     Parameters
     ----------
@@ -2490,21 +2445,14 @@ def refuse_continuing(declared: object) -> None:
     ------
     OutputError
         If `declared` is not :data:`SCHEMA_VERSION`.
-
-    Examples
-    --------
-    >>> from solprop.output.schema import SCHEMA_VERSION, refuse_continuing
-    >>> refuse_continuing(SCHEMA_VERSION) is None
-    True
     """
-    _refuse_schema(declared)
-    if declared == SCHEMA_VERSION:
+    if type(declared) is int and declared == SCHEMA_VERSION:
         return
     msg = (
-        f"this record declares output schema_version {declared}, which this release "
-        f"reads but does not continue: it writes schema {SCHEMA_VERSION}, whose "
-        "absorbed_power has a fifth column and a first column of the collar alone. "
-        "Read the file, and start a new one or launch a new segment from a saved plane"
+        f"this record declares output schema_version {declared!r}, and this release "
+        f"of solprop reads output schema {SCHEMA_VERSION} only: a file written by an "
+        "earlier release, by a development version of solprop or by a later release is "
+        "not read; read it with the solprop version that wrote it"
     )
     raise OutputError(msg)
 
@@ -3039,7 +2987,7 @@ class RunMetadata(Displayed):
         Raises
         ------
         OutputError
-            If the record declares an output schema this release does not read,
+            If the record declares an output schema other than :data:`SCHEMA_VERSION`,
             if `initial_z` is not finite and nonnegative, or if a spatial record is
             missing or names no plane measure.
         """

@@ -211,7 +211,7 @@ def test_every_page_states_the_schemas_the_code_writes():
     current one; the SEP records are history throughout.
     """
     assert KERNEL_SCHEMA_VERSION == 44
-    assert OUTPUT_SCHEMA_VERSION == 3
+    assert OUTPUT_SCHEMA_VERSION == 2
     assert soliton_schema_version_row().startswith("incremented on every change")
     written = {"kernel": KERNEL_SCHEMA_VERSION, "output": OUTPUT_SCHEMA_VERSION}
     stated: dict[str, list[str]] = {}

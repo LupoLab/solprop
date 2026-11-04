@@ -217,7 +217,7 @@ resume ([watching the window's edges](../numerics/boundaries.md#watching-the-win
 Only the quiet-collar opt-in, which changes what the stages compute, is part of the key.
 
 The output schema is in the record too, but not in the comparison: a file of another
-output schema is refused before it ([the schema version](output.md#the-schema-version)).
+output schema is not read at all ([the schema version](output.md#the-schema-version)).
 
 ### Noise drawn without a seed
 
