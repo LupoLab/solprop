@@ -18,6 +18,7 @@ import threading
 import tracemalloc
 import weakref
 from collections.abc import Callable
+from typing import cast
 
 import numpy as np
 import pytest
@@ -54,6 +55,7 @@ from solprop.output.schema import (
 from solprop.plotting.style import field_modes
 from solprop.processing import energy
 from solprop.stats import StatsSpec, default_spec
+from test_guide_snippets import GUIDE, guide_code
 
 # These cases run coarse grids for speed; their windows are not what is tested here.
 pytestmark = pytest.mark.filterwarnings("ignore::solprop.exceptions.BoundaryWarning")
@@ -320,6 +322,19 @@ def test_a_runner_hands_over_what_a_store_would_hold(backend, build, rounding):
                     energies, store["stats/energy"][index], 2 * limit, what="energy"
                 )
     assert runner.runs == 4
+
+
+def test_the_guides_reducing_scan_runs():
+    page = GUIDE / "setup" / "running.md"
+    names: dict[str, object] = {"__name__": "__guide__"}
+    exec(compile(guide_code(page), str(page), "exec"), names)
+    peaks = cast("dict[float, float]", names["peak_power"])
+    assert list(peaks) == [8.0, 9.8, 12.0]
+    # Each input reached its own callable: a stronger launch has the higher peak.
+    assert peaks[8.0] < peaks[9.8] < peaks[12.0]
+    # The page's case is the statistics-only one.
+    simulation = cast("Simulation", names["simulation"])
+    assert simulation.settings.fields == "none"
 
 
 # ------------------------------------------------------------------- what it costs
