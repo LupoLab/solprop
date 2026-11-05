@@ -903,8 +903,11 @@ def beam_params(
 
     The Rayleigh range, the critical power, and Marburger's collapse distance
     :math:`0.367 z_R/\sqrt{(\sqrt{P/P_{\rm cr}}-0.852)^2-0.0219}`, for a beam collimated
-    at the launch plane. A beam launched before its waist has the distance combined with
-    the focus by Talanov's lens law, :math:`1/z_c' = 1/z_c + 1/f`.
+    at the launch plane. A beam launched a distance :math:`d` before its waist has, at
+    launch, the radius :math:`w_0\sqrt{1 + (d/z_R)^2}` and a wavefront converging with
+    radius :math:`R = d + z_R^2/d`; Marburger's distance for that radius is combined
+    with :math:`R` by Talanov's lens law, :math:`1/z_c' = 1/z_c + 1/R`. A waist just
+    ahead is nearly collimated, so the distance moves smoothly with :math:`d`.
 
     Parameters
     ----------
@@ -946,9 +949,12 @@ def beam_params(
     if ratio > 1.0:
         # (sqrt(r) - 0.852)^2 - 0.0219 vanishes at r = 1, so it is positive above it.
         root = (np.sqrt(ratio) - 0.852) ** 2 - 0.0219
-        collapse = float(0.367 * rayleigh / np.sqrt(root))
+        # At launch: the radius there, and the wavefront's radius of curvature.
+        launch = rayleigh * (1.0 + (focus / rayleigh) ** 2)
+        collapse = float(0.367 * launch / np.sqrt(root))
         if focus != 0:
-            inverse = 1.0 / collapse + 1.0 / focus
+            curvature = focus + rayleigh**2 / focus
+            inverse = 1.0 / collapse + 1.0 / curvature
             collapse = float(1.0 / inverse) if inverse > 0 else None
     return BeamParams(
         waist,
