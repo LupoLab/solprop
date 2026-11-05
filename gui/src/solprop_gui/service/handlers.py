@@ -26,13 +26,13 @@ from solprop.recipe import Parameter, Recipe, parameters
 from solprop.recipe.metadata import REQUIRED, per_unit_width
 from solprop.recipe.quantity import Unit, format_quantity
 from solprop.recipe.registry import REGISTRY
-from solprop.tools import capillary_params, lambda_rdw_all
 
 from solprop_gui.service.design import DESIGN_HANDLERS, pin_targets
 from solprop_gui.service.figures import FIGURE_HANDLERS
 from solprop_gui.service.postprocess import POSTPROCESS_HANDLERS
 from solprop_gui.service.reduce import SPECTRAL_AXES, C, Display, Reducer, stats_row
 from solprop_gui.service.results import RESULTS_HANDLERS, band_of, spatial_plane
+from solprop_gui.service.sheet import SHEET_HANDLERS, design_numbers
 
 __all__ = ["HANDLERS"]
 
@@ -342,7 +342,7 @@ def summarise(payload: Payload) -> dict[str, object]:
     design_error: str | None = None
     if recipe.route == "capillary":
         try:
-            design = _capillary_design(recipe, float(preview.energy))
+            design = design_numbers(recipe, float(preview.energy))
         except (SolpropError, KeyError, TypeError, ValueError) as error:
             design_error = str(error)
     return {
@@ -354,87 +354,6 @@ def summarise(payload: Payload) -> dict[str, object]:
         "pinned": pinned,
         "per_width": per_unit_width(recipe.route, build),
     }
-
-
-_SHARED = ("shape", "temperature", "model", "loss", "cladding", "materials")
-"""The capillary's keywords that ``tools.capillary_params`` also takes, by name."""
-
-
-def _capillary_design(recipe: Recipe, energy: float) -> dict[str, float]:
-    """Return a capillary recipe's design numbers at the entrance.
-
-    The keywords the tool shares with the route are passed on, with the route's
-    default where the recipe gives none (the pulse shape's differs: Gaussian).
-
-    Parameters
-    ----------
-    recipe : solprop.recipe.Recipe
-        A resolved capillary recipe.
-    energy : float
-        The pulse energy launched, J (given, or from the peak power).
-
-    Returns
-    -------
-    dict
-        ``soliton_order``, ``beta2`` (s^2/m), ``gamma`` (1/(W m)), ``n2`` (m^2/W),
-        ``peak_intensity`` (W/m^2), ``pressure`` (bar), ``zdw`` (m),
-        ``fission_length`` (m), ``critical_power`` (W) and, where the pump is
-        anomalous and a wave is phase-matched, ``rdw`` (m, the shortest such
-        wavelength, ``tools.lambda_rdw_all``).
-
-    Raises
-    ------
-    KeyError
-        If the recipe gives no ``fwhm``: the numbers need it.
-    """
-    keywords = recipe.keywords()
-    defaults = parameters(recipe.route)
-    shared = {
-        name: keywords.get(name, defaults[name].default)
-        for name in _SHARED
-        if keywords.get(name, defaults[name].default) is not None
-    }
-    pressure = keywords.get("pressure")
-    if isinstance(pressure, tuple | list):
-        # A gradient: the numbers at the entrance.
-        first = pressure[0]
-        pressure = first[1] if isinstance(first, tuple | list) else first
-    params = capillary_params(
-        float(keywords["radius"]),  # pyright: ignore[reportArgumentType]
-        keywords["gas"],  # pyright: ignore[reportArgumentType]
-        None if pressure is None else float(pressure),  # pyright: ignore[reportArgumentType]
-        energy=energy,
-        fwhm=float(keywords["fwhm"]),  # pyright: ignore[reportArgumentType]
-        wavelength=float(keywords["wavelength"]),  # pyright: ignore[reportArgumentType]
-        **shared,  # pyright: ignore[reportArgumentType]
-    )
-    numbers = {
-        "soliton_order": float(params.soliton_order),
-        "beta2": float(params.beta2),
-        "gamma": float(params.gamma),
-        "n2": float(params.n2),
-        "peak_intensity": float(params.peak_intensity),
-        "pressure": float(params.pressure),
-        "zdw": float(params.zdw),
-        "fission_length": float(params.fission_length),
-        "critical_power": float(params.critical_power),
-    }
-    # A pump in normal dispersion launches no soliton, so no wave is phase-matched.
-    roots = (
-        lambda_rdw_all(
-            params.mode,
-            params.wavelength,
-            peak_power=params.peak_power,
-            gamma=params.gamma,
-            fwhm=params.fwhm,
-            shape=params.shape,
-        )
-        if params.beta2 < 0
-        else ()
-    )
-    for root in roots[:1]:  # the shortest
-        numbers["rdw"] = float(root)
-    return numbers
 
 
 def design(payload: Payload) -> dict[str, object]:
@@ -477,7 +396,7 @@ def design(payload: Payload) -> dict[str, object]:
     error: str | None = None
     if recipe.route == "capillary":
         try:
-            numbers = _capillary_design(recipe, float(recipe.preview_input().energy))
+            numbers = design_numbers(recipe, float(recipe.preview_input().energy))
         except (SolpropError, KeyError, TypeError, ValueError) as failure:
             error = str(failure)
     return {"values": values, "design": numbers, "design_error": error}
@@ -767,6 +686,7 @@ HANDLERS: dict[str, Callable[[Payload], object]] = {
     "summarise": summarise,
     "to_python": to_python,
     **DESIGN_HANDLERS,
+    **SHEET_HANDLERS,
     **FIGURE_HANDLERS,
     **POSTPROCESS_HANDLERS,
     **RESULTS_HANDLERS,
