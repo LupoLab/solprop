@@ -7,7 +7,6 @@
 import subprocess
 import sys
 import warnings
-
 from typing import cast
 
 import numpy as np
