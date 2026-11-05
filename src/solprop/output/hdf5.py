@@ -86,6 +86,7 @@ from solprop.output.schema import (
     FieldsChoice,
     JsonValue,
     MarchSnapshot,
+    Output,
     PlaneLayout,
     PlaneStore,
     RecipeFile,
@@ -1962,7 +1963,40 @@ def _resume_refusal(
     )
 
 
-def check_cache(path: Path | str, metadata: RunMetadata) -> bool:
+def _file_path(path: Path | str | Output, reader: str) -> Path:
+    """Return the file a reader was pointed at, refusing an output handler by name.
+
+    A handler is not a file: one that keeps nothing has nothing to continue, and one
+    that has a file is reached through its path.
+
+    Parameters
+    ----------
+    path : pathlib.Path or str or solprop.output.schema.Output
+        What the caller gave.
+    reader : str
+        The function being called, for the message.
+
+    Returns
+    -------
+    pathlib.Path
+        The file.
+
+    Raises
+    ------
+    OutputError
+        If `path` is an output handler.
+    """
+    if isinstance(path, Output):
+        msg = (
+            f"{reader} reads a results file, and was given a {type(path).__name__}, "
+            "which is an output handler: only a file can be continued, so run into a "
+            "path and pass that"
+        )
+        raise OutputError(msg)
+    return Path(path)
+
+
+def check_cache(path: Path | str | Output, metadata: RunMetadata) -> bool:
     """Say whether a file may be continued as the run ``metadata`` describes.
 
     The resume gate (ADR-066): the two records' configuration hashes must be equal. A
@@ -1971,8 +2005,8 @@ def check_cache(path: Path | str, metadata: RunMetadata) -> bool:
 
     Parameters
     ----------
-    path : pathlib.Path or str
-        The file to check.
+    path : pathlib.Path or str or solprop.output.schema.Output
+        The file to check; an output handler is refused by name.
     metadata : RunMetadata
         The record of the run about to start.
 
@@ -1987,7 +2021,7 @@ def check_cache(path: Path | str, metadata: RunMetadata) -> bool:
     OutputError
         If the hashes differ, or the file was written at another output schema; or
         if the file's general modal record names an accessor this build no longer
-        admits (``_check_accessors``).
+        admits (``_check_accessors``); or if `path` is an output handler.
 
     Examples
     --------
@@ -1996,7 +2030,8 @@ def check_cache(path: Path | str, metadata: RunMetadata) -> bool:
     >>> check_cache("no-such-file.h5", _example_metadata())
     False
     """
-    if not Path(path).exists():
+    path = _file_path(path, "check_cache")
+    if not path.exists():
         logger.debug("no cache at %s; starting from the beginning", path)
         return False
     stored, _ = _stored_metadata(path)
@@ -2132,7 +2167,7 @@ def _last_step_stats(file: h5py.File, index: int) -> StepStats:
     )
 
 
-def resume(path: Path | str) -> ResumeState:
+def resume(path: Path | str | Output) -> ResumeState:
     """Read a file's resumable state and cumulative work, preferring its checkpoint.
 
     The last plane comes back in the **internal** FFT convention, through
@@ -2149,8 +2184,8 @@ def resume(path: Path | str) -> ResumeState:
 
     Parameters
     ----------
-    path : pathlib.Path or str
-        The file to read.
+    path : pathlib.Path or str or solprop.output.schema.Output
+        The file to read; an output handler is refused by name.
 
     Returns
     -------
@@ -2161,7 +2196,8 @@ def resume(path: Path | str) -> ResumeState:
     Raises
     ------
     OutputError
-        If the file cannot be read, carries no metadata, or holds no plane.
+        If the file cannot be read, carries no metadata, or holds no plane; or if
+        `path` is an output handler.
 
     Examples
     --------
@@ -2196,6 +2232,7 @@ def resume(path: Path | str) -> ResumeState:
     ...     resume(Path(folder) / "run.h5").n_saved
     2
     """
+    path = _file_path(path, "resume")
     metadata, _ = _stored_metadata(path)
     _check_plasma_benchmark(metadata)
     with h5py.File(path, "r") as file:
