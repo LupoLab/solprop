@@ -287,10 +287,15 @@ def far_field(
     reach = float(np.max(np.arcsin(np.minimum(C * k_r[-1] / omega[bins][lit], 1.0))))
     theta = np.linspace(0.0, reach, angles)
     values = np.zeros((angles, bins.size))
-    for place, frequency in enumerate(omega[bins]):
+    # A frequency whose columns all lie beyond its light cone has no angle to fill.
+    lit_places = [
+        place
+        for place, frequency in enumerate(omega[bins])
+        if (C * k_r / frequency < 1.0).any()
+    ]
+    for place in lit_places:
+        frequency = omega[bins][place]
         real = C * k_r / frequency < 1.0
-        if not real.any():
-            continue
         at, density = _per_solid_angle(
             per_bin[real, place], k_r[real], edges[real], float(frequency)
         )
