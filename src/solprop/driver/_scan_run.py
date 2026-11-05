@@ -910,13 +910,47 @@ def _closing_monitor(capture: _Capture | None) -> Mapping[str, object] | None:
     return cast("Mapping[str, object]", record) if isinstance(record, Mapping) else None
 
 
-def _retained(simulation: Simulation, capture: _Capture) -> Simulation:
-    """Return the point's simulation keeping only the fields the scan reads.
+def _field_retention(capture: _Capture) -> FieldRetention:
+    """Return which planes of a point keep the field, for what the scan reads of them.
 
     The fields the scan retains, those its built-in reductions read at their target
     planes, and, while a custom reduction that reads fields spools the run, every
-    field (SEP 22, Q3). The builder's own simulation is left as it is: a builder may
-    return one object for every point.
+    field (SEP 22, Q3).
+
+    Parameters
+    ----------
+    capture : _Capture
+        The point's capture, which knows the selected and target planes.
+
+    Returns
+    -------
+    solprop.output.schema.FieldRetention
+        The rule, its plane indices resolved.
+    """
+    options = capture.options
+    spooled = any(
+        not isinstance(reduction, _Builtin) and getattr(reduction, "reads_fields", True)
+        for reduction in options.reductions
+    )
+    if options.fields == "all" or spooled:
+        return FieldRetention("all")
+    needed = set(capture.selected) | {
+        capture.targets[reduction.name]
+        for reduction in options.reductions
+        if isinstance(reduction, _Builtin) and reduction.reads_fields
+    }
+    return (
+        FieldRetention("planes", tuple(sorted(needed)))
+        if needed
+        else FieldRetention("none")
+    )
+
+
+def _retained(simulation: Simulation, capture: _Capture) -> Simulation:
+    """Return the point's simulation keeping only the fields the scan reads.
+
+    The builder's own simulation is left as it is: a builder may return one object for
+    every point.
 
     Parameters
     ----------
@@ -930,23 +964,14 @@ def _retained(simulation: Simulation, capture: _Capture) -> Simulation:
     Simulation
         A shallow copy sharing the translation, with the scan's field retention.
     """
-    options = capture.options
-    spooled = any(
-        not isinstance(reduction, _Builtin) and getattr(reduction, "reads_fields", True)
-        for reduction in options.reductions
-    )
-    if options.fields == "all" or spooled:
+    retention = _field_retention(capture)
+    if retention.fields == "all":
         return simulation
-    needed = set(capture.selected) | {
-        capture.targets[reduction.name]
-        for reduction in options.reductions
-        if isinstance(reduction, _Builtin) and reduction.reads_fields
-    }
     retained = copy.copy(simulation)
     retained.settings = dataclasses.replace(
         simulation.settings,
-        fields="planes" if needed else "none",
-        field_planes=tuple(sorted(needed)),
+        fields=retention.fields,
+        field_planes=retention.field_planes,
     )
     return retained
 

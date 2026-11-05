@@ -1152,7 +1152,8 @@ def test_the_surface_a_backend_subclasses_is_frozen(driver):
     assert StepDriver.reads_transverse_edge is False
     for name, signature in {
         "observe_members": (
-            "(self) -> tuple[solprop.backends.protocol.Observation, ...]"
+            "(self, *, field: bool = True) -> "
+            "tuple[solprop.backends.protocol.Observation, ...]"
         ),
         "member_metadata": "(self) -> tuple[dict[str, object], ...]",
     }.items():

@@ -15,6 +15,7 @@ import pytest
 
 from legacy_geometry import LEGACY_GRID, bare_absorber
 from march_bounds import FIXED_ORDER, assert_points_matched
+from solprop.backends.batch import LockstepRunner
 from solprop.backends.numpy_ref.backend import NumpyRefBackend
 from solprop.backends.numpy_ref.batch import NumpyBatchBackend
 from solprop.backends.registry import resolve_name
@@ -169,6 +170,74 @@ def test_batch_device_budget_refuses_or_splits_before_group_allocation(
         assert result.status.tolist() == ["done"] * 3
         assert executor.budgets[0]["admitted"] == 1
         assert executor.budgets[0]["host_admitted"] == 3
+
+
+def _total_energy(output):
+    return np.asarray(output["stats/energy"][-1].sum())
+
+
+# Three planes: the entrance and two more. A built-in reduction of a field reads its
+# target plane, and a custom one reads every plane unless it says it reads none.
+FIELDS_ASKED = {
+    "no field": ({"fields": "none"}, [False, False, False]),
+    "one plane": ({"fields": "planes", "field_planes": [-1]}, [False, False, True]),
+    "the entrance": ({"fields": "planes", "field_planes": [0]}, [True, False, False]),
+    "every plane": ({"fields": "all"}, [True, True, True]),
+    "a built-in's plane": (
+        {"fields": "none", "reductions": [scans.peak_power(plane=1)]},
+        [False, True, False],
+    ),
+    "a custom reduction": (
+        {
+            "fields": "none",
+            "reductions": [scans.custom("energy", _total_energy, (), "J")],
+        },
+        [True, True, True],
+    ),
+    "a statistics reduction": (
+        {
+            "fields": "none",
+            "reductions": [
+                scans.custom("energy", _total_energy, (), "J", reads_fields=False)
+            ],
+        },
+        [False, False, False],
+    ),
+}
+
+
+@pytest.mark.filterwarnings("ignore::solprop.exceptions.HostMarchWarning")
+@pytest.mark.parametrize("backend", ["numpy_ref", "native"])
+@pytest.mark.parametrize(
+    ("options", "asked"), FIELDS_ASKED.values(), ids=FIELDS_ASKED.keys()
+)
+def test_a_batch_asks_its_members_only_for_the_fields_the_scan_reads(
+    tmp_path, monkeypatch, backend, options, asked
+):
+    # solprop #299: a plane no one reads moves no member's field, and what the scan
+    # stores is what the same points store run alone, under the same rule.
+    if backend == "native":
+        pytest.importorskip("solprop_native")
+    scan = Scan("field_free", base_seed=772, power=[1.0, 2.0, 3.0])
+    builder = partial(build, backend=backend)
+    keywords = {"progress": "none", **options}
+    reference = run_scan(
+        scan, builder, output=tmp_path / "local.h5", executor=Local(), **keywords
+    )
+    fields = []
+    original = LockstepRunner.observe_members
+
+    def spy(self, *, field=True):
+        fields.append(field)
+        return original(self, field=field)
+
+    monkeypatch.setattr(LockstepRunner, "observe_members", spy)
+    result = run_scan(
+        scan, builder, output=tmp_path / "batch.h5", executor=Batch(3), **keywords
+    )
+    assert result.status.tolist() == ["done"] * 3
+    assert fields == asked
+    assert_points_matched(result, reference, scan, builder, what="batch member")
 
 
 def test_batch_custom_reducer_failure_isolated_and_retryable(tmp_path):

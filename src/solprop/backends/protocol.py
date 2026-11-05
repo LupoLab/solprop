@@ -924,13 +924,20 @@ class BatchBackend(Backend, Protocol):
     The common maximum error norm is diagnostic and never changes a fixed schedule.
     """
 
-    def observe_members(self) -> tuple[Observation, ...]:
+    def observe_members(self, *, field: bool = True) -> tuple[Observation, ...]:
         """Drain independently owned host observations in member order.
+
+        Parameters
+        ----------
+        field : bool, optional
+            Whether each member's field and noise phase cross to the host, as for
+            :meth:`Backend.observe`. Default ``True``.
 
         Returns
         -------
         tuple of Observation
-            Singleton field shapes and each member's own diagnostic history.
+            Singleton field shapes, or no field, and each member's own diagnostic
+            history.
         """
         ...
 

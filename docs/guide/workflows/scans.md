@@ -179,7 +179,9 @@ planar grids. Adjacent points with matching grids, schedules, response layouts a
 statistics can share a group; layout changes and the final partial batch make smaller
 groups. Mixing backend names in a batch scan raises an error. Global point indices are
 unchanged. General modal runs may be batched under a narrower rule
-([running](../waveguides/supplied-guides.md#a-guide-instead-of-a-fill)).
+([running](../waveguides/supplied-guides.md#a-guide-instead-of-a-fill)). A member's field
+crosses to the host only at a plane the scan reads, as for a point run alone: under
+`fields="none"`, with reductions of statistics, none does.
 
 Each member watches its own time window, as the point would run alone
 ([watching the window's edges](../numerics/boundaries.md#watching-the-windows-edges)):
