@@ -167,6 +167,24 @@ def test_a_change_of_problem_closes_the_kept_backend_first(tmp_path, made, on_a_
     assert all(backend.closed for backend in made)
 
 
+def test_a_point_off_the_device_closes_the_kept_backend_first(
+    tmp_path, monkeypatch, made
+):
+    # The fixture refuses a second while the first is open, so this also holds that.
+    shared = base()
+    off_the_device = [False]
+    monkeypatch.setattr(_scan_run, "_device_build", lambda name: not off_the_device[0])
+
+    def builder(point):
+        off_the_device[0] = point.index == 1
+        return with_pulse(shared, point)
+
+    result = run_scan(SCAN, builder, output=tmp_path / "scan.h5", **OPTIONS)
+    assert result.status.tolist() == ["done"] * 3
+    assert len(made) == 3
+    assert all(backend.closed for backend in made)
+
+
 def test_a_failed_point_takes_the_kept_backend_with_it(
     tmp_path, monkeypatch, made, on_a_device
 ):
