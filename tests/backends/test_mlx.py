@@ -72,6 +72,7 @@ from solprop.spatial import SpatialMedium
 from solprop.stepper import (
     FixedSchedule,
     LowStorageRungeKutta,
+    Multistep,
     PIController,
     RungeKutta,
 )
@@ -167,6 +168,94 @@ def test_the_polarisation_taper_agrees_with_the_oracle():
 def test_low_storage_agrees_with_the_oracle():
     device, oracle = pair(lambda: gnlse("single", integrator=LowStorageRungeKutta()))
     assert_within(device, oracle, step_bound(10, 2, 11))
+
+
+@gpu_only
+def test_adams_agrees_with_the_oracle():
+    """The exponential Adams march replayed: its history and its trials on the device.
+
+    The moments are double-float on the device and binary64 on the host, each rounded
+    once, so they differ by at most one ulp; the step's bound covers that.
+    """
+    device, oracle = pair(lambda: gnlse("single", integrator=Multistep()))
+    assert_within(device, oracle, step_bound(10, 2, 11))
+
+
+def adams_gradient(backend: str) -> Simulation:
+    """Return an argon capillary on a pressure gradient, Kerr only, Adams replayed.
+
+    A varying operator: the history carries the transported compensation.
+    """
+    length = 0.004
+    return Simulation.from_capillary(
+        50e-6,
+        length,
+        "Ar",
+        (1.0, 0.5),
+        wavelength=800e-9,
+        wavelength_limits=(300e-9, 3e-6),
+        trange=300e-15,
+        fwhm=10e-15,
+        energy=20e-6,
+        plasma=False,
+        n_save=2,
+        backend=backend,
+        precision="single",
+        integrator=Multistep(),
+        schedule=FixedSchedule.uniform(0.0, length, length / 16),
+        # The in-stage collar's stability would hold an Adams step to micrometres.
+        absorber_scheme="split_step",
+        noise=None,
+    )
+
+
+@gpu_only
+def test_a_compensated_adams_history_agrees_with_the_oracle():
+    device = finish(adams_gradient("mlx"))
+    oracle = finish(adams_gradient("numpy_ref"))
+    assert_within(device, oracle, step_bound(16, 2, 13))
+
+
+@gpu_only
+def test_the_trial_kernel_rounds_the_binary64_moments_once():
+    """Flow, moments and a compensation factor against binary64, rounded once."""
+    from solprop.backends.exponential import phi_functions  # noqa: PLC0415
+
+    rng = np.random.default_rng(342)
+    n = 4096
+    # Bins on both sides of the join, with phases of thousands of radians.
+    terms = np.stack(
+        [
+            rng.normal(0, 0.3, n)
+            + 1j * rng.normal(0, 1, n) * np.repeat([0.4, 900], n // 2),
+            rng.normal(0, 0.01, n) + 1j * rng.normal(0, 0.2, n),
+        ]
+    ).reshape(2, 1, 1, n)
+    device = DoubleFloatTerms.upload(terms)
+    weights = np.array([0.6, 1.7])
+    rate = np.array([1.3, -0.2])
+    span = 0.4
+    flow, moments, factors = device.trial(
+        np.stack([weights, rate - weights / 2.0]), 7, np.array([span]), endpoint=False
+    )
+    x = np.tensordot(weights, terms, axes=1)
+    phi = phi_functions(x, 7)
+    expected = np.stack([math.factorial(k) * phi[k + 1] for k in range(7)])
+    factor = np.exp(span * x) * np.tensordot(rate - weights / 2.0, terms, axes=1)
+    for found, reference in (
+        (np.array(flow), np.exp(x)),
+        (np.array(moments), expected),
+        (np.array(factors[0]), factor),
+    ):
+        scale = np.maximum(np.abs(reference), np.finfo(np.float32).tiny)
+        # Rounded once from at least 44 bits: within one binary32 ulp.
+        assert np.max(np.abs(found - reference) / scale) <= 2 * U32
+
+
+def test_mlx_refuses_the_interaction_formulation_by_name():
+    simulation = gnlse("single", integrator=Multistep(formulation="interaction"))
+    with pytest.raises(BackendError, match="interaction formulation"):
+        select("mlx", simulation.translate(), grid=simulation.grid)
 
 
 @pytest.mark.parametrize("gas", ["Ar", "N2"])
