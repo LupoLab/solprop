@@ -32,6 +32,7 @@ from solprop.processing import (
     load_field_plane,
     save_field_plane,
 )
+from solprop.processing.plane_file import _plain
 from solprop.profiles import PressureGradient
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
@@ -278,7 +279,23 @@ def test_a_damaged_file_is_refused(tmp_path, part):
         load_field_plane(path)
 
 
+def test_damaged_scalars_are_refused(tmp_path):
+    path = tmp_path / "plane.h5"
+    save_field_plane(_bare_plane(), path)
+    with h5py.File(path, "a") as file:
+        file.attrs["scalars"] = "{not json"
+    with pytest.raises(OutputError, match="cannot read"):
+        load_field_plane(path)
+
+
 def test_a_path_may_be_text(tmp_path):
     path = str(tmp_path / "plane.h5")
     save_field_plane(_bare_plane(), path)
     assert load_field_plane(path).kind == "modal"
+
+
+def test_a_numpy_value_is_written_as_json_and_nothing_else_is():
+    assert _plain(np.bool_(True)) is True
+    assert _plain(np.arange(2)) == [0, 1]
+    with pytest.raises(TypeError, match="object has no form"):
+        _plain(object())

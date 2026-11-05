@@ -335,10 +335,11 @@ def save_field_plane(plane: FieldPlane, path: Path | str) -> None:
             "resolve its metric again on another temporal grid"
         )
         raise ProcessingError(msg)
+    record = _record(plane)
     try:
         with h5py.File(path, "x") as file:
             file.attrs[_SCHEMA_KEY] = PLANE_FILE_SCHEMA
-            _write(file, _record(plane))
+            _write(file, record)
     except OSError as error:
         msg = f"cannot create the field-plane file {path}: {error}"
         raise OutputError(msg) from error
@@ -381,6 +382,6 @@ def load_field_plane(path: Path | str) -> FieldPlane:
                 raise OutputError(msg)
             record = _read(file)
         return _plane(record)
-    except (OSError, KeyError, TypeError) as error:
+    except (OSError, KeyError, TypeError, ValueError) as error:
         msg = f"cannot read the field-plane file {path}: {error!r}"
         raise OutputError(msg) from error

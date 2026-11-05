@@ -7,12 +7,13 @@
 import subprocess
 import sys
 import textwrap
+from typing import cast
 
 import numpy as np
 import pytest
 
 from solprop.driver import Simulation
-from solprop.grid import FieldGrid
+from solprop.grid import EnvelopeGrid, FieldGrid
 from solprop.modes import (
     GradedIndexProvider,
     IndexMaterial,
@@ -20,9 +21,11 @@ from solprop.modes import (
     PowerLawPermittivity,
     StepIndexMode,
 )
+from solprop.modes.base import beta2
 from solprop.physdata import glass
 from solprop.physdata.glasses import GlassIndex
 from solprop.recipe import Recipe, RecipeError, RecipeIssue, parameters
+from solprop.tools import nonlinear_coefficient, soliton_order
 
 # The padded band reaches past 2.3 um, beyond where a glass is transparent or fitted;
 # what is tested here is the recipe's form, and the plot_03 tutorial keeps the warning.
@@ -298,6 +301,91 @@ def test_on_grid_samples_the_active_band_beyond_both_ends():
     assert sampled.size == 13
     assert sampled[0] == pytest.approx(0.99 * active[0], rel=1e-15)
     assert sampled[-1] == pytest.approx(1.01 * active[-1], rel=1e-15)
+
+
+def _provider() -> GradedIndexProvider:
+    return GradedIndexProvider(
+        permittivity=PowerLawPermittivity(IndexMaterial(1.45), 0.005),
+        exterior=IndexMaterial(1.4427),
+        radius=25e-6,
+        family="LP",
+        count=2,
+        elements=16,
+        extent=2.0,
+    )
+
+
+def test_on_grid_reads_the_band_of_an_envelope_grid_in_its_fft_order():
+    grid = EnvelopeGrid.from_limits(1e-3, 1.03e-6, (1e-6, 1.06e-6), 100e-15)
+    active = grid.omega[grid.active_mask]
+    # An envelope grid's array ends are beside the carrier, not at the band's edges.
+    assert active[0] > np.min(active)
+    sampling = ModalGuide.on_grid(grid, _provider(), knots=13, n_r=2).sampling
+    assert sampling is not None
+    assert sampling.omega[0] == pytest.approx(0.99 * np.min(active), rel=1e-15)
+    assert sampling.omega[-1] == pytest.approx(1.01 * np.max(active), rel=1e-15)
+
+
+@pytest.mark.parametrize("knots", [-1, 0, 3])
+def test_fewer_than_four_knots_are_refused_by_name(knots):
+    assert any(
+        "four frequency knots" in issue.message
+        for issue in errors_of(grin_of(knots=knots))
+    )
+
+
+@pytest.mark.medium
+def test_a_saved_graded_index_recipe_rebuilds_from_its_resolved_text(tmp_path):
+    path = tmp_path / "run.h5"
+    recipe = grin_of()
+    recipe.run(path, progress="none")
+    expected = recipe.build().metadata().configuration_hash()
+    for resolved in (False, True):
+        rebuilt = Recipe.from_output(path, resolved=resolved).build()
+        assert rebuilt.metadata().configuration_hash() == expected
+
+
+@pytest.mark.medium
+def test_a_soliton_pin_reads_the_fibre_s_n2():
+    text = (
+        GNLSE.replace("{fibre}", FIBRE)
+        .replace('radius = "2 um"', 'radius = "1.25 um"')
+        .replace('profile_wavelength = "1 um"', 'profile_wavelength = "835 nm"')
+        .replace('wavelength = "1 um"', 'wavelength = "835 nm"')
+        .replace('["800 nm", "1.3 um"]', '["700 nm", "1 um"]')
+        .replace('energy = "10 pJ"\n', "")
+    )
+    document = Recipe.loads(text).to_dict()
+    document["pins"] = {"energy": {"target": "soliton_order", "order": 2}}
+    resolved = Recipe.from_dict(document).resolve()
+    energy = cast("float", resolved.keywords()["energy"])
+    mode = StepIndexMode(1.25e-6, profile_wavelength=835e-9)
+    omega = np.array([2 * np.pi * 299792458.0 / 835e-9])
+    gamma = nonlinear_coefficient(mode, 2.6e-20, 835e-9)
+    power = energy * 0.88137 / 30e-15  # a sech pulse's peak over its FWHM
+    order = soliton_order(power, 30e-15, gamma, float(beta2(mode, omega)[0]), "sech")
+    # The sech constant above is written to five digits, which sets the tolerance.
+    assert order == pytest.approx(2.0, rel=1e-4)
+
+
+def _recommended_n2() -> str:
+    return GNLSE.replace("{fibre}", FIBRE).replace("n2 = 2.6e-20", 'n2 = "recommended"')
+
+
+def test_a_recipe_can_name_the_recommended_n2():
+    assert Recipe.loads(_recommended_n2()).keywords()["n2"] == "recommended"
+    other = _recommended_n2().replace('"recommended"', '"SiO2"')
+    with pytest.raises(RecipeError, match="not a quantity"):
+        Recipe.loads(other).keywords()
+
+
+def test_a_soliton_pin_on_a_named_n2_is_refused_by_name():
+    document = Recipe.loads(
+        _recommended_n2().replace('energy = "10 pJ"\n', "")
+    ).to_dict()
+    document["pins"] = {"energy": {"target": "soliton_order", "order": 2}}
+    with pytest.raises(RecipeError, match="n2 as a number"):
+        Recipe.from_dict(document).resolve()
 
 
 def test_a_guide_on_the_grid_needs_the_recipe_to_give_the_grid():

@@ -2241,7 +2241,8 @@ class ModalGuide(Displayed):
         Raises
         ------
         ModeError
-            If :meth:`from_provider` refuses the knots, or the band's channels.
+            If there are fewer than four knots, or :meth:`from_provider` refuses them
+            or the band's channels.
 
         Examples
         --------
@@ -2267,9 +2268,14 @@ class ModalGuide(Displayed):
         >>> len(guide.mode_collection.channel_labels)
         2
         """
+        if knots < 4:
+            msg = f"a guide needs at least four frequency knots, got {knots}"
+            raise ModeError(msg)
+        # An envelope grid holds its frequencies in FFT order: the ends of the array
+        # are beside the carrier, not the edges of the band.
         active = grid.omega[grid.active_mask]
-        low = 0.99 * float(active[0])
-        high = 1.01 * float(active[-1])
+        low = 0.99 * float(np.min(active))
+        high = 1.01 * float(np.max(active))
         return cls.from_provider(
             provider,
             np.linspace(low, high, knots),

@@ -193,6 +193,18 @@ def test_a_pinned_required_keyword_builds_where_a_missing_one_is_refused():
         assert caught.value.parameter == "length"
 
 
+def test_a_soliton_pin_on_a_taylor_fibre_reads_the_recipe_s_gamma():
+    # The soliton example is N = 3 by its own arithmetic, its peak power to the last
+    # digit of the file, so the pin solves back to it to rounding.
+    example = Recipe.example("soliton")
+    document = example.to_dict()
+    del document["build"]["peak_power"]
+    document["pins"] = {"peak_power": {"target": "soliton_order", "order": 3}}
+    resolved = Recipe.from_dict(document).resolve()
+    expected = example.keywords()["peak_power"]
+    assert resolved.keywords()["peak_power"] == pytest.approx(expected, rel=1e-10)
+
+
 def test_a_scan_re_solves_its_pins_at_each_point():
     recipe = pinned({"pressure": ZDW_PIN}, drop=("pressure",))
     document = recipe.to_dict()
