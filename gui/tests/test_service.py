@@ -195,7 +195,7 @@ def test_previews_estimate_and_export():
     assert preview["spectral_power"].ndim == 1
     assert preview["peak_power"] > 0
     estimate = ask("estimate", {"text": TINY})
-    assert estimate["admitted"] and estimate["memory"] > 0
+    assert estimate["memory"] > 0
     script = ask("to_python", {"text": TINY, "output": "out.h5"})
     assert "out.h5" in script and "import" in script
 

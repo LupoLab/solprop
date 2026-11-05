@@ -539,12 +539,7 @@ def execute(spec: RunSpec, events: Connection, control: Connection) -> None:
             # grids and medium; run as Recipe.run would.
             simulation = recipe.build()
             observer.measure(simulation)
-            simulation.run(
-                output,
-                progress=observer,
-                stop=stop,
-                **recipe.run_keywords(),  # pyright: ignore[reportArgumentType]
-            )
+            simulation.run(output, progress=observer, stop=stop)
         else:
             resume_file(output, spec.resume, progress=observer, stop=stop)  # pyright: ignore[reportArgumentType]
         kind, data = _ending(output, stop.is_set())

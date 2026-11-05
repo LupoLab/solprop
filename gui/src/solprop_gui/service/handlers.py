@@ -521,27 +521,18 @@ def estimate(payload: Payload) -> dict[str, object]:
     Parameters
     ----------
     payload : Mapping
-        ``text``, optionally ``base`` and ``memory_budget``.
+        ``text`` and optionally ``base``.
 
     Returns
     -------
     dict
         The estimate's fields.
     """
-    budget = payload.get("memory_budget")
-    result = (
-        _recipe(payload)
-        .build()
-        .estimate(
-            memory_budget=budget  # pyright: ignore[reportArgumentType]
-        )
-    )
+    result = _recipe(payload).build().estimate()
     return {
         "shape": list(result.shape),
         "n_planes": result.n_planes,
         "memory": result.memory,
-        "admitted": result.admitted,
-        "refusal": result.refusal,
         "output_bytes": result.output_bytes,
         "backend": result.backend,
         "threads": _plain(result.threads),
@@ -581,7 +572,7 @@ def check_resume(payload: Payload) -> dict[str, object]:
     -------
     dict
         ``resumable``, ``z``, ``mode``, ``reason``, ``recipe``, ``rebuildable``,
-        ``differences`` (the gate's comparison as text, when asked) and
+        ``differences`` (what the gate found, when asked) and
         ``gate_error``.
     """
     found = resumability(str(payload["path"]), gate=bool(payload.get("gate", False)))
@@ -592,7 +583,7 @@ def check_resume(payload: Payload) -> dict[str, object]:
         "reason": found.reason,
         "recipe": found.recipe,
         "rebuildable": found.rebuildable,
-        "differences": None if found.comparison is None else str(found.comparison),
+        "differences": found.differences,
         "gate_error": found.gate_error,
     }
 

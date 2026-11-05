@@ -710,9 +710,6 @@ class RunPanel(QWidget):
             self.estimate_text.setText(f"No estimate: {reply.error}")
             return
         value = reply.value
-        if not value.get("admitted"):
-            self.estimate_text.setText(f"Refused: {value.get('refusal')}")
-            return
         parts = [
             f"state {tuple(value['shape'])}",
             f"{value['n_planes']} planes",
