@@ -38,6 +38,7 @@ from solprop.processing import (
 from solprop.processing.fields import DEFAULT_GATE_POSITIONS, get_spectrogram
 from solprop.processing.scans import ScanOutput
 from solprop.processing.spectra import bandpass as spectral_window
+from solprop.processing.time import energy, fwhm_t
 from solprop.recipe import Recipe
 from solprop.spatial import SpatialFlux, spatial_power
 from solprop.stats import CATALOGUE
@@ -310,7 +311,10 @@ def plane(payload: Payload) -> dict[str, object]:
         ``z``, ``axis``, ``labels`` (the file's modes), ``spectrum`` (``x`` and
         ``y``, the spectral density on the axis), ``power`` (``t`` and ``y``) and
         ``phase`` (``omega`` and ``y``, of one mode; with ``error`` instead for a
-        sum, which has no phase). On a spatial file the spectrum is the plane's
+        sum, which has no phase), ``window`` (the run's own range on the axis),
+        ``energy`` (J) and ``fwhm`` (s, of the power shown);
+        with a band, ``full_power`` (the power of the whole spectrum) and
+        ``band_energy`` (J). On a spatial file the spectrum is the plane's
         energy per bin and the power the axial flux (:func:`spatial_plane`), with
         ``fluence`` (:func:`_fluence`) and no phase.
     """
@@ -340,14 +344,24 @@ def plane(payload: Payload) -> dict[str, object]:
             phase = {"omega": np.asarray(omega), "y": np.asarray(values)}
         except SolpropError as error:
             phase = {"error": str(error)}
-        return {
+        reply: dict[str, object] = {
             "z": float(np.asarray(handler["z"])[index]),
             "axis": axis,
             "labels": _labels(handler),
             "spectrum": {"x": np.asarray(x), "y": np.asarray(density)},
             "power": {"t": np.asarray(t), "y": np.asarray(power)},
             "phase": phase,
+            "window": _window(path, axis, np.asarray(x), np.asarray(density)),
+            "energy": float(energy(handler, plane=index, modes=modes)),
+            "fwhm": float(fwhm_t(handler, plane=index, modes=modes, bandpass=band)),
         }
+        if band is not None:
+            _t, full = get_power(handler, plane=index, modes=modes)
+            reply["full_power"] = np.asarray(full)
+            reply["band_energy"] = float(
+                energy(handler, plane=index, modes=modes, bandpass=band)
+            )
+        return reply
 
 
 def statistics(payload: Payload) -> dict[str, object]:
@@ -380,7 +394,12 @@ def statistics(payload: Payload) -> dict[str, object]:
                 if flat.shape[1] == 1:
                     text = name
                 elif labels and len(position) >= 1 and position[0] < len(labels):
-                    rest = ", ".join(str(int(p)) for p in position[1:])
+                    # Only what varies names a column: a lone polarisation does not.
+                    rest = ", ".join(
+                        str(int(p))
+                        for p, size in zip(position[1:], values.shape[2:], strict=True)
+                        if size > 1
+                    )
                     text = labels[position[0]] + (f" [{rest}]" if rest else "")
                 else:
                     text = f"{name} {list(map(int, position))}"
@@ -459,8 +478,108 @@ def _drawn(handler: Output, payload: Payload) -> list[Figure]:
     return drawn if isinstance(drawn, list) else [drawn]
 
 
+RUN_LOG = "run.log"
+"""The log a run in the workspace keeps beside its results."""
+
 SPECTROGRAM_ROWS = 400
 """The rows of a spectrogram's image: its spectral bins, as the window shows them."""
+
+
+def _health_facts(execution: Mapping[str, object]) -> dict[str, object]:
+    """Return what a run's record says about how it ran.
+
+    Parameters
+    ----------
+    execution : Mapping
+        The run's ``execution`` record.
+
+    Returns
+    -------
+    dict
+        ``backend``, ``precision``, ``threads``, ``wall_time`` (s), ``peak_memory``
+        (bytes) and ``plasma_source`` (its check and limit), each ``None`` where the
+        record has none.
+    """
+    resources = execution.get("resources")
+    plasma = execution.get("plasma_source")
+    held = resources if isinstance(resources, Mapping) else {}
+    source = plasma if isinstance(plasma, Mapping) else {}
+    return {
+        "backend": execution.get("backend"),
+        "precision": execution.get("precision"),
+        "threads": execution.get("thread_count"),
+        "wall_time": held.get("wall_time_s"),
+        "peak_memory": held.get("peak_rss_bytes"),
+        "plasma_source": (
+            None
+            if "certificate" not in source
+            else [source["certificate"], source.get("limit")]
+        ),
+    }
+
+
+def _boundary_of(execution: Mapping[str, object]) -> dict[str, object] | None:
+    """Return what the boundary monitor recorded along z.
+
+    Parameters
+    ----------
+    execution : Mapping
+        The run's ``execution`` record.
+
+    Returns
+    -------
+    dict or None
+        ``z``, ``removed`` (the share of the light the absorber took, by position)
+        and ``budget``; ``None`` where no monitor ran.
+    """
+    monitor = execution.get("boundary_monitor")
+    planes = monitor.get("planes") if isinstance(monitor, Mapping) else None
+    if not isinstance(monitor, Mapping) or not isinstance(planes, Mapping):
+        return None
+    return {
+        "z": np.asarray(planes.get("z", ()), dtype=float),
+        "removed": np.asarray(planes.get("removed_fraction", ()), dtype=float),
+        "budget": monitor.get("budget"),
+    }
+
+
+def run_health(payload: Payload) -> dict[str, object]:
+    """Return how a run went: its steps, its boundary and its record.
+
+    Parameters
+    ----------
+    payload : Mapping
+        ``path``.
+
+    Returns
+    -------
+    dict
+        ``status`` and ``message`` (how it ended), ``steps`` (as :func:`statistics`
+        gives them), ``boundary`` (:func:`_boundary_of`), ``facts``
+        (:func:`_health_facts`) and ``log``, the run's log file where it is beside
+        the results.
+    """
+    path = Path(str(payload["path"]))
+    with open_file(str(path)) as handler:
+        outcome = handler.outcome
+        accepted = np.asarray(handler["step_history/accepted"], dtype=bool)
+        steps_z = np.asarray(handler["step_history/z"], dtype=float)
+        steps_h = np.asarray(handler["step_history/h"], dtype=float)
+    execution = {} if outcome is None else outcome.execution
+    log = path.with_name(RUN_LOG)
+    return {
+        "status": None if outcome is None else outcome.status,
+        "message": None if outcome is None else outcome.message,
+        "steps": {
+            "z": steps_z[accepted],
+            "h": steps_h[accepted],
+            "rejected_z": steps_z[~accepted],
+            "rejected_h": steps_h[~accepted],
+        },
+        "boundary": _boundary_of(execution),
+        "facts": _health_facts(execution),
+        "log": log.read_text(encoding="utf-8") if log.exists() else None,
+    }
 
 
 def spectrogram(payload: Payload) -> dict[str, object]:
@@ -658,6 +777,7 @@ def scan_overview(payload: Payload) -> dict[str, object]:
 
 RESULTS_HANDLERS = {
     "plane": plane,
+    "run_health": run_health,
     "statistics": statistics,
     "spectrogram": spectrogram,
     "beam": beam,

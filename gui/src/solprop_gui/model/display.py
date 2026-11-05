@@ -14,7 +14,10 @@ from solprop_gui.registry.units import si
 __all__ = [
     "decibels",
     "duration_text",
+    "even_rows",
+    "length_unit",
     "pulse_window",
+    "scaled_unit",
     "size_text",
     "steady_limits",
     "wants_log",
@@ -138,8 +141,8 @@ def steady_limits(
 
     Examples
     --------
-    >>> steady_limits([200.0, 200.00000005])
-    (194.0, 206.0)
+    >>> [round(v, 3) for v in steady_limits([200.0, 200.00000005])]
+    [194.0, 206.0]
     >>> [round(v, 2) for v in steady_limits([0.0, 1.0])]
     [-0.06, 1.06]
     >>> steady_limits([0.0, 0.0]), steady_limits([])
@@ -175,10 +178,10 @@ def size_text(size: float) -> str:
 
     Examples
     --------
-    >>> size_text(2_846_616), size_text(3.5e9)
-    ('2.8 MB', '3.5 GB')
+    >>> size_text(2_846_616), size_text(3.5e9), size_text(2.81e8)
+    ('2.85 MB', '3.5 GB', '281 MB')
     """
-    return si(size, "B", digits=2)
+    return si(size, "B", digits=3)
 
 
 def duration_text(seconds: float) -> str:
@@ -192,16 +195,138 @@ def duration_text(seconds: float) -> str:
     Returns
     -------
     str
-        ``m:ss``, or ``h:mm:ss`` from an hour.
+        Seconds below ten, then ``m:ss``, and ``h:mm:ss`` from an hour.
 
     Examples
     --------
-    >>> duration_text(42.4), duration_text(3725.0)
-    ('0:42', '1:02:05')
+    >>> duration_text(0.96), duration_text(42.4), duration_text(3725.0)
+    ('0.96 s', '0:42', '1:02:05')
     """
+    if seconds < 10:
+        return f"{seconds:.2g} s"
     whole = round(seconds)
     hours, rest = divmod(whole, 3600)
     minutes, secs = divmod(rest, 60)
     if hours:
         return f"{hours}:{minutes:02d}:{secs:02d}"
     return f"{minutes}:{secs:02d}"
+
+
+def length_unit(length: float) -> tuple[str, float]:
+    """Return the unit a length along z reads best in.
+
+    Parameters
+    ----------
+    length : float
+        The length, m.
+
+    Returns
+    -------
+    tuple
+        The unit's name, and what metres are multiplied by to read in it.
+
+    Examples
+    --------
+    >>> length_unit(1.0), length_unit(0.25), length_unit(0.005)
+    (('m', 1.0), ('cm', 100.0), ('mm', 1000.0))
+    """
+    if length >= 1.0:
+        return "m", 1.0
+    return ("cm", 100.0) if length >= 0.01 else ("mm", 1000.0)
+
+
+_PREFIXED = frozenset({"J", "W", "m", "s", "Hz", "V"})
+"""The units a physicist reads with an SI prefix; others take a power of ten."""
+
+_READ_IN = {"W/m²": ("W/cm²", 1e-4), "1/m³": ("cm⁻³", 1e-6), "1/m^3": ("cm⁻³", 1e-6)}
+"""The units laboratory quantities are read in, by the unit solprop gives them in."""
+
+_SUPERSCRIPTS = str.maketrans("-0123456789", "⁻⁰¹²³⁴⁵⁶⁷⁸⁹")
+
+
+def scaled_unit(values: np.ndarray, unit: str) -> tuple[str, float]:
+    """Return the unit a quantity reads best in.
+
+    Parameters
+    ----------
+    values : numpy.ndarray
+        The values, in ``unit``.
+    unit : str
+        Their unit, unprefixed; empty for a pure number.
+
+    Returns
+    -------
+    tuple
+        The unit to write, and what the values are multiplied by to read in it.
+
+    Examples
+    --------
+    >>> scaled_unit(np.array([2.75e-4]), "J")
+    ('µJ', 1000000.0)
+    >>> label, factor = scaled_unit(np.array([3e18]), "W/m²")
+    >>> label, round(3e18 * factor, 6)
+    ('10¹⁴ W/cm²', 3.0)
+    >>> label, factor = scaled_unit(np.array([4e24]), "1/m³")
+    >>> label, round(4e24 * factor, 6)
+    ('10¹⁸ cm⁻³', 4.0)
+    >>> scaled_unit(np.array([0.5]), ""), scaled_unit(np.array([0.0]), "J")
+    (('', 1.0), ('J', 1.0))
+    """
+    shown, scale = _READ_IN.get(unit, (unit, 1.0))
+    finite = np.abs(values[np.isfinite(values)]) * scale
+    top = float(finite.max()) if finite.size else 0.0
+    if not shown or top == 0:
+        return shown, scale
+    if shown in _PREFIXED:
+        power = max(min(math.floor(math.log10(top) / 3), 6), -5)
+        prefix = {
+            6: "E", 5: "P", 4: "T", 3: "G", 2: "M", 1: "k", 0: "",
+            -1: "m", -2: "µ", -3: "n", -4: "p", -5: "f",
+        }[power]  # fmt: skip
+        return f"{prefix}{shown}", scale * 10.0 ** (-3 * power)
+    exponent = math.floor(math.log10(top))
+    if exponent == 0:
+        return shown, scale
+    return (
+        f"10{str(exponent).translate(_SUPERSCRIPTS)} {shown}",
+        scale * 10.0**-exponent,
+    )
+
+
+def even_rows(z: np.ndarray, count: int = 256) -> tuple[np.ndarray, float, float]:
+    """Return which plane each row of a map along z shows.
+
+    Saved planes need not be even along z, and an image's rows are. Even planes map to
+    themselves.
+
+    Parameters
+    ----------
+    z : numpy.ndarray
+        The planes' positions, ascending.
+    count : int, optional
+        The rows of a map of uneven planes.
+
+    Returns
+    -------
+    tuple
+        The plane of each row, where the first row's middle is and the rows' spacing.
+
+    Examples
+    --------
+    >>> rows, start, step = even_rows(np.array([0.0, 1.0, 2.0]))
+    >>> rows.tolist(), start, step
+    ([0, 1, 2], 0.0, 1.0)
+    >>> rows, start, step = even_rows(np.array([0.0, 1.0, 4.0]), count=5)
+    >>> rows.tolist(), step
+    ([0, 1, 1, 2, 2], 1.0)
+    >>> even_rows(np.array([0.5]))[1:]
+    (0.5, 1.0)
+    """
+    if z.size < 2:
+        return np.zeros(z.size, dtype=int), float(z[0]) if z.size else 0.0, 1.0
+    spacing = np.diff(z)
+    if np.ptp(spacing) <= 1e-6 * abs(float(spacing.mean())):
+        return np.arange(z.size), float(z[0]), float(spacing.mean())
+    even = np.linspace(float(z[0]), float(z[-1]), count)
+    nearest = np.abs(even[:, None] - z[None, :]).argmin(axis=1)
+    return nearest, float(even[0]), float(even[1] - even[0])

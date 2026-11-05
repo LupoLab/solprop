@@ -79,6 +79,10 @@ QLabel#itemText {{ color: {GREY}; font-size: 12px; background: none; }}
 QPushButton#plain {{ background: #fff; border: 1px solid #cdd3da; border-radius: 6px;
     padding: 5px 12px; color: {INK}; }}
 QPushButton#plain:hover {{ background: #f6f7f8; }}
+QToolButton#plain {{ background: #fff; border: 1px solid #cdd3da; border-radius: 6px;
+    padding: 4px 10px; color: {INK}; }}
+QToolButton#plain:hover {{ background: #f6f7f8; }}
+QToolButton#plain::menu-indicator {{ image: none; }}
 QFrame#form {{ border-right: 1px solid #e3e6ea; background: #fff; }}
 QLineEdit {{ border: 1px solid #cdd3da; border-radius: 5px; padding: 4px 7px;
     background: #fff; color: {INK}; selection-background-color: #bcdbe8;
@@ -113,8 +117,9 @@ QSlider::groove:horizontal {{ height: 6px; background: #e8ebee; border-radius: 3
 QSlider::sub-page:horizontal {{ background: {ACCENT}; border-radius: 3px; }}
 QSlider::handle:horizontal {{ background: {ACCENT}; width: 16px; height: 16px;
     margin: -5px 0; border-radius: 8px; }}
-QPushButton#derivedTarget {{ font-size: 19px; font-weight: 500; color: #0a5a7d; border: 0;
-    border-bottom: 1px dashed #7fb0c5; background: none; padding: 0; text-align: left; }}
+QPushButton#derivedTarget {{ font-size: 19px; font-weight: 500; color: #0a5a7d;
+    border: 0; border-bottom: 1px dashed #7fb0c5; background: none; padding: 0;
+    text-align: left; }}
 QPushButton#derivedTarget[pinned="true"] {{ background: #e8f1f5; border: 0;
     border-radius: 4px; padding: 0 5px; }}
 QFrame#targetEditor {{ background: #f4f8fa; border: 1px solid #d5e4ec;

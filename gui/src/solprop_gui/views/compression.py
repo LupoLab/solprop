@@ -50,7 +50,7 @@ class CompressionView(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         """Make the empty plot and table."""
         super().__init__(parent)
-        self.summary = QLabel("Build a compressor on the Post-process step.")
+        self.summary = QLabel("Add an element to the chain, then compress.")
         self.summary.setObjectName("compression-summary")
         self.summary.setWordWrap(True)
         self.plots = HoverLayout()
@@ -143,4 +143,4 @@ class CompressionView(QWidget):
         for curve in self.curves.values():
             curve.setData([], [])
         self.table.setRowCount(0)
-        self.summary.setText("Build a compressor on the Post-process step.")
+        self.summary.setText("Add an element to the chain, then compress.")

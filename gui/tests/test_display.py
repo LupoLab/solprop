@@ -1,0 +1,40 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+"""How numbers are shown: the ends a doctest does not reach."""
+
+import numpy as np
+
+from solprop_gui.model.display import (
+    decibels,
+    even_rows,
+    pulse_window,
+    scaled_unit,
+    steady_limits,
+    wants_log,
+)
+
+
+def test_no_light_reads_as_the_floor_and_the_whole_window() -> None:
+    assert (decibels(np.zeros(3)) == -300.0).all()
+    t = np.linspace(-50.0, 50.0, 11)
+    assert pulse_window(t, np.zeros(11)) == 50.0
+    assert pulse_window(np.zeros(0), np.zeros(0)) == 1.0
+
+
+def test_a_pulse_window_reads_every_plane() -> None:
+    t = np.linspace(-50.0, 50.0, 101)
+    rows = np.vstack((np.exp(-(t**2)), np.exp(-((t - 20.0) ** 2))))
+    assert pulse_window(t, rows) > 20.0
+
+
+def test_a_pure_number_near_one_takes_no_power_of_ten() -> None:
+    assert scaled_unit(np.array([3.0]), "1/m") == ("1/m", 1.0)
+
+
+def test_uneven_planes_and_none() -> None:
+    assert even_rows(np.zeros(0))[0].size == 0
+    assert even_rows(np.zeros(0))[1:] == (0.0, 1.0)
+    assert wants_log(np.array([np.nan])) is False
+    assert steady_limits([np.nan]) == (0.0, 1.0)

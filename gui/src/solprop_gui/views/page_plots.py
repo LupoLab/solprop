@@ -92,7 +92,7 @@ class Plot(pg.PlotWidget):
     Attributes
     ----------
     plane_at : Signal
-        Emitted with the position, in the unit of the axis marked as z, when it is picked.
+        Emitted with the position, in the unit of the axis that is z, when it is picked.
     reader : callable or None
         Says what is at a point of the plot, as text.
     along : {'x', 'y'} or None
@@ -113,7 +113,7 @@ class Plot(pg.PlotWidget):
         self.item = item
         item.hideButtons()
         item.setMenuEnabled(False)
-        item.layout.setContentsMargins(0, 8, 8, 0)
+        item.layout.setContentsMargins(0, 8, 8, 0)  # pyright: ignore[reportAttributeAccessIssue]
         self.box = item.getViewBox()
         self.box.setMouseEnabled(False, False)
         self.box.disableAutoRange()
@@ -125,6 +125,8 @@ class Plot(pg.PlotWidget):
             axis.setTickFont(font)
             axis.setStyle(tickLength=-4, tickTextOffset=3)
             axis.setLabel(text, **_LABEL)
+            # A label says its own unit; no "(x0.001)" beside it.
+            axis.enableAutoSIPrefix(False)
         item.getAxis("left").setWidth(left)
         item.getAxis("bottom").setHeight(38)
         for side in ("top", "right"):
@@ -137,7 +139,7 @@ class Plot(pg.PlotWidget):
         self.note = pg.TextItem("", color="#fff", fill=(27, 36, 48, 235), anchor=(0, 1))
         self.note.setFont(_small_font(12))
         for extra in (self.cross_x, self.cross_y, self.note):
-            self.addItem(extra, ignoreBounds=True)
+            self.addItem(extra, ignoreBounds=True)  # pyright: ignore[reportCallIssue]
             extra.setZValue(50)
             extra.hide()
         self.scene().sigMouseMoved.connect(self._hover)  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
@@ -214,7 +216,7 @@ class Plot(pg.PlotWidget):
         for extra in (self.cross_x, self.cross_y, self.note):
             extra.hide()
 
-    def leaveEvent(self, event: object) -> None:  # noqa: N802 - Qt's name
+    def leaveEvent(self, event: object) -> None:  # noqa: N802  # pyright: ignore[reportIncompatibleMethodOverride]
         """Take the crosshair away as the pointer leaves.
 
         Parameters
@@ -225,7 +227,7 @@ class Plot(pg.PlotWidget):
         self.clear_hover()
         super().leaveEvent(event)  # pyright: ignore[reportArgumentType]
 
-    def mousePressEvent(self, event: QMouseEvent) -> None:  # noqa: N802 - Qt's name
+    def mousePressEvent(self, event: QMouseEvent) -> None:  # noqa: N802  # pyright: ignore[reportIncompatibleMethodOverride]
         """Pick a plane, where one of the axes is z.
 
         Parameters
@@ -242,7 +244,7 @@ class Plot(pg.PlotWidget):
                 return
         super().mousePressEvent(event)
 
-    def mouseReleaseEvent(self, event: QMouseEvent) -> None:  # noqa: N802 - Qt's name
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:  # noqa: N802  # pyright: ignore[reportIncompatibleMethodOverride]
         """End a drag.
 
         Parameters
@@ -291,11 +293,11 @@ class MapPlot(Plot):
             angle=0,
             pen=pg.mkPen((255, 255, 255, 245), width=1.4, style=Qt.PenStyle.DashLine),
         )
-        self.addItem(self.marker, ignoreBounds=True)
+        self.addItem(self.marker, ignoreBounds=True)  # pyright: ignore[reportCallIssue]
         self.marker.setZValue(40)
         self.marker.hide()
         self.message = pg.TextItem("", color=GREY, anchor=(0.5, 0.5))
-        self.addItem(self.message, ignoreBounds=True)
+        self.addItem(self.message, ignoreBounds=True)  # pyright: ignore[reportCallIssue]
 
     def set_along(self, along: str | None) -> None:
         """Say which axis is z.
@@ -414,12 +416,12 @@ class LinePlot(Plot):
         self.names: list[str] = []
         self.curves: list[pg.PlotDataItem] = []
         self.legend: pg.LegendItem | None = None
-        self.x = np.zeros(0)
+        self.xs = np.zeros(0)
         self.ys: list[np.ndarray] = []
         self.marker = pg.InfiniteLine(
             angle=90, pen=pg.mkPen(ACCENT, style=Qt.PenStyle.DashLine)
         )
-        self.addItem(self.marker, ignoreBounds=True)
+        self.addItem(self.marker, ignoreBounds=True)  # pyright: ignore[reportCallIssue]
         self.marker.hide()
         self.reader = self.read
         self.set_names(names or [""])
@@ -465,7 +467,7 @@ class LinePlot(Plot):
         self.log = log
         self.item.setLogMode(False, log)
         if self.ys:
-            self.set_data(self.x, self.ys)
+            self.set_data(self.xs, self.ys)
             self.fit()
 
     def read(self, x: float, _y: float) -> str:
@@ -483,9 +485,9 @@ class LinePlot(Plot):
         str
             What the readout says.
         """
-        if not self.x.size or not self.ys:
+        if not self.xs.size or not self.ys:
             return ""
-        at = int(np.clip(np.searchsorted(self.x, x), 0, self.x.size - 1))
+        at = int(np.clip(np.searchsorted(self.xs, x), 0, self.xs.size - 1))
         values = ", ".join(f"{y[at]:.3g}" for y in self.ys if at < y.size)
         return f"{x:.4g}: {values} {self.unit}".rstrip()
 
@@ -499,14 +501,14 @@ class LinePlot(Plot):
         ys : Sequence of numpy.ndarray
             One array of values per curve.
         """
-        self.x = np.asarray(x, dtype=float)
+        self.xs = np.asarray(x, dtype=float)
         self.ys = [np.asarray(y, dtype=float) for y in ys]
         for curve, y in zip(self.curves, self.ys, strict=False):
             if self.log:
                 keep = y > 0
-                curve.setData(self.x[keep], y[keep])
+                curve.setData(self.xs[keep], y[keep])
             else:
-                curve.setData(self.x, y)
+                curve.setData(self.xs, y)
 
     def set_view(
         self, x_range: tuple[float, float], y_range: tuple[float, float]
@@ -527,10 +529,10 @@ class LinePlot(Plot):
 
     def fit(self) -> None:
         """Fit the view to the curves, magnifying no noise."""
-        if not self.x.size or not self.ys:
+        if not self.xs.size or not self.ys:
             return
         values = np.concatenate(self.ys)
-        x_range = (float(self.x[0]), float(self.x[-1]))
+        x_range = (float(self.xs[0]), float(self.xs[-1]))
         if self.log:
             positive = values[np.isfinite(values) & (values > 0)]
             if positive.size:

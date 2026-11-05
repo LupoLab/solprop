@@ -342,7 +342,7 @@ class ParameterRow(QWidget):
         line.setContentsMargins(0, 0, 0, 0)
         line.setSpacing(4)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 3, 0, 3)
+        layout.setContentsMargins(0, 1 if one_line else 3, 0, 1 if one_line else 3)
         layout.setSpacing(1)
         self._one_line = one_line
         self._line = line

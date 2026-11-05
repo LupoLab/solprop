@@ -43,6 +43,7 @@ from solprop_gui.model.compressor import (
 )
 from solprop_gui.model.plot_options import parse_limit
 from solprop_gui.service.messages import Reply
+from solprop_gui.ui.analysis import AnalysisSession
 from solprop_gui.ui.bridge import ServiceBridge
 from solprop_gui.ui.pages import Section
 from solprop_gui.ui.results import ResultsPage
@@ -256,7 +257,7 @@ class PostprocessPage(QWidget):
     def __init__(  # noqa: PLR0915 - the page's layout
         self,
         bridge: ServiceBridge,
-        results: ResultsPage,
+        results: ResultsPage | AnalysisSession,
         parent: QWidget | None = None,
     ) -> None:
         """Make the page, with an empty compressor."""
@@ -333,7 +334,8 @@ class PostprocessPage(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 0, 0)
         layout.setSpacing(2)
-        layout.addWidget(QLabel("<b>Post-process: compress the pulse</b>"))
+        self.heading = QLabel("<b>Post-process: compress the pulse</b>")
+        layout.addWidget(self.heading)
         layout.addWidget(self.target)
         for title, widget, stretch in (
             ("Elements, in order", chain, 1),
@@ -451,7 +453,7 @@ class PostprocessPage(QWidget):
         refused = (results.capabilities or {}).get("refused") or {}
         reason = refused.get("compression") if isinstance(refused, Mapping) else None
         if path is None or not planes:
-            self.target.setText("Open a results file on the Results step first.")
+            self.target.setText("Open a results file first.")
         elif reason:
             self.target.setText(f"No compression for this file: {reason}")
         else:
@@ -459,8 +461,8 @@ class PostprocessPage(QWidget):
             z = results.plane.current_z
             where = "" if z is None else f" at z = {z * 100:.4g} cm"
             self.target.setText(
-                f"The plane shown on the Results step{where}, {mode}; the plot "
-                "options' bandpass applies."
+                f"The plane{where}, {mode}; the band chosen on the plane's page "
+                "applies."
             )
         ready = path is not None and bool(planes) and not reason
         self.compress_button.setEnabled(ready and bool(self.stages))

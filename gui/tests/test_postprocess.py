@@ -161,7 +161,7 @@ def test_the_page_builds_a_compressor_and_takes_what_was_found(  # noqa: PLR0915
     window.show()
     page = window.postprocess
     window.show_step("postprocess")
-    assert "Results step first" in page.target.text()
+    assert "results file first" in page.target.text()
     assert not page.compress_button.isEnabled()
     page.compress()  # nothing open: nothing asked
     window.results.open(run)

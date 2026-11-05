@@ -20,7 +20,7 @@ solprop (``resumability``), never read from either.
 from enum import StrEnum
 from typing import Final
 
-__all__ = ["ACTIVE", "TRANSITIONS", "ExecutionState", "advance"]
+__all__ = ["ACTIVE", "TRANSITIONS", "ExecutionState", "advance", "failure_advice"]
 
 
 class ExecutionState(StrEnum):
@@ -98,3 +98,49 @@ def advance(state: ExecutionState, event: str) -> ExecutionState:
     <ExecutionState.COMPLETE: 'complete'>
     """
     return TRANSITIONS.get(state, {}).get(event, state)
+
+
+_MEMORY_HINT = (
+    "A large run may have run out of memory. RungeKutta() keeps no Adams history and "
+    "LowStorageRungeKutta() holds the least; fewer modes or a narrower window help too."
+)
+
+
+def failure_advice(kind: str, message: str, exitcode: object = None) -> str:
+    """Say why a run stopped short, and what to try.
+
+    solprop admits every run and a run that does not fit fails where it fails: with a
+    ``MemoryError``, or with its worker killed and no Python error (ADR-065).
+
+    Parameters
+    ----------
+    kind : {'failed', 'lost'}
+        How it ended.
+    message : str
+        The message solprop gave, if any.
+    exitcode : object, optional
+        The worker's exit status, for one that was lost.
+
+    Returns
+    -------
+    str
+        What to tell the user.
+
+    Examples
+    --------
+    >>> failure_advice("failed", "The grid is too small.")
+    'The grid is too small.'
+    >>> failure_advice("failed", "MemoryError").endswith("help too.")
+    True
+    >>> failure_advice("lost", "", -9).startswith("The run's worker was killed")
+    True
+    >>> failure_advice("lost", "", 1)
+    "The run's worker ended without saying why (exit status 1)."
+    """
+    if kind == "failed":
+        if "MemoryError" in message or "out of memory" in message.lower():
+            return f"{message} {_MEMORY_HINT}"
+        return message
+    if exitcode in (-9, 137):
+        return f"The run's worker was killed, with no error from Python. {_MEMORY_HINT}"
+    return f"The run's worker ended without saying why (exit status {exitcode})."

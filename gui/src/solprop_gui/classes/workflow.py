@@ -39,6 +39,8 @@ class Progress:
         Whether a run has been started in this window.
     has_results : bool
         Whether a results file is open.
+    can_resume : bool
+        Whether solprop says the last run can be continued, the setup unchanged since.
     """
 
     has_setup: bool = False
@@ -46,6 +48,7 @@ class Progress:
     running: bool = False
     has_run: bool = False
     has_results: bool = False
+    can_resume: bool = False
 
 
 @dataclass(frozen=True)
@@ -55,7 +58,7 @@ class Primary:
     Attributes
     ----------
     action : str
-        ``"run"`` or ``"stop"``.
+        ``"run"``, ``"resume"`` or ``"stop"``.
     text : str
         What it says.
     enabled : bool
@@ -108,8 +111,8 @@ def primary_action(progress: Progress) -> Primary:
     Returns
     -------
     Primary
-        Stop while a run goes, on any stage; Run on a setup not yet run; otherwise
-        Rerun.
+        Stop while a run goes, on any stage; Resume where the last run can go on; Run on
+        a setup not yet run; otherwise Rerun.
 
     Examples
     --------
@@ -121,8 +124,12 @@ def primary_action(progress: Progress) -> Primary:
     'Rerun'
     >>> primary_action(Progress(has_setup=True)).enabled
     False
+    >>> primary_action(Progress(has_setup=True, can_resume=True)).text
+    'Resume'
     """
     if progress.running:
         return Primary("stop", "Stop")
+    if progress.can_resume:
+        return Primary("resume", "Resume")
     text = "Rerun" if progress.has_run else "Run"
     return Primary("run", text, progress.has_setup and progress.can_run)

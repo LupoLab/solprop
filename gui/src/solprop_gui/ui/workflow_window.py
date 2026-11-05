@@ -37,13 +37,13 @@ from solprop_gui.model.recipe import RecipeModel
 from solprop_gui.model.workspace import DEFAULT_WORKSPACE, list_runs
 from solprop_gui.service.messages import Reply
 from solprop_gui.ui.analyse import AnalyseStage
+from solprop_gui.ui.analysis import AnalysisSession
+from solprop_gui.ui.analysis_pages import PAGE_VIEWS, OverviewPage
 from solprop_gui.ui.bridge import ServiceBridge
 from solprop_gui.ui.document import Confirm, SetupDocument
 from solprop_gui.ui.home import HomePage
 from solprop_gui.ui.main_window import MainWindow, app_settings
-from solprop_gui.ui.results import ResultsPage
 from solprop_gui.ui.run_panel import RunPanel
-from solprop_gui.ui.run_stage import RunStage
 from solprop_gui.ui.sheet import SheetStage
 from solprop_gui.ui.theme import STYLE, load_font, named_label, repolish
 
@@ -102,7 +102,6 @@ class WorkflowWindow(QMainWindow):
         self.problem: ProblemClass | None = None
         self.has_run = False
         self.has_results = False
-        self._capabilities: Mapping[str, object] = {}
         self._quiet = False
         self._own_run = False
         self._failed = False
@@ -116,36 +115,26 @@ class WorkflowWindow(QMainWindow):
             lambda title, text: self.confirm(title, text),  # noqa: PLW0108 - replaceable
             self,
         )
-        self.run_panel = RunPanel(self.bridge, self.document.snapshot, self.workspace)
-        self.results = ResultsPage(self.bridge)
+        self.session = AnalysisSession(self.bridge, self)
+        self.page_views = {key: make(self.session) for key, make in PAGE_VIEWS.items()}
+        overview = self.page_views["overview"]
+        assert isinstance(overview, OverviewPage)  # what the registry holds
+        self.overview = overview
+        self.run_panel = RunPanel(
+            self.bridge, self.document.snapshot, self.workspace, view=self.overview
+        )
         self.home = HomePage()
         self.sheet = SheetStage()
-        self.run_stage = RunStage(self.run_panel)
-        self.analyse = AnalyseStage(
-            {
-                "overview": self.results.overview,
-                "plane": self.results.plane,
-                "along": self.results.statistics,
-                "health": self.run_panel.log,
-            }
-        )
-        # One scrubber: the views' own sliders follow it, out of sight.
-        self.results.overview.slider.hide()
-        self.results.overview.position.hide()
-        self.results.overview.follow.hide()
-        self.results.plane.slider.hide()
-        self.results.plane.plane_label.hide()
-        self.analyse.scrubber.moved.connect(self._plane_moved)
-        self.results.overview.slider.valueChanged.connect(self._overview_moved)
+        self.analyse = AnalyseStage(self.session, self.run_panel, self.page_views)
 
         self.stack = QStackedWidget()
         self.screens: dict[Stage, QWidget] = {
             Stage.HOME: self.home,
             Stage.SETUP: self.sheet,
-            Stage.RUN: self.run_stage,
+            Stage.RUN: self.analyse,
             Stage.ANALYSE: self.analyse,
         }
-        for screen in self.screens.values():
+        for screen in (self.home, self.sheet, self.analyse):
             self.stack.addWidget(screen)
         self.drawer = self._make_drawer()
         self.top = self._make_top()
@@ -181,6 +170,7 @@ class WorkflowWindow(QMainWindow):
         self.document.described.connect(lambda _route: self._build_sheet())
         self.document.loaded.connect(self._loaded)
         self.document.values_changed.connect(self._show_values)
+        self.run_panel.resume_action.changed.connect(self._refresh)
         self.document.state_changed.connect(self._refresh)
         self.document.checked.connect(self._checked)
         self.document.summarised.connect(self._summarised)
@@ -188,13 +178,16 @@ class WorkflowWindow(QMainWindow):
         self.run_panel.report = self._report_failure
         self.run_panel.state_changed.connect(self._run_state)
         self.run_panel.ended.connect(self._run_ended)
-        self.results.described.connect(self._file_described)
-        self.results.setup_opened.connect(self._file_has_setup)
+        self.session.opened.connect(self._file_opened)
+        self.session.described.connect(self._file_described)
+        self.session.setup_found.connect(self._file_has_setup)
+        self.bridge.kernel_lost.connect(self._kernel_lost)
         self.bridge.replied.connect(self._on_reply)
 
         self.setWindowTitle("solprop")
         self.resize(1280, 800)
         self._numbers: Mapping[str, object] = {}
+        self._run_revision: int | None = None
         self._ask_kernel("examples", {}, "examples")
         self._ask_kernel("gases", {}, "gases")
         self.refresh_home()
@@ -326,6 +319,11 @@ class WorkflowWindow(QMainWindow):
             running=self.run_panel.active,
             has_run=self.has_run,
             has_results=self.has_results,
+            can_resume=(
+                self.document.model is not None
+                and self.document.model.revision == self._run_revision
+                and self.run_panel.resume_action.isEnabled()
+            ),
         )
 
     def _refresh(self) -> None:
@@ -364,6 +362,8 @@ class WorkflowWindow(QMainWindow):
         if stage is Stage.HOME:
             self.refresh_home()
         self.stack.setCurrentWidget(self.screens[stage])
+        if stage in (Stage.RUN, Stage.ANALYSE):
+            self.analyse.show_running(stage is Stage.RUN)
         self._refresh()
 
     def primary_clicked(self) -> None:
@@ -371,6 +371,8 @@ class WorkflowWindow(QMainWindow):
         action = primary_action(self.progress()).action
         if action == "stop":
             self.run_panel.stop()
+        elif action == "resume":
+            self.run_panel.resume()
         else:
             self.run_panel.set_can_run(self.document.can_run)
             self.run_panel.start()
@@ -578,8 +580,7 @@ class WorkflowWindow(QMainWindow):
         path : str
             The file.
         """
-        self.results.overview.follow.setChecked(True)
-        self.results.open(path, show=False)
+        self.session.open(path)
         self.has_results = True
 
     def _opened(self) -> None:
@@ -665,8 +666,11 @@ class WorkflowWindow(QMainWindow):
         """
         if state == "starting":
             self.has_run = True
+            self.has_results = False
             self._failed = False
-            self.run_stage.clear_advice()
+            model = self.document.model
+            self._run_revision = None if model is None else model.revision
+            self.analyse.run_started()
             self.show_stage(Stage.RUN)
         self._refresh()
 
@@ -683,7 +687,7 @@ class WorkflowWindow(QMainWindow):
             The traceback, which the log holds.
         """
         self._failed = True
-        self.run_stage.show_advice(title, message)
+        self.analyse.show_advice(title, message)
 
     def _run_ended(self, path: str) -> None:
         """Open what the run left, and move on to Analyse unless it failed.
@@ -694,6 +698,7 @@ class WorkflowWindow(QMainWindow):
             Its results file.
         """
         self._own_run = True
+        self.overview.end_of_run()
         self._open_file(path)
         self.refresh_home()
         if not self._failed:
@@ -701,6 +706,13 @@ class WorkflowWindow(QMainWindow):
         self._refresh()
 
     # ------------------------------------------------------------------ analysing
+
+    def _file_opened(self) -> None:
+        """Forget what the pages read of the last file."""
+        for view in self.page_views.values():
+            forget = getattr(view, "forget", None)
+            if forget is not None:
+                forget()
 
     def _file_described(self, value: Mapping[str, object]) -> None:
         """Offer the rail on a file that says what it can give.
@@ -710,14 +722,11 @@ class WorkflowWindow(QMainWindow):
         value : Mapping
             The kernel's ``describe_output`` reply.
         """
-        self._capabilities = value
-        z: list[float] = list(value.get("z") or [])  # pyright: ignore[reportArgumentType]
-        planes = [int(p) for p in value.get("field_planes") or []]  # pyright: ignore[reportGeneralTypeIssues]
-        self.analyse.scrubber.set_positions([z[p] for p in planes if p < len(z)])
         if self._own_run and self.problem is not None:
+            self.analyse.set_wanted(self.problem.statistics)
             self.analyse.set_pages(self.problem.pages, value)
         elif value.get("recipe"):
-            self.results.open_setup()
+            self.session.find_setup()
         else:
             self.analyse.set_pages(GENERIC_PAGES, value)
 
@@ -734,42 +743,19 @@ class WorkflowWindow(QMainWindow):
         model = RecipeModel(text)
         problem = class_of(model.route, model.document.get("build", {}))
         pages = GENERIC_PAGES if problem is None else problem.pages
-        self.analyse.set_pages(pages, self._capabilities)
+        self.analyse.set_wanted(() if problem is None else problem.statistics)
+        self.analyse.set_pages(pages, self.session.capabilities)
         if problem is not None and self.document.may_discard():
             self._quiet = True
             self.document.set_model(model, base=str(Path(path).parent))
             self.has_results = True
 
-    def _plane_moved(self, place: int) -> None:
-        """Move the views to the scrubber's plane.
-
-        Parameters
-        ----------
-        place : int
-            Its place among the planes that kept a field.
-        """
-        self.results.plane.slider.setValue(place)
-        positions = self.analyse.scrubber.positions
-        if self.results.overview.rows and place < len(positions):
-            overview = self.results.overview
-            overview.slider.setValue(overview.nearest(positions[place]))
-
-    def _overview_moved(self, row: int) -> None:
-        """Move the scrubber to a plane picked on the Overview's maps.
-
-        Parameters
-        ----------
-        row : int
-            The Overview's row.
-        """
-        overview = self.results.overview
-        positions = self.analyse.scrubber.positions
-        if not positions or not overview.rows:
-            return
-        z = float(overview.rows[row]["z"])  # pyright: ignore[reportArgumentType]
-        place = min(range(len(positions)), key=lambda i: abs(positions[i] - z))
-        self.analyse.scrubber.go_to(place)
-        self.results.plane.slider.setValue(place)
+    def _kernel_lost(self) -> None:
+        """Say that the kernel ended; the next request starts it again."""
+        self._say(
+            "solprop's kernel process ended, which a request too large for memory can "
+            "do. It starts again with the next request."
+        )
 
     # ------------------------------------------------------------------ the drawer
 

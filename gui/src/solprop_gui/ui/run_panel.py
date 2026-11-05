@@ -36,7 +36,7 @@ from solprop_gui.service.client import RunClient
 from solprop_gui.service.messages import Event, Reply
 from solprop_gui.service.reduce import Display
 from solprop_gui.service.remote import RemoteRun
-from solprop_gui.service.states import ACTIVE, ExecutionState, advance
+from solprop_gui.service.states import ACTIVE, ExecutionState, advance, failure_advice
 from solprop_gui.service.worker import OUTPUT, RunSpec
 from solprop_gui.ui.bridge import ServiceBridge
 from solprop_gui.ui.icons import icon
@@ -85,6 +85,8 @@ class RunPanel(QWidget):
         The folder new runs are made in.
     parent : PySide6.QtWidgets.QWidget or None, optional
         The owner.
+    view : PySide6.QtWidgets.QWidget or None, optional
+        What draws the run: an object with the Overview's calls. ``None`` makes one.
 
     Attributes
     ----------
@@ -106,6 +108,8 @@ class RunPanel(QWidget):
         recipe: RecipeSnapshot,
         workspace: Path,
         parent: QWidget | None = None,
+        *,
+        view: QWidget | None = None,
     ) -> None:
         """Make the panel, with no run."""
         super().__init__(parent)
@@ -174,7 +178,7 @@ class RunPanel(QWidget):
         self.bar.setRange(0, 1000)
         self.bar.setFormat("%p %")
         self.bar.setToolTip("How far along the guide the run has gone.")
-        self.view = OverviewView()
+        self.view: OverviewView = view or OverviewView()  # pyright: ignore[reportAttributeAccessIssue]
         self.log = QPlainTextEdit()
         self.log.setReadOnly(True)
         self.log.setMaximumBlockCount(2000)
@@ -651,7 +655,15 @@ class RunPanel(QWidget):
             detail = str(event.data.get("detail") or "")
             if detail:
                 self.log.appendPlainText(detail)
-            self.report(f"The run {self.run_id} failed", message, detail)
+            self.report(
+                f"The run {self.run_id} failed",
+                failure_advice("failed", message),
+                detail,
+            )
+        elif event.kind == "lost":
+            advice = failure_advice("lost", "", event.data.get("exitcode"))
+            self.log.appendPlainText(advice)
+            self.report(f"The run {self.run_id} stopped short", advice, "")
         self.state_label.setText(text)
         if event.kind == "finished":
             self._progress(1000)

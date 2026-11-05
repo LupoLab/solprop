@@ -408,7 +408,7 @@ class SetupDocument(QObject):
         released : Iterable of tuple
             Each pinned keyword to free, and the plain value it keeps.
         pinned : tuple or None, optional
-            A keyword and the ``[pins]`` entry that now sets it, which replaces its value.
+            A keyword and the ``[pins]`` entry that now sets it, replacing its value.
         """
         changes: list[Change] = []
         for name, value in released:

@@ -249,3 +249,65 @@ def test_a_planar_plane_says_why_it_has_no_spectrum(tmp_path: Path):
     assert banded["power"]["y"].max() <= found["power"]["y"].max() * 1.0001
     with pytest.raises(SolpropError, match="planar"):
         ask("overview", {"path": str(path)})
+
+
+def test_a_plane_gives_its_energy_and_a_band_its_share(finished_run: Path) -> None:
+    whole: dict[str, Any] = results.plane({"path": str(finished_run), "index": 0})
+    assert whole["energy"] > 0
+    assert whole["fwhm"] > 0
+    assert "band_energy" not in whole
+    low, high = whole["window"]
+    assert low < 800e-9 < high
+    band: dict[str, Any] = results.plane(
+        {"path": str(finished_run), "index": 0, "bandpass": [600e-9, 1000e-9]}
+    )
+    assert 0 < band["band_energy"] <= band["energy"]
+    assert np.asarray(band["full_power"]).size == np.asarray(band["power"]["y"]).size
+
+
+def test_run_health_says_how_the_run_went(finished_run: Path) -> None:
+    health: dict[str, Any] = results.run_health({"path": str(finished_run)})
+    assert health["status"] == "complete"
+    assert health["facts"]["backend"] == "numpy_ref"
+    assert np.asarray(health["steps"]["z"]).size > 0
+    assert health["log"] is None or isinstance(health["log"], str)
+
+
+def test_run_health_reads_what_the_record_holds(
+    tmp_path: Path, finished_run: Path
+) -> None:
+    assert results._health_facts({}) == {
+        "backend": None,
+        "precision": None,
+        "threads": None,
+        "wall_time": None,
+        "peak_memory": None,
+        "plasma_source": None,
+    }
+    facts = results._health_facts(
+        {"resources": {"wall_time_s": 2.0}, "plasma_source": {"certificate": 1e-16}}
+    )
+    assert facts["wall_time"] == 2.0
+    assert facts["plasma_source"] == [1e-16, None]
+    assert results._boundary_of({}) is None
+    assert results._boundary_of({"boundary_monitor": {}}) is None
+    boundary = results._boundary_of(
+        {
+            "boundary_monitor": {
+                "budget": 1e-3,
+                "planes": {"z": [0.0], "removed_fraction": [0.0]},
+            }
+        }
+    )
+    assert boundary is not None
+    assert boundary["budget"] == 1e-3
+    copy = tmp_path / "run.h5"
+    copy.write_bytes(finished_run.read_bytes())
+    (tmp_path / results.RUN_LOG).write_text("hello", encoding="utf-8")
+    assert results.run_health({"path": str(copy)})["log"] == "hello"
+
+
+def test_a_column_is_named_by_what_varies(finished_run: Path) -> None:
+    reply: dict[str, Any] = results.statistics({"path": str(finished_run)})
+    energy = next(entry for entry in reply["stats"] if entry["name"] == "energy")
+    assert all("[" not in column["label"] for column in energy["columns"])

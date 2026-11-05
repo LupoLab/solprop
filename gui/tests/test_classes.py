@@ -12,19 +12,24 @@ import pytest
 from solprop.recipe import Recipe
 from solprop.stats import CATALOGUE
 
+from conftest import TINY
 from solprop_gui.classes.catalog import CLASSES, class_named, class_of
 from solprop_gui.classes.problem import (
     AnalysisPage,
     Derived,
     ProblemClass,
+    Target,
     derived_text,
     derived_value,
     field_meta,
     other_keywords,
     page_refusal,
+    pin_entry,
     sheet_paths,
+    target_text,
 )
 from solprop_gui.classes.workflow import Progress, Stage, primary_action, stage_open
+from solprop_gui.model.values import inline
 from solprop_gui.service.handlers import describe, describe_output, summarise
 
 
@@ -69,7 +74,8 @@ def test_derived_numbers_are_in_the_summary(problem: ProblemClass) -> None:
         warnings.simplefilter("ignore")
         summary = summarise({"text": recipe.to_text()})
     known = {*summary, *summary["design"]}  # pyright: ignore[reportGeneralTypeIssues]
-    assert {number.key for number in problem.derived} <= known
+    # The loss comes with the curve, and is checked with it.
+    assert {number.key for number in problem.derived} - {"loss"} <= known
 
 
 def test_derived_numbers_read_from_the_summary() -> None:
@@ -106,6 +112,23 @@ def test_page_refusals_say_why() -> None:
     assert page_refusal(compress, {"refused": {"compression": "No."}}) == "No."
     assert page_refusal(compress, {"refused": {}}) is None
     assert page_refusal(compress, {}) is None
+
+
+def test_a_typed_target_is_a_pin_solprop_reads() -> None:
+    order = Target("soliton_order", "order", None, ("energy",))
+    zdw = Target("zdw", "wavelength", "nm", ("pressure",))
+    text = TINY.replace('energy = "100 uJ"\n', "")
+    text += f"\n[pins]\nenergy = {inline(pin_entry(order, '3'))}\n"
+    solved = Recipe.loads(text).resolve()
+    assert solved.get("energy") is not None
+    text = TINY.replace('pressure = "1 bar"\n', "")
+    entry = pin_entry(zdw, "450", ["0.01 bar", "20 bar"])
+    text += f"\n[pins]\npressure = {inline(entry)}\n"
+    assert float(Recipe.loads(text).resolve().get("pressure")) > 0  # pyright: ignore[reportArgumentType]
+    assert target_text(order, {"order": 3.0}) == "3"
+    assert target_text(zdw, entry) == "450 nm"
+    with pytest.raises(ValueError, match="could not convert"):
+        pin_entry(order, "x")
 
 
 def test_a_finished_run_offers_its_pages(finished_run: Path) -> None:

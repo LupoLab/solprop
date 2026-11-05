@@ -228,7 +228,7 @@ class SheetStage(QWidget):
         self.setObjectName("page")
         self.problem: ProblemClass | None = None
         self.rows: dict[tuple[str, str], ParameterRow] = {}
-        self.derived: dict[str, QLabel] = {}
+        self.derived: dict[str, QLabel | QPushButton] = {}
         self._advanced_rows: list[ParameterRow] = []
         self._examples: list[Mapping[str, object]] = []
         self._title: str | None = None
@@ -288,7 +288,8 @@ class SheetStage(QWidget):
         )
         self.curve.hide()
         self.curve.addItem(
-            pg.InfiniteLine(angle=0, pos=0, pen=pg.mkPen("#d7dce2")), ignoreBounds=True
+            pg.InfiniteLine(angle=0, pos=0, pen=pg.mkPen("#d7dce2")),
+            ignoreBounds=True,  # pyright: ignore[reportCallIssue]
         )
         self.marks: dict[str, pg.InfiniteLine] = {}
         for key, text, colour, place in (
@@ -303,7 +304,7 @@ class SheetStage(QWidget):
                 line, text, position=place, anchors=[(0, 0), (0, 0)], color=colour
             )
             line.hide()
-            self.curve.addItem(line, ignoreBounds=True)
+            self.curve.addItem(line, ignoreBounds=True)  # pyright: ignore[reportCallIssue]
             self.marks[key] = line
         self.preview = QFrame()
         self.preview.setObjectName("preview")
@@ -937,7 +938,7 @@ class SheetStage(QWidget):
         Parameters
         ----------
         message : str
-            solprop's reason, which gives the attainable range.
+            The reason solprop gave, with the attainable range.
         """
         self.show_summary(None, message)
         self._verdict = f"Not ready: {message}"
