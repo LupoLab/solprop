@@ -890,6 +890,10 @@ class MlxBackend(NumpySingleBackend):
                 # The previous split's pending removal with the first stage, which
                 # evaluates the state it was taken from: its time samples go then.
                 mx.eval(stage, *self._pending_removal)
+            elif self._fused:
+                # Started at once, so the device runs this stage while the host
+                # builds the next; the norm's read waits for all of them.
+                mx.async_eval(stage)
             stages.append(stage)
         propagator, _ = self._propagator_pair(step, pairs)
         carried, advanced = self._trial_end(state, stages, propagator, length)
