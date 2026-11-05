@@ -177,6 +177,8 @@ def test_a_device_block_of_any_size_takes_the_reference_s_steps(
 ) -> None:
     if device_backend("native") == "none":
         pytest.skip("the installed solprop-native build has no accelerator backend")
+    # A device takes the collar's rows all at once whatever the chunk, so this holds that
+    # block to the reference beside the chunk's other passes.
     _check_block(reference, chunk)
 
 

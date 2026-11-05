@@ -1,0 +1,1 @@
+On a CUDA or HIP build, a free-space envelope's split-step temporal collar transforms every row of the state at once, in place, rather than a node chunk at a time, whatever `node_budget` says. At 768 x 768 x 600 a step takes 14 kernels and 10 transforms where it took 119 and 220. Results are unchanged to rounding.

@@ -4209,7 +4209,16 @@ void GeneralWorkspace::allocate() {
     split_factor_ = RealView("solprop_native.absorber.split_factor", problem_.n_t);
 #endif
     if (problem_.free_geometry() && problem_.family == FieldFamily::envelope) {
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
+      // In place on the state's rows, a block holds no buffer of its own, only its
+      // plans' work area (9 MiB on cuFFT for every row at 768 x 768 x 600), so a device
+      // takes every row at once whatever the node budget: 14 kernels and 10 transforms
+      // a step there, against 119 and 220 at the node chunk (solprop #361). A CPU keeps
+      // the chunk, where FFTW's threaded plan of a whole state was much the slower.
+      split_rows_ = problem_.n_columns();
+#else
       split_rows_ = temporal_columns;
+#endif
     } else {
       coarse_spectrum_ =
           ComplexView2("solprop_native.absorber.coarse_spectrum", temporal_columns, n);
