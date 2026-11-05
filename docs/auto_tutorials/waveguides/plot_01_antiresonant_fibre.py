@@ -44,7 +44,6 @@ from solprop.log import NullReporter
 from solprop.modes import MarcatiliMode, TubeLattice, VincettiMode
 from solprop.modes.base import beta2, db_per_m
 from solprop.processing.axes import grid_of
-from solprop.stats import StatsSpec
 
 started = perf_counter()
 lattice = TubeLattice(180e-9, 9e-6, 6)
@@ -111,7 +110,6 @@ output = prop_capillary(
     n_r=8,
     n_save=11,
     rtol=1e-5,
-    stats=StatsSpec(names=("energy",)),
     progress=NullReporter(),
     seed=20261027,
 )
