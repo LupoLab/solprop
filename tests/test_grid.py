@@ -205,13 +205,15 @@ def test_mlx_costs_choose_a_power_of_two_past_the_direct_length():
 
 def test_a_single_precision_interface_grid_is_sized_for_mlx():
     from solprop.driver import Simulation  # noqa: PLC0415
+    from solprop.translate.precision import PrecisionName  # noqa: PLC0415
 
     sizes = {}
-    for precision, backend in (
+    runs: tuple[tuple[PrecisionName, str], ...] = (
         ("double", "auto"),
         ("single", "numpy_ref"),
         ("single", "mlx"),
-    ):
+    )
+    for precision, backend in runs:
         simulation = Simulation.from_capillary(
             125e-6,
             1.5,

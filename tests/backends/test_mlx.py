@@ -841,8 +841,8 @@ def test_a_non_finite_source_stops_every_march(march):
         backend = cast(MlxBackend, loaded(on("mlx", simulation), cleanup))
         original = backend._device_sources
 
-        def poisoned(field, bundle, raman):
-            sources = original(field, bundle, raman)
+        def poisoned(field, values, raman):
+            sources = original(field, values, raman)
             return type(sources)(sources.polarisation * math.nan, sources.current)
 
         backend._device_sources = poisoned
