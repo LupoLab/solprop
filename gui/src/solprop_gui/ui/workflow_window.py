@@ -1138,7 +1138,13 @@ class WorkflowWindow(QMainWindow):
             self.run_panel.stop()
             if self.run_panel.client is not None:
                 self.run_panel.client.join(30.0)
-        if not self.document.may_discard():
+        # Closing has dealt with the run: kept by the service, or stopped above.
+        guard, self.document.guard = self.document.guard, lambda: True
+        try:
+            discard = self.document.may_discard()
+        finally:
+            self.document.guard = guard
+        if not discard:
             event.ignore()
             return
         self.settings.setValue("workspace", str(self.run_panel.workspace))

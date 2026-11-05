@@ -60,3 +60,22 @@ def test_a_far_field(beam_file: Path) -> None:
     reply: dict[str, Any] = beams.beam_far_field({"path": str(beam_file), "index": 0})
     assert reply["values"].shape == (reply["theta"].size, reply["x"].size)
     assert reply["values"].max() > 0
+
+
+def test_a_cartesian_and_a_line_beam_s_fluence(tmp_path: Path) -> None:
+    from solprop.recipe import Recipe  # noqa: PLC0415 - only here
+
+    from solprop_gui.service.beams import beam_fluence, beam_line  # noqa: PLC0415
+
+    cartesian = tmp_path / "cartesian.h5"
+    Recipe.example("cartesian_beam").run(cartesian)
+    found: Any = beam_fluence({"path": str(cartesian), "index": -1})
+    assert np.shape(found["fluence"]) == (found["y"].size, found["x"].size)
+    dx = float(np.diff(found["x"][:2])[0])
+    dy = float(np.diff(found["y"][:2])[0])
+    assert float(found["fluence"].sum()) * dx * dy == pytest.approx(1.5e-9, rel=0.02)
+    line = tmp_path / "line.h5"
+    Recipe.example("line_beam").run(line)
+    along: Any = beam_line({"path": str(line)})
+    assert along["z"].tolist() == pytest.approx([0.0, 0.05, 0.1])
+    assert np.shape(along["fluence"]) == (3, along["x"].size)

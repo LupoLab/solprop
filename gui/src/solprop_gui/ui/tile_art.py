@@ -79,6 +79,15 @@ ART: Final = {
         '<ellipse cx="24" cy="24" rx="10" ry="7" fill="{accent}" opacity="0.35"/>'
         '<ellipse cx="24" cy="24" rx="5" ry="3.5" fill="{accent}"/>'
     ),
+    "line": (
+        '<path d="M4 24 H 44" stroke="{accent}" stroke-width="1" opacity="0.4"/>'
+        '<path d="M4 14 C 14 14, 18 24, 24 24 C 30 24, 34 14, 44 14" fill="none" '
+        'stroke="{accent}" stroke-width="1" opacity="0.4"/>'
+        '<rect x="4" y="20" width="40" height="8" fill="{tint}" stroke="{accent}" '
+        'stroke-width="1.6"/>'
+        '<path d="M8 24 C 16 18, 32 18, 40 24 C 32 30, 16 30, 8 24 Z" '
+        'fill="{accent}" opacity="0.7"/>'
+    ),
     "other": (
         '<rect x="6" y="11" width="36" height="26" rx="2" fill="{tint}" '
         'stroke="{accent}" stroke-width="2"/>'

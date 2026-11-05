@@ -28,6 +28,7 @@ __all__ = [
     "CLASSES",
     "FILAMENT",
     "GENERIC_PAGES",
+    "LINE",
     "OTHER_KEY",
     "SOLID_CORE",
     "class_named",
@@ -387,7 +388,54 @@ CARTESIAN: Final = ProblemClass(
     statistics=("energy",),
 )
 
-CLASSES: Final = (CAPILLARY, FILAMENT, SOLID_CORE, ANTIRESONANT, CARTESIAN)
+LINE: Final = ProblemClass(
+    key="line",
+    title="Line beam",
+    summary="A beam in free space resolved in x alone, per metre of y.",
+    route="free",
+    example="line_beam",
+    marker=("space.type=LineGrid",),
+    sections=(
+        CARTESIAN.sections[0],
+        Section(
+            "Beam",
+            (
+                Field("initial.waist", "Waist"),
+                Field("initial.propz", "To focus", negated=True),
+            ),
+        ),
+        CARTESIAN.sections[2],
+        CARTESIAN.sections[3],
+        Section(
+            "Grid",
+            (
+                Field("space.radius_x", "Half-width in x"),
+                Field("space.n_x", "Nodes in x"),
+                Field("grid.wavelength_limits", "Wavelengths"),
+                Field("grid.trange", "Time window"),
+                Field(
+                    "settings.save_planes", "Saved planes", planes_over="grid.length"
+                ),
+            ),
+            folded=True,
+        ),
+    ),
+    derived=(
+        Derived("energy", "Energy per metre of y", "J/m"),
+        Derived("peak_power", "Peak power per metre of y", "W/m"),
+    ),
+    preview="",
+    pages=(
+        _OVERVIEW,
+        AnalysisPage("across", "Across the beam", ("fields",), view="fluence_xz"),
+        _PLANE,
+        _ALONG,
+        _HEALTH,
+    ),
+    statistics=("energy", "beam_radius"),
+)
+
+CLASSES: Final = (CAPILLARY, FILAMENT, SOLID_CORE, ANTIRESONANT, CARTESIAN, LINE)
 """The classes Home offers, in its order."""
 
 GENERIC_PAGES: Final = (_OVERVIEW, _PLANE, _ALONG, _HEALTH)

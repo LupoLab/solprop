@@ -26,6 +26,7 @@ __all__ = [
     "BEAM_HANDLERS",
     "beam_far_field",
     "beam_fluence",
+    "beam_line",
     "beam_on_axis",
     "beam_overview",
     "beam_plane",
@@ -221,9 +222,34 @@ def beam_fluence(payload: Payload) -> dict[str, object]:
     }
 
 
+def beam_line(payload: Payload) -> dict[str, object]:
+    """Return a line beam's fluence across x at every saved plane.
+
+    Parameters
+    ----------
+    payload : Mapping
+        ``path``.
+
+    Returns
+    -------
+    dict
+        ``z`` (m, the planes), ``x`` (m) and ``fluence`` (J/m^2 per plane, rows along
+        z).
+    """
+    with open_file(str(payload["path"])) as output:
+        count = int(np.asarray(output["z"]).size)
+        planes = [fluence_map(output, index) for index in range(count)]
+    return {
+        "z": np.array([plane.z for plane in planes], dtype=float),
+        "x": np.asarray(planes[0].axes[0]),
+        "fluence": np.array([np.asarray(plane.fluence) for plane in planes]),
+    }
+
+
 BEAM_HANDLERS = {
     "beam_far_field": beam_far_field,
     "beam_fluence": beam_fluence,
+    "beam_line": beam_line,
     "beam_on_axis": beam_on_axis,
     "beam_overview": beam_overview,
     "beam_plane": beam_plane,

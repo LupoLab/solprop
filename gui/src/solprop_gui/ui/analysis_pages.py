@@ -2790,6 +2790,133 @@ class FluencePage(PageView):
         return names, np.column_stack((y, fluence))
 
 
+class LineFluencePage(PageView):
+    """A line beam's fluence across x along z, and at the plane.
+
+    Parameters
+    ----------
+    session : solprop_gui.ui.analysis.AnalysisSession
+        The open file.
+    """
+
+    def __init__(self, session: AnalysisSession) -> None:
+        """Make the map and the profile."""
+        super().__init__(session)
+        self.map = MapPlot(xlabel="x (mm)", ylabel="z", colours="inferno", unit="J/cm²")
+        self.map.set_along("y")
+        self.map.plane_at.connect(self._picked)
+        self.profile = LinePlot(xlabel="x (mm)", ylabel="Fluence", unit="")
+        self._data: Mapping[str, Any] | None = None
+        self._unit = ("m", 1.0)
+        grid = QGridLayout(self)
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(14)
+        grid.setColumnStretch(0, 1)
+        grid.setColumnStretch(1, 1)
+        grid.addLayout(_plotted("Fluence across the beam, along z", self.map), 0, 0)
+        grid.addLayout(_plotted("At this plane", self.profile), 0, 1)
+
+    def refresh(self) -> None:
+        """Ask for every plane's fluence, once a file is open; then draw the plane."""
+        session = self.session
+        if session.path is None or not session.planes:
+            return
+        if self._data is not None and self._data.get("path") == session.path:
+            self._draw_plane()
+            return
+        session.ask(
+            "beam_line",
+            {"path": session.path},
+            self._show,
+            key="page-beam-line",
+            failed=self.map.say,
+        )
+
+    def _show(self, value: Mapping[str, Any]) -> None:
+        """Draw the map, and the plane.
+
+        Parameters
+        ----------
+        value : Mapping
+            The kernel's ``beam_line`` reply.
+        """
+        self._data = {**value, "path": self.session.path}
+        x = np.asarray(value["x"], float) * 1e3
+        z = np.asarray(value["z"], float)
+        fluence = np.asarray(value["fluence"], float)
+        unit, scale = scaled_unit(fluence, "J/m²")
+        name, factor = length_unit(float(z[-1]) or 1.0)
+        self._unit = (name, factor)
+        rows, first, step = even_rows(z)
+        shown = fluence[rows] * scale
+        dx = float(np.diff(x[:2])[0])
+        self.map.set_unit(unit)
+        self.map.set_ylabel(f"z ({name})")
+        self.map.show_map(
+            shown,
+            (
+                float(x[0]) - dx / 2,
+                (first - step / 2) * factor,
+                x.size * dx,
+                step * rows.size * factor,
+            ),
+            (
+                (float(x[0]), float(x[-1])),
+                (float(z[0]) * factor, float(z[-1]) * factor),
+            ),
+            (0.0, float(shown.max()) or 1.0),
+        )
+        self.profile.set_ylabel(f"Fluence ({unit})")
+        self.profile.unit = unit
+        self._draw_plane()
+
+    def forget(self) -> None:
+        """Drop what was read, as another file opens."""
+        self._data = None
+
+    def _draw_plane(self) -> None:
+        """Draw the plane the scrubber is on, and mark it on the map."""
+        if self._data is None:
+            return
+        x = np.asarray(self._data["x"], float) * 1e3
+        z = np.asarray(self._data["z"], float)
+        fluence = np.asarray(self._data["fluence"], float)
+        _unit, scale = scaled_unit(fluence, "J/m²")
+        at = min(self.session.index, fluence.shape[0] - 1)
+        self.map.set_mark(float(z[at]) * self._unit[1])
+        self.profile.set_data(x, [fluence[at] * scale])
+        self.profile.set_view(
+            (float(x[0]), float(x[-1])),
+            (0.0, float(fluence.max()) * scale * 1.05 or 1.0),
+        )
+        self.note.setText(f"{fluence.shape[0]} planes; drawn at z = {z[at]:.4g} m.")
+
+    def _picked(self, value: float) -> None:
+        """Take a plane picked on the map.
+
+        Parameters
+        ----------
+        value : float
+            The position, in the map's unit.
+        """
+        self.session.move_near(value / self._unit[1])
+
+    def data(self) -> tuple[list[str], np.ndarray] | None:
+        """Return the fluence at the plane, as columns.
+
+        Returns
+        -------
+        tuple or None
+            ``x (mm)`` and the fluence in J/m²; ``None`` before the file is read.
+        """
+        if self._data is None:
+            return None
+        fluence = np.asarray(self._data["fluence"], float)
+        at = min(self.session.index, fluence.shape[0] - 1)
+        x = np.asarray(self._data["x"], float) * 1e3
+        return ["x (mm)", "fluence (J/m²)"], np.column_stack((x, fluence[at]))
+
+
 PAGE_VIEWS: dict[str, Callable[[AnalysisSession], PageView]] = {
     "overview": OverviewPage,
     "plane": PlanePage,
@@ -2803,5 +2930,6 @@ PAGE_VIEWS: dict[str, Callable[[AnalysisSession], PageView]] = {
     "on_axis": OnAxisPage,
     "far_field": FarFieldPage,
     "fluence_xy": FluencePage,
+    "fluence_xz": LineFluencePage,
 }
 """The page each key of a class's rail shows."""

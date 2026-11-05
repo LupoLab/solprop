@@ -46,6 +46,8 @@ class _Clickable(QFrame):
         Its second line.
     tip : str, optional
         What its tooltip says, as a reason when it is disabled.
+    art : str or None, optional
+        Its drawing's key in :data:`~solprop_gui.ui.tile_art.ART`, or ``None``.
     """
 
     clicked = Signal()
@@ -145,8 +147,8 @@ class HomePage(QWidget):
         other = _Clickable(
             "tile",
             "Other geometry",
-            "Every other route, on the form solprop's metadata gives: free space, "
-            "rectangular and slab guides, general modes.",
+            "Every other route, on the form solprop's metadata gives: rectangular "
+            "and planar guides, and general modes.",
             art="other",
         )
         other.clicked.connect(self._offer_others)

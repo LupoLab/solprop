@@ -40,6 +40,7 @@ from solprop_gui.ui.analysis_pages import (
     CompressPage,
     FarFieldPage,
     HealthPage,
+    LineFluencePage,
     ModesPage,
     OnAxisPage,
     OverviewPage,
@@ -1150,7 +1151,7 @@ def test_a_beam_s_plane_and_a_planar_rail(
     analyse = window.analyse
     qtbot.waitUntil(lambda: bool(analyse.buttons), timeout=WAIT_MS)
     qtbot.waitUntil(lambda: window.problem is not None, timeout=WAIT_MS)
-    assert window.problem.key == "other"  # pyright: ignore[reportOptionalMemberAccess]
+    assert window.problem.key == "line"  # pyright: ignore[reportOptionalMemberAccess]
     analyse.show_page("plane")
     plane = window.page_views["plane"]
     assert isinstance(plane, PlanePage)
@@ -1291,3 +1292,28 @@ def test_a_cartesian_beam_runs_and_shows_its_fluence_across_x_and_y(
     found = across.data()
     assert found is not None
     assert found[0][0] == "y (mm)"
+
+
+def test_a_line_beam_draws_its_fluence_along_z(
+    window: WorkflowWindow, qtbot: QtBot, tmp_path: Path
+) -> None:
+    from solprop.recipe import Recipe  # noqa: PLC0415 - only here
+
+    path = tmp_path / "line.h5"
+    Recipe.example("line_beam").run(path)
+    window.open_results(str(path))
+    analyse = window.analyse
+    qtbot.waitUntil(lambda: "across" in analyse.buttons, timeout=WAIT_MS)
+    assert window.problem is not None
+    assert window.problem.key == "line"
+    analyse.show_page("across")
+    across = window.page_views["fluence_xz"]
+    assert isinstance(across, LineFluencePage)
+    qtbot.waitUntil(lambda: across.note.text().startswith("3 planes"), timeout=WAIT_MS)
+    found = across.data()
+    assert found is not None
+    assert found[0] == ["x (mm)", "fluence (J/m²)"]
+    across._picked(0.0)
+    qtbot.waitUntil(lambda: "z = 0 m" in across.note.text(), timeout=WAIT_MS)
+    across.forget()
+    assert across.data() is None

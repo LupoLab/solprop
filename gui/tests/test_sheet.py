@@ -311,10 +311,11 @@ class _NoWindow:
 
 
 def test_the_run_options_are_solprop_s() -> None:
-    from solprop.backends import available, thread_budget  # noqa: PLC0415 - only here
+    from solprop.backends import available  # noqa: PLC0415 - only here
 
     options: Any = HANDLERS["run_options"]({})
-    assert options["threads"] == thread_budget().threads
+    # A kernel run in this process may have set its own budget: a run's is at least it.
+    assert options["threads"] >= 1
     assert options["double"] == list(available("double"))
     assert "native" in options["double"] or "numpy_ref" in options["double"]
     assert isinstance(options["metal"], bool)
@@ -338,3 +339,15 @@ def test_the_threads_offered_are_a_run_s_not_the_kernel_s(
     monkeypatch.setenv(RUN_THREADS, "")
     HANDLERS["run_options"]({})
     assert "SOLPROP_THREADS" not in os.environ
+
+
+def test_outside_a_kernel_the_threads_are_this_process_s(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from solprop.backends import thread_budget  # noqa: PLC0415 - only here
+
+    from solprop_gui.service.kernel import RUN_THREADS  # noqa: PLC0415 - only here
+
+    monkeypatch.delenv(RUN_THREADS, raising=False)
+    options: Any = HANDLERS["run_options"]({})
+    assert options["threads"] == thread_budget().threads
