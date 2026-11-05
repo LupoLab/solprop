@@ -2446,6 +2446,8 @@ node chunk, and `Transform` needs no field to tell a stated budget from the defa
 cards, and cuFFT's work area is small (at 589,824 rows of 600 points each plan holds 9 MiB, in place or not, 0.1 MiB at the node chunk). A CPU keeps the
 chunk for its own reason: on an Intel Xeon Gold 6240, nine cores, at 384 x 384 x 600, FFTW's threaded plan of a whole state took 2.5 s a step in transforms against 1.5 s.
 
+**A whole state again.** #361's 10 % is asked of a change that costs default memory, and this one costs none, so the maintainer asked for it back if an interleaved run on an AMD card shows a consistent gain. A device now takes every row at once whatever the node budget, with no seam field: in place, the block's only memory is its plans' work area. On an NVIDIA A40, CUDA 12.8.1, `python -m benchmarks ab --device --length 0.3`, 3 rounds, against the same tree at the node chunk, the same steps and final fields with no difference: `kerr_beam_384` x0.989 (0.958–0.994), `kerr_beam_192` x0.971 (0.951–1.065), and every route without the collar between x0.998 and x1.004.
+
 **The fold.** A flow's magnitude on a lossless bin is `exp(+-0)`, exactly one, and took a binary64 `exp` per element: 13.4 ms a pass on the A40, whose reduced binary64 rate
 overstates it. Runge-Kutta's `stage_input` and `finish_transform` fall by 13 % the same way. The flowless pass forms no exponent (64.3 to 61.5 ms). The first input crosses the
 plane's stride through tiles of team scratch (42.5 to 24.9 ms). On a host the branch is out of line: inlined there, it took the tabulated fold's kernel past GCC's inlining limit,
