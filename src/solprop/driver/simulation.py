@@ -48,7 +48,7 @@ import solprop.driver.tdse as tdse_runtime
 from solprop._display import Displayed, engineering, line, summarise
 from solprop.adiabatic import AdiabaticAccuracy
 from solprop.backends.multistep import CallLedger
-from solprop.backends.protocol import Backend
+from solprop.backends.protocol import Backend, _all_finite
 from solprop.backends.registry import metal_available, resolve_name, select
 from solprop.boundaries import (
     Absorber,
@@ -2903,13 +2903,13 @@ class Simulation(Displayed):
         """
         if field0.shape != self._field0.shape:
             raise DriverError("with_input requires the existing mode and grid shape")
-        if not np.all(np.isfinite(field0)):
+        if not _all_finite(field0):
             raise DriverError("with_input requires a finite initial field")
         if noise is None:
             return
         if noise.spectrum.shape != self._field0.shape:
             raise DriverError("replacement noise must match the input field shape")
-        if not np.all(np.isfinite(noise.spectrum)):
+        if not _all_finite(noise.spectrum):
             raise DriverError("with_input requires a finite noise realisation")
 
     def runner(self) -> "SimulationRunner":  # noqa: UP037 - defined below

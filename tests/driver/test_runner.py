@@ -347,6 +347,12 @@ def test_with_input_validates_the_replaced_input_alone():
     field = inputs(simulation)[0]
     with pytest.raises(DriverError, match="finite initial field"):
         simulation.with_input(np.full_like(field, np.nan))
+    # One sample settles it, and finite samples too large to add do not.
+    one = field.copy()
+    one.flat[one.size // 2] = complex(np.inf, 0.0)
+    with pytest.raises(DriverError, match="finite initial field"):
+        simulation.with_input(one)
+    simulation.with_input(np.full_like(field, 1e308))
     with pytest.raises(DriverError, match="existing mode and grid shape"):
         simulation.with_input(field[:1])
     with pytest.raises(DriverError, match="recorded by the run itself"):

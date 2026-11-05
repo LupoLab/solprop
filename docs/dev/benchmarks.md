@@ -849,7 +849,7 @@ process's peak memory from 0.45 to 0.68 GB. The SEP's phase 3 report has the ful
 
 ### The native read of the transverse edge
 
-[SEP 44](seps/sep-0044-native-edge-read.md) reads the edge on the state's own memory, with only numbers returning. Phase 3 holds the measurements and what's still unmeasured, namely the NVIDIA H200 and the AMD Instinct MI325X.
+[SEP 44](seps/sep-0044-native-edge-read.md) reads the edge on the state's own memory, with only numbers returning. Its Part II holds the measurements phase by phase, and [the next section](#the-native-read-on-the-data-centre-cards) those on an NVIDIA H200 and an AMD Instinct MI325X.
 
 Against itself, SEP 40's four-way control, `python -m benchmarks.edge_overhead`, native at 18 threads of an Intel Xeon Gold 6240, 5 rounds, default check against no ramp and no reads:
 
@@ -872,6 +872,61 @@ Against the code before it, `python -m benchmarks ab`, `e49925d1` to this stack,
 | `planar` | 0.994 | 0.835 |
 
 The geometric mean is 0.85. A requested collar's read, at 384 x 384 x 600 on those 18 cores, one state: the current at each commit 116 ms against the host's 7.36 s, and a read with its strip 0.94 s against 41.9 s, against a step of 2.97 s. On an NVIDIA A40 with 16 host threads, 36 ms against 1.54 s, and 204 ms against 7.98 s, against 0.70 s.
+
+### The native read on the data-centre cards
+
+An NVIDIA H200 (driver 580.196.07, `nvcc` 13.1, an Intel Xeon Platinum 8592+ host, 24 cores) and an AMD Instinct MI325X (ROCm 10.0.0, `gfx942`, an AMD EPYC 9575F host, 20 cores), one rented machine each, on 2026-11-04 and 2026-11-05, at `9a5d2346`. That commit took a device's split collar a whole state at a time, which was [then dropped](#a-device-step-beyond-its-transforms): by that section's control the node chunk adds 0.4 % to a step on the H200 and 2.2 % on the MI325X, which changes no verdict here. "Start" is the same probe on [the default check's section](#the-default-check-on-a-device-reads-occupancy-and-sums)'s base, with no work from these changes.
+
+`python -m benchmarks.device_split`, field-free, a stated input identity, `held_plane=False`, the first of a runner's points set apart:
+
+| | H200, start | H200, now | MI325X, start | MI325X, now | Aim |
+|---|---:|---:|---:|---:|---|
+| 768 x 768 x 600, 8 steps, 4 planes: check on, s | 70 | 3.24 | 29 | 2.68 | under 8, under 6 |
+| The same, check off, s | 5.9 | 2.66 | 4.2 | 2.00 | |
+| On against off | x11.9 | x1.22 | x6.9 | x1.34 | under x2 |
+| 384 x 384 x 600, 51 steps, 17 planes: on against off | x12.6 | x1.21 | not run | x1.20 | under x1.25 |
+| State crossings of that field-free point | 13 to 35 | 0 | 13 | 0 | 0 |
+| A step at 768, ms | 239 | 220 | 224 | 208 | |
+| An edge read, ms | about 4,300 | 25 | about 2,000 | 31 | under half a step |
+| The temporal monitor's sums, each step, ms | | 24 | | 32 | |
+| `field_to_host`, 5.27 GiB, ms | 2,929 | 162 | 506 | 106 | under 300 |
+| `energy`, ms | 55 | 2.3 | 80 | 6.7 | under 10 |
+| `on_axis_intensity`, ms | | 11.8 | | 14.1 | |
+| `beam_radius`, `fwhm_r`, ms | about 1,000 | 43 | about 1,000 | 44 | |
+| `peak_intensity`, ms | 134 to 164 | 75 | 134 to 164 | 74 | |
+
+The crossings are native's own byte count in `tests/backends/test_native_edge_reading.py`, which ran on both cards, and the point's profile, which lists no crossing. No separate Kokkos trace was taken on these cards. At 51 steps the temporal monitor's sums take most of what the check still costs: on the H200 0.38 s of 0.58 s, and the edge's 18 reads 0.11 s.
+
+`python -m benchmarks ab --device` against `main` at `8ed26dd7`, 3 rounds, the same work:
+
+| | H200 | Fields | MI325X | Fields |
+|---|---:|---:|---:|---:|
+| `kerr_beam_384` | 12.491 s to 0.640 s, x0.051 | 6.2e-16 | 5.101 s to 0.606 s, x0.117 | 6.1e-16 |
+| `kerr_beam_192` | 1.535 s to 0.219 s, x0.141 | 6.2e-16 | 0.807 s to 0.111 s, x0.138 | 6.1e-16 |
+
+A requested collar at 384 x 384 x 600, one state, field-free, native against the host's reduction of a host copy, with a step of 72 ms on both:
+
+| | Current, each commit | Read with its strip and regions |
+|---|---:|---:|
+| H200 | 4.5 ms against 2,719 ms | 18.7 ms against 12,936 ms |
+| MI325X | 3.9 ms against 1,218 ms | 14.1 ms against 6,205 ms |
+
+**On an AMD EPYC 7763,** one NUMA domain of an exclusive two-socket node, `--threading passive`, not interleaved, against the history's 0.1.0 rows, since 0.1.0 can't run this harness: `kerr_beam_192` at one thread 12.791 s against 12.071 s, x1.060, and `kerr_beam_384` at 16 threads 23.870 s against 25.261 s, x0.945. The aim was under x1.08, from x1.07 to x1.18.
+
+**What a run holds.** Three runs at 768 x 768 x 600: the ledger totals 38.96 GiB on the H200 and 39.65 GiB on the MI325X, for a state of 5.27 GiB. FFT plans are the largest row, 21.10 GiB and 22.03 GiB. The state, the register and the scratch are 5.27 GiB each, and the ring 1.25 GiB to 1.5 GiB.
+
+**What a march costs in Python** ([#110](https://github.com/LupoLab/solprop/issues/110)), the wall time outside native calls, on the same harness, 600 fixed calls at most:
+
+| Route, grid, march | H200 | MI325X |
+|---|---:|---:|
+| Cartesian 32, 64, 128, 256, low-storage | 26, 21, 6.8, 1.2 % | 13, 8.4, 4.0, 0.7 % |
+| Cartesian 32, 64, 128, Runge-Kutta | 21, 13, 4.8 % | 13, 7.9, 2.1 % |
+| Radial 64, 256, Runge-Kutta | 17, 11 % | 10, 2.4 % |
+| Cartesian 64, radial 64, native Adams | 0.6, 1.1 % | 0.6, 0.6 % |
+
+**A lockstep batch's observation** ([#299](https://github.com/LupoLab/solprop/issues/299)), `Batch(8)` of a capillary on native, 8 steps a plane, before a batch learned to leave a field where it was: an observation took 5.3 to 6.2 ms of a plane interval of 17 to 19 ms on the H200, 22 %, and 2.6 to 2.8 ms of 13 to 18 ms on the MI325X, 13 to 16 %, for `n_omega` from 768 to 32,768. On the CPU it was 1 to 4 %. The statistics at each plane took 0.9 to 2.1 ms and 0.6 to 1.6 ms.
+
+**A scan worker's runner** ([#298](https://github.com/LupoLab/solprop/issues/298)), on the MI325X at 768 x 768 x 600: `from_free` 3.27 s, `translate` 1.62 s, the runner 0.29 s to 0.48 s, a first point's extra run 0.17 s, and 2.68 s for 8 steps. A worker that kept its runner would save at most 0.65 s of about 8.1 s, 8 %, less on a longer point, and under the issue's 10 %. A kept runner saves neither the build nor the translation, since a point's problem must be built to compare it.
 
 ### The transverse edge against 0.1.0
 
@@ -2347,10 +2402,10 @@ The whole step takes 0.961 of its time at 768 x 768 x 600 and 0.956 at 384 x 384
 copies gone at the node chunk: 2,578.6 ms a step, against 2,574.6 for a whole state on the same build. The "After" column and the `python -m benchmarks ab` figures above were
 taken with a whole state, which a device took by default until the cards were measured.
 
-**A whole state was dropped.** It saves launches, and #361 asks 10 % of a default-memory change. At 768 x 768 x 600, 8 steps, three fresh processes each at `9a5d2346`, median
-whole against node chunk: NVIDIA H200 2.661 s against 2.671 s, x0.996; AMD Instinct MI325X 2.023 s against 2.068 s, x0.978. So a device keeps the node chunk, and
-`Transform` needs no field to tell a stated budget from the default. The plans' device growth was the same to 6 MiB on the MI325X, 23.65 GiB of 42.6 GiB either way, and cuFFT's
-work area is small (at 589,824 rows of 600 points each plan holds 9 MiB, in place or not, 0.1 MiB at the node chunk), so it would not have cost memory either. A CPU keeps the
+**A whole state was dropped.** It saves launches, and #361 asks 10 % of a default-memory change. At 768 x 768 x 600, 8 steps, at `9a5d2346`, the median of three runs on one runner in one process, whole
+state first and not interleaved, against the node chunk: NVIDIA H200 2.661 s against 2.671 s, x0.996; AMD Instinct MI325X 2.023 s against 2.068 s, x0.978. So a device keeps the
+node chunk, and `Transform` needs no field to tell a stated budget from the default. It wouldn't have cost memory either: the plans' device growth was the same to 6 MiB on both
+cards, and cuFFT's work area is small (at 589,824 rows of 600 points each plan holds 9 MiB, in place or not, 0.1 MiB at the node chunk). A CPU keeps the
 chunk for its own reason: on an Intel Xeon Gold 6240, nine cores, at 384 x 384 x 600, FFTW's threaded plan of a whole state took 2.5 s a step in transforms against 1.5 s.
 
 **The fold.** A flow's magnitude on a lossless bin is `exp(+-0)`, exactly one, and took a binary64 `exp` per element: 13.4 ms a pass on the A40, whose reduced binary64 rate
