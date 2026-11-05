@@ -125,7 +125,9 @@ and metadata while sharing propagation products, and validates only the replaced
 its `configuration=` records keys of your own, such as a point's parameters, in the
 derived run's record. Outside a scan, a
 [runner](../setup/running.md#many-inputs-one-backend-the-runner) also keeps one backend for
-many inputs; scan workers construct a backend per point. `noise="keep"` (the default) keeps the
+many inputs. A `Local` scan on a CUDA or HIP build does the same for you while each point is
+the last but for its input, which is what `with_input` gives, and any other scan or point
+constructs a backend. `noise="keep"` (the default) keeps the
 base noise, `noise=None` disables it, and a `NoiseRealisation` replaces it.
 {py:meth}`~solprop.driver.simulation.Simulation.with_mixture` changes the fill
 ([running](../setup/running.md#a-capillary-end-to-end)); combine the two for material and input

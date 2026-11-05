@@ -3560,6 +3560,56 @@ class Simulation(Displayed):
         >>> handler.n_saved, handler["z"].tolist()
         (3, [0.0, 0.005, 0.01])
         """
+        return self._run(
+            output,
+            progress=progress,
+            progress_period=progress_period,
+            resume=resume,
+            tdse_archive=tdse_archive,
+            snapshots=snapshots,
+            stop=stop,
+        )
+
+    def _run(  # noqa: PLR0913 - run's controls, and the backend it may be handed
+        self,
+        output: Output | Path | str | None = None,
+        *,
+        progress: ProgressReporter | ProgressChoice | None = None,
+        progress_period: float = DEFAULT_PROGRESS_PERIOD,
+        resume: _ResumeChoice = False,
+        tdse_archive: TDSEArchive | None = None,
+        snapshots: SnapshotController | None = None,
+        stop: StopFlag | None = None,
+        kept: Backend | None = None,
+    ) -> Output:
+        """Execute the run, on a new backend or on one a caller keeps between runs.
+
+        Parameters
+        ----------
+        output : solprop.output.schema.Output or pathlib.Path or str or None, optional
+            As for :meth:`run`.
+        progress : ProgressReporter, {'auto', 'bar', 'log', 'none'} or None, optional
+            As for :meth:`run`.
+        progress_period : float, optional
+            As for :meth:`run`, s.
+        resume : bool or str, optional
+            As for :meth:`run`.
+        tdse_archive : object or None, optional
+            As for :meth:`run`.
+        snapshots : object or None, optional
+            As for :meth:`run`.
+        stop : object or None, optional
+            As for :meth:`run`.
+        kept : solprop.backends.protocol.Backend or None, optional
+            A backend built for this problem but for its input, which is loaded and
+            left open for the caller; ``None`` constructs one and closes it. It serves
+            a fresh run only, with no TDSE response.
+
+        Returns
+        -------
+        solprop.output.schema.Output
+            The handler the run was written to.
+        """
         _check_resume_choice(resume)
         with _optmat.material_context(self._material_log):
             if resume:
@@ -3620,15 +3670,25 @@ class Simulation(Displayed):
                         _AtomicContext(handler, state, metadata),
                         tdse_archive,
                     )
-                backend = select(
-                    self.settings.backend,
-                    problem,
-                    grid=self.grid,
-                    modes=self.modes,
-                    profiles=self.profiles,
-                    tdse_binding=binding,
-                )
-                start_plane = self._prime(backend, problem, state)
+                if kept is None:
+                    backend = select(
+                        self.settings.backend,
+                        problem,
+                        grid=self.grid,
+                        modes=self.modes,
+                        profiles=self.profiles,
+                        tdse_binding=binding,
+                    )
+                    start_plane = self._prime(backend, problem, state)
+                else:
+                    backend = kept
+                    # Its own noise, which the backend it was built for would hold.
+                    backend.set_initial(
+                        problem.initial.field0,
+                        _realisation(problem),
+                        z=problem.initial.z,
+                    )
+                    start_plane = 0
                 self._consistency_gate(binding, problem, handler, metadata, backend)
                 run_problem(
                     problem,
@@ -3658,7 +3718,13 @@ class Simulation(Displayed):
                 failure = error
                 raise
             finally:
-                _close_run(backend, binding, archive, handler, failure)
+                _close_run(
+                    None if kept is not None else backend,
+                    binding,
+                    archive,
+                    handler,
+                    failure,
+                )
             self._peak_fields = _peak_field_reports(problem, handler, self.responses)
         if (
             state is not None
@@ -7212,6 +7278,55 @@ class SimulationRunner(Displayed):
             raise
         finally:
             self._lock.release()
+
+    def _takes(self, simulation: Simulation) -> bool:
+        """Return whether a simulation is this runner's but for its input.
+
+        Parameters
+        ----------
+        simulation : Simulation
+            A simulation that may share this one's translation.
+
+        Returns
+        -------
+        bool
+            Whether its problem passes :func:`check_derived_problem`.
+        """
+        try:
+            check_derived_problem(self._problem, simulation.translate())
+        except DriverError as error:
+            logger.debug("a new backend for this run: %s", error)
+            return False
+        return True
+
+    def _run_point(
+        self,
+        simulation: Simulation,
+        output: Output,
+        *,
+        progress: ProgressReporter | ProgressChoice | None,
+        stop: StopFlag | None,
+    ) -> None:
+        """Run a simulation this runner :meth:`_takes`, as its own ``run`` would.
+
+        For a scan's worker, which has built the point's simulation and holds its
+        record already. Unlike :meth:`run` it honours `stop`, and the handler's record
+        is the simulation's own.
+
+        Parameters
+        ----------
+        simulation : Simulation
+            The point.
+        output : solprop.output.schema.Output
+            Where its planes go.
+        progress : ProgressReporter, {'auto', 'bar', 'log', 'none'} or None
+            Where progress goes.
+        stop : object or None
+            The point's stop flag.
+        """
+        with self._lock:
+            simulation._run(output, progress=progress, stop=stop, kept=self._backend)
+            self.runs += 1
 
     def _load(
         self,

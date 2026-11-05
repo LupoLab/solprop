@@ -1,0 +1,1 @@
+A `Local` scan on a CUDA or HIP build keeps its backend between points that differ only in their input, as `Simulation.with_input` builds them, so such a scan no longer allocates and plans a device's backend for each point. A point's stored results and record are unchanged to rounding.

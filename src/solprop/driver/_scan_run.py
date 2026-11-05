@@ -13,7 +13,7 @@ import math
 import time
 import traceback
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import cast
@@ -21,6 +21,7 @@ from typing import cast
 import numpy as np
 
 from solprop.backends import select
+from solprop.backends.registry import device_build
 from solprop.driver._scan_context import current_executor
 from solprop.driver._scan_model import Scan, ScanPoint, name_seed
 from solprop.driver.executors import Batch, Executor, Local
@@ -28,7 +29,7 @@ from solprop.driver.executors._request import ScanRequest
 from solprop.driver.executors.pool import PlaneScalars, peak_rss
 from solprop.driver.executors.queue import Queue, collect
 from solprop.driver.executors.slurm import Slurm
-from solprop.driver.simulation import Simulation
+from solprop.driver.simulation import Simulation, SimulationRunner
 from solprop.exceptions import DriverError, OutputError, StopRequested
 from solprop.fourier import spectrum_to_optics
 from solprop.log import (
@@ -511,6 +512,8 @@ class _Work:
     watched: bool = False
     stop: StopFlag | None = None
     events: _ScanEvents | None = None
+    keeps_backend: bool = False
+    _kept: SimulationRunner | None = field(default=None, init=False, repr=False)
 
     def __getstate__(self) -> dict[str, object]:
         """Drop the controller's flag and reporter, which stay in its process.
@@ -521,7 +524,56 @@ class _Work:
             The fields a worker needs.
         """
         state: dict[str, object] = dict(self.__dict__)
-        return state | {"stop": None, "events": None}
+        return state | {"stop": None, "events": None, "_kept": None}
+
+    def close(self) -> None:
+        """Close the backend a point left, if one is kept; a second call does nothing."""
+        if self._kept is not None:
+            self._kept.close()
+            self._kept = None
+
+    def _run_point(
+        self,
+        simulation: Simulation,
+        capture: _Capture,
+        *,
+        progress: ProgressReporter | ProgressChoice | None,
+        stop: StopFlag | None,
+    ) -> None:
+        """Run a point, on the backend the last point left where it can be kept.
+
+        A device backend takes long to build beside a point's march (solprop #298), so
+        a scan in this process keeps it while each point is the last but for its input,
+        which a builder arranges with :meth:`Simulation.with_input`. A point that isn't
+        closes it first, so that two are never held, and one that raises takes it down.
+
+        Parameters
+        ----------
+        simulation : Simulation
+            The point, keeping the fields the scan reads.
+        capture : _Capture
+            Where its planes go.
+        progress : ProgressReporter, {'auto', 'bar', 'log', 'none'} or None
+            Where progress goes.
+        stop : object or None
+            The point's stop flag.
+        """
+        if (
+            not self.keeps_backend
+            or simulation.translate().tdse is not None
+            or not device_build(simulation.settings.backend)
+        ):
+            simulation.run(capture, progress=progress, stop=stop)
+            return
+        if self._kept is not None and not self._kept._takes(simulation):
+            self.close()
+        if self._kept is None:
+            self._kept = simulation.runner()
+        try:
+            self._kept._run_point(simulation, capture, progress=progress, stop=stop)
+        except BaseException:
+            self.close()
+            raise
 
     def dispatched(self, job: _Job) -> None:
         """Report that a pool sent a point to a worker.
@@ -847,7 +899,8 @@ class _Work:
                 prefix="solprop-scan-", ignore_cleanup_errors=True
             ) as scratch:
                 capture = _Capture(self.options, simulation, Path(scratch))
-                _retained(simulation, capture).run(
+                self._run_point(
+                    _retained(simulation, capture),
                     capture,
                     progress="none" if reporter is None else reporter,
                     stop=stop,
@@ -1126,6 +1179,7 @@ def execute_scan(  # noqa: PLR0913 - delegated public controls
         watched=display is None and isinstance(progress, WatchingScanReporter),
         stop=stop,
         events=events,
+        keeps_backend=isinstance(executor, Local),
     )
     validate = getattr(executor, "validate", None)
     if callable(validate):
@@ -1163,6 +1217,7 @@ def execute_scan(  # noqa: PLR0913 - delegated public controls
             )
         events.reporter.scan_finished()
     finally:
+        work.close()
         if display is not None:
             display.close()
         _finish_execution(executor, build, writer, output)

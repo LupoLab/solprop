@@ -301,6 +301,27 @@ _NATIVE_MISSING = (
 """Why ``"auto"`` refuses with no native package (SEP 43 section 5)."""
 
 
+def device_build(name: str) -> bool:
+    """Return whether a backend steps on an accelerator in this installation.
+
+    Parameters
+    ----------
+    name : str
+        A backend's name, or ``"auto"``.
+
+    Returns
+    -------
+    bool
+        True for ``native`` built for CUDA or HIP. Metal isn't counted: ``mlx`` keeps
+        its own arrangements for now.
+    """
+    if resolve_name(name) != "native":
+        return False
+    import solprop_native  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+
+    return solprop_native.build_info().device_backend != "none"
+
+
 def _check_required_device(name: str) -> None:
     """Refuse a run that wouldn't meet :data:`REQUIRE_DEVICE_SETTING` (SEP 43).
 
