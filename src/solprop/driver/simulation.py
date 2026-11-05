@@ -3670,25 +3670,17 @@ class Simulation(Displayed):
                         _AtomicContext(handler, state, metadata),
                         tdse_archive,
                     )
-                if kept is None:
-                    backend = select(
-                        self.settings.backend,
-                        problem,
-                        grid=self.grid,
-                        modes=self.modes,
-                        profiles=self.profiles,
-                        tdse_binding=binding,
-                    )
-                    start_plane = self._prime(backend, problem, state)
-                else:
-                    backend = kept
-                    # Its own noise, which the backend it was built for would hold.
-                    backend.set_initial(
-                        problem.initial.field0,
-                        _realisation(problem),
-                        z=problem.initial.z,
-                    )
-                    start_plane = 0
+                backend = kept or select(
+                    self.settings.backend,
+                    problem,
+                    grid=self.grid,
+                    modes=self.modes,
+                    profiles=self.profiles,
+                    tdse_binding=binding,
+                )
+                start_plane = self._prime(
+                    backend, problem, state, kept=kept is not None
+                )
                 self._consistency_gate(binding, problem, handler, metadata, backend)
                 run_problem(
                     problem,
@@ -4004,6 +3996,8 @@ class Simulation(Displayed):
         backend: Backend,
         problem: KernelProblem,
         state: ResumeState | None,
+        *,
+        kept: bool = False,
     ) -> int:
         """Load the backend with the state the run starts from, and say where that is.
 
@@ -4016,6 +4010,9 @@ class Simulation(Displayed):
         state : solprop.output.hdf5.ResumeState or None
             What a file the run is continuing holds, or ``None`` to start at the
             entrance.
+        kept : bool, optional
+            Whether the backend was built for another input, so that the noise of
+            this one has to be handed to it.
 
         Returns
         -------
@@ -4023,7 +4020,11 @@ class Simulation(Displayed):
             Index of the first save plane still to propagate to.
         """
         if state is None:
-            backend.set_initial(problem.initial.field0, None, z=problem.initial.z)
+            backend.set_initial(
+                problem.initial.field0,
+                _realisation(problem) if kept else None,
+                z=problem.initial.z,
+            )
             return 0
         next_plane = _validate_resume(problem, state, self.settings.tdse_execution)
         logger.info(

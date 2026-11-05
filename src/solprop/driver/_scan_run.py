@@ -527,7 +527,7 @@ class _Work:
         return state | {"stop": None, "events": None, "_kept": None}
 
     def close(self) -> None:
-        """Close the backend a point left, if one is kept; a second call does nothing."""
+        """Close the backend a point left, if one is kept."""
         if self._kept is not None:
             self._kept.close()
             self._kept = None
