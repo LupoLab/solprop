@@ -7,6 +7,7 @@
 from pathlib import Path
 from typing import Final
 
+from PySide6.QtCore import QSettings
 from PySide6.QtGui import QFont, QFontDatabase
 from PySide6.QtWidgets import QApplication, QLabel, QLayout, QWidget
 
@@ -17,6 +18,7 @@ __all__ = [
     "GREY",
     "INK",
     "STYLE",
+    "app_settings",
     "clear_layout",
     "load_font",
     "named_label",
@@ -225,3 +227,20 @@ def named_label(text: str, name: str) -> QLabel:
     label = QLabel(text)
     label.setObjectName(name)
     return label
+
+
+def app_settings() -> QSettings:
+    """Return the window's settings, in the default format's place.
+
+    The organisation-and-name constructor always takes the platform's native store;
+    this one follows :meth:`QSettings.setDefaultFormat`, so tests (and anyone who
+    sets an INI path) keep the settings out of the user's own.
+
+    Returns
+    -------
+    PySide6.QtCore.QSettings
+        The settings.
+    """
+    return QSettings(
+        QSettings.defaultFormat(), QSettings.Scope.UserScope, "solprop", "solprop-gui"
+    )

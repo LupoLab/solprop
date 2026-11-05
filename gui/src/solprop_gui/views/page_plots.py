@@ -400,6 +400,8 @@ class MapPlot(Plot):
         self.marker.hide()
         self.box.setRange(xRange=(0, 1), yRange=(0, 1), padding=0)
         self.message.setText(text)
+        # A long reason wraps within the map rather than running off it.
+        self.message.setTextWidth(max(self.width() - 90, 120))
         self.message.setPos(0.5, 0.5)
         self.message.show()
 

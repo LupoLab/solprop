@@ -22,7 +22,7 @@ import numpy as np
 from matplotlib.figure import Figure
 from solprop import capabilities, plotting
 from solprop.driver import Simulation
-from solprop.exceptions import SolpropError
+from solprop.exceptions import OutputError, SolpropError
 from solprop.grid import FreeGrid, LineGrid, RadialGrid
 from solprop.output import Output, open_file
 from solprop.processing import (
@@ -33,6 +33,7 @@ from solprop.processing import (
     get_power,
     get_spectral_density,
     node_fluence,
+    physical_energy,
     transverse_units,
 )
 from solprop.processing.fields import DEFAULT_GATE_POSITIONS, get_spectrogram
@@ -353,7 +354,7 @@ def plane(payload: Payload) -> dict[str, object]:
             "power": {"t": np.asarray(t), "y": np.asarray(power)},
             "phase": phase,
             "window": _window(path, axis, np.asarray(x), np.asarray(density)),
-            "energy": float(energy(handler, plane=index, modes=modes)),
+            "energy": _energy_of(handler, index, modes),
             "fwhm": float(fwhm_t(handler, plane=index, modes=modes, bandpass=band)),
         }
         if band is not None:
@@ -682,6 +683,29 @@ def _window(
         return float(x[0]), C / low
     # A file with no mode axis gives one column; a map has its positions in rows.
     return light_range(x, np.moveaxis(values.reshape(x.size, -1), 0, -1))
+
+
+def _energy_of(handler: Output, index: int, modes: ModeSelection) -> float:
+    """Return a plane's energy, through the metric where the modes' basis needs it.
+
+    Parameters
+    ----------
+    handler : solprop.output.Output
+        The open file.
+    index : int
+        The plane.
+    modes : ModeSelection
+        The modes.
+
+    Returns
+    -------
+    float
+        The energy, J: a general modal guide's is its physical energy, of every mode.
+    """
+    try:
+        return float(energy(handler, plane=index, modes=modes))
+    except OutputError:
+        return float(physical_energy(handler, plane=index))
 
 
 def figure(payload: Payload) -> list[str]:

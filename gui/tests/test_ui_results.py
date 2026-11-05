@@ -12,8 +12,6 @@ from pytestqt.qtbot import QtBot
 
 from solprop_gui.model.plot_options import PlotOptions
 from solprop_gui.model.stats_layout import STEP
-from solprop_gui.service.messages import Reply
-from solprop_gui.ui.main_window import MainWindow
 from solprop_gui.views.plane import PlaneView
 from solprop_gui.views.statistics import StatisticsView, StatsSelector
 from test_results import run  # noqa: F401 - a fixture
@@ -237,48 +235,6 @@ def test_the_statistics_view_draws_every_statistic(qtbot: QtBot, tmp_path: Path)
     view.clear()
     assert view.panels[0].curves == [] and view.panels[0].lookup(0.0, 0.0) is None
     assert not view.figure_button.isEnabled()
-
-
-def test_the_results_open_a_run_s_planes_and_statistics(
-    qtbot: QtBot,
-    tmp_path: Path,
-    run: str,  # noqa: F811 - the fixture
-):
-    window = MainWindow(workspace=tmp_path / "workspace")
-    qtbot.addWidget(window)
-    window.show()
-    results = window.results
-    results.open(run)
-    qtbot.waitUntil(
-        lambda: "Peak power" in results.plane.status.text(), timeout=WAIT_MS
-    )
-    assert results.plane.modes.count() == 3
-    qtbot.waitUntil(lambda: len(results.statistics.stats) == 3, timeout=WAIT_MS)
-    # The panels' choices are offered on the page: the statistics and the step.
-    assert results.stats_selector.choices[0][0].count() == 1 + 3 + 1
-    window.show_view("plane")
-    # The spectrogram comes with each plane, as data drawn here.
-    qtbot.waitUntil(lambda: results.plane.spectrogram.data is not None, timeout=WAIT_MS)
-    # A gate set on the page asks again, with it.
-    results.spectrogram_options.gate.setText("12")
-    results.spectrogram_options.gate.editingFinished.emit()
-    qtbot.waitUntil(lambda: _gate(results) == pytest.approx(12e-15), timeout=WAIT_MS)
-    assert results.options.gate_fwhm == pytest.approx(12e-15)
-    figure = tmp_path / "power.pdf"
-    results.plane.export_figure(str(figure), "time_1d")
-    qtbot.waitUntil(lambda: "Wrote" in results.info.text(), timeout=WAIT_MS)
-    assert figure.stat().st_size > 1000
-    window.show_view("statistics")
-    shot(window, tmp_path, "statistics-window")
-    # A failed plane says so in the view; a reply about another file is dropped.
-    results._pending[-5] = ("plane", run)
-    results.on_reply(Reply("plane", -5, 0, error="it failed"))
-    assert "it failed" in results.plane.status.text()
-    results._pending[-6] = ("plane", "other.h5")
-    results.on_reply(Reply("plane", -6, 0, value={"z": 0}))
-    results._pending[-7] = ("statistics", run)
-    results.on_reply(Reply("statistics", -7, 0, value="not a mapping"))
-    window.close()
 
 
 def test_the_overview_names_a_beam_s_readings(qtbot: QtBot):

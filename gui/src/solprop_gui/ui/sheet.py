@@ -32,7 +32,7 @@ from PySide6.QtWidgets import (
 )
 from solprop.recipe.errors import RecipeError
 
-from solprop_gui.classes.catalog import class_of
+from solprop_gui.classes.catalog import OTHER_KEY, class_of
 from solprop_gui.classes.problem import (
     Derived,
     Field,
@@ -380,6 +380,10 @@ class SheetStage(QWidget):
         right.addWidget(self.preview_title)
         right.addWidget(self.curve, 2)
         right.addWidget(self.preview, 1)
+        # Where a class has no preview, its numbers stay at the top.
+        self.filler = QWidget()
+        self.filler.setObjectName("page")
+        right.addWidget(self.filler, 1)
         self.loss_plot = LinePlot(
             xlabel="Wavelength (nm)", ylabel="Loss (dB/m)", unit="dB/m"
         )
@@ -509,17 +513,29 @@ class SheetStage(QWidget):
             self.sections.addWidget(section)
         self._add_advanced(problem, description, catalog)
         self._show_numbers(problem)
-        self.preview_title.setText(problem.preview)
-        self.preview_note.setText("This plot comes with the class's live sheet.")
-        self.below.hide()
-        self.curve.setVisible(problem.curve is not None)
-        self.preview.setVisible(problem.curve is None)
+        self._show_preview(problem)
         self.help.clear()
         self.ready.setText("Checking…")
         self.ready.setProperty("error", False)
         self.ready.setProperty("warn", False)
         repolish(self.ready)
         self._fill_examples()
+
+    def _show_preview(self, problem: ProblemClass) -> None:
+        """Show the class's preview: its curve, a note of one to come, or nothing.
+
+        Parameters
+        ----------
+        problem : ProblemClass
+            The class.
+        """
+        self.preview_title.setText(problem.preview)
+        self.preview_note.setText("This plot comes with the class's live sheet.")
+        self.below.hide()
+        self.curve.setVisible(problem.curve is not None)
+        self.preview.setVisible(problem.curve is None and bool(problem.preview))
+        self.preview_title.setVisible(bool(problem.preview))
+        self.filler.setVisible(problem.curve is None and not problem.preview)
 
     @staticmethod
     def _section_paths(part: object) -> set[str]:
@@ -983,7 +999,11 @@ class SheetStage(QWidget):
             return
         for entry in self._examples:
             build: Mapping[str, object] = entry["build"]  # pyright: ignore[reportAssignmentType]
-            if class_of(str(entry["route"]), build) is self.problem:
+            found = class_of(str(entry["route"]), build)
+            other = found is None and self.problem.key == OTHER_KEY
+            if found is self.problem or (
+                other and entry["route"] == self.problem.route
+            ):
                 self.examples.addItem(str(entry["title"]), str(entry["name"]))
         # A recipe from elsewhere is no example, and the list then shows none.
         self.examples.setCurrentIndex(self.examples.findText(self._title or ""))

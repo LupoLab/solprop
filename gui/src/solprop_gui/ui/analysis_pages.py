@@ -859,6 +859,13 @@ class PlanePage(PageView):
         options = self.session.options
         axis = str(value["axis"])
         spectrum = value["spectrum"]
+        self._show_pulse(value)
+        if "x" not in spectrum:
+            # A planar run's plane has a power and no spectrum to read.
+            self.spectrum.set_data(np.zeros(0), [np.zeros(0)])
+            self.phase.set_data(np.zeros(0), [np.zeros(0)])
+            self.note.setText(str(spectrum.get("error", "")))
+            return
         x = np.asarray(spectrum["x"], float) * _AXIS_SCALE[axis]
         order = np.argsort(x)
         x = x[order]
@@ -868,7 +875,6 @@ class PlanePage(PageView):
         view = _shown_range(value, axis, x)
         self.spectrum.set_view(view, (options.floor, 3.0))
         self._show_band(axis)
-        self._show_pulse(value)
         self._show_phase(value, axis, x, db)
         self._say(value)
 
@@ -972,6 +978,10 @@ class PlanePage(PageView):
         value : Mapping
             The kernel's ``plane`` reply.
         """
+        if "energy" not in value:
+            # A beam's plane is a profile across it; its numbers are its maps'.
+            self.note.setText("The power and spectrum summed across the beam.")
+            return
         total = float(value["energy"])
         parts = [f"Energy {si(total, 'J', digits=3)}"]
         band_energy = value.get("band_energy")

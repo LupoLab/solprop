@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
     QHBoxLayout,
+    QMenu,
     QPushButton,
     QScrollArea,
     QVBoxLayout,
@@ -91,8 +92,8 @@ class HomePage(QWidget):
     ----------
     class_chosen : Signal
         Emitted with a problem class's key.
-    other_chosen : Signal
-        Emitted when Other geometry is chosen.
+    example_chosen : Signal
+        Emitted with the name of an example picked under Other geometry.
     design_chosen : Signal
         Emitted when the person asks to design a waveguide.
     open_results_wanted : Signal
@@ -106,7 +107,7 @@ class HomePage(QWidget):
     """
 
     class_chosen = Signal(str)
-    other_chosen = Signal()
+    example_chosen = Signal(str)
     design_chosen = Signal()
     open_results_wanted = Signal()
     open_setup_wanted = Signal()
@@ -131,10 +132,12 @@ class HomePage(QWidget):
         other = _Clickable(
             "tile",
             "Other geometry",
-            "Every other route, in the step window for now: free space, rectangular "
-            "and slab guides, general modes.",
+            "Every other route, on the form solprop's metadata gives: free space, "
+            "rectangular and slab guides, general modes.",
         )
-        other.clicked.connect(self.other_chosen)
+        other.clicked.connect(self._offer_others)
+        self.others = QMenu(other)
+        self.others.setObjectName("others")
         self.tiles["other"] = other
         tiles.addWidget(other, 2, 0)
         design = _Clickable(
@@ -212,6 +215,26 @@ class HomePage(QWidget):
             box.addWidget(item)
         if not entries:
             box.addWidget(named_label(empty, "itemText"))
+
+    def set_other_examples(self, examples: Sequence[tuple[str, str]]) -> None:
+        """Take the examples Other geometry offers.
+
+        Parameters
+        ----------
+        examples : Sequence of tuple
+            Each example's name and title.
+        """
+        self.others.clear()
+        for name, title in examples:
+            action = self.others.addAction(title)
+            action.triggered.connect(
+                lambda _on=False, n=name: self.example_chosen.emit(n)
+            )
+
+    def _offer_others(self) -> None:
+        """Offer the examples of every other route, below the tile."""
+        tile = self.tiles["other"]
+        self.others.popup(tile.mapToGlobal(tile.rect().bottomLeft()))
 
     def show_runs(self, runs: Sequence[RunEntry]) -> None:
         """List the workspace's latest runs.

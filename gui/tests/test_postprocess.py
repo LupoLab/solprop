@@ -7,12 +7,11 @@
 import math
 import warnings
 from collections.abc import Iterator, Mapping
-from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pytest
-from PySide6.QtWidgets import QCheckBox, QComboBox, QLineEdit, QSpinBox
+from PySide6.QtWidgets import QComboBox, QLineEdit
 from pytestqt.qtbot import QtBot
 from solprop.exceptions import SolpropError
 
@@ -25,7 +24,6 @@ from solprop_gui.model.compressor import (
     payload,
 )
 from solprop_gui.service import handlers
-from solprop_gui.ui.main_window import MainWindow
 from solprop_gui.ui.postprocess import StageEditor
 from test_results import beam, run  # noqa: F401 - fixtures
 from test_ui import WAIT_MS, private_settings, shot  # noqa: F401 - a fixture
@@ -149,86 +147,6 @@ def test_a_compressor_says_what_it_cannot_do(run: str, beam: str):  # noqa: F811
 
 
 # ------------------------------------------------------------------ the page
-
-
-def test_the_page_builds_a_compressor_and_takes_what_was_found(  # noqa: PLR0915
-    qtbot: QtBot,
-    tmp_path: Path,
-    run: str,  # noqa: F811 - a fixture
-):
-    window = MainWindow(workspace=tmp_path / "runs")
-    qtbot.addWidget(window)
-    window.show()
-    page = window.postprocess
-    window.show_step("postprocess")
-    assert "results file first" in page.target.text()
-    assert not page.compress_button.isEnabled()
-    page.compress()  # nothing open: nothing asked
-    window.results.open(run)
-    qtbot.waitUntil(lambda: bool(window.results.plane.planes), timeout=WAIT_MS)
-    qtbot.waitUntil(lambda: bool(page.editor.catalogue), timeout=WAIT_MS)
-    window.show_step("postprocess")
-    assert "z = " in page.target.text()
-    # A material, edited by hand: a thickness, a bad entry, a blank one.
-    page.add("material")
-    thickness = page.editor.inputs["thickness"]
-    assert isinstance(thickness, QLineEdit)
-    type_into(thickness, "2")
-    assert page.stages[0].values["thickness"] == pytest.approx(2e-3)
-    type_into(thickness, "thick")
-    type_into(thickness, "")
-    assert thickness.styleSheet() and page.stages[0].values["thickness"] == 2e-3
-    pressure = page.editor.inputs["pressure"]
-    assert isinstance(pressure, QLineEdit)
-    type_into(pressure, "")  # optional: blank is fine
-    # Chirped mirrors with wedges, searched.
-    page.add("mirrors")
-    page.editor.auto.setChecked(True)
-    wedge = page.editor.inputs["wedge"]
-    assert isinstance(wedge, QComboBox) and wedge.itemData(0) is None
-    wedge.setCurrentIndex(wedge.findData("fused silica"))
-    most = page.editor.inputs["max_reflections"]
-    assert isinstance(most, QSpinBox)
-    most.setValue(2)
-    assert page.stages[1].auto and page.stages[1].values["max_reflections"] == 2
-    # A prism pair, its pass switched; moved up, down, and removed.
-    page.add("prisms")
-    double = page.editor.inputs["double_pass"]
-    assert isinstance(double, QCheckBox)
-    double.setChecked(False)
-    assert page.stages[2].values["double_pass"] is False
-    page.shift(-1)
-    assert page.stages[1].kind == "prisms"
-    page.shift(1)
-    page.shift(1)  # past the end: stays
-    assert page.stages[2].kind == "prisms"
-    page.remove()
-    assert [stage.kind for stage in page.stages] == ["material", "mirrors"]
-    # Compress, and take the values found into the chain.
-    assert not page.take_button.isEnabled()
-    page.compress_button.click()
-    qtbot.waitUntil(lambda: "Done" in page.status.text(), timeout=WAIT_MS)
-    assert window.views.currentWidget() is page.view
-    assert page.view.table.rowCount() == 2 and "transform limit" in (
-        page.view.summary.text()
-    )
-    shot(window, tmp_path, "postprocess")
-    assert page.take_button.isEnabled()
-    page.take_found()
-    assert [stage.kind for stage in page.stages] == ["material", "mirrors", "material"]
-    assert not any(stage.auto for stage in page.stages)
-    page.take_found()  # nothing found for this chain yet: nothing changes
-    # An element solprop cannot build: its reason is said.
-    page.stages[0] = page.stages[0].with_value("thickness", None)
-    page.compress()
-    qtbot.waitUntil(lambda: "its thickness" in page.status.text(), timeout=WAIT_MS)
-    page.view.clear()
-    assert page.view.table.rowCount() == 0
-    # A file whose compression solprop refuses says so.
-    window.results.capabilities = {"refused": {"compression": "a beam"}}
-    page.refresh()
-    assert "a beam" in page.target.text() and not page.compress_button.isEnabled()
-    window.close()
 
 
 def test_an_empty_editor_and_a_stage_s_auto_switch(qtbot: QtBot):

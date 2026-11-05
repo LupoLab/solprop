@@ -320,3 +320,22 @@ def test_a_file_with_no_mode_axis_has_a_plane(tmp_path: Path) -> None:
     reply = results.plane({"path": str(path), "index": 2})
     low, high = reply["window"]  # pyright: ignore[reportGeneralTypeIssues]
     assert 500e-9 < low < 835e-9 < high < 2000e-9
+
+
+def test_a_basis_with_no_plain_energy_gives_its_physical_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from solprop.exceptions import OutputError  # noqa: PLC0415 - only here
+
+    path = tmp_path / "soliton.h5"
+    text = Recipe.example("soliton").to_text()
+    Recipe.loads(text.replace("n_save = 201", "n_save = 2")).run(path)
+
+    def refused(*_args: object, **_kwargs: object) -> float:
+        msg = "energy is unavailable for this basis"
+        raise OutputError(msg)
+
+    monkeypatch.setattr(results, "energy", refused)
+    monkeypatch.setattr(results, "physical_energy", lambda *_a, **_k: 1.5e-9)
+    reply = results.plane({"path": str(path), "index": 1})
+    assert reply["energy"] == 1.5e-9

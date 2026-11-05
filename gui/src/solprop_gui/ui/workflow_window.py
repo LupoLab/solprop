@@ -30,11 +30,18 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from solprop_gui.classes.catalog import GENERIC_PAGES, class_named, class_of
+from solprop_gui.classes.catalog import (
+    GENERIC_PAGES,
+    OTHER_KEY,
+    class_named,
+    class_of,
+    other_class,
+)
 from solprop_gui.classes.problem import ProblemClass
 from solprop_gui.classes.workflow import Progress, Stage, primary_action, stage_open
 from solprop_gui.model.recipe import RecipeModel
 from solprop_gui.model.workspace import DEFAULT_WORKSPACE, list_runs
+from solprop_gui.registry.routes import card_of
 from solprop_gui.service.messages import Reply
 from solprop_gui.ui.analyse import AnalyseStage
 from solprop_gui.ui.analysis import AnalysisSession
@@ -43,10 +50,9 @@ from solprop_gui.ui.bridge import ServiceBridge
 from solprop_gui.ui.design_stage import DesignStage
 from solprop_gui.ui.document import Confirm, SetupDocument
 from solprop_gui.ui.home import HomePage
-from solprop_gui.ui.main_window import MainWindow, app_settings
 from solprop_gui.ui.run_panel import RunPanel
 from solprop_gui.ui.sheet import SheetStage
-from solprop_gui.ui.theme import STYLE, load_font, named_label, repolish
+from solprop_gui.ui.theme import STYLE, app_settings, load_font, named_label, repolish
 
 __all__ = ["WorkflowWindow"]
 
@@ -95,6 +101,17 @@ class WorkflowWindow(QMainWindow):
         self.setStyleSheet(STYLE)
         self.settings = app_settings()
         self.bridge = bridge or ServiceBridge(self)
+        # A bar for passing notices, shown only while it has one.
+        bar = self.statusBar()
+        bar.messageChanged.connect(lambda text: bar.setVisible(bool(text)))
+        bar.hide()
+        # Before any request: the first may find the service out of reach.
+        self.bridge.service_failed.connect(
+            lambda reason: self.notify(
+                f"The solprop service is not available ({reason}): runs end with "
+                "the window."
+            )
+        )
         self.confirm: Confirm = self._ask
         self.stage = Stage.HOME
         self.problem: ProblemClass | None = None
@@ -104,7 +121,6 @@ class WorkflowWindow(QMainWindow):
         self._own_run = False
         self._failed = False
         self._pending: dict[int, str] = {}
-        self.step_window: MainWindow | None = None
         saved = self.settings.value("workspace")
         self.workspace = workspace or (Path(str(saved)) if saved else DEFAULT_WORKSPACE)
 
@@ -154,7 +170,7 @@ class WorkflowWindow(QMainWindow):
         self._make_menus()
 
         self.home.class_chosen.connect(self.begin_class)
-        self.home.other_chosen.connect(self.open_step_window)
+        self.home.example_chosen.connect(self.document.open_example)
         self.home.design_chosen.connect(lambda: self.show_stage(Stage.DESIGN))
         self.home.open_results_wanted.connect(self.choose_results)
         self.home.open_setup_wanted.connect(self.choose_setup)
@@ -187,6 +203,7 @@ class WorkflowWindow(QMainWindow):
         self.session.described.connect(self._file_described)
         self.session.setup_found.connect(self._file_has_setup)
         self.bridge.kernel_lost.connect(self._kernel_lost)
+        self.bridge.runs_listed.connect(self._runs_listed)
         self.bridge.replied.connect(self._on_reply)
 
         self.setWindowTitle("solprop")
@@ -197,6 +214,8 @@ class WorkflowWindow(QMainWindow):
         self._ask_kernel("gases", {}, "gases")
         self.refresh_home()
         self.show_stage(Stage.HOME)
+        # With the service, a run the last window left going is taken over.
+        self.bridge.list_runs()
 
     # ------------------------------------------------------------------ the frame
 
@@ -460,6 +479,13 @@ class WorkflowWindow(QMainWindow):
         if purpose == "examples" and reply.ok:
             examples: Sequence[Mapping[str, object]] = reply.value  # pyright: ignore[reportAssignmentType]
             self.sheet.set_examples(examples)
+            self.home.set_other_examples(
+                [
+                    (str(entry["name"]), str(entry["title"]))
+                    for entry in examples
+                    if class_of(str(entry["route"]), entry["build"]) is None  # pyright: ignore[reportArgumentType]
+                ]
+            )
         elif purpose == "gases" and reply.ok:
             self.design.set_gases(reply.value)  # pyright: ignore[reportArgumentType]
             self.sheet.set_list("gases", reply.value)  # pyright: ignore[reportArgumentType]
@@ -581,11 +607,6 @@ class WorkflowWindow(QMainWindow):
         if self.design.text is not None:
             self.document.open_text(self.design.text, None)
 
-    def open_step_window(self) -> None:
-        """Open the step window, which holds every route not yet a class."""
-        self.step_window = MainWindow()
-        self.step_window.show()
-
     def choose_setup(self) -> None:
         """Pick a setup file and open it."""
         chosen, _ = QFileDialog.getOpenFileName(
@@ -607,11 +628,7 @@ class WorkflowWindow(QMainWindow):
         except (OSError, ValueError) as error:
             self._say(f"Cannot open {path}: {error}")
             return
-        if class_of(model.route, model.document.get("build", {})) is None:
-            self.open_step_window()
-            if self.step_window is not None:
-                self.step_window.open_recipe(path)
-            return
+        del model
         self.document.open_recipe(path)
 
     def choose_results(self) -> None:
@@ -650,7 +667,7 @@ class WorkflowWindow(QMainWindow):
         model = self.document.model
         if model is None:
             return
-        self.problem = class_of(model.route, model.document.get("build", {}))
+        self.problem = _class_of(model)
         self._use_class()
         self._remember_setup()
         if not self._quiet and not self.run_panel.active:
@@ -662,7 +679,8 @@ class WorkflowWindow(QMainWindow):
         problem = self.problem
         if problem is None:
             return
-        self._ask_kernel("example", {"name": problem.example}, "template")
+        if problem.example:
+            self._ask_kernel("example", {"name": problem.example}, "template")
         # A new class starts at its Overview, not at the page the last one left.
         self.analyse.current = None
         if not self.run_panel.active:
@@ -681,6 +699,14 @@ class WorkflowWindow(QMainWindow):
         description = self.document.descriptions.get(model.route)
         if description is None:
             return
+        if self.problem.key == OTHER_KEY:
+            # Other geometry's form comes from the route's metadata, now it is here.
+            self.problem = other_class(
+                model.route,
+                self.problem.title,
+                model.document.get("build", {}),
+                description["parameters"],  # pyright: ignore[reportArgumentType]
+            )
         self.sheet.build(
             self.problem, description, model.document.get("build", {}), model.title
         )
@@ -820,14 +846,37 @@ class WorkflowWindow(QMainWindow):
             The results file.
         """
         model = RecipeModel(text)
-        problem = class_of(model.route, model.document.get("build", {}))
-        pages = GENERIC_PAGES if problem is None else problem.pages
-        self.analyse.set_wanted(() if problem is None else problem.statistics)
-        self.analyse.set_pages(pages, self.session.capabilities)
-        if problem is not None and self.document.may_discard():
+        problem = _class_of(model)
+        self.analyse.set_wanted(problem.statistics)
+        self.analyse.set_pages(problem.pages, self.session.capabilities)
+        if self.document.may_discard():
             self._quiet = True
             self.document.set_model(model, base=str(Path(path).parent))
             self.has_results = True
+
+    def _runs_listed(self, runs: Sequence[Mapping[str, object]]) -> None:
+        """Take over the latest run the service holds that is still going.
+
+        Parameters
+        ----------
+        runs : Sequence of Mapping
+            The service's runs, oldest first.
+        """
+        going = [run for run in runs if run.get("alive")]
+        if going and self.run_panel.attach(going[-1]):
+            self.has_run = True
+            self.show_stage(Stage.RUN)
+            self.notify(f"Re-attached to {going[-1]['run_id']}.")
+
+    def notify(self, text: str) -> None:
+        """Show a passing notice at the foot of the window.
+
+        Parameters
+        ----------
+        text : str
+            What to say.
+        """
+        self.statusBar().showMessage(text, _NOTICE_MS)
 
     def _kernel_lost(self) -> None:
         """Say that the kernel ended; the next request starts it again."""
@@ -881,3 +930,28 @@ class WorkflowWindow(QMainWindow):
         self.document.close()
         self.bridge.close()
         event.accept()
+
+
+_NOTICE_MS = 20_000
+"""How long a passing notice stays, in milliseconds."""
+
+
+def _class_of(model: RecipeModel) -> ProblemClass:
+    """Return a recipe's class: one of the four, or Other geometry's for its route.
+
+    Parameters
+    ----------
+    model : solprop_gui.model.recipe.RecipeModel
+        The recipe.
+
+    Returns
+    -------
+    ProblemClass
+        The class; Other geometry's form waits for the route's metadata.
+    """
+    build = model.document.get("build", {})
+    found = class_of(model.route, build)
+    if found is not None:
+        return found
+    card = card_of(model.route, build, enabled_only=False)
+    return other_class(model.route, model.route if card is None else card.title, build)

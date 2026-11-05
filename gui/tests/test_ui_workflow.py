@@ -1088,3 +1088,86 @@ def test_a_design_with_no_recipe_yet_simulates_nothing(
     window.show_stage(Stage.DESIGN)
     window.simulate_design()
     assert window.document.model is None
+
+
+def test_other_geometry_offers_every_other_route_on_the_generic_form(
+    window: WorkflowWindow, qtbot: QtBot
+) -> None:
+    home = window.home
+    qtbot.waitUntil(lambda: bool(home.others.actions()), timeout=WAIT_MS)
+    titles = {action.text(): action for action in home.others.actions()}
+    assert "An argon-filled hollow rectangular waveguide" in titles
+    assert not any("capillary" in title.lower() for title in titles)
+    home._offer_others()
+    home.others.hide()
+    titles["An argon-filled hollow rectangular waveguide"].trigger()
+    qtbot.waitUntil(lambda: window.stage is Stage.SETUP, timeout=WAIT_MS)
+    sheet = window.sheet
+    qtbot.waitUntil(lambda: bool(sheet.rows), timeout=WAIT_MS)
+    problem = window.problem
+    assert problem is not None
+    assert problem.key == "other"
+    assert sheet.problem is problem
+    assert ("gas", "build") in sheet.rows
+    assert "Rectangular" in window.context.text() or "rectangular" in (
+        window.context.text()
+    )
+    assert sheet.filler.isVisible()
+    assert not sheet.preview.isVisible()
+    assert (
+        sheet.examples.currentText() == "An argon-filled hollow rectangular waveguide"
+    )
+    energy = sheet.derived["energy"]
+    qtbot.waitUntil(lambda: energy.text() == "20 µJ", timeout=WAIT_MS)
+    qtbot.waitUntil(lambda: window.progress().can_run, timeout=WAIT_MS)
+    window.primary.click()
+    qtbot.waitUntil(lambda: window.stage is Stage.ANALYSE, timeout=WAIT_MS)
+    analyse = window.analyse
+    qtbot.waitUntil(
+        lambda: set(analyse.buttons) == {"overview", "plane", "along", "health"},
+        timeout=WAIT_MS,
+    )
+    analyse.show_page("plane")
+    plane = window.page_views["plane"]
+    qtbot.waitUntil(lambda: plane.note.text().startswith("Energy"), timeout=WAIT_MS)
+
+
+def test_a_beam_s_plane_and_a_planar_rail(
+    window: WorkflowWindow, qtbot: QtBot, tmp_path: Path
+) -> None:
+    from solprop.recipe import Recipe  # noqa: PLC0415 - only here
+
+    path = tmp_path / "line.h5"
+    Recipe.example("line_beam").run(path)
+    window.open_results(str(path))
+    analyse = window.analyse
+    qtbot.waitUntil(lambda: bool(analyse.buttons), timeout=WAIT_MS)
+    qtbot.waitUntil(lambda: window.problem is not None, timeout=WAIT_MS)
+    assert window.problem.key == "other"  # pyright: ignore[reportOptionalMemberAccess]
+    analyse.show_page("plane")
+    plane = window.page_views["plane"]
+    assert isinstance(plane, PlanePage)
+    qtbot.waitUntil(
+        lambda: plane.note.text().startswith("The power and spectrum"),
+        timeout=WAIT_MS,
+    )
+    planar = tmp_path / "planar.toml"
+    planar.write_text(Recipe.example("planar_hybrid").to_text())
+    window.document.confirm = lambda _title, _text: "discard"
+    window.open_setup(str(planar))
+    qtbot.waitUntil(
+        lambda: window.problem is not None and window.problem.route == "planar",
+        timeout=WAIT_MS,
+    )
+    assert [page.key for page in window.problem.pages] == ["plane", "along", "health"]  # pyright: ignore[reportOptionalMemberAccess]
+    # A plane with no spectrum to read says so, and draws its power.
+    plane._show(
+        {
+            "axis": "wavelength",
+            "spectrum": {"error": "not exchanged"},
+            "power": {"t": [0.0, 1e-15], "y": [1.0, 2.0]},
+            "phase": {"error": "none"},
+        }
+    )
+    assert plane.note.text() == "not exchanged"
+    assert plane.spectrum.xs.size == 0

@@ -14,7 +14,13 @@ from solprop.recipe import Recipe
 from solprop.stats import CATALOGUE
 
 from conftest import TINY
-from solprop_gui.classes.catalog import CLASSES, FILAMENT, class_named, class_of
+from solprop_gui.classes.catalog import (
+    CLASSES,
+    FILAMENT,
+    class_named,
+    class_of,
+    other_class,
+)
 from solprop_gui.classes.problem import (
     AnalysisPage,
     Derived,
@@ -254,3 +260,21 @@ def test_the_filament_s_linked_rows_write_a_recipe_solprop_builds() -> None:
     assert field_value(planes, {}) is MISSING
     assert negated_value(True) is True
     assert even_planes(2, 4.0) == [2.0, 4.0]
+
+
+def test_other_geometry_s_form_comes_from_the_metadata() -> None:
+    described = Recipe.example("hollow_rectangular")
+    from solprop_gui.service.handlers import describe  # noqa: PLC0415 - only here
+
+    parameters: Any = describe({"route": described.route})["parameters"]
+    made = other_class(
+        described.route, "Rectangular", described.to_dict()["build"], parameters
+    )
+    titles = [section.title for section in made.sections]
+    assert titles[:2] == ["Geometry", "Medium"]
+    shown = {row.path for section in made.sections for row in section.fields}
+    assert {"gas", "pressure", "energy"} <= shown
+    assert "rtol" not in shown
+    assert [page.key for page in made.pages] == ["overview", "plane", "along", "health"]
+    assert class_of(described.route, described.to_dict()["build"]) is None
+    assert other_class("free", "Free", {}).sections == ()

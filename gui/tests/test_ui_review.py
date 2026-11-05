@@ -4,43 +4,14 @@
 
 """The second review's details: a failed run's dialog, a route's words, cross-hairs."""
 
-from pathlib import Path
-
 import numpy as np
 import pyqtgraph as pg
-from PySide6.QtWidgets import QMessageBox
 from pytestqt.qtbot import QtBot
 
 from solprop_gui.registry.pages import PAGES
-from solprop_gui.service.messages import Event
-from solprop_gui.service.states import ExecutionState
-from solprop_gui.ui.main_window import MainWindow
 from solprop_gui.ui.pages import ParameterPage
 from solprop_gui.views.plotting import HoverLayout, curve_lookup, figure_spec
 from test_ui import private_settings  # noqa: F401 - a fixture
-
-
-def test_a_failed_run_says_why_in_a_dialog(qtbot: QtBot, tmp_path: Path):
-    window = MainWindow(workspace=tmp_path / "runs")
-    qtbot.addWidget(window)
-    panel = window.run_panel
-    reported: list[tuple[str, str, str]] = []
-    panel.report = lambda *args: reported.append(args)
-    panel.run_id = "r1"
-    panel.folder = tmp_path / "r1"
-    panel.state = ExecutionState.RUNNING
-    message = (
-        "at z = 0.36 m the field puts 1e-4 of its energy in the guards: widen trange"
-    )
-    panel.on_event(Event("r1", "failed", {"message": message, "detail": "Traceback"}))
-    assert reported == [("The run r1 failed", message, "Traceback")]
-    assert "failed: at z = 0.36 m" in panel.state_label.text()
-    panel._report("The run failed", message, "Traceback")  # the dialog itself
-    box = panel.findChild(QMessageBox, "run-failed")
-    assert box is not None and box.text() == message
-    assert box.detailedText() == "Traceback"
-    box.close()
-    window.close()
 
 
 def test_a_free_space_route_words_the_geometry_step(qtbot: QtBot):

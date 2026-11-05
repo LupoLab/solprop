@@ -9,7 +9,7 @@ sheet's paths to its class's example recipe, each statistic to solprop's catalog
 each derived number to the kernel's summary.
 """
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Final
 
 from solprop_gui.classes.problem import (
@@ -27,9 +27,11 @@ __all__ = [
     "CLASSES",
     "FILAMENT",
     "GENERIC_PAGES",
+    "OTHER_KEY",
     "SOLID_CORE",
     "class_named",
     "class_of",
+    "other_class",
 ]
 
 _OVERVIEW = AnalysisPage("overview", "Overview", ("fields",))
@@ -308,6 +310,85 @@ CLASSES: Final = (CAPILLARY, FILAMENT, SOLID_CORE, ANTIRESONANT)
 
 GENERIC_PAGES: Final = (_OVERVIEW, _PLANE, _ALONG, _HEALTH)
 """The rail of a file whose route is no class's."""
+
+OTHER_KEY: Final = "other"
+"""The key of Other geometry's class, made for each route it holds."""
+
+_OTHER_SECTIONS: Final = (
+    ("Geometry", ("geometry",), False),
+    ("Medium", ("medium",), False),
+    ("Nonlinearity", ("nonlinear",), False),
+    ("Input", ("input",), False),
+    ("Grid", ("grid",), True),
+    ("Output", ("output",), True),
+)
+"""The generic form's sections: title, metadata groups and whether folded."""
+
+
+def other_class(
+    route: str,
+    title: str,
+    build: Mapping[str, object],
+    parameters: Sequence[Mapping[str, object]] = (),
+) -> ProblemClass:
+    """Return a route's class under Other geometry, its form from solprop's metadata.
+
+    A section holds the keywords of its groups that the recipe sets; the rest are under
+    Advanced, as on every sheet. With no metadata yet the form is empty.
+
+    Parameters
+    ----------
+    route : str
+        The route.
+    title : str
+        What to call it: the recipe's title, or the route's.
+    build : Mapping
+        The recipe's ``[build]`` table.
+    parameters : Sequence of Mapping, optional
+        The route's keywords, as the kernel describes them, each with its ``group``.
+
+    Returns
+    -------
+    ProblemClass
+        The class, with the generic pages and solprop's summary for its numbers.
+
+    Examples
+    --------
+    >>> keywords = [{"name": "width", "group": "geometry"},
+    ...             {"name": "rtol", "group": "numerics"},
+    ...             {"name": "length", "group": "geometry"}]
+    >>> made = other_class("free", "A beam", {"width": 1, "rtol": 1e-6}, keywords)
+    >>> [(s.title, [f.path for f in s.fields]) for s in made.sections]
+    [('Geometry', ['width'])]
+    >>> made.key, made.title
+    ('other', 'A beam')
+    >>> [page.key for page in other_class("planar", "P", {}).pages]
+    ['plane', 'along', 'health']
+    """
+    sections = []
+    for name, groups, folded in _OTHER_SECTIONS:
+        fields = tuple(
+            Field(str(entry["name"]))
+            for entry in parameters
+            if entry.get("group") in groups and entry.get("name") in build
+        )
+        if fields:
+            sections.append(Section(name, fields, folded=folded))
+    return ProblemClass(
+        key=OTHER_KEY,
+        title=title,
+        summary="Every other route, on the form solprop's metadata gives.",
+        route=route,
+        example="",
+        sections=tuple(sections),
+        derived=(
+            Derived("energy", "Energy", "J"),
+            Derived("peak_power", "Peak power", "W"),
+        ),
+        preview="",
+        # A hybrid planar run's planes are slab amplitudes, which no map reads yet.
+        pages=GENERIC_PAGES[1:] if route == "planar" else GENERIC_PAGES,
+    )
 
 
 def class_named(key: str) -> ProblemClass:

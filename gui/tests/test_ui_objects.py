@@ -9,11 +9,9 @@ from pathlib import Path
 
 from pytestqt.qtbot import QtBot
 
-from solprop_gui.model.recipe import MISSING, RecipeModel
+from solprop_gui.model.recipe import MISSING
 from solprop_gui.ui.fields import ParameterRow
-from solprop_gui.ui.main_window import MainWindow
 from solprop_gui.ui.objects import ObjectField, ObjectListField
-from test_design import SLAB
 from test_ui import WAIT_MS, leave, private_settings, shot  # noqa: F401 - a fixture
 
 
@@ -123,56 +121,6 @@ def test_a_row_offers_its_types_and_falls_back_to_text(qtbot: QtBot):
     assert "per metre of y" in single.label.text()
     single.set_per_width(False)
     assert single.label.text() == "Tube lattice"
-
-
-def _route(window: MainWindow, route: str) -> bool:
-    model = window.model
-    return model is not None and model.route == route and window._built_route == route
-
-
-def test_the_guided_cards_start_from_solprop_s_examples(qtbot: QtBot, tmp_path: Path):
-    window = MainWindow(workspace=tmp_path / "workspace")
-    qtbot.addWidget(window)
-    window.show()
-    window.confirm = lambda _title, _text: "discard"
-
-    # The waveguide: its mode edited in its own rows.
-    window.new_from_card("rectangular")
-    qtbot.waitUntil(lambda: _route(window, "waveguide"), timeout=WAIT_MS)
-    modes = window.pages["geometry"].rows["modes", "build"]
-    assert modes.stack.currentWidget() is modes.objects
-    rect = modes.objects.items[0].current()
-    assert rect.name == "RectMode"
-    leave(rect.rows["half_width_y"].number.number, "60")  # pyright: ignore[reportAttributeAccessIssue]
-    assert window.model is not None
-    assert window.model.get("modes")[0]["half_width_y"] == "60 um"  # pyright: ignore[reportIndexIssue]
-    window.undo.undo()
-    assert window.model.get("modes")[0]["half_width_y"] == "50 um"  # pyright: ignore[reportIndexIssue]
-    window.show_step("geometry")
-    shot(window, tmp_path, "waveguide")
-
-    # A slab set: the energy is per metre of y.
-    window.set_model(RecipeModel(SLAB), base=None)
-    energy = window.pages["input"].rows["energy", "build"]
-    qtbot.waitUntil(lambda: "per metre" in energy.label.text(), timeout=WAIT_MS)
-    qtbot.waitUntil(lambda: "µJ/m" in window.summary.text(), timeout=WAIT_MS)
-
-    # The antiresonant fibre: its lattice is a table of its own.
-    window.new_from_card("antiresonant")
-    qtbot.waitUntil(
-        lambda: window.model is not None and window.model.get("lattice") is not MISSING,
-        timeout=WAIT_MS,
-    )
-    lattice = window.pages["geometry"].rows["lattice", "build"]
-    assert lattice.stack.currentWidget() is lattice.object
-    assert lattice.object.current().name == "TubeLattice"
-
-    # The GNLSE fibre.
-    window.new_from_card("gnlse")
-    qtbot.waitUntil(lambda: _route(window, "gnlse"), timeout=WAIT_MS)
-    window.new_from_card("capillary-averaged")  # a blank card, as before
-    qtbot.waitUntil(lambda: _route(window, "capillary"), timeout=WAIT_MS)
-    window.close()
 
 
 def test_the_taylor_coefficients_are_one_row_per_order(qtbot: QtBot):
