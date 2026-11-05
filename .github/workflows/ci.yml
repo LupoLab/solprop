@@ -710,6 +710,9 @@ jobs:
       - run: uv sync --locked --no-install-package solprop-native --extra gui --group gui-test
       - run: uv pip install --no-deps wheelhouse/*.whl
         shell: bash
+      - run: >-
+          uv run --no-sync python -c "from solprop.backends.registry import resolve_name;
+          assert resolve_name() == 'native', resolve_name()"
       - run: uv run --no-sync poe check-gui
 
   # The one check the main branch's ruleset requires. Which lanes run depends on what a
