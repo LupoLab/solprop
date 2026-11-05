@@ -287,6 +287,11 @@ $e^2$ gives the radius; twice the half-maximum radius gives FWHM. Empty,
 hollow (axis below the threshold) and uncrossed profiles follow the catalogue's NaN
 convention; the thresholds are fractions of the peak of the circular averages.
 
+The two kinds of width differ on a noncircular beam. An elliptical Gaussian with $1/e^2$ radii
+$w_x$ and $w_y$ has second-moment radius $\sqrt{(w_x^2+w_y^2)/2}$, while its circularly averaged
+$1/e^2$ radius stays near $\sqrt{w_xw_y}$. For $w_x=1$ mm and $w_y=4$ mm they read 2.92 mm and
+1.96 mm, so neither scalar describes the ellipse alone.
+
 For a smooth continuum fluence, bilinear interpolation contributes at most
 $(\Delta x^2\sup|F_{xx}|+\Delta y^2\sup|F_{yy}|)/8$. The periodic trapezoid
 contributes at most $\Delta\theta^2\sup|\partial_\theta^2F|/12$ to the angular
