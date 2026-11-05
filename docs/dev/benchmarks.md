@@ -2249,8 +2249,9 @@ the point with the check takes 14.2 s against 3.9 s without on the H200 (49.8 s 
 the MI325X. The NVIDIA A40 sees less (PCIe Gen 4): 183 → 147 ms at 384 x 384.
 
 A kept plane's conversion and its finiteness check take threads too, above `PARALLEL_BYTES`, and a plane converts straight
-into the store's block rather than through a copy. A run that keeps no field allocates no ring: `memory_ledger`'s
-`host_crossing_ring` stays zero, which a device test holds.
+into the store's block rather than through a copy. A state under `ring_threshold`, 256 MiB, takes no ring, and
+`memory_ledger`'s `host_crossing_ring` stays zero, which a device test holds. A larger state's load allocates it, even in a run
+that keeps no field: 64 MiB of pinned host memory per host thread, 1.5 GiB on 24.
 
 On a CPU a crossing is a plain copy and takes no ring. `python -m benchmarks ab` against `main`, with the previous entry, on an Intel
 Xeon Gold 6240 (18 cores of one socket, passive threads, three rounds of one repeat, a shared machine): `kerr_beam_192` 0.976
