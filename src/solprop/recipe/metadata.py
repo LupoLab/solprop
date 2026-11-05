@@ -1550,15 +1550,6 @@ def _waveguide() -> tuple[Parameter, ...]:
             "guide/setup/polarisation.md",
         ),
         Parameter(
-            "memory_budget",
-            (Form("integer", minimum=0), Form("string")),
-            "numerics",
-            "advanced",
-            "Memory a provider's tables are admitted against at build, in bytes or "
-            "as a size.",
-            "guide/performance/resources.md#memory",
-        ),
-        Parameter(
             "step_planes",
             (Form("integer", minimum=0),),
             "output",
@@ -1706,15 +1697,6 @@ _EXECUTION: Final = (
         "advanced",
         "Keep the Adams method's history at each plane, for an exact resume.",
         "guide/results/output.md",
-    ),
-    Parameter(
-        "memory_budget",
-        (Form("integer", minimum=0), Form("string"), _NONE),
-        "numerics",
-        "advanced",
-        "Memory the run may hold, in bytes or as a size such as '8 GiB'.",
-        "guide/performance/resources.md",
-        none=True,
     ),
 )
 """The ``[execution]`` table's keys: settings a run reads when it executes."""
@@ -2797,6 +2779,13 @@ _ENTRIES: Final[dict[str, tuple[Parameter, ...]]] = {
             _TYPE_BOOLEAN,
             "advanced",
             "Whether the collar absorbs in time; off is a spectral-only collar.",
+        ),
+        _keyword(
+            "walkoff",
+            _TYPE_DURATION,
+            "advanced",
+            "Group-delay drift the temporal collar must stop, over the grid's length.",
+            display="fs",
         ),
     ),
     "TubeLattice": _type(

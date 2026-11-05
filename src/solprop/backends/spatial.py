@@ -245,7 +245,7 @@ class FarFieldLayout:
     """Where each quantity of a compiled far-field pass lives in its slots.
 
     The slot order of SEP 23 section 6, present slots only: the beam spectrum, the
-    four absorbed-power channels, the regions, then per aperture its collected
+    five absorbed-power channels, the regions, then per aperture its collected
     spectrum and its on-axis amplitude, then the on-axis amplitude itself (the
     ``W = 1`` slot). An amplitude is the real and imaginary parts per polarisation of
     the electric sum ``sum_c alpha_c W E_c``, then those of its magnetic closure

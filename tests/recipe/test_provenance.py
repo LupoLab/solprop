@@ -203,13 +203,11 @@ def test_a_run_records_both_texts_once_and_a_resume_leaves_them(tmp_path):
     assert first is not None
     assert first.authored == recipe.to_text()
     assert _hash(Recipe.loads(first.resolved).build()) == stamp
-    # A later session, here from an edited recipe that changes only the numerics, is
-    # its own record's business: the first recipe stays.
-    edited = Recipe.example("soliton")
-    edited.set("rtol", 1e-8)
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", SolpropWarning)
-        edited.run(path, resume=True, progress="none")
+    # A later session, here from a recipe edited outside the resume key, is its own
+    # record's business: the first recipe stays.
+    edited = _soliton_with_execution({"resume_history": False})
+    assert edited.to_text() != recipe.to_text()
+    edited.run(path, resume=True, progress="none")
     with open_file(path) as handler:
         assert handler.recipe == first
         assert handler.outcome is not None and handler.outcome.status == "complete"

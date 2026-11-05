@@ -26,7 +26,6 @@ from solprop.driver._launch import _resolve_launch, launch_pulse
 from solprop.exceptions import DriverError, OutputError
 from solprop.modes import MarcatiliMode
 from solprop.modes.collection import ModeCollection
-from solprop.output.compatibility import neutral_value
 from solprop.pulses import GaussianPulse, PulseSum, SpatialPulse
 from solprop.stats import energy, physical_energy
 from solprop.translate.coupled import metric_at
@@ -399,22 +398,18 @@ def test_on_a_declared_basis_the_flux_metric_energy_is_the_pulse_s(
 # --------------------------------------------------------------- the record
 
 
-def test_the_record_is_compared_and_absent_reads_as_no_launch():
-    found, value = neutral_value(("configuration", "modal_launch"))
-    assert found and value is None
+def test_the_record_holds_the_launch():
     default = capillary().metadata()
     one = capillary(launch={"HE1,1": 0.9, "HE1,2": 0.1}).metadata()
     other = capillary(launch={"HE1,1": 0.5, "HE1,2": 0.5}).metadata()
-    path = ("configuration", "modal_launch")
-    assert one.compare(capillary(launch={"HE1,1": 9, "HE1,2": 1}).metadata()).continues
+    scaled = capillary(launch={"HE1,1": 9, "HE1,2": 1}).metadata()
+    assert one.configuration_hash() == scaled.configuration_hash()
     for stored, requested in ((one, other), (default, one), (one, default)):
-        comparison = stored.compare(requested)
-        assert not comparison.continues
-        assert any(change.path[:2] == path for change in comparison.refused), (
-            comparison.summary()
+        assert stored.configuration_hash() != requested.configuration_hash()
+        assert any(
+            path.startswith("configuration.modal_launch")
+            for path in stored.differences(requested)
         )
-        assert not comparison.layout
-    assert path in default.compare(one).neutral
 
 
 def test_a_file_written_with_one_launch_refuses_another(tmp_path):

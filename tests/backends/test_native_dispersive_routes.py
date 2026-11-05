@@ -14,8 +14,7 @@ grids where the route has both; a lone response and one beside Raman; a mixture;
 general modal guide with a gas region beside a constant solid one; partial chunks; a
 coupled wall flow on the fused path, which slice 3a's native code still refused. Then
 what is the backend's own: repeatability, the thread count, the path the response
-takes and the memory ledger, which ``solprop.backends.memory.dispersive_memory``
-predicts to the byte.
+takes and the memory ledger.
 
 **The bounds are derived in ``dispersive_route_cases.py``** (its ``evaluation_bound``)
 from the transforms and node reductions of a compiled evaluation and counted for the
@@ -57,10 +56,10 @@ from backends.dispersive_route_cases import (
 from backends.dispersive_route_cases import (
     evaluation_bound as cpu_evaluation_bound,
 )
+from backends.forced_threads import assert_threaded
 from backends.matched import fixed_order, native_thread_fields
 from bounds import assert_within, dispersive_device_bound, step_evaluations
 from modal_provider_cases import GENERAL_Z_END
-from solprop.backends.memory import dispersive_memory
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.driver import prop_capillary
 from solprop.modes import CoherentWall
@@ -511,6 +510,7 @@ def test_one_thread_and_four_agree(tmp_path):
     ]
     one = native_thread_fields(PROBE, 1, names, tmp_path)
     four = native_thread_fields(PROBE, 4, names, tmp_path)
+    assert_threaded(four["sizing"], 4, "kernels.stage", "kernels.response", "fft.fft")
     for name in names:
         problem, _ = route_case(*name.split(":"))
         bound = window_bound(fixed_order(problem))
@@ -566,24 +566,6 @@ def ledger_cases() -> dict[str, tuple[KernelProblem, Any]]:
 
 
 LEDGER_CASES = ledger_cases()
-
-
-@pytest.mark.parametrize("case", sorted(LEDGER_CASES))
-def test_the_estimate_is_the_ledger_to_the_byte(case):
-    """``dispersive_memory`` predicts every row the native response holds.
-
-    The rows of :mod:`solprop.backends.memory`'s ``base`` group, one per buffer; the
-    multipliers, the per-stage scratch and the plans are named among what it does not
-    count.
-    """
-    problem, grid = LEDGER_CASES[case]
-    rows = dispersive_memory(problem, "native")
-    ledger = ledger_of(problem, grid)
-    assert rows
-    for row, size in rows.items():
-        assert ledger[row] == size, row
-    for row in set(DISPERSIVE_ROWS) - set(rows) - {"dispersive_multipliers"}:
-        assert ledger[row] == 0, row
 
 
 def test_a_lone_symmetric_free_response_holds_no_field():

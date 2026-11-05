@@ -27,7 +27,6 @@ from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.protocol import BackendHistory, Observation
 from solprop.backends.registry import available, select
 from solprop.driver import Simulation, SimulationSettings
-from solprop.driver.memory import admit_memory, field_bytes, plane_bytes
 from solprop.driver.run import field_retention, run_problem
 from solprop.exceptions import BackendError, ConvergenceError, DriverError
 from solprop.grid import EnvelopeGrid, FreeGrid
@@ -431,25 +430,6 @@ def test_an_output_that_cannot_store_field_free_planes_is_refused():
         backend.close()
 
 
-def test_the_memory_admission_charges_only_the_kept_fields():
-    simulation = cartesian("numpy_ref")
-    problem = simulation.translate()
-    n_planes = len(PLANES) + 1
-    groups = {}
-    for fields, field_planes in RULES:
-        retention = FieldRetention(fields, field_planes).resolved(n_planes)
-        admission = admit_memory(
-            problem, "numpy_ref", "none", output=MemoryOutput(), retention=retention
-        )
-        groups[fields] = admission.estimate.groups["output"]
-    per_plane, field = plane_bytes(problem), field_bytes(problem)
-    # Exact arithmetic of the store's allocation: the statistics of every plane, the
-    # field of the kept ones.
-    assert groups["all"] == n_planes * per_plane
-    assert groups["planes"] == n_planes * (per_plane - field) + 2 * field
-    assert groups["none"] == n_planes * (per_plane - field)
-
-
 # --- the seam: observe(field=False) (SEP 22 phase 2) --------------------------------
 
 
@@ -549,32 +529,6 @@ def test_a_lockstep_batch_still_refuses_a_shared_observation():
 
     with pytest.raises(BackendError, match="observe_members"):
         LockstepRunner.observe(object.__new__(LockstepRunner), field=False)
-
-
-def test_the_low_storage_march_holds_its_field_free_plane_with_its_noise_phase():
-    simulation = cartesian("numpy_ref", noise=True)
-    simulation.settings = dataclasses.replace(
-        simulation.settings, integrator=LowStorageRungeKutta()
-    )
-    problem = simulation.translate()
-    backend = NumpyRefBackend(problem, grid=simulation.grid)
-    try:
-        backend.set_initial(problem.initial.field0, None)
-        assert backend.held_observation() is None
-        backend.propagate_to(float(PLANES[0]))
-        assert backend.observe(field=False).field is None
-        held = backend.held_observation()
-        assert held is not None and held.z == float(PLANES[0])
-        observed = backend.observe()
-        # The held state is a copy of the state there (exact), its noise phase the
-        # same evaluation; a kept plane then releases it.
-        assert np.array_equal(held.require_field(), observed.require_field())
-        assert held.noise_phase is not None and observed.noise_phase is not None
-        assert np.array_equal(held.noise_phase, observed.noise_phase)
-        assert held.step_history.n_steps == 0
-        assert backend.held_observation() is None
-    finally:
-        backend.close()
 
 
 def test_a_lockstep_split_refuses_a_field_free_observation():

@@ -10,6 +10,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from backends.forced_threads import assert_threaded
 from backends.host_cases_envelope_plasma import build_envelope_mixture, geometry_case
 from backends.matched import native_thread_fields
 from bounds import assert_within, device_backend
@@ -80,6 +81,9 @@ def test_host_sources_are_repeatable_and_thread_invariant(tmp_path, envelope_mix
     original, *others = [
         native_thread_fields(PROBE, threads, names, tmp_path) for threads in (1, 1, 4)
     ]
+    assert_threaded(
+        others[1]["sizing"], 4, "kernels.stage", "kernels.response", "fft.fft"
+    )
     bound = 128 * grid.n_to * 7 * 2 * np.finfo(float).eps
     for threads, repeated in zip((1, 4), others, strict=True):
         assert repeated["met_tolerance"] and int(repeated["steps"]) == 2

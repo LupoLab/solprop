@@ -23,11 +23,11 @@ import numpy as np
 from solprop.driver._scan_model import Scan
 from solprop.exceptions import OutputError, ProcessingError
 from solprop.output._scan_lock import read_scan, write_scan
-from solprop.output.compatibility import RecordComparison
 from solprop.output.hdf5 import _dataset, _group, write_recipe
 from solprop.output.schema import (
     RecipeRecord,
     RunMetadata,
+    _inlined,
     _refuse_schema,
     serialise,
 )
@@ -40,6 +40,10 @@ __all__ = ["PointResult", "ScanWriter", "grid_values", "read_point", "validate_r
 def _json(value: object) -> str:
     """Encode metadata using the single-run JSON representation.
 
+    The text stands alone, so that a Queue's manifest can rebuild the scan from it: an
+    array keeps its values here, whatever its size. A run record's arrays go beside its
+    text instead, through :attr:`PointResult.metadata_arrays`.
+
     Parameters
     ----------
     value : object
@@ -50,7 +54,7 @@ def _json(value: object) -> str:
     str
         Canonical JSON text.
     """
-    return json.dumps(serialise(value), sort_keys=True, separators=(",", ":"))
+    return json.dumps(_inlined(serialise(value)), sort_keys=True, separators=(",", ":"))
 
 
 def _hash(text: str) -> str:
@@ -67,6 +71,10 @@ def _hash(text: str) -> str:
         Hexadecimal SHA-256 digest.
     """
     return hashlib.sha256(text.encode()).hexdigest()
+
+
+_RECORD_ARRAYS = "record_arrays"
+"""The group of the points' record arrays, named by digest, dtype and shape."""
 
 
 def _write_array(group: h5py.Group, name: str, values: np.ndarray) -> None:
@@ -111,6 +119,9 @@ class PointResult:
         Single-run configuration digest, empty if construction failed.
     metadata_json : str
         Complete run metadata, empty if construction failed.
+    metadata_arrays : dict
+        The arrays the metadata names
+        (:meth:`solprop.output.schema.RunMetadata.record_arrays`).
     arrays : dict
         Named retained fields, statistics and reduction arrays.
     reductions : dict
@@ -140,6 +151,7 @@ class PointResult:
     n_steps: int = 0
     n_rejected: int = 0
     boundary_monitor: Mapping[str, object] | None = None
+    metadata_arrays: Mapping[str, np.ndarray] = field(default_factory=dict)
 
 
 def _validate_metadata(result: PointResult) -> None:
@@ -156,7 +168,9 @@ def _validate_metadata(result: PointResult) -> None:
     if not isinstance(document, dict) or "grid" not in document:
         raise OutputError("completed result requires run metadata")
     if (
-        RunMetadata.from_json(result.metadata_json).configuration_hash()
+        RunMetadata.from_json(
+            result.metadata_json, result.metadata_arrays
+        ).configuration_hash()
         != result.configuration_hash
     ):
         raise OutputError("result metadata does not match its configuration hash")
@@ -399,22 +413,11 @@ class ScanWriter:
         Raises
         ------
         OutputError
-            If a cached configuration differs in more than rounding, neutral values
-            and provenance, a completed point would be demoted, or numerical results
-            are not finite.
+            If a cached configuration differs, a completed point would be demoted, or
+            numerical results are not finite.
         """
         if result.status == "conflict":
-            comparison = self._comparison(result)
-            if comparison is not None and comparison.identical:
-                # A finished point whose record differs only in rounding, neutral
-                # values or provenance is the same point (SEP 42 section 5.7).
-                logger.info(
-                    "point %d: its stored record agrees with the new one but for "
-                    "rounding, neutral values or provenance; reused",
-                    result.index,
-                )
-                return
-            raise OutputError(self._conflict(result, comparison))
+            raise OutputError(self._conflict(result))
         if result.status == "skipped":
             return
         if result.status not in ("done", "failed"):
@@ -455,8 +458,8 @@ class ScanWriter:
         _dataset(file, "points/status")[result.index] = result.status
         file.flush()
 
-    def _comparison(self, result: PointResult) -> RecordComparison | None:
-        """Compare a conflicting point's stored record with its new one.
+    def _conflict(self, result: PointResult) -> str:
+        """Explain a refused reuse by what changed in the run record.
 
         Parameters
         ----------
@@ -465,40 +468,23 @@ class ScanWriter:
 
         Returns
         -------
-        solprop.output.compatibility.RecordComparison or None
-            The comparison, or ``None`` when either record is missing.
+        str
+            The worker's explanation, followed by what changed when both records can
+            be read: a scan with a changed record, a tolerance among it, writes to a
+            new file.
         """
         key = f"staged/{result.index}"
         if not result.metadata_json or key not in self.file:
-            return None
+            return result.error
         document = _expand(
             self.file, json.loads(str(_group(self.file, key).attrs["metadata_refs"]))
         )
-        stored = RunMetadata.from_json(json.dumps(document))
-        return stored.compare(RunMetadata.from_json(result.metadata_json))
-
-    def _conflict(
-        self, result: PointResult, comparison: RecordComparison | None
-    ) -> str:
-        """Explain a refused reuse by what changed in the run record.
-
-        Parameters
-        ----------
-        result : PointResult
-            The conflict a worker reported.
-        comparison : solprop.output.compatibility.RecordComparison or None
-            The comparison of its stored and new records, when both could be read.
-
-        Returns
-        -------
-        str
-            The worker's explanation, followed by what changed, by class: a changed
-            tolerance among it, since a finished point has nothing left to continue
-            and a scan with changed numerics writes to a new file.
-        """
-        if comparison is None:
-            return result.error
-        return f"{result.error}; {comparison.summary()}"
+        held = self.file.get(_RECORD_ARRAYS)
+        stored = RunMetadata.from_json(
+            json.dumps(document), held if isinstance(held, h5py.Group) else None
+        )
+        new = RunMetadata.from_json(result.metadata_json, result.metadata_arrays)
+        return f"{result.error}; {stored.summarise_differences(new)}"
 
     def _stage(self, result: PointResult) -> None:
         """Write recoverable point arrays and references to common metadata.
@@ -520,6 +506,9 @@ class ScanWriter:
                 versions.get("solprop", "unknown")
             )
         references = self._common_record(document)
+        for name, array in result.metadata_arrays.items():
+            if f"{_RECORD_ARRAYS}/{name}" not in file:
+                file.create_dataset(f"{_RECORD_ARRAYS}/{name}", data=array)
         noise = document.get("noise")
         _dataset(file, "points/noise_seed")[result.index] = str(
             noise.get("seed") if isinstance(noise, dict) else None
@@ -589,7 +578,11 @@ class ScanWriter:
         object
             Reference tree with leaves stored once.
         """
-        if isinstance(document, dict) and "__ndarray__" not in document:
+        if (
+            isinstance(document, dict)
+            and "__ndarray__" not in document
+            and "__record_array__" not in document
+        ):
             return {key: self._common_record(value) for key, value in document.items()}
         text = _json(document)
         digest = _hash(text)

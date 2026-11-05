@@ -107,6 +107,9 @@ def geometry_case(envelope_mixture, geometry, n_pol):
 # was given are not array names: only a subprocess run saves the arrays.
 
 if __name__ == "__main__":
+    from backends.forced_threads import record_sizing
+
+    record_sizing(sys.argv[1])
     solprop_native = importlib.import_module("solprop_native")
     problem, grid = geometry_case(build_envelope_mixture(), "free", 2)
     backend = solprop_native.NativeBackend(problem, grid=grid)

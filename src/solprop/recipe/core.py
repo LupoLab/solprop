@@ -81,6 +81,9 @@ medium, responses, beam and settings.
 _EXAMPLES: Final = "examples"
 """The package directory that holds the example recipes."""
 
+_SCAN_EXECUTION: Final = ("fields", "field_planes")
+"""The ``[execution]`` keys ``run_scan`` takes, rather than each point's settings."""
+
 
 @dataclass(frozen=True)
 class RecipeIssue:
@@ -680,11 +683,8 @@ class Recipe:
         ):
             simulation = builder(**self.keywords(grid=simulation._base_grid))
         execution = self._execution()
-        changes = {
-            name: value for name, value in execution.items() if name != "memory_budget"
-        }
-        if changes:
-            simulation.settings = dataclasses.replace(simulation.settings, **changes)
+        if execution:
+            simulation.settings = dataclasses.replace(simulation.settings, **execution)
         # The simulation carries its recipe, which its first run records (S2).
         simulation._recipe = self
         return simulation
@@ -940,7 +940,7 @@ class Recipe:
         Returns
         -------
         dict
-            The values, ``"none"`` read as ``None`` for ``memory_budget``.
+            The values, ``"none"`` read as ``None`` where a keyword takes it.
         """
         table = parameters("execution")
         out: dict[str, object] = {}
@@ -968,37 +968,14 @@ class Recipe:
             takes it; ``None`` keeps the run in memory.
         **run_keywords : object
             Further keywords of :meth:`~solprop.driver.simulation.Simulation.run`,
-            such as ``progress`` or ``resume``. ``memory_budget`` comes from the
-            recipe's ``[execution]`` table unless given here.
+            such as ``progress`` or ``resume``.
 
         Returns
         -------
         solprop.output.schema.Output
             The run's output.
         """
-        return self.build().run(output, **{**self.run_keywords(), **run_keywords})  # type: ignore[arg-type]
-
-    def run_keywords(self) -> dict[str, object]:
-        """Return the keywords of ``Simulation.run`` the ``[execution]`` table sets.
-
-        :meth:`run` is ``build().run(output, **run_keywords(), ...)``; a caller that
-        builds the simulation itself, to keep it while it runs, passes these.
-
-        Returns
-        -------
-        dict
-            ``memory_budget``, where the table gives it.
-
-        Examples
-        --------
-        >>> from solprop.recipe import Recipe
-        >>> Recipe.example("soliton").run_keywords()
-        {}
-        """
-        execution = self._execution()
-        if "memory_budget" in execution:
-            return {"memory_budget": execution["memory_budget"]}
-        return {}
+        return self.build().run(output, **run_keywords)  # type: ignore[arg-type]
 
     # ------------------------------------------------------------------ scanning
 
@@ -1052,13 +1029,20 @@ class Recipe:
         for path, values in table.items():
             scan.add(path, cast("ArrayLike", self._axis(path, values)))
         document = self.to_dict()
-        execution = document.pop("execution", {})
         document.pop("scan", None)
+        # What `run_scan` takes is its own, and a builder that sets it is refused; the
+        # rest of the table is the points', which the builder's document keeps.
+        execution = dict(document.pop("execution", {}))
         keywords: dict[str, object] = {
             key: tuple(value) if isinstance(value, list) else value
             for key, value in execution.items()
-            if key in ("fields", "field_planes")
+            if key in _SCAN_EXECUTION
         }
+        kept = {
+            key: value for key, value in execution.items() if key not in _SCAN_EXECUTION
+        }
+        if kept:
+            document["execution"] = kept
         builder = RecipeBuilder(
             dump_text(document),
             None if self._base is None else str(self._base),
@@ -1468,9 +1452,8 @@ def _pick(pin: "Pin", roots: "DesignRoots") -> float:  # noqa: UP037 - TYPE_CHEC
 
 def resume_file(
     path: str | Path,
-    mode: bool | Literal["interpolated", "force"] = True,
+    mode: bool | Literal["interpolated"] = True,
     *,
-    memory_budget: int | str | None = None,
     node_budget: int | None = None,
     progress: "ProgressReporter | ProgressChoice | None" = None,  # noqa: UP037
     stop: "StopFlag | None" = None,  # noqa: UP037 - checked at run time
@@ -1478,24 +1461,20 @@ def resume_file(
     """Continue a run from its output file alone, rebuilding it from its recipe.
 
     The simulation is rebuilt from the resolved recipe the file records (SEP 41, S2)
-    and run into the same file with ``resume=mode``, so the resume gate decides by its
-    comparison of the stored and rebuilt records, and records any difference as it
-    does for any resume (SEP 42). A file written from a script records no recipe; its
-    script resumes it.
+    and run into the same file with ``resume=mode``, so the resume gate decides by the
+    hashes of the stored and rebuilt records, as for any resume (ADR-066). A file
+    written from a script records no recipe; its script resumes it.
 
     Resuming a file runs the setup it holds. A file received from someone else does
-    not choose its own limits: the recipe's ``memory_budget`` and ``node_budget`` are
-    ignored, and the caller's apply, refusing by default rather than warning.
+    not choose its own limit: the recipe's ``node_budget`` is ignored, and the caller's
+    applies.
 
     Parameters
     ----------
     path : str or pathlib.Path
         The output file.
-    mode : bool or {'interpolated', 'force'}, optional
+    mode : bool or {'interpolated'}, optional
         As :meth:`~solprop.driver.simulation.Simulation.run`'s ``resume`` takes it.
-    memory_budget : int or str or None, optional
-        The run's memory budget; ``None`` takes the machine's default, four fifths of
-        its memory, as a refusal.
     node_budget : int or None, optional
         The node-buffer budget of a capillary run; ``None`` takes solprop's default.
     progress : object, optional
@@ -1514,24 +1493,17 @@ def resume_file(
     RecipeError
         If the file records no recipe, or one of a newer format.
     """
-    from solprop.driver.memory import resolve_memory_budget  # noqa: PLC0415 - layer D
-
     recipe = Recipe.from_output(path, resolved=True)
     document = recipe.to_dict()
     document["build"].pop("node_budget", None)
     if node_budget is not None:
         document["build"]["node_budget"] = node_budget
-    document.get("execution", {}).pop("memory_budget", None)
     rebuilt = Recipe(document)
     rebuilt._embedded = recipe._embedded
     rebuilt._filed = recipe._filed
-    if memory_budget is None:
-        default = resolve_memory_budget(None)
-        memory_budget = default.limit if default.limit is not None else "none"
     return rebuilt.build().run(
         Path(path),
         resume=mode,
-        memory_budget=memory_budget,
         progress=progress,
         stop=stop,
     )

@@ -20,21 +20,26 @@ from hypothesis import strategies as st
 from scipy import integrate, special
 
 from bounds import EPS, assert_within, gamma
+from solprop import fourier
 from solprop.constants import EPS0, C
 from solprop.exceptions import ApertureEdgeWarning, OutputError
 from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid, LineGrid, RadialGrid
 from solprop.modes import PlanarGrid, SlabMode
-from solprop.output.schema import SavedPlane
+from solprop.output.schema import SavedPlane, serialise
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import (
     EDGE_MOMENTS,
     ApertureTables,
     SpatialFlux,
     SpatialMedium,
+    aperture_outline,
     aperture_profile,
     aperture_scale,
     aperture_statistics,
     check_aperture_profile,
+    check_aperture_shape,
+    edge_profile,
+    mask_plane_offsets,
     mask_plane_radius,
     quadrature_half_width,
 )
@@ -287,15 +292,20 @@ def test_tables_validate_their_shapes_and_derived_constants():
         "distances": np.ones(1),
         "scale": np.ones((1, 3)),
     }
-    tables = ApertureTables(**shared, profile="tanh", exponent=1)
+    tables = ApertureTables(**shared, profiles=("tanh",), exponent=1)
     assert (tables.n_columns, tables.n_apertures, tables.n_regions) == (2, 1, 0)
-    assert tables.profile_code == 1
+    assert tables.profile_codes.tolist() == [1.0]
+    assert tables.shape_codes.tolist() == [0.0]
     assert tables.inverse_widths.tolist() == [4.0]
     assert ApertureTables(**shared).inverse_widths.tolist() == [0.0]
     with pytest.raises(OutputError, match="disagree in shape"):
         ApertureTables(**{**shared, "weights": np.ones(3)})
     with pytest.raises(OutputError, match="exponent of 1 or 2"):
         ApertureTables(**shared, exponent=3)
+    with pytest.raises(OutputError, match="one profile and one shape per aperture"):
+        ApertureTables(**shared, profiles=("hard", "hard"))
+    with pytest.raises(OutputError, match="one profile and one shape per aperture"):
+        ApertureTables(**shared, shapes=("circle", "ellipse"))
 
 
 # ------------------------------------------------------ item 3: every weight is one
@@ -639,7 +649,7 @@ def test_quadrature_weighting_collects_the_hard_area():
                 "scale",
             )
         },
-        profile="tanh",
+        profiles=("tanh",),
         exponent=1,
     )
     # The profile used once at D, without the correction, collects pi sigma^2 more.
@@ -836,6 +846,7 @@ def apertures(**changes):
         ({"distances": [np.nan]}, "distances must be finite"),
         ({"centres": np.array([["a", "b"]], dtype=object)}, "must be numeric"),
         ({"diameters": [-1e-3]}, "positive"),
+        ({"distances": [-0.25]}, "positive"),
         ({"profile": "hard"}, "silently unused"),
         ({"edges": None}, "needs edges"),
         ({"edges": [3e-4]}, "D/4"),
@@ -989,3 +1000,735 @@ def test_the_pass_refuses_what_its_tables_cannot_answer(grid):
     assert_within(
         chunked["beam_spectrum"], whole["beam_spectrum"], gamma(2 * space.n_columns)
     )
+
+
+# ------------------------------------------------ shapes: a mask's outline (#186, #446)
+
+
+SHAPE_SPACE = (6e-3, 32, 5e-3, 24)
+"""A plane whose column images lie 1e-5 to 3.4e-5 m apart in the mask plane, by bin."""
+
+
+def shape_field(space, grid, *, seed=7):
+    """A spectrum with content in every column and bin, of no special symmetry."""
+    rng = np.random.default_rng(seed)
+    shape = (space.n_columns, 1, grid.n_omega)
+    return rng.standard_normal(shape) + 1j * rng.standard_normal(shape)
+
+
+def column_density(grid, space, field):
+    """Each column's measured spectral energy density, formed independently of a pass.
+
+    ``eps0 c / 2 w_c eta sd(E)``, in J/(rad/s), shape ``(n_columns, n_omega)``.
+    """
+    density = np.sum(fourier.spectral_density(field, grid.dt, kind=grid.kind), axis=1)
+    weights = np.asarray(space.spectral_weights)[:, None]
+    return 0.5 * EPS0 * C * weights * obliquity(grid, space) * density
+
+
+def physical_images(grid, space):
+    """Each column's mask-plane image from the map ``x = z c kappa / omega`` itself.
+
+    The stored axes are the negated physical wavevector (SEP 23 section 4.1).
+    """
+    columns = np.arange(space.n_columns)
+    scale = (DISTANCE * C / grid.omega)[None, :]
+    kappa_x = -space.k_x[columns % space.n_x][:, None]
+    kappa_y = -space.k_y[columns // space.n_x][:, None]
+    return scale * kappa_x, scale * kappa_y
+
+
+def within_disc(grid, space):
+    """Which columns reach the mask plane: an image inside the paraxial disc."""
+    x, y = physical_images(grid, space)
+    return np.sqrt(x * x + y * y) < DISTANCE
+
+
+def set_of(shapes, centres, *, extents=None, **options):
+    count = len(shapes)
+    return ApertureSet(
+        centres=centres,
+        diameters=[0.0] * count,
+        distances=[DISTANCE] * count,
+        shapes=shapes,
+        extents=extents,
+        **options,
+    )
+
+
+def collected(apertures, grid, space, field, *, medium=None):
+    spec = StatsSpec(names=("aperture_spectrum", "beam_spectrum"), apertures=apertures)
+    flux = SpatialFlux.resolve(
+        grid, space, SpatialMedium() if medium is None else medium
+    )
+    values = collect(spec, grid, plane(field), flux=flux)
+    return values["aperture_spectrum"], values["beam_spectrum"]
+
+
+def test_the_stored_axes_map_as_the_half_planes_name_says():
+    # x = s kappa with stored k = -kappa, so a beam towards +x has X - x = s k + X < 0.
+    scale, stored = np.array([2.0]), np.array([-3.0])
+    across, along = mask_plane_offsets(scale, stored, np.zeros(1), (1.0, 0.0))
+    assert across.tolist() == [[-5.0]] and along.tolist() == [[0.0]]
+    outline = aperture_outline("half_plane_x_ge", 0.0, (0.0, 0.0), 0.0, "hard")
+    assert outline.weight(across, along).tolist() == [[1.0]]
+
+
+def test_a_half_plane_at_zero_is_the_region_half_plane_within_the_disc(grid):
+    # On this fine grid some columns lie beyond omega/c. In vacuum they carry no flux,
+    # so the two statistics sum the same terms on every column.
+    space = FreeGrid(1.5e-6, 12, 1.25e-6, 10, collar_fraction=0.1)
+    assert not np.all(within_disc(grid, space))
+    field = shape_field(space, grid)
+    spec = StatsSpec(
+        names=("aperture_spectrum", "region_spectrum"),
+        apertures=set_of(("half_plane_x_ge",), [[0.0, 0.0]]),
+        spectral_regions=np.array([[0.0, np.inf, -np.inf, np.inf]]),
+    )
+    values = far_field(spec, grid, space, field)
+    assert np.max(values["aperture_spectrum"]) > 0
+    # The same terms in the same order, each column's membership exact: identical.
+    np.testing.assert_array_equal(
+        values["aperture_spectrum"], values["region_spectrum"]
+    )
+
+
+def test_a_half_plane_stops_at_the_disc_where_a_region_does_not(grid):
+    # In a medium, columns beyond omega/c still propagate, but cannot leave the exit
+    # face (SEP 23 section 4.2): the half-plane collects none and the region all.
+    space = FreeGrid(1.5e-6, 12, 1.25e-6, 10, collar_fraction=0.1)
+    medium = SpatialMedium(1.5)
+    field = shape_field(space, grid)
+    spec = StatsSpec(
+        names=("aperture_spectrum", "region_spectrum"),
+        apertures=set_of(("half_plane_x_ge",), [[0.0, 0.0]]),
+        spectral_regions=np.array([[0.0, np.inf, -np.inf, np.inf]]),
+    )
+    flux = SpatialFlux.resolve(grid, space, medium)
+    values = collect(spec, grid, plane(field), flux=flux)
+    columns = np.arange(space.n_columns)
+    admittance = np.real(flux.admittance(slice(None)))
+    density = np.sum(fourier.spectral_density(field, grid.dt, kind=grid.kind), axis=1)
+    terms = (
+        0.5 * EPS0 * C * np.asarray(space.spectral_weights)[:, None] * admittance
+    ) * density
+    upper = (-space.k_x[columns % space.n_x] >= 0)[:, None]
+    inside = within_disc(grid, space)
+    assert np.any(terms[upper & ~inside] > 0)
+    budget = 2 * gamma(space.n_columns + 16)
+    assert_within(
+        values["aperture_spectrum"][0], np.sum(terms * (upper & inside), axis=0), budget
+    )
+    assert_within(values["region_spectrum"][0], np.sum(terms * upper, axis=0), budget)
+
+
+@pytest.mark.parametrize(
+    ("kept", "rest", "centre"),
+    [
+        ("half_plane_x_ge", "half_plane_x_lt", [8e-5, 0.0]),
+        ("half_plane_y_ge", "half_plane_y_lt", [0.0, -6e-5]),
+    ],
+)
+def test_a_half_plane_and_its_complement_tile_the_columns_in_vacuum(
+    grid, kept, rest, centre
+):
+    space = FreeGrid(*SHAPE_SPACE, collar_fraction=0.1)
+    field = shape_field(space, grid)
+    spectra, beam = collected(
+        set_of((kept, rest), [centre, centre]), grid, space, field
+    )
+    assert np.all(np.max(spectra, axis=1) > 0)
+    assert_within(np.sum(spectra, axis=0), beam, 2 * gamma(space.n_columns + 16))
+
+
+def test_a_half_plane_and_its_complement_tile_the_disc_in_a_medium(grid):
+    # What they tile: the columns the map reaches, not the beam. Columns beyond
+    # omega/c propagate in the medium, and neither half-plane collects them.
+    space = FreeGrid(1.5e-6, 12, 1.25e-6, 10, collar_fraction=0.1)
+    field = shape_field(space, grid)
+    medium = SpatialMedium(1.5)
+    spectra, beam = collected(
+        set_of(("half_plane_x_ge", "half_plane_x_lt"), [[1.0e-2, 0.0]] * 2),
+        grid,
+        space,
+        field,
+        medium=medium,
+    )
+    flux = SpatialFlux.resolve(grid, space, medium)
+    density = np.sum(fourier.spectral_density(field, grid.dt, kind=grid.kind), axis=1)
+    terms = (
+        0.5
+        * EPS0
+        * C
+        * np.asarray(space.spectral_weights)[:, None]
+        * np.real(flux.admittance(slice(None)))
+    ) * density
+    reached = np.sum(terms * within_disc(grid, space), axis=0)
+    assert np.all(reached[beam > 0] < beam[beam > 0])
+    assert_within(np.sum(spectra, axis=0), reached, 2 * gamma(space.n_columns + 16))
+
+
+def test_a_column_on_a_half_planes_edge_is_in_exactly_one_side(grid):
+    # Half-open: an image exactly on x = X belongs to x >= X and not to x < X, whatever
+    # the arithmetic, since both sides read one sign. Place X on column 3's image.
+    space = FreeGrid(*SHAPE_SPACE, collar_fraction=0.1)
+    column, bin_ = 3, grid.n_omega // 2
+    tables = aperture_tables(
+        StatsSpec(
+            names=("aperture_spectrum",),
+            apertures=set_of(("half_plane_x_ge",), [[0.0, 0.0]]),
+        ),
+        grid,
+        space,
+    )
+    assert tables is not None
+    edge = -float(tables.scale[0, bin_] * space.k_x[column])
+    field = np.zeros((space.n_columns, 1, grid.n_omega), complex)
+    field[column, 0, bin_] = 1.0
+    for offset, above in (
+        (edge, True),
+        (np.nextafter(edge, -1.0), True),
+        (np.nextafter(edge, 1.0), False),
+    ):
+        spectra, beam = collected(
+            set_of(("half_plane_x_ge", "half_plane_x_lt"), [[offset, 0.0]] * 2),
+            grid,
+            space,
+            field,
+        )
+        assert beam[bin_] > 0
+        # Structural: the term is in one row, whole, and exactly absent from the other.
+        assert spectra[0, bin_] == (beam[bin_] if above else 0.0)
+        assert spectra[1, bin_] == (0.0 if above else beam[bin_])
+
+
+def test_shifted_half_planes_match_a_numpy_mask_per_bin(grid):
+    space = FreeGrid(*SHAPE_SPACE, collar_fraction=0.1)
+    field = shape_field(space, grid)
+    terms = column_density(grid, space, field)
+    x, y = physical_images(grid, space)
+    rows = (
+        ("half_plane_x_ge", [2.1e-4, 0.0], x >= 2.1e-4),
+        ("half_plane_x_lt", [-7e-5, 0.0], x < -7e-5),
+        ("half_plane_y_ge", [0.0, 5e-5], y >= 5e-5),
+        ("half_plane_y_lt", [0.0, -3e-5], y < -3e-5),
+    )
+    spectra, _ = collected(
+        set_of(tuple(row[0] for row in rows), [row[1] for row in rows]),
+        grid,
+        space,
+        field,
+    )
+    # The edges move with frequency: no single wavevector box holds these columns.
+    reddest, bluest = np.argmin(grid.omega), np.argmax(grid.omega)
+    assert not np.all(rows[0][2][:, reddest] == rows[0][2][:, bluest])
+    for row, (_, _, mask) in enumerate(rows):
+        expected = np.sum(terms * mask, axis=0)
+        assert np.max(expected) > 0
+        assert_within(spectra[row], expected, 4 * gamma(space.n_columns + 16))
+
+
+def test_a_hard_rectangle_and_ellipse_match_numpy_masks_per_bin(grid):
+    space = FreeGrid(*SHAPE_SPACE, collar_fraction=0.1)
+    field = shape_field(space, grid)
+    terms = column_density(grid, space, field)
+    x, y = physical_images(grid, space)
+    centre = np.array([3e-5, -2e-5])
+    extent = np.array([2.4e-4, 1.2e-4])
+    spectra, _ = collected(
+        set_of(
+            ("rectangle", "ellipse"),
+            np.array([centre, centre]),
+            extents=np.array([extent, 2 * extent]),
+        ),
+        grid,
+        space,
+        field,
+    )
+    dx, dy = x - centre[0], y - centre[1]
+    rectangle = (np.abs(dx) <= extent[0] / 2) & (np.abs(dy) <= extent[1] / 2)
+    ellipse = (dx / extent[0]) ** 2 + (dy / extent[1]) ** 2 <= 1
+    for row, mask in enumerate((rectangle, ellipse)):
+        expected = np.sum(terms * mask, axis=0)
+        assert np.max(expected) > 0
+        assert_within(spectra[row], expected, 4 * gamma(space.n_columns + 16))
+
+
+@pytest.mark.parametrize(
+    ("kind", "weighting"),
+    [
+        ("tanh", "amplitude"),
+        ("tanh", "quadrature"),
+        ("rcos", "amplitude"),
+        ("rcos", "quadrature"),
+        ("supergauss", "amplitude"),
+    ],
+)
+def test_a_smooth_rectangle_is_the_product_of_two_edges(grid, kind, weighting):
+    space = FreeGrid(*SHAPE_SPACE, collar_fraction=0.1)
+    field = shape_field(space, grid)
+    terms = column_density(grid, space, field)
+    x, y = physical_images(grid, space)
+    half = (1.2e-4, 8e-5)
+    edge = 4.0 if kind == "supergauss" else 1.6e-5
+    apertures = set_of(
+        ("rectangle",),
+        [[0.0, 0.0]],
+        extents=[[2 * half[0], 2 * half[1]]],
+        edges=[edge],
+        profile=kind,
+        weighting=weighting,
+    )
+    spectra, _ = collected(apertures, grid, space, field)
+    # Straight edges take no quadrature correction: the half-widths stay as given.
+    weight = aperture_profile(np.abs(x), half[0], edge, kind) * aperture_profile(
+        np.abs(y), half[1], edge, kind
+    )
+    power = weight if weighting == "quadrature" else weight * weight
+    assert_within(
+        spectra[0], np.sum(terms * power, axis=0), 8 * gamma(space.n_columns + 16)
+    )
+
+
+def test_a_smooth_ellipse_is_a_scaled_circle(grid):
+    space = FreeGrid(*SHAPE_SPACE, collar_fraction=0.1)
+    field = shape_field(space, grid)
+    terms = column_density(grid, space, field)
+    x, y = physical_images(grid, space)
+    a, b = 1.6e-4, 0.9e-4
+    radius = math.sqrt(a * b)
+    apertures = set_of(
+        ("ellipse",),
+        [[0.0, 0.0]],
+        extents=[[2 * a, 2 * b]],
+        edges=[2e-5],
+        profile="rcos",
+    )
+    spectra, _ = collected(apertures, grid, space, field)
+    rho = np.sqrt((x * radius / a) ** 2 + (y * radius / b) ** 2)
+    weight = aperture_profile(rho, radius, 2e-5, "rcos")
+    assert_within(
+        spectra[0],
+        np.sum(terms * weight * weight, axis=0),
+        8 * gamma(space.n_columns + 16),
+    )
+
+
+@pytest.mark.parametrize(
+    ("kind", "edge", "weighting"),
+    [
+        ("hard", None, "amplitude"),
+        ("tanh", 4e-5, "amplitude"),
+        ("rcos", 4e-5, "quadrature"),
+        ("supergauss", 4.0, "amplitude"),
+    ],
+)
+def test_a_round_ellipse_is_the_circle_to_the_bit(grid, kind, edge, weighting):
+    # sqrt(a*a) is a in correctly rounded arithmetic, and the stretch exactly one.
+    space = FreeGrid(*SHAPE_SPACE, collar_fraction=0.1)
+    field = shape_field(space, grid)
+    options = {
+        "edges": None if edge is None else [edge],
+        "profile": kind,
+        "weighting": weighting,
+    }
+    circle, _ = collected(
+        hole(3.2e-4, centre=(3e-5, 1e-5), **options), grid, space, field
+    )
+    ellipse, _ = collected(
+        set_of(("ellipse",), [[3e-5, 1e-5]], extents=[[3.2e-4, 3.2e-4]], **options),
+        grid,
+        space,
+        field,
+    )
+    np.testing.assert_array_equal(ellipse, circle)
+
+
+def lattice_area(outline, half_span, *, n=2401):
+    """A midpoint rule for ``integral W dA`` over a square, in m^2."""
+    nodes = (np.arange(n) + 0.5) / n * 2 * half_span - half_span
+    x, y = np.meshgrid(nodes, nodes, indexing="ij")
+    return float(np.sum(outline.weight(x, y))) * (2 * half_span / n) ** 2
+
+
+@pytest.mark.parametrize("kind", ["rcos", "tanh"])
+def test_the_corrected_ellipse_integrates_to_the_hard_area(kind):
+    # The map to the circular frame has a constant Jacobian, so the circle's identity
+    # carries over. A midpoint rule on this lattice has error below 1e-6 (rcos is C^1
+    # and tanh analytic); tanh adds the tail's bias at w = D/8, -1.3e-5 (SEP 23 4.5).
+    a, b = 3.0, 1.5
+    width = 2 * math.sqrt(a * b) / 8
+    outline = aperture_outline(
+        "ellipse", 0.0, (2 * a, 2 * b), width, kind, corrected=True
+    )
+    area = lattice_area(outline, 2.5 * a)
+    budget = 1e-6 + (2e-5 if kind == "tanh" else 0.0)
+    assert abs(area / (np.pi * a * b) - 1) < budget
+
+
+@pytest.mark.parametrize(("kind", "fraction"), [("rcos", 4), ("tanh", 10)])
+def test_a_rectangle_needs_no_correction_to_integrate_to_the_hard_area(kind, fraction):
+    # W(x) integrates to 2a by the edge symmetry alone; tanh adds its two tails, each
+    # (w/2a) exp(-2a/w) of the width: 4.5e-6 at w = D/10 on the narrower side.
+    half = (2.0, 1.0)
+    width = 2 * half[1] / fraction
+    outline = aperture_outline(
+        "rectangle", 0.0, (2 * half[0], 2 * half[1]), width, kind, corrected=True
+    )
+    assert outline.half_width == half[0] and outline.half_height == half[1]
+    area = lattice_area(outline, 3.0)
+    budget = 1e-6 + (2e-5 if kind == "tanh" else 0.0)
+    assert abs(area / (4 * half[0] * half[1]) - 1) < budget
+
+
+@pytest.mark.parametrize("kind", ["tanh", "rcos"])
+def test_smooth_half_planes_sum_to_one_only_under_quadrature(grid, kind):
+    # W + (1 - W) = 1 is a statement about the field (Babinet) and the power used once;
+    # the powers of two soft masks fall short by 2 W (1 - W) on the edge.
+    space = FreeGrid(*SHAPE_SPACE, collar_fraction=0.1)
+    field = shape_field(space, grid)
+    shapes = ("half_plane_x_ge", "half_plane_x_lt")
+    centres = [[5e-5, 0.0]] * 2
+    edges = [1e-4, 1e-4]  # wide enough to hold a column image at every bin
+    once, beam = collected(
+        set_of(shapes, centres, edges=edges, profile=kind, weighting="quadrature"),
+        grid,
+        space,
+        field,
+    )
+    assert_within(np.sum(once, axis=0), beam, 8 * gamma(space.n_columns + 16))
+    squared, _ = collected(
+        set_of(shapes, centres, edges=edges, profile=kind), grid, space, field
+    )
+    assert np.all(np.sum(squared, axis=0)[beam > 0] < beam[beam > 0])
+
+
+def test_a_hard_half_plane_sits_beside_apodised_holes(grid):
+    space = FreeGrid(*SHAPE_SPACE, collar_fraction=0.1)
+    field = shape_field(space, grid)
+    mixed = ApertureSet(
+        centres=[[6e-5, 0.0], [-1e-4, 3e-5], [2e-5, -4e-5]],
+        diameters=[0.0, 1.6e-4, 1.2e-4],
+        distances=[DISTANCE] * 3,
+        edges=[0.0, 2e-5, 4.0],
+        shapes=("half_plane_x_ge", "circle", "circle"),
+        profiles=("hard", "rcos", "supergauss"),
+    )
+    spectra, _ = collected(mixed, grid, space, field)
+    alone = (
+        set_of(("half_plane_x_ge",), [[6e-5, 0.0]]),
+        hole(1.6e-4, centre=(-1e-4, 3e-5), edges=[2e-5], profile="rcos"),
+        hole(1.2e-4, centre=(2e-5, -4e-5), edges=[4.0], profile="supergauss"),
+    )
+    for row, apertures in enumerate(alone):
+        np.testing.assert_array_equal(
+            spectra[row], collected(apertures, grid, space, field)[0][0]
+        )
+
+
+def test_circle_weights_keep_their_expression_to_the_bit(grid):
+    # The expressions of the weight before shapes existed, written out: every circle's
+    # result, hard-edge decision and record stays where it was.
+    space = FreeGrid(*SHAPE_SPACE, collar_fraction=0.1)
+    field = shape_field(space, grid)
+    terms = column_density(grid, space, field)
+    columns = np.arange(space.n_columns)
+    k_x, k_y = space.k_x[columns % space.n_x], space.k_y[columns // space.n_x]
+    scale = aperture_scale(np.array([DISTANCE]), grid.omega)[0]
+    across = scale[None, :] * k_x[:, None] + 3e-5
+    along = scale[None, :] * k_y[:, None] + -1e-5
+    radius = np.sqrt(across * across + along * along)
+    half = 1.6e-4
+    origin = mask_plane_radius(scale, k_x, k_y, (0.0, 0.0))
+    live = (origin < DISTANCE) & (scale > 0)[None, :]
+    argument = (radius - half) * (1.0 / 2e-5)
+    cases = {
+        "hard": np.where(radius <= half, 1.0, 0.0),
+        "tanh": 0.5 * (1.0 - np.tanh(argument)),
+        "rcos": np.where(
+            argument <= -1.0,
+            1.0,
+            np.where(
+                argument >= 1.0,
+                0.0,
+                0.5 * (1.0 - np.sin((0.5 * math.pi) * np.clip(argument, -1.0, 1.0))),
+            ),
+        ),
+    }
+    for kind, unclipped in cases.items():
+        weight = np.where(live, unclipped, 0.0)
+        apertures = hole(
+            2 * half,
+            centre=(3e-5, -1e-5),
+            edges=None if kind == "hard" else [2e-5],
+            profile=kind,
+        )
+        tables = aperture_tables(
+            StatsSpec(names=("aperture_spectrum",), apertures=apertures), grid, space
+        )
+        assert tables is not None
+        assert tables.half_widths.tolist() == [half]
+        spectra, _ = collected(apertures, grid, space, field)
+        assert_within(
+            spectra[0],
+            np.sum(terms * weight * weight, axis=0),
+            8 * gamma(space.n_columns + 16),
+        )
+        outline = tables.outline(0)
+        got, _ = mask_plane_offsets(scale, k_x, k_y, (3e-5, -1e-5)), None
+        np.testing.assert_array_equal(np.where(live, outline.weight(*got), 0.0), weight)
+
+
+def test_an_unset_shape_is_recorded_as_unset_and_a_circle_says_nothing_new():
+    plain = hole(1e-3)
+    assert plain.shapes is None and plain.profiles is None and plain.extents is None
+    record = serialise(plain)
+    assert isinstance(record, dict)
+    # Every field is recorded, at its default too.
+    assert set(record) == {
+        "__class__",
+        "centres",
+        "diameters",
+        "distances",
+        "edges",
+        "profile",
+        "weighting",
+        "labels",
+        "shapes",
+        "profiles",
+        "extents",
+    }
+    assert record["shapes"] is None
+    # One request, one record: rows that add nothing are stored as unset.
+    named = hole(1e-3, shapes=("circle",), profiles=("hard",))
+    assert named.shapes is None and named.profiles is None
+    assert serialise(named) == record
+    uniform = ApertureSet(
+        centres=[[0.0, 0.0]] * 2,
+        diameters=[1e-3] * 2,
+        distances=[DISTANCE] * 2,
+        edges=[1e-4] * 2,
+        profiles=("rcos", "rcos"),
+    )
+    assert uniform.profile == "rcos" and uniform.profiles is None
+    assert uniform.row_profiles == ("rcos", "rcos")
+
+
+def test_a_set_shape_is_recorded_and_two_sets_tell_apart():
+    upper = set_of(("half_plane_x_ge",), [[1e-3, 0.0]])
+    lower = set_of(("half_plane_x_lt",), [[1e-3, 0.0]])
+    record = serialise(upper)
+    assert isinstance(record, dict) and record["shapes"] == ["half_plane_x_ge"]
+    assert record["extents"] is None and record["profiles"] is None
+    assert upper.row_shapes == ("half_plane_x_ge",)
+    assert serialise(lower) != record
+    assert upper.same_as(set_of(("half_plane_x_ge",), [[1e-3, 0.0]]))
+    assert not upper.same_as(lower)
+    wide = set_of(("rectangle",), [[0.0, 0.0]], extents=[[1e-3, 2e-3]])
+    narrow = set_of(("rectangle",), [[0.0, 0.0]], extents=[[1e-3, 1e-3]])
+    assert serialise(wide) != serialise(narrow)
+    assert wide.same_as(set_of(("rectangle",), [[0.0, 0.0]], extents=[[1e-3, 2e-3]]))
+    assert not wide.same_as(narrow)
+    assert not wide.same_as(upper)
+    mixed = ApertureSet(
+        centres=[[1e-3, 0.0], [0.0, 0.0]],
+        diameters=[0.0, 1e-3],
+        distances=[DISTANCE] * 2,
+        edges=[0.0, 1e-4],
+        shapes=("half_plane_x_ge", "circle"),
+        profiles=("hard", "rcos"),
+    )
+    assert serialise(mixed)["profiles"] == ["hard", "rcos"]  # type: ignore[index]
+    assert not mixed.same_as(upper)
+
+
+def half_plane_options(**changes):
+    options = {
+        "centres": [[1e-3, 0.0]],
+        "diameters": [0.0],
+        "distances": [DISTANCE],
+        "shapes": ("half_plane_x_ge",),
+    }
+    options.update(changes)
+    return options
+
+
+RECTANGLE = {
+    "centres": [[0.0, 0.0]],
+    "diameters": [0.0],
+    "distances": [DISTANCE],
+    "shapes": ("rectangle",),
+    "extents": [[1e-3, 2e-3]],
+}
+
+
+@pytest.mark.parametrize(
+    ("options", "message"),
+    [
+        (half_plane_options(shapes=("circle", "ellipse")), "shapes must hold 1"),
+        (half_plane_options(diameters=[1e-3]), "a diameter is a circle's"),
+        (half_plane_options(centres=[[1e-3, 1e-3]]), "centre on the other"),
+        (
+            half_plane_options(shapes=("half_plane_y_lt",), centres=[[1e-3, 0.0]]),
+            "centre on the other",
+        ),
+        (
+            half_plane_options(edges=[4.0], profile="supergauss"),
+            "a half-plane has none",
+        ),
+        (half_plane_options(edges=[0.0], profile="tanh"), "positive edge width"),
+        (half_plane_options(edges=[1e-4]), "silently unused"),
+        (half_plane_options(centres=[[DISTANCE, 0.0]]), "paraxial"),
+        (
+            half_plane_options(centres=[[0.24, 0.0]], edges=[0.02], profile="rcos"),
+            "paraxial",
+        ),
+        (half_plane_options(extents=[[1e-3, 1e-3]]), "silently unused"),
+        (
+            half_plane_options(profiles=("rcos", "hard"), edges=[1e-4]),
+            "profiles must hold 1",
+        ),
+        (
+            half_plane_options(profiles=("rcos",), profile="tanh", edges=[1e-4]),
+            "not both",
+        ),
+        ({**RECTANGLE, "extents": None}, "needs extents"),
+        ({**RECTANGLE, "extents": [[1e-3, 0.0]]}, "extents must be positive"),
+        ({**RECTANGLE, "extents": [[1e-3]]}, "extents must be finite"),
+        ({**RECTANGLE, "extents": [[0.4, 0.3]]}, "paraxial"),
+        ({**RECTANGLE, "edges": [3e-4], "profile": "rcos"}, "D/4"),
+        (
+            {
+                **RECTANGLE,
+                "edges": [1.5e-4],
+                "profile": "tanh",
+                "weighting": "quadrature",
+            },
+            "D/10",
+        ),
+        (
+            {
+                **RECTANGLE,
+                "shapes": ("ellipse",),
+                "extents": [[0.6, 0.1]],
+            },
+            "paraxial",
+        ),
+        (
+            {
+                **RECTANGLE,
+                "shapes": ("ellipse",),
+                "edges": [1.5e-3],
+                "profile": "rcos",
+            },
+            "D/4",
+        ),
+    ],
+)
+def test_a_shaped_set_refuses_by_name(options, message):
+    with pytest.raises(OutputError, match=message):
+        ApertureSet(**options)
+
+
+def test_a_mixed_set_refuses_an_edge_on_a_hard_row_and_a_circle_without_a_diameter():
+    with pytest.raises(OutputError, match="give zero on its row"):
+        ApertureSet(
+            centres=[[0.0, 0.0]] * 2,
+            diameters=[1e-3] * 2,
+            distances=[DISTANCE] * 2,
+            edges=[1e-4, 1e-4],
+            profiles=("hard", "rcos"),
+        )
+    with pytest.raises(OutputError, match="positive"):
+        ApertureSet(
+            centres=[[0.0, 0.0]] * 2,
+            diameters=[0.0, 0.0],
+            distances=[DISTANCE] * 2,
+            shapes=("circle", "half_plane_x_ge"),
+        )
+    with pytest.raises(OutputError, match="needs edges"):
+        ApertureSet(
+            centres=[[0.0, 0.0]] * 2,
+            diameters=[1e-3] * 2,
+            distances=[DISTANCE] * 2,
+            profiles=("hard", "rcos"),
+        )
+
+
+def test_the_outline_seam_refuses_by_name():
+    with pytest.raises(OutputError, match="unknown aperture shape"):
+        check_aperture_shape("square")
+    with pytest.raises(OutputError, match="no edge to measure from"):
+        edge_profile(0.0, 4.0, "supergauss")
+    with pytest.raises(OutputError, match="finite positive edge width"):
+        edge_profile(0.0, 0.0, "rcos")
+    with pytest.raises(OutputError, match="a half-plane has none"):
+        aperture_outline("half_plane_x_ge", 0.0, (0.0, 0.0), 4.0, "supergauss")
+
+
+def test_a_tanh_edge_warns_on_a_narrow_rectangle_but_not_on_a_half_plane():
+    with pytest.warns(ApertureEdgeWarning, match="rcos"):
+        ApertureSet(
+            **{**RECTANGLE, "edges": [2e-4], "profile": "tanh"},
+        )
+    # A half-plane has no centre for a sloping profile to reach.
+    assert (
+        ApertureSet(**half_plane_options(edges=[1e-2], profile="tanh")).n_apertures == 1
+    )
+
+
+def test_line_routes_take_x_half_planes_and_rectangles(grid):
+    space = LineGrid(8e-3, 64, collar_fraction=0)
+    field = shape_field(space, grid)
+    k_x = space.k_x
+    x = (DISTANCE * C / grid.omega)[None, :] * -k_x[:, None]
+    density = np.sum(fourier.spectral_density(field, grid.dt, kind=grid.kind), axis=1)
+    terms = (
+        0.5
+        * EPS0
+        * C
+        * np.asarray(space.spectral_weights)[:, None]
+        * obliquity(grid, space)
+    ) * density
+    spectra, _ = collected(
+        set_of(("half_plane_x_ge",), [[6e-5, 0.0]]), grid, space, field
+    )
+    assert_within(
+        spectra[0], np.sum(terms * (x >= 6e-5), axis=0), 4 * gamma(space.n_columns + 16)
+    )
+    # A rectangle on a line is a slit: its y edges meet nothing, under any profile.
+    for options in (
+        {"edges": None, "profile": "hard"},
+        {"edges": [1e-5], "profile": "tanh", "weighting": "quadrature"},
+        {"edges": [1e-5], "profile": "rcos"},
+    ):
+        rectangle, _ = collected(
+            set_of(
+                ("rectangle",), [[2e-5, 0.0]], extents=[[1.6e-4, 1.6e-4]], **options
+            ),
+            grid,
+            space,
+            field,
+        )
+        circle, _ = collected(
+            hole(1.6e-4, centre=(2e-5, 0.0), **options), grid, space, field
+        )
+        np.testing.assert_array_equal(rectangle, circle)
+
+
+@pytest.mark.parametrize(
+    ("shape", "extents"),
+    [
+        ("half_plane_y_ge", None),
+        ("half_plane_y_lt", None),
+        ("ellipse", [[1e-4, 1e-4]]),
+    ],
+)
+def test_line_routes_refuse_what_has_no_meaning_uniform_in_y(grid, shape, extents):
+    space = LineGrid(4e-4, 64, collar_fraction=0)
+    spec = StatsSpec(
+        names=("aperture_spectrum",),
+        apertures=set_of((shape,), [[0.0, 0.0]], extents=extents),
+    )
+    with pytest.raises(OutputError, match="has no meaning there"):
+        aperture_tables(spec, grid, space)

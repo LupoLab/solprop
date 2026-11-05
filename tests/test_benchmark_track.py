@@ -18,6 +18,12 @@ from benchmarks.records import SuiteError, read_record
 from benchmarks.registry import CASES, select
 
 
+@pytest.fixture(autouse=True)
+def _library_planning(monkeypatch):
+    """Run as a history run must, whatever planning the test lane chooses (CI's)."""
+    monkeypatch.delenv("SOLPROP_FFTW_PLAN", raising=False)
+
+
 @pytest.fixture
 def sixteen_cpus(monkeypatch):
     """Plan for a 16-CPU allocation, whatever this runner has."""
@@ -219,6 +225,16 @@ def test_the_history_takes_only_a_complete_default_run_of_committed_code():
     )
     with pytest.raises(SuiteError, match="whole default plan"):
         track.refuse_partial(namespace(), rows[:-1], 16, clean)
+
+
+@pytest.mark.usefixtures("sixteen_cpus")
+def test_a_planning_override_is_not_recorded(monkeypatch):
+    # A row does not say how it planned, so the override would read as a regression.
+    rows, _ = runner.plan_rows(select(), ("default",), None, 16)
+    clean = {"revision": "a" * 40, "dirty": False}
+    monkeypatch.setenv("SOLPROP_FFTW_PLAN", "measure")
+    with pytest.raises(SuiteError, match="SOLPROP_FFTW_PLAN"):
+        track.refuse_partial(namespace(), rows, 16, clean)
 
 
 def test_inconsistent_or_foreign_runs_are_not_recorded():

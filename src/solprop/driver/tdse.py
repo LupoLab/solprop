@@ -34,8 +34,8 @@ from jaxtyping import Float
 from solprop.constants import AU_TIME, EPS0, C
 from solprop.exceptions import (
     BackendError,
+    DriverError,
     MaterialError,
-    MemoryBudgetError,
     SolpropError,
     TDSEArchiveError,
     TDSEDomainWarning,
@@ -774,7 +774,7 @@ def _estimated_memory(
 
 
 def _admit_memory(ledger: Mapping[str, int], limit: int | None) -> None:
-    """Apply the declared combined optical and atomic byte budget.
+    """Apply the declared atomic byte limit.
 
     Parameters
     ----------
@@ -785,9 +785,8 @@ def _admit_memory(ledger: Mapping[str, int], limit: int | None) -> None:
     """
     total = sum(ledger.values())
     if limit is not None and total > limit:
-        raise MemoryBudgetError(
-            f"TDSE combined persistent-data admission requires {total} bytes, "
-            f"exceeding {limit} bytes"
+        raise DriverError(
+            f"TDSE persistent data requires {total} bytes, exceeding {limit} bytes"
         )
 
 
@@ -1018,7 +1017,6 @@ def prepare_binding(
     execution: TDSEExecution,
     n_nodes: int,
     *,
-    host_memory_bytes: int = 0,
     defer_plans: bool = False,
     archive: TDSEArchiveWriter | None = None,
 ) -> TDSEBinding:
@@ -1032,10 +1030,6 @@ def prepare_binding(
         Device, memory limit, stable maximum row count and atomic-call limit.
     n_nodes : int
         Positive total number of radial rows; fixed for the binding's lifetime.
-    host_memory_bytes : int, optional
-        Nonnegative optical host-storage estimate in bytes. Admission combines
-        it with atomic host/device storage under ``execution.memory_limit``.
-        It is not repeated in the binding's own memory ledger.
     defer_plans : bool, optional
         For a haCC model, prepare and admit the model only, and build the
         propagation plans when ``build_plans()`` is called. The run uses this so the
@@ -1058,13 +1052,11 @@ def prepare_binding(
     ------
     BackendError
         If the provider, device, scientific identity or prepared state is invalid.
-    MemoryBudgetError
+    DriverError
         If estimated or measured persistent data exceed the declared byte limit.
     """
     if type(n_nodes) is not int or n_nodes < 1:
         raise BackendError("TDSE binding requires a positive integer n_nodes")
-    if type(host_memory_bytes) is not int or host_memory_bytes < 0:
-        raise BackendError("TDSE host_memory_bytes must be a nonnegative integer")
     if type(defer_plans) is not bool:
         raise BackendError("TDSE defer_plans must be a bool")
     if archive is not None and not isinstance(archive, TDSEArchiveWriter):
@@ -1073,7 +1065,6 @@ def prepare_binding(
         descriptor,
         execution,
         n_nodes,
-        host_memory_bytes=host_memory_bytes,
         defer_plans=defer_plans,
         archive=archive,
     )
@@ -1343,8 +1334,6 @@ class _ProviderBinding:
         Device family, persistent memory budget and attempted-call limit.
     n_nodes : int
         Positive total number of radial rows.
-    host_memory_bytes : int, optional
-        Nonnegative separately owned optical storage in bytes.
     defer_plans : bool, optional
         For haCC, build the propagation plans only in :meth:`build_plans`.
     archive : TDSEArchiveWriter or None, optional
@@ -1357,7 +1346,6 @@ class _ProviderBinding:
         execution: TDSEExecution,
         n_nodes: int,
         *,
-        host_memory_bytes: int = 0,
         defer_plans: bool = False,
         archive: TDSEArchiveWriter | None = None,
     ) -> None:
@@ -1377,7 +1365,6 @@ class _ProviderBinding:
         self._execution = execution
         self._n_nodes = n_nodes
         self._chunks = _row_chunks(execution, n_nodes)
-        self._host_memory_bytes = host_memory_bytes
         self._budget = AtomicCallBudget(execution.max_atomic_calls, len(self._chunks))
         self._stack = ExitStack()
         self._plans: dict[int, _Native] = {}
@@ -1399,7 +1386,7 @@ class _ProviderBinding:
             descriptor, self._chunks, self._native_outputs
         )
         _admit_memory(
-            {**self._estimate, "optical.host": host_memory_bytes},
+            self._estimate,
             execution.memory_limit,
         )
         self._memory: dict[str, int] = (
@@ -1414,7 +1401,7 @@ class _ProviderBinding:
         try:
             self._prepare()
             _admit_memory(
-                {**self._memory, "optical.host": host_memory_bytes},
+                self._memory,
                 execution.memory_limit,
             )
         except BaseException as error:
@@ -1553,7 +1540,7 @@ class _ProviderBinding:
         self._memory.update(model.memory)
         # Admit the model's measured ledger before any plan is built (C7).
         _admit_memory(
-            {**self._memory, "optical.host": self._host_memory_bytes},
+            self._memory,
             self._execution.memory_limit,
         )
         if basis.preset is not None:
@@ -1622,7 +1609,7 @@ class _ProviderBinding:
         ------
         BackendError
             If the binding is closed, has no deferred plans, or a plan fails.
-        MemoryBudgetError
+        DriverError
             If the plans do not fit beside the model under the memory limit.
         """
         self._ensure_open()
@@ -1631,7 +1618,7 @@ class _ProviderBinding:
         try:
             self._build_hacc_plans()
             _admit_memory(
-                {**self._memory, "optical.host": self._host_memory_bytes},
+                self._memory,
                 self._execution.memory_limit,
             )
         except BaseException as error:
@@ -2605,7 +2592,7 @@ class _ProviderBinding:
         BackendError
             If the binding is not haCC, the field is invalid, or the call fails
             (the attempt stays charged).
-        MemoryBudgetError
+        DriverError
             If the temporary plan does not fit beside the propagation plans.
         """
         self._ensure_open()
@@ -2617,7 +2604,7 @@ class _ProviderBinding:
             self._budget,
             self._failures,
             self._provider,
-            {**self._memory, "optical.host": self._host_memory_bytes},
+            self._memory,
             self._execution.memory_limit,
             archive=self._archive,
             labels={
@@ -2659,7 +2646,6 @@ class _ProviderBinding:
             "ledger": asdict(self.ledger),
             "memory_estimate_bytes": self._estimate,
             "memory_bytes": self._memory,
-            "optical_host_memory_bytes": self._host_memory_bytes,
             "diagnostic_cache_hits": self._diagnostic_cache_hits,
             "last_call": self._last_call,
             "failures": self._failures,

@@ -22,7 +22,6 @@ from solprop.driver._scan_run import _Capture, _Job, _Work
 from solprop.driver.batch import BatchMember, compatible_groups, shared_table_bytes
 from solprop.driver.executors.batch import Batch
 from solprop.driver.executors.pool import _memory_limit, peak_rss
-from solprop.driver.memory import admit_memory
 from solprop.driver.run import _power_observation, plane_from_observation
 from solprop.driver.simulation import Simulation
 from solprop.exceptions import DriverError
@@ -60,7 +59,6 @@ def _load(simulation: Simulation, cleanup: ExitStack) -> Backend:
         Loaded backend retaining the member's noise and parameter tables.
     """
     problem = simulation.translate()
-    admit_memory(problem, simulation.settings.backend, inputs=simulation._held_inputs())
     owner = select(
         simulation.settings.backend,
         problem,
@@ -100,6 +98,7 @@ def _prepare(job: _Job, work: _Work) -> _Prepared | PointResult:
                     digest,
                     metadata.to_json(),
                     error=f"point {job.point.index} has a different configuration",
+                    metadata_arrays=metadata.record_arrays(),
                 )
             return PointResult(job.point.index, "skipped", configuration_hash=digest)
         return _Prepared(job, simulation, metadata)
@@ -321,6 +320,7 @@ def _run(group: Sequence[_Prepared], work: _Work) -> Iterator[PointResult]:
             n_steps=0 if capture is None else capture.steps,
             n_rejected=0 if capture is None else capture.rejected,
             boundary_monitor=records[index],
+            metadata_arrays=metadata.record_arrays(),
         )
 
     try:
@@ -410,6 +410,7 @@ def _run(group: Sequence[_Prepared], work: _Work) -> Iterator[PointResult]:
                             n_steps=capture.steps,
                             n_rejected=capture.rejected,
                             boundary_monitor=records[index],
+                            metadata_arrays=capture.metadata.record_arrays(),
                         )
                     )
                 except Exception:

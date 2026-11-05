@@ -31,6 +31,7 @@ from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule, PIController
 from solprop.translate.problem import KernelProblem, assemble
 from solprop.translate.stage import terms
+from thread_sizing import Sizing, assert_threaded
 
 from solprop_native import NativeBackend, _core, build_info
 from solprop_native.backend import (
@@ -111,6 +112,13 @@ def test_envelope_fields_and_all_populations_agree_across_cpu_threads(
         with np.load(out) as stored:
             runs.append({name: stored[name] for name in stored.files})
     assert [record["threads"] for record in records] == [1, 4]
+    assert_threaded(
+        cast(list[Sizing], records[1]["sizing"]),
+        4,
+        "kernels.stage",
+        "kernels.response",
+        "fft.fft",
+    )
     assert records[0]["steps"] == records[1]["steps"] == [8] * 4
     one, four = runs
     assert one.keys() == four.keys()

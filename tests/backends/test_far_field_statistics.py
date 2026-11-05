@@ -21,7 +21,7 @@ from scipy import integrate
 
 from backends import test_batch_lockstep as lockstep
 from backends.planar_cases import planar_case
-from bounds import assert_within, gamma
+from bounds import EPS, assert_within, gamma
 from legacy_geometry import bare_absorber
 from solprop.backends import registry, select
 from solprop.backends import spatial as backend_spatial
@@ -35,16 +35,21 @@ from solprop.backends.spatial import (
     far_field_layout,
     far_field_partials,
 )
-from solprop.boundaries import SpatialAbsorber, absorber
+from solprop.boundaries import SpatialAbsorber, absorber, custom_absorber
 from solprop.constants import EPS0, C
 from solprop.driver import Simulation, SimulationSettings
 from solprop.driver.run import run_problem
-from solprop.exceptions import BackendError, DriverError, OutputError
+from solprop.exceptions import (
+    BackendError,
+    DriverError,
+    OutputError,
+    TranslationError,
+)
 from solprop.fourier import energy_weights, spectral_density
 from solprop.grid import EnvelopeGrid, FreeGrid, RadialGrid
 from solprop.output import MemoryOutput
 from solprop.pulses import GaussianPulse, SpatialPulse
-from solprop.spatial import FAR_FIELD_STATISTICS, SpatialMedium
+from solprop.spatial import ABSORBED_CHANNELS, FAR_FIELD_STATISTICS, SpatialMedium
 from solprop.stats import ApertureSet, StatsSpec
 from solprop.stepper import PIController, RungeKutta
 from solprop.translate.spatial import axial_admittance, separable_values
@@ -164,16 +169,16 @@ def test_the_layout_takes_only_the_present_slots():
     assert layout == FarFieldLayout(
         beam=0,
         absorbed=1,
-        regions=5,
-        apertures=9,
+        regions=6,
+        apertures=10,
         stride=9,
         collected=0,
         amplitude=1,
-        axis=36,
-        n_slots=44,
+        axis=37,
+        n_slots=45,
     )
     assert layout is not None
-    assert layout.array().tolist() == [0, 1, 5, 9, 9, 0, 1, 36, 44]
+    assert layout.array().tolist() == [0, 1, 6, 10, 9, 0, 1, 37, 45]
     alone = far_field_layout(
         ("aperture_on_axis_spectrum",), n_apertures=2, n_regions=0, n_pol=1
     )
@@ -321,7 +326,7 @@ def channel_powers(problem, grid, field):
     propagating = np.real(square) > 0
     rates = np.stack(
         [
-            np.broadcast_to(data.spectral_rate, root.shape),
+            np.broadcast_to(data.spectral_rate - data.user_rate, root.shape),
             # The transverse collar's rate on the active band (SEP 22, Q6).
             np.where(live, data.kperp_rate[:, None], 0.0),
             np.where(
@@ -330,6 +335,7 @@ def channel_powers(problem, grid, field):
                 0.0,
             ),
             np.where(live & propagating, 2 * np.imag(root), 0.0),
+            np.broadcast_to(data.user_rate, root.shape),
         ]
     )
     weights = problem.transform.geometry.spectral_weights
@@ -471,6 +477,177 @@ def test_the_absorbed_power_predicts_the_energy_step_at_its_orders(grid, lossy_l
     for column, order in ((0, 1), (1, 2)):
         observed = np.log2(errors[:-1, column] / errors[1:, column])
         assert np.all(np.abs(observed - order) < 0.15), (column, observed)
+
+
+# ------------------------------------------------- the custom spectral rate (#231)
+
+
+def split_rates(problem, grid):
+    """Each channel's rate on every column and bin, and the total, recomputed here.
+
+    Everything acting on this linear beam is a power rate applied as ``-alpha/2``, and
+    diagonal in the stored transverse spectrum, so a bin's power decays at the sum of
+    the rates inside it: the collar's, the user's and the material's.
+    """
+    data = problem.linear.separable
+    square = (data.k_squared[None, :] - data.kperp_sq[:, None]) + (
+        data.k_squared_low[None, :] - data.kperp_sq_low[:, None]
+    )
+    root = np.sqrt(square)
+    live = data.active[None, :] & (np.real(square) > 0)
+    collar = np.broadcast_to(data.spectral_rate - data.user_rate, root.shape)
+    user = np.broadcast_to(data.user_rate, root.shape)
+    material = np.where(live, 2 * np.imag(root), 0.0)
+    measure = (
+        0.5
+        * EPS0
+        * C
+        * problem.transform.geometry.spectral_weights[:, None]
+        * np.real(axial_admittance(data, grid.omega, slice(None)))
+        * np.sum(np.abs(problem.initial.field0[0]) ** 2, axis=1)
+        * energy_weights(grid.n_omega, grid.dt, kind=grid.kind)
+    )
+    return collar, user, material, measure
+
+
+def exact_shares(rate, total, measure, length):
+    """A channel's energy over `length`: ``a_j/R (1 - exp(-R L))``, per bin."""
+    fraction = np.divide(
+        rate * -np.expm1(-total * length),
+        total,
+        out=np.zeros_like(total),
+        where=total > 0,
+    )
+    return float(np.sum(measure * fraction))
+
+
+@pytest.mark.parametrize("backend", ["numpy_ref", "native"])
+def test_the_collar_and_the_custom_rate_integrate_to_exact_exponential_weights(
+    backend, grid, lossy_launch
+):
+    # On a linear beam the state is exact to rounding: the propagator is the operator's
+    # own exponential and there is no source, so the only error here is the z quadrature
+    # of the statistic, an instantaneous J/m sampled at the saved planes.
+    if backend == "native":
+        pytest.importorskip("solprop_native")
+    space, field = lossy_launch
+    collar = absorber(grid, temporal=False)
+    # A band across the middle of the spectrum, of the collar's own strength.
+    centre, width = grid.omega0, 0.5 * np.ptp(grid.omega)
+    strength = 0.5 * float(np.max(collar.spectral_rate))
+    boundary = custom_absorber(
+        grid,
+        lambda omega: strength * np.exp(-(((omega - centre) / width) ** 2)),
+        collar=collar,
+    )
+    assert boundary.user_rate is not None
+    assert np.any(boundary.user_rate > 0)
+    assert np.any(boundary.spectral_rate - boundary.user_rate > 0)
+    fastest = float(np.max(boundary.spectral_rate))
+    planes = 2**5
+    length = 2.0 / fastest  # the fastest bin falls by e^-2, so the sum is well resolved
+    planes_z = np.linspace(length / planes, length, planes)
+    simulation = free_simulation(
+        grid,
+        space,
+        field,
+        medium=SpatialMedium(1 + 1e-6j),
+        absorber=boundary,
+        save_planes=planes_z,
+        dz_max=length / planes,
+        dz_init=length / planes,
+        backend=backend,
+        boundary_check=None,
+        spec=StatsSpec(names=("energy", "absorbed_power")),
+    )
+    output = simulation.run(progress="none")
+    powers = np.asarray(output["stats/absorbed_power"])
+    z = np.asarray(output["z"])
+    assert powers.shape == (planes + 1, 5)
+    problem = simulation.translate()
+    collar_rate, user_rate, material, measure = split_rates(problem, grid)
+    total = collar_rate + user_rate + material
+    assert ABSORBED_CHANNELS[0] == "spectral" and ABSORBED_CHANNELS[4] == "custom"
+    h = length / planes
+    for channel, rate in ((0, collar_rate), (4, user_rate), (3, material)):
+        integral = integrate.simpson(powers[:, channel], x=z)
+        expected = exact_shares(rate, total, measure, length)
+        assert expected > 0
+        # Composite Simpson on P_j(z) = sum m r_j exp(-R z): L h^4 / 180 sum m r_j R^4,
+        # plus the state's rounding over the planes, a few eps of the channel per plane.
+        simpson = length * h**4 / 180 * float(np.sum(measure * rate * total**4))
+        rounding = 64 * planes * EPS * expected
+        assert abs(integral - expected) <= simpson + rounding, channel
+    # The two parts of the spectral rate partition it, plane by plane.
+    assert_within(
+        powers[0, 0] + powers[0, 4],
+        float(np.sum(measure * (collar_rate + user_rate))),
+        4 * gamma(field.size + 16),
+    )
+    # -sum P_j stays dE/dz: the drop of the energy statistic, by the same quadrature.
+    energy = np.asarray(output["stats/energy"]).reshape(planes + 1, -1).sum(axis=1)
+    drop = energy[0] - energy[-1]
+    simpson = length * h**4 / 180 * float(np.sum(measure * total * total**4))
+    assert abs(integrate.simpson(np.sum(powers, axis=1), x=z) - drop) <= (
+        simpson + 64 * planes * EPS * drop
+    )
+
+
+@pytest.mark.parametrize("backend", ["numpy_ref", "native"])
+def test_a_run_without_a_custom_rate_reports_zero_and_moves_no_bit(
+    backend, grid, lossy_launch
+):
+    if backend == "native":
+        pytest.importorskip("solprop_native")
+    space, field = lossy_launch
+    simulation = free_simulation(
+        grid,
+        space,
+        field,
+        absorber=absorber(grid, temporal=False),
+        spec=StatsSpec(names=("absorbed_power",)),
+    )
+    values, problem = entrance(simulation, backend)
+    power = values["absorbed_power"][0]
+    assert power.shape == (5,) and power[4] == 0.0 and power[0] > 0
+    data = problem.linear.separable
+    assert data is not None and not np.any(data.user_rate)
+    # A zero share leaves channel 0 the total rate's sum, on the one rate read before.
+    expected, magnitude = channel_powers(problem, grid, problem.initial.field0[0])
+    assert_within(
+        power[0],
+        expected[0],
+        2 * gamma(field.size + 16) * magnitude[0] / abs(expected[0]),
+    )
+
+
+def test_a_custom_rate_moves_no_bit_of_the_operator(grid, lossy_launch):
+    # The stages read the total, and only the statistic reads the share.
+    space, field = lossy_launch
+    boundary = custom_absorber(grid, 1e3, collar=absorber(grid, temporal=False))
+    assert boundary.user_rate is not None
+    lumped = dataclasses.replace(boundary, user_rate=None)
+    split = free_simulation(grid, space, field, absorber=boundary).translate()
+    plain = free_simulation(grid, space, field, absorber=lumped).translate()
+    split_data, plain_data = split.linear.separable, plain.linear.separable
+    assert split_data is not None
+    assert plain_data is not None
+    np.testing.assert_array_equal(split_data.spectral_rate, plain_data.spectral_rate)
+    np.testing.assert_array_equal(
+        separable_values(split_data)[0], separable_values(plain_data)[0]
+    )
+    np.testing.assert_array_equal(split_data.user_rate, boundary.user_rate)
+    assert not np.any(plain_data.user_rate)
+
+
+def test_the_operator_refuses_a_share_above_the_total(grid, lossy_launch):
+    space, field = lossy_launch
+    data = free_simulation(grid, space, field).translate().linear.separable
+    assert data is not None
+    with pytest.raises(TranslationError, match="user's share of spectral_rate"):
+        dataclasses.replace(data, user_rate=np.ones(grid.n_omega))
+    with pytest.raises(TranslationError, match="user's share of spectral_rate"):
+        dataclasses.replace(data, user_rate=np.zeros(3))
 
 
 # ------------------------------------------------------------- doors and refusals
@@ -673,11 +850,11 @@ def test_a_run_records_every_far_field_statistic_at_every_plane(grid):
         "aperture_on_axis_spectrum": (3, 2, grid.n_omega),
         "region_spectrum": (3, 4, grid.n_omega),
         "beam_spectrum": (3, grid.n_omega),
-        "absorbed_power": (3, 4),
+        "absorbed_power": (3, 5),
     }
     for name, shape in shapes.items():
         assert np.asarray(output[f"stats/{name}"]).shape == shape, name
-    assert np.asarray(output["step_stats/absorbed_power"]).shape[1:] == (4,)
+    assert np.asarray(output["step_stats/absorbed_power"]).shape[1:] == (5,)
     beam = np.asarray(output["stats/beam_spectrum"])
     # Parseval at every plane: 2 gamma_m of the total.
     assert_within(

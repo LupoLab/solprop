@@ -328,7 +328,12 @@ REGISTRY: Final[Mapping[str, Factory]] = {
         Factory("Multistep", Multistep),
         Factory("RungeKutta", RungeKutta, omitted=("tableau",)),
         Factory("LowStorageRungeKutta", LowStorageRungeKutta),
-        Factory("absorber", absorber, {"boundary_length": "m"}, context=("grid",)),
+        Factory(
+            "absorber",
+            absorber,
+            {"boundary_length": "m", "walkoff": "s"},
+            context=("grid",),
+        ),
         Factory(
             "TubeLattice", TubeLattice, {"wall_thickness": "m", "tube_radius": "m"}
         ),

@@ -1616,6 +1616,7 @@ native::Problem planar_problem(const std::size_t rows_per_chunk) {
   problem.spatial_clamped = {{0.0, -0.25}, {0.0, -0.5}, {0.0, -0.75}};
   problem.spatial_frame = {5.0, 6.0, 7.0};
   problem.spatial_spectral_rate = {0.0, 0.25, 0.5};
+  problem.spatial_user_rate = {0.0, 0.0, 0.0};
   // k_y^2 per column, the channel fastest; the last row is evanescent in the first
   // bin, so both branches of the operator are exercised.
   const std::vector<double> ky_squared{0.0, 4.0, 45.0, 4.0};
@@ -2608,16 +2609,8 @@ TEST(GeneralState, LowStoragePassesMatchTheHostInteractionPictureStep) {
     EXPECT_EQ(ledger.at("propagators"), flows * field);
     for (const char* row :
          {"advanced", "stages", "accumulator_solution", "accumulator_error",
-          "weighted_residual", "recycled_stage", "stage_inverse", "held_plane"})
+          "weighted_residual", "recycled_stage", "stage_inverse"})
       EXPECT_EQ(ledger.at(row), 0U) << row;
-    // The field-free plane held in the memory space, one volume, copied back once.
-    EXPECT_THROW(static_cast<void>(state.held_to_host()), std::logic_error);
-    state.hold_plane();
-    EXPECT_EQ(state.memory_ledger().at("held_plane"), field);
-    const auto held = state.held_to_host();
-    const auto current = state.field_to_host();
-    for (std::size_t index = 0; index < held.size(); ++index)
-      EXPECT_EQ(held[index], current[index]);
   }
 }
 

@@ -80,7 +80,7 @@ def test_a_stopped_file_says_where_it_continues_and_resumes_from_itself(tmp_path
     assert answer.mode is True
     assert answer.z is not None and 0 < answer.z < 1.33
     assert answer.recipe == "stored" and answer.rebuildable
-    assert answer.comparison is not None and answer.comparison.continues
+    assert answer.differences == ""
     resume_file(path, progress="none")
     field, outcome = _last_field(path)
     assert outcome is not None and outcome.status == "complete"
@@ -109,7 +109,7 @@ def test_a_file_from_a_script_continues_only_from_its_script(tmp_path):
     answer = resumability(tmp_path / "script.h5", gate=True)
     assert answer.resumable
     assert answer.recipe == "none" and not answer.rebuildable
-    assert answer.comparison is None
+    assert answer.differences is None
     with pytest.raises(RecipeError, match="written from a script"):
         resume_file(tmp_path / "script.h5")
 
@@ -183,16 +183,6 @@ def test_a_file_of_an_earlier_build_s_flat_orders_is_named(tmp_path):
     assert "flat form an earlier development build wrote" in answer.reason
 
 
-def test_a_forced_file_needs_force(tmp_path):
-    path = tmp_path / "forced.h5"
-    _stopped(path)
-    changed = _soliton(gamma=0.12)
-    flag = threading.Event()
-    changed.build().run(path, resume="force", progress=StopAt(flag), stop=flag)
-    answer = resumability(path)
-    assert answer.resumable and answer.mode == "force"
-
-
 def test_an_interpolated_last_plane_needs_interpolated(tmp_path):
     path = tmp_path / "dense.h5"
     recipe = _soliton(interpolate_planes=True)
@@ -220,29 +210,8 @@ def test_the_gate_shows_a_moved_record(tmp_path):
             dtype=h5py.string_dtype(),
         )
     answer = resumability(path, gate=True)
-    assert answer.comparison is not None
-    assert not answer.comparison.continues
-    assert "gamma" in answer.comparison.summary()
-
-
-def test_a_received_file_does_not_choose_its_own_budget(tmp_path, monkeypatch):
-    path = tmp_path / "budget.h5"
-    recipe = _soliton()
-    document = recipe.to_dict()
-    document["execution"] = {"memory_budget": "none"}
-    _stopped(path, Recipe.from_dict(document))
-    seen = {}
-    original = Simulation.run
-
-    def run(self, output, **keywords):
-        seen["budget"] = keywords.get("memory_budget")
-        return original(self, output, **keywords)
-
-    monkeypatch.setattr(Simulation, "run", run)
-    resume_file(path, progress="none")
-    assert isinstance(seen["budget"], int)
-    resume_file(tmp_path / "budget.h5", memory_budget="warn:1 TiB", progress="none")
-    assert seen["budget"] == "warn:1 TiB"
+    assert answer.differences is not None
+    assert "gamma" in answer.differences
 
 
 def test_a_file_that_is_not_hdf5_is_refused(tmp_path):
@@ -283,7 +252,7 @@ def test_the_gate_reports_a_rebuild_that_is_refused(tmp_path, monkeypatch):
     monkeypatch.setattr(Recipe, "build", refuse)
     answer = resumability(path, gate=True)
     assert answer.resumable
-    assert answer.comparison is None
+    assert answer.differences is None
     assert answer.gate_error is not None
     assert "the fill is no longer available" in answer.gate_error
 

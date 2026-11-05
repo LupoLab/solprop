@@ -389,6 +389,9 @@ struct Problem {
       spatial_clamped;
   std::vector<double> spatial_kperp_sq, spatial_kperp_sq_low, spatial_frame,
       spatial_spectral_rate;
+  // solprop kernel schema 45 (#231): the user's share of the spectral rate, read only
+  // by `absorbed_power`; the operator takes the total.
+  std::vector<double> spatial_user_rate;
   std::vector<double> spatial_absorber_rate;
   // solprop kernel schema 31 (SEP 22 phase 2): a transverse collar's power rate per
   // column, added to the field attenuation on active bins; zeros leave the operator.
@@ -802,10 +805,6 @@ public:
    */
   [[nodiscard]] double low_storage_step(double dz, const TrialScalars& scalars,
                                         bool rebuild_table);
-  /** Hold the accepted state at a field-free plane, in the memory space (SEP 22). */
-  void hold_plane();
-  /** The held plane's state on the host: the one copy a checkpoint takes. */
-  [[nodiscard]] std::vector<Complex> held_to_host() const;
   /** The resident Adams history (solprop SEP 16 phase 3b, solprop ADR-043). */
   void adams_allocate(std::size_t slots, bool compensated, bool interpolate = true);
   void adams_compensation_start(std::size_t slot, const std::vector<double>& rate);
@@ -893,8 +892,8 @@ public:
    */
   [[nodiscard]] std::vector<double>
   aperture_statistics(std::uint64_t flags, const std::vector<double>& apertures,
-                      int profile_code, int exponent,
-                      const std::vector<double>& regions, double intensity_factor);
+                      int exponent, const std::vector<double>& regions,
+                      double intensity_factor);
   [[nodiscard]] std::vector<double>
   statistics(std::uint64_t flags, const std::vector<double>& windows,
              const std::vector<double>& on_axis, double density, double taper,

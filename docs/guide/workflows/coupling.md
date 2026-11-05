@@ -515,7 +515,7 @@ with `field_plane(run, source=simulation)`.
 |---|---|
 | {py:class}`~solprop.coupling.elements.FreeSpace` | homogeneous propagation $e^{ik_zL}$ with the exact $k_z=\sqrt{(\omega n/c)^2-\kappa^2}$, on the plane's own grid or onto another output plane |
 | {py:class}`~solprop.coupling.elements.ThinLens` | the paraxial phase screen $e^{-ik(\omega)r^2/2f(\omega)}$, with a constant or chromatic focal length |
-| {py:class}`~solprop.coupling.elements.Aperture` | the edge profile $W$ of {py:func}`~solprop.spatial.aperture_profile`, with the weighting of the in-run aperture statistics |
+| {py:class}`~solprop.coupling.elements.Aperture` | the edge profile $W$ of {py:func}`~solprop.spatial.aperture_profile` on a circle, or on the [other outlines](../results/statistics.md#aperture-shapes) of the in-run aperture statistics on a Cartesian plane, with their weighting |
 | {py:class}`~solprop.coupling.elements.TransmissionMask` | a complex field transmission $T(x, y, \omega)$, as a function or as samples |
 | {py:class}`~solprop.coupling.elements.Alignment` | a lateral displacement and a tilt of a Cartesian field |
 | {py:class}`~solprop.coupling.elements.PolarisationTransform` | a uniform Jones matrix in the plane's local axes |

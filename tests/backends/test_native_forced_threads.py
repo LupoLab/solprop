@@ -79,7 +79,9 @@ is not a matched computation's rounding. Two adaptive runs can make the same dec
 and differ in step length, since the error norm's rounding moves the step the controller
 chooses, and a threaded FFTW plan (or a measured one, process to process) rounds
 differently: on the multimode capillary at one thread, repeats differ by 1.3e-10 under
-``measure`` planning with their steps 1.9e-12 apart, and by nothing under ``estimate``.
+``measure`` planning, and by nothing under ``estimate``. The in-stage collar amplifies
+that rounding, past its stable step, rather than the steps' difference
+(``docs/dev/accuracy.md``, "An adaptive run under measured plans").
 """
 
 FORKED_BOUND = 100 * 1e-8
@@ -246,6 +248,7 @@ def test_the_varying_capillary_s_rows_agree_across_threads(capillary_runs):
     reduction over the samples, with a factor of four for ``fwhm_t``'s interpolation.
     """
     one, several = capillary_runs
+    assert_threads_ran(one, several, "kernels.stage", "fft.fft")
     assert one["z"].size > 0
     np.testing.assert_array_equal(several["z"], one["z"])
     np.testing.assert_array_equal(several["step"], one["step"])
@@ -513,9 +516,8 @@ def test_the_threaded_flow_passes_agree_across_threads(tmp_path, name):
 def test_the_flow_with_its_source_agrees_on_forced_pools(tmp_path, name):
     """Ten steps of the flow beside its source, the flow's own pool forced.
 
-    ``test_the_flow_is_invariant_under_the_thread_count`` runs these sizes under the
-    size rule, which keeps their ``kernels.flow`` passes serial below 32,768 elements,
-    so it does not thread them. This is its test with the pools forced, at its bound.
+    The cases of ``test_the_flow_is_invariant_under_the_thread_count``, at its bound,
+    with this module's width and its record of the runs' operations.
     """
     from driver.test_native_coupled_flow import (  # noqa: PLC0415
         CASES as FLOWS,

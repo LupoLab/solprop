@@ -81,6 +81,111 @@ recorded in the run's configuration when one is given. The far-field statistic
 `absorbed_power` reports the power the ramp removes as its transverse channel
 ([far-field statistics](model.md#far-field-and-fourier-plane-statistics)).
 
+### Reading the risk of aliasing
+
+A run does not report that its products fold: an adaptive step can converge to the aliased
+answer, and a folded product is ordinary light once it lands. What a run can report is whether
+the field still satisfies the one-half rule. A product of order $p$ of a band $|k|\le K$
+reaches $pK$, and the grid stores it at $pK-2k_{\max}$. That lands inside the band when
+$pK-2k_{\max}\ge-K$, that is when $K\ge 2k_{\max}/(p+1)$: $k_{\max}/2$ for a cubic product
+and $2k_{\max}/3$ for a quadratic one, Orszag's two-thirds. So the share of the beam's energy
+outside the inner box $|k_x|<k_{x,\max}/2$, $|k_y|<k_{y,\max}/2$,
+
+$$ R(\omega) = 1-\frac{S^{R}(\omega)}{S^{\rm beam}(\omega)}, $$
+
+reads whether a cubic fold can land in band. Both spectra are
+[far-field statistics](model.md#far-field-and-fourier-plane-statistics), on
+`numpy_ref` and on the native backend, on Cartesian grids and lines, at saved planes; radial
+grids refuse them, having no Cartesian wavevector. A column exactly at the limit counts as
+outside, since its product lands on the band's own edge: at $K=k_{\max}/2$ the image is $-K$. So
+the box stops half a sample short of the limit on each side, which also keeps every column clear
+of a region's half-open edges. Summing the two spectra over a band gives one number for that band.
+
+```python
+import numpy as np
+
+from solprop.driver import Simulation, SimulationSettings
+from solprop.grid import EnvelopeGrid, FreeGrid
+from solprop.nonlinear.responses import KerrResponse
+from solprop.pulses import GaussianPulse
+from solprop.spatial import SpatialMedium
+from solprop.stats import StatsSpec
+from solprop.stepper import PIController, RungeKutta
+
+
+def inner_box(space, fraction=0.5):
+    """The box of a fraction of each axis's largest wavenumber, one row of a region table."""
+    half_x = fraction * np.abs(space.k_x).max() - 0.5 * abs(space.k_x[1] - space.k_x[0])
+    half_y = fraction * np.abs(space.k_y).max() - 0.5 * abs(space.k_y[1] - space.k_y[0])
+    return np.array([[-half_x, half_x, -half_y, half_y]])
+
+
+def aliasing_reading(output):
+    """The energy's share outside the box, at each plane."""
+    beam = np.asarray(output["stats/beam_spectrum"]).sum(axis=-1)
+    inside = np.asarray(output["stats/region_spectrum"])[:, 0].sum(axis=-1)
+    return 1.0 - np.divide(inside, beam, out=np.ones_like(beam), where=beam > 0)
+
+
+length, half_width = 1e-3, 1e-3
+grid = EnvelopeGrid.from_limits(length, 800e-9, (600e-9, 1200e-9), 300e-15, thg=False)
+temporal = GaussianPulse(wavelength=800e-9, fwhm=60e-15, energy=1e-9).build(grid)[0, 0]
+temporal = 2e8 * temporal / np.abs(np.fft.ifft(temporal)).max()  # V/m at the peak
+
+for n_x in (16, 32):
+    space = FreeGrid(half_width, n_x, half_width, 4)
+    x, _ = np.meshgrid(space.x, space.y)
+    fringes = 2 * np.cos(5 * np.pi * x / half_width)  # k = +-5 of the fundamental
+    launch = np.fft.fft2(fringes[..., None], axes=(0, 1)) * temporal
+    settings = SimulationSettings(
+        controller=PIController(rtol=1e-8, atol=1e-16),
+        save_planes=[length],
+        dz_max=length / 8,
+        dz_init=length / 16,
+        integrator=RungeKutta(),
+        backend="numpy_ref",
+        spatial_absorber=False,
+        boundary_check=None,
+        stats=StatsSpec(
+            names=("beam_spectrum", "region_spectrum"),
+            spectral_regions=inner_box(space),
+        ),
+    )
+    output = Simulation.from_free(
+        grid,
+        space,
+        SpatialMedium(1.45),
+        [KerrResponse(2.2e-22, thg=False)],
+        launch.reshape(-1, 1, grid.n_omega),
+        settings=settings,
+        noise=None,
+    ).run(progress="none")
+    print(n_x, np.round(aliasing_reading(output), 3))
+```
+
+On 16 samples the fringes at $\pm5$ lie past $k_{x,\max}/2=4$ and the reading is 1, and the
+product at $\pm15$ folds to $\mp1$: false low-angle light. On 32 samples they lie inside
+$k_{x,\max}/2=8$, the reading is 0, and the product at $\pm15$ is real. Refining the grid until
+the reading falls is the check. The share of the *source* near the cutoff would not see this,
+since the folded product sits far from the cutoff, at $\mp1$.
+
+It is a proxy, and it says less than a measurement would:
+
+- It says that a fold *can* land in band, not how large it is. A reading of 1 with a nonlinear
+  phase of a hundredth is a small error, and the size has to come from refining the grid.
+- It weights by the beam's energy, as every spectrum there does. A weak field past the box reads
+  as a small share, and a fold of it can still matter against something weaker. The admittance in
+  that weight is zero on an evanescent bin, so light there is not counted at all.
+- Light that has already folded in band lowers the reading, and light folded past the box raises
+  it, so it is read along $z$ and against a refined run, not at one plane.
+- A box of fixed $\kappa$ is not a fixed angle, since the angle goes as $c\kappa/\omega$. So it says
+  nothing about the populated angle against the margin of the scalar forward model.
+- It is the cubic limit. A quadratic product has the limit above, with `fraction=2/3`, and
+  [SEP 8](../../dev/seps/sep-0008-quadratic-crystal-optics.md) owns padding and projection for such
+  products, which this chapter does not provide.
+- Plasma and ionisation sources are not polynomial in the field, so no box bounds them, and only
+  refinement judges their grid, as above. A reading near 0 does not clear them.
+
 ## Transform and energy
 
 For $N=N_xN_y$, the stored transverse spectrum is the raw forward DFT,

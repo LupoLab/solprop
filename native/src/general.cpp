@@ -583,7 +583,7 @@ struct TransverseChunk {
 
 struct SpatialCoefficients {
   ComplexView square, square_low, numerator, clamped;
-  RealView transverse, transverse_low, frame, spectral_rate, absorber;
+  RealView transverse, transverse_low, frame, spectral_rate, user_rate, absorber;
   // A transverse collar's power rate per column (solprop kernel schema 31).
   RealView transverse_rate;
   // The hybrid planar kind's wall terms, (channels, n_omega); empty on free space.
@@ -1048,6 +1048,8 @@ void require_general_problem(const Problem& problem) {
     require_extent(problem.spatial_frame.size(), problem.n_omega, "spatial_frame");
     require_extent(problem.spatial_spectral_rate.size(), problem.n_omega,
                    "spatial_spectral_rate");
+    require_extent(problem.spatial_user_rate.size(), problem.n_omega,
+                   "spatial_user_rate");
     require_extent(problem.spatial_kperp_sq.size(), problem.n_modes,
                    "spatial_kperp_sq");
     require_extent(problem.spatial_kperp_sq_low.size(), problem.n_modes,
@@ -1074,6 +1076,11 @@ void require_general_problem(const Problem& problem) {
     for (const auto value : problem.spatial_spectral_rate)
       if (!std::isfinite(value) || value < 0)
         throw std::invalid_argument("spatial_spectral_rate is invalid");
+    for (std::size_t bin = 0; bin < problem.n_omega; ++bin)
+      if (const double value = problem.spatial_user_rate[bin];
+          !std::isfinite(value) || value < 0 ||
+          value > problem.spatial_spectral_rate[bin])
+        throw std::invalid_argument("spatial_user_rate is invalid");
     for (const auto value : problem.spatial_kperp_sq)
       if (!std::isfinite(value) || value < 0)
         throw std::invalid_argument("spatial_kperp_sq is invalid");
@@ -2085,8 +2092,6 @@ public:
                                     const TrialScalars& scalars);
   void adopt(const std::vector<Complex>& field, double dz);
   double low_storage_step(double dz, const TrialScalars& scalars, bool rebuild_table);
-  void hold_plane();
-  std::vector<Complex> held_to_host() const;
   void low_storage_flows_formed(bool rebuild_table);
   void low_storage_separable_pass(std::size_t pass, double dz);
   void low_storage_separable_input(std::size_t pass);
@@ -2148,7 +2153,7 @@ public:
                                          double z);
   std::vector<double> aperture_statistics(std::uint64_t flags,
                                           const std::vector<double>& apertures,
-                                          int profile_code, int exponent,
+                                          int exponent,
                                           const std::vector<double>& regions,
                                           double intensity_factor);
   std::vector<double> statistics(std::uint64_t flags,
@@ -2635,11 +2640,9 @@ public:
   std::unique_ptr<SlabPlan> slab_forward_, slab_inverse_;
   ComplexView2 current_, advanced_, solution_, error_, residual_, recycled_, noise_;
   // solprop SEP 24 phase 3: the low-storage march's registers B and C (the state is
-  // A), its flows and the field-free plane it holds (SEP 22, Q15), allocated at the
-  // first such plane.
-  ComplexView2 register_accumulator_, register_stage_, held_plane_;
+  // A) and its flows.
+  ComplexView2 register_accumulator_, register_stage_;
   ComplexView3 low_storage_flows_;
-  bool held_ready_{};
   ComplexView2 whole_propagator_, fine_spectrum_, projected_spectrum_;
   // The stage's `sum_t dPhi_t Phi_t`, formed by the combination for a coupled flow's
   // residual, and its inverse propagator `exp(-sum)`, which the finish applies.
@@ -3418,6 +3421,7 @@ void GeneralWorkspace::allocate() {
         RealView("solprop_native.free.kperp_sq_low", problem_.n_modes);
     spatial_.frame = RealView("solprop_native.free.frame", n);
     spatial_.spectral_rate = RealView("solprop_native.free.spectral_rate", n);
+    spatial_.user_rate = RealView("solprop_native.free.user_rate", n);
     spatial_.absorber = RealView("solprop_native.free.absorber", problem_.n_modes);
     spatial_.transverse_rate =
         RealView("solprop_native.free.kperp_rate", problem_.n_modes);
@@ -4180,6 +4184,7 @@ void GeneralWorkspace::upload() {
     copy_vector(execution_space_, spatial_.frame, problem_.spatial_frame);
     copy_vector(execution_space_, spatial_.spectral_rate,
                 problem_.spatial_spectral_rate);
+    copy_vector(execution_space_, spatial_.user_rate, problem_.spatial_user_rate);
     copy_vector(execution_space_, spatial_.absorber, problem_.spatial_absorber_rate);
     copy_vector(execution_space_, spatial_.transverse_rate,
                 problem_.spatial_kperp_rate);
@@ -4991,6 +4996,11 @@ void GeneralWorkspace::prepare_raman_stage(const std::size_t stage, const double
 
 void GeneralWorkspace::prepare_trial(const double dz, const TrialScalars& scalars) {
   require_open();
+  if (problem_.low_storage)
+    throw std::logic_error(
+        "trial_step: a low-storage state of " + std::to_string(current_.extent(0)) +
+        " x " + std::to_string(current_.extent(1)) +
+        " holds no Runge-Kutta views; its steps are low_storage_step's");
   if (!initialized_)
     throw std::logic_error("no initial field has been loaded");
   require_trial_scalars(scalars);
@@ -5794,37 +5804,6 @@ void GeneralWorkspace::low_storage_modal_input(const std::size_t pass) {
         for (std::size_t gap = index; gap < gaps; gap += n)
           terms.zero_gaps(column, gap, gap + 1);
       });
-}
-
-// The accepted state at a field-free plane (SEP 22, Q15), held in the memory space: one
-// volume, allocated at the first such plane and kept, so that a step abandoned in
-// flight still leaves a resumable state without any host transfer at the plane.
-void GeneralWorkspace::hold_plane() {
-  require_open();
-  if (!initialized_)
-    throw std::logic_error("no initial field has been loaded");
-  // The copy writes every element: no initialising pass first.
-  if (!held_plane_.is_allocated())
-    held_plane_ = ComplexView2(
-        Kokkos::view_alloc(Kokkos::WithoutInitializing,
-                           std::string("solprop_native.low_storage.held_plane")),
-        problem_.n_columns(), problem_.n_omega);
-  graph::deep_copy(execution_space_, held_plane_, current_);
-  held_ready_ = true;
-}
-
-std::vector<Complex> GeneralWorkspace::held_to_host() const {
-  require_open();
-  if (!held_ready_)
-    throw std::logic_error("no field-free plane is held");
-  execution_space_.fence("solprop_native held_to_host");
-  const auto host =
-      Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace{}, held_plane_);
-  std::vector<Complex> result(problem_.n_columns() * problem_.n_omega);
-  for (std::size_t column = 0; column < problem_.n_columns(); ++column)
-    for (std::size_t index = 0; index < problem_.n_omega; ++index)
-      result[column * problem_.n_omega + index] = host(column, index);
-  return result;
 }
 
 // --- solprop SEP 16 phase 3b: the Adams history resident in the engine ---------------
@@ -13882,20 +13861,19 @@ void GeneralWorkspace::separable_time_statistics(const std::size_t axis_peak,
 }
 
 std::vector<double> GeneralWorkspace::aperture_statistics(
-    const std::uint64_t flags, const std::vector<double>& apertures,
-    const int profile_code, const int exponent, const std::vector<double>& regions,
-    const double intensity_factor) {
+    const std::uint64_t flags, const std::vector<double>& apertures, const int exponent,
+    const std::vector<double>& regions, const double intensity_factor) {
   require_open();
   if (!initialized_ || !far_field_)
     throw std::logic_error(
         "far-field statistics need an initial field on a Cartesian or line grid");
   return far_field_->run(
-      flags, apertures, profile_code, exponent, regions, intensity_factor, current_,
+      flags, apertures, exponent, regions, intensity_factor, current_,
       FarFieldPass::Inputs{spatial_spectral_weights_, spatial_on_axis_, spatial_.square,
                            spatial_.square_low, spatial_.transverse,
                            spatial_.transverse_low, spatial_.spectral_rate,
-                           spatial_.transverse_rate, omega_, active_mask_,
-                           spatial_.evanescent});
+                           spatial_.user_rate, spatial_.transverse_rate, omega_,
+                           active_mask_, spatial_.evanescent});
 }
 
 std::vector<double> GeneralWorkspace::spatial_statistics(const std::uint64_t flags,
@@ -14708,14 +14686,32 @@ std::vector<double> GeneralWorkspace::monitor_reading() {
     // build's atomic scatter adds into the view itself).
     graph::deep_copy(execution_space_, occupancy_, 0.0);
     scatter.reset(execution_space_);
-    launch::parallel_for(
-        "solprop_native.monitor.occupancy",
-        Range2(execution_space_, {0, 0}, {columns, n}),
-        KOKKOS_LAMBDA(const std::size_t row, const std::size_t index) {
-          auto access = scatter.access();
-          access(buckets((row / n_pol) * n + index)) +=
-              column_weights(row) * squared_abs(current(row, index));
-        });
+    if constexpr (Kokkos::SpaceAccessibility<ExecutionSpace,
+                                             Kokkos::HostSpace>::accessible) {
+      // A host scatter finds its thread's copy at each `access`, which dominated this
+      // loop per element; a row takes it once (issue #453). A device's access is
+      // atomic.
+      launch::parallel_for(
+          "solprop_native.monitor.occupancy",
+          Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, columns),
+          KOKKOS_LAMBDA(const std::size_t row) {
+            auto access = scatter.access();
+            const std::size_t offset = (row / n_pol) * n;
+            const double weight = column_weights(row);
+            for (std::size_t index = 0; index < n; ++index)
+              access(buckets(offset + index)) +=
+                  weight * squared_abs(current(row, index));
+          });
+    } else {
+      launch::parallel_for(
+          "solprop_native.monitor.occupancy",
+          Range2(execution_space_, {0, 0}, {columns, n}),
+          KOKKOS_LAMBDA(const std::size_t row, const std::size_t index) {
+            auto access = scatter.access();
+            access(buckets((row / n_pol) * n + index)) +=
+                column_weights(row) * squared_abs(current(row, index));
+          });
+    }
     Kokkos::Experimental::contribute(execution_space_, occupancy_, scatter);
     const auto host =
         Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace{}, occupancy_);
@@ -15034,7 +15030,6 @@ std::map<std::string, std::size_t> GeneralWorkspace::base_memory_ledger() const 
        (whole_propagator_.size() + low_storage_flows_.size()) * complex_bytes},
       {"register_accumulator", register_accumulator_.size() * complex_bytes},
       {"register_stage", register_stage_.size() * complex_bytes},
-      {"held_plane", held_plane_.size() * complex_bytes},
       {"stage_phase", stage_phase_.size() * complex_bytes},
       {"stage_inverse", stage_inverse_.size() * complex_bytes},
       {"fine_spectrum", fine_spectrum_.size() * complex_bytes},
@@ -15082,6 +15077,7 @@ std::map<std::string, std::size_t> GeneralWorkspace::base_memory_ledger() const 
             problem_.spatial_kperp_sq_low.capacity() +
             problem_.spatial_frame.capacity() +
             problem_.spatial_spectral_rate.capacity() +
+            problem_.spatial_user_rate.capacity() +
             problem_.spatial_absorber_rate.capacity() +
             problem_.spatial_kperp_rate.capacity() + problem_.spatial_k_x.capacity() +
             problem_.spatial_k_y.capacity() + problem_.synthesis_matrix.capacity() +
@@ -15130,7 +15126,8 @@ std::map<std::string, std::size_t> GeneralWorkspace::base_memory_ledger() const 
                complex_bytes +
            (spatial_.transverse.size() + spatial_.transverse_low.size() +
             spatial_.frame.size() + spatial_.spectral_rate.size() +
-            spatial_.absorber.size() + spatial_.transverse_rate.size()) *
+            spatial_.user_rate.size() + spatial_.absorber.size() +
+            spatial_.transverse_rate.size()) *
                real_bytes},
       {"adams_history",
        (adams_store_.size() + adams_slopes_.size() + adams_moments_.size() +
@@ -15353,9 +15350,7 @@ void GeneralWorkspace::close() noexcept {
   current_ = {};
   register_accumulator_ = {};
   register_stage_ = {};
-  held_plane_ = {};
   low_storage_flows_ = {};
-  held_ready_ = false;
   advanced_ = {};
   stages_ = {};
   solution_ = {};
@@ -15591,14 +15586,6 @@ double GeneralState::low_storage_step(const double dz, const TrialScalars& scala
   const CpuTeamScope team(workspace_->cpu_team());
   return workspace_->low_storage_step(dz, scalars, rebuild_table);
 }
-void GeneralState::hold_plane() {
-  const CpuTeamScope team(workspace_->cpu_team());
-  workspace_->hold_plane();
-}
-std::vector<Complex> GeneralState::held_to_host() const {
-  const CpuTeamScope team(workspace_->cpu_team());
-  return workspace_->held_to_host();
-}
 void GeneralState::adams_allocate(const std::size_t slots, const bool compensated,
                                   const bool interpolate) {
   const CpuTeamScope team(workspace_->cpu_team());
@@ -15761,12 +15748,11 @@ std::vector<double> GeneralState::spatial_statistics(const std::uint64_t flags,
   return workspace_->spatial_statistics(flags, intensity_factor, z);
 }
 std::vector<double> GeneralState::aperture_statistics(
-    const std::uint64_t flags, const std::vector<double>& apertures,
-    const int profile_code, const int exponent, const std::vector<double>& regions,
-    const double intensity_factor) {
+    const std::uint64_t flags, const std::vector<double>& apertures, const int exponent,
+    const std::vector<double>& regions, const double intensity_factor) {
   const CpuTeamScope team(workspace_->cpu_team());
-  return workspace_->aperture_statistics(flags, apertures, profile_code, exponent,
-                                         regions, intensity_factor);
+  return workspace_->aperture_statistics(flags, apertures, exponent, regions,
+                                         intensity_factor);
 }
 void GeneralState::finish(const double dz) {
   const CpuTeamScope team(workspace_->cpu_team());

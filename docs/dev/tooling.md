@@ -179,7 +179,6 @@ build works offline and survives a flaky mirror; refresh the copies occasionally
   `SOLPROP_FFTW_WISDOM` (a file name, beside which the native backend keeps its wisdom)
   and `SOLPROP_BLAS_THREADS` (the width of the other BLAS libraries while a native
   backend lives).
-- `SOLPROP_MEMORY_BUDGET`, the memory admission budget ([backends.md §8](backends.md)).
 - In the test suite: `SOLPROP_TEST_BACKEND` (the backend the driver tests select; by
   default what `backend="auto"` selects, `native` where it is installed),
   `SOLPROP_TEST_TYPECHECK=0` (leave out the runtime type checks, ADR-053),
@@ -245,6 +244,10 @@ jaxtyping hook) run in the coverage lane only; the other test lanes set
   its lint and strict types, clang-format and its pytest suite (`lint pytest`);
   clang-tidy and the native tests (`tidy`); and ASan and UBSan (`sanitize`). The
   distribution wheel's stage is native-wheel's Linux job.
+- **device-compile** (Linux, two jobs): on a change to `native/`, compiles the `cuda`
+  preset under CUDA 12.8 and the `hip` preset under ROCm 7.2, tests included, with warnings
+  as errors and no device. About 25 and 11 minutes, with no cache. A fault only a card
+  shows, or a test that fails on one, still needs a run on a device.
 - **gui** (Linux x86-64, macOS arm64, Windows x64): `uv run poe check-gui`, the front
   end's gate (its types against `gui/pyproject.toml`, its docstrings and its tests, with
   the layers without Qt held to 100 % coverage), after `uv sync --extra gui --group

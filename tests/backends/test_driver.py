@@ -935,9 +935,6 @@ DRIVER_SURFACE = {
         "atomic: collections.abc.Mapping[str, object] | None = None) -> None"
     ),
     "observe": "(self, *, field: bool = True) -> solprop.backends.protocol.Observation",
-    "held_observation": "(self) -> solprop.backends.protocol.Observation | None",
-    "_hold": "(self, state: _StateT | None) -> None",
-    "_held_field": f"(self) -> {FIELD}",
     "set_initial": (
         "(self, field: jaxtyping.Complex[ndarray, 'n_batch n_modes n_pol n_omega'], "
         "noise: solprop.noise.NoiseRealisation | None, *, z: float = 0.0, "
@@ -992,8 +989,10 @@ SEPARABLE_OPERATOR_FIELDS = (
     "z_span",
     "kappa_sq",
     "kperp_rate",
+    "user_rate",
 )
-"""The separable leaf's fields; schema 15 appended ``kappa_sq``, 31 ``kperp_rate``."""
+"""The separable leaf's fields; schema 15 appended ``kappa_sq``, 31 ``kperp_rate``, 45
+``user_rate``."""
 
 STAGE_TERMS_FIELDS = ("phi", "prefactor", "separable")
 STAGE_SCALARS_FIELDS = (
@@ -1135,9 +1134,14 @@ def test_the_surface_a_backend_subclasses_is_frozen(driver):
     (``_split_found``) and the state's occupancy of the split collar's walk-off buckets
     (``KernelProblem.split_crossing``); the native reading's ``bind_occupancy`` and its
     ``10 + 128`` numbers, and the native march's required ``step_cap`` bound. It adds
-    ``_split_capped``, the cap on adaptive steps.
+    ``_split_capped``, the cap on adaptive steps. Version 44 adds ``set_held_plane``,
+    with which a driver turns the low-storage march's held plane off for a run, and
+    ``_drop_held``, which releases its buffer. Version 45 appends ``user_rate`` to the
+    separable leaf, without changing these signatures. Version 46 removes
+    ``held_observation``, ``_hold``, ``_held_field``, ``set_held_plane`` and
+    ``_drop_held``: a low-storage march holds no plane (ADR-067).
     """
-    assert KERNEL_SCHEMA_VERSION == 43, (
+    assert KERNEL_SCHEMA_VERSION == 46, (
         "the seam changed: rewrite the literals of this test"
     )
     assert StepDriver.reads_transverse_edge is False

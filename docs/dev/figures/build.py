@@ -757,7 +757,6 @@ MODULES = {
             "output/",
             (
                 "schema",
-                "compatibility",
                 "capability",
                 "memory",
                 "hdf5",
@@ -784,7 +783,6 @@ MODULES = {
                 "tdse_consistency",
                 "scan",
                 "batch",
-                "memory",
                 "defaults",
                 "estimate",
                 "plane_view",

@@ -414,18 +414,14 @@ keeping incomplete numerical arrays masked.
 
 One controller owns the collected HDF5 file. Each successful payload is validated,
 staged and flushed before the point is marked `done`. A rerun skips a completed point
-whose rebuilt record is its stored one, or differs from it only in rounding, a declared
-neutral value or provenance, as a resume compares them
-([what a resume compares](../results/resuming.md#what-a-resume-compares)); a worker
-whose digest differs hands its record back, and the controller compares the two.
-Unlike a resume, a scan holds the numerics to agreement too: a finished point has
-nothing left to continue, and tightening `rtol` is the commonest reason to rerun a
-scan, so a rerun with changed numerics or physics is refused, naming what changed,
-and is written to a new file. The record includes the point's material manifest: a
+whose rebuilt record has its stored configuration hash, as a resume does
+([what a resume compares](../results/resuming.md#what-a-resume-compares)). Any other
+record is refused, naming what changed, and is written to a new file: a tightened `rtol` is
+the commonest reason. The record includes the point's material manifest: a
 point resolves its materials, under its `materials=` selection or the default one, from
 its own objects, so its optmat models and policies are frozen for that run and do not
-depend on what another point resolved. A model whose numbers changed, or a changed
-policy, is refused by name; another optmat version alone is provenance
+depend on what another point resolved. A model whose numbers changed, a changed policy
+or another optmat version is refused by name
 ([output](../results/provenance.md#the-material-manifest)). Failed points require
 `retry_failed=True`. A stale `running` point becomes eligible after `stale_age` seconds
 (600 by default). Queue ownership protection uses the live-owner and refreshed-lease rules

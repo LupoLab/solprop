@@ -15,7 +15,7 @@ resume decision.
 **Resume.** Given a path, a run checks the file that is already there with
 :func:`solprop.output.hdf5.check_cache`: the digest covers the grid, the modes, the
 whole serialised configuration, the noise and the stepper settings, so a file written
-for different physics is refused by name rather than continued from someone else's
+for a different run is refused by name rather than continued from someone else's
 state. If it passes, the last plane comes back through
 :func:`solprop.output.hdf5.resume`, the backend is loaded at that plane's position, and
 the run carries on into the same file with ``HDF5Output(path, append=True)``.
@@ -102,7 +102,6 @@ from solprop.driver.material_output import (
     material_record,
     processing_record,
 )
-from solprop.driver.memory import MemoryAdmission, admit_guide_memory, admit_memory
 from solprop.driver.mixtures import (
     ResponseSelection,
     capillary_fill,
@@ -125,9 +124,6 @@ from solprop.exceptions import (
     GridError,
     MaterialRangeWarning,
     MaterialStatusWarning,
-    MemoryBudgetError,
-    MemoryBudgetWarning,
-    OutputError,
     ParameterPath,
     SampledPeakWarning,
     SolpropError,
@@ -218,14 +214,11 @@ from solprop.nonlinear.responses import (
     PlasmaResponse,
 )
 from solprop.nonlinear.tdse import TDSEAtomicWindow, TDSEExecution, TDSEGasResponse
-from solprop.output.compatibility import RecordComparison, dotted
 from solprop.output.hdf5 import (
     HDF5Output,
     ResumeState,
-    _compare_cache,
-    _resume_refusal,
     _stored_metadata,
-    _stored_stat_shapes,
+    check_cache,
 )
 from solprop.output.hdf5 import resume as resume_state
 from solprop.output.memory import MemoryOutput
@@ -234,6 +227,7 @@ from solprop.output.schema import (
     PEAK_FIELDS_ANNOTATION,
     CheckpointOutput,
     DefaultsResolution,
+    FieldRetention,
     FieldsChoice,
     GridRecord,
     ModeRecord,
@@ -243,8 +237,10 @@ from solprop.output.schema import (
     PlaneStore,
     RecipeRecord,
     RunMetadata,
+    StatedInput,
     StepLimits,
     StepperRecord,
+    _recorded_inline,
     field_retention_refusal,
     recorded_input,
     serialise,
@@ -393,11 +389,8 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-type _ResumeChoice = bool | Literal["interpolated", "force"]
-"""What ``resume`` takes: no, yes, from an interpolated plane, or across compared
-differences (SEP 42 section 5.5)."""
-
-_RESUME_CHOICES: Final = (False, True, "interpolated", "force")
+type _ResumeChoice = bool | Literal["interpolated"]
+"""What ``resume`` takes: no, yes, or from a plane interpolated inside a step."""
 
 
 LOOSE_ADAMS_RTOL = 5e-2
@@ -730,15 +723,14 @@ class SimulationSettings(Displayed):
         Which saved planes keep their field (SEP 22): every one, the default; those
         of `field_planes`; or none, for a run wanted as statistics alone. A plane
         without its field stores no field and no noise phase, and an in-memory output
-        is charged and allocated for the kept fields only; the march is the same. A
+        is allocated for the kept fields only; the march is the same. A
         terminal checkpoint carries the field anyway, so a stopped run resumes, but a
         file whose last regular plane kept no field resumes only from one. Outside
         the resume key, like `resume_history`: it changes what is kept, not what is
         computed. In a scan, :func:`~solprop.driver.scan.run_scan`'s own `fields`
         decide, and a builder that sets this is refused. Beside
-        ``LowStorageRungeKutta()`` the backend holds the last field-free plane's
-        state, one more state volume charged at admission, so a step abandoned in
-        flight still leaves a resumable checkpoint (SEP 22, Q14).
+        ``LowStorageRungeKutta()``, a step abandoned in flight leaves no checkpoint, so
+        a file resumes from the last plane that kept its field.
     field_planes : sequence of int
         Saved-plane indices for ``fields='planes'``, the entrance as 0 and negative
         from the end; empty otherwise. Refused beside `step_planes`, whose plane count
@@ -1541,8 +1533,7 @@ def metadata_for(  # noqa: PLR0913 - the record's parts, each a distinct object
         )
     if problem.responses.plasma_integral.policy != "trapezoid":
         # The band rule's taps and policies (SEP 18, Q9): a resume that would
-        # integrate the plasma differently is refused through the hash. Written only
-        # for that rule, so that every trapezoid run keeps the digest it had.
+        # integrate the plasma differently is refused through the hash.
         record["plasma_integration"] = integration_record(
             problem.responses.plasma_integral
         )
@@ -1991,14 +1982,11 @@ class _AtomicContext:
         What a resumed file holds.
     metadata : RunMetadata
         The run's record.
-    admission : MemoryAdmission
-        The run's optical memory admission.
     """
 
     handler: Output
     state: ResumeState | None
     metadata: RunMetadata
-    admission: MemoryAdmission
 
 
 class Simulation(Displayed):
@@ -2031,8 +2019,7 @@ class Simulation(Displayed):
         view (:func:`numpy.broadcast_to`) copies only the block it repeats. On a
         free-space or spatial route the translated problem holds the same complex128
         copy rather than another; on a modal route it holds the launch converted to
-        its internal amplitude beside the simulation's copy, two states in all, which
-        the memory admission counts (``simulation_input`` and ``initial_field``).
+        its internal amplitude beside the simulation's copy, two states in all.
     settings : SimulationSettings
         How to step it, what to record and which backend to use.
     initial_z : float, optional
@@ -2205,25 +2192,13 @@ class Simulation(Displayed):
         self._mixture_selection: ResponseSelection | None = None
         self._peak_fields: tuple[PeakFieldReport, ...] = ()
         self._reuse: TranslationReuse | None = None
+        self._input_identity: str | None = None
+        self._record_keys: set[str] | None = None
         self._field0 = self._built_input(initial, grid, initial_z)
         if isinstance(initial, np.ndarray):
             # What was passed is what runs and what is recorded: a read-only view of
             # the simulation's own copy, as the caller gave it (`_given_input`).
             self.initial = _given_input(initial, self._field0)
-
-    def _held_inputs(self) -> tuple[np.ndarray, ...]:
-        """Return the arrays the simulation holds for its input, for the admission.
-
-        Returns
-        -------
-        tuple of numpy.ndarray
-            Its own copy of the input and, for an array input of another dtype than
-            complex128, the copy it records; nothing for an input it does not hold.
-        """
-        held = [self._field0]
-        if isinstance(self.initial, np.ndarray):
-            held.append(self.initial)
-        return tuple(held)
 
     def _built_input(
         self,
@@ -2607,6 +2582,7 @@ class Simulation(Displayed):
         noise: NoiseRealisation | Literal["keep"] | None = "keep",
         initial_z: float | None = None,
         configuration: Mapping[str, object] | None = None,
+        input_identity: str | None = None,
     ) -> "Simulation":  # noqa: UP037 - runtime hook evaluates the class body
         """Replace the input while sharing the translated propagation problem.
 
@@ -2617,7 +2593,8 @@ class Simulation(Displayed):
         stepper's checks: the launch before the first plane, and a replayed schedule
         containing every plane. An array input above
         :data:`~solprop.output.schema.INLINE_ARRAY_LIMIT` elements is recorded by its
-        digest (:class:`~solprop.output.schema.ArrayDigest`), not inline.
+        digest (:class:`~solprop.output.schema.ArrayDigest`), not inline, unless its
+        identity is stated (`input_identity`).
 
         Parameters
         ----------
@@ -2647,6 +2624,14 @@ class Simulation(Displayed):
             Caller keys merged into the derived run's configuration record, and so
             into its configuration hash: the delay of a scan, the label of an input.
             A key the run already records is refused.
+        input_identity : str or None, optional
+            What an array input is, stated by the caller who already knows: the record
+            then holds this string, the dtype and the shape
+            (:class:`~solprop.output.schema.StatedInput`) in place of the array's own
+            record, and its bytes are not digested. **It is not checked**: two
+            different arrays stated alike have one configuration hash, so a resume or
+            a scan's cache accepts one for the other. ``None``, the default, records
+            the array as itself or by its digest. Refused for anything but an array.
 
         Returns
         -------
@@ -2661,8 +2646,9 @@ class Simulation(Displayed):
         ------
         DriverError
             If the new field or noise shape differs or any sample is not finite, a
-            `configuration` key is one the run records itself, or a launch is bound
-            to another port or given beside an `initial_z`.
+            `configuration` key is one the run records itself, a launch is bound
+            to another port or given beside an `initial_z`, or `input_identity` is
+            empty or names anything but an array input.
 
         Warns
         -----
@@ -2673,21 +2659,12 @@ class Simulation(Displayed):
         """
         if isinstance(noise, str) and noise != "keep":
             raise DriverError("noise must be keep, None, or a NoiseRealisation")
+        _check_input_identity(input_identity, initial)
         coupling = None
         if isinstance(initial, CouplingLaunch):
-            if initial_z is not None:
-                msg = "a launch carries its own entrance: give no initial_z beside it"
-                raise DriverError(msg)
-            entrance = initial.port.geometry.z
-            interior = None if entrance == self.initial_z else entrance
-            refusal = self.input_port(interior).accepts(initial.port)
-            if refusal is not None:
-                msg = f"this launch was computed for another input port: {refusal}"
-                raise DriverError(msg)
-            coupling = initial.record()
-            initial_z = interior
-            noise = None if isinstance(noise, str) else noise
-            initial = initial.internal()
+            launch = initial
+            initial, initial_z, noise = self._launched(launch, initial_z, noise)
+            coupling = launch.record()
         original = self.translate()
         launch_z = self.initial_z if initial_z is None else initial_z
         settings = self.settings
@@ -2745,6 +2722,7 @@ class Simulation(Displayed):
         updated.configuration = self._derived_configuration(
             updated.initial, configuration, coupling
         )
+        updated._input_identity = input_identity
         # A derived run starts from what its parent's run has warned and recorded,
         # and keeps its own from here: its siblings never see each other's.
         updated._material_log = self._material_log.copy()
@@ -2783,6 +2761,46 @@ class Simulation(Displayed):
         with _optmat.material_context(updated._material_log):
             _check_rate_inputs(updated, updated.initial)
         return updated
+
+    def _launched(
+        self,
+        launch: CouplingLaunch,
+        initial_z: float | None,
+        noise: NoiseRealisation | Literal["keep"] | None,
+    ) -> tuple[np.ndarray, float | None, NoiseRealisation | None]:
+        """Return what a coupling launch means for :meth:`with_input`, or refuse it.
+
+        Parameters
+        ----------
+        launch : solprop.coupling.CouplingLaunch
+            The launch.
+        initial_z : float or None
+            The position asked for beside it, which it refuses.
+        noise : NoiseRealisation, {'keep'} or None
+            The noise asked for: a launch carries its source's realised field, so
+            ``'keep'`` draws no second floor.
+
+        Returns
+        -------
+        tuple
+            The launch's spectrum, its interior position (``None`` at this run's own
+            entrance) and its noise.
+
+        Raises
+        ------
+        DriverError
+            If a position is given beside it, or it is bound to another port.
+        """
+        if initial_z is not None:
+            msg = "a launch carries its own entrance: give no initial_z beside it"
+            raise DriverError(msg)
+        entrance = launch.port.geometry.z
+        interior = None if entrance == self.initial_z else entrance
+        refusal = self.input_port(interior).accepts(launch.port)
+        if refusal is not None:
+            msg = f"this launch was computed for another input port: {refusal}"
+            raise DriverError(msg)
+        return launch.internal(), interior, None if isinstance(noise, str) else noise
 
     def _derived_configuration(
         self,
@@ -2826,9 +2844,7 @@ class Simulation(Displayed):
             if not isinstance(initial, np.ndarray):
                 recorded["pulse"] = initial
         if configuration:
-            clash = sorted(
-                set(configuration) & ({"coupling"} | set(self.metadata().configuration))
-            )
+            clash = sorted(set(configuration) & ({"coupling"} | self._recorded_keys()))
             if clash:
                 msg = (
                     f"configuration keys {clash} are recorded by the run itself; "
@@ -2896,17 +2912,12 @@ class Simulation(Displayed):
         if not np.all(np.isfinite(noise.spectrum)):
             raise DriverError("with_input requires a finite noise realisation")
 
-    def runner(self, *, memory_budget: int | str | None = None) -> "SimulationRunner":  # noqa: UP037 - defined below
+    def runner(self) -> "SimulationRunner":  # noqa: UP037 - defined below
         """Return a runner that keeps this translation and one backend for many inputs.
 
-        Translates (or reuses the cached translation), admits memory and constructs
-        the backend once; each :meth:`SimulationRunner.run` then runs one input on it
-        (SEP 22 section 5.2). Close it, or use it in a ``with`` block.
-
-        Parameters
-        ----------
-        memory_budget : int or str or None, optional
-            The budget the backend is admitted against, as for :meth:`run`.
+        Translates (or reuses the cached translation) and constructs the backend once;
+        each :meth:`SimulationRunner.run` then runs one input on it (SEP 22 section
+        5.2). Close it, or use it in a ``with`` block.
 
         Returns
         -------
@@ -2917,10 +2928,8 @@ class Simulation(Displayed):
         ------
         DriverError
             If the run has a TDSE response.
-        MemoryBudgetError
-            If the backend does not fit its budget.
         """
-        return SimulationRunner(self, memory_budget=memory_budget)
+        return SimulationRunner(self)
 
     def _drop_recipe(self, reason: str) -> None:
         """Forget the recipe, which no longer describes this simulation, and warn.
@@ -3071,6 +3080,7 @@ class Simulation(Displayed):
         if self._recipe is not None:
             self._warn_recipe_dropped("with_mixture")
         updated.initial = self.initial
+        updated._input_identity = self._input_identity
         updated._mixture_selection = self._mixture_selection
         updated._reuse = _mixture_reuse(self, updated, old, mixture, original)
         updated.translate()
@@ -3107,65 +3117,111 @@ class Simulation(Displayed):
         # the digest keys on the problem and the state alone. What executed the run
         # is recorded instead, outside the key, in `RunMetadata.backend`.
         if self._metadata is None:
-            configuration = dict(self.configuration)
-            configuration.update(
-                {
-                    "responses": list(self.responses),
-                    # A gigabyte array is recorded by its digest (SEP 22, Q4).
-                    "initial": recorded_input(self.initial),
-                    "profiles": dict(self.profiles),
-                    "density": self.settings.density,
-                    "shock": self.settings.shock,
-                    "prefactor_index": self.settings.prefactor_index,
-                    "absorber": self.settings.absorber,
-                    "absorber_scheme": _scheme(self.settings),
-                    "propagator_mode": self.settings.propagator_mode,
-                    # Every run records its precision, double included (SEP 33
-                    # section 5.3, ADR-051), so a resume in the other is refused.
-                    "precision": self.settings.precision,
-                }
-            )
-            if self.frame is not None:
-                configuration["frame"] = self.frame
-            elif _frame_follows_the_electronic_rule(self.responses, self.grid):
-                # A Raman thg flag kept beta_0 on an envelope grid before the frame
-                # followed the electronic responses alone (issue #77). Recording the
-                # co-moving frame here, and only here, refuses a resume of such an
-                # earlier run by name, which would otherwise continue under another
-                # frame with the same digest; every other run keeps its digest.
-                configuration["frame"] = Frame.comoving(self.grid)
-            # The operator settings of SEP 22 phase 2, recorded only where set, so
-            # every earlier run keeps its digest; a collar as its two numbers.
-            if self.settings.evanescent_rate is not None:
-                configuration["evanescent_rate"] = self.settings.evanescent_rate
-            if self.settings.spatial_absorber is not None:
-                configuration["spatial_absorber"] = self.settings.spatial_absorber
-            if self.settings.adiabatic_accuracy is not None:
-                configuration["adiabatic_accuracy"] = self.settings.adiabatic_accuracy
-            # A quiet collar changes what the stages compute (ADR-057), so the opt-in
-            # is part of the resume key, recorded only where taken; the rest of the
-            # check is the execution's, recorded in its record.
-            if _quiet_collar(self.settings):
-                configuration["quiet_collar"] = True
-            if self.spatial_grid is not None:
-                configuration.update(
-                    spatial_grid=self.spatial_grid, medium=self.medium, frame=self.frame
-                )
-            with _optmat.material_context(self._material_log):
-                self._metadata = metadata_for(
-                    self.translate(),
-                    self.grid,
-                    modes=self.modes,
-                    configuration=configuration,
-                    noise=self.noise,
-                    modal=self._modal_identity(),
-                    materials=self.material_manifest(),
-                    quadrature=self.settings.quadrature,
-                    frame=self.frame,
-                    noise_resolution=self.noise_resolution,
-                    defaults=self.settings.defaults_resolution(),
-                )
+            self._metadata = self._record(self._recorded_input())
         return self._metadata
+
+    def _recorded_input(self) -> object:
+        """Return the input as this run's record holds it, digesting a large array.
+
+        Returns
+        -------
+        object
+            The caller's statement of it, or what
+            :func:`~solprop.output.schema.recorded_input` makes of it.
+        """
+        if self._input_identity is not None:
+            return StatedInput.of(
+                cast("np.ndarray", self.initial), self._input_identity
+            )
+        # A gigabyte array is recorded by its digest (SEP 22, Q4).
+        return recorded_input(self.initial)
+
+    def _recorded_keys(self) -> set[str]:
+        """Return the keys of this run's configuration record, digesting nothing.
+
+        What a derived run's caller keys are checked against, which a parent that is
+        only a placeholder for its inputs should not pay a digest of itself for.
+
+        Returns
+        -------
+        set of str
+            The keys.
+        """
+        if self._record_keys is None:
+            record = self._metadata or self._record(None)
+            self._record_keys = set(record.configuration)
+        return self._record_keys
+
+    def _record(self, initial: object) -> RunMetadata:
+        """Build this run's record around what it says of its input.
+
+        Parameters
+        ----------
+        initial : object
+            The input's entry in the configuration record.
+
+        Returns
+        -------
+        solprop.output.schema.RunMetadata
+            What produced the run, and the key a resume is checked against.
+        """
+        configuration = dict(self.configuration)
+        configuration.update(
+            {
+                "responses": list(self.responses),
+                "initial": initial,
+                "profiles": dict(self.profiles),
+                "density": self.settings.density,
+                "shock": self.settings.shock,
+                "prefactor_index": self.settings.prefactor_index,
+                "absorber": self.settings.absorber,
+                "absorber_scheme": _scheme(self.settings),
+                "propagator_mode": self.settings.propagator_mode,
+                # Every run records its precision, double included (SEP 33
+                # section 5.3, ADR-051), so a resume in the other is refused.
+                "precision": self.settings.precision,
+            }
+        )
+        if self.frame is not None:
+            configuration["frame"] = self.frame
+        elif _frame_follows_the_electronic_rule(self.responses, self.grid):
+            # A Raman thg flag kept beta_0 on an envelope grid before the frame
+            # followed the electronic responses alone (issue #77). Recording the
+            # co-moving frame here, and only here, refuses a resume of such an
+            # earlier run by name, which would otherwise continue under another
+            # frame with the same digest; every other run keeps its digest.
+            configuration["frame"] = Frame.comoving(self.grid)
+        # The operator settings of SEP 22 phase 2, recorded only where set, so
+        # every earlier run keeps its digest; a collar as its two numbers.
+        if self.settings.evanescent_rate is not None:
+            configuration["evanescent_rate"] = self.settings.evanescent_rate
+        if self.settings.spatial_absorber is not None:
+            configuration["spatial_absorber"] = self.settings.spatial_absorber
+        if self.settings.adiabatic_accuracy is not None:
+            configuration["adiabatic_accuracy"] = self.settings.adiabatic_accuracy
+        # A quiet collar changes what the stages compute (ADR-057), so the opt-in
+        # is part of the resume key, recorded only where taken; the rest of the
+        # check is the execution's, recorded in its record.
+        if _quiet_collar(self.settings):
+            configuration["quiet_collar"] = True
+        if self.spatial_grid is not None:
+            configuration.update(
+                spatial_grid=self.spatial_grid, medium=self.medium, frame=self.frame
+            )
+        with _optmat.material_context(self._material_log):
+            return metadata_for(
+                self.translate(),
+                self.grid,
+                modes=self.modes,
+                configuration=configuration,
+                noise=self.noise,
+                modal=self._modal_identity(),
+                materials=self.material_manifest(),
+                quadrature=self.settings.quadrature,
+                frame=self.frame,
+                noise_resolution=self.noise_resolution,
+                defaults=self.settings.defaults_resolution(),
+            )
 
     def material_manifest(self) -> MaterialManifest:
         """Collect the run's material manifest: what it took from optmat, and how.
@@ -3403,14 +3459,13 @@ class Simulation(Displayed):
             float(np.min(k)),
         )
 
-    def run(  # noqa: PLR0913, PLR0915 - independent execution and output controls
+    def run(  # noqa: PLR0913 - independent execution and output controls
         self,
         output: Output | Path | str | None = None,
         *,
         progress: ProgressReporter | ProgressChoice | None = None,
         progress_period: float = DEFAULT_PROGRESS_PERIOD,
         resume: _ResumeChoice = False,
-        memory_budget: int | str | None = None,
         tdse_archive: TDSEArchive | None = None,
         snapshots: SnapshotController | None = None,
         stop: StopFlag | None = None,
@@ -3435,31 +3490,17 @@ class Simulation(Displayed):
             Seconds between the line reporter's periodic lines, s; ``0`` leaves only
             the plane and closing lines. A bar has its own redraw period and a given
             reporter its own business.
-        resume : bool or {'interpolated', 'force'}, optional
-            Continue the file at `output` instead of replacing it, when its record
-            and this run's agree on what matters to the run
-            (``docs/guide/results/resuming.md``, SEP 42): the layout and the physics
-            must agree, numbers to a rounding-level tolerance; a changed tolerance or
-            integrator continues while there is work left, with a warning, and is
-            recorded in the session's execution record; provenance is ignored. A
-            finished file is returned only when every session ran under this run's
-            numerics. Only a path can be resumed: the driver has to open the file in
-            append mode itself. Noise a constructor drew without a seed is drawn again
-            from the seed the file recorded, so re-running the same call continues its
-            file. A file whose last plane was interpolated inside a step is refused
+        resume : bool or {'interpolated'}, optional
+            Continue the file at `output` instead of replacing it, when its record and
+            this run's have one configuration hash (``docs/guide/results/resuming.md``,
+            ADR-066); otherwise it is refused, naming the fields that differ. A finished
+            file is returned. Only a path can be resumed: the driver has to open the
+            file in append mode itself. Noise a constructor drew without a seed is drawn
+            again from the seed the file recorded, so re-running the same call continues
+            its file. A file whose last plane was interpolated inside a step is refused
             unless this is ``"interpolated"``: it then continues afresh from the
             interpolated field, and the position is recorded in the annotation
             :data:`~solprop.output.schema.INTERPOLATED_RESUMES_ANNOTATION`.
-            ``"force"`` also continues across changed physics while the layout agrees,
-            the statistics fit and work is left, restarting the Adams history and
-            marking the file, past which its record no longer describes its planes; a
-            forced file then continues only under ``"force"``.
-        memory_budget : int or str or None, optional
-            The memory budget this run is admitted against before its backend
-            allocates: bytes, or a string such as ``"16 GiB"`` or ``"warn:16 GiB"``,
-            or ``"none"``; ``None`` takes ``SOLPROP_MEMORY_BUDGET`` and otherwise four
-            fifths of the machine's memory, which only warns
-            (:mod:`solprop.driver.memory`).
         tdse_archive : solprop.output.TDSEArchive or None, optional
             Archive every raw TDSE provider evaluation of a run with a TDSE
             response in this separate HDF5 file (SEP 20 section 5.8); ``None``
@@ -3491,29 +3532,18 @@ class Simulation(Displayed):
         Raises
         ------
         ValueError
-            If `resume` is not one of its four values.
+            If `resume` is not one of its three values.
         DriverError
             If a resume is asked for and `output` is not a path, or the file's last
-            plane was interpolated and `resume` is neither ``"interpolated"`` nor
-            ``"force"``; or `tdse_archive` is given without a TDSE response or at the
+            plane was interpolated and `resume` is not ``"interpolated"``; or
+            `tdse_archive` is given without a TDSE response or at the
             path of the optical file.
         TDSEArchiveError
             If the archive's path holds another file, or a write to it fails; the
             run then stops at its last optical checkpoint.
-        MemoryBudgetError
-            If the run's estimated persistent memory exceeds its budget; nothing has
-            been allocated or written.
         OutputError
-            If a file is there and its layout or physics differ (unless forced), a
-            forced file is resumed without ``"force"``, a finished file was computed
-            under other numerics, or a forced run's statistics do not fit the file's;
-            the message names what changed.
-
-        Warns
-        -----
-        SolpropWarning
-            When a resume continues under changed numerics, is forced, or returns a
-            finished forced file.
+            If a file is there and its configuration hash differs; the message names
+            what changed.
 
         Examples
         --------
@@ -3534,37 +3564,24 @@ class Simulation(Displayed):
             problem = self.translate()
             _refuse_pending_check(problem)
             metadata = self.metadata()
-            handler, state, comparison = _open_output(output, metadata, resume=resume)
-            continuation: _Continuation | None = None
-            if state is not None and comparison is not None:
+            handler, state = _open_output(output, metadata, resume=resume)
+            if state is not None:
                 next_plane = _validate_resume(
                     problem, state, self.settings.tdse_execution
                 )
-                continuation = _resume_decision(
+                if not _continues(
                     Path(cast("Path | str", output)),
                     problem,
                     state,
                     next_plane,
-                    comparison,
                     resume,
-                )
-                if continuation is None:
+                ):
                     handler.open(state.metadata)
                     handler.close()
                     return handler
             _warn_sampled_peak(self.settings.quadrature, problem.stats_spec)
-            # Admitted before the output is opened and the backend allocates, so
-            # that a refused run leaves nothing behind.
             retention = field_retention(
                 problem, self.settings.fields, self.settings.field_planes
-            )
-            admission = admit_memory(
-                problem,
-                self.settings.backend,
-                memory_budget,
-                output=handler,
-                retention=retention,
-                inputs=self._held_inputs(),
             )
             if problem.tdse is not None and not isinstance(handler, CheckpointOutput):
                 raise DriverError(
@@ -3597,7 +3614,7 @@ class Simulation(Displayed):
                 if problem.tdse is not None:
                     binding, archive = self._prepare_atomic(
                         problem,
-                        _AtomicContext(handler, state, metadata, admission),
+                        _AtomicContext(handler, state, metadata),
                         tdse_archive,
                     )
                 backend = select(
@@ -3608,16 +3625,8 @@ class Simulation(Displayed):
                     profiles=self.profiles,
                     tdse_binding=binding,
                 )
-                start_plane = self._prime(
-                    backend,
-                    problem,
-                    state,
-                    restart=continuation is not None and continuation.forced,
-                )
-                _confirm_continuation(continuation, backend, problem, output)
-                self._consistency_gate(
-                    binding, problem, handler, metadata, backend, admission
-                )
+                start_plane = self._prime(backend, problem, state)
+                self._consistency_gate(binding, problem, handler, metadata, backend)
                 run_problem(
                     problem,
                     backend,
@@ -3627,7 +3636,6 @@ class Simulation(Displayed):
                     progress=progress,
                     progress_period=progress_period,
                     start_plane=start_plane,
-                    memory=admission,
                     tdse_binding=binding,
                     resume_history=self.settings.resume_history,
                     fields=retention.fields,
@@ -3635,7 +3643,6 @@ class Simulation(Displayed):
                     snapshots=snapshots,
                     tdse_archive=archive,
                     boundary_monitor=self._boundary_monitor(),
-                    resume_record=None if continuation is None else continuation.entry,
                     stop=stop,
                     recipe=None if self._recipe is None else self._recipe.record(self),
                 )
@@ -3649,15 +3656,13 @@ class Simulation(Displayed):
                 raise
             finally:
                 _close_run(backend, binding, archive, handler, failure)
-            self._peak_fields = _peak_field_reports(
-                problem, handler, self.responses, _session_planes(state, continuation)
-            )
+            self._peak_fields = _peak_field_reports(problem, handler, self.responses)
         if (
             state is not None
             and _interpolated(state)
             and isinstance(handler, PlaneStore)
         ):
-            # Allowed only by resume="interpolated" or "force"; the record says where.
+            # Allowed only by resume="interpolated"; the record says where.
             earlier = handler.annotations.get(INTERPOLATED_RESUMES_ANNOTATION, [])
             handler.annotate(
                 INTERPOLATED_RESUMES_ANNOTATION,
@@ -3672,19 +3677,14 @@ class Simulation(Displayed):
             )
         return handler
 
-    def estimate(self, *, memory_budget: int | str | None = None) -> "RunEstimate":  # noqa: UP037 - checked at run time
+    def estimate(self) -> "RunEstimate":  # noqa: UP037 - checked at run time
         """Estimate what the run would cost, without running it (SEP 41, S11).
 
-        The grid, the persistent memory admitted against the budget before anything
-        is allocated (a run that would be refused is reported, not attempted), the
-        output's size, the cost of one right-hand-side evaluation on the backend,
-        timed after an untimed warm-up that takes compilation and planning, and the
-        integrator's calls per step (:mod:`solprop.driver.estimate`).
-
-        Parameters
-        ----------
-        memory_budget : int or str or None, optional
-            The budget, as :meth:`run` takes it.
+        The grid, the persistent memory the constructed backend holds, the output's
+        size, the cost of one right-hand-side evaluation on the backend, timed after an
+        untimed warm-up that takes compilation and planning, and the integrator's calls
+        per step (:mod:`solprop.driver.estimate`). It constructs the backend, so a run
+        that doesn't fit in memory fails here as the run would.
 
         Returns
         -------
@@ -3693,7 +3693,7 @@ class Simulation(Displayed):
         """
         from solprop.driver.estimate import estimate  # noqa: PLC0415 - imports this
 
-        return estimate(self, memory_budget=memory_budget)
+        return estimate(self)
 
     def _prepare_atomic(
         self,
@@ -3701,14 +3701,14 @@ class Simulation(Displayed):
         context: _AtomicContext,
         tdse_archive: TDSEArchive | None,
     ) -> tuple[TDSEBinding, TDSEArchiveWriter | None]:
-        """Admit a TDSE run's atomic memory, open its archive and prepare its binding.
+        """Open a TDSE run's archive and prepare its binding.
 
         Parameters
         ----------
         problem : KernelProblem
             The translated problem, with its TDSE descriptor.
         context : _AtomicContext
-            The optical output, resume state, record and memory admission.
+            The optical output, resume state and record.
         tdse_archive : TDSEArchive or None
             The archive request.
 
@@ -3724,12 +3724,6 @@ class Simulation(Displayed):
         execution = self.settings.tdse_execution
         if execution is None:
             raise DriverError("TDSE requires explicit tdse_execution settings")
-        execution = _tdse_memory_execution(
-            problem,
-            execution,
-            context.admission,
-            archive=None if tdse_archive is None else tdse_archive.outputs,
-        )
         # Opened and validated before any atomic work (SEP 20, 5.8).
         archive = _open_tdse_archive(
             tdse_archive,
@@ -3747,7 +3741,6 @@ class Simulation(Displayed):
                 descriptor,
                 execution,
                 problem.transform.n_nodes,
-                host_memory_bytes=context.admission.estimate.total,
                 defer_plans=descriptor.model == "hacc",
                 archive=archive,
             )
@@ -3763,7 +3756,6 @@ class Simulation(Displayed):
         handler: Output,
         metadata: RunMetadata,
         backend: Backend,
-        admission: MemoryAdmission,
     ) -> None:
         """Check a haCC run's weak-field linear response before propagating.
 
@@ -3786,8 +3778,6 @@ class Simulation(Displayed):
             The run's record.
         backend : Backend
             The prepared optical backend.
-        admission : MemoryAdmission
-            The run's memory admission.
         """
         descriptor = problem.tdse
         if binding is None or descriptor is None or descriptor.model != "hacc":
@@ -3813,7 +3803,7 @@ class Simulation(Displayed):
         binding.record_consistency(result.to_record())
         if result.outcome in ("refused", "invalid"):
             try:
-                open_run_record(handler, metadata, backend, binding, admission)
+                open_run_record(handler, metadata, backend, binding)
             except Exception:
                 logger.exception("could not record the refused consistency check")
         tdse_consistency.apply_outcome(result)
@@ -3945,8 +3935,6 @@ class Simulation(Displayed):
         backend: Backend,
         problem: KernelProblem,
         state: ResumeState | None,
-        *,
-        restart: bool = False,
     ) -> int:
         """Load the backend with the state the run starts from, and say where that is.
 
@@ -3959,10 +3947,6 @@ class Simulation(Displayed):
         state : solprop.output.hdf5.ResumeState or None
             What a file the run is continuing holds, or ``None`` to start at the
             entrance.
-        restart : bool, optional
-            Whether to start the Adams history afresh: a forced resume across
-            compared differences, whose stored history was stepped under the other
-            physics (SEP 42 section 5.5).
 
         Returns
         -------
@@ -3991,15 +3975,9 @@ class Simulation(Displayed):
             backend.restore_call_ledgers(
                 state.outcome.logical_calls, state.outcome.atomic_calls
             )
-        if restart:
-            # The snapshot's state was weighted by the other physics, and its energy
-            # would jump at the join: restoring it measured an error of 1.3e-4
-            # against 4.9e-8 starting afresh, on a capillary forced from 1 to 2 bar.
-            logger.info("the Adams history starts afresh: a forced resume")
-        else:
-            self._continue_march(
-                backend, state, adams=isinstance(problem.stepper.integrator, Multistep)
-            )
+        self._continue_march(
+            backend, state, adams=isinstance(problem.stepper.integrator, Multistep)
+        )
         return next_plane
 
     def _continue_march(
@@ -4014,9 +3992,8 @@ class Simulation(Displayed):
         state : solprop.output.hdf5.ResumeState
             What the file holds.
         adams : bool, optional
-            Whether this run steps with an Adams method. A run continued under
-            another integrator keeps no history, by its own choice, which is
-            recorded as a numerics change and needs no warning (SEP 42 section 5.6).
+            Whether this run steps with an Adams method. Another integrator keeps no
+            history, by its own choice, which needs no warning.
         """
         restore = getattr(backend, "restore_march", None)
         if restore is None:
@@ -4028,11 +4005,6 @@ class Simulation(Displayed):
         # A march that cannot carry its history restarts it without having been asked
         # to: say so once, as a warning (SEP 29 section 6.6).
         if not adams:
-            if state.march is not None:
-                logger.info(
-                    "the Adams history is not continued: this run steps "
-                    "with another integrator"
-                )
             return
         refusal = getattr(backend, "march_export_refusal", lambda: None)()
         if refusal is not None:
@@ -5405,7 +5377,6 @@ class Simulation(Displayed):
         precision: PrecisionName = "double",
         polarisation: str | float | None = None,
         taper_coupling: bool = True,
-        memory_budget: int | str | None = None,
         materials: MaterialSelection | None = None,
     ) -> "Simulation":  # noqa: UP037 - beartype resolves it while the body still runs
         """Build a pulse simulation in a waveguide: a gas-filled mode set, or a guide.
@@ -5750,12 +5721,6 @@ class Simulation(Displayed):
             :meth:`from_capillary` does; ``False`` is the opt-out to the adiabatic
             route. Refused as ``False`` beside a `provider`, whose moving guide carries
             its own connection.
-        memory_budget : int or str or None, optional
-            The budget a guide's route is admitted against **before** its dense E/H
-            reference and maps are built, which happens here rather than when the run
-            starts (:func:`solprop.driver.memory.admit_guide_memory`): a declaration as
-            :meth:`run` takes it, and ``None`` takes ``SOLPROP_MEMORY_BUDGET`` or the
-            machine's memory, warned on. Requires `provider`.
         materials : solprop.physdata.selection.MaterialSelection or None, optional
             Take the fill from optmat under this selection: a gas or fraction mapping
             of built-in gases, ``"air"`` and ``Gas.Air`` resolve through
@@ -5777,9 +5742,6 @@ class Simulation(Displayed):
             If the modes cannot bind a gas mixture, a gas keyword is given beside a
             provider, a general-guide keyword is given without one, or any supplied
             setting is invalid.
-        MemoryBudgetError
-            If a guide's reference and maps exceed a budget declared to refuse;
-            nothing of them has been built.
         """
         if provider is not None:
             return cls._from_general(
@@ -5842,13 +5804,11 @@ class Simulation(Displayed):
                 node_budget=node_budget,
                 backend=backend,
                 precision=precision,
-                memory_budget=memory_budget,
                 polarisation=polarisation,
                 taper_coupling=taper_coupling,
                 materials=MaterialSelection() if materials is None else materials,
             )
         for name, value in (
-            ("memory_budget", memory_budget),
             ("channel", channel),
             ("incident", incident),
             ("coupling", coupling),
@@ -5970,7 +5930,6 @@ class Simulation(Displayed):
         stats: StatsSpec | None,
         backend: str,
         precision: PrecisionName,
-        memory_budget: int | str | None,
         materials: MaterialSelection | None = None,
         integrator: Multistep | RungeKutta | LowStorageRungeKutta | None = None,
         launch: ModalLaunch | None = None,
@@ -6035,8 +5994,6 @@ class Simulation(Displayed):
         precision : {'double', 'single'}
             The arithmetic the run is held in; the general route is refused under
             single precision.
-        memory_budget : int or str or None
-            The budget the guide's route is admitted against before it is built.
         materials : solprop.physdata.selection.MaterialSelection or None, optional
             The run's material selection, recorded in its manifest. Under it a
             region's default :class:`~solprop.nonlinear.raman.SilicaTensorResponse`
@@ -6130,17 +6087,6 @@ class Simulation(Displayed):
             phases=phases,
             pulses=pulses,
         )
-        if provider.sampling is not None:
-            # Before the route and not after it: the route builds the dense E/H
-            # reference and the maps, which on a large guide are nearly all of the
-            # run's memory, and admission after them could only say so.
-            admit_guide_memory(
-                provider,
-                working,
-                z_max=float(np.max(planes)),
-                backend=backend,
-                memory_budget=memory_budget,
-            )
         built = (pulse.temporal if isinstance(pulse, SpatialPulse) else pulse).build(
             working
         )
@@ -6987,11 +6933,39 @@ class Simulation(Displayed):
         return _redrawable(simulation, draw, seed)
 
 
+@dataclasses.dataclass(frozen=True)
+class _LoadedRun:
+    """What a runner's march needs once its input is in the backend, and nothing more.
+
+    Attributes
+    ----------
+    problem : solprop.translate.problem.KernelProblem
+        The derived problem, without its input (:func:`_without_input`).
+    handler : solprop.output.schema.Output
+        Where the planes go.
+    metadata : solprop.output.schema.RunMetadata
+        The run's record.
+    retention : solprop.output.schema.FieldRetention
+        Which planes keep their field.
+    boundary_monitor : solprop.monitor.BoundaryMonitor or None
+        The run's monitor of the window's edges.
+    material_log : solprop.physdata.selection.MaterialLog
+        The derived run's material log, which the march goes on with.
+    """
+
+    problem: KernelProblem
+    handler: Output
+    metadata: RunMetadata
+    retention: FieldRetention
+    boundary_monitor: BoundaryMonitor | None
+    material_log: MaterialLog
+
+
 class SimulationRunner(Displayed):
     """One translated problem and one backend, run for many inputs (SEP 22 section 5.2).
 
     Built by :meth:`Simulation.runner`: the problem is translated (or the cached
-    translation reused), memory is admitted and one backend is constructed, once. Each
+    translation reused) and one backend is constructed, once. Each
     :meth:`run` then derives the input with :meth:`Simulation.with_input`, loads it
     into the same backend and runs the save-plane loop, returning that input's own
     handler. A large problem so pays its backend's allocation and transform planning
@@ -7012,18 +6986,12 @@ class SimulationRunner(Displayed):
     simulation : Simulation
         The run to repeat. Its settings, and the translation they fix, are used as
         they are; only the input changes from run to run.
-    memory_budget : int or str or None, optional
-        The budget the backend is admitted against
-        (:func:`solprop.driver.memory.admit_memory`); each run's in-memory output is
-        admitted against it again when the run starts.
 
     Raises
     ------
     DriverError
         If the simulation has a TDSE response, whose atomic binding has its own
         lifecycle and is never reused.
-    MemoryBudgetError
-        If the backend does not fit its budget; nothing has been allocated.
 
     Examples
     --------
@@ -7046,9 +7014,7 @@ class SimulationRunner(Displayed):
     ([3, 3], True)
     """
 
-    def __init__(
-        self, simulation: Simulation, *, memory_budget: int | str | None = None
-    ) -> None:
+    def __init__(self, simulation: Simulation) -> None:
         """Translate, admit and construct the backend, once."""
         problem = simulation.translate()
         if problem.tdse is not None:
@@ -7061,19 +7027,11 @@ class SimulationRunner(Displayed):
         settings = simulation.settings
         self._simulation = simulation
         self._problem = problem
-        self._memory_budget = memory_budget
         self._lock = threading.Lock()
         self._closed = False
         self.runs = 0
         with _optmat.material_context(simulation._material_log):
             _warn_sampled_peak(settings.quadrature, problem.stats_spec)
-            # Admitted before the backend allocates, so a refused runner holds nothing.
-            admit_memory(
-                problem,
-                settings.backend,
-                memory_budget,
-                inputs=simulation._held_inputs(),
-            )
             self._backend = select(
                 settings.backend,
                 problem,
@@ -7171,7 +7129,7 @@ class SimulationRunner(Displayed):
         self._closed = True
         self._backend.close()
 
-    def run(
+    def run(  # noqa: PLR0913 - one input's run, as with_input and run_problem take it
         self,
         initial: Pulse | SpatialPulse | np.ndarray,
         *,
@@ -7180,13 +7138,18 @@ class SimulationRunner(Displayed):
         noise: NoiseRealisation | Literal["keep"] | None = "keep",
         progress: ProgressReporter | ProgressChoice | None = None,
         progress_period: float = DEFAULT_PROGRESS_PERIOD,
+        input_identity: str | None = None,
     ) -> Output:
         """Run one input on the runner's backend and return its handler.
 
         Parameters
         ----------
         initial : Pulse, SpatialPulse or numpy.ndarray
-            The input, as :meth:`Simulation.with_input` takes it.
+            The input, as :meth:`Simulation.with_input` takes it. An array the record
+            keeps by digest (:func:`~solprop.output.schema.recorded_input`) is not
+            copied: it is read while this call loads it, and the runner holds no
+            reference to it, nor to any copy, once it is loaded, so a caller that
+            keeps none itself has it freed before the first step.
         output : solprop.output.schema.Output or pathlib.Path or str or None, optional
             Where this input's planes go: a handler, a path for an HDF5 file, or
             ``None`` for a new :class:`~solprop.output.memory.MemoryOutput`.
@@ -7200,6 +7163,10 @@ class SimulationRunner(Displayed):
             Where progress goes (:func:`solprop.driver.run.run_problem`).
         progress_period : float, optional
             Seconds between the line reporter's periodic lines, s.
+        input_identity : str or None, optional
+            What an array input is, recorded in its place and not checked, so that its
+            bytes are not digested (:meth:`Simulation.with_input`, whose warning
+            applies: a wrong identity passes a resume and a scan's cache).
 
         Returns
         -------
@@ -7211,10 +7178,9 @@ class SimulationRunner(Displayed):
         DriverError
             If the runner is closed or already running an input; if the derived
             problem is not the runner's but for its input (a different launch
-            position, or a shared leaf replaced); or if the noise model differs from
-            the runner's, which the backend could not carry.
-        MemoryBudgetError
-            If this input's in-memory output does not fit beside the backend.
+            position, or a shared leaf replaced); if the noise model differs from
+            the runner's, which the backend could not carry; or if `input_identity`
+            is empty or names anything but an array input.
         """
         if not self._lock.acquire(blocking=False):
             msg = (
@@ -7226,13 +7192,18 @@ class SimulationRunner(Displayed):
             if self._closed:
                 msg = "this runner is closed; build another with simulation.runner()"
                 raise DriverError(msg)
-            return self._run(
+            loaded = self._load(
                 initial,
                 output=output,
                 configuration=configuration,
                 noise=noise,
-                progress=progress,
-                progress_period=progress_period,
+                input_identity=input_identity,
+            )
+            # The load is the last to read the input, and every frame that saw it has
+            # returned but this one: the march holds no volume for it (issue #447).
+            del initial
+            return self._march(
+                loaded, progress=progress, progress_period=progress_period
             )
         except BaseException:
             # A backend that closed itself cannot run another input.
@@ -7242,17 +7213,20 @@ class SimulationRunner(Displayed):
         finally:
             self._lock.release()
 
-    def _run(
+    def _load(
         self,
         initial: Pulse | SpatialPulse | np.ndarray,
         *,
         output: Output | Path | str | None,
         configuration: Mapping[str, object] | None,
         noise: NoiseRealisation | Literal["keep"] | None,
-        progress: ProgressReporter | ProgressChoice | None,
-        progress_period: float,
-    ) -> Output:
-        """Derive, load and run one input; :meth:`run` without its guards.
+        input_identity: str | None,
+    ) -> _LoadedRun:
+        """Derive one input's run, open its handler and load the input into the backend.
+
+        The derived simulation and its problem are this frame's alone: they, the
+        converted launch of a modal route and the view of the input all go when it
+        returns.
 
         Parameters
         ----------
@@ -7264,6 +7238,55 @@ class SimulationRunner(Displayed):
             Caller keys for its record.
         noise : NoiseRealisation, {'keep'} or None
             Its noise.
+        input_identity : str or None
+            What the caller states an array input to be.
+
+        Returns
+        -------
+        _LoadedRun
+            What the march needs, which holds no input.
+        """
+        derived = self._simulation.with_input(
+            _borrowed_input(initial, stated=input_identity is not None),
+            noise=noise,
+            configuration=configuration,
+            input_identity=input_identity,
+        )
+        problem = derived.translate()
+        check_derived_problem(self._problem, problem)
+        settings = self._simulation.settings
+        with _optmat.material_context(derived._material_log):
+            metadata = derived.metadata()
+            handler, _ = _open_output(output, metadata, resume=False)
+            retention = field_retention(problem, settings.fields, settings.field_planes)
+            monitor = derived._boundary_monitor()
+            self._backend.set_initial(
+                problem.initial.field0,
+                None if isinstance(noise, str) else _realisation(problem),
+                z=problem.initial.z,
+            )
+        return _LoadedRun(
+            _without_input(problem),
+            handler,
+            metadata,
+            retention,
+            monitor,
+            derived._material_log,
+        )
+
+    def _march(
+        self,
+        loaded: _LoadedRun,
+        *,
+        progress: ProgressReporter | ProgressChoice | None,
+        progress_period: float,
+    ) -> Output:
+        """Run the loaded input's save-plane loop and finish its handler.
+
+        Parameters
+        ----------
+        loaded : _LoadedRun
+            The run :meth:`_load` left ready.
         progress : ProgressReporter, {'auto', 'bar', 'log', 'none'} or None
             Where progress goes.
         progress_period : float
@@ -7274,56 +7297,88 @@ class SimulationRunner(Displayed):
         solprop.output.schema.Output
             The handler.
         """
-        derived = self._simulation.with_input(
-            initial, noise=noise, configuration=configuration
-        )
-        problem = derived.translate()
-        check_derived_problem(self._problem, problem)
         settings = self._simulation.settings
-        with _optmat.material_context(derived._material_log):
-            metadata = derived.metadata()
-            handler, _, _ = _open_output(output, metadata, resume=False)
-            retention = field_retention(problem, settings.fields, settings.field_planes)
-            admission = admit_memory(
-                problem,
-                settings.backend,
-                self._memory_budget,
-                output=handler,
-                retention=retention,
-                inputs=derived._held_inputs(),
-            )
-            self._backend.set_initial(
-                problem.initial.field0,
-                None if isinstance(noise, str) else _realisation(problem),
-                z=problem.initial.z,
-            )
+        problem, handler = loaded.problem, loaded.handler
+        with _optmat.material_context(loaded.material_log):
             run_problem(
                 problem,
                 self._backend,
                 handler,
-                metadata=metadata,
+                metadata=loaded.metadata,
                 stats_spec=problem.stats_spec,
                 progress=progress,
                 progress_period=progress_period,
-                memory=admission,
                 resume_history=settings.resume_history,
-                fields=retention.fields,
-                field_planes=retention.field_planes,
-                boundary_monitor=derived._boundary_monitor(),
+                fields=loaded.retention.fields,
+                field_planes=loaded.retention.field_planes,
+                boundary_monitor=loaded.boundary_monitor,
             )
-            derived._peak_fields = _peak_field_reports(
-                problem, handler, derived.responses
-            )
-        if derived._peak_fields and isinstance(handler, PlaneStore):
+            reports = _peak_field_reports(problem, handler, self._simulation.responses)
+        if reports and isinstance(handler, PlaneStore):
             handler.annotate(
                 PEAK_FIELDS_ANNOTATION,
-                [
-                    cast("JsonValue", report.to_dict())
-                    for report in derived._peak_fields
-                ],
+                [cast("JsonValue", report.to_dict()) for report in reports],
             )
         self.runs += 1
         return handler
+
+
+def _borrowed_input(
+    initial: Pulse | SpatialPulse | np.ndarray, *, stated: bool
+) -> Pulse | SpatialPulse | np.ndarray:
+    """Return a runner's input as its private derived simulation may take it, uncopied.
+
+    A derived simulation copies an array so that its record and its run outlive the
+    caller's changes. A runner's lives only until the load, on the caller's thread and
+    inside the call, so an array needs no copy unless the record outlives it: one
+    recorded inline stays a copy, in the handler's record.
+
+    Parameters
+    ----------
+    initial : Pulse, SpatialPulse or numpy.ndarray
+        The runner's input.
+    stated : bool
+        Whether the caller states its identity, which is then all the record keeps.
+
+    Returns
+    -------
+    Pulse, SpatialPulse or numpy.ndarray
+        A read-only view of a complex128 array the record does not hold, marked as held
+        so that nothing copies it; `initial` itself otherwise. The caller's own flags
+        are not touched.
+    """
+    if (
+        isinstance(initial, np.ndarray)
+        and initial.dtype == np.complex128
+        and (stated or not _recorded_inline(initial))
+    ):
+        return _hold(np.asarray(initial).view())
+    return initial
+
+
+def _without_input(problem: KernelProblem) -> KernelProblem:
+    """Return a loaded problem without its input, for the march that follows the load.
+
+    The save-plane loop reads the launch position and never the launch, so the state
+    is replaced by a broadcast of one zero, which holds no volume (:class:`~solprop.
+    translate.problem.Initial`). The problem is good for the march alone.
+
+    Parameters
+    ----------
+    problem : solprop.translate.problem.KernelProblem
+        The derived problem, whose input is already in the backend.
+
+    Returns
+    -------
+    solprop.translate.problem.KernelProblem
+        The problem, sharing every leaf but ``initial.field0``.
+    """
+    placeholder = np.broadcast_to(
+        np.zeros(1, dtype=np.complex128), problem.initial.field0.shape
+    )
+    return dataclasses.replace(
+        problem, initial=dataclasses.replace(problem.initial, field0=_hold(placeholder))
+    )
 
 
 def _realisation(problem: KernelProblem) -> NoiseRealisation | None:
@@ -8117,8 +8172,6 @@ def _validate_resume(
         raise DriverError("a TDSE resume requires persisted cumulative call ledgers")
     method = problem.stepper.integrator
     if outcome is not None and outcome.logical_calls and isinstance(method, Multistep):
-        # Under another integrator the charged ledger stays in the earlier execution
-        # records as provenance, and is not installed (SEP 42 section 5.6).
         calls = CallLedger.from_record(outcome.logical_calls)
         if method.max_calls is not None and calls.total > method.max_calls:
             raise DriverError("logical call budget is below previously charged work")
@@ -8134,65 +8187,6 @@ def _validate_resume(
         ):
             raise DriverError("atomic call budget is below previously attempted work")
     return next_plane
-
-
-def _tdse_memory_execution(
-    problem: KernelProblem,
-    execution: TDSEExecution,
-    admission: MemoryAdmission,
-    *,
-    archive: Literal["full", "required"] | None = None,
-) -> TDSEExecution:
-    """Apply the run's budget to combined optical and atomic persistent storage.
-
-    Parameters
-    ----------
-    problem : KernelProblem
-        Translated problem supplying the atomic descriptor and node count.
-    execution : TDSEExecution
-        Atomic device choices and memory cap in bytes.
-    admission : MemoryAdmission
-        Optical host estimate and declared run budget in bytes.
-    archive : {'full', 'required'} or None, optional
-        The raw archive's output selection, whose writer buffers and widened
-        provider histories are admitted too; None without an archive.
-
-    Returns
-    -------
-    TDSEExecution
-        Resource choices with the combined hard memory limit enforced.
-    """
-    descriptor = problem.tdse
-    if descriptor is None:
-        raise DriverError("atomic memory admission requires a TDSE descriptor")
-    budget = admission.budget
-    limits = [execution.memory_limit]
-    if budget.action == "refuse":
-        limits.append(budget.limit)
-    finite_limits = [value for value in limits if value is not None]
-    effective = dataclasses.replace(
-        execution, memory_limit=min(finite_limits) if finite_limits else None
-    )
-    atomic_bytes = sum(
-        tdse_runtime.estimate_binding_memory(
-            descriptor, effective, problem.transform.n_nodes, archive=archive
-        ).values()
-    )
-    combined = admission.estimate.total + atomic_bytes
-    if effective.memory_limit is not None and combined > effective.memory_limit:
-        raise MemoryBudgetError(
-            f"combined optical and TDSE estimate requires {combined} bytes, "
-            f"exceeding {effective.memory_limit} bytes"
-        )
-    if budget.action == "warn" and budget.limit is not None and combined > budget.limit:
-        warnings.warn(
-            f"combined optical and TDSE estimate requires {combined} bytes, "
-            f"exceeding the advisory run budget of {budget.limit} bytes "
-            f"({budget.source})",
-            MemoryBudgetWarning,
-            stacklevel=3,
-        )
-    return effective
 
 
 def _check_tdse_archive(
@@ -8331,7 +8325,7 @@ def _open_tdse_archive(
         "execution": dataclasses.asdict(execution),
         "provider_pin": tdse_runtime.pinned_revision(),
         # The file's own record on a resume, which the session holds and a snapshot
-        # compares with (SEP 42 section 5.3).
+        # compares with.
         "optical_configuration_hash": (
             metadata if state is None else state.metadata
         ).configuration_hash(),
@@ -8564,7 +8558,7 @@ def _replaced_launch(
 
     On a free-space or spatial route the launch is a view of the derived simulation's
     own copy; on a modal route it is the power conversion of that copy, a second array
-    beside it, which the memory admission counts.
+    beside it.
 
     Parameters
     ----------
@@ -8590,6 +8584,35 @@ def _replaced_launch(
     return _hold(np.asarray(converted, dtype=np.complex128))
 
 
+def _check_input_identity(
+    identity: str | None, initial: Pulse | SpatialPulse | np.ndarray | CouplingLaunch
+) -> None:
+    """Refuse a stated identity that is empty, or of anything but an array input.
+
+    Parameters
+    ----------
+    identity : str or None
+        What the caller states the input to be.
+    initial : Pulse, SpatialPulse, numpy.ndarray or solprop.coupling.CouplingLaunch
+        The input.
+
+    Raises
+    ------
+    DriverError
+        Saying which.
+    """
+    if identity is None:
+        return
+    if not identity:
+        raise DriverError("input_identity must say what the input is: it is empty")
+    if not isinstance(initial, np.ndarray):
+        msg = (
+            "input_identity states an array input's identity; "
+            f"a {type(initial).__name__} is recorded as itself"
+        )
+        raise DriverError(msg)
+
+
 def _given_input(
     given: np.ndarray, held: Complex[np.ndarray, "n_modes n_pol n_omega"]
 ) -> np.ndarray:
@@ -8613,7 +8636,8 @@ def _given_input(
         of `given` in its own dtype; :class:`~solprop.translate.problem.Initial` takes
         either as held.
     """
-    source = held if given.dtype == held.dtype else _held_block(given, given.dtype.type)
+    # The whole dtype, byte order included: the record serialises its exact string.
+    source = held if given.dtype == held.dtype else _held_block(given, given.dtype)
     return _hold(source.view())
 
 
@@ -8762,13 +8786,11 @@ def _open_output(
     metadata: RunMetadata,
     *,
     resume: _ResumeChoice,
-) -> tuple[Output, ResumeState | None, RecordComparison | None]:
+) -> tuple[Output, ResumeState | None]:
     """Choose the handler a run writes to, and read what a resumed file holds.
 
-    The resume gate (SEP 42): the file's record and `metadata` are compared path by
-    path. A layout difference is refused, and a compared one unless the resume is
-    forced; numerics may differ. What depends on the file's state -- whether work is
-    left, whether a session forced it -- is decided by :func:`_resume_decision`.
+    The resume gate (ADR-066): the file's configuration hash must equal `metadata`'s.
+    Whether work is left is decided by :func:`_continues`.
 
     Parameters
     ----------
@@ -8776,101 +8798,40 @@ def _open_output(
         The caller's choice.
     metadata : solprop.output.schema.RunMetadata
         The record of the run about to start, which a file is compared with.
-    resume : bool or {'interpolated', 'force'}
+    resume : bool or {'interpolated'}
         Whether to continue an existing file; ``"interpolated"`` also from a plane
-        interpolated inside a step, and ``"force"`` across compared differences too.
+        interpolated inside a step.
 
     Returns
     -------
     tuple
-        The handler, the state to resume from or ``None``, and the comparison of the
-        two records or ``None``.
+        The handler, and the state to resume from or ``None``.
 
     Raises
     ------
     DriverError
         If a resume is asked for and `output` is not a path.
     OutputError
-        If the file exists and its layout differs, or a compared value differs and
-        the resume is not forced.
+        If the file exists and its hash differs; the message names what changed.
     """
     if resume and metadata.configuration.get("_benchmark_plasma_source"):
         raise DriverError("gated plasma benchmark output cannot be resumed")
     if isinstance(output, Path | str):
         path = Path(output)
-        found = _compare_cache(path, metadata) if resume else None
-        if found is not None:
-            stored, comparison = found
-            if comparison.layout or (comparison.refused and resume != "force"):
-                raise OutputError(_resume_refusal(path, stored, comparison))
-            state = resume_state(path)
-            return HDF5Output(path, append=True, gated=True), state, comparison
-        return HDF5Output(path), None, None
+        if resume and check_cache(path, metadata):
+            return HDF5Output(path, append=True), resume_state(path)
+        return HDF5Output(path), None
     if resume:
         msg = (
             "only a path can be resumed: the file has to be opened in append mode, "
             "which is the driver's to decide; pass output=<path> with resume=True"
         )
         raise DriverError(msg)
-    return (MemoryOutput() if output is None else output), None, None
-
-
-@dataclasses.dataclass(frozen=True)
-class _Continuation:
-    """How a resumed session continues its file (SEP 42 section 4).
-
-    Attributes
-    ----------
-    entry : dict or None
-        The ``resume`` entry its execution records carry, or ``None`` when nothing
-        but rounding separates the records.
-    forced : bool
-        Whether it continues across compared differences, under ``resume="force"``.
-    warning : str
-        What to warn once the session is sure to continue: after a forced one's
-        statistics are found to fit, so that a refusal is not preceded by it.
-    """
-
-    entry: dict[str, object] | None
-    forced: bool = False
-    warning: str = ""
-
-
-_FORCED_NOTE = (
-    "From here the file's record does not describe its planes: stats/* hold, and "
-    "anything rebuilt from the record does not."
-)
-
-
-def _session_planes(
-    state: ResumeState | None, continuation: _Continuation | None
-) -> int:
-    """Return the first plane a post-run report reads.
-
-    Parameters
-    ----------
-    state : ResumeState or None
-        What a resumed file held, or ``None`` for a fresh run.
-    continuation : _Continuation or None
-        How the session continued it.
-
-    Returns
-    -------
-    int
-        The first plane this session wrote when the file was forced, by this
-        session or an earlier one, since the planes before were computed under other
-        physics (SEP 42 section 5.5); otherwise 0, every plane.
-    """
-    if state is None:
-        return 0
-    forced = (continuation is not None and continuation.forced) or (
-        state.outcome is not None and bool(state.outcome.forced_positions)
-    )
-    return state.n_saved if forced else 0
+    return (MemoryOutput() if output is None else output), None
 
 
 def _check_resume_choice(resume: object) -> None:
-    """Refuse a ``resume`` value that is not one of its four.
+    """Refuse a ``resume`` value that is not one of its three.
 
     Parameters
     ----------
@@ -8880,12 +8841,12 @@ def _check_resume_choice(resume: object) -> None:
     Raises
     ------
     ValueError
-        If it is not ``False``, ``True``, ``"interpolated"`` or ``"force"``: a
-        mistyped word would otherwise read as ``True``.
+        If it is not ``False``, ``True`` or ``"interpolated"``: a mistyped word would
+        otherwise read as ``True``.
     """
-    if resume is True or resume is False or resume in _RESUME_CHOICES[2:]:
+    if resume is True or resume is False or resume == "interpolated":
         return
-    msg = f"resume must be False, True, 'interpolated' or 'force', got {resume!r}"
+    msg = f"resume must be False, True or 'interpolated', got {resume!r}"
     raise ValueError(msg)
 
 
@@ -8911,118 +8872,12 @@ def _work_left(problem: KernelProblem, state: ResumeState, next_plane: int) -> b
     return state.checkpoint is not None or next_plane < len(problem.stepper.save_planes)
 
 
-def _resume_entry(
-    state: ResumeState, comparison: RecordComparison, *, forced: bool
-) -> dict[str, object] | None:
-    """Return the ``resume`` entry of a session's execution records (SEP 42 §5.3).
-
-    Parameters
-    ----------
-    state : ResumeState
-        What the file holds.
-    comparison : RecordComparison
-        What separates the file's record from the requested one.
-    forced : bool
-        Whether the session continues across compared differences.
-
-    Returns
-    -------
-    dict or None
-        Where the session continues from, whether it was forced, the numerics it
-        changed, the compared values as a grouped text, and the paths read as
-        neutral; ``None`` when there is nothing to record.
-    """
-    if not (comparison.numerics or comparison.neutral or forced):
-        return None
-    return {
-        "from_z": float(state.plane.z),
-        "from_plane": state.n_saved - 1,
-        "forced": forced,
-        "numerics": comparison.numerics_record(),
-        # The grouped text, not every path: the record is rewritten at every plane.
-        "compared": comparison.compared_summary() if forced else "",
-        "neutral": [dotted(path) for path in comparison.neutral],
-    }
-
-
-def _confirm_continuation(
-    continuation: _Continuation | None,
-    backend: Backend,
-    problem: KernelProblem,
-    output: Output | Path | str | None,
-) -> None:
-    """Check a primed continuation can go ahead, then warn what it does.
-
-    Parameters
-    ----------
-    continuation : _Continuation or None
-        How the session continues its file, or ``None`` for a fresh run.
-    backend : Backend
-        The primed backend.
-    problem : KernelProblem
-        The translated problem.
-    output : pathlib.Path or str
-        The file.
-    """
-    if continuation is None:
-        return
-    if continuation.forced and problem.tdse is None:
-        _check_forced_shapes(backend, problem.stats_spec, output)
-    if continuation.warning:
-        warnings.warn(continuation.warning, SolpropWarning, stacklevel=3)
-
-
-def _check_forced_shapes(
-    backend: Backend, spec: StatsSpec, output: Output | Path | str | None
-) -> None:
-    """Refuse a forced resume whose statistics would not fit the file's arrays.
-
-    A statistic's names and shape follow the responses and the species, so a forced
-    change of the number of species, or of plasma on or off, would compute a whole
-    segment and then fail at its first save, leaving a checkpoint from the other
-    physics. Checked after the backend is primed, before any step or write
-    (SEP 42 section 5.5).
-
-    Parameters
-    ----------
-    backend : Backend
-        The primed backend.
-    spec : StatsSpec
-        The statistics the run collects.
-    output : pathlib.Path or str
-        The file being continued.
-
-    Raises
-    ------
-    OutputError
-        If a statistic is missing from either side or its shape differs.
-    """
-    path = Path(cast("Path | str", output))
-    stored = _stored_stat_shapes(path)
-    requested = {
-        name: tuple(np.shape(value)[1:]) for name, value in backend.stats(spec).items()
-    }
-    changed = sorted(
-        f"{name} (stored {stored.get(name)}, now {requested.get(name)})"
-        for name in set(stored) | set(requested)
-        if stored.get(name) != requested.get(name)
-    )
-    if changed:
-        msg = (
-            f"{path} cannot be continued with resume='force': its statistics do not "
-            f"fit this run's, which changes {', '.join(changed)}; nothing was "
-            "computed or written. Launch a new segment from a saved plane instead"
-        )
-        raise OutputError(msg)
-
-
 def _refuse_interpolated(path: Path, state: ResumeState, resume: _ResumeChoice) -> None:
     """Refuse to continue from a plane interpolated inside a step, unless accepted.
 
     An interpolated plane is not a state the march passed through, so a run restarted
     there is not the run it continues (SEP 14 section 5); ``resume="interpolated"``
-    or ``"force"`` accepts that. Tested on the file, not on the requested settings,
-    since ``interpolate_planes`` may change on a resume (SEP 42 section 5.6).
+    accepts that.
 
     Parameters
     ----------
@@ -9030,7 +8885,7 @@ def _refuse_interpolated(path: Path, state: ResumeState, resume: _ResumeChoice) 
         The file.
     state : ResumeState
         What it holds.
-    resume : bool or {'interpolated', 'force'}
+    resume : bool or {'interpolated'}
         The caller's request.
 
     Raises
@@ -9038,7 +8893,7 @@ def _refuse_interpolated(path: Path, state: ResumeState, resume: _ResumeChoice) 
     DriverError
         If the file ends on an interpolated plane and the request does not accept it.
     """
-    if resume in ("interpolated", "force") or not _interpolated(state):
+    if resume == "interpolated" or not _interpolated(state):
         return
     msg = (
         f"{path} ends on a plane interpolated inside a step at z = "
@@ -9048,20 +8903,14 @@ def _refuse_interpolated(path: Path, state: ResumeState, resume: _ResumeChoice) 
     raise DriverError(msg)
 
 
-def _resume_decision(
+def _continues(
     path: Path,
     problem: KernelProblem,
     state: ResumeState,
     next_plane: int,
-    comparison: RecordComparison,
     resume: _ResumeChoice,
-) -> _Continuation | None:
-    """Decide what a resume of a file does, once the records' layouts agree.
-
-    The verdict of SEP 42 section 4: a file with work left continues, recording
-    changed numerics, and continues across compared differences only when forced; a
-    file with nothing left is returned unless the request's numerics differ from any
-    session's; a file a session forced continues only when forced again.
+) -> bool:
+    """Say whether a resume of a file computes anything, once its hash has passed.
 
     Parameters
     ----------
@@ -9073,91 +8922,24 @@ def _resume_decision(
         What the file holds.
     next_plane : int
         The next save plane beyond the file's position.
-    comparison : RecordComparison
-        What separates the file's record from the requested one.
-    resume : bool or {'interpolated', 'force'}
+    resume : bool or {'interpolated'}
         The caller's request.
 
     Returns
     -------
-    _Continuation or None
-        How the session continues, or ``None`` when there is nothing to do.
+    bool
+        ``True`` when work is left, and ``False`` for a finished file.
 
     Raises
     ------
-    OutputError
-        If a session forced the file and this one does not, while work is left; if
-        a forced resume has nothing to continue; or if a finished file was computed
-        under numerics other than the requested ones.
+    DriverError
+        If work is left from a plane interpolated inside a step and the request does
+        not accept that.
     """
-    work_left = _work_left(problem, state, next_plane)
-    outcome = state.outcome
-    forced_at = () if outcome is None else outcome.forced_positions
-    where = ", ".join(f"{z:.6g}" for z in forced_at)
-    if forced_at and resume != "force":
-        if not work_left:
-            warnings.warn(
-                f"{path} was continued with resume='force' at z = {where} m. "
-                + _FORCED_NOTE,
-                SolpropWarning,
-                stacklevel=3,
-            )
-            return None
-        msg = (
-            f"{path} was continued with resume='force' at z = {where} m, so its "
-            "record no longer describes the run it holds; continue it with "
-            "resume='force', or write a new file"
-        )
-        raise OutputError(msg)
-    if comparison.refused:
-        if not work_left:
-            msg = (
-                f"{path} holds a finished run, and resume='force' continues only a "
-                f"file with work left; {comparison.summary()}"
-            )
-            raise OutputError(msg)
-        launch = any(
-            change.path[:2]
-            in (("configuration", "pulse"), ("configuration", "initial"))
-            for change in comparison.refused
-        )
-        warning = (
-            f"forcing a resume of {path} at z = {state.plane.z:.6g} m; "
-            f"{comparison.summary()}\n"
-            + (
-                "The launch differs, which has no effect: the stored field continues.\n"
-                if launch
-                else ""
-            )
-            + "The Adams history starts afresh. "
-            + _FORCED_NOTE
-        )
-        return _Continuation(
-            _resume_entry(state, comparison, forced=True), forced=True, warning=warning
-        )
-    if not work_left:
-        earlier = () if outcome is None else outcome.resumes
-        if comparison.numerics or any(entry.get("numerics") for entry in earlier):
-            # A tightened tolerance must not hand back the loose result, and a file
-            # finished under other numerics than it started with matches neither.
-            changed = comparison.summary() or "an earlier session changed its numerics"
-            msg = (
-                f"{path} holds a finished run that was not computed throughout under "
-                f"the requested numerics, so nothing would be computed; {changed}. "
-                "Write a new file to compute it under these"
-            )
-            raise OutputError(msg)
-        return None
+    if not _work_left(problem, state, next_plane):
+        return False
     _refuse_interpolated(path, state, resume)
-    warning = (
-        f"resuming {path} at z = {state.plane.z:.6g} m with changed numerics; "
-        f"{comparison.summary()}"
-        if comparison.numerics
-        else ""
-    )
-    return _Continuation(
-        _resume_entry(state, comparison, forced=False), warning=warning
-    )
+    return True
 
 
 def _gnlse_grid(
@@ -9674,6 +9456,7 @@ def _with_boundary(
             else dataclasses.replace(
                 current,
                 spectral_rate=np.zeros_like(current.spectral_rate),
+                user_rate=None,
                 temporal_rate=np.zeros(grid.n_t),
                 temporal_rate_fine=np.zeros(grid.n_to),
                 temporal=False,
@@ -11956,7 +11739,6 @@ def _peak_field_reports(
     problem: KernelProblem,
     output: Output,
     responses: Sequence[object],
-    first_plane: int = 0,
 ) -> tuple[PeakFieldReport, ...]:
     """Report the largest field each optmat-rate population saw, after a run.
 
@@ -11973,10 +11755,6 @@ def _peak_field_reports(
         The handler the run wrote; a closed file is reopened for reading.
     responses : sequence of object
         The run's responses.
-    first_plane : int, optional
-        The first plane to read: a session that continued a file across a forced
-        resume reports only the planes it wrote, since the earlier ones were
-        computed under other physics (SEP 42 section 5.5).
 
     Returns
     -------
@@ -12004,14 +11782,13 @@ def _peak_field_reports(
     if not rates:
         return ()
     if isinstance(output, HDF5Output) and output.closed:
-        # An internal reader: not the public open_file, which warns of a forced file.
         with HDF5Output(output.path, readonly=True) as reader:
-            return _peak_field_reports(problem, reader, responses, first_plane)
+            return _peak_field_reports(problem, reader, responses)
     if "species_peak_ionisation_rate" in output.stat_names:
-        rows = np.asarray(output["stats/species_peak_ionisation_rate"])[first_plane:]
+        rows = np.asarray(output["stats/species_peak_ionisation_rate"])
         peaks = np.max(rows, axis=0)
     elif "peak_ionisation_rate" in output.stat_names and len(labels) == 1:
-        rows = np.asarray(output["stats/peak_ionisation_rate"])[first_plane:]
+        rows = np.asarray(output["stats/peak_ionisation_rate"])
         peaks = np.array([np.max(rows)])
     else:
         logger.info(

@@ -233,8 +233,7 @@ scalar areas' own departure.
 **What it costs.** The path's solves and the connection's at every sampled position:
 seconds on the graded-index sector and about twenty on a two-channel step-index fibre.
 The maps hold `sections x (degree + 1)` coefficients each rather than one, and a stage
-evaluates one of each, which {py:func}`~solprop.backends.memory.estimate_memory` counts
-to the byte.
+evaluates one of each.
 
 **Refused, by name**: a snapshot position other than the entrance, `sections=` or
 `path_rtol=` beside a guide whose geometry does not move, an entrance rule the provider

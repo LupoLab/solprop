@@ -388,7 +388,7 @@ The options are read by `native/CMakeLists.txt` and `native/cmake/HostLibraries.
 | option | default | values and effect |
 |---|---|---|
 | `BUILD_TESTING` | `OFF` in pip and uv builds, `ON` in the presets | builds the GoogleTest native tests and registers them with CTest |
-| `SOLPROP_NATIVE_WARNINGS_AS_ERRORS` | `ON` | `-Werror` on the package's own sources |
+| `SOLPROP_NATIVE_WARNINGS_AS_ERRORS` | as `BUILD_TESTING`: `OFF` in pip and uv builds, `ON` in the presets | `-Werror` on the package's own sources. Continuous integration turns it on for its wheels too |
 | `SOLPROP_NATIVE_ENABLE_CLANG_TIDY` | `OFF` | runs clang-tidy while compiling the package's sources |
 | `SOLPROP_NATIVE_ENABLE_SANITIZERS` | `OFF` | AddressSanitizer and UBSan on the package's targets; CPU builds only |
 | `SOLPROP_NATIVE_BUILD_BENCHMARKS` | `OFF` | builds the `solprop_native_gemm_benchmark` microbenchmark (never installed) |
@@ -584,10 +584,30 @@ runtime in the owned dependency prefix built above.
 solprop itself loads no other OpenMP runtime, but a script or another package may: the
 published [pyFFTW](https://github.com/pyFFTW/pyFFTW) wheels, for one, bundle their own. On
 macOS `solprop_native` must then be imported first, and the package raises `RuntimeError`
-at import if pyFFTW is already loaded. A script that imports pyFFTW itself, or a package
-that does, imports solprop (or `solprop_native`) first. Import order alone does not remove
-the second runtime, so pyFFTW is then best built from source against the same FFTW and
+at import if pyFFTW is already loaded.
+
+**The rule stays, and this is why.** pyFFTW's macOS wheel carries and initialises its own
+`libomp`, and solprop no longer loads pyFFTW, so nothing in solprop can decide the order for
+you: importing solprop does not load `solprop_native`, which is loaded when a run first uses the
+backend. The refusal is a clear error rather than a wrong result, and a loaded second runtime is
+what it guards against. No replacement has been shown safe, which
+[SEP 29](../../dev/seps/archive/sep-0029-compiled-backend-distribution.md) asks of it in fresh
+processes, in both import orders, with interleaved short runs. So the guard stays until such a
+run exists.
+
+**What to do.** Import `solprop_native` before pyFFTW, or any package that imports it. `import
+solprop` alone is not enough, since it does not load the backend. In a notebook where a cell has
+already loaded pyFFTW, restart the kernel, or do the work in a fresh process. `backend="numpy_ref"`
+does not load `solprop_native`, and is unthreaded and far slower. Import order alone does not remove
+the second runtime, so where it matters pyFFTW is best built from source against the same FFTW and
 OpenMP runtime.
+
+**What would lift it.** `native/ci/coexistence.py` runs both import orders in fresh processes, starts each package's thread pool and interleaves short
+native and reference runs. On macOS it expects the refusal. Its `--bypass-guard` flag adds a scenario
+that hides pyFFTW from the guard and reports what happens, without failing the script. Run by hand on
+macOS with pyFFTW installed, with `python -I native/ci/coexistence.py --bypass-guard`, it is the
+evidence a change to this rule would start from. The `Wheels` workflow runs the same script on
+`macos-15`, without the flag.
 
 ## Wheels and redistribution
 

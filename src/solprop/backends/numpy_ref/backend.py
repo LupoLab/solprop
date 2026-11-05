@@ -1132,7 +1132,7 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
             tables = problem.transform.modal_tables
             assert tables is not None
             general = general_memory(self._general, tables, problem.grids.n_to)
-        ledger = adams_memory(problem, "numpy_ref") | {
+        ledger = adams_memory(problem) | {
             # One definition of these rows, which the construction-free estimate of
             # `solprop.backends.memory` sums too.
             **reference_base_memory(
@@ -1167,7 +1167,6 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
             **general,
             # A low-storage march's state at its last field-free plane (SEP 22, Q14),
             # held from the first such plane; the admission charges it beforehand.
-            "held_plane": 0 if self._held is None else self._held.nbytes,
             **(
                 {}
                 if self._tdse_binding is None

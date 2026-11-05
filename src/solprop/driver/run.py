@@ -42,7 +42,6 @@ from solprop._interrupts import committing, handled, poll
 from solprop.backends.populations import axis_refusal
 from solprop.backends.protocol import Backend, BackendHistory, Observation
 from solprop.backends.registry import statistics_refusal
-from solprop.driver.memory import MemoryAdmission
 from solprop.driver.plane_view import PlaneWatch
 from solprop.driver.summary import resources, run_summary
 from solprop.exceptions import (
@@ -81,12 +80,14 @@ from solprop.output.schema import (
     Output,
     PlaneStore,
     RecipeRecord,
+    RetainingOutput,
     RunMetadata,
     RunOutcome,
     SavedPlane,
     StepHistory,
     StepStats,
     TerminalCheckpoint,
+    _adopted,
     field_retention_refusal,
 )
 from solprop.output.snapshots import SnapshotController
@@ -244,6 +245,39 @@ def plane_from_observation(
     )
 
 
+def _adopted_plane(observation: Observation, *, field: bool = True) -> SavedPlane:
+    """Turn an observation of an unbatched run into a plane without copying its arrays.
+
+    An observation's arrays are read-only and nothing writes to them again
+    (:meth:`solprop.backends.protocol.Backend.observe`), so the plane can hold them as
+    they are: this is what lets a handler reduce a plane and drop it for no more than
+    the backend's own observation, and keep it if it wants to. A batch member is not
+    adopted, since its view would pin the whole batch: that route takes
+    :func:`plane_from_observation`, which copies.
+
+    Parameters
+    ----------
+    observation : solprop.backends.protocol.Observation
+        The observation of an unbatched run.
+    field : bool, optional
+        Whether the plane keeps the field and its noise phase.
+
+    Returns
+    -------
+    solprop.output.schema.SavedPlane
+        The plane, with its statistics still to add.
+    """
+    plane = plane_from_observation(observation, field=False)
+    if not field or observation.field is None:
+        return plane
+    phase = observation.noise_phase
+    return dataclasses.replace(
+        plane,
+        field=_adopted(observation.field[0]),
+        noise_phase=None if phase is None else _adopted(phase[0]),
+    )
+
+
 def _power_observation(problem: KernelProblem, observation: Observation) -> Observation:
     """Convert modal output units once, before the handler changes Fourier sign.
 
@@ -280,7 +314,6 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
     progress: ProgressReporter | ProgressChoice | None = None,
     progress_period: float = DEFAULT_PROGRESS_PERIOD,
     start_plane: int = 0,
-    memory: MemoryAdmission | None = None,
     tdse_binding: TDSEBinding | None = None,
     resume_history: bool | None = None,
     fields: FieldsChoice = "all",
@@ -288,7 +321,6 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
     snapshots: SnapshotController | None = None,
     tdse_archive: TDSEArchiveWriter | None = None,
     boundary_monitor: BoundaryMonitor | None = None,
-    resume_record: Mapping[str, object] | None = None,
     stop: StopFlag | None = None,
     recipe: RecipeRecord | None = None,
 ) -> None:
@@ -342,9 +374,6 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
         loads either the last regular plane or a separate terminal checkpoint at
         its actual absolute position. The launch plane is written when the handler
         holds no regular observations, so a resumed run never stores it twice.
-    memory : solprop.driver.memory.MemoryAdmission or None, optional
-        The run's memory admission (:func:`solprop.driver.memory.admit_memory`),
-        recorded as ``memory`` in the backend record's settings; ``None`` records none.
     tdse_binding : solprop.translate.tdse.TDSEBinding or None, optional
         Explicit live atomic runtime owned by the caller. Its ledgers and execution
         facts are captured before the caller closes it. TDSE requires an output
@@ -374,11 +403,6 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
         the execution record at every save plane without the per-plane rows, which
         the closing record (complete, failed or out of budget) carries, and its removed
         fraction is reported at the end. ``None`` watches nothing.
-    resume_record : collections.abc.Mapping or None, optional
-        The ``resume`` entry of a session that continues a file across differences
-        from its record (SEP 42 section 5.3): every execution record this session
-        writes carries it, from the first, written before any step, so a session
-        that stops or fails still leaves it. ``None`` records none.
     stop : solprop.log.StopFlag or None, optional
         The run's own stop flag, any object with an ``is_set()`` method (SEP 41,
         S17). It is polled before the first step, before every trial step and between
@@ -469,11 +493,7 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
         metadata,
         backend,
         tdse_binding,
-        memory,
     )
-    if resume_record is not None:
-        # Only a file resume carries an entry, and its handler is an HDF5Output.
-        cast("PlaneStore", output).record_resume(resume_record)
     if recipe is not None and isinstance(output, PlaneStore):
         with committing():
             output.record_recipe(recipe)
@@ -526,9 +546,7 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
         # starts at plane zero again without wanting a second copy of it.
         if output.n_saved == 0 or missing_current_save:
             keep = retention.keeps(output.n_saved)
-            pending = plane_from_observation(
-                _observed(problem, backend, keep=keep), field=keep
-            )
+            pending = _adopted_plane(_observed(problem, backend, keep=keep), field=keep)
             pending = dataclasses.replace(
                 pending,
                 stats={
@@ -576,9 +594,7 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
                     summary.max_norm,
                 )
             keep = retention.keeps(output.n_saved)
-            pending = plane_from_observation(
-                _observed(problem, backend, keep=keep), field=keep
-            )
+            pending = _adopted_plane(_observed(problem, backend, keep=keep), field=keep)
             pending_save_count = output.n_saved
             pending = dataclasses.replace(
                 pending,
@@ -651,7 +667,12 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
             tdse_binding,
             keeper,
             _FailedObservation(
-                pending, output.n_saved > pending_save_count, error, reached, clock
+                pending,
+                output.n_saved > pending_save_count,
+                error,
+                reached,
+                clock,
+                output.n_saved > 0 and retention.keeps(output.n_saved - 1),
             ),
         )
         if failed_z is not None:
@@ -660,10 +681,12 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
             # A stop the caller asked for is not a warning; a signal may be one.
             logger.log(
                 logging.INFO if isinstance(error, StopRequested) else logging.WARNING,
-                "%s at z = %.6e m; the run's state there is written, and "
-                "resume=True continues it",
+                "%s at z = %.6e m; %s",
                 error,
                 reached,
+                "the run's state there is written, and resume=True continues it"
+                if failed_z is not None
+                else "no state was written there",
             )
         # A reporter holding a terminal (a bar) gives it back before the error
         # propagates; a reporter implementing only the four basic calls is not told,
@@ -826,7 +849,7 @@ def _fetched(problem: KernelProblem, backend: Backend) -> np.ndarray:
     numpy.ndarray
         The field, as a saved plane holds it.
     """
-    plane = plane_from_observation(_observed(problem, backend, keep=True), field=True)
+    plane = _adopted_plane(_observed(problem, backend, keep=True))
     assert plane.field is not None  # observed with its field
     return plane.field
 
@@ -907,9 +930,8 @@ def _retain(
     field_shape : tuple of int
         ``(n_modes, n_pol, n_omega)`` of the run's state.
     """
-    retain = getattr(output, "retain", None)
-    if retain is not None:
-        retain(retention, field_shape)
+    if isinstance(output, RetainingOutput):
+        output.retain(retention, field_shape)
 
 
 def _check_retainable(output: Output, retention: FieldRetention) -> None:
@@ -925,13 +947,15 @@ def _check_retainable(output: Output, retention: FieldRetention) -> None:
     Raises
     ------
     DriverError
-        If the rule keeps fewer than every field and the output has no ``retain``.
+        If the rule keeps fewer than every field and the output has no ``retain``
+        (:class:`~solprop.output.schema.RetainingOutput`).
     """
-    if retention.fields != "all" and getattr(output, "retain", None) is None:
+    if retention.fields != "all" and not isinstance(output, RetainingOutput):
         msg = (
             f"this run asks for {retention.describe()} and its output "
-            f"{type(output).__name__} cannot store field-free planes (it has no "
-            "retain); use a MemoryOutput or an HDF5Output, or fields='all'"
+            f"{type(output).__name__} cannot store field-free planes: give it a "
+            "retain method (RetainingOutput), or use a MemoryOutput or an HDF5Output, "
+            "or fields='all'"
         )
         raise DriverError(msg)
 
@@ -1072,7 +1096,6 @@ def _open_run(
     metadata: RunMetadata,
     backend: Backend,
     binding: TDSEBinding | None,
-    memory: MemoryAdmission | None,
 ) -> CheckpointOutput | None:
     """Attach actual runtime facts outside the scientific resume identity.
 
@@ -1086,8 +1109,6 @@ def _open_run(
         Prepared optical backend supplying actual execution facts.
     binding : TDSEBinding or None
         Optional atomic service supplying execution provenance.
-    memory : MemoryAdmission or None
-        Optional run admission record in bytes.
 
     Returns
     -------
@@ -1097,8 +1118,6 @@ def _open_run(
     executed = backend.metadata()
     if binding is not None:
         executed = {**executed, "tdse": dict(binding.metadata())}
-    if memory is not None:
-        executed = {**executed, "memory": memory.record()}
     output.open(
         dataclasses.replace(metadata, backend=BackendRecord.from_metadata(executed))
     )
@@ -1110,7 +1129,6 @@ def open_run_record(
     metadata: RunMetadata,
     backend: Backend,
     binding: TDSEBinding | None,
-    memory: MemoryAdmission | None,
 ) -> None:
     """Open an output with the run's record and execution facts, and save nothing.
 
@@ -1129,10 +1147,8 @@ def open_run_record(
         Prepared optical backend.
     binding : TDSEBinding or None
         Optional atomic service supplying execution provenance.
-    memory : MemoryAdmission or None
-        Optional run admission record.
     """
-    _open_run(output, metadata, backend, binding, memory)
+    _open_run(output, metadata, backend, binding)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -1144,6 +1160,7 @@ class _FailedObservation:
     error: BaseException
     reached: float
     clock: RunClock
+    last_kept_field: bool
 
 
 class _MarchKeeper:
@@ -1248,41 +1265,18 @@ def _persist_failure(
         return None
     pending = failure.pending
     in_flight = getattr(backend, "_in_flight", None)
-    held = None
     if pending is None and in_flight is not None:
-        holder = getattr(backend, "held_observation", None)
-        try:
-            held = None if holder is None else holder()
-        except Exception as held_error:
-            # A held state that cannot be observed (one not finite outside the norm
-            # mask, say) must not replace the original exception: the failure is
-            # recorded as an abandoned step, with the reason beside it.
-            failure.error.add_note(
-                f"the held plane could not be observed: {held_error}"
-            )
-            logger.exception("could not observe the held plane")
-            held = None
-        if held is None:
-            _record_abandoned_step(backend, output, binding, failure, in_flight)
-            return None
+        _record_abandoned_step(backend, output, binding, failure, in_flight)
+        return None
     reached = None
     try:
-        if held is not None:
-            # The low-storage step in flight holds neither end, and the last plane
-            # kept no field: the state held there is checkpointed (SEP 22, Q14).
-            # Its history went out with the plane, so the checkpoint carries none.
-            pending = plane_from_observation(_power_observation(problem, held))
-        elif pending is None:
-            pending = plane_from_observation(
-                _power_observation(problem, backend.observe())
-            )
+        if pending is None:
+            pending = _adopted_plane(_power_observation(problem, backend.observe()))
         elif pending.field is None:
             # A field-free plane keeps no field, and a checkpoint always does (SEP
             # 22, Q1): the state still stands where the plane was observed, so it is
             # observed again for its field alone, the history being the plane's.
-            again = plane_from_observation(
-                _power_observation(problem, backend.observe())
-            )
+            again = _adopted_plane(_power_observation(problem, backend.observe()))
             pending = dataclasses.replace(
                 pending, field=again.field, noise_phase=again.noise_phase
             )
@@ -1345,11 +1339,10 @@ def _record_abandoned_step(
 
     The low-storage march accepts each step in place (SEP 24 section 6.2), so a step
     abandoned between its start and its commit leaves a state that is neither of the
-    step's ends, which the backend refuses to observe. When the last plane kept its
-    field nothing is held either (a field-free one's state is held and checkpointed
-    instead, SEP 22, Q14), and nothing honest can be written as a terminal
-    checkpoint: the file ends at its last saved plane, from which a resume continues
-    to rounding, and ``step_planes`` bounds what is lost.
+    step's ends, which the backend refuses to observe, so nothing honest can be written
+    as a terminal checkpoint. The file ends at its last saved plane: a resume continues
+    from one that kept its field, to rounding, with ``step_planes`` bounding what is
+    lost, and refuses one that did not.
 
     Parameters
     ----------
@@ -1365,11 +1358,17 @@ def _record_abandoned_step(
         Where the abandoned step started and its length, m.
     """
     z, dz = step
+    ending = (
+        "from which resume=True continues"
+        if failure.last_kept_field
+        else "which kept no field, so this file cannot be resumed; rerun it, keeping "
+        "a plane's field"
+    )
     reason = (
         f"no terminal checkpoint is written: the low-storage step of {dz:.6g} m from "
         f"z = {z:.6g} m was abandoned in flight, so the state holds neither end of "
         f"it; the file ends at its last saved plane, z = {failure.reached:.6g} m, "
-        "from which resume=True continues"
+        f"{ending}"
     )
     failure.error.add_note(reason)
     logger.warning("%s", reason)

@@ -263,7 +263,7 @@ def test_schema_mismatch_names_both_versions(
     # The two independently qualified schema-18 branches are not the combined seam.
     problem, _ = phase_a_case
     spoiled = dataclasses.replace(problem, schema_version=declared)
-    with pytest.raises(BackendError, match=rf"version 43.*version {declared}"):
+    with pytest.raises(BackendError, match=rf"version 46.*version {declared}"):
         check_build(spoiled)
 
 
@@ -301,6 +301,46 @@ def test_the_low_storage_march_steps_as_the_reference(
     swept = float(np.max(np.abs(delta_phi(marched.linear, 0.0, target))))
     bound = step_bound(grid.n_to, steps, stages=4) + 64 * EPS * swept
     assert_within(field, reference, bound, what=f"the low-storage march, {mode}")
+
+
+@pytest.mark.parametrize("asked", ["auto", "tabulate", "recompute"])
+def test_the_record_names_the_propagators_a_run_used(
+    phase_a_case: PhaseACase, asked: str
+) -> None:
+    # #464: only the low-storage march holds flows. Under Runge-Kutta every request
+    # holds the one whole-step propagator, so the record says recompute for each.
+    problem, grid = phase_a_case
+    held = {}
+    for mode in ("recompute", asked):
+        stepper = dataclasses.replace(problem.stepper, propagator_mode=mode)
+        backend = NativeBackend(
+            dataclasses.replace(problem, stepper=stepper), grid=grid
+        )
+        try:
+            held[mode] = backend.memory_ledger()["propagators"]
+            assert backend.metadata()["propagator_mode"] == "recompute"
+        finally:
+            backend.close()
+    assert held[asked] == held["recompute"]
+
+
+@pytest.mark.parametrize("asked", ["tabulate", "recompute"])
+def test_the_record_names_the_low_storage_march_s_flows(
+    phase_a_case: PhaseACase, asked: str
+) -> None:
+    problem, grid = phase_a_case
+    target = float(problem.stepper.save_planes[-1])
+    stepper = dataclasses.replace(
+        problem.stepper,
+        integrator=LowStorageRungeKutta(),
+        schedule=FixedSchedule.uniform(0.0, target, target / 4),
+        propagator_mode=asked,
+    )
+    backend = NativeBackend(dataclasses.replace(problem, stepper=stepper), grid=grid)
+    try:
+        assert backend.metadata()["propagator_mode"] == asked
+    finally:
+        backend.close()
 
 
 def test_an_order_that_omits_a_held_response_is_refused(
@@ -741,7 +781,7 @@ def test_metadata_and_memory_ledger_are_self_consistent(
     n = problem.shape[-1]
     stages = problem.stepper.tableau.n_stages
     assert metadata["backend"] == "native"
-    assert metadata["schema_version"] == 43
+    assert metadata["schema_version"] == 46
     assert metadata["openmp_wait_policy"] == solprop_native.WAIT_POLICY
     assert metadata["openmp_proc_bind"] == solprop_native.PROC_BIND
     # NumPy's own BLAS pool is held while the backend lives (solprop_native._host_blas).

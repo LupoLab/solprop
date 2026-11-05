@@ -45,6 +45,7 @@ from solprop.output.schema import (
     StepperRecord,
     StepStats,
 )
+from solprop.spatial import ABSORBED_CHANNELS
 from solprop.stepper import DOPRI5, FixedSchedule, PIController
 
 
@@ -703,7 +704,7 @@ def test_check_cache_refuses_a_changed_configuration_by_name(grid, schedule, tmp
     handler.close()
     changed = make_metadata(grid, schedule, configuration={"gamma": 0.22})
     with pytest.raises(
-        OutputError, match=r"these compared values differ: configuration: gamma"
+        OutputError, match=r"these fields changed: configuration\.gamma"
     ):
         check_cache(tmp_path / "run.h5", changed)
 
@@ -809,7 +810,7 @@ def test_an_appending_handler_refuses_a_different_run(grid, schedule, tmp_path):
     again = HDF5Output(path, append=True)
     with pytest.raises(
         OutputError,
-        match=r"cannot be appended to; these compared values differ: configuration",
+        match=r"cannot be appended to; these fields changed: configuration",
     ):
         again.open(make_metadata(grid, schedule, configuration={"gamma": 0.22}))
     again.close()
@@ -1232,6 +1233,53 @@ def test_a_run_record_declares_the_current_output_schema(metadata):
     """Schema 2 is schema 1, the first released layout, plus a recorded field."""
     assert SCHEMA_VERSION == 2
     assert metadata.schema_version == 2
+
+
+def _four_column_file(grid, metadata, path, *, in_rows=False):
+    """A file as an earlier development build wrote it: four absorbed-power columns."""
+    power = np.array([1.0, 2.0, 3.0, 4.0])
+    plane = make_plane(grid, 0)
+    if in_rows:
+        rows = StepStats(
+            z=np.array([0.0, 0.1]),
+            step=np.array([1, 2], dtype=np.int64),
+            values={"absorbed_power": np.ones((2, 4))},
+        )
+        plane = dataclasses.replace(plane, step_stats=rows)
+    else:
+        plane = dataclasses.replace(plane, stats={"absorbed_power": power})
+    with HDF5Output(path) as handler:
+        handler.open(metadata)
+        handler.save(plane)
+
+
+@pytest.mark.parametrize("in_rows", [False, True])
+def test_a_four_column_file_still_reads_as_it_was_written(
+    grid, metadata, tmp_path, in_rows
+):
+    path = tmp_path / "earlier.h5"
+    _four_column_file(grid, metadata, path, in_rows=in_rows)
+    with hdf5_module.open_file(path) as stored:
+        if in_rows:
+            np.testing.assert_array_equal(
+                stored["step_stats/absorbed_power"], np.ones((2, 4))
+            )
+        else:
+            np.testing.assert_array_equal(
+                stored["stats/absorbed_power"], [[1.0, 2.0, 3.0, 4.0]]
+            )
+    assert ABSORBED_CHANNELS[:4] == ("spectral", "transverse", "evanescent", "material")
+
+
+def test_five_columns_continue_as_before(grid, metadata, tmp_path):
+    path = tmp_path / "now.h5"
+    power = np.ones(len(ABSORBED_CHANNELS))
+    plane = dataclasses.replace(make_plane(grid, 0), stats={"absorbed_power": power})
+    with HDF5Output(path) as handler:
+        handler.open(metadata)
+        handler.save(plane)
+    assert hdf5_module.resume(path).n_saved == 1
+    assert hdf5_module.check_cache(path, metadata)
 
 
 @pytest.mark.parametrize("declared", [1, 10, 28, SCHEMA_VERSION + 1])

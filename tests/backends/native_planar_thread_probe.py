@@ -39,6 +39,9 @@ def _runtime_threads() -> np.ndarray:
 
 
 if __name__ == "__main__":
+    from backends.forced_threads import record_sizing
+
+    record_sizing(sys.argv[1])
     warnings.simplefilter("ignore")
     fields = {}
     for index, name in enumerate(sys.argv[2:]):

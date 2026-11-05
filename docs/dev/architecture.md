@@ -685,7 +685,7 @@ otherwise, with a warning, `numpy_ref` (ADR-029, ADR-064); the installed native 
   does).
 - `HDF5Output` never holds more than the current plane, in datasets preallocated for the
   planned planes with an `n_saved` count; `MemoryOutput` is allocated for the planned
-  planes, grows by doubling past them, and is charged by the memory admission.
+  planes and grows by doubling past them.
 - A run keeps its fields on every plane, the named planes or none
   (`FieldRetention`,
   [SEP 22](seps/archive/sep-0022-memory-lean-spatial-execution.md)): a plane without its field is not copied, converted or
@@ -694,15 +694,17 @@ otherwise, with a warning, `numpy_ref` (ADR-029, ADR-064); the installed native 
   the kept planes: `StepDriver.observe(field=False)` transfers nothing from a device,
   scans nothing for finiteness, skips the collar diagnostic (counted in the execution
   record) and forms no noise-phase volume, so a field-free plane costs its statistics
-  alone. Under the low-storage march a field-free plane holds one state volume so that a
-  run stopped in flight can resume (`held_plane`, in the ledger and as its own admission
-  group; on the native backend in the memory space).
+  alone. Under the low-storage march a step abandoned in flight after such a plane leaves
+  no checkpoint there (ADR-067).
 - The Cartesian and planar collar diagnostic reconstructs the physical field by block of
   frequency, at most a node chunk's worth of samples at a time, never the whole volume.
 - A `SimulationRunner` keeps one backend's buffers and plans across many inputs, and is
   admitted once; `StepDriver.set_initial` restores everything a march reads, so a reused
   backend repeats a fresh one's run. An input array of more than 2²⁰ elements is
-  recorded by its SHA-256 digest, not inline, so the run record stays small.
+  recorded by its SHA-256 digest, not inline, so the run record stays small; the runner
+  reads such an array in place and marches on a problem without it, so no input outlives
+  its load. A caller that identifies its input states that instead (`StatedInput`), and
+  nothing digests it.
 - Φ tables are shared where possible; the constant-D fast path stores one array.
 - Fine-grid buffers use the smallest `ffac` the declared responses need.
 

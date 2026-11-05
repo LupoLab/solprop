@@ -435,12 +435,12 @@ translation.
 ## What a run will cost
 
 `simulation.estimate()` answers before a run: the state's shape, the persistent memory
-admitted against the budget before anything is allocated (a run that would be refused is
-reported, not attempted), the output's size for the planes and fields it keeps, the cost
-of one right-hand-side evaluation on its backend, timed after an untimed warm-up that
+its constructed backend holds, the output's size for the planes and fields it keeps, the
+cost of one right-hand-side evaluation on its backend, timed after an untimed warm-up that
 takes the compilation and transform planning (reported as `setup`), and the integrator's
 evaluations per step, with their total for a replayed schedule. It does not predict the
-number of adaptive steps, which the physics decides.
+number of adaptive steps, which the physics decides. It builds the backend, so a run
+that doesn't fit in memory fails here as the run would.
 
 ## Many inputs, one backend: the runner
 
@@ -448,7 +448,7 @@ A large problem pays for its backend before it takes a step: about fifteen copie
 state are allocated and first touched, and the transforms are planned. A delay scan or a
 sweep of the input runs the same translated problem for hundreds of inputs, and need pay
 that once. {py:meth}`~solprop.driver.simulation.Simulation.runner` translates (or reuses
-the cached translation), admits the memory and constructs one backend; each
+the cached translation) and constructs one backend; each
 {py:meth}`~solprop.driver.simulation.SimulationRunner.run` then loads one input into it
 and runs the save-plane loop
 ([SEP 22](../../dev/seps/archive/sep-0022-memory-lean-spatial-execution.md) §5.2):
@@ -458,7 +458,7 @@ import dataclasses
 
 simulation.settings = dataclasses.replace(simulation.settings, fields="none")
 spectra = []
-with simulation.runner(memory_budget="60 GiB") as runner:
+with simulation.runner() as runner:
     for delay in delays:
         output = runner.run(
             build_input(delay),                  # an array or a pulse, as with_input takes
@@ -490,9 +490,25 @@ for the input, and refuses by name:
 - a second run started while one is running: one backend steps one input at a time.
 
 A run that raises leaves the runner open, since the next input resets everything; a
-backend that closed itself closes the runner. The runner admits the backend's memory
-once, before constructing it, and admits each run's in-memory output beside it when the
-run starts.
+backend that closed itself closes the runner.
+
+The march holds no input. An array the record keeps by its digest (below) is read in
+place rather than copied, and the runner drops every reference to it, and to the launch
+a modal route converts it to, as soon as the backend has loaded it. So an input formed in
+the call, as above, is freed before the first step. Two arrays are kept all the same: a
+smaller array, which the record carries inline, is copied into it, and the simulation the
+runner was built from keeps its own input for as long as it lives. For a scan over large
+arrays, build that simulation from a broadcast, which holds one repeated block:
+
+
+```{code-block} python
+placeholder = np.broadcast_to(np.zeros((1, 1, 1), dtype=np.complex128), shape)
+simulation = Simulation(grid, (), responses, placeholder, settings=settings, ...)
+```
+
+Spell the call's keywords out too: when any argument is unpacked, Python keeps a call's
+positional arguments for as long as the call runs, so
+`runner.run(build_input(delay), **options)` holds the input through the march, one volume.
 
 `with_input` itself validates only what changed: the replaced input's shape, dtype and
 one finiteness pass, and the replaced noise's, with every other leaf of the translated
@@ -503,3 +519,39 @@ the simulation is built, so changing it afterwards changes neither the run nor i
 record; an array input of more than 2²⁰ elements is recorded by
 the SHA-256 of its bytes rather than inline, so a gigabyte launch costs seconds of
 hashing per input rather than gigabytes of JSON.
+
+A caller that already knows what its input is need not pay even that. Both `with_input`
+and `SimulationRunner.run` take `input_identity=`, a string the record then holds with the
+array's dtype and shape ({py:class}`~solprop.output.schema.StatedInput`) in place of the
+array's own record, without reading its bytes, so the run's hash follows the string:
+
+```{code-block} python
+output = runner.run(
+    build_input(delay),
+    input_identity=f"pump {pump_label}, delay {delay:.6e} s",
+    progress="none",
+)
+```
+
+```{warning}
+An identity is taken on trust. Two different arrays stated alike have one configuration
+hash, so **a wrong identity passes a resume and a scan's cache**: the resumed run or the
+cached point is then the wrong one, and nothing can tell. Say everything that makes the
+input what it is, and leave `input_identity` out unless the digest is a measured cost.
+```
+
+Only an array can be stated; a pulse is a small record of itself and is refused. A file
+written with a statement is continued only under the same statement, not by the same array
+without one, since the two records differ. The finiteness pass stays: it costs a few
+percent of a digest, about 0.6 s and 9 s for a 4 GiB input on a Xeon without SHA
+instructions, and it refuses a bad input before it is loaded.
+
+**The boundary check on a free-space scan.** The default
+[`boundary_check`](../numerics/boundaries.md) reads a free-space run's transverse edge on the
+host at the launch, at every plane and at every read: it copies the state across and
+transforms it out of place, even with `fields="none"`. That is about 1.1 field volumes more at
+the peak, which neither `memory_ledger` nor the admission counts, and on native CPU at 256 ×
+256 × 96 with two planes it took a point from 0.96 to 2.1 volumes above the level before the
+input, and from 3.05 to 3.99 s. A scan whose window is already settled can pass
+`boundary_check=None`. That also turns off the check of the time window's edges, since no
+setting keeps one without the other, so settle the window on one input with the check on first.

@@ -60,22 +60,10 @@ def _parser() -> argparse.ArgumentParser:
         "resume", help="continue a run from its output file and the recipe it records"
     )
     resume.add_argument("output", type=Path, help="the HDF5 file to continue")
-    how = resume.add_mutually_exclusive_group()
-    how.add_argument(
+    resume.add_argument(
         "--interpolated",
         action="store_true",
         help="continue from a last plane interpolated inside a step",
-    )
-    how.add_argument(
-        "--force",
-        action="store_true",
-        help="continue across changed physics while the layout agrees",
-    )
-    resume.add_argument(
-        "--memory-budget",
-        default=None,
-        help="the run's memory budget, such as '16 GiB' (default: four fifths of "
-        "the machine, refused beyond)",
     )
     resume.add_argument(
         "--progress",
@@ -208,9 +196,7 @@ def _run(recipe_path: Path, output: Path, progress: str, *, resume: bool) -> int
     return _stopped(received, output)
 
 
-def _resume(
-    output: Path, mode: bool | str, memory_budget: str | None, progress: str
-) -> int:
+def _resume(output: Path, mode: bool | str, progress: str) -> int:
     """Continue a run from its output file alone (SEP 41, S2).
 
     Parameters
@@ -218,10 +204,7 @@ def _resume(
     output : pathlib.Path
         The HDF5 file.
     mode : bool or str
-        ``True``, ``"interpolated"`` or ``"force"``.
-    memory_budget : str or None
-        The caller's memory budget, or ``None`` for the machine's default as a
-        refusal.
+        ``True`` or ``"interpolated"``.
     progress : str
         The progress choice.
 
@@ -235,8 +218,7 @@ def _resume(
     with _stopping() as (flag, received):
         resume_file(
             output,
-            cast("bool | Literal['interpolated', 'force']", mode),
-            memory_budget=memory_budget,
+            cast("bool | Literal['interpolated']", mode),
             progress=cast("ProgressChoice", progress),
             stop=flag,
         )
@@ -305,10 +287,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "check":
             return _check(args.recipe)
         if args.command == "resume":
-            mode = (
-                "force" if args.force else "interpolated" if args.interpolated else True
-            )
-            return _resume(args.output, mode, args.memory_budget, args.progress)
+            mode = "interpolated" if args.interpolated else True
+            return _resume(args.output, mode, args.progress)
         from solprop.recipe import Recipe  # noqa: PLC0415 - imports the physics
 
         sys.stdout.write(Recipe.load(args.recipe).to_python(args.output))

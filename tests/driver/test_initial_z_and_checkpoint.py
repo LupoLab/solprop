@@ -13,7 +13,6 @@ from tests.backends.test_tdse_march import ManufacturedBinding
 from tests.driver.test_resume import run_until
 from tests.driver.test_run import NullBackend
 
-from solprop.backends.memory import MemoryEstimate
 from solprop.backends.multistep import CallLedger
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.registry import select
@@ -21,11 +20,8 @@ from solprop.boundaries import absorber
 from solprop.driver import Simulation, SimulationSettings, run_problem
 from solprop.driver import simulation as simulation_module
 from solprop.driver import tdse as runtime_module
-from solprop.driver.memory import MemoryAdmission, MemoryLimit, admit_memory
 from solprop.exceptions import (
     DriverError,
-    MemoryBudgetError,
-    MemoryBudgetWarning,
     ResponseBudgetError,
     TDSECostWarning,
 )
@@ -311,10 +307,27 @@ def test_a_real_input_is_recorded_as_given_so_an_older_file_resumes(tmp_path):
     assert resumed.n_saved == 2
 
 
-def test_a_modal_array_input_is_counted_beside_its_converted_launch():
+@pytest.mark.parametrize("dtype", [">f8", "<f8", ">c16"])
+def test_an_input_s_dtype_is_recorded_byte_order_and_all(dtype):
+    # The record serialises the exact dtype string of an inline array: a big-endian
+    # input keeps its byte order, so its configuration hash is what it was before the
+    # simulation copied its input.
+    given = _column_field()
+    given = (np.real(given) if dtype.endswith("f8") else given).astype(dtype)
+    before = _free_from(given)
+    before.initial = given  # what the simulation recorded before it copied its input
+    after = _free_from(given.copy())
+    assert isinstance(after.initial, np.ndarray)
+    assert after.initial.dtype == np.dtype(dtype)
+    assert after._field0.dtype == np.complex128
+    assert (
+        after.metadata().configuration_hash() == before.metadata().configuration_hash()
+    )
+
+
+def test_a_modal_array_input_is_held_beside_its_converted_launch():
     # On a modal route the problem holds the launch converted to its internal
-    # amplitude, a second state beside the simulation's copy: both are admitted. In
-    # free space the problem holds the simulation's copy, which is counted once.
+    # amplitude, a second state beside the simulation's copy.
     capillary = Simulation.from_capillary(
         256e-6,
         0.001,
@@ -334,17 +347,6 @@ def test_a_modal_array_input_is_counted_beside_its_converted_launch():
     derived = capillary.with_input(np.array(capillary._field0))
     problem = derived.translate()
     assert not np.shares_memory(problem.initial.field0, derived._field0)
-    groups = admit_memory(
-        problem, "numpy_ref", "none", inputs=derived._held_inputs()
-    ).estimate.groups
-    assert groups["simulation_input"] == derived._field0.nbytes
-    assert groups["initial_field"] == problem.initial.field0.nbytes
-    free = _free_from(_column_field())
-    spatial = admit_memory(
-        free.translate(), "numpy_ref", "none", inputs=free._held_inputs()
-    ).estimate
-    assert "simulation_input" not in spatial.groups
-    assert spatial.groups["initial_field"] == free._field0.nbytes
 
 
 def test_a_wrongly_shaped_array_is_refused_before_it_is_copied(state_copies):
@@ -736,32 +738,6 @@ def test_tdse_completed_resume_prepares_no_resources(
     assert output.n_saved == 2
 
 
-def test_shared_memory_budget_counts_optical_and_atomic_storage(
-    atomic_simulation, monkeypatch
-):
-    monkeypatch.setattr(
-        runtime_module,
-        "estimate_binding_memory",
-        lambda *args, **kwargs: {"atomic": 70},
-    )
-    problem = atomic_simulation.translate()
-    execution = TDSEExecution(memory_limit=200)
-    estimate = MemoryEstimate("numpy_ref", {"base": 60})
-    with pytest.raises(MemoryBudgetError, match="combined optical and TDSE"):
-        simulation_module._tdse_memory_execution(
-            problem, execution, MemoryAdmission(estimate, MemoryLimit(100))
-        )
-    admitted = simulation_module._tdse_memory_execution(
-        problem, execution, MemoryAdmission(estimate, MemoryLimit(150))
-    )
-    assert admitted.memory_limit == 150
-    with pytest.warns(MemoryBudgetWarning, match="combined optical and TDSE"):
-        advisory = simulation_module._tdse_memory_execution(
-            problem, execution, MemoryAdmission(estimate, MemoryLimit(100, "warn"))
-        )
-    assert advisory.memory_limit == 200
-
-
 @pytest.mark.medium
 def test_resume_saves_checkpoint_on_missing_final_plane_before_completion(
     monkeypatch, tmp_path
@@ -874,15 +850,6 @@ def test_resume_rejects_incompatible_state_before_backend_allocation(case):
     )
     with pytest.raises(DriverError, match=message):
         simulation_module._validate_resume(problem, state, None)
-
-
-def test_atomic_memory_admission_refuses_an_ordinary_problem():
-    problem = tiny_simulation().translate()
-    admission = MemoryAdmission(
-        MemoryEstimate("numpy_ref", {"base": 60}), MemoryLimit(100)
-    )
-    with pytest.raises(DriverError, match="TDSE descriptor"):
-        simulation_module._tdse_memory_execution(problem, TDSEExecution(), admission)
 
 
 @pytest.mark.parametrize("case", ["unused", "mixed", "missing"])

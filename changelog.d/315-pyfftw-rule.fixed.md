@@ -1,0 +1,1 @@
+[Building the native backend](docs/guide/performance/building-native.md) records why the macOS refusal after pyFFTW stays and what would lift it, and no longer says that importing solprop first avoids it: importing solprop does not load the backend (#315).

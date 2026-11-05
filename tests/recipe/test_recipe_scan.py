@@ -44,6 +44,20 @@ def _with_scan(table):
     return Recipe.from_dict(document)
 
 
+@pytest.mark.parametrize(("key", "value"), [("resume_history", False)])
+def test_the_points_keep_the_execution_keys_the_scan_does_not_take(key, value):
+    document = parse_text(TEXT)
+    document["scan"] = {"name": "powers", "peak_power": ["5 W", 10]}
+    document["execution"][key] = value
+    scan = Recipe.from_dict(document).scan()
+    assert key not in scan.keywords
+    point = next(iter(scan.scan.points()))
+    assert getattr(scan.build(point).settings, key) is value
+    # What `run_scan` takes itself stays its own: a builder that set it is refused.
+    assert set(scan.keywords) >= {"fields", "field_planes"}
+    assert scan.build(point).settings.fields == "all"
+
+
 def test_the_scan_reads_each_axis_in_its_keyword_s_unit():
     recipe = _with_scan(
         {"name": "powers", "peak_power": ["5 W", 10], "width": ["50 fs", "0.1 ps"]}

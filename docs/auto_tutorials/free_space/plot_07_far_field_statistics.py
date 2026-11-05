@@ -493,17 +493,17 @@ print(
 # %%
 # The absorbed power
 # ------------------
-# ``absorbed_power`` gives four powers in J/m, the spectral, transverse, evanescent and
-# material channels; sampled at every step, their integral along z is the energy the
-# absorbers took. The Kerr response moves energy between frequencies but adds none, so
-# that integral matches the drop of ``energy`` from the entrance, to the trapezoid
-# rule's error over eight steps. The spectral channel, the absorption band, carries
-# almost all of it; the transverse collar's channel rises from nothing as the
-# nonlinear halo creeps towards the grid's edge, still more than four decades below;
-# the evanescent and material channels are exactly zero.
+# ``absorbed_power`` gives five powers in J/m, the spectral collar, transverse,
+# evanescent, material and custom channels; sampled at every step, their integral along
+# z is the energy the absorbers took. The Kerr response moves energy between frequencies
+# but adds none, so that integral matches the drop of ``energy`` from the entrance, to
+# the trapezoid rule's error over eight steps. The spectral channel, the absorption
+# band, carries almost all of it; the transverse collar's channel rises from nothing as
+# the nonlinear halo creeps towards the grid's edge, still more than four decades below;
+# the evanescent, material and custom channels are exactly zero.
 
 rows_z = np.asarray(output["step_stats/z"])
-rows = np.asarray(output["step_stats/absorbed_power"])  # (n_rows, 4)
+rows = np.asarray(output["step_stats/absorbed_power"])  # (n_rows, 5)
 at_entrance = np.asarray(output["stats/absorbed_power"])[0]
 samples_z = np.concatenate([[0.0], rows_z])
 samples = np.concatenate([at_entrance[None], rows])
@@ -516,7 +516,8 @@ for channel, label in enumerate(("spectral", "transverse")):
 axis.set(xlabel="z (mm)", ylabel="absorbed power (J/m)")
 axis.legend()
 print(
-    f"evanescent and material channels: {np.max(np.abs(samples[:, 2:])):.1f} J/m; "
+    "evanescent, material and custom channels: "
+    f"{np.max(np.abs(samples[:, 2:])):.1f} J/m; "
     f"transverse at the exit {samples[-1, 1]:.1e} J/m"
 )
 print(f"tutorial run time: {time.perf_counter() - started:.1f} s")

@@ -24,6 +24,7 @@ import pytest
 from bounds import assert_within, step_bound
 from conftest import ComplexArray, PhaseACase
 from solprop.stepper import FixedSchedule
+from thread_sizing import Sizing, assert_threaded
 
 import solprop_native as native
 from solprop_native import _bind, _core  # pyright: ignore[reportPrivateUsage]
@@ -43,6 +44,7 @@ class ThreadRecord(TypedDict):
     samples: int
     steps: int
     rejected: int
+    execution_sizing: Sizing
 
 
 class PhaseBThreadRecord(ThreadRecord):
@@ -86,7 +88,7 @@ def test_build_info_is_frozen_and_complete() -> None:
     assert dataclasses.is_dataclass(info)
     with pytest.raises(dataclasses.FrozenInstanceError):
         info.thread_count = 99  # type: ignore[misc]
-    assert info.schema_version == 43
+    assert info.schema_version == 46
     assert info.response_full_thread_columns > 0
     assert (
         info.response_full_thread_columns
@@ -243,7 +245,7 @@ def test_module_entry_point_prints_one_json_record() -> None:
     assert completed.returncode == 0, completed.stderr
     lines = completed.stdout.splitlines()
     assert len(lines) == 1
-    assert json.loads(lines[0])["schema_version"] == 43
+    assert json.loads(lines[0])["schema_version"] == 46
 
 
 @pytest.mark.parametrize(
@@ -744,6 +746,13 @@ def test_one_and_eight_threads_agree_to_rounding_in_fresh_processes(
         records.append(cast(ThreadRecord, record))
         fields.append(cast(ComplexArray, np.load(out)))
     assert [record["threads"] for record in records] == [1, 8]
+    assert_threaded(
+        [records[1]["execution_sizing"]],
+        8,
+        "kernels.stage",
+        "kernels.response",
+        "fft.fft",
+    )
     assert [record["steps"] for record in records] == [10, 10]
     assert [record["rejected"] for record in records] == [0, 0]
     assert_within(
@@ -790,8 +799,9 @@ def test_forced_fft_widths_agree_across_threads_to_rounding(
             },
         )
         assert completed.returncode == 0, completed.stderr
-        record = cast(dict[str, int], json.loads(completed.stdout.splitlines()[-1]))
+        record = cast(ThreadRecord, json.loads(completed.stdout.splitlines()[-1]))
         assert record["threads"] == count
+        assert_threaded([record["execution_sizing"]], count, "fft.fft", "kernels.stage")
         assert record["steps"] == 10
         samples = record["samples"]
         fields.append(cast(ComplexArray, np.load(out)))
@@ -837,6 +847,13 @@ def test_phase_b_field_and_statistics_agree_across_threads_to_rounding(
         with np.load(out) as stored:
             arrays.append({name: stored[name] for name in stored.files})
     assert [record["threads"] for record in records] == [1, 8]
+    assert_threaded(
+        [records[1]["execution_sizing"]],
+        8,
+        "kernels.stage",
+        "kernels.response",
+        "fft.fft",
+    )
     assert [record["steps"] for record in records] == [40, 40]
     assert [record["rejected"] for record in records] == [0, 0]
     assert [record["rows"] for record in records] == [40, 40]

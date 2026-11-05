@@ -9,26 +9,26 @@ passes in the route's own scratch, accepted in place. Its parity with ``numpy_re
 on every route the translation admits the march on, each case one schedule of at most
 ten steps within a rounding bound fixed before the comparison
 (:func:`low_storage_cases.parity_bound`). Then what is the engine's own: the ledger and
-the estimate, which agree to the byte, the varying operator's flows, the field-free
-plane held in the native memory space and its resume, the in-flight guard, and the
-commit a signal waits for. No agreement here is bitwise (SEP 25): the resume meets the
-uninterrupted run within the parity bound.
+the estimate, which agree to the byte, the varying operator's flows, the in-flight
+guard, and the commit a signal waits for. No agreement here is bitwise (SEP 25).
 """
 
 import dataclasses
 import functools
+import gc
 import math
 import signal
 import warnings
+import weakref
 from pathlib import Path
 
 import numpy as np
 import pytest
 
+from backends.forced_threads import assert_threaded
 from backends.low_storage_cases import (
     STEPS,
     parity_bound,
-    replay,
     uniform,
     varying_capillary,
     with_mode,
@@ -46,11 +46,9 @@ from general_parity import conditioning as general_conditioning
 from general_parity import nonlinear_scale, problem_for, scaled_case, source_bound
 from solprop._interrupts import handled
 from solprop.backends.memory import (
-    estimate_memory,
     low_storage_flows,
     low_storage_stage_register,
 )
-from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.numpy_ref.backend import _general_maps
 from solprop.boundaries import absorber
 from solprop.constants import C
@@ -528,10 +526,8 @@ def test_the_native_state_holds_the_registers_and_no_runge_kutta_view(mode, coll
     assert low_storage_stage_register(problem, "native") == collar
     assert low_storage_flows(problem, "native") == (mode == "tabulate")
     assert sum(volumes.values()) == field * (3 + int(collar) + (mode == "tabulate"))
-    for row in (*RUNGE_KUTTA_ROWS, "noise", "held_plane", "adams_history"):
+    for row in (*RUNGE_KUTTA_ROWS, "noise", "adams_history"):
         assert ledger[row] == 0, row
-    estimate = estimate_memory(problem, "native")
-    assert estimate.groups["adams_history"] == 0
     assert backend._low_storage is not None
     engine = backend._low_storage.engine
     assert engine.atomic and math.isnan(engine.stiffness)
@@ -541,63 +537,6 @@ def test_the_native_state_holds_the_registers_and_no_runge_kutta_view(mode, coll
     assert metadata["propagator_mode"] == mode
     assert metadata["source_evaluations"] == 4 * schedule.n_steps
     backend.close()
-
-
-@pytest.mark.parametrize("collar", [False, True], ids=["no collar", "in-stage collar"])
-@pytest.mark.parametrize("mode", ["tabulate", "recompute"])
-def test_the_estimate_is_the_ledger_to_the_byte(mode, collar):
-    """The march's field-sized rows of the estimate, row by row, as numpy_ref counts.
-
-    The estimate's base is the reference's rows less the elided register; its march
-    rows -- the state, the scratch, the registers and the flows -- are the native
-    ledger's own, to the byte.
-    """
-    from solprop.backends.memory import (  # noqa: PLC0415
-        reference_base_memory,
-    )
-
-    problem, grid, _ = cartesian_march(mode, collar=collar)
-    field = 16 * math.prod(problem.shape)
-    reference = reference_base_memory(
-        problem,
-        tabulating=mode == "tabulate",
-        embedded=False,
-        noise=False,
-        statistics_weight=0,
-        spatial_absorber=0,
-    )
-    backend = NativeBackend(problem, grid=grid)
-    ledger = backend.memory_ledger()
-    backend.close()
-    for row in MARCH_ROWS:
-        expected = 0 if row == "register_stage" and not collar else reference[row]
-        assert ledger[row] == expected, row
-    estimate = estimate_memory(problem, "native")
-    assert estimate.groups["base"] == sum(reference.values()) - (0 if collar else field)
-
-
-def test_the_low_storage_estimate_counts_the_elided_register():
-    """Q4 in the admission's figure: the march's estimate without ``C`` where elided."""
-    from solprop.backends.memory import low_storage_memory  # noqa: PLC0415
-
-    for collar in (False, True):
-        problem, _, _ = cartesian_march("tabulate", collar=collar)
-        field = 16 * math.prod(problem.shape)
-        under_march = estimate_memory(problem, "native").total
-        assert low_storage_memory(problem, "native") == under_march
-        # The same problem under the Runge-Kutta march: the march's figure is its own.
-        runge_kutta = dataclasses.replace(
-            problem,
-            stepper=dataclasses.replace(
-                problem.stepper, integrator=None, propagator_mode="auto"
-            ),
-        )
-        assert low_storage_memory(runge_kutta, "native") == under_march
-        held = low_storage_stage_register(problem, "native")
-        assert held == collar
-        assert low_storage_memory(problem, "numpy_ref") - under_march == (
-            0 if held else field
-        )
 
 
 def test_a_varying_operator_holds_its_pair_tabulated_and_none_recomputed():
@@ -620,81 +559,55 @@ def test_a_varying_operator_holds_its_pair_tabulated_and_none_recomputed():
         backend.close()
 
 
-def test_a_field_free_plane_is_held_natively_and_resumes_to_rounding():
-    """SEP 22's held plane in the native memory space: one volume, then one copy.
+@pytest.mark.parametrize("model", [None, "input"], ids=["no noise", "input noise"])
+def test_a_loaded_state_is_not_held_after_the_load(monkeypatch, model):
+    """The upload copies and fences, so a temporary dies with the load; no ledger row.
 
-    Nothing crosses at the field-free plane; the ledger names the held volume; a
-    resume from it meets the uninterrupted run within the parity bound (the table is
-    built again from the resumed run's own step, section 4.3).
+    A delay scan's input, the input noise model's sum and a resumed plane are all
+    temporaries: each would otherwise stay alive until the next load. The field is read
+    back to show that the load took.
     """
     grid = EnvelopeGrid.from_limits(1e-3, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False)
-    space = FreeGrid(3e-4, 9, 4e-4, 12, collar_fraction=0)
-    noise = spatial_noise(
-        SpatialFlux.resolve(grid, space, SpatialMedium()),
-        np.random.default_rng(7),
-        model="modified",
+    noise = (
+        None
+        if model is None
+        else spatial_noise(
+            SpatialFlux.resolve(
+                grid, FreeGrid(3e-4, 9, 4e-4, 12, collar_fraction=0), SpatialMedium()
+            ),
+            np.random.default_rng(7),
+            model=model,
+        )
     )
     problem, grid, _ = cartesian_march("tabulate", noise=noise)
-    field = 16 * math.prod(problem.shape)
-    end = float(problem.stepper.save_planes[-1])
-    schedule = problem.stepper.schedule
-    assert schedule is not None
-    middle = float(schedule.edges[2])
     backend = NativeBackend(problem, grid=grid)
-    backend.set_initial(problem.initial.field0, noise)
-    assert backend.memory_ledger()["noise"] == field
-    backend.propagate_to(middle)
-    assert backend.held_observation() is None
-    assert backend.memory_ledger()["held_plane"] == 0
-    plane = backend.observe(field=False)
-    assert plane.field is None
-    assert backend.memory_ledger()["held_plane"] == field
-    held = backend.held_observation()
-    assert held is not None and held.noise_phase is not None and held.z == middle
-    assert held.field is not None and held.field.shape == problem.shape
-    backend.propagate_to(end)
-    uninterrupted = backend.observe().require_field().copy()
-    # A plane that keeps its field releases the hold; the volume stays charged.
-    assert backend.held_observation() is None
-    assert backend.memory_ledger()["held_plane"] == field
-    backend.close()
-    resumed = NativeBackend(problem, grid=grid)
-    resumed.set_initial(held.field, noise, z=held.z)
-    resumed.propagate_to(end)
-    got = resumed.observe().require_field()
-    resumed.close()
-    assert_within(got, uninterrupted, parity_bound(problem), what="resume")
+    loaded: list[weakref.ref[np.ndarray]] = []
+    apply_mask = backend._apply_mask
 
+    def watched(state: np.ndarray) -> object:
+        loaded.append(weakref.ref(state))
+        return apply_mask(state)
 
-def test_the_soliton_resumes_from_a_held_plane_on_its_reference(
-    soliton_problem, narrow_grid, scales
-):
-    """The modal route's held plane, and its resume against the reference's run."""
-    length = scales.dispersion_length
-    schedule = uniform(length, 20, save_planes=[length / 2, length])
-    problem = soliton_problem(
-        narrow_grid,
-        2,
-        save_planes=[length / 2, length],
-        dz_max=schedule.max_step,
-        dz_init=schedule.max_step,
-        schedule=schedule,
-        integrator=MARCH,
-    )
-    backend = NativeBackend(problem, grid=narrow_grid)
-    backend.set_initial(problem.initial.field0, None)
-    backend.propagate_to(length / 2)
-    backend.observe(field=False)
-    held = backend.held_observation()
+    monkeypatch.setattr(backend, "_apply_mask", watched)
+    temporary = np.full(problem.shape, 1.0 + 0.5j)
+    given = weakref.ref(temporary)
+    backend.set_initial(temporary, noise)
+    del temporary
+    # A second route to the upload, outside `set_initial`: the driver's own mask step.
+    loaded_again = np.full(problem.shape, 2.0 + 0.5j)
+    again = weakref.ref(loaded_again)
+    apply_mask(loaded_again)
+    observed = backend.observe().require_field()
+    del loaded_again
+    gc.collect()
+    assert given() is None
+    assert again() is None
+    assert len(loaded) == 1 and loaded[0]() is None
+    # Exact: the state crosses twice without arithmetic, and the mask keeps or zeroes.
+    mask = problem.grids.active_mask
+    assert np.all(observed[..., mask] == 2.0 + 0.5j)
+    assert np.all(observed[..., ~mask] == 0.0)
     backend.close()
-    assert held is not None and held.field is not None
-    resumed = NativeBackend(problem, grid=narrow_grid)
-    resumed.set_initial(held.field, None, z=held.z)
-    resumed.propagate_to(length)
-    got = resumed.observe().require_field()
-    resumed.close()
-    expected = replay(NumpyRefBackend, problem, narrow_grid)
-    assert_within(got, expected, parity_bound(problem), what="resume")
 
 
 def test_a_native_exception_leaves_the_backend_refusing(monkeypatch):
@@ -811,9 +724,22 @@ def test_the_march_agrees_across_thread_counts(tmp_path):
     one = native_thread_fields(PROBE, 1, names, tmp_path)
     again = native_thread_fields(PROBE, 1, names, tmp_path)
     four = native_thread_fields(PROBE, 4, names, tmp_path)
+    assert_threaded(four["sizing"], 4, "kernels.stage", "fft.fft")
     for name in names:
         mode, collar = name.split("-")
         problem, _, _ = cartesian_march(mode, collar=collar == "collar")
         bound = parity_bound(problem, transverse=problem.transform.n_nodes)
         assert_within(again[name], one[name], bound, what=f"repeat, {name}")
         assert_within(four[name], one[name], bound, what=f"four threads, {name}")
+
+
+def test_a_trial_step_on_a_low_storage_state_is_refused_by_name():
+    # #492: this state allocates none of the views the trial step writes to.
+    problem, grid, _ = cartesian_march("tabulate")
+    backend = NativeBackend(problem, grid=grid)
+    try:
+        backend.set_initial(problem.initial.field0, None)
+        with pytest.raises(RuntimeError, match=r"low-storage state .* no Runge-Kutta"):
+            backend._trial_step(0.0, problem.stepper.dz_init)
+    finally:
+        backend.close()

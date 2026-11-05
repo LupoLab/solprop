@@ -207,7 +207,7 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-KERNEL_SCHEMA_VERSION = 43
+KERNEL_SCHEMA_VERSION = 46
 """Version of the kernel contract this module implements.
 
 Incremented on every change to the field list of ``docs/dev/kernel-contract.md``. A
@@ -497,6 +497,28 @@ check: ``StepDriver._split_capped`` on the host marches, the native Adams march'
 required ``step_cap`` bound per call. The native reading, after ``bind_occupancy``
 hands it the table, grows from six numbers to ten and the 128 buckets. No stage
 bundle or existing driver signature moves.
+
+Version 44 adds ``StepDriver.set_held_plane``, which a driver calls at the start of a
+run to say whether the low-storage march holds its last field-free plane's state, and
+``StepDriver._drop_held``, which releases the buffer; the native backend overrides the
+second with ``State.release_plane``. No ``KernelProblem`` field, stage bundle or
+existing driver signature moves.
+
+Version 45 lets a far-field aperture set hold other outlines beside circles: optional
+fields of the ``stats_spec.apertures`` leaf, unset on every existing request, so no
+problem that does not use them changes. By the letter a leaf's fields are not rows of
+the contract, but solprop-native's row format moves with them, and only a modulus
+guards a row's width: its aperture tables grow from six constants to eleven and carry
+each row's profile and shape, so a native call takes no profile argument, and a stale
+wheel beside this tree must be refused rather than misread the rows. It also appends
+``SeparableOperator.user_rate``, the user's share of ``spectral_rate``, zeros by
+default, which only ``absorbed_power`` reads: the operator takes the total, to the last
+bit. No stage bundle or driver signature moves.
+
+Version 46 removes the low-storage march's held plane: ``StepDriver.set_held_plane``,
+``held_observation``, ``_hold``, ``_held_field`` and ``_drop_held``, the native state's
+``hold_plane``, ``release_plane`` and ``held_to_host``, and the ledger's ``held_plane``
+row (ADR-067). No ``KernelProblem`` field or stage bundle moves.
 """
 
 DEFAULT_COMPONENTS = ("x",)
@@ -1140,15 +1162,15 @@ def _is_held(values: object) -> bool:
     return _HELD.get(id(values)) is values
 
 
-def _held_copy(values: np.ndarray, dtype: type[np.generic]) -> np.ndarray:
+def _held_copy(values: np.ndarray, dtype: np.dtype | type[np.generic]) -> np.ndarray:
     """Return a held, C-contiguous copy of an array, or the array if already held.
 
     Parameters
     ----------
     values : numpy.ndarray
         The caller's array, or one already held.
-    dtype : type
-        The element type of the copy.
+    dtype : numpy.dtype or type
+        The element type of the copy, byte order included.
 
     Returns
     -------
@@ -1160,15 +1182,15 @@ def _held_copy(values: np.ndarray, dtype: type[np.generic]) -> np.ndarray:
     return _hold(np.array(values, dtype=dtype, order="C"))
 
 
-def _held_block(values: np.ndarray, dtype: type[np.generic]) -> np.ndarray:
+def _held_block(values: np.ndarray, dtype: np.dtype | type[np.generic]) -> np.ndarray:
     """Return a held copy of an array of `dtype`, a broadcast copying its block alone.
 
     Parameters
     ----------
     values : numpy.ndarray
         The caller's array, of any numeric dtype, or one already held.
-    dtype : type
-        The element type of the copy.
+    dtype : numpy.dtype or type
+        The element type of the copy, byte order included.
 
     Returns
     -------
@@ -1279,7 +1301,7 @@ class KernelProblem:
     ...     dz_max=0.1, dz_init=1e-3, shock=False, prefactor_index=1.0, density=1.0,
     ... )
     >>> problem.shape, problem.grid_kind, problem.schema_version
-    ((1, 1, 1, 3072), 'envelope', 43)
+    ((1, 1, 1, 3072), 'envelope', 46)
     """
 
     schema_version: int
@@ -7038,7 +7060,7 @@ def debug_summary(problem: KernelProblem) -> str:
     ...     width=100e-15, peak_power=9.8, shape="sech", n_save=3,
     ... )
     >>> print(debug_summary(simulation.translate()).splitlines()[0])
-    kernel problem schema 43: envelope grid, route modal
+    kernel problem schema 46: envelope grid, route modal
     """
     linear, transform = problem.linear, problem.transform
     tables, metric = transform.modal_tables, linear.modal_metric
