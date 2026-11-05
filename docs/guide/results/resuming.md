@@ -194,7 +194,10 @@ requested stop is not an error, and the outcome's message says the caller's flag
 it. `resume=True` continues the file. A front end sets the flag from any thread, on any
 platform, with no signals; each run polls its own. `solprop run` and `solprop resume` set
 it on Ctrl-C, SIGTERM and, on Windows, Ctrl-Break, and exit with the usual status; a
-second Ctrl-C interrupts at once.
+second Ctrl-C interrupts at once. A signal that comes too late to stop anything, with the file
+already complete, exits with status zero and says so. One that comes while a recipe is
+building waits for the build to finish, since the flag is only polled once a march is running,
+so a large grid's build can take most of a batch system's grace period.
 
 The exception is the native backend's `Multistep()` march, which runs many attempts in
 one native call, where the flag cannot be read. The run polls before each call instead,

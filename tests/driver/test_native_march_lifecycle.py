@@ -27,6 +27,7 @@ from solprop.backends import available
 from solprop.cli import main
 from solprop.exceptions import ConvergenceError, ResponseBudgetError, RunTerminated
 from solprop.output.hdf5 import open_file, resume
+from solprop.recipe import Recipe
 from solprop.stepper.multistep import Multistep
 
 pytestmark = [
@@ -413,3 +414,27 @@ def test_both_marches_take_the_same_steps(build_simulation, tmp_path, monkeypatc
     )
     assert found["native"]["error"] is None
     assert_same_stop(found["native"], found["host"])
+
+
+@needs_default_sigterm
+def test_a_signal_too_late_to_stop_the_run_says_so(tmp_path, monkeypatch, capsys):
+    # A signal after the run's last poll stops nothing: the file is complete, so the
+    # command mustn't exit as stopped, or tell anyone to resume it.
+    recipe, output = tmp_path / "soliton.toml", tmp_path / "run.h5"
+    recipe.write_text(ONE_PLANE_RECIPE, encoding="utf-8")
+    run = Recipe.run
+
+    def signalled(self, *args, **kwargs):
+        result = run(self, *args, **kwargs)
+        signal.raise_signal(signal.SIGTERM)
+        return result
+
+    monkeypatch.setattr(Recipe, "run", signalled)
+    status = main(["run", str(recipe), "-o", str(output), "--progress", "none"])
+    assert status == 0
+    error = capsys.readouterr().err
+    assert "too late" in error
+    assert "solprop resume" not in error
+    with open_file(output) as stored:
+        assert stored.outcome is not None
+        assert stored.outcome.status == "complete"
