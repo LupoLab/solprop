@@ -277,6 +277,7 @@ def test_the_power_weight_is_modal_and_a_spatial_run_has_none(case):
         processing.get_power_weight(output)
 
 
+@pytest.mark.parametrize("case", ["modal"], indirect=True)
 @pytest.mark.parametrize("factor", [0.5, 2.0])
 def test_unrecorded_material_positions_are_refused(case, factor):
     simulation, problem = case

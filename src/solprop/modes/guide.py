@@ -16,6 +16,7 @@ from solprop._display import Displayed, engineering, line
 from solprop._process import host_blas
 from solprop.constants import C
 from solprop.exceptions import ModeError
+from solprop.grid import TimeGrid
 from solprop.modes._stepindex_vector import _fields, _power
 from solprop.modes.collection import ModeCollection
 from solprop.modes.material import (
@@ -2200,6 +2201,85 @@ class ModalGuide(Displayed):
             StepIndexProvider(tuple(modes), material_regions),
             collection,
             material_regions,
+        )
+
+    @classmethod
+    def on_grid(
+        cls,
+        grid: TimeGrid,
+        provider: ModalProvider,
+        *,
+        knots: int,
+        n_r: int,
+    ) -> "ModalGuide":  # noqa: UP037 - runtime hook evaluates class annotations eagerly
+        """Build a guide from a provider, sampled across a time grid's active band.
+
+        :meth:`from_provider` with its frequencies and node rule taken from the grid:
+        `knots` frequencies evenly spaced from 1 % below the active band's lowest
+        frequency to 1 % above its highest, so that the interpolant is never asked to
+        extrapolate, and the provider's own rule at the lowest, where a bound field
+        reaches furthest (:meth:`from_provider`). Both counts are the caller's: the
+        general modal route refuses too few knots and warns about a marginal count
+        by name, for the band it runs on.
+
+        Parameters
+        ----------
+        grid : solprop.grid.TimeGrid
+            The run's time grid.
+        provider : ModalProvider
+            Internal-convention provider naming its channels in ``identity``.
+        knots : int
+            Number of frequency knots, at least four.
+        n_r : int
+            Radial quadrature nodes per element of the provider's rule.
+
+        Returns
+        -------
+        ModalGuide
+            The guide, as :meth:`from_provider` returns it.
+
+        Raises
+        ------
+        ModeError
+            If there are fewer than four knots, or :meth:`from_provider` refuses them
+            or the band's channels.
+
+        Examples
+        --------
+        >>> import numpy as np
+        >>> from solprop.grid import FieldGrid
+        >>> from solprop.modes import (
+        ...     GradedIndexProvider,
+        ...     IndexMaterial,
+        ...     ModalGuide,
+        ...     PowerLawPermittivity,
+        ... )
+        >>> provider = GradedIndexProvider(
+        ...     permittivity=PowerLawPermittivity(IndexMaterial(1.45), 0.005),
+        ...     exterior=IndexMaterial(1.45 * np.sqrt(0.99)),
+        ...     radius=25e-6,
+        ...     family="LP",
+        ...     count=2,
+        ...     elements=32,
+        ...     extent=2.0,
+        ... )
+        >>> grid = FieldGrid.from_limits(1e-3, 1.03e-6, (1.0e-6, 1.06e-6), 100e-15)
+        >>> guide = ModalGuide.on_grid(grid, provider, knots=13, n_r=2)
+        >>> len(guide.mode_collection.channel_labels)
+        2
+        """
+        if knots < 4:
+            msg = f"a guide needs at least four frequency knots, got {knots}"
+            raise ModeError(msg)
+        # An envelope grid holds its frequencies in FFT order: the ends of the array
+        # are beside the carrier, not the edges of the band.
+        active = grid.omega[grid.active_mask]
+        low = 0.99 * float(np.min(active))
+        high = 1.01 * float(np.max(active))
+        return cls.from_provider(
+            provider,
+            np.linspace(low, high, knots),
+            nodes=provider.node_rule(low, n_r=n_r),
         )
 
     @classmethod

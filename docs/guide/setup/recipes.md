@@ -92,7 +92,10 @@ supplies them. An unknown key is refused with the nearest valid one.
   `BoundaryCheck`, `FixedSchedule.uniform`, the integrators (`Multistep`, `RungeKutta`,
   `LowStorageRungeKutta`), `absorber` (built on the route's grid), `TubeLattice`,
   `CoherentWall`, `MaterialSelection`, the supplied modes (`MarcatiliMode`,
-  `RectMode`, `SlabMode`, `ModeCollection.slab`), and the free-space types: the grids
+  `RectMode`, `SlabMode`, `ModeCollection.slab`), `StepIndexMode` as the GNLSE `fibre`,
+  with `glass` for its materials, the graded-index guide (`ModalGuide.on_grid`,
+  `GradedIndexProvider`, `PowerLawPermittivity`, `IndexMaterial`, `MaterialKerr`), and the
+  free-space types: the grids
   (`RadialGrid`, `FreeGrid`, `LineGrid`, `PlanarGrid`), `SpatialMedium`, the responses
   (`KerrResponse`, with `gamma3` for optmat's coefficient of a gas,
   `EnvelopePlasmaResponse`, `PlasmaResponse`, `OptmatRate`), the beams
@@ -128,8 +131,10 @@ raman = false
 and a list of tables gives the modes one by one, `modes = [{type = "RectMode",
 half_width_x = "50 um", half_width_y = "10 um", polarisation = "y"}]`. A guide that
 solves its own fields (`provider`, the [general modal route](../waveguides/general-modal.md))
-has no table form: its knots and node rule are taken from the run's grid and the
-provider, so it is written in Python.
+is written in Python, except a [graded-index fibre](../waveguides/graded-index.md):
+`provider = {type = "ModalGuide.on_grid", knots = 21, n_r = 2, provider = {type =
+"GradedIndexProvider", ...}}`, with `modes = []` and a `grid` table, since its knots are
+taken from that grid. `check()` on such a recipe costs one solve of the guide.
 
 **Parameter paths** name a value inside the recipe: the keyword, then `.name` for a
 keyword of an object, `[i]` for an element of a list and `["key"]` for a key of a mapping,
@@ -213,9 +218,9 @@ reported there, with the keywords concerned, and so is every warning solprop giv
 costs a translation, a fraction of a second on the capillary example.
 
 **What a recipe cannot hold**: a callable (a `beta` function, a loss curve, a custom
-absorber's rate), a type that is not registered (a mode or a tabulated index as the
-GNLSE `fibre`, `CustomPulse`, a TDSE response, a material object as a mode's cladding or
-a medium, a guide built from a provider, an `ApertureSet`, a Raman or dispersive Kerr
+absorber's rate), a type that is not registered (a tabulated index or a mode other than
+`StepIndexMode` as the GNLSE `fibre`, `CustomPulse`, a TDSE response, a material object as a mode's cladding or
+a medium, a guide built from another provider, an `ApertureSet`, a Raman or dispersive Kerr
 response on a free-space route), and an array: one given to `Simulation.with_input`, or
 a free-space launch built as a spectrum. `to_python()` is the way out: export the recipe
 and edit the script.
@@ -400,14 +405,16 @@ cleanly on Ctrl-C, writing the state, and `solprop resume` continues it
 
 `Recipe.examples()` lists the recipes solprop ships, each the run of a gallery example,
 and tested to build that example's configuration hash. A front end starts a new setup
-from one of them. The `gnlse`, `capillary`, `free` and `planar` routes have examples
-(`cartesian_beam`, `planar_hybrid` and `planar_compressor` on the free-space routes).
+from one of them. Every route has one: `hollow_rectangular` on `waveguide`,
+`radial_kerr` on `radial`, and `cartesian_beam`, `line_beam`, `planar_hybrid` and
+`planar_compressor` on the other free-space routes. The solid-core fibres are `step_index_fibre` on `gnlse`
+and `graded_index_fibre` on `waveguide`.
 Each gallery script on a route a recipe describes that has no recipe is listed, with
 its reason, in the test that holds the examples to the gallery, so the list stays true:
 
 - the `waveguide` scripts, which build guides from providers, launch through
-  `Simulation.with_input` or clad a guide in a metal, and the tabulated-mode and
-  step-index tutorials, whose modes are not registered;
+  `Simulation.with_input` or clad a guide in a metal, and the tabulated-mode tutorial,
+  whose modes are not registered;
 - the radial tutorial, the filament and crossing-beam lessons, and the line,
   low-storage, four-wave-mixing and far-field tutorials, which launch a beam built as
   an array;
@@ -415,9 +422,6 @@ its reason, in the test that holds the examples to the gallery, so the list stay
   computed from the material functions, which a literal in a recipe would freeze;
 - the two dispersive-Kerr scripts, whose pressure is a numerical phase-matching root,
   and the pressure-and-energy scan, built with `with_mixture` and `with_input`.
-
-So the `radial` route has no example yet; its calls are tested against the free-space
-guide's.
 
 This page documents the functionality proposed and implemented by
 [SEP 41](../../dev/seps/archive/sep-0041-recipes-and-front-ends.md).

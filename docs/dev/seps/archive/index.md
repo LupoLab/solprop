@@ -39,4 +39,5 @@ sep-0040-transverse-absorbing-boundaries
 sep-0041-recipes-and-front-ends
 sep-0042-tolerant-resume
 sep-0043-retire-numba-cpu
+sep-0044-native-edge-read
 ```

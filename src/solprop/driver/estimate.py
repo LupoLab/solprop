@@ -31,7 +31,7 @@ from solprop.translate.problem import KernelProblem
 if TYPE_CHECKING:
     from solprop.driver.simulation import Simulation
 
-__all__ = ["RunEstimate", "estimate", "field_bytes", "plane_bytes"]
+__all__ = ["RunEstimate", "estimate", "field_bytes", "output_bytes", "plane_bytes"]
 
 _REPEATS: Final = 3
 """Timed trial steps, after the warm-up; the median is reported."""
@@ -166,12 +166,8 @@ def estimate(
     """
     problem = simulation.translate()
     settings = simulation.settings
-    retention = field_retention(problem, settings.fields, settings.field_planes)
     n_planes = len(problem.stepper.save_planes) + 1
-    kept = sum(1 for index in range(n_planes) if retention.keeps(index))
-    output_bytes = n_planes * plane_bytes(problem) - (n_planes - kept) * field_bytes(
-        problem
-    )
+    size = output_bytes(simulation)
     integrator = problem.stepper.integrator
     calls = _calls_per_step(integrator)
     schedule = problem.stepper.schedule
@@ -220,7 +216,7 @@ def estimate(
         tuple(problem.shape),
         n_planes,
         memory,
-        output_bytes,
+        size,
         settings.backend,
         threads,
         setup,
@@ -228,6 +224,30 @@ def estimate(
         calls,
         total,
     )
+
+
+def output_bytes(simulation: "Simulation") -> int:  # noqa: UP037 - checked at run time
+    """Return the size of a run's output, without constructing a backend.
+
+    Every saved plane's :func:`plane_bytes`, less the field of each plane the settings
+    do not retain, as an in-memory store holds it (an HDF5 file adds little).
+
+    Parameters
+    ----------
+    simulation : solprop.driver.simulation.Simulation
+        The simulation; it is translated if it is not already.
+
+    Returns
+    -------
+    int
+        Bytes.
+    """
+    problem = simulation.translate()
+    settings = simulation.settings
+    retention = field_retention(problem, settings.fields, settings.field_planes)
+    n_planes = len(problem.stepper.save_planes) + 1
+    kept = sum(1 for index in range(n_planes) if retention.keeps(index))
+    return n_planes * plane_bytes(problem) - (n_planes - kept) * field_bytes(problem)
 
 
 def plane_bytes(problem: KernelProblem) -> int:
